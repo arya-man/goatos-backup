@@ -52,11 +52,14 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		if rules[i].Sequence <= in.PrevSequence {
 			continue
 		}
+		if rules[i].TriggerType != "after_previous_completion" {
+			continue
+		}
 		if next == nil || rules[i].Sequence < next.Sequence {
 			next = &rules[i]
 		}
 	}
-	if next == nil || next.TriggerType != "after_previous_completion" {
+	if next == nil {
 		return false, nil // no booster step (series complete, or next dose is SM-1 scheduled)
 	}
 

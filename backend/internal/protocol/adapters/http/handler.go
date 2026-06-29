@@ -2,12 +2,14 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -23,7 +25,7 @@ type ProtocolConfig interface {
 	CreateVersion(ctx context.Context, in domain.NewVersion) (string, error)
 	AddRule(ctx context.Context, in domain.NewRule) (string, error)
 	GetVersion(ctx context.Context, tenantID, versionID string) (domain.Version, error)
-	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string) error
+	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error
 	ListConfigs(ctx context.Context, tenantID, category string) ([]domain.ConfigListItem, error)
 	ListAnimalStages(ctx context.Context, tenantID string) ([]domain.AnimalStage, error)
 }
@@ -71,14 +73,27 @@ type createDefinitionRequest struct {
 }
 
 func (h *Handler) CreateDefinition(w http.ResponseWriter, r *http.Request) {
+	idempotencyKey, ok := h.idempotencyKey(w, r)
+	if !ok {
+		return
+	}
 	var req createDefinitionRequest
 	if !h.decode(w, r, &req) {
 		return
 	}
+	if strings.TrimSpace(req.Code) == "" || strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Category) == "" {
+		h.badRequest(w, r, "missing_required_field", "code, name, and category are required")
+		return
+	}
 	id, err := h.config.CreateDefinition(r.Context(), domain.NewDefinition{
 		TenantID: tenantID(r), Code: req.Code, Name: req.Name, Category: req.Category,
-		Status: "draft", CreatedBy: actorPtr(r),
+		Status: "draft", CreatedBy: actorPtr(r), IdempotencyKey: idempotencyKey,
 	})
+	if errors.Is(err, ports.ErrIdempotencyConflict) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different protocol definition payload", TraceID: traceID(r)}, nil)
+		return
+	}
 	if err != nil {
 		h.internal(w, r, err)
 		return
@@ -101,8 +116,16 @@ type createVersionRequest struct {
 }
 
 func (h *Handler) CreateVersion(w http.ResponseWriter, r *http.Request) {
+	idempotencyKey, ok := h.idempotencyKey(w, r)
+	if !ok {
+		return
+	}
 	var req createVersionRequest
 	if !h.decode(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(r.PathValue("protocol_id")) == "" || strings.TrimSpace(req.ScopeType) == "" || req.Version <= 0 || req.EffectiveFrom.IsZero() || len(req.RuleDsl) == 0 {
+		h.badRequest(w, r, "missing_required_field", "protocol_id, scope_type, version, effective_from, and rule_dsl are required")
 		return
 	}
 	id, err := h.config.CreateVersion(r.Context(), domain.NewVersion{
@@ -110,8 +133,13 @@ func (h *Handler) CreateVersion(w http.ResponseWriter, r *http.Request) {
 		ScopeType: req.ScopeType, ScopeID: req.ScopeID, Version: req.Version, VersionLabel: req.VersionLabel,
 		Status: "draft", EffectiveFrom: req.EffectiveFrom, EffectiveTo: req.EffectiveTo,
 		RuleDsl: rawOrEmpty(req.RuleDsl), ProofPolicy: rawOrEmpty(req.ProofPolicy),
-		SopVersionID: req.SopVersionID, DraftedBy: actorPtr(r),
+		SopVersionID: req.SopVersionID, DraftedBy: actorPtr(r), IdempotencyKey: idempotencyKey,
 	})
+	if errors.Is(err, ports.ErrIdempotencyConflict) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different protocol version payload", TraceID: traceID(r)}, nil)
+		return
+	}
 	if err != nil {
 		h.internal(w, r, err)
 		return
@@ -138,8 +166,22 @@ type addRuleRequest struct {
 }
 
 func (h *Handler) AddRule(w http.ResponseWriter, r *http.Request) {
+	idempotencyKey, ok := h.idempotencyKey(w, r)
+	if !ok {
+		return
+	}
 	var req addRuleRequest
 	if !h.decode(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(r.PathValue("version_id")) == "" ||
+		strings.TrimSpace(req.DoseCode) == "" ||
+		req.Sequence <= 0 ||
+		strings.TrimSpace(req.TriggerType) == "" ||
+		strings.TrimSpace(req.Repeat) == "" ||
+		strings.TrimSpace(req.CatchUp) == "" ||
+		len(req.EligibilityJSON) == 0 {
+		h.badRequest(w, r, "missing_required_field", "version_id, dose_code, sequence, trigger_type, repeat, catch_up, and eligibility_json are required")
 		return
 	}
 	id, err := h.config.AddRule(r.Context(), domain.NewRule{
@@ -148,8 +190,13 @@ func (h *Handler) AddRule(w http.ResponseWriter, r *http.Request) {
 		OffsetDays: req.OffsetDays, DueWindowDays: req.DueWindowDays, MinGapDays: req.MinGapDays,
 		Repeat: req.Repeat, RepeatUntilAfterAge: req.RepeatUntilAfterAge, CatchUp: req.CatchUp,
 		EligibilityJSON: rawOrEmpty(req.EligibilityJSON), ProofPolicy: rawOrEmpty(req.ProofPolicy),
-		WithdrawalDays: req.WithdrawalDays, SortOrder: req.SortOrder,
+		WithdrawalDays: req.WithdrawalDays, SortOrder: req.SortOrder, CreatedBy: actorPtr(r), IdempotencyKey: idempotencyKey,
 	})
+	if errors.Is(err, ports.ErrIdempotencyConflict) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different protocol rule payload", TraceID: traceID(r)}, nil)
+		return
+	}
 	if errors.Is(err, ports.ErrVersionNotDraft) {
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 			errorEnvelope{Code: "version_not_draft", Message: "published protocol versions are immutable; create a new draft version", TraceID: traceID(r)}, nil)
@@ -305,10 +352,19 @@ func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
 // ---- publish (source-backed gate) ----
 
 func (h *Handler) PublishVersion(w http.ResponseWriter, r *http.Request) {
-	err := h.config.PublishVersion(r.Context(), tenantID(r), r.PathValue("version_id"), actorPtr(r))
+	idempotencyKey, ok := h.idempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	err := h.config.PublishVersion(r.Context(), tenantID(r), r.PathValue("version_id"), actorPtr(r), idempotencyKey)
 	if errors.Is(err, app.ErrNotPublishable) {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			errorEnvelope{Code: "not_publishable", Message: err.Error(), TraceID: traceID(r)}, nil)
+		return
+	}
+	if errors.Is(err, ports.ErrIdempotencyConflict) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different protocol publish payload", TraceID: traceID(r)}, nil)
 		return
 	}
 	if errors.Is(err, ports.ErrVersionNotDraft) {
@@ -340,8 +396,15 @@ func (h *Handler) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 		h.badRequest(w, r, "empty_body", "request body is required")
 		return false
 	}
-	if err := json.Unmarshal(body, dst); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
 		h.badRequest(w, r, "invalid_json", "request body is not valid JSON")
+		return false
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		h.badRequest(w, r, "invalid_json", "request body must contain exactly one JSON object")
 		return false
 	}
 	return true
@@ -350,6 +413,15 @@ func (h *Handler) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg string) {
 	httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
 		errorEnvelope{Code: code, Message: msg, TraceID: traceID(r)}, nil)
+}
+
+func (h *Handler) idempotencyKey(w http.ResponseWriter, r *http.Request) (string, bool) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if len(key) < 8 || len(key) > 200 {
+		h.badRequest(w, r, "invalid_idempotency_key", "Idempotency-Key header must be 8-200 characters")
+		return "", false
+	}
+	return key, true
 }
 
 func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {

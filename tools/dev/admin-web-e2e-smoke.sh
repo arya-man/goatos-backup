@@ -3,10 +3,8 @@
 #
 # This is a runner for the currently implemented proof paths:
 #   1. data-plane vaccination chain proof
-#   2. live admin-web visual/click smoke
-#
-# It does NOT yet cover the full four-goat procurement negative matrix from
-# context/execution/admin-web-e2e-checklist.md.
+#   2. four-goat procurement -> vaccination matrix proof
+#   3. live admin-web visual/click smoke
 set -euo pipefail
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
 
@@ -28,6 +26,30 @@ export GOATOS_ADMIN_WEB_BASE_URL="${GOATOS_ADMIN_WEB_BASE_URL:-http://127.0.0.1:
 export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable}"
 
 mkdir -p "$report_dir"
+
+fail() {
+  echo "FAIL $*" >&2
+  exit 1
+}
+
+jq_py() {
+  python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null || true
+}
+
+psqlq() {
+  psql "$DATABASE_URL" -tAc "$1"
+}
+
+assert_migration_head() {
+  local latest_version applied
+  latest_version="$(
+    find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' \
+      -exec basename {} .sql \; | sort | tail -1
+  )"
+  [ -n "$latest_version" ] || fail "no Postgres migrations found"
+  applied="$(psqlq "select count(*) from goatos_schema_migrations where version='$latest_version'" 2>/dev/null || true)"
+  [ "$applied" = "1" ] || fail "local Postgres is not migrated to head version $latest_version"
+}
 
 on_exit() {
   local status=$?
@@ -55,6 +77,9 @@ echo "## admin-web-e2e-smoke run_id=$run_id"
 
 echo "### readiness: API"
 curl -fsS "$GOATOS_API_BASE_URL/readyz" >/dev/null
+
+echo "### readiness: Postgres migrations"
+assert_migration_head
 
 echo "### readiness: admin-web"
 curl -fsS "$GOATOS_ADMIN_WEB_BASE_URL/" >/dev/null
@@ -87,15 +112,12 @@ export GOATOS_BEARER_TOKEN
 echo "### frontend guard: herd import security"
 npm --prefix "$repo_root/apps/admin-web" run check:herd-import-security | tee "$report_dir/check-herd-import-security.log"
 
-jq_py() {
-  python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null || true
-}
-
 seed_open_vaccination_goat() {
   local stamp="$1"
   local version="00000000-0000-4000-8000-00000000b011"
   local sop_version="b0000000-0000-4000-8000-000000000002"
   local vaccine_item="00000000-0000-4000-8000-00000000b001"
+  local vaccine_lot="00000000-0000-4000-8000-00000000b002"
   local rule="00000000-0000-4000-8000-00000000b012"
   local entry_date
   local dob_day21
@@ -149,8 +171,70 @@ JSON
     echo "open visual seed did not create exactly one obligation for goat=$goat_id; count=$obligation_count" >&2
     return 1
   fi
+  local obligation_id batch_id task_id administered_at
+  obligation_id="$(psqlq "select obligation_id from obligation_instances where tenant_id='$GOATOS_TENANT_ID' and target_id='$goat_id' and protocol_version_id='$version' and rule_id='$rule' limit 1")"
+  batch_id="$(psqlq "select batch_id from obligation_instances where tenant_id='$GOATOS_TENANT_ID' and obligation_id='$obligation_id'")"
+  task_id="$(psqlq "select sop_task_id from obligation_batches where tenant_id='$GOATOS_TENANT_ID' and batch_id='$batch_id'")"
+  if [ -z "$task_id" ]; then
+    echo "open visual seed did not create a SOP task for goat=$goat_id batch=$batch_id" >&2
+    return 1
+  fi
+
+  administered_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  mkproof() {
+    local subject="$1"
+    local response proof_id upload_url full_url
+    response="$(
+      curl -sS \
+        -H "Authorization: Bearer $GOATOS_BEARER_TOKEN" \
+        -H "Content-Type: application/json" \
+        -X POST "$GOATOS_API_BASE_URL/app/proofs/uploads" \
+        -d "{\"proof_type\":\"video\",\"mime_type\":\"video/mp4\",\"scope_type\":\"task\",\"scope_id\":\"$task_id\",\"subject_type\":\"$subject\"}"
+    )"
+    proof_id="$(echo "$response" | jq_py 'd["proof"]["proof_id"]')"
+    upload_url="$(echo "$response" | jq_py 'd["upload_url"]')"
+    if [ -z "$proof_id" ] || [ -z "$upload_url" ]; then
+      echo "open visual proof seed failed subject=$subject response=$response" >&2
+      return 1
+    fi
+    case "$upload_url" in
+      http*) full_url="$upload_url" ;;
+      /*) full_url="$GOATOS_API_BASE_URL$upload_url" ;;
+      *) full_url="$GOATOS_API_BASE_URL/$upload_url" ;;
+    esac
+    printf 'admin-web-smoke-%s-%s' "$subject" "$stamp" >"/tmp/goatos-admin-web-smoke-$subject-$stamp.mp4"
+    curl -fsS \
+      -H "Authorization: Bearer $GOATOS_BEARER_TOKEN" \
+      -H "Content-Type: video/mp4" \
+      -X PUT --data-binary @"/tmp/goatos-admin-web-smoke-$subject-$stamp.mp4" \
+      "$full_url" >/dev/null
+    echo "$proof_id"
+  }
+  local proof_shed proof_vial proof_admin submission completion_id
+  proof_shed="$(mkproof shed)"
+  proof_vial="$(mkproof vial_lot)"
+  proof_admin="$(mkproof administration)"
+  submission="$(
+    curl -sS \
+      -H "Authorization: Bearer $GOATOS_BEARER_TOKEN" \
+      -H "Content-Type: application/json" \
+      -X POST "$GOATOS_API_BASE_URL/app/tasks/$task_id/submissions" \
+      -d @- <<JSON
+{"sop_version_id":"$sop_version","idempotency_key":"smoke-submit-$stamp","answers":{"vaccine_lot_id":"$vaccine_lot","cold_chain_verified":true,"shed_video":"$proof_shed","vial_lot_video":"$proof_vial","administration_video":"$proof_admin","goat_ids":["$goat_id"],"dose_ml_given":0.5,"route_site":"subcutaneous","administered_at":"$administered_at","adverse_reaction":false},"proof_refs":[{"proof_id":"$proof_shed","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$proof_vial","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$proof_admin","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
+JSON
+  )"
+  if [ -z "$(echo "$submission" | jq_py 'd.get("submission",{}).get("submission_id","")')" ]; then
+    echo "open visual SOP submission failed: $submission" >&2
+    return 1
+  fi
+  completion_id="$(psqlq "select completion_id from vaccination_completions where tenant_id='$GOATOS_TENANT_ID' and goat_id='$goat_id' and status='recorded' order by created_at desc limit 1")"
+  if [ -z "$completion_id" ]; then
+    echo "open visual seed did not create a recorded completion for goat=$goat_id task=$task_id" >&2
+    return 1
+  fi
   export GOATOS_SMOKE_GOAT_ID="$goat_id"
-  echo "open visual goat=$goat_id"
+  export GOATOS_SMOKE_COMPLETION_ID="$completion_id"
+  echo "open visual goat=$goat_id obligation=$obligation_id batch=$batch_id task=$task_id completion=$completion_id"
 }
 
 seed_procurement_warmup_load() {
@@ -201,11 +285,14 @@ JSON
 echo "### data-plane: vaccination chain proof"
 bash "$repo_root/tools/dev/vaccination-chain-proof.sh" | tee "$report_dir/vaccination-chain-proof.log"
 
+echo "### data-plane: procurement vaccination matrix"
+bash "$repo_root/tools/dev/procurement-vaccination-e2e-matrix.sh" | tee "$report_dir/procurement-vaccination-e2e-matrix.log"
+
 echo "### seed: open vaccination work for browser click coverage"
-seed_open_vaccination_goat "$(date +%s)" | tee "$report_dir/open-visual-goat.log"
+seed_open_vaccination_goat "$(date +%s)" > >(tee "$report_dir/open-visual-goat.log")
 
 echo "### seed: procurement supplier warmup row for browser click coverage"
-seed_procurement_warmup_load "$(date +%s)" | tee "$report_dir/procurement-warmup.log"
+seed_procurement_warmup_load "$(date +%s)" > >(tee "$report_dir/procurement-warmup.log")
 
 echo "### frontend: live visual/click smoke"
 npm --prefix "$repo_root/apps/admin-web" run smoke:visual:live | tee "$report_dir/smoke-visual-live.log"

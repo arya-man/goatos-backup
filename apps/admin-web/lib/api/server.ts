@@ -47,8 +47,6 @@ export type AnimalStageListResponse = AppApiComponents["schemas"]["AnimalStageLi
 export type VaccinationPassportDue = AppApiComponents["schemas"]["VaccinationPassportDue"];
 export type VaccinationPassportHistoryItem = AppApiComponents["schemas"]["VaccinationPassportHistoryItem"];
 export type VaccinationPassport = AppApiComponents["schemas"]["VaccinationPassport"];
-export type AcceptVaccinationCompletionResponse = AppApiComponents["schemas"]["AcceptVaccinationCompletionResponse"];
-export type RejectVaccinationCompletionResponse = AppApiComponents["schemas"]["RejectVaccinationCompletionResponse"];
 export type CreateProofUploadResponse = AppApiComponents["schemas"]["CreateProofUploadResponse"];
 export type ProofResponse = AppApiComponents["schemas"]["ProofResponse"];
 export type SubmissionResponse = AppApiComponents["schemas"]["SubmissionResponse"];
@@ -106,6 +104,8 @@ export type CreateSOPVersionRequest = AdminApiComponents["schemas"]["CreateSOPVe
 export type DryRunRequest = AdminApiComponents["schemas"]["DryRunRequest"];
 export type DryRunResponse = AdminApiComponents["schemas"]["DryRunResponse"];
 export type SOPValidationReport = AdminApiComponents["schemas"]["ValidationReport"];
+export type ReviewTaskRequest = AdminApiComponents["schemas"]["ReviewTaskRequest"];
+export type TaskResponse = AdminApiComponents["schemas"]["TaskResponse"];
 
 export type ApiErrorKind =
   | "missing_config"
@@ -516,11 +516,18 @@ export async function createProtocolDefinition(body: {
   code: string;
   name: string;
   category: string;
-}): Promise<ApiResult<{ protocol_id: string }>> {
+}, idempotencyKey = `protocol-definition-${randomUUID()}`): Promise<ApiResult<{ protocol_id: string }>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() => client.request<{ protocol_id: string }>("/protocols", { method: "POST", cache: "no-store", body }));
+  return request(() =>
+    client.request<{ protocol_id: string }>("/protocols", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
 }
 
 export async function createProtocolVersion(
@@ -534,28 +541,53 @@ export async function createProtocolVersion(
     proof_policy?: unknown;
     sop_version_id?: string;
   },
+  idempotencyKey = `protocol-version-${randomUUID()}`,
 ): Promise<ApiResult<{ protocol_version_id: string }>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   const path = `/protocols/${encodeURIComponent(protocolId)}/versions` as keyof AppApiPaths & string;
-  return request(() => client.request<{ protocol_version_id: string }>(path, { method: "POST", cache: "no-store", body }));
+  return request(() =>
+    client.request<{ protocol_version_id: string }>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
 }
 
-export async function addProtocolRule(versionId: string, body: Record<string, unknown>): Promise<ApiResult<{ rule_id: string }>> {
+export async function addProtocolRule(
+  versionId: string,
+  body: Record<string, unknown>,
+  idempotencyKey = `protocol-rule-${randomUUID()}`,
+): Promise<ApiResult<{ rule_id: string }>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   const path = `/protocols/versions/${encodeURIComponent(versionId)}/rules` as keyof AppApiPaths & string;
-  return request(() => client.request<{ rule_id: string }>(path, { method: "POST", cache: "no-store", body }));
+  return request(() =>
+    client.request<{ rule_id: string }>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
 }
 
-export async function publishProtocolVersion(versionId: string): Promise<ApiResult<Record<string, never>>> {
+export async function publishProtocolVersion(versionId: string, idempotencyKey = `protocol-publish-${randomUUID()}`): Promise<ApiResult<Record<string, never>>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   const path = `/protocols/versions/${encodeURIComponent(versionId)}/publish` as keyof AppApiPaths & string;
-  return request(() => client.request<Record<string, never>>(path, { method: "POST", cache: "no-store" }));
+  return request(() =>
+    client.request<Record<string, never>>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
 }
 
 export async function getGoatVaccinationPassport(goatId: string): Promise<ApiResult<VaccinationPassport>> {
@@ -566,25 +598,20 @@ export async function getGoatVaccinationPassport(goatId: string): Promise<ApiRes
   return request(() => client.request<VaccinationPassport>(path, { cache: "no-store" }));
 }
 
-export async function acceptVaccinationCompletion(
-  completionId: string,
-): Promise<ApiResult<AcceptVaccinationCompletionResponse>> {
+export async function verifySopTask(taskId: string, body: ReviewTaskRequest): Promise<ApiResult<TaskResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
-  const client = createAppApiClient(apiClientOptions(config.data));
-  const path = `/vaccination/completions/${encodeURIComponent(completionId)}/accept` as keyof AppApiPaths & string;
-  return request(() => client.request<AcceptVaccinationCompletionResponse>(path, { method: "POST", cache: "no-store" }));
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/tasks/${encodeURIComponent(taskId)}/verify` as keyof AdminApiPaths & string;
+  return request(() => client.request<TaskResponse>(path, { method: "POST", cache: "no-store", body }));
 }
 
-export async function rejectVaccinationCompletion(
-  completionId: string,
-  reason: string,
-): Promise<ApiResult<RejectVaccinationCompletionResponse>> {
+export async function requestSopTaskRework(taskId: string, body: ReviewTaskRequest): Promise<ApiResult<TaskResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
-  const client = createAppApiClient(apiClientOptions(config.data));
-  const path = `/vaccination/completions/${encodeURIComponent(completionId)}/reject` as keyof AppApiPaths & string;
-  return request(() => client.request<RejectVaccinationCompletionResponse>(path, { method: "POST", cache: "no-store", body: { reason } }));
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/tasks/${encodeURIComponent(taskId)}/rework` as keyof AdminApiPaths & string;
+  return request(() => client.request<TaskResponse>(path, { method: "POST", cache: "no-store", body }));
 }
 
 // ---- Proof upload wrappers for vaccination drawer ----

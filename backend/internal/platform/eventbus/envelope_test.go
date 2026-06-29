@@ -8,6 +8,7 @@ import (
 
 func TestEventFromEnvelope(t *testing.T) {
 	raw, err := json.Marshal(map[string]any{
+		"event_id":     "60000000-0000-4000-8000-000000000001",
 		"event_type":   "goat.location.changed",
 		"aggregate_id": "10000000-0000-4000-8000-000000000001",
 		"occurred_at":  "2026-06-27T01:02:03.000000Z",
@@ -26,7 +27,7 @@ func TestEventFromEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EventFromEnvelope: %v", err)
 	}
-	if event.Type != "goat.location.changed" || event.Key != "10000000-0000-4000-8000-000000000001" || event.TenantID == "" {
+	if event.ID != "60000000-0000-4000-8000-000000000001" || event.Type != "goat.location.changed" || event.Key != "10000000-0000-4000-8000-000000000001" || event.TenantID == "" {
 		t.Fatalf("unexpected event: %#v", event)
 	}
 	if event.OccurredAt.Format(time.RFC3339) != "2026-06-27T01:02:03Z" {
@@ -39,6 +40,7 @@ func TestEventFromEnvelope(t *testing.T) {
 
 func TestEventFromEnvelopeFallsBackToTransportAttributes(t *testing.T) {
 	event, err := EventFromEnvelope([]byte(`{"payload":{"ok":true}}`), Event{
+		ID:       "event-1",
 		Type:     "goat.created",
 		TenantID: "tenant-1",
 		Key:      "goat-1",
@@ -46,7 +48,7 @@ func TestEventFromEnvelopeFallsBackToTransportAttributes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EventFromEnvelope: %v", err)
 	}
-	if event.Type != "goat.created" || event.TenantID != "tenant-1" || event.Key != "goat-1" {
+	if event.ID != "event-1" || event.Type != "goat.created" || event.TenantID != "tenant-1" || event.Key != "goat-1" {
 		t.Fatalf("fallback failed: %#v", event)
 	}
 }

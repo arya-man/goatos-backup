@@ -15,8 +15,8 @@ import (
 
 // TestSM7BoosterSchedulesNextDose drives SM-7: a published series with an age-triggered dose 1 and
 // an after_previous_completion dose 2 (offset 21d, min-gap 28d). SM-1 schedules dose 1 only.
-// Accepting dose 1 at T schedules dose 2 due T+28 (the min-gap dominates the 21d offset). The
-// booster is idempotent on replay.
+// The vaccination.completed consumer schedules dose 2 due T+28 (the min-gap dominates the 21d
+// offset). The completed-event replay is idempotent.
 func TestSM7BoosterSchedulesNextDose(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -73,7 +73,7 @@ func TestSM7BoosterSchedulesNextDose(t *testing.T) {
 	ob1 := scanText(t, ctx, pool, `SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=1`, impTenant, g)
 
 	booster := vaccapp.NewBoosterService(proto, obl)
-	completion := vaccapp.NewCompletionService(vaccapp.NewService(vacc), obl, nil).WithBooster(booster)
+	completion := vaccapp.NewCompletionService(vaccapp.NewService(vacc), obl, nil)
 
 	administered := time.Date(2026, 6, 23, 0, 0, 0, 0, time.UTC)
 	doses := int32(1)
@@ -84,9 +84,13 @@ func TestSM7BoosterSchedulesNextDose(t *testing.T) {
 		},
 		ProtocolVersionID: versionID, ScopeType: "park", ScopeID: impCbe, RuleSequence: 1,
 	})
-	if err != nil || !ar.Applied || !ar.Completed || !ar.NextScheduled {
+	if err != nil || !ar.Applied || !ar.Completed || ar.NextScheduled {
 		t.Fatalf("accept dose1: %+v err=%v", ar, err)
 	}
+	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g); got != 0 {
+		t.Fatalf("booster must wait for vaccination.completed consumer, got %d early dose-2 obligations", got)
+	}
+	dispatchVaccinationCompletedOutbox(t, ctx, pool, vacc, obl, booster, ob1)
 
 	// Dose 2 obligation exists, scheduled, due = administered + 28 (min-gap dominates the 21d offset).
 	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g); got != 1 {
@@ -99,17 +103,8 @@ func TestSM7BoosterSchedulesNextDose(t *testing.T) {
 		t.Fatalf("dose-2 status: want scheduled, got %s", st)
 	}
 
-	// Booster is idempotent: a direct replay schedules nothing new.
-	scheduled, err := booster.ScheduleNextDose(ctx, vaccapp.ScheduleNextInput{
-		TenantID: impTenant, ProtocolVersionID: versionID, GoatID: g,
-		ScopeType: "park", ScopeID: impCbe, PrevSequence: 1, AdministeredAt: administered,
-	})
-	if err != nil {
-		t.Fatalf("replay booster: %v", err)
-	}
-	if scheduled {
-		t.Fatalf("booster replay should be a no-op")
-	}
+	// Completed-event replay schedules nothing new.
+	dispatchVaccinationCompletedOutbox(t, ctx, pool, vacc, obl, booster, ob1)
 	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g); got != 1 {
 		t.Fatalf("booster replay created a duplicate dose-2, count=%d", got)
 	}

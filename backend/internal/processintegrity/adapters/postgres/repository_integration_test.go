@@ -256,6 +256,45 @@ func TestListRowsSurfacesTaskReworkAsRejected(t *testing.T) {
 	}
 }
 
+func TestListRowsSurfacesCanonicalDeferredObligations(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	execPI(t, ctx, pool, "defer next obligation",
+		`UPDATE obligation_instances SET status = 'deferred' WHERE tenant_id = $1 AND obligation_id = $2`,
+		piTenant, piOblNext)
+	execPI(t, ctx, pool, "deferred event",
+		`INSERT INTO obligation_status_events (tenant_id, obligation_id, event_type, occurred_at, idempotency_key)
+		 VALUES ($1, $2, 'deferred', TIMESTAMPTZ '2026-06-24 09:00:00+00', 'pi-deferred-next')`,
+		piTenant, piOblNext)
+
+	state := domain.WorkStateDeferred
+	repo := NewRepository(pool, 5*time.Second)
+	result, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		WorkState: &state,
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListRows() error = %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("got %d deferred rows want 1: %#v", len(result.Rows), result.Rows)
+	}
+	row := result.Rows[0]
+	if row.WorkState != domain.WorkStateDeferred || row.GapType != "deferred_explained" || row.DeferredCount == 0 {
+		t.Fatalf("deferred row = %+v", row)
+	}
+	if countFor(result.CountsByWorkState, domain.WorkStateDeferred) != 1 {
+		t.Fatalf("counts = %+v, want deferred count", result.CountsByWorkState)
+	}
+}
+
 // TestProcessIntegrityAsOfReconstruction proves item-2 point-in-time correctness for CT/AC/PA/WF:
 //   - a 'completed' obligation finalized AFTER as_of re-buckets to its open state (overdue), not completed,
 //     and its accepted dose is not counted until as_of passes the completion;

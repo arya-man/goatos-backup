@@ -14,32 +14,38 @@ import (
 )
 
 type fakeConfig struct {
-	gotVersion  domain.NewVersion
-	getErr      error
-	addRuleErr  error
-	publishErr  error
-	listItems   []domain.ConfigListItem
-	listErr     error
-	gotListCat  string
-	stages      []domain.AnimalStage
-	stagesErr   error
-	gotStagesTn string
+	gotDefinition domain.NewDefinition
+	gotVersion    domain.NewVersion
+	gotRule       domain.NewRule
+	createErr     error
+	versionErr    error
+	getErr        error
+	addRuleErr    error
+	publishErr    error
+	listItems     []domain.ConfigListItem
+	listErr       error
+	gotListCat    string
+	stages        []domain.AnimalStage
+	stagesErr     error
+	gotStagesTn   string
 }
 
-func (f *fakeConfig) CreateDefinition(context.Context, domain.NewDefinition) (string, error) {
-	return "def-1", nil
+func (f *fakeConfig) CreateDefinition(_ context.Context, in domain.NewDefinition) (string, error) {
+	f.gotDefinition = in
+	return "def-1", f.createErr
 }
 func (f *fakeConfig) CreateVersion(_ context.Context, in domain.NewVersion) (string, error) {
 	f.gotVersion = in
-	return "ver-1", nil
+	return "ver-1", f.versionErr
 }
-func (f *fakeConfig) AddRule(context.Context, domain.NewRule) (string, error) {
+func (f *fakeConfig) AddRule(_ context.Context, in domain.NewRule) (string, error) {
+	f.gotRule = in
 	return "rule-1", f.addRuleErr
 }
 func (f *fakeConfig) GetVersion(context.Context, string, string) (domain.Version, error) {
 	return domain.Version{}, f.getErr
 }
-func (f *fakeConfig) PublishVersion(context.Context, string, string, *string) error {
+func (f *fakeConfig) PublishVersion(context.Context, string, string, *string, ...string) error {
 	return f.publishErr
 }
 func (f *fakeConfig) ListConfigs(_ context.Context, _ string, category string) ([]domain.ConfigListItem, error) {
@@ -52,6 +58,10 @@ func (f *fakeConfig) ListAnimalStages(_ context.Context, tenantID string) ([]dom
 }
 
 func serve(h *Handler, method, target, body string) *httptest.ResponseRecorder {
+	return serveWithIdempotency(h, method, target, body, "test-idempotency-key")
+}
+
+func serveWithIdempotency(h *Handler, method, target, body, idempotencyKey string) *httptest.ResponseRecorder {
 	mux := http.NewServeMux()
 	Register(mux, h)
 	var rdr *strings.Reader
@@ -61,7 +71,11 @@ func serve(h *Handler, method, target, body string) *httptest.ResponseRecorder {
 		rdr = strings.NewReader("")
 	}
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(method, target, rdr))
+	req := httptest.NewRequest(method, target, rdr)
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
+	mux.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -73,6 +87,9 @@ func TestCreateDefinitionAndVersionForcedDraft(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create definition: want 201, got %d (%s)", rec.Code, rec.Body.String())
 	}
+	if fake.gotDefinition.IdempotencyKey != "test-idempotency-key" {
+		t.Fatalf("definition idempotency key not forwarded: %q", fake.gotDefinition.IdempotencyKey)
+	}
 
 	rec = serve(h, http.MethodPost, "/protocols/p1/versions",
 		`{"scope_type":"tenant","version":1,"effective_from":"2026-06-01T00:00:00Z","rule_dsl":{"a":1}}`)
@@ -82,8 +99,44 @@ func TestCreateDefinitionAndVersionForcedDraft(t *testing.T) {
 	if fake.gotVersion.Status != "draft" {
 		t.Fatalf("version must be forced draft, got %q", fake.gotVersion.Status)
 	}
+	if fake.gotVersion.IdempotencyKey != "test-idempotency-key" {
+		t.Fatalf("version idempotency key not forwarded: %q", fake.gotVersion.IdempotencyKey)
+	}
 	if string(fake.gotVersion.RuleDsl) != `{"a":1}` {
 		t.Fatalf("rule_dsl not passed through: %s", fake.gotVersion.RuleDsl)
+	}
+}
+
+func TestProtocolWritesRequireIdempotencyKey(t *testing.T) {
+	rec := serveWithIdempotency(NewHandler(&fakeConfig{}), http.MethodPost, "/protocols", `{"code":"vaccination.x","name":"X","category":"vaccination"}`, "")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing idempotency key: want 400, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Code != "invalid_idempotency_key" {
+		t.Fatalf("missing idempotency envelope: %+v err=%v", env, err)
+	}
+}
+
+func TestProtocolWritesRejectUnknownJSONFields(t *testing.T) {
+	rec := serve(NewHandler(&fakeConfig{}), http.MethodPost, "/protocols", `{"code":"vaccination.x","name":"X","category":"vaccination","ignored":true}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown field: want 400, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Code != "invalid_json" {
+		t.Fatalf("unknown field envelope: %+v err=%v", env, err)
+	}
+}
+
+func TestCreateDefinitionSurfacesIdempotencyConflict(t *testing.T) {
+	rec := serve(NewHandler(&fakeConfig{createErr: ports.ErrIdempotencyConflict}), http.MethodPost, "/protocols", `{"code":"vaccination.x","name":"X","category":"vaccination"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("idempotency conflict: want 409, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Code != "idempotency_conflict" {
+		t.Fatalf("idempotency conflict envelope: %+v err=%v", env, err)
 	}
 }
 
@@ -125,6 +178,17 @@ func TestAddRuleSurfacesPublishedVersionImmutable(t *testing.T) {
 	var env errorEnvelope
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Code != "version_not_draft" {
 		t.Fatalf("add rule conflict envelope: %+v err=%v", env, err)
+	}
+}
+
+func TestAddRuleRejectsMissingRequiredFields(t *testing.T) {
+	rec := serve(NewHandler(&fakeConfig{}), http.MethodPost, "/protocols/versions/v1/rules", `{"dose_code":"primary"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing fields: want 400, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Code != "missing_required_field" {
+		t.Fatalf("missing fields envelope: %+v err=%v", env, err)
 	}
 }
 

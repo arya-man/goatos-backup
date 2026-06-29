@@ -66,6 +66,7 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 		var p domain.ExecutionProjection
 		var batchID, batchStatus, taskState, operatorName, parkHeadName, verifierName pgtype.Text
 		var obligationID, sopTaskID, completionID pgtype.Text
+		var sopTaskRowVersion pgtype.Int4
 		var dueAt pgtype.Timestamptz
 		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount int64
 		var missedCount, deferredCount, canceledCount, recordedCount, acceptedCount int64
@@ -103,6 +104,7 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 			&healthDeferredCount,
 			&obligationID,
 			&sopTaskID,
+			&sopTaskRowVersion,
 			&completionID,
 		); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan vaccination execution: %w", err)
@@ -129,6 +131,7 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 		p.HealthDeferredCount = int(healthDeferredCount)
 		p.ObligationID = textPtr(obligationID)
 		p.SOPTaskID = textPtr(sopTaskID)
+		p.SOPTaskRowVersion = int32Ptr(sopTaskRowVersion)
 		p.CompletionID = textPtr(completionID)
 		out = append(out, p)
 	}
@@ -215,18 +218,26 @@ func timePtr(v pgtype.Timestamptz) *time.Time {
 	return &t
 }
 
+func int32Ptr(v pgtype.Int4) *int32 {
+	if !v.Valid || v.Int32 <= 0 {
+		return nil
+	}
+	i := v.Int32
+	return &i
+}
+
 // vaccinationExecutionSQL is point-in-time correct as of $7 (as_of): completions are bounded by as_of and
 // the obligation bucket is reconstructed AT as_of (completed via completed_at/as_of-bounded completion;
-// missed/waived via the obligation_status_events log; scheduled/due/overdue from due_at/window) rather than
+// missed/waived/deferred via the obligation_status_events log; scheduled/due/overdue from due_at/window) rather than
 // read off the current obligation_instances.status. Documented residual (no event history to reconstruct):
 // sop_tasks.state / obligation_batches.status stay current-state.
 const vaccinationExecutionSQL = `
 WITH asof_terminal AS (
-  -- Latest TERMINAL transition (missed/waived; no timestamp column on obligation_instances) AT OR BEFORE
+  -- Latest TERMINAL transition (missed/waived/deferred; no timestamp column on obligation_instances) AT OR BEFORE
   -- as_of from the append-only event log. asof_terminal_type is the terminal status in effect at as_of
-  -- (latest of missed/waived <= as_of); NULL means the obligation's only terminal events are after as_of
+  -- (latest of missed/waived/deferred <= as_of); NULL means the obligation's only terminal events are after as_of
   -- (open at as_of), and has_terminal_event then separates that "future-only" case from "no terminal history
-  -- at all" (row absent -> trust the current stored status). Restricted to missed/waived, which are
+  -- at all" (row absent -> trust the current stored status). Restricted to missed/waived/deferred, which are
   -- exceptions at herd scale, so the subset stays small and index-bound. Residual: missed->reschedule->missed
   -- churn is not reopen-aware (last terminal event at/before as_of wins).
   SELECT
@@ -236,7 +247,7 @@ WITH asof_terminal AS (
     true AS has_terminal_event
   FROM obligation_status_events
   WHERE tenant_id = $1::uuid
-    AND event_type IN ('missed', 'waived')
+    AND event_type IN ('missed', 'waived', 'deferred')
   GROUP BY obligation_id
 ),
 raw AS (
@@ -257,6 +268,7 @@ raw AS (
     ob.conducted_by,
     st.state AS task_state,
     st.task_id AS sop_task_id,
+    st.row_version AS sop_task_row_version,
     st.assigned_to,
     g.lifecycle_status AS goat_lifecycle_status,
     g.health_status AS goat_health_status,
@@ -310,10 +322,10 @@ raw AS (
   LEFT JOIN asof_terminal te
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
-    AND oi.status IN ('scheduled', 'due', 'in_progress', 'completed', 'missed', 'waived')
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND oi.due_at <= $4::timestamptz
     AND (
-      oi.status IN ('scheduled', 'due', 'in_progress')
+      oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
       OR oi.due_at >= $8::timestamptz
       -- A row 'completed' NOW but finalized AFTER as_of was still open at as_of; pull it to re-bucket.
       OR (oi.status = 'completed' AND oi.completed_at > $7::timestamptz)
@@ -331,7 +343,7 @@ located AS (
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
           ELSE (CASE WHEN raw.due_at < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
         END
-      WHEN raw.obligation_status IN ('missed', 'waived') THEN
+      WHEN raw.obligation_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
           WHEN raw.has_terminal_event THEN (CASE WHEN raw.due_at < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
@@ -363,7 +375,7 @@ grouped AS (
     COUNT(*) FILTER (WHERE located.eff_status = 'in_progress')::bigint AS in_progress_count,
     COUNT(*) FILTER (WHERE located.eff_status = 'completed')::bigint AS completed_count,
     COUNT(*) FILTER (WHERE located.eff_status = 'missed')::bigint AS missed_count,
-    COUNT(*) FILTER (WHERE located.eff_status = 'waived')::bigint AS deferred_count,
+    COUNT(*) FILTER (WHERE located.eff_status IN ('waived', 'deferred'))::bigint AS deferred_count,
     0::bigint AS canceled_count,
     COUNT(*) FILTER (WHERE located.completion_status = 'recorded')::bigint AS completion_recorded,
     COUNT(*) FILTER (WHERE located.completion_status = 'accepted')::bigint AS completion_accepted,
@@ -409,6 +421,7 @@ grouped AS (
     )::bigint AS health_deferred_count,
     (ARRAY_AGG(located.obligation_id ORDER BY located.due_at DESC NULLS LAST, located.obligation_id DESC))[1]::text AS obligation_id,
     (ARRAY_AGG(located.sop_task_id ORDER BY located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST))[1]::text AS sop_task_id,
+    (ARRAY_AGG(located.sop_task_row_version ORDER BY located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST) FILTER (WHERE located.sop_task_id IS NOT NULL))[1] AS sop_task_row_version,
     (ARRAY_AGG(located.completion_id ORDER BY located.due_at DESC NULLS LAST, located.completion_id DESC NULLS LAST))[1]::text AS completion_id
   FROM located
   JOIN locations shed
@@ -509,6 +522,7 @@ SELECT
   grouped.health_deferred_count,
   grouped.obligation_id,
   grouped.sop_task_id,
+  grouped.sop_task_row_version,
   grouped.completion_id
 FROM stateful grouped
 JOIN locations park
@@ -610,14 +624,14 @@ WITH completions AS (
   GROUP BY obligation_id
 ),
 asof_terminal AS (
-  -- Latest TERMINAL transition INTO a status with NO timestamp column on obligation_instances (missed/waived)
+  -- Latest TERMINAL transition INTO a status with NO timestamp column on obligation_instances (missed/waived/deferred)
   -- AT OR BEFORE as_of. The append-only status-event log is the only source for when those transitions
-  -- happened. asof_terminal_type is the terminal status in effect at as_of (latest of missed/waived <=
+  -- happened. asof_terminal_type is the terminal status in effect at as_of (latest of missed/waived/deferred <=
   -- as_of); completed has its own completed_at column and is handled below. asof_terminal_type IS NULL with
   -- has_terminal_event TRUE means the only terminal events are after as_of (open at as_of); the row is absent
   -- when there is no terminal history at all (cannot prove transition time -> trust the stored status,
   -- documented). Tenant + event_type indexed (obligation_status_events_tenant_type_recorded_idx);
-  -- missed/waived are exceptions, so this subset stays small at herd scale. Residual: missed->reschedule->
+  -- missed/waived/deferred are exceptions, so this subset stays small at herd scale. Residual: missed->reschedule->
   -- missed churn is not reopen-aware.
   SELECT
     obligation_id,
@@ -626,7 +640,7 @@ asof_terminal AS (
     true AS has_terminal_event
   FROM obligation_status_events
   WHERE tenant_id = $1::uuid
-    AND event_type IN ('missed', 'waived')
+    AND event_type IN ('missed', 'waived', 'deferred')
   GROUP BY obligation_id
 ),
 raw AS (
@@ -667,7 +681,7 @@ raw AS (
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.target_type = 'goat'
-    AND oi.status IN ('scheduled', 'due', 'in_progress', 'completed', 'missed', 'waived')
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND oi.due_at <= $3::timestamptz
 ),
 located AS (
@@ -698,7 +712,7 @@ effective AS (
           WHEN located.completed_at IS NULL AND located.completion_status IS NOT NULL THEN 'completed'
           ELSE located.open_bucket
         END
-      WHEN located.stored_status IN ('missed', 'waived') THEN
+      WHEN located.stored_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           WHEN located.asof_terminal_type IS NOT NULL THEN located.asof_terminal_type
           WHEN located.has_terminal_event THEN located.open_bucket
@@ -726,7 +740,7 @@ SELECT
   COUNT(*) FILTER (WHERE effective.eff_status = 'in_progress')::bigint AS in_progress_count,
   COUNT(*) FILTER (WHERE effective.eff_status = 'scheduled')::bigint AS scheduled_count,
   COUNT(*) FILTER (WHERE effective.eff_status = 'missed')::bigint AS missed_count,
-  COUNT(*) FILTER (WHERE effective.eff_status = 'waived')::bigint AS deferred_count,
+  COUNT(*) FILTER (WHERE effective.eff_status IN ('waived', 'deferred'))::bigint AS deferred_count,
   COUNT(*) FILTER (WHERE effective.eff_status = 'completed' AND effective.completion_status = 'accepted')::bigint AS accepted_count,
   COUNT(*) FILTER (WHERE effective.completion_status = 'recorded')::bigint AS proof_pending_count,
   COUNT(*) FILTER (WHERE effective.completion_status = 'rejected')::bigint AS rejected_count,

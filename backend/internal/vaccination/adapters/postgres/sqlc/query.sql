@@ -28,9 +28,17 @@ ORDER BY c.completion_id;
 -- optional park_id scope filters by the completed goat's park so the top-bar park scope reaches the queue.
 SELECT vc.completion_id::text AS completion_id, vc.obligation_id::text AS obligation_id,
        vc.goat_id::text AS goat_id, COALESCE(vc.batch_id::text, '')::text AS batch_id,
+       COALESCE(st.task_id::text, '')::text AS sop_task_id,
+       COALESCE(st.row_version, 0)::int AS sop_task_row_version,
        vc.administered_at, COALESCE(vc.doses, 0)::int AS doses, COALESCE(vc.route_site, '')::text AS route_site
 FROM vaccination_completions vc
 LEFT JOIN goats g ON g.tenant_id = vc.tenant_id AND g.goat_id = vc.goat_id
+LEFT JOIN sop_submission_items si
+  ON si.tenant_id = vc.tenant_id AND si.item_id = vc.sop_submission_item_id
+LEFT JOIN sop_submissions ss
+  ON ss.tenant_id = si.tenant_id AND ss.submission_id = si.submission_id
+LEFT JOIN sop_tasks st
+  ON st.tenant_id = ss.tenant_id AND st.task_id = ss.task_id
 WHERE vc.tenant_id = @tenant_id AND vc.status = 'recorded'
   AND (sqlc.narg('park_id')::uuid IS NULL OR g.park_id = sqlc.narg('park_id')::uuid)
 ORDER BY vc.administered_at ASC, vc.completion_id ASC

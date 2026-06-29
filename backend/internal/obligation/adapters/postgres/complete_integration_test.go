@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
@@ -178,6 +180,124 @@ func TestMarkMissedBeforeSkipsDeferredObligations(t *testing.T) {
 	}
 }
 
+func TestMarkMissedBeforeSkipsProcurementExcludedVaccinationWithoutPoisoningBatch(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	excludedObligationID := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+	const cleanGoatID = "10000000-0000-4000-8000-0000000000bb"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id)
+VALUES ($1, $2, 'alive', 'clean', $3, $4, $4)`, cleanGoatID, tenantID, meshaParty, cbePark); err != nil {
+		t.Fatalf("seed clean sibling goat: %v", err)
+	}
+	cleanObligationID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: cleanGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC), Status: "in_progress",
+		IdempotencyKey: "obl-missed-clean-sibling", Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("insert clean sibling obligation: id=%q applied=%v err=%v", cleanObligationID, applied, err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE goats
+SET lifecycle_status='dead'
+WHERE tenant_id=$1 AND goat_id=$2`, tenantID, testGoatID); err != nil {
+		t.Fatalf("mark excluded goat dead: %v", err)
+	}
+
+	n, err := repo.MarkMissedBefore(ctx, tenantID, time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), 100)
+	if err != nil {
+		t.Fatalf("mark missed with excluded sibling: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("marked missed = %d, want only clean sibling", n)
+	}
+	if got := scanStatus(t, ctx, pool, excludedObligationID); got != "scheduled" {
+		t.Fatalf("excluded obligation status = %s, want scheduled", got)
+	}
+	if got := scanStatus(t, ctx, pool, cleanObligationID); got != "missed" {
+		t.Fatalf("clean sibling status = %s, want missed", got)
+	}
+}
+
+func TestMarkMissedBeforeRecordsStockReconcileForReservedBatch(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obA := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	const itemID = "d2000000-0000-4000-8000-000000000001"
+	const lotID = "d2000000-0000-4000-8000-000000000002"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit)
+		 VALUES ($1, $2, 'VAC-MISS', 'Missed reconcile vaccine', 'vaccine', 'dose')`, itemID, tenantID); err != nil {
+		t.Fatalf("seed item: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
+		 VALUES ($1, $2, $3, $4, 10, 1, 'dose', DATE '2026-12-31')`, lotID, tenantID, itemID, cbePark); err != nil {
+		t.Fatalf("seed stock: %v", err)
+	}
+	batchID, err := repo.CreateBatch(ctx, domain.NewBatch{
+		TenantID:              tenantID,
+		ProtocolVersionID:     mustVersionOf(t, ctx, pool),
+		ScopeType:             "park",
+		ScopeID:               cbePark,
+		Status:                "planned",
+		EstimatedTargets:      1,
+		PlannedQuantity:       "1",
+		QuantityUnit:          "dose",
+		PrimaryInventoryLotID: strPtrObligation(lotID),
+	})
+	if err != nil {
+		t.Fatalf("create batch: %v", err)
+	}
+	if attached, err := repo.AttachObligationsToBatch(ctx, tenantID, batchID, []string{obA}); err != nil || attached != 1 {
+		t.Fatalf("attach obligation: attached=%d err=%v", attached, err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO inventory_stock_movements (
+  tenant_id, lot_id, item_id, location_id, movement_type, quantity,
+  quantity_unit, batch_id, reason, idempotency_key
+) VALUES (
+  $1, $2, $3, $4, 'reserve', 1, 'dose', $5, 'batch reserve', 'missed-reserve'
+)`, tenantID, lotID, itemID, cbePark, batchID); err != nil {
+		t.Fatalf("seed reserve movement: %v", err)
+	}
+
+	n, err := repo.MarkMissedBefore(ctx, tenantID, time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), 100)
+	if err != nil {
+		t.Fatalf("mark missed: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("marked missed = %d, want 1", n)
+	}
+	if got := scanStatus(t, ctx, pool, obA); got != "missed" {
+		t.Fatalf("status = %s, want missed", got)
+	}
+	if got := scanTextObligation(t, ctx, pool, `
+SELECT context #>> '{missed_repair,state}'
+FROM obligation_batches
+WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchID); got != "stock_reconcile_required" {
+		t.Fatalf("missed repair state = %q, want stock_reconcile_required", got)
+	}
+	if got := scanTextObligation(t, ctx, pool, `
+SELECT context #>> '{missed_repair,release_qty}'
+FROM obligation_batches
+WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchID); got != "1" {
+		t.Fatalf("missed repair release_qty = %q, want 1", got)
+	}
+}
+
 func TestCancelOpenForGoatCancelsInProgress(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -204,4 +324,17 @@ func TestCancelOpenForGoatCancelsInProgress(t *testing.T) {
 		tenantID, obA); got != 1 {
 		t.Fatalf("canceled event count = %d, want 1", got)
 	}
+}
+
+func strPtrObligation(v string) *string {
+	return &v
+}
+
+func scanTextObligation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) string {
+	t.Helper()
+	var out string
+	if err := pool.QueryRow(ctx, sql, args...).Scan(&out); err != nil {
+		t.Fatalf("scan text: %v", err)
+	}
+	return out
 }

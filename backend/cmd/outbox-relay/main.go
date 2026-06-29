@@ -126,8 +126,8 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
 		inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, pgCfg.QueryTimeout))
 		vaccinationService := vaccinationapp.NewService(vaccinationRepo)
-		vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService).
-			WithBooster(vaccinationapp.NewBoosterService(protocolRepo, obligationRepo))
+		vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService)
+		vaccinationBooster := vaccinationapp.NewBoosterService(protocolRepo, obligationRepo)
 		generation := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
@@ -136,6 +136,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		vaccinationapp.NewProtocolPublishedHandler(generation).Register(bus)
 		vaccinationapp.NewManualCampaignHandler(generation).Register(bus)
 		vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
+		vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 		logger.Info("outbox_relay_eventbus_dispatcher_ready")
 		return eventbuspublisher.New(bus), nil, nil
 	case outboxpublisher.KindPubSub:

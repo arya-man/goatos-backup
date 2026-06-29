@@ -99,6 +99,7 @@ type Row struct {
 	ObligationID    string  `json:"obligation_id"`
 	BatchID         *string `json:"batch_id,omitempty"`
 	SOPTaskID       *string `json:"sop_task_id,omitempty"`
+	SOPTaskVersion  *int32  `json:"sop_task_row_version,omitempty"`
 	SOPSubmissionID *string `json:"sop_submission_id,omitempty"`
 	CompletionID    *string `json:"completion_id,omitempty"`
 

@@ -325,7 +325,7 @@ Required:
 - Status board reads `/vaccination/action-center`.
 - SOP queues read `/vaccination/verification-queue`.
 - Work-state and severity chips preserve top-bar scope and call server-side filters.
-- Verify, Reject, and Request rework submit real server actions against `/vaccination/completions/{completion_id}/accept|reject`.
+- Verify, Reject, and Request rework submit real server actions against SOP task review routes (`/admin/tasks/{task_id}/verify|rework`) with `row_version`.
 - Passport links go to `/goats/{goat_id}`.
 - Work cards go to `/workflows/{row_id}`.
 - `My tasks` stays disabled until owner filtering exists.

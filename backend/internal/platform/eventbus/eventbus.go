@@ -16,6 +16,7 @@ import (
 
 // Event is a domain event. Key is the aggregate key (e.g. goat_id) used for ordering/idempotency.
 type Event struct {
+	ID         string
 	Type       string
 	TenantID   string
 	Key        string

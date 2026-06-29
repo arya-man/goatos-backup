@@ -74,8 +74,8 @@ Use these as the product/business boundary for the next session:
 - `contracts/openapi/app-api.yaml` already exposes proof upload
   (`createProofUpload`, returned `upload_url`, `completeProofUpload`),
   SOP submission (`submitAppTask`), Action Center rows with
-  `obligation_id`/optional `batch_id`/`sop_task_id`/`completion_id`, and
-  completion accept/reject endpoints.
+  `obligation_id`/optional `batch_id`/`sop_task_id`/`sop_task_row_version`/
+  `completion_id`, and SOP task verify/rework endpoints.
 - `mock/goatos-dashboard-mock.html` is the admin-web UI/UX source of truth for
   layout, density, table controls, drawers, hover/active/disabled states, and
   action anatomy.
@@ -171,10 +171,11 @@ Still pending after the P0 render bug is fixed:
      do not fake IDs from it.
 
 6. Verification actions
-   - `acceptVaccinationCompletion` and `rejectVaccinationCompletion` already
-     exist for rows with `completion_id`.
-   - Verification queue / Action Center rows with `completion_id` must expose
-     accept/reject/rework actions in the drawer or route to a drawer that does.
+   - Verification queue / Action Center rows with `completion_id` must also carry
+     `sop_task_id` and `sop_task_row_version`.
+   - Accept/reject/rework actions must call SOP task verify/rework routes with
+     the task row version; direct vaccination completion review routes are not
+     mounted.
 
 ## Implementation Order For New Session
 

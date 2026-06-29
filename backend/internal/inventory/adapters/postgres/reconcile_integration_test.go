@@ -100,6 +100,49 @@ WHERE tenant_id=$1 AND batch_id=$2 AND movement_type='release'`, tenantID, batch
 		t.Fatalf("replay summary=%+v, want zero", replay)
 	}
 
+	const missedLotID = "d1000000-0000-4000-8000-000000000004"
+	const missedBatchID = "d1000000-0000-4000-8000-000000000005"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
+		 VALUES ($1, $2, $3, $4, 10, 1, 'dose', DATE '2026-11-30')`, missedLotID, tenantID, itemID, locationID); err != nil {
+		t.Fatalf("seed missed stock: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO obligation_batches (
+  batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status,
+  estimated_targets, context
+) VALUES (
+  $1, $2, $3, 'park', $4, 'planned', 1,
+  '{"missed_repair":{"state":"stock_reconcile_required","release_qty":1,"reason":"missed"}}'::jsonb
+)`, missedBatchID, tenantID, versionID, locationID); err != nil {
+		t.Fatalf("seed missed batch: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO inventory_stock_movements (
+  tenant_id, lot_id, item_id, location_id, movement_type, quantity,
+  quantity_unit, batch_id, reason, idempotency_key
+) VALUES (
+  $1, $2, $3, $4, 'reserve', 1, 'dose', $5, 'batch reserve', 'missed-reconcile-reserve'
+)`, tenantID, missedLotID, itemID, locationID, missedBatchID); err != nil {
+		t.Fatalf("seed missed reserve movement: %v", err)
+	}
+	missed, err := repo.ReleaseBatchReconcileRemainders(ctx, tenantID, 10)
+	if err != nil {
+		t.Fatalf("ReleaseBatchReconcileRemainders missed repair: %v", err)
+	}
+	if missed.Batches != 1 || missed.Movements != 1 || missed.Released != 1 {
+		t.Fatalf("missed summary=%+v, want batches=1 movements=1 released=1", missed)
+	}
+	if got := scanInventoryText(t, ctx, pool, `SELECT quantity_reserved::text FROM inventory_stock WHERE tenant_id=$1 AND stock_id=$2`, tenantID, missedLotID); got != "0" {
+		t.Fatalf("missed quantity_reserved=%q, want 0", got)
+	}
+	if got := scanInventoryText(t, ctx, pool, `
+SELECT context #>> '{missed_repair,state}'
+FROM obligation_batches
+WHERE tenant_id=$1 AND batch_id=$2`, tenantID, missedBatchID); got != "stock_reconciled" {
+		t.Fatalf("missed repair state=%q, want stock_reconciled", got)
+	}
+
 	if _, err := pool.Exec(ctx, `
 UPDATE obligation_batches
 SET context = context || '{"shift_repair":{"state":"stock_reconcile_required","release_qty":1,"reason":"second_repair_same_lot"}}'::jsonb,

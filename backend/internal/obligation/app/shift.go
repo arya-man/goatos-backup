@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
@@ -30,6 +32,10 @@ type ShiftPayload struct {
 // in-process and a future Pub/Sub consumer.
 type GoatShiftedHandler struct {
 	repo ports.Repository
+}
+
+type orderedShiftRepository interface {
+	ReScopeOpenForGoatShift(ctx context.Context, tenantID, goatID, scopeType, scopeID string, occurredAt time.Time, eventID string) (count int, applied bool, err error)
 }
 
 // NewGoatShiftedHandler constructs the handler.
@@ -59,6 +65,14 @@ func (h *GoatShiftedHandler) HandleEvent(ctx context.Context, e eventbus.Event) 
 		}
 		p.ScopeType = "shed"
 		p.ScopeID = p.ToShedID
+	}
+	if ordered, ok := h.repo.(orderedShiftRepository); ok {
+		occurredAt := e.OccurredAt
+		if occurredAt.IsZero() {
+			occurredAt = time.Now().UTC()
+		}
+		_, _, err := ordered.ReScopeOpenForGoatShift(ctx, e.TenantID, e.Key, p.ScopeType, p.ScopeID, occurredAt, strings.TrimSpace(e.ID))
+		return err
 	}
 	_, err := h.repo.ReScopeOpenForGoat(ctx, e.TenantID, e.Key, p.ScopeType, p.ScopeID)
 	return err

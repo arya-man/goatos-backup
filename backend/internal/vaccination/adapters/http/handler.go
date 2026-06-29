@@ -17,7 +17,6 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
-	app "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	vaccports "github.com/vgoats/goatos/backend/internal/vaccination/ports"
 )
@@ -26,12 +25,6 @@ import (
 type Reads interface {
 	ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error)
 	VerificationQueue(ctx context.Context, tenantID, parkID string, limit int32) ([]domain.RecordedCompletion, error)
-}
-
-// Verifier is the SM-5 verification slice (CompletionService): accept/reject a recorded completion.
-type Verifier interface {
-	AcceptExisting(ctx context.Context, in app.AcceptExistingInput) (app.AcceptResult, error)
-	RejectExisting(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) (app.RejectResult, error)
 }
 
 // ManualCampaignGenerator materializes deliberate manual_campaign schedule rows for a published
@@ -44,20 +37,21 @@ type ManualCampaignGenerator interface {
 // Handler serves vaccination endpoints.
 type Handler struct {
 	svc      Reads
-	verify   Verifier
 	campaign ManualCampaignGenerator
 	log      *slog.Logger
 }
 
-// NewHandler constructs the handler. verify may be nil (verification routes 503 until wired).
-func NewHandler(svc Reads, verify Verifier, log ...*slog.Logger) *Handler {
+// NewHandler constructs the handler. The second parameter is retained for the existing bootstrap
+// signature; public completion review is intentionally not mounted here. Review must go through SOP
+// task verify/rework routes with row-version concurrency.
+func NewHandler(svc Reads, _ any, log ...*slog.Logger) *Handler {
 	var l *slog.Logger
 	if len(log) > 0 && log[0] != nil {
 		l = log[0]
 	} else {
 		l = slog.Default()
 	}
-	return &Handler{svc: svc, verify: verify, log: l}
+	return &Handler{svc: svc, log: l}
 }
 
 // WithManualCampaignGenerator enables the manual campaign command route.
@@ -71,8 +65,6 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /protocols/vaccination/impact-preview", h.ImpactPreview)
 	mux.HandleFunc("POST /vaccination/manual-campaigns", h.RunManualCampaign)
 	mux.HandleFunc("GET /vaccination/verification-queue", h.VerificationQueue)
-	mux.HandleFunc("POST /vaccination/completions/{completion_id}/accept", h.AcceptCompletion)
-	mux.HandleFunc("POST /vaccination/completions/{completion_id}/reject", h.RejectCompletion)
 }
 
 const (
@@ -268,6 +260,8 @@ type queueItem struct {
 	ObligationID   string    `json:"obligation_id"`
 	GoatID         string    `json:"goat_id"`
 	BatchID        string    `json:"batch_id,omitempty"`
+	SOPTaskID      string    `json:"sop_task_id,omitempty"`
+	SOPTaskVersion int32     `json:"sop_task_row_version,omitempty"`
 	AdministeredAt time.Time `json:"administered_at"`
 	Doses          int32     `json:"doses"`
 	RouteSite      string    `json:"route_site,omitempty"`
@@ -311,6 +305,8 @@ func (h *Handler) VerificationQueue(w http.ResponseWriter, r *http.Request) {
 			ObligationID:   c.ObligationID,
 			GoatID:         c.GoatID,
 			BatchID:        c.BatchID,
+			SOPTaskID:      c.SOPTaskID,
+			SOPTaskVersion: c.SOPTaskVersion,
 			AdministeredAt: c.AdministeredAt,
 			Doses:          c.Doses,
 			RouteSite:      c.RouteSite,
@@ -318,64 +314,6 @@ func (h *Handler) VerificationQueue(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, queueResponse{Items: items})
-}
-
-type rejectRequest struct {
-	Reason string `json:"reason"`
-}
-
-// AcceptCompletion verifies (accepts) a recorded completion: completes its obligation + consumes the
-// reserved dose. Idempotent — a completion no longer 'recorded' is a no-op.
-func (h *Handler) AcceptCompletion(w http.ResponseWriter, r *http.Request) {
-	if h.verify == nil {
-		h.unavailable(w, r)
-		return
-	}
-	res, err := h.verify.AcceptExisting(r.Context(), app.AcceptExistingInput{
-		TenantID:     tenantID(r),
-		CompletionID: r.PathValue("completion_id"),
-		VerifiedBy:   actorPtr(r),
-	})
-	if err != nil {
-		h.internal(w, r, err)
-		return
-	}
-	httpresponse.WriteJSON(w, http.StatusOK, map[string]bool{"applied": res.Applied, "completed": res.Completed})
-}
-
-// RejectCompletion rejects (or requests rework on) a recorded completion: the obligation stays open.
-// The reason distinguishes a plain reject from a rework request. Idempotent.
-func (h *Handler) RejectCompletion(w http.ResponseWriter, r *http.Request) {
-	if h.verify == nil {
-		h.unavailable(w, r)
-		return
-	}
-	var req rejectRequest
-	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
-			h.badRequest(w, r, "invalid_json", "request body is not valid JSON")
-			return
-		}
-	}
-	res, err := h.verify.RejectExisting(r.Context(), tenantID(r), r.PathValue("completion_id"), req.Reason, actorPtr(r))
-	if err != nil {
-		h.internal(w, r, err)
-		return
-	}
-	httpresponse.WriteJSON(w, http.StatusOK, map[string]bool{"applied": res.Applied})
-}
-
-func (h *Handler) unavailable(w http.ResponseWriter, r *http.Request) {
-	httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
-		errorEnvelope{Code: "verification_unavailable", Message: "verification is not wired", TraceID: traceID(r)}, nil)
-}
-
-func actorPtr(r *http.Request) *string {
-	if a := httpmiddleware.ActorIDFromContext(r.Context()); a != "" {
-		return &a
-	}
-	return nil
 }
 
 func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {

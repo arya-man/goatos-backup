@@ -1,7 +1,16 @@
 // Package domain holds the vaccination module domain types (dose-administered records).
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var (
+	ErrStockGateBlocked      = errors.New("vaccination: stock gate blocked")
+	ErrStockMovementConflict = errors.New("vaccination: stock movement idempotency conflict")
+	ErrCompletionNotOpen     = errors.New("vaccination: completion obligation is not open")
+)
 
 // NewCompletion is the input to record one administered dose against an obligation.
 type NewCompletion struct {
@@ -51,12 +60,34 @@ type AcceptedCompletion struct {
 	AdministeredAt time.Time
 }
 
+// AcceptCompletionAtomicInput carries the verification metadata for accepting an existing recorded
+// completion inside the database-owned SM-5 transaction.
+type AcceptCompletionAtomicInput struct {
+	TenantID        string
+	CompletionID    string
+	VerifiedBy      *string
+	WithdrawalUntil *time.Time
+}
+
+// AcceptCompletionAtomicResult reports the durable side effects applied by the SM-5 transaction.
+type AcceptCompletionAtomicResult struct {
+	Completion     AcceptedCompletion
+	Applied        bool
+	Accepted       bool
+	Completed      bool
+	Consumed       bool
+	StatusEventID  string
+	OutboxInserted bool
+}
+
 // RecordedCompletion is one completion awaiting review (Verification queue).
 type RecordedCompletion struct {
 	CompletionID   string
 	ObligationID   string
 	GoatID         string
 	BatchID        string
+	SOPTaskID      string
+	SOPTaskVersion int32
 	AdministeredAt time.Time
 	Doses          int32
 	RouteSite      string

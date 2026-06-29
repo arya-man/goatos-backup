@@ -409,7 +409,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 		return nil, mapRepoErr(err)
 	}
 	if cmd.SubmissionFanoutRequired && !replay {
-		if err := s.applySubmissionFanout(ctx, cmd.TenantID, updatedTask, submission, false); err != nil {
+		if err := s.applySubmissionFanout(ctx, cmd.TenantID, updatedTask, submission, true); err != nil {
 			return nil, err
 		}
 	}

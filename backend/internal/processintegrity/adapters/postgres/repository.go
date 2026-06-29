@@ -112,6 +112,7 @@ type rowScanner interface {
 func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	var row domain.Row
 	var batchID, taskID, submissionID, completionID, cohortID, goatID, driveName, sopVersionID pgtype.Text
+	var taskRowVersion pgtype.Int4
 	var windowStart, windowEnd, latestEvidenceAt pgtype.Timestamptz
 	var batchStatus, submissionState, completionState, blockerReason, latestRejection, auditRef pgtype.Text
 	var operatorID, operatorName, parkHeadID, parkHeadName, verifierID, verifierName, escalationOwnerID, escalationOwnerName pgtype.Text
@@ -127,6 +128,7 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 		&row.ObligationID,
 		&batchID,
 		&taskID,
+		&taskRowVersion,
 		&submissionID,
 		&completionID,
 		&row.ParkID,
@@ -184,6 +186,7 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	}
 	row.BatchID = textPtr(batchID)
 	row.SOPTaskID = textPtr(taskID)
+	row.SOPTaskVersion = int32Ptr(taskRowVersion)
 	row.SOPSubmissionID = textPtr(submissionID)
 	row.CompletionID = textPtr(completionID)
 	row.CohortID = textPtr(cohortID)
@@ -319,6 +322,14 @@ func timePtr(v pgtype.Timestamptz) *time.Time {
 	return &t
 }
 
+func int32Ptr(v pgtype.Int4) *int32 {
+	if !v.Valid || v.Int32 <= 0 {
+		return nil
+	}
+	i := v.Int32
+	return &i
+}
+
 func splitCSV(v string) []string {
 	if strings.TrimSpace(v) == "" {
 		return []string{}
@@ -335,9 +346,9 @@ func splitCSV(v string) []string {
 
 // processIntegrityBaseSQL is point-in-time correct as of $10 (as_of) for the dose/evidence state it can
 // reconstruct: completions and SOP-submission evidence are bounded by as_of, and obligation status is
-// reconstructed AT as_of (completed via completed_at/as_of-bounded completion; missed/waived via the latest
+// reconstructed AT as_of (completed via completed_at/as_of-bounded completion; missed/waived/deferred via the latest
 // terminal event AT OR BEFORE as_of in the obligation_status_events log; scheduled/due/overdue from
-// due_at/window) instead of being read off the current obligation_instances.status. A missed/waived row is
+// due_at/window) instead of being read off the current obligation_instances.status. A missed/waived/deferred row is
 // only treated as terminal when a terminal event is proven at/before as_of; an obligation whose terminal
 // events are all after as_of re-buckets to open, while one with no terminal history at all falls back to its
 // current stored status (explicit, see asof_terminal). Documented residuals (no event history to reconstruct
@@ -381,13 +392,13 @@ WITH completions AS (
     created_at DESC
 ),
 asof_terminal AS (
-  -- Latest TERMINAL transition (missed/waived: statuses with no timestamp column on obligation_instances)
+  -- Latest TERMINAL transition (missed/waived/deferred: statuses with no timestamp column on obligation_instances)
   -- AT OR BEFORE as_of, from the append-only event log. asof_terminal_type is the terminal status in effect
-  -- at as_of (latest of missed/waived <= as_of, so a missed->waived sequence resolves to whichever was last
+  -- at as_of (latest of missed/waived/deferred <= as_of, so sequences resolve to whichever was last
   -- at as_of). It is NULL when the obligation's only terminal events are AFTER as_of (it was still open at
   -- as_of); has_terminal_event then distinguishes that "future-only" case from "no terminal history at all"
   -- (row absent -> cannot reconstruct -> trust the current stored status, documented residual). Restricted
-  -- to missed/waived, which are exceptions at herd scale, so this stays small and index-bound; open buckets
+  -- to missed/waived/deferred, which are exceptions at herd scale, so this stays small and index-bound; open buckets
   -- need no log (derived from due_at/window). Residual: a missed->reschedule->missed churn is not reopen-
   -- aware (no reopen event type yet), so the last terminal event at/before as_of wins; full multi-transition
   -- replay (incl. sop_tasks/obligation_batches history) is the deeper task/batch pass.
@@ -398,7 +409,7 @@ asof_terminal AS (
     true AS has_terminal_event
   FROM obligation_status_events
   WHERE tenant_id = $1::uuid
-    AND event_type IN ('missed', 'waived')
+    AND event_type IN ('missed', 'waived', 'deferred')
   GROUP BY obligation_id
 ),
 raw AS (
@@ -428,6 +439,7 @@ raw AS (
     ob.conducted_by,
     ob.created_at AS batch_created_at,
     st.task_id,
+    st.row_version AS task_row_version,
     st.state AS task_state,
     st.assigned_to,
     st.sop_version_id AS task_sop_version_id,
@@ -499,11 +511,11 @@ raw AS (
   LEFT JOIN asof_terminal te
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
-    AND oi.status IN ('scheduled', 'due', 'in_progress', 'completed', 'missed', 'waived')
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND ($4::timestamptz IS NULL OR oi.due_at >= $4::timestamptz)
     AND oi.due_at <= $5::timestamptz
     AND (
-      oi.status IN ('scheduled', 'due', 'in_progress', 'missed', 'waived')
+      oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed', 'waived')
       OR $14::boolean
       OR oi.due_at >= $11::timestamptz
       -- A row that is 'completed' NOW but finalized AFTER as_of was still open at as_of, so it must be
@@ -525,7 +537,7 @@ located AS (
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
           ELSE (CASE WHEN raw.due_at < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
         END
-      WHEN raw.obligation_status IN ('missed', 'waived') THEN
+      WHEN raw.obligation_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           -- The latest terminal transition at/before as_of was in effect at as_of.
           WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
@@ -556,6 +568,7 @@ grouped AS (
     located.dose_code,
     MIN(located.obligation_id::text) AS obligation_id,
     (ARRAY_AGG(located.task_id::text ORDER BY located.due_at DESC NULLS LAST) FILTER (WHERE located.task_id IS NOT NULL))[1] AS task_id,
+    (ARRAY_AGG(located.task_row_version ORDER BY located.due_at DESC NULLS LAST) FILTER (WHERE located.task_id IS NOT NULL))[1] AS task_row_version,
     (ARRAY_AGG(located.submission_id::text ORDER BY located.submitted_at DESC NULLS LAST) FILTER (WHERE located.submission_id IS NOT NULL))[1] AS submission_id,
     (ARRAY_AGG(located.completion_id::text ORDER BY located.completion_updated_at DESC NULLS LAST) FILTER (WHERE located.completion_id IS NOT NULL))[1] AS completion_id,
     CASE WHEN COUNT(DISTINCT located.goat_id) = 1 THEN MAX(located.goat_id::text) ELSE NULL END AS goat_id,
@@ -574,9 +587,10 @@ grouped AS (
         WHEN 'in_progress' THEN 2
         WHEN 'due' THEN 3
         WHEN 'scheduled' THEN 4
-        WHEN 'waived' THEN 5
-        WHEN 'completed' THEN 6
-        ELSE 7
+        WHEN 'deferred' THEN 5
+        WHEN 'waived' THEN 6
+        WHEN 'completed' THEN 7
+        ELSE 8
       END,
       located.due_at ASC
     ))[1] AS obligation_status,
@@ -585,7 +599,7 @@ grouped AS (
     COUNT(*) FILTER (WHERE located.eff_status = 'in_progress')::int AS in_progress_count,
     COUNT(*) FILTER (WHERE located.eff_status = 'completed')::int AS completed_count,
     COUNT(*) FILTER (WHERE located.eff_status = 'missed')::int AS missed_count,
-    COUNT(*) FILTER (WHERE located.eff_status = 'waived')::int AS deferred_count,
+    COUNT(*) FILTER (WHERE located.eff_status IN ('waived', 'deferred'))::int AS deferred_count,
     COUNT(*) FILTER (WHERE located.completion_status = 'recorded')::int AS completion_recorded,
     COUNT(*) FILTER (WHERE located.completion_status = 'accepted')::int AS completion_accepted,
     COUNT(*) FILTER (WHERE located.completion_status = 'rejected')::int AS completion_rejected,
@@ -868,6 +882,7 @@ SELECT
   obligation_id,
   batch_id::text AS batch_id,
   task_id AS sop_task_id,
+  task_row_version AS sop_task_row_version,
   submission_id AS sop_submission_id,
   completion_id,
   park_uuid::text AS park_id,

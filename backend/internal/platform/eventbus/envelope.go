@@ -3,10 +3,12 @@ package eventbus
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
 type domainEventEnvelope struct {
+	EventID         string          `json:"event_id"`
 	EventType       string          `json:"event_type"`
 	AggregateID     string          `json:"aggregate_id"`
 	OccurredAt      string          `json:"occurred_at"`
@@ -24,6 +26,10 @@ func EventFromEnvelope(payload []byte, fallback Event) (Event, error) {
 	eventType := env.EventType
 	if eventType == "" {
 		eventType = fallback.Type
+	}
+	eventID := strings.TrimSpace(env.EventID)
+	if eventID == "" {
+		eventID = strings.TrimSpace(fallback.ID)
 	}
 	tenantID, _ := env.VisibilityScope["tenant_id"].(string)
 	if tenantID == "" {
@@ -49,6 +55,7 @@ func EventFromEnvelope(payload []byte, fallback Event) (Event, error) {
 		eventPayload = payload
 	}
 	return Event{
+		ID:         eventID,
 		Type:       eventType,
 		TenantID:   tenantID,
 		Key:        key,

@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/md5"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,13 @@ import (
 )
 
 const defaultQueryTimeout = 3 * time.Second
+
+const (
+	vaccinationCompletedEventType     = "vaccination.completed"
+	vaccinationCompletedSchemaVersion = "1.0.0"
+	vaccinationCompletedSchemaRef     = "domain-event-envelope.v1"
+	vaccinationCompletedTopic         = "vaccination.events"
+)
 
 // Repository is the Postgres-backed vaccination repository.
 type Repository struct {
@@ -286,12 +294,75 @@ func (r *Repository) RecordCompletion(ctx context.Context, in domain.NewCompleti
 		IdempotencyKey:           in.IdempotencyKey,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
+		if ferr := checkCompletionIdempotencyFingerprint(ctx, r.pool, in, doseML); ferr != nil {
+			return "", false, ferr
+		}
 		return "", false, nil // already recorded for this idempotency key
 	}
 	if err != nil {
 		return "", false, fmt.Errorf("vaccination: record completion: %w", err)
 	}
 	return id, true, nil
+}
+
+type queryRower interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func checkCompletionIdempotencyFingerprint(ctx context.Context, db queryRower, in domain.NewCompletion, doseML pgtype.Numeric) error {
+	var conflict bool
+	err := db.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM vaccination_completions
+  WHERE tenant_id = $1::uuid
+    AND idempotency_key = $2
+    AND (
+      obligation_id IS DISTINCT FROM $3::uuid OR
+      COALESCE(batch_id::text, '') IS DISTINCT FROM $4 OR
+      goat_id IS DISTINCT FROM $5::uuid OR
+      COALESCE(sop_submission_item_id::text, '') IS DISTINCT FROM $6 OR
+      COALESCE(vaccine_inventory_lot_id::text, '') IS DISTINCT FROM $7 OR
+      COALESCE(doses, 0) IS DISTINCT FROM $8::int OR
+      dose_ml_given IS DISTINCT FROM $9::numeric OR
+      COALESCE(route_site, '') IS DISTINCT FROM $10 OR
+      adverse_reaction IS DISTINCT FROM $11 OR
+      COALESCE(adverse_reaction_problem_id::text, '') IS DISTINCT FROM $12 OR
+      cold_chain_verified IS DISTINCT FROM $13 OR
+      administered_at IS DISTINCT FROM $14::timestamptz OR
+      COALESCE(recorded_by::text, '') IS DISTINCT FROM $15
+    )
+)`,
+		in.TenantID,
+		in.IdempotencyKey,
+		in.ObligationID,
+		optionalString(in.BatchID),
+		in.GoatID,
+		optionalString(in.SopSubmissionItemID),
+		optionalString(in.VaccineInventoryLotID),
+		completionDoseValue(in.Doses),
+		doseML,
+		in.RouteSite,
+		in.AdverseReaction,
+		optionalString(in.AdverseReactionProblemID),
+		in.ColdChainVerified,
+		in.AdministeredAt,
+		optionalString(in.RecordedBy),
+	).Scan(&conflict)
+	if err != nil {
+		return fmt.Errorf("vaccination: check completion idempotency fingerprint: %w", err)
+	}
+	if conflict {
+		return ports.ErrIdempotencyConflict
+	}
+	return nil
+}
+
+func completionDoseValue(v *int32) int32 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 // AcceptCompletion marks a recorded completion accepted (SM-5).
@@ -329,6 +400,616 @@ func (r *Repository) AcceptCompletion(ctx context.Context, tenantID, completionI
 		Doses:          row.Doses,
 		AdministeredAt: row.AdministeredAt.Time,
 	}, true, nil
+}
+
+// RecordAndAcceptCompletionAtomic records a direct completion and applies SM-5 accept side effects in
+// one Postgres transaction. Replays resume incomplete legacy side effects and otherwise no-op.
+func (r *Repository) RecordAndAcceptCompletionAtomic(ctx context.Context, completion domain.NewCompletion, verifiedBy *string, withdrawalUntil *time.Time) (domain.AcceptCompletionAtomicResult, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if _, err := pgconv.UUID(completion.TenantID); err != nil {
+		return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	if _, err := pgconv.UUID(completion.ObligationID); err != nil {
+		return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: obligation id: %w", err)
+	}
+	if _, err := pgconv.UUID(completion.GoatID); err != nil {
+		return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: goat id: %w", err)
+	}
+	doseML, err := pgconv.Numeric(completion.DoseMlGiven)
+	if err != nil {
+		return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: dose_ml_given: %w", err)
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: begin atomic record accept: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	var completionID string
+	err = tx.QueryRow(ctx, `
+	INSERT INTO vaccination_completions (
+	  tenant_id,
+	  obligation_id,
+	  batch_id,
+	  goat_id,
+	  sop_submission_item_id,
+	  vaccine_inventory_lot_id,
+	  doses,
+	  dose_ml_given,
+	  route_site,
+	  adverse_reaction,
+	  adverse_reaction_problem_id,
+	  cold_chain_verified,
+	  administered_at,
+	  status,
+	  withdrawal_until_date,
+	  recorded_by,
+	  idempotency_key
+	) VALUES (
+	  $1::uuid,
+	  $2::uuid,
+	  nullif($3, '')::uuid,
+	  $4::uuid,
+	  nullif($5, '')::uuid,
+	  nullif($6, '')::uuid,
+	  $7,
+	  $8,
+	  nullif($9, ''),
+	  $10,
+	  nullif($11, '')::uuid,
+	  $12,
+	  $13,
+	  'recorded',
+	  $14,
+	  nullif($15, '')::uuid,
+	  $16
+	)
+	ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+	RETURNING completion_id::text`,
+		completion.TenantID,
+		completion.ObligationID,
+		optionalString(completion.BatchID),
+		completion.GoatID,
+		optionalString(completion.SopSubmissionItemID),
+		optionalString(completion.VaccineInventoryLotID),
+		pgconv.Int4(completion.Doses),
+		doseML,
+		completion.RouteSite,
+		completion.AdverseReaction,
+		optionalString(completion.AdverseReactionProblemID),
+		completion.ColdChainVerified,
+		completion.AdministeredAt,
+		pgconv.Date(completion.WithdrawalUntilDate),
+		optionalString(completion.RecordedBy),
+		completion.IdempotencyKey,
+	).Scan(&completionID)
+	result := domain.AcceptCompletionAtomicResult{}
+	if errors.Is(err, pgx.ErrNoRows) {
+		if ferr := checkCompletionIdempotencyFingerprint(ctx, tx, completion, doseML); ferr != nil {
+			return domain.AcceptCompletionAtomicResult{}, ferr
+		}
+		err = tx.QueryRow(ctx, `
+		SELECT completion_id::text
+	FROM vaccination_completions
+	WHERE tenant_id = $1::uuid
+	  AND idempotency_key = $2`, completion.TenantID, completion.IdempotencyKey).Scan(&completionID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			if cerr := tx.Commit(ctx); cerr != nil {
+				return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: commit atomic record accept noop: %w", cerr)
+			}
+			committed = true
+			return result, nil
+		}
+		if err != nil {
+			return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: get replay completion: %w", err)
+		}
+	} else if err != nil {
+		return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: record atomic completion: %w", err)
+	} else {
+		result.Applied = true
+	}
+
+	result, err = r.acceptCompletionInTx(ctx, tx, domain.AcceptCompletionAtomicInput{
+		TenantID:        completion.TenantID,
+		CompletionID:    completionID,
+		VerifiedBy:      verifiedBy,
+		WithdrawalUntil: withdrawalUntil,
+	}, result)
+	if err != nil {
+		return domain.AcceptCompletionAtomicResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: commit atomic record accept: %w", err)
+	}
+	committed = true
+	return result, nil
+}
+
+// AcceptCompletionAtomic applies the existing-completion SM-5 accept side effects in one Postgres
+// transaction: completion accept, stock consume, obligation completed event, and vaccination.completed
+// outbox row commit or roll back together.
+func (r *Repository) AcceptCompletionAtomic(ctx context.Context, in domain.AcceptCompletionAtomicInput) (domain.AcceptCompletionAtomicResult, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if _, err := pgconv.UUID(in.TenantID); err != nil {
+		return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	if _, err := pgconv.UUID(in.CompletionID); err != nil {
+		return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: completion id: %w", err)
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: begin atomic accept: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	result, err := r.acceptCompletionInTx(ctx, tx, in, domain.AcceptCompletionAtomicResult{})
+	if err != nil {
+		return domain.AcceptCompletionAtomicResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: commit atomic accept: %w", err)
+	}
+	committed = true
+	return result, nil
+}
+
+type acceptCompletionTxRow struct {
+	completionID   string
+	status         string
+	obligationID   string
+	goatID         string
+	batchID        string
+	lotID          string
+	doses          int32
+	administeredAt time.Time
+	coldChain      bool
+}
+
+func (r *Repository) acceptCompletionInTx(ctx context.Context, tx pgx.Tx, in domain.AcceptCompletionAtomicInput, result domain.AcceptCompletionAtomicResult) (domain.AcceptCompletionAtomicResult, error) {
+	row, found, err := r.lockAcceptableCompletion(ctx, tx, in.TenantID, in.CompletionID)
+	if err != nil {
+		return domain.AcceptCompletionAtomicResult{}, err
+	}
+	if !found {
+		return result, nil
+	}
+	result.Completion = domain.AcceptedCompletion{
+		CompletionID:   row.completionID,
+		Status:         row.status,
+		ObligationID:   row.obligationID,
+		GoatID:         row.goatID,
+		BatchID:        row.batchID,
+		LotID:          row.lotID,
+		Doses:          row.doses,
+		AdministeredAt: row.administeredAt,
+	}
+	obligationStatus, err := r.lockObligationStatus(ctx, tx, in.TenantID, row.obligationID)
+	if err != nil {
+		return domain.AcceptCompletionAtomicResult{}, err
+	}
+	if obligationStatus != "scheduled" && obligationStatus != "due" && obligationStatus != "in_progress" && obligationStatus != "missed" && obligationStatus != "completed" {
+		if row.status == "recorded" {
+			return result, nil
+		}
+		return domain.AcceptCompletionAtomicResult{}, domain.ErrCompletionNotOpen
+	}
+	consumed, err := r.consumeAcceptedCompletionStock(ctx, tx, in.TenantID, row)
+	if err != nil {
+		return domain.AcceptCompletionAtomicResult{}, err
+	}
+	if consumed {
+		result.Consumed = true
+		result.Applied = true
+	}
+	if row.status == "recorded" {
+		tag, err := tx.Exec(ctx, `
+	UPDATE vaccination_completions
+	SET status = 'accepted',
+	    verified_by = nullif($3, '')::uuid,
+	    verified_at = now(),
+	    withdrawal_until_date = $4,
+	    updated_at = now(),
+	    row_version = row_version + 1
+	WHERE tenant_id = $1::uuid
+	  AND completion_id = $2::uuid
+	  AND status = 'recorded'`, in.TenantID, row.completionID, optionalString(in.VerifiedBy), in.WithdrawalUntil)
+		if err != nil {
+			return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: atomic accept completion: %w", err)
+		}
+		if tag.RowsAffected() > 0 {
+			row.status = "accepted"
+			result.Accepted = true
+			result.Applied = true
+			result.Completion.Status = "accepted"
+		}
+	}
+	if obligationStatus != "completed" {
+		tag, err := tx.Exec(ctx, `
+	UPDATE obligation_instances
+	SET status = 'completed',
+	    completed_at = now(),
+	    row_version = row_version + 1,
+	    updated_at = now()
+	WHERE tenant_id = $1::uuid
+	  AND obligation_id = $2::uuid
+	  AND status IN ('scheduled', 'due', 'in_progress', 'missed')`, in.TenantID, row.obligationID)
+		if err != nil {
+			return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: atomic complete obligation: %w", err)
+		}
+		if tag.RowsAffected() > 0 {
+			result.Completed = true
+			result.Applied = true
+		}
+	}
+	if row.status == "accepted" || result.Accepted {
+		eventID, inserted, err := r.ensureCompletedStatusEvent(ctx, tx, in.TenantID, row.obligationID)
+		if err != nil {
+			return domain.AcceptCompletionAtomicResult{}, err
+		}
+		result.StatusEventID = eventID
+		if inserted {
+			result.Applied = true
+		}
+		outboxInserted, err := insertVaccinationCompletedOutbox(ctx, tx, in.TenantID, row.obligationID)
+		if err != nil {
+			return domain.AcceptCompletionAtomicResult{}, err
+		}
+		result.OutboxInserted = outboxInserted
+		if outboxInserted {
+			result.Applied = true
+		}
+	}
+	return result, nil
+}
+
+func (r *Repository) lockAcceptableCompletion(ctx context.Context, tx pgx.Tx, tenantID, completionID string) (acceptCompletionTxRow, bool, error) {
+	var row acceptCompletionTxRow
+	err := tx.QueryRow(ctx, `
+	SELECT completion_id::text,
+	       status,
+	       obligation_id::text,
+	       goat_id::text,
+	       COALESCE(batch_id::text, ''),
+	       COALESCE(vaccine_inventory_lot_id::text, ''),
+	       COALESCE(doses, 1)::int,
+	       administered_at,
+	       cold_chain_verified
+	FROM vaccination_completions
+	WHERE tenant_id = $1::uuid
+	  AND completion_id = $2::uuid
+	  AND status IN ('recorded', 'accepted')
+	FOR UPDATE`, tenantID, completionID).Scan(
+		&row.completionID,
+		&row.status,
+		&row.obligationID,
+		&row.goatID,
+		&row.batchID,
+		&row.lotID,
+		&row.doses,
+		&row.administeredAt,
+		&row.coldChain,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return acceptCompletionTxRow{}, false, nil
+	}
+	if err != nil {
+		return acceptCompletionTxRow{}, false, fmt.Errorf("vaccination: lock acceptable completion: %w", err)
+	}
+	if row.doses <= 0 {
+		row.doses = 1
+	}
+	return row, true, nil
+}
+
+func (r *Repository) lockObligationStatus(ctx context.Context, tx pgx.Tx, tenantID, obligationID string) (string, error) {
+	var status string
+	err := tx.QueryRow(ctx, `
+	SELECT status
+	FROM obligation_instances
+	WHERE tenant_id = $1::uuid
+	  AND obligation_id = $2::uuid
+	FOR UPDATE`, tenantID, obligationID).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", domain.ErrCompletionNotOpen
+	}
+	if err != nil {
+		return "", fmt.Errorf("vaccination: lock obligation status: %w", err)
+	}
+	return status, nil
+}
+
+func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.Tx, tenantID string, row acceptCompletionTxRow) (bool, error) {
+	if row.batchID == "" {
+		return false, nil
+	}
+	if row.lotID == "" || !row.coldChain {
+		return false, domain.ErrStockGateBlocked
+	}
+	var itemID, locationID, unit string
+	if err := tx.QueryRow(ctx, `
+	SELECT item_id::text, location_id::text, quantity_unit
+	FROM inventory_stock
+	WHERE tenant_id = $1::uuid
+	  AND stock_id = $2::uuid
+	  AND status = 'active'
+	  AND (expiry_date IS NULL OR expiry_date >= $3::date)
+	FOR UPDATE`, tenantID, row.lotID, row.administeredAt).Scan(&itemID, &locationID, &unit); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, domain.ErrStockGateBlocked
+		}
+		return false, fmt.Errorf("vaccination: lock completion stock: %w", err)
+	}
+	key := row.batchID + ":consume:" + row.obligationID + ":" + row.goatID
+	qty := int64(row.doses)
+	var conflict bool
+	if err := tx.QueryRow(ctx, `
+	SELECT EXISTS (
+	  SELECT 1
+	  FROM inventory_stock_movements
+	  WHERE tenant_id = $1::uuid
+	    AND idempotency_key = $2
+	    AND (
+	      lot_id IS DISTINCT FROM $3::uuid OR
+	      item_id IS DISTINCT FROM $4::uuid OR
+	      location_id IS DISTINCT FROM $5::uuid OR
+	      movement_type IS DISTINCT FROM 'consume' OR
+	      quantity IS DISTINCT FROM $6::numeric OR
+	      quantity_unit IS DISTINCT FROM $7 OR
+	      batch_id IS DISTINCT FROM $8::uuid
+	    )
+	)`, tenantID, key, row.lotID, itemID, locationID, qty, unit, row.batchID).Scan(&conflict); err != nil {
+		return false, fmt.Errorf("vaccination: check consume idempotency fingerprint: %w", err)
+	}
+	if conflict {
+		return false, domain.ErrStockMovementConflict
+	}
+	var replay bool
+	if err := tx.QueryRow(ctx, `
+	SELECT EXISTS (
+	  SELECT 1
+	  FROM inventory_stock_movements
+	  WHERE tenant_id = $1::uuid
+	    AND idempotency_key = $2
+	)`, tenantID, key).Scan(&replay); err != nil {
+		return false, fmt.Errorf("vaccination: check consume idempotency replay: %w", err)
+	}
+	if replay {
+		return false, nil
+	}
+	var batchReserved int64
+	if err := tx.QueryRow(ctx, `
+	SELECT COALESCE(SUM(CASE
+	  WHEN movement_type = 'reserve' THEN quantity
+	  WHEN movement_type IN ('consume', 'release') THEN -quantity
+	  ELSE 0
+	END), 0)::bigint
+	FROM inventory_stock_movements
+	WHERE tenant_id = $1::uuid
+	  AND batch_id = $2::uuid
+	  AND lot_id = $3::uuid
+	  AND movement_type IN ('reserve', 'consume', 'release')`, tenantID, row.batchID, row.lotID).Scan(&batchReserved); err != nil {
+		return false, fmt.Errorf("vaccination: check batch reservation ledger: %w", err)
+	}
+	if batchReserved < qty {
+		return false, domain.ErrStockGateBlocked
+	}
+	var movementID string
+	err := tx.QueryRow(ctx, `
+	INSERT INTO inventory_stock_movements (
+	  tenant_id, lot_id, item_id, location_id, movement_type,
+	  quantity, quantity_unit, batch_id, reason, idempotency_key,
+	  context
+	) VALUES (
+	  $1::uuid, $2::uuid, $3::uuid, $4::uuid, 'consume',
+	  $5::numeric, $6, $7::uuid, 'vaccination completion accepted', $8,
+	  jsonb_build_object(
+	    'obligation_id', $9::text,
+	    'goat_id', $10::text,
+	    'semantic_fingerprint',
+	    md5($2::text || ':' || $3::text || ':' || $4::text || ':consume:' || $5::numeric::text || ':' || $6 || ':' || $7::text)
+	  )
+	)
+	ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+	RETURNING movement_id::text`, tenantID, row.lotID, itemID, locationID, qty, unit, row.batchID, key, row.obligationID, row.goatID).Scan(&movementID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("vaccination: record consume movement: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `
+	UPDATE inventory_stock
+	SET quantity_in_stock = quantity_in_stock - $3::numeric,
+	    quantity_reserved = quantity_reserved - $3::numeric,
+	    row_version = row_version + 1,
+	    updated_at = now()
+	WHERE tenant_id = $1::uuid
+	  AND stock_id = $2::uuid
+	  AND quantity_reserved >= $3::numeric`, tenantID, row.lotID, qty)
+	if err != nil {
+		return false, fmt.Errorf("vaccination: adjust consume balances: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return false, domain.ErrStockGateBlocked
+	}
+	return true, nil
+}
+
+func (r *Repository) ensureCompletedStatusEvent(ctx context.Context, tx pgx.Tx, tenantID, obligationID string) (string, bool, error) {
+	key := obligationID + ":completed"
+	var eventID string
+	err := tx.QueryRow(ctx, `
+	SELECT obligation_event_id::text
+	FROM obligation_status_events
+	WHERE tenant_id = $1::uuid
+	  AND idempotency_key = $2
+	LIMIT 1`, tenantID, key).Scan(&eventID)
+	if err == nil {
+		if err := r.ensureCompletedStatusIdempotencyKey(ctx, tx, tenantID, key, eventID); err != nil {
+			return "", false, err
+		}
+		return eventID, false, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", false, fmt.Errorf("vaccination: find completed status event: %w", err)
+	}
+	var reservedKey string
+	err = tx.QueryRow(ctx, `
+	INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status)
+	VALUES ($1, $2::uuid, 'obligation.status_event', 'completed', 'started')
+	ON CONFLICT (idempotency_key) DO NOTHING
+	RETURNING idempotency_key`, key, tenantID).Scan(&reservedKey)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `
+	SELECT obligation_event_id::text
+	FROM obligation_status_events
+	WHERE tenant_id = $1::uuid
+	  AND idempotency_key = $2
+	LIMIT 1`, tenantID, key).Scan(&eventID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, fmt.Errorf("vaccination: completed status event idempotency key is reserved without an event")
+		}
+		if err != nil {
+			return "", false, fmt.Errorf("vaccination: load reserved completed status event: %w", err)
+		}
+		return eventID, false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("vaccination: reserve completed status event key: %w", err)
+	}
+	err = tx.QueryRow(ctx, `
+	INSERT INTO obligation_status_events (
+	  tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key
+	) VALUES (
+	  $1::uuid, $2::uuid, 'completed', now(), '{"event":"completed"}'::jsonb, $3
+	)
+	RETURNING obligation_event_id::text`, tenantID, obligationID, key).Scan(&eventID)
+	if err != nil {
+		return "", false, fmt.Errorf("vaccination: insert completed status event: %w", err)
+	}
+	if err := r.completeCompletedStatusIdempotencyKey(ctx, tx, key, eventID); err != nil {
+		return "", false, err
+	}
+	return eventID, true, nil
+}
+
+func (r *Repository) ensureCompletedStatusIdempotencyKey(ctx context.Context, tx pgx.Tx, tenantID, key, eventID string) error {
+	if _, err := tx.Exec(ctx, `
+	INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status, result_type, result_id, completed_at)
+	VALUES ($1, $2::uuid, 'obligation.status_event', 'completed', 'completed', 'obligation_status_event', $3::uuid, now())
+	ON CONFLICT (idempotency_key) DO NOTHING`, key, tenantID, eventID); err != nil {
+		return fmt.Errorf("vaccination: backfill completed status idempotency key: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) completeCompletedStatusIdempotencyKey(ctx context.Context, tx pgx.Tx, key, eventID string) error {
+	if _, err := tx.Exec(ctx, `
+	UPDATE idempotency_keys
+	SET status = 'completed',
+	    result_type = 'obligation_status_event',
+	    result_id = $2::uuid,
+	    completed_at = now()
+	WHERE idempotency_key = $1`, key, eventID); err != nil {
+		return fmt.Errorf("vaccination: complete status idempotency key: %w", err)
+	}
+	return nil
+}
+
+func insertVaccinationCompletedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID string) (bool, error) {
+	eventID := deterministicOutboxUUID("vaccination.completed:" + tenantID + ":" + obligationID)
+	idempotencyKey := "vaccination.completed:" + obligationID
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	payload := map[string]any{
+		"tenant_id":     tenantID,
+		"obligation_id": obligationID,
+		"status":        "completed",
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     vaccinationCompletedEventType,
+		"schema_version": vaccinationCompletedSchemaVersion,
+		"schema_ref":     vaccinationCompletedSchemaRef,
+		"aggregate_type": "obligation_instance",
+		"aggregate_id":   obligationID,
+		"occurred_at":    now,
+		"recorded_at":    now,
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  "vaccination",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": "system_rule",
+			"actor_id":   nil,
+			"actor_ref":  nil,
+		},
+		"subject_type": "obligation_instance",
+		"subject_id":   obligationID,
+		"visibility_scope": map[string]any{
+			"tenant_id": tenantID,
+		},
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "obligation_status_event",
+			"evidence_id":   obligationID + ":completed",
+		}},
+		"payload":  payload,
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return false, fmt.Errorf("vaccination: completed envelope: %w", err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer":        "vaccination.AcceptCompletionAtomic",
+		"schema_version":  vaccinationCompletedSchemaVersion,
+		"obligation_id":   obligationID,
+		"idempotency_key": idempotencyKey,
+	})
+	if err != nil {
+		return false, fmt.Errorf("vaccination: completed headers: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `
+	INSERT INTO outbox_messages (
+	  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+	  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+	) VALUES (
+	  $1::uuid, $2::uuid, $3, $4, 'obligation_instance', $5::uuid,
+	  $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
+	)
+	ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.completed' DO NOTHING`,
+		tenantID, eventID, vaccinationCompletedEventType, vaccinationCompletedSchemaVersion,
+		obligationID, vaccinationCompletedTopic, envelope, headers, idempotencyKey)
+	if err != nil {
+		return false, fmt.Errorf("vaccination: completed outbox: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+func deterministicOutboxUUID(seed string) string {
+	sum := md5.Sum([]byte(seed))
+	sum[6] = (sum[6] & 0x0f) | 0x30
+	sum[8] = (sum[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", sum[0:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
+}
+
+func optionalString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // GetRecordedCompletion returns the SM-5 context before a recorded completion is accepted.
@@ -398,6 +1079,52 @@ func (r *Repository) GetAcceptableCompletion(ctx context.Context, tenantID, comp
 		Doses:          row.Doses,
 		AdministeredAt: row.AdministeredAt.Time,
 	}, true, nil
+}
+
+// GetAcceptedCompletionForObligation returns the accepted completion that completed an obligation.
+// The vaccination.completed consumer uses this to keep booster scheduling derived from canonical DB
+// state instead of widening the event payload.
+func (r *Repository) GetAcceptedCompletionForObligation(ctx context.Context, tenantID, obligationID string) (domain.AcceptedCompletion, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if _, err := pgconv.UUID(tenantID); err != nil {
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	if _, err := pgconv.UUID(obligationID); err != nil {
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: obligation id: %w", err)
+	}
+	var row domain.AcceptedCompletion
+	err := r.pool.QueryRow(ctx, `
+	SELECT completion_id::text,
+	       status,
+	       obligation_id::text,
+	       goat_id::text,
+	       COALESCE(batch_id::text, ''),
+	       COALESCE(vaccine_inventory_lot_id::text, ''),
+	       COALESCE(doses, 1)::int,
+	       administered_at
+	FROM vaccination_completions
+	WHERE tenant_id = $1::uuid
+	  AND obligation_id = $2::uuid
+	  AND status = 'accepted'
+	ORDER BY verified_at DESC NULLS LAST, administered_at DESC, completion_id DESC
+	LIMIT 1`, tenantID, obligationID).Scan(
+		&row.CompletionID,
+		&row.Status,
+		&row.ObligationID,
+		&row.GoatID,
+		&row.BatchID,
+		&row.LotID,
+		&row.Doses,
+		&row.AdministeredAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.AcceptedCompletion{}, false, nil
+	}
+	if err != nil {
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: get accepted completion for obligation: %w", err)
+	}
+	return row, true, nil
 }
 
 // GetAcceptableCompletionByIdempotency returns context for a recorded or already-accepted direct
@@ -645,6 +1372,8 @@ func (r *Repository) ListRecordedCompletions(ctx context.Context, tenantID, park
 			ObligationID:   row.ObligationID,
 			GoatID:         row.GoatID,
 			BatchID:        row.BatchID,
+			SOPTaskID:      row.SopTaskID,
+			SOPTaskVersion: row.SopTaskRowVersion,
 			AdministeredAt: row.AdministeredAt.Time,
 			Doses:          row.Doses,
 			RouteSite:      row.RouteSite,

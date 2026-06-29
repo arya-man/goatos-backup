@@ -861,6 +861,53 @@ func TestVaccinationExecutionReconstructsObligationStatusAsOf(t *testing.T) {
 	}
 }
 
+func TestVaccinationExecutionAndOperationsSurfaceDeferredObligations(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	const (
+		deferredGoat  = "70000000-0000-4000-8000-0000000000d4"
+		deferredBatch = "70000000-0000-4000-8000-0000000000d5"
+		deferredObl   = "70000000-0000-4000-8000-0000000000d6"
+	)
+	insertOpsStageGoat(t, ctx, pool, deferredGoat, "DF")
+	insertProjectionBatch(t, ctx, pool, deferredBatch, "planned")
+	insertProjectionObligation(t, ctx, pool, deferredObl, deferredBatch, deferredGoat, "deferred", "2026-06-26 00:00:00+00", "vaccexec-deferred")
+	insertObligationStatusEvent(t, ctx, pool, deferredObl, "deferred", "2026-06-24 10:00:00+00", "vaccexec-deferred-event")
+
+	repo := NewRepository(pool, 5*time.Second)
+	svc := vaccexecapp.NewService(repo)
+	query := domain.ExecutionQuery{
+		TenantID:  testTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC),
+		Limit:     50,
+	}
+	rows, err := svc.VaccinationExecution(ctx, query)
+	if err != nil {
+		t.Fatalf("VaccinationExecution: %v", err)
+	}
+	if row := execRowByDrive(rows, deferredBatch); row == nil || row.WorkState != domain.WorkStateDeferred {
+		t.Fatalf("deferred execution row = %#v", row)
+	}
+
+	opsQuery := domain.OperationsQuery{TenantID: query.TenantID, AsOf: query.AsOf, DueBefore: query.DueBefore, Limit: query.Limit}
+	opsRows, err := repo.VaccinationOperations(ctx, opsQuery)
+	if err != nil {
+		t.Fatalf("VaccinationOperations: %v", err)
+	}
+	df := opsRowByStage(opsRows, "DF")
+	if df == nil || df.DeferredCount != 1 {
+		t.Fatalf("deferred ops row = %#v", df)
+	}
+	if cohort := opsCohortByStage(t, svc, ctx, opsQuery, "DF"); cohort.WorkState != domain.WorkStateDeferred {
+		t.Fatalf("deferred cohort workState want deferred, got %q", cohort.WorkState)
+	}
+}
+
 func execRowByDrive(rows []domain.ExecutionRow, driveID string) *domain.ExecutionRow {
 	for i := range rows {
 		if rows[i].DriveID != nil && *rows[i].DriveID == driveID {

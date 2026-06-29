@@ -146,9 +146,9 @@ Backend-backed vs disabled-with-reason:
   is RECORDED by the shed operator through the SOP task + proof upload
   (`submitAppTask` / `createProofUpload`, TaskExecute) — admin-web exposes no
   record route. The cohort × protocol cell is a status rollup with no single
-  `completion_id`, so `acceptVaccinationCompletion` / `rejectVaccinationCompletion`
-  (which need a `completion_id` from the per-goat verification queue) cannot be
-  fired from this rollup. The drawer routes verification to the Action Center
+  `completion_id`, `sop_task_id`, or `sop_task_row_version`, so SOP task
+  verify/rework (which needs the per-goat verification queue's review handle)
+  cannot be fired from this rollup. The drawer routes verification to the Action Center
   where the real obligation/completion rows live. No fake submit, no fake rows,
   no client-only mutation.
 
@@ -261,9 +261,9 @@ rule as herd). Execution `.tbar` search + Filters already present.
 - Record / proof upload needs `task_id` → `POST /app/tasks/{task_id}/submissions`
   + `/app/proofs/*`. No /vaccination read-model returns it: `VaccinationExecutionRow`
   has only `driveId` + status enums; the operations cell has only `counts`.
-- Verify (`/vaccination/completions/{completion_id}/accept|reject`, already in
-  server.ts) needs `completion_id`, exposed only by `/vaccination/verification-queue`
-  (per-goat), never on the cohort rollup / execution row.
+- Verify/rework needs `completion_id`, `sop_task_id`, and `sop_task_row_version`,
+  exposed only by `/vaccination/verification-queue` / Action Center per-goat
+  rows, never on the cohort rollup / execution row.
 
 **Backend follow-up to make in-drawer proof-upload + accept/reject WORK** (only
 honest path): extend `/vaccination/execution` (and/or the operations cell) to

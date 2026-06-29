@@ -78,24 +78,33 @@ function shortId(id: string): string {
 function ActionForm({
   action,
   completionId,
+  taskId,
+  rowVersion,
   returnTo,
   reason,
+  disabledTitle,
   primary,
   children,
 }: {
   action: (formData: FormData) => void | Promise<void>;
   completionId: string;
+  taskId?: string;
+  rowVersion?: number;
   returnTo: string;
   reason?: string;
+  disabledTitle?: string;
   primary?: boolean;
   children: React.ReactNode;
 }) {
+  const canReview = Boolean(taskId) && Number(rowVersion ?? 0) > 0;
   return (
     <form action={action} style={{ display: "inline" }}>
       <input type="hidden" name="completion_id" value={completionId} />
+      {taskId ? <input type="hidden" name="task_id" value={taskId} /> : null}
+      {rowVersion ? <input type="hidden" name="row_version" value={rowVersion} /> : null}
       <input type="hidden" name="return_to" value={returnTo} />
       {reason ? <input type="hidden" name="reason" value={reason} /> : null}
-      <button type="submit" className={`btn sm${primary ? " p" : ""}`}>
+      <button type="submit" className={`btn sm${primary ? " p" : ""}`} disabled={!canReview} aria-disabled={!canReview || undefined} title={!canReview ? disabledTitle : undefined}>
         {children}
       </button>
     </form>
@@ -293,15 +302,15 @@ export async function VaccinationActionCenterPage({
                       <td>{q.doses}</td>
                       <td>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-	                          <ActionForm action={verifyCompletionAction} completionId={q.completion_id} returnTo={verifyReturnTo} primary>
-	                            {copy(pageContract, "action.verify")}
-	                          </ActionForm>
-	                          <ActionForm action={rejectCompletionAction} completionId={q.completion_id} returnTo={verifyReturnTo} reason="rejected">
-	                            {copy(pageContract, "action.reject")}
-	                          </ActionForm>
-	                          <ActionForm action={rejectCompletionAction} completionId={q.completion_id} returnTo={verifyReturnTo} reason="rework_requested">
-	                            {copy(pageContract, "action.request_rework")}
-	                          </ActionForm>
+                          <ActionForm action={verifyCompletionAction} completionId={q.completion_id} taskId={q.sop_task_id} rowVersion={q.sop_task_row_version} returnTo={verifyReturnTo} disabledTitle={copy(pageContract, "reason.no_sop_review_handle")} primary>
+                            {copy(pageContract, "action.verify")}
+                          </ActionForm>
+                          <ActionForm action={rejectCompletionAction} completionId={q.completion_id} taskId={q.sop_task_id} rowVersion={q.sop_task_row_version} returnTo={verifyReturnTo} reason="rejected" disabledTitle={copy(pageContract, "reason.no_sop_review_handle")}>
+                            {copy(pageContract, "action.reject")}
+                          </ActionForm>
+                          <ActionForm action={rejectCompletionAction} completionId={q.completion_id} taskId={q.sop_task_id} rowVersion={q.sop_task_row_version} returnTo={verifyReturnTo} reason="rework_requested" disabledTitle={copy(pageContract, "reason.no_sop_review_handle")}>
+                            {copy(pageContract, "action.request_rework")}
+                          </ActionForm>
 	                          <Link href={`/goats/${q.goat_id}`} className="btn sm">
 	                            {copy(pageContract, "action.passport")}
 	                          </Link>
@@ -482,6 +491,8 @@ function ActionCenterRowDrawer({
   const sopProgress = sopDoneThrough(row);
   const hasCompletion = !!row.completion_id;
   const completionId = row.completion_id ?? "";
+  const taskId = row.sop_task_id;
+  const taskRowVersion = row.sop_task_row_version;
   const fieldActionNote = copy(pageContract, "drawer.disabled_field_action");
   return (
     <>
@@ -613,8 +624,8 @@ function ActionCenterRowDrawer({
           </div>
         </div>
 
-        {/* Action row (mock #tdFoot). Verify / Request rework are wired to the real completion when one
-            exists; un-backed steps keep the mock look but are disabled-with-reason. */}
+        {/* Action row (mock #tdFoot). Verify / Request rework require a SOP review handle; un-backed
+            steps keep the mock look but are disabled-with-reason. */}
         <div className="df">
           <Link href={workflowHref} className="btn p">
             {row.next_action}
@@ -626,7 +637,7 @@ function ActionCenterRowDrawer({
             {copy(pageContract, "action.submit_proof")}
           </button>
           {hasCompletion ? (
-            <ActionForm action={verifyCompletionAction} completionId={completionId} returnTo={returnTo}>
+            <ActionForm action={verifyCompletionAction} completionId={completionId} taskId={taskId} rowVersion={taskRowVersion} returnTo={returnTo} disabledTitle={copy(pageContract, "reason.no_sop_review_handle")}>
               {copy(pageContract, "action.verify")}
             </ActionForm>
           ) : (
@@ -635,7 +646,7 @@ function ActionCenterRowDrawer({
             </button>
           )}
           {hasCompletion ? (
-            <ActionForm action={rejectCompletionAction} completionId={completionId} returnTo={returnTo} reason="rework_requested">
+            <ActionForm action={rejectCompletionAction} completionId={completionId} taskId={taskId} rowVersion={taskRowVersion} returnTo={returnTo} reason="rework_requested" disabledTitle={copy(pageContract, "reason.no_sop_review_handle")}>
               {copy(pageContract, "action.request_rework")}
             </ActionForm>
           ) : (

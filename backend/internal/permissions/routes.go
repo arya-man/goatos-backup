@@ -138,8 +138,6 @@ var protectedRoutes = []Route{
 	{OperationID: "acknowledgeCalendarVaccinationEscalation", Method: "POST", Pattern: "/calendar/vaccination/events/{event_id}/escalation/acknowledge", Permissions: []string{CalendarAction, VaccinationRead, ObligationRead}},
 	{OperationID: "resolveCalendarVaccinationEscalation", Method: "POST", Pattern: "/calendar/vaccination/events/{event_id}/escalation/resolve", Permissions: []string{CalendarAction, VaccinationRead, ObligationRead}},
 	{OperationID: "vaccinationVerificationQueue", Method: "GET", Pattern: "/vaccination/verification-queue", Permissions: []string{VaccinationRead}},
-	{OperationID: "acceptVaccinationCompletion", Method: "POST", Pattern: "/vaccination/completions/{completion_id}/accept", Permissions: []string{VaccinationVerify}},
-	{OperationID: "rejectVaccinationCompletion", Method: "POST", Pattern: "/vaccination/completions/{completion_id}/reject", Permissions: []string{VaccinationVerify}},
 	{OperationID: "getGoatVaccinationPassport", Method: "GET", Pattern: "/goats/{goat_id}/passport", Permissions: []string{GoatRead}},
 }
 

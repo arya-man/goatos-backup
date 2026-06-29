@@ -753,20 +753,35 @@ type dueReminderEvent struct {
 	TargetType     string
 	TargetID       string
 	PrimaryChannel string
+	Timezone       string
 }
 
 func (r *Repository) selectDueReminderEvents(ctx context.Context, tenantID string, limit int) ([]dueReminderEvent, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT event_id, title, target_type, COALESCE(source_target_id::text, ''), primary_notification_channel
-FROM calendar_event_projections
-WHERE tenant_id = $1::uuid
-  AND slice_key = 'vaccination'
-  AND system = false
-  AND due_at <= now() + interval '1 hour'
-  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
-  AND reminder_state IN ('not_scheduled', 'scheduled')
-ORDER BY due_at ASC, event_id ASC
-LIMIT $2`, tenantID, limit)
+SELECT event_id, title, target_type, COALESCE(source_target_id::text, ''), primary_notification_channel,
+       COALESCE(NULLIF(timezone, ''), 'Asia/Kolkata')
+	FROM calendar_event_projections
+	WHERE tenant_id = $1::uuid
+	  AND slice_key = 'vaccination'
+	  AND system = false
+	  AND due_at <= now() + interval '1 hour'
+	  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+	  AND NOT EXISTS (
+	    SELECT 1
+	    FROM calendar_snoozes cs
+	    WHERE cs.tenant_id = $1::uuid
+	      AND cs.calendar_event_id = calendar_event_projections.event_id
+	      AND cs.status = 'active'
+	      AND cs.snooze_until > now()
+	  )
+	  AND NOT EXISTS (
+	    SELECT 1
+	    FROM notification_requests nr
+	    WHERE nr.tenant_id = $1::uuid
+	      AND nr.idempotency_key = $1 || ':calendar.reminder:' || calendar_event_projections.event_id || ':' || to_char((now() AT TIME ZONE COALESCE(NULLIF(calendar_event_projections.timezone, ''), 'Asia/Kolkata'))::date, 'YYYY-MM-DD')
+	  )
+	ORDER BY due_at ASC, event_id ASC
+	LIMIT $2`, tenantID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("calendar: select reminder sweep: %w", err)
 	}
@@ -774,7 +789,7 @@ LIMIT $2`, tenantID, limit)
 	events := []dueReminderEvent{}
 	for rows.Next() {
 		var e dueReminderEvent
-		if err := rows.Scan(&e.EventID, &e.Title, &e.TargetType, &e.TargetID, &e.PrimaryChannel); err != nil {
+		if err := rows.Scan(&e.EventID, &e.Title, &e.TargetType, &e.TargetID, &e.PrimaryChannel, &e.Timezone); err != nil {
 			return nil, err
 		}
 		events = append(events, e)
@@ -793,25 +808,39 @@ func (r *Repository) queueDueReminder(ctx context.Context, tenantID, eventID str
 	defer func() { _ = tx.Rollback(ctx) }()
 	var e dueReminderEvent
 	if err := tx.QueryRow(ctx, `
-SELECT event_id, title, target_type, COALESCE(source_target_id::text, ''), primary_notification_channel
+SELECT event_id, title, target_type, COALESCE(source_target_id::text, ''), primary_notification_channel,
+       COALESCE(NULLIF(timezone, ''), 'Asia/Kolkata')
 FROM calendar_event_projections
-WHERE tenant_id = $1::uuid
-  AND event_id = $2
-  AND slice_key = 'vaccination'
-  AND system = false
-  AND due_at <= now() + interval '1 hour'
-  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
-  AND reminder_state IN ('not_scheduled', 'scheduled')
-ORDER BY due_at ASC, event_id ASC
-LIMIT 1
-FOR UPDATE SKIP LOCKED`, tenantID, eventID).Scan(&e.EventID, &e.Title, &e.TargetType, &e.TargetID, &e.PrimaryChannel); err != nil {
+	WHERE tenant_id = $1::uuid
+	  AND event_id = $2
+	  AND slice_key = 'vaccination'
+	  AND system = false
+	  AND due_at <= now() + interval '1 hour'
+	  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+	  AND NOT EXISTS (
+	    SELECT 1
+	    FROM calendar_snoozes cs
+	    WHERE cs.tenant_id = $1::uuid
+	      AND cs.calendar_event_id = calendar_event_projections.event_id
+	      AND cs.status = 'active'
+	      AND cs.snooze_until > now()
+	  )
+	  AND NOT EXISTS (
+	    SELECT 1
+	    FROM notification_requests nr
+	    WHERE nr.tenant_id = $1::uuid
+	      AND nr.idempotency_key = $1 || ':calendar.reminder:' || calendar_event_projections.event_id || ':' || to_char((now() AT TIME ZONE COALESCE(NULLIF(calendar_event_projections.timezone, ''), 'Asia/Kolkata'))::date, 'YYYY-MM-DD')
+	  )
+	ORDER BY due_at ASC, event_id ASC
+	LIMIT 1
+	FOR UPDATE SKIP LOCKED`, tenantID, eventID).Scan(&e.EventID, &e.Title, &e.TargetType, &e.TargetID, &e.PrimaryChannel, &e.Timezone); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
 		return false, fmt.Errorf("calendar: lock reminder event: %w", err)
 	}
 	channel := normalizeChannel("", e.PrimaryChannel)
-	key := tenantID + ":calendar.reminder:" + e.EventID + ":" + calendarBusinessDate(time.Now().UTC())
+	key := tenantID + ":calendar.reminder:" + e.EventID + ":" + calendarBusinessDateIn(time.Now().UTC(), e.Timezone)
 	var requestID string
 	err = tx.QueryRow(ctx, `
 INSERT INTO notification_requests (
@@ -923,11 +952,10 @@ WITH candidates AS (
   WHERE tenant_id = $1::uuid
     AND slice_key = 'vaccination'
     AND system = false
-    AND due_at IS NOT NULL
-    AND due_at <= $2::timestamptz
-    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
-    AND COALESCE(escalation_state, '') <> 'resolved'
-)
+	    AND due_at IS NOT NULL
+	    AND due_at <= $2::timestamptz
+	    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+	)
 SELECT event_id, level
 FROM candidates c
 WHERE level > 0
@@ -990,11 +1018,10 @@ FROM calendar_event_projections
 WHERE tenant_id = $1::uuid
   AND event_id = $2
   AND slice_key = 'vaccination'
-  AND system = false
-  AND due_at <= $3::timestamptz
-  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
-  AND COALESCE(escalation_state, '') <> 'resolved'
-FOR UPDATE SKIP LOCKED`, tenantID, eventID, now).Scan(
+	  AND system = false
+	  AND due_at <= $3::timestamptz
+	  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+	FOR UPDATE SKIP LOCKED`, tenantID, eventID, now).Scan(
 		&target.EventID,
 		&target.Title,
 		&target.Status,
@@ -1190,7 +1217,18 @@ func escalationRoleRank(role string) (int, bool) {
 }
 
 func calendarBusinessDate(t time.Time) string {
+	return calendarBusinessDateIn(t, domain.DefaultTimezone)
+}
+
+func calendarBusinessDateIn(t time.Time, timezone string) string {
+	timezone = strings.TrimSpace(timezone)
+	if timezone == "" {
+		timezone = domain.DefaultTimezone
+	}
 	loc, err := time.LoadLocation(domain.DefaultTimezone)
+	if timezone != domain.DefaultTimezone {
+		loc, err = time.LoadLocation(timezone)
+	}
 	if err != nil {
 		loc = time.FixedZone("IST", 5*60*60+30*60)
 	}

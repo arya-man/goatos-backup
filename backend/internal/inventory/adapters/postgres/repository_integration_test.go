@@ -2,10 +2,12 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/inventory/domain"
+	"github.com/vgoats/goatos/backend/internal/inventory/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
@@ -74,5 +76,59 @@ func TestMovementExistsByIdempotencyKey(t *testing.T) {
 	}
 	if !exists {
 		t.Fatal("movement should exist after insert")
+	}
+}
+
+func TestRecordMovementRejectsSameKeyDifferentPayload(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	itemID, err := repo.CreateItem(ctx, domain.NewItem{
+		TenantID: inventoryTestTenant,
+		ItemCode: "movement-conflict-vaccine",
+		Name:     "Movement Conflict Vaccine",
+		Category: "vaccine",
+		BaseUnit: "dose",
+		Status:   "active",
+	})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	lotID, err := repo.CreateStockLot(ctx, domain.NewStockLot{
+		TenantID:         inventoryTestTenant,
+		ItemID:           itemID,
+		LocationID:       inventoryTestPark,
+		LotCode:          "move-conflict-lot",
+		QuantityInStock:  "5",
+		QuantityReserved: "0",
+		QuantityUnit:     "dose",
+		Status:           "active",
+	})
+	if err != nil {
+		t.Fatalf("create lot: %v", err)
+	}
+	movement := domain.Movement{
+		TenantID:       inventoryTestTenant,
+		LotID:          lotID,
+		ItemID:         itemID,
+		LocationID:     inventoryTestPark,
+		MovementType:   "adjust",
+		Quantity:       "1",
+		QuantityUnit:   "dose",
+		Reason:         "movement conflict test",
+		IdempotencyKey: "movement-conflict-key",
+	}
+	if _, applied, err := repo.RecordMovement(ctx, movement); err != nil || !applied {
+		t.Fatalf("record movement: applied=%v err=%v", applied, err)
+	}
+	if _, applied, err := repo.RecordMovement(ctx, movement); err != nil || applied {
+		t.Fatalf("same movement replay: applied=%v err=%v", applied, err)
+	}
+	movement.Quantity = "2"
+	if _, _, err := repo.RecordMovement(ctx, movement); !errors.Is(err, ports.ErrMovementIdempotencyConflict) {
+		t.Fatalf("different movement replay err=%v, want movement idempotency conflict", err)
 	}
 }

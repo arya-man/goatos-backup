@@ -76,6 +76,8 @@ jobs:
         run: npm --prefix apps/admin-web run lint
       - name: Admin-web typecheck
         run: npm --prefix apps/admin-web run typecheck
+      - name: Admin-web mock fidelity
+        run: npm --prefix apps/admin-web run check:mock-fidelity
       - name: Admin-web build and token leak guard
         env:
           GOATOS_BEARER_TOKEN: sentinel-mesha-admin-token

@@ -97,14 +97,15 @@ func TestSM5VerifyExistingTwoPhase(t *testing.T) {
 	ob2 := scanText(t, ctx, pool, `SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, impTenant, g2)
 
 	svc := vaccapp.NewService(vacc)
-	completion := vaccapp.NewCompletionService(svc, obl, reserver).WithBooster(vaccapp.NewBoosterService(proto, obl))
+	booster := vaccapp.NewBoosterService(proto, obl)
+	completion := vaccapp.NewCompletionService(svc, obl, reserver)
 	doses := int32(1)
 	record := func(ob, goat, key string) string {
 		batch, lot := batchID, impLot
 		cid, applied, err := svc.RecordCompletion(ctx, vaccdomain.NewCompletion{
 			TenantID: impTenant, ObligationID: ob, GoatID: goat, BatchID: &batch,
 			VaccineInventoryLotID: &lot, Doses: &doses, RouteSite: "SC", AdministeredAt: asOf,
-			Status: "recorded", IdempotencyKey: key,
+			ColdChainVerified: true, Status: "recorded", IdempotencyKey: key,
 		})
 		if err != nil || !applied || cid == "" {
 			t.Fatalf("record %s: cid=%q applied=%v err=%v", goat, cid, applied, err)
@@ -114,13 +115,17 @@ func TestSM5VerifyExistingTwoPhase(t *testing.T) {
 	cid1 := record(ob1, g1, "sub-g1")
 	cid2 := record(ob2, g2, "sub-g2")
 
-	// Verify-accept g1: obligation completed + 1 dose consumed + booster scheduled (context derived).
+	// Verify-accept g1: obligation completed + 1 dose consumed + durable completed event.
 	ar, err := completion.AcceptExisting(ctx, vaccapp.AcceptExistingInput{TenantID: impTenant, CompletionID: cid1})
-	if err != nil || !ar.Applied || !ar.Completed || !ar.NextScheduled {
+	if err != nil || !ar.Applied || !ar.Completed || ar.NextScheduled {
 		t.Fatalf("accept-existing g1: %+v err=%v", ar, err)
 	}
+	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g1); got != 0 {
+		t.Fatalf("booster must wait for vaccination.completed consumer, got %d early dose-2 obligations", got)
+	}
+	dispatchVaccinationCompletedOutbox(t, ctx, pool, vacc, obl, booster, ob1)
 	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g1); got != 1 {
-		t.Fatalf("want 1 booster (dose-2) obligation for g1 via verify path, got %d", got)
+		t.Fatalf("want 1 booster (dose-2) obligation for g1 via completed event, got %d", got)
 	}
 	if got := scanText(t, ctx, pool, `SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, impTenant, ob1); got != "completed" {
 		t.Fatalf("ob1: want completed, got %s", got)
@@ -165,7 +170,7 @@ func TestSM5VerifyExistingTwoPhase(t *testing.T) {
 	correctedID, applied, err := svc.RecordCompletion(ctx, vaccdomain.NewCompletion{
 		TenantID: impTenant, ObligationID: ob2, GoatID: g2, BatchID: &batch,
 		VaccineInventoryLotID: &lot, Doses: &doses, RouteSite: "SC", AdministeredAt: asOf,
-		Status: "recorded", IdempotencyKey: "sub-g2-corrected",
+		ColdChainVerified: true, Status: "recorded", IdempotencyKey: "sub-g2-corrected",
 	})
 	if err != nil || !applied || correctedID == "" {
 		t.Fatalf("corrected record after reject: id=%q applied=%v err=%v", correctedID, applied, err)

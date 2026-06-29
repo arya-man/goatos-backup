@@ -2,13 +2,12 @@ package app
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
-var ErrStockGateBlocked = errors.New("vaccination: stock gate blocked")
+var ErrStockGateBlocked = domain.ErrStockGateBlocked
 
 // ObligationCompleter is the slice of the obligation repo SM-5 needs: flip the obligation to
 // completed (+ 'completed' event) on accept, and (for SM-7 on the verify path) read its protocol
@@ -34,10 +33,9 @@ type StockConsumer interface {
 //   - AcceptExisting/RejectExisting: verify a completion already recorded at SOP-submit time (the
 //     two-phase operator flow — record at submit, verify at review).
 //
-// Either way an accepted dose completes its obligation and consumes the reserved dose; a rejected
-// dose leaves the obligation open (rework). Idempotent end-to-end (double-submit guard + accept-only-
-// when-recorded + keyed movements). In-process today; the same code runs behind a future Pub/Sub
-// verification consumer.
+// Either way an accepted dose completes its obligation and consumes the reserved dose. Postgres uses
+// a database-owned transaction for accept/consume/complete/outbox; non-Postgres fakes fall back to
+// the older idempotent steps. Booster scheduling is handled by the vaccination.completed consumer.
 type CompletionService struct {
 	vacc    *Service
 	obl     ObligationCompleter
@@ -51,8 +49,8 @@ func NewCompletionService(vacc *Service, obl ObligationCompleter, inv StockConsu
 	return &CompletionService{vacc: vacc, obl: obl, inv: inv}
 }
 
-// WithBooster enables SM-7: on accept, schedule the next after_previous_completion dose from the
-// administered date. Returns the service for chaining.
+// WithBooster is retained for old composition code/tests. Accept no longer schedules boosters inline;
+// wire NewVaccinationCompletedHandler for SM-7.
 func (s *CompletionService) WithBooster(b *BoosterService) *CompletionService {
 	s.booster = b
 	return s
@@ -87,6 +85,12 @@ type AcceptResult struct {
 func (s *CompletionService) Accept(ctx context.Context, in AcceptInput) (AcceptResult, error) {
 	if err := s.validateStockGate(in.Completion); err != nil {
 		return AcceptResult{}, err
+	}
+	if result, ok, err := s.vacc.RecordAndAcceptCompletionAtomic(ctx, in.Completion, in.VerifiedBy, in.WithdrawalUntil); ok {
+		if err != nil {
+			return AcceptResult{}, err
+		}
+		return atomicAcceptResult(result), nil
 	}
 	in.Completion.Status = "recorded"
 	cid, applied, err := s.vacc.RecordCompletion(ctx, in.Completion)
@@ -126,24 +130,12 @@ func (s *CompletionService) Accept(ctx context.Context, in AcceptInput) (AcceptR
 	if err != nil {
 		return AcceptResult{}, err
 	}
-	canScheduleBooster, err := s.obligationCompleted(ctx, in.Completion.TenantID, pending.ObligationID, completed)
-	if err != nil {
-		return AcceptResult{}, err
-	}
-	next := false
-	if canScheduleBooster {
-		next, err = s.scheduleBooster(ctx, in.Completion.TenantID, in.ProtocolVersionID, pending.GoatID,
-			in.ScopeType, in.ScopeID, in.RuleSequence, pending.AdministeredAt)
-	}
-	if err != nil {
-		return AcceptResult{}, err
-	}
-	return AcceptResult{CompletionID: pending.CompletionID, Applied: applied || acceptApplied || completed || next, Completed: completed, NextScheduled: next}, nil
+	return AcceptResult{CompletionID: pending.CompletionID, Applied: applied || acceptApplied || completed, Completed: completed}, nil
 }
 
 // AcceptExistingInput verifies a completion already recorded (at SOP-submit time) by its id. The
-// SM-7 booster context is derived from the obligation, so the verification event need only carry the
-// completion id.
+// completed-event consumer derives any booster context from the completed obligation, so the
+// verification event need only carry the completion id.
 type AcceptExistingInput struct {
 	TenantID        string
 	CompletionID    string
@@ -152,10 +144,21 @@ type AcceptExistingInput struct {
 }
 
 // AcceptExisting accepts an already-recorded completion (the SOP verify outcome): it flips the
-// completion to accepted, completes its obligation, consumes the reserved dose, and schedules the
-// next booster (deriving the protocol version + scope + sequence from the obligation). Idempotent: a
-// completion no longer in 'recorded' state is a no-op.
+// completion to accepted, completes its obligation, consumes the reserved dose, and lets the durable
+// vaccination.completed consumer schedule any next booster. Idempotent: a completion no longer in
+// 'recorded' state is a no-op.
 func (s *CompletionService) AcceptExisting(ctx context.Context, in AcceptExistingInput) (AcceptResult, error) {
+	if result, ok, err := s.vacc.AcceptCompletionAtomic(ctx, domain.AcceptCompletionAtomicInput{
+		TenantID:        in.TenantID,
+		CompletionID:    in.CompletionID,
+		VerifiedBy:      in.VerifiedBy,
+		WithdrawalUntil: in.WithdrawalUntil,
+	}); ok {
+		if err != nil {
+			return AcceptResult{}, err
+		}
+		return atomicAcceptResult(result), nil
+	}
 	pending, found, err := s.vacc.GetAcceptableCompletion(ctx, in.TenantID, in.CompletionID)
 	if err != nil {
 		return AcceptResult{}, err
@@ -185,21 +188,15 @@ func (s *CompletionService) AcceptExisting(ctx context.Context, in AcceptExistin
 	if err != nil {
 		return AcceptResult{}, err
 	}
-	next := false
-	canScheduleBooster, err := s.obligationCompleted(ctx, in.TenantID, pending.ObligationID, completed)
-	if err != nil {
-		return AcceptResult{}, err
+	return AcceptResult{CompletionID: in.CompletionID, Applied: applied || completed, Completed: completed}, nil
+}
+
+func atomicAcceptResult(result domain.AcceptCompletionAtomicResult) AcceptResult {
+	return AcceptResult{
+		CompletionID: result.Completion.CompletionID,
+		Applied:      result.Applied,
+		Completed:    result.Completed,
 	}
-	if canScheduleBooster && s.booster != nil {
-		versionID, scopeType, scopeID, seq, gerr := s.obl.GetBoosterContext(ctx, in.TenantID, pending.ObligationID)
-		if gerr != nil {
-			return AcceptResult{}, gerr
-		}
-		if next, err = s.scheduleBooster(ctx, in.TenantID, versionID, pending.GoatID, scopeType, scopeID, seq, pending.AdministeredAt); err != nil {
-			return AcceptResult{}, err
-		}
-	}
-	return AcceptResult{CompletionID: in.CompletionID, Applied: applied || completed || next, Completed: completed, NextScheduled: next}, nil
 }
 
 func (s *CompletionService) validateStockGate(in domain.NewCompletion) error {
@@ -207,10 +204,10 @@ func (s *CompletionService) validateStockGate(in domain.NewCompletion) error {
 		return nil
 	}
 	if in.VaccineInventoryLotID == nil || *in.VaccineInventoryLotID == "" {
-		return ErrStockGateBlocked
+		return domain.ErrStockGateBlocked
 	}
 	if !in.ColdChainVerified {
-		return ErrStockGateBlocked
+		return domain.ErrStockGateBlocked
 	}
 	return nil
 }

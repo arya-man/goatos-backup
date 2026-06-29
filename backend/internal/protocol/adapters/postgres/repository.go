@@ -2,7 +2,10 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,6 +61,145 @@ func (r *Repository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)
 }
 
+type protocolIdemReservation struct {
+	proceed    bool
+	resultType string
+	resultID   string
+}
+
+func protocolIdempotencyKey(clientKey, fingerprint string) string {
+	key := strings.TrimSpace(clientKey)
+	if key == "" {
+		key = "auto:" + fingerprint
+	}
+	return key
+}
+
+func scopedProtocolIdempotencyKey(tenantID, scope, key string) string {
+	return tenantID + ":" + scope + ":" + key
+}
+
+func protocolFingerprint(parts ...string) string {
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x1f")))
+	return hex.EncodeToString(sum[:])
+}
+
+func canonicalJSON(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return string(raw)
+	}
+	out, err := json.Marshal(v)
+	if err != nil {
+		return string(raw)
+	}
+	return string(out)
+}
+
+func optionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+func optionalTime(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func optionalInt32(value *int32) string {
+	if value == nil {
+		return ""
+	}
+	return fmt.Sprint(*value)
+}
+
+func firstString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func reserveProtocolIdempotency(ctx context.Context, tx pgx.Tx, tenantID, scope, key, fingerprint, resultType string) (protocolIdemReservation, error) {
+	scoped := scopedProtocolIdempotencyKey(tenantID, scope, key)
+	var claimed string
+	err := tx.QueryRow(ctx, `
+INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status)
+VALUES ($1, $2::uuid, $3, $4, 'started')
+ON CONFLICT (idempotency_key) DO NOTHING
+RETURNING idempotency_key`, scoped, tenantID, scope, fingerprint).Scan(&claimed)
+	if err == nil {
+		return protocolIdemReservation{proceed: true}, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return protocolIdemReservation{}, err
+	}
+
+	var existingHash, status, existingType, existingID string
+	if err := tx.QueryRow(ctx, `
+SELECT request_hash, status, COALESCE(result_type, ''), COALESCE(result_id::text, '')
+FROM idempotency_keys
+WHERE idempotency_key = $1`, scoped).Scan(&existingHash, &status, &existingType, &existingID); err != nil {
+		return protocolIdemReservation{}, err
+	}
+	if existingHash != fingerprint || status != "completed" || existingType != resultType || strings.TrimSpace(existingID) == "" {
+		return protocolIdemReservation{}, ports.ErrIdempotencyConflict
+	}
+	return protocolIdemReservation{proceed: false, resultType: existingType, resultID: existingID}, nil
+}
+
+func completeProtocolIdempotency(ctx context.Context, tx pgx.Tx, tenantID, scope, key, resultType, resultID string) error {
+	scoped := scopedProtocolIdempotencyKey(tenantID, scope, key)
+	_, err := tx.Exec(ctx, `
+UPDATE idempotency_keys
+SET status = 'completed',
+    result_type = $2,
+    result_id = $3::uuid,
+    completed_at = now()
+WHERE idempotency_key = $1`, scoped, resultType, resultID)
+	return err
+}
+
+func recordProtocolCreateAudit(ctx context.Context, tx pgx.Tx, action, tenantID, resourceType, resourceID, scopeType, scopeID string, actor *string, afterState any, metadata map[string]any) error {
+	actorType := "system_rule"
+	actorID := ""
+	if actor != nil && strings.TrimSpace(*actor) != "" {
+		actorType = "human"
+		actorID = strings.TrimSpace(*actor)
+	}
+	if scopeType == "tenant" {
+		scopeID = ""
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorID:      actorID,
+		ActorType:    actorType,
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		ScopeType:    scopeType,
+		ScopeID:      scopeID,
+		AfterState:   afterState,
+		Metadata:     metadata,
+		TraceID:      action + ":" + resourceID,
+	}); err != nil {
+		return fmt.Errorf("protocol: audit %s: %w", action, err)
+	}
+	return nil
+}
+
 // CreateDefinition inserts a protocol definition.
 func (r *Repository) CreateDefinition(ctx context.Context, in domain.NewDefinition) (string, error) {
 	ctx, cancel := r.withTimeout(ctx)
@@ -66,7 +208,31 @@ func (r *Repository) CreateDefinition(ctx context.Context, in domain.NewDefiniti
 	if err != nil {
 		return "", fmt.Errorf("protocol: tenant id: %w", err)
 	}
-	id, err := r.queries.CreateProtocolDefinition(ctx, protocoldb.CreateProtocolDefinitionParams{
+	fingerprint := protocolFingerprint(
+		"definition",
+		in.TenantID,
+		strings.TrimSpace(in.Code),
+		strings.TrimSpace(in.Name),
+		strings.TrimSpace(in.Category),
+		strings.TrimSpace(in.Status),
+	)
+	key := protocolIdempotencyKey(in.IdempotencyKey, fingerprint)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("protocol: begin create definition: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := reserveProtocolIdempotency(ctx, tx, in.TenantID, "protocol.definition.create", key, fingerprint, "protocol_definition")
+	if err != nil {
+		return "", fmt.Errorf("protocol: reserve definition idempotency: %w", err)
+	}
+	if !reservation.proceed {
+		return reservation.resultID, nil
+	}
+
+	qtx := r.queries.WithTx(tx)
+	id, err := qtx.CreateProtocolDefinition(ctx, protocoldb.CreateProtocolDefinitionParams{
 		TenantID:  tenant,
 		Code:      in.Code,
 		Name:      in.Name,
@@ -76,6 +242,20 @@ func (r *Repository) CreateDefinition(ctx context.Context, in domain.NewDefiniti
 	})
 	if err != nil {
 		return "", fmt.Errorf("protocol: create definition: %w", err)
+	}
+	if err := recordProtocolCreateAudit(ctx, tx, protocolDefinitionCreatedAction, in.TenantID, "protocol_definition", id, "tenant", "", in.CreatedBy, map[string]any{
+		"code":     in.Code,
+		"name":     in.Name,
+		"category": in.Category,
+		"status":   in.Status,
+	}, map[string]any{"idempotency_scope": "protocol.definition.create"}); err != nil {
+		return "", err
+	}
+	if err := completeProtocolIdempotency(ctx, tx, in.TenantID, "protocol.definition.create", key, "protocol_definition", id); err != nil {
+		return "", fmt.Errorf("protocol: complete definition idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("protocol: commit create definition: %w", err)
 	}
 	return id, nil
 }
@@ -117,7 +297,38 @@ func (r *Repository) CreateVersion(ctx context.Context, in domain.NewVersion) (s
 	if err != nil {
 		return "", fmt.Errorf("protocol: protocol id: %w", err)
 	}
-	id, err := r.queries.CreateProtocolVersion(ctx, protocoldb.CreateProtocolVersionParams{
+	fingerprint := protocolFingerprint(
+		"version",
+		in.TenantID,
+		in.ProtocolID,
+		strings.TrimSpace(in.ScopeType),
+		optionalString(in.ScopeID),
+		fmt.Sprint(in.Version),
+		strings.TrimSpace(in.VersionLabel),
+		strings.TrimSpace(in.Status),
+		in.EffectiveFrom.UTC().Format(time.RFC3339Nano),
+		optionalTime(in.EffectiveTo),
+		canonicalJSON(in.RuleDsl),
+		canonicalJSON(in.ProofPolicy),
+		optionalString(in.SopVersionID),
+	)
+	key := protocolIdempotencyKey(in.IdempotencyKey, fingerprint)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("protocol: begin create version: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := reserveProtocolIdempotency(ctx, tx, in.TenantID, "protocol.version.create", key, fingerprint, "protocol_version")
+	if err != nil {
+		return "", fmt.Errorf("protocol: reserve version idempotency: %w", err)
+	}
+	if !reservation.proceed {
+		return reservation.resultID, nil
+	}
+
+	qtx := r.queries.WithTx(tx)
+	id, err := qtx.CreateProtocolVersion(ctx, protocoldb.CreateProtocolVersionParams{
 		TenantID:      tenant,
 		ProtocolID:    protocol,
 		ScopeType:     in.ScopeType,
@@ -134,6 +345,28 @@ func (r *Repository) CreateVersion(ctx context.Context, in domain.NewVersion) (s
 	})
 	if err != nil {
 		return "", fmt.Errorf("protocol: create version: %w", err)
+	}
+	scopeID := optionalString(in.ScopeID)
+	if in.ScopeType == "tenant" {
+		scopeID = ""
+	}
+	if err := recordProtocolCreateAudit(ctx, tx, protocolVersionCreatedAction, in.TenantID, "protocol_version", id, in.ScopeType, scopeID, in.DraftedBy, map[string]any{
+		"protocol_id":    in.ProtocolID,
+		"scope_type":     in.ScopeType,
+		"scope_id":       optionalString(in.ScopeID),
+		"version":        in.Version,
+		"version_label":  in.VersionLabel,
+		"status":         in.Status,
+		"effective_from": in.EffectiveFrom.UTC().Format(time.RFC3339Nano),
+		"effective_to":   optionalTime(in.EffectiveTo),
+	}, map[string]any{"idempotency_scope": "protocol.version.create"}); err != nil {
+		return "", err
+	}
+	if err := completeProtocolIdempotency(ctx, tx, in.TenantID, "protocol.version.create", key, "protocol_version", id); err != nil {
+		return "", fmt.Errorf("protocol: complete version idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("protocol: commit create version: %w", err)
 	}
 	return id, nil
 }
@@ -207,6 +440,9 @@ func (r *Repository) ListPublishedVersions(ctx context.Context, tenantID, protoc
 }
 
 const (
+	protocolDefinitionCreatedAction = "protocol.definition.created"
+	protocolVersionCreatedAction    = "protocol.version.created"
+	protocolRuleCreatedAction       = "protocol.rule.created"
 	protocolPublishedEventType      = "protocol.version.published"
 	protocolPublishedSchemaVersion  = "1.0.0"
 	protocolPublishedSchemaRef      = "contracts/jsonschema/domain-event-envelope.schema.json#protocol.version.published"
@@ -218,7 +454,7 @@ const (
 // PublishVersion flips a draft version to published and emits the durable protocol.version.published
 // outbox event in the same transaction. Generation workers consume the event idempotently, so a
 // process crash after the status flip cannot lose the publish-triggered obligation cascade.
-func (r *Repository) PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string) error {
+func (r *Repository) PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -229,12 +465,22 @@ func (r *Repository) PublishVersion(ctx context.Context, tenantID, versionID str
 	if err != nil {
 		return fmt.Errorf("protocol: version id: %w", err)
 	}
+	fingerprint := protocolFingerprint("publish", tenantID, versionID)
+	key := protocolIdempotencyKey(firstString(idempotencyKey), fingerprint)
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("protocol: begin publish: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := reserveProtocolIdempotency(ctx, tx, tenantID, "protocol.version.publish", key, fingerprint, "protocol_version")
+	if err != nil {
+		return fmt.Errorf("protocol: reserve publish idempotency: %w", err)
+	}
+	if !reservation.proceed {
+		return nil
+	}
 
 	var published protocolPublishedRow
 	err = tx.QueryRow(ctx, `
@@ -264,6 +510,27 @@ RETURNING pv.protocol_version_id::text,
 		&published.PublishedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
+		var status string
+		statusErr := tx.QueryRow(ctx, `
+SELECT status
+FROM protocol_versions
+WHERE tenant_id = $1
+  AND protocol_version_id = $2`, tenant, vid).Scan(&status)
+		if errors.Is(statusErr, pgx.ErrNoRows) {
+			return ports.ErrNotFound
+		}
+		if statusErr != nil {
+			return fmt.Errorf("protocol: check publish status: %w", statusErr)
+		}
+		if status == "published" {
+			if err := completeProtocolIdempotency(ctx, tx, tenantID, "protocol.version.publish", key, "protocol_version", versionID); err != nil {
+				return fmt.Errorf("protocol: complete published replay idempotency: %w", err)
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return fmt.Errorf("protocol: commit published replay: %w", err)
+			}
+			return nil
+		}
 		return ports.ErrVersionNotDraft
 	}
 	if err != nil {
@@ -274,6 +541,9 @@ RETURNING pv.protocol_version_id::text,
 	}
 	if err := insertProtocolPublishedOutbox(ctx, tx, tenantID, published, publishedBy); err != nil {
 		return err
+	}
+	if err := completeProtocolIdempotency(ctx, tx, tenantID, "protocol.version.publish", key, "protocol_version", versionID); err != nil {
+		return fmt.Errorf("protocol: complete publish idempotency: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("protocol: commit publish: %w", err)
@@ -481,7 +751,42 @@ func (r *Repository) CreateRule(ctx context.Context, in domain.NewRule) (string,
 	if err != nil {
 		return "", fmt.Errorf("protocol: version id: %w", err)
 	}
-	id, err := r.queries.CreateProtocolRule(ctx, protocoldb.CreateProtocolRuleParams{
+	fingerprint := protocolFingerprint(
+		"rule",
+		in.TenantID,
+		in.ProtocolVersionID,
+		strings.TrimSpace(in.DoseCode),
+		fmt.Sprint(in.Sequence),
+		strings.TrimSpace(in.TriggerType),
+		fmt.Sprint(in.OffsetDays),
+		fmt.Sprint(in.DueWindowDays),
+		fmt.Sprint(in.MinGapDays),
+		strings.TrimSpace(in.Repeat),
+		strings.TrimSpace(in.RepeatUntilAfterAge),
+		strings.TrimSpace(in.CatchUp),
+		canonicalJSON(in.EligibilityJSON),
+		optionalString(in.SopVersionID),
+		canonicalJSON(in.ProofPolicy),
+		optionalInt32(in.WithdrawalDays),
+		fmt.Sprint(in.SortOrder),
+	)
+	key := protocolIdempotencyKey(in.IdempotencyKey, fingerprint)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("protocol: begin create rule: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := reserveProtocolIdempotency(ctx, tx, in.TenantID, "protocol.rule.create", key, fingerprint, "protocol_rule")
+	if err != nil {
+		return "", fmt.Errorf("protocol: reserve rule idempotency: %w", err)
+	}
+	if !reservation.proceed {
+		return reservation.resultID, nil
+	}
+
+	qtx := r.queries.WithTx(tx)
+	id, err := qtx.CreateProtocolRule(ctx, protocoldb.CreateProtocolRuleParams{
 		TenantID:            tenant,
 		ProtocolVersionID:   vid,
 		DoseCode:            in.DoseCode,
@@ -504,6 +809,23 @@ func (r *Repository) CreateRule(ctx context.Context, in domain.NewRule) (string,
 	}
 	if err != nil {
 		return "", fmt.Errorf("protocol: create rule: %w", err)
+	}
+	if err := recordProtocolCreateAudit(ctx, tx, protocolRuleCreatedAction, in.TenantID, "protocol_rule", id, "tenant", "", in.CreatedBy, map[string]any{
+		"protocol_version_id": in.ProtocolVersionID,
+		"dose_code":           in.DoseCode,
+		"sequence":            in.Sequence,
+		"trigger_type":        in.TriggerType,
+		"repeat":              in.Repeat,
+		"catch_up":            in.CatchUp,
+		"sort_order":          in.SortOrder,
+	}, map[string]any{"idempotency_scope": "protocol.rule.create"}); err != nil {
+		return "", err
+	}
+	if err := completeProtocolIdempotency(ctx, tx, in.TenantID, "protocol.rule.create", key, "protocol_rule", id); err != nil {
+		return "", fmt.Errorf("protocol: complete rule idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("protocol: commit create rule: %w", err)
 	}
 	return id, nil
 }

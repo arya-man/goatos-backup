@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
-	app "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	vaccports "github.com/vgoats/goatos/backend/internal/vaccination/ports"
 )
@@ -203,52 +202,26 @@ func TestImpactPreviewRejectsBadJSON(t *testing.T) {
 	}
 }
 
-type fakeVerifier struct {
-	acceptedID string
-	rejectedID string
-	reason     string
-}
-
-func (f *fakeVerifier) AcceptExisting(_ context.Context, in app.AcceptExistingInput) (app.AcceptResult, error) {
-	f.acceptedID = in.CompletionID
-	return app.AcceptResult{CompletionID: in.CompletionID, Applied: true, Completed: true}, nil
-}
-func (f *fakeVerifier) RejectExisting(_ context.Context, _, completionID, reason string, _ *string) (app.RejectResult, error) {
-	f.rejectedID, f.reason = completionID, reason
-	return app.RejectResult{CompletionID: completionID, Applied: true}, nil
-}
-
-func TestAcceptRejectEndpoints(t *testing.T) {
-	fv := &fakeVerifier{}
+func TestDirectCompletionReviewEndpointsAreNotMounted(t *testing.T) {
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(&fakeImpact{}, fv))
+	Register(mux, NewHandler(&fakeImpact{}, nil))
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/vaccination/completions/c1/accept", nil))
-	if rec.Code != http.StatusOK || fv.acceptedID != "c1" {
-		t.Fatalf("accept: code=%d acceptedID=%s", rec.Code, fv.acceptedID)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("direct accept route should not be mounted, got %d", rec.Code)
 	}
 
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/vaccination/completions/c2/reject", strings.NewReader(`{"reason":"rework_requested"}`)))
-	if rec.Code != http.StatusOK || fv.rejectedID != "c2" || fv.reason != "rework_requested" {
-		t.Fatalf("reject: code=%d rejectedID=%s reason=%s", rec.Code, fv.rejectedID, fv.reason)
-	}
-}
-
-func TestVerifyUnavailableWhenNotWired(t *testing.T) {
-	mux := http.NewServeMux()
-	Register(mux, NewHandler(&fakeImpact{}, nil))
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/vaccination/completions/c1/accept", nil))
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("want 503 when verify not wired, got %d", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("direct reject route should not be mounted, got %d", rec.Code)
 	}
 }
 
 func TestVerificationQueueShapeAndLimit(t *testing.T) {
 	fake := &fakeImpact{queue: []domain.RecordedCompletion{
-		{CompletionID: "c1", GoatID: "g1", Doses: 1},
+		{CompletionID: "c1", GoatID: "g1", SOPTaskID: "task-1", SOPTaskVersion: 7, Doses: 1},
 	}}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(fake, nil))
@@ -262,7 +235,7 @@ func TestVerificationQueueShapeAndLimit(t *testing.T) {
 		t.Fatalf("limit must clamp to 500, got %d", fake.gotLimit)
 	}
 	var resp queueResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Items) != 1 || resp.Items[0].CompletionID != "c1" {
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Items) != 1 || resp.Items[0].CompletionID != "c1" || resp.Items[0].SOPTaskID != "task-1" || resp.Items[0].SOPTaskVersion != 7 {
 		t.Fatalf("queue response: %+v err=%v", resp, err)
 	}
 

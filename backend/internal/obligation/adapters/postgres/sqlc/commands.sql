@@ -96,12 +96,26 @@ RETURNING obligation_id::text AS obligation_id;
 -- recovery always returns the obligation to the unbatched sweeper path, even if a future execution
 -- path deferred a row after it had been attached to a non-planned batch. Idempotent: only rows still
 -- 'deferred' match, so a replay after the goat is already schedulable is a no-op.
-UPDATE obligation_instances
+UPDATE obligation_instances oi
 SET status = 'scheduled', batch_id = NULL, row_version = row_version + 1, updated_at = now()
-WHERE tenant_id = @tenant_id
-  AND idempotency_key = @idempotency_key
-  AND status = 'deferred'
-RETURNING obligation_id::text AS obligation_id;
+WHERE oi.tenant_id = @tenant_id
+  AND oi.idempotency_key = @idempotency_key
+  AND oi.status = 'deferred'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM protocol_versions pv
+    JOIN protocol_definitions pd
+      ON pd.tenant_id = pv.tenant_id
+     AND pd.protocol_id = pv.protocol_id
+    JOIN vw_procurement_vaccination_excluded_goats ex
+      ON ex.tenant_id = oi.tenant_id
+     AND ex.goat_id = oi.target_id
+    WHERE oi.target_type = 'goat'
+      AND pv.tenant_id = oi.tenant_id
+      AND pv.protocol_version_id = oi.protocol_version_id
+      AND pd.category = 'vaccination'
+  )
+RETURNING oi.obligation_id::text AS obligation_id;
 
 -- name: CompleteIdempotencyKey :exec
 UPDATE idempotency_keys

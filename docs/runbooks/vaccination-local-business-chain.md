@@ -1,14 +1,16 @@
-# Vaccination Local Business-Chain Proof (pre-E2E, not E2E)
+# Vaccination Local Business-Chain Proof
 
-Date: 2026-06-26
+Date: 2026-06-29
 
 Purpose: one repeatable local command/runbook sequence for the vaccination
 business chain, plus an honest map of what is test-proven per-segment and the
-captured single end-to-end run (CLOSED for the data plane, 2026-06-26).
+captured Goal 1 end-to-end local run (CLOSED locally, 2026-06-29).
 
-This is **backend/integration proof, not Playwright E2E**. Logging-only outbox
-publish does NOT count as delivery. `procurement_phc_handoffs.event_status =
-emitted` means "outbox enqueued", not "downstream generation/read-models
+The standalone `vaccination-chain-proof.sh` script is data-plane/API proof. The
+Goal 1 smoke path now wraps it with the procurement negative matrix and browser
+visual/click checks through `tools/dev/admin-web-e2e-smoke.sh`. Logging-only
+outbox publish does NOT count as delivery. `procurement_phc_handoffs.event_status
+= emitted` means "outbox enqueued", not "downstream generation/read-models
 succeeded", unless a real downstream reconciliation signal is added.
 
 ## Chain Under Proof
@@ -27,10 +29,10 @@ source-backed published vaccination protocol  (Config: GET /protocols + publish 
   -> CT / AC / PA / WF / Vaccination / shed / Passport read the same Postgres truth
 ```
 
-Execution-path decision (pre-E2E): **direct generated API seed** (not an
-admin-web operator console, not operator-mobile). Operator execution belongs to
-the field app, which is out of the admin-web slice; admin-web must not show fake
-"start SOP / upload proof / submit answers" buttons. See pre-E2E audit B4.
+Execution-path decision: the dose/proof/verification segment uses the generated
+API helper path, then the admin-web E2E smoke verifies the local acceptance UI
+routes read that same Postgres truth. Operator-mobile field execution remains out
+of the admin-web slice; admin-web must not show fake field-app buttons.
 
 ## Repeatable Command (one script)
 
@@ -85,8 +87,8 @@ Manual equivalent of the script's steps (when running by hand):
 4. POST /app/proofs/uploads (x3: shed/vial_lot/administration, scope_type=task) + PUT bytes
 5. POST /app/tasks/{task}/submissions (answers + 3 proof_refs; vaccine_lot_id = stock_id b002)
      -> vaccination_completion (recorded) via the in-process submission fanout
-6. GET /vaccination/verification-queue ; POST /vaccination/completions/{id}/accept
-     -> completion accepted + obligation completed
+6. GET /vaccination/verification-queue ; POST /admin/tasks/{task}/verify with row_version
+     -> SOP review accepted, completion accepted, and obligation completed
 7. Config list (B3): GET /protocols?category=vaccination   (admin-web /config, generated client)
 ```
 
@@ -110,7 +112,35 @@ Per-segment behavior is covered by passing integration tests against local PG:
   `TestProcurementIdempotentReplay`, `TestProcurementSourceEntryPostgresPaths`.
 - Config list endpoint shape (B3): `TestListConfigsReturnsItemsAndDefaultsCategory`.
 
-## Captured End-to-End Run (CLOSED — 2026-06-26, data plane)
+## Captured Goal 1 End-to-End Run (CLOSED — 2026-06-29, local)
+
+The full local Goal 1 acceptance command was:
+
+```bash
+GOATOS_E2E_RUN_ID=GOAL1-E2E-FINAL-20260629-022731 \
+  bash tools/dev/admin-web-e2e-smoke.sh
+```
+
+Report directory:
+
+```text
+.codex-goatos-render/e2e-smoke/GOAL1-E2E-FINAL-20260629-022731
+```
+
+It completed:
+
+- vaccination chain proof: `CLOSED`, with Workflows, Passport, shed drilldown,
+  Control Tower, Adherence, and Operations surfaces hit.
+- procurement four-goat matrix: accepted clean goat generated PHC vaccination
+  work; rejected, owner-missing, and extra/unmatched paths did not create
+  vaccination work.
+- browser visual/click smoke: `/login`, `/`, `/action-center`, `/calendar`,
+  `/protocol-adherence`, `/workflows`, `/vaccination`,
+  `/vaccination#execution`, `/procurement/source-entry`, `/config`, `/sops`,
+  `/counts/herd`, `/operations/audit`, `/operations/dlq`, contextual Goat
+  Passport, and procurement load detail.
+
+## Historical Data-Plane Run (CLOSED — 2026-06-26)
 
 The assembled single run (B1/B2/B5) is now CAPTURED via
 `tools/dev/vaccination-chain-proof.sh` against the live local stack — no browser,
@@ -187,4 +217,6 @@ job, Secret Manager versions, IAM bindings) remain **external/provisioning
 blockers under the Mesha/VGoats `vgoats.com` org** — they are NOT local-code
 blockers, and none may be created/mutated from an unverified account/org/project.
 
-E2E not run. E2E starts only when the pre-E2E audit E2E Start Gate is green.
+Local E2E is now green for Goal 1 via the 2026-06-29 run above. Google dev E2E
+remains Goal 2 and must not start until Goal 1 is fully committed, pushed, and CI
+green.

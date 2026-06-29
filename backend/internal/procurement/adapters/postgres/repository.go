@@ -1353,18 +1353,45 @@ RETURNING goat_id::text`,
 			return nil, fmt.Errorf("procurement: mark accepted intake goat: %w", err)
 		}
 		if _, err = tx.Exec(ctx, `
-UPDATE goats
-SET lifecycle_status = 'alive',
-    identity_state = 'clean',
-    origin_type = 'procured',
-    entry_date = $5::date,
-    current_location_id = $4::uuid,
-    park_id = $3::uuid,
-    shed_id = $4::uuid,
-    updated_at = now(),
-    row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
-			in.TenantID, acceptedGoatID, in.ParkLocationID, in.ShedLocationID, in.EntryDate); err != nil {
+	UPDATE goats
+	SET lifecycle_status = 'alive',
+	    identity_state = 'clean',
+	    origin_type = 'procured',
+	    entry_date = $5::date,
+	    current_location_id = $4::uuid,
+	    park_id = $3::uuid,
+	    shed_id = $4::uuid,
+	    sex = COALESCE(NULLIF(plg.metadata ->> 'sex', ''), goats.sex),
+	    dob = COALESCE(
+	      CASE
+	        WHEN COALESCE(plg.metadata ->> 'dob', '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+	        THEN (plg.metadata ->> 'dob')::date
+	        ELSE NULL
+	      END,
+	      goats.dob
+	    ),
+	    dob_estimated = COALESCE(
+	      CASE
+	        WHEN lower(COALESCE(plg.metadata ->> 'dob_estimated', '')) IN ('true', 'false')
+	        THEN (plg.metadata ->> 'dob_estimated')::boolean
+	        ELSE NULL
+	      END,
+	      goats.dob_estimated
+	    ),
+	    management_stage = COALESCE(NULLIF(plg.metadata ->> 'management_stage', ''), goats.management_stage),
+	    health_status = CASE
+	      WHEN plg.health_state = 'passed' THEN 'healthy'
+	      ELSE COALESCE(NULLIF($6, ''), goats.health_status)
+	    END,
+	    updated_at = now(),
+	    row_version = goats.row_version + 1
+	FROM procurement_load_goats plg
+	WHERE goats.tenant_id = $1::uuid
+	  AND goats.goat_id = $2::uuid
+	  AND plg.tenant_id = goats.tenant_id
+	  AND plg.load_id = $7::uuid
+	  AND plg.goat_id = goats.goat_id`,
+			in.TenantID, acceptedGoatID, in.ParkLocationID, in.ShedLocationID, in.EntryDate, stringPtrValue(in.IntakeHealthSignal), in.LoadID); err != nil {
 			return nil, fmt.Errorf("procurement: activate accepted goat: %w", err)
 		}
 		if _, err = tx.Exec(ctx, `

@@ -207,12 +207,12 @@ func TestPublishVersionAlreadyPublishedRetryIsNoop(t *testing.T) {
 	}
 	service := NewService(repo)
 
-	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil, "publish-key")
 	if err != nil {
 		t.Fatalf("publish already-published retry: %v", err)
 	}
-	if repo.publishCalled {
-		t.Fatalf("repo publish must not run for already-published retry")
+	if !repo.publishCalled {
+		t.Fatalf("repo publish must run so idempotency is still enforced for already-published retries")
 	}
 }
 
@@ -284,7 +284,7 @@ func (f *fakeProtocolRepo) ListPublishedVersions(context.Context, string, string
 func (f *fakeProtocolRepo) ListConfigs(context.Context, string, string) ([]domain.ConfigListItem, error) {
 	return nil, nil
 }
-func (f *fakeProtocolRepo) PublishVersion(context.Context, string, string, *string) error {
+func (f *fakeProtocolRepo) PublishVersion(context.Context, string, string, *string, ...string) error {
 	f.publishCalled = true
 	f.publishCalls++
 	f.version.Status = "published"

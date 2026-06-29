@@ -49,6 +49,37 @@ func TestProcessedEventStoreDecisions(t *testing.T) {
 		t.Fatalf("processed retry decision=%s want already_processed", decision)
 	}
 
+	staleEvent := event
+	staleEvent.EventID = "60000000-0000-4000-8000-000000000103"
+	staleEvent.MessageID = "msg-103"
+	staleEvent.Now = time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC)
+	decision, err = store.BeginProcessing(ctx, staleEvent)
+	if err != nil || decision != consumerapp.ProcessDecisionClaimed {
+		t.Fatalf("stale first decision=%s err=%v want claimed", decision, err)
+	}
+	activeRetry := staleEvent
+	activeRetry.MessageID = "msg-103-redelivery-active"
+	activeRetry.DeliveryAttempt = 2
+	activeRetry.Now = staleEvent.Now.Add(5 * time.Minute)
+	decision, err = store.BeginProcessing(ctx, activeRetry)
+	if err != nil {
+		t.Fatalf("BeginProcessing active retry: %v", err)
+	}
+	if decision != consumerapp.ProcessDecisionInProgress {
+		t.Fatalf("active retry decision=%s want in_progress", decision)
+	}
+	staleRetry := staleEvent
+	staleRetry.MessageID = "msg-103-redelivery-stale"
+	staleRetry.DeliveryAttempt = 3
+	staleRetry.Now = staleEvent.Now.Add(20 * time.Minute)
+	decision, err = store.BeginProcessing(ctx, staleRetry)
+	if err != nil {
+		t.Fatalf("BeginProcessing stale retry: %v", err)
+	}
+	if decision != consumerapp.ProcessDecisionClaimed {
+		t.Fatalf("stale retry decision=%s want claimed", decision)
+	}
+
 	failedEvent := event
 	failedEvent.EventID = "60000000-0000-4000-8000-000000000102"
 	decision, err = store.BeginProcessing(ctx, failedEvent)

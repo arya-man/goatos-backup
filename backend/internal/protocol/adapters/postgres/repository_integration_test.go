@@ -3,11 +3,14 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
+	"github.com/vgoats/goatos/backend/internal/protocol/ports"
 )
 
 const testTenantID = "00000000-0000-4000-8000-000000000001"
@@ -42,8 +45,37 @@ func TestPublishVersionWritesDurableOutboxEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create version: %v", err)
 	}
-	if err := repo.PublishVersion(ctx, testTenantID, versionID, nil); err != nil {
+	if err := repo.PublishVersion(ctx, testTenantID, versionID, nil, "publish-outbox-key"); err != nil {
 		t.Fatalf("publish version: %v", err)
+	}
+	if err := repo.PublishVersion(ctx, testTenantID, versionID, nil, "publish-outbox-key"); err != nil {
+		t.Fatalf("publish replay: %v", err)
+	}
+	otherProtocolID, err := repo.CreateDefinition(ctx, domain.NewDefinition{
+		TenantID: testTenantID,
+		Code:     "vaccination.publish.other",
+		Name:     "Vaccination Publish Other",
+		Category: "vaccination",
+		Status:   "draft",
+	})
+	if err != nil {
+		t.Fatalf("create other definition: %v", err)
+	}
+	otherVersionID, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID:      testTenantID,
+		ProtocolID:    otherProtocolID,
+		ScopeType:     "tenant",
+		Version:       1,
+		Status:        "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{}`),
+		ProofPolicy:   []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create other version: %v", err)
+	}
+	if err := repo.PublishVersion(ctx, testTenantID, otherVersionID, nil, "publish-outbox-key"); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("publish key reused for different version err=%v, want ErrIdempotencyConflict", err)
 	}
 
 	var status, eventType, aggregateType, aggregateID, idempotencyKey string
@@ -65,6 +97,16 @@ WHERE pv.tenant_id = $1
 	}
 	if idempotencyKey != "protocol:version:published:"+versionID {
 		t.Fatalf("idempotency key = %q", idempotencyKey)
+	}
+	var publishID string
+	if err := pool.QueryRow(ctx, `
+SELECT result_id::text
+FROM idempotency_keys
+WHERE idempotency_key = $1`, testTenantID+":protocol.version.publish:publish-outbox-key").Scan(&publishID); err != nil {
+		t.Fatalf("read publish idempotency key: %v", err)
+	}
+	if publishID != versionID {
+		t.Fatalf("publish idempotency result = %s, want %s", publishID, versionID)
 	}
 	var envelope struct {
 		EventType       string `json:"event_type"`
@@ -90,6 +132,234 @@ WHERE pv.tenant_id = $1
 		envelope.Payload.ProtocolVersionID != versionID ||
 		envelope.Payload.Category != "vaccination" {
 		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+}
+
+func TestProtocolCreateWritesAreIdempotentAndAudited(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	actorID := "90000000-0000-4000-8000-000000000101"
+	defInput := domain.NewDefinition{
+		TenantID:       testTenantID,
+		Code:           "vaccination.idempotent.create",
+		Name:           "Vaccination Idempotent Create",
+		Category:       "vaccination",
+		Status:         "draft",
+		CreatedBy:      &actorID,
+		IdempotencyKey: "def-key-0001",
+	}
+	protocolID, err := repo.CreateDefinition(ctx, defInput)
+	if err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+	replayedProtocolID, err := repo.CreateDefinition(ctx, defInput)
+	if err != nil {
+		t.Fatalf("replay definition: %v", err)
+	}
+	if replayedProtocolID != protocolID {
+		t.Fatalf("definition replay = %s, want %s", replayedProtocolID, protocolID)
+	}
+	defInput.Name = "Different Name"
+	if _, err := repo.CreateDefinition(ctx, defInput); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("definition conflict err=%v, want ErrIdempotencyConflict", err)
+	}
+
+	versionInput := domain.NewVersion{
+		TenantID:       testTenantID,
+		ProtocolID:     protocolID,
+		ScopeType:      "tenant",
+		Version:        1,
+		Status:         "draft",
+		EffectiveFrom:  time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:        []byte(`{"source":{"source_system":"vaccinations_db"}}`),
+		ProofPolicy:    []byte(`{"required_proofs":["video"]}`),
+		DraftedBy:      &actorID,
+		IdempotencyKey: "version-key-0001",
+	}
+	versionID, err := repo.CreateVersion(ctx, versionInput)
+	if err != nil {
+		t.Fatalf("create version: %v", err)
+	}
+	replayedVersionID, err := repo.CreateVersion(ctx, versionInput)
+	if err != nil {
+		t.Fatalf("replay version: %v", err)
+	}
+	if replayedVersionID != versionID {
+		t.Fatalf("version replay = %s, want %s", replayedVersionID, versionID)
+	}
+	versionInput.VersionLabel = "different"
+	if _, err := repo.CreateVersion(ctx, versionInput); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("version conflict err=%v, want ErrIdempotencyConflict", err)
+	}
+
+	ruleInput := domain.NewRule{
+		TenantID:          testTenantID,
+		ProtocolVersionID: versionID,
+		DoseCode:          "PPR-1",
+		Sequence:          1,
+		TriggerType:       "post_arrival",
+		OffsetDays:        0,
+		DueWindowDays:     7,
+		Repeat:            "none",
+		CatchUp:           "immediate",
+		EligibilityJSON:   []byte(`{"health":["healthy","sick"]}`),
+		ProofPolicy:       []byte(`{"required_proofs":["video"]}`),
+		SortOrder:         1,
+		CreatedBy:         &actorID,
+		IdempotencyKey:    "rule-key-0001",
+	}
+	ruleID, err := repo.CreateRule(ctx, ruleInput)
+	if err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+	replayedRuleID, err := repo.CreateRule(ctx, ruleInput)
+	if err != nil {
+		t.Fatalf("replay rule: %v", err)
+	}
+	if replayedRuleID != ruleID {
+		t.Fatalf("rule replay = %s, want %s", replayedRuleID, ruleID)
+	}
+	ruleInput.DueWindowDays = 10
+	if _, err := repo.CreateRule(ctx, ruleInput); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("rule conflict err=%v, want ErrIdempotencyConflict", err)
+	}
+
+	var defCount, versionCount, ruleCount, auditCount, humanRuleAuditCount, idemCount int
+	if err := pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM protocol_definitions WHERE tenant_id=$1::uuid AND code='vaccination.idempotent.create'),
+  (SELECT count(*) FROM protocol_versions WHERE tenant_id=$1::uuid AND protocol_id=$2::uuid),
+  (SELECT count(*) FROM protocol_rules WHERE tenant_id=$1::uuid AND protocol_version_id=$3::uuid),
+  (SELECT count(*) FROM audit_log WHERE tenant_id=$1::uuid AND action IN ('protocol.definition.created','protocol.version.created','protocol.rule.created')),
+  (SELECT count(*) FROM audit_log WHERE tenant_id=$1::uuid AND action='protocol.rule.created' AND actor_id=$7::uuid AND actor_type='human'),
+  (SELECT count(*) FROM idempotency_keys WHERE idempotency_key IN ($4, $5, $6))`,
+		testTenantID,
+		protocolID,
+		versionID,
+		testTenantID+":protocol.definition.create:def-key-0001",
+		testTenantID+":protocol.version.create:version-key-0001",
+		testTenantID+":protocol.rule.create:rule-key-0001",
+		actorID,
+	).Scan(&defCount, &versionCount, &ruleCount, &auditCount, &humanRuleAuditCount, &idemCount); err != nil {
+		t.Fatalf("read idempotent create evidence: %v", err)
+	}
+	if defCount != 1 || versionCount != 1 || ruleCount != 1 {
+		t.Fatalf("row counts def/version/rule = %d/%d/%d, want 1/1/1", defCount, versionCount, ruleCount)
+	}
+	if auditCount != 3 {
+		t.Fatalf("audit count = %d, want 3", auditCount)
+	}
+	if humanRuleAuditCount != 1 {
+		t.Fatalf("human rule audit count = %d, want 1", humanRuleAuditCount)
+	}
+	if idemCount != 3 {
+		t.Fatalf("idempotency key count = %d, want 3", idemCount)
+	}
+}
+
+func TestPublishedProtocolConfigRejectsMutableWrites(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID, err := repo.CreateDefinition(ctx, domain.NewDefinition{
+		TenantID: testTenantID,
+		Code:     "vaccination.published.delete.guard",
+		Name:     "Published Delete Guard",
+		Category: "vaccination",
+		Status:   "draft",
+	})
+	if err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+	versionID, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID:      testTenantID,
+		ProtocolID:    protocolID,
+		ScopeType:     "tenant",
+		Version:       1,
+		Status:        "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{}`),
+		ProofPolicy:   []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create version: %v", err)
+	}
+	ruleID, err := repo.CreateRule(ctx, domain.NewRule{
+		TenantID:          testTenantID,
+		ProtocolVersionID: versionID,
+		DoseCode:          "PPR-1",
+		Sequence:          1,
+		TriggerType:       "post_arrival",
+		OffsetDays:        0,
+		DueWindowDays:     7,
+		MinGapDays:        0,
+		Repeat:            "none",
+		CatchUp:           "immediate",
+		EligibilityJSON:   []byte(`{}`),
+		ProofPolicy:       []byte(`{}`),
+		SortOrder:         1,
+	})
+	if err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+	triggerID, err := repo.CreateTrigger(ctx, domain.NewTrigger{
+		TenantID:          testTenantID,
+		ProtocolVersionID: versionID,
+		TriggerType:       "schedule",
+		TriggerConfig:     []byte(`{}`),
+		IsActive:          true,
+	})
+	if err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	if err := repo.PublishVersion(ctx, testTenantID, versionID, nil); err != nil {
+		t.Fatalf("publish version: %v", err)
+	}
+
+	assertDeleteBlocked := func(name, expected string, statement string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, statement, args...); err == nil {
+			t.Fatalf("%s delete succeeded, want immutable published config error", name)
+		} else if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("%s delete error = %v, want %q guard", name, err, expected)
+		}
+	}
+
+	assertDeleteBlocked("rule", "published config is immutable", `DELETE FROM protocol_rules WHERE tenant_id=$1::uuid AND rule_id=$2::uuid`, testTenantID, ruleID)
+	assertDeleteBlocked("trigger", "published config is immutable", `DELETE FROM protocol_triggers WHERE tenant_id=$1::uuid AND trigger_id=$2::uuid`, testTenantID, triggerID)
+	assertDeleteBlocked("version", "published or retired protocol version", `DELETE FROM protocol_versions WHERE tenant_id=$1::uuid AND protocol_version_id=$2::uuid`, testTenantID, versionID)
+
+	assertUpdateBlocked := func(name, expected string, statement string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, statement, args...); err == nil {
+			t.Fatalf("%s update succeeded, want immutable published config error", name)
+		} else if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("%s update error = %v, want %q guard", name, err, expected)
+		}
+	}
+
+	assertUpdateBlocked("rule", "published config is immutable", `UPDATE protocol_rules SET offset_days = offset_days + 1 WHERE tenant_id=$1::uuid AND rule_id=$2::uuid`, testTenantID, ruleID)
+	assertUpdateBlocked("trigger", "published config is immutable", `UPDATE protocol_triggers SET is_active = false WHERE tenant_id=$1::uuid AND trigger_id=$2::uuid`, testTenantID, triggerID)
+	assertUpdateBlocked("version", "published protocol version", `UPDATE protocol_versions SET rule_dsl = '{"changed":true}'::jsonb WHERE tenant_id=$1::uuid AND protocol_version_id=$2::uuid`, testTenantID, versionID)
+
+	var ruleCount, triggerCount, versionCount int
+	if err := pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM protocol_rules WHERE tenant_id=$1::uuid AND rule_id=$2::uuid),
+  (SELECT count(*) FROM protocol_triggers WHERE tenant_id=$1::uuid AND trigger_id=$3::uuid),
+  (SELECT count(*) FROM protocol_versions WHERE tenant_id=$1::uuid AND protocol_version_id=$4::uuid)`,
+		testTenantID, ruleID, triggerID, versionID).Scan(&ruleCount, &triggerCount, &versionCount); err != nil {
+		t.Fatalf("count guarded rows: %v", err)
+	}
+	if ruleCount != 1 || triggerCount != 1 || versionCount != 1 {
+		t.Fatalf("guarded row counts = rule %d trigger %d version %d, want all 1", ruleCount, triggerCount, versionCount)
 	}
 }
 

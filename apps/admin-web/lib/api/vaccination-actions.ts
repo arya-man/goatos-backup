@@ -2,12 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import {
-  acceptVaccinationCompletion,
   completeProofUpload,
   createProofUpload,
-  rejectVaccinationCompletion,
+  requestSopTaskRework,
   submitAppTask,
   uploadProofLocal,
+  verifySopTask,
 } from "@/lib/api/server";
 
 /**
@@ -82,18 +82,18 @@ export async function submitVaccinationProof(_prev: ActionResult | null, formDat
 }
 
 /**
- * Accept a vaccination completion (mark proof as verified).
+ * Accept a vaccination SOP task review (mark proof as verified).
  * Returns an ActionResult so the caller can surface a visible error on failure.
  */
-export async function acceptCompletionAction(completionId: string): Promise<ActionResult> {
+export async function acceptCompletionAction(taskId: string, rowVersion: number): Promise<ActionResult> {
   try {
-    if (!completionId || typeof completionId !== "string") {
-      return { ok: false, error: "Missing completion ID — cannot accept without a valid completion record" };
+    if (!taskId || typeof taskId !== "string" || !Number.isFinite(rowVersion) || rowVersion <= 0) {
+      return { ok: false, error: "Missing SOP review handle — cannot accept without task row version" };
     }
 
-    const result = await acceptVaccinationCompletion(completionId);
+    const result = await verifySopTask(taskId, { reason: "accepted", row_version: rowVersion });
     if (!result.ok) {
-      return { ok: false, error: `Failed to accept completion: ${result.error.message}` };
+      return { ok: false, error: `Failed to accept SOP review: ${result.error.message}` };
     }
 
     revalidatePath("/vaccination/execution", "page");
@@ -104,21 +104,21 @@ export async function acceptCompletionAction(completionId: string): Promise<Acti
 }
 
 /**
- * Reject a vaccination completion (mark proof as requiring rework).
+ * Reject a vaccination SOP task review (mark proof as requiring rework).
  * Returns an ActionResult so the caller can surface a visible error on failure.
  */
-export async function rejectCompletionAction(completionId: string, reason: string): Promise<ActionResult> {
+export async function rejectCompletionAction(taskId: string, rowVersion: number, reason: string): Promise<ActionResult> {
   try {
-    if (!completionId || typeof completionId !== "string") {
-      return { ok: false, error: "Missing completion ID — cannot reject without a valid completion record" };
+    if (!taskId || typeof taskId !== "string" || !Number.isFinite(rowVersion) || rowVersion <= 0) {
+      return { ok: false, error: "Missing SOP review handle — cannot reject without task row version" };
     }
     if (!reason || typeof reason !== "string" || reason.trim().length === 0) {
       return { ok: false, error: "Rejection reason required — provide a reason for requiring rework" };
     }
 
-    const result = await rejectVaccinationCompletion(completionId, reason.trim());
+    const result = await requestSopTaskRework(taskId, { reason: reason.trim(), row_version: rowVersion });
     if (!result.ok) {
-      return { ok: false, error: `Failed to reject completion: ${result.error.message}` };
+      return { ok: false, error: `Failed to request SOP rework: ${result.error.message}` };
     }
 
     revalidatePath("/vaccination/execution", "page");

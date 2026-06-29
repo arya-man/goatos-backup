@@ -492,6 +492,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"note.board_paging":                   "Paged over the first 200 rows for these filters; chip counts are server-authoritative totals. Narrow by scope, severity, or work state for exact working sets.",
 			"reason.no_recorded_dose_verify":      "No recorded dose to verify yet.",
 			"reason.no_recorded_dose_rework":      "No recorded dose to rework yet.",
+			"reason.no_sop_review_handle":         "SOP review handle required before verification can be reviewed.",
 			"label.unassigned":                    "unassigned",
 			"label.owner_chain_assign":            "owner chain: assign",
 			"label.vaccination":                   "Vaccination",

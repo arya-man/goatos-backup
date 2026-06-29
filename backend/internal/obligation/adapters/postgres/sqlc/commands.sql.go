@@ -311,12 +311,26 @@ func (q *Queries) ReScopeOpenObligationsForGoat(ctx context.Context, arg ReScope
 }
 
 const reopenDeferredObligationForKey = `-- name: ReopenDeferredObligationForKey :one
-UPDATE obligation_instances
+UPDATE obligation_instances oi
 SET status = 'scheduled', batch_id = NULL, row_version = row_version + 1, updated_at = now()
-WHERE tenant_id = $1
-  AND idempotency_key = $2
-  AND status = 'deferred'
-RETURNING obligation_id::text AS obligation_id
+WHERE oi.tenant_id = $1
+  AND oi.idempotency_key = $2
+  AND oi.status = 'deferred'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM protocol_versions pv
+    JOIN protocol_definitions pd
+      ON pd.tenant_id = pv.tenant_id
+     AND pd.protocol_id = pv.protocol_id
+    JOIN vw_procurement_vaccination_excluded_goats ex
+      ON ex.tenant_id = oi.tenant_id
+     AND ex.goat_id = oi.target_id
+    WHERE oi.target_type = 'goat'
+      AND pv.tenant_id = oi.tenant_id
+      AND pv.protocol_version_id = oi.protocol_version_id
+      AND pd.category = 'vaccination'
+  )
+RETURNING oi.obligation_id::text AS obligation_id
 `
 
 type ReopenDeferredObligationForKeyParams struct {

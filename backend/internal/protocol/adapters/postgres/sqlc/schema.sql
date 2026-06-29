@@ -2629,7 +2629,7 @@ CREATE TABLE public.idempotency_keys (
     result_id uuid,
     first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
     completed_at timestamp with time zone,
-    expires_at timestamp with time zone DEFAULT (now() + '7 days'::interval),
+    expires_at timestamp with time zone,
     CONSTRAINT idempotency_keys_completed_shape_check CHECK (((status <> 'completed'::text) OR (completed_at IS NOT NULL))),
     CONSTRAINT idempotency_keys_status_check CHECK ((status = ANY (ARRAY['started'::text, 'completed'::text, 'failed'::text])))
 );
@@ -3684,6 +3684,21 @@ CREATE TABLE public.obligation_escalations (
     CONSTRAINT obligation_escalations_level_check CHECK ((level >= 1)),
     CONSTRAINT obligation_escalations_role_check CHECK (((escalated_to_role IS NULL) OR (escalated_to_role = ANY (ARRAY['admin'::text, 'park_head'::text, 'phc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text])))),
     CONSTRAINT obligation_escalations_status_check CHECK ((status = ANY (ARRAY['open'::text, 'acknowledged'::text, 'resolved'::text, 'expired'::text])))
+);
+
+
+--
+-- Name: obligation_goat_shift_watermarks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_goat_shift_watermarks (
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    last_occurred_at timestamp with time zone NOT NULL,
+    last_event_id text NOT NULL,
+    last_scope_type text NOT NULL,
+    last_scope_id uuid NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -6082,6 +6097,14 @@ ALTER TABLE ONLY public.obligation_batches
 
 ALTER TABLE ONLY public.obligation_escalations
     ADD CONSTRAINT obligation_escalations_pkey PRIMARY KEY (escalation_id);
+
+
+--
+-- Name: obligation_goat_shift_watermarks obligation_goat_shift_watermarks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_goat_shift_watermarks
+    ADD CONSTRAINT obligation_goat_shift_watermarks_pkey PRIMARY KEY (tenant_id, goat_id);
 
 
 --
@@ -8622,7 +8645,7 @@ CREATE INDEX obligation_batches_scope_idx ON public.obligation_batches USING btr
 -- Name: obligation_batches_stock_reconcile_required_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX obligation_batches_stock_reconcile_required_idx ON public.obligation_batches USING btree (tenant_id, updated_at, batch_id) WHERE (((context #>> '{defer_repair,state}'::text[]) = 'stock_reconcile_required'::text) OR ((context #>> '{shift_repair,state}'::text[]) = 'stock_reconcile_required'::text) OR ((context #>> '{cancel_repair,state}'::text[]) = 'stock_reconcile_required'::text));
+CREATE INDEX obligation_batches_stock_reconcile_required_idx ON public.obligation_batches USING btree (tenant_id, updated_at, batch_id) WHERE (((context #>> '{defer_repair,state}'::text[]) = 'stock_reconcile_required'::text) OR ((context #>> '{shift_repair,state}'::text[]) = 'stock_reconcile_required'::text) OR ((context #>> '{cancel_repair,state}'::text[]) = 'stock_reconcile_required'::text) OR ((context #>> '{missed_repair,state}'::text[]) = 'stock_reconcile_required'::text));
 
 
 --
@@ -8644,6 +8667,13 @@ CREATE UNIQUE INDEX obligation_escalations_open_level_unique ON public.obligatio
 --
 
 CREATE INDEX obligation_escalations_status_idx ON public.obligation_escalations USING btree (tenant_id, status, level);
+
+
+--
+-- Name: obligation_goat_shift_watermarks_timeline_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_goat_shift_watermarks_timeline_idx ON public.obligation_goat_shift_watermarks USING btree (tenant_id, last_occurred_at DESC);
 
 
 --
@@ -12739,6 +12769,30 @@ ALTER TABLE ONLY public.obligation_escalations
 
 ALTER TABLE ONLY public.obligation_escalations
     ADD CONSTRAINT obligation_escalations_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: obligation_goat_shift_watermarks obligation_goat_shift_watermarks_goat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_goat_shift_watermarks
+    ADD CONSTRAINT obligation_goat_shift_watermarks_goat_id_fkey FOREIGN KEY (goat_id) REFERENCES public.goats(goat_id);
+
+
+--
+-- Name: obligation_goat_shift_watermarks obligation_goat_shift_watermarks_last_scope_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_goat_shift_watermarks
+    ADD CONSTRAINT obligation_goat_shift_watermarks_last_scope_id_fkey FOREIGN KEY (last_scope_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: obligation_goat_shift_watermarks obligation_goat_shift_watermarks_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_goat_shift_watermarks
+    ADD CONSTRAINT obligation_goat_shift_watermarks_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

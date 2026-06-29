@@ -88,6 +88,99 @@ func TestListRecordedCompletionsQueue(t *testing.T) {
 	}
 }
 
+func TestListRecordedCompletionsQueueIncludesSOPReviewHandle(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.queue.task", Name: "Queue Task", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+
+	const (
+		g    = "30000000-0000-4000-8000-0000000000c9"
+		sop  = "30000000-0000-4000-8000-0000000000ca"
+		ver  = "30000000-0000-4000-8000-0000000000cb"
+		task = "30000000-0000-4000-8000-0000000000cc"
+		sub  = "30000000-0000-4000-8000-0000000000cd"
+		item = "30000000-0000-4000-8000-0000000000ce"
+	)
+	seedGenGoat(t, ctx, pool, g, "alive")
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
+VALUES ($1, $2, 'vaccination.queue_task', 'Vaccination Queue Task', 'active')`, sop, impTenant); err != nil {
+		t.Fatalf("sop: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, published_at)
+VALUES ($1, $2, $3, 1, 'v1', 'published', '{}'::jsonb, '{}'::jsonb, now())`, ver, impTenant, sop); err != nil {
+		t.Fatalf("sop version: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, scope_type, scope_id, state, row_version)
+VALUES ($1, $2, $3, $4, 'vaccination_drive', 'Drive', 'shed', $5, 'needs_review', 4)`, task, impTenant, sop, ver, impCbe); err != nil {
+		t.Fatalf("task: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, state, answers, proof_refs)
+VALUES ($1, $2, $3, $4, $5, 'queue-task-sub', 'needs_review', '{}'::jsonb, '[]'::jsonb)`, sub, impTenant, task, ver, impParty); err != nil {
+		t.Fatalf("submission: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state, result)
+VALUES ($1, $2, $3, $4, $5::uuid, 'goat:' || $5::text, 'needs_review', '{}'::jsonb)`, item, impTenant, sub, task, g); err != nil {
+		t.Fatalf("item: %v", err)
+	}
+	obID, applied, err := obl.InsertObligation(ctx, obldomain.NewObligation{
+		TenantID: impTenant, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: g, ScopeType: "tenant", ScopeID: impTenant,
+		DueAt: time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: "queue-task-ob", Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("obligation: applied=%v err=%v", applied, err)
+	}
+	doses := int32(1)
+	itemID := item
+	cid, applied, err := vacc.RecordCompletion(ctx, vaccdomain.NewCompletion{
+		TenantID: impTenant, ObligationID: obID, GoatID: g, SopSubmissionItemID: &itemID, Doses: &doses, RouteSite: "SC",
+		AdministeredAt: time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC), Status: "recorded", IdempotencyKey: "queue-task-completion",
+	})
+	if err != nil || !applied {
+		t.Fatalf("record: applied=%v err=%v", applied, err)
+	}
+
+	queue, err := vacc.ListRecordedCompletions(ctx, impTenant, "", 100)
+	if err != nil {
+		t.Fatalf("list recorded: %v", err)
+	}
+	if len(queue) != 1 || queue[0].CompletionID != cid || queue[0].SOPTaskID != task || queue[0].SOPTaskVersion != 4 {
+		t.Fatalf("queue task handle = %#v", queue)
+	}
+}
+
 // TestListRecordedCompletionsParkScope proves the verification queue honors the top-bar park scope:
 // a recorded completion in CBE and one in another park, then parkID=CBE must exclude the other park.
 func TestListRecordedCompletionsParkScope(t *testing.T) {

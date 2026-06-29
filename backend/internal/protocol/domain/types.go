@@ -15,30 +15,32 @@ type Definition struct {
 
 // NewDefinition is the input to create a Definition.
 type NewDefinition struct {
-	TenantID  string
-	Code      string
-	Name      string
-	Category  string
-	Status    string
-	CreatedBy *string
+	TenantID       string
+	Code           string
+	Name           string
+	Category       string
+	Status         string
+	CreatedBy      *string
+	IdempotencyKey string
 }
 
 // NewVersion is the input to create a protocol version. ScopeID is nil for tenant scope and a
 // park location id for a park-scoped calendar. RuleDsl/ProofPolicy are JSON payloads.
 type NewVersion struct {
-	TenantID      string
-	ProtocolID    string
-	ScopeType     string
-	ScopeID       *string
-	Version       int32
-	VersionLabel  string
-	Status        string
-	EffectiveFrom time.Time
-	EffectiveTo   *time.Time
-	RuleDsl       []byte
-	ProofPolicy   []byte
-	SopVersionID  *string
-	DraftedBy     *string
+	TenantID       string
+	ProtocolID     string
+	ScopeType      string
+	ScopeID        *string
+	Version        int32
+	VersionLabel   string
+	Status         string
+	EffectiveFrom  time.Time
+	EffectiveTo    *time.Time
+	RuleDsl        []byte
+	ProofPolicy    []byte
+	SopVersionID   *string
+	DraftedBy      *string
+	IdempotencyKey string
 }
 
 // Version is a stored protocol version.
@@ -76,6 +78,8 @@ type NewRule struct {
 	ProofPolicy         []byte
 	WithdrawalDays      *int32
 	SortOrder           int32
+	CreatedBy           *string
+	IdempotencyKey      string
 }
 
 // Rule is a stored dose/phase rule.

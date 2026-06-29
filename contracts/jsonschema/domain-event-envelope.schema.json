@@ -53,11 +53,14 @@
         "legacy_import.completed",
         "calendar.nudge.requested",
         "calendar.reminder.queued",
+        "calendar.escalation.queued",
         "calendar.snooze.recorded",
         "calendar.escalation.acknowledged",
         "calendar.escalation.resolved",
+        "obligation.missed",
         "vaccination.verify.accepted",
         "vaccination.verify.rejected",
+        "vaccination.completed",
         "protocol.version.published"
       ]
     },
@@ -81,6 +84,7 @@
         "calendar_notification",
         "calendar_snooze",
         "obligation_escalation",
+        "obligation_instance",
         "vaccination_completion",
         "protocol_version"
       ]
@@ -101,6 +105,7 @@
         "legacy_import_run",
         "location",
         "calendar_event",
+        "obligation_instance",
         "vaccination_completion",
         "protocol_version"
       ]
@@ -300,7 +305,8 @@
             "import_run",
             "conflict",
             "location",
-            "actor"
+            "actor",
+            "obligation_status_event"
           ]
         },
         "evidence_id": {

@@ -34,7 +34,7 @@ The checks are:
 ```text
 Can the backend compile?
 Do tests pass?
-Can admin-web lint, typecheck, build, and keep the bearer token out of the client bundle?
+Can admin-web lint, typecheck, pass mock-fidelity guards, build, and keep the bearer token out of the client bundle?
 Are API contracts still valid?
 Did we accidentally commit a huge/private file?
 Can a brand-new Postgres database be built from our migrations?
@@ -368,7 +368,26 @@ Purpose:
 Catch generated-client, server-action, route, and component type drift.
 ```
 
-### Step 6: Admin-Web Build And Token Leak Guard
+### Step 6: Admin-Web Mock Fidelity
+
+Command:
+
+```text
+npm --prefix apps/admin-web run check:mock-fidelity
+```
+
+Purpose:
+
+```text
+Run the admin-web IA guard, UI contract literal guard, and mock-fidelity guard
+so the active screens stay aligned with the Goat OS dashboard mock and generated
+backend-owned contracts.
+```
+
+This is a static guard, not full visual proof. Frontend code changes still need
+the local screenshot/layout/a11y smoke plus human screenshot review before push.
+
+### Step 7: Admin-Web Build And Token Leak Guard
 
 Command:
 
@@ -443,6 +462,16 @@ PATH="/tmp/goatos-sqlc-bin:$PATH" make sqlc-check
 make validate-sqlc-plans
 make validate-migrations
 git diff --check
+```
+
+Admin-web CI-equivalent set:
+
+```text
+npm --prefix apps/admin-web ci
+npm --prefix apps/admin-web run lint
+npm --prefix apps/admin-web run typecheck
+npm --prefix apps/admin-web run check:mock-fidelity
+GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run build
 ```
 
 For docs-only changes:

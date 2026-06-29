@@ -156,6 +156,25 @@ func TestHandleMessageMarksProcessedStoreFailedForRetry(t *testing.T) {
 	}
 }
 
+func TestHandleMessageMarksProcessedStoreFailedAfterHandlerPanic(t *testing.T) {
+	bus := eventbus.NewInProcessBus()
+	bus.Subscribe("goat.created", eventbus.HandlerFunc(func(context.Context, eventbus.Event) error {
+		panic("synthetic handler panic")
+	}))
+	store := &fakeProcessedStore{decision: ProcessDecisionClaimed}
+	service := NewService(bus, testValidator(t)).WithProcessedEventStore(store)
+	err := service.HandleMessage(context.Background(), Message{
+		ID:   "msg-panic",
+		Data: testEnvelope(t, "goat.created", "10000000-0000-4000-8000-000000000007"),
+	})
+	if err == nil {
+		t.Fatal("expected panic recovery error")
+	}
+	if store.failed != 1 || store.completed != 0 {
+		t.Fatalf("store=%#v, want one failed mark after panic", store)
+	}
+}
+
 type fakeSubscriber struct {
 	message        Message
 	subscriptionID string

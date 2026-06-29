@@ -456,6 +456,7 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 			SourceTag:      strPtr("ACCEPTED-CLEAN"),
 			IdentityState:  "clean",
 			OwnershipState: "mesha_owned",
+			Metadata:       []byte(`{"sex":"female","dob":"2026-04-10","dob_estimated":true,"management_stage":"K1"}`),
 			IdempotencyKey: "accepted-clean-goat",
 		})
 		if _, err := repo.RecordSourceHealth(ctx, ports.SourceHealth{
@@ -520,6 +521,24 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 		}
 		if len(handoffs) != 1 || handoffs[0].GoatID != goat.GoatID {
 			t.Fatalf("handoffs = %#v", handoffs)
+		}
+		var sex string
+		var dob time.Time
+		var dobEstimated bool
+		var stage, health, lifecycle, parkID, shedID string
+		if err := pool.QueryRow(ctx, `
+SELECT sex, dob, dob_estimated, management_stage, health_status, lifecycle_status, park_id::text, shed_id::text
+FROM goats
+WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(
+			&sex, &dob, &dobEstimated, &stage, &health, &lifecycle, &parkID, &shedID,
+		); err != nil {
+			t.Fatalf("query accepted goat metadata: %v", err)
+		}
+		wantDOB := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
+		if sex != "female" || !dob.Equal(wantDOB) || !dobEstimated || stage != "K1" ||
+			health != "healthy" || lifecycle != "alive" || parkID != testPark || shedID != testShed {
+			t.Fatalf("accepted goat metadata = sex=%q dob=%s estimated=%v stage=%q health=%q lifecycle=%q park=%q shed=%q",
+				sex, dob.Format("2006-01-02"), dobEstimated, stage, health, lifecycle, parkID, shedID)
 		}
 		rowID := "load_goat:" + goat.LoadGoatID
 		row, found, err := repo.GetWorkRow(ctx, domain.WorkQuery{TenantID: testTenant, Limit: 1}, rowID)

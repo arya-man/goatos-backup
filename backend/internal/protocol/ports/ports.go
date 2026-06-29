@@ -15,6 +15,10 @@ var ErrNotFound = errors.New("protocol: not found")
 // protocol version that is no longer draft. Published config is immutable.
 var ErrVersionNotDraft = errors.New("protocol: version is not draft")
 
+// ErrIdempotencyConflict is returned when a caller reuses an idempotency key
+// with a different semantic protocol-config payload.
+var ErrIdempotencyConflict = errors.New("protocol: idempotency key reused with different payload")
+
 // Repository is the persistence boundary for protocol config. Implementations wrap generated
 // sqlc queries; no hand-written SQL leaks above this interface.
 type Repository interface {
@@ -31,7 +35,7 @@ type Repository interface {
 	ListConfigs(ctx context.Context, tenantID, category string) ([]domain.ConfigListItem, error)
 	// PublishVersion flips a draft version to published. The source-backed approval gate is
 	// enforced by the app layer before calling this.
-	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string) error
+	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error
 
 	CreateRule(ctx context.Context, in domain.NewRule) (ruleID string, err error)
 	ListRules(ctx context.Context, tenantID, versionID string) ([]domain.Rule, error)

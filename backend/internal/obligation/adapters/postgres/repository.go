@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -134,7 +135,7 @@ func (r *Repository) GetByIdempotencyKey(ctx context.Context, tenantID, idempote
 	}, nil
 }
 
-// DeferOpenObligationByIdempotencyKey moves an existing scheduled/due/missed obligation into the
+// DeferOpenObligationByIdempotencyKey moves an existing scheduled/due obligation into the
 // canonical deferred state during goat rechecks. If the row was still in a planned batch, it is
 // detached so the held goat is not executed by an already-created drive.
 func (r *Repository) DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (string, bool, error) {
@@ -165,7 +166,7 @@ LEFT JOIN obligation_batches ob
  AND ob.batch_id = oi.batch_id
 WHERE oi.tenant_id = $1
   AND oi.idempotency_key = $2
-  AND oi.status IN ('scheduled', 'due', 'missed')
+  AND oi.status IN ('scheduled', 'due')
 FOR UPDATE OF oi`, tenant, idempotencyKey).Scan(&obligationID, &oldBatchID, &oldBatchStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		row, lookupErr := r.queries.WithTx(tx).GetObligationByIdempotencyKey(ctx, obligationdb.GetObligationByIdempotencyKeyParams{
@@ -196,7 +197,7 @@ SET status = 'deferred',
     updated_at = now()
 WHERE tenant_id = $1
   AND obligation_id = $2::uuid
-  AND status IN ('scheduled', 'due', 'missed')`, tenant, obligationID, detachPlannedBatch)
+  AND status IN ('scheduled', 'due')`, tenant, obligationID, detachPlannedBatch)
 	if err != nil {
 		return "", false, fmt.Errorf("obligation: defer open obligation: %w", err)
 	}
@@ -215,6 +216,25 @@ WITH reserved AS (
   WHERE tenant_id = $1
     AND batch_id = $2::uuid
     AND movement_type = 'reserve'
+),
+repair AS (
+  SELECT (
+    CASE WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{shift_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+  )::numeric AS pending_release
+  FROM obligation_batches
+  WHERE tenant_id = $1
+    AND batch_id = $2::uuid
 )
 UPDATE obligation_batches ob
 SET estimated_targets = GREATEST(0, estimated_targets - 1),
@@ -229,7 +249,10 @@ SET estimated_targets = GREATEST(0, estimated_targets - 1),
               WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
               THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
               ELSE 0
-            END) + LEAST(reserved.qty, reserved.qty / GREATEST(ob.estimated_targets, 1)),
+            END) + LEAST(
+              GREATEST(0, reserved.qty - repair.pending_release),
+              GREATEST(0, reserved.qty - repair.pending_release) / GREATEST(ob.estimated_targets, 1)
+            ),
           'recorded_at', now()
         )
       )
@@ -237,7 +260,7 @@ SET estimated_targets = GREATEST(0, estimated_targets - 1),
     END,
     updated_at = now(),
     row_version = row_version + 1
-FROM reserved
+FROM reserved, repair
 WHERE tenant_id = $1
   AND batch_id = $2::uuid`, tenant, oldBatchID, obligationID, reason); err != nil {
 			return "", false, fmt.Errorf("obligation: update deferred planned batch: %w", err)
@@ -247,7 +270,7 @@ WHERE tenant_id = $1
 	qtx := r.queries.WithTx(tx)
 	// occurredAt suffix lets repeated defer cycles (defer -> recover -> defer) each record an event,
 	// symmetric with the reopen event key.
-	eventKey := obligationID + ":deferred:" + occurredAt.UTC().Format(time.RFC3339)
+	eventKey := obligationID + ":deferred:" + occurredAt.UTC().Format(time.RFC3339Nano)
 	_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
 		IdempotencyKey: eventKey,
 		TenantID:       tenant,
@@ -330,7 +353,7 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 		return "", false, fmt.Errorf("obligation: reopen deferred obligation: %w", err)
 	}
 
-	eventKey := obligationID + ":reopened:" + occurredAt.UTC().Format(time.RFC3339)
+	eventKey := obligationID + ":reopened:" + occurredAt.UTC().Format(time.RFC3339Nano)
 	_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
 		IdempotencyKey: eventKey,
 		TenantID:       tenant,
@@ -384,6 +407,9 @@ func (r *Repository) ListDue(ctx context.Context, tenantID, status string, dueBe
 	if err != nil {
 		return nil, fmt.Errorf("obligation: tenant id: %w", err)
 	}
+	if status == "scheduled_or_due" {
+		return r.listScheduledOrDue(ctx, tenant, dueBefore, limit)
+	}
 	rows, err := r.queries.ListDueObligations(ctx, obligationdb.ListDueObligationsParams{
 		TenantID:  tenant,
 		Status:    status,
@@ -406,6 +432,54 @@ func (r *Repository) ListDue(ctx context.Context, tenantID, status string, dueBe
 			DueAt:             row.DueAt.Time,
 			Status:            row.Status,
 		})
+	}
+	return out, nil
+}
+
+func (r *Repository) listScheduledOrDue(ctx context.Context, tenant pgtype.UUID, dueBefore time.Time, limit int32) ([]domain.DueObligation, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT obligation_id::text,
+       protocol_version_id::text,
+       rule_id::text,
+       target_type,
+       target_id::text,
+       scope_type,
+       scope_id::text,
+       due_at,
+       status
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND status IN ('scheduled', 'due')
+  AND due_at <= $2
+ORDER BY due_at ASC, obligation_id ASC
+LIMIT $3`, tenant, pgconv.Timestamptz(dueBefore), limit)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: list scheduled/due: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.DueObligation, 0)
+	for rows.Next() {
+		var o domain.DueObligation
+		if err := rows.Scan(
+			&o.ObligationID,
+			&o.ProtocolVersionID,
+			&o.RuleID,
+			&o.TargetType,
+			&o.TargetID,
+			&o.ScopeType,
+			&o.ScopeID,
+			&o.DueAt,
+			&o.Status,
+		); err != nil {
+			return nil, fmt.Errorf("obligation: scan scheduled/due: %w", err)
+		}
+		out = append(out, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: read scheduled/due rows: %w", err)
 	}
 	return out, nil
 }
@@ -587,9 +661,26 @@ WHERE tenant_id = $1
   AND scope_type = $3
   AND scope_id = $4
   AND status = 'planned'
+  AND COALESCE(session, '') = $5
+  AND (($6::boolean = false AND planned_date IS NULL) OR ($6::boolean = true AND planned_date IS NOT DISTINCT FROM $7::date))
+  AND (($8::boolean = false AND window_start IS NULL) OR ($8::boolean = true AND window_start IS NOT DISTINCT FROM $9::timestamptz))
+  AND (($10::boolean = false AND window_end IS NULL) OR ($10::boolean = true AND window_end IS NOT DISTINCT FROM $11::timestamptz))
+  AND sop_task_id IS NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM inventory_stock_movements ism
+    WHERE ism.tenant_id = obligation_batches.tenant_id
+      AND ism.batch_id = obligation_batches.batch_id
+      AND ism.movement_type = 'reserve'
+  )
 ORDER BY created_at ASC, batch_id ASC
 LIMIT 1
-FOR UPDATE`, tenant, version, in.ScopeType, scope).Scan(&batchID)
+FOR UPDATE`,
+		tenant, version, in.ScopeType, scope, in.Session,
+		in.PlannedDate != nil, in.PlannedDate,
+		in.WindowStart != nil, in.WindowStart,
+		in.WindowEnd != nil, in.WindowEnd,
+	).Scan(&batchID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		batchID, err = qtx.CreateObligationBatch(ctx, obligationdb.CreateObligationBatchParams{
 			TenantID:              tenant,
@@ -766,7 +857,7 @@ FROM obligation_batches ob
 JOIN obligation_instances oi
   ON oi.tenant_id = ob.tenant_id
  AND oi.batch_id = ob.batch_id
- AND oi.status IN ('scheduled', 'due', 'in_progress', 'missed')
+ AND oi.status IN ('scheduled', 'due', 'in_progress')
 WHERE ob.tenant_id = $1
   AND ob.protocol_version_id = $2
   AND ob.status = 'planned'
@@ -889,8 +980,27 @@ WITH reserved AS (
   WHERE tenant_id = $1
     AND batch_id = $2::uuid
     AND movement_type = 'reserve'
+),
+repair AS (
+  SELECT (
+    CASE WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{shift_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+  )::numeric AS pending_release
+  FROM obligation_batches
+  WHERE tenant_id = $1
+    AND batch_id = $2::uuid
 )
-UPDATE obligation_batches
+UPDATE obligation_batches ob
 SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
     context = CASE
       WHEN reserved.qty > 0 THEN context || jsonb_build_object(
@@ -903,7 +1013,10 @@ SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
               WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
               THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
               ELSE 0
-            END) + LEAST(reserved.qty, ($3::numeric * reserved.qty) / GREATEST(estimated_targets, 1)),
+            END) + LEAST(
+              GREATEST(0, reserved.qty - repair.pending_release),
+              ($3::numeric * GREATEST(0, reserved.qty - repair.pending_release)) / GREATEST(ob.estimated_targets, 1)
+            ),
           'recorded_at', now()
         )
       )
@@ -911,7 +1024,7 @@ SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
     END,
     updated_at = now(),
     row_version = row_version + 1
-FROM reserved
+FROM reserved, repair
 WHERE tenant_id = $1
   AND batch_id = $2::uuid`, tenant, batchID, count, goatID, reason); err != nil {
 			return 0, fmt.Errorf("obligation: update canceled batch repair: %w", err)
@@ -960,7 +1073,6 @@ func (r *Repository) ReScopeOpenForGoat(ctx context.Context, tenantID, goatID, s
 	if _, err := pgconv.UUID(scopeID); err != nil {
 		return 0, fmt.Errorf("obligation: scope id: %w", err)
 	}
-
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: begin tx: %w", err)
@@ -968,6 +1080,70 @@ func (r *Repository) ReScopeOpenForGoat(ctx context.Context, tenantID, goatID, s
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := r.queries.WithTx(tx)
 
+	count, err := reScopeOpenForGoatInTx(ctx, tx, qtx, tenant, tenantID, goatID, scopeType, scopeID, scopeID, time.Now().UTC())
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit re-scope: %w", err)
+	}
+	return count, nil
+}
+
+// ReScopeOpenForGoatShift applies an event-driven goat shift only when the event is newer than the
+// goat's last accepted shift event. Older or same-timestamp deliveries are durable no-ops, preventing
+// out-of-order Pub/Sub redelivery from rewinding open obligations to a stale scope.
+func (r *Repository) ReScopeOpenForGoatShift(ctx context.Context, tenantID, goatID, scopeType, scopeID string, occurredAt time.Time, eventID string) (int, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if _, err := pgconv.UUID(goatID); err != nil {
+		return 0, false, fmt.Errorf("obligation: goat id: %w", err)
+	}
+	if _, err := pgconv.UUID(scopeID); err != nil {
+		return 0, false, fmt.Errorf("obligation: scope id: %w", err)
+	}
+	occurredAt = occurredAt.UTC()
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		eventID = syntheticShiftEventID(tenantID, goatID, scopeType, scopeID, occurredAt)
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, false, fmt.Errorf("obligation: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	applied, err := claimGoatShiftWatermark(ctx, tx, tenantID, goatID, scopeType, scopeID, occurredAt, eventID)
+	if err != nil {
+		return 0, false, err
+	}
+	if !applied {
+		if err := tx.Commit(ctx); err != nil {
+			return 0, false, fmt.Errorf("obligation: commit stale re-scope: %w", err)
+		}
+		return 0, false, nil
+	}
+
+	count, err := reScopeOpenForGoatInTx(ctx, tx, qtx, tenant, tenantID, goatID, scopeType, scopeID, eventID, occurredAt)
+	if err != nil {
+		return 0, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, false, fmt.Errorf("obligation: commit re-scope: %w", err)
+	}
+	return count, true, nil
+}
+
+func reScopeOpenForGoatInTx(ctx context.Context, tx pgx.Tx, qtx *obligationdb.Queries, tenant pgtype.UUID, tenantID, goatID, scopeType, scopeID, idempotencySuffix string, occurredAt time.Time) (int, error) {
 	ids, oldBatches, err := reScopeOpenObligationsForGoat(ctx, tx, tenantID, goatID, scopeType, scopeID)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: re-scope open for goat: %w", err)
@@ -980,8 +1156,27 @@ WITH reserved AS (
   WHERE tenant_id = $1::uuid
     AND batch_id = $2::uuid
     AND movement_type = 'reserve'
+),
+repair AS (
+  SELECT (
+    CASE WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{shift_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+  )::numeric AS pending_release
+  FROM obligation_batches
+  WHERE tenant_id = $1::uuid
+    AND batch_id = $2::uuid
 )
-UPDATE obligation_batches
+UPDATE obligation_batches ob
 SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
     context = CASE
       WHEN reserved.qty > 0 THEN context || jsonb_build_object(
@@ -994,7 +1189,10 @@ SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
               WHEN context #>> '{shift_repair,state}' = 'stock_reconcile_required'
               THEN COALESCE(NULLIF(context #>> '{shift_repair,release_qty}', '')::numeric, 0)
               ELSE 0
-            END) + LEAST(reserved.qty, ($3::numeric * reserved.qty) / GREATEST(estimated_targets, 1)),
+            END) + LEAST(
+              GREATEST(0, reserved.qty - repair.pending_release),
+              ($3::numeric * GREATEST(0, reserved.qty - repair.pending_release)) / GREATEST(ob.estimated_targets, 1)
+            ),
           'recorded_at', now()
         )
       )
@@ -1002,14 +1200,22 @@ SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
     END,
     updated_at = now(),
     row_version = row_version + 1
-FROM reserved
+FROM reserved, repair
 WHERE tenant_id = $1::uuid
   AND batch_id = $2::uuid`, tenantID, batchID, count, goatID); err != nil {
 			return 0, fmt.Errorf("obligation: update old shift batch: %w", err)
 		}
 	}
-	payload, _ := json.Marshal(map[string]string{"scope_type": scopeType, "scope_id": scopeID})
-	now := time.Now()
+	payloadFields := map[string]string{"scope_type": scopeType, "scope_id": scopeID}
+	if idempotencySuffix != "" && idempotencySuffix != scopeID {
+		payloadFields["source_event_id"] = idempotencySuffix
+		payloadFields["source_occurred_at"] = occurredAt.UTC().Format(time.RFC3339Nano)
+	}
+	payload, _ := json.Marshal(payloadFields)
+	statusOccurredAt := occurredAt
+	if statusOccurredAt.IsZero() {
+		statusOccurredAt = time.Now().UTC()
+	}
 	for _, id := range ids {
 		oid, err := pgconv.UUID(id)
 		if err != nil {
@@ -1019,17 +1225,61 @@ WHERE tenant_id = $1::uuid
 			TenantID:       tenant,
 			ObligationID:   oid,
 			EventType:      "rescoped",
-			OccurredAt:     pgconv.Timestamptz(now),
+			OccurredAt:     pgconv.Timestamptz(statusOccurredAt),
 			Payload:        payload,
-			IdempotencyKey: id + ":rescoped:" + scopeID,
+			IdempotencyKey: id + ":rescoped:" + idempotencySuffix,
 		}); err != nil {
 			return 0, fmt.Errorf("obligation: rescoped event: %w", err)
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("obligation: commit re-scope: %w", err)
-	}
 	return len(ids), nil
+}
+
+func claimGoatShiftWatermark(ctx context.Context, tx pgx.Tx, tenantID, goatID, scopeType, scopeID string, occurredAt time.Time, eventID string) (bool, error) {
+	tag, err := tx.Exec(ctx, `
+INSERT INTO obligation_goat_shift_watermarks (
+  tenant_id, goat_id, last_occurred_at, last_event_id, last_scope_type, last_scope_id
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5, $6::uuid
+)
+ON CONFLICT (tenant_id, goat_id) DO NOTHING`, tenantID, goatID, occurredAt, eventID, scopeType, scopeID)
+	if err != nil {
+		return false, fmt.Errorf("obligation: insert shift watermark: %w", err)
+	}
+	if tag.RowsAffected() == 1 {
+		return true, nil
+	}
+
+	var lastOccurredAt time.Time
+	var lastEventID string
+	if err := tx.QueryRow(ctx, `
+SELECT last_occurred_at, last_event_id
+FROM obligation_goat_shift_watermarks
+WHERE tenant_id = $1::uuid
+  AND goat_id = $2::uuid
+FOR UPDATE`, tenantID, goatID).Scan(&lastOccurredAt, &lastEventID); err != nil {
+		return false, fmt.Errorf("obligation: lock shift watermark: %w", err)
+	}
+	if occurredAt.Before(lastOccurredAt) || (occurredAt.Equal(lastOccurredAt) && eventID <= lastEventID) {
+		return false, nil
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE obligation_goat_shift_watermarks
+SET last_occurred_at = $3,
+    last_event_id = $4,
+    last_scope_type = $5,
+    last_scope_id = $6::uuid,
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND goat_id = $2::uuid`, tenantID, goatID, occurredAt, eventID, scopeType, scopeID); err != nil {
+		return false, fmt.Errorf("obligation: update shift watermark: %w", err)
+	}
+	return true, nil
+}
+
+func syntheticShiftEventID(tenantID, goatID, scopeType, scopeID string, occurredAt time.Time) string {
+	sum := md5.Sum([]byte(strings.Join([]string{tenantID, goatID, scopeType, scopeID, occurredAt.Format(time.RFC3339Nano)}, "\x00")))
+	return fmt.Sprintf("synthetic-shift:%x", sum)
 }
 
 // reScopeOpenObligationsForGoat moves a goat's open obligations to a new scope on SM-2 shift. 'deferred'
@@ -1133,15 +1383,41 @@ func (r *Repository) MarkCompleted(ctx context.Context, tenantID, obligationID s
 		}
 		return false, nil
 	}
-	if _, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+
+	idempotencyKey := obligationID + ":completed"
+	if _, err := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
+		IdempotencyKey: idempotencyKey,
+		TenantID:       tenant,
+		Scope:          "obligation.mark_completed",
+		RequestHash:    "mark-completed:" + obligationID,
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, fmt.Errorf("obligation: completed idempotency key already reserved")
+		}
+		return false, fmt.Errorf("obligation: reserve completed idempotency key: %w", err)
+	}
+
+	eventID, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
 		TenantID:       tenant,
 		ObligationID:   obl,
 		EventType:      "completed",
 		OccurredAt:     pgconv.Timestamptz(time.Now()),
 		Payload:        []byte(`{"event":"completed"}`),
-		IdempotencyKey: obligationID + ":completed",
-	}); err != nil {
+		IdempotencyKey: idempotencyKey,
+	})
+	if err != nil {
 		return false, fmt.Errorf("obligation: completed event: %w", err)
+	}
+	eventUUID, err := pgconv.UUID(eventID)
+	if err != nil {
+		return false, fmt.Errorf("obligation: completed event id: %w", err)
+	}
+	if err := qtx.CompleteIdempotencyKey(ctx, obligationdb.CompleteIdempotencyKeyParams{
+		ResultType:     pgconv.Text("obligation_status_event"),
+		ResultID:       eventUUID,
+		IdempotencyKey: idempotencyKey,
+	}); err != nil {
+		return false, fmt.Errorf("obligation: complete completed idempotency key: %w", err)
 	}
 	if err := insertVaccinationCompletedOutbox(ctx, tx, tenantID, obligationID); err != nil {
 		return false, err
@@ -1320,6 +1596,8 @@ func insertObligationMissedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obli
 
 func deterministicOutboxUUID(seed string) string {
 	sum := md5.Sum([]byte(seed))
+	sum[6] = (sum[6] & 0x0f) | 0x30
+	sum[8] = (sum[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", sum[0:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
 }
 
@@ -1348,12 +1626,26 @@ func (r *Repository) MarkMissedBefore(ctx context.Context, tenantID string, miss
 
 	rows, err := tx.Query(ctx, `
 WITH candidate AS (
-  SELECT obligation_id
-  FROM obligation_instances
-  WHERE tenant_id = $1
-    AND status IN ('scheduled', 'due', 'in_progress')
-    AND COALESCE(window_end, due_at) < $2
-  ORDER BY COALESCE(window_end, due_at) ASC, obligation_id ASC
+  SELECT oi.obligation_id
+  FROM obligation_instances oi
+  WHERE oi.tenant_id = $1
+    AND oi.status IN ('scheduled', 'due', 'in_progress')
+    AND COALESCE(oi.window_end, oi.due_at) < $2
+    AND NOT EXISTS (
+      SELECT 1
+      FROM protocol_versions pv
+      JOIN protocol_definitions pd
+        ON pd.tenant_id = pv.tenant_id
+       AND pd.protocol_id = pv.protocol_id
+      JOIN vw_procurement_vaccination_excluded_goats ex
+        ON ex.tenant_id = oi.tenant_id
+       AND ex.goat_id = oi.target_id
+      WHERE oi.target_type = 'goat'
+        AND pv.tenant_id = oi.tenant_id
+        AND pv.protocol_version_id = oi.protocol_version_id
+        AND pd.category = 'vaccination'
+    )
+  ORDER BY COALESCE(oi.window_end, oi.due_at) ASC, oi.obligation_id ASC
   LIMIT $3
   FOR UPDATE SKIP LOCKED
 )
@@ -1364,24 +1656,87 @@ SET status = 'missed',
 FROM candidate c
 WHERE oi.tenant_id = $1
   AND oi.obligation_id = c.obligation_id
-RETURNING oi.obligation_id::text`, tenant, pgconv.Timestamptz(missedBefore), limit)
+RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')::text`, tenant, pgconv.Timestamptz(missedBefore), limit)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: mark missed: %w", err)
 	}
 	defer rows.Close()
 
 	ids := make([]string, 0)
+	oldBatches := make(map[string]int)
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var id, batchID string
+		if err := rows.Scan(&id, &batchID); err != nil {
 			return 0, fmt.Errorf("obligation: scan missed id: %w", err)
 		}
 		ids = append(ids, id)
+		if batchID != "" {
+			oldBatches[batchID]++
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("obligation: mark missed rows: %w", err)
 	}
 	rows.Close()
+
+	for batchID, count := range oldBatches {
+		if _, err := tx.Exec(ctx, `
+WITH reserved AS (
+  SELECT COALESCE(SUM(quantity), 0)::numeric AS qty
+  FROM inventory_stock_movements
+  WHERE tenant_id = $1
+    AND batch_id = $2::uuid
+    AND movement_type = 'reserve'
+),
+repair AS (
+  SELECT (
+    CASE WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{shift_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+  )::numeric AS pending_release
+  FROM obligation_batches
+  WHERE tenant_id = $1
+    AND batch_id = $2::uuid
+)
+UPDATE obligation_batches ob
+SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
+    context = CASE
+      WHEN reserved.qty > 0 THEN context || jsonb_build_object(
+        'missed_repair', jsonb_build_object(
+          'state', 'stock_reconcile_required',
+          'reason', 'obligation_missed',
+          'missed_count', $3::int,
+          'release_qty',
+            (CASE
+              WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+              ELSE 0
+            END) + LEAST(
+              GREATEST(0, reserved.qty - repair.pending_release),
+              ($3::numeric * GREATEST(0, reserved.qty - repair.pending_release)) / GREATEST(ob.estimated_targets, 1)
+            ),
+          'recorded_at', now()
+        )
+      )
+      ELSE context
+    END,
+    updated_at = now(),
+    row_version = row_version + 1
+FROM reserved, repair
+WHERE tenant_id = $1
+  AND batch_id = $2::uuid`, tenant, batchID, count); err != nil {
+			return 0, fmt.Errorf("obligation: update missed batch repair: %w", err)
+		}
+	}
 
 	qtx := r.queries.WithTx(tx)
 	payload, _ := json.Marshal(map[string]string{"event": "missed"})

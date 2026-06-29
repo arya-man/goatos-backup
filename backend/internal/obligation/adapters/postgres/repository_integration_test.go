@@ -108,6 +108,110 @@ func TestObligationInsertIsIdempotent(t *testing.T) {
 	_ = obligationID
 }
 
+func TestBatchAttachDoesNotReuseReservedBatchAndMissedOnlyNotFinalized(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	firstObligationID := seed(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+	batchDate := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	firstBatchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID:          tenantID,
+		ProtocolVersionID: versionID,
+		ScopeType:         "park",
+		ScopeID:           cbePark,
+		Session:           "morning",
+		PlannedDate:       &batchDate,
+		Status:            "planned",
+		EstimatedTargets:  1,
+		PlannedQuantity:   "1",
+		QuantityUnit:      "dose",
+	}, []string{firstObligationID})
+	if err != nil || attached != 1 {
+		t.Fatalf("create first batch: batch=%s attached=%d err=%v", firstBatchID, attached, err)
+	}
+	const itemID = "d3000000-0000-4000-8000-000000000001"
+	const lotID = "d3000000-0000-4000-8000-000000000002"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit)
+		 VALUES ($1, $2, 'VAC-BATCH', 'Batch attach vaccine', 'vaccine', 'dose')`, itemID, tenantID); err != nil {
+		t.Fatalf("seed item: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
+		 VALUES ($1, $2, $3, $4, 10, 1, 'dose', DATE '2026-12-31')`, lotID, tenantID, itemID, cbePark); err != nil {
+		t.Fatalf("seed stock: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO inventory_stock_movements (
+  tenant_id, lot_id, item_id, location_id, movement_type, quantity,
+  quantity_unit, batch_id, reason, idempotency_key
+) VALUES (
+  $1, $2, $3, $4, 'reserve', 1, 'dose', $5, 'batch reserve', 'batch-attach-reserve'
+)`, tenantID, lotID, itemID, cbePark, firstBatchID); err != nil {
+		t.Fatalf("seed reserve movement: %v", err)
+	}
+
+	const secondGoatID = "10000000-0000-4000-8000-0000000000cc"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id)
+VALUES ($1, $2, 'alive', 'clean', $3, $4, $4)`, secondGoatID, tenantID, meshaParty, cbePark); err != nil {
+		t.Fatalf("seed second goat: %v", err)
+	}
+	secondObligationID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: secondGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: batchDate, Status: "scheduled",
+		IdempotencyKey: "obl-new-after-reserved-batch", Sequence: 2,
+	})
+	if err != nil || !applied {
+		t.Fatalf("insert second obligation: id=%q applied=%v err=%v", secondObligationID, applied, err)
+	}
+	secondBatchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID:          tenantID,
+		ProtocolVersionID: versionID,
+		ScopeType:         "park",
+		ScopeID:           cbePark,
+		Session:           "morning",
+		PlannedDate:       &batchDate,
+		Status:            "planned",
+		EstimatedTargets:  1,
+		PlannedQuantity:   "1",
+		QuantityUnit:      "dose",
+	}, []string{secondObligationID})
+	if err != nil || attached != 1 {
+		t.Fatalf("create second batch: batch=%s attached=%d err=%v", secondBatchID, attached, err)
+	}
+	if secondBatchID == firstBatchID {
+		t.Fatalf("reserved first batch was reused for second obligation")
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM obligation_instances
+WHERE tenant_id=$1 AND obligation_id=$2 AND batch_id=$3::uuid`, tenantID, secondObligationID, secondBatchID); got != 1 {
+		t.Fatalf("second obligation attached to new batch count=%d, want 1", got)
+	}
+
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET status = 'missed'
+WHERE tenant_id=$1
+  AND obligation_id IN ($2::uuid, $3::uuid)`, tenantID, firstObligationID, secondObligationID); err != nil {
+		t.Fatalf("mark batches missed-only: %v", err)
+	}
+	pending, err := repo.ListPlannedBatchesNeedingFinalization(ctx, tenantID, versionID, true, true, 100)
+	if err != nil {
+		t.Fatalf("list planned finalization: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("missed-only planned batches needing finalization = %+v, want none", pending)
+	}
+}
+
 func TestStatusEventReserveBeforeInsertDedup(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -135,6 +239,14 @@ func TestStatusEventReserveBeforeInsertDedup(t *testing.T) {
 	}
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND idempotency_key=$2`, tenantID, "evt-1"); got != 1 {
 		t.Fatalf("expected exactly 1 status event, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM idempotency_keys
+WHERE tenant_id=$1
+  AND idempotency_key=$2
+  AND expires_at IS NULL`, tenantID, "evt-1"); got != 1 {
+		t.Fatalf("expected non-expiring idempotency key, got %d", got)
 	}
 }
 
@@ -164,6 +276,16 @@ SELECT count(*)
 FROM obligation_status_events
 WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid AND event_type='completed'`, tenantID, obligationID); got != 1 {
 		t.Fatalf("completed status event count = %d, want 1", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM idempotency_keys
+WHERE tenant_id=$1::uuid
+  AND idempotency_key=$2
+  AND scope='obligation.mark_completed'
+  AND status='completed'
+  AND result_type='obligation_status_event'`, tenantID, obligationID+":completed"); got != 1 {
+		t.Fatalf("completed idempotency key count = %d, want 1", got)
 	}
 
 	var raw []byte

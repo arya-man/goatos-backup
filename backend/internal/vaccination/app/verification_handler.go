@@ -16,8 +16,8 @@ const (
 	EventVaccinationVerifyRejected = "vaccination.verify.rejected"
 )
 
-// VerificationEvent is the payload for the verify events. CompletionID is required; the booster
-// context is derived from the obligation on accept, so it is not carried here.
+// VerificationEvent is the payload for the verify events. CompletionID is required; booster work is
+// driven later by the durable vaccination.completed consumer, so booster context is not carried here.
 type VerificationEvent struct {
 	CompletionID string `json:"completion_id"`
 	VerifiedBy   string `json:"verified_by,omitempty"`
@@ -25,8 +25,9 @@ type VerificationEvent struct {
 }
 
 // VerificationHandler applies a SOP verify outcome to a recorded completion: accept → AcceptExisting
-// (complete obligation + consume dose + booster), reject → RejectExisting (rework, obligation stays
-// open). Idempotent — both delegate to accept/reject-only-when-recorded. eventbus.Handler.
+// (complete obligation + consume dose + vaccination.completed outbox), reject → RejectExisting
+// (rework, obligation stays open). Idempotent — both delegate to accept/reject-only-when-recorded.
+// eventbus.Handler.
 type VerificationHandler struct {
 	completion *CompletionService
 }

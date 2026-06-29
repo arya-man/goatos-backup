@@ -711,40 +711,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/vaccination/completions/{completion_id}/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Accept a recorded vaccination completion. */
-        post: operations["acceptVaccinationCompletion"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/vaccination/completions/{completion_id}/reject": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Reject or request rework for a recorded vaccination completion. */
-        post: operations["rejectVaccinationCompletion"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/goats/{goat_id}/passport": {
         parameters: {
             query?: never;
@@ -1792,6 +1758,7 @@ export interface components {
             batch_id?: string;
             /** Format: uuid */
             sop_task_id?: string;
+            sop_task_row_version?: number;
             /** Format: uuid */
             sop_submission_id?: string;
             /** Format: uuid */
@@ -1971,6 +1938,7 @@ export interface components {
             batchId?: string;
             /** Format: uuid */
             sopTaskId?: string;
+            sopTaskRowVersion?: number;
             /** Format: uuid */
             completionId?: string;
         };
@@ -2066,6 +2034,8 @@ export interface components {
             obligation_id: string;
             goat_id: string;
             batch_id?: string;
+            sop_task_id?: string;
+            sop_task_row_version?: number;
             /** Format: date-time */
             administered_at: string;
             doses: number;
@@ -2128,18 +2098,18 @@ export interface components {
             protocol_version_id: string;
         };
         AddProtocolRuleRequest: {
-            dose_code?: string;
-            sequence?: number;
-            trigger_type?: string;
+            dose_code: string;
+            sequence: number;
+            trigger_type: string;
             offset_days?: number;
             due_window_days?: number;
             min_gap_days?: number;
             /** @enum {string} */
-            repeat?: "none" | "every_n_days" | "yearly";
+            repeat: "none" | "every_n_days" | "yearly";
             repeat_until_after_age?: string;
-            catch_up?: string;
+            catch_up: string;
             /** @description Eligibility predicate JSON. */
-            eligibility_json?: {
+            eligibility_json: {
                 [key: string]: unknown;
             };
             /** @description Proof policy JSON. */
@@ -2883,7 +2853,9 @@ export interface operations {
     createProtocolDefinition: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2905,6 +2877,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -2934,7 +2907,9 @@ export interface operations {
     createProtocolVersion: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
             path: {
                 protocol_id: components["parameters"]["ProtocolId"];
             };
@@ -2958,13 +2933,16 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };
     addProtocolRule: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
             path: {
                 version_id: components["parameters"]["ProtocolVersionId"];
             };
@@ -2988,6 +2966,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -3020,7 +2999,9 @@ export interface operations {
     publishProtocolVersion: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
             path: {
                 version_id: components["parameters"]["ProtocolVersionId"];
             };
@@ -3035,9 +3016,11 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
@@ -3588,63 +3571,6 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
-        };
-    };
-    acceptVaccinationCompletion: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                completion_id: components["parameters"]["CompletionId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Completion accepted. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AcceptVaccinationCompletionResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-            503: components["responses"]["ServiceUnavailable"];
-        };
-    };
-    rejectVaccinationCompletion: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                completion_id: components["parameters"]["CompletionId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["RejectVaccinationCompletionRequest"];
-            };
-        };
-        responses: {
-            /** @description Completion rejected or marked for rework. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RejectVaccinationCompletionResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getGoatVaccinationPassport: {

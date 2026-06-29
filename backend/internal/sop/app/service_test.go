@@ -316,7 +316,7 @@ func TestSubmitVaccinationRecordsSubmissionFanoutStatus(t *testing.T) {
 	}
 }
 
-func TestSubmitVaccinationFanoutFailureReturnsCommittedSubmission(t *testing.T) {
+func TestSubmitVaccinationFanoutFailureFailsRequestAndRecordsRetry(t *testing.T) {
 	repo := newFakeRepo()
 	repo.task.SOPCode = "vaccination.drive"
 	repo.task.TaskType = "vaccination"
@@ -336,11 +336,11 @@ func TestSubmitVaccinationFanoutFailureReturnsCommittedSubmission(t *testing.T) 
 			ProofRefs:      completedProof(),
 		},
 	}, "trace")
-	if err != nil {
-		t.Fatalf("SubmitTask() error = %v", err)
+	if err == nil {
+		t.Fatalf("SubmitTask() error = nil, want fanout failure")
 	}
-	if result == nil || result.Submission.SubmissionID == "" {
-		t.Fatalf("missing committed submission response: %#v", result)
+	if result != nil {
+		t.Fatalf("result = %#v, want nil on fanout failure", result)
 	}
 	if hook.submitted != 1 {
 		t.Fatalf("submission hook calls = %d, want 1", hook.submitted)

@@ -14,6 +14,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 interface ShedEventActionsProps {
   obligationId?: string | null;
   sopTaskId?: string | null;
+  sopTaskRowVersion?: number | null;
   completionId?: string | null;
   pageContract: AdminUiPageContract;
 }
@@ -23,14 +24,14 @@ interface ShedEventActionsProps {
  *
  * Manages:
  * 1. Proof upload (file input + submit) — enabled when sopTaskId && obligationId are both non-null
- * 2. Accept / Reject buttons — enabled when completionId is non-null
+ * 2. Accept / Reject buttons — enabled when completionId plus SOP task row-version are non-null
  *
  * All controls render disabled with exact reasons when their required ids are null, and surface a
  * visible error band when a server action fails (never a silent failure).
  */
-export function ShedEventActions({ obligationId, sopTaskId, completionId, pageContract }: ShedEventActionsProps) {
+export function ShedEventActions({ obligationId, sopTaskId, sopTaskRowVersion, completionId, pageContract }: ShedEventActionsProps) {
   const proofUploadEnabled = !!(sopTaskId && obligationId);
-  const acceptRejectEnabled = !!completionId;
+  const acceptRejectEnabled = !!(completionId && sopTaskId && Number(sopTaskRowVersion ?? 0) > 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -39,8 +40,8 @@ export function ShedEventActions({ obligationId, sopTaskId, completionId, pageCo
 
       {/* Accept / Reject buttons section */}
       <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-        <AcceptButton enabled={acceptRejectEnabled} completionId={completionId} pageContract={pageContract} />
-        <RejectButton enabled={acceptRejectEnabled} completionId={completionId} pageContract={pageContract} />
+        <AcceptButton enabled={acceptRejectEnabled} sopTaskId={sopTaskId} sopTaskRowVersion={sopTaskRowVersion} pageContract={pageContract} />
+        <RejectButton enabled={acceptRejectEnabled} sopTaskId={sopTaskId} sopTaskRowVersion={sopTaskRowVersion} pageContract={pageContract} />
       </div>
     </div>
   );
@@ -161,11 +162,12 @@ function ProofUploadButton({ enabled, pageContract }: { enabled: boolean; pageCo
 
 interface CompletionButtonProps {
   enabled: boolean;
-  completionId?: string | null;
+  sopTaskId?: string | null;
+  sopTaskRowVersion?: number | null;
   pageContract: AdminUiPageContract;
 }
 
-function AcceptButton({ enabled, completionId, pageContract }: CompletionButtonProps) {
+function AcceptButton({ enabled, sopTaskId, sopTaskRowVersion, pageContract }: CompletionButtonProps) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const disabledReason = !enabled
@@ -186,10 +188,10 @@ function AcceptButton({ enabled, completionId, pageContract }: CompletionButtonP
           cursor: enabled && !isPending ? "pointer" : "default",
         }}
         onClick={() => {
-          if (enabled && completionId) {
+          if (enabled && sopTaskId && sopTaskRowVersion) {
             setError(null);
             startTransition(async () => {
-              const res = await acceptCompletionAction(completionId);
+              const res = await acceptCompletionAction(sopTaskId, sopTaskRowVersion);
               if (!res.ok) {
                 setError(res.error);
               }
@@ -205,7 +207,7 @@ function AcceptButton({ enabled, completionId, pageContract }: CompletionButtonP
   );
 }
 
-function RejectButton({ enabled, completionId, pageContract }: CompletionButtonProps) {
+function RejectButton({ enabled, sopTaskId, sopTaskRowVersion, pageContract }: CompletionButtonProps) {
   const [isPending, startTransition] = useTransition();
   const [arming, setArming] = useState(false);
   const [reason, setReason] = useState("");
@@ -215,7 +217,7 @@ function RejectButton({ enabled, completionId, pageContract }: CompletionButtonP
     : undefined;
 
   function confirmReject() {
-    if (!enabled || !completionId) {
+    if (!enabled || !sopTaskId || !sopTaskRowVersion) {
       return;
     }
     const trimmed = reason.trim();
@@ -225,7 +227,7 @@ function RejectButton({ enabled, completionId, pageContract }: CompletionButtonP
     }
     setError(null);
     startTransition(async () => {
-      const res = await rejectCompletionAction(completionId, trimmed);
+      const res = await rejectCompletionAction(sopTaskId, sopTaskRowVersion, trimmed);
       if (!res.ok) {
         setError(res.error);
         return;
@@ -250,7 +252,7 @@ function RejectButton({ enabled, completionId, pageContract }: CompletionButtonP
             cursor: enabled && !isPending ? "pointer" : "default",
           }}
           onClick={() => {
-            if (enabled && completionId) {
+            if (enabled && sopTaskId && sopTaskRowVersion) {
               setError(null);
               setArming(true);
             }

@@ -116,6 +116,15 @@ Vaccination trigger closure parallel handoff
 Vaccination kernel closure business backlog
   context/execution/vaccination-kernel-closure-business-backlog.md
 
+Operational kernel stability closure handoff
+  context/execution/operational-kernel-stability-closure-handoff.md
+
+CEO vaccination kernel dev guide
+  context/execution/ceo-vaccination-kernel-dev-guide.md
+
+Goal 1 senior-architect review prompt
+  context/execution/goal1-senior-architect-review-prompt.md
+
 Calendar vaccination slice parallel handoff
   context/execution/calendar-vaccination-slice-parallel-handoff.md
 

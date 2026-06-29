@@ -14,6 +14,8 @@ import (
 
 const cptPark = "00000000-0000-4000-8000-000000003002"
 
+const orderedPark = "00000000-0000-4000-8000-000000003099"
+
 // TestSM2ShiftReScopesOpenObligations drives SM-2 (minimal): a goat.shifted event moves the goat's
 // open, unbatched obligations to the new park scope and records a 'rescoped' event; completed work
 // stays put; a same-scope replay is a no-op.
@@ -43,7 +45,15 @@ func TestSM2ShiftReScopesOpenObligations(t *testing.T) {
 	bus := eventbus.NewInProcessBus()
 	oblapp.NewGoatShiftedHandler(repo).Register(bus)
 	payload, _ := json.Marshal(oblapp.ShiftPayload{ScopeType: "park", ScopeID: cptPark})
-	if err := bus.Publish(ctx, eventbus.Event{Type: oblapp.EventGoatShifted, TenantID: tenantID, Key: testGoatID, Payload: payload}); err != nil {
+	shiftedAt := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
+	if err := bus.Publish(ctx, eventbus.Event{
+		ID:         "60000000-0000-4000-8000-000000000201",
+		Type:       oblapp.EventGoatShifted,
+		TenantID:   tenantID,
+		Key:        testGoatID,
+		Payload:    payload,
+		OccurredAt: shiftedAt,
+	}); err != nil {
 		t.Fatalf("publish goat.shifted: %v", err)
 	}
 
@@ -59,7 +69,14 @@ func TestSM2ShiftReScopesOpenObligations(t *testing.T) {
 	}
 
 	// Idempotent: re-publishing the same shift moves nothing and writes no new event.
-	if err := bus.Publish(ctx, eventbus.Event{Type: oblapp.EventGoatShifted, TenantID: tenantID, Key: testGoatID, Payload: payload}); err != nil {
+	if err := bus.Publish(ctx, eventbus.Event{
+		ID:         "60000000-0000-4000-8000-000000000201",
+		Type:       oblapp.EventGoatShifted,
+		TenantID:   tenantID,
+		Key:        testGoatID,
+		Payload:    payload,
+		OccurredAt: shiftedAt,
+	}); err != nil {
 		t.Fatalf("re-publish: %v", err)
 	}
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='rescoped'`, tenantID, obA); got != 1 {
@@ -95,7 +112,14 @@ func TestSM2ShiftReScopesDeferredThenReopensAtCurrentShed(t *testing.T) {
 	bus := eventbus.NewInProcessBus()
 	oblapp.NewGoatShiftedHandler(repo).Register(bus)
 	payload, _ := json.Marshal(oblapp.ShiftPayload{ScopeType: "park", ScopeID: cptPark})
-	if err := bus.Publish(ctx, eventbus.Event{Type: oblapp.EventGoatShifted, TenantID: tenantID, Key: testGoatID, Payload: payload}); err != nil {
+	if err := bus.Publish(ctx, eventbus.Event{
+		ID:         "60000000-0000-4000-8000-000000000202",
+		Type:       oblapp.EventGoatShifted,
+		TenantID:   tenantID,
+		Key:        testGoatID,
+		Payload:    payload,
+		OccurredAt: time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC),
+	}); err != nil {
 		t.Fatalf("publish goat.shifted: %v", err)
 	}
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2 AND status='deferred'`, obDef, cptPark); got != 1 {
@@ -111,5 +135,151 @@ func TestSM2ShiftReScopesDeferredThenReopensAtCurrentShed(t *testing.T) {
 	}
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2`, obDef, cbePark); got != 0 {
 		t.Fatalf("reopened obligation must NOT remain at stale CBE")
+	}
+}
+
+// TestSM2ShiftWatermarkRejectsOutOfOrderLocationChanged proves the event-driven SM-2 path is
+// arrival-order safe: a newer goat.location.changed event wins even when an older event is delivered
+// afterward by the transport.
+func TestSM2ShiftWatermarkRejectsOutOfOrderLocationChanged(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obA := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1, $2, 'park', 'ORD', 'Ordered Shift Park', 'active')
+ON CONFLICT (location_id) DO NOTHING`, orderedPark, tenantID); err != nil {
+		t.Fatalf("seed ordered park: %v", err)
+	}
+
+	bus := eventbus.NewInProcessBus()
+	oblapp.NewGoatShiftedHandler(repo).Register(bus)
+	olderAt := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
+	newerAt := olderAt.Add(30 * time.Minute)
+	olderPayload, _ := json.Marshal(oblapp.ShiftPayload{ScopeType: "park", ScopeID: cptPark})
+	newerPayload, _ := json.Marshal(oblapp.ShiftPayload{ScopeType: "park", ScopeID: orderedPark})
+
+	if err := bus.Publish(ctx, eventbus.Event{
+		ID:         "60000000-0000-4000-8000-000000000302",
+		Type:       oblapp.EventGoatLocationChanged,
+		TenantID:   tenantID,
+		Key:        testGoatID,
+		Payload:    newerPayload,
+		OccurredAt: newerAt,
+	}); err != nil {
+		t.Fatalf("publish newer goat.location.changed: %v", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2 AND scope_type='park'`, obA, orderedPark); got != 1 {
+		t.Fatalf("newer event should re-scope obligation to ordered park, got %d", got)
+	}
+
+	if err := bus.Publish(ctx, eventbus.Event{
+		ID:         "60000000-0000-4000-8000-000000000301",
+		Type:       oblapp.EventGoatLocationChanged,
+		TenantID:   tenantID,
+		Key:        testGoatID,
+		Payload:    olderPayload,
+		OccurredAt: olderAt,
+	}); err != nil {
+		t.Fatalf("publish stale goat.location.changed: %v", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2 AND scope_type='park'`, obA, orderedPark); got != 1 {
+		t.Fatalf("stale event must not rewind obligation from ordered park, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2`, obA, cptPark); got != 0 {
+		t.Fatalf("stale event must not move obligation to CPT, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='rescoped'`, tenantID, obA); got != 1 {
+		t.Fatalf("want only the newer event's rescoped status event, got %d", got)
+	}
+	var lastEventID string
+	if err := pool.QueryRow(ctx, `
+SELECT last_event_id
+FROM obligation_goat_shift_watermarks
+WHERE tenant_id=$1 AND goat_id=$2`, tenantID, testGoatID).Scan(&lastEventID); err != nil {
+		t.Fatalf("read shift watermark: %v", err)
+	}
+	if lastEventID != "60000000-0000-4000-8000-000000000302" {
+		t.Fatalf("watermark event id = %q, want newer event", lastEventID)
+	}
+}
+
+func TestSM2ShiftWatermarkUsesEventIDTieBreaker(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obA := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	if _, err := pool.Exec(ctx, `
+	INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+	VALUES ($1, $2, 'park', 'ORD', 'Ordered Shift Park', 'active')
+	ON CONFLICT (location_id) DO NOTHING`, orderedPark, tenantID); err != nil {
+		t.Fatalf("seed ordered park: %v", err)
+	}
+
+	bus := eventbus.NewInProcessBus()
+	oblapp.NewGoatShiftedHandler(repo).Register(bus)
+	sameAt := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
+	lowerPayload, _ := json.Marshal(oblapp.ShiftPayload{ScopeType: "park", ScopeID: cptPark})
+	higherPayload, _ := json.Marshal(oblapp.ShiftPayload{ScopeType: "park", ScopeID: orderedPark})
+
+	if err := bus.Publish(ctx, eventbus.Event{
+		ID:         "60000000-0000-4000-8000-000000000401",
+		Type:       oblapp.EventGoatLocationChanged,
+		TenantID:   tenantID,
+		Key:        testGoatID,
+		Payload:    lowerPayload,
+		OccurredAt: sameAt,
+	}); err != nil {
+		t.Fatalf("publish lower event: %v", err)
+	}
+	if err := bus.Publish(ctx, eventbus.Event{
+		ID:         "60000000-0000-4000-8000-000000000402",
+		Type:       oblapp.EventGoatLocationChanged,
+		TenantID:   tenantID,
+		Key:        testGoatID,
+		Payload:    higherPayload,
+		OccurredAt: sameAt,
+	}); err != nil {
+		t.Fatalf("publish higher same-time event: %v", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2 AND scope_type='park'`, obA, orderedPark); got != 1 {
+		t.Fatalf("higher same-time event should win by event id, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2`, obA, cptPark); got != 0 {
+		t.Fatalf("lower same-time event must not remain current, got %d", got)
+	}
+
+	if err := bus.Publish(ctx, eventbus.Event{
+		ID:         "60000000-0000-4000-8000-000000000401",
+		Type:       oblapp.EventGoatLocationChanged,
+		TenantID:   tenantID,
+		Key:        testGoatID,
+		Payload:    lowerPayload,
+		OccurredAt: sameAt,
+	}); err != nil {
+		t.Fatalf("replay lower event: %v", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2 AND scope_type='park'`, obA, orderedPark); got != 1 {
+		t.Fatalf("lower replay must not rewind higher event, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='rescoped'`, tenantID, obA); got != 2 {
+		t.Fatalf("want one event per accepted watermark, got %d", got)
+	}
+	var lastEventID string
+	if err := pool.QueryRow(ctx, `
+SELECT last_event_id
+FROM obligation_goat_shift_watermarks
+WHERE tenant_id=$1 AND goat_id=$2`, tenantID, testGoatID).Scan(&lastEventID); err != nil {
+		t.Fatalf("read shift watermark: %v", err)
+	}
+	if lastEventID != "60000000-0000-4000-8000-000000000402" {
+		t.Fatalf("watermark event id = %q, want higher same-time event", lastEventID)
 	}
 }

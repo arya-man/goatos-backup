@@ -1,5 +1,6 @@
-// Package app holds the vaccination application service. Phase 1A keeps it thin; the SM-5
-// verification flow and inventory consume/release wire through this service in later slices.
+// Package app holds the vaccination application service. SM-5 verification, inventory consume,
+// obligation completion, durable completion outbox, and completed-event booster handling wire through
+// this service/repository boundary.
 package app
 
 import (
@@ -31,6 +32,40 @@ func (s *Service) AcceptCompletion(ctx context.Context, tenantID, completionID s
 	return s.repo.AcceptCompletion(ctx, tenantID, completionID, verifiedBy, withdrawalUntil)
 }
 
+type atomicCompletionRepository interface {
+	AcceptCompletionAtomic(ctx context.Context, in domain.AcceptCompletionAtomicInput) (domain.AcceptCompletionAtomicResult, error)
+}
+
+type atomicRecordCompletionRepository interface {
+	RecordAndAcceptCompletionAtomic(ctx context.Context, completion domain.NewCompletion, verifiedBy *string, withdrawalUntil *time.Time) (domain.AcceptCompletionAtomicResult, error)
+}
+
+type acceptedCompletionByObligationRepository interface {
+	GetAcceptedCompletionForObligation(ctx context.Context, tenantID, obligationID string) (domain.AcceptedCompletion, bool, error)
+}
+
+// AcceptCompletionAtomic accepts and completes an existing recorded completion through a repository
+// transaction when the adapter supports it. The boolean reports whether the stronger path was used.
+func (s *Service) AcceptCompletionAtomic(ctx context.Context, in domain.AcceptCompletionAtomicInput) (domain.AcceptCompletionAtomicResult, bool, error) {
+	repo, ok := s.repo.(atomicCompletionRepository)
+	if !ok {
+		return domain.AcceptCompletionAtomicResult{}, false, nil
+	}
+	result, err := repo.AcceptCompletionAtomic(ctx, in)
+	return result, true, err
+}
+
+// RecordAndAcceptCompletionAtomic records a direct completion and accepts it in one repository
+// transaction when the adapter supports it. The boolean reports whether the stronger path was used.
+func (s *Service) RecordAndAcceptCompletionAtomic(ctx context.Context, completion domain.NewCompletion, verifiedBy *string, withdrawalUntil *time.Time) (domain.AcceptCompletionAtomicResult, bool, error) {
+	repo, ok := s.repo.(atomicRecordCompletionRepository)
+	if !ok {
+		return domain.AcceptCompletionAtomicResult{}, false, nil
+	}
+	result, err := repo.RecordAndAcceptCompletionAtomic(ctx, completion, verifiedBy, withdrawalUntil)
+	return result, true, err
+}
+
 // GetRecordedCompletion returns the stock/obligation context for a completion still awaiting
 // verification. It lets SM-5 consume stock before flipping the completion accepted.
 func (s *Service) GetRecordedCompletion(ctx context.Context, tenantID, completionID string) (domain.AcceptedCompletion, bool, error) {
@@ -47,6 +82,16 @@ func (s *Service) GetAcceptableCompletion(ctx context.Context, tenantID, complet
 // idempotency key so later side effects can be resumed.
 func (s *Service) GetAcceptableCompletionByIdempotency(ctx context.Context, tenantID, idempotencyKey string) (domain.AcceptedCompletion, bool, error) {
 	return s.repo.GetAcceptableCompletionByIdempotency(ctx, tenantID, idempotencyKey)
+}
+
+// GetAcceptedCompletionForObligation returns the accepted dose that completed an obligation when the
+// repository supports the lookup. It is used by the vaccination.completed consumer.
+func (s *Service) GetAcceptedCompletionForObligation(ctx context.Context, tenantID, obligationID string) (domain.AcceptedCompletion, bool, error) {
+	repo, ok := s.repo.(acceptedCompletionByObligationRepository)
+	if !ok {
+		return domain.AcceptedCompletion{}, false, ports.ErrNotFound
+	}
+	return repo.GetAcceptedCompletionForObligation(ctx, tenantID, obligationID)
 }
 
 // RejectCompletion rejects a recorded completion (rework). applied is false on replay.

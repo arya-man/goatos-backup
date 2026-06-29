@@ -516,7 +516,8 @@ function normalizePagerText(text) {
 
 async function assertCoreInteractions(page, routeName, viewportLabel) {
   // The visual smoke gate is not a full mock-fidelity claim, but it must still prove that the core mock
-  // controls are not dead. These checks deliberately avoid business writes: they only open/close overlays.
+  // controls are not dead. Most checks only open/close overlays; Action Center also submits one seeded
+  // row-versioned SOP verification so the acceptance path is proven through the browser.
   if (viewportLabel !== "desktop") return;
 
   if (routeName === "counts-herd") {
@@ -533,6 +534,7 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
 
   if (routeName === "action-center") {
     await openAndCloseDrawer(page, page.locator(".taskboard .task").first(), "ACTION", routeName);
+    await submitActionCenterVerification(page, routeName);
   }
 
   if (routeName === "calendar") {
@@ -612,6 +614,34 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
     );
     await openAndCloseDrawer(page, page.locator(".pexec .pexr").first(), "RECORD", routeName);
   }
+}
+
+async function submitActionCenterVerification(page, routeName) {
+  const queueLink = page.locator('a[href*="bucket=verify"]').first();
+  const queueLinkCount = await queueLink.count();
+  if (queueLinkCount !== 1) {
+    throw new Error(`${routeName} SOP queue link resolved to ${queueLinkCount} elements`);
+  }
+  await queueLink.scrollIntoViewIfNeeded();
+  await Promise.all([
+    page.waitForURL((url) => url.pathname === "/action-center" && url.searchParams.get("bucket") === "verify", { timeout: 10_000 }),
+    queueLink.click(),
+  ]);
+  await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
+
+  const verifyButton = page.locator('form button:not([disabled])').filter({ hasText: /^Verify$/ }).first();
+  const verifyCount = await verifyButton.count();
+  if (verifyCount !== 1) {
+    const bodyText = await page.locator("body").innerText().catch(() => "");
+    throw new Error(`${routeName} expected one enabled SOP Verify button, found ${verifyCount}; body=${bodyText.replace(/\s+/g, " ").slice(0, 800)}`);
+  }
+  await verifyButton.scrollIntoViewIfNeeded();
+  await Promise.all([
+    page.waitForURL((url) => url.searchParams.get("action_status") === "success", { timeout: 15_000 }),
+    verifyButton.click(),
+  ]);
+  await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
+  await page.locator(".note").filter({ hasText: /success|verified|accepted/i }).first().waitFor({ state: "visible", timeout: 10_000 });
 }
 
 async function openAndCloseDialog(page, trigger, dialogLabel, closeName, routeName) {

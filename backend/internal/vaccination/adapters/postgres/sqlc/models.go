@@ -1534,6 +1534,16 @@ type ObligationEscalation struct {
 	ResolutionNote      string
 }
 
+type ObligationGoatShiftWatermark struct {
+	TenantID       pgtype.UUID
+	GoatID         pgtype.UUID
+	LastOccurredAt pgtype.Timestamptz
+	LastEventID    string
+	LastScopeType  string
+	LastScopeID    pgtype.UUID
+	UpdatedAt      pgtype.Timestamptz
+}
+
 type ObligationInstance struct {
 	ObligationID         pgtype.UUID
 	TenantID             pgtype.UUID

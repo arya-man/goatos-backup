@@ -257,6 +257,9 @@ func (r *Repository) RecordMovement(ctx context.Context, m domain.Movement) (str
 	if err != nil {
 		return "", false, fmt.Errorf("inventory: quantity: %w", err)
 	}
+	if err := checkStockMovementFingerprint(ctx, r.pool, m, tenant, lot, item, location, qty); err != nil {
+		return "", false, err
+	}
 	id, err := r.queries.InsertStockMovement(ctx, inventorydb.InsertStockMovementParams{
 		TenantID:       tenant,
 		LotID:          lot,
@@ -271,6 +274,9 @@ func (r *Repository) RecordMovement(ctx context.Context, m domain.Movement) (str
 		IdempotencyKey: m.IdempotencyKey,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
+		if ferr := checkStockMovementFingerprint(ctx, r.pool, m, tenant, lot, item, location, qty); ferr != nil {
+			return "", false, ferr
+		}
 		// ON CONFLICT DO NOTHING: movement already recorded for this idempotency key.
 		return "", false, nil
 	}
@@ -325,6 +331,9 @@ func (r *Repository) RecordMovementAndAdjustBalances(ctx context.Context, m doma
 		}
 	}()
 	qtx := r.queries.WithTx(tx)
+	if err := checkStockMovementFingerprint(ctx, tx, m, tenant, lot, item, location, qty); err != nil {
+		return "", false, err
+	}
 	id, err := qtx.InsertStockMovement(ctx, inventorydb.InsertStockMovementParams{
 		TenantID:       tenant,
 		LotID:          lot,
@@ -339,6 +348,9 @@ func (r *Repository) RecordMovementAndAdjustBalances(ctx context.Context, m doma
 		IdempotencyKey: m.IdempotencyKey,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
+		if ferr := checkStockMovementFingerprint(ctx, tx, m, tenant, lot, item, location, qty); ferr != nil {
+			return "", false, ferr
+		}
 		return "", false, nil
 	}
 	if err != nil {
@@ -557,6 +569,9 @@ SELECT batch_id::text,
          + CASE WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
               THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
               ELSE 0 END
+         + CASE WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+              ELSE 0 END
        )::numeric AS release_qty
 FROM obligation_batches
 WHERE tenant_id = $1
@@ -564,6 +579,7 @@ WHERE tenant_id = $1
     context #>> '{defer_repair,state}' = 'stock_reconcile_required'
     OR context #>> '{shift_repair,state}' = 'stock_reconcile_required'
     OR context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+    OR context #>> '{missed_repair,state}' = 'stock_reconcile_required'
   )
 ORDER BY updated_at ASC, batch_id ASC
 LIMIT $2
@@ -601,10 +617,13 @@ FOR UPDATE SKIP LOCKED`, tenant, limit)
 UPDATE obligation_batches
 SET context = jsonb_set(
         jsonb_set(
-          jsonb_set(context, '{defer_repair,state}', to_jsonb('stock_reconciled'::text), false),
-          '{shift_repair,state}', to_jsonb('stock_reconciled'::text), false
+          jsonb_set(
+            jsonb_set(context, '{defer_repair,state}', to_jsonb('stock_reconciled'::text), false),
+            '{shift_repair,state}', to_jsonb('stock_reconciled'::text), false
+          ),
+          '{cancel_repair,state}', to_jsonb('stock_reconciled'::text), false
         ),
-        '{cancel_repair,state}', to_jsonb('stock_reconciled'::text), false
+        '{missed_repair,state}', to_jsonb('stock_reconciled'::text), false
       )
       || jsonb_build_object(
         'stock_reconcile',
@@ -730,6 +749,21 @@ FOR UPDATE OF stock`, tenant, batchID)
 			return released, movements, fmt.Errorf("inventory: release quantity: %w", err)
 		}
 		idempotencyKey := batchID + ":release-reconcile:" + repairToken + ":" + row.lotID
+		movement := domain.Movement{
+			TenantID:       pgconv.UUIDString(tenant),
+			LotID:          row.lotID,
+			ItemID:         row.itemID,
+			LocationID:     row.locationID,
+			MovementType:   "release",
+			Quantity:       strconv.FormatInt(qty, 10),
+			QuantityUnit:   row.unit,
+			BatchID:        &batchID,
+			Reason:         "batch stock reconcile",
+			IdempotencyKey: idempotencyKey,
+		}
+		if err := checkStockMovementFingerprint(ctx, tx, movement, tenant, lot, item, location, qtyNumeric); err != nil {
+			return released, movements, err
+		}
 		var movementID string
 		err = tx.QueryRow(ctx, `
 INSERT INTO inventory_stock_movements (
@@ -739,9 +773,12 @@ INSERT INTO inventory_stock_movements (
   $1, $2, $3, $4, 'release',
   $5, $6, $7::uuid, 'batch stock reconcile', $8
 )
-ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-RETURNING movement_id::text`, tenant, lot, item, location, qtyNumeric, row.unit, batchID, idempotencyKey).Scan(&movementID)
+			ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+	RETURNING movement_id::text`, tenant, lot, item, location, qtyNumeric, row.unit, batchID, idempotencyKey).Scan(&movementID)
 		if errors.Is(err, pgx.ErrNoRows) {
+			if ferr := checkStockMovementFingerprint(ctx, tx, movement, tenant, lot, item, location, qtyNumeric); ferr != nil {
+				return released, movements, ferr
+			}
 			remainingTarget -= qty
 			continue
 		}
@@ -775,6 +812,50 @@ func floorNumericToInt64(n pgtype.Numeric) int64 {
 		return 0
 	}
 	return int64(math.Floor(f.Float64))
+}
+
+type stockMovementQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func checkStockMovementFingerprint(ctx context.Context, q stockMovementQuerier, m domain.Movement, tenant, lot, item, location pgtype.UUID, qty pgtype.Numeric) error {
+	var conflict bool
+	if err := q.QueryRow(ctx, `
+	SELECT EXISTS (
+	  SELECT 1
+	  FROM inventory_stock_movements
+	  WHERE tenant_id = $1
+	    AND idempotency_key = $2
+	    AND (
+	      lot_id IS DISTINCT FROM $3 OR
+	      item_id IS DISTINCT FROM $4 OR
+	      location_id IS DISTINCT FROM $5 OR
+	      movement_type IS DISTINCT FROM $6 OR
+	      quantity IS DISTINCT FROM $7 OR
+	      quantity_unit IS DISTINCT FROM $8 OR
+	      batch_id IS DISTINCT FROM $9 OR
+	      actor_id IS DISTINCT FROM $10 OR
+	      COALESCE(reason, '') IS DISTINCT FROM $11
+	    )
+	)`,
+		tenant,
+		m.IdempotencyKey,
+		lot,
+		item,
+		location,
+		m.MovementType,
+		qty,
+		m.QuantityUnit,
+		pgconv.NullableUUID(m.BatchID),
+		pgconv.NullableUUID(m.ActorID),
+		m.Reason,
+	).Scan(&conflict); err != nil {
+		return fmt.Errorf("inventory: check movement idempotency fingerprint: %w", err)
+	}
+	if conflict {
+		return ports.ErrMovementIdempotencyConflict
+	}
+	return nil
 }
 
 func movementParams(m domain.Movement) (tenant, lot, item, location pgtype.UUID, qty pgtype.Numeric, err error) {

@@ -1,7 +1,11 @@
-# goatos-dev Terraform
+# goatos-dev Terraform And Kernel Runtime
 
-Status: P4 remote state bootstrap plus P7-preapply Layer 1 foundation plan. This
-does not make the app live, and no Layer 1 Terraform apply has been run.
+Status: this directory now contains the dev Terraform for Goat OS foundation
+resources and the operational-kernel runtime pieces. Some sections below record
+historical bootstrap commands; do not infer current cloud state from this README
+alone. Before any apply, deploy, reset, or traffic change, verify the active
+Mesha/VGoats account, org `vgoats.com`, project `goatos-dev`, Terraform state,
+and live resource drift.
 
 For read-only data pulls from the live dev database, do not infer credentials or
 scrape the dashboard. Use the `goatos-dev Read-Only Cloud SQL Access` workflow in
@@ -82,7 +86,7 @@ operator explicitly approves a Terraform-state teardown or migration.
 
 ## API and Budget Gate
 
-P5 enabled only the approved `goatos-dev` APIs:
+Historical P5 bootstrap enabled this approved API set in `goatos-dev`:
 
 ```text
 artifactregistry.googleapis.com
@@ -96,6 +100,25 @@ run.googleapis.com
 secretmanager.googleapis.com
 sqladmin.googleapis.com
 ```
+
+Current Terraform desired API set is smaller/different because it only manages
+the runtime services this environment needs from code:
+
+```text
+artifactregistry.googleapis.com
+cloudscheduler.googleapis.com
+cloudtasks.googleapis.com
+fcm.googleapis.com
+pubsub.googleapis.com
+run.googleapis.com
+secretmanager.googleapis.com
+sqladmin.googleapis.com
+```
+
+Do not disable historically enabled APIs just because they are absent from
+`services.tf`; some were enabled for bootstrap, build, identity, or budget
+management outside the current runtime Terraform. Conversely, do not assume
+Cloud Tasks or FCM are live until Goal 2 verifies/applies Terraform state.
 
 Compute API enablement created the default VPC and default firewall rules. They
 are unused for the current Cloud Run plus Cloud SQL connector/socket plan; do
@@ -112,18 +135,32 @@ Amount:          INR 4,750 monthly (billing-account currency; about USD 50)
 Alerts:          50%, 80%, 100% current spend
 ```
 
-## Layer 1 Plan
+## Dev Kernel Runtime Diagram
 
-Layer 1 Terraform is limited to foundation resources:
+![goatos-dev operational kernel runtime](./operational-kernel-dev-runtime.svg)
+
+This diagram is the expected Goal 2 runtime shape, not proof that every resource
+is already applied. The handoff in
+`context/execution/operational-kernel-stability-closure-handoff.md` is the gate:
+local kernel/vaccination closure must finish first, then Google dev rollout can
+verify/apply this topology and run the same E2E in `goatos-dev`.
+
+## Terraform Resource Plan
+
+The current Terraform tree describes foundation resources and the base dev
+kernel jobs/schedulers for the vaccination slice:
 
 ```text
 Artifact Registry Docker repo
 Cloud SQL Postgres instance shell + database shell
 Secret Manager containers only, no secret versions
-Pub/Sub outbox topic, analytics subscription, DLQ, message storage in asia-south1
+Pub/Sub outbox topic, analytics and domain-event subscriptions, DLQ, message storage in asia-south1
 Pub/Sub service-agent IAM for DLQ correctness
 Runtime service accounts
 Cloud SQL client, secret accessor, and topic publisher IAM
+Cloud Tasks near-term kernel queue
+Cloud Run kernel jobs
+Cloud Scheduler invocations for those jobs
 ```
 
 Planned names:
@@ -134,8 +171,31 @@ Cloud SQL:         goatos-dev-core-db
 Database:          goatos
 Outbox topic:      goatos-dev-outbox-events
 DLQ topic:         goatos-dev-outbox-events-dlq
-Subscription:      goatos-dev-analytics-export
+Subscriptions:     goatos-dev-analytics-export, goatos-dev-domain-events
+Cloud Tasks:       goatos-dev-near-term-kernel
+Kernel jobs:       goatos-dev-outbox-relay, goatos-dev-domain-event-consumer,
+                   goatos-dev-vaccination-generator,
+                   goatos-dev-obligation-sweeper,
+                   goatos-dev-calendar-projector,
+                   goatos-dev-calendar-reminder-sweeper,
+                   goatos-dev-calendar-escalation-sweeper,
+                   goatos-dev-notification-dispatcher
 ```
+
+Known Goal 2 topology reconciliation items:
+
+```text
+inventory-batch-reconciler  # stock reserve/release/reconcile repair worker
+outbox-dlq                  # Pub/Sub/native DLQ drain/replay/import runner
+idempotency-key-sweeper     # retention cleanup / replay-after-expiry proof
+```
+
+These binaries exist in `backend/cmd/` but are not in the current
+`local.kernel_jobs` map. Goal 2 must either add them as Cloud Run Jobs/Scheduler
+entries with the right IAM/env/secrets, or document an equivalent dev-safe
+operator runner and prove the same stock, DLQ, and idempotency behavior in
+Google E2E. Do not call the dev kernel runtime complete while these are
+unreconciled.
 
 Cloud SQL is planned with `activation_policy = "ALWAYS"` for the live raw-URL
 dev dashboard bring-up. This means the instance runs while the dashboard is
@@ -151,12 +211,15 @@ Connectivity is public IP plus future Cloud SQL connector/socket:
 Do not add authorized networks, private IP, or a Serverless VPC Access connector
 for this dev batch.
 
-Forbidden in this stack until a later approved layer:
+Do not apply or mutate from this directory as a casual verification step. Goal 2
+must first pass the cloud authority gate, reconcile live drift, and preserve the
+old dashboard rollback path. The following operations are allowed only inside
+that explicit Goal 2 rollout or another approved cloud-change session:
 
 ```text
 terraform apply
-Cloud Run services/jobs
-Scheduler jobs
+Cloud Run services/jobs changes
+Scheduler jobs changes
 Load balancer/serverless NEGs/DNS
 Cloud SQL users or passwords
 Secret Manager secret versions
@@ -177,8 +240,10 @@ env -u GOOGLE_APPLICATION_CREDENTIALS \
   terraform -chdir=infra/envs/dev plan -input=false -no-color
 ```
 
-Plan result: `42 to add, 0 to change, 0 to destroy`. No plan file was written;
-do not commit `tfplan`, `*.tfplan`, `.terraform/`, or `*.tfstate*`.
+Historical pre-kernel-jobs plan result: `42 to add, 0 to change, 0 to destroy`.
+That number is not current proof. Goal 2 must regenerate a fresh plan after
+reconciling live drift and before any apply. No plan file was written; do not
+commit `tfplan`, `*.tfplan`, `.terraform/`, or `*.tfstate*`.
 
 ## Dev Custom Dashboard URL
 

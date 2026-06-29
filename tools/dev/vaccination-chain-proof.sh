@@ -8,7 +8,7 @@
 #     -> obligation_instances
 #     -> obligation-sweeper -> obligation_batch + SOP task
 #     -> 3 video proofs (local storage) -> SOP task submission -> vaccination_completion (recorded)
-#     -> verification-queue -> accept -> completion accepted + obligation completed
+#     -> verification-queue -> SOP task verify -> completion accepted + obligation completed
 #     -> CT / AC / PA / WF / vaccination ops / shed drilldown / Passport read the same Postgres truth
 #
 # Prerequisites (see docs/runbooks/vaccination-local-business-chain.md):
@@ -42,11 +42,46 @@ jqp(){ python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null
 has(){ grep -q "$1" <<<"$2" && echo HIT || echo MISS; }
 fail(){ echo "FAIL $*" >&2; exit 1; }
 assert_hit(){ local label=$1 needle=$2 haystack=$3; [ "$(has "$needle" "$haystack")" = HIT ] || fail "$label missing $needle"; }
+relay_once(){
+  local label=$1 limit=${2:-50} out relay_bad
+  out=$(cd "$BACKEND" && GOATOS_OUTBOX_ALLOW_NONDURABLE=1 GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay -limit "$limit" 2>&1)
+  echo "$out" | tail -1
+  relay_bad=$(RELAY_OUTPUT="$out" python3 - <<'PY'
+import json
+import os
+import re
+
+bad = []
+for line in os.environ.get("RELAY_OUTPUT", "").splitlines():
+    try:
+        obj = json.loads(line)
+    except Exception:
+        obj = {}
+    for key in ("failed", "dead_letter", "retry_scheduled"):
+        value = obj.get(key)
+        if isinstance(value, int) and value > 0:
+            bad.append(f"{key}={value}")
+    for match in re.finditer(r'"?(failed|dead_letter|retry_scheduled)"?\s*[:=]\s*([1-9][0-9]*)', line):
+        bad.append(f"{match.group(1)}={match.group(2)}")
+print(" ".join(dict.fromkeys(bad)))
+PY
+)
+  [ -z "$relay_bad" ] || fail "$label relay reported non-green counts: $relay_bad output=$(echo "$out" | tail -3 | tr '\n' ' ')"
+}
+assert_outbox_published(){
+  local label=$1 aggregate=$2 event_type=$3
+  local bad not_published
+  bad=$(psqlq "select count(*) from outbox_messages where tenant_id='$TENANT' and aggregate_id='$aggregate' and event_type='$event_type' and status in ('failed','dead_letter')")
+  [ "$bad" = "0" ] || fail "$label outbox has failed/dead_letter rows=$bad"
+  not_published=$(psqlq "select count(*) from outbox_messages where tenant_id='$TENANT' and aggregate_id='$aggregate' and event_type='$event_type' and status <> 'published'")
+  [ "$not_published" = "0" ] || fail "$label outbox has non-published rows=$not_published"
+}
 
 TOKEN=$(cd "$BACKEND" && go run ./cmd/mint-dev-token -tenant-id "$TENANT" -user-id "$USER" -ttl 2h 2>/dev/null)
 A=(-H "Authorization: Bearer $TOKEN")
 STAMP=$(date +%s); RFID="CHAINPROOF-$STAMP"
 ENTRY_DATE=$(date -u +%F)
+ADMINISTERED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 if DOB_DAY21=$(date -u -v-21d +%F 2>/dev/null); then
   :
 else
@@ -68,9 +103,10 @@ psql "$PGURL" -c "select event_id,event_type,status from outbox_messages where a
 EVENT=$(psqlq "select event_id from outbox_messages where aggregate_id='$GOAT' limit 1")
 
 echo; echo "### 3. outbox-relay eventbus delivery -> generation"
-( cd "$BACKEND" && GOATOS_OUTBOX_ALLOW_NONDURABLE=1 GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay -limit 50 2>&1 | tail -1 )
+relay_once "goat.created delivery" 50
 OBL=$(psqlq "select obligation_id from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE' limit 1")
 [ -n "$OBL" ] || { echo "FAIL step3 (no obligation generated)"; exit 1; }
+assert_outbox_published "goat.created" "$GOAT" "goat.created"
 psql "$PGURL" -c "select obligation_id,status,due_at from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'"
 
 echo; echo "### 4. obligation-sweeper -> batch + SOP task"
@@ -95,7 +131,7 @@ echo "PROOFS shed=$P_SHED vial_lot=$P_VIAL administration=$P_ADMIN"
 
 echo; echo "### 6. SOP task submission  POST /app/tasks/{task}/submissions"
 SUB=$(curl -s "${A[@]}" -H "Content-Type: application/json" -X POST "$API/app/tasks/$TASK/submissions" -d @- <<JSON
-{"sop_version_id":"$SOPVER","idempotency_key":"sub-$STAMP","answers":{"vaccine_lot_id":"$LOT","cold_chain_verified":true,"shed_video":"$P_SHED","vial_lot_video":"$P_VIAL","administration_video":"$P_ADMIN","goat_ids":["$GOAT"],"dose_ml_given":0.5,"route_site":"subcutaneous","administered_at":"${ENTRY_DATE}T08:00:00Z","adverse_reaction":false},"proof_refs":[{"proof_id":"$P_SHED","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$P_VIAL","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$P_ADMIN","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
+{"sop_version_id":"$SOPVER","idempotency_key":"sub-$STAMP","answers":{"vaccine_lot_id":"$LOT","cold_chain_verified":true,"shed_video":"$P_SHED","vial_lot_video":"$P_VIAL","administration_video":"$P_ADMIN","goat_ids":["$GOAT"],"dose_ml_given":0.5,"route_site":"subcutaneous","administered_at":"$ADMINISTERED_AT","adverse_reaction":false},"proof_refs":[{"proof_id":"$P_SHED","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$P_VIAL","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$P_ADMIN","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
 JSON
 )
 SUBID=$(echo "$SUB" | jqp 'd.get("submission",{}).get("submission_id","")')
@@ -108,10 +144,12 @@ psql "$PGURL" -c "select completion_id,status,obligation_id from vaccination_com
 echo; echo "### 7. verification queue + accept"
 VQ=$(curl -s "${A[@]}" "$API/vaccination/verification-queue?limit=100")
 echo "verification-queue contains completion: $(has "$COMP" "$VQ")"
-ACC=$(curl -s "${A[@]}" -H "Content-Type: application/json" -X POST "$API/vaccination/completions/$COMP/accept" -d "{\"idempotency_key\":\"acc-$STAMP\"}")
-echo "accept: $ACC"
-echo "$ACC" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d.get("completed") is True, d' >/dev/null \
-  || fail "step7 accept did not complete obligation: $ACC"
+TASK_ROW_VERSION=$(psqlq "select row_version from sop_tasks where tenant_id='$TENANT' and task_id='$TASK'")
+[ -n "$TASK_ROW_VERSION" ] || fail "step7 missing SOP task row_version for task $TASK"
+ACC=$(curl -s "${A[@]}" -H "Content-Type: application/json" -X POST "$API/admin/tasks/$TASK/verify" -d "{\"reason\":\"accepted\",\"row_version\":$TASK_ROW_VERSION}")
+echo "verify task: $ACC"
+echo "$ACC" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d.get("task",{}).get("state") == "accepted", d' >/dev/null \
+  || fail "step7 SOP verify did not accept task: $ACC"
 psql "$PGURL" -c "select c.completion_id,c.status comp,o.obligation_id,o.status obl,o.completed_at from vaccination_completions c join obligation_instances o on o.obligation_id=c.obligation_id where c.completion_id='$COMP'"
 COMPLETE_STATE=$(psqlq "select c.status || ':' || o.status || ':' || (o.completed_at is not null)::text from vaccination_completions c join obligation_instances o on o.obligation_id=c.obligation_id where c.completion_id='$COMP'")
 [ "$COMPLETE_STATE" = "accepted:completed:true" ] || fail "step7 inconsistent completion state $COMPLETE_STATE"
@@ -142,8 +180,10 @@ echo "Operations (API):         my-shed accepted=$(curl -s "${A[@]}" "$API/vacci
 
 echo; echo "### 9. replay / idempotency (no duplicates)"
 psql "$PGURL" -tAc "update outbox_messages set status='pending', published_at=null, next_attempt_at=null where aggregate_id='$GOAT'" >/dev/null
-( cd "$BACKEND" && GOATOS_OUTBOX_ALLOW_NONDURABLE=1 GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay -limit 50 2>&1 | tail -1 )
+relay_once "replay delivery" 50
 ( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/obligation-sweeper -tenant-id "$TENANT" -version-id "$VERSION" -sop-version-id "$SOPVER" -vaccine-item-id "$ITEM" -actor-id "$USER" 2>&1 | tail -1 )
+assert_outbox_published "goat.created replay" "$GOAT" "goat.created"
+assert_outbox_published "vaccination.completed delivery" "$OBL" "vaccination.completed"
 echo "obligations for goat after replay (expect 1): $(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")"
 echo "completions for goat after replay (expect 1): $(psqlq "select count(*) from vaccination_completions where goat_id='$GOAT'")"
 OBL_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")

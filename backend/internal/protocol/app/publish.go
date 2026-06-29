@@ -189,24 +189,23 @@ func arrayHasNonBlankString(v any) bool {
 // PublishVersion publishes a draft version only after the source-backed gate passes. The DB also
 // enforces the published-window EXCLUDE non-overlap; capability (CEO/COO protocol.publish.*) is
 // enforced at the API/RBAC boundary (later slice).
-func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string) error {
+func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error {
 	v, err := s.repo.GetVersion(ctx, tenantID, versionID)
 	if err != nil {
 		return err
 	}
-	if v.Status == "published" {
-		return nil
-	}
-	if v.Status != "draft" {
+	if v.Status != "draft" && v.Status != "published" {
 		return fmt.Errorf("%w: status=%q", ports.ErrVersionNotDraft, v.Status)
 	}
-	if err := ValidatePublishable(v.RuleDsl); err != nil {
-		return err
+	if v.Status == "draft" {
+		if err := ValidatePublishable(v.RuleDsl); err != nil {
+			return err
+		}
+		if err := ValidateExecutionContract(v); err != nil {
+			return err
+		}
 	}
-	if err := ValidateExecutionContract(v); err != nil {
-		return err
-	}
-	if err := s.repo.PublishVersion(ctx, tenantID, versionID, publishedBy); err != nil {
+	if err := s.repo.PublishVersion(ctx, tenantID, versionID, publishedBy, idempotencyKey...); err != nil {
 		return err
 	}
 	return nil

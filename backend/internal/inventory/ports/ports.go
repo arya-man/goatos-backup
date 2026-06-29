@@ -16,6 +16,10 @@ var ErrNotFound = errors.New("inventory: not found")
 // the requested quantity. Distinct from ErrNotFound, which means no stock exists in the chain at all.
 var ErrInsufficientStock = errors.New("inventory: insufficient stock")
 
+// ErrMovementIdempotencyConflict is returned when an existing movement idempotency key is replayed
+// with different stock semantics.
+var ErrMovementIdempotencyConflict = errors.New("inventory: movement idempotency conflict")
+
 // Repository is the persistence boundary for inventory. Implementations wrap generated
 // sqlc queries; no hand-written SQL leaks above this interface.
 type Repository interface {

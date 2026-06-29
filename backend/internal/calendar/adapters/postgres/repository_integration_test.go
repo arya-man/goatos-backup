@@ -153,6 +153,57 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	assertOutboxEnvelope(t, ctx, pool, "reminder outbox envelope", "calendar_notification", reminderID, "calendar.reminder.queued", testReminderEvent)
 }
 
+func TestCalendarReminderSweepRearmsOpenWorkDaily(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	eventID := "calendar:86000000-0000-4000-8000-000000001222"
+	seedCalendarProjection(t, ctx, pool, eventID, time.Now().UTC().Add(30*time.Minute), "queued")
+	yesterdayKey := testTenantID + ":calendar.reminder:" + eventID + ":" + calendarBusinessDate(time.Now().UTC().Add(-24*time.Hour))
+	if _, err := pool.Exec(ctx, `
+INSERT INTO notification_requests (
+  tenant_id, calendar_event_id, target_type, notification_type, channel,
+  title, body, status, idempotency_key, request_fingerprint, context
+) VALUES (
+  $1::uuid, $2, 'calendar_event', 'reminder', 'local-stub',
+  'Yesterday reminder', 'kept as reminder history', 'sent',
+  $3, $3 || ':fingerprint', '{}'::jsonb
+)`, testTenantID, eventID, yesterdayKey); err != nil {
+		t.Fatalf("seed old reminder: %v", err)
+	}
+
+	queued, err := repo.SweepDueReminders(ctx, testTenantID, 10)
+	if err != nil {
+		t.Fatalf("SweepDueReminders rearm: %v", err)
+	}
+	if queued != 1 {
+		t.Fatalf("queued reminders = %d, want daily rearm", queued)
+	}
+	todayKey := testTenantID + ":calendar.reminder:" + eventID + ":" + calendarBusinessDate(time.Now().UTC())
+	assertCount(t, ctx, pool, "daily reminder key", `
+SELECT count(*)
+FROM notification_requests
+WHERE tenant_id=$1::uuid
+  AND calendar_event_id=$2
+  AND notification_type='reminder'
+  AND idempotency_key=$3`, 1, testTenantID, eventID, todayKey)
+	replay, err := repo.SweepDueReminders(ctx, testTenantID, 10)
+	if err != nil {
+		t.Fatalf("SweepDueReminders same-day replay: %v", err)
+	}
+	if replay != 0 {
+		t.Fatalf("same-day replay queued %d reminders, want 0", replay)
+	}
+	assertCount(t, ctx, pool, "daily reminder history", `
+SELECT count(*)
+FROM notification_requests
+WHERE tenant_id=$1::uuid
+  AND calendar_event_id=$2
+  AND notification_type='reminder'`, 2, testTenantID, eventID)
+}
+
 func TestCalendarWidestRequestPlanUsesHotListIndex(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -765,6 +816,83 @@ FROM notification_requests
 WHERE tenant_id=$1::uuid
   AND calendar_event_id=$2
   AND notification_type='escalation'`, 2, testTenantID, eventID)
+}
+
+func TestCalendarEscalationResolveDoesNotSilenceNextLevel(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID := "86000000-0000-4000-8000-000000000886"
+	versionID := "86000000-0000-4000-8000-000000000887"
+	ruleID := "86000000-0000-4000-8000-000000000888"
+	obligationID := "86000000-0000-4000-8000-000000000889"
+	dueAt := time.Now().UTC().Add(-6 * time.Hour)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: time.Now().UTC().Add(-24 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+	if _, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
+		TenantID:    testTenantID,
+		Limit:       10,
+		Now:         time.Now().UTC(),
+		Level1After: 0,
+		Level2After: 12 * time.Hour,
+		Level3After: 24 * time.Hour,
+		Level4After: 48 * time.Hour,
+	}); err != nil {
+		t.Fatalf("SweepEscalations level 1: %v", err)
+	}
+	eventID := "obligation:" + obligationID
+	resolved, err := repo.ResolveEscalation(ctx, ports.ResolveEscalation{
+		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
+		TraceID: "trace-escalation-rearm-resolve", IdempotencyKey: "calendar-escalation-rearm-resolve-key",
+		Reason: "operator handled the first alert but work remains open", Scope: domain.ScopeFilter{TenantWide: true}, ActorGrants: testCalendarActorGrants(),
+	})
+	if err != nil {
+		t.Fatalf("ResolveEscalation level 1: %v", err)
+	}
+	if resolved.Status != "resolved" {
+		t.Fatalf("resolve response = %#v, want resolved", resolved)
+	}
+	queued, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
+		TenantID:    testTenantID,
+		Limit:       10,
+		Now:         time.Now().UTC(),
+		Level1After: 0,
+		Level2After: 4 * time.Hour,
+		Level3After: 24 * time.Hour,
+		Level4After: 48 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("SweepEscalations next level: %v", err)
+	}
+	if queued != 1 {
+		t.Fatalf("next-level escalation queued = %d, want 1", queued)
+	}
+	assertCount(t, ctx, pool, "level two escalation after resolve", `
+SELECT count(*)
+FROM obligation_escalations
+WHERE tenant_id=$1::uuid
+  AND obligation_id=$2::uuid
+  AND level=2
+  AND status='open'`, 1, testTenantID, obligationID)
+	assertCount(t, ctx, pool, "escalation notifications after rearm", `
+SELECT count(*)
+FROM notification_requests
+WHERE tenant_id=$1::uuid
+  AND calendar_event_id=$2
+  AND notification_type='escalation'`, 2, testTenantID, eventID)
+	assertCount(t, ctx, pool, "projection rearmed escalation", `
+SELECT count(*)
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid AND event_id=$2 AND escalation_state='level_2_open'`, 1, testTenantID, eventID)
 }
 
 func TestCalendarEscalationSweepRoutesLevel3ToPHCDirector(t *testing.T) {

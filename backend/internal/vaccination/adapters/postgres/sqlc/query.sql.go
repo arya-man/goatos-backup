@@ -472,9 +472,17 @@ func (q *Queries) ListEligibleGoatsForGeneration(ctx context.Context, arg ListEl
 const listRecordedCompletions = `-- name: ListRecordedCompletions :many
 SELECT vc.completion_id::text AS completion_id, vc.obligation_id::text AS obligation_id,
        vc.goat_id::text AS goat_id, COALESCE(vc.batch_id::text, '')::text AS batch_id,
+       COALESCE(st.task_id::text, '')::text AS sop_task_id,
+       COALESCE(st.row_version, 0)::int AS sop_task_row_version,
        vc.administered_at, COALESCE(vc.doses, 0)::int AS doses, COALESCE(vc.route_site, '')::text AS route_site
 FROM vaccination_completions vc
 LEFT JOIN goats g ON g.tenant_id = vc.tenant_id AND g.goat_id = vc.goat_id
+LEFT JOIN sop_submission_items si
+  ON si.tenant_id = vc.tenant_id AND si.item_id = vc.sop_submission_item_id
+LEFT JOIN sop_submissions ss
+  ON ss.tenant_id = si.tenant_id AND ss.submission_id = si.submission_id
+LEFT JOIN sop_tasks st
+  ON st.tenant_id = ss.tenant_id AND st.task_id = ss.task_id
 WHERE vc.tenant_id = $1 AND vc.status = 'recorded'
   AND ($2::uuid IS NULL OR g.park_id = $2::uuid)
 ORDER BY vc.administered_at ASC, vc.completion_id ASC
@@ -488,13 +496,15 @@ type ListRecordedCompletionsParams struct {
 }
 
 type ListRecordedCompletionsRow struct {
-	CompletionID   string
-	ObligationID   string
-	GoatID         string
-	BatchID        string
-	AdministeredAt pgtype.Timestamptz
-	Doses          int32
-	RouteSite      string
+	CompletionID      string
+	ObligationID      string
+	GoatID            string
+	BatchID           string
+	SopTaskID         string
+	SopTaskRowVersion int32
+	AdministeredAt    pgtype.Timestamptz
+	Doses             int32
+	RouteSite         string
 }
 
 // Verification queue: completions awaiting review (status='recorded'), earliest administered first.
@@ -514,6 +524,8 @@ func (q *Queries) ListRecordedCompletions(ctx context.Context, arg ListRecordedC
 			&i.ObligationID,
 			&i.GoatID,
 			&i.BatchID,
+			&i.SopTaskID,
+			&i.SopTaskRowVersion,
 			&i.AdministeredAt,
 			&i.Doses,
 			&i.RouteSite,

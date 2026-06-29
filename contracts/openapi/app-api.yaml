@@ -598,6 +598,8 @@ paths:
         - Protocol Config
       operationId: createProtocolDefinition
       summary: Create a protocol definition.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -617,6 +619,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
   /protocols/animal-stages:
@@ -651,6 +655,7 @@ paths:
       summary: Create a draft protocol version.
       parameters:
         - $ref: "#/components/parameters/ProtocolId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -670,6 +675,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
   /protocols/versions/{version_id}/rules:
@@ -680,6 +687,7 @@ paths:
       summary: Add a dose/phase rule to a draft protocol version.
       parameters:
         - $ref: "#/components/parameters/ProtocolVersionId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -699,6 +707,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
   /protocols/versions/{version_id}:
@@ -732,15 +742,20 @@ paths:
       summary: Publish a source-backed protocol version.
       parameters:
         - $ref: "#/components/parameters/ProtocolVersionId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       responses:
         "204":
           description: Protocol version published.
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
@@ -1588,60 +1603,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
-  /vaccination/completions/{completion_id}/accept:
-    post:
-      tags:
-        - Vaccination
-      operationId: acceptVaccinationCompletion
-      summary: Accept a recorded vaccination completion.
-      parameters:
-        - $ref: "#/components/parameters/CompletionId"
-      responses:
-        "200":
-          description: Completion accepted.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AcceptVaccinationCompletionResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "500":
-          $ref: "#/components/responses/ServerError"
-        "503":
-          $ref: "#/components/responses/ServiceUnavailable"
-  /vaccination/completions/{completion_id}/reject:
-    post:
-      tags:
-        - Vaccination
-      operationId: rejectVaccinationCompletion
-      summary: Reject or request rework for a recorded vaccination completion.
-      parameters:
-        - $ref: "#/components/parameters/CompletionId"
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/RejectVaccinationCompletionRequest"
-      responses:
-        "200":
-          description: Completion rejected or marked for rework.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RejectVaccinationCompletionResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "500":
-          $ref: "#/components/responses/ServerError"
-        "503":
-          $ref: "#/components/responses/ServiceUnavailable"
   /goats/{goat_id}/passport:
     get:
       tags:
@@ -4921,6 +4882,8 @@ components:
         sop_task_id:
           type: string
           format: uuid
+        sop_task_row_version:
+          type: integer
         sop_submission_id:
           type: string
           format: uuid
@@ -5376,6 +5339,8 @@ components:
         sopTaskId:
           type: string
           format: uuid
+        sopTaskRowVersion:
+          type: integer
         completionId:
           type: string
           format: uuid
@@ -5636,6 +5601,11 @@ components:
           type: string
         batch_id:
           type: string
+        sop_task_id:
+          type: string
+        sop_task_row_version:
+          type: integer
+          minimum: 1
         administered_at:
           type: string
           format: date-time
@@ -5780,6 +5750,13 @@ components:
     AddProtocolRuleRequest:
       type: object
       additionalProperties: false
+      required:
+        - dose_code
+        - sequence
+        - trigger_type
+        - repeat
+        - catch_up
+        - eligibility_json
       properties:
         dose_code:
           type: string

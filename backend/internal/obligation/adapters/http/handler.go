@@ -132,7 +132,7 @@ func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	asOf := time.Now()
+	asOf := dueBefore
 	rows, err := h.due.ListDue(r.Context(), tenantID(r), repoStatus, dueBefore, limit)
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
@@ -164,14 +164,16 @@ func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) {
 func repoStatusForWorkState(workState string) (string, string) {
 	switch workState {
 	case "overdue":
-		return "due", "overdue"
+		return "scheduled_or_due", "overdue"
+	case "due":
+		return "scheduled_or_due", "due"
 	case "proof_pending":
 		return "in_progress", "proof_pending"
 	case "deferred":
 		return "deferred", "deferred"
 	case "missed":
 		return "missed", "missed"
-	case "scheduled", "due", "in_progress":
+	case "scheduled", "in_progress":
 		return workState, ""
 	default:
 		return "", ""

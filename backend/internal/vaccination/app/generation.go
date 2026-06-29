@@ -574,7 +574,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				EventType:      "deferred",
 				OccurredAt:     asOf,
 				Payload:        payload,
-				IdempotencyKey: obID + ":deferred:" + asOf.UTC().Format(time.RFC3339),
+				IdempotencyKey: obID + ":deferred:" + asOf.UTC().Format(time.RFC3339Nano),
 				Scope:          "obligation.status_event",
 				RequestHash:    "defer:" + deferReason,
 			}); err != nil {
@@ -625,7 +625,7 @@ func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, ten
 		EventType:      "deferred",
 		OccurredAt:     asOf,
 		Payload:        payload,
-		IdempotencyKey: obID + ":deferred:missing_due_date:" + asOf.UTC().Format(time.RFC3339),
+		IdempotencyKey: obID + ":deferred:missing_due_date:" + asOf.UTC().Format(time.RFC3339Nano),
 		Scope:          "obligation.status_event",
 		RequestHash:    "missing_due_date:" + reason,
 	}); err != nil {

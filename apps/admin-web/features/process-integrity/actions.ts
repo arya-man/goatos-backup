@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { actionErrorMessage, actionRedirect } from "@/lib/action-helpers";
-import { acceptVaccinationCompletion, rejectVaccinationCompletion } from "@/lib/api/server";
+import { requestSopTaskRework, verifySopTask } from "@/lib/api/server";
 
 // A verify/reject ripples across every screen that reads the process-integrity model: the Action Center
 // board + verify queue, PHC Vaccination ops, Protocol Adherence, and the Control Tower summary.
@@ -12,20 +12,21 @@ function revalidateVaccinationViews(): void {
   }
 }
 
-// verifyCompletionAction accepts a recorded completion (SM-5 verify): completes the obligation +
-// consumes the reserved dose. Bound to the Verify button in the verification queue.
+// verifyCompletionAction reviews the SOP task, then the backend SOP review fanout applies SM-5:
+// accept completion, complete the obligation, consume reserved stock, and emit durable completion.
 export async function verifyCompletionAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
   let actionKey = "action.verify_accepted";
   try {
-    const completionId = String(formData.get("completion_id") ?? "");
-    if (!completionId) throw new Error("completion_id is required");
-    const result = await acceptVaccinationCompletion(completionId);
+    const taskId = String(formData.get("task_id") ?? "");
+    const rowVersion = Number(formData.get("row_version") ?? 0);
+    if (!taskId || rowVersion <= 0) throw new Error("task review handle is required");
+    const result = await verifySopTask(taskId, { reason: "accepted", row_version: rowVersion });
     if (!result.ok) {
       status = "error";
       actionKey = actionErrorMessage(result.error);
     } else {
-      actionKey = result.data.applied ? "action.verify_accepted" : "action.verify_replay";
+      actionKey = "action.verify_accepted";
       revalidateVaccinationViews();
     }
   } catch (error) {
@@ -36,15 +37,17 @@ export async function verifyCompletionAction(formData: FormData): Promise<void> 
   actionRedirect(formData, status, actionKey);
 }
 
-// rejectCompletionAction rejects (reason="rejected") or requests rework (reason="rework_requested").
+// rejectCompletionAction requests SOP rework. The reason preserves whether the operator clicked the
+// reject or rework control while keeping SOP task state and review fanout canonical.
 export async function rejectCompletionAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
   let actionKey = "action.completion_rejected";
   try {
-    const completionId = String(formData.get("completion_id") ?? "");
+    const taskId = String(formData.get("task_id") ?? "");
+    const rowVersion = Number(formData.get("row_version") ?? 0);
     const reason = String(formData.get("reason") ?? "rejected");
-    if (!completionId) throw new Error("completion_id is required");
-    const result = await rejectVaccinationCompletion(completionId, reason);
+    if (!taskId || rowVersion <= 0) throw new Error("task review handle is required");
+    const result = await requestSopTaskRework(taskId, { reason, row_version: rowVersion });
     if (!result.ok) {
       status = "error";
       actionKey = actionErrorMessage(result.error);

@@ -102,6 +102,8 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 	if s == nil || s.bus == nil {
 		return fmt.Errorf("domain consumer bus is not configured")
 	}
+	var processed ProcessedEvent
+	claimed := false
 	defer func() {
 		if p := recover(); p != nil {
 			if s.log != nil {
@@ -114,6 +116,9 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 				)
 			}
 			err = fmt.Errorf("domain consumer panic")
+		}
+		if err != nil && claimed && s.processedStore != nil {
+			_ = s.processedStore.MarkFailed(ctx, processed, err.Error())
 		}
 	}()
 	if s.validator == nil {
@@ -129,7 +134,7 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 	if err != nil {
 		return err
 	}
-	processed := ProcessedEvent{
+	processed = ProcessedEvent{
 		TenantID:        event.TenantID,
 		EventID:         firstNonEmpty(envelopeEventID(message.Data), message.Attributes["event_id"], message.ID),
 		EventType:       event.Type,
@@ -138,7 +143,6 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 		DeliveryAttempt: message.DeliveryAttempt,
 		Now:             s.now().UTC(),
 	}
-	claimed := false
 	if s.processedStore != nil {
 		decision, err := s.processedStore.BeginProcessing(ctx, processed)
 		if err != nil {
@@ -164,9 +168,6 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 		}
 	}
 	if err := s.bus.Publish(ctx, event); err != nil {
-		if claimed {
-			_ = s.processedStore.MarkFailed(ctx, processed, err.Error())
-		}
 		return fmt.Errorf("domain event dispatch %s/%s: %w", event.Type, event.Key, err)
 	}
 	if claimed {

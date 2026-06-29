@@ -76,6 +76,79 @@ func TestEnvelopeValidatorAcceptsProtocolPublished(t *testing.T) {
 	}
 }
 
+func TestEnvelopeValidatorAcceptsOperationalKernelEvents(t *testing.T) {
+	validator := serviceTestValidator(t)
+	tests := []struct {
+		name          string
+		eventType     string
+		aggregateType string
+		subjectType   string
+		aggregateID   string
+		subjectID     string
+		evidenceRefs  []any
+	}{
+		{
+			name:          "calendar escalation queued",
+			eventType:     "calendar.escalation.queued",
+			aggregateType: "calendar_notification",
+			subjectType:   "calendar_event",
+			aggregateID:   "63000000-0000-4000-8000-000000000001",
+			subjectID:     "obligation:64000000-0000-4000-8000-000000000001",
+			evidenceRefs:  []any{map[string]any{"evidence_type": "event", "evidence_id": "obligation:64000000-0000-4000-8000-000000000001"}},
+		},
+		{
+			name:          "obligation missed",
+			eventType:     "obligation.missed",
+			aggregateType: "obligation_instance",
+			subjectType:   "obligation_instance",
+			aggregateID:   "64000000-0000-4000-8000-000000000002",
+			subjectID:     "64000000-0000-4000-8000-000000000002",
+			evidenceRefs:  []any{map[string]any{"evidence_type": "obligation_status_event", "evidence_id": "64000000-0000-4000-8000-000000000002:missed"}},
+		},
+		{
+			name:          "vaccination completed",
+			eventType:     "vaccination.completed",
+			aggregateType: "obligation_instance",
+			subjectType:   "obligation_instance",
+			aggregateID:   "64000000-0000-4000-8000-000000000003",
+			subjectID:     "64000000-0000-4000-8000-000000000003",
+			evidenceRefs:  []any{map[string]any{"evidence_type": "obligation_status_event", "evidence_id": "64000000-0000-4000-8000-000000000003:completed"}},
+		},
+	}
+	for idx, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventID := serviceTestUUID("22000000", idx+1)
+			payload, err := json.Marshal(map[string]any{
+				"event_id":        eventID,
+				"event_type":      tt.eventType,
+				"schema_version":  "1.0.0",
+				"schema_ref":      "contracts/jsonschema/domain-event-envelope.schema.json#" + tt.eventType,
+				"aggregate_type":  tt.aggregateType,
+				"aggregate_id":    tt.aggregateID,
+				"occurred_at":     serviceTestNow.Format(time.RFC3339),
+				"recorded_at":     serviceTestNow.Format(time.RFC3339),
+				"producer":        map[string]any{"service": "goatos-test", "module": "operational-kernel", "version": nil},
+				"idempotency_key": "operational-kernel-test:" + eventID,
+				"actor":           map[string]any{"actor_type": "system_rule", "actor_id": nil, "actor_ref": nil},
+				"subject_type":    tt.subjectType,
+				"subject_id":      tt.subjectID,
+				"visibility_scope": map[string]any{
+					"tenant_id": "00000000-0000-4000-8000-000000000001",
+				},
+				"evidence_refs": tt.evidenceRefs,
+				"payload":       map[string]any{"status": "queued"},
+				"trace_id":      "operational-kernel-test:" + eventID,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := validator.Validate(payload); err != nil {
+				t.Fatalf("%s envelope should validate: %v", tt.eventType, err)
+			}
+		})
+	}
+}
+
 func serviceTestMessage(t *testing.T, suffix int, payload json.RawMessage) domain.Message {
 	t.Helper()
 	eventID := serviceTestUUID("20000000", suffix)

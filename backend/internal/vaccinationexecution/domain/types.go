@@ -85,6 +85,7 @@ type ExecutionRow struct {
 	ObligationID       *string            `json:"obligationId,omitempty"`
 	BatchID            *string            `json:"batchId,omitempty"`
 	SOPTaskID          *string            `json:"sopTaskId,omitempty"`
+	SOPTaskRowVersion  *int32             `json:"sopTaskRowVersion,omitempty"`
 	CompletionID       *string            `json:"completionId,omitempty"`
 }
 
@@ -256,5 +257,6 @@ type ExecutionProjection struct {
 	HealthDeferredCount  int
 	ObligationID         *string
 	SOPTaskID            *string
+	SOPTaskRowVersion    *int32
 	CompletionID         *string
 }
