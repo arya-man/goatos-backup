@@ -36,13 +36,24 @@ func TestSM3CancelOpenForGoat(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET status='completed' WHERE obligation_id=$1`, obB); err != nil {
 		t.Fatalf("complete obB: %v", err)
 	}
+	obC, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: testGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: "obl-missed-before-exit", Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("insert obC: applied=%v err=%v", applied, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET status='missed' WHERE obligation_id=$1`, obC); err != nil {
+		t.Fatalf("miss obC: %v", err)
+	}
 
 	n, err := repo.CancelOpenForGoat(ctx, tenantID, testGoatID, "ineligible_after_exit")
 	if err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
-	if n != 1 {
-		t.Fatalf("expected 1 cancelled (obA), got %d", n)
+	if n != 2 {
+		t.Fatalf("expected 2 cancelled (obA + missed obC), got %d", n)
 	}
 
 	if got := scanStatus(t, ctx, pool, obA); got != "canceled" {
@@ -51,10 +62,18 @@ func TestSM3CancelOpenForGoat(t *testing.T) {
 	if got := scanStatus(t, ctx, pool, obB); got != "completed" {
 		t.Fatalf("obB (completed) must be untouched, got %s", got)
 	}
+	if got := scanStatus(t, ctx, pool, obC); got != "canceled" {
+		t.Fatalf("obC (missed before exit) must be canceled, got %s", got)
+	}
 	if got := countRows(t, ctx, pool,
 		`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='canceled'`,
 		tenantID, obA); got != 1 {
 		t.Fatalf("expected 1 canceled event for obA, got %d", got)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='canceled'`,
+		tenantID, obC); got != 1 {
+		t.Fatalf("expected 1 canceled event for obC, got %d", got)
 	}
 
 	// Idempotent: re-run cancels nothing.
@@ -79,11 +98,15 @@ func TestGoatExitedHandlerCancelsViaBus(t *testing.T) {
 	bus := eventbus.NewInProcessBus()
 	oblapp.NewGoatExitedHandler(repo).Register(bus)
 
-	if err := bus.Publish(ctx, eventbus.Event{Type: oblapp.EventGoatExited, TenantID: tenantID, Key: testGoatID}); err != nil {
+	occurredAt := time.Date(2026, time.July, 9, 10, 11, 12, 0, time.UTC)
+	if err := bus.Publish(ctx, eventbus.Event{ID: "event-exit-1", Type: oblapp.EventGoatExited, TenantID: tenantID, Key: testGoatID, OccurredAt: occurredAt}); err != nil {
 		t.Fatalf("publish goat.exited: %v", err)
 	}
 	if got := scanStatus(t, ctx, pool, obA); got != "canceled" {
 		t.Fatalf("obA should be canceled via bus, got %s", got)
+	}
+	if got := scanEventOccurredAt(t, ctx, pool, obA); !got.Equal(occurredAt) {
+		t.Fatalf("canceled event occurred_at = %s, want %s", got, occurredAt)
 	}
 }
 
@@ -94,4 +117,18 @@ func scanStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id string
 		t.Fatalf("scan status: %v", err)
 	}
 	return s
+}
+
+func scanEventOccurredAt(t *testing.T, ctx context.Context, pool *pgxpool.Pool, obligationID string) time.Time {
+	t.Helper()
+	var occurredAt time.Time
+	if err := pool.QueryRow(ctx, `
+SELECT occurred_at
+FROM obligation_status_events
+WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='canceled'
+ORDER BY occurred_at DESC
+LIMIT 1`, tenantID, obligationID).Scan(&occurredAt); err != nil {
+		t.Fatalf("scan canceled occurred_at: %v", err)
+	}
+	return occurredAt.UTC()
 }

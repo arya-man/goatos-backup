@@ -4,6 +4,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/inventory/domain"
 )
@@ -41,13 +42,13 @@ type Repository interface {
 	ResolveStockLocation(ctx context.Context, tenantID, locationID, itemID string) (string, error)
 
 	// ReserveForBatch atomically reserves exactly qty for batchID, walking up from locationID to the
-	// NEAREST ancestor location whose active, unexpired lots TOGETHER cover qty, then consuming those
-	// lots earliest-expiry first (FEFO) — spanning multiple lots within that location as needed. The
+	// NEAREST ancestor location whose active lots are unexpired as of validOn and TOGETHER cover qty,
+	// then consuming those lots earliest-expiry first (FEFO) — spanning multiple lots within that location as needed. The
 	// whole reservation is one transaction. It is idempotent per batch (advisory-locked + guarded by the
 	// existing reserve-movement count), so a retry/replay reserves nothing more even when the original
 	// reservation spanned several lots. Returns ErrNotFound when no ancestor holds any stock for the
 	// item, and ErrInsufficientStock when stock exists but no single ancestor can fully cover qty.
-	ReserveForBatch(ctx context.Context, tenantID, batchID, locationID, itemID string, qty int64) error
+	ReserveForBatch(ctx context.Context, tenantID, batchID, locationID, itemID string, qty int64, validOn time.Time) error
 
 	// ReleaseBatchReconcileRemainders releases bounded, explicitly-recorded excess reserved doses for
 	// batches marked stock_reconcile_required after goat defer/shift/cancel changed planned membership.

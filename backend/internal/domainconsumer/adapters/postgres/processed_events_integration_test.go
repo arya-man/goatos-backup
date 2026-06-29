@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -95,5 +96,44 @@ func TestProcessedEventStoreDecisions(t *testing.T) {
 	}
 	if decision != consumerapp.ProcessDecisionClaimed {
 		t.Fatalf("failed retry decision=%s want claimed", decision)
+	}
+}
+
+func TestProcessedEventStoreFinalizationRequiresActiveProcessingClaim(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	store := NewProcessedEventStore(pool, 5*time.Second)
+	event := consumerapp.ProcessedEvent{
+		TenantID:        "00000000-0000-4000-8000-000000000001",
+		EventID:         "60000000-0000-4000-8000-000000000201",
+		EventType:       "goat.created",
+		SubscriptionID:  "goatos-dev-domain-events",
+		MessageID:       "msg-201",
+		DeliveryAttempt: 1,
+		Now:             time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC),
+	}
+	decision, err := store.BeginProcessing(ctx, event)
+	if err != nil || decision != consumerapp.ProcessDecisionClaimed {
+		t.Fatalf("BeginProcessing decision=%s err=%v want claimed", decision, err)
+	}
+	if err := store.MarkProcessed(ctx, event); err != nil {
+		t.Fatalf("MarkProcessed: %v", err)
+	}
+	if err := store.MarkProcessed(ctx, event); !errors.Is(err, consumerapp.ErrProcessedEventFinalizationLost) {
+		t.Fatalf("MarkProcessed on finalized row err=%v, want ErrProcessedEventFinalizationLost", err)
+	}
+	if err := store.MarkFailed(ctx, event, "late failure"); !errors.Is(err, consumerapp.ErrProcessedEventFinalizationLost) {
+		t.Fatalf("MarkFailed on finalized row err=%v, want ErrProcessedEventFinalizationLost", err)
+	}
+
+	missing := event
+	missing.EventID = "60000000-0000-4000-8000-000000000202"
+	if err := store.MarkProcessed(ctx, missing); !errors.Is(err, consumerapp.ErrProcessedEventFinalizationLost) {
+		t.Fatalf("MarkProcessed on missing row err=%v, want ErrProcessedEventFinalizationLost", err)
+	}
+	if err := store.MarkFailed(ctx, missing, "missing"); !errors.Is(err, consumerapp.ErrProcessedEventFinalizationLost) {
+		t.Fatalf("MarkFailed on missing row err=%v, want ErrProcessedEventFinalizationLost", err)
 	}
 }

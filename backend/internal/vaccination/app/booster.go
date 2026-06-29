@@ -100,15 +100,15 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		if err != nil {
 			return false, err
 		}
-		var dsl genDSL
-		if len(version.RuleDsl) > 0 {
-			_ = json.Unmarshal(version.RuleDsl, &dsl)
+		dsl, err := parseGenerationDSL(version.RuleDsl)
+		if err != nil {
+			return false, err
 		}
 		goat, found, err := s.goats.GetGoatForGeneration(ctx, in.TenantID, in.GoatID)
 		if err != nil {
 			return false, err
 		}
-		if !found || !inCare(goat.LifecycleStatus) || !goatMatchesEligibility(goat, dsl.Eligibility) {
+		if !found || !inCare(goat.LifecycleStatus) || !goatMatchesEligibility(goat, dsl.Eligibility, due) {
 			return false, nil
 		}
 		deferReason = deferredReason(goat, dsl.Eligibility.DeferStates)

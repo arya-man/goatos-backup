@@ -58,13 +58,21 @@ func TestSM4cReservesStockPerBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rule: %v", err)
 	}
-	for i, key := range []string{"r1", "r2"} { // 2 obligations, same scope cbe -> one batch
+	rows := []struct {
+		key    string
+		target string
+	}{
+		{key: "r1", target: "10000000-0000-4000-8000-000000000001"},
+		{key: "r2", target: "10000000-0000-4000-8000-000000000002"},
+	}
+	seedReserveGoats(t, ctx, pool, cbePark, cbePark, rows[0].target, rows[1].target)
+	for _, row := range rows { // 2 goats, same scope cbe -> one batch
 		if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
 			TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
-			TargetType: "park", TargetID: cbePark, ScopeType: "park", ScopeID: cbePark,
-			DueAt: time.Date(2026, 8, i+1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: key, Sequence: 1,
+			TargetType: "goat", TargetID: row.target, ScopeType: "park", ScopeID: cbePark,
+			DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: row.key, Sequence: 1,
 		}); err != nil || !applied {
-			t.Fatalf("insert %s: %v", key, err)
+			t.Fatalf("insert %s: %v", row.key, err)
 		}
 	}
 
@@ -157,13 +165,21 @@ func TestSM4cReservesShedScopedDriveFromParkStock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rule: %v", err)
 	}
-	for i, key := range []string{"rs1", "rs2"} { // 2 shed-scoped obligations -> one shed drive
+	rows := []struct {
+		key    string
+		target string
+	}{
+		{key: "rs1", target: "10000000-0000-4000-8000-000000000101"},
+		{key: "rs2", target: "10000000-0000-4000-8000-000000000102"},
+	}
+	seedReserveGoats(t, ctx, pool, shed, cbePark, rows[0].target, rows[1].target)
+	for _, row := range rows { // 2 goats, shed-scoped obligations -> one shed drive
 		if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
 			TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
-			TargetType: "shed", TargetID: shed, ScopeType: "shed", ScopeID: shed,
-			DueAt: time.Date(2026, 8, i+1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: key, Sequence: 1,
+			TargetType: "goat", TargetID: row.target, ScopeType: "shed", ScopeID: shed,
+			DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: row.key, Sequence: 1,
 		}); err != nil || !applied {
-			t.Fatalf("insert %s: %v", key, err)
+			t.Fatalf("insert %s: %v", row.key, err)
 		}
 	}
 
@@ -232,6 +248,66 @@ func scanReserved(t *testing.T, ctx context.Context, pool *pgxpool.Pool, stockID
 	return reserved
 }
 
+func seedReserveGoats(t *testing.T, ctx context.Context, pool *pgxpool.Pool, currentLocationID, parkID string, goatIDs ...string) {
+	t.Helper()
+	for _, goatID := range goatIDs {
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id)
+			 VALUES ($1, $2, 'alive', 'clean', $3, $4, $5)`,
+			goatID, tenantID, meshaParty, currentLocationID, parkID); err != nil {
+			t.Fatalf("seed goat %s: %v", goatID, err)
+		}
+	}
+}
+
+func TestReserveRejectsLotExpiredBeforePlannedDriveDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+
+	const item = "d0000000-0000-4000-8000-000000000601"
+	const lot = "d0000000-0000-4000-8000-000000000602"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit)
+		 VALUES ($1, $2, 'VAC-EXP', 'Expiry planned-date test', 'vaccine', 'dose')`, item, tenantID); err != nil {
+		t.Fatalf("seed item: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
+		 VALUES ($1, $2, $3, $4, 10, 0, 'dose', DATE '2026-08-14')`, lot, tenantID, item, cbePark); err != nil {
+		t.Fatalf("seed stock: %v", err)
+	}
+
+	versionID, ruleID := reserveTestVersion(t, ctx, proto, "vaccination.expiryplan")
+	if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "park", TargetID: cbePark, ScopeType: "park", ScopeID: cbePark,
+		DueAt: time.Date(2026, 8, 15, 9, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: "exp1", Sequence: 1,
+	}); err != nil || !applied {
+		t.Fatalf("insert obligation: %v", err)
+	}
+
+	reserver := invapp.NewService(invpg.NewRepository(pool, 5*time.Second))
+	sweep := oblapp.NewSweeperService(repo, nil, reserver)
+	cfg := oblapp.SweepConfig{VaccineItemID: item, DosesPerGoat: 1}
+	if _, err := sweep.SweepVersion(ctx, tenantID, versionID, cfg, time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if got := scanReserved(t, ctx, pool, lot); got != "0" {
+		t.Fatalf("lot expired before planned date must not be reserved, reserved=%q want 0", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM inventory_stock_movements WHERE tenant_id=$1 AND movement_type='reserve'`, tenantID); got != 0 {
+		t.Fatalf("expired lot must record no reserve movement, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE tenant_id=$1 AND context ? 'stock_block'`, tenantID); got != 1 {
+		t.Fatalf("expired stock should mark the planned batch stock-blocked, got %d", got)
+	}
+}
+
 // TestReserveSpansMultipleLotsSameLocation proves a reservation larger than the earliest-expiry lot
 // consumes the next lot (FEFO) at the same location, instead of falsely stock-blocking when no single
 // lot covers qty. lots: 3 (Aug) + 7 (Dec) at the park; qty 8 -> 3 from Aug then 5 from Dec.
@@ -260,13 +336,21 @@ func TestReserveSpansMultipleLotsSameLocation(t *testing.T) {
 	}
 
 	versionID, ruleID := reserveTestVersion(t, ctx, proto, "vaccination.multilot")
-	for i, key := range []string{"ml1", "ml2"} { // 2 park-scoped obligations -> one batch
+	rows := []struct {
+		key    string
+		target string
+	}{
+		{key: "ml1", target: "10000000-0000-4000-8000-000000000201"},
+		{key: "ml2", target: "10000000-0000-4000-8000-000000000202"},
+	}
+	seedReserveGoats(t, ctx, pool, cbePark, cbePark, rows[0].target, rows[1].target)
+	for _, row := range rows { // 2 park-scoped obligations -> one batch
 		if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
 			TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
-			TargetType: "park", TargetID: cbePark, ScopeType: "park", ScopeID: cbePark,
-			DueAt: time.Date(2026, 8, i+1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: key, Sequence: 1,
+			TargetType: "goat", TargetID: row.target, ScopeType: "park", ScopeID: cbePark,
+			DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: row.key, Sequence: 1,
 		}); err != nil || !applied {
-			t.Fatalf("insert %s: %v", key, err)
+			t.Fatalf("insert %s: %v", row.key, err)
 		}
 	}
 
@@ -380,9 +464,11 @@ func TestReserveBlocksWhenNoLocationCoversQty(t *testing.T) {
 	}
 
 	versionID, ruleID := reserveTestVersion(t, ctx, proto, "vaccination.block")
+	const goat = "10000000-0000-4000-8000-000000000401"
+	seedReserveGoats(t, ctx, pool, shed, cbePark, goat)
 	if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
 		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
-		TargetType: "shed", TargetID: shed, ScopeType: "shed", ScopeID: shed,
+		TargetType: "goat", TargetID: goat, ScopeType: "shed", ScopeID: shed,
 		DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: "bl1", Sequence: 1,
 	}); err != nil || !applied {
 		t.Fatalf("insert obligation: %v", err)
@@ -393,8 +479,8 @@ func TestReserveBlocksWhenNoLocationCoversQty(t *testing.T) {
 	cfg := oblapp.SweepConfig{VaccineItemID: item, DosesPerGoat: 5} // qty 5 > any single location's 2
 	dueBefore := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
 
-	if _, err := sweep.SweepVersion(ctx, tenantID, versionID, cfg, dueBefore); err == nil {
-		t.Fatal("sweep must fail when no location can cover qty, got nil error")
+	if _, err := sweep.SweepVersion(ctx, tenantID, versionID, cfg, dueBefore); err != nil {
+		t.Fatalf("sweep should mark the batch blocked and continue, got error: %v", err)
 	}
 	if got := scanReserved(t, ctx, pool, shedLot); got != "0" {
 		t.Fatalf("blocked reservation must reserve nothing, shed reserved=%q want 0", got)
@@ -404,6 +490,9 @@ func TestReserveBlocksWhenNoLocationCoversQty(t *testing.T) {
 	}
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM inventory_stock_movements WHERE tenant_id=$1 AND movement_type='reserve'`, tenantID); got != 0 {
 		t.Fatalf("blocked reservation must record no reserve movement, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE tenant_id=$1 AND context ? 'stock_block'`, tenantID); got != 1 {
+		t.Fatalf("blocked reservation must mark the batch stock-blocked, got %d", got)
 	}
 }
 
@@ -434,13 +523,21 @@ func TestReserveRetryDoesNotDoubleReserveAcrossLots(t *testing.T) {
 	}
 
 	versionID, ruleID := reserveTestVersion(t, ctx, proto, "vaccination.retry")
-	for i, key := range []string{"rt1", "rt2"} {
+	rows := []struct {
+		key    string
+		target string
+	}{
+		{key: "rt1", target: "10000000-0000-4000-8000-000000000501"},
+		{key: "rt2", target: "10000000-0000-4000-8000-000000000502"},
+	}
+	seedReserveGoats(t, ctx, pool, cbePark, cbePark, rows[0].target, rows[1].target)
+	for _, row := range rows {
 		if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
 			TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
-			TargetType: "park", TargetID: cbePark, ScopeType: "park", ScopeID: cbePark,
-			DueAt: time.Date(2026, 8, i+1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: key, Sequence: 1,
+			TargetType: "goat", TargetID: row.target, ScopeType: "park", ScopeID: cbePark,
+			DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: row.key, Sequence: 1,
 		}); err != nil || !applied {
-			t.Fatalf("insert %s: %v", key, err)
+			t.Fatalf("insert %s: %v", row.key, err)
 		}
 	}
 

@@ -434,7 +434,7 @@ func (q *Queries) ListPublishedVersionsForProtocol(ctx context.Context, arg List
 const listRulesForVersion = `-- name: ListRulesForVersion :many
 SELECT rule_id::text AS rule_id, dose_code, "sequence", trigger_type, offset_days,
        due_window_days, min_gap_days, "repeat", COALESCE(repeat_until_after_age, '')::text AS repeat_until_after_age,
-       catch_up, sort_order
+       catch_up, COALESCE(sop_version_id::text, '')::text AS sop_version_id, sort_order
 FROM protocol_rules
 WHERE tenant_id = $1 AND protocol_version_id = $2
 ORDER BY sort_order ASC, "sequence" ASC
@@ -456,6 +456,7 @@ type ListRulesForVersionRow struct {
 	Repeat              string
 	RepeatUntilAfterAge string
 	CatchUp             string
+	SopVersionID        string
 	SortOrder           int32
 }
 
@@ -479,6 +480,7 @@ func (q *Queries) ListRulesForVersion(ctx context.Context, arg ListRulesForVersi
 			&i.Repeat,
 			&i.RepeatUntilAfterAge,
 			&i.CatchUp,
+			&i.SopVersionID,
 			&i.SortOrder,
 		); err != nil {
 			return nil, err

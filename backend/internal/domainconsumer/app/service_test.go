@@ -175,6 +175,27 @@ func TestHandleMessageMarksProcessedStoreFailedAfterHandlerPanic(t *testing.T) {
 	}
 }
 
+func TestHandleMessageAcksAfterDispatchWhenProcessedFinalizationFails(t *testing.T) {
+	bus := eventbus.NewInProcessBus()
+	calls := 0
+	bus.Subscribe("goat.created", eventbus.HandlerFunc(func(context.Context, eventbus.Event) error {
+		calls++
+		return nil
+	}))
+	store := &fakeProcessedStore{decision: ProcessDecisionClaimed, markErr: ErrProcessedEventFinalizationLost}
+	service := NewService(bus, testValidator(t)).WithProcessedEventStore(store)
+	err := service.HandleMessage(context.Background(), Message{
+		ID:   "msg-finalize-lost",
+		Data: testEnvelope(t, "goat.created", "10000000-0000-4000-8000-000000000008"),
+	})
+	if err != nil {
+		t.Fatalf("HandleMessage: %v", err)
+	}
+	if calls != 1 || store.completed != 1 || store.failed != 0 {
+		t.Fatalf("calls=%d store=%#v, want dispatch acked without failed mark", calls, store)
+	}
+}
+
 type fakeSubscriber struct {
 	message        Message
 	subscriptionID string
@@ -193,6 +214,7 @@ type fakeProcessedStore struct {
 	completed int
 	failed    int
 	last      ProcessedEvent
+	markErr   error
 }
 
 func (f *fakeProcessedStore) BeginProcessing(_ context.Context, event ProcessedEvent) (ProcessDecision, error) {
@@ -203,7 +225,7 @@ func (f *fakeProcessedStore) BeginProcessing(_ context.Context, event ProcessedE
 
 func (f *fakeProcessedStore) MarkProcessed(context.Context, ProcessedEvent) error {
 	f.completed++
-	return nil
+	return f.markErr
 }
 
 func (f *fakeProcessedStore) MarkFailed(context.Context, ProcessedEvent, string) error {

@@ -19,9 +19,16 @@ JOIN vaccination_completions vc
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+LEFT JOIN shed_profiles sp
+  ON sp.tenant_id = g.tenant_id
+ AND sp.location_id = g.shed_id
+LEFT JOIN animal_stage_lookup asl
+  ON asl.tenant_id = sp.tenant_id
+ AND asl.animal_stage_id = sp.animal_stage_id
+ AND asl.status = 'active'
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
-  AND ($2::text = '' OR g.management_stage = $2::text)
+  AND ($2::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $2::text)
   AND ($3::text = '' OR g.sex = $3::text)
   AND ($4::text = '' OR g.breed = $4::text)
   AND ($5::text = '' OR COALESCE(g.health_status, '') = $5::text)
@@ -58,9 +65,16 @@ FROM goats g
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+LEFT JOIN shed_profiles sp
+  ON sp.tenant_id = g.tenant_id
+ AND sp.location_id = g.shed_id
+LEFT JOIN animal_stage_lookup asl
+  ON asl.tenant_id = sp.tenant_id
+ AND asl.animal_stage_id = sp.animal_stage_id
+ AND asl.status = 'active'
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
-  AND ($2::text = '' OR g.management_stage = $2::text)
+  AND ($2::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $2::text)
   AND ($3::text = '' OR g.sex = $3::text)
   AND ($4::text = '' OR g.breed = $4::text)
   AND ($5::text = '' OR COALESCE(g.health_status, '') = $5::text)
@@ -98,10 +112,17 @@ FROM goats g
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+LEFT JOIN shed_profiles sp
+  ON sp.tenant_id = g.tenant_id
+ AND sp.location_id = g.shed_id
+LEFT JOIN animal_stage_lookup asl
+  ON asl.tenant_id = sp.tenant_id
+ AND asl.animal_stage_id = sp.animal_stage_id
+ AND asl.status = 'active'
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND g.shed_id IS NOT NULL
-  AND ($2::text = '' OR g.management_stage = $2::text)
+  AND ($2::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $2::text)
   AND ($3::text = '' OR g.sex = $3::text)
   AND ($4::text = '' OR g.breed = $4::text)
   AND ($5::text = '' OR COALESCE(g.health_status, '') = $5::text)
@@ -239,13 +260,21 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
        COALESCE(park.location_id::text, '')::text AS park_id,
        COALESCE(g.sex, '')::text AS sex,
        COALESCE(g.breed, '')::text AS breed,
-       COALESCE(g.management_stage, '')::text AS management_stage,
+       COALESCE(asl.stage_code, g.management_stage, '')::text AS management_stage,
+       COALESCE(g.age_band, '')::text AS age_band,
        COALESCE(loa.is_quarantine, false)::boolean AS location_is_quarantine,
        COALESCE(loa.is_icu, false)::boolean AS location_is_icu
 FROM goats g
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+LEFT JOIN shed_profiles sp
+  ON sp.tenant_id = g.tenant_id
+ AND sp.location_id = g.shed_id
+LEFT JOIN animal_stage_lookup asl
+  ON asl.tenant_id = sp.tenant_id
+ AND asl.animal_stage_id = sp.animal_stage_id
+ AND asl.status = 'active'
 LEFT JOIN locations shed
   ON shed.tenant_id = g.tenant_id
  AND shed.location_id = g.shed_id
@@ -274,6 +303,7 @@ type GetGoatForGenerationRow struct {
 	Sex                  string
 	Breed                string
 	ManagementStage      string
+	AgeBand              string
 	LocationIsQuarantine bool
 	LocationIsIcu        bool
 }
@@ -294,6 +324,7 @@ func (q *Queries) GetGoatForGeneration(ctx context.Context, arg GetGoatForGenera
 		&i.Sex,
 		&i.Breed,
 		&i.ManagementStage,
+		&i.AgeBand,
 		&i.LocationIsQuarantine,
 		&i.LocationIsIcu,
 	)
@@ -378,13 +409,21 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
        COALESCE(park.location_id::text, '')::text AS park_id,
        COALESCE(g.sex, '')::text AS sex,
        COALESCE(g.breed, '')::text AS breed,
-       COALESCE(g.management_stage, '')::text AS management_stage,
+       COALESCE(asl.stage_code, g.management_stage, '')::text AS management_stage,
+       COALESCE(g.age_band, '')::text AS age_band,
        COALESCE(loa.is_quarantine, false)::boolean AS location_is_quarantine,
        COALESCE(loa.is_icu, false)::boolean AS location_is_icu
 FROM goats g
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+LEFT JOIN shed_profiles sp
+  ON sp.tenant_id = g.tenant_id
+ AND sp.location_id = g.shed_id
+LEFT JOIN animal_stage_lookup asl
+  ON asl.tenant_id = sp.tenant_id
+ AND asl.animal_stage_id = sp.animal_stage_id
+ AND asl.status = 'active'
 LEFT JOIN locations shed
   ON shed.tenant_id = g.tenant_id
  AND shed.location_id = g.shed_id
@@ -395,7 +434,7 @@ LEFT JOIN locations park
  AND park.location_type = 'park'
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
-  AND ($2::text = '' OR g.management_stage = $2::text)
+  AND ($2::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $2::text)
   AND ($3::text = '' OR g.sex = $3::text)
   AND ($4::text = '' OR g.breed = $4::text)
   AND ($5::text = '' OR COALESCE(g.health_status, '') = $5::text)
@@ -428,6 +467,7 @@ type ListEligibleGoatsForGenerationRow struct {
 	Sex                  string
 	Breed                string
 	ManagementStage      string
+	AgeBand              string
 	LocationIsQuarantine bool
 	LocationIsIcu        bool
 }
@@ -465,6 +505,7 @@ func (q *Queries) ListEligibleGoatsForGeneration(ctx context.Context, arg ListEl
 			&i.Sex,
 			&i.Breed,
 			&i.ManagementStage,
+			&i.AgeBand,
 			&i.LocationIsQuarantine,
 			&i.LocationIsIcu,
 		); err != nil {

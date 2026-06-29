@@ -28,7 +28,7 @@ const chainLocationAvailableSums = `-- name: ChainLocationAvailableSums :many
 WITH RECURSIVE chain AS (
   SELECT b.location_id, b.parent_location_id, 0 AS depth
   FROM locations b
-  WHERE b.tenant_id = $1 AND b.location_id = $3
+  WHERE b.tenant_id = $1 AND b.location_id = $4
   UNION ALL
   SELECT l.location_id, l.parent_location_id, c.depth + 1
   FROM locations l
@@ -45,7 +45,7 @@ JOIN inventory_stock s
  AND s.item_id = $2
  AND s.quantity_in_stock > s.quantity_reserved
  AND s.status = 'active'
- AND (s.expiry_date IS NULL OR s.expiry_date >= CURRENT_DATE)
+ AND (s.expiry_date IS NULL OR s.expiry_date >= $3::date)
 GROUP BY c.location_id, c.depth
 ORDER BY c.depth ASC
 `
@@ -53,6 +53,7 @@ ORDER BY c.depth ASC
 type ChainLocationAvailableSumsParams struct {
 	TenantID   pgtype.UUID
 	ItemID     pgtype.UUID
+	ValidOn    pgtype.Date
 	LocationID pgtype.UUID
 }
 
@@ -62,14 +63,19 @@ type ChainLocationAvailableSumsRow struct {
 	AvailableQuantity pgtype.Numeric
 }
 
-// Per-location TOTAL available (in_stock - reserved) active, unexpired stock for the location chain
+// Per-location TOTAL available (in_stock - reserved) active stock unexpired as of @valid_on for the location chain
 // starting at @location_id and walking UP parent_location_id (self at depth 0), ordered nearest-first.
 // Lets the reserve path pick the NEAREST ancestor whose lots TOGETHER cover the requested qty: a single
 // FEFO lot can be short even when the location holds enough across several lots, and a near ancestor can
 // be short even when a farther one is flush. Bounded chain depth (< 8). Locations with no available lot
 // are dropped (inner JOIN), so an empty result means no ancestor holds any stock at all.
 func (q *Queries) ChainLocationAvailableSums(ctx context.Context, arg ChainLocationAvailableSumsParams) ([]ChainLocationAvailableSumsRow, error) {
-	rows, err := q.db.Query(ctx, chainLocationAvailableSums, arg.TenantID, arg.ItemID, arg.LocationID)
+	rows, err := q.db.Query(ctx, chainLocationAvailableSums,
+		arg.TenantID,
+		arg.ItemID,
+		arg.ValidOn,
+		arg.LocationID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +197,7 @@ WHERE tenant_id = $1
   AND item_id = $3
   AND status = 'active'
   AND quantity_in_stock > quantity_reserved
-  AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
+  AND (expiry_date IS NULL OR expiry_date >= $4::date)
 ORDER BY expiry_date ASC NULLS LAST, stock_id ASC
 FOR UPDATE
 `
@@ -200,6 +206,7 @@ type ListFEFOLotsForUpdateParams struct {
 	TenantID   pgtype.UUID
 	LocationID pgtype.UUID
 	ItemID     pgtype.UUID
+	ValidOn    pgtype.Date
 }
 
 type ListFEFOLotsForUpdateRow struct {
@@ -208,13 +215,18 @@ type ListFEFOLotsForUpdateRow struct {
 	QuantityUnit      string
 }
 
-// Active, unexpired lots with available stock at @location_id for @item_id, earliest-expiry first
+// Active lots unexpired as of @valid_on with available stock at @location_id for @item_id, earliest-expiry first
 // (FEFO), LOCKED FOR UPDATE so concurrent reservers at the same location serialize — the second waits,
 // then re-reads each row's CURRENT reserved level under the lock (READ COMMITTED EvalPlanQual) so it
 // cannot over-reserve past the quantity_reserved <= quantity_in_stock guard. The caller recomputes
 // available from the locked rows and consumes greedily in FEFO order.
 func (q *Queries) ListFEFOLotsForUpdate(ctx context.Context, arg ListFEFOLotsForUpdateParams) ([]ListFEFOLotsForUpdateRow, error) {
-	rows, err := q.db.Query(ctx, listFEFOLotsForUpdate, arg.TenantID, arg.LocationID, arg.ItemID)
+	rows, err := q.db.Query(ctx, listFEFOLotsForUpdate,
+		arg.TenantID,
+		arg.LocationID,
+		arg.ItemID,
+		arg.ValidOn,
+	)
 	if err != nil {
 		return nil, err
 	}

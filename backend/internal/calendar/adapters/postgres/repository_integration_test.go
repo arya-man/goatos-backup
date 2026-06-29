@@ -464,6 +464,54 @@ WHERE tenant_id = $1::uuid AND event_id = $2`,
 	}
 }
 
+func TestCalendarProjectionAndListIncludeOldMissedExceptions(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID := "86000000-0000-4000-8000-000000000881"
+	versionID := "86000000-0000-4000-8000-000000000882"
+	ruleID := "86000000-0000-4000-8000-000000000883"
+	obligationID := "86000000-0000-4000-8000-000000000884"
+	now := time.Now().UTC()
+	dueAt := now.Add(-10 * 24 * time.Hour)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET status = 'missed', updated_at = now()
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligationID); err != nil {
+		t.Fatalf("mark obligation missed: %v", err)
+	}
+
+	count, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: now.Add(-24 * time.Hour),
+		DateTo:   now.Add(24 * time.Hour),
+		Limit:    100,
+	})
+	if err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("old missed projection count = %d, want 1", count)
+	}
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: now,
+		DateTo:   now.Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].EventID != "obligation:"+obligationID || list.Items[0].Status != domain.StatusMissed {
+		t.Fatalf("list items=%#v, want old missed obligation visible outside date window", list.Items)
+	}
+}
+
 func TestCalendarEscalationSweepQueuesNotificationAndObligationEscalation(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -559,6 +607,47 @@ WHERE tenant_id=$1::uuid AND event_id=$2`, testTenantID, eventID).Scan(&status, 
 	}
 	if again != 0 {
 		t.Fatalf("replay queued escalations = %d, want 0", again)
+	}
+}
+
+func TestCalendarSweepersDoNotNotifyHeldDeferredOrBlockedWork(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	deferredEventID := "calendar:86000000-0000-4000-8000-000000000931"
+	blockedEventID := "calendar:86000000-0000-4000-8000-000000000932"
+	seedCalendarProjection(t, ctx, pool, deferredEventID, time.Now().UTC().Add(-2*time.Hour), "not_scheduled")
+	seedCalendarProjection(t, ctx, pool, blockedEventID, time.Now().UTC().Add(-2*time.Hour), "not_scheduled")
+	if _, err := pool.Exec(ctx, `
+UPDATE calendar_event_projections
+SET status = CASE event_id
+  WHEN $2 THEN 'deferred'
+  WHEN $3 THEN 'blocked'
+  ELSE status
+END
+WHERE tenant_id=$1::uuid AND event_id IN ($2, $3)`, testTenantID, deferredEventID, blockedEventID); err != nil {
+		t.Fatalf("mark held projections: %v", err)
+	}
+	reminders, err := repo.SweepDueReminders(ctx, testTenantID, 10)
+	if err != nil {
+		t.Fatalf("SweepDueReminders: %v", err)
+	}
+	if reminders != 0 {
+		t.Fatalf("held work reminders = %d, want 0", reminders)
+	}
+	escalations, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
+		TenantID:    testTenantID,
+		Limit:       10,
+		Now:         time.Now().UTC(),
+		Level1After: 0,
+	})
+	if err != nil {
+		t.Fatalf("SweepEscalations: %v", err)
+	}
+	if escalations != 0 {
+		t.Fatalf("held work escalations = %d, want 0", escalations)
 	}
 }
 

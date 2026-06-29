@@ -113,3 +113,57 @@ func TestImpactPreviewLiveCounts(t *testing.T) {
 		t.Fatalf("expected stock shortage warning, got %v", out.Warnings)
 	}
 }
+
+func TestEligibleGoatListingUsesShedProfileAnimalStage(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	stageID := "71000000-0000-4000-8000-000000000101"
+	shedID := "31000000-0000-4000-8000-000000000101"
+	goatID := "21000000-0000-4000-8000-000000000101"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO animal_stage_lookup (animal_stage_id, tenant_id, stage_code, name, min_age_days, max_age_days, sort_order, status)
+		 VALUES ($1, $2, 'K1', 'K1 kids', 0, 45, 1, 'active')`, stageID, impTenant); err != nil {
+		t.Fatalf("seed animal stage: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1, $2, 'shed', 'SHED-K1', 'K1 Shed', $3, 'active')`, shedID, impTenant, impCbe); err != nil {
+		t.Fatalf("seed shed: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id)
+		 VALUES ($1, $2, $3)`, shedID, impTenant, stageID); err != nil {
+		t.Fatalf("seed shed profile: %v", err)
+	}
+	dob := time.Date(2026, time.May, 20, 0, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id,
+		   current_location_id, park_id, shed_id, management_stage, age_band, dob)
+		 VALUES ($1, $2, 'alive', 'clean', $3, $4, $5, $4, 'K2', 'kid', $6::date)`,
+		goatID, impTenant, impParty, shedID, impCbe, dob); err != nil {
+		t.Fatalf("seed goat: %v", err)
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.ListEligibleGoatsForGeneration(ctx, domain.ImpactFilter{TenantID: impTenant, Stage: "K1"}, "", 50)
+	if err != nil {
+		t.Fatalf("list eligible: %v", err)
+	}
+	if len(rows) != 1 || rows[0].GoatID != goatID || rows[0].Stage != "K1" || rows[0].AgeBand != "kid" {
+		t.Fatalf("rows=%#v, want shed-profile K1 stage and age band", rows)
+	}
+	k1, err := repo.CountEligibleGoats(ctx, domain.ImpactFilter{TenantID: impTenant, Stage: "K1"})
+	if err != nil {
+		t.Fatalf("count K1: %v", err)
+	}
+	k2, err := repo.CountEligibleGoats(ctx, domain.ImpactFilter{TenantID: impTenant, Stage: "K2"})
+	if err != nil {
+		t.Fatalf("count K2: %v", err)
+	}
+	if k1 != 1 || k2 != 0 {
+		t.Fatalf("stage counts K1=%d K2=%d, want shed-profile stage to drive eligibility", k1, k2)
+	}
+}

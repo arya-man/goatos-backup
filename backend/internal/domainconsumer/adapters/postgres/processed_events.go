@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -100,7 +101,7 @@ func (s *ProcessedEventStore) MarkProcessed(ctx context.Context, event consumera
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	event = normalizeProcessedEvent(event)
-	_, err := s.pool.Exec(ctx, `
+	tag, err := s.pool.Exec(ctx, `
 UPDATE domain_event_processed_events
 SET status = 'processed',
     processed_at = $4::timestamptz,
@@ -110,7 +111,13 @@ WHERE tenant_id = $1::uuid
   AND subscription_id = $2
   AND event_id = $3
   AND status = 'processing'`, event.TenantID, event.SubscriptionID, event.EventID, event.Now)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: event_id=%s subscription_id=%s", consumerapp.ErrProcessedEventFinalizationLost, event.EventID, event.SubscriptionID)
+	}
+	return nil
 }
 
 func (s *ProcessedEventStore) MarkFailed(ctx context.Context, event consumerapp.ProcessedEvent, reason string) error {
@@ -121,7 +128,7 @@ func (s *ProcessedEventStore) MarkFailed(ctx context.Context, event consumerapp.
 	if len(reason) > 240 {
 		reason = reason[:240]
 	}
-	_, err := s.pool.Exec(ctx, `
+	tag, err := s.pool.Exec(ctx, `
 UPDATE domain_event_processed_events
 SET status = 'failed',
     last_error = $4,
@@ -130,7 +137,13 @@ WHERE tenant_id = $1::uuid
   AND subscription_id = $2
   AND event_id = $3
   AND status = 'processing'`, event.TenantID, event.SubscriptionID, event.EventID, reason, event.Now)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: event_id=%s subscription_id=%s", consumerapp.ErrProcessedEventFinalizationLost, event.EventID, event.SubscriptionID)
+	}
+	return nil
 }
 
 func normalizeProcessedEvent(event consumerapp.ProcessedEvent) consumerapp.ProcessedEvent {

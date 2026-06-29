@@ -246,14 +246,20 @@ func (q *Queries) ListOpenObligationsByGoat(ctx context.Context, arg ListOpenObl
 }
 
 const listUnbatchedDueForVersion = `-- name: ListUnbatchedDueForVersion :many
-SELECT obligation_id::text AS obligation_id, scope_type, COALESCE(scope_id::text, '')::text AS scope_id
+SELECT obligation_id::text AS obligation_id,
+       rule_id::text AS rule_id,
+       scope_type,
+       COALESCE(scope_id::text, '')::text AS scope_id,
+       due_at,
+       window_start,
+       window_end
 FROM obligation_instances
 WHERE tenant_id = $1
   AND protocol_version_id = $2
   AND status IN ('scheduled', 'due')
   AND batch_id IS NULL
   AND due_at <= $3
-ORDER BY scope_id, obligation_id
+ORDER BY scope_type, scope_id, rule_id, due_at, obligation_id
 LIMIT $4
 `
 
@@ -266,12 +272,17 @@ type ListUnbatchedDueForVersionParams struct {
 
 type ListUnbatchedDueForVersionRow struct {
 	ObligationID string
+	RuleID       string
 	ScopeType    string
 	ScopeID      string
+	DueAt        pgtype.Timestamptz
+	WindowStart  pgtype.Timestamptz
+	WindowEnd    pgtype.Timestamptz
 }
 
 // SM-4 sweeper: unbatched scheduled/due obligations for a version within the window, grouped by
-// scope downstream. batch_id IS NULL makes re-sweeps idempotent. Uses obligation due-window index.
+// scope + rule + due/window downstream. batch_id IS NULL makes re-sweeps idempotent.
+// Uses obligation due-window index.
 func (q *Queries) ListUnbatchedDueForVersion(ctx context.Context, arg ListUnbatchedDueForVersionParams) ([]ListUnbatchedDueForVersionRow, error) {
 	rows, err := q.db.Query(ctx, listUnbatchedDueForVersion,
 		arg.TenantID,
@@ -286,7 +297,15 @@ func (q *Queries) ListUnbatchedDueForVersion(ctx context.Context, arg ListUnbatc
 	var items []ListUnbatchedDueForVersionRow
 	for rows.Next() {
 		var i ListUnbatchedDueForVersionRow
-		if err := rows.Scan(&i.ObligationID, &i.ScopeType, &i.ScopeID); err != nil {
+		if err := rows.Scan(
+			&i.ObligationID,
+			&i.RuleID,
+			&i.ScopeType,
+			&i.ScopeID,
+			&i.DueAt,
+			&i.WindowStart,
+			&i.WindowEnd,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

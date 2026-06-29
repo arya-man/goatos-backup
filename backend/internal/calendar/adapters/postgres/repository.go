@@ -769,7 +769,7 @@ SELECT event_id, title, target_type, COALESCE(source_target_id::text, ''), prima
 	  AND slice_key = 'vaccination'
 	  AND system = false
 	  AND due_at <= now() + interval '1 hour'
-	  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+	  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due')
 	  AND NOT EXISTS (
 	    SELECT 1
 	    FROM calendar_snoozes cs
@@ -820,7 +820,7 @@ FROM calendar_event_projections
 	  AND slice_key = 'vaccination'
 	  AND system = false
 	  AND due_at <= now() + interval '1 hour'
-	  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+	  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due')
 	  AND NOT EXISTS (
 	    SELECT 1
 	    FROM calendar_snoozes cs
@@ -966,7 +966,7 @@ WITH candidates AS (
     AND system = false
     AND due_at IS NOT NULL
     AND due_at <= $2::timestamptz
-    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due')
 )
 SELECT event_id, level
 FROM candidates c
@@ -1018,7 +1018,7 @@ WITH candidate AS (
     AND system = false
     AND due_at IS NOT NULL
     AND due_at <= $2::timestamptz
-    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due')
 )
 SELECT event_id, level
 FROM candidate c
@@ -1073,7 +1073,7 @@ WHERE tenant_id = $1::uuid
   AND slice_key = 'vaccination'
 	  AND system = false
 	  AND due_at <= $3::timestamptz
-	  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+	  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due')
 	FOR UPDATE SKIP LOCKED`, tenantID, eventID, now).Scan(
 		&target.EventID,
 		&target.Title,
@@ -1607,25 +1607,62 @@ func calendarOutboxEnvelope(tenantID, eventID, eventType, schemaRef, aggregateTy
 }
 
 const calendarListSQL = `
+WITH candidates AS (
+  (
+    SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,
+           window_end, timezone, timezone_source, park_id::text, park_code, shed_id::text, shed_name,
+           cohort_id::text, cohort_name, target_type, target_count, protocol_id::text,
+           protocol_version_id::text, rule_id::text, vaccine_name, dose_code, source_backed,
+           source_label, assignee_label, executor_role, verifier_label, reminder_state,
+           primary_notification_channel, escalation_state, system, cross_cutting, links
+    FROM calendar_event_projections
+    WHERE tenant_id = $1::uuid
+      AND slice_key = 'vaccination'
+      AND system = false
+      AND due_at >= $6::timestamptz AND due_at < $7::timestamptz
+      AND ($2::text = '' OR owner_key = $2::text)
+      AND ($3::text = '' OR status = $3::text)
+      AND ($3::text <> '' OR status NOT IN ('completed', 'canceled'))
+      AND ($4::text = '' OR park_id = nullif($4::text, '')::uuid)
+      AND ($5::text = '' OR shed_id = nullif($5::text, '')::uuid)
+      AND ($8::timestamptz IS NULL OR (due_at, event_id) > ($8::timestamptz, $9::text))
+      AND ($11::bool OR park_id::text = ANY($12::text[]) OR shed_id::text = ANY($13::text[]))
+    ORDER BY due_at ASC, event_id ASC
+    LIMIT $10
+  )
+
+  UNION
+
+  (
+    SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,
+           window_end, timezone, timezone_source, park_id::text, park_code, shed_id::text, shed_name,
+           cohort_id::text, cohort_name, target_type, target_count, protocol_id::text,
+           protocol_version_id::text, rule_id::text, vaccine_name, dose_code, source_backed,
+           source_label, assignee_label, executor_role, verifier_label, reminder_state,
+           primary_notification_channel, escalation_state, system, cross_cutting, links
+    FROM calendar_event_projections
+    WHERE tenant_id = $1::uuid
+      AND slice_key = 'vaccination'
+      AND system = false
+      AND due_at IS NOT NULL
+      AND status IN ('overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due', 'deferred', 'blocked')
+      AND ($2::text = '' OR owner_key = $2::text)
+      AND ($3::text = '' OR status = $3::text)
+      AND ($4::text = '' OR park_id = nullif($4::text, '')::uuid)
+      AND ($5::text = '' OR shed_id = nullif($5::text, '')::uuid)
+      AND ($8::timestamptz IS NULL OR (due_at, event_id) > ($8::timestamptz, $9::text))
+      AND ($11::bool OR park_id::text = ANY($12::text[]) OR shed_id::text = ANY($13::text[]))
+    ORDER BY due_at ASC, event_id ASC
+    LIMIT $10
+  )
+)
 SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,
-       window_end, timezone, timezone_source, park_id::text, park_code, shed_id::text, shed_name,
-       cohort_id::text, cohort_name, target_type, target_count, protocol_id::text,
-       protocol_version_id::text, rule_id::text, vaccine_name, dose_code, source_backed,
+       window_end, timezone, timezone_source, park_id, park_code, shed_id, shed_name,
+       cohort_id, cohort_name, target_type, target_count, protocol_id,
+       protocol_version_id, rule_id, vaccine_name, dose_code, source_backed,
        source_label, assignee_label, executor_role, verifier_label, reminder_state,
        primary_notification_channel, escalation_state, system, cross_cutting, links
-FROM calendar_event_projections
-WHERE tenant_id = $1::uuid
-  AND slice_key = 'vaccination'
-  AND system = false
-  AND due_at >= $6::timestamptz
-  AND due_at < $7::timestamptz
-  AND ($2::text = '' OR owner_key = $2::text)
-  AND ($3::text = '' OR status = $3::text)
-  AND ($3::text <> '' OR status NOT IN ('completed', 'canceled'))
-  AND ($4::text = '' OR park_id = nullif($4::text, '')::uuid)
-  AND ($5::text = '' OR shed_id = nullif($5::text, '')::uuid)
-  AND ($8::timestamptz IS NULL OR (due_at, event_id) > ($8::timestamptz, $9::text))
-  AND ($11::bool OR park_id::text = ANY($12::text[]) OR shed_id::text = ANY($13::text[]))
+FROM candidates
 ORDER BY due_at ASC, event_id ASC
 LIMIT $10`
 
@@ -1857,8 +1894,10 @@ WITH obligation_events AS (
       END AS shed_name
   ) loc ON true
   WHERE oi.tenant_id = $1::uuid
-    AND oi.due_at >= $2::timestamptz
-    AND oi.due_at < $3::timestamptz
+    AND (
+      (oi.due_at >= $2::timestamptz AND oi.due_at < $3::timestamptz)
+      OR oi.status IN ('missed', 'in_progress', 'deferred')
+    )
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
@@ -2247,8 +2286,10 @@ WITH source_event_ids AS (
   JOIN protocol_definitions pd
     ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
   WHERE oi.tenant_id = $1::uuid
-    AND oi.due_at >= $2::timestamptz
-    AND oi.due_at < $3::timestamptz
+    AND (
+      (oi.due_at >= $2::timestamptz AND oi.due_at < $3::timestamptz)
+      OR oi.status IN ('missed', 'in_progress', 'deferred')
+    )
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'

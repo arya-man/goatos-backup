@@ -196,7 +196,7 @@ func TestSM4bFinalizesPlannedBatchMissingSOPTask(t *testing.T) {
 	}
 }
 
-func TestSM4SweeperBatchesByScope(t *testing.T) {
+func TestSM4SweeperBatchesByScopeRuleAndDueDate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -246,8 +246,8 @@ func TestSM4SweeperBatchesByScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
-	if res.Batches != 2 { // cbe + cpt
-		t.Fatalf("batches: want 2, got %d", res.Batches)
+	if res.Batches != 3 { // cbe day 1 + cbe day 2 + cpt day 1
+		t.Fatalf("batches: want 3, got %d", res.Batches)
 	}
 	if res.Obligations != 3 {
 		t.Fatalf("obligations attached: want 3, got %d", res.Obligations)
@@ -255,8 +255,11 @@ func TestSM4SweeperBatchesByScope(t *testing.T) {
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE protocol_version_id=$1 AND batch_id IS NOT NULL`, versionID); got != 3 {
 		t.Fatalf("expected 3 batched obligations, got %d", got)
 	}
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE protocol_version_id=$1`, versionID); got != 2 {
-		t.Fatalf("expected 2 batches, got %d", got)
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE protocol_version_id=$1`, versionID); got != 3 {
+		t.Fatalf("expected 3 batches, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE protocol_version_id=$1 AND scope_id=$2 AND planned_date IN ('2026-08-01', '2026-08-02')`, versionID, cbePark); got != 2 {
+		t.Fatalf("expected cbe obligations on different due dates to split into 2 batches, got %d", got)
 	}
 
 	res2, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))

@@ -60,7 +60,7 @@ ORDER BY c.depth ASC
 LIMIT 1;
 
 -- name: ChainLocationAvailableSums :many
--- Per-location TOTAL available (in_stock - reserved) active, unexpired stock for the location chain
+-- Per-location TOTAL available (in_stock - reserved) active stock unexpired as of @valid_on for the location chain
 -- starting at @location_id and walking UP parent_location_id (self at depth 0), ordered nearest-first.
 -- Lets the reserve path pick the NEAREST ancestor whose lots TOGETHER cover the requested qty: a single
 -- FEFO lot can be short even when the location holds enough across several lots, and a near ancestor can
@@ -86,12 +86,12 @@ JOIN inventory_stock s
  AND s.item_id = @item_id
  AND s.quantity_in_stock > s.quantity_reserved
  AND s.status = 'active'
- AND (s.expiry_date IS NULL OR s.expiry_date >= CURRENT_DATE)
+ AND (s.expiry_date IS NULL OR s.expiry_date >= @valid_on::date)
 GROUP BY c.location_id, c.depth
 ORDER BY c.depth ASC;
 
 -- name: ListFEFOLotsForUpdate :many
--- Active, unexpired lots with available stock at @location_id for @item_id, earliest-expiry first
+-- Active lots unexpired as of @valid_on with available stock at @location_id for @item_id, earliest-expiry first
 -- (FEFO), LOCKED FOR UPDATE so concurrent reservers at the same location serialize — the second waits,
 -- then re-reads each row's CURRENT reserved level under the lock (READ COMMITTED EvalPlanQual) so it
 -- cannot over-reserve past the quantity_reserved <= quantity_in_stock guard. The caller recomputes
@@ -105,7 +105,7 @@ WHERE tenant_id = @tenant_id
   AND item_id = @item_id
   AND status = 'active'
   AND quantity_in_stock > quantity_reserved
-  AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
+  AND (expiry_date IS NULL OR expiry_date >= @valid_on::date)
 ORDER BY expiry_date ASC NULLS LAST, stock_id ASC
 FOR UPDATE;
 

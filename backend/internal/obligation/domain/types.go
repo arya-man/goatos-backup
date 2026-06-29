@@ -78,16 +78,22 @@ type NewBatch struct {
 // UnbatchedDue is an unbatched scheduled/due obligation (SM-4 sweep input).
 type UnbatchedDue struct {
 	ObligationID string
+	RuleID       string
 	ScopeType    string
 	ScopeID      string
+	DueAt        time.Time
+	WindowStart  *time.Time
+	WindowEnd    *time.Time
 }
 
 // PlannedBatchFinalization is a planned batch that already owns obligations but still needs
 // replayable side-effect finalization (SOP task link and/or stock reservation).
 type PlannedBatchFinalization struct {
 	BatchID             string
+	RuleID              string
 	ScopeType           string
 	ScopeID             string
+	PlannedDate         *time.Time
 	EstimatedTargets    int32
 	AttachedObligations int64
 	HasSOPTask          bool

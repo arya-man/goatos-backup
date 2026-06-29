@@ -137,6 +137,7 @@ type EligibleGoat struct {
 	Sex                  string
 	Breed                string
 	Stage                string
+	AgeBand              string
 	LocationIsQuarantine bool
 	LocationIsICU        bool
 }

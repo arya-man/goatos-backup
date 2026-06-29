@@ -405,6 +405,169 @@ func TestSubmitVaccinationReplaySkipsSubmissionFanout(t *testing.T) {
 	}
 }
 
+func TestVerifyTaskRejectsTaskWithoutReviewSubmission(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.State = "assigned"
+	service := NewService(repo)
+
+	_, err := service.VerifyTask(context.Background(), ports.ReviewTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body:     domain.ReviewTaskRequest{RowVersion: 1},
+	}, "trace")
+	if err == nil {
+		t.Fatal("VerifyTask() error = nil, want fail-closed review rejection")
+	}
+	if appErr, ok := err.(*Error); !ok || appErr.Code != "task_not_reviewable" {
+		t.Fatalf("err = %#v, want task_not_reviewable", err)
+	}
+	if repo.reviewCalls != 0 {
+		t.Fatalf("ReviewTask calls = %d, want 0 before preflight passes", repo.reviewCalls)
+	}
+}
+
+func TestVerifyTaskRejectsReviewWithoutRequiredProof(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.State = "needs_review"
+	repo.submissions = []domain.SubmissionSummary{{
+		SubmissionID: "65000000-0000-4000-8000-000000000001",
+		TaskID:       testTaskID,
+		SOPVersionID: testVersionID,
+		SubmittedBy:  testActorID,
+		State:        "needs_review",
+	}}
+	service := NewService(repo)
+
+	_, err := service.VerifyTask(context.Background(), ports.ReviewTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body:     domain.ReviewTaskRequest{RowVersion: 1},
+	}, "trace")
+	if err == nil {
+		t.Fatal("VerifyTask() error = nil, want proof-required rejection")
+	}
+	if appErr, ok := err.(*Error); !ok || appErr.Code != "review_proof_required" {
+		t.Fatalf("err = %#v, want review_proof_required", err)
+	}
+	if repo.reviewCalls != 0 {
+		t.Fatalf("ReviewTask calls = %d, want 0 before proof passes", repo.reviewCalls)
+	}
+}
+
+func TestVerifyTaskRejectsVaccinationReviewWithNoRecordedCompletions(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.task.TaskType = "vaccination"
+	repo.task.State = "needs_review"
+	repo.version.SOPCode = "vaccination.drive"
+	repo.submissions = []domain.SubmissionSummary{{
+		SubmissionID: "65000000-0000-4000-8000-000000000001",
+		TaskID:       testTaskID,
+		SOPVersionID: testVersionID,
+		SubmittedBy:  testActorID,
+		ProofRefs:    completedProof(),
+		State:        "needs_review",
+	}}
+	zero := 0
+	fanout := &fakeReviewFanout{reviewable: &zero}
+	service := NewService(repo).WithTaskReviewFanout(fanout)
+
+	_, err := service.VerifyTask(context.Background(), ports.ReviewTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body:     domain.ReviewTaskRequest{RowVersion: 1},
+	}, "trace")
+	if err == nil {
+		t.Fatal("VerifyTask() error = nil, want empty-fanout rejection")
+	}
+	if appErr, ok := err.(*Error); !ok || appErr.Code != "review_fanout_empty" {
+		t.Fatalf("err = %#v, want review_fanout_empty", err)
+	}
+	if repo.reviewCalls != 0 {
+		t.Fatalf("ReviewTask calls = %d, want 0 before completion fanout passes", repo.reviewCalls)
+	}
+	if fanout.verified != 0 {
+		t.Fatalf("verified fanout calls = %d, want 0 before task review write", fanout.verified)
+	}
+}
+
+func TestVerifyTaskRejectsVaccinationReviewWithoutFanoutWiring(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.task.TaskType = "vaccination"
+	repo.task.State = "needs_review"
+	repo.version.SOPCode = "vaccination.drive"
+	repo.submissions = []domain.SubmissionSummary{{
+		SubmissionID: "65000000-0000-4000-8000-000000000001",
+		TaskID:       testTaskID,
+		SOPVersionID: testVersionID,
+		SubmittedBy:  testActorID,
+		ProofRefs:    completedProof(),
+		State:        "needs_review",
+	}}
+	service := NewService(repo)
+
+	_, err := service.VerifyTask(context.Background(), ports.ReviewTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body:     domain.ReviewTaskRequest{RowVersion: 1},
+	}, "trace")
+	if err == nil {
+		t.Fatal("VerifyTask() error = nil, want missing-fanout rejection")
+	}
+	if appErr, ok := err.(*Error); !ok || appErr.Code != "review_fanout_not_configured" {
+		t.Fatalf("err = %#v, want review_fanout_not_configured", err)
+	}
+	if repo.reviewCalls != 0 {
+		t.Fatalf("ReviewTask calls = %d, want 0 before fanout wiring passes", repo.reviewCalls)
+	}
+}
+
+func TestVerifyTaskAcceptsSubmittedVaccinationReview(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.task.TaskType = "vaccination"
+	repo.task.State = "needs_review"
+	repo.version.SOPCode = "vaccination.drive"
+	repo.submissions = []domain.SubmissionSummary{{
+		SubmissionID: "65000000-0000-4000-8000-000000000001",
+		TaskID:       testTaskID,
+		SOPVersionID: testVersionID,
+		SubmittedBy:  testActorID,
+		ProofRefs:    completedProof(),
+		State:        "needs_review",
+	}}
+	one := 1
+	fanout := &fakeReviewFanout{reviewable: &one}
+	service := NewService(repo).WithTaskReviewFanout(fanout)
+
+	result, err := service.VerifyTask(context.Background(), ports.ReviewTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body:     domain.ReviewTaskRequest{RowVersion: 1},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("VerifyTask() error = %v", err)
+	}
+	if result.Task.State != "accepted" {
+		t.Fatalf("task state = %s, want accepted", result.Task.State)
+	}
+	if repo.reviewCalls != 1 {
+		t.Fatalf("ReviewTask calls = %d, want 1", repo.reviewCalls)
+	}
+	if fanout.verified != 1 {
+		t.Fatalf("verified fanout calls = %d, want 1", fanout.verified)
+	}
+	if len(repo.recordedFanouts) != 1 || repo.recordedFanouts[0].Status != "completed" {
+		t.Fatalf("recorded review fanouts = %#v", repo.recordedFanouts)
+	}
+}
+
 func TestRetrySubmissionFanoutsFailsClosedAfterRecordingFailure(t *testing.T) {
 	repo := newFakeRepo()
 	repo.task.SOPCode = "vaccination.drive"
@@ -602,6 +765,7 @@ type fakeRepo struct {
 	failedSubmissionFanouts     []domain.FailedSubmissionFanout
 	lastFailedSubmissionFanouts ports.ListAgedFailedSubmissionFanoutsParams
 	submitReplay                bool
+	reviewCalls                 int
 }
 
 func newFakeRepo() *fakeRepo {
@@ -676,7 +840,10 @@ func (f *fakeRepo) GetTask(context.Context, string, string) (domain.TaskSummary,
 func (f *fakeRepo) AssignTask(context.Context, ports.AssignTaskCommand) (domain.TaskSummary, error) {
 	return f.task, nil
 }
-func (f *fakeRepo) ReviewTask(context.Context, ports.ReviewTaskCommand) (domain.TaskSummary, error) {
+func (f *fakeRepo) ReviewTask(_ context.Context, cmd ports.ReviewTaskCommand) (domain.TaskSummary, error) {
+	f.reviewCalls++
+	f.task.State = cmd.State
+	f.task.RowVersion++
 	return f.task, nil
 }
 func (f *fakeRepo) ListPendingReviewFanouts(context.Context, string, int) ([]ports.ReviewFanoutAttempt, error) {
@@ -788,18 +955,30 @@ func completedProof() []domain.ProofReference {
 }
 
 type fakeReviewFanout struct {
-	verified int
-	reworked int
+	verified   int
+	reworked   int
+	reviewable *int
+}
+
+func (f *fakeReviewFanout) count() int {
+	if f.reviewable != nil {
+		return *f.reviewable
+	}
+	return 1
+}
+
+func (f *fakeReviewFanout) ReviewableItemCount(context.Context, string, string) (int, error) {
+	return f.count(), nil
 }
 
 func (f *fakeReviewFanout) OnTaskVerified(context.Context, string, string, string) (int, error) {
 	f.verified++
-	return 1, nil
+	return f.count(), nil
 }
 
 func (f *fakeReviewFanout) OnTaskReworked(context.Context, string, string, string, string) (int, error) {
 	f.reworked++
-	return 1, nil
+	return f.count(), nil
 }
 
 type fakeSubmissionHook struct {

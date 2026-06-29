@@ -51,7 +51,10 @@ const (
 	ProcessDecisionInProgress       ProcessDecision = "in_progress"
 )
 
-var ErrEventProcessingInProgress = errors.New("domain event processing in progress")
+var (
+	ErrEventProcessingInProgress      = errors.New("domain event processing in progress")
+	ErrProcessedEventFinalizationLost = errors.New("domain event processed-event finalization lost")
+)
 
 type ProcessedEventStore interface {
 	BeginProcessing(ctx context.Context, event ProcessedEvent) (ProcessDecision, error)
@@ -104,6 +107,7 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 	}
 	var processed ProcessedEvent
 	claimed := false
+	dispatched := false
 	defer func() {
 		if p := recover(); p != nil {
 			if s.log != nil {
@@ -115,9 +119,13 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 					slog.String("outbox_id", message.Attributes["outbox_id"]),
 				)
 			}
-			err = fmt.Errorf("domain consumer panic")
+			if dispatched {
+				err = nil
+			} else {
+				err = fmt.Errorf("domain consumer panic")
+			}
 		}
-		if err != nil && claimed && s.processedStore != nil {
+		if err != nil && claimed && !dispatched && s.processedStore != nil {
 			_ = s.processedStore.MarkFailed(ctx, processed, err.Error())
 		}
 	}()
@@ -170,9 +178,19 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 	if err := s.bus.Publish(ctx, event); err != nil {
 		return fmt.Errorf("domain event dispatch %s/%s: %w", event.Type, event.Key, err)
 	}
+	dispatched = true
 	if claimed {
-		if err := s.processedStore.MarkProcessed(ctx, processed); err != nil {
-			return err
+		if markErr := s.processedStore.MarkProcessed(ctx, processed); markErr != nil {
+			if s.log != nil {
+				s.log.ErrorContext(ctx, "domain_event_processed_finalization_failed",
+					slog.String("message_id", message.ID),
+					slog.String("event_id", processed.EventID),
+					slog.String("event_type", event.Type),
+					slog.String("tenant_id", event.TenantID),
+					slog.Any("error", markErr),
+				)
+			}
+			return nil
 		}
 	}
 	if s.log != nil {

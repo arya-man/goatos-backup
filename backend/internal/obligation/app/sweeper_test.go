@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,6 +101,86 @@ func TestSweeperCreatesSideEffectsAfterAttach(t *testing.T) {
 	}
 	if reserver.calls != 1 || reserver.lastBatchID != "batch-1" || reserver.lastQty != 4 {
 		t.Fatalf("reservation calls=%d batch=%q qty=%d", reserver.calls, reserver.lastBatchID, reserver.lastQty)
+	}
+}
+
+func TestSweeperGroupsByRuleAndDueDateAndReservesAgainstPlannedDate(t *testing.T) {
+	dueA := time.Date(2026, time.August, 14, 9, 30, 0, 0, time.UTC)
+	dueB := time.Date(2026, time.August, 15, 9, 30, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rows: []domain.UnbatchedDue{
+			{ObligationID: "obl-1", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueA},
+			{ObligationID: "obl-2", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueB},
+		},
+		createBatchIDs: []string{"batch-a", "batch-b"},
+		attachAll:      true,
+	}
+	reserver := &fakeSweepStockReserver{}
+	svc := NewSweeperService(repo, nil, reserver)
+
+	result, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		VaccineItemID: "vaccine-1",
+		DosesPerGoat:  1,
+	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if result.Batches != 2 || result.Obligations != 2 {
+		t.Fatalf("result = %#v, want two separately planned batches", result)
+	}
+	if len(repo.createdBatches) != 2 {
+		t.Fatalf("created batches = %d, want 2", len(repo.createdBatches))
+	}
+	if repo.createdBatches[0].Session != "rule:rule-a" || repo.createdBatches[1].Session != "rule:rule-b" {
+		t.Fatalf("sessions = %q/%q, want rule sessions", repo.createdBatches[0].Session, repo.createdBatches[1].Session)
+	}
+	if got := dateKey(repo.createdBatches[0].PlannedDate); got != "2026-08-14" {
+		t.Fatalf("batch A planned date = %s, want 2026-08-14", got)
+	}
+	if got := dateKey(repo.createdBatches[1].PlannedDate); got != "2026-08-15" {
+		t.Fatalf("batch B planned date = %s, want 2026-08-15", got)
+	}
+	if reserver.calls != 2 {
+		t.Fatalf("reservation calls = %d, want 2", reserver.calls)
+	}
+	if got := validOnKeys(reserver.validOns); got != "2026-08-14,2026-08-15" {
+		t.Fatalf("reservation validOn dates = %s, want planned dates", got)
+	}
+}
+
+func TestSweeperUsesRuleSpecificExecutionConfig(t *testing.T) {
+	due := time.Date(2026, time.August, 14, 9, 30, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rows: []domain.UnbatchedDue{
+			{ObligationID: "obl-a", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: due},
+			{ObligationID: "obl-b", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: due},
+		},
+		createBatchIDs: []string{"batch-a", "batch-b"},
+		attachAll:      true,
+	}
+	tasks := &fakeSweepTaskCreator{}
+	reserver := &fakeSweepStockReserver{}
+	svc := NewSweeperService(repo, tasks, reserver)
+
+	_, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		SOPVersionID:  "sop-default",
+		VaccineItemID: "vaccine-default",
+		DosesPerGoat:  1,
+		RuleConfigs: map[string]SweepRuleConfig{
+			"rule-b": {SOPVersionID: "sop-rule-b", VaccineItemID: "vaccine-rule-b", DosesPerGoat: 3},
+		},
+	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if got := strings.Join(tasks.sopVersionIDs, ","); got != "sop-default,sop-rule-b" {
+		t.Fatalf("task SOP versions = %s, want version fallback then rule override", got)
+	}
+	if got := strings.Join(reserver.itemIDs, ","); got != "vaccine-default,vaccine-rule-b" {
+		t.Fatalf("reservation item IDs = %s, want version fallback then rule override", got)
+	}
+	if got := qtyKeys(reserver.quantities); got != "1,3" {
+		t.Fatalf("reservation quantities = %s, want per-rule doses", got)
 	}
 }
 
@@ -250,7 +332,9 @@ func TestSweeperMarkMissedPagesUntilDrained(t *testing.T) {
 type fakeSweepRepo struct {
 	rows                 []domain.UnbatchedDue
 	createBatchID        string
+	createBatchIDs       []string
 	createBatchAttached  int64
+	attachAll            bool
 	createBatchCalls     int
 	setTaskCalls         int
 	stockBlockCalls      int
@@ -258,6 +342,7 @@ type fakeSweepRepo struct {
 	lastTaskID           string
 	missedPages          []int
 	missedCalls          int
+	createdBatches       []domain.NewBatch
 	finalizationPages    [][]domain.PlannedBatchFinalization
 	finalizationCalls    int
 	createdFinalization  []domain.PlannedBatchFinalization
@@ -289,18 +374,29 @@ func (f *fakeSweepRepo) CreateBatch(context.Context, domain.NewBatch) (string, e
 	return "", nil
 }
 
-func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, in domain.NewBatch, _ []string) (string, int64, error) {
+func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, in domain.NewBatch, ids []string) (string, int64, error) {
 	f.createBatchCalls++
-	if f.createBatchAttached > 0 {
+	f.createdBatches = append(f.createdBatches, in)
+	batchID := f.createBatchID
+	if idx := f.createBatchCalls - 1; idx >= 0 && idx < len(f.createBatchIDs) {
+		batchID = f.createBatchIDs[idx]
+	}
+	attached := f.createBatchAttached
+	if f.attachAll {
+		attached = int64(len(ids))
+	}
+	if attached > 0 {
 		f.createdFinalization = append(f.createdFinalization, domain.PlannedBatchFinalization{
-			BatchID:             f.createBatchID,
+			BatchID:             batchID,
+			RuleID:              ruleIDFromSession(in.Session),
 			ScopeType:           in.ScopeType,
 			ScopeID:             in.ScopeID,
-			EstimatedTargets:    int32(f.createBatchAttached),
-			AttachedObligations: f.createBatchAttached,
+			PlannedDate:         in.PlannedDate,
+			EstimatedTargets:    int32(attached),
+			AttachedObligations: attached,
 		})
 	}
-	return f.createBatchID, f.createBatchAttached, nil
+	return batchID, attached, nil
 }
 
 func (f *fakeSweepRepo) SetBatchSOPTask(_ context.Context, _, _, taskID string) error {
@@ -375,12 +471,14 @@ func (f *fakeSweepRepo) RecordStatusEvent(context.Context, domain.NewStatusEvent
 }
 
 type fakeSweepTaskCreator struct {
-	id    string
-	calls int
+	id            string
+	calls         int
+	sopVersionIDs []string
 }
 
-func (f *fakeSweepTaskCreator) CreateTaskForBatch(context.Context, string, string, string, string, string, string, string) (string, error) {
+func (f *fakeSweepTaskCreator) CreateTaskForBatch(_ context.Context, _, _, sopVersionID, _, _, _, _ string) (string, error) {
 	f.calls++
+	f.sopVersionIDs = append(f.sopVersionIDs, sopVersionID)
 	if f.id == "" {
 		f.id = "task-1"
 	}
@@ -391,12 +489,55 @@ type fakeSweepStockReserver struct {
 	calls       int
 	lastBatchID string
 	lastQty     int64
+	validOns    []time.Time
+	itemIDs     []string
+	quantities  []int64
 	err         error
 }
 
-func (f *fakeSweepStockReserver) ReserveForBatch(_ context.Context, _, batchID, _, _ string, qty int64) error {
+func (f *fakeSweepStockReserver) ReserveForBatch(_ context.Context, _, batchID, _, itemID string, qty int64, validOn time.Time) error {
 	f.calls++
 	f.lastBatchID = batchID
 	f.lastQty = qty
+	f.validOns = append(f.validOns, validOn)
+	f.itemIDs = append(f.itemIDs, itemID)
+	f.quantities = append(f.quantities, qty)
 	return f.err
+}
+
+func ruleIDFromSession(session string) string {
+	const prefix = "rule:"
+	if len(session) > len(prefix) && session[:len(prefix)] == prefix {
+		return session[len(prefix):]
+	}
+	return ""
+}
+
+func dateKey(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.UTC().Format("2006-01-02")
+}
+
+func validOnKeys(values []time.Time) string {
+	out := ""
+	for i, v := range values {
+		if i > 0 {
+			out += ","
+		}
+		out += v.UTC().Format("2006-01-02")
+	}
+	return out
+}
+
+func qtyKeys(values []int64) string {
+	out := ""
+	for i, v := range values {
+		if i > 0 {
+			out += ","
+		}
+		out += strconv.FormatInt(v, 10)
+	}
+	return out
 }

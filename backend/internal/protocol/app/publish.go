@@ -27,6 +27,13 @@ var ErrUnsupportedRepeatPolicy = errors.New("protocol: unsupported repeat policy
 // publishableSources are the real source systems whose approved values may be published. Anything
 // else (manual_admin, extracted, empty) stays draft / not source-backed.
 var publishableSources = map[string]bool{"vaccinations_db": true, "phc": true, "vet": true}
+var executableTriggerTypes = map[string]bool{
+	"birth_age":                 true,
+	"post_arrival":              true,
+	"calendar":                  true,
+	"manual_campaign":           true,
+	"after_previous_completion": true,
+}
 
 type sourceMeta struct {
 	SourceSystem string `json:"source_system"`
@@ -37,8 +44,11 @@ type sourceMeta struct {
 }
 
 type ruleDSLEnvelope struct {
-	Source   sourceMeta    `json:"source"`
-	Schedule []scheduleRow `json:"schedule"`
+	Category         string          `json:"category"`
+	Eligibility      json.RawMessage `json:"eligibility"`
+	MissedDosePolicy string          `json:"missed_dose_policy"`
+	Source           sourceMeta      `json:"source"`
+	Schedule         []scheduleRow   `json:"schedule"`
 }
 
 type scheduleRow struct {
@@ -115,6 +125,8 @@ var (
 	}
 	ruleDSLStockPolicyKeys = map[string]bool{
 		"vaccine_lot_requirement": true,
+		"item_id":                 true,
+		"vaccine_item_id":         true,
 		"pick":                    true,
 		"reject_expired_lot":      true,
 		"cold_chain_required":     true,
@@ -265,6 +277,13 @@ func ValidateExecutionContract(v domain.Version) error {
 		}
 	}
 	for idx, row := range env.Schedule {
+		triggerType := strings.TrimSpace(row.TriggerType)
+		if triggerType == "" {
+			return fmt.Errorf("%w: schedule[%d] missing trigger_type", ErrNotPublishable, idx)
+		}
+		if !executableTriggerTypes[triggerType] {
+			return fmt.Errorf("%w: schedule[%d] unsupported trigger_type %q", ErrNotPublishable, idx, triggerType)
+		}
 		if _, err := normalizeRepeatPolicy(row.Repeat, row.MinGapDays); err != nil {
 			return fmt.Errorf("%w: schedule[%d] %w", ErrNotPublishable, idx, err)
 		}
@@ -287,13 +306,10 @@ func normalizeRepeatPolicy(value string, minGapDays int32) (string, error) {
 		return "none", nil
 	}
 	switch repeat {
-	case "none", "yearly":
+	case "none":
 		return repeat, nil
-	case "every_n_days":
-		if minGapDays <= 0 {
-			return "", fmt.Errorf("%w: every_n_days requires min_gap_days > 0", ErrUnsupportedRepeatPolicy)
-		}
-		return repeat, nil
+	case "yearly", "every_n_days":
+		return "", fmt.Errorf("%w: forward recurrence %q is not materialized yet", ErrUnsupportedRepeatPolicy, repeat)
 	default:
 		return "", fmt.Errorf("%w: %q", ErrUnsupportedRepeatPolicy, repeat)
 	}
@@ -388,9 +404,111 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 		if err := ValidateExecutionContract(v); err != nil {
 			return err
 		}
+		if err := s.ensureExecutableRuleRows(ctx, tenantID, v, publishedBy); err != nil {
+			return err
+		}
 	}
 	if err := s.repo.PublishVersion(ctx, tenantID, versionID, publishedBy, idempotencyKey...); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (s *Service) ensureExecutableRuleRows(ctx context.Context, tenantID string, v domain.Version, createdBy *string) error {
+	rules, err := s.repo.ListRules(ctx, tenantID, v.ProtocolVersionID)
+	if err != nil {
+		return err
+	}
+	var env ruleDSLEnvelope
+	if len(v.RuleDsl) > 0 {
+		if err := json.Unmarshal(v.RuleDsl, &env); err != nil {
+			return fmt.Errorf("%w: invalid rule_dsl: %v", ErrNotPublishable, err)
+		}
+	}
+	existing := make(map[string]bool, len(rules))
+	for _, rule := range rules {
+		if doseCode := strings.TrimSpace(rule.DoseCode); doseCode != "" {
+			existing[doseCode] = true
+		}
+	}
+	created := 0
+	for idx, row := range env.Schedule {
+		in, err := scheduleRowRule(tenantID, v, env, row, idx, createdBy)
+		if err != nil {
+			return err
+		}
+		if existing[in.DoseCode] {
+			continue
+		}
+		if _, err := s.repo.CreateRule(ctx, in); err != nil {
+			return err
+		}
+		existing[in.DoseCode] = true
+		created++
+	}
+	if len(rules)+created == 0 {
+		return fmt.Errorf("%w: publish requires at least one executable protocol_rules row", ErrNotPublishable)
+	}
+	return nil
+}
+
+func scheduleRowRule(tenantID string, v domain.Version, env ruleDSLEnvelope, row scheduleRow, idx int, createdBy *string) (domain.NewRule, error) {
+	doseCode := strings.TrimSpace(row.DoseCode)
+	if doseCode == "" {
+		return domain.NewRule{}, fmt.Errorf("%w: schedule[%d] missing dose_code", ErrNotPublishable, idx)
+	}
+	triggerType := strings.TrimSpace(row.TriggerType)
+	if triggerType == "" {
+		return domain.NewRule{}, fmt.Errorf("%w: schedule[%d] missing trigger_type", ErrNotPublishable, idx)
+	}
+	repeat, err := normalizeRepeatPolicy(row.Repeat, row.MinGapDays)
+	if err != nil {
+		return domain.NewRule{}, fmt.Errorf("%w: schedule[%d] %w", ErrNotPublishable, idx, err)
+	}
+	catchUp := strings.TrimSpace(row.CatchUp)
+	if catchUp == "" {
+		catchUp = strings.TrimSpace(env.MissedDosePolicy)
+	}
+	if catchUp == "" {
+		catchUp = "immediate"
+	}
+	sequence := row.Sequence
+	if sequence <= 0 {
+		sequence = int32(idx + 1)
+	}
+	proof := row.ProofPolicy
+	if len(proof) == 0 {
+		proof = v.ProofPolicy
+	}
+	var sopVersion *string
+	if rowSOP := strings.TrimSpace(row.SOPVersion); rowSOP != "" {
+		sopVersion = &rowSOP
+	}
+	return domain.NewRule{
+		TenantID:            tenantID,
+		ProtocolVersionID:   v.ProtocolVersionID,
+		DoseCode:            doseCode,
+		Sequence:            sequence,
+		TriggerType:         triggerType,
+		OffsetDays:          row.OffsetDays,
+		DueWindowDays:       row.DueWindow,
+		MinGapDays:          row.MinGapDays,
+		Repeat:              repeat,
+		RepeatUntilAfterAge: strings.TrimSpace(row.RepeatUntil),
+		CatchUp:             catchUp,
+		EligibilityJSON:     ruleEligibilityJSON(env.Eligibility),
+		SopVersionID:        sopVersion,
+		ProofPolicy:         proof,
+		SortOrder:           int32(idx + 1),
+		CreatedBy:           createdBy,
+		IdempotencyKey:      "protocol-schedule-rule:" + v.ProtocolVersionID + ":" + doseCode,
+	}, nil
+}
+
+func ruleEligibilityJSON(raw json.RawMessage) []byte {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return []byte(`{}`)
+	}
+	return []byte(trimmed)
 }

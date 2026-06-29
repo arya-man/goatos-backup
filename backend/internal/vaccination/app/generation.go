@@ -124,28 +124,65 @@ func (s *GenerationService) requireEvidenceReader() error {
 }
 
 type genEligibility struct {
-	AnimalStage               string   `json:"animal_stage"`
-	Stage                     string   `json:"stage"`
-	Sex                       string   `json:"sex"`
-	Breed                     string   `json:"breed"`
-	Health                    string   `json:"health"`
-	Reproductive              string   `json:"reproductive"`
-	ExcludeReproductiveStates []string `json:"exclude_reproductive_states"`
-	DeferStates               []string `json:"defer_states"`
+	AnimalStage               string        `json:"animal_stage"`
+	Stage                     string        `json:"stage"`
+	Sex                       string        `json:"sex"`
+	Breed                     string        `json:"breed"`
+	Lifecycle                 genStringList `json:"lifecycle"`
+	Health                    string        `json:"health"`
+	Reproductive              string        `json:"reproductive"`
+	ExcludeReproductiveStates []string      `json:"exclude_reproductive_states"`
+	DeferStates               []string      `json:"defer_states"`
+	MinAgeDays                *int32        `json:"min_age_days"`
+	MaxAgeDays                *int32        `json:"max_age_days"`
+	AgeBand                   string        `json:"age_band"`
 }
 
 type genDSL struct {
 	Eligibility genEligibility `json:"eligibility"`
 }
 
+type genStringList []string
+
+func (l *genStringList) UnmarshalJSON(raw []byte) error {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		*l = nil
+		return nil
+	}
+	var one string
+	if err := json.Unmarshal(raw, &one); err == nil {
+		*l = []string{one}
+		return nil
+	}
+	var many []string
+	if err := json.Unmarshal(raw, &many); err != nil {
+		return err
+	}
+	*l = many
+	return nil
+}
+
 // normDim maps "all"/"any"/"" to "" (no filter); any other value is an exact-match dimension.
 func normDim(v string) string {
-	switch v {
+	v = strings.TrimSpace(v)
+	switch strings.ToLower(v) {
 	case "", "all", "any":
 		return ""
 	default:
 		return v
 	}
+}
+
+func parseGenerationDSL(raw []byte) (genDSL, error) {
+	var dsl genDSL
+	if len(raw) == 0 {
+		return dsl, nil
+	}
+	if err := json.Unmarshal(raw, &dsl); err != nil {
+		return dsl, fmt.Errorf("vaccination: invalid published rule_dsl for generation: %w", err)
+	}
+	return dsl, nil
 }
 
 // GenerateForVersion generates obligations for every applicable rule of a PUBLISHED version across
@@ -197,9 +234,9 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 					if err != nil {
 						return res, err
 					}
-					var dsl genDSL
-					if len(v.RuleDsl) > 0 {
-						_ = json.Unmarshal(v.RuleDsl, &dsl)
+					dsl, err := parseGenerationDSL(v.RuleDsl)
+					if err != nil {
+						return res, err
 					}
 					rules, err := s.proto.ListRules(ctx, tenantID, versionID)
 					if err != nil {
@@ -208,7 +245,7 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 					p = cachedVersionPlan{rules: rules, deferState: dsl.Eligibility.DeferStates, eligibility: dsl.Eligibility}
 					plans[versionID] = p
 				}
-				if !goatMatchesEligibility(g, p.eligibility) {
+				if !goatMatchesEligibility(g, p.eligibility, asOf) {
 					continue
 				}
 				pagePlans = append(pagePlans, goatGenerationPlan{
@@ -337,9 +374,9 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		return res, err
 	}
 
-	var dsl genDSL
-	if len(v.RuleDsl) > 0 {
-		_ = json.Unmarshal(v.RuleDsl, &dsl)
+	dsl, err := parseGenerationDSL(v.RuleDsl)
+	if err != nil {
+		return res, err
 	}
 	elig := dsl.Eligibility
 	stage := eligibilityStage(elig)
@@ -369,7 +406,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			if !inCare(g.LifecycleStatus) {
 				continue
 			}
-			if !goatMatchesEligibility(g, elig) {
+			if !goatMatchesEligibility(g, elig, asOf) {
 				continue
 			}
 			if v.ScopeType == "tenant" {
@@ -727,11 +764,11 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 		if err != nil {
 			return res, err
 		}
-		var dsl genDSL
-		if len(v.RuleDsl) > 0 {
-			_ = json.Unmarshal(v.RuleDsl, &dsl)
+		dsl, err := parseGenerationDSL(v.RuleDsl)
+		if err != nil {
+			return res, err
 		}
-		if !goatMatchesEligibility(g, dsl.Eligibility) {
+		if !goatMatchesEligibility(g, dsl.Eligibility, asOf) {
 			if _, err := s.obl.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, goatID, versionID, "ineligible_after_shift", asOf); err != nil {
 				return res, err
 			}
@@ -861,15 +898,9 @@ func nextRepeatCycle(rule protodomain.Rule, due, asOf time.Time) (time.Time, boo
 }
 
 func deferredReason(g domain.EligibleGoat, allowed []string) string {
-	if len(allowed) == 0 {
+	allowedStates := deferStateSet(allowed)
+	if len(allowedStates) == 0 {
 		return ""
-	}
-	allowedStates := make(map[string]bool, len(allowed))
-	for _, state := range allowed {
-		normalized := strings.ToLower(strings.TrimSpace(state))
-		if normalized != "" {
-			allowedStates[normalized] = true
-		}
 	}
 	for _, value := range []string{g.HealthStatus, g.LifecycleStatus} {
 		normalized := strings.ToLower(strings.TrimSpace(value))
@@ -889,6 +920,25 @@ func deferredReason(g domain.EligibleGoat, allowed []string) string {
 	return ""
 }
 
+func deferStateSet(allowed []string) map[string]bool {
+	if len(allowed) == 0 {
+		return map[string]bool{
+			"sick":            true,
+			"under_treatment": true,
+			"quarantine":      true,
+			"icu":             true,
+		}
+	}
+	allowedStates := make(map[string]bool, len(allowed))
+	for _, state := range allowed {
+		normalized := strings.ToLower(strings.TrimSpace(state))
+		if normalized != "" {
+			allowedStates[normalized] = true
+		}
+	}
+	return allowedStates
+}
+
 func eligibilityStage(e genEligibility) string {
 	if e.AnimalStage != "" {
 		return e.AnimalStage
@@ -896,28 +946,79 @@ func eligibilityStage(e genEligibility) string {
 	return e.Stage
 }
 
-func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility) bool {
-	if s := normDim(eligibilityStage(e)); s != "" && s != g.Stage {
+func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, asOf time.Time) bool {
+	if s := normDim(eligibilityStage(e)); s != "" && !sameDim(s, g.Stage) {
 		return false
 	}
-	if s := normDim(e.Sex); s != "" && s != g.Sex {
+	if s := normDim(e.Sex); s != "" && !sameDim(s, g.Sex) {
 		return false
 	}
-	if s := normDim(e.Breed); s != "" && s != g.Breed {
+	if s := normDim(e.Breed); s != "" && !sameDim(s, g.Breed) {
 		return false
 	}
-	if s := normDim(e.Health); s != "" && s != g.HealthStatus {
+	if !lifecycleMatches(g.LifecycleStatus, e.Lifecycle) {
 		return false
 	}
-	if s := normDim(e.Reproductive); s != "" && s != g.ReproductiveStatus {
+	if s := normDim(e.Health); s != "" && !sameDim(s, g.HealthStatus) {
+		return false
+	}
+	if s := normDim(e.Reproductive); s != "" && !sameDim(s, g.ReproductiveStatus) {
+		return false
+	}
+	if s := normDim(e.AgeBand); s != "" && !sameDim(s, g.AgeBand) {
 		return false
 	}
 	for _, excluded := range e.ExcludeReproductiveStates {
-		if normDim(excluded) != "" && normDim(excluded) == g.ReproductiveStatus {
+		if normDim(excluded) != "" && sameDim(excluded, g.ReproductiveStatus) {
 			return false
 		}
 	}
+	if !ageMatches(g, e, asOf) {
+		return false
+	}
 	return true
+}
+
+func lifecycleMatches(actual string, allowed genStringList) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	actual = normDim(actual)
+	for _, value := range allowed {
+		if s := normDim(value); s != "" && sameDim(s, actual) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameDim(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
+
+func ageMatches(g domain.EligibleGoat, e genEligibility, asOf time.Time) bool {
+	if e.MinAgeDays == nil && e.MaxAgeDays == nil {
+		return true
+	}
+	if g.DOB == nil {
+		return false
+	}
+	ageDays := wholeDaysBetween(*g.DOB, asOf)
+	if e.MinAgeDays != nil && ageDays < int(*e.MinAgeDays) {
+		return false
+	}
+	if e.MaxAgeDays != nil && ageDays > int(*e.MaxAgeDays) {
+		return false
+	}
+	return true
+}
+
+func wholeDaysBetween(start, end time.Time) int {
+	y, m, d := start.UTC().Date()
+	startDate := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+	y, m, d = end.UTC().Date()
+	endDate := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+	return int(endDate.Sub(startDate).Hours() / 24)
 }
 
 // dueAt computes a rule's due date for a goat. ok=false with skip=false means the trigger is not an

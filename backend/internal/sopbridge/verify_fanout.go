@@ -29,6 +29,15 @@ func NewVerifyFanout(vacc CompletionLister, bus eventbus.Bus) *VerifyFanout {
 	return &VerifyFanout{vacc: vacc, bus: bus}
 }
 
+// ReviewableItemCount returns how many recorded completions would receive a task review fan-out.
+func (f *VerifyFanout) ReviewableItemCount(ctx context.Context, tenantID, taskID string) (int, error) {
+	ids, err := f.vacc.RecordedCompletionsByTask(ctx, tenantID, taskID)
+	if err != nil {
+		return 0, err
+	}
+	return len(ids), nil
+}
+
 // OnTaskVerified publishes a vaccination.verify.accepted event for every still-recorded completion
 // under the verified task. Returns the count of completions fanned out.
 func (f *VerifyFanout) OnTaskVerified(ctx context.Context, tenantID, taskID, verifiedBy string) (int, error) {

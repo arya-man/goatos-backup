@@ -33,3 +33,18 @@ func TestParseFlagsRejectsNegativeMissedGrace(t *testing.T) {
 		t.Fatalf("parseFlags error = %v, want missed-grace error", err)
 	}
 }
+
+func TestStockItemIDFromRuleDSL(t *testing.T) {
+	got := stockItemIDFromRuleDSL([]byte(`{"stock_policy":{"item_id":"item-version-1"}}`))
+	if got != "item-version-1" {
+		t.Fatalf("item_id parse = %q, want item-version-1", got)
+	}
+	got = stockItemIDFromRuleDSL([]byte(`{"stock_policy":{"item_id":"fallback","vaccine_item_id":"vaccine-version-1"}}`))
+	if got != "vaccine-version-1" {
+		t.Fatalf("vaccine_item_id parse = %q, want vaccine-version-1", got)
+	}
+	got = stockItemIDFromRuleDSL([]byte(`{"stock_policy":{"pick":"FEFO"}}`))
+	if got != "" {
+		t.Fatalf("missing item parse = %q, want empty", got)
+	}
+}

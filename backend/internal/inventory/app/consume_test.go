@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/inventory/domain"
 	"github.com/vgoats/goatos/backend/internal/inventory/ports"
@@ -133,7 +134,7 @@ func (r *consumeRepo) ResolveStockLocation(context.Context, string, string, stri
 	return "", nil
 }
 
-func (r *consumeRepo) ReserveForBatch(context.Context, string, string, string, string, int64) error {
+func (r *consumeRepo) ReserveForBatch(context.Context, string, string, string, string, int64, time.Time) error {
 	return nil
 }
 

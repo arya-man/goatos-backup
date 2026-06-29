@@ -169,6 +169,115 @@ WHERE tenant_id=$1 AND batch_id=$2 AND movement_type='release'`, tenantID, batch
 	}
 }
 
+func TestReleaseBatchReconcileRemaindersContinuesPastFailedBatch(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const tenantID = "00000000-0000-4000-8000-000000000001"
+	const locationID = "00000000-0000-4000-8000-000000003001"
+	const itemID = "d2000000-0000-4000-8000-000000000001"
+	const badLotID = "d2000000-0000-4000-8000-000000000002"
+	const badBatchID = "d2000000-0000-4000-8000-000000000003"
+	const goodLotID = "d2000000-0000-4000-8000-000000000004"
+	const goodBatchID = "d2000000-0000-4000-8000-000000000005"
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: tenantID, Code: "vaccination.reconcile.siblings", Name: "Reconcile siblings", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit)
+		 VALUES ($1, $2, 'VAC-REC-SIB', 'Sibling reconcile vaccine', 'vaccine', 'dose')`, itemID, tenantID); err != nil {
+		t.Fatalf("seed item: %v", err)
+	}
+	for _, row := range []struct {
+		lotID   string
+		batchID string
+		code    string
+	}{
+		{badLotID, badBatchID, "bad"},
+		{goodLotID, goodBatchID, "good"},
+	} {
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
+			 VALUES ($1, $2, $3, $4, 10, 1, 'dose', DATE '2026-12-31')`, row.lotID, tenantID, itemID, locationID); err != nil {
+			t.Fatalf("seed stock %s: %v", row.code, err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO obligation_batches (
+  batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status,
+  estimated_targets, context
+) VALUES (
+  $1, $2, $3, 'park', $4, 'planned', 1,
+  '{"defer_repair":{"state":"stock_reconcile_required","release_qty":1,"reason":"test"}}'::jsonb
+)`, row.batchID, tenantID, versionID, locationID); err != nil {
+			t.Fatalf("seed batch %s: %v", row.code, err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO inventory_stock_movements (
+  tenant_id, lot_id, item_id, location_id, movement_type, quantity,
+  quantity_unit, batch_id, reason, idempotency_key
+) VALUES (
+  $1, $2, $3, $4, 'reserve', 1, 'dose', $5, 'batch reserve', $6
+)`, tenantID, row.lotID, itemID, locationID, row.batchID, row.code+"-reserve"); err != nil {
+			t.Fatalf("seed reserve %s: %v", row.code, err)
+		}
+	}
+	badRepairToken := scanInventoryText(t, ctx, pool, `
+SELECT row_version::text
+FROM obligation_batches
+WHERE tenant_id=$1 AND batch_id=$2`, tenantID, badBatchID)
+	conflictKey := badBatchID + ":release-reconcile:" + badRepairToken + ":" + badLotID
+	if _, err := pool.Exec(ctx, `
+INSERT INTO inventory_stock_movements (
+  tenant_id, lot_id, item_id, location_id, movement_type, quantity,
+  quantity_unit, batch_id, reason, idempotency_key
+) VALUES (
+  $1, $2, $3, $4, 'adjust', 1, 'dose', $5, 'conflicting prior movement', $6
+)`, tenantID, badLotID, itemID, locationID, badBatchID, conflictKey); err != nil {
+		t.Fatalf("seed conflicting movement: %v", err)
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+	summary, err := repo.ReleaseBatchReconcileRemainders(ctx, tenantID, 10)
+	if err != nil {
+		t.Fatalf("ReleaseBatchReconcileRemainders: %v", err)
+	}
+	if summary.Batches != 1 || summary.Movements != 1 || summary.Released != 1 {
+		t.Fatalf("summary=%+v, want only healthy sibling reconciled", summary)
+	}
+	if got := scanInventoryText(t, ctx, pool, `SELECT quantity_reserved::text FROM inventory_stock WHERE tenant_id=$1 AND stock_id=$2`, tenantID, goodLotID); got != "0" {
+		t.Fatalf("good quantity_reserved=%q, want 0", got)
+	}
+	if got := scanInventoryText(t, ctx, pool, `SELECT quantity_reserved::text FROM inventory_stock WHERE tenant_id=$1 AND stock_id=$2`, tenantID, badLotID); got != "1" {
+		t.Fatalf("bad quantity_reserved=%q, want still reserved", got)
+	}
+	if got := scanInventoryText(t, ctx, pool, `
+SELECT context #>> '{defer_repair,state}'
+FROM obligation_batches
+WHERE tenant_id=$1 AND batch_id=$2`, tenantID, goodBatchID); got != "stock_reconciled" {
+		t.Fatalf("good repair state=%q, want stock_reconciled", got)
+	}
+	if got := scanInventoryText(t, ctx, pool, `
+SELECT context #>> '{stock_reconcile,state}'
+FROM obligation_batches
+WHERE tenant_id=$1 AND batch_id=$2`, tenantID, badBatchID); got != "stock_reconcile_failed" {
+		t.Fatalf("bad stock_reconcile state=%q, want stock_reconcile_failed", got)
+	}
+}
+
 func scanInventoryText(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) string {
 	t.Helper()
 	var out string

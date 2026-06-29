@@ -77,7 +77,7 @@ ORDER BY pv.protocol_id,
 -- name: ListRulesForVersion :many
 SELECT rule_id::text AS rule_id, dose_code, "sequence", trigger_type, offset_days,
        due_window_days, min_gap_days, "repeat", COALESCE(repeat_until_after_age, '')::text AS repeat_until_after_age,
-       catch_up, sort_order
+       catch_up, COALESCE(sop_version_id::text, '')::text AS sop_version_id, sort_order
 FROM protocol_rules
 WHERE tenant_id = @tenant_id AND protocol_version_id = @protocol_version_id
 ORDER BY sort_order ASC, "sequence" ASC;

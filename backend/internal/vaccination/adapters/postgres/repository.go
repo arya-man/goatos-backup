@@ -1624,6 +1624,7 @@ func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domai
 			Sex:                  row.Sex,
 			Breed:                row.Breed,
 			Stage:                row.ManagementStage,
+			AgeBand:              row.AgeBand,
 			LocationIsQuarantine: row.LocationIsQuarantine,
 			LocationIsICU:        row.LocationIsIcu,
 		})
@@ -1662,6 +1663,7 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 		Sex:                  row.Sex,
 		Breed:                row.Breed,
 		Stage:                row.ManagementStage,
+		AgeBand:              row.AgeBand,
 		LocationIsQuarantine: row.LocationIsQuarantine,
 		LocationIsICU:        row.LocationIsIcu,
 	}, true, nil

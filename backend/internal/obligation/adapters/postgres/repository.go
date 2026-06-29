@@ -872,7 +872,15 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 	}
 	out := make([]domain.UnbatchedDue, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, domain.UnbatchedDue{ObligationID: row.ObligationID, ScopeType: row.ScopeType, ScopeID: row.ScopeID})
+		out = append(out, domain.UnbatchedDue{
+			ObligationID: row.ObligationID,
+			RuleID:       row.RuleID,
+			ScopeType:    row.ScopeType,
+			ScopeID:      row.ScopeID,
+			DueAt:        row.DueAt.Time,
+			WindowStart:  timestamptzValue(row.WindowStart),
+			WindowEnd:    timestamptzValue(row.WindowEnd),
+		})
 	}
 	return out, nil
 }
@@ -1120,9 +1128,9 @@ UPDATE obligation_batches
 SET context = context || jsonb_build_object(
       'stock_block', jsonb_build_object(
         'state', 'blocked',
-        'item_id', $3,
-        'required_qty', $4,
-        'reason', $5,
+        'item_id', $3::text,
+        'required_qty', $4::bigint,
+        'reason', $5::text,
         'blocked_at', now(),
         'retry_after', now() + interval '15 minutes'
       )
@@ -1179,8 +1187,10 @@ func (r *Repository) ListPlannedBatchesNeedingFinalization(ctx context.Context, 
 	}
 	rows, err := r.pool.Query(ctx, `
 SELECT ob.batch_id::text,
+       COALESCE(MIN(oi.rule_id::text), '')::text AS rule_id,
        ob.scope_type,
        ob.scope_id::text,
+       ob.planned_date,
        ob.estimated_targets,
        COUNT(oi.obligation_id)::bigint AS attached_obligations,
        (ob.sop_task_id IS NOT NULL) AS has_sop_task,
@@ -1200,7 +1210,7 @@ JOIN obligation_instances oi
 WHERE ob.tenant_id = $1
   AND ob.protocol_version_id = $2
   AND ob.status = 'planned'
-GROUP BY ob.tenant_id, ob.batch_id, ob.scope_type, ob.scope_id, ob.estimated_targets, ob.sop_task_id, ob.context, ob.created_at
+GROUP BY ob.tenant_id, ob.batch_id, ob.scope_type, ob.scope_id, ob.planned_date, ob.estimated_targets, ob.sop_task_id, ob.context, ob.created_at
 HAVING COUNT(oi.obligation_id) > 0
    AND (
      ($3::boolean AND ob.sop_task_id IS NULL)
@@ -1228,10 +1238,13 @@ LIMIT $5`, tenant, version, needsTask, needsStock, limit)
 	out := make([]domain.PlannedBatchFinalization, 0)
 	for rows.Next() {
 		var b domain.PlannedBatchFinalization
+		var plannedDate pgtype.Date
 		if err := rows.Scan(
 			&b.BatchID,
+			&b.RuleID,
 			&b.ScopeType,
 			&b.ScopeID,
+			&plannedDate,
 			&b.EstimatedTargets,
 			&b.AttachedObligations,
 			&b.HasSOPTask,
@@ -1240,12 +1253,21 @@ LIMIT $5`, tenant, version, needsTask, needsStock, limit)
 		); err != nil {
 			return nil, fmt.Errorf("obligation: scan planned batch finalization: %w", err)
 		}
+		b.PlannedDate = pgconv.DateValue(plannedDate)
 		out = append(out, b)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("obligation: list planned batch finalization rows: %w", err)
 	}
 	return out, nil
+}
+
+func timestamptzValue(v pgtype.Timestamptz) *time.Time {
+	if !v.Valid {
+		return nil
+	}
+	t := v.Time
+	return &t
 }
 
 func obligationUUIDs(values []string) ([]pgtype.UUID, error) {
@@ -1260,12 +1282,26 @@ func obligationUUIDs(values []string) ([]pgtype.UUID, error) {
 	return ids, nil
 }
 
-// CancelOpenForGoat cancels a goat's scheduled/due/in_progress obligations (SM-3 death/sale) and
-// writes a 'canceled' status event for each, in one transaction. Idempotent: a re-run finds no open
-// rows and cancels nothing. Completed/accepted/missed history is never touched (WHERE status filter).
+// CancelOpenForGoat cancels a goat's open scheduled/due/in_progress/deferred/missed obligations
+// (SM-3 death/sale) and writes a 'canceled' status event for each, in one transaction. Idempotent: a
+// re-run finds no open rows and cancels nothing. Completed/accepted history is never touched.
 func (r *Repository) CancelOpenForGoat(ctx context.Context, tenantID, goatID, reason string) (int, error) {
+	return r.CancelOpenForGoatAt(ctx, tenantID, goatID, reason, time.Now().UTC(), "")
+}
+
+// CancelOpenForGoatAt cancels a goat's open scheduled/due/in_progress/deferred/missed obligations
+// using the canonical event time for status events/outbox. eventID is accepted for symmetry with
+// ordered shift handling; cancellation is idempotent by row status and per-obligation event key.
+// writes a 'canceled' status event for each, in one transaction. Idempotent: a re-run finds no open
+// rows and cancels nothing. Completed/accepted history is never touched.
+func (r *Repository) CancelOpenForGoatAt(ctx context.Context, tenantID, goatID, reason string, occurredAt time.Time, eventID string) (int, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	} else {
+		occurredAt = occurredAt.UTC()
+	}
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: tenant id: %w", err)
@@ -1290,7 +1326,7 @@ SET status = 'canceled',
 WHERE tenant_id = $1
   AND target_type = 'goat'
   AND target_id = $2
-  AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
 RETURNING obligation_id::text, COALESCE(batch_id::text, '')::text`, tenant, goat)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: cancel open for goat: %w", err)
@@ -1370,7 +1406,6 @@ WHERE tenant_id = $1
 		}
 	}
 	payload, _ := json.Marshal(map[string]string{"reason": reason})
-	now := time.Now()
 	for _, id := range ids {
 		oid, err := pgconv.UUID(id)
 		if err != nil {
@@ -1380,15 +1415,16 @@ WHERE tenant_id = $1
 			TenantID:       tenant,
 			ObligationID:   oid,
 			EventType:      "canceled",
-			OccurredAt:     pgconv.Timestamptz(now),
+			OccurredAt:     pgconv.Timestamptz(occurredAt),
 			Payload:        payload,
 			IdempotencyKey: id + ":canceled",
 		}); err != nil {
 			return 0, fmt.Errorf("obligation: cancel event: %w", err)
 		}
-		if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, id, obligationCanceledEventType, "canceled", now, map[string]any{
-			"reason":  reason,
-			"goat_id": goatID,
+		if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, id, obligationCanceledEventType, "canceled", occurredAt, map[string]any{
+			"reason":   reason,
+			"goat_id":  goatID,
+			"event_id": eventID,
 		}, "obligation.CancelOpenForGoat"); err != nil {
 			return 0, err
 		}

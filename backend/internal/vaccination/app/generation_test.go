@@ -133,6 +133,40 @@ func TestGenerateForVersionUsesConfigAnimalStageEligibility(t *testing.T) {
 	}
 }
 
+func TestGenerateForVersionHonorsLifecycleAgeAndAgeBandEligibility(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.June, 30, 0, 0, 0, 0, time.UTC)
+	minAge := int32(21)
+	maxAge := int32(45)
+	daysAgo := func(days int) *time.Time {
+		t := asOf.AddDate(0, 0, -days)
+		return &t
+	}
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"lifecycle":"alive","min_age_days":21,"max_age_days":45,"age_band":"kid"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-eligible", LifecycleStatus: "alive", DOB: daysAgo(int(minAge + 9)), AgeBand: "kid"},
+		{GoatID: "goat-too-young", LifecycleStatus: "alive", DOB: daysAgo(10), AgeBand: "kid"},
+		{GoatID: "goat-too-old", LifecycleStatus: "alive", DOB: daysAgo(int(maxAge + 10)), AgeBand: "kid"},
+		{GoatID: "goat-held-lifecycle", LifecycleStatus: "sick", DOB: daysAgo(30), AgeBand: "kid"},
+		{GoatID: "goat-wrong-band", LifecycleStatus: "alive", DOB: daysAgo(30), AgeBand: "adult"},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 1 || len(obl.inserted) != 1 || obl.inserted[0].TargetID != "goat-eligible" {
+		t.Fatalf("result=%#v inserted=%#v, want only lifecycle/age/age-band eligible goat", result, obl.inserted)
+	}
+}
+
 func TestGenerateForVersionSkipsExitedGoatsEvenIfRepositoryReturnsThem(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
@@ -155,6 +189,33 @@ func TestGenerateForVersionSkipsExitedGoatsEvenIfRepositoryReturnsThem(t *testin
 	}
 	if result.Generated != 1 || len(obl.inserted) != 1 || obl.inserted[0].TargetID != "goat-alive" {
 		t.Fatalf("result=%#v inserted=%#v, want only in-care goat generated", result, obl.inserted)
+	}
+}
+
+func TestGenerateForVersionDefaultsClinicalHoldStatesToDeferred(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-sick", LifecycleStatus: "alive", HealthStatus: "sick", DOB: &dob},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 1 || result.Deferred != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want one deferred hold obligation", result, obl.inserted)
+	}
+	if obl.inserted[0].Status != "deferred" {
+		t.Fatalf("inserted=%#v, want deferred status for sick goat", obl.inserted[0])
 	}
 }
 

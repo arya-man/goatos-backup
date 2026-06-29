@@ -634,7 +634,7 @@ INSERT INTO outbox_messages (
 	  $7, $8::jsonb, $9::jsonb, $10, $11, 'pending', now()
 	)
 	ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'protocol.version.published' DO NOTHING`, tenantID, eventID, protocolPublishedEventType, protocolPublishedSchemaVersion,
-			protocolPublishedAggregateType, published.VersionID, protocolPublishedTopic, envelope, headers, idempotencyKey, traceID)
+		protocolPublishedAggregateType, published.VersionID, protocolPublishedTopic, envelope, headers, idempotencyKey, traceID)
 	if err != nil {
 		return fmt.Errorf("protocol: insert published outbox: %w", err)
 	}
@@ -860,6 +860,7 @@ func (r *Repository) ListRules(ctx context.Context, tenantID, versionID string) 
 			Repeat:              row.Repeat,
 			RepeatUntilAfterAge: row.RepeatUntilAfterAge,
 			CatchUp:             row.CatchUp,
+			SopVersionID:        row.SopVersionID,
 			SortOrder:           row.SortOrder,
 		})
 	}

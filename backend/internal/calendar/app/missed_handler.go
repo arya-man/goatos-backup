@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/calendar/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
@@ -58,13 +59,22 @@ func (h *ObligationMissedHandler) HandleEvent(ctx context.Context, e eventbus.Ev
 	if tenantID == "" || obligationID == "" {
 		return nil
 	}
+	now := h.calendar.now().UTC()
+	if _, err := h.calendar.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: tenantID,
+		DateFrom: now.Add(-24 * time.Hour),
+		DateTo:   now.Add(defaultDateRange),
+		Limit:    5000,
+	}); err != nil {
+		return err
+	}
 	// A durable missed event is already overdue, so the first escalation opens
 	// immediately while later levels keep the service's configured thresholds.
 	_, err := h.calendar.SweepEscalations(ctx, ports.SweepEscalations{
 		TenantID:     tenantID,
 		ObligationID: obligationID,
 		Limit:        missedObligationEscalationLimit,
-		Now:          h.calendar.now().UTC(),
+		Now:          now,
 	})
 	return err
 }

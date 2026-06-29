@@ -94,6 +94,7 @@ type Rule struct {
 	Repeat              string
 	RepeatUntilAfterAge string
 	CatchUp             string
+	SopVersionID        string
 	SortOrder           int32
 }
 

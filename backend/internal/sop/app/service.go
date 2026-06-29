@@ -43,6 +43,7 @@ type ProofValidator interface {
 }
 
 type TaskReviewFanout interface {
+	ReviewableItemCount(ctx context.Context, tenantID, taskID string) (int, error)
 	OnTaskVerified(ctx context.Context, tenantID, taskID, verifiedBy string) (int, error)
 	OnTaskReworked(ctx context.Context, tenantID, taskID, verifiedBy, reason string) (int, error)
 }
@@ -423,6 +424,16 @@ func (s *Service) reviewTask(ctx context.Context, cmd ports.ReviewTaskCommand, t
 	if cmd.Body.RowVersion <= 0 {
 		return nil, BadRequest("invalid_row_version", "row_version is required")
 	}
+	current, version, submissions, err := s.repo.GetTask(ctx, cmd.TenantID, cmd.TaskID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if err := validateReviewReady(current, version, submissions); err != nil {
+		return nil, err
+	}
+	if err := s.ensureReviewFanoutReady(ctx, cmd, current); err != nil {
+		return nil, err
+	}
 	task, err := s.repo.ReviewTask(ctx, cmd)
 	if err != nil {
 		if errors.Is(err, ports.ErrConflict) {
@@ -441,8 +452,68 @@ func (s *Service) reviewTask(ctx context.Context, cmd ports.ReviewTaskCommand, t
 	return &domain.TaskResponse{Task: task, TraceID: traceID}, nil
 }
 
+func validateReviewReady(task domain.TaskSummary, version *domain.SOPVersion, submissions []domain.SubmissionSummary) error {
+	switch task.State {
+	case "submitted", "needs_review":
+	default:
+		return Conflict("task_not_reviewable", "task must be submitted for review before it can be verified or reworked")
+	}
+	submission, ok := latestReviewableSubmission(task.TaskID, submissions)
+	if !ok {
+		return Conflict("missing_review_submission", "task review requires a submitted SOP response")
+	}
+	if version == nil {
+		return Conflict("missing_sop_version", "task has no pinned SOP version")
+	}
+	if proofRequired(version.ProofPolicy) {
+		if completedProofCount(submission.ProofRefs, version.ProofPolicy) < proofMinimumCount(version.ProofPolicy) {
+			return Conflict("review_proof_required", "task review requires completed proof from the submitted SOP response")
+		}
+		if missing := missingExpectedProofSubjects(submission.ProofRefs, version.ProofPolicy); len(missing) > 0 {
+			return Conflict("review_proof_required", "task review requires completed proof for all expected subjects")
+		}
+	}
+	return nil
+}
+
+func latestReviewableSubmission(taskID string, submissions []domain.SubmissionSummary) (domain.SubmissionSummary, bool) {
+	for _, submission := range submissions {
+		if submission.TaskID != "" && submission.TaskID != taskID {
+			continue
+		}
+		switch submission.State {
+		case "submitted", "needs_review", "accepted":
+			return submission, true
+		}
+	}
+	return domain.SubmissionSummary{}, false
+}
+
+func (s *Service) ensureReviewFanoutReady(ctx context.Context, cmd ports.ReviewTaskCommand, task domain.TaskSummary) error {
+	if !submissionFanoutNeeded(task) {
+		return nil
+	}
+	if s.reviewFanout == nil {
+		return Conflict("review_fanout_not_configured", "task review requires completion fanout wiring to verify or rework")
+	}
+	count, err := s.reviewFanout.ReviewableItemCount(ctx, cmd.TenantID, cmd.TaskID)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return Conflict("review_fanout_empty", "task review requires at least one recorded completion to verify or rework")
+	}
+	return nil
+}
+
 func (s *Service) applyReviewFanout(ctx context.Context, cmd ports.ReviewTaskCommand, task domain.TaskSummary, statusTaskRowVersion int) error {
-	if s.reviewFanout == nil || (cmd.State != "accepted" && cmd.State != "rework_requested") {
+	if cmd.State != "accepted" && cmd.State != "rework_requested" {
+		return nil
+	}
+	if s.reviewFanout == nil {
+		if submissionFanoutNeeded(task) {
+			return Conflict("review_fanout_not_configured", "task review requires completion fanout wiring to verify or rework")
+		}
 		return nil
 	}
 	if statusTaskRowVersion <= 0 {
@@ -457,11 +528,15 @@ func (s *Service) applyReviewFanout(ctx context.Context, cmd ports.ReviewTaskCom
 		Reason:         cmd.Body.Reason,
 	}
 	var err error
+	count := 0
 	switch cmd.State {
 	case "accepted":
-		_, err = s.reviewFanout.OnTaskVerified(ctx, cmd.TenantID, cmd.TaskID, cmd.ActorID)
+		count, err = s.reviewFanout.OnTaskVerified(ctx, cmd.TenantID, cmd.TaskID, cmd.ActorID)
 	case "rework_requested":
-		_, err = s.reviewFanout.OnTaskReworked(ctx, cmd.TenantID, cmd.TaskID, cmd.ActorID, cmd.Body.Reason)
+		count, err = s.reviewFanout.OnTaskReworked(ctx, cmd.TenantID, cmd.TaskID, cmd.ActorID, cmd.Body.Reason)
+	}
+	if err == nil && submissionFanoutNeeded(task) && count == 0 {
+		err = Conflict("review_fanout_empty", "task review requires at least one recorded completion to verify or rework")
 	}
 	if err != nil {
 		status.Status = "failed"

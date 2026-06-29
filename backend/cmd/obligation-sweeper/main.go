@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -83,7 +84,7 @@ func run(args []string) error {
 		reserver = inventoryapp.NewService(inventorypg.NewRepository(pool, pgCfg.QueryTimeout))
 	}
 	var creator obligationapp.TaskCreator
-	if cfg.SOPVersionID != "" && cfg.ActorID != "" {
+	if cfg.ActorID != "" {
 		creator = sopTaskCreator{
 			service: sopapp.NewService(soppg.NewRepository(pool, pgCfg.QueryTimeout)),
 			actorID: cfg.ActorID,
@@ -101,11 +102,11 @@ func run(args []string) error {
 		fmt.Println("no published vaccination protocol versions to sweep")
 	} else {
 		for _, versionID := range versionIDs {
-			result, err := sweeper.SweepVersion(ctx, cfg.TenantID, versionID, obligationapp.SweepConfig{
-				SOPVersionID:  cfg.SOPVersionID,
-				VaccineItemID: cfg.VaccineItemID,
-				DosesPerGoat:  int32(cfg.DosesPerGoat),
-			}, cfg.DueBefore)
+			sweepCfg, err := buildSweepConfig(ctx, protocolRepo, cfg, versionID)
+			if err != nil {
+				return fmt.Errorf("sweep config version %s: %w", versionID, err)
+			}
+			result, err := sweeper.SweepVersion(ctx, cfg.TenantID, versionID, sweepCfg, cfg.DueBefore)
 			if err != nil {
 				return fmt.Errorf("sweep version %s: %w", versionID, err)
 			}
@@ -163,6 +164,64 @@ func run(args []string) error {
 		}
 	}
 	return nil
+}
+
+func buildSweepConfig(ctx context.Context, protocolRepo *protocolpg.Repository, cfg config, versionID string) (obligationapp.SweepConfig, error) {
+	version, err := protocolRepo.GetVersion(ctx, cfg.TenantID, versionID)
+	if err != nil {
+		return obligationapp.SweepConfig{}, err
+	}
+	versionSOP := strings.TrimSpace(version.SopVersionID)
+	if versionSOP == "" {
+		versionSOP = strings.TrimSpace(cfg.SOPVersionID)
+	}
+	vaccineItemID := strings.TrimSpace(cfg.VaccineItemID)
+	if vaccineItemID == "" {
+		vaccineItemID = stockItemIDFromRuleDSL(version.RuleDsl)
+	}
+	out := obligationapp.SweepConfig{
+		SOPVersionID:  versionSOP,
+		VaccineItemID: vaccineItemID,
+		DosesPerGoat:  int32(cfg.DosesPerGoat),
+	}
+	rules, err := protocolRepo.ListRules(ctx, cfg.TenantID, versionID)
+	if err != nil {
+		return obligationapp.SweepConfig{}, err
+	}
+	for _, rule := range rules {
+		ruleSOP := strings.TrimSpace(rule.SopVersionID)
+		if ruleSOP == "" || ruleSOP == versionSOP {
+			continue
+		}
+		if out.RuleConfigs == nil {
+			out.RuleConfigs = map[string]obligationapp.SweepRuleConfig{}
+		}
+		out.RuleConfigs[rule.RuleID] = obligationapp.SweepRuleConfig{
+			SOPVersionID:  ruleSOP,
+			VaccineItemID: out.VaccineItemID,
+			DosesPerGoat:  out.DosesPerGoat,
+		}
+	}
+	return out, nil
+}
+
+func stockItemIDFromRuleDSL(raw []byte) string {
+	var dsl struct {
+		StockPolicy struct {
+			ItemID        string `json:"item_id"`
+			VaccineItemID string `json:"vaccine_item_id"`
+		} `json:"stock_policy"`
+	}
+	if len(raw) == 0 {
+		return ""
+	}
+	if err := json.Unmarshal(raw, &dsl); err != nil {
+		return ""
+	}
+	if itemID := strings.TrimSpace(dsl.StockPolicy.VaccineItemID); itemID != "" {
+		return itemID
+	}
+	return strings.TrimSpace(dsl.StockPolicy.ItemID)
 }
 
 func parseFlags(args []string) (config, error) {

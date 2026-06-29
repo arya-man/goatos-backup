@@ -91,7 +91,7 @@ func TestValidateExecutionContract(t *testing.T) {
 	valid := domain.Version{
 		SopVersionID: "62000000-0000-4000-8000-000000000001",
 		ProofPolicy:  []byte(`{"required":true,"types":["video"]}`),
-		RuleDsl:      []byte(`{"schedule":[{"dose_code":"primary"}]}`),
+		RuleDsl:      []byte(`{"schedule":[{"dose_code":"primary","trigger_type":"birth_age"}]}`),
 	}
 	if err := ValidateExecutionContract(valid); err != nil {
 		t.Fatalf("valid execution contract rejected: %v", err)
@@ -146,7 +146,7 @@ func TestValidateExecutionContract(t *testing.T) {
 	// in the version-level ProofPolicy. The version-level proof stays a valid object; the schedule
 	// row carries its own proof.
 	rowArrayProof := valid
-	rowArrayProof.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","proof_policy":["administration_video"]}]}`)
+	rowArrayProof.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","trigger_type":"birth_age","proof_policy":["administration_video"]}]}`)
 	if err := ValidateExecutionContract(rowArrayProof); err != nil {
 		t.Fatalf("row-level proof array rejected: %v", err)
 	}
@@ -154,20 +154,20 @@ func TestValidateExecutionContract(t *testing.T) {
 	// A row that supplies a blank proof array is rejected — its own blank proof does not fall back to
 	// the (valid) version-level proof.
 	rowBlankProof := valid
-	rowBlankProof.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","proof_policy":[""]}]}`)
+	rowBlankProof.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","trigger_type":"birth_age","proof_policy":[""]}]}`)
 	if err := ValidateExecutionContract(rowBlankProof); !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("row-level blank proof array should be not publishable, got %v", err)
 	}
 
 	// A row that OMITS proof_policy inherits the validated version-level proof and still publishes.
 	rowOmittedProof := valid
-	rowOmittedProof.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary"}]}`)
+	rowOmittedProof.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","trigger_type":"birth_age"}]}`)
 	if err := ValidateExecutionContract(rowOmittedProof); err != nil {
 		t.Fatalf("row omitting proof should inherit version proof, got %v", err)
 	}
 
 	unsupportedRepeat := valid
-	unsupportedRepeat.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","repeat":"until_age"}]}`)
+	unsupportedRepeat.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","trigger_type":"birth_age","repeat":"until_age"}]}`)
 	if err := ValidateExecutionContract(unsupportedRepeat); !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("unsupported repeat policy should be not publishable, got %v", err)
 	} else if !errors.Is(err, ErrUnsupportedRepeatPolicy) {
@@ -175,17 +175,31 @@ func TestValidateExecutionContract(t *testing.T) {
 	}
 
 	everyNDays := valid
-	everyNDays.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","repeat":"every_n_days","min_gap_days":30}]}`)
-	if err := ValidateExecutionContract(everyNDays); err != nil {
-		t.Fatalf("every_n_days with min_gap_days should publish, got %v", err)
+	everyNDays.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","trigger_type":"birth_age","repeat":"every_n_days","min_gap_days":30}]}`)
+	if err := ValidateExecutionContract(everyNDays); !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("every_n_days should be blocked until forward recurrence is materialized, got %v", err)
+	} else if !errors.Is(err, ErrUnsupportedRepeatPolicy) {
+		t.Fatalf("every_n_days should preserve sentinel, got %v", err)
 	}
 
 	everyNDaysMissingGap := valid
-	everyNDaysMissingGap.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","repeat":"every_n_days","offset_days":30}]}`)
+	everyNDaysMissingGap.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","trigger_type":"birth_age","repeat":"every_n_days","offset_days":30}]}`)
 	if err := ValidateExecutionContract(everyNDaysMissingGap); !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("every_n_days without min_gap_days should be not publishable, got %v", err)
 	} else if !errors.Is(err, ErrUnsupportedRepeatPolicy) {
 		t.Fatalf("every_n_days without min_gap_days should preserve sentinel, got %v", err)
+	}
+
+	unknownTrigger := valid
+	unknownTrigger.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","trigger_type":"typo"}]}`)
+	if err := ValidateExecutionContract(unknownTrigger); !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("unknown trigger_type should be not publishable, got %v", err)
+	}
+
+	missingTrigger := valid
+	missingTrigger.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary"}]}`)
+	if err := ValidateExecutionContract(missingTrigger); !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("missing trigger_type should be not publishable, got %v", err)
 	}
 }
 
@@ -240,7 +254,7 @@ func TestAddRuleRejectsEveryNDaysWithoutMinGap(t *testing.T) {
 
 	_, err := service.AddRule(context.Background(), domain.NewRule{Repeat: "every_n_days", OffsetDays: 30})
 	if !errors.Is(err, ErrUnsupportedRepeatPolicy) {
-		t.Fatalf("every_n_days without min_gap_days err=%v, want ErrUnsupportedRepeatPolicy", err)
+		t.Fatalf("every_n_days err=%v, want ErrUnsupportedRepeatPolicy", err)
 	}
 	if repo.createRuleCalled {
 		t.Fatalf("repo must not be called for unsafe every_n_days policies")
@@ -275,6 +289,9 @@ func TestPublishVersionAlreadyPublishedRetryIsNoop(t *testing.T) {
 	if !repo.publishCalled {
 		t.Fatalf("repo publish must run so idempotency is still enforced for already-published retries")
 	}
+	if repo.createRuleCalled {
+		t.Fatalf("already-published retry must not create protocol rules")
+	}
 }
 
 func TestPublishVersionRejectsRetiredVersion(t *testing.T) {
@@ -301,8 +318,70 @@ func TestPublishVersionDelegatesDraftPublishToRepository(t *testing.T) {
 	if !repo.publishCalled {
 		t.Fatalf("repo publish was not called")
 	}
+	if !repo.createRuleCalled {
+		t.Fatalf("publish should materialize schedule[] into protocol_rules before publishing")
+	}
+	if got := repo.createdRule; got.DoseCode != "primary" || got.TriggerType != "birth_age" || got.CatchUp != "phc_approval" || got.Sequence != 1 {
+		t.Fatalf("created rule = %#v, want primary birth_age phc_approval sequence 1", got)
+	}
+	if string(repo.createdRule.EligibilityJSON) != `{"animal_stage":"K1","defer_states":["icu"]}` {
+		t.Fatalf("eligibility json = %s", repo.createdRule.EligibilityJSON)
+	}
+	if repo.createdRule.IdempotencyKey != "protocol-schedule-rule:version-1:primary" {
+		t.Fatalf("idempotency key = %q", repo.createdRule.IdempotencyKey)
+	}
 	if repo.version.Status != "published" {
 		t.Fatalf("repo status = %s, want published", repo.version.Status)
+	}
+}
+
+func TestPublishVersionUsesExistingProtocolRuleRows(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+		rules:   []domain.Rule{{DoseCode: "primary", Sequence: 1, TriggerType: "birth_age"}},
+	}
+	service := NewService(repo)
+
+	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); err != nil {
+		t.Fatalf("publish with existing rule: %v", err)
+	}
+	if repo.createRuleCalled {
+		t.Fatalf("publish should not duplicate an existing protocol_rules dose_code")
+	}
+	if !repo.publishCalled {
+		t.Fatalf("repo publish was not called")
+	}
+}
+
+func TestPublishVersionRejectsDraftWithNoExecutableRows(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	repo.version.RuleDsl = []byte(`{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"}}`)
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("publish no executable rows err=%v, want ErrNotPublishable", err)
+	}
+	if repo.publishCalled {
+		t.Fatalf("repo publish must not run when no schedule/rules exist")
+	}
+}
+
+func TestPublishVersionRejectsInvalidScheduleRowBeforePublish(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	repo.version.RuleDsl = []byte(`{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"},"schedule":[{"dose_code":"primary"}]}`)
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("publish invalid schedule err=%v, want ErrNotPublishable", err)
+	}
+	if repo.createRuleCalled || repo.publishCalled {
+		t.Fatalf("invalid schedule should not create rules or publish")
 	}
 }
 
@@ -314,7 +393,7 @@ func validPublishVersion(status string) domain.Version {
 		Status:            status,
 		SopVersionID:      "62000000-0000-4000-8000-000000000001",
 		ProofPolicy:       []byte(`{"required_proofs":["administration_video"]}`),
-		RuleDsl:           []byte(`{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"},"schedule":[{"dose_code":"primary"}]}`),
+		RuleDsl:           []byte(`{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"},"eligibility":{"animal_stage":"K1","defer_states":["icu"]},"missed_dose_policy":"phc_approval","schedule":[{"dose_code":"primary","sequence":1,"trigger_type":"birth_age","offset_days":21,"due_window_days":7,"repeat":"none","catch_up":"phc_approval"}]}`),
 	}
 }
 
@@ -325,6 +404,7 @@ type fakeProtocolRepo struct {
 	createVersionCalled bool
 	createRuleCalled    bool
 	createdRule         domain.NewRule
+	rules               []domain.Rule
 }
 
 func (f *fakeProtocolRepo) Ping(context.Context) error { return nil }
@@ -356,10 +436,22 @@ func (f *fakeProtocolRepo) PublishVersion(context.Context, string, string, *stri
 func (f *fakeProtocolRepo) CreateRule(_ context.Context, in domain.NewRule) (string, error) {
 	f.createRuleCalled = true
 	f.createdRule = in
+	f.rules = append(f.rules, domain.Rule{
+		RuleID:        "rule-1",
+		DoseCode:      in.DoseCode,
+		Sequence:      in.Sequence,
+		TriggerType:   in.TriggerType,
+		OffsetDays:    in.OffsetDays,
+		DueWindowDays: in.DueWindowDays,
+		MinGapDays:    in.MinGapDays,
+		Repeat:        in.Repeat,
+		CatchUp:       in.CatchUp,
+		SortOrder:     in.SortOrder,
+	})
 	return "rule-1", nil
 }
 func (f *fakeProtocolRepo) ListRules(context.Context, string, string) ([]domain.Rule, error) {
-	return nil, nil
+	return f.rules, nil
 }
 func (f *fakeProtocolRepo) ListActiveAnimalStages(context.Context, string) ([]domain.AnimalStage, error) {
 	return nil, nil

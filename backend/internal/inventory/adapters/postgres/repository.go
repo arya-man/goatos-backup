@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -372,15 +373,17 @@ func (r *Repository) RecordMovementAndAdjustBalances(ctx context.Context, m doma
 }
 
 // ReserveForBatch atomically reserves qty for batchID against the nearest ancestor location whose
-// active FEFO lots together cover qty, consuming lots earliest-expiry first across as many lots as
-// needed. Walking up the location hierarchy AND spanning multiple lots is what stops a shed-scoped
-// drive from falsely stock-blocking when the vaccine is held at the park/farm or split across lots.
-// Idempotent per batch: the per-batch advisory lock serializes retries and the reserve-movement count
-// guard makes a replay a no-op even when the original reservation spanned several lots.
-func (r *Repository) ReserveForBatch(ctx context.Context, tenantID, batchID, locationID, itemID string, qty int64) error {
+// active FEFO lots are unexpired on validOn and together cover qty, consuming lots earliest-expiry
+// first across as many lots as needed. Walking up the location hierarchy AND spanning multiple lots is
+// what stops a shed-scoped drive from falsely stock-blocking when the vaccine is held at the park/farm
+// or split across lots. Idempotent per batch: the per-batch advisory lock serializes retries and the
+// reserve-movement count guard makes a replay a no-op even when the original reservation spanned
+// several lots.
+func (r *Repository) ReserveForBatch(ctx context.Context, tenantID, batchID, locationID, itemID string, qty int64, validOn time.Time) error {
 	if qty <= 0 {
 		return nil
 	}
+	validOn = stockValidOnDate(validOn)
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -435,7 +438,7 @@ func (r *Repository) ReserveForBatch(ctx context.Context, tenantID, batchID, loc
 
 	// Pick the NEAREST ancestor whose lots together cover qty (a near location short on stock is skipped
 	// for a farther flush one). sums is ordered nearest-first; an empty result means no stock anywhere.
-	sums, err := qtx.ChainLocationAvailableSums(ctx, inventorydb.ChainLocationAvailableSumsParams{TenantID: tenant, ItemID: item, LocationID: startLoc})
+	sums, err := qtx.ChainLocationAvailableSums(ctx, inventorydb.ChainLocationAvailableSumsParams{TenantID: tenant, ItemID: item, LocationID: startLoc, ValidOn: pgconv.Date(&validOn)})
 	if err != nil {
 		return fmt.Errorf("inventory: chain location available sums: %w", err)
 	}
@@ -461,7 +464,7 @@ func (r *Repository) ReserveForBatch(ctx context.Context, tenantID, batchID, loc
 	if err != nil {
 		return fmt.Errorf("inventory: resolved location id: %w", err)
 	}
-	lots, err := qtx.ListFEFOLotsForUpdate(ctx, inventorydb.ListFEFOLotsForUpdateParams{TenantID: tenant, LocationID: chosenLoc, ItemID: item})
+	lots, err := qtx.ListFEFOLotsForUpdate(ctx, inventorydb.ListFEFOLotsForUpdateParams{TenantID: tenant, LocationID: chosenLoc, ItemID: item, ValidOn: pgconv.Date(&validOn)})
 	if err != nil {
 		return fmt.Errorf("inventory: list fefo lots for update: %w", err)
 	}
@@ -534,6 +537,14 @@ func (r *Repository) ReserveForBatch(ctx context.Context, tenantID, batchID, loc
 	return nil
 }
 
+func stockValidOnDate(validOn time.Time) time.Time {
+	if validOn.IsZero() {
+		validOn = time.Now().UTC()
+	}
+	y, m, d := validOn.UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
 func markObligationBatchStockReserved(ctx context.Context, tx pgx.Tx, tenant, batch pgtype.UUID) error {
 	tag, err := tx.Exec(ctx, `
 UPDATE obligation_batches
@@ -571,9 +582,32 @@ func (r *Repository) ReleaseBatchReconcileRemainders(ctx context.Context, tenant
 	if err != nil {
 		return summary, fmt.Errorf("inventory: tenant id: %w", err)
 	}
+	for i := 0; i < limit; i++ {
+		batchSummary, found, err := r.releaseOneBatchReconcileRemainder(ctx, tenant)
+		if err != nil {
+			return summary, err
+		}
+		if !found {
+			return summary, nil
+		}
+		summary.Batches += batchSummary.Batches
+		summary.Movements += batchSummary.Movements
+		summary.Released += batchSummary.Released
+	}
+	return summary, nil
+}
+
+type batchReconcileCandidate struct {
+	batchID     string
+	repairToken string
+	releaseQty  pgtype.Numeric
+}
+
+func (r *Repository) releaseOneBatchReconcileRemainder(ctx context.Context, tenant pgtype.UUID) (domain.BatchStockReconcileSummary, bool, error) {
+	var summary domain.BatchStockReconcileSummary
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return summary, err
+		return summary, false, err
 	}
 	committed := false
 	defer func() {
@@ -581,8 +615,60 @@ func (r *Repository) ReleaseBatchReconcileRemainders(ctx context.Context, tenant
 			_ = tx.Rollback(ctx)
 		}
 	}()
+	c, found, err := r.claimBatchReconcileCandidate(ctx, tx, tenant)
+	if err != nil || !found {
+		return summary, found, err
+	}
+	targetQty := floorNumericToInt64(c.releaseQty)
+	released, movements, err := r.releaseBatchReconcileQty(ctx, tx, tenant, c.batchID, c.repairToken, targetQty)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		committed = true
+		if markErr := r.markBatchReconcileFailed(ctx, tenant, c.batchID, err.Error()); markErr != nil {
+			return summary, true, markErr
+		}
+		return summary, true, nil
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE obligation_batches
+SET context = jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            jsonb_set(context, '{defer_repair,state}', to_jsonb('stock_reconciled'::text), false),
+            '{shift_repair,state}', to_jsonb('stock_reconciled'::text), false
+          ),
+          '{cancel_repair,state}', to_jsonb('stock_reconciled'::text), false
+        ),
+        '{missed_repair,state}', to_jsonb('stock_reconciled'::text), false
+      )
+      || jsonb_build_object(
+        'stock_reconcile',
+        jsonb_build_object('state', 'stock_reconciled', 'released_qty', $3::numeric, 'reconciled_at', now()::text)
+      ),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1
+  AND batch_id = $2::uuid`, tenant, c.batchID, released); err != nil {
+		_ = tx.Rollback(ctx)
+		committed = true
+		if markErr := r.markBatchReconcileFailed(ctx, tenant, c.batchID, err.Error()); markErr != nil {
+			return summary, true, markErr
+		}
+		return summary, true, nil
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return summary, true, err
+	}
+	committed = true
+	summary.Batches = 1
+	summary.Movements = movements
+	summary.Released = released
+	return summary, true, nil
+}
 
-	rows, err := tx.Query(ctx, `
+func (r *Repository) claimBatchReconcileCandidate(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID) (batchReconcileCandidate, bool, error) {
+	var c batchReconcileCandidate
+	err := tx.QueryRow(ctx, `
 SELECT batch_id::text,
        row_version::text AS repair_token,
        (
@@ -607,69 +693,43 @@ WHERE tenant_id = $1
     OR context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
     OR context #>> '{missed_repair,state}' = 'stock_reconcile_required'
   )
+  AND COALESCE(NULLIF(context #>> '{stock_reconcile,retry_after}', '')::timestamptz, '-infinity'::timestamptz) <= now()
 ORDER BY updated_at ASC, batch_id ASC
-LIMIT $2
-FOR UPDATE SKIP LOCKED`, tenant, limit)
+LIMIT 1
+FOR UPDATE SKIP LOCKED`, tenant).Scan(&c.batchID, &c.repairToken, &c.releaseQty)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c, false, nil
+	}
 	if err != nil {
-		return summary, fmt.Errorf("inventory: list stock reconcile batches: %w", err)
+		return c, false, fmt.Errorf("inventory: claim stock reconcile batch: %w", err)
 	}
-	type candidate struct {
-		batchID     string
-		repairToken string
-		releaseQty  pgtype.Numeric
-	}
-	candidates := make([]candidate, 0)
-	for rows.Next() {
-		var c candidate
-		if err := rows.Scan(&c.batchID, &c.repairToken, &c.releaseQty); err != nil {
-			rows.Close()
-			return summary, fmt.Errorf("inventory: scan stock reconcile batch: %w", err)
-		}
-		candidates = append(candidates, c)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return summary, fmt.Errorf("inventory: read stock reconcile batches: %w", err)
-	}
-	rows.Close()
+	return c, true, nil
+}
 
-	for _, c := range candidates {
-		targetQty := floorNumericToInt64(c.releaseQty)
-		released, movements, err := r.releaseBatchReconcileQty(ctx, tx, tenant, c.batchID, c.repairToken, targetQty)
-		if err != nil {
-			return summary, err
-		}
-		if _, err := tx.Exec(ctx, `
+func (r *Repository) markBatchReconcileFailed(ctx context.Context, tenant pgtype.UUID, batchID, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if len(reason) > 240 {
+		reason = reason[:240]
+	}
+	_, err := r.pool.Exec(ctx, `
 UPDATE obligation_batches
-SET context = jsonb_set(
-        jsonb_set(
-          jsonb_set(
-            jsonb_set(context, '{defer_repair,state}', to_jsonb('stock_reconciled'::text), false),
-            '{shift_repair,state}', to_jsonb('stock_reconciled'::text), false
-          ),
-          '{cancel_repair,state}', to_jsonb('stock_reconciled'::text), false
-        ),
-        '{missed_repair,state}', to_jsonb('stock_reconciled'::text), false
+SET context = context || jsonb_build_object(
+      'stock_reconcile',
+      jsonb_build_object(
+        'state', 'stock_reconcile_failed',
+        'last_error', $3::text,
+        'failed_at', now()::text,
+        'retry_after', (now() + interval '15 minutes')::text
       )
-      || jsonb_build_object(
-        'stock_reconcile',
-        jsonb_build_object('state', 'stock_reconciled', 'released_qty', $3::numeric, 'reconciled_at', now()::text)
-      ),
+    ),
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1
-  AND batch_id = $2::uuid`, tenant, c.batchID, released); err != nil {
-			return summary, fmt.Errorf("inventory: mark batch stock reconciled: %w", err)
-		}
-		summary.Batches++
-		summary.Movements += movements
-		summary.Released += released
+  AND batch_id = $2::uuid`, tenant, batchID, reason)
+	if err != nil {
+		return fmt.Errorf("inventory: mark batch stock reconcile failed: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return summary, err
-	}
-	committed = true
-	return summary, nil
+	return nil
 }
 
 func (r *Repository) releaseBatchReconcileQty(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, batchID, repairToken string, targetQty int64) (int64, int, error) {
