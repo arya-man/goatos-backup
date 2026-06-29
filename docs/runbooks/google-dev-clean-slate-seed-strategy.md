@@ -71,6 +71,8 @@ Before enabling the new dev environment, snapshot the old dashboard state:
 - deployment config and service names
 - screenshots of key pages
 - relevant logs and active alerts
+- Cloud Monitoring baseline policy evidence and configured notification
+  recipients, if any
 - rollback notes and owner
 - note that the old dashboard is archived/reference-only, not the canonical
   Goat OS execution surface
@@ -90,6 +92,11 @@ Before enabling the new dev environment, snapshot the old dashboard state:
    reminder/escalation sweepers, notification dispatcher in dev-safe mode,
    inventory batch reconciler, and the domain processed-event retention
    sweeper.
+8. Verify Cloud Monitoring baseline policies before enabling unattended worker
+   schedules: Cloud Run errors, outbox relay dead letters, Pub/Sub DLQ backlog,
+   and Cloud SQL CPU pressure. Configure approved recipients through private
+   Terraform `monitoring_alert_email_addresses` and keep personal addresses out
+   of committed files.
 
 ## Seed Ledger
 

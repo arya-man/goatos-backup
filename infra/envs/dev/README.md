@@ -109,6 +109,8 @@ artifactregistry.googleapis.com
 cloudscheduler.googleapis.com
 cloudtasks.googleapis.com
 fcm.googleapis.com
+logging.googleapis.com
+monitoring.googleapis.com
 pubsub.googleapis.com
 run.googleapis.com
 secretmanager.googleapis.com
@@ -161,6 +163,7 @@ Cloud SQL client, secret accessor, and topic publisher IAM
 Cloud Tasks near-term kernel queue
 Cloud Run kernel jobs
 Cloud Scheduler invocations for those jobs
+Cloud Monitoring baseline alert policies
 ```
 
 Planned names:
@@ -187,6 +190,10 @@ Kernel jobs:       goatos-dev-outbox-relay, goatos-dev-domain-event-consumer,
                    goatos-dev-sop-review-fanout-retry
 Migration job:     goatos-dev-migrate (manual, unscheduled)
 Operator jobs:     goatos-dev-outbox-dlq (manual, unscheduled)
+Alert policies:    goatos-dev Cloud Run errors,
+                   goatos-dev outbox relay dead letters,
+                   goatos-dev Pub/Sub DLQ backlog,
+                   goatos-dev Cloud SQL CPU pressure
 ```
 
 `inventory-batch-reconciler`, `idempotency-key-sweeper`,
@@ -198,6 +205,9 @@ Cloud Run Job for database outbox dead-letter listing and explicit replay.
 `goatos-dev-outbox-events-dlq-inspect` is the native Pub/Sub DLQ inspection
 subscription; Goal 2 must prove a dev-safe pull/ack workflow before calling the
 dev kernel runtime complete.
+Alert notification emails must be set only with approved Mesha/VGoats
+recipients via private Terraform variable `monitoring_alert_email_addresses`;
+do not hard-code personal addresses in committed Terraform.
 
 The notification dispatcher is wired to Secret Manager containers for
 `GOATOS_SLACK_WEBHOOK_URL` and `GOATOS_INCIDENT_WEBHOOK_URL`. Terraform creates

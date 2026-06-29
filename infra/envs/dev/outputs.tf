@@ -57,6 +57,21 @@ output "pubsub_outbox_dlq_inspect_subscription" {
   value       = google_pubsub_subscription.outbox_events_dlq_inspect.name
 }
 
+output "monitoring_alert_policies" {
+  description = "Baseline goatos-dev Cloud Monitoring alert policies."
+  value = {
+    cloud_run_errors         = google_monitoring_alert_policy.cloud_run_errors.name
+    cloud_sql_cpu            = google_monitoring_alert_policy.cloud_sql_cpu.name
+    outbox_relay_dead_letter = google_monitoring_alert_policy.outbox_relay_dead_letter.name
+    pubsub_dlq_backlog       = google_monitoring_alert_policy.pubsub_dlq_backlog.name
+  }
+}
+
+output "monitoring_notification_channels" {
+  description = "Operator notification channel resource names."
+  value       = local.monitoring_notification_channel_names
+}
+
 output "secret_container_ids" {
   description = "Secret Manager container ids; values are populated out-of-band later."
   value = {

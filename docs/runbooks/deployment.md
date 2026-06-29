@@ -338,6 +338,13 @@ Observability uses `GOATOS_OBS_SINK=gcm` (Google Cloud Monitoring/Logging/Trace)
 per `docs/decisions/observability.md`. OpenTelemetry spans/metrics exporters are
 a deferred hardening item.
 
+For `goatos-dev`, `infra/envs/dev/monitoring.tf` provides the current baseline
+alert policies: Cloud Run `ERROR` logs, outbox relay `dead_letter > 0`, Pub/Sub
+DLQ backlog, and Cloud SQL CPU pressure. Goal 2 must verify these policies in
+Cloud Monitoring, wire approved notification channels through private
+`monitoring_alert_email_addresses`, and attach alert screenshots or
+`gcloud monitoring policies list` evidence to the deployment record.
+
 ## What is blocked (external operator action, not Phase 1 code)
 
 The following require cloud access in the verified `vgoats.com` context and are

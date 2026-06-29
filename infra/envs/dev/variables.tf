@@ -134,3 +134,16 @@ variable "migration_image_tag" {
     error_message = "migration_image_tag is required."
   }
 }
+
+variable "monitoring_alert_email_addresses" {
+  description = "Approved Mesha/VGoats operator email addresses for goatos-dev alert notifications. Supply through private tfvars or -var during Goal 2."
+  type        = set(string)
+
+  validation {
+    condition = length(var.monitoring_alert_email_addresses) > 0 && alltrue([
+      for address in var.monitoring_alert_email_addresses :
+      address == trimspace(address) && can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", address))
+    ])
+    error_message = "monitoring_alert_email_addresses must contain at least one approved, trimmed email address."
+  }
+}

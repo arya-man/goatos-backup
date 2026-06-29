@@ -19,6 +19,22 @@ does not log the full endpoint URL because it may contain a token or password.
 
 Other env: `GOATOS_LOG_LEVEL` (debug/info/warn/error), `GOATOS_ENV`.
 
+## Google dev baseline
+
+`infra/envs/dev/monitoring.tf` owns the baseline `goatos-dev` Cloud Monitoring
+policies that must exist before the dev deployment is called ready:
+
+- Cloud Run service/job `ERROR` logs.
+- Outbox relay runs that report `dead_letter > 0`.
+- Pub/Sub native DLQ inspection subscription backlog.
+- Cloud SQL CPU utilization above 80%.
+
+Email notification channels are supplied by Terraform variable
+`monitoring_alert_email_addresses`; provide them through private tfvars or
+`-var` only after Goal 2 confirms the Mesha/VGoats recipients. These policies
+use Cloud Logging and managed Google metrics. They do not mean the app-level
+OTLP/GCM exporter is complete.
+
 ## Local: persist logs (don't lose them on container teardown)
 
 Pipe the backend/CLI stdout JSON to a file under the ignored local dir, e.g.
