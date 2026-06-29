@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	consumerapp "github.com/vgoats/goatos/backend/internal/domainconsumer/app"
+	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 )
 
 const (
@@ -144,6 +146,80 @@ WHERE tenant_id = $1::uuid
 		return fmt.Errorf("%w: event_id=%s subscription_id=%s", consumerapp.ErrProcessedEventFinalizationLost, event.EventID, event.SubscriptionID)
 	}
 	return nil
+}
+
+// SweepProcessedBefore removes old processed dedupe rows in bounded batches. It never deletes
+// processing or failed rows, because those rows still carry retry/repair state.
+func (s *ProcessedEventStore) SweepProcessedBefore(ctx context.Context, tenantID string, before time.Time, limit int, dryRun bool) (int, error) {
+	if limit < 1 {
+		return 0, errors.New("limit must be positive")
+	}
+	if before.IsZero() {
+		before = time.Now().UTC()
+	} else {
+		before = before.UTC()
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	tenant, err := optionalTenantUUID(tenantID)
+	if err != nil {
+		return 0, err
+	}
+	if dryRun {
+		return s.countProcessedBefore(ctx, tenant, before, limit)
+	}
+	tag, err := s.pool.Exec(ctx, `
+WITH expired AS (
+  SELECT tenant_id, subscription_id, event_id
+  FROM domain_event_processed_events
+  WHERE status = 'processed'
+    AND processed_at IS NOT NULL
+    AND processed_at <= $1::timestamptz
+    AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+  ORDER BY processed_at ASC, tenant_id ASC, subscription_id ASC, event_id ASC
+  LIMIT $3
+  FOR UPDATE SKIP LOCKED
+)
+DELETE FROM domain_event_processed_events e
+USING expired
+WHERE e.tenant_id = expired.tenant_id
+  AND e.subscription_id = expired.subscription_id
+  AND e.event_id = expired.event_id`, before, tenant, limit)
+	if err != nil {
+		return 0, fmt.Errorf("domainconsumer: sweep processed events: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+func (s *ProcessedEventStore) countProcessedBefore(ctx context.Context, tenant any, before time.Time, limit int) (int, error) {
+	var count int
+	if err := s.pool.QueryRow(ctx, `
+SELECT count(*)::int
+FROM (
+  SELECT 1
+  FROM domain_event_processed_events
+  WHERE status = 'processed'
+    AND processed_at IS NOT NULL
+    AND processed_at <= $1::timestamptz
+    AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+  ORDER BY processed_at ASC, tenant_id ASC, subscription_id ASC, event_id ASC
+  LIMIT $3
+) expired`, before, tenant, limit).Scan(&count); err != nil {
+		return 0, fmt.Errorf("domainconsumer: count processed events: %w", err)
+	}
+	return count, nil
+}
+
+func optionalTenantUUID(tenantID string) (any, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" {
+		return nil, nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("tenant-id must be a uuid: %w", err)
+	}
+	return tenant, nil
 }
 
 func normalizeProcessedEvent(event consumerapp.ProcessedEvent) consumerapp.ProcessedEvent {

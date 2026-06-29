@@ -88,7 +88,8 @@ Before enabling the new dev environment, snapshot the old dashboard state:
 7. Enable workers in controlled order after API/admin smoke passes:
    outbox relay, domain consumer, obligation sweeper, calendar projector,
    reminder/escalation sweepers, notification dispatcher in dev-safe mode,
-   inventory batch reconciler.
+   inventory batch reconciler, and the domain processed-event retention
+   sweeper.
 
 ## Seed Ledger
 
@@ -147,6 +148,8 @@ Do not call the dev deploy complete until there is evidence for:
 - API health and authenticated request
 - admin-web authenticated smoke
 - outbox relay and domain consumer processing a seeded event
+- domain processed-event retention sweeper dry-run showing bounded old-row
+  cleanup
 - sweeper and projector logs
 - notification/DLQ dev-safe visibility
 - screenshots for the vaccination slice and command surfaces
