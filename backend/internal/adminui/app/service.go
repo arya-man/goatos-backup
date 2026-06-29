@@ -1329,7 +1329,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"note.media_capture":                       "Media capture is not in this slice. Provenance is recorded as a source-record evidence ref; photo upload happens via the field app / proof API.",
 			"note.shed_create":                         "The shed is created active, usable for counts, vaccination, and SOP execution, and not usable for feed/holding/quarantine/ICU in this vaccination-only entry path.",
 			"note.shed_bulk_template":                  "Each row needs Park plus Shed name. Park may be an active park id, code, or name. Imported sheds are created active and vaccination-usable; bad rows return per-row errors below.",
-			"note.bulk_template":                       "Each row needs at least one identifier (RFID, Old tag, or Temp field ID) plus Park and Shed (codes). Sex = female / male / unknown. Origin = birth / procured / imported / unknown. Bad rows return per-row errors below; they are never silently dropped.",
+			"note.bulk_template":                       "Each row needs at least one identifier (RFID, Old tag, or Temp field ID), Park, Shed, DOB, Sex, Origin, and Entry date. Bad rows return per-row errors below; they are never silently dropped.",
 			"note.preview_ready":                       "Previewed — review decisions below, then commit.",
 			"note.committed_suffix":                    "The herd table has been refreshed.",
 			"note.shed_committed_suffix":               "The location master has been refreshed; newly created sheds appear in the goat registration shed selector after refresh.",

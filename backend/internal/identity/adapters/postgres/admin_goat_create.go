@@ -70,6 +70,15 @@ func (r *Repository) ValidateAdminGoatCreate(ctx context.Context, cmd ports.Vali
 			out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "shed_id", Code: "wrong_parent", Message: "shed does not belong to the selected park"})
 		}
 	}
+	if cmd.ManagementStage != nil {
+		exists, err := r.activeManagementStageExists(ctx, cmd.TenantID, *cmd.ManagementStage)
+		if err != nil {
+			return out, err
+		}
+		if !exists {
+			out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "management_stage", Code: "not_found", Message: "management_stage does not resolve to an active animal stage"})
+		}
+	}
 	if len(out.Conflicts) > 0 {
 		return out, nil
 	}
@@ -91,6 +100,22 @@ func (r *Repository) ValidateAdminGoatCreate(ctx context.Context, cmd ports.Vali
 		}
 	}
 	return out, nil
+}
+
+func (r *Repository) activeManagementStageExists(ctx context.Context, tenantID, stageCode string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM animal_stage_lookup
+  WHERE tenant_id = $1::uuid
+    AND stage_code = $2
+    AND status = 'active'
+)`, tenantID, stageCode).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 func (r *Repository) completedAdminGoatCreateReplayTarget(ctx context.Context, key, requestHash string) (string, bool, error) {

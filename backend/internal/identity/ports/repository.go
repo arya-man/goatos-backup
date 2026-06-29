@@ -174,6 +174,7 @@ type ValidateAdminGoatCreateCommand struct {
 	ParkCode             *string
 	ShedID               *string
 	ShedCode             *string
+	ManagementStage      *string
 }
 
 type AdminGoatCreateValidation struct {

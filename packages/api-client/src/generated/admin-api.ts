@@ -1732,7 +1732,7 @@ export interface components {
             /** @enum {string} */
             sex: "female" | "male" | "unknown";
             /** Format: date */
-            dob?: string;
+            dob: string;
             dob_estimated?: boolean;
             /** @enum {string} */
             origin_type: "birth" | "procured" | "imported" | "unknown";

@@ -26,7 +26,11 @@ make verify-google-dev-seed-fixtures
    expiring, expired, quarantined, and low-stock vaccine lots.
 7. Import `goats.csv` through `Import sheet`; do not insert these goats with
    ad hoc SQL. This keeps `goat.created` events and idempotency behavior real.
-8. Run the worker/API validation sequence from the runbook and record actual
+   The main file is the accepted golden herd: 50 complete, trusted sample goats
+   with DOB, shed, stage, sex, and origin populated.
+8. Preview `invalid-goats.csv` through `Import sheet` and confirm every row is
+   blocked with a clear row-level reason. Do not commit this file.
+9. Run the worker/API validation sequence from the runbook and record actual
    generated UUIDs in the deployment evidence ledger.
 
 Example guarded SQL helper invocation:
@@ -43,7 +47,8 @@ The CSV rows are intentionally scenario labels, not real farm data. The stable
 selectors are RFID and shed code; generated UUIDs are captured during Goal 2 as
 evidence after UI/API import.
 
-Required scenario coverage is listed in `seed-ledger.json` and enforced by
+Required scenario coverage and invalid-import probes are listed in
+`seed-ledger.json` and enforced by
 `tools/dev/verify-google-dev-seed-fixtures.py`.
 
 ## Future Migration

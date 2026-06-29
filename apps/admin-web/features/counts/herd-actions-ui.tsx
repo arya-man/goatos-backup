@@ -395,7 +395,7 @@ function RegisterGoatDrawer({
         <Row>
           <div className="fld" style={{ flex: 1, minWidth: 150 }}>
             <label htmlFor="rg_dob">{copy(pageContract, "field.dob")}</label>
-            <input id="rg_dob" name="dob" type="date" />
+            <input id="rg_dob" name="dob" type="date" required />
           </div>
           <div className="fld" style={{ width: 140 }}>
             <label htmlFor="rg_weight">{copy(pageContract, "field.weight_kg")}</label>

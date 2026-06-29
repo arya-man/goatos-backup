@@ -354,6 +354,25 @@ func TestCreateAdminGoatPassesIdempotencyIntoValidation(t *testing.T) {
 	}
 }
 
+func TestCreateAdminGoatRejectsMissingDOB(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.CreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-missing-dob",
+		TraceID:        testTrace,
+		RawBody:        []byte(fmt.Sprintf(`{"rfid":"RFID-MISSING-DOB","park_id":%q,"shed_id":%q,"sex":"female","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, testPark, testShed)),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_goat_create" {
+		t.Fatalf("err = %v, want invalid_goat_create", err)
+	}
+	if len(repo.validateAdminGoatCreateCmds) != 0 || len(repo.createAdminGoatCmds) != 0 {
+		t.Fatalf("missing DOB must fail before repo calls, validate=%d create=%d", len(repo.validateAdminGoatCreateCmds), len(repo.createAdminGoatCmds))
+	}
+}
+
 func TestCommitAdminGoatBulkUsesStableRowIdempotencyKey(t *testing.T) {
 	seenHashByKey := map[string]string{}
 	repo := &fakeRepo{
@@ -506,7 +525,7 @@ func TestCommitAdminGoatBulkRejectsExpiredPreviewToken(t *testing.T) {
 func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	csv := "Farm,Temp field ID,Park,Shed,Sex,Origin,Management stage,Entry date\nMain Farm,TMP-KID-001,CBE,K1,female,birth,K1,2026-06-15\n"
+	csv := "Farm,Temp field ID,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nMain Farm,TMP-KID-001,CBE,K1,female,2026-06-01,birth,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
@@ -532,6 +551,9 @@ func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
 	if row.Normalized.EntryDate != "2026-06-15" {
 		t.Fatalf("entry_date = %q", row.Normalized.EntryDate)
 	}
+	if row.Normalized.DOBEstimated == nil || *row.Normalized.DOBEstimated {
+		t.Fatalf("dob_estimated = %#v, want explicit false default for trusted admin import", row.Normalized.DOBEstimated)
+	}
 	if row.Normalized.ManagementStage == nil || *row.Normalized.ManagementStage != "K1" {
 		t.Fatalf("management_stage = %#v", row.Normalized.ManagementStage)
 	}
@@ -540,10 +562,30 @@ func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
 	}
 }
 
+func TestPreviewAdminGoatBulkFlagsMissingDOB(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
+	csv := "RFID,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nRFID-NO-DOB,CBE,K1,female,,birth,K1,2026-06-15\n"
+	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
+		TenantID: testTenant,
+		TraceID:  testTrace,
+		RawBody:  []byte(fmt.Sprintf(`{"csv":%q,"file_hash":%q}`, csv, testBulkHash)),
+	})
+	if err != nil {
+		t.Fatalf("PreviewAdminGoatBulkImport: %v", err)
+	}
+	if resp.Summary.CreateReady != 0 || resp.Summary.RequiresReview != 1 {
+		t.Fatalf("summary=%#v, want missing DOB review row", resp.Summary)
+	}
+	if len(resp.Rows) != 1 || len(resp.Rows[0].Errors) != 1 || resp.Rows[0].Errors[0].Field != "dob" || resp.Rows[0].Errors[0].Code != "required" {
+		t.Fatalf("row errors = %#v", resp.Rows)
+	}
+}
+
 func TestPreviewAdminGoatBulkFlagsDuplicateRowsWithoutFailingFile(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	csv := "RFID,Park,Shed,Sex,Origin,Management stage,Entry date,Weight(kg)\nDUP-RFID-001,CBE,K1,female,birth,K1,2026-06-15,22.5\n\nDUP-RFID-001,CBE,K1,female,birth,K1,2026-06-15\n"
+	csv := "RFID,Park,Shed,Sex,DOB,Origin,Management stage,Entry date,Weight(kg)\nDUP-RFID-001,CBE,K1,female,2026-06-01,birth,K1,2026-06-15,22.5\n\nDUP-RFID-001,CBE,K1,female,2026-06-01,birth,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
@@ -870,7 +912,7 @@ func validRetireIdentifierInput() RetireGoatIdentifierInput {
 }
 
 func validAdminGoatCreateRaw(rfid string) []byte {
-	return []byte(fmt.Sprintf(`{"rfid":%q,"park_id":%q,"shed_id":%q,"sex":"female","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, rfid, testPark, testShed))
+	return []byte(fmt.Sprintf(`{"rfid":%q,"park_id":%q,"shed_id":%q,"sex":"female","dob":"2026-05-20","dob_estimated":false,"origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, rfid, testPark, testShed))
 }
 
 func validAdminGoatBulkCommitRaw(rfid string) []byte {
@@ -910,12 +952,14 @@ func validAdminGoatBulkPreviewTokenForRowAt(rowNumber int, rfid string, issuedAt
 func validAdminGoatCreateRequest(rfid string) *domain.AdminGoatCreateRequest {
 	parkID := testPark
 	shedID := testShed
-	estimated := true
+	dob := "2026-05-20"
+	estimated := false
 	return &domain.AdminGoatCreateRequest{
 		RFID:         &rfid,
 		ParkID:       &parkID,
 		ShedID:       &shedID,
 		Sex:          "female",
+		DOB:          &dob,
 		OriginType:   "procured",
 		EntryDate:    "2026-06-01",
 		DOBEstimated: &estimated,

@@ -1,0 +1,5 @@
+Farm,RFID,Old tag,Temp field ID,Park,Shed,Breed,Sex,DOB,Management stage,Entry date,Weight(kg),Dam ID,Sire/lot,Origin,Photo URL
+,GDEV-INVALID-MISSING-DOB-001,GDEV-BAD-001,,CBE,GDEV-CBE-K1-A,Osmanabadi,female,,K1,2026-06-29,8.0,,,birth,
+,GDEV-INVALID-BAD-DOB-002,GDEV-BAD-002,,CBE,GDEV-CBE-K1-A,Osmanabadi,female,2026-07-10,K1,2026-06-29,8.0,,,birth,
+,GDEV-INVALID-SHED-003,GDEV-BAD-003,,CBE,GDEV-NO-SUCH-SHED,Osmanabadi,female,2026-06-08,K1,2026-06-29,8.0,,,birth,
+,GDEV-INVALID-STAGE-004,GDEV-BAD-004,,CBE,GDEV-CBE-K1-A,Osmanabadi,female,2026-06-08,NOT_A_STAGE,2026-06-29,8.0,,,birth,

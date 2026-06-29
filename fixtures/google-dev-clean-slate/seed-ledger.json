@@ -7,6 +7,7 @@
   "source_fixtures": {
     "sheds_csv": "fixtures/google-dev-clean-slate/sheds.csv",
     "goats_csv": "fixtures/google-dev-clean-slate/goats.csv",
+    "invalid_goats_csv": "fixtures/google-dev-clean-slate/invalid-goats.csv",
     "shed_profiles_sql": "fixtures/google-dev-clean-slate/post-import-shed-profiles.sql",
     "inventory_lots_sql": "fixtures/google-dev-clean-slate/post-import-inventory-lots.sql"
   },
@@ -33,6 +34,28 @@
     "rejected_rework",
     "completed_verified"
   ],
+  "invalid_import_probes": [
+    {
+      "probe": "missing_dob",
+      "rfid": "GDEV-INVALID-MISSING-DOB-001",
+      "expected": "preview blocks row with dob required error and commit sends zero rows"
+    },
+    {
+      "probe": "bad_dob",
+      "rfid": "GDEV-INVALID-BAD-DOB-002",
+      "expected": "preview blocks row because dob cannot be after entry_date"
+    },
+    {
+      "probe": "invalid_shed",
+      "rfid": "GDEV-INVALID-SHED-003",
+      "expected": "preview blocks row because shed_code does not resolve"
+    },
+    {
+      "probe": "unsupported_stage",
+      "rfid": "GDEV-INVALID-STAGE-004",
+      "expected": "preview blocks row because management_stage is not active in animal_stage_lookup"
+    }
+  ],
   "scenarios": [
     {
       "scenario": "eligible_day21",
@@ -56,8 +79,9 @@
     },
     {
       "scenario": "missing_dob",
-      "rfid": "GDEV-ET-MISSING-DOB-005",
-      "expected": "missing DOB does not silently create a day-21 obligation"
+      "fixture": "invalid-goats.csv",
+      "rfid": "GDEV-INVALID-MISSING-DOB-001",
+      "expected": "missing DOB is rejected during import preview and never creates a goat"
     },
     {
       "scenario": "shifted",

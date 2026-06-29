@@ -51,6 +51,13 @@ REQUIRED_SCENARIOS = {
     "completed_verified",
 }
 
+REQUIRED_INVALID_PROBES = {
+    "missing_dob": "GDEV-INVALID-MISSING-DOB-001",
+    "bad_dob": "GDEV-INVALID-BAD-DOB-002",
+    "invalid_shed": "GDEV-INVALID-SHED-003",
+    "unsupported_stage": "GDEV-INVALID-STAGE-004",
+}
+
 BAD_BOUNDARY_TOKENS = tuple(
     "".join(parts)
     for parts in (
@@ -124,6 +131,8 @@ def validate_sheds() -> set[str]:
 def validate_goats(shed_codes: set[str]) -> set[str]:
     headers, rows = read_csv(FIXTURE_DIR / "goats.csv")
     assert_headers("goats.csv", headers, GOAT_HEADERS)
+    if len(rows) < 50 or len(rows) > 100:
+        fail(f"goats.csv must contain 50-100 accepted sample goats, got {len(rows)}")
     seen_rfids: set[str] = set()
     for index, row in enumerate(rows, start=2):
         rfid = row["RFID"]
@@ -136,14 +145,14 @@ def validate_goats(shed_codes: set[str]) -> set[str]:
             fail(f"goats.csv row {index} park must be CBE or CPT")
         if row["Shed"] not in shed_codes:
             fail(f"goats.csv row {index} references unknown shed {row['Shed']!r}")
-        if row["Sex"] not in {"female", "male", "unknown"}:
-            fail(f"goats.csv row {index} invalid sex {row['Sex']!r}")
-        if row["Origin"] not in {"birth", "procured", "imported", "unknown"}:
-            fail(f"goats.csv row {index} invalid origin {row['Origin']!r}")
+        if row["Sex"] not in {"female", "male"}:
+            fail(f"goats.csv row {index} must use known sex female or male, got {row['Sex']!r}")
+        if row["Origin"] not in {"birth", "procured", "imported"}:
+            fail(f"goats.csv row {index} must use known origin birth, procured, or imported, got {row['Origin']!r}")
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", row["Entry date"]):
             fail(f"goats.csv row {index} entry date must be YYYY-MM-DD")
-        if row["DOB"] and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", row["DOB"]):
-            fail(f"goats.csv row {index} DOB must be blank or YYYY-MM-DD")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", row["DOB"]):
+            fail(f"goats.csv row {index} DOB is required and must be YYYY-MM-DD")
         if row["Weight(kg)"]:
             try:
                 weight = float(row["Weight(kg)"])
@@ -154,7 +163,24 @@ def validate_goats(shed_codes: set[str]) -> set[str]:
     return seen_rfids
 
 
-def validate_ledger(rfids: set[str]) -> None:
+def validate_invalid_goats() -> set[str]:
+    headers, rows = read_csv(FIXTURE_DIR / "invalid-goats.csv")
+    assert_headers("invalid-goats.csv", headers, GOAT_HEADERS)
+    seen_rfids: set[str] = set()
+    for index, row in enumerate(rows, start=2):
+        rfid = row["RFID"]
+        if not rfid.startswith("GDEV-INVALID-"):
+            fail(f"invalid-goats.csv row {index} RFID must start GDEV-INVALID-, got {rfid!r}")
+        if rfid in seen_rfids:
+            fail(f"invalid-goats.csv duplicate RFID {rfid!r}")
+        seen_rfids.add(rfid)
+    missing = set(REQUIRED_INVALID_PROBES.values()) - seen_rfids
+    if missing:
+        fail(f"invalid-goats.csv missing required invalid probe RFIDs: {sorted(missing)}")
+    return seen_rfids
+
+
+def validate_ledger(rfids: set[str], invalid_rfids: set[str]) -> None:
     path = FIXTURE_DIR / "seed-ledger.json"
     if not path.exists():
         fail("missing seed-ledger.json")
@@ -170,13 +196,29 @@ def validate_ledger(rfids: set[str]) -> None:
         fail(f"seed-ledger.json missing scenarios: {sorted(missing)}")
     if extra_required:
         fail(f"seed-ledger.json required_scenarios drift: {sorted(extra_required)}")
+    probes = ledger.get("invalid_import_probes")
+    if not isinstance(probes, list):
+        fail("seed-ledger.json invalid_import_probes must be a list")
+    probe_map = {row.get("probe"): row.get("rfid") for row in probes}
+    if probe_map != REQUIRED_INVALID_PROBES:
+        fail(f"seed-ledger.json invalid_import_probes drift: {probe_map!r}")
+    for probe, rfid in REQUIRED_INVALID_PROBES.items():
+        if rfid not in invalid_rfids:
+            fail(f"seed-ledger.json probe {probe!r} references RFID {rfid!r} absent from invalid-goats.csv")
     for row in scenarios:
         scenario = row.get("scenario")
         rfid = row.get("rfid")
+        fixture = row.get("fixture", "goats.csv")
         if scenario not in REQUIRED_SCENARIOS:
             fail(f"seed-ledger.json unknown scenario {scenario!r}")
-        if rfid not in rfids:
-            fail(f"seed-ledger.json scenario {scenario!r} references RFID {rfid!r} absent from goats.csv")
+        if fixture == "goats.csv":
+            if rfid not in rfids:
+                fail(f"seed-ledger.json scenario {scenario!r} references RFID {rfid!r} absent from goats.csv")
+        elif fixture == "invalid-goats.csv":
+            if rfid not in invalid_rfids:
+                fail(f"seed-ledger.json scenario {scenario!r} references RFID {rfid!r} absent from invalid-goats.csv")
+        else:
+            fail(f"seed-ledger.json scenario {scenario!r} uses unknown fixture {fixture!r}")
         if not row.get("expected"):
             fail(f"seed-ledger.json scenario {scenario!r} must document expected validation")
 
@@ -201,11 +243,13 @@ def main() -> int:
     assert_no_boundary_tokens()
     shed_codes = validate_sheds()
     rfids = validate_goats(shed_codes)
-    validate_ledger(rfids)
+    invalid_rfids = validate_invalid_goats()
+    validate_ledger(rfids, invalid_rfids)
     validate_sql_helpers()
     print(
         "google-dev clean-slate fixtures OK: "
-        f"{len(shed_codes)} sheds, {len(rfids)} goats, {len(REQUIRED_SCENARIOS)} scenarios"
+        f"{len(shed_codes)} sheds, {len(rfids)} goats, {len(REQUIRED_SCENARIOS)} scenarios, "
+        f"{len(REQUIRED_INVALID_PROBES)} invalid probes"
     )
     return 0
 

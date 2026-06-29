@@ -4319,6 +4319,7 @@ components:
       additionalProperties: false
       required:
         - sex
+        - dob
         - origin_type
         - entry_date
         - evidence_refs

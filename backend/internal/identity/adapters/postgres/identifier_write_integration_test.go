@@ -85,6 +85,27 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("admin goat create validation rejects unsupported management stage", func(t *testing.T) {
+		cmd := adminGoatCreateCommand(t, "idem-create-goat-stage-invalid", "rfid-admin-create-stage-invalid", "admin-create-oldtag-stage-invalid")
+		invalidStage := "unsupported_stage"
+		validation, err := repo.ValidateAdminGoatCreate(ctx, ports.ValidateAdminGoatCreateCommand{
+			TenantID:             cmd.TenantID,
+			StoredIdempotencyKey: cmd.StoredIdempotencyKey,
+			RequestHash:          cmd.RequestHash,
+			Identifiers:          cmd.Identifiers,
+			FarmID:               cmd.FarmID,
+			ParkID:               &cmd.ParkID,
+			ShedID:               &cmd.ShedID,
+			ManagementStage:      &invalidStage,
+		})
+		if err != nil {
+			t.Fatalf("ValidateAdminGoatCreate: %v", err)
+		}
+		if !hasFieldError(validation.Conflicts, "management_stage", "not_found") {
+			t.Fatalf("expected management_stage not_found conflict, got %#v", validation.Conflicts)
+		}
+	})
+
 	t.Run("admin goat create exact replay rebuilds response and changed body conflicts", func(t *testing.T) {
 		cmd := adminGoatCreateCommand(t, "idem-create-goat-0002", "rfid-admin-create-0002", "admin-create-oldtag-0002")
 		first, err := repo.CreateAdminGoat(ctx, cmd)
@@ -177,28 +198,28 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		}
 		if lifecycleStatus != "alive" {
 			t.Fatalf("lifecycle_status=%q, want alive", lifecycleStatus)
-			}
-			assertNoRows(t, pool, "idempotency after blocked death exit", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
-			assertNoRows(t, pool, "outbox after blocked death exit", "SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+		}
+		assertNoRows(t, pool, "idempotency after blocked death exit", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+		assertNoRows(t, pool, "outbox after blocked death exit", "SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
 
-			approved := cmd
-			approved.ClientIdempotencyKey = "idem-exit-death-approved-0001"
-			approved.StoredIdempotencyKey = meshaTenant + ":criticalDeathGoat:" + created.Goat.GoatID + ":" + approved.ClientIdempotencyKey
-			approved.IdempotencyScope = "criticalDeathGoat"
-			approved.GuardrailApproved = true
-			approved.RequestHash, err = app.CanonicalRequestHashWithSubject(meshaTenant, "criticalDeathGoat", "/admin/goats/{goat_id}/critical-death-exit", created.Goat.GoatID, raw)
-			if err != nil {
-				t.Fatal(err)
-			}
-			exited, err := repo.ExitGoat(ctx, approved)
-			if err != nil {
-				t.Fatalf("approved critical death exit: %v", err)
-			}
-			if exited.Goat.LifecycleStatus != "dead" || exited.Events[0].EventType != "goat.exited" {
-				t.Fatalf("approved critical death result=%#v, want dead goat.exited", exited)
-			}
-			assertGoatLifecycleOutbox(t, pool, approved.StoredIdempotencyKey, exited.Events[0].EventID, created.Goat.GoatID, "goat.exited", created.Goat.GoatID)
-		})
+		approved := cmd
+		approved.ClientIdempotencyKey = "idem-exit-death-approved-0001"
+		approved.StoredIdempotencyKey = meshaTenant + ":criticalDeathGoat:" + created.Goat.GoatID + ":" + approved.ClientIdempotencyKey
+		approved.IdempotencyScope = "criticalDeathGoat"
+		approved.GuardrailApproved = true
+		approved.RequestHash, err = app.CanonicalRequestHashWithSubject(meshaTenant, "criticalDeathGoat", "/admin/goats/{goat_id}/critical-death-exit", created.Goat.GoatID, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exited, err := repo.ExitGoat(ctx, approved)
+		if err != nil {
+			t.Fatalf("approved critical death exit: %v", err)
+		}
+		if exited.Goat.LifecycleStatus != "dead" || exited.Events[0].EventType != "goat.exited" {
+			t.Fatalf("approved critical death result=%#v, want dead goat.exited", exited)
+		}
+		assertGoatLifecycleOutbox(t, pool, approved.StoredIdempotencyKey, exited.Events[0].EventID, created.Goat.GoatID, "goat.exited", created.Goat.GoatID)
+	})
 
 	t.Run("admin goat stage writes goat.stage_changed outbox for rule recheck", func(t *testing.T) {
 		create := adminGoatCreateCommand(t, "idem-create-goat-stage-0001", "rfid-admin-stage-0001", "admin-stage-oldtag-0001")

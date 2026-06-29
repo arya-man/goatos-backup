@@ -331,7 +331,7 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 		normalized.OriginType = "unknown"
 	}
 	if normalized.DOBEstimated == nil {
-		estimated := true
+		estimated := false
 		normalized.DOBEstimated = &estimated
 	}
 	if normalized.RFID == nil && normalized.OldTag == nil && normalized.TempFieldID == nil {
@@ -363,7 +363,9 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 		errorsOut = append(errorsOut, domain.FieldError{Field: "entry_date", Code: "invalid", Message: err.Error()})
 	}
 	var dob *time.Time
-	if normalized.DOB != nil {
+	if normalized.DOB == nil {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "dob", Code: "required", Message: "dob is required"})
+	} else {
 		parsed, err := parseDateField("dob", *normalized.DOB)
 		if err != nil {
 			errorsOut = append(errorsOut, domain.FieldError{Field: "dob", Code: "invalid", Message: err.Error()})
@@ -436,6 +438,7 @@ func validateAdminGoatCreate(ctx context.Context, repo adminGoatRepository, norm
 		ParkCode:             normalized.ParkCode,
 		ShedID:               normalized.ShedID,
 		ShedCode:             normalized.ShedCode,
+		ManagementStage:      normalized.ManagementStage,
 	})
 	if err != nil {
 		return nil, nil, err
