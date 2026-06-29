@@ -18,6 +18,7 @@ docker build -f apps/admin-web/Dockerfile -t goatos-admin-web:local .
 ```text
 /app/bin/api
 /app/bin/outbox-relay
+/app/bin/outbox-dlq
 /app/bin/domain-event-consumer
 /app/bin/domain-event-processed-sweeper
 /app/bin/generate-vaccination-obligations
@@ -48,6 +49,18 @@ docker run --rm \
   -e GOATOS_OUTBOX_ALLOW_NONDURABLE=1 \
   --entrypoint /app/bin/outbox-relay \
   goatos-backend:local -limit 10
+```
+
+Outbox dead letters are inspected and replayed through the operator-only
+`outbox-dlq` binary. The default `goatos-dev` Cloud Run Job runs this in list
+mode. Replay is manual and requires explicit outbox ids plus a reason.
+
+```bash
+docker run --rm \
+  -e DATABASE_URL="${DATABASE_URL}" \
+  -e GOATOS_TENANT_ID="${GOATOS_TENANT_ID}" \
+  --entrypoint /app/bin/outbox-dlq \
+  goatos-backend:local -mode=list -status=dead_letter -limit=100
 ```
 
 Expired shared idempotency keys are cleaned by a bounded job-style binary. Dry

@@ -20,6 +20,10 @@ locals {
       account_id   = "goatos-outbox-relay-dev"
       display_name = "Goat OS dev outbox relay runtime"
     }
+    outbox_dlq = {
+      account_id   = "goatos-outbox-dlq-dev"
+      display_name = "Goat OS dev outbox DLQ operator runtime"
+    }
     domain_consumer = {
       account_id   = "goatos-domain-consumer-dev"
       display_name = "Goat OS dev domain event consumer runtime"
@@ -85,6 +89,7 @@ locals {
   database_clients = toset([
     "api",
     "outbox_relay",
+    "outbox_dlq",
     "domain_consumer",
     "domain_event_processed_sweeper",
     "vaccination_generator",
@@ -106,6 +111,7 @@ locals {
       accessors = [
         "api",
         "outbox_relay",
+        "outbox_dlq",
         "domain_consumer",
         "domain_event_processed_sweeper",
         "vaccination_generator",

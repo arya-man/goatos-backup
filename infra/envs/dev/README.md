@@ -172,6 +172,7 @@ Database:          goatos
 Outbox topic:      goatos-dev-outbox-events
 DLQ topic:         goatos-dev-outbox-events-dlq
 Subscriptions:     goatos-dev-analytics-export, goatos-dev-domain-events
+                   goatos-dev-outbox-events-dlq-inspect
 Cloud Tasks:       goatos-dev-near-term-kernel
 Kernel jobs:       goatos-dev-outbox-relay, goatos-dev-domain-event-consumer,
                    goatos-dev-domain-event-processed-sweeper,
@@ -185,22 +186,18 @@ Kernel jobs:       goatos-dev-outbox-relay, goatos-dev-domain-event-consumer,
                    goatos-dev-idempotency-key-sweeper,
                    goatos-dev-sop-review-fanout-retry
 Migration job:     goatos-dev-migrate (manual, unscheduled)
-```
-
-Goal 2 topology proof items:
-
-```text
-outbox-dlq                  # Pub/Sub/native DLQ drain/replay/import runner
+Operator jobs:     goatos-dev-outbox-dlq (manual, unscheduled)
 ```
 
 `inventory-batch-reconciler`, `idempotency-key-sweeper`,
 `domain-event-processed-sweeper`, and `sop-review-fanout-retry` are in the
 current Cloud Run Job/Scheduler map and must be proven in Google E2E.
 `goatos-dev-migrate` is a separate unscheduled Cloud Run Job and is the only
-shared dev schema applier. `outbox-dlq` exists as a backend command, but the
-Pub/Sub/native DLQ drain/replay/import path still needs a scheduled job or a
-documented dev-safe operator runner before calling the dev kernel runtime
-complete.
+shared dev schema applier. `goatos-dev-outbox-dlq` is a separate unscheduled
+Cloud Run Job for database outbox dead-letter listing and explicit replay.
+`goatos-dev-outbox-events-dlq-inspect` is the native Pub/Sub DLQ inspection
+subscription; Goal 2 must prove a dev-safe pull/ack workflow before calling the
+dev kernel runtime complete.
 
 The notification dispatcher is wired to Secret Manager containers for
 `GOATOS_SLACK_WEBHOOK_URL` and `GOATOS_INCIDENT_WEBHOOK_URL`. Terraform creates

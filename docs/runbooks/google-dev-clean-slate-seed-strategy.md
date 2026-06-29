@@ -150,6 +150,8 @@ Do not call the dev deploy complete until there is evidence for:
 - outbox relay and domain consumer processing a seeded event
 - domain processed-event retention sweeper dry-run showing bounded old-row
   cleanup
+- outbox DLQ operator job list-mode output
+- Pub/Sub DLQ inspect subscription pull/ack proof in dev-safe mode
 - sweeper and projector logs
 - notification/DLQ dev-safe visibility
 - screenshots for the vaccination slice and command surfaces

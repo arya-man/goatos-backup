@@ -47,6 +47,16 @@ output "cloud_run_migration_job" {
   value       = google_cloud_run_v2_job.migrate.name
 }
 
+output "cloud_run_outbox_dlq_job" {
+  description = "Cloud Run Job name for manual outbox DLQ list/replay operations."
+  value       = google_cloud_run_v2_job.outbox_dlq.name
+}
+
+output "pubsub_outbox_dlq_inspect_subscription" {
+  description = "Pub/Sub subscription short id for inspecting native DLQ messages."
+  value       = google_pubsub_subscription.outbox_events_dlq_inspect.name
+}
+
 output "secret_container_ids" {
   description = "Secret Manager container ids; values are populated out-of-band later."
   value = {

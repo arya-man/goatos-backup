@@ -263,6 +263,66 @@ resource "google_cloud_run_v2_job" "migrate" {
   depends_on = [google_project_service.enabled]
 }
 
+resource "google_cloud_run_v2_job" "outbox_dlq" {
+  name                = "goatos-dev-outbox-dlq"
+  location            = var.region
+  deletion_protection = false
+  labels              = local.labels
+
+  template {
+    task_count  = 1
+    parallelism = 1
+
+    template {
+      service_account = google_service_account.runtime["outbox_dlq"].email
+      timeout         = "120s"
+      max_retries     = 0
+
+      containers {
+        image   = local.backend_image
+        command = ["/app/bin/outbox-dlq"]
+        args    = ["-mode=list", "-status=dead_letter", "-limit=100", "-timeout=60s"]
+
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+
+        env {
+          name  = "GOATOS_TENANT_ID"
+          value = var.dev_tenant_id
+        }
+
+        env {
+          name = "DATABASE_URL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.container["database_url"].secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        volume_mounts {
+          name       = "cloudsql"
+          mount_path = "/cloudsql"
+        }
+      }
+
+      volumes {
+        name = "cloudsql"
+        cloud_sql_instance {
+          instances = [google_sql_database_instance.core.connection_name]
+        }
+      }
+    }
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
 resource "google_cloud_run_v2_job" "kernel" {
   for_each = local.kernel_jobs
 

@@ -57,6 +57,17 @@ resource "google_pubsub_subscription" "domain_events" {
   labels = local.labels
 }
 
+resource "google_pubsub_subscription" "outbox_events_dlq_inspect" {
+  name  = "goatos-dev-outbox-events-dlq-inspect"
+  topic = google_pubsub_topic.outbox_events_dlq.id
+
+  ack_deadline_seconds       = 60
+  message_retention_duration = "604800s"
+  retain_acked_messages      = false
+
+  labels = local.labels
+}
+
 resource "google_pubsub_topic_iam_member" "outbox_relay_publisher" {
   topic  = google_pubsub_topic.outbox_events.name
   role   = "roles/pubsub.publisher"
