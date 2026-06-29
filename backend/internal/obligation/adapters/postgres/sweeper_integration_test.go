@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -301,24 +300,30 @@ func TestSM4SweeperKeepsOneScopeInOneBatchAcrossPages(t *testing.T) {
 		t.Fatalf("rule: %v", err)
 	}
 
-	for i := 0; i < 1001; i++ {
-		goatID := fmt.Sprintf("40000000-0000-4000-8000-%012d", i)
-		if _, err := pool.Exec(ctx, `
-INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id)
-VALUES ($1::uuid, $2::uuid, 'alive', 'clean', $3::uuid, $4::uuid, $4::uuid)
-ON CONFLICT (goat_id) DO NOTHING`, goatID, tenantID, meshaParty, cbePark); err != nil {
-			t.Fatalf("seed goat %d: %v", i, err)
-		}
-		_, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
-			TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
-			TargetType: "goat", TargetID: goatID, ScopeType: "park", ScopeID: cbePark,
-			DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled",
-			IdempotencyKey: "page-split-obligation-" + goatID,
-			Sequence:       1,
-		})
-		if err != nil || !applied {
-			t.Fatalf("insert obligation %d: applied=%v err=%v", i, applied, err)
-		}
+	if _, err := pool.Exec(ctx, `
+WITH seeded_goats AS (
+  SELECT ('40000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid AS goat_id
+  FROM generate_series(0, 1000) AS i
+), inserted_goats AS (
+  INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id)
+  SELECT goat_id, $1::uuid, 'alive', 'clean', $2::uuid, $3::uuid, $3::uuid
+  FROM seeded_goats
+  ON CONFLICT (goat_id) DO NOTHING
+  RETURNING goat_id
+)
+INSERT INTO obligation_instances (
+  tenant_id, protocol_version_id, rule_id, target_type, target_id,
+  scope_type, scope_id, due_at, status, idempotency_key, "sequence"
+)
+SELECT
+  $1::uuid, $4::uuid, $5::uuid, 'goat', goat_id,
+  'park', $3::uuid, '2026-08-01 00:00:00+00'::timestamptz, 'scheduled',
+  'page-split-obligation-' || goat_id::text, 1
+FROM inserted_goats`, tenantID, meshaParty, cbePark, versionID, ruleID); err != nil {
+		t.Fatalf("seed page-split obligations: %v", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE protocol_version_id=$1 AND batch_id IS NULL`, versionID); got != 1001 {
+		t.Fatalf("seeded obligations = %d, want 1001", got)
 	}
 
 	sweep := oblapp.NewSweeperService(repo, nil, nil)
