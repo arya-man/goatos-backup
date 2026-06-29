@@ -202,6 +202,8 @@ kid_weight_band_adg_rules
 warmup_stage_policy
 feed_item_vectors
 feed_type_constraints
+quantity_weight_thresholds
+validation_tolerances
 session_policy
 eligibility_exclusions
 rounding_policy
@@ -213,12 +215,19 @@ source_metadata
 Workbook-derived config enters through typed import or admin CRUD, never by
 reading live formulas. Import/review support must cover feed item nutrient
 vectors, feed costs, feed-type constraints, breed/species aliases, stage/tag
-aliases, kid weight-band/ADG rules, warm-up/pregnancy policy,
-eligibility/exclusions, session slots, feed-set templates, transport maps,
-proof thresholds, and reviewed ration solver/import outputs. Each import family
-must carry source checksum, row-level validation, dry-run parity preview when a
-workbook source exists, dead-letter/repair state, reviewer/approval metadata,
-and audit.
+aliases, kid weight-band/ADG rules, quantity/weight thresholds,
+warm-up/pregnancy policy, eligibility/exclusions, session slots,
+feed-set templates, transport maps, proof thresholds, validation tolerances, and
+reviewed ration solver/import outputs. Each import family must carry source
+checksum, row-level validation, dry-run parity preview when a workbook source
+exists, dead-letter/repair state, reviewer/approval metadata, and audit.
+
+KT examples are candidate rows for those families, not code constants. The
+import/review layer must be able to represent feed vectors/energy capacity,
+`80/20` packing or distribution factors, grain vs dry/green leaf feed groups,
+`400-500g` and `600g` thresholds, `F1` `11-15kg`, `F2` `15-20kg`, pregnancy
+policy, and future tag-reader/device evidence as reviewed, rejected, or
+draft-only source values.
 
 `session_policy` is a versioned admin config family, not a fixed enum. It must
 store active session slots for the target date with slot code, label, serving
@@ -230,6 +239,11 @@ Validators must require at least one active slot, unique codes/order per scope,
 weights that sum to the full daily as-fed quantity for each applicable feed
 item/scope, and explicit supersession if a policy change touches an already
 generated target date.
+
+Pregnant-animal timing notes from the KT, such as `12:30-15:00` or
+`14:00-15:00`, are not product clocks. They can become scoped slot/session
+policy only through the same effective-dated approval path, and must not rewrite
+the docx `09:00`/`15:00` default by accident.
 
 `nutrition_cohort_key` and `ration_context_resolver_policy` keep source
 constraint tables separate from shed truth. Uploaded breed/tag/energy constraint
@@ -597,6 +611,8 @@ packing_shortfall_tolerance_base_units
 packing_overage_tolerance_base_units
 wastage_percent_warning_threshold
 wastage_percent_blocking_threshold
+feed_context_match_percent_threshold
+warmup_allowance_percent
 feed_item_overrides
 park_overrides
 effective_from
@@ -604,8 +620,9 @@ review_status
 source_reference
 ```
 
-Legacy evidence gives candidate values, including expected-vs-actual feed
-comparison and a 20 percent wastage flag. These may be seeded only as draft or
+Legacy and KT evidence gives candidate values, including expected-vs-actual feed
+comparison, a 20 percent wastage flag, `90-95%` shed/pack/breed/tag/energy
+matching, and about `5%` warm-up allowance. These may be seeded only as draft or
 candidate config until Feed Director review approves them.
 
 ## 13. API Contracts
@@ -804,8 +821,9 @@ Required tests/checks:
 2. Close `G3` by first confirming the docx default clocks, then auditing
    legacy installed trigger functions, archive/retry/watchdog behavior, and
    proof/stock side effects only for retain/retire/replace cutover decisions.
-3. Close `G4`-`G6`: add ration DSL validators, provenance requirements,
-   Warmup/K0/K1/Experiment sign-off, and quantity/precision decisions.
+3. Close `G4`-`G6`: add ration DSL validators, provenance requirements, KT
+   candidate parameter review, Warmup/pregnancy/K0/K1/Experiment sign-off, and
+   quantity/precision decisions.
 4. Add generation run/count snapshot/generation row/manual bridge-log
    migrations.
 5. Build full generation service and idempotency tests.

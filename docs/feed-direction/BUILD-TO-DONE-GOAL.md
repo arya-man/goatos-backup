@@ -46,6 +46,9 @@ Use this order whenever sources disagree:
    are workbook/tab/formula evidence for import mapping, parity fixtures, known
    validation gaps, ration tables, session templates, processed flags, and
    execution/proof stages. They are not runtime truth or target schema.
+   Workbook dimensions such as breed, shed tag/stage, age, pregnancy/warm-up,
+   energy/feed vectors, feed factors, and weight thresholds must become typed
+   reviewed config families, not copied formulas.
 4. Legacy Slack/App Script workflows are parity and cutover evidence for stage
    behavior, retries, proof, rejection, reset/re-send, dedupe, notifications, and
    security cleanup. They are never runtime authority.
@@ -140,17 +143,23 @@ language.
    refreshed solve replaces the lookup table wholesale with no versioned blend.
    Feed Transfer KT-style uploaded breed/tag/energy sheets are ration/constraint
    source evidence only; they must map into reviewed nutrition cohort keys and do
-   not prove shed placement. `G4` must also close the typed importer/admin CRUD
-   path for feed vectors, costs, constraints, aliases, eligibility, ration
+   not prove shed placement. KT examples such as feed vectors/energy capacity,
+   `80/20`, grain vs dry/green leaf groups, `400-500g`, `600g`, `F1`
+   `11-15kg`, and `F2` `15-20kg` must be approved, rejected, or draft-only
+   before generation can depend on them. `G4` must also close the typed
+   importer/admin CRUD path for feed vectors, costs, constraints, aliases,
+   eligibility, quantity/weight thresholds, validation tolerances, ration
    outputs, source hashes, row validation, dry-run parity preview, repair/DLQ,
    review, approval, publish, and audit.
 4. `G5` Eligibility and stage-tag/session policy: Warmup, K0/K1, Experiment, ICU,
-   Quarantine, Flushing, Breeding, F2/Fattening, breed aliases, and versioned
-   session-slot/feed-set policy are approved. The docx default is two slots with
-   50/50 split, but admins may add, disable, reorder, or reweight slots only
-   through approved effective-dated Feed Direction protocol config with
-   validation that active slot weights cover the full daily as-fed quantity and
-   explicit supersession behavior for already-generated dates.
+   Quarantine, Flushing, Breeding, pregnancy, F2/Fattening, breed aliases, and
+   versioned session-slot/feed-set policy are approved. The docx default is two
+   slots with 50/50 split, but admins may add, disable, reorder, or reweight
+   slots only through approved effective-dated Feed Direction protocol config
+   with validation that active slot weights cover the full daily as-fed quantity
+   and explicit supersession behavior for already-generated dates. KT pregnant
+   windows such as `12:30-15:00`/`14:00-15:00` are session-policy candidates
+   only; they do not override the docx clocks unless approved.
 5. `G6` Quantity and precision boundary: deterministic whole base units into the
    current inventory app port, exact persistence to SQL `numeric + quantity_unit`,
    or app-port decimal widening before fractional feed use.
@@ -163,7 +172,9 @@ language.
    records with durable indexed `stage_kind` before bucket APIs.
 7. `G8` Transport map and checklist/list equivalent where legacy overlap
    preserves that work shape.
-8. `G9` Packing/wastage thresholds and typed rework/re-issue policy.
+8. `G9` Packing/wastage thresholds and typed rework/re-issue policy, including
+   explicit approval/rejection of KT-style `90-95%` shed/pack/breed/tag/energy
+   matching and warm-up allowance.
 9. `G10` Slack security closeout; if bounded instead of closed, Slack bridge is
    disabled and cannot count as done.
 10. `G11` Reminder/escalation SLA.
@@ -291,6 +302,11 @@ code, docs, seeds, or UI:
   sessions as versioned admin config so a Feed Director can draft, and COO/CEO
   can publish, additional slots or different split weights with source evidence,
   validation, and effective dates.
+- Feed parameters vary by reviewed cohort dimensions such as breed, shed
+  tag/stage, kid weight band/ADG, energy/feed vector policy, pregnancy, warm-up,
+  and explicit exclusions. KT numbers (`80/20`, `400-500g`, `600g`, F1/F2
+  weight ranges, pregnant windows, `90-95%` matching) are source candidates only
+  until reviewed config publishes or rejects them.
 - Base Count cadence moved from roughly weekly to roughly monthly and may change
   again. Store cadence as reviewed policy or ops schedule; do not hardcode it.
 - Initial RationTable solver scope excludes item-level feed ceilings and

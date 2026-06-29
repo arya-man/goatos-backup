@@ -143,6 +143,16 @@ it does not provide authoritative shed placement. Therefore:
 - Missing shed tag, cohort split, or ration-context evidence is a generation
   blocker and process exception, not a default-ration fallback.
 
+KT-specific numbers are import/review candidates, not hardcoded constants. The
+review set includes feed unit vectors/energy capacity, an `80/20` packing or
+distribution factor, grains vs dry/green leaf feed groups, `400-500g` and
+`600g` examples, `F1` `11-15kg`, `F2` `15-20kg`, pregnant-animal timing notes
+around `12:30-15:00`, and `90-95%` shed/pack/breed/tag/energy validation with a
+warm-up allowance. Validators must keep those examples separate from the docx
+defaults: the default session split remains `50/50` until an effective-dated
+published policy changes it, and product clocks still come from the docx unless
+the owner approves otherwise.
+
 A new physical Base Count becomes canonical immediately. Any discrepancy against
 the prior replay creates investigation/accountability work, but that work does
 not gate adoption of the physical count as the new ledger anchor for subsequent
@@ -240,11 +250,12 @@ Workbook-derived config must enter the DSL through typed import or admin CRUD,
 not through live spreadsheet formulas. The importer/config surface must cover at
 least feed item nutrient vectors, feed costs, feed-type constraints,
 breed/species aliases, stage/tag aliases, kid weight-band/ADG rules,
-warm-up/pregnancy policy, eligibility/exclusions, session slots, feed-set
-templates, transport maps, proof thresholds, and reviewed ration solver/import
-outputs. Each family needs source checksum, row-level validation, dry-run parity
-preview where a workbook source exists, dead-letter/repair state, reviewer,
-approval metadata, and business audit.
+quantity/weight thresholds, warm-up/pregnancy policy, eligibility/exclusions,
+session slots, feed-set templates, transport maps, proof thresholds, validation
+tolerances, and reviewed ration solver/import outputs. Each family needs source
+checksum, row-level validation, dry-run parity preview where a workbook source
+exists, dead-letter/repair state, reviewer, approval metadata, and business
+audit.
 
 Typed validators/reference tables are allowed when they protect correctness
 (for example stage aliases, feed item nutrient vectors, or optimizer outputs),

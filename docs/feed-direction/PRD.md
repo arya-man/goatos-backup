@@ -140,15 +140,26 @@ reviewed source-backed context. If the resolver cannot prove the shed tag/cohort
 for a projected count row, generation blocks with visible exception work instead
 of guessing a ration.
 
+KT-specific examples are directional source evidence and must be validated before
+publication: feed unit vectors/energy capacity, an `80/20` packing or
+distribution factor, grain vs dry/green leaf feed-type grouping, `400-500g` and
+`600g` quantity/weight examples, `F1` around `11-15kg`, `F2` around `15-20kg`,
+pregnant-animal priority windows around `12:30-15:00`, and `90-95%`
+shed/pack/breed/tag/energy validation with warm-up allowance. These examples do
+not override `Feed, Shiftings and Count.docx`: `80/20` is not the default
+session split, and KT scheduling windows are not GoatOS product clocks unless
+Feed Director approval turns them into effective-dated policy.
+
 The workbook and legacy automation review confirms why this cannot be a
 Sheet-clone build. Legacy `Count-DB`, validation, supply-planning, and template
 tabs use formulas, hidden copies, string transforms, processed flags, and script
 glue to bridge count rows to ration rows. GoatOS must expose governed admin/data
 ops CRUD and import flows for the business-managed pieces those tabs attempted
 to hold: feed item nutrient vectors and costs, feed-type constraints, breed and
-stage/tag aliases, kid weight-band/ADG rules, warm-up/pregnancy policy,
-eligibility/exclusions, ration solver/import outputs, transport maps, proof
-thresholds, and session-slot/feed-set policy.
+stage/tag aliases, kid weight-band/ADG rules, quantity/weight thresholds,
+warm-up/pregnancy policy, eligibility/exclusions, ration solver/import outputs,
+transport maps, proof thresholds, validation tolerances, and
+session-slot/feed-set policy.
 
 The full NRC optimizer UI can wait, but ration quantity provenance cannot. The
 first slice must either run a non-UI RationTable solver for the source-required
@@ -442,23 +453,28 @@ Under reopened `G1`, when building Feed Direction UI:
    ration values, kid weight-band/ADG inputs, roughage/category floor values, and
    how uploaded breed/tag/energy constraint tables map into reviewed ration
    cohort keys through typed import/CRUD/review/publish, not workbook formulas.
+   Explicitly review KT examples such as `80/20`, `400-500g`, `600g`, `F1`
+   `11-15kg`, and `F2` `15-20kg` before treating them as protocol values.
 6. `G5`: Confirm Warmup 14-day transition handling, ICU, Quarantine, Flushing,
    Breeding, K0/K1, Experiment-shed, F2/Fattening, SIROHI->Beetal, and other
    alias/exclusion policies, plus which admin roles may draft/publish
    effective-dated session-slot changes.
-7. `G6`: Confirm feed unit and baking-soda precision policy before implementing
+7. `G9`: Confirm whether KT `90-95%` shed/pack/breed/tag/energy matching and
+   warm-up allowance become reviewed validation thresholds, draft-only warnings,
+   or rejected legacy heuristics.
+8. `G6`: Confirm feed unit and baking-soda precision policy before implementing
    inventory wiring.
-8. `G7`: Confirm the stage model and durable `stage_kind` home: typed stage
+9. `G7`: Confirm the stage model and durable `stage_kind` home: typed stage
    records, indexed obligation context, or first-class completion/stage rows.
-9. `G8`: Confirm transport consolidation map ownership and whether it is
+10. `G8`: Confirm transport consolidation map ownership and whether it is
    maintained in Locations config, Feed protocol config, or a dedicated
    source-backed mapping; decide whether a transport checklist entity is needed.
-10. `G9`: Confirm packing discrepancy tolerance, wastage variance thresholds, and
+11. `G9`: Confirm packing discrepancy tolerance, wastage variance thresholds, and
    how legacy alert/reset evidence maps into GoatOS typed rework/reissue.
-11. `G10`: Assign security remediation ownership, inventory affected legacy
+12. `G10`: Assign security remediation ownership, inventory affected legacy
    scripts, rotate or revoke Slack tokens/webhook shared secrets, move any
    retained bridge credential to secret storage, and prove GoatOS API-only
    ingress before any Slack bridge is reused. If `G10` is owner-deferred, the
    Slack bridge remains disabled and no Slack overlap/reuse counts as done.
-12. `G11`-`G15`: Confirm reminder/escalation SLA, NotificationGateway routing,
+13. `G11`-`G15`: Confirm reminder/escalation SLA, NotificationGateway routing,
    missed/recovery events, audit/observability, and command-lens field mapping.

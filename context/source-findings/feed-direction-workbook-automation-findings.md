@@ -59,6 +59,12 @@ planning and execution, not a clean domain model:
 - `CPT Validation`, `CBE Validation`, hidden validation copies,
   `Validation-BW`, and `Feed-Energy-Protein` contain formula-driven ration and
   energy/protein logic. Some hidden copies contain broken references.
+- Those validation and feed-energy tabs combine feed vectors (`Energy`,
+  `Dry Matter Factor`, `Wastage Factor`, `Net Energy`) with breed/variation
+  requirements and feed factors. The inspected tabs include dimensions such as
+  Pregnant, M0/Mother, Non Pregnant, Warmup, K0/K1, F2/Fattening, Flushing,
+  Milking, breed aliases, and weight/energy-style thresholds. These are
+  candidate config families, not stable formulas to execute in production.
 - `Template` defines per-farm sessions and feed sets.
 - `Feed Packing Form`, `Feed Transport Form`, and `Feed Consumption & Wastage`
   are execution/proof surfaces with media links and processed/reconciliation
@@ -95,8 +101,9 @@ capabilities:
   dry-run parity preview, dead-letter/repair state, and business audit;
 - CRUD/review/publish surfaces for feed item nutrient vectors, feed costs,
   feed-type constraints, breed aliases, stage/tag aliases, kid weight-band/ADG
-  rules, warm-up/pregnancy policy, eligibility/exclusions, transport maps,
-  proof thresholds, and session-slot policy;
+  rules, quantity/weight-band thresholds, warm-up/pregnancy policy,
+  eligibility/exclusions, transport maps, proof thresholds, validation
+  tolerances, and session-slot policy;
 - a reviewed resolver from physical count projection rows
   (`park + shed + breed + horizon`) to approved nutrition/ration cohort keys;
 - versioned `feed_direction` protocol config with immutable effective-dated
