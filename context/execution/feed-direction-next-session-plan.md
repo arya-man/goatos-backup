@@ -78,14 +78,16 @@ and projections/read APIs.
 <a id="next-session-feed-diff-cancel-helper"></a>
 
 4. Diff and bridge:
-   - Generate full affected-shed restatement rows for pre-cutoff shiftings;
-     never model Diff as a numeric delta-only row.
+   - Generate canonical affected-shed restatement rows for pre-cutoff shiftings;
+     source-facing output may still present the net correction operators expect.
    - Explicitly cancel/supersede stale open obligations for affected targets
      before creating replacements; model the feed helper after
      `CancelOpenVaccinationObligationsForGoatExceptVersions`.
    - Do not rely on idempotent insert/no-op alone: a replay key for the new
      direction/run/version does not cancel old open work and can leak stale
      instructions into stock reservation.
+   - Apply shifting events idempotently by event id/logical event key, and fail
+     closed when cohort/stage impact is unresolved or free-text-only.
    - Log high-priority post-cutoff 2x bridge events with proof links.
    - Do not implement the superseded 07:30 next-morning Diff.
 
@@ -97,6 +99,10 @@ and projections/read APIs.
      release the remainder through the inventory movement path.
    - Keep stock-out as blocked/escalation state, not a bare decrement.
    - Keep missed/overdue computed by the sweeper/deadline kernel.
+   - Use reviewed transport consolidation config where direction sheds map to
+     grouped transport sheds.
+   - Carry source-backed packing discrepancy and wastage variance thresholds
+     into exception/rework state.
 
 6. API and clients:
    - Add HTTP routes for generation status, direction lists, execution/history,
@@ -119,15 +125,21 @@ and projections/read APIs.
 - Feed Direction Sheet field shape and processed flags become idempotent
   generation/task/proof state.
 - Count-DB and Projected-DB are source evidence and fixtures, not runtime truth.
-- Session split is 50/50 until source-backed config changes it.
-- Rounding, K0/K1 exclusions, F2/Fattening normalization, and processed-flag
-  behavior are source-blocked until captured as explicit, tested transform rules.
+- Session split is 50/50 by the June source default, but legacy per-farm
+  session/feed-set templates must be imported as config or explicitly superseded
+  by Feed Director sign-off.
+- Rounding grain, K0/K1 exclusions and fail-closed cohort impact,
+  F2/Fattening normalization, transport consolidation, discrepancy/wastage
+  thresholds, and processed-flag behavior are source-blocked until captured as
+  explicit, tested transform/config rules.
 - Slack is notification/cutover bridge only and must go through GoatOS APIs.
 
 ## Verification gates
 
 - Unit tests for ration key normalization, timing decisions, Diff, and bridge.
 - Integration tests for generation idempotency and stale-obligation cancel.
+- Import/replay tests for legacy Feed rows, stage proof rows, applied shifting
+  events, and duplicate/cross-source overlap cases.
 - Integration tests for reserve/consume/release through generic inventory.
 - API route tests and OpenAPI generated-client checks.
 - SQL plan validation for generation/list queries.

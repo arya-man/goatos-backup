@@ -521,7 +521,9 @@ Goat OS implications:
 
 - Feed Direction rows should become generation snapshots/read-model rows and
   shed/session/feed obligations, not a runtime Sheet clone.
-- Diff should mean full affected-shed restatement, not a numeric delta-only row.
+- Diff has two layers: source-facing/operator output may be a net correction,
+  while GoatOS canonical generation stores affected-shed restatement rows and
+  explicitly supersedes stale work.
 - Processed flags become idempotent task, proof, verification, and completion
   state; they must not remain boolean source-of-truth columns.
 - Packing, transport, consumption, and wastage are first-class feed execution

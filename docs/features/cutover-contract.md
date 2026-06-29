@@ -10,6 +10,7 @@ Current users:
 
 - `docs/features/locations/PRD.md`
 - `docs/features/locations/TRD.md`
+- `docs/feed-direction/TRD.md`
 
 Old counts and mortality feature specs were deleted from the active tree. Do
 not use this contract to revive the old dashboard parity track.

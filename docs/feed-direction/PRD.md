@@ -1,6 +1,6 @@
 # Feed -> Feed Direction - Product Requirements (PRD)
 
-**Status:** Draft v2, corrected against committed GoatOS state and June 2026 source docs
+**Status:** Draft v3, refined against source-first counter-review
 **Date:** 2026-06-29
 **Vertical:** Feed. Feed Direction is the first Feed module. Parks are a scope
 dimension, not the owning vertical.
@@ -35,8 +35,9 @@ The source-backed operating promise is:
    one-day projection.
 3. GoatOS issues a full next-day Feed Direction at the configured morning publish
    time.
-4. Eligible shiftings before the cutoff produce a Diff that restates the affected
-   sheds only.
+4. Eligible shiftings before the cutoff produce a Diff. Source-facing Diff may
+   be presented as a net correction, but GoatOS stores and reconciles it as an
+   affected-shed restatement so stale open work cannot survive.
 5. Packing/staging reserves and consumes stock through the generic inventory
    ledger.
 6. Packing, transport, consumption, wastage, and bridge exceptions are recorded
@@ -48,7 +49,7 @@ Use this priority when sources disagree:
 
 | Priority | Source | Use |
 | --- | --- | --- |
-| 1 | `Feed, Shiftings and Count.docx` v1.1, June 2026 | Canonical timing, count/shifting model, Diff semantics, bridge protocol, ration-key model |
+| 1 | `Feed, Shiftings and Count.docx` v1.1, June 2026 | Canonical timing, count/shifting model, source-facing Diff semantics, bridge protocol, ration-key model |
 | 2 | Feed Director operations and Feed Directions Automation docs/sheets | Legacy parity, sheet fields, form stages, transport proof/rejection, Slack notification behavior |
 | 3 | Counting DB reconstruction | Count fixture/reference shape, not runtime truth |
 | 4 | Older GoatOS feed docs and mock feed panels | Historical UI/direction references only where not contradicted above |
@@ -88,9 +89,10 @@ trigger when feed costs or available feed types change.
 Feed eligibility is also source-backed config, not presentation cleanup. K0/K1
 milk-fed cohorts must not get normal packed-feed obligations, and Experiment
 sheds are zero-direction / special-tag exclusions unless a reviewed Feed policy
-explicitly says otherwise. Legacy per-farm session/feed-set templates are
-evidence to review; the June 2026 source default remains two sessions with a
-50/50 split until the Feed Director approves a different template policy.
+explicitly says otherwise. The June 2026 source default is two sessions with a
+50/50 split. Legacy per-farm templates still carry session labels and per-session
+feed sets; the first implementation must either import them as reviewed config or
+record Feed Director sign-off that the two-session simplification supersedes them.
 
 ## 4. Actors and authority
 
@@ -111,7 +113,8 @@ published feed protocol rule_dsl
   -> tomorrow projected count, one-day horizon only
   -> Day N full direction run for Day N+1
   -> shed/session/feed obligations and packing tasks
-  -> eligible pre-cutoff shiftings produce affected-shed restatement Diffs
+  -> eligible pre-cutoff shiftings produce Diff runs from affected-shed
+     restatement snapshots
   -> stale open obligations for affected sheds are canceled/superseded explicitly
   -> 15:00 packing/staging starts, stock reserve happens here
   -> accepted packing proof consumes actual quantity and releases remainder
@@ -132,7 +135,15 @@ shiftings with deterministic source, destination, cohort/stage impact, and
 proof; completion/proof/verification then gate Day N+1 realization,
 reconciliation, exceptions, and rework. Pending requests without authorization,
 and rejected or canceled movements, remain visible process work and must not
-alter Feed Direction quantities.
+alter Feed Direction quantities. Every shifting event that contributes to an
+aggregate count must be applied idempotently by `shifting_event_id`, so replay or
+redelivery cannot double-apply the same movement into the realized ledger.
+
+The count contract must fail closed on cohort/stage ambiguity. A movement whose
+cohort/stage impact is missing, unresolved, or still free-text-only is excluded
+from realized count and one-day projection, creates durable process-exception
+work, and cannot silently change ration selection. Raw comments may be preserved
+for audit; they are not policy truth.
 
 Repo compatibility note: the committed Counts tables are source-row sync and
 projection tables, and committed movement state is per-goat. They are not yet
@@ -151,6 +162,15 @@ processed flags as Boolean source-of-truth columns. Short-packed or rejected
 packing proof must re-open/re-issue work rather than silently accepting a lower
 quantity.
 
+Transport also has its own physical grain: multiple direction sheds can map to a
+smaller transport-shed list through fully or partially consolidated shed names.
+That mapping must be source-backed config owned with Locations/Feed operations,
+not inferred from string labels in feed code.
+
+Consumption/wastage proof must not stop at storing numbers. The first slice must
+carry source-backed exception thresholds for packing expected-vs-actual mismatch
+and wastage variance, with durable escalation/rework when the threshold is crossed.
+
 High-priority additions after the cutoff do not get a next-morning system Diff.
 They use the source-defined bridge protocol: the health/feed team places a 2x
 daily ration at the destination shed with video proof, no source-shed claw-back,
@@ -164,7 +184,7 @@ reconciliation can see it.
 | --- | --- | --- |
 | Day N 09:00 | Full Feed Direction for Day N+1 | Computed from tomorrow projected count; no stock locked yet |
 | Day N 13:30 | Cutoff | Changes after this do not enter Day N+1 formal Diff |
-| Day N 13:30-13:45 | Diff | Full restatement for affected sheds/session/feed rows only |
+| Day N 13:30-13:45 | Diff | Source-facing net correction may be emitted; canonical GoatOS run stores affected-shed/session/feed restatement rows and supersedes stale work |
 | Day N 15:00 | Packing/staging | Stock reserve starts here; feed staged outside sheds |
 | Day N+1 09:00 | Session 1 served | Proof/consumption recorded |
 | Day N+1 15:00 | Session 2 served | Proof/consumption recorded |
@@ -219,15 +239,22 @@ When Feed Direction scope is reopened:
 ## 9. Success metrics
 
 - Full direction generated on the configured morning SLA.
-- Diff generated before staging as full affected-shed restatement for all
-  eligible pre-cutoff shiftings.
+- Diff generated before staging for all eligible pre-cutoff shiftings: operator
+  output can be a net correction, while canonical rows are affected-shed
+  restatements with explicit cancel/supersede of stale work.
 - Count gates are horizon-specific: realized counts and reconciliation require
   the configured applied state, while one-day projection may include only
   authorized/directed future-effective shiftings for the target date.
+- Shifting ledger application is idempotent by event id, and unresolved
+  cohort/stage impact fails closed before counts or ration selection change.
 - K0/K1 and Experiment-shed eligibility exclusions do not generate normal packed
   feed obligations.
 - Zero stale open obligations after an affected-row Diff or cancel/rebuild.
 - Stock never goes negative and every reserve/consume/release is ledger-backed.
+- Transport obligations use reviewed direction-shed to transport-shed
+  consolidation config where source operations require grouped staging.
+- Packing discrepancy and wastage variance thresholds create visible exception or
+  rework state, not only stored percentages.
 - Packing, transport, consumption, wastage, and bridge proof each have visible
   verification state.
 - Rejected proof or packing shortfall records a reason and creates rework/next
@@ -264,3 +291,7 @@ When Feed Direction scope is reopened:
 12. Confirm source-backed transform rules before implementation: feed rounding
    exceptions, K0/K1 exclusions, F2/Fattening alias normalization, and processed
    flag idempotency.
+13. Confirm transport consolidation map ownership and whether it is maintained in
+   Locations config, Feed protocol config, or a dedicated source-backed mapping.
+14. Confirm packing discrepancy tolerance and wastage variance thresholds per park
+   or feed item; legacy evidence used a 20% wastage flag as an alert threshold.

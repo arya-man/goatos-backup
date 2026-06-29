@@ -119,6 +119,9 @@ that are useful for migration fixtures and parity checks.
 - Shifting events that affect feed counts must carry structured stage/cohort
   impact. Legacy K0 Mother/Kid handling used comments as a fallback, which is a
   migration gap to close rather than a behavior to preserve.
+- A movement with missing or unresolved stage/cohort impact must fail closed:
+  exclude it from realized and one-day projected counts, raise durable
+  process-exception work, and preserve raw comments only as audit context.
 - The Feed Direction timing model should be validated against this source family:
   count updates, shifted/active goat views, and projected-count views are
   separate evidence surfaces that need deterministic import/replay semantics.

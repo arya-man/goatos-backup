@@ -151,7 +151,9 @@ Stock is reserved/consumed at the **packing** phase (SM-4 execute).
    stage/tag counts. Projection horizon is exactly one day. For this forward
    projection, include authorized/directed future-effective shiftings effective
    on Day N+1; physical proof gates tomorrow's realization/reconciliation, not
-   initial projection.
+   initial projection. Shifting events must carry structured cohort/stage impact
+   and must be applied idempotently by event id; unresolved impact fails closed
+   into process-exception work instead of changing counts.
 3. Apply source-backed feed eligibility exclusions and ration transforms.
 4. Write a generation run + source/planning snapshot rows, then create
    shed/session/feed obligations for Day N+1. **No stock reservation yet.**
@@ -163,8 +165,9 @@ Stock is reserved/consumed at the **packing** phase (SM-4 execute).
    before or at the cutoff under the horizon-aware projection policy:
    authorized/directed future-effective moves for projection, applied/completed
    moves for realized corrections.
-2. Generate full restatement rows for affected shed/session/feed targets only.
-   This is not an all-shed v2 restatement and not a bare numeric delta.
+2. Generate canonical restatement rows for affected shed/session/feed targets
+   only. Source-facing output may present the net correction, but runtime
+   authority is the affected-row restatement plus supersession state.
 3. **Reconcile open work explicitly:** affected stale obligations/batches are canceled or superseded before replacement/additional obligations are created. Idempotency-key dedupe is not sufficient by itself; model the feed-specific helper after `CancelOpenVaccinationObligationsForGoatExceptVersions` so stale open work cannot survive beside the Diff.
 4. High-priority post-cutoff additions use the manual 2x-ration bridge protocol and are logged as bridge events; do not implement the superseded 07:30 next-morning Diff design.
 
@@ -175,10 +178,11 @@ Stock is reserved/consumed at the **packing** phase (SM-4 execute).
 2. On packing accepted/verified: **consume** packed qty via `ConsumeForBatch` + **release** remainder (SM-5); record the packing stage completion and any projection rows.
 3. Packing shortfall or rejected packing proof reopens/reissues packing work and does not consume inventory.
 4. Transport, consumption, and wastage are separate proof-gated execution stages or typed stage records; they do not collapse into one Boolean processed flag.
-5. Consumption recording (feeding sessions) records consumed quantity, wasted quantity, variance, and proof through the chosen stage model.
+5. Transport uses a reviewed direction-shed to transport-shed consolidation map when source operations stage grouped transport work.
+6. Consumption recording (feeding sessions) records consumed quantity, wasted quantity, variance, and proof through the chosen stage model; source-backed discrepancy/wastage thresholds create exception or rework state.
 
-**Invariants:** exactly one open active instruction per `(target_date, shed, session, breed, shed_tag_or_stage, feed)` after full/Diff reconciliation; **stock is only locked at packing, never at generation**; reservations match the active instruction.
-**Idempotency:** generation is keyed by tenant, target date, shed, session, feed, run kind, and source/version hash.
+**Invariants:** exactly one open active instruction per `(target_date, shed, session, breed, shed_tag_or_stage, feed)` after full/Diff reconciliation; **stock is only locked at packing, never at generation**; reservations match the active instruction; unresolved cohort/stage impact never changes feed counts.
+**Idempotency:** generation is keyed by tenant, target date, shed, session, feed, run kind, and source/version hash; shifting ledger application is keyed by shifting event id/logical event key.
 **Edge:** birth/death or shifting changes after the cutoff are absorbed by the next full direction unless the high-priority addition bridge applies. Packing already done on a superseded/canceled instruction counts toward consumption and is surfaced as variance.
 
 ---
