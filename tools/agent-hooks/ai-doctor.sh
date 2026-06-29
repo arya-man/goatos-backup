@@ -8,10 +8,11 @@
 # Three lint rules (token-scoped, see AGENTS.md portability note):
 #   1. Executables/config: forbid the maintainer-local home path — no legit external path
 #      belongs in a script or the hook config; everything resolves repo-relative.
-#   2. Docs/skills: forbid the maintainer-local repo-root token — but
+#   2. Active docs/skills: forbid the maintainer-local repo-root token — but
 #      ALLOW other external maintainer-local references (e.g. the maintainer-
 #      local mesha_docs_graph / wiki, which live OUTSIDE this repo and cannot be
-#      made repo-relative).
+#      made repo-relative). Frozen execution handoffs and frontend screenshot
+#      ledgers are intentionally excluded from this portability gate.
 #   3. Generated graph artifacts must stay gitignored and untracked.
 #
 # Plus a resolve-smoke: prove the repo-relative resolution actually finds the
@@ -45,22 +46,6 @@ EXEC_FILES=(
     tools/ai/analyze-transcripts.py
 )
 
-# Rule 2 — docs/skills must not hardcode the repo root; external paths allowed.
-DOC_FILES=(
-    AGENTS.md
-    README.md
-    apps/admin-web/README.md
-    .claude/skills/crg/SKILL.md
-    .agents/skills/goatos-build/SKILL.md
-    .agents/skills/goatos-build/references/backend-impl.md
-    docs/ai/README.md
-    .cursor/rules/ai-graph-routing.mdc
-    docs/runbooks/legacy-live-data-refresh.md
-    docs/runbooks/local-full-stack-rehearsal.md
-    docs/runbooks/google-cloud-environments.md
-    docs/runbooks/vaccination-local-business-chain.md
-)
-
 note "ai-doctor: portability lint (repo: $REPO)"
 
 for f in "${EXEC_FILES[@]}"; do
@@ -72,14 +57,14 @@ for f in "${EXEC_FILES[@]}"; do
     fi
 done
 
-for f in "${DOC_FILES[@]}"; do
-    [ -f "$f" ] || { note "  MISSING (doc): $f"; fail=1; continue; }
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
     if grep -n "$REPO_ROOT_TOKEN" "$f" >/dev/null 2>&1; then
         note "  BREAKER (doc, repo-root path hardcoded): $f"
         grep -n "$REPO_ROOT_TOKEN" "$f" | sed 's/^/      /'
         fail=1
     fi
-done
+done < <(git ls-files '*.md' '*.mdc' | grep -Ev '^(context/execution/|context/frontend/)' || true)
 
 note "ai-doctor: generated graph artifact gate"
 # Invariant (not an enumerated list): nothing under graphify-out may be tracked

@@ -85,9 +85,10 @@ choose_llm_backend() {
 
 run_llm_extract() {
     local prompt="$1"
+    local file_count="${2:-0}"
     local backend
     backend="$(choose_llm_backend)" || return 1
-    log "extracting $(echo "$CHANGED" | grep -c .) changed file(s) via $backend"
+    log "extracting $file_count changed file(s) via $backend"
     case "$backend" in
       claude)
         GOATOS_GRAPH_GUARD=0 GOATOS_DOCS_GRAPH_AUTOREBUILD=0 \
@@ -147,16 +148,101 @@ cp -f "$OUT/manifest.json" "$OUT/.manifest.bak.json" 2>/dev/null
 
 # 3. Extract ONLY the changed files (skipped if changes are deletions only).
 rm -f "$OUT/.graphify_autochunk.json"
+CHUNK_DIR="$OUT/.graphify_autochunks"
+CHANGED_LIST="$OUT/.changed-docs.txt"
+rm -rf "$CHUNK_DIR"
 if [ -n "$CHANGED" ]; then
-    FILE_LIST="$(echo "$CHANGED" | sed 's/^/  /')"
-    PROMPT="You are a graphify extraction subagent. Read ONLY these files and extract a knowledge-graph fragment, then WRITE it as JSON to $OUT/.graphify_autochunk.json (no prose).
+    mkdir -p "$CHUNK_DIR"
+    printf '%s\n' "$CHANGED" > "$CHANGED_LIST"
+    "$PY" - "$CHANGED_LIST" "$CHUNK_DIR" "${GOATOS_DOCS_GRAPH_CHUNK_SIZE:-12}" <<'PY'
+from pathlib import Path
+import sys
+
+changed = [line.strip() for line in Path(sys.argv[1]).read_text().splitlines() if line.strip()]
+chunk_dir = Path(sys.argv[2])
+size = max(1, int(sys.argv[3]))
+for idx in range(0, len(changed), size):
+    chunk = changed[idx:idx + size]
+    (chunk_dir / f"chunk_{idx // size + 1:03d}.txt").write_text("\n".join(chunk) + "\n")
+PY
+
+    extract_failed=0
+    for chunk_file in "$CHUNK_DIR"/chunk_*.txt; do
+        [ -f "$chunk_file" ] || continue
+        chunk_name="$(basename "$chunk_file" .txt)"
+        chunk_out="$CHUNK_DIR/$chunk_name.json"
+        file_count="$(grep -c . "$chunk_file" 2>/dev/null || echo 0)"
+        FILE_LIST="$(sed 's/^/  /' "$chunk_file")"
+        PROMPT="You are a graphify extraction subagent. Read ONLY these files and extract a knowledge-graph fragment, then WRITE it as JSON to $chunk_out (no prose).
 Files:
 $FILE_LIST
 
 Rules: EXTRACTED edges confidence_score=1.0; INFERRED 0.6-0.9 (reason per edge, never 0.5); AMBIGUOUS 0.1-0.3 (flag, don't omit). Extract named concepts, rules, systems, and rationale (WHY -> rationale_for edges). Node id: lowercase [a-z0-9_] only, namespaced by directory to avoid collisions across identically-named files, format {dir_path_normalized}_{stem}_{entity}. source_file MUST be relative to $REPO. file_type=\"document\".
 Write exactly: {\"nodes\":[{\"id\":\"...\",\"label\":\"...\",\"file_type\":\"document\",\"source_file\":\"rel/path\",\"source_location\":null,\"source_url\":null,\"captured_at\":null,\"author\":null,\"contributor\":null}],\"edges\":[{\"source\":\"id\",\"target\":\"id\",\"relation\":\"references|conceptually_related_to|implements|rationale_for|depends_on|shares_data_with\",\"confidence\":\"EXTRACTED|INFERRED|AMBIGUOUS\",\"confidence_score\":1.0,\"source_file\":\"rel/path\",\"source_location\":null,\"weight\":1.0}],\"hyperedges\":[],\"input_tokens\":0,\"output_tokens\":0}
 After writing, validate it loads as JSON. Final message: node count + edge count."
-    run_llm_extract "$PROMPT" || log "LLM extraction failed to start for AI_BACKEND=$AI_BACKEND"
+        if ! run_llm_extract "$PROMPT" "$file_count"; then
+            log "LLM extraction failed for $chunk_name via AI_BACKEND=$AI_BACKEND"
+            extract_failed=1
+        fi
+    done
+
+    if ! "$PY" - "$CHUNK_DIR" "$OUT/.graphify_autochunk.json" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+chunk_dir = Path(sys.argv[1])
+out = Path(sys.argv[2])
+nodes, edges, hyperedges = [], [], []
+input_tokens = output_tokens = 0
+errors = []
+
+for path in sorted(chunk_dir.glob("chunk_*.json")):
+    try:
+        data = json.loads(path.read_text())
+    except Exception as exc:
+        errors.append(f"{path.name}: invalid json: {exc}")
+        continue
+    if not isinstance(data, dict):
+        errors.append(f"{path.name}: top-level JSON is not an object")
+        continue
+    nodes.extend(data.get("nodes", []))
+    edges.extend(data.get("edges", []))
+    hyperedges.extend(data.get("hyperedges", []))
+    input_tokens += int(data.get("input_tokens") or 0)
+    output_tokens += int(data.get("output_tokens") or 0)
+
+expected = sorted(p.with_suffix(".json").name for p in chunk_dir.glob("chunk_*.txt"))
+actual = sorted(p.name for p in chunk_dir.glob("chunk_*.json"))
+missing = sorted(set(expected) - set(actual))
+if missing:
+    errors.append("missing extraction chunks: " + ", ".join(missing[:10]))
+if errors:
+    print("CHUNK_MERGE_FAILED " + "; ".join(errors[:10]))
+    raise SystemExit(2)
+
+out.write_text(json.dumps({
+    "nodes": nodes,
+    "edges": edges,
+    "hyperedges": hyperedges,
+    "input_tokens": input_tokens,
+    "output_tokens": output_tokens,
+}, indent=2))
+print(f"CHUNK_MERGE_OK chunks={len(actual)} nodes={len(nodes)} edges={len(edges)}")
+PY
+    then
+        log "FAILED - chunk merge failed; marker kept for retry / interactive rebuild"
+        rm -f "$OUT/.graphify_autochunk.json" "$OUT/.corpus.txt" "$CHANGED_LIST"
+        rm -rf "$CHUNK_DIR"
+        exit 0
+    fi
+
+    if [ "${extract_failed:-0}" -ne 0 ]; then
+        log "FAILED - at least one extraction backend call failed; marker kept for retry"
+        rm -f "$OUT/.graphify_autochunk.json" "$OUT/.corpus.txt" "$CHANGED_LIST"
+        rm -rf "$CHUNK_DIR"
+        exit 0
+    fi
 fi
 
 # 4. Merge + recluster + regenerate + SELF-CHECK (restores backup on failure).
@@ -237,10 +323,15 @@ if changed:
     for e in chunk.get("edges", []):
         if e.get("source") in nodeset and e.get("target") in nodeset and e["source"] != e["target"]:
             edges.append(e)
-    # self-check: every changed file that is non-trivial should have produced >=1 node
-    missing = [c for c in changed if c not in got_files]
-    if missing and added == 0:
-        fail(f"no nodes extracted for changed files: {missing[:5]}")
+    # self-check: every changed file that is non-trivial should have produced >=1 node.
+    def nontrivial(path):
+        try:
+            return len(Path(path).read_text(errors="ignore").strip()) >= 80
+        except Exception:
+            return False
+    missing = [c for c in changed if c not in got_files and nontrivial(c)]
+    if missing:
+        fail(f"no nodes extracted for changed files: {missing[:10]}")
 
 # build + cluster
 ex = {"nodes": nodes, "edges": edges, "hyperedges": g.get("hyperedges", []),
@@ -287,10 +378,12 @@ RC=$?
 # 5. Commit or restore based on self-check result.
 if [ $RC -eq 0 ]; then
     rm -f "$MARKER" "$OUT/.graph.bak.json" "$OUT/.manifest.bak.json" \
-          "$OUT/.graphify_autochunk.json" "$OUT/.corpus.txt"
+          "$OUT/.graphify_autochunk.json" "$OUT/.corpus.txt" "$CHANGED_LIST"
+    rm -rf "$CHUNK_DIR"
     log "OK - graph updated, marker cleared"
 else
     log "FAILED (rc=$RC) - restored previous graph, marker kept for retry / interactive rebuild"
-    rm -f "$OUT/.graphify_autochunk.json" "$OUT/.corpus.txt"
+    rm -f "$OUT/.graphify_autochunk.json" "$OUT/.corpus.txt" "$CHANGED_LIST"
+    rm -rf "$CHUNK_DIR"
 fi
 exit 0

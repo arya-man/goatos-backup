@@ -70,6 +70,29 @@ def project_match(project: str, *values: str) -> bool:
     return any(needle in (value or "").lower() for value in values)
 
 
+def is_graph_marker(value: str) -> bool:
+    marker = value.lower()
+    return (
+        "code_review_graph" in marker
+        or "code-review-graph" in marker
+        or "graphify" in marker
+    )
+
+
+def is_rtk_marker(value: str) -> bool:
+    marker = value.lower()
+    return "rtk" in marker
+
+
+def claude_tool_calls(message: dict) -> Iterable[tuple[str, object]]:
+    content = message.get("content")
+    if not isinstance(content, list):
+        return
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "tool_use":
+            yield str(block.get("name") or ""), block.get("input")
+
+
 def codex_files(root: Path) -> list[Path]:
     paths: list[Path] = []
     paths.extend(root.glob("sessions/**/*.jsonl"))
@@ -91,14 +114,13 @@ def analyze_codex(path: Path, project: str) -> SessionStats:
     saw_incremental = False
     for event in load_jsonl(path):
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
-        blob = text_blob(event)
 
         if event.get("type") == "session_meta":
             stats.cwd = str(payload.get("cwd") or "")
         elif event.get("type") == "turn_context":
             stats.cwd = stats.cwd or str(payload.get("cwd") or "")
 
-        if project_match(project, stats.cwd, str(path), blob):
+        if project_match(project, stats.cwd, str(path)):
             stats.matched_project = True
 
         if event.get("type") == "event_msg" and payload.get("type") == "token_count":
@@ -115,11 +137,11 @@ def analyze_codex(path: Path, project: str) -> SessionStats:
             args = str(payload.get("arguments") or "")
             if payload.get("type") == "function_call":
                 stats.tool_events += 1
-            marker = f"{name} {args} {blob}".lower()
-            if "code_review_graph" in marker or "code-review-graph" in marker or "graphify" in marker:
-                stats.graph_events += 1
-            if "rtk" in marker:
-                stats.rtk_events += 1
+                marker = f"{name} {args}"
+                if is_graph_marker(marker):
+                    stats.graph_events += 1
+                if is_rtk_marker(marker):
+                    stats.rtk_events += 1
 
     if not saw_incremental:
         stats.tokens = max_total
@@ -130,19 +152,23 @@ def analyze_claude(path: Path, project: str) -> SessionStats:
     stats = SessionStats(agent="claude", path=path)
     seen_usage: set[str] = set()
     for event in load_jsonl(path):
-        blob = text_blob(event)
         cwd = event.get("cwd") or event.get("project") or event.get("project_path")
         if isinstance(cwd, str) and cwd:
             stats.cwd = stats.cwd or cwd
-        if project_match(project, stats.cwd, str(path), blob):
+        if project_match(project, stats.cwd, str(path)):
             stats.matched_project = True
 
         message = event.get("message")
         usage = None
         if isinstance(message, dict):
             usage = message.get("usage")
-            if message.get("type") == "tool_use":
+            for name, tool_input in claude_tool_calls(message):
                 stats.tool_events += 1
+                marker = f"{name} {text_blob(tool_input)}"
+                if is_graph_marker(marker):
+                    stats.graph_events += 1
+                if is_rtk_marker(marker):
+                    stats.rtk_events += 1
         usage = usage or event.get("usage")
         if usage:
             usage_key = json.dumps(usage, sort_keys=True)
@@ -152,13 +178,6 @@ def analyze_claude(path: Path, project: str) -> SessionStats:
                 seen_usage.add(key)
                 stats.tokens += token_total(usage)
 
-        marker = blob.lower()
-        if "code_review_graph" in marker or "code-review-graph" in marker or "graphify" in marker:
-            stats.graph_events += 1
-        if "rtk" in marker:
-            stats.rtk_events += 1
-        if "tool_use" in marker:
-            stats.tool_events += 1
     return stats
 
 
