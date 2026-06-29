@@ -3,7 +3,8 @@
 **Status:** Draft v1, dependency closure for Feed Direction gate `G2`
 **Date:** 2026-06-30
 **Companions:** [Feed Direction Dependency Closure PRD](./DEPENDENCY-CLOSURE-PRD.md),
-[Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md)
+[Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md), and
+[Feed Direction Build-To-Done Goal](./BUILD-TO-DONE-GOAL.md)
 
 ## 1. Purpose
 
@@ -34,10 +35,10 @@ Counts/Shifting must answer these questions for Feed Direction:
 
 | Source | Use |
 | --- | --- |
-| `Feed, Shiftings and Count.docx` v1.1 | Physical Base Count, append-only shifting ledger, one-day projection, Diff source semantics |
-| Counting DB reconstruction | Fixture/reference shape for aggregate counts and comparison tabs |
+| `Feed, Shiftings and Count.docx` v1.1 | Primary source for physical Base Count, append-only shifting ledger, one-day projection, Diff source semantics, and physical count adoption |
+| Counting DB reconstruction and feed-relevant wiki/source findings | Fixture/reference shape for aggregate counts, comparison tabs, stage tags, and source discrepancies |
 | Shifting reports/source findings | Movement categories, priority, source/destination, proof and approval states |
-| Legacy automation review | Dedup, retry, count-mismatch, and alias-transform evidence |
+| Legacy automation review | Dedup, retry, count-mismatch, alias-transform, and replay evidence |
 | GoatOS identity/location tables | Future per-goat derivation option through `goat_identifiers` and `goat_location_history` after RFID-to-shed association is reliable |
 
 Legacy data is evidence and fixture material. Runtime truth must be Postgres
@@ -78,3 +79,5 @@ Counts/Shifting closure is complete when:
    scan is required for Feed generation.
 6. `GET /feed-direction/readiness` can expose `CSG1`-`CSG10` breakdown under
    Feed gate `G2`.
+7. The next build follows [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md) for
+   source cross-check, seeded E2E proof, high-effort review, and push gating.

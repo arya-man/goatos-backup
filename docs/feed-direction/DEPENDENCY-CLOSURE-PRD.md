@@ -5,7 +5,8 @@
 **Companions:** [Feed Direction PRD](./PRD.md), [Feed Direction TRD](./TRD.md),
 [Dependency Closure TRD](./DEPENDENCY-CLOSURE-TRD.md),
 [Counts/Shifting Closure PRD](./COUNTS-SHIFTING-CLOSURE-PRD.md), and
-[Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md)
+[Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md), and
+[Feed Direction Build-To-Done Goal](./BUILD-TO-DONE-GOAL.md)
 
 ## 1. Purpose
 
@@ -45,17 +46,21 @@ Use these source families before asking the business to answer from memory:
 
 | Source family | Use in this phase |
 | --- | --- |
-| `Feed, Shiftings and Count.docx` v1.1 | Canonical count/shifting ledger, one-day projection, timing, Diff, bridge, ration model |
-| Goats & Parks / stage-tag source findings | Warmup tags, stage aliases, breed aliases, and ration-scope gaps not covered by the feed docx |
-| Feed Director handbook | Written directions before shift, proof discipline, EOD/accountability, stock and procurement boundaries |
-| Counting DB reconstruction | Source evidence and fixture shape for aggregate counts, not runtime truth |
-| Legacy Slack/App Script feed automation | Feature inventory for packing, consumption, transport, verification, retries, dedupe, and notifications |
-| GoatOS protocol/kernel docs | Obligations, batches, SOP proof, inventory ledger, outbox, scheduler, notifications, read models, scale gates |
+| `Feed, Shiftings and Count.docx` v1.1 | Primary source for count/shifting ledger, one-day projection, timing, Diff, bridge, as-fed quantities, and ration model |
+| Other feed-relevant wiki/source findings | Goats & Parks tags, Counting DB reconstruction, Shifting reports, Feed Director ops, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
+| Legacy Slack/App Script feed automation | Feature inventory for packing, consumption, transport, verification, reset/re-send, retries, dedupe, notifications, and security/cutover evidence |
+| GoatOS protocol/kernel docs and committed code | Obligations, batches, SOP proof, inventory ledger, outbox, scheduler, notifications, read models, scale gates, RBAC, OpenAPI, and generated clients |
+| Admin-web mock | UI anatomy source only after `G1`; it does not override the primary Feed business source |
 
 Slack, Sheets, and Apps Script remain legacy evidence and cutover surfaces only.
 They must not be runtime truth in GoatOS. Legacy scripts are a feature inventory,
 not an implementation blueprint: exact code line references can drift, and
 legacy weak validation must be replaced with typed GoatOS policy, not preserved.
+
+The next implementation session must use
+[BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md) as the stop-rule charter for
+source cross-check, backend/frontend integration, seeds, E2E, high-effort review
+agents, and Mesha/VGoats push verification.
 
 ## 4. Canonical Gate Table
 
@@ -257,6 +262,13 @@ Bucket membership must be derived from durable `stage_kind` plus obligation,
 proof, verification, inventory, deadline, escalation, and threshold state. API
 buckets must not depend on brittle label parsing.
 
+Any Feed Direction UI that is built after `G1` reopens must follow the admin-web
+mock-fidelity law: update or explicitly supersede stale Feed mock labels first,
+port the mock anatomy for layout, typography, colors/tokens, button/icon sizing,
+pagination, filters, drawers, tables, hover/active/focus/disabled states, empty
+states, and proof/status surfaces, and run `npm --prefix apps/admin-web run
+check:mock-fidelity` with rendered visual proof before handoff or push.
+
 ### 5.7 Kernel Closure
 
 Feed Direction is not ready for backend build until it answers the operational
@@ -315,6 +327,9 @@ This phase is complete when:
 7. Feed-specific generation/read queries have plan-test coverage requirements.
 8. Feed Direction PRD/TRD and this dependency PRD/TRD agree on what is blocked,
    what is buildable under the scope gate, and what must remain hidden.
+9. The build-to-done charter is acknowledged for the next session, including
+   source priority, seeded E2E proof, frontend mock-fidelity proof, high-effort
+   review-agent gate, and `git mesha-push main` verification.
 
 ## 8. Readiness Output
 
@@ -329,4 +344,7 @@ implementation in this order:
 5. Kernel reminders, notifications, missed/recovery events, audit, observability,
    and command-lens field mapping.
 6. Read models/API/OpenAPI.
-7. UI mock update and frontend implementation only after `G1` reopens scope.
+7. UI mock update, frontend implementation, visual proof, and mock-fidelity
+   checks only after `G1` reopens scope.
+8. High-effort cross-source/code/UI/security/E2E review, fix confirmed findings,
+   and push through the Mesha/VGoats PAT path only after final verification.

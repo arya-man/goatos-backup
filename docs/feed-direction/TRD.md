@@ -8,6 +8,7 @@
 [Dependency Closure TRD](./DEPENDENCY-CLOSURE-TRD.md); Counts/Shifting long pole:
 [Counts/Shifting Closure PRD](./COUNTS-SHIFTING-CLOSURE-PRD.md) and
 [Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md)
+**Build-to-done charter:** [Feed Direction Build-To-Done Goal](./BUILD-TO-DONE-GOAL.md)
 
 > v2 correction: the previous TRD treated a typed Sheet-shaped `feed_*` schema as
 > the target. The committed repo moved the other way. Migration
@@ -534,7 +535,18 @@ idempotency keys, and audit/outbox evidence.
 - The current Feed mock is static and stale on timing/nav labels; it does not
   show pagination, filters, row drawers, or column controls for Feed Direction.
 - When scope reopens, update the mock and `check-mock-fidelity` scan paths in
-  the same UI slice.
+  the same UI slice before implementing unmocked Feed Direction surfaces.
+- UI implementation must port the mock anatomy: component structure, typography,
+  spacing, colors/tokens, button/icon sizing, pagination, drawers, tables,
+  filters, empty/error states, and `:hover`/active/focus/disabled states. Do not
+  ship a plainer local UI just because the backend is ready.
+- Backend contracts own page titles, table columns, filters, buckets, disabled
+  reasons, pagination semantics, and action availability. Admin-web and operator
+  clients render generated API contracts and may own only layout, responsive
+  density, icon mapping, and local interaction state.
+- Frontend push/handoff requires `npm --prefix apps/admin-web run
+  check:mock-fidelity` plus rendered visual proof at relevant desktop and mobile
+  widths.
 - Operator-mobile should execute SOP/proof/offline queue through generated APIs;
   it must not access Sheets, Slack, GCS, Firestore, BigQuery, or Postgres
   directly.
@@ -563,6 +575,10 @@ idempotency keys, and audit/outbox evidence.
 - Integration tests for reminder/escalation SLA, NotificationGateway routing,
   missed/recovery events, audit rows, observability counters, and command-lens
   field mapping.
+- Seeded local E2E proof through Postgres, API/generated client, generation
+  worker or local scheduler, obligations, durable `stage_kind`, inventory,
+  SOP proof/verification, read models, and frontend visual proof after `G1`
+  reopens.
 - Import/replay tests for Feed legacy source rows, applied shifting events, proof
   rows, and duplicate/cross-source overlap cases from the cutover contract.
 - API route tests and OpenAPI generated-client checks.
@@ -572,7 +588,8 @@ idempotency keys, and audit/outbox evidence.
 - Local end-to-end proof through Postgres, API, outbox/consumer or documented
   local equivalent, sweeper/job, SOP submission, verification, and read model.
 - UI visual smoke only after scope reopens and the mock is updated or explicitly
-  superseded for stale Feed labels.
+  superseded for stale Feed labels; the smoke must inspect mock anatomy, hover,
+  focus, pagination, buttons, typography, and responsive layout.
 
 ## 13. Blockers before build
 
@@ -584,3 +601,7 @@ backend prep allowed by `G1`; full Feed Direction backend readiness requires
 closure specifically includes resolving or explicitly deferring the
 vaccination-locked Calendar projection blocker. The next migration number is a
 build-time check after the live repo tail, currently `000117`, is reverified.
+The full build stop rule lives in [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md)
+and includes source cross-check, E2E seed proof, high-effort review-agent pass,
+clean-tree verification, and `git mesha-push main` through the Mesha/VGoats PAT
+path before the goal can be called done.

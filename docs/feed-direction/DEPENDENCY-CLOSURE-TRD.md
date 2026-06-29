@@ -5,7 +5,8 @@
 **Companions:** [Dependency Closure PRD](./DEPENDENCY-CLOSURE-PRD.md),
 [Feed Direction PRD](./PRD.md), [Feed Direction TRD](./TRD.md),
 [Counts/Shifting Closure PRD](./COUNTS-SHIFTING-CLOSURE-PRD.md), and
-[Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md)
+[Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md), and
+[Feed Direction Build-To-Done Goal](./BUILD-TO-DONE-GOAL.md)
 
 ## 1. Technical Goal
 
@@ -535,6 +536,14 @@ OpenAPI and generated clients must be updated in the same build slice. Labels,
 filters, status copy, disabled reasons, and pagination semantics are backend
 owned.
 
+Frontend implementation must consume these contracts through generated clients.
+When `G1` reopens UI, mock anatomy still governs visual execution: pagination,
+buttons, icons, typography, spacing, colors/tokens, hover/active/focus/disabled
+states, drawers, filters, tables, empty/error states, and proof/status surfaces
+must match `mock/goatos-dashboard-mock.html` or a deliberately updated Feed
+mock. Do not ship a Feed UI that is only functionally wired but visually plainer
+than the Mesha mock system.
+
 Command-lens rows must expose at least:
 
 ```text
@@ -678,7 +687,15 @@ Required tests/checks:
 10. Add exception threshold policy and variance tests.
 11. Add APIs, OpenAPI, generated clients, read models, command-lens field map,
    and plan checks.
-12. Only after `G1` reopens scope, update mock anatomy and build frontend.
+12. Only after `G1` reopens scope, update mock anatomy, build frontend, run
+    `npm --prefix apps/admin-web run check:mock-fidelity`, and capture rendered
+    desktop/mobile visual proof.
+13. Run the build-to-done review gate from
+    [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md): source/wiki parity,
+    legacy/cutover/security, backend architecture, frontend fidelity, seeded E2E,
+    and docs sync. Fix confirmed findings before push.
+14. Push through `git mesha-push main` only after final tests, visual proof,
+    clean-tree check, and `HEAD == origin/main` verification target are ready.
 
 ## 18. Non-Negotiable Acceptance Tests
 
@@ -711,7 +728,12 @@ Required tests/checks:
 - Business audit rows and worker observability metrics/alerts.
 - Command-lens field mapping for Calendar, Action Center, Protocol Adherence,
   Workflows, and Control Tower.
+- Frontend mock-fidelity check and rendered visual smoke for any reopened Feed
+  UI, including pagination, buttons, typography, hover/focus states, and
+  responsive layout.
 - Legacy replay dedupe.
 - Slack bridge closeout proves credential rotation, secret storage, API-only
   ingress, auth/RBAC, idempotency, and audit before overlap.
 - Cursor lists and SQL plan gates.
+- High-effort review-agent findings are resolved or explicitly owner-deferred
+  before GitHub push.

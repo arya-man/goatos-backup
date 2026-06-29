@@ -22,6 +22,11 @@ proof. Counts/Shifting gate `G2` has sibling docs:
 [COUNTS-SHIFTING-CLOSURE-PRD.md](./COUNTS-SHIFTING-CLOSURE-PRD.md) and
 [COUNTS-SHIFTING-CLOSURE-TRD.md](./COUNTS-SHIFTING-CLOSURE-TRD.md).
 
+**Build-to-done charter:** The next full Feed Direction build must follow
+[BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md). That charter owns the session
+stop rules for source priority, backend/frontend integration, seeds, E2E proof,
+high-effort review agents, and Mesha/VGoats push verification.
+
 **Design decision:** Ratify the committed `000079_feed_direction_module.sql`
 direction unless the owner explicitly reverses it. Feed Direction reuses the
 generic protocol, obligation, SOP, inventory, audit, outbox, and projection
@@ -60,10 +65,11 @@ Use this priority when sources disagree:
 
 | Priority | Source | Use |
 | --- | --- | --- |
-| 1 | `Feed, Shiftings and Count.docx` v1.1, June 2026 | Canonical timing, count/shifting model, source-facing Diff semantics, bridge protocol, ration-key model |
-| 2 | Feed Director operations and Feed Directions Automation docs/sheets | Feature inventory for sheet fields, form stages, retry/dedupe, transport proof/rejection, Slack notification behavior; not a code blueprint |
-| 3 | Counting DB reconstruction | Count fixture/reference shape, not runtime truth |
-| 4 | Older GoatOS feed docs and mock feed panels | Historical UI/direction references only where not contradicted above |
+| 1 | `Feed, Shiftings and Count.docx` v1.1, June 2026 | Primary Feed Direction business source: Base Count, append-only Shifting ledger, one-day projection, timing, Diff, bridge, as-fed quantities, and ration solver constraints |
+| 2 | Feed-relevant wiki/source docs and findings | Counting DB reconstruction, Shifting reports, Feed Director ops, Goats & Parks stage tags, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
+| 3 | Legacy Slack/App Script feed workflows | Feature inventory for sheet fields, form stages, proof/rejection, reset/re-send, retry/dedupe, transport, notifications, and security/cutover evidence; not a code blueprint |
+| 4 | GoatOS protocol/kernel docs and committed code | Implementation shape for protocol, obligations, SOP proof, inventory, audit, outbox, reminders, read models, RBAC, OpenAPI, and generated clients |
+| 5 | Older GoatOS feed docs and mock feed panels | Historical UI/direction references only where not contradicted above; the mock controls UI anatomy, not Feed business timing |
 
 Known conflict: older docs and the current mock mention "v1 midnight / v2 2 PM".
 The newer June 2026 source says Day N 09:00 full direction for Day N+1,
@@ -275,16 +281,23 @@ and Parks breadcrumbs.
 
 When Feed Direction scope is reopened:
 
-1. Update the mock first, or explicitly document which stale mock labels are
-   superseded by the source docs.
+1. Update the mock first, or explicitly document which stale mock labels or
+   missing Feed details are superseded by the source docs.
 2. Keep Feed Direction under the Feed vertical; park/date remain top-bar scope.
-3. Preserve the mock's density, cards, status tags, chart/table rhythm, execution
-   lock, SOP buttons, and proof/status surfaces.
+3. Preserve the mock's anatomy: layout, density, typography scale, spacing,
+   colors/tokens, cards, status tags, chart/table rhythm, execution lock, SOP
+   buttons, proof/status surfaces, icon-button sizing, hover/active/focus
+   states, disabled states, empty/error states, drawers, filters, and pagination.
 4. Add filters, server pagination, row drawers, and column controls only after
    the mock/contract are updated to include them.
 5. Add Feed Direction paths to frontend mock-fidelity scan coverage when the UI
    becomes in scope.
-6. Keep backend-owned labels, options, filters, and disabled reasons.
+6. Keep backend-owned labels, columns, options, filters, buckets, action
+   availability, pagination semantics, and disabled reasons. The frontend owns
+   layout and interaction state, not product truth.
+7. Before any frontend push or handoff, run
+   `npm --prefix apps/admin-web run check:mock-fidelity` and capture rendered
+   visual proof at relevant desktop and mobile widths.
 
 ## 9. Success metrics
 

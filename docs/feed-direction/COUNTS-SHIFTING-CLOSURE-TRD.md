@@ -3,7 +3,8 @@
 **Status:** Draft v1, technical design sketch for Feed Direction gate `G2`
 **Date:** 2026-06-30
 **Companions:** [Counts/Shifting Closure PRD](./COUNTS-SHIFTING-CLOSURE-PRD.md),
-[Feed Direction Dependency Closure TRD](./DEPENDENCY-CLOSURE-TRD.md)
+[Feed Direction Dependency Closure TRD](./DEPENDENCY-CLOSURE-TRD.md), and
+[Feed Direction Build-To-Done Goal](./BUILD-TO-DONE-GOAL.md)
 
 ## 1. Technical Goal
 
@@ -183,3 +184,9 @@ Non-negotiable tests:
 - Query-plan checks for widest allowed projection/read paths.
 - Worker observability checks for latency, lag, retry, DLQ, exception, and
   stale-projection metrics.
+- Seeded local E2E coverage for Base Count, realized ShiftingEvent, one-day
+  projection, fail-closed exception, and Feed generation consumption of the
+  immutable projection snapshot.
+- High-effort review-agent findings from
+  [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md) are resolved or explicitly
+  owner-deferred before Counts/Shifting can turn `G2` green.
