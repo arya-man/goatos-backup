@@ -221,6 +221,10 @@ feed-set templates, transport maps, proof thresholds, validation tolerances, and
 reviewed ration solver/import outputs. Each import family must carry source
 checksum, row-level validation, dry-run parity preview when a workbook source
 exists, dead-letter/repair state, reviewer/approval metadata, and audit.
+Pregnancy, lactation, warm-up, and similar safety-critical states must be
+dimension keys that the resolver can join from a projected destination shed row
+to reviewed nutrition cohort context; they cannot remain free-text comments or
+spreadsheet-only labels.
 
 KT examples are candidate rows for those families, not code constants. The
 import/review layer must be able to represent feed vectors/energy capacity,
@@ -237,7 +241,9 @@ Validation must block unknown aliases, missing source hashes, invalid or global
 ratio promotion, slot weights that do not cover the full as-fed daily quantity,
 non-numeric quantities, broken formula/reference evidence, missing resolver
 coverage, and calculation-preview mismatches before any generation run can use
-the rows.
+the rows. For shifted pregnant/lactating/warm-up cohorts, validation must also
+block missing destination-shed ration context, missing stock/slot capacity, or a
+stale source-shed ration snapshot.
 
 `session_policy` is a versioned admin config family, not a fixed enum. It must
 store active session slots for the target date with slot code, label, serving
@@ -635,6 +641,14 @@ comparison, a 20 percent wastage flag, `90-95%` shed/pack/breed/tag/energy
 matching, and about `5%` warm-up allowance. These may be seeded only as draft or
 candidate config until Feed Director review approves them.
 
+The exception contract must separate shortage from unsafe surplus. Destination
+shed shortage after shifting, under-consumption by pregnant/lactating/warm-up
+cohorts, overpacked feed, moist or stale leftover feed, refusal-to-eat signals,
+and sickness-risk remarks must each map to typed exception reasons with owner,
+proof/rework link, audit row, and outbox/notification eligibility. None of these
+states may be collapsed into a generic wastage percentage or silently carried
+forward as reusable feed.
+
 ## 13. API Contracts
 
 Add backend-owned contracts before UI work:
@@ -880,6 +894,9 @@ Required tests/checks:
   and execution-bucket queries without label parsing.
 - Packing discrepancy rework tests cover both legacy alert/reset evidence and
   GoatOS typed rework/re-issue policy without relying on Sheet flag resets.
+- Shifted pregnant/lactating/warm-up tests prove destination-shed recompute,
+  shortage fail-closed behavior, unsafe surplus/wastage exception creation, and
+  bounded query plans suitable for million-goat scale.
 - Packing reject creates rework and does not consume inventory.
 - Accepted packing consumes actual and releases remainder.
 - Inventory calls use exact whole base units for the current app port; no Feed

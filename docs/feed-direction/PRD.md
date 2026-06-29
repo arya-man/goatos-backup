@@ -158,6 +158,16 @@ effective-dated version. GoatOS must ingest these as typed parameter rows,
 validate aliases and dimensions, run calculation preview, surface bad rows for
 repair/DLQ, and publish only a reviewed `feed_direction_config_pack`.
 
+Pregnant, lactating, and warm-up animals are safety-critical cohorts. If a
+pregnant goat or pregnant aggregate is shifted into a new shed, the destination
+shed must not keep the old shed's normal average feed by accident. GoatOS must
+re-resolve the projected shed + breed count into the approved nutrition cohort,
+recalculate ration/session quantities for the destination shed, and block or
+escalate when the resolver, source parameters, stock, or serving slot cannot
+cover that cohort. Underfeeding creates abortion/kid-loss and herd-growth risk;
+overfeeding creates feed waste, moist/unsafe leftover feed, refusal-to-eat, and
+sickness risk. Both sides are first-class Feed exceptions, not later analytics.
+
 The workbook and legacy automation review confirms why this cannot be a
 Sheet-clone build. Legacy `Count-DB`, validation, supply-planning, and template
 tabs use formulas, hidden copies, string transforms, processed flags, and script
@@ -432,6 +442,9 @@ Under reopened `G1`, when building Feed Direction UI:
   consolidation config where source operations require grouped staging.
 - Packing discrepancy and wastage variance thresholds create visible exception or
   rework state, not only stored percentages.
+- Shifted pregnant/lactating/warm-up cohorts are recalculated against the
+  destination shed before generation/Diff, with fail-closed shortage,
+  overpack/wastage, and moist/unsafe-leftover exceptions.
 - Packing, transport, consumption, wastage, and bridge proof each have visible
   verification state.
 - Rejected proof or packing shortfall records a reason and creates rework/next

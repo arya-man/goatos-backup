@@ -80,6 +80,11 @@ The build goal remains open until all of these are true:
 - Counts/Shifting exposes the accepted projection contract or a fail-closed
   adapter that truthfully blocks Feed generation.
 - Ration provenance enforces approved source metadata and publish capability.
+- Shifted pregnant, lactating, warm-up, and other high-risk cohorts are covered
+  as safety-critical cases: destination-shed feed must be recalculated before
+  serving, underfeeding/shortage blocks with escalation, overfeeding/wastage
+  triggers exception work, and moist/unsafe leftover feed cannot be treated as
+  harmless surplus. This is herd-growth protection, not optional optimization.
 - `G2`-`G17` are closed in order, or a gate has a narrow owner decision that
   defines a fail-closed adapter/disabled capability and the exact work that may
   continue. A broad "owner-deferred" note must not green-light hidden runtime
@@ -163,7 +168,12 @@ language.
    with validation that active slot weights cover the full daily as-fed quantity
    and explicit supersession behavior for already-generated dates. KT pregnant
    windows such as `12:30-15:00`/`14:00-15:00` are session-policy candidates
-   only; they do not override the docx clocks unless approved.
+   only; they do not override the docx clocks unless approved. A realized or
+   future-effective shifting into a destination shed must re-resolve pregnancy,
+   lactation, warm-up, age/stage, breed alias, and shed tag before generation or
+   Diff. Missing resolver context, destination-shed shortage, or stale ration
+   context blocks Feed generation for the affected rows instead of applying a
+   normal shed average.
 5. `G6` Quantity and precision boundary: deterministic whole base units into the
    current inventory app port, exact persistence to SQL `numeric + quantity_unit`,
    or app-port decimal widening before fractional feed use.
@@ -178,7 +188,11 @@ language.
    preserves that work shape.
 8. `G9` Packing/wastage thresholds and typed rework/re-issue policy, including
    explicit approval/rejection of KT-style `90-95%` shed/pack/breed/tag/energy
-   matching and warm-up allowance.
+   matching and warm-up allowance. `G9` must also define feed-safety exception
+   thresholds for overpacking, leftover/moist feed, refusal to eat, sickness
+   risk, and destination-shed shortage. The system must choose visible rework,
+   remove/replace, or supervisor approval; it must not hide waste as nutrition
+   buffer.
 9. `G10` Slack security closeout; if bounded instead of closed, Slack bridge is
    disabled and cannot count as done.
 10. `G11` Reminder/escalation SLA.

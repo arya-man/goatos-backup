@@ -164,6 +164,19 @@ math, numeric as-fed quantity validation, calculation preview, and owner
 approval. Wrong rows block generation and create repair/DLQ/process-exception
 work; they must not be normalized silently by legacy script-style transforms.
 
+Safety-critical cohort rule: pregnancy, lactation, warm-up, and similar
+high-risk tags must participate in the ration-context resolver and generation
+snapshot. When a realized or future-effective shifting moves such animals into a
+destination shed, Feed generation/Diff must recompute that destination shed's
+daily as-fed total and session split from the approved nutrition cohort context.
+If destination shed context, pregnancy state, ration row, stock reservation, or
+slot capacity is missing, the affected rows fail closed with a visible shortage
+exception. If the solve/import increases feed beyond approved thresholds, the
+packing/consumption path must raise overpack/wastage/moist-feed/sickness-risk
+exceptions instead of treating excess feed as safe buffer. All hot paths must be
+bounded by tenant, date, park, shed, session, and cursor/keyset filters; no
+million-goat full-herd scan may be required to protect this case.
+
 A new physical Base Count becomes canonical immediately. Any discrepancy against
 the prior replay creates investigation/accountability work, but that work does
 not gate adoption of the physical count as the new ledger anchor for subsequent
@@ -492,6 +505,13 @@ highlighted a packing expected-vs-actual discrepancy and flagged wastage above
 20%. Treat those as source-backed default exception rules pending Feed Director
 confirmation, not as UI coloring only.
 
+Feed safety exceptions must distinguish real nutrition shortage from unsafe
+surplus. Under-consumption by a high-risk cohort, destination-shed shortage after
+shifting, overpacked feed, stale/moist leftover feed, refusal-to-eat signals, and
+sickness-risk remarks each need typed reasons, proof/rework links, owner, and
+audit/outbox events. The system may recommend remove/replace/repack/escalate,
+but it must not silently carry leftover feed forward as available nutrition.
+
 Cross-stage comparisons must use the active/superseded-aware Feed Direction row
 or obligation snapshot for the same tenant, park, shed, session, feed item, and
 target date. A superseded direction must not be used as the expected quantity for
@@ -696,6 +716,9 @@ execution remains disabled until that closeout is complete.
 - Integration tests for Counts/Shifting input snapshots, generation idempotency,
   affected-shed restatement, explicit stale-obligation cancel,
   reserve/consume/release, stage proof verification, and packing rework.
+- Integration tests for shifted pregnant/lactating/warm-up cohorts proving
+  destination-shed recompute, shortage fail-closed behavior, overpack/wastage
+  exception creation, and no full-herd scans at scale.
 - Integration tests for as-fed gross field outputs, proving `wastage_factor` and
   `DM_factor` are internal only and never alter packing/field instruction copy.
 - Bridge tests prove manual log/proof/reconciliation behavior and no generated
