@@ -58,6 +58,8 @@ func (h *ObligationMissedHandler) HandleEvent(ctx context.Context, e eventbus.Ev
 	if tenantID == "" || obligationID == "" {
 		return nil
 	}
+	// A durable missed event is already overdue, so the first escalation opens
+	// immediately while later levels keep the service's configured thresholds.
 	_, err := h.calendar.SweepEscalations(ctx, ports.SweepEscalations{
 		TenantID:     tenantID,
 		ObligationID: obligationID,

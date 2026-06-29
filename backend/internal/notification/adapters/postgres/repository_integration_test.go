@@ -62,6 +62,52 @@ WHERE tenant_id = $1::uuid AND notification_request_id = $2::uuid`,
 	assertNotificationState(t, ctx, pool, failedID, "queued", 1, true)
 }
 
+func TestNotificationRepositoryRetryFailureDoesNotWriteExhaustedEvidence(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC)
+	eventID := "calendar:86000000-0000-4000-8000-000000010003"
+	requestKey := "notification-repo-retry-failed"
+	seedCalendarEvent(t, ctx, pool, eventID)
+	requestID := seedNotification(t, ctx, pool, eventID, requestKey, "queued", 1, nil)
+
+	claimed, err := repo.ClaimDue(ctx, ports.ClaimParams{
+		TenantID:    testTenantID,
+		Limit:       10,
+		MaxAttempts: 5,
+		Now:         now,
+	})
+	if err != nil {
+		t.Fatalf("ClaimDue: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].NotificationRequestID != requestID || claimed[0].DeliveryAttempts != 2 {
+		t.Fatalf("claimed=%#v want retryable request %s", claimed, requestID)
+	}
+	nextAttempt := now.Add(5 * time.Minute)
+	if err := repo.MarkFailed(ctx, testTenantID, requestID, claimed[0].LeaseToken, "test-dispatcher", "temporary retry", &nextAttempt, now.Add(time.Minute)); err != nil {
+		t.Fatalf("MarkFailed retry: %v", err)
+	}
+	assertNotificationState(t, ctx, pool, requestID, "failed", 2, true)
+	assertCount(t, ctx, pool, "notification exhausted audit after retry", `
+SELECT count(*)
+FROM audit_log
+WHERE tenant_id = $1::uuid
+  AND resource_type = 'calendar_notification'
+  AND resource_id = $2::uuid
+  AND action = 'notification.exhausted'`, 0, testTenantID, requestID)
+	assertCount(t, ctx, pool, "notification exhausted outbox after retry", `
+SELECT count(*)
+FROM outbox_messages
+WHERE tenant_id = $1::uuid
+  AND aggregate_type = 'calendar_notification'
+  AND aggregate_id = $2::uuid
+  AND event_type = 'notification.exhausted'`, 0, testTenantID, requestID)
+	assertNextAttemptPresent(t, ctx, pool, requestID)
+}
+
 func TestNotificationRepositoryFinalFailureWritesAuditAndOutbox(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -131,6 +177,21 @@ INSERT INTO calendar_event_projections (
 )
 ON CONFLICT (tenant_id, event_id) DO NOTHING`, testTenantID, eventID); err != nil {
 		t.Fatalf("seed calendar event: %v", err)
+	}
+}
+
+func assertNextAttemptPresent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, requestID string) {
+	t.Helper()
+	var hasNextAttempt bool
+	if err := pool.QueryRow(ctx, `
+SELECT next_attempt_at IS NOT NULL
+FROM notification_requests
+WHERE tenant_id = $1::uuid AND notification_request_id = $2::uuid`,
+		testTenantID, requestID).Scan(&hasNextAttempt); err != nil {
+		t.Fatalf("query notification next attempt: %v", err)
+	}
+	if !hasNextAttempt {
+		t.Fatalf("notification next_attempt_at missing for %s", requestID)
 	}
 }
 

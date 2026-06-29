@@ -180,12 +180,30 @@ WHERE tenant_id = $1::uuid
 func (r *Repository) MarkFailed(ctx context.Context, tenantID, notificationRequestID, leaseToken, deliveredBy, failureReason string, nextAttemptAt *time.Time, now time.Time) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	var next pgtype.Timestamptz
-	status := "exhausted"
 	if nextAttemptAt != nil {
-		next = pgtype.Timestamptz{Time: nextAttemptAt.UTC(), Valid: true}
-		status = "failed"
+		next := pgtype.Timestamptz{Time: nextAttemptAt.UTC(), Valid: true}
+		tag, err := r.pool.Exec(ctx, `
+UPDATE notification_requests
+SET status = 'failed',
+    failure_reason = $4,
+    next_attempt_at = $5::timestamptz,
+    lease_token = NULL,
+    leased_at = NULL,
+    delivered_by = NULLIF($6, ''),
+    updated_at = $7::timestamptz
+WHERE tenant_id = $1::uuid
+  AND notification_request_id = $2::uuid
+  AND lease_token = $3::uuid
+  AND status = 'sending'`, tenantID, notificationRequestID, leaseToken, failureReason, next, deliveredBy, now)
+		if err != nil {
+			return fmt.Errorf("notification: mark failed: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("notification: mark failed claim missing")
+		}
+		return nil
 	}
+
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -195,13 +213,13 @@ func (r *Repository) MarkFailed(ctx context.Context, tenantID, notificationReque
 	var row failedNotificationRow
 	err = tx.QueryRow(ctx, `
 UPDATE notification_requests
-SET status = $8,
+SET status = 'exhausted',
     failure_reason = $4,
-    next_attempt_at = $5::timestamptz,
+    next_attempt_at = NULL,
     lease_token = NULL,
     leased_at = NULL,
-    delivered_by = NULLIF($6, ''),
-    updated_at = $7::timestamptz
+    delivered_by = NULLIF($5, ''),
+    updated_at = $6::timestamptz
 WHERE tenant_id = $1::uuid
   AND notification_request_id = $2::uuid
   AND lease_token = $3::uuid
@@ -212,21 +230,15 @@ RETURNING
   COALESCE(target_id::text, ''),
   notification_type,
   channel,
-  title,
-  body,
   delivery_attempts,
-  COALESCE(trace_id, ''),
-  context`, tenantID, notificationRequestID, leaseToken, failureReason, next, deliveredBy, now, status).Scan(
+  COALESCE(trace_id, '')`, tenantID, notificationRequestID, leaseToken, failureReason, deliveredBy, now).Scan(
 		&row.CalendarEventID,
 		&row.TargetType,
 		&row.TargetID,
 		&row.NotificationType,
 		&row.Channel,
-		&row.Title,
-		&row.Body,
 		&row.DeliveryAttempts,
 		&row.TraceID,
-		&row.Context,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -234,10 +246,8 @@ RETURNING
 		}
 		return fmt.Errorf("notification: mark failed: %w", err)
 	}
-	if status == "exhausted" {
-		if err := insertNotificationExhaustedEvidence(ctx, tx, tenantID, notificationRequestID, deliveredBy, failureReason, now, row); err != nil {
-			return err
-		}
+	if err := insertNotificationExhaustedEvidence(ctx, tx, tenantID, notificationRequestID, deliveredBy, failureReason, now, row); err != nil {
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
@@ -251,11 +261,8 @@ type failedNotificationRow struct {
 	TargetID         string
 	NotificationType string
 	Channel          string
-	Title            string
-	Body             string
 	DeliveryAttempts int
 	TraceID          string
-	Context          []byte
 }
 
 func insertNotificationExhaustedEvidence(ctx context.Context, tx pgx.Tx, tenantID, notificationRequestID, deliveredBy, failureReason string, now time.Time, row failedNotificationRow) error {
