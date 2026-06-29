@@ -1002,6 +1002,67 @@ zsh -ic 'git mesha-push main'
     code/test/workflow failure still means Goal 1 is not complete and must
     return to the fix/verify/review/E2E/push loop.
 
+## Goal 1 Post-Push Evidence
+
+Evidence captured on 2026-06-29:
+
+- Pre-push authority gate: active branch `main`, remote
+  `https://github.com/vgoats/goatos.git`, target repo `vgoats/goatos`, Mesha
+  token helper `zsh -ic 'git mesha-push main'`, and `MESHA_GITHUB_PAT` present.
+- Implementation closure commit pushed with the Mesha token helper:
+  `d8e1f0829ffaa61db050554cb40e91da5350242f`
+  (`Resolve Goal 1 kernel closure rows`).
+- `origin/main` was verified to equal
+  `d8e1f0829ffaa61db050554cb40e91da5350242f` after push.
+- GitHub Actions run
+  `https://github.com/vgoats/goatos/actions/runs/28351280549` was created for
+  that exact SHA, but both jobs (`admin-web` job `83984496492`, `guardrails`
+  job `83984496495`) completed before any runner or step started.
+- The GitHub check-run annotation for both jobs states that the job was not
+  started because recent account payments failed or the spending limit needs to
+  be increased. This is an account/billing/spending-limit refusal to start
+  Actions jobs, not a code/test/workflow failure.
+
+Local CI-equivalent and acceptance evidence used for the blocked Actions state:
+
+- Closeout ledger parser: 110 rows, no missing rows, no duplicate rows, no bad
+  statuses, and no active OCK/RVF rows.
+- `make check` PASS.
+- `make sqlc-check` PASS.
+- `make api-client-check` PASS.
+- `make validate-migrations` PASS.
+- `make validate-sqlc-plans` PASS.
+- `git diff --check HEAD --` PASS.
+- `npm --prefix apps/admin-web ci` PASS with `found 0 vulnerabilities`.
+- `npm --prefix apps/admin-web audit` PASS with `found 0 vulnerabilities`.
+- `npm --prefix apps/admin-web run lint` PASS.
+- `npm --prefix apps/admin-web run typecheck` PASS.
+- `npm --prefix apps/admin-web run check:herd-import-security` PASS.
+- `npm --prefix apps/admin-web run check:goal1-frontend` PASS.
+- `npm --prefix apps/admin-web run check:mock-fidelity` PASS.
+- Admin-web build PASS with `GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token`,
+  including token leak guard.
+- Focused and coverage backend tests passed for identity, SOP, protocol,
+  vaccination, obligation, notification, admin UI, vaccination execution,
+  process integrity, Postgres terminal/missed/read-model paths, and SM2 shift
+  history.
+- Vaccination/procurement/UI E2E passed with run id
+  `GOAL1-E2E-REOPEN2-20260629-110234`.
+- UI acceptance path evidence was captured under
+  `.codex-goatos-render/e2e-smoke/GOAL1-E2E-REOPEN2-20260629-110234` and
+  `.codex-goatos-render/admin-web-screenshots/2026-06-29T05-32-42-490Z`.
+- Extra-high senior review was rerun after local verification. Its one valid
+  contract finding (`matrix_states.missed`) was fixed in
+  `backend/internal/adminui/app/service.go`, guarded by
+  `apps/admin-web/scripts/check-goal1-frontend-coverage.mjs`, and reverified.
+  No valid blocker, critical, or high Goal 1 issue remained.
+
+If this evidence section itself is updated in a later doc-only commit, repeat
+the post-push check for that new SHA. If GitHub Actions is still refused for the
+same account/billing/spending-limit reason, this local CI-equivalent evidence
+remains the Goal 1 post-push gate; if Actions starts and reports a real failure,
+return to the fix/verify/review/E2E/push loop.
+
 ## Linked Goal 2 - goatos-dev rollout gate
 
 Goal 2 is intentionally linked to this handoff, but it is blocked until Goal 1
