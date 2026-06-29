@@ -212,6 +212,15 @@ Run the validation through both UI creation and sheet import:
 
 Do not call the dev deploy complete until there is evidence for:
 
+- a clean local pre-Google gate:
+
+  ```bash
+  make pre-google-readiness
+  ```
+
+  This gate intentionally fails on a dirty worktree. During local reconstruction
+  only, use `GOATOS_PRE_GOOGLE_ALLOW_DIRTY=1` to report dirty files and keep
+  running; do not use that override as deployment evidence.
 - local backend focused tests for SOP, protocol, vaccination, obligation,
   inventory, calendar, and domainconsumer
 - `git diff --check`
