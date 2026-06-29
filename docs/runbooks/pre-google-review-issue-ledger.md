@@ -7,7 +7,8 @@ a replacement for the source code, tests, or runbooks.
 Source review basis:
 
 - Older attached review snapshot: `05dfe68`.
-- Current recheck basis: `main` at `bdf4582` on 2026-06-29.
+- Earlier Codex Goat OS review snapshot: `05dfe68`.
+- Current recheck basis: `main` after `71e33f8` on 2026-06-29.
 - Deployment mode: clean-slate Google dev runtime rehearsal, not legacy cutover.
 
 ## Decision
@@ -82,6 +83,49 @@ Before calling Google dev complete, capture evidence for:
   hiding unrelated work.
 - Shift/death/recovery scenarios: active/missed/coverage rows are cleaned or
   reopened correctly, and stock repair remains explainable.
+
+## Earlier Goat OS Review Addendum
+
+The earlier Codex review rated the repo as a hardened beta slice and listed ten
+top fixes. The first five are now closed in code. The remaining items below are
+not reasons to block the start of a clean-slate Google dev environment, but they
+must stay visible as dev evidence or later backlog.
+
+| Review item | Status | Fix before starting Google dev? | Current call |
+| --- | --- | --- | --- |
+| Block SOP verify/rework without valid submission, proof, and fanout. | closed | No | SOP proof/verification now fails closed. |
+| Expand or reject `rule_dsl.schedule[]` at publish. | closed | No | Publish materializes executable rules or rejects unsupported input. |
+| Add full eligibility age/lifecycle/business-date handling. | closed | No | Generation honors lifecycle, stage, sex, breed, health, reproductive, location, age band, and min/max age gates. |
+| Make SM-4 batching windowed, due-transitioning, and per-version executable. | closed | No | Sweepers group by scope, protocol version, rule, planned date, and due window, with rule/version SOP and stock binding. |
+| Fix missed projection from changed IDs/status, not default date lookback. | closed | No | Calendar refresh/list keeps old missed and past-due open exceptions visible. |
+| Make consumer dedupe/handler side effects transactionally replay-safe. | bounded | No | Durable claims and finalization-loss detection are present; dev must prove handler idempotency and decide if any handler needs a durable progress table. |
+| Close batch lifecycle: consume accepted, release no-shows, terminal batch state. | bounded | No | Core stock reserve/consume/reconcile paths are present; dev seed must prove accepted, missed/no-show, blocked, and repair-state evidence. |
+| Unify process-state projection across Calendar, Action Center, Passport, and Execution. | backlog | No | Calendar and execution now preserve richer states, but a single shared effective-state projection remains a later simplification before production scale. |
+| Harden proof/media object authorization and operator device/session binding. | backlog | No | Not part of the clean-slate vaccination dev gate; keep as pre-production security hardening. |
+| Add partition automation, metrics/alerts, and CI gates for critical paths. | deployment gate | No for start, yes before dev is called complete | Local readiness gate is green; Google dev still must prove partition-maintainer, Cloud Logging/alerts, DLQ visibility, and worker evidence. |
+
+Additional older-review notes that remain pending outside the Google-dev start
+gate:
+
+- **Single-truth read models:** avoid long-term drift by converging Calendar,
+  Action Center, Protocol Adherence, and vaccination execution on one effective
+  process-state contract before production scale.
+- **Legacy movement parity:** accepted movement commands and historical
+  movement imports are not the clean-slate dev source of truth. Future migration
+  work must reconcile movement into canonical location truth through a bounded
+  import/backfill job.
+- **Missing/lost goat parity:** procurement import maps legacy "missing" to
+  `lost`; identity APIs need an explicit parity decision before real legacy
+  cutover.
+- **Proof/media authorization:** PHC video/proof subject binding is sufficient
+  for the seed rehearsal, but object-level access, verifier routing, retention,
+  and operator device/session binding need a pre-production security pass.
+- **Scale/load evidence:** request-time process-integrity and vaccination
+  execution aggregates are likely first scale bottlenecks; prove with staging
+  load/EXPLAIN evidence, not the small Google dev seed.
+- **Observability:** worker/outbox lag, DLQ backlog, Cloud Run errors, and Cloud
+  SQL pressure need real Google dev alert evidence before unattended workers are
+  left on.
 
 ## Related Docs
 
