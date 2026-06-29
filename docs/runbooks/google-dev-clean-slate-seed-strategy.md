@@ -54,6 +54,9 @@ As of 2026-06-29, the attached Claude/Codex review items have been rechecked
 against current `main`. Do not reopen an item only because it appears in an
 older review note; verify it against the current repository first.
 
+The explicit C/H/M/L review mapping lives in
+`docs/runbooks/pre-google-review-issue-ledger.md`.
+
 Closed in code or confirmed present:
 
 - SOP proof and verification gates fail closed.
