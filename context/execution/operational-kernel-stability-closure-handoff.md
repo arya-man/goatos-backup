@@ -1380,6 +1380,9 @@ operator-runbook path for Pub/Sub/native DLQ drain/replay/import.
   any built UI "basic" or "half-polished"; built flows must be modern,
   mock-aligned, backend-contract-owned, target-reviewer usable, and E2E-tested
   when part of the vaccination acceptance path.
+- Keep detailed workflow follow-up/backlog language in
+  `context/execution/vaccination-workflow-followups.md`, not in the CEO
+  walkthrough.
 
 Goal 2 authorization note:
 

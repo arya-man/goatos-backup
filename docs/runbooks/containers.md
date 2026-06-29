@@ -27,6 +27,8 @@ docker build -f apps/admin-web/Dockerfile -t goatos-admin-web:local .
 /app/bin/notification-dispatcher
 /app/bin/backfill-goat-created
 /app/bin/idempotency-key-sweeper
+/app/bin/inventory-batch-reconciler
+/app/bin/sop-review-fanout-retry
 /app/bin/seed-dev-grant
 /app/bin/seed-dev-email-grants
 /app/bin/seed-vaccination-trigger
@@ -60,6 +62,14 @@ docker run --rm \
   -e DATABASE_URL="${DATABASE_URL}" \
   --entrypoint /app/bin/idempotency-key-sweeper \
   goatos-backend:local -limit 1000
+```
+
+Inventory stock repair and SOP review fanout retry are also packaged as
+job-style binaries:
+
+```text
+/app/bin/inventory-batch-reconciler
+/app/bin/sop-review-fanout-retry
 ```
 
 Old import/reconciliation/reporting binaries are no longer packaged in the

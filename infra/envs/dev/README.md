@@ -179,7 +179,10 @@ Kernel jobs:       goatos-dev-outbox-relay, goatos-dev-domain-event-consumer,
                    goatos-dev-calendar-projector,
                    goatos-dev-calendar-reminder-sweeper,
                    goatos-dev-calendar-escalation-sweeper,
-                   goatos-dev-notification-dispatcher
+                   goatos-dev-notification-dispatcher,
+                   goatos-dev-inventory-batch-reconciler,
+                   goatos-dev-idempotency-key-sweeper,
+                   goatos-dev-sop-review-fanout-retry
 ```
 
 Goal 2 topology proof items:
@@ -188,11 +191,12 @@ Goal 2 topology proof items:
 outbox-dlq                  # Pub/Sub/native DLQ drain/replay/import runner
 ```
 
-`inventory-batch-reconciler` and `idempotency-key-sweeper` are in the current
-Cloud Run Job/Scheduler map and must be proven in Google E2E. `outbox-dlq`
-exists as a backend command, but the Pub/Sub/native DLQ drain/replay/import
-path still needs a scheduled job or a documented dev-safe operator runner before
-calling the dev kernel runtime complete.
+`inventory-batch-reconciler`, `idempotency-key-sweeper`, and
+`sop-review-fanout-retry` are in the current Cloud Run Job/Scheduler map and
+must be proven in Google E2E. `outbox-dlq` exists as a backend command, but the
+Pub/Sub/native DLQ drain/replay/import path still needs a scheduled job or a
+documented dev-safe operator runner before calling the dev kernel runtime
+complete.
 
 Cloud SQL is planned with `activation_policy = "ALWAYS"` for the live raw-URL
 dev dashboard bring-up. This means the instance runs while the dashboard is

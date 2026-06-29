@@ -125,6 +125,9 @@ Operational kernel stability closure handoff
 CEO vaccination kernel dev guide
   context/execution/ceo-vaccination-kernel-dev-guide.md
 
+Vaccination workflow follow-ups
+  context/execution/vaccination-workflow-followups.md
+
 Goal 1 senior-architect review prompt
   context/execution/goal1-senior-architect-review-prompt.md
 

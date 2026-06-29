@@ -1,250 +1,319 @@
-# CEO Guide - Goat OS Vaccination Kernel Dev
+# CEO Guide - Goat OS Vaccination Dev Walkthrough
 
-Status: Goal 1 local closure guide. Google dev rollout, clean-slate seed, and
-Google E2E remain Goal 2 and must not be claimed here.
+Status: reviewer walkthrough for the vaccination slice. This guide is for the
+website experience after login. Internal engineering follow-ups are tracked
+separately in `context/execution/vaccination-workflow-followups.md`.
 
 Audience: CEO, COO, and internal Mesha reviewers.
 
-Purpose: show whether the vaccination process is set, whether it is being
-followed, and where to look when it breaks.
-
-## What This Dev Dashboard Proves
-
-Goat OS is not trying to copy every old dashboard row into a new screen. The
-dev dashboard proves the operating process:
-
-```text
-published vaccination config
-  -> goat/shed cohort is evaluated
-  -> due or deferred work is created
-  -> shed-wise execution happens through SOP/proof
-  -> verifier accepts, rejects, or asks for rework
-  -> stock, booster, missed, reminder, escalation, and read models update
-```
-
-The old dashboard was useful for counts and a vaccination-by-shed matrix. Goat
-OS keeps that visibility, but the main question changes from "what was entered"
-to "is the process being followed, and who owns the next action?"
+Purpose: explain what to open, what to look at, what to test, and what is not
+finished yet.
 
 ## Login
 
-Dev access is limited to the approved four-user Mesha CEO/COO/internal-admin
-allowlist defined in `infra/envs/dev/config.md`.
-
-Access requires both Google sign-in and a Goat OS database grant. Google sign-in
-alone is not enough.
-
-Final dev URL: `https://dev.dashboard.mesha.sg/`
-
-This is the same dev hostname reviewers are already used to. During rollout the
-old dashboard must be archived and kept reachable as rollback evidence, then
-the new Goat OS dashboard must render on this same URL. Raw Cloud Run,
-Firebase, or hosted.app URLs are diagnostic links only; they are not the final
-CEO link.
-
-## What Data Is In Dev
-
-The dev environment should be a clean slate except for the approved login
-grants. It should then be seeded with a small source-backed sample, not the full
-legacy herd.
-
-Target seed size: `<=500` goats, enough to show pagination and process states.
-
-The sample should include:
-
-- multiple parks and sheds.
-- adult goats, kids, bucks, does, and representative breeds.
-- goats with known DOB and missing DOB.
-- due, missed, deferred, blocked, proof-pending, verification-pending, and
-  completed vaccination states.
-- stock available and stock blocked examples.
-- at least one shift, exit, or recovery example if source data supports it.
-
-Seed source summary: Goal 1 local proof uses the source-derived ET dev baseline
-seed plus a four-goat procurement matrix. Final Google dev seed source remains a
-Goal 2 task.
-
-Seeded count: local proof uses one vaccination chain goat plus four procurement
-matrix goats in a throwaway local DB. Final Google dev seed count remains a
-Goal 2 task.
-
-## Where To Look
-
-| Need | Where to look in Goat OS |
-| --- | --- |
-| Overall health of the vaccination process | Control Tower |
-| Work due now or broken now | Action Center |
-| Date-based view of due, missed, and upcoming work | Calendar |
-| Whether the protocol is being followed by park/shed/rule | Protocol Adherence |
-| Shed execution and operator work status | PHC -> Vaccination / Vaccination Execution |
-| One goat's history and open obligations | Goat Passport / goat detail |
-| Real vaccination and SOP configuration | Config / Protocol Rules and SOP Library |
-| Worker, outbox, retry, and DLQ problems | Operations / Kernel Health / DLQ |
-
-## How A New Goat Triggers Vaccination Work
-
-1. A goat is added with identity, location/shed, lifecycle status, stage, DOB or
-   entry date where available.
-2. Goat OS records a canonical `goat.created` event.
-3. The outbox relay and domain-event consumer deliver that event.
-4. The vaccination generator checks the published PHC vaccination rules.
-5. If the goat is eligible, an obligation is created as scheduled/due.
-6. If the goat is sick, ICU, quarantine, too young, missing DOB, or missing a
-   required date and the rule says to defer, the obligation is visible as
-   deferred instead of disappearing.
-7. The sweeper groups due work by shed and creates execution work.
-8. The operator follows SOP/proof, the verifier accepts or rejects, and the
-   kernel updates completion, stock, booster, reminders, escalation, and read
-   models.
-
-Final tested add-goat path: local Goal 1 uses the admin/API path exercised by
-`tools/dev/vaccination-chain-proof.sh` and the accepted-intake path exercised by
-`tools/dev/procurement-vaccination-e2e-matrix.sh`, both called from
-`tools/dev/admin-web-e2e-smoke.sh`.
-
-If the add-goat screen is built in dev, it must be modern, mock-aligned,
-backend-contract-owned, usable by the target reviewer, and E2E-tested when it is
-part of the vaccination acceptance path. If it is not built, say it is
-unavailable here and name the tested import/API/admin path used for E2E proof.
-
-## How A New Shed Affects Vaccination Work
-
-A shed by itself does not create vaccination work. Vaccination work is created
-when goats in that shed match a published vaccination rule.
-
-Use this to test shed behavior:
-
-1. Add or seed a shed/location.
-2. Add or move eligible goats into that shed.
-3. Run or wait for the generator/sweeper.
-4. Check PHC -> Vaccination / Vaccination Execution for shed-wise work.
-5. Check Action Center and Calendar for due, deferred, missed, or blocked rows.
-
-Final tested add-shed or move-shed path: local Goal 1 does not create sheds from
-the CEO UI. It uses seeded source locations and proves shed-scoped vaccination
-work through the local E2E smoke report.
-
-If the add-shed or move-shed UI is built in dev, it must be modern,
-mock-aligned, backend-contract-owned, usable by the target reviewer, and
-E2E-tested when it is part of the vaccination acceptance path. If it is not
-built, say it is unavailable here and name the tested seed/API/admin path used
-for E2E proof.
-
-## What Config And SOP Are Already Set
-
-The production rule is: drafts do not create work. Only published versions
-create work.
-
-For dev, document the final seeded config here:
-
-| Config item | Dev value |
-| --- | --- |
-| Vaccination protocol/version | Local source-derived ET baseline, version `b011`, rule `b012` |
-| SOP version linked to vaccination | Local published vaccination SOP `b0..0002` |
-| Proof required | Local proof tokens: shed, vial or lot, administration |
-| Stock rule | FEFO vaccine lot required; cold-chain and expiry checked before acceptance |
-| Reminder/escalation policy | Local sweeper/reminder/escalation paths verified by package tests and E2E smoke; production channels are Goal 2 |
-
-## What Happens When SOP Or Vaccination Config Changes
-
-- A published version is immutable. It is not edited in place.
-- A change creates a new draft version.
-- CEO/COO publishes the new version when it is approved.
-- New goats and future generation use the effective published version.
-- Completed work remains tied to the old version for audit.
-- Already-open work needs an explicit policy: continue, cancel, supersede, or
-  regenerate. Goat OS must not silently rewrite completed history.
-
-## How To See If The Process Is Broken
-
-Use these questions:
-
-- Is work due or missed? Check Action Center and Calendar.
-- Is work blocked by stock? Check Vaccination Execution and stock-block state.
-- Is proof missing or rejected? Check Vaccination Execution / Workflow detail.
-- Is verification pending too long? Check Action Center and Protocol Adherence.
-- Did an event or worker fail? Check Operations / Kernel Health / DLQ.
-- Did an alert or escalation fire? Check reminder/escalation rows and dev-safe
-  notification output.
-
-If a deadline crosses, the work should become visible as missed/overdue and
-escalation should remain visible until the issue is resolved.
-
-## What Maps From The Legacy Dashboard
-
-| Legacy dashboard habit | Goat OS place |
-| --- | --- |
-| Active goat count and herd cards | Control Tower plus Goat Passport/search |
-| Import review and data-quality queues | Admin/Data Ops import surfaces, if enabled for this dev pass |
-| Old vaccination shed matrix | PHC -> Vaccination, Calendar, and Protocol Adherence |
-| Shed/date vaccination cells | Vaccination Execution and Calendar detail |
-| Knowing whether process broke | Action Center, Workflow detail, Kernel Health, DLQ |
-| CEO escalation visibility | Action Center, Calendar, Protocol Adherence, escalation/notification state |
-
-The old dashboard can remain as archived evidence or rollback reference, but it
-must not be treated as the new source of truth after Goat OS dev is accepted.
-
-## Known Gaps To State Honestly
-
-Update this list after Goal 2. Do not delete a gap unless the tested dev flow
-proves it is closed.
-
-- Full production vaccine schedules/rules may still require final PHC-approved
-  data.
-- Operator proof upload UI is either built as a modern, mock-aligned,
-  backend-contract-owned, target-reviewer usable, E2E-tested flow or explicitly
-  unavailable; if unavailable, the guide must name the tested admin/API helper
-  used for E2E proof.
-- Real notification channels may be dev-safe stubs, not production delivery.
-- Stock issue resolution UI is either built as a modern, mock-aligned,
-  backend-contract-owned, target-reviewer usable, E2E-tested owner flow or
-  explicitly unavailable; visible stock-block state is still required.
-- Critical death/ICU/quarantine guardrail flows may be blocked or limited until
-  the critical-action pack is implemented.
-- XLSX import may remain out of scope if CSV/import API is the tested seed path.
-
-## What Google Dev Deployment Will Not Automatically Finish
-
-When the system is live in Google, say this plainly: deployment proves Goat OS is
-running in the right cloud environment, with the tested seed data, login,
-workers, and dashboard path. It does not by itself mean every future operating
-workflow is complete.
-
-The following items need full workflow implementation before they should be
-presented as live business processes:
-
-| Area | Non-technical CEO wording |
-| --- | --- |
-| ICU and quarantine actions | Goat OS can safely stop unsafe ICU/quarantine changes today. The full approval workflow still needs the evidence checklist, reviewer steps, release criteria, and operator screen before it is a live workflow. |
-| Critical health/death guardrails beyond the approved death path | The system blocks dangerous shortcuts. To make the full guardrail product live, we still need the complete policy pack that decides what evidence is required, who approves, and how exceptions are closed. |
-| Shed owner separation checks | Some approvals depend on knowing the correct shed owner or manager. Before this is live, the owner data and reviewer separation rules must be populated and tested. |
-| DLQ/replay operations | Goat OS has the repair screen concept and local recovery paths. In Google, we still need to prove failed background messages can be found, safely replayed, rejected when the same key carries different content, or discarded through the intended operator path. |
-| Stock issue resolution | Stock blocks are visible. The full owner workflow still needs the person responsible, action buttons, proof of resolution, and escalation behavior tested in Google. |
-| Missed-dose response ownership | Goat OS records missed work and keeps it visible. The live operating workflow still needs the exact owner, notification wording, escalation timing, and closure rules for a missed dose. |
-| Failed-alert follow-up | Goat OS retries alerts and now falls back from incident alerts to Slack when the incident channel is not configured. A full operations workflow still needs the audit trail, owner queue, metric, and reroute policy for alerts that fully exhaust. |
-| Background event recovery at scale | Goat OS can reclaim stuck background work locally. The full production operating rule still needs a clear owner contract for cases where a handler partly succeeds and then fails before its final acknowledgement. |
-| Protocol authoring save/publish flow | Drafts, published versions, and immutable history are enforced. The authoring screen still needs a single guided workflow for "save draft, add rules, publish" with compensation/retry behavior before it is treated as a finished business authoring product. |
-| Scale rehearsal | Local checks cover the functional paths. Before calling the Google environment scale-ready, run a real load rehearsal for large herds, repeated event delivery, and relay backlog recovery. |
-
-Use this wording if asked whether these are "bugs":
+Open:
 
 ```text
-These are not hidden failures in the deployed vaccination kernel. The current
-system blocks unsafe shortcuts. They are future operating workflows that need
-their own evidence, approval, owner, and exception-handling screens before we
-call them live.
+https://dev.dashboard.mesha.sg/
 ```
 
-## Final Acceptance Notes
+Use the approved Mesha Google account. Access requires both Google sign-in and
+a Goat OS role grant, so a normal Google login is not enough by itself.
 
-Goal 1 local acceptance note:
+After login, use the top bar to review the current park/date scope. If a screen
+looks empty, first check whether the top bar is scoped to a park or date that
+has no sample vaccination work.
+
+## What This Slice Is For
+
+The vaccination slice answers four business questions:
+
+1. Which goats or sheds need vaccination work now?
+2. Who owns the next action?
+3. Is proof uploaded and verified?
+4. Did the work follow the published vaccination rule and SOP?
+
+The old dashboard mostly showed counts and a shed matrix. Goat OS keeps the
+matrix idea, but adds ownership, proof, verification, missed work, blockers, and
+the reason something is not moving.
+
+## Fast Walkthrough
+
+Use this path for a first review.
+
+| Step | Open | What to check |
+| --- | --- | --- |
+| 1 | Control Tower | Overall vaccination health, top broken items, owner, next action. |
+| 2 | PHC -> Vaccination | Cohort matrix, per-cohort detail, supplier warmup, and shed execution rows. |
+| 3 | Action Center | Due, overdue, proof-pending, verification-pending, rejected, blocked, and owner-missing work. |
+| 4 | Calendar | The date view of vaccination due work, reminders, snoozes, and escalations. |
+| 5 | Protocol Adherence | Expected vs actual work, adherence percent, proof count, and gaps by rule/shed. |
+| 6 | Workflows | The step-by-step chain for one vaccination item: config, work created, drive, SOP, proof, verify, close. |
+| 7 | Config and SOP Library | The published vaccination rule and linked SOP that generate the work. |
+
+## Control Tower
+
+Use Control Tower as the CEO summary.
+
+Expected review:
+
+- If the process is healthy, the first card says the process is intact.
+- If something is broken or at risk, the alert band shows the issue, the owner,
+  and the next action.
+- Open an alert to see the detail drawer.
+- Use the drawer links to open the same item in Action Center, Workflows,
+  Protocol Adherence, or Vaccination.
+
+What this proves:
+
+- Broken work is not hidden in a table.
+- The dashboard shows who should act next.
+- CEO review starts from exceptions, not raw goat counts.
+
+## PHC -> Vaccination
+
+Use PHC -> Vaccination as the operating floor.
+
+Expected review:
+
+- The top band shows how a vaccination drive runs.
+- Supplier warmup shows purchased or holding-farm vaccination evidence when it
+  exists, so accepted goats are not double-dosed on arrival.
+- The status matrix shows cohorts against vaccination rules.
+- Per-cohort detail shows animals, age band, last dose, next due, and status.
+- Drive - shed events show park, shed, owner, stock, proof, verification, and
+  next action.
+- Click a shed event to open the shed execution detail.
+
+If Record / verify fields are disabled on a matrix or rollup drawer, that is
+expected. The matrix is a summary, not a single task. To act on one real item,
+open the Action Center work row or the shed execution detail.
+
+If "Import sheet" on the vaccination page is reference-only, that is expected.
+Vaccination drives are not hand-created from that drawer. Drives are generated
+from published rules and eligible goats. Goat and shed entry lives in the herd
+registration/import path.
+
+## Action Center
+
+Use Action Center when something needs action.
+
+Expected review:
+
+- Status Board groups work by state: scheduled, due, overdue, proof pending,
+  verification pending, rejected, blocked, owner missing, missed, deferred, and
+  completed.
+- Click a card to open the work drawer.
+- The drawer shows owner, due date, SOP progress, proof state, verification
+  state, next action, and links to the full workflow.
+- The SOP Queues view shows proof waiting for verification.
+- Verify, reject, or request rework only when the row is a real review item.
+
+If a verify/reject button is disabled, the row is missing the review handle for
+that action. Open the workflow detail or the related shed execution row to see
+the actual work context.
+
+## Calendar
+
+Use Calendar to see vaccination work by date.
+
+Expected review:
+
+- Week and month views show vaccination due work.
+- Owner lanes separate PHC, stock, and admin/data work when the data supports
+  those lanes.
+- Open an event to see detail and actions such as nudge, snooze, escalation, or
+  open workflow.
+
+The "New event" button is disabled by design. Vaccination calendar items come
+from published rules and real due work; reviewers should not create free-form
+calendar events that bypass the vaccination process.
+
+## Protocol Adherence
+
+Use Protocol Adherence to check whether the rule is being followed.
+
+Expected review:
+
+- Overall adherence percent shows how much expected work is on track.
+- Open process gaps show what is late, blocked, deferred, rejected, or missing
+  proof.
+- Deferred rows are shown as explained work, not hidden skips.
+- Click a row to see expected vs actual, owner, next action, and proof count.
+- Use the row links to open Action Center or the full Workflow.
+
+What this proves:
+
+- Goat OS can show why the process failed, not only that a dose was not done.
+- A sick, quarantined, ICU, missing-date, or stock-blocked case stays visible
+  with a reason.
+
+## Workflows
+
+Use Workflows to follow one vaccination item from start to finish.
+
+Expected review:
+
+- The chain shows: Config -> work created -> drive opened -> SOP -> proof ->
+  verify -> close.
+- The selected workflow shows current state, severity, SOP state, proof state,
+  verification state, and completion progress.
+- Open the detail page to jump to Goat Passport, shed execution, Action Center,
+  and Protocol Adherence.
+
+What this proves:
+
+- The screen is not just a list. It explains where one item is stuck.
+
+## Config And SOP Library
+
+Use Config and SOP Library to confirm what creates vaccination work.
+
+Expected review:
+
+- Draft rules do not create work.
+- Only a published rule backed by approved source records creates vaccination
+  work.
+- A published version is not edited in place.
+- A change creates a new draft and then a new published version.
+- Completed historical work stays tied to the version that created it.
+- The vaccination SOP carries the proof requirements used during execution.
+
+If Publish is disabled, check the reason shown in the modal. Common reasons are:
+the user is not CEO/COO, the draft was changed after the last save, the selected
+source is not approved, required source fields are missing, no SOP is selected,
+or proof requirements are empty.
+
+## Registering Goats And Sheds
+
+If the herd registration/import screen is included in the dev review:
+
+- Register goat creates the official Goat OS goat record.
+- Import sheet previews rows first and only commits the accepted rows.
+- Bad rows return row-level errors and can be exported.
+- Register shed creates a vaccination-usable shed under a real park.
+- A shed by itself does not create vaccination work. Eligible goats in that shed
+  plus a published vaccination rule create work.
+
+If location or animal-stage data is missing, goat/shed creation is blocked with
+a visible message. That is intentional: Goat OS should not create vaccination
+work for an invalid park, shed, or stage.
+
+## What Happens When Events Occur
+
+New goat:
+
+- Goat OS records the goat.
+- If the goat is eligible under the published rule, vaccination work appears.
+- If the goat is sick, quarantined, ICU, too young, missing a required date, or
+  otherwise deferred by the rule, the work stays visible as deferred with a
+  reason.
+- If the goat is terminally out of care, vaccination work is not created.
+
+New shed or move to shed:
+
+- A shed alone does not create work.
+- Moving eligible goats into a vaccination-usable shed can create, move, reopen,
+  or cancel open vaccination work based on the published rule.
+
+Published rule or SOP change:
+
+- Future work uses the new published version.
+- Finished work is not rewritten.
+- Open work needs an explicit outcome such as continue, cancel, supersede, or
+  regenerate.
+
+Proof submitted:
+
+- Proof moves the item into verification.
+- Accepted proof closes the work, records stock use, and schedules the next
+  booster when the rule requires one.
+- Rejected proof sends the item back for rework.
+
+Missed date:
+
+- The item becomes due, overdue, or missed.
+- The owner and next action remain visible in Action Center, Calendar, Protocol
+  Adherence, and Workflows.
+
+Stock problem:
+
+- The item is blocked with the stock reason.
+- It should not disappear or be silently marked complete.
+
+Supplier or holding-farm vaccination evidence:
+
+- Accepted evidence is used to avoid double-dosing after intake.
+- Goats rejected before truck or intake remain procurement history and do not
+  become active PHC vaccination work.
+
+## What To Test
+
+For a short CEO review, test these:
+
+1. Login works for an approved Mesha account.
+2. Control Tower shows process health and opens an alert drawer.
+3. PHC -> Vaccination shows the matrix and shed execution rows.
+4. A disabled rollup Record / verify drawer explains why action must happen on
+   the real work item.
+5. Action Center filters work by status and opens a work drawer.
+6. SOP Queues show verification rows when proof is pending.
+7. Calendar opens an event and explains why free-form New event is disabled.
+8. Protocol Adherence shows adherence percent and an expected-vs-actual row.
+9. Workflows shows the chain and opens a workflow detail.
+10. Config shows whether the vaccination rule is draft or published, and Publish
+    gives a clear disabled reason when blocked.
+
+## What Is Done In This Slice
+
+- Vaccination rules can generate due work.
+- Due, overdue, missed, deferred, blocked, proof-pending, verification-pending,
+  rejected, and completed states are visible.
+- Shed execution rows show owner, stock, proof, verification, and next action.
+- Proof upload and SOP task submission exist on the real task path.
+- Verification can accept, reject, or request rework when a real review row is
+  available.
+- Stock reservation and blocking are enforced by Goat OS.
+- Booster scheduling works after accepted completion.
+- Procurement holding-farm vaccination evidence can prevent double-dosing after
+  intake.
+- Critical direct ICU/quarantine/death shortcuts are blocked unless the approved
+  guarded death path is used.
+
+## What Is Not Finished Yet
+
+These are the items to state plainly during review:
+
+- The full ICU/quarantine critical-action approval workflow is not a live
+  business screen yet. Unsafe direct shortcuts are blocked first; the full
+  approval screen still needs its own policy and review flow.
+- The stock issue owner workflow is not a finished inventory screen in this
+  walkthrough. Vaccination shows the stock block and reason; the full inventory
+  resolution flow belongs to a separate owner workflow.
+- Missed-dose operating ownership still needs the final business rule for who
+  receives the follow-up, how fast they must act, and what closes the exception.
+- Final PHC production schedules and large source data must be loaded and
+  approved before production use.
+- Real notification channels may be dev-safe during review. Treat dev messages
+  as proof of routing, not production delivery.
+- Google dev deployment, old-dashboard archive, final seeded count, and the live
+  Google walkthrough proof are separate rollout steps. Do not claim them from
+  this guide until they have been run and recorded.
+
+## Acceptance Note Template
+
+Use this after the dev review:
 
 ```text
-Goal 1 local kernel closure: local OCK/RVF closeout ledger complete; final state depends on verification and senior-review gates.
-Google dev deployment: Goal 2, not started.
-Old dashboard archive/rollback: Goal 2, not started.
-Preserved users/grants: Goal 2, not started.
-Seed source and count: local throwaway proof DB only; Google dev seed pending Goal 2.
-Vaccination E2E result: `GOAL1-E2E-FINAL-20260629-022731` passed locally; report `.codex-goatos-render/e2e-smoke/GOAL1-E2E-FINAL-20260629-022731`.
-Known incomplete flows: production PHC roster, production notification channels, missed-dose response ownership, failed-alert follow-up, background event recovery ownership at scale, critical ICU/quarantine guardrail workflows, shed-owner separation checks, full DLQ/replay operations, stock owner workflow, protocol authoring save/publish workflow, scale rehearsal, and Google dev deployment remain Goal 2/product work.
+Reviewed URL:
+Reviewer:
+Date:
+Seed/source summary:
+Screens checked: Control Tower, PHC -> Vaccination, Action Center, Calendar,
+Protocol Adherence, Workflows, Config, SOP Library.
+Observed process states:
+Disabled buttons explained correctly:
+Items accepted:
+Items not accepted:
+Next owner:
 ```
