@@ -19,7 +19,9 @@ context/execution/operational-kernel-stability-closure-handoff.md
 Goal: close Goal 1 in this handoff completely. Do not stop until every OCK/RVF
 row has an evidence-backed disposition, vaccination E2E passes, extra-high
 review passes, the pre-push Mesha/VGoats authority gate is recorded, and main is
-pushed with `zsh -ic 'git mesha-push main'` with CI green on that pushed SHA.
+pushed with `zsh -ic 'git mesha-push main'`. Prefer GitHub Actions green on the
+pushed SHA; if Actions cannot start for account/billing/spending-limit reasons,
+run the local CI-equivalent gate set below and record that evidence instead.
 Goal 2 may start only after this doc's Goal 2 gate is satisfied and the user
 explicitly authorizes cloud rollout.
 ```
@@ -52,7 +54,8 @@ Before edits:
   `infra/envs/dev/operational-kernel-dev-runtime.svg`.
 - Do not mutate Google Cloud, prod/stg, or legacy projects unless the user
   explicitly asks and the org/project/account are verified. For Goal 2, the user
-  has already authorized `goatos-dev` rollout after Goal 1 is absolutely green;
+  has already authorized `goatos-dev` rollout after Goal 1 local/CI-equivalent
+  closure is complete;
   see the Goal 2 authorization note, and still run the cloud authority gate
   before every mutation.
 - Before any GitHub mutation, commit, or push, run the pre-push authority gate:
@@ -345,10 +348,13 @@ gap.
 10. Run the pre-push authority gate: branch, remote, target `vgoats/goatos`, and
    Mesha/VGoats token path/command.
 11. Commit and push to main with the Mesha/VGoats path.
-12. Verify `origin/main` equals the pushed commit and GitHub Actions/CI checks
-    for that commit are green. If CI/CD fails or remains pending past a
-    reasonable wait, Goal 1 is not done: fix, rerun local verification, rerun
-    senior review/E2E as applicable, commit, push, and check CI again.
+12. Verify `origin/main` equals the pushed commit. Prefer GitHub Actions/CI
+    green for that commit. If GitHub Actions cannot start because of
+    account/billing/spending-limit state, run the local CI-equivalent gate set
+    in "CI/CD Post-Push Gate" and record that evidence before Goal 2 starts. If
+    CI starts and reports a real code/test failure, Goal 1 is not done: fix,
+    rerun local verification, rerun senior review/E2E as applicable, commit,
+    push, and check CI/local equivalent again.
 
 ### Active Issue/Pending Rows
 
@@ -797,7 +803,9 @@ blocking and rerun the full review loop.
 After the review loop is clean, run the local E2E matrix. If E2E finds any
 valid Goal 1 bug, fix it, rerun the affected verification, rerun the
 senior-architect review, and then rerun E2E. Do not start Goal 2 until this loop
-is clean and CI/CD is green on the pushed `main` commit.
+is clean and the post-push gate is satisfied: CI/CD green when GitHub Actions
+can start, or the local CI-equivalent gate set is green when Actions is blocked
+by account/billing/spending-limit state.
 
 ## Verification Matrix
 
@@ -871,8 +879,10 @@ CI mirror:
   `check:mock-fidelity`; mock fidelity is a repo rule and a CI gate.
 - The admin-web job intentionally has no path filter. Backend-only pushes still
   need the admin-web gate green so `main` never carries stale/broken UI truth.
-- If local and CI disagree, CI wins: fix the real issue or update the workflow
-  only when the workflow itself is wrong and the change is reviewed.
+- If local and CI disagree after CI jobs actually start, CI wins: fix the real
+  issue or update the workflow only when the workflow itself is wrong and the
+  change is reviewed. If CI jobs cannot start because of GitHub account/billing
+  state, use this local CI-equivalent set as the post-push gate.
 
 E2E/local chain:
 
@@ -891,8 +901,8 @@ Docs:
 
 ## CI/CD Post-Push Gate
 
-After pushing to `main`, verify CI/CD for the exact pushed SHA. Use the
-Mesha/VGoats GitHub token path, not a random active `gh` account.
+After pushing to `main`, verify the exact pushed SHA. Use the Mesha/VGoats
+GitHub token path, not a random active `gh` account.
 
 Suggested check:
 
@@ -907,10 +917,30 @@ GH_TOKEN="$MESHA_GITHUB_PAT" gh run list \
 ```
 
 Find the run whose `headSha` equals `$SHA`. Goal 1 is not complete until that
-run finishes with `conclusion=success`. If the run is missing, pending too long,
-cancelled, timed out, or failed, record the URL, fix the issue, rerun local
-verification and the senior-architect loop as needed, push a new commit, and
-check CI again.
+run finishes with `conclusion=success`, or until GitHub Actions is proven unable
+to start jobs because of account/billing/spending-limit state and the local
+CI-equivalent gate set below passes.
+
+Local CI-equivalent gate set:
+
+```bash
+MESHA_RTK_NOISY_COMMANDS=0 MESHA_RTK=0 make -C /Users/ravi/mesha/goatos check
+MESHA_RTK_NOISY_COMMANDS=0 MESHA_RTK=0 make -C /Users/ravi/mesha/goatos sqlc-check
+MESHA_RTK_NOISY_COMMANDS=0 MESHA_RTK=0 make -C /Users/ravi/mesha/goatos api-client-check
+MESHA_RTK_NOISY_COMMANDS=0 MESHA_RTK=0 make -C /Users/ravi/mesha/goatos validate-migrations
+MESHA_RTK_NOISY_COMMANDS=0 MESHA_RTK=0 make -C /Users/ravi/mesha/goatos validate-sqlc-plans
+MESHA_RTK_NOISY_COMMANDS=0 MESHA_RTK=0 npm --prefix /Users/ravi/mesha/goatos/apps/admin-web run lint
+MESHA_RTK_NOISY_COMMANDS=0 MESHA_RTK=0 npm --prefix /Users/ravi/mesha/goatos/apps/admin-web run typecheck
+MESHA_RTK_NOISY_COMMANDS=0 MESHA_RTK=0 npm --prefix /Users/ravi/mesha/goatos/apps/admin-web run check:mock-fidelity
+MESHA_RTK_NOISY_COMMANDS=0 MESHA_RTK=0 npm --prefix /Users/ravi/mesha/goatos/apps/admin-web run build
+```
+
+If GitHub Actions starts and fails because of a real code/test/workflow issue,
+record the URL, fix the issue, rerun local verification and the senior-architect
+loop as needed, push a new commit, and check CI/local equivalent again. If GitHub
+Actions refuses to start jobs with an account/billing/spending-limit annotation,
+record the annotation and use the passing local CI-equivalent gate set as the
+Goal 1 post-push gate.
 
 ## Done Definition
 
@@ -958,14 +988,16 @@ zsh -ic 'git mesha-push main'
 ```
 
 16. Remote `origin/main` is verified after push.
-17. GitHub Actions/CI for the exact pushed `main` SHA is verified green. A
-    missing, pending-too-long, cancelled, timed-out, or failed run means Goal 1
-    is not complete and must return to the fix/verify/review/E2E/push loop.
+17. GitHub Actions/CI for the exact pushed `main` SHA is verified green, or
+    GitHub Actions is proven unable to start for account/billing/spending-limit
+    reasons and the local CI-equivalent gate set above is green. A real
+    code/test/workflow failure still means Goal 1 is not complete and must
+    return to the fix/verify/review/E2E/push loop.
 
 ## Linked Goal 2 - goatos-dev rollout gate
 
 Goal 2 is intentionally linked to this handoff, but it is blocked until Goal 1
-is absolutely complete.
+local/CI-equivalent closure is complete.
 
 Goal 1 owns every local kernel/vaccination correctness enhancement: transaction
 boundaries, idempotency, outbox/fanout, evidence batching, stock conservation,
@@ -987,7 +1019,9 @@ after:
   issue.
 - fixes are committed, pushed to `vgoats/goatos` main, and `origin/main` is
   verified.
-- GitHub Actions/CI is green for the exact pushed `main` SHA.
+- GitHub Actions/CI is green for the exact pushed `main` SHA, or Actions cannot
+  start for account/billing/spending-limit reasons and the local CI-equivalent
+  gate set is green.
 
 If the extra-high review finds any remaining kernel/vaccination blocker, Goal 1
 is not finished and Goal 2 must not start.
