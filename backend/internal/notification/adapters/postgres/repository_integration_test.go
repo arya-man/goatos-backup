@@ -105,7 +105,7 @@ WHERE tenant_id = $1::uuid
   AND aggregate_type = 'calendar_notification'
   AND aggregate_id = $2::uuid
   AND event_type = 'notification.exhausted'`, 0, testTenantID, requestID)
-	assertNextAttemptPresent(t, ctx, pool, requestID)
+	assertNotificationRetryDetails(t, ctx, pool, requestID, "temporary retry", "test-dispatcher", nextAttempt)
 }
 
 func TestNotificationRepositoryFinalFailureWritesAuditAndOutbox(t *testing.T) {
@@ -180,18 +180,22 @@ ON CONFLICT (tenant_id, event_id) DO NOTHING`, testTenantID, eventID); err != ni
 	}
 }
 
-func assertNextAttemptPresent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, requestID string) {
+func assertNotificationRetryDetails(t *testing.T, ctx context.Context, pool *pgxpool.Pool, requestID, wantFailure, wantDeliveredBy string, wantNextAttempt time.Time) {
 	t.Helper()
-	var hasNextAttempt bool
+	var failureReason string
+	var deliveredBy string
+	var nextAttempt time.Time
 	if err := pool.QueryRow(ctx, `
-SELECT next_attempt_at IS NOT NULL
+SELECT COALESCE(failure_reason, ''), COALESCE(delivered_by, ''), next_attempt_at
 FROM notification_requests
 WHERE tenant_id = $1::uuid AND notification_request_id = $2::uuid`,
-		testTenantID, requestID).Scan(&hasNextAttempt); err != nil {
-		t.Fatalf("query notification next attempt: %v", err)
+		testTenantID, requestID).Scan(&failureReason, &deliveredBy, &nextAttempt); err != nil {
+		t.Fatalf("query notification retry details: %v", err)
 	}
-	if !hasNextAttempt {
-		t.Fatalf("notification next_attempt_at missing for %s", requestID)
+	if failureReason != wantFailure || deliveredBy != wantDeliveredBy || !nextAttempt.Equal(wantNextAttempt) {
+		t.Fatalf("notification retry details failure=%q deliveredBy=%q next=%s, want %q/%q/%s",
+			failureReason, deliveredBy, nextAttempt.Format(time.RFC3339Nano),
+			wantFailure, wantDeliveredBy, wantNextAttempt.Format(time.RFC3339Nano))
 	}
 }
 
