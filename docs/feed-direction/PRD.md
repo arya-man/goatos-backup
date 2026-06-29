@@ -1,7 +1,7 @@
 # Feed -> Feed Direction - Product Requirements (PRD)
 
-**Status:** Draft v3, refined against source-first counter-review
-**Date:** 2026-06-29
+**Status:** Draft v4, refined against source-first counter-review and read-model review
+**Date:** 2026-06-30
 **Vertical:** Feed. Feed Direction is the first Feed module. Parks are a scope
 dimension, not the owning vertical.
 
@@ -170,6 +170,14 @@ not inferred from string labels in feed code.
 Consumption/wastage proof must not stop at storing numbers. The first slice must
 carry source-backed exception thresholds for packing expected-vs-actual mismatch
 and wastage variance, with durable escalation/rework when the threshold is crossed.
+
+Feed command/read models must preserve the operator buckets legacy Slack already
+made visible, while keeping Feed UI gated until scope reopens: generation blocked,
+packing due, packing shortfall, proof/video missing, transport pending, transport
+rejected, consumption incomplete, wastage/discrepancy exception, bridge exception,
+stock-out, and rework. These buckets feed top-level command lenses such as Action
+Center, Control Tower, Protocol Adherence, and Workflows through filters; do not
+create nested Feed copies of those command/authority screens.
 
 High-priority additions after the cutoff do not get a next-morning system Diff.
 They use the source-defined bridge protocol: the health/feed team places a 2x

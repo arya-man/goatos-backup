@@ -180,6 +180,11 @@ Stock is reserved/consumed at the **packing** phase (SM-4 execute).
 4. Transport, consumption, and wastage are separate proof-gated execution stages or typed stage records; they do not collapse into one Boolean processed flag.
 5. Transport uses a reviewed direction-shed to transport-shed consolidation map when source operations stage grouped transport work.
 6. Consumption recording (feeding sessions) records consumed quantity, wasted quantity, variance, and proof through the chosen stage model; source-backed discrepancy/wastage thresholds create exception or rework state.
+7. Refresh Feed Direction read-model buckets for generation blocked, packing
+   due/shortfall, proof missing, transport pending/rejected, consumption
+   incomplete, wastage exception, bridge exception, stock-out, and rework so
+   top-level command lenses can answer who owns the next action without scanning
+   raw rows.
 
 **Invariants:** exactly one open active instruction per `(target_date, shed, session, breed, shed_tag_or_stage, feed)` after full/Diff reconciliation; **stock is only locked at packing, never at generation**; reservations match the active instruction; unresolved cohort/stage impact never changes feed counts.
 **Idempotency:** generation is keyed by tenant, target date, shed, session, feed, run kind, and source/version hash; shifting ledger application is keyed by shifting event id/logical event key.

@@ -1,7 +1,7 @@
 # Feed -> Feed Direction - Technical Requirements / Design (TRD)
 
-**Status:** Draft v3, refined against source-first counter-review
-**Date:** 2026-06-29
+**Status:** Draft v4, refined against source-first counter-review and read-model review
+**Date:** 2026-06-30
 **Companion:** [PRD.md](./PRD.md)
 **Foundation:** [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md)
 
@@ -214,7 +214,7 @@ Candidate tables, to finalize during implementation:
 | `feed_direction_generation_rows` | Source/planning snapshot used to create obligations | Grain: tenant, run, park, shed, target date, session, breed, stage/shed tag, feed item, as-fed quantity, row kind full/diff/restatement, optional source-facing net correction quantity |
 | `feed_direction_stage_records` | Typed stage outcome rows if separate stage obligations are not enough | Stage kind packing/transport/consumption/wastage/bridge, planned vs actual quantities, consumed/wasted/variance, proof refs, verifier status, rejection reason, rework link |
 | `feed_direction_bridge_events` | High-priority post-cutoff 2x-ration bridge log | Destination shed, animal or aggregate count, source shed tag, feed quantities, proof/submission links |
-| `feed_direction_projection_rows` | Read model for admin/mobile lists | Bounded by tenant, park, date, shed, session, status, cursor key |
+| `feed_direction_projection_rows` | Read model for admin/mobile lists and command buckets | Bounded by tenant, park, date, shed, session, status, bucket, owner, cursor key |
 
 If the implementation can derive a read model directly from generic obligations,
 completions, inventory, and run rows without extra projection storage, prefer the
@@ -401,6 +401,33 @@ The first implementation slice is generation + wiring:
 All public contracts must keep labels, filter options, status copy, disabled
 reasons, and page-size choices backend-owned.
 
+### Command/read-model contract
+
+Do not reduce Feed Direction reads to "all rows plus status." The backend contract
+must expose source-backed operational buckets that match the daily work shape
+without creating active Feed UI before scope reopens:
+
+| Bucket | Source/legacy signal | GoatOS source of truth |
+| --- | --- | --- |
+| `generation_blocked` | missing Count/Shifting projection or reviewed ration config | generation run / blocker records |
+| `packing_due` | unprocessed packing work | due packing child obligation or stage record |
+| `packing_shortfall` | expected-vs-actual mismatch or rejected packing proof | packing verification + rework state |
+| `proof_missing` | no media/proof for required stage | SOP task/submission/proof state |
+| `transport_pending` | Feed Transport work list/form row pending | transport obligation/stage and consolidation map version |
+| `transport_rejected` | Feed Transport media correctness `Rejected` with remarks | proof verification rejection and rework obligation |
+| `consumption_incomplete` | missing consumption/wastage report | consumption/wastage obligation or stage record |
+| `wastage_exception` | difference/wastage percent over configured threshold | active instruction snapshot + stage variance rule |
+| `bridge_exception` | post-cutoff high-priority 2x ration bridge | `feed_direction_bridge_events` |
+| `stock_out` | reserve failure at packing start | inventory reserve result + blocked obligation state |
+| `rework` | rejected media, packing reset, or resend loop | follow-up obligation/workflow link |
+
+Each bucket must carry `tenant_id`, park/location scope, target date, shed or
+transport shed, session/batch where applicable, owner/assignee where known,
+source stage, active/superseded instruction reference, due/blocked reason, and a
+cursor key. These buckets may feed top-level command lenses through filters, but
+Feed Direction must not create nested Action Center, Control Tower, Protocol
+Adherence, Config, or SOP Library routes.
+
 ## 9. Legacy parity mapping
 
 Legacy source behavior to port as rules, not as Apps Script:
@@ -473,6 +500,8 @@ fixtures. Rotation in the source system is required before any bridge reuse.
 - Import/replay tests for Feed legacy source rows, applied shifting events, proof
   rows, and duplicate/cross-source overlap cases from the cutover contract.
 - API route tests and OpenAPI generated-client checks.
+- Projection/read-model tests for the command buckets, including no duplicate
+  active work after Diff supersession and no unbounded list scans.
 - SQL plan validation for hot list/filter queries.
 - Local end-to-end proof through Postgres, API, outbox/consumer or documented
   local equivalent, sweeper/job, SOP submission, verification, and read model.
