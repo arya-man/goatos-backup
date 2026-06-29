@@ -48,6 +48,47 @@ Before deployment work starts, close or explicitly bound these items:
 - Batch stock reconciliation must continue past a bad batch and record the
   failed batch for retry/repair.
 
+## Review Status
+
+As of 2026-06-29, the attached Claude/Codex review items have been rechecked
+against current `main`. Do not reopen an item only because it appears in an
+older review note; verify it against the current repository first.
+
+Closed in code or confirmed present:
+
+- SOP proof and verification gates fail closed.
+- Protocol publish expands accepted `rule_dsl.schedule[]` into executable
+  `protocol_rules` rows or rejects the version.
+- Unsupported forward repeat policies are rejected at publish.
+- Generation honors lifecycle, stage, sex, breed, health, reproductive state,
+  location, age band, and min/max age gates.
+- Sweeper grouping uses scope, protocol version, rule, planned date, and due
+  window, and the paging regression keeps one scope in one batch across the
+  1000-row page boundary.
+- Sweeper SOP and stock binding is rule/version aware.
+- FEFO reserve validates against the planned drive/admin date.
+- Calendar projection refresh backfills missed, in-progress, deferred, and
+  past-due open exceptions outside the default date window.
+- Exit/cancel cleanup includes missed rows and records repair state for stock
+  release.
+- Domain consumer replay safety has durable processed-event claims, explicit
+  finalization loss detection, and retention sweeping.
+
+Still bounded as deployment-readiness or workflow evidence, not a reason to
+start legacy migration:
+
+- Consumer claim/effect/finalize is not fully co-transactional for every
+  handler. Treat this as replay-safety evidence work during dev rehearsal:
+  prove each handler is deterministic/idempotent, then decide whether any
+  handler needs a durable progress table.
+- ICU/quarantine routing is fail-closed for critical health states. A richer PHC
+  health workflow can be designed later, but dev must prove blocked/deferred
+  visibility and recovery behavior.
+- Shift/death/recovery paths have repository coverage, but the Google dev seed
+  must include shifted, exited, sick/quarantined, recovered, in-progress, and
+  stock-reconcile scenarios to prove read-model and adherence behavior end to
+  end.
+
 ## Boundary Checks
 
 Before any GitHub push or Google Cloud mutation, state and verify:
@@ -121,6 +162,11 @@ make verify-google-dev-seed-fixtures
 Minimum seed set:
 
 - Tenant and four approved user grants.
+- Small but real accepted herd: 3-5 sheds and 50-100 goats, with enough mixed
+  records to exercise filters and pagination. Seed only complete, trusted,
+  accepted rows. Do not seed guessed DOBs, guessed sheds, or half-valid animals.
+  If the UI needs an estimated-data case, make it clearly synthetic and label
+  it as a test scenario.
 - Parks, sheds, shed profiles, and `animal_stage_lookup` rows that prove shed
   profile stage can override stale goat stage.
 - Operators and verifiers with explicit scopes.
@@ -137,6 +183,11 @@ Minimum seed set:
 - Import fixtures for admin sheet flows:
   shed create, goat create, duplicate row replay, invalid shed/profile, invalid
   DOB, and unsupported lifecycle or stage.
+
+For clean-slate dev, set `CUTOVER_DATE` to the dev seed launch date. This avoids
+accidental historical overdue noise. If PHC wants catch-up behavior tested, add
+one deliberate baseline/catch-up fixture instead of importing history by
+accident.
 
 ## Dev Validation Flow
 
