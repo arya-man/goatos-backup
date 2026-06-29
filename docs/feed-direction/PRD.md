@@ -97,7 +97,7 @@ reopens that design.
 | Feed protocol config in generic `rule_dsl` | FCR/cost dashboards | Parallel typed `feed_*` execution stack |
 | Source-backed ration table: non-UI solver output or reviewed imported solve | Full NRC optimizer UI | Slack forms as canonical execution |
 | Define and consume the horizon-aware Counts/Shifting input contract | RFID-to-shed individual association | Old 07:30 next-morning Diff design |
-| Day N full direction and cutoff Diff | Uneven session split tuning | Feed procurement/fodder modules |
+| Day N full direction, cutoff Diff, and versioned session-slot policy | FCR/cost dashboards | Feed procurement/fodder modules |
 | Packing, reserve/consume, proof, verification | Item-level palatability caps | Full feed cost accounting |
 | Consumption, transport, variance/wastage proof | Advanced transport optimization | Milk Preparation verification workflow |
 | Post-cutoff high-priority manual bridge logging | | |
@@ -142,10 +142,15 @@ Feed eligibility is reviewed config, not presentation cleanup. K0/K1
 milk-fed exclusions and Experiment zero-direction handling are candidate policy
 from legacy zero rows/automation behavior, not settled by the feed docx alone.
 They must receive Feed Director approval before suppressing normal packed-feed
-obligations. The June 2026 source default is two sessions with a 50/50 split.
-Legacy per-farm templates still carry session labels and per-session feed sets;
-the first implementation must either import them as reviewed config or record
-Feed Director sign-off that the two-session simplification supersedes them.
+obligations. The June 2026 source default is two sessions with a 50/50 split, and
+the same source calls that split a deliberate simplification to revisit if a
+breed + tag combo needs an uneven split. GoatOS therefore must model session
+slots as versioned admin config, not hardcoded code. A Feed Director can draft
+more slots, disable/reorder slots, change serving times, change split weights, or
+scope feed-item inclusion by reviewed park/farm/shed-tag/breed policy. COO/CEO
+publish makes the policy immutable for an effective date. The first published
+policy should default to the docx two slots unless the Feed Director approves a
+different source-backed session policy.
 
 ## 4. Actors and authority
 
@@ -278,6 +283,15 @@ GoatOS unless the Feed Director explicitly approves it against
 `Feed, Shiftings and Count.docx`. Base Count cadence is an operational policy
 that has already moved from roughly weekly to roughly monthly in source history;
 store it as reviewed policy or schedule, not a code constant.
+
+The two serving rows above are the source-backed default session policy, not a
+permanent slot limit. Admins with Feed Direction draft/publish authority can
+change or add serving slots through a new effective-dated protocol version. The
+policy must validate that active slot weights sum to the full daily as-fed
+quantity for each applicable feed item/scope, that generated FeedDirection and
+Diff rows are per configured slot, and that already-generated target dates are
+not silently changed; any after-generation change requires explicit supersession
+or starts with the next ungenerated target date.
 
 ## 7. Current GoatOS implementation state
 

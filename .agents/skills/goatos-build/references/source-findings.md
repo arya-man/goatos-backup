@@ -24,6 +24,11 @@ Rules:
   Count adoption, as-fed quantities, and ration constraints. Legacy Slack/App
   Script trigger times are audit/cutover evidence only and must not become
   GoatOS schedules unless explicitly owner-approved against that doc.
+- The docx default session policy is two serving slots, `09:00` and `15:00`,
+  split `50/50`, but it labels that split a deliberate simplification to revisit
+  if breed + tag needs an uneven split. GoatOS should model Feed Direction
+  sessions as versioned admin config so approved users can add, disable, reorder,
+  or reweight slots through an effective-dated published protocol version.
 - Deleted archive docs and old phase ladders are historical only. If a breed,
   table, SOP, or form field only exists in git history, it is not
   build-canonical.

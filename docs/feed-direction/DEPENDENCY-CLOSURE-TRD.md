@@ -189,6 +189,17 @@ inventory_policy
 source_metadata
 ```
 
+`session_policy` is a versioned admin config family, not a fixed enum. It must
+store active session slots for the target date with slot code, label, serving
+time, sort order, effective range, split weight, and optional feed-item/scope
+inclusion. The default policy is the docx Session 1 `09:00` / Session 2 `15:00`
+with `0.5` + `0.5` weights. Feed Director draft plus COO/CEO publish can add,
+disable, reorder, or reweight slots in a new effective-dated protocol version.
+Validators must require at least one active slot, unique codes/order per scope,
+weights that sum to the full daily as-fed quantity for each applicable feed
+item/scope, and explicit supersession if a policy change touches an already
+generated target date.
+
 Required provenance:
 
 ```text
@@ -305,7 +316,7 @@ apply eligibility exclusions
 normalize breed/stage aliases
 lookup ration rows
 apply as-fed rounding policy at approved grain
-split by session policy
+load target-date session_policy and split by active slot weights
 insert generation run and generation rows
 create obligation batch
 create obligation_instances for packing, transport, consumption_wastage as needed
@@ -640,7 +651,10 @@ Pub/Sub/Scheduler/Cloud Tasks deployment.
 
 Clock inventory for `G3` has two lanes.
 
-The product-clock lane is controlled by `Feed, Shiftings and Count.docx`:
+The product-clock lane is controlled by `Feed, Shiftings and Count.docx`, with
+two serving slots as the default published `session_policy`. Because the same
+docx flags 50/50 as a deliberate simplification to revisit, GoatOS must keep
+serving slots configurable through approved protocol versions rather than code:
 
 | Clock | Product meaning |
 | --- | --- |
@@ -650,6 +664,11 @@ The product-clock lane is controlled by `Feed, Shiftings and Count.docx`:
 | Day N `15:00` | Packed and diff-corrected feed staged outside sheds |
 | Day N+1 `09:00` | Session 1 served from staged stock |
 | Day N+1 `15:00` | Session 2 served from staged stock |
+
+If an admin-approved policy adds or changes serving slots, FeedDirection, Diff,
+packing, transport, consumption, wastage, proof, and read-model rows must be
+generated per configured slot for the new effective date. Existing generated
+rows remain immutable unless an explicit supersede/reissue path runs.
 
 The legacy-audit lane inventories installed Apps Script triggers so cutover does
 not miss old side effects. It is not a schedule proposal.
@@ -737,7 +756,7 @@ Required tests/checks:
 
 1. Close `G2` Counts/Shifting projection in its sibling PRD/TRD, or add an adapter
    stub that fails closed with explicit `G2` readiness state.
-2. Close `G3` by first confirming the docx canonical clocks, then auditing
+2. Close `G3` by first confirming the docx default clocks, then auditing
    legacy installed trigger functions, archive/retry/watchdog behavior, and
    proof/stock side effects only for retain/retire/replace cutover decisions.
 3. Close `G4`-`G6`: add ration DSL validators, provenance requirements,

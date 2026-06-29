@@ -81,9 +81,9 @@ questions must reference these IDs rather than maintaining independent lists.
 | --- | --- | --- | --- |
 | G1 | Scope launch gate | Reopened as of 2026-06-30 because local PHC/Vaccination UI/foundation closure is accepted for Feed Direction sequencing. Google dev vaccination rollout remains separate Goal 2 and is not required before Feed starts. Active Feed UI/Config/SOP exposure still requires Feed-owned backend contracts, mock fidelity, rendered proof, and `G2`-`G17` closure. | Owner |
 | G2 | Counts/Shifting long pole | Counts/Shifting closure PRD/TRD is accepted and implemented enough to expose aggregate Base Count anchors, realized ShiftingEvent ledger, one-day projection at shed + breed grain, reviewed shed-tag/ration context, idempotency, fail-closed exceptions, and `CSG1`-`CSG10` readiness breakdown under `G2`. RFID-to-shed per-goat derivation is out of initial Feed scope. | Backend/source |
-| G3 | Clock and legacy trigger inventory | Feed Director signs off canonical Feed Direction clocks from `Feed, Shiftings and Count.docx`: Day N `09:00` full direction, Day N `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving. Legacy Slack/App Script trigger installers from `unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and `video_verification_system.js` are a separate audit-only cutover subgate for retain/retire/replace decisions; their timings must not be treated as GoatOS schedules unless explicitly retained or replaced against the docx. | Owner |
+| G3 | Clock and legacy trigger inventory | Feed Director signs off the default Feed Direction clocks from `Feed, Shiftings and Count.docx`: Day N `09:00` full direction, Day N `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving slots. `G5` owns approved session-slot changes beyond that default. Legacy Slack/App Script trigger installers from `unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and `video_verification_system.js` are a separate audit-only cutover subgate for retain/retire/replace decisions; their timings must not be treated as GoatOS schedules unless explicitly retained or replaced against the docx. | Owner |
 | G4 | Ration source/provenance | Solver/import path, ration values, aliases, feed vectors, constraints, approval metadata, and publish authority checks are defined | Source/owner |
-| G5 | Eligibility and stage-tag policy | Warmup 14-day transition tags, ICU, Quarantine, Flushing, Breeding, K0/K1, Experiment sheds, F2/Fattening, SIROHI->Beetal or other breed aliases, and per-farm session/feed-set retention are explicitly approved or excluded | Source/owner |
+| G5 | Eligibility and stage-tag/session policy | Warmup 14-day transition tags, ICU, Quarantine, Flushing, Breeding, K0/K1, Experiment sheds, F2/Fattening, SIROHI->Beetal or other breed aliases, and versioned session-slot/feed-set policy are explicitly approved. The source default is two serving slots with 50/50 split, but admins may add, disable, reorder, or reweight slots only through approved effective-dated Feed Direction protocol config. | Source/owner |
 | G6 | Quantity and precision boundary | Feed units are whole grams/ml into the current inventory app port, or inventory app ports are widened before decimal/sub-gram feed use; baking-soda precision is resolved before build | Architecture |
 | G7 | Stage model | Packing, transport, consumption/wastage, bridge proof/rework model chosen with a durable queryable `stage_kind` discriminator | Architecture |
 | G8 | Transport map and checklist entity | Direction-shed to transport-shed consolidation owner/storage is confirmed, and any transport list/checklist entity from legacy overlap has a GoatOS equivalent | Source/owner |
@@ -144,7 +144,7 @@ reason so a green `G2` is traceable instead of a single opaque checkbox.
 
 `G3` closes in two separate parts.
 
-First, confirm the canonical Feed Direction clocks from
+First, confirm the default Feed Direction clocks from
 `Feed, Shiftings and Count.docx`:
 
 | Clock | Product meaning |
@@ -379,10 +379,11 @@ This phase is complete when:
 3. Ration values are source-backed through solver or reviewed import, and
    publishability requires `review_status='approved'`, approval metadata, and
    publish authority checks.
-4. Warmup, K0/K1, Experiment, breed aliases, and per-farm session/feed-set
-   decisions are explicitly approved or excluded. The June 2026 `50/50`
-   two-session split is a deliberate source simplification, not derived
-   nutrition logic.
+4. Warmup, K0/K1, Experiment, breed aliases, and versioned session-slot/feed-set
+   policy are explicitly approved. The June 2026 `50/50` two-session split is a
+   deliberate source simplification, not derived nutrition logic; GoatOS must
+   support admin-approved effective-dated slot changes without silently mutating
+   already-generated FeedDirection/Diff rows.
 5. The wiki do-not-resolve items are represented in implementation gates:
    aggregate-first counts, manual bridge logging only, as-fed gross field output,
    ration solver limits, no hardcoded Base Count cadence, and no generated

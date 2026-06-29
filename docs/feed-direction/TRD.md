@@ -195,10 +195,14 @@ Feed configuration lives in `protocol_versions.rule_dsl` for
 - Feed item reference to `inventory_items.category='feed'`.
 - As-fed quantity and unit.
 - Session policy. The June 2026 source default is two sessions with a 50/50 split,
-  but legacy per-farm templates define session labels and which feed items appear
-  in each session. Implementation must either retain those templates as
-  source-backed config or store Feed Director sign-off that the simpler source
-  default supersedes them.
+  and the source itself flags that split as a deliberate simplification to revisit
+  if a breed + tag combo needs an uneven split. Model this as versioned admin
+  config, not code constants: session slot code/label, serving time, sort order,
+  active/effective range, split weights by scope/feed item where needed, and
+  optional per-slot feed-item inclusion. The default published policy is Session 1
+  `09:00` weight `0.5` and Session 2 `15:00` weight `0.5`; Feed Director draft
+  plus COO/CEO publish can add, disable, reorder, or reweight slots in a new
+  effective-dated protocol version.
 - Proof policy for packing, transport, consumption, wastage, and verification.
 - Inventory policy: reserve at packing start, consume/release on accepted
   packing verification.
@@ -273,7 +277,8 @@ Day N configured publish time, recommended default 09:00
   -> load published feed_direction protocol version
   -> consume the horizon-aware Counts/Shifting projection for tomorrow
   -> apply feed eligibility exclusions and source-backed transforms
-  -> calculate shed/session/feed quantities
+  -> load and validate target-date session slots and split weights
+  -> calculate shed/session/feed quantities for every active slot
   -> insert generation run + snapshot rows
   -> create obligation_batches / obligation_instances at shed-session-feed grain
   -> write outbox events for tasks, notifications, projections
@@ -285,7 +290,8 @@ Day N configured publish time, recommended default 09:00
 Day N cutoff, recommended default 13:30
   -> collect eligible post-run shiftings before or at cutoff
      under the projection policy
-  -> calculate affected-shed restatement rows and optional net correction output
+  -> calculate affected-shed/session/feed restatement rows using the same
+     target-date session policy and optional net correction output
   -> insert Diff run + snapshot rows
   -> explicitly cancel/supersede affected stale open obligations
   -> create replacement obligations for the affected shed/session/feed rows
@@ -525,9 +531,9 @@ references must be re-verified before import/cutover work.
 | Experiment sheds | Experiment tag and zero count/feed quantities in source evidence | Candidate feed eligibility exclusion / zero-direction rule requiring Feed Director sign-off. |
 | Warmup stage tags | Warmup operating states from source findings, not fully covered by feed docx ration table | Reviewed ration path or explicit exclusion before Feed Direction publish. |
 | K0/K1 feed exclusions | Milk-fed cohorts filtered out of legacy supply/diff paths | Candidate eligibility rule from legacy evidence; requires Feed Director approval before publish, not an incidental transform. |
-| Per-farm Template sheet | Session labels and feed items per farm; quantities split by session count | Open parity decision: retain as source-backed session/feed-set config or supersede with Feed Director sign-off for the June 2026 two-session 50/50 default. |
+| Per-farm Template sheet / session policy | Session labels, serving windows, split defaults, and which feed items appear in each session; June source default is two slots with 50/50 split and an explicit note to revisit if breed + tag needs uneven split | Versioned `session_policy` in `feed_direction` protocol config. Default publish uses the docx two slots; Feed Director/COO can add, disable, reorder, or reweight slots through an effective-dated protocol version. |
 | Diff regeneration | Legacy automation had additional cycles/intermediate storage, while the June source model defines the 09:00 full direction, 13:30 cutoff, 13:30-13:45 Diff, and post-cutoff bridge | Canonical GoatOS Diff run stores affected-shed restatement rows and cancels/supersedes stale work; source-facing output may present net correction. Old two-cycle behavior is cutover evidence unless explicitly reinstated. |
-| Clock/trigger inventory | `Feed, Shiftings and Count.docx` owns the canonical product clocks: Day N `09:00` full direction, Day N `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving. Legacy Apps Script installers in `unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and `video_verification_system.js` remain audit evidence for old packing, count, transport, archive/retry, proof, quantity, stock, wastage, and alert side effects. | Gate `G3` first confirms the docx clocks, then marks each legacy trigger family retained, retired, or replaced. Installed trigger code and old trigger times are evidence only, not automatic GoatOS schedule law. |
+| Clock/trigger inventory | `Feed, Shiftings and Count.docx` owns the default product clocks: Day N `09:00` full direction, Day N `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` staging, and Day N+1 default `09:00`/`15:00` serving slots. Legacy Apps Script installers in `unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and `video_verification_system.js` remain audit evidence for old packing, count, transport, archive/retry, proof, quantity, stock, wastage, and alert side effects. | Gate `G3` first confirms the docx default clocks, then marks each legacy trigger family retained, retired, or replaced. Installed trigger code and old trigger times are evidence only, not automatic GoatOS schedule law. |
 | Retry scheduler | Reschedule/retry and admin alert behavior | Durable reminder/retry/escalation policy under gates `G11`-`G12`, not Apps Script timers. |
 | Applied-event and file dedupe | Short-window dedupe and file-id dedupe in legacy automation | Durable idempotency keys, replay tests, and source archive checksums. |
 | Count-mismatch detection | Unreported-shifting/count-reconciliation signal | Counts/Shifting exception work under gate `G2`, not silent Feed-side correction. |
@@ -535,8 +541,11 @@ references must be re-verified before import/cutover work.
 
 Other parity rules:
 
-- Session split is currently 50/50 by source priority, but legacy per-farm
-  templates must be reviewed or explicitly superseded before implementation.
+- Session split is currently 50/50 by source default, but it must be represented
+  as versioned admin session-slot config. Validators require at least one active
+  slot, unique slot codes/order per effective scope, split weights that sum to the
+  full daily as-fed quantity for each applicable feed item/scope, and no silent
+  mutation of already-generated target dates.
 - Base Count cadence has source history moving from roughly weekly to roughly
   monthly. Treat cadence as reviewed policy or schedule config, never as a code
   constant.

@@ -108,8 +108,9 @@ language.
    `GET /feed-direction/readiness` subgate roll-up. RFID-to-shed per-animal
    association is out of scope for the initial Feed Direction build.
 2. `G3` clock and legacy trigger inventory sign-off: confirm the docx-owned
-   canonical clocks first (`09:00`, `13:30`, `13:30-13:45`, `15:00`, and
-   next-day `09:00`/`15:00`). Legacy installed trigger functions,
+   default clocks first (`09:00`, `13:30`, `13:30-13:45`, `15:00`, and
+   next-day default serving slots `09:00`/`15:00`). `G5` owns any approved
+   session-slot changes beyond that default. Legacy installed trigger functions,
    retry/archive/watchdog behavior, and proof/stock checks are audit-only
    cutover evidence requiring retain/retire/replace decisions; they do not
    become GoatOS schedules without explicit Feed Director approval against the
@@ -123,9 +124,11 @@ language.
    and Fattening tags, roughage floor numeric values are examples until confirmed
    per tag, cost minimization means no paired overshoot ceiling is needed, and a
    refreshed solve replaces the lookup table wholesale with no versioned blend.
-4. `G5` Eligibility and stage-tag policy: Warmup, K0/K1, Experiment, ICU,
-   Quarantine, Flushing, Breeding, F2/Fattening, breed aliases, and per-farm
-   session/feed-set decisions are approved or explicitly excluded.
+4. `G5` Eligibility and stage-tag/session policy: Warmup, K0/K1, Experiment, ICU,
+   Quarantine, Flushing, Breeding, F2/Fattening, breed aliases, and versioned
+   session-slot/feed-set policy are approved. The docx default is two slots with
+   50/50 split, but admins may add, disable, reorder, or reweight slots only
+   through approved effective-dated Feed Direction protocol config.
 5. `G6` Quantity and precision boundary: deterministic whole base units into the
    current inventory app port, exact persistence to SQL `numeric + quantity_unit`,
    or app-port decimal widening before fractional feed use.
@@ -258,8 +261,10 @@ code, docs, seeds, or UI:
 - Field-facing FeedDirection, Diff, and packing outputs are as-fed gross
   quantities only. `wastage_factor` and `DM_factor` remain internal
   nutrient-accounting fields.
-- The 50/50 session split is a deliberate simplification, not a derived
-  nutrition rule. Revisit only with source evidence and owner approval.
+- The 50/50 two-session split is the docx default, not a code limit. Model
+  sessions as versioned admin config so a Feed Director can draft, and COO/CEO
+  can publish, additional slots or different split weights with source evidence,
+  validation, and effective dates.
 - Base Count cadence moved from roughly weekly to roughly monthly and may change
   again. Store cadence as reviewed policy or ops schedule; do not hardcode it.
 - Initial RationTable solver scope excludes item-level feed ceilings and
