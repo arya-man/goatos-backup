@@ -174,6 +174,7 @@ DLQ topic:         goatos-dev-outbox-events-dlq
 Subscriptions:     goatos-dev-analytics-export, goatos-dev-domain-events
 Cloud Tasks:       goatos-dev-near-term-kernel
 Kernel jobs:       goatos-dev-outbox-relay, goatos-dev-domain-event-consumer,
+                   goatos-dev-domain-event-processed-sweeper,
                    goatos-dev-vaccination-generator,
                    goatos-dev-obligation-sweeper,
                    goatos-dev-calendar-projector,
@@ -183,6 +184,7 @@ Kernel jobs:       goatos-dev-outbox-relay, goatos-dev-domain-event-consumer,
                    goatos-dev-inventory-batch-reconciler,
                    goatos-dev-idempotency-key-sweeper,
                    goatos-dev-sop-review-fanout-retry
+Migration job:     goatos-dev-migrate (manual, unscheduled)
 ```
 
 Goal 2 topology proof items:
@@ -191,9 +193,11 @@ Goal 2 topology proof items:
 outbox-dlq                  # Pub/Sub/native DLQ drain/replay/import runner
 ```
 
-`inventory-batch-reconciler`, `idempotency-key-sweeper`, and
-`sop-review-fanout-retry` are in the current Cloud Run Job/Scheduler map and
-must be proven in Google E2E. `outbox-dlq` exists as a backend command, but the
+`inventory-batch-reconciler`, `idempotency-key-sweeper`,
+`domain-event-processed-sweeper`, and `sop-review-fanout-retry` are in the
+current Cloud Run Job/Scheduler map and must be proven in Google E2E.
+`goatos-dev-migrate` is a separate unscheduled Cloud Run Job and is the only
+shared dev schema applier. `outbox-dlq` exists as a backend command, but the
 Pub/Sub/native DLQ drain/replay/import path still needs a scheduled job or a
 documented dev-safe operator runner before calling the dev kernel runtime
 complete.

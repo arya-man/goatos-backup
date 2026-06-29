@@ -1,5 +1,6 @@
 locals {
   backend_image                   = "${var.region}-docker.pkg.dev/${var.project_id}/${var.artifact_repository_id}/backend:${var.backend_image_tag}"
+  migration_image                 = "${var.region}-docker.pkg.dev/${var.project_id}/${var.artifact_repository_id}/migrate:${var.migration_image_tag}"
   run_job_api_base                = "https://run.googleapis.com/v2/projects/${var.project_id}/locations/${var.region}/jobs"
   notification_dispatcher_run_url = "${local.run_job_api_base}/goatos-dev-notification-dispatcher:run"
 
@@ -33,6 +34,19 @@ locals {
         GOATOS_DOMAIN_EVENTS_SUBSCRIPTION_ID = google_pubsub_subscription.domain_events.name
         GOATOS_DOMAIN_EVENT_SCHEMA_PATH      = "/app/contracts/jsonschema/domain-event-envelope.schema.json"
         GOATOS_PUBSUB_PROJECT_ID             = var.project_id
+      }
+    }
+    domain_event_processed_sweeper = {
+      name                = "goatos-dev-domain-event-processed-sweeper"
+      service_account_key = "domain_event_processed_sweeper"
+      command             = ["/app/bin/domain-event-processed-sweeper"]
+      args                = ["-timeout=45s", "-limit=1000", "-retention=336h"]
+      timeout             = "90s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "37 * * * *"
+      env = {
+        GOATOS_TENANT_ID = var.dev_tenant_id
       }
     }
     vaccination_generator = {
@@ -177,6 +191,76 @@ locals {
       }
     }
   }
+}
+
+resource "google_cloud_run_v2_job" "migrate" {
+  name                = "goatos-dev-migrate"
+  location            = var.region
+  deletion_protection = false
+  labels              = local.labels
+
+  template {
+    task_count  = 1
+    parallelism = 1
+
+    template {
+      service_account = google_service_account.runtime["migrate"].email
+      timeout         = "900s"
+      max_retries     = 0
+
+      containers {
+        image   = local.migration_image
+        command = ["/app/bin/migrate"]
+        args    = ["-timeout=10m"]
+
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+
+        env {
+          name  = "GOATOS_ENV"
+          value = "dev"
+        }
+
+        env {
+          name  = "GOATOS_ALLOW_DEV_CLOUDSQL_TARGET"
+          value = "true"
+        }
+
+        env {
+          name  = "GOATOS_DEV_CLOUDSQL_CONNECTION_NAME"
+          value = google_sql_database_instance.core.connection_name
+        }
+
+        env {
+          name = "DATABASE_URL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.container["database_url"].secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        volume_mounts {
+          name       = "cloudsql"
+          mount_path = "/cloudsql"
+        }
+      }
+
+      volumes {
+        name = "cloudsql"
+        cloud_sql_instance {
+          instances = [google_sql_database_instance.core.connection_name]
+        }
+      }
+    }
+  }
+
+  depends_on = [google_project_service.enabled]
 }
 
 resource "google_cloud_run_v2_job" "kernel" {

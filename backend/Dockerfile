@@ -13,7 +13,7 @@ ARG TARGETOS
 ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     mkdir -p /out && \
-    for cmd in api outbox-relay domain-event-consumer generate-vaccination-obligations obligation-sweeper calendar-vaccination-projector calendar-reminder-sweeper calendar-escalation-sweeper notification-dispatcher backfill-goat-created idempotency-key-sweeper inventory-batch-reconciler sop-review-fanout-retry seed-dev-grant seed-dev-email-grants seed-vaccination-trigger mint-dev-token; do \
+    for cmd in api outbox-relay domain-event-consumer domain-event-processed-sweeper generate-vaccination-obligations obligation-sweeper calendar-vaccination-projector calendar-reminder-sweeper calendar-escalation-sweeper notification-dispatcher backfill-goat-created idempotency-key-sweeper inventory-batch-reconciler sop-review-fanout-retry seed-dev-grant seed-dev-email-grants seed-vaccination-trigger mint-dev-token; do \
       GOOS="${TARGETOS:-linux}" GOARCH="${TARGETARCH:-amd64}" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "/out/${cmd}" "./cmd/${cmd}"; \
     done
 

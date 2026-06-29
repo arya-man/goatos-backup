@@ -60,7 +60,7 @@ Migration jobs and guarded dev DB-writing helpers also set
 `GOATOS_ALLOW_DEV_CLOUDSQL_TARGET=true`; do not put that opt-in on unrelated
 runtime surfaces.
 
-P9 migration job required env:
+The manual `goatos-dev-migrate` Cloud Run Job is wired with:
 
 ```text
 GOATOS_ENV=dev

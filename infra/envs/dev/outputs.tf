@@ -42,6 +42,11 @@ output "cloud_run_kernel_jobs" {
   }
 }
 
+output "cloud_run_migration_job" {
+  description = "Cloud Run Job name for manual guarded schema migrations."
+  value       = google_cloud_run_v2_job.migrate.name
+}
+
 output "secret_container_ids" {
   description = "Secret Manager container ids; values are populated out-of-band later."
   value = {

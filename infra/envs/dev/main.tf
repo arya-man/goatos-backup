@@ -24,6 +24,10 @@ locals {
       account_id   = "goatos-domain-consumer-dev"
       display_name = "Goat OS dev domain event consumer runtime"
     }
+    domain_event_processed_sweeper = {
+      account_id   = "goatos-domain-event-sweep-dev"
+      display_name = "Goat OS dev domain processed-event retention sweeper runtime"
+    }
     vaccination_generator = {
       account_id   = "goatos-vaccination-generator-dev"
       display_name = "Goat OS dev vaccination obligation generator runtime"
@@ -82,6 +86,7 @@ locals {
     "api",
     "outbox_relay",
     "domain_consumer",
+    "domain_event_processed_sweeper",
     "vaccination_generator",
     "obligation_sweeper",
     "calendar_projector",
@@ -102,6 +107,7 @@ locals {
         "api",
         "outbox_relay",
         "domain_consumer",
+        "domain_event_processed_sweeper",
         "vaccination_generator",
         "obligation_sweeper",
         "calendar_projector",

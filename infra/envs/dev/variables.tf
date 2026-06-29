@@ -123,3 +123,14 @@ variable "backend_image_tag" {
     error_message = "backend_image_tag is required."
   }
 }
+
+variable "migration_image_tag" {
+  description = "Migration image tag consumed by the goatos-dev Cloud Run migration job."
+  type        = string
+  default     = "dev"
+
+  validation {
+    condition     = length(trimspace(var.migration_image_tag)) > 0
+    error_message = "migration_image_tag is required."
+  }
+}

@@ -19,6 +19,7 @@ docker build -f apps/admin-web/Dockerfile -t goatos-admin-web:local .
 /app/bin/api
 /app/bin/outbox-relay
 /app/bin/domain-event-consumer
+/app/bin/domain-event-processed-sweeper
 /app/bin/generate-vaccination-obligations
 /app/bin/obligation-sweeper
 /app/bin/calendar-vaccination-projector
@@ -64,6 +65,17 @@ docker run --rm \
   goatos-backend:local -limit 1000
 ```
 
+Old processed domain-event dedupe rows are cleaned by a bounded job-style
+binary. It deletes only `status='processed'` rows older than the retention
+cutoff; `processing` and `failed` rows stay for retry/repair.
+
+```bash
+docker run --rm \
+  -e DATABASE_URL="${DATABASE_URL}" \
+  --entrypoint /app/bin/domain-event-processed-sweeper \
+  goatos-backend:local -limit 1000 -dry-run
+```
+
 Inventory stock repair and SOP review fanout retry are also packaged as
 job-style binaries in the list above.
 
@@ -88,9 +100,11 @@ DATABASE_URL host is exactly goatos-dev:asia-south1:<instance>
   or /cloudsql/goatos-dev:asia-south1:<instance>
 ```
 
-When P9 wires the Cloud Run migration job, all three guard envs above must be
-present on the job spec along with the exact socket-form `DATABASE_URL`;
-otherwise the image should self-reject before opening a database connection.
+The `goatos-dev` Terraform defines an unscheduled Cloud Run migration job with
+the guard envs above and the exact Cloud SQL connection name. It must be run
+manually by an operator after image publish and before API/admin traffic moves
+to the new schema. If any guard env is missing or mismatched, the image
+self-rejects before opening a database connection.
 
 The migration image records applied files in `goatos_schema_migrations`. For a
 fresh `goatos-dev` Cloud SQL database, the migration image is the sole schema
