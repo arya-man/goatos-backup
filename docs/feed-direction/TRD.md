@@ -17,6 +17,13 @@
 > This TRD ratifies that direction unless a future owner decision explicitly
 > reopens the typed-stack design.
 
+Source authority rule: `Feed, Shiftings and Count.docx` v1.1 is the controlling
+Feed Direction business source for timing, Diff, bridge, one-day projection,
+as-fed quantities, and ration constraints. Legacy Slack/App Script trigger
+timings are audit/cutover evidence only. They must not become GoatOS schedules
+unless the Feed Director explicitly approves a retained or replaced behavior
+against that docx.
+
 ## 1. Current committed state
 
 Committed and reusable:
@@ -520,7 +527,7 @@ references must be re-verified before import/cutover work.
 | K0/K1 feed exclusions | Milk-fed cohorts filtered out of legacy supply/diff paths | Candidate eligibility rule from legacy evidence; requires Feed Director approval before publish, not an incidental transform. |
 | Per-farm Template sheet | Session labels and feed items per farm; quantities split by session count | Open parity decision: retain as source-backed session/feed-set config or supersede with Feed Director sign-off for the June 2026 two-session 50/50 default. |
 | Diff regeneration | Legacy automation had additional cycles/intermediate storage, while the June source model defines the 09:00 full direction, 13:30 cutoff, 13:30-13:45 Diff, and post-cutoff bridge | Canonical GoatOS Diff run stores affected-shed restatement rows and cancels/supersedes stale work; source-facing output may present net correction. Old two-cycle behavior is cutover evidence unless explicitly reinstated. |
-| Clock/trigger inventory | Legacy source windows at 07:30, 14:45, 06:30, 07:15, 14:15, 00:15, 23:45, and 07:00; installed App Script trigger evidence at 06:00, 15:00, 15:45, 23:30, 00:30, 01:00, 14:00, and 04:30; older `feed_automation.js` packing/change/consumption/archive/retry paths; `video_verification_system.js` proof, quantity, stock, wastage, and alert paths; canonical source clocks at 09:00, 13:30, and 15:00 | Gate `G3` owner sign-off marks each window, installed trigger, and side-effect path retained, retired, or replaced. The 23:45 packing quantity check is parity evidence for reissue; 00:15 is the midnight archive/retry family, not an assumed 03:00 clock. Installed trigger code is evidence, not automatic GoatOS schedule law. |
+| Clock/trigger inventory | `Feed, Shiftings and Count.docx` owns the canonical product clocks: Day N `09:00` full direction, Day N `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving. Legacy Apps Script installers in `unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and `video_verification_system.js` remain audit evidence for old packing, count, transport, archive/retry, proof, quantity, stock, wastage, and alert side effects. | Gate `G3` first confirms the docx clocks, then marks each legacy trigger family retained, retired, or replaced. Installed trigger code and old trigger times are evidence only, not automatic GoatOS schedule law. |
 | Retry scheduler | Reschedule/retry and admin alert behavior | Durable reminder/retry/escalation policy under gates `G11`-`G12`, not Apps Script timers. |
 | Applied-event and file dedupe | Short-window dedupe and file-id dedupe in legacy automation | Durable idempotency keys, replay tests, and source archive checksums. |
 | Count-mismatch detection | Unreported-shifting/count-reconciliation signal | Counts/Shifting exception work under gate `G2`, not silent Feed-side correction. |

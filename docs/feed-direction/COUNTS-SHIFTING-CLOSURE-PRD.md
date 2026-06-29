@@ -49,6 +49,12 @@ Counts/Shifting must answer these questions for Feed Direction:
 Legacy data is evidence and fixture material. Runtime truth must be Postgres
 canonical state plus audit/outbox.
 
+For any Counts/Shifting behavior that affects Feed Direction timing, Diff,
+bridge handling, one-day projection, or physical count adoption,
+`Feed, Shiftings and Count.docx` v1.1 is the controlling source. Legacy
+Slack/App Script timings are audit/cutover evidence only and must not become
+GoatOS schedules unless explicitly approved against that docx.
+
 ## 4. Readiness Gates
 
 | ID | Gate | Required outcome |

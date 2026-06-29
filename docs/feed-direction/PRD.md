@@ -72,6 +72,13 @@ Use this priority when sources disagree:
 | 4 | GoatOS protocol/kernel docs and committed code | Implementation shape for protocol, obligations, SOP proof, inventory, audit, outbox, reminders, read models, RBAC, OpenAPI, and generated clients |
 | 5 | Older GoatOS feed docs and mock feed panels | Historical UI/direction references only where not contradicted above; the mock controls UI anatomy, not Feed business timing |
 
+Source authority rule: for the Feed Direction slice, always follow
+`Feed, Shiftings and Count.docx` v1.1 when timing, Diff, bridge, projection,
+quantity, or ration behavior conflicts with legacy scripts, older mocks, or
+prior GoatOS notes. Legacy Slack/App Script trigger times are audit/cutover
+evidence only and must not become GoatOS schedules unless the Feed Director
+explicitly approves a retained/replaced schedule against that docx.
+
 Known conflict: older docs and the current mock mention "v1 midnight / v2 2 PM".
 The newer June 2026 source says Day N 09:00 full direction for Day N+1,
 13:30 cutoff, 13:30-13:45 Diff, 15:00 stage, and Day N+1 09:00/15:00 serving.
@@ -262,14 +269,15 @@ not generate a bridge Diff row that changes source-shed quantities.
 | Day N+1 15:00 | Session 2 served | Proof/consumption recorded |
 
 Times are config values, not literals in code. Session split is currently 50/50,
-which is a deliberate source simplification, not inferred nutrition logic. Legacy
-automation also contained additional trigger windows, retries, and archive
-timers; gate `G3` decides which are parity/cutover evidence and which become
-GoatOS schedules. The inventory for sign-off includes legacy `07:30`, `14:45`,
-`06:30`, `07:15`, `14:15`, `00:15`, `23:45`, and `07:00` windows, plus the
-canonical source clocks above. Base Count cadence is an operational policy that
-has already moved from roughly weekly to roughly monthly in source history; store
-it as reviewed policy or schedule, not a code constant.
+which is a deliberate source simplification, not inferred nutrition logic. Do not
+mix this canonical docx timeline with old Apps Script trigger times. Gate `G3`
+audits legacy trigger functions, retries, proof checks, stock checks, and archive
+timers only so the owner can retire, retain, or replace legacy side effects
+during cutover. The default is not to carry any old Apps Script timing into
+GoatOS unless the Feed Director explicitly approves it against
+`Feed, Shiftings and Count.docx`. Base Count cadence is an operational policy
+that has already moved from roughly weekly to roughly monthly in source history;
+store it as reviewed policy or schedule, not a code constant.
 
 ## 7. Current GoatOS implementation state
 
@@ -368,10 +376,12 @@ Under reopened `G1`, when building Feed Direction UI:
    from reference data. RFID-to-shed per-goat derivation is out of initial Feed
    Direction scope and can only replace the aggregate ledger after separate
    proof and owner approval.
-3. `G3`: Confirm Feed Director clock values per park, including canonical
-   `09:00`/`13:30`/`15:00` timings and how legacy `07:30`, `14:45`, `06:30`,
-   `07:15`, `14:15`, `00:15`, `23:45`, and `07:00` trigger windows, retry
-   scheduler, and archive timers are treated.
+3. `G3`: Confirm Feed Director clock values per park from
+   `Feed, Shiftings and Count.docx`: Day N `09:00` full direction, Day N
+   `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` staging, and Day N+1
+   `09:00`/`15:00` serving. Separately audit legacy Apps Script triggers,
+   retries, proof/stock checks, and archive timers as retain/retire/replace
+   cutover evidence, not product clocks.
 4. `G4`: Confirm whether the first slice runs the non-UI ration solver or imports
    reviewed solver outputs as source-backed config.
 5. `G4`: Confirm initial feed vectors, costs, ration aliases, source-backed

@@ -51,6 +51,12 @@ Use this order whenever sources disagree:
 5. The admin-web mock controls UI/UX anatomy only. Older mock timing or old
    Feed panels do not override the primary Feed source.
 
+Hard rule for this slice: if legacy Slack/App Script trigger times, older mocks,
+prior GoatOS notes, or implementation inventories disagree with
+`Feed, Shiftings and Count.docx`, follow the docx unless the Feed Director
+explicitly reopens the business rule. Legacy trigger times are audit/cutover
+evidence only; they are not GoatOS product schedules by default.
+
 ## 3. Stop Rules
 
 The build goal remains open until all of these are true:
@@ -101,10 +107,13 @@ language.
    observability, aggregate breed-level count output, and
    `GET /feed-direction/readiness` subgate roll-up. RFID-to-shed per-animal
    association is out of scope for the initial Feed Direction build.
-2. `G3` clock and legacy trigger inventory sign-off, including source clocks,
-   installed trigger functions, retry/archive/watchdog behavior, and explicit
-   retain/retire/replace decisions before any GoatOS schedule is treated as
-   retained.
+2. `G3` clock and legacy trigger inventory sign-off: confirm the docx-owned
+   canonical clocks first (`09:00`, `13:30`, `13:30-13:45`, `15:00`, and
+   next-day `09:00`/`15:00`). Legacy installed trigger functions,
+   retry/archive/watchdog behavior, and proof/stock checks are audit-only
+   cutover evidence requiring retain/retire/replace decisions; they do not
+   become GoatOS schedules without explicit Feed Director approval against the
+   docx.
 3. `G4` Ration approval/provenance: solver/import output, source hashes,
    `review_status='approved'`, `approved_by`, `approved_at`, effective date, and
    `protocol.publish.feed_direction` capability checks. Initial solver scope is

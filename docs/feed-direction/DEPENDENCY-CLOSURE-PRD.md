@@ -58,6 +58,11 @@ Slack, Sheets, and Apps Script remain legacy evidence and cutover surfaces only.
 They must not be runtime truth in GoatOS. Legacy scripts are a feature inventory,
 not an implementation blueprint: exact code line references can drift, and
 legacy weak validation must be replaced with typed GoatOS policy, not preserved.
+For the Feed Direction slice, `Feed, Shiftings and Count.docx` v1.1 is the
+controlling business source. If older mocks, prior GoatOS notes, or legacy
+Slack/App Script trigger times disagree with it, follow the docx unless the Feed
+Director explicitly reopens the rule. Legacy trigger times are audit/cutover
+evidence only, not GoatOS schedules by default.
 
 The next implementation session must use
 [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md) as the stop-rule charter for
@@ -76,7 +81,7 @@ questions must reference these IDs rather than maintaining independent lists.
 | --- | --- | --- | --- |
 | G1 | Scope launch gate | Reopened as of 2026-06-30 because local PHC/Vaccination UI/foundation closure is accepted for Feed Direction sequencing. Google dev vaccination rollout remains separate Goal 2 and is not required before Feed starts. Active Feed UI/Config/SOP exposure still requires Feed-owned backend contracts, mock fidelity, rendered proof, and `G2`-`G17` closure. | Owner |
 | G2 | Counts/Shifting long pole | Counts/Shifting closure PRD/TRD is accepted and implemented enough to expose aggregate Base Count anchors, realized ShiftingEvent ledger, one-day projection at shed + breed grain, reviewed shed-tag/ration context, idempotency, fail-closed exceptions, and `CSG1`-`CSG10` readiness breakdown under `G2`. RFID-to-shed per-goat derivation is out of initial Feed scope. | Backend/source |
-| G3 | Clock and legacy trigger inventory | Feed Director signs off park-level publish, cutoff, staging, serving, retry, archive, proof/stock verification, and parity/cutover treatment for canonical `09:00`/`13:30`/`15:00` clocks plus legacy source windows and installed trigger evidence. Legacy-code trigger inventory is a subgate across `unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and `video_verification_system.js`: feed packing `06:00`/`15:00` and older `07:30`/`14:45`/`06:30`, feed consumption/list work `07:15`, feed update/archive work `14:15`/`00:15`/`09:00`, transport `15:45`, Counts DB jobs around `23:30`/`00:30`/`01:00`/`14:00`, proof/quantity/stock verification around `23:00`/`23:30`/`23:45`/`07:00`, watchdog recovery around `04:30`, and older source windows such as `00:15`, `23:45`, and `07:00` must each be marked retain, retire, or replace. | Owner |
+| G3 | Clock and legacy trigger inventory | Feed Director signs off canonical Feed Direction clocks from `Feed, Shiftings and Count.docx`: Day N `09:00` full direction, Day N `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving. Legacy Slack/App Script trigger installers from `unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and `video_verification_system.js` are a separate audit-only cutover subgate for retain/retire/replace decisions; their timings must not be treated as GoatOS schedules unless explicitly retained or replaced against the docx. | Owner |
 | G4 | Ration source/provenance | Solver/import path, ration values, aliases, feed vectors, constraints, approval metadata, and publish authority checks are defined | Source/owner |
 | G5 | Eligibility and stage-tag policy | Warmup 14-day transition tags, ICU, Quarantine, Flushing, Breeding, K0/K1, Experiment sheds, F2/Fattening, SIROHI->Beetal or other breed aliases, and per-farm session/feed-set retention are explicitly approved or excluded | Source/owner |
 | G6 | Quantity and precision boundary | Feed units are whole grams/ml into the current inventory app port, or inventory app ports are widened before decimal/sub-gram feed use; baking-soda precision is resolved before build | Architecture |
@@ -137,44 +142,36 @@ reason so a green `G2` is traceable instead of a single opaque checkbox.
 
 ### 5.2 Clock And Legacy Trigger Inventory
 
-`G3` must inventory both source-document windows and legacy-code trigger
-installers before any GoatOS schedule is treated as retained. The legacy
-installed-trigger evidence includes:
+`G3` closes in two separate parts.
 
-- feed packing trigger installers for `UE_sendFeedPackingDirections` at `06:00`
-  IST and `UE_sendFeedPackingDirectionsAfternoon` at `15:00` IST in
-  `slack-automation-scripts/unified_automation.js`;
-- feed transport trigger installer for `UE_sendFeedTransportMessages` near
-  `15:45` IST in `slack-automation-scripts/unified_automation.js`;
-- Counts DB trigger installers for `updateDBWithTodayCounts` near `23:30`,
-  `updateFutureDBAtNightCheck` near `00:30`, `generateNextDayCounts` near
-  `01:00`, and `updateFutureDBWithChanges` near `14:00` in
-  `slack-automation-scripts/counting_db_automation.js`;
-- watchdog/recovery trigger installer for `watchdogOvernightFunctions` near
-  `04:30` IST in `slack-automation-scripts/counting_db_automation.js`;
-- older feed automation trigger installers in
-  `slack-automation-scripts/feed_automation.js`: `sendPackingFeedDirections`
-  near `07:30`, `sendPackingFeedDirectionsAfternoon` near `14:45`,
-  `sendPackingFeedDirectionsChanges` near `06:30`,
-  `createConsumptionListItemsFromDirections` near `07:15`, `twoPMUpdate` near
-  `14:15`, `threeAMUpdate` near `00:15`,
-  `sendPackingFeedDirectionsChanges_3PM` near `14:45`, and
-  `archiveFeedSupplyData` at `09:00`;
-- older feed retry behavior in `slack-automation-scripts/feed_automation.js`
-  `wrapWithRetry_`, which schedules failed triggered functions again after ten
-  minutes and alerts after max retries;
-- proof/stock verification trigger installers in
-  `slack-automation-scripts/video_verification_system.js`:
-  `checkFeedPackingQuantities` near `23:45`, `writeFeedDirectionToPacked` at
-  `07:00`, `updateAutomatedStock` near `23:30`, `generateWastageSummary` at
-  `23:00`, and `checkStockAndAlert` near `23:45`, plus ten-minute retry
-  triggers for failed feed-direction and stock-update writes.
+First, confirm the canonical Feed Direction clocks from
+`Feed, Shiftings and Count.docx`:
 
-These are evidence rows, not GoatOS schedule requirements. Each row must receive
-an explicit retain, retire, or replace decision with owner, reason, and the
-GoatOS target mechanism if retained or replaced. Trigger comments and logger text
-in the legacy scripts are inconsistent in places, so implementation must trust the
-actual `ScriptApp.newTrigger(...).timeBased()` installer shape over prose labels.
+| Clock | Product meaning |
+| --- | --- |
+| Day N `09:00` | Full Feed Direction for Day N+1 |
+| Day N `13:30` | Shifting cutoff for Day N+1 Diff inclusion |
+| Day N `13:30-13:45` | Diff window for changes raised between `09:00` and cutoff |
+| Day N `15:00` | Packed and diff-corrected feed staged outside sheds |
+| Day N+1 `09:00` | Session 1 served from staged stock |
+| Day N+1 `15:00` | Session 2 served from staged stock |
+
+Second, audit legacy Slack/App Script trigger installers only as cutover
+evidence. The audit must cover current/older feed packing, transport, count
+projection/update, watchdog/recovery, feed consumption list, archive/retry,
+proof/quantity, stock update, wastage summary, and stock alert paths in
+`unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and
+`video_verification_system.js`.
+
+Those legacy installer times are not product clocks. Each legacy trigger family
+must receive an explicit retain, retire, or replace decision with owner, reason,
+and GoatOS target mechanism if anything is retained or replaced. The default is
+to retire Apps Script timing and replace needed side effects with typed GoatOS
+kernel schedules, reminders, rework, or proof/stock policies. Trigger comments
+and logger text in the legacy scripts are inconsistent in places, so the audit
+records the actual `ScriptApp.newTrigger(...).timeBased()` installer shape as
+evidence, then separately checks that any retained behavior is approved against
+`Feed, Shiftings and Count.docx`.
 
 ### 5.3 Ration Source And Provenance
 

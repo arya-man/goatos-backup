@@ -27,6 +27,13 @@ Counts/Shifting projection
 The existing GoatOS kernel remains the target. Do not build a parallel Feed
 execution engine.
 
+Source authority for this slice is `Feed, Shiftings and Count.docx` v1.1. It
+owns the Feed Direction business clocks, Diff behavior, bridge rule, projection
+semantics, as-fed quantities, and ration constraints. Legacy Slack/App Script
+trigger installers are audit/cutover evidence only; their timings do not become
+GoatOS schedules unless the Feed Director explicitly retains or replaces the
+behavior against that docx.
+
 ## 2. Existing Kernel Anchors
 
 These pieces are reusable:
@@ -631,46 +638,34 @@ Local development may use the existing local outbox/eventbus equivalent, but the
 acceptance proof must distinguish local-dev fixture closure from production
 Pub/Sub/Scheduler/Cloud Tasks deployment.
 
-Clock inventory for `G3` is explicit evidence, not schedule law. The canonical
-source clocks are Day N `09:00` full direction, Day N `13:30` cutoff/Diff window,
-Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving. Legacy source review
-also contains windows at `07:30`, `14:45`, `06:30`, `07:15`, `14:15`, `00:15`,
-`23:45`, and `07:00`; the `23:45` path is the packing quantity check/reset
-loop, and the midnight archive/retry family is `00:15`, not an assumed 03:00
-clock.
+Clock inventory for `G3` has two lanes.
 
-`G3` also has a legacy-code trigger inventory subgate. The retained evidence
-must include the installed trigger functions, not just source-doc timing prose:
+The product-clock lane is controlled by `Feed, Shiftings and Count.docx`:
 
-| Legacy area | Evidence path | Installed trigger evidence | Required `G3` decision |
-| --- | --- | --- | --- |
-| Feed packing morning | `slack-automation-scripts/unified_automation.js` `UE_installFeedPackingTrigger` | `UE_sendFeedPackingDirections` daily at `06:00` IST | retain, retire, or replace |
-| Feed packing afternoon | `slack-automation-scripts/unified_automation.js` `UE_installFeedPackingAfternoonTrigger` | `UE_sendFeedPackingDirectionsAfternoon` daily at `15:00` IST | retain, retire, or replace |
-| Feed transport | `slack-automation-scripts/unified_automation.js` `UE_installFeedTransportTrigger` | `UE_sendFeedTransportMessages` daily near `15:45` IST | retain, retire, or replace |
-| Count DB daily update | `slack-automation-scripts/counting_db_automation.js` `setupTwelveAMTrigger` | `updateDBWithTodayCounts` daily near `23:30` IST | retain, retire, or replace under Counts/Shifting |
-| Count DB night check | `slack-automation-scripts/counting_db_automation.js` `setupThreeAMTrigger` | `updateFutureDBAtNightCheck` daily near `00:30` IST | retain, retire, or replace under Counts/Shifting |
-| Count DB next-day projection | `slack-automation-scripts/counting_db_automation.js` `setupFourAMTrigger` | `generateNextDayCounts` daily near `01:00` IST | retain, retire, or replace under Counts/Shifting |
-| Count DB afternoon changes | `slack-automation-scripts/counting_db_automation.js` `setupTwoPMTrigger` | `updateFutureDBWithChanges` daily near `14:00` IST | retain, retire, or replace under Counts/Shifting |
-| Count DB watchdog/recovery | `slack-automation-scripts/counting_db_automation.js` `setupWatchdogTrigger` | `watchdogOvernightFunctions` daily near `04:30` IST | retain, retire, or replace as recovery policy |
-| Older feed packing morning | `slack-automation-scripts/feed_automation.js` `createFeedDirectionTrigger` | `sendPackingFeedDirections` daily near `07:30` | retain, retire, or replace |
-| Older feed packing afternoon/diff | `slack-automation-scripts/feed_automation.js` `createFeedDirectionDifferenceTrigger` | `sendPackingFeedDirectionsAfternoon` daily near `14:45` | retain, retire, or replace |
-| Older feed changes morning | `slack-automation-scripts/feed_automation.js` `createFeedDirectionChangesTrigger` | `sendPackingFeedDirectionsChanges` daily near `06:30` | retain, retire, or replace |
-| Older feed consumption list | `slack-automation-scripts/feed_automation.js` `createFeedConsumptionTrigger` | `createConsumptionListItemsFromDirections` daily near `07:15` | retain, retire, or replace |
-| Older feed two-PM update | `slack-automation-scripts/feed_automation.js` `creat2PMTrigger` | `twoPMUpdate` daily near `14:15` | retain, retire, or replace |
-| Older feed midnight/archive family | `slack-automation-scripts/feed_automation.js` `create3AMTrigger` and `createDailyArchiveTrigger` | `threeAMUpdate` daily near `00:15`; `archiveFeedSupplyData` daily at `09:00` | retain, retire, or replace |
-| Older feed 3 PM change path | `slack-automation-scripts/feed_automation.js` `createChangeFDTrigger` | `sendPackingFeedDirectionsChanges_3PM` daily near `14:45` despite 3 PM log/comment wording | retain, retire, or replace |
-| Older feed retry behavior | `slack-automation-scripts/feed_automation.js` `wrapWithRetry_` | failed triggered functions schedule a ten-minute retry and alert after max retries | retain, retire, or replace as kernel retry policy |
-| Older feed transport path | `slack-automation-scripts/feed_automation.js` `sendTransportMessages` | function comment says triggered at `15:45`; installer found in `unified_automation.js`, so inventory both path and installer | retain, retire, or replace |
-| Video/proof packing quantity check | `slack-automation-scripts/video_verification_system.js` `createFeedPackingCheckTrigger` | `checkFeedPackingQuantities` daily near `23:45` | retain, retire, or replace as proof/quantity verification |
-| Video/proof direction write | `slack-automation-scripts/video_verification_system.js` `setupDailyTrigger` | `writeFeedDirectionToPacked` daily at `07:00`, with ten-minute retry on failure | retain, retire, or replace |
-| Video/proof stock update | `slack-automation-scripts/video_verification_system.js` `setupStockTrigger` | `updateAutomatedStock` daily near `23:30`, with ten-minute retry on failure | retain, retire, or replace under Feed Stock/Inventory |
-| Video/proof wastage summary | `slack-automation-scripts/video_verification_system.js` `setupWastageSummaryTrigger` | `generateWastageSummary` daily at `23:00` | retain, retire, or replace under consumption/wastage proof |
-| Video/proof stock alert | `slack-automation-scripts/video_verification_system.js` `setupStockAlertTrigger` | `checkStockAndAlert` daily near `23:45` | retain, retire, or replace under stock alerting |
+| Clock | Product meaning |
+| --- | --- |
+| Day N `09:00` | Full Feed Direction for Day N+1 |
+| Day N `13:30` | Cutoff for Day N+1 Diff inclusion |
+| Day N `13:30-13:45` | Diff for shiftings raised between full direction and cutoff |
+| Day N `15:00` | Packed and diff-corrected feed staged outside sheds |
+| Day N+1 `09:00` | Session 1 served from staged stock |
+| Day N+1 `15:00` | Session 2 served from staged stock |
 
-Some legacy comments/logger text disagree with the `ScriptApp.newTrigger` hour
-and minute values. The `G3` inventory must record the actual installer shape,
-then separately decide whether GoatOS keeps the same clock, replaces it with a
-kernel scheduler/sweeper, or retires it.
+The legacy-audit lane inventories installed Apps Script triggers so cutover does
+not miss old side effects. It is not a schedule proposal.
+
+| Legacy audit family | Evidence path/functions | Required `G3` decision |
+| --- | --- | --- |
+| Current feed packing and transport | `slack-automation-scripts/unified_automation.js`: `UE_installFeedPackingTrigger`, `UE_installFeedPackingAfternoonTrigger`, `UE_installFeedTransportTrigger` | retain, retire, or replace only after checking against the docx clocks |
+| Counts/Shifting updates and recovery | `slack-automation-scripts/counting_db_automation.js`: `setupTwelveAMTrigger`, `setupThreeAMTrigger`, `setupFourAMTrigger`, `setupTwoPMTrigger`, `setupWatchdogTrigger` | retain, retire, or replace under the Counts/Shifting projection contract |
+| Older feed packing, Diff/change, consumption list, archive, retry, and transport paths | `slack-automation-scripts/feed_automation.js`: `createFeedDirectionTrigger`, `createFeedDirectionDifferenceTrigger`, `createFeedDirectionChangesTrigger`, `createFeedConsumptionTrigger`, `creat2PMTrigger`, `create3AMTrigger`, `createDailyArchiveTrigger`, `createChangeFDTrigger`, `wrapWithRetry_`, `sendTransportMessages` | usually retire or replace; retain only with explicit Feed Director approval against the docx |
+| Video/proof, quantity, stock, wastage, and alert paths | `slack-automation-scripts/video_verification_system.js`: `createFeedPackingCheckTrigger`, `setupDailyTrigger`, `setupStockTrigger`, `setupWastageSummaryTrigger`, `setupStockAlertTrigger` | replace with typed GoatOS proof, stock, wastage, rework, alert, or retry policy where still needed |
+
+Some legacy comments/logger text disagree with actual `ScriptApp.newTrigger`
+hour/minute values. The `G3` audit records the installer shape as cutover
+evidence, then separately decides whether GoatOS retires the path or replaces it
+with kernel scheduler/sweeper/reminder/proof policy. The legacy time value alone
+is never enough to create a GoatOS schedule.
 
 ## 15. Legacy Cutover Rules
 
@@ -689,13 +684,10 @@ Mappings:
 - Applied shifting rows -> Counts/Shifting event ledger or source archive.
 - Retry scheduler behavior -> durable retry/reminder policy, not Apps Script
   timers.
-- Legacy trigger windows and installed trigger code -> clock-signoff evidence
-  for `G3`, including source windows such as `07:30`, `14:45`, `06:30`, `07:15`,
-  `14:15`, `00:15`, `23:45`, and `07:00`, installed feed/count/watchdog trigger
-  evidence at `06:00`, `15:00`, `15:45`, `23:30`, `00:30`, `01:00`, `14:00`,
-  and `04:30`, older feed archive/retry behavior, and video/proof stock,
-  wastage, quantity-check, and alert side effects. None become automatic GoatOS
-  schedules.
+- Legacy trigger windows and installed trigger code -> `G3` audit evidence only.
+  Use the audit to retain, retire, or replace feed/count/watchdog/archive/retry,
+  proof, stock, wastage, quantity-check, and alert side effects. The docx clocks
+  remain the only default Feed Direction product schedule.
 - Packing quantity check/reset loop -> typed packing discrepancy/rework policy;
   legacy reset/re-send behavior is inventoried, but Sheet flag clearing and
   thread deletion are not copied as runtime authority.
@@ -745,9 +737,9 @@ Required tests/checks:
 
 1. Close `G2` Counts/Shifting projection in its sibling PRD/TRD, or add an adapter
    stub that fails closed with explicit `G2` readiness state.
-2. Close `G3` clock and legacy trigger inventory: source clocks, installed
-   trigger functions, archive/retry/watchdog behavior, proof/stock verification
-   side effects, and retain/retire/replace decisions.
+2. Close `G3` by first confirming the docx canonical clocks, then auditing
+   legacy installed trigger functions, archive/retry/watchdog behavior, and
+   proof/stock side effects only for retain/retire/replace cutover decisions.
 3. Close `G4`-`G6`: add ration DSL validators, provenance requirements,
    Warmup/K0/K1/Experiment sign-off, and quantity/precision decisions.
 4. Add generation run/count snapshot/generation row/manual bridge-log

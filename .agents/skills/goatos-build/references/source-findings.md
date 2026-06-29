@@ -19,6 +19,11 @@ Rules:
   screenshots, or private rows.
 - If a source fact affects build behavior, it must land in an authoritative
   context doc, not only in analysis or archive.
+- For Feed Direction, `Feed, Shiftings and Count.docx` v1.1 is the controlling
+  business source for timing, Diff, bridge handling, one-day projection, Base
+  Count adoption, as-fed quantities, and ration constraints. Legacy Slack/App
+  Script trigger times are audit/cutover evidence only and must not become
+  GoatOS schedules unless explicitly owner-approved against that doc.
 - Deleted archive docs and old phase ladders are historical only. If a breed,
   table, SOP, or form field only exists in git history, it is not
   build-canonical.

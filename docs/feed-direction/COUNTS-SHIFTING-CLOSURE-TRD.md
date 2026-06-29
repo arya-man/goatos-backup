@@ -11,6 +11,12 @@
 Provide a Counts/Shifting application contract that Feed Direction can consume
 without reading raw Counting DB rows, raw Sheets, or per-goat history scans.
 
+Source authority for feed-facing count behavior is
+`Feed, Shiftings and Count.docx` v1.1. It controls the one-day projection,
+physical Base Count adoption, Diff source semantics, and any Feed Direction
+timing assumptions. Legacy App Script/Sheet timing is audit evidence for cutover,
+not a GoatOS schedule unless explicitly approved against that docx.
+
 ```text
 physical Base Count anchor
   -> append-only ShiftingEvent ledger
