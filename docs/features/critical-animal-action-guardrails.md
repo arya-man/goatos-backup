@@ -120,6 +120,66 @@ Vaccination treats quarantine mostly as a defer/eligibility state. This document
 defines the higher-risk question: whether an animal is allowed to enter or leave
 quarantine/ICU/death state at all, and what must happen when it does.
 
+## Vertical And Module Ownership
+
+Critical guardrails are enforced by the shared kernel, but each rule must still
+have a clear business owner. The kernel owns evaluation mechanics; verticals own
+the source truth, policy packs, and module-specific read models.
+
+Command lenses such as Action Center, Control Tower, Calendar, Protocol
+Adherence, and Workflows are not vertical owners. They display blocked actions,
+missed checks, escalations, and next actions emitted by the owning vertical's
+policy pack.
+
+| Guardrail / workflow | Owning vertical | Owning module or source of truth |
+| --- | --- | --- |
+| Generic critical-action engine, policy-pack runtime, immutable decision records, idempotency, audit/outbox, approval/exception mechanics, SLA waterfall | Kernel / shared platform | Critical Action Guardrails / Operational Kernel |
+| Process visibility for blocked actions, overdue obligations, missed checks, escalations, and incident next actions | Kernel / shared platform | Process Integrity: Action Center, Control Tower, Calendar, Protocol Adherence, Workflows |
+| Current goat location, source/destination shed truth, shed counts, movement history, and movement proof target | Counts | Shifting / Movement, Census / Shed Count |
+| Location profile, shed capability, capacity, active/review/retired state, `is_quarantine`, `is_icu`, `is_holding`, owner/manager mapping | Shared Locations master data; Counts consumes it for occupancy/current-location truth | Locations / Shed Profiles |
+| Routine movement, high-risk movement, quarantine entry/exit movement, and operational separation such as keeping adult males away from females | Counts primary; Breeding/PHC/Procurement may supply the reason evidence | Shifting / Operational Movement |
+| Feed-count impact from movement timing, especially before/after feed cutoffs | Feed + Counts | Feed Direction with Shifting bridge |
+| Biological/process quarantine for contagious/viral risk such as ORF | PHC | Biosecurity / Quarantine |
+| ICU, sick animal tracking, diagnosis, treatment, follow-up, and release from health restriction | PHC | Health, Treatment, ICU |
+| Quarantine health, weight, and follow-up checks after a PHC quarantine episode starts | PHC | Quarantine Checks / Health Follow-up |
+| Vaccination protocol obligations, missed-dose/proof gaps, defer/reopen on health/quarantine recovery, lab/titer/sample-test confidence evidence | PHC | Vaccination |
+| Deworming, sanitization, water/feed testing, biosecurity checks, SOP-video verification, and PHC inventory anti-misuse checks | PHC | PHC protocol modules |
+| Incoming purchased animals before accepted herd intake, including holding farm, warmup, source records, vendor/load evidence, transit, and intake checks | Procurement | Source Entry, Intake, Holding / Warmup |
+| Procurement health/weight/vaccination source evidence used by PHC or Counts | Procurement owns the source record; PHC/Counts consume it | Procurement Intake Evidence |
+| Accepted-herd intake gate after procurement, health/weight/proof discrepancy resolution, and canonical goat creation/update | Procurement primary with PHC + Counts gates | Procurement Acceptance |
+| Death report, post-mortem, unexpected death, disease cluster, incident investigation, and preventive action | PHC owns medical investigation; Counts consumes canonical death/lifecycle state for active counts; Kernel owns workflow mechanics | Death / Incident |
+| Sale/allocation blockers caused by quarantine, ICU, death, kid stage, or withdrawal rules | Sales consumes; PHC/Counts provide source truth | Sale / Allocation Blockers |
+
+Ownership rule:
+
+```text
+Locations owns shed/location master data.
+Counts owns where the goat is and the derived count/occupancy truth.
+PHC owns medical/preventive restriction and recovery truth.
+Procurement owns incoming-animal truth before accepted herd.
+Feed owns ration/feed-direction consequences of movement and counts.
+The kernel owns guardrail enforcement, evidence evaluation, audit, obligations,
+and escalation mechanics.
+```
+
+Legacy dashboard tabs and metrics are reporting surfaces, not ownership
+authority. Counts, Shiftings, Feed, Mortality, and related dashboard views help
+verify source signals and parity needs, but they do not decide which vertical
+owns the canonical policy. Product ownership follows the source-of-truth module
+above.
+
+For the quarantine incident class specifically:
+
+- Healthy existing males kept away from females -> Counts / Shifting /
+  Operational Movement, with breeding reason evidence where needed.
+- ORF, contagious risk, ICU, or medical isolation -> PHC / Biosecurity /
+  Quarantine or PHC / Health.
+- Newly purchased goats under incoming quarantine/warmup -> Procurement /
+  Intake / Holding, with PHC checks before accepted herd.
+- A shed named "quarantine" but not used as biological/process quarantine ->
+  Locations/Counts label or capability only; do not create a PHC quarantine
+  episode unless evidence-derived classification says so.
+
 ## Source Evidence Reviewed
 
 Sanitized committed findings:
@@ -147,7 +207,10 @@ Maintainer-local wiki/legacy sources reviewed:
   graph nodes for the 10-minute report response standard
 - `wiki/graphify-out/converted/Procurement DB [Goats]_dda03a25.md`
 - `slack-automation-scripts/shifting_death_automation.js`
-- legacy dashboard repos for read-only shifting/quarantine display behavior
+- legacy dashboard repo read-only checks for Counts, Shiftings, Feed, Mortality,
+  and ICU/quarantine label display behavior, including
+  `dashboard/lib/data/counts.ts`, `dashboard/lib/display-utils.ts`,
+  `dashboard/lib/bigquery.ts`, and related CSV-backed reporting surfaces
 
 Read-only live legacy checks on 2026-06-28:
 
