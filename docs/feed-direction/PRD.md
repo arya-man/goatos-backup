@@ -68,9 +68,10 @@ Use this priority when sources disagree:
 | --- | --- | --- |
 | 1 | `Feed, Shiftings and Count.docx` v1.1, June 2026 | Primary Feed Direction business source: Base Count, append-only Shifting ledger, one-day projection, timing, Diff, manual bridge SOP/logging, as-fed quantities, and ration solver constraints |
 | 2 | Feed-relevant wiki/source docs and findings | Counting DB reconstruction, Feed Transfer KT findings, Shifting reports, Feed Director ops, Goats & Parks stage tags, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
-| 3 | Legacy Slack/App Script feed workflows | Feature inventory for sheet fields, form stages, proof/rejection, reset/re-send, retry/dedupe, transport, notifications, and security/cutover evidence; not a code blueprint |
-| 4 | GoatOS protocol/kernel docs and committed code | Implementation shape for protocol, obligations, SOP proof, inventory, audit, outbox, reminders, read models, RBAC, OpenAPI, and generated clients |
-| 5 | Older GoatOS feed docs and mock feed panels | Historical UI/direction references only where not contradicted above; the mock controls UI anatomy, not Feed business timing |
+| 3 | `Counting DB - values only.xlsx` and `Feed Directions Automation DB.xlsx` | Workbook/tab/column/formula evidence for imports, parity fixtures, validation gaps, ration tables, session templates, processed flags, and execution/proof stages; not runtime truth or target schema |
+| 4 | Legacy Slack/App Script feed workflows | Feature inventory for sheet fields, form stages, proof/rejection, reset/re-send, retry/dedupe, transport, notifications, and security/cutover evidence; not a code blueprint |
+| 5 | GoatOS protocol/kernel docs and committed code | Implementation shape for protocol, obligations, SOP proof, inventory, audit, outbox, reminders, read models, RBAC, OpenAPI, and generated clients |
+| 6 | Older GoatOS feed docs and mock feed panels | Historical UI/direction references only where not contradicted above; the mock controls UI anatomy, not Feed business timing |
 
 Source authority rule: for the Feed Direction slice, always follow
 `Feed, Shiftings and Count.docx` v1.1 when timing, Diff, bridge, projection,
@@ -89,6 +90,17 @@ Bridge conflict rule: the June 2026 source keeps high-priority post-cutoff
 additions as a manual SOP. GoatOS may log the top-up and proof, but must not
 build the superseded `07:30` next-morning system Diff unless the owner explicitly
 reopens that design.
+
+Workbook boundary rule: `Counting DB - values only.xlsx` and
+`Feed Directions Automation DB.xlsx` are source evidence for migration, typed
+imports, parity checks, and known gaps. Their tabs (`Count-DB`,
+`CPT Validation`, `CBE Validation`, `Feed-Energy-Protein`, `Supply Planning`,
+`Template`, `Feed Packing Form`, `Feed Transport Form`, and
+`Feed Consumption & Wastage`) must not become GoatOS product modules, runtime
+tables, or hardcoded business rules. GoatOS owns the kernel model: typed
+Postgres state, governed CRUD/import/review/publish config, immutable generation
+snapshots, stage obligations, proof/rework, audit/outbox, and bounded read
+models.
 
 ## 3. Scope
 
@@ -127,6 +139,16 @@ separate from the nutrition/ration cohort key, then resolve between them through
 reviewed source-backed context. If the resolver cannot prove the shed tag/cohort
 for a projected count row, generation blocks with visible exception work instead
 of guessing a ration.
+
+The workbook and legacy automation review confirms why this cannot be a
+Sheet-clone build. Legacy `Count-DB`, validation, supply-planning, and template
+tabs use formulas, hidden copies, string transforms, processed flags, and script
+glue to bridge count rows to ration rows. GoatOS must expose governed admin/data
+ops CRUD and import flows for the business-managed pieces those tabs attempted
+to hold: feed item nutrient vectors and costs, feed-type constraints, breed and
+stage/tag aliases, kid weight-band/ADG rules, warm-up/pregnancy policy,
+eligibility/exclusions, ration solver/import outputs, transport maps, proof
+thresholds, and session-slot/feed-set policy.
 
 The full NRC optimizer UI can wait, but ration quantity provenance cannot. The
 first slice must either run a non-UI RationTable solver for the source-required
@@ -319,6 +341,9 @@ Missing before Feed Direction is operational:
 
 - No canonical Counts/Shifting horizon-aware aggregate projection contract.
 - No non-UI RationTable solver or reviewed solver-output import with provenance.
+- No typed importer/admin CRUD/review/publish surface for feed vectors,
+  constraint tables, aliases, eligibility, session slots, transport maps, and
+  proof thresholds.
 - No generation run or Diff pipeline.
 - No feed obligation generation path.
 - No HTTP adapter/route/OpenAPI contract for Feed Direction.
@@ -416,10 +441,11 @@ Under reopened `G1`, when building Feed Direction UI:
 5. `G4`: Confirm initial feed vectors, costs, ration aliases, source-backed
    ration values, kid weight-band/ADG inputs, roughage/category floor values, and
    how uploaded breed/tag/energy constraint tables map into reviewed ration
-   cohort keys.
+   cohort keys through typed import/CRUD/review/publish, not workbook formulas.
 6. `G5`: Confirm Warmup 14-day transition handling, ICU, Quarantine, Flushing,
    Breeding, K0/K1, Experiment-shed, F2/Fattening, SIROHI->Beetal, and other
-   alias/exclusion policies.
+   alias/exclusion policies, plus which admin roles may draft/publish
+   effective-dated session-slot changes.
 7. `G6`: Confirm feed unit and baking-soda precision policy before implementing
    inventory wiring.
 8. `G7`: Confirm the stage model and durable `stage_kind` home: typed stage

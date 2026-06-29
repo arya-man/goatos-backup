@@ -42,13 +42,17 @@ Use this order whenever sources disagree:
    primary doc: Counting DB reconstruction, Shifting reports, Feed Director ops,
    Goats & Parks stage tags, transport consolidation, Warmup/K0/K1/Experiment
    evidence, and feed-stock/procurement boundaries.
-3. Legacy Slack/App Script workflows are parity and cutover evidence for stage
+3. `Counting DB - values only.xlsx` and `Feed Directions Automation DB.xlsx`
+   are workbook/tab/formula evidence for import mapping, parity fixtures, known
+   validation gaps, ration tables, session templates, processed flags, and
+   execution/proof stages. They are not runtime truth or target schema.
+4. Legacy Slack/App Script workflows are parity and cutover evidence for stage
    behavior, retries, proof, rejection, reset/re-send, dedupe, notifications, and
    security cleanup. They are never runtime authority.
-4. GoatOS protocol/kernel docs and committed code define the implementation
+5. GoatOS protocol/kernel docs and committed code define the implementation
    shape: protocol versions, obligations, batches, SOP proof, inventory,
    idempotency, audit, outbox, reminders, read models, and RBAC.
-5. The admin-web mock controls UI/UX anatomy only. Older mock timing or old
+6. The admin-web mock controls UI/UX anatomy only. Older mock timing or old
    Feed panels do not override the primary Feed source.
 
 Hard rule for this slice: if legacy Slack/App Script trigger times, older mocks,
@@ -56,6 +60,13 @@ prior GoatOS notes, or implementation inventories disagree with
 `Feed, Shiftings and Count.docx`, follow the docx unless the Feed Director
 explicitly reopens the business rule. Legacy trigger times are audit/cutover
 evidence only; they are not GoatOS product schedules by default.
+
+Hard workbook rule: old workbook tabs and formulas are evidence only. Do not
+copy `Count-DB`, `CPT Validation`, `CBE Validation`, `Feed-Energy-Protein`,
+`Supply Planning`, `Template`, `Feed Packing Form`, `Feed Transport Form`, or
+`Feed Consumption & Wastage` as GoatOS runtime tables/modules. Build typed
+imports, governed CRUD/review/publish config, immutable generation snapshots,
+stage obligations, proof/rework, audit/outbox, and bounded Postgres read models.
 
 ## 3. Stop Rules
 
@@ -129,12 +140,17 @@ language.
    refreshed solve replaces the lookup table wholesale with no versioned blend.
    Feed Transfer KT-style uploaded breed/tag/energy sheets are ration/constraint
    source evidence only; they must map into reviewed nutrition cohort keys and do
-   not prove shed placement.
+   not prove shed placement. `G4` must also close the typed importer/admin CRUD
+   path for feed vectors, costs, constraints, aliases, eligibility, ration
+   outputs, source hashes, row validation, dry-run parity preview, repair/DLQ,
+   review, approval, publish, and audit.
 4. `G5` Eligibility and stage-tag/session policy: Warmup, K0/K1, Experiment, ICU,
    Quarantine, Flushing, Breeding, F2/Fattening, breed aliases, and versioned
    session-slot/feed-set policy are approved. The docx default is two slots with
    50/50 split, but admins may add, disable, reorder, or reweight slots only
-   through approved effective-dated Feed Direction protocol config.
+   through approved effective-dated Feed Direction protocol config with
+   validation that active slot weights cover the full daily as-fed quantity and
+   explicit supersession behavior for already-generated dates.
 5. `G6` Quantity and precision boundary: deterministic whole base units into the
    current inventory app port, exact persistence to SQL `numeric + quantity_unit`,
    or app-port decimal widening before fractional feed use.

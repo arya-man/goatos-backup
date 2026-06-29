@@ -108,8 +108,10 @@ that are useful for migration fixtures and parity checks.
   GoatOS runtime feed generation must not use the legacy sheet as the live
   authority.
 - The source-required runtime target is a physical base-count anchor, realized
-  shifting ledger, and horizon-aware projection at shed + breed + stage/tag
-  grain. The committed Counts module currently has source-row sync/projection
+  shifting ledger, and horizon-aware projection at physical shed + breed grain,
+  with reviewed ration-context resolution state attached or blocked. Stage/tag
+  belongs to the reviewed ration-context resolver, not the physical Base Count
+  anchor. The committed Counts module currently has source-row sync/projection
   tables, not that aggregate ledger, so Feed Direction needs an explicit
   Counts/Shifting contract before generation can be operational.
 - That contract must expose separate realized `count_as_of` and one-day

@@ -491,6 +491,10 @@ current feed examples: Masoor Bhusa and Concentrate
 
 Feed Direction legacy sheet and proof signals:
 
+See `feed-direction-workbook-automation-findings.md` for the later workbook plus
+Apps Script review. The fields below are parity/import evidence only; they are
+not GoatOS runtime schema.
+
 ```text
 Feed Direction sheet fields:
   date, farm, session, shed, shed tag, breed, age, count

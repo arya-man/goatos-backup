@@ -50,6 +50,7 @@ Use these source families before asking the business to answer from memory:
 | --- | --- |
 | `Feed, Shiftings and Count.docx` v1.1 | Primary source for count/shifting ledger, one-day projection, timing, Diff, manual bridge SOP/logging, as-fed quantities, and ration model |
 | Other feed-relevant wiki/source findings | Goats & Parks tags, Counting DB reconstruction, Feed Transfer KT findings, Shifting reports, Feed Director ops, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
+| `Counting DB - values only.xlsx` and `Feed Directions Automation DB.xlsx` | Workbook/tab/formula/processed-flag evidence for import design, parity fixtures, known data-quality gaps, ration/source tables, session templates, and execution/proof stage inventory |
 | Legacy Slack/App Script feed automation | Feature inventory for packing, consumption, transport, verification, reset/re-send, retries, dedupe, notifications, and security/cutover evidence |
 | GoatOS protocol/kernel docs and committed code | Obligations, batches, SOP proof, inventory ledger, outbox, scheduler, notifications, read models, scale gates, RBAC, OpenAPI, and generated clients |
 | Admin-web mock | UI anatomy source only after `G1`; it does not override the primary Feed business source |
@@ -58,6 +59,10 @@ Slack, Sheets, and Apps Script remain legacy evidence and cutover surfaces only.
 They must not be runtime truth in GoatOS. Legacy scripts are a feature inventory,
 not an implementation blueprint: exact code line references can drift, and
 legacy weak validation must be replaced with typed GoatOS policy, not preserved.
+Workbook tabs and formulas are also not target schema. `Count-DB`,
+`CPT Validation`, `CBE Validation`, `Feed-Energy-Protein`, `Supply Planning`,
+`Template`, `Feed Packing Form`, `Feed Transport Form`, and
+`Feed Consumption & Wastage` are import/parity labels only.
 For the Feed Direction slice, `Feed, Shiftings and Count.docx` v1.1 is the
 controlling business source. If older mocks, prior GoatOS notes, or legacy
 Slack/App Script trigger times disagree with it, follow the docx unless the Feed
@@ -82,8 +87,8 @@ questions must reference these IDs rather than maintaining independent lists.
 | G1 | Scope launch gate | Reopened as of 2026-06-30 because local PHC/Vaccination UI/foundation closure is accepted for Feed Direction sequencing. Google dev vaccination rollout remains separate Goal 2 and is not required before Feed starts. Active Feed UI/Config/SOP exposure still requires Feed-owned backend contracts, mock fidelity, rendered proof, and `G2`-`G17` closure. | Owner |
 | G2 | Counts/Shifting long pole | Counts/Shifting closure PRD/TRD is accepted and implemented enough to expose aggregate Base Count anchors, realized ShiftingEvent ledger, one-day projection at shed + breed grain, reviewed ration-context resolution state, idempotency, fail-closed exceptions, and `CSG1`-`CSG10` readiness breakdown under `G2`. Breed/tag constraint tables without shed placement must produce a blocker until reviewed context resolves the physical count row to a nutrition cohort. RFID-to-shed per-goat derivation is out of initial Feed scope. | Backend/source |
 | G3 | Clock and legacy trigger inventory | Feed Director signs off the default Feed Direction clocks from `Feed, Shiftings and Count.docx`: Day N `09:00` full direction, Day N `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving slots. `G5` owns approved session-slot changes beyond that default. Legacy Slack/App Script trigger installers from `unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and `video_verification_system.js` are a separate audit-only cutover subgate for retain/retire/replace decisions; their timings must not be treated as GoatOS schedules unless explicitly retained or replaced against the docx. | Owner |
-| G4 | Ration source/provenance | Solver/import path, ration values, aliases, feed vectors, uploaded breed/tag/energy constraint tables, constraint hashes, approval metadata, and publish authority checks are defined | Source/owner |
-| G5 | Eligibility and stage-tag/session policy | Warmup 14-day transition tags, ICU, Quarantine, Flushing, Breeding, K0/K1, Experiment sheds, F2/Fattening, SIROHI->Beetal or other breed aliases, and versioned session-slot/feed-set policy are explicitly approved. The source default is two serving slots with 50/50 split, but admins may add, disable, reorder, or reweight slots only through approved effective-dated Feed Direction protocol config. | Source/owner |
+| G4 | Ration source/provenance | Solver/import path, ration values, aliases, feed vectors, uploaded breed/tag/energy constraint tables, constraint hashes, approval metadata, publish authority checks, and typed CRUD/import/review/publish flow are defined. Workbook formulas and tabs are evidence only. | Source/owner |
+| G5 | Eligibility and stage-tag/session policy | Warmup 14-day transition tags, ICU, Quarantine, Flushing, Breeding, K0/K1, Experiment sheds, F2/Fattening, SIROHI->Beetal or other breed aliases, and versioned session-slot/feed-set policy are explicitly approved. The source default is two serving slots with 50/50 split, but admins may add, disable, reorder, or reweight slots only through approved effective-dated Feed Direction protocol config with validation and supersession rules. | Source/owner |
 | G6 | Quantity and precision boundary | Feed units are whole grams/ml into the current inventory app port, or inventory app ports are widened before decimal/sub-gram feed use; baking-soda precision is resolved before build | Architecture |
 | G7 | Stage model | Packing, transport, consumption/wastage, bridge proof/rework model chosen with a durable queryable `stage_kind` discriminator | Architecture |
 | G8 | Transport map and checklist entity | Direction-shed to transport-shed consolidation owner/storage is confirmed, and any transport list/checklist entity from legacy overlap has a GoatOS equivalent | Source/owner |
@@ -224,6 +229,17 @@ cleanup.
 K0/K1 and Experiment exclusions are not settled by the feed docx alone. Treat
 legacy zero rows/automation filters as candidate policy evidence and require
 Feed Director approval before suppressing normal packed-feed obligations.
+
+The legacy workbooks show why `G4` cannot close with a spreadsheet clone. The
+closure must specify the admin/data-ops surfaces or import APIs that create,
+edit, validate, review, approve, publish, retire, and replay Feed Direction
+configuration. At minimum this includes feed item nutrient vectors, feed costs,
+feed-type constraints, breed/species aliases, stage/tag aliases, kid
+weight-band/ADG rules, warm-up/pregnancy policy, eligibility/exclusions,
+session slots, feed-set templates, transport maps, proof thresholds, and
+reviewed ration solver/import outputs. Each import needs row-level validation,
+source hash, dry-run parity preview where a workbook source exists,
+dead-letter/repair workflow, reviewer/approval metadata, and audit.
 
 ### 5.4 Default Engineering Decisions To Unblock Build
 

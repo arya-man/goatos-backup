@@ -12,6 +12,11 @@ the raw transcript or local file path.
 - The KT supports a configuration-screen workflow where feed constraints are
   uploaded or entered as reviewed tables, then future animal entries and
   downstream actions honor those constraints automatically.
+- The KT should be read together with the workbook/automation finding in
+  `feed-direction-workbook-automation-findings.md`: uploaded sheets are source
+  inputs for typed import, review, publish, validation, and parity preview. They
+  are not the runtime schema and their tab names should not become product
+  module names.
 - The feed/ration side is described in terms of feed unit vectors, energy
   capacity, feed-type constraints, breed, tag/stage, weight-band examples, and
   special policy groups such as warm-up or pregnant animals.
@@ -40,6 +45,10 @@ Use this finding to strengthen Feed Direction gates `G2`, `G4`, and `G5`:
 - `G2` must expose physical counts/projections at the agreed aggregate grain and
   indicate whether reviewed ration context resolution is present or blocked.
 - `G4` must preserve source-backed ration/constraint provenance from uploaded
-  tables or solver output.
+  tables or solver output through typed import, review, approval, publish, and
+  replay metadata.
 - `G5` must own the approved nutrition cohort dimensions and the policy for
   resolving a shed + breed count row into one or more ration cohorts.
+- `G5` also owns session-slot policy as configurable protocol state. The docx
+  default is two slots, but approved admins must be able to add, disable,
+  reorder, or reweight slots in a new effective-dated protocol version.

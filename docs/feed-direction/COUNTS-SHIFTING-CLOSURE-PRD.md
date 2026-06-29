@@ -43,13 +43,18 @@ Counts/Shifting must answer these questions for Feed Direction:
 | Source | Use |
 | --- | --- |
 | `Feed, Shiftings and Count.docx` v1.1 | Primary source for physical Base Count, append-only shifting ledger, one-day projection, Diff source semantics, and physical count adoption |
-| Counting DB reconstruction and feed-relevant wiki/source findings | Fixture/reference shape for aggregate counts, comparison tabs, stage tags, and source discrepancies |
+| Counting DB reconstruction, `Counting DB - values only.xlsx`, and feed-relevant wiki/source findings | Fixture/reference shape for aggregate counts, comparison tabs, stage tags, source discrepancies, aliases, and import validation gaps; not runtime truth |
+| `Feed Directions Automation DB.xlsx` | Evidence for how old feed planning tried to join count rows to ration/session/formula tabs; not authoritative count truth or a target Counts schema |
 | Shifting reports/source findings | Movement categories, priority, source/destination, proof and approval states |
 | Legacy automation review | Dedup, retry, count-mismatch, alias-transform, and replay evidence |
 | GoatOS identity/location tables | Future per-goat derivation option through `goat_identifiers` and `goat_location_history` after RFID-to-shed association is reliable; out of initial closure scope |
 
 Legacy data is evidence and fixture material. Runtime truth must be Postgres
 canonical state plus audit/outbox.
+Workbook formula tabs, processed flags, and App Script transforms must not be
+copied into Counts/Shifting. Counts owns physical aggregate count and movement
+truth; Feed owns the reviewed resolver from those rows into nutrition/ration
+cohorts.
 
 For any Counts/Shifting behavior that affects Feed Direction timing, Diff,
 bridge handling, one-day projection, or physical count adoption,

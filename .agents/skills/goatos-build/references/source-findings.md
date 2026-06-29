@@ -9,6 +9,7 @@ Canonical docs:
 - `context/source-findings/drive-docs-findings.md`
 - `context/source-findings/customer-promise-safety-findings.md`
 - `context/source-findings/feed-transfer-kt-2026-06-24.md`
+- `context/source-findings/feed-direction-workbook-automation-findings.md`
 - `context/product/glossary.md`
 - `context/analytics/final-analytics-infra.md`
 - `context/forms/final-forms-sop-engine.md`
@@ -35,6 +36,11 @@ Rules:
   not provide authoritative shed placement. Keep physical count projection
   (`shed + breed`) separate from nutrition/ration cohort keys; missing reviewed
   resolver context must block Feed generation instead of guessing.
+- `Counting DB - values only.xlsx` and `Feed Directions Automation DB.xlsx` are
+  migration/parity evidence, not target schema. Their tabs, formulas, hidden
+  copies, processed flags, and legacy Apps Script glue must be replaced by
+  typed imports, CRUD/review/publish config, immutable generation snapshots,
+  stage obligations, proof/rework, audit/outbox, and bounded Postgres reads.
 - Deleted archive docs and old phase ladders are historical only. If a breed,
   table, SOP, or form field only exists in git history, it is not
   build-canonical.

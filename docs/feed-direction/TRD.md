@@ -24,6 +24,15 @@ timings are audit/cutover evidence only. They must not become GoatOS schedules
 unless the Feed Director explicitly approves a retained or replaced behavior
 against that docx.
 
+Workbook boundary rule: `Counting DB - values only.xlsx` and
+`Feed Directions Automation DB.xlsx` are source evidence for import mapping,
+parity fixtures, formula-gap review, and legacy execution-stage inventory. Their
+tabs, formulas, hidden copies, processed flags, Apps Script properties, and
+Slack media links are not target schema. GoatOS must land the same operational
+intent in typed Postgres state, governed protocol/config CRUD, typed imports,
+review/publish gates, immutable generation snapshots, stage obligations,
+proof/rework, audit/outbox, and bounded read models.
+
 ## 1. Current committed state
 
 Committed and reusable:
@@ -227,6 +236,16 @@ Feed configuration lives in `protocol_versions.rule_dsl` for
   packing verification.
 - Source metadata and review status for imported or manually entered rules.
 
+Workbook-derived config must enter the DSL through typed import or admin CRUD,
+not through live spreadsheet formulas. The importer/config surface must cover at
+least feed item nutrient vectors, feed costs, feed-type constraints,
+breed/species aliases, stage/tag aliases, kid weight-band/ADG rules,
+warm-up/pregnancy policy, eligibility/exclusions, session slots, feed-set
+templates, transport maps, proof thresholds, and reviewed ration solver/import
+outputs. Each family needs source checksum, row-level validation, dry-run parity
+preview where a workbook source exists, dead-letter/repair state, reviewer,
+approval metadata, and business audit.
+
 Typed validators/reference tables are allowed when they protect correctness
 (for example stage aliases, feed item nutrient vectors, or optimizer outputs),
 but they must not become a second config authority parallel to the protocol
@@ -267,6 +286,13 @@ cost minimization. When feed costs or feed-type availability changes, the
 reviewed re-solve replaces the RationTable output wholesale, with no versioned
 blend of old and new rows.
 
+Do not encode workbook tab names as product modules or SQL table names. Names
+such as `CPT Validation`, `CBE Validation`, `Feed-Energy-Protein`,
+`Supply Planning`, `Template`, `Feed Packing Form`, `Feed Transport Form`, and
+`Feed Consumption & Wastage` are import/parity labels only. The canonical model
+is protocol config plus generation, obligation, proof, inventory, audit, and
+read-model state.
+
 ## 4. Minimal new persistence
 
 Use migration numbers after the current tail. At the time of this correction,
@@ -279,6 +305,7 @@ Candidate tables, to finalize during implementation:
 | `feed_direction_generation_runs` | One row per full or Diff generation attempt | `run_kind` full/diff, target date, cutoff window, status, idempotency key, source hash, actor/job metadata |
 | `feed_direction_count_input_rows` | Snapshot of the Counts/Shifting projection consumed by a run | Grain: tenant, run, park, shed, target date, breed, headcount, ration_context_resolution_state, reviewed ration context ids where resolved, blocker reason where unresolved, source contract/version/hash, realized vs projection horizon |
 | `feed_direction_generation_rows` | Source/planning snapshot used to create obligations | Grain: tenant, run, park, shed, target date, session, breed, ration cohort key/stage/shed tag, feed item, as-fed quantity, row kind full/diff/restatement, optional source-facing net correction quantity |
+| `feed_direction_import_batches` | Optional typed import/review batch storage for workbook or solver-output migration | Add only if protocol source metadata is not enough for row repair, DLQ, parity preview, and audit |
 | `feed_direction_stage_records` | Typed stage outcome rows, or replaced only by an indexed obligation-context/completion-stage projection with the same durable discriminator | Stage kind packing/transport/consumption/wastage/bridge, planned vs actual quantities, consumed/wasted/variance, proof refs, verifier status, rejection reason, rework link |
 | `feed_direction_bridge_events` | Manual high-priority post-cutoff 2x-ration bridge log | Destination shed, animal id or approved aggregate reference, timestamp, quantity, source event/logical shifting reference where known, source shed tag where known, proof/submission links, reconciliation state |
 | `feed_direction_projection_rows` | Read model for admin/mobile lists and command buckets | Bounded by tenant, park, date, shed, session, status, bucket, owner, cursor key |

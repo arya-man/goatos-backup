@@ -16,6 +16,9 @@ Source authority for feed-facing count behavior is
 physical Base Count adoption, Diff source semantics, and any Feed Direction
 timing assumptions. Legacy App Script/Sheet timing is audit evidence for cutover,
 not a GoatOS schedule unless explicitly approved against that docx.
+`Counting DB - values only.xlsx` and `Feed Directions Automation DB.xlsx` are
+fixture/import evidence only. Their tabs, formulas, comparison sheets, processed
+flags, and script transforms are not Counts/Shifting runtime truth.
 
 ```text
 physical Base Count anchor
@@ -94,6 +97,9 @@ grain. Ration context must be resolved from reviewed shed/cohort reference data
 or returned as a blocker; it is not a separate Base Count grain. Feed Transfer KT
 constraint tables may define breed/tag/energy nutrition cohorts without shed
 placement, so they cannot by themselves prove the count-row ration context.
+Feed Directions Automation workbook tabs may show how the legacy sheet tried to
+join counts to validation/supply-planning formulas, but that join logic belongs
+in a reviewed Feed resolver and protocol config, not in Counts/Shifting.
 Per-goat derivation is a future replacement only after RFID-to-shed is
 implemented, confidence-gated, scale-tested, and owner-approved.
 

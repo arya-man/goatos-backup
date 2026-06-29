@@ -34,6 +34,12 @@ trigger installers are audit/cutover evidence only; their timings do not become
 GoatOS schedules unless the Feed Director explicitly retains or replaces the
 behavior against that docx.
 
+`Counting DB - values only.xlsx` and `Feed Directions Automation DB.xlsx` are
+workbook implementation evidence only. Their tabs, formulas, hidden copies,
+processed flags, script properties, and Slack media links must be replaced with
+typed imports, CRUD/review/publish config, generation snapshots, stage
+obligations, proof/rework state, audit/outbox, and bounded read models.
+
 ## 2. Existing Kernel Anchors
 
 These pieces are reusable:
@@ -204,6 +210,16 @@ inventory_policy
 source_metadata
 ```
 
+Workbook-derived config enters through typed import or admin CRUD, never by
+reading live formulas. Import/review support must cover feed item nutrient
+vectors, feed costs, feed-type constraints, breed/species aliases, stage/tag
+aliases, kid weight-band/ADG rules, warm-up/pregnancy policy,
+eligibility/exclusions, session slots, feed-set templates, transport maps,
+proof thresholds, and reviewed ration solver/import outputs. Each import family
+must carry source checksum, row-level validation, dry-run parity preview when a
+workbook source exists, dead-letter/repair state, reviewer/approval metadata,
+and audit.
+
 `session_policy` is a versioned admin config family, not a fixed enum. It must
 store active session slots for the target date with slot code, label, serving
 time, sort order, effective range, split weight, and optional feed-item/scope
@@ -258,6 +274,11 @@ stage/breed transforms must be captured as reviewed config or explicit
 Feed-Director exclusions. Do not treat automation zero rows as automatic policy
 authority.
 
+Workbook tab names are not product module or table names. `CPT Validation`,
+`CBE Validation`, `Feed-Energy-Protein`, `Supply Planning`, `Template`,
+`Feed Packing Form`, `Feed Transport Form`, and `Feed Consumption & Wastage`
+are import/parity labels only.
+
 Initial solver scope is feed-type-level only: hard floor/ceiling, structural
 ratio, category floor, and quantity floor. Item-level feed ceilings and
 palatability modeling are deferred. The `60:40` structural ratio applies only to
@@ -277,6 +298,7 @@ Candidate tables after the current migration tail:
 | `feed_direction_generation_runs` | yes | Full/Diff run header and manual bridge-log header where needed, idempotency, source hash, status |
 | `feed_direction_count_input_rows` | yes | Immutable projection snapshot consumed by the run |
 | `feed_direction_generation_rows` | yes | Canonical shed/session/feed/cohort instruction rows |
+| `feed_direction_import_batches` | maybe | Typed import/review batches for workbook or solver-output migration if protocol source metadata alone is not enough for repair/audit |
 | `feed_direction_bridge_events` | yes | Manual post-cutoff high-priority addition bridge log; not a generated bridge Diff |
 | `feed_direction_projection_rows` | maybe | Materialized cursor read model if generic joins are too expensive |
 | `feed_direction_stage_records` | yes/equivalent | Required typed `stage_kind` and detail projection unless an indexed obligation-context or completion-stage record supplies the same discriminator |

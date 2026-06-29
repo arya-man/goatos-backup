@@ -38,6 +38,9 @@ Feed Direction Counting DB reconstruction
 Feed Transfer KT findings
   context/source-findings/feed-transfer-kt-2026-06-24.md
 
+Feed Direction workbook and legacy automation findings
+  context/source-findings/feed-direction-workbook-automation-findings.md
+
 Customer promise safety source findings
   context/source-findings/customer-promise-safety-findings.md
 
