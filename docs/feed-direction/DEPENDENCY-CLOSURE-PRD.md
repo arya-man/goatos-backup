@@ -76,14 +76,14 @@ questions must reference these IDs rather than maintaining independent lists.
 | --- | --- | --- | --- |
 | G1 | Scope launch gate | Reopened as of 2026-06-30 because local PHC/Vaccination UI/foundation closure is accepted for Feed Direction sequencing. Google dev vaccination rollout remains separate Goal 2 and is not required before Feed starts. Active Feed UI/Config/SOP exposure still requires Feed-owned backend contracts, mock fidelity, rendered proof, and `G2`-`G17` closure. | Owner |
 | G2 | Counts/Shifting long pole | Counts/Shifting closure PRD/TRD is accepted and implemented enough to expose aggregate Base Count anchors, realized ShiftingEvent ledger, one-day projection at shed + breed grain, reviewed shed-tag/ration context, idempotency, fail-closed exceptions, and `CSG1`-`CSG10` readiness breakdown under `G2`. RFID-to-shed per-goat derivation is out of initial Feed scope. | Backend/source |
-| G3 | Clock and legacy trigger inventory | Feed Director signs off park-level publish, cutoff, staging, serving, retry, archive, and parity/cutover treatment for canonical `09:00`/`13:30`/`15:00` clocks plus legacy `07:30`, `14:45`, `06:30`, `07:15`, `14:15`, `00:15`, `23:45`, and `07:00` trigger windows | Owner |
+| G3 | Clock and legacy trigger inventory | Feed Director signs off park-level publish, cutoff, staging, serving, retry, archive, proof/stock verification, and parity/cutover treatment for canonical `09:00`/`13:30`/`15:00` clocks plus legacy source windows and installed trigger evidence. Legacy-code trigger inventory is a subgate across `unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and `video_verification_system.js`: feed packing `06:00`/`15:00` and older `07:30`/`14:45`/`06:30`, feed consumption/list work `07:15`, feed update/archive work `14:15`/`00:15`/`09:00`, transport `15:45`, Counts DB jobs around `23:30`/`00:30`/`01:00`/`14:00`, proof/quantity/stock verification around `23:00`/`23:30`/`23:45`/`07:00`, watchdog recovery around `04:30`, and older source windows such as `00:15`, `23:45`, and `07:00` must each be marked retain, retire, or replace. | Owner |
 | G4 | Ration source/provenance | Solver/import path, ration values, aliases, feed vectors, constraints, approval metadata, and publish authority checks are defined | Source/owner |
 | G5 | Eligibility and stage-tag policy | Warmup 14-day transition tags, ICU, Quarantine, Flushing, Breeding, K0/K1, Experiment sheds, F2/Fattening, SIROHI->Beetal or other breed aliases, and per-farm session/feed-set retention are explicitly approved or excluded | Source/owner |
 | G6 | Quantity and precision boundary | Feed units are whole grams/ml into the current inventory app port, or inventory app ports are widened before decimal/sub-gram feed use; baking-soda precision is resolved before build | Architecture |
 | G7 | Stage model | Packing, transport, consumption/wastage, bridge proof/rework model chosen with a durable queryable `stage_kind` discriminator | Architecture |
 | G8 | Transport map and checklist entity | Direction-shed to transport-shed consolidation owner/storage is confirmed, and any transport list/checklist entity from legacy overlap has a GoatOS equivalent | Source/owner |
 | G9 | Exception thresholds and rework policy | Packing discrepancy and wastage variance thresholds are confirmed; legacy alert plus reset/re-send evidence is inventoried, and GoatOS typed rework/re-issue is explicitly formalized | Owner |
-| G10 | Slack security | Affected legacy scripts inventoried, credentials revoked/rotated, any bridge credential moved to secret storage, and GoatOS API-only ingress proven before overlap | Security |
+| G10 | Slack security | Affected legacy scripts inventoried, credentials revoked/rotated, any bridge credential moved to secret storage, and GoatOS API-only ingress proven before overlap. If `G10` is deferred, Slack bridge/overlap stays disabled and cannot count as done. | Security |
 | G11 | Reminder/escalation SLA | Per-stage deadlines, reminder cadence, escalation owner, retry policy, and admin-alert fallback are defined | Kernel |
 | G12 | NotificationGateway routing | Feed alert events and channel mappings are defined behind replaceable notification ports; Slack is only one adapter/cutover channel | Kernel/security |
 | G13 | Missed/recovery events | Feed explicitly closes or acknowledges the kernel missed/overdue gap: deadline crossing creates durable missed/recovery events and visible process exceptions | Kernel |
@@ -135,7 +135,48 @@ module inside Feed implementation.
 each Counts/Shifting subgate with status, owner, evidence pointer, and blocker
 reason so a green `G2` is traceable instead of a single opaque checkbox.
 
-### 5.2 Ration Source And Provenance
+### 5.2 Clock And Legacy Trigger Inventory
+
+`G3` must inventory both source-document windows and legacy-code trigger
+installers before any GoatOS schedule is treated as retained. The legacy
+installed-trigger evidence includes:
+
+- feed packing trigger installers for `UE_sendFeedPackingDirections` at `06:00`
+  IST and `UE_sendFeedPackingDirectionsAfternoon` at `15:00` IST in
+  `slack-automation-scripts/unified_automation.js`;
+- feed transport trigger installer for `UE_sendFeedTransportMessages` near
+  `15:45` IST in `slack-automation-scripts/unified_automation.js`;
+- Counts DB trigger installers for `updateDBWithTodayCounts` near `23:30`,
+  `updateFutureDBAtNightCheck` near `00:30`, `generateNextDayCounts` near
+  `01:00`, and `updateFutureDBWithChanges` near `14:00` in
+  `slack-automation-scripts/counting_db_automation.js`;
+- watchdog/recovery trigger installer for `watchdogOvernightFunctions` near
+  `04:30` IST in `slack-automation-scripts/counting_db_automation.js`;
+- older feed automation trigger installers in
+  `slack-automation-scripts/feed_automation.js`: `sendPackingFeedDirections`
+  near `07:30`, `sendPackingFeedDirectionsAfternoon` near `14:45`,
+  `sendPackingFeedDirectionsChanges` near `06:30`,
+  `createConsumptionListItemsFromDirections` near `07:15`, `twoPMUpdate` near
+  `14:15`, `threeAMUpdate` near `00:15`,
+  `sendPackingFeedDirectionsChanges_3PM` near `14:45`, and
+  `archiveFeedSupplyData` at `09:00`;
+- older feed retry behavior in `slack-automation-scripts/feed_automation.js`
+  `wrapWithRetry_`, which schedules failed triggered functions again after ten
+  minutes and alerts after max retries;
+- proof/stock verification trigger installers in
+  `slack-automation-scripts/video_verification_system.js`:
+  `checkFeedPackingQuantities` near `23:45`, `writeFeedDirectionToPacked` at
+  `07:00`, `updateAutomatedStock` near `23:30`, `generateWastageSummary` at
+  `23:00`, and `checkStockAndAlert` near `23:45`, plus ten-minute retry
+  triggers for failed feed-direction and stock-update writes.
+
+These are evidence rows, not GoatOS schedule requirements. Each row must receive
+an explicit retain, retire, or replace decision with owner, reason, and the
+GoatOS target mechanism if retained or replaced. Trigger comments and logger text
+in the legacy scripts are inconsistent in places, so implementation must trust the
+actual `ScriptApp.newTrigger(...).timeBased()` installer shape over prose labels.
+
+### 5.3 Ration Source And Provenance
 
 Feed Direction must not publish quantities from hand-entered guesses or UI-only
 values.
@@ -184,7 +225,7 @@ K0/K1 and Experiment exclusions are not settled by the feed docx alone. Treat
 legacy zero rows/automation filters as candidate policy evidence and require
 Feed Director approval before suppressing normal packed-feed obligations.
 
-### 5.3 Default Engineering Decisions To Unblock Build
+### 5.4 Default Engineering Decisions To Unblock Build
 
 These are the recommended defaults unless the owner explicitly reverses them:
 
@@ -215,7 +256,7 @@ Quantity boundary for the first build is explicit:
   baking-soda quantities need sub-gram precision, integer gram base units are not
   sufficient for that item.
 
-### 5.4 Stage And Proof Requirements
+### 5.5 Stage And Proof Requirements
 
 The first operational Feed Direction slice must preserve the useful legacy stage
 signals:
@@ -225,9 +266,9 @@ signals:
 - Consumption recorded, wastage recorded, variance exception, and proof state.
 - Manual bridge exception for high-priority post-cutoff additions: log the
   video-confirmed 2x destination-shed top-up with `shed_id`, `animal_id` or
-  approved aggregate reference, `timestamp`, `quantity`, proof, and
-  reconciliation state. Do not build the superseded `07:30` next-morning Diff or
-  source-shed claw-back.
+  approved aggregate reference, `timestamp`, `quantity`, proof reference,
+  source event/logical shifting reference where known, and reconciliation state.
+  Do not build the superseded `07:30` next-morning Diff or source-shed claw-back.
 
 Legacy processed flags become idempotent GoatOS obligations, SOP submissions,
 proof, verification, and read-model state. They must not be copied as Boolean
@@ -247,7 +288,7 @@ quantity check that reset packing state for re-send. GoatOS must not copy that
 Sheet/runtime mechanism; it formalizes the useful parity as typed rework,
 re-issue, audit, and idempotent obligation state.
 
-### 5.5 Inventory Binding
+### 5.6 Inventory Binding
 
 Stock must be bound through the inventory kernel:
 
@@ -260,7 +301,7 @@ Stock must be bound through the inventory kernel:
   persist inventory movements with the matching `quantity_unit`. Decimal feed
   quantities require an explicit inventory app-port widening before build.
 
-### 5.6 Command And UI Readiness
+### 5.7 Command And UI Readiness
 
 Before UI implementation starts, backend contracts must expose operational
 buckets with cursor pagination and bounded filters:
@@ -294,7 +335,7 @@ pagination, filters, drawers, tables, hover/active/focus/disabled states, empty
 states, and proof/status surfaces, and run `npm --prefix apps/admin-web run
 check:mock-fidelity` with rendered visual proof before handoff or push.
 
-### 5.7 Kernel Closure
+### 5.8 Kernel Closure
 
 Feed Direction is not ready for backend build until it answers the operational
 kernel questions:
@@ -354,7 +395,8 @@ This phase is complete when:
 7. Slack security closeout inventories affected legacy scripts, revokes or
    rotates tokens/shared secrets, stores any bridge credential in a secret
    manager, and proves API-only ingress with auth/RBAC/idempotency before any
-   bridge reuse.
+   bridge reuse. If `G10` is owner-deferred, Slack bridge/overlap is explicitly
+   disabled and cannot be used as Feed Direction completion evidence.
 8. Feed-specific generation/read queries have plan-test coverage requirements.
 9. Feed Direction PRD/TRD and this dependency PRD/TRD agree on what is blocked,
    what is buildable under the scope gate, and what must remain hidden.
@@ -364,19 +406,27 @@ This phase is complete when:
 
 ## 8. Readiness Output
 
-After this phase, the next build may start Feed Direction implementation under
-reopened `G1` in this order:
+After this phase, the next build starts under reopened `G1` by closing `G2`-`G17`
+in order:
 
-1. Counts/Shifting projection closure.
-2. Ration provenance and eligibility policy.
-3. Generation and Diff.
-4. Stage obligations, durable stage discriminator, and inventory unit-boundary
-   wiring.
-5. Kernel reminders, notifications, missed/recovery events, audit, observability,
-   and command-lens field mapping.
-6. Read models/API/OpenAPI.
-7. UI mock update, frontend implementation, visual proof, and mock-fidelity
+1. `G2` Counts/Shifting projection closure.
+2. `G3` clock and legacy trigger inventory sign-off.
+3. `G4` Ration provenance.
+4. `G5` Eligibility and stage-tag policy.
+5. `G6` Quantity and precision boundary.
+6. `G7` Generation, Diff, stage obligations, and durable stage discriminator.
+7. `G8` Transport map and checklist/list equivalent.
+8. `G9` Exception thresholds and rework policy.
+9. `G10` Slack security closeout or Slack bridge disabled.
+10. `G11` Reminder/escalation SLA.
+11. `G12` NotificationGateway routing.
+12. `G13` Missed/recovery events.
+13. `G14` Audit and observability.
+14. `G15` Command-lens field mapping.
+15. `G16` Query-plan coverage.
+16. `G17` Read models/API/OpenAPI with cursor semantics.
+17. UI mock update, frontend implementation, visual proof, and mock-fidelity
    checks under reopened `G1`, after Feed-owned backend contracts and source data
    gates make the surface truthful.
-8. High-effort cross-source/code/UI/security/E2E review, fix confirmed findings,
+18. High-effort cross-source/code/UI/security/E2E review, fix confirmed findings,
    and push through the Mesha/VGoats PAT path only after final verification.

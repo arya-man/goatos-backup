@@ -383,7 +383,7 @@ Stage detail requirements:
 | Packing | `stage_kind='packing'`, planned quantity, actual packed, proof, verifier, discrepancy, shortfall, rejection, rework |
 | Transport | `stage_kind='transport'`, transport shed, mapped direction sheds, checklist/list entity where needed, proof media, verifier, rejection reason, rework |
 | Consumption/wastage | `stage_kind='consumption_wastage'`, planned packed, consumed, wasted, difference, wastage percent, proof, verifier |
-| Bridge | `stage_kind='bridge_exception'`, destination shed, source event, animal id or approved aggregate reference, timestamp, 2x ration quantity, proof, reconciliation link |
+| Bridge | `stage_kind='bridge_exception'`, destination shed, source event/logical shifting reference where known, animal id or approved aggregate reference, timestamp, 2x ration quantity, proof reference, reconciliation state |
 
 If these details do not fit cleanly in SOP submission items and completion
 metadata, add `feed_direction_stage_records` as typed detail rows linked to the
@@ -559,7 +559,7 @@ Add backend-owned contracts before UI work:
 | `POST /feed-direction/stages/{obligation_id}/proof` | Stage proof submission through SOP/proof path |
 | `POST /feed-direction/stages/{obligation_id}/verify` | Accept/reject/rework stage proof |
 | `POST /feed-direction/stages/{obligation_id}/recover` | Create or resolve recovery/rework after missed/rejected state |
-| `GET /feed-direction/bridge-events` | Manual bridge exception list with destination shed, animal id or approved aggregate reference, timestamp, quantity, proof, and reconciliation state |
+| `GET /feed-direction/bridge-events` | Manual bridge exception list with destination shed, animal id or approved aggregate reference, timestamp, quantity, proof reference, source event/logical shifting reference where known, and reconciliation state |
 
 OpenAPI and generated clients must be updated in the same build slice. Labels,
 filters, status copy, disabled reasons, and pagination semantics are backend
@@ -633,11 +633,44 @@ Pub/Sub/Scheduler/Cloud Tasks deployment.
 
 Clock inventory for `G3` is explicit evidence, not schedule law. The canonical
 source clocks are Day N `09:00` full direction, Day N `13:30` cutoff/Diff window,
-Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving. Legacy automation
+Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving. Legacy source review
 also contains windows at `07:30`, `14:45`, `06:30`, `07:15`, `14:15`, `00:15`,
 `23:45`, and `07:00`; the `23:45` path is the packing quantity check/reset
 loop, and the midnight archive/retry family is `00:15`, not an assumed 03:00
-clock. Feed Director sign-off must mark each retained, retired, or replaced.
+clock.
+
+`G3` also has a legacy-code trigger inventory subgate. The retained evidence
+must include the installed trigger functions, not just source-doc timing prose:
+
+| Legacy area | Evidence path | Installed trigger evidence | Required `G3` decision |
+| --- | --- | --- | --- |
+| Feed packing morning | `slack-automation-scripts/unified_automation.js` `UE_installFeedPackingTrigger` | `UE_sendFeedPackingDirections` daily at `06:00` IST | retain, retire, or replace |
+| Feed packing afternoon | `slack-automation-scripts/unified_automation.js` `UE_installFeedPackingAfternoonTrigger` | `UE_sendFeedPackingDirectionsAfternoon` daily at `15:00` IST | retain, retire, or replace |
+| Feed transport | `slack-automation-scripts/unified_automation.js` `UE_installFeedTransportTrigger` | `UE_sendFeedTransportMessages` daily near `15:45` IST | retain, retire, or replace |
+| Count DB daily update | `slack-automation-scripts/counting_db_automation.js` `setupTwelveAMTrigger` | `updateDBWithTodayCounts` daily near `23:30` IST | retain, retire, or replace under Counts/Shifting |
+| Count DB night check | `slack-automation-scripts/counting_db_automation.js` `setupThreeAMTrigger` | `updateFutureDBAtNightCheck` daily near `00:30` IST | retain, retire, or replace under Counts/Shifting |
+| Count DB next-day projection | `slack-automation-scripts/counting_db_automation.js` `setupFourAMTrigger` | `generateNextDayCounts` daily near `01:00` IST | retain, retire, or replace under Counts/Shifting |
+| Count DB afternoon changes | `slack-automation-scripts/counting_db_automation.js` `setupTwoPMTrigger` | `updateFutureDBWithChanges` daily near `14:00` IST | retain, retire, or replace under Counts/Shifting |
+| Count DB watchdog/recovery | `slack-automation-scripts/counting_db_automation.js` `setupWatchdogTrigger` | `watchdogOvernightFunctions` daily near `04:30` IST | retain, retire, or replace as recovery policy |
+| Older feed packing morning | `slack-automation-scripts/feed_automation.js` `createFeedDirectionTrigger` | `sendPackingFeedDirections` daily near `07:30` | retain, retire, or replace |
+| Older feed packing afternoon/diff | `slack-automation-scripts/feed_automation.js` `createFeedDirectionDifferenceTrigger` | `sendPackingFeedDirectionsAfternoon` daily near `14:45` | retain, retire, or replace |
+| Older feed changes morning | `slack-automation-scripts/feed_automation.js` `createFeedDirectionChangesTrigger` | `sendPackingFeedDirectionsChanges` daily near `06:30` | retain, retire, or replace |
+| Older feed consumption list | `slack-automation-scripts/feed_automation.js` `createFeedConsumptionTrigger` | `createConsumptionListItemsFromDirections` daily near `07:15` | retain, retire, or replace |
+| Older feed two-PM update | `slack-automation-scripts/feed_automation.js` `creat2PMTrigger` | `twoPMUpdate` daily near `14:15` | retain, retire, or replace |
+| Older feed midnight/archive family | `slack-automation-scripts/feed_automation.js` `create3AMTrigger` and `createDailyArchiveTrigger` | `threeAMUpdate` daily near `00:15`; `archiveFeedSupplyData` daily at `09:00` | retain, retire, or replace |
+| Older feed 3 PM change path | `slack-automation-scripts/feed_automation.js` `createChangeFDTrigger` | `sendPackingFeedDirectionsChanges_3PM` daily near `14:45` despite 3 PM log/comment wording | retain, retire, or replace |
+| Older feed retry behavior | `slack-automation-scripts/feed_automation.js` `wrapWithRetry_` | failed triggered functions schedule a ten-minute retry and alert after max retries | retain, retire, or replace as kernel retry policy |
+| Older feed transport path | `slack-automation-scripts/feed_automation.js` `sendTransportMessages` | function comment says triggered at `15:45`; installer found in `unified_automation.js`, so inventory both path and installer | retain, retire, or replace |
+| Video/proof packing quantity check | `slack-automation-scripts/video_verification_system.js` `createFeedPackingCheckTrigger` | `checkFeedPackingQuantities` daily near `23:45` | retain, retire, or replace as proof/quantity verification |
+| Video/proof direction write | `slack-automation-scripts/video_verification_system.js` `setupDailyTrigger` | `writeFeedDirectionToPacked` daily at `07:00`, with ten-minute retry on failure | retain, retire, or replace |
+| Video/proof stock update | `slack-automation-scripts/video_verification_system.js` `setupStockTrigger` | `updateAutomatedStock` daily near `23:30`, with ten-minute retry on failure | retain, retire, or replace under Feed Stock/Inventory |
+| Video/proof wastage summary | `slack-automation-scripts/video_verification_system.js` `setupWastageSummaryTrigger` | `generateWastageSummary` daily at `23:00` | retain, retire, or replace under consumption/wastage proof |
+| Video/proof stock alert | `slack-automation-scripts/video_verification_system.js` `setupStockAlertTrigger` | `checkStockAndAlert` daily near `23:45` | retain, retire, or replace under stock alerting |
+
+Some legacy comments/logger text disagree with the `ScriptApp.newTrigger` hour
+and minute values. The `G3` inventory must record the actual installer shape,
+then separately decide whether GoatOS keeps the same clock, replaces it with a
+kernel scheduler/sweeper, or retires it.
 
 ## 15. Legacy Cutover Rules
 
@@ -656,9 +689,13 @@ Mappings:
 - Applied shifting rows -> Counts/Shifting event ledger or source archive.
 - Retry scheduler behavior -> durable retry/reminder policy, not Apps Script
   timers.
-- Legacy trigger windows -> clock-signoff evidence for `G3`, including
-  `07:30`, `14:45`, `06:30`, `07:15`, `14:15`, `00:15`, `23:45`, and `07:00`,
-  not automatic GoatOS schedules.
+- Legacy trigger windows and installed trigger code -> clock-signoff evidence
+  for `G3`, including source windows such as `07:30`, `14:45`, `06:30`, `07:15`,
+  `14:15`, `00:15`, `23:45`, and `07:00`, installed feed/count/watchdog trigger
+  evidence at `06:00`, `15:00`, `15:45`, `23:30`, `00:30`, `01:00`, `14:00`,
+  and `04:30`, older feed archive/retry behavior, and video/proof stock,
+  wastage, quantity-check, and alert side effects. None become automatic GoatOS
+  schedules.
 - Packing quantity check/reset loop -> typed packing discrepancy/rework policy;
   legacy reset/re-send behavior is inventoried, but Sheet flag clearing and
   thread deletion are not copied as runtime authority.
@@ -684,6 +721,11 @@ reproducing secret values:
 - explicit overlap window, owner, rollback/disable switch, and post-overlap
   decommission check.
 
+If `G10` is owner-deferred, the consequence is not "security later." It means
+Slack/App Script bridge execution remains disabled: no Slack overlap, no
+Slack-delivered proof/transport/packing bridge, and no Slack bridge reuse can
+count as Feed Direction done until the closeout above is complete.
+
 ## 16. Scale And Query Gates
 
 Every hot query must be bounded by tenant and at least one operational scope:
@@ -701,28 +743,32 @@ Required tests/checks:
 
 ## 17. Implementation Sequence
 
-1. Close Counts/Shifting projection in its sibling PRD/TRD, or add an adapter
+1. Close `G2` Counts/Shifting projection in its sibling PRD/TRD, or add an adapter
    stub that fails closed with explicit `G2` readiness state.
-2. Add ration DSL validators, provenance requirements, Warmup/K0/K1/Experiment
-   sign-off, and quantity/precision decisions.
-3. Add generation run/count snapshot/generation row/manual bridge-log
+2. Close `G3` clock and legacy trigger inventory: source clocks, installed
+   trigger functions, archive/retry/watchdog behavior, proof/stock verification
+   side effects, and retain/retire/replace decisions.
+3. Close `G4`-`G6`: add ration DSL validators, provenance requirements,
+   Warmup/K0/K1/Experiment sign-off, and quantity/precision decisions.
+4. Add generation run/count snapshot/generation row/manual bridge-log
    migrations.
-4. Build full generation service and idempotency tests.
-5. Build Diff service and stale-obligation cancel/supersede helper.
-6. Build stage obligations, durable `stage_kind`, and proof/rework wiring.
-7. Wire inventory reserve/consume/release with exact base-unit to
+5. Build full generation service and idempotency tests.
+6. Build Diff service and stale-obligation cancel/supersede helper.
+7. Build `G7` stage obligations, durable `stage_kind`, and proof/rework wiring.
+8. Wire inventory reserve/consume/release with exact base-unit to
    `numeric + quantity_unit` persistence.
-8. Add reminder/escalation, notification, missed/recovery, audit, and
-   observability paths.
-9. Add transport map provider and tests.
-10. Add exception threshold policy and variance tests.
-11. Add APIs, OpenAPI, generated clients, read models, command-lens field map,
-   and plan checks.
-12. Under reopened `G1`, update mock anatomy, build frontend, run
+9. Close `G8` transport map provider and tests.
+10. Close `G9` exception threshold policy and variance tests.
+11. Close `G10`; if bounded instead of closed, prove Slack bridge disabled.
+12. Close `G11`-`G15`: reminder/escalation, notification, missed/recovery,
+    audit, observability, and command-lens field mapping paths.
+13. Close `G16`-`G17`: APIs, OpenAPI, generated clients, read models, cursor
+    semantics, and plan checks.
+14. Under reopened `G1`, update mock anatomy, build frontend, run
     `npm --prefix apps/admin-web run check:mock-fidelity`, and capture rendered
     desktop/mobile visual proof after Feed-owned backend contracts and source
     data gates make the surface truthful.
-13. Run the build-to-done review gate from
+15. Run the build-to-done review gate from
     [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md): source/wiki parity,
     legacy/cutover/security, backend architecture, frontend fidelity, seeded E2E,
     and docs sync. Fix confirmed findings before push.
@@ -766,7 +812,9 @@ Required tests/checks:
   responsive layout.
 - Legacy replay dedupe.
 - Slack bridge closeout proves credential rotation, secret storage, API-only
-  ingress, auth/RBAC, idempotency, and audit before overlap.
+  ingress, auth/RBAC, idempotency, and audit before overlap; if `G10` is
+  deferred, tests/proof must show the Slack bridge is disabled rather than
+  partially accepted.
 - Cursor lists and SQL plan gates.
 - High-effort review-agent findings are resolved or explicitly owner-deferred
   before GitHub push.

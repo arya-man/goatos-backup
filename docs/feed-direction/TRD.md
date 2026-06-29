@@ -250,7 +250,7 @@ Candidate tables, to finalize during implementation:
 | `feed_direction_count_input_rows` | Snapshot of the Counts/Shifting projection consumed by a run | Grain: tenant, run, park, shed, target date, breed, headcount, reviewed shed-tag/ration context, source contract/version/hash, realized vs projection horizon |
 | `feed_direction_generation_rows` | Source/planning snapshot used to create obligations | Grain: tenant, run, park, shed, target date, session, breed, stage/shed tag, feed item, as-fed quantity, row kind full/diff/restatement, optional source-facing net correction quantity |
 | `feed_direction_stage_records` | Typed stage outcome rows, or replaced only by an indexed obligation-context/completion-stage projection with the same durable discriminator | Stage kind packing/transport/consumption/wastage/bridge, planned vs actual quantities, consumed/wasted/variance, proof refs, verifier status, rejection reason, rework link |
-| `feed_direction_bridge_events` | Manual high-priority post-cutoff 2x-ration bridge log | Destination shed, animal id or approved aggregate reference, timestamp, quantity, source shed tag where known, proof/submission links, reconciliation state |
+| `feed_direction_bridge_events` | Manual high-priority post-cutoff 2x-ration bridge log | Destination shed, animal id or approved aggregate reference, timestamp, quantity, source event/logical shifting reference where known, source shed tag where known, proof/submission links, reconciliation state |
 | `feed_direction_projection_rows` | Read model for admin/mobile lists and command buckets | Bounded by tenant, park, date, shed, session, status, bucket, owner, cursor key |
 
 If the implementation can derive a read model directly from generic obligations,
@@ -520,7 +520,7 @@ references must be re-verified before import/cutover work.
 | K0/K1 feed exclusions | Milk-fed cohorts filtered out of legacy supply/diff paths | Candidate eligibility rule from legacy evidence; requires Feed Director approval before publish, not an incidental transform. |
 | Per-farm Template sheet | Session labels and feed items per farm; quantities split by session count | Open parity decision: retain as source-backed session/feed-set config or supersede with Feed Director sign-off for the June 2026 two-session 50/50 default. |
 | Diff regeneration | Legacy automation had additional cycles/intermediate storage, while the June source model defines the 09:00 full direction, 13:30 cutoff, 13:30-13:45 Diff, and post-cutoff bridge | Canonical GoatOS Diff run stores affected-shed restatement rows and cancels/supersedes stale work; source-facing output may present net correction. Old two-cycle behavior is cutover evidence unless explicitly reinstated. |
-| Clock/trigger inventory | Legacy windows at 07:30, 14:45, 06:30, 07:15, 14:15, 00:15, 23:45, and 07:00, plus canonical source clocks at 09:00, 13:30, and 15:00 | Gate `G3` owner sign-off marks each window retained, retired, or replaced. The 23:45 packing quantity check is parity evidence for reissue; 00:15 is the midnight archive/retry family, not an assumed 03:00 clock. |
+| Clock/trigger inventory | Legacy source windows at 07:30, 14:45, 06:30, 07:15, 14:15, 00:15, 23:45, and 07:00; installed App Script trigger evidence at 06:00, 15:00, 15:45, 23:30, 00:30, 01:00, 14:00, and 04:30; older `feed_automation.js` packing/change/consumption/archive/retry paths; `video_verification_system.js` proof, quantity, stock, wastage, and alert paths; canonical source clocks at 09:00, 13:30, and 15:00 | Gate `G3` owner sign-off marks each window, installed trigger, and side-effect path retained, retired, or replaced. The 23:45 packing quantity check is parity evidence for reissue; 00:15 is the midnight archive/retry family, not an assumed 03:00 clock. Installed trigger code is evidence, not automatic GoatOS schedule law. |
 | Retry scheduler | Reschedule/retry and admin alert behavior | Durable reminder/retry/escalation policy under gates `G11`-`G12`, not Apps Script timers. |
 | Applied-event and file dedupe | Short-window dedupe and file-id dedupe in legacy automation | Durable idempotency keys, replay tests, and source archive checksums. |
 | Count-mismatch detection | Unreported-shifting/count-reconciliation signal | Counts/Shifting exception work under gate `G2`, not silent Feed-side correction. |
@@ -550,6 +550,8 @@ Overlap is allowed only after a security closeout inventories affected scripts,
 revokes or rotates credentials, moves any retained bridge credential to the
 approved secret store, and proves GoatOS API-only ingress with auth/RBAC,
 idempotency keys, and audit/outbox evidence.
+If `G10` is owner-deferred, overlap is not partially accepted: Slack bridge
+execution remains disabled until that closeout is complete.
 
 ## 10. Admin-web and mobile constraints
 
@@ -632,11 +634,13 @@ idempotency keys, and audit/outbox evidence.
 
 Use the canonical gate table in
 [DEPENDENCY-CLOSURE-PRD.md](./DEPENDENCY-CLOSURE-PRD.md) rather than maintaining
-a separate blocker list. Technical implementation may start under reopened
-`G1`; full Feed Direction backend readiness requires `G2`-`G17` to be closed or
-explicitly marked deferred with owner approval. `G15`
-closure specifically includes resolving or explicitly deferring the
-vaccination-locked Calendar projection blocker. The next migration number is a
+a separate blocker list. Technical implementation may start under reopened `G1`
+by closing `G2`-`G17` in order. A gate may only unblock later work through a
+narrow owner decision that defines a fail-closed adapter or disabled capability;
+broad owner-deferral language does not make hidden runtime scope ready. `G15`
+closure specifically includes resolving or explicitly bounding the
+vaccination-locked Calendar projection blocker. If `G10` is bounded instead of
+closed, the bound is Slack bridge disabled. The next migration number is a
 build-time check after the live repo tail, currently `000117`, is reverified.
 The full build stop rule lives in [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md)
 and includes source cross-check, E2E seed proof, high-effort review-agent pass,

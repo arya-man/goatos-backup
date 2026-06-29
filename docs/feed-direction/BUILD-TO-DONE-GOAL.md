@@ -19,9 +19,10 @@ must not be claimed as done, but they do not block starting Feed Direction.
 ## 1. Goal
 
 Build Feed Direction to real GoatOS closure, not a planning-only or mock-only
-finish. The goal ends only when the blocking backend, frontend, integration,
-seed, E2E, review, documentation, and GitHub push gates below are closed or
-explicitly deferred by the owner with evidence.
+finish. The next implementation session must start by closing `G2`-`G17` in
+order from the dependency PRD/TRD, recording status, owner, evidence, blocker
+reason, and any explicit owner decision at each gate before using that gate as
+implementation truth.
 
 Do not mark the goal complete because the docs are cleaner, the UI renders with
 mock data, or a partial backend path exists. Closure means the process-integrity
@@ -59,13 +60,21 @@ The build goal remains open until all of these are true:
 - Counts/Shifting exposes the accepted projection contract or a fail-closed
   adapter that truthfully blocks Feed generation.
 - Ration provenance enforces approved source metadata and publish capability.
-- Generation, Diff, bridge, stage obligations, durable `stage_kind`, inventory
-  unit binding, transport map, thresholds, reminders, notifications,
-  missed/recovery, audit, observability, and cursor read models are implemented
-  or explicitly owner-deferred.
+- `G2`-`G17` are closed in order, or a gate has a narrow owner decision that
+  defines a fail-closed adapter/disabled capability and the exact work that may
+  continue. A broad "owner-deferred" note must not green-light hidden runtime
+  scope.
+- Generation, Diff, manual bridge logging, stage obligations, durable
+  `stage_kind`, inventory unit binding, transport map, thresholds, reminders,
+  notifications, missed/recovery, audit, observability, and cursor read models
+  are implemented only after their gates are closed or bounded by that narrow
+  fail-closed decision.
 - Bridge implementation is limited to manual SOP proof/logging unless the owner
   reopens the superseded design. Do not build the rejected `07:30` next-morning
   system Diff for high-priority post-cutoff additions.
+- If `G10` security closeout is deferred, the Slack/App Script bridge remains
+  disabled. No Slack overlap, Slack-delivered execution, or Slack bridge reuse
+  counts as done until security closeout proves API-only ingress.
 - Backend APIs, OpenAPI/generated clients, admin-web/operator client contracts,
   seeds, local E2E, and frontend visual proof all agree.
 - Feed Direction UI may be built under the reopened `G1`, but active exposure
@@ -82,14 +91,21 @@ The build goal remains open until all of these are true:
 
 ## 4. Backend Build Gates
 
-Implement in this order unless a new source review proves a safer order:
+Start by closing `G2`-`G17` in the dependency order below unless a new source
+review proves a safer order. Do not wait for every later gate to be green before
+starting the first gate, and do not skip ahead using broad owner-deferral
+language.
 
-1. Counts/Shifting projection closure, including Base Count anchor,
+1. `G2` Counts/Shifting projection closure, including Base Count anchor,
    ShiftingEvent ledger, horizon split, fail-closed exceptions, idempotency,
    observability, aggregate breed-level count output, and
    `GET /feed-direction/readiness` subgate roll-up. RFID-to-shed per-animal
    association is out of scope for the initial Feed Direction build.
-2. Ration approval/provenance: solver/import output, source hashes,
+2. `G3` clock and legacy trigger inventory sign-off, including source clocks,
+   installed trigger functions, retry/archive/watchdog behavior, and explicit
+   retain/retire/replace decisions before any GoatOS schedule is treated as
+   retained.
+3. `G4` Ration approval/provenance: solver/import output, source hashes,
    `review_status='approved'`, `approved_by`, `approved_at`, effective date, and
    `protocol.publish.feed_direction` capability checks. Initial solver scope is
    feed-type-level constraints only: hard floor/ceiling, structural ratio,
@@ -98,24 +114,40 @@ Implement in this order unless a new source review proves a safer order:
    and Fattening tags, roughage floor numeric values are examples until confirmed
    per tag, cost minimization means no paired overshoot ceiling is needed, and a
    refreshed solve replaces the lookup table wholesale with no versioned blend.
-3. Generation and Diff: immutable count snapshots, full run, affected-shed
-   restatement, stale-obligation cancel/supersede, and source-facing net
-   correction. Bridge work is manual 2x-ration SOP proof plus logging
-   `{shed_id, animal_id, timestamp, quantity}` only; no system-generated bridge
-   Diff.
-4. Stage execution: separate stage obligations or equivalent typed stage records
-   with durable indexed `stage_kind` before bucket APIs.
-5. Inventory unit boundary: deterministic whole base units into the current app
-   port, exact persistence to SQL `numeric + quantity_unit`, or app-port decimal
-   widening before fractional feed use.
+4. `G5` Eligibility and stage-tag policy: Warmup, K0/K1, Experiment, ICU,
+   Quarantine, Flushing, Breeding, F2/Fattening, breed aliases, and per-farm
+   session/feed-set decisions are approved or explicitly excluded.
+5. `G6` Quantity and precision boundary: deterministic whole base units into the
+   current inventory app port, exact persistence to SQL `numeric + quantity_unit`,
+   or app-port decimal widening before fractional feed use.
    FeedDirection, Diff, packing, and field instructions carry as-fed gross
    quantities only. `wastage_factor` and `DM_factor` are internal
    nutrient-accounting inputs and must never surface to the field/packing team.
-6. Transport map, checklist/list equivalent where needed, packing/wastage
-   thresholds, reminder/escalation SLA, NotificationGateway routing,
-   missed/recovery, audit, and observability.
-7. Command/read models with stable cursor pagination and bounded filters for all
-   hot Feed Direction lists.
+6. `G7` Generation, Diff, and stage model: immutable count snapshots, full run,
+   affected-shed restatement, stale-obligation cancel/supersede, source-facing
+   net correction, and separate stage obligations or equivalent typed stage
+   records with durable indexed `stage_kind` before bucket APIs.
+7. `G8` Transport map and checklist/list equivalent where legacy overlap
+   preserves that work shape.
+8. `G9` Packing/wastage thresholds and typed rework/re-issue policy.
+9. `G10` Slack security closeout; if bounded instead of closed, Slack bridge is
+   disabled and cannot count as done.
+10. `G11` Reminder/escalation SLA.
+11. `G12` NotificationGateway routing.
+12. `G13` Missed/recovery events.
+13. `G14` Business audit and observability.
+14. `G15` Command-lens field mapping.
+15. `G16` Query-plan coverage.
+16. `G17` Cursor read models with stable cursor pagination and bounded filters
+    for all hot Feed Direction lists.
+
+Generation and Diff implementation must include immutable count snapshots,
+affected-shed restatement, stale-obligation cancel/supersede, and source-facing
+net correction. Bridge work is manual 2x-ration SOP proof plus logging of the
+minimum business fields (`shed_id`, `animal_id` or approved aggregate reference,
+`timestamp`, `quantity`) plus proof reference, source event/logical shifting
+reference where known, and reconciliation state; no system-generated bridge
+Diff.
 
 ## 5. Frontend And UI/UX Gates
 

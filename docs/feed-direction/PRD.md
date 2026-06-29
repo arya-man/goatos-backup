@@ -246,8 +246,9 @@ daily ration at the destination shed with video proof, no source-shed claw-back,
 and the formal Feed Direction catches up in the normal Day N+2 cycle. GoatOS
 must log that manual action as a first-class exception with at least `shed_id`,
 `animal_id` or approved aggregate reference, `timestamp`, `quantity`, and proof
-link so consumption/wastage reconciliation can see it. It must not generate a
-bridge Diff row that changes source-shed quantities.
+link, plus source event/logical shifting reference where known and
+reconciliation state so consumption/wastage reconciliation can see it. It must
+not generate a bridge Diff row that changes source-shed quantities.
 
 ## 6. Daily timeline
 
@@ -390,6 +391,7 @@ Under reopened `G1`, when building Feed Direction UI:
 11. `G10`: Assign security remediation ownership, inventory affected legacy
    scripts, rotate or revoke Slack tokens/webhook shared secrets, move any
    retained bridge credential to secret storage, and prove GoatOS API-only
-   ingress before any Slack bridge is reused.
+   ingress before any Slack bridge is reused. If `G10` is owner-deferred, the
+   Slack bridge remains disabled and no Slack overlap/reuse counts as done.
 12. `G11`-`G15`: Confirm reminder/escalation SLA, NotificationGateway routing,
    missed/recovery events, audit/observability, and command-lens field mapping.
