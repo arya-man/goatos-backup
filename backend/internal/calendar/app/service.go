@@ -235,6 +235,10 @@ func (s *Service) SweepEscalations(ctx context.Context, in ports.SweepEscalation
 	if !uuidutil.IsUUIDString(in.TenantID) {
 		return 0, BadRequest("invalid_tenant", "tenant id is required")
 	}
+	in.ObligationID = strings.TrimSpace(in.ObligationID)
+	if in.ObligationID != "" && !uuidutil.IsUUIDString(in.ObligationID) {
+		return 0, BadRequest("invalid_obligation_id", "obligation_id must be a UUID")
+	}
 	if in.Limit <= 0 {
 		in.Limit = 100
 	}

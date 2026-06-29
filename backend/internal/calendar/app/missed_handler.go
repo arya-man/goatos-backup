@@ -9,7 +9,10 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 )
 
-const EventObligationMissed = "obligation.missed"
+const (
+	EventObligationMissed           = "obligation.missed"
+	missedObligationEscalationLimit = 1
+)
 
 type obligationMissedPayload struct {
 	TenantID     string `json:"tenant_id"`
@@ -56,9 +59,10 @@ func (h *ObligationMissedHandler) HandleEvent(ctx context.Context, e eventbus.Ev
 		return nil
 	}
 	_, err := h.calendar.SweepEscalations(ctx, ports.SweepEscalations{
-		TenantID: tenantID,
-		Limit:    100,
-		Now:      h.calendar.now().UTC(),
+		TenantID:     tenantID,
+		ObligationID: obligationID,
+		Limit:        missedObligationEscalationLimit,
+		Now:          h.calendar.now().UTC(),
 	})
 	return err
 }

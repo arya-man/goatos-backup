@@ -562,6 +562,83 @@ WHERE tenant_id=$1::uuid AND event_id=$2`, testTenantID, eventID).Scan(&status, 
 	}
 }
 
+func TestCalendarEscalationSweepTargetsObligationBeforeLimit(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Now().UTC()
+	olderObligationID := "86000000-0000-4000-8000-0000000008a4"
+	targetObligationID := "86000000-0000-4000-8000-0000000008b4"
+	seedVaccinationObligation(t, ctx, pool,
+		"86000000-0000-4000-8000-0000000008a1",
+		"86000000-0000-4000-8000-0000000008a2",
+		"86000000-0000-4000-8000-0000000008a3",
+		olderObligationID,
+		now.Add(-3*time.Hour),
+	)
+	seedVaccinationObligation(t, ctx, pool,
+		"86000000-0000-4000-8000-0000000008b1",
+		"86000000-0000-4000-8000-0000000008b2",
+		"86000000-0000-4000-8000-0000000008b3",
+		targetObligationID,
+		now.Add(-2*time.Hour),
+	)
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: now.Add(-4 * time.Hour),
+		DateTo:   now.Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+	queued, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
+		TenantID:     testTenantID,
+		ObligationID: targetObligationID,
+		Limit:        1,
+		Now:          now,
+		Level1After:  0,
+		Level2After:  4 * time.Hour,
+		Level3After:  24 * time.Hour,
+		Level4After:  48 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("SweepEscalations targeted: %v", err)
+	}
+	if queued != 1 {
+		t.Fatalf("targeted queued escalations = %d, want 1", queued)
+	}
+	targetEventID := "obligation:" + targetObligationID
+	olderEventID := "obligation:" + olderObligationID
+	assertCount(t, ctx, pool, "target escalation notification", `
+SELECT count(*)
+FROM notification_requests
+WHERE tenant_id=$1::uuid
+  AND calendar_event_id=$2
+  AND target_id=$3::uuid
+  AND notification_type='escalation'
+  AND status='queued'`, 1, testTenantID, targetEventID, targetObligationID)
+	assertCount(t, ctx, pool, "older obligation skipped despite earlier due date", `
+SELECT count(*)
+FROM notification_requests
+WHERE tenant_id=$1::uuid
+  AND calendar_event_id=$2
+  AND notification_type='escalation'`, 0, testTenantID, olderEventID)
+	assertCount(t, ctx, pool, "target obligation escalation", `
+SELECT count(*)
+FROM obligation_escalations
+WHERE tenant_id=$1::uuid
+  AND obligation_id=$2::uuid
+  AND level=1
+  AND status='open'`, 1, testTenantID, targetObligationID)
+	assertCount(t, ctx, pool, "older obligation escalation skipped", `
+SELECT count(*)
+FROM obligation_escalations
+WHERE tenant_id=$1::uuid
+  AND obligation_id=$2::uuid`, 0, testTenantID, olderObligationID)
+}
+
 func TestCalendarEscalationAcknowledgeAndResolveWorkflow(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

@@ -93,11 +93,12 @@ type RefreshVaccinationProjection struct {
 }
 
 type SweepEscalations struct {
-	TenantID    string
-	Limit       int
-	Now         time.Time
-	Level1After time.Duration
-	Level2After time.Duration
-	Level3After time.Duration
-	Level4After time.Duration
+	TenantID     string
+	ObligationID string
+	Limit        int
+	Now          time.Time
+	Level1After  time.Duration
+	Level2After  time.Duration
+	Level3After  time.Duration
+	Level4After  time.Duration
 }

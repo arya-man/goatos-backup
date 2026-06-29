@@ -936,6 +936,7 @@ func (r *Repository) selectEscalationEvents(ctx context.Context, in ports.SweepE
 	level2Cutoff := in.Now.Add(-in.Level2After)
 	level3Cutoff := in.Now.Add(-in.Level3After)
 	level4Cutoff := in.Now.Add(-in.Level4After)
+	obligationID := strings.TrimSpace(in.ObligationID)
 	rows, err := r.pool.Query(ctx, `
 WITH candidates AS (
   SELECT
@@ -955,6 +956,10 @@ WITH candidates AS (
 	    AND due_at IS NOT NULL
 	    AND due_at <= $2::timestamptz
 	    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+	    AND (
+	      nullif($8::text, '') IS NULL
+	      OR (source_target_type = 'obligation' AND source_target_id = nullif($8::text, '')::uuid)
+	    )
 	)
 SELECT event_id, level
 FROM candidates c
@@ -966,7 +971,7 @@ WHERE level > 0
       AND nr.idempotency_key = $1 || ':calendar.escalation:' || c.event_id || ':level:' || c.level::text
   )
 ORDER BY due_at ASC, event_id ASC
-LIMIT $7`, in.TenantID, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff, in.Limit)
+LIMIT $7`, in.TenantID, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff, in.Limit, obligationID)
 	if err != nil {
 		return nil, fmt.Errorf("calendar: select escalation sweep: %w", err)
 	}

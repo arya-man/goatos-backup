@@ -28,7 +28,10 @@ func TestObligationMissedHandlerSweepsEscalations(t *testing.T) {
 	if repo.calls != 1 {
 		t.Fatalf("sweep calls=%d want 1", repo.calls)
 	}
-	if repo.last.TenantID != "00000000-0000-4000-8000-000000000001" || repo.last.Limit != 100 || !repo.last.Now.Equal(now) {
+	if repo.last.TenantID != "00000000-0000-4000-8000-000000000001" ||
+		repo.last.ObligationID != "86000000-0000-4000-8000-000000000001" ||
+		repo.last.Limit != missedObligationEscalationLimit ||
+		!repo.last.Now.Equal(now) {
 		t.Fatalf("sweep input=%#v", repo.last)
 	}
 }
