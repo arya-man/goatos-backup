@@ -108,6 +108,37 @@ func TestObligationInsertIsIdempotent(t *testing.T) {
 	_ = obligationID
 }
 
+func TestObligationInsertDedupesSameLogicalDoseWithDifferentKey(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	obligationID := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+
+	duplicateID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: testGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled",
+		IdempotencyKey: "obl-1-legacy-next-cycle-key", Sequence: 1,
+	})
+	if err != nil {
+		t.Fatalf("insert logical duplicate: %v", err)
+	}
+	if applied || duplicateID != "" {
+		t.Fatalf("logical duplicate applied=%v id=%q, want no-op", applied, duplicateID)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM obligation_instances
+WHERE tenant_id=$1 AND protocol_version_id=$2 AND rule_id=$3 AND target_id=$4 AND due_at=$5`,
+		tenantID, versionID, ruleID, testGoatID, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)); got != 1 {
+		t.Fatalf("logical duplicate count=%d, want 1 existing obligation %s", got, obligationID)
+	}
+}
+
 func TestBatchAttachDoesNotReuseReservedBatchAndMissedOnlyNotFinalized(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

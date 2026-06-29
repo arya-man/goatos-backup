@@ -373,8 +373,8 @@ export function sourceBadge(source: SourceMeta, options: SourceSystemContractOpt
   return { text: `${labels.pending}${source.sourceRef.trim() ? "" : ` - ${labels.sourceRefNeeded}`}`, tone: "info" };
 }
 
-// validatePublish mirrors the backend source-backed gate using backend-owned source_systems metadata.
-// The backend remains authoritative on submit; this only drives the pre-submit disabled reason.
+// validatePublish uses backend-owned source_systems metadata for the pre-submit disabled reason.
+// The backend publish endpoint remains authoritative on submit.
 export function validatePublish(source: SourceMeta, publishableSourceKeys: Set<string>, labels: PublishGateCopy): { ok: boolean; message?: string } {
   if (!publishableSourceKeys.has(source.sourceSystem.trim())) {
     return { ok: false, message: labels.sourceSystem };

@@ -46,6 +46,39 @@ func TestScheduleNextDoseUsesImmediateNextSequence(t *testing.T) {
 	}
 }
 
+func TestScheduleNextDoseUsesNextHigherNonContiguousSequence(t *testing.T) {
+	ctx := context.Background()
+	proto := &boosterRuleReaderFake{rules: []protodomain.Rule{
+		{RuleID: "rule-10", DoseCode: "dose-a", Sequence: 10, TriggerType: "birth_age"},
+		{RuleID: "rule-20", DoseCode: "dose-b", Sequence: 20, TriggerType: "after_previous_completion", OffsetDays: 14},
+		{RuleID: "rule-30", DoseCode: "dose-c", Sequence: 30, TriggerType: "after_previous_completion", OffsetDays: 21},
+	}}
+	obl := &boosterObligationWriterFake{}
+	svc := NewBoosterService(proto, obl)
+	administered := time.Date(2026, time.June, 27, 8, 0, 0, 0, time.UTC)
+
+	scheduled, err := svc.ScheduleNextDose(ctx, ScheduleNextInput{
+		TenantID:          "tenant-1",
+		ProtocolVersionID: "version-1",
+		GoatID:            "goat-1",
+		ScopeType:         "shed",
+		ScopeID:           "shed-1",
+		PrevSequence:      10,
+		AdministeredAt:    administered,
+	})
+
+	if err != nil {
+		t.Fatalf("schedule next dose: %v", err)
+	}
+	if !scheduled || len(obl.inserted) != 1 {
+		t.Fatalf("scheduled=%v inserted=%d, want one booster", scheduled, len(obl.inserted))
+	}
+	got := obl.inserted[0]
+	if got.RuleID != "rule-20" || got.Sequence != 20 {
+		t.Fatalf("inserted rule=%s sequence=%d, want rule-20 sequence 20", got.RuleID, got.Sequence)
+	}
+}
+
 func TestScheduleNextDoseDoesNotSkipCalendarRuleBeforeNextCompletionBooster(t *testing.T) {
 	ctx := context.Background()
 	proto := &boosterRuleReaderFake{rules: []protodomain.Rule{

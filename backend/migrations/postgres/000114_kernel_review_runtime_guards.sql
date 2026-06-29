@@ -20,6 +20,21 @@ WHERE expires_at IS NULL;
 ALTER TABLE idempotency_keys
   ALTER COLUMN expires_at SET DEFAULT (now() + interval '90 days');
 
+WITH ranked AS (
+  SELECT
+    ctid,
+    row_number() OVER (
+      PARTITION BY tenant_id, idempotency_key
+      ORDER BY created_at ASC, outbox_id ASC
+    ) AS rn
+  FROM outbox_messages
+  WHERE event_type = 'protocol.version.published'
+)
+DELETE FROM outbox_messages om
+USING ranked r
+WHERE om.ctid = r.ctid
+  AND r.rn > 1;
+
 CREATE UNIQUE INDEX IF NOT EXISTS outbox_messages_protocol_published_idempotency_idx
   ON outbox_messages (tenant_id, idempotency_key)
   WHERE event_type = 'protocol.version.published';

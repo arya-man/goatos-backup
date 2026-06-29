@@ -4812,15 +4812,14 @@ CREATE VIEW public.vw_procurement_vaccination_excluded_goats AS
         CASE
             WHEN (g.lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'lost'::text, 'culled'::text, 'transferred'::text, 'merged'::text, 'inactive'::text])) THEN g.lifecycle_status
             WHEN (g.identity_state = ANY (ARRAY['disputed'::text, 'merged'::text, 'inactive'::text])) THEN 'identity_conflict'::text
-            WHEN (plg.identity_review_state <> 'clean'::text) THEN ('identity_'::text || plg.identity_review_state)
-            WHEN (plg.ownership_state <> ALL (ARRAY['mesha_owned'::text, 'settled'::text])) THEN ('ownership_'::text || plg.ownership_state)
-            WHEN (plg.health_state <> 'passed'::text) THEN ('health_'::text || plg.health_state)
-            WHEN (plg.current_state <> 'accepted_herd_intake'::text) THEN plg.current_state
+            WHEN (plg.selection_state = ANY (ARRAY['rejected'::text, 'arrival_rejected'::text, 'dead'::text, 'sold'::text, 'lost'::text])) THEN plg.selection_state
+            WHEN (plg.current_state = ANY (ARRAY['source_rejected'::text, 'pre_dispatch_rejected'::text, 'arrival_rejected'::text, 'dead'::text, 'sold'::text, 'lost'::text, 'canceled'::text])) THEN plg.current_state
+            WHEN (plg.ownership_state = 'not_owned'::text) THEN 'ownership_not_owned'::text
             ELSE 'not_excluded'::text
         END AS exclusion_reason
    FROM (public.goats g
      LEFT JOIN public.procurement_load_goats plg ON (((plg.tenant_id = g.tenant_id) AND (plg.goat_id = g.goat_id))))
-  WHERE ((g.lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'lost'::text, 'culled'::text, 'transferred'::text, 'merged'::text, 'inactive'::text])) OR (g.identity_state = ANY (ARRAY['disputed'::text, 'merged'::text, 'inactive'::text])) OR ((plg.goat_id IS NOT NULL) AND ((plg.current_state <> 'accepted_herd_intake'::text) OR (plg.selection_state = ANY (ARRAY['source_only'::text, 'candidate'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text, 'arrival_rejected'::text, 'dead'::text, 'sold'::text, 'lost'::text])) OR (plg.identity_review_state <> 'clean'::text) OR (plg.ownership_state <> ALL (ARRAY['mesha_owned'::text, 'settled'::text])) OR (plg.health_state <> 'passed'::text))));
+  WHERE ((g.lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'lost'::text, 'culled'::text, 'transferred'::text, 'merged'::text, 'inactive'::text])) OR (g.identity_state = ANY (ARRAY['disputed'::text, 'merged'::text, 'inactive'::text])) OR ((plg.goat_id IS NOT NULL) AND ((plg.selection_state = ANY (ARRAY['rejected'::text, 'arrival_rejected'::text, 'dead'::text, 'sold'::text, 'lost'::text])) OR (plg.current_state = ANY (ARRAY['source_rejected'::text, 'pre_dispatch_rejected'::text, 'arrival_rejected'::text, 'dead'::text, 'sold'::text, 'lost'::text, 'canceled'::text])) OR (plg.ownership_state = 'not_owned'::text))));
 
 
 --
@@ -8728,6 +8727,13 @@ CREATE INDEX obligation_instances_due_window_idx ON public.obligation_instances 
 --
 
 CREATE INDEX obligation_instances_missed_deadline_idx ON public.obligation_instances USING btree (tenant_id, status, COALESCE(window_end, due_at), obligation_id) WHERE (status = ANY (ARRAY['scheduled'::text, 'due'::text]));
+
+
+--
+-- Name: obligation_instances_open_logical_due_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX obligation_instances_open_logical_due_idx ON public.obligation_instances USING btree (tenant_id, protocol_version_id, rule_id, target_type, target_id, sequence, due_at) WHERE (status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'deferred'::text, 'missed'::text]));
 
 
 --

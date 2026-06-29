@@ -84,17 +84,7 @@ func (g *Gateway) Send(ctx context.Context, request domain.Request) error {
 		)
 		return nil
 	case "slack":
-		if strings.TrimSpace(g.config.SlackWebhookURL) == "" {
-			return fmt.Errorf("%w: slack", ports.ErrChannelNotConfigured)
-		}
-		return g.postJSON(ctx, g.config.SlackWebhookURL, map[string]any{
-			"text": fmt.Sprintf("%s\n%s", request.Title, request.Body),
-			"metadata": map[string]any{
-				"notification_request_id": request.NotificationRequestID,
-				"calendar_event_id":       request.CalendarEventID,
-				"notification_type":       request.NotificationType,
-			},
-		})
+		return g.sendSlack(ctx, request)
 	case "webhook":
 		if strings.TrimSpace(g.config.WebhookURL) == "" {
 			return fmt.Errorf("%w: webhook", ports.ErrChannelNotConfigured)
@@ -113,6 +103,14 @@ func (g *Gateway) Send(ctx context.Context, request domain.Request) error {
 
 func (g *Gateway) sendIncident(ctx context.Context, channel string, request domain.Request) error {
 	if strings.TrimSpace(g.config.IncidentWebhookURL) == "" {
+		if strings.TrimSpace(g.config.SlackWebhookURL) != "" {
+			g.log.WarnContext(ctx, "notification_incident_fallback_slack",
+				slog.String("notification_request_id", request.NotificationRequestID),
+				slog.String("calendar_event_id", request.CalendarEventID),
+				slog.String("incident_channel", channel),
+			)
+			return g.sendSlack(ctx, request)
+		}
 		return fmt.Errorf("%w: incident", ports.ErrChannelNotConfigured)
 	}
 	headers := map[string]string{}
@@ -129,6 +127,20 @@ func (g *Gateway) sendIncident(ctx context.Context, channel string, request doma
 		"metadata":    requestPayload(request),
 	}
 	return g.postJSONWithHeaders(ctx, g.config.IncidentWebhookURL, payload, headers)
+}
+
+func (g *Gateway) sendSlack(ctx context.Context, request domain.Request) error {
+	if strings.TrimSpace(g.config.SlackWebhookURL) == "" {
+		return fmt.Errorf("%w: slack", ports.ErrChannelNotConfigured)
+	}
+	return g.postJSON(ctx, g.config.SlackWebhookURL, map[string]any{
+		"text": fmt.Sprintf("%s\n%s", request.Title, request.Body),
+		"metadata": map[string]any{
+			"notification_request_id": request.NotificationRequestID,
+			"calendar_event_id":       request.CalendarEventID,
+			"notification_type":       request.NotificationType,
+		},
+	})
 }
 
 func incidentSeverity(request domain.Request) string {

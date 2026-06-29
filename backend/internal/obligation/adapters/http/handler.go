@@ -167,7 +167,7 @@ func repoStatusForWorkState(workState string) (string, string) {
 	case "overdue":
 		return "scheduled_or_due_overdue", "overdue"
 	case "due":
-		return "scheduled_or_due", "due"
+		return "scheduled_or_due_due", "due"
 	case "proof_pending":
 		return "in_progress", "proof_pending"
 	case "deferred":

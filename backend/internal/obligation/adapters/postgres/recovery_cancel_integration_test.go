@@ -151,6 +151,42 @@ func TestReopenDeferredObligationClearsStaleBatch(t *testing.T) {
 	}
 }
 
+func TestReopenDeferredObligationIgnoresTemporaryProcurementState(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obA := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	if _, changed, err := repo.DeferOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC()); err != nil || !changed {
+		t.Fatalf("defer held obligation: changed=%v err=%v", changed, err)
+	}
+	if _, err := pool.Exec(ctx, `
+WITH load AS (
+  INSERT INTO procurement_loads (tenant_id, source_party_id, status, idempotency_key)
+  VALUES ($1::uuid, $2::uuid, 'health_pending', 'recovery-temp-procurement-load')
+  RETURNING load_id
+)
+INSERT INTO procurement_load_goats (
+  tenant_id, load_id, goat_id, selection_state, current_state,
+  identity_review_state, ownership_state, health_state
+)
+SELECT $1::uuid, load_id, $3::uuid, 'candidate', 'source_health_failed',
+       'clean', 'mesha_owned', 'failed'
+FROM load`, tenantID, meshaParty, testGoatID); err != nil {
+		t.Fatalf("seed temporary procurement state: %v", err)
+	}
+
+	id, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC())
+	if err != nil || !changed || id != obA {
+		t.Fatalf("reopen temporary procurement state: id=%q changed=%v err=%v", id, changed, err)
+	}
+	if got := scanStatus(t, ctx, pool, obA); got != "scheduled" {
+		t.Fatalf("temporary procurement state should not strand recovered obligation, got %s", got)
+	}
+}
+
 func TestReopenDeferredObligationSkipsProcurementExcludedVaccination(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

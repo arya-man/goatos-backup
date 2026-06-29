@@ -69,14 +69,18 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 	if err != nil {
 		return false, err
 	}
-	nextSequence := in.PrevSequence + 1
 	var next *protodomain.Rule
+	var nextSequence int32
 	for i := range rules {
-		if rules[i].Sequence != nextSequence {
+		if rules[i].Sequence <= in.PrevSequence {
 			continue
 		}
-		if next == nil || rules[i].SortOrder < next.SortOrder || (rules[i].SortOrder == next.SortOrder && rules[i].RuleID < next.RuleID) {
+		if next == nil ||
+			rules[i].Sequence < nextSequence ||
+			(rules[i].Sequence == nextSequence && (rules[i].SortOrder < next.SortOrder ||
+				(rules[i].SortOrder == next.SortOrder && rules[i].RuleID < next.RuleID))) {
 			next = &rules[i]
+			nextSequence = rules[i].Sequence
 		}
 	}
 	if next == nil || next.TriggerType != "after_previous_completion" {

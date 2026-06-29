@@ -165,6 +165,26 @@ func TestSendIncidentPostsDedupePayload(t *testing.T) {
 	}
 }
 
+func TestSendIncidentFallsBackToSlackWhenIncidentWebhookMissing(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{SlackWebhookURL: server.URL}, nil)
+	err := gateway.Send(context.Background(), request("incident", "phc_director"))
+	if err != nil {
+		t.Fatalf("Send incident fallback: %v", err)
+	}
+	if got["text"] != "Vaccination overdue\nShed A vaccination is overdue." {
+		t.Fatalf("slack fallback payload = %#v", got)
+	}
+}
+
 func TestSendFCMUsesCachedTokenSource(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer adc-token" {

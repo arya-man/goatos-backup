@@ -99,9 +99,9 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
   return { ok: true, message: `draft saved - ${protocolRows.length} rule rows - no live obligations`, versionId: version.data.protocol_version_id };
 }
 
-// publishVersion attempts to publish through the backend source-backed gate. The client may disable the
-// button using backend contract metadata, but this server action does not duplicate publishable-source
-// business rules; the protocol API returns the authoritative not_publishable reason.
+// publishVersion attempts to publish through the backend source-backed gate. The form may show a
+// pre-submit disabled reason from backend contract metadata, but this action still treats the
+// protocol API as authoritative for the final not_publishable decision.
 export async function publishVersion(versionId: string): Promise<ActionResult> {
   if (!versionId) return { ok: false, message: "save the draft first" };
   const res = await publishProtocolVersion(versionId, stableMutationKey("protocol-publish", { versionId }));

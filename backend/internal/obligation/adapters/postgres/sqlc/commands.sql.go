@@ -149,10 +149,21 @@ INSERT INTO obligation_instances (
   tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id,
   scope_type, scope_id, due_at, window_start, window_end, status,
   idempotency_key, generated_by_trigger_id, "sequence"
-) VALUES (
+) SELECT
   $1, $2, $3, $4, $5, $6,
   $7, $8, $9, $10, $11, $12,
   $13, $14, $15
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM obligation_instances existing
+  WHERE existing.tenant_id = $1
+    AND existing.protocol_version_id = $2
+    AND existing.rule_id = $3
+    AND existing.target_type = $5
+    AND existing.target_id = $6
+    AND existing."sequence" = $15
+    AND existing.due_at = $9
+    AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
 )
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING obligation_id::text AS obligation_id
@@ -177,6 +188,8 @@ type InsertObligationInstanceParams struct {
 }
 
 // Deterministic idempotency_key makes generation a no-op on replay (returns no row on conflict).
+// The logical duplicate guard also prevents pre-canonical-key rows (for example old next_cycle keys)
+// from being duplicated by a later replay with a corrected idempotency key.
 func (q *Queries) InsertObligationInstance(ctx context.Context, arg InsertObligationInstanceParams) (string, error) {
 	row := q.db.QueryRow(ctx, insertObligationInstance,
 		arg.TenantID,
@@ -318,17 +331,21 @@ WHERE oi.tenant_id = $1
   AND oi.status = 'deferred'
   AND NOT EXISTS (
     SELECT 1
-    FROM protocol_versions pv
+    FROM goats g
+    JOIN protocol_versions pv
+      ON pv.tenant_id = oi.tenant_id
+     AND pv.protocol_version_id = oi.protocol_version_id
     JOIN protocol_definitions pd
       ON pd.tenant_id = pv.tenant_id
      AND pd.protocol_id = pv.protocol_id
-    JOIN vw_procurement_vaccination_excluded_goats ex
-      ON ex.tenant_id = oi.tenant_id
-     AND ex.goat_id = oi.target_id
     WHERE oi.target_type = 'goat'
-      AND pv.tenant_id = oi.tenant_id
-      AND pv.protocol_version_id = oi.protocol_version_id
+      AND g.tenant_id = oi.tenant_id
+      AND g.goat_id = oi.target_id
       AND pd.category = 'vaccination'
+      AND (
+        g.lifecycle_status IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
+        OR g.identity_state IN ('disputed', 'merged', 'inactive')
+      )
   )
 RETURNING oi.obligation_id::text AS obligation_id
 `

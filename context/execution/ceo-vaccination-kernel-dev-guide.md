@@ -218,8 +218,13 @@ presented as live business processes:
 | ICU and quarantine actions | Goat OS can safely stop unsafe ICU/quarantine changes today. The full approval workflow still needs the evidence checklist, reviewer steps, release criteria, and operator screen before it is a live workflow. |
 | Critical health/death guardrails beyond the approved death path | The system blocks dangerous shortcuts. To make the full guardrail product live, we still need the complete policy pack that decides what evidence is required, who approves, and how exceptions are closed. |
 | Shed owner separation checks | Some approvals depend on knowing the correct shed owner or manager. Before this is live, the owner data and reviewer separation rules must be populated and tested. |
-| DLQ/replay operations | Goat OS has the repair screen concept and local recovery paths. In Google, we still need to prove failed background messages can be found, replayed, or discarded through the intended operator path. |
+| DLQ/replay operations | Goat OS has the repair screen concept and local recovery paths. In Google, we still need to prove failed background messages can be found, safely replayed, rejected when the same key carries different content, or discarded through the intended operator path. |
 | Stock issue resolution | Stock blocks are visible. The full owner workflow still needs the person responsible, action buttons, proof of resolution, and escalation behavior tested in Google. |
+| Missed-dose response ownership | Goat OS records missed work and keeps it visible. The live operating workflow still needs the exact owner, notification wording, escalation timing, and closure rules for a missed dose. |
+| Failed-alert follow-up | Goat OS retries alerts and now falls back from incident alerts to Slack when the incident channel is not configured. A full operations workflow still needs the audit trail, owner queue, metric, and reroute policy for alerts that fully exhaust. |
+| Background event recovery at scale | Goat OS can reclaim stuck background work locally. The full production operating rule still needs a clear owner contract for cases where a handler partly succeeds and then fails before its final acknowledgement. |
+| Protocol authoring save/publish flow | Drafts, published versions, and immutable history are enforced. The authoring screen still needs a single guided workflow for "save draft, add rules, publish" with compensation/retry behavior before it is treated as a finished business authoring product. |
+| Scale rehearsal | Local checks cover the functional paths. Before calling the Google environment scale-ready, run a real load rehearsal for large herds, repeated event delivery, and relay backlog recovery. |
 
 Use this wording if asked whether these are "bugs":
 
@@ -241,5 +246,5 @@ Old dashboard archive/rollback: Goal 2, not started.
 Preserved users/grants: Goal 2, not started.
 Seed source and count: local throwaway proof DB only; Google dev seed pending Goal 2.
 Vaccination E2E result: `GOAL1-E2E-FINAL-20260629-022731` passed locally; report `.codex-goatos-render/e2e-smoke/GOAL1-E2E-FINAL-20260629-022731`.
-Known incomplete flows: production PHC roster, production notification channels, critical ICU/quarantine guardrail workflows, shed-owner separation checks, full DLQ/replay operations, stock owner workflow, and Google dev deployment remain Goal 2/product work.
+Known incomplete flows: production PHC roster, production notification channels, missed-dose response ownership, failed-alert follow-up, background event recovery ownership at scale, critical ICU/quarantine guardrail workflows, shed-owner separation checks, full DLQ/replay operations, stock owner workflow, protocol authoring save/publish workflow, scale rehearsal, and Google dev deployment remain Goal 2/product work.
 ```

@@ -150,6 +150,98 @@ ORDER BY due_at ASC, obligation_id ASC
 LIMIT 200;"
 }
 
+validate_kernel_sweeper_hot_path_plans() {
+  explain_must_use_index "CalendarDueReminderSweep" 'Seq Scan on calendar_event_projections|Seq Scan on calendar_snoozes|Seq Scan on notification_requests' "EXPLAIN (COSTS OFF)
+SELECT event_id, title, target_type, COALESCE(source_target_id::text, ''), primary_notification_channel,
+       COALESCE(NULLIF(timezone, ''), 'Asia/Kolkata')
+FROM calendar_event_projections
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND slice_key = 'vaccination'
+  AND system = false
+  AND due_at <= TIMESTAMPTZ '2026-06-29 12:00:00+00' + interval '1 hour'
+  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM calendar_snoozes cs
+    WHERE cs.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+      AND cs.calendar_event_id = calendar_event_projections.event_id
+      AND cs.status = 'active'
+      AND cs.snooze_until > TIMESTAMPTZ '2026-06-29 12:00:00+00'
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM notification_requests nr
+    WHERE nr.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+      AND nr.idempotency_key = '00000000-0000-4000-8000-000000000001' || ':calendar.reminder:' || calendar_event_projections.event_id || ':' || to_char((TIMESTAMPTZ '2026-06-29 12:00:00+00' AT TIME ZONE COALESCE(NULLIF(calendar_event_projections.timezone, ''), 'Asia/Kolkata'))::date, 'YYYY-MM-DD')
+  )
+ORDER BY due_at ASC, event_id ASC
+LIMIT 100;"
+
+  explain_must_use_index "CalendarEscalationSweep" 'Seq Scan on calendar_event_projections|Seq Scan on notification_requests' "EXPLAIN (COSTS OFF)
+WITH candidates AS (
+  SELECT
+    event_id,
+    due_at,
+    CASE
+      WHEN due_at <= TIMESTAMPTZ '2026-06-27 12:00:00+00' THEN 4
+      WHEN due_at <= TIMESTAMPTZ '2026-06-28 12:00:00+00' THEN 3
+      WHEN due_at <= TIMESTAMPTZ '2026-06-29 08:00:00+00' THEN 2
+      WHEN due_at <= TIMESTAMPTZ '2026-06-29 11:00:00+00' THEN 1
+      ELSE 0
+    END AS level
+  FROM calendar_event_projections
+  WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND slice_key = 'vaccination'
+    AND system = false
+    AND due_at IS NOT NULL
+    AND due_at <= TIMESTAMPTZ '2026-06-29 12:00:00+00'
+    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+)
+SELECT event_id, level
+FROM candidates c
+WHERE level > 0
+  AND NOT EXISTS (
+    SELECT 1
+    FROM notification_requests nr
+    WHERE nr.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+      AND nr.idempotency_key = '00000000-0000-4000-8000-000000000001' || ':calendar.escalation:' || c.event_id || ':level:' || c.level::text
+  )
+ORDER BY due_at ASC, event_id ASC
+LIMIT 100;"
+
+  explain_must_use_index "ObligationMarkMissedBefore" 'Seq Scan on obligation_instances|Seq Scan on obligation_batches' "EXPLAIN (COSTS OFF)
+WITH candidate AS (
+  SELECT oi.obligation_id
+  FROM obligation_instances oi
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+   AND ob.batch_id = oi.batch_id
+  WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND oi.status IN ('scheduled', 'due', 'in_progress')
+    AND COALESCE(oi.window_end, oi.due_at) < TIMESTAMPTZ '2026-06-29 12:00:00+00'
+    AND NOT (oi.status = 'in_progress' AND COALESCE(ob.status, '') = 'in_progress')
+    AND NOT EXISTS (
+      SELECT 1
+      FROM protocol_versions pv
+      JOIN protocol_definitions pd
+        ON pd.tenant_id = pv.tenant_id
+       AND pd.protocol_id = pv.protocol_id
+      JOIN vw_procurement_vaccination_excluded_goats ex
+        ON ex.tenant_id = oi.tenant_id
+       AND ex.goat_id = oi.target_id
+      WHERE oi.target_type = 'goat'
+        AND pv.tenant_id = oi.tenant_id
+        AND pv.protocol_version_id = oi.protocol_version_id
+        AND pd.category = 'vaccination'
+    )
+  ORDER BY COALESCE(oi.window_end, oi.due_at) ASC, oi.obligation_id ASC
+  LIMIT 100
+  FOR UPDATE OF oi SKIP LOCKED
+)
+SELECT obligation_id
+FROM candidate;"
+}
+
 validate_inventory_fefo_plan() {
   explain_must_use_index "InventoryFEFOPick" 'Seq Scan on inventory_stock' "EXPLAIN (COSTS OFF)
 SELECT stock_id, expiry_date
@@ -846,6 +938,7 @@ validate_auth_grant_lookup_plan
 validate_obligation_due_window_plan
 validate_obligation_scope_count_plan
 validate_obligation_open_by_goat_plan
+validate_kernel_sweeper_hot_path_plans
 validate_inventory_fefo_plan
 validate_inventory_movements_ledger_plan
 validate_inventory_batch_reconcile_plan

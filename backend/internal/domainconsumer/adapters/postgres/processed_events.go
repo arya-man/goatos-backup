@@ -11,7 +11,10 @@ import (
 	consumerapp "github.com/vgoats/goatos/backend/internal/domainconsumer/app"
 )
 
-const defaultQueryTimeout = 3 * time.Second
+const (
+	defaultQueryTimeout         = 3 * time.Second
+	defaultProcessingStaleAfter = 15 * time.Minute
+)
 
 type ProcessedEventStore struct {
 	pool    *pgxpool.Pool
@@ -48,6 +51,10 @@ DO UPDATE SET
   updated_at = EXCLUDED.updated_at,
   last_error = NULL
 WHERE domain_event_processed_events.status = 'failed'
+   OR (
+     domain_event_processed_events.status = 'processing'
+     AND domain_event_processed_events.updated_at <= $8::timestamptz
+   )
 RETURNING status`,
 		event.TenantID,
 		event.SubscriptionID,
@@ -56,6 +63,7 @@ RETURNING status`,
 		event.MessageID,
 		event.DeliveryAttempt,
 		event.Now,
+		event.Now.Add(-defaultProcessingStaleAfter),
 	).Scan(&status)
 	if err == nil {
 		return consumerapp.ProcessDecisionClaimed, nil

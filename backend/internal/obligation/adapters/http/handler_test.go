@@ -35,7 +35,7 @@ func TestListDueDefaultsAndShape(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	if fake.gotStatus != "scheduled_or_due" || fake.gotLimit != 100 {
+	if fake.gotStatus != "scheduled_or_due_due" || fake.gotLimit != 100 {
 		t.Fatalf("defaults: status=%s limit=%d", fake.gotStatus, fake.gotLimit)
 	}
 	var resp dueResponse

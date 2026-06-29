@@ -76,8 +76,8 @@ func TestProcessedEventStoreDecisions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginProcessing stale retry: %v", err)
 	}
-	if decision != consumerapp.ProcessDecisionInProgress {
-		t.Fatalf("stale retry decision=%s want in_progress", decision)
+	if decision != consumerapp.ProcessDecisionClaimed {
+		t.Fatalf("stale retry decision=%s want claimed", decision)
 	}
 
 	failedEvent := event
