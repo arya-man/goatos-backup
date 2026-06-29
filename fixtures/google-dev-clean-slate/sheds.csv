@@ -1,0 +1,8 @@
+Park,Shed code,Shed name,Display order,Notes
+CBE,GDEV-CBE-K1-A,Google Dev CBE K1 Eligible Shed,10,K1 ordinary vaccination shed
+CBE,GDEV-CBE-K0-HOLD,Google Dev CBE K0 Newborn Hold,20,K0 age ineligible validation
+CBE,GDEV-CBE-K2-B,Google Dev CBE K2 Older Kids,30,K2 profile mismatch validation
+CBE,GDEV-CBE-NOVAX,Google Dev CBE Non Vaccination Shed,40,profile step marks not vaccination usable
+CBE,GDEV-CBE-QUAR,Google Dev CBE Quarantine Shed,50,profile step marks quarantine defer
+CPT,GDEV-CPT-K1-A,Google Dev CPT K1 Shift Target,60,shift target shed
+CPT,GDEV-CPT-RECOVERY,Google Dev CPT Recovery Shed,70,recovery reopen validation

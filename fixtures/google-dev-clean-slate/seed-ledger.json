@@ -1,0 +1,116 @@
+{
+  "seed_pack": "google-dev-clean-slate-vaccination",
+  "version": 1,
+  "date_anchor": "2026-06-29",
+  "environment": "goatos-dev",
+  "tenant_id": "00000000-0000-4000-8000-000000000001",
+  "source_fixtures": {
+    "sheds_csv": "fixtures/google-dev-clean-slate/sheds.csv",
+    "goats_csv": "fixtures/google-dev-clean-slate/goats.csv",
+    "shed_profiles_sql": "fixtures/google-dev-clean-slate/post-import-shed-profiles.sql",
+    "inventory_lots_sql": "fixtures/google-dev-clean-slate/post-import-inventory-lots.sql"
+  },
+  "preconditions": [
+    "schema migrations applied by goatos-dev-migrate job",
+    "only four approved user grants seeded",
+    "CBE and CPT park anchors exist from baseline migrations",
+    "source-derived ET/K1 protocol baseline is seeded and published",
+    "admin web and API are deployed with JWKS auth"
+  ],
+  "required_scenarios": [
+    "eligible_day21",
+    "age_ineligible",
+    "stage_profile_mismatch",
+    "location_ineligible",
+    "missing_dob",
+    "shifted",
+    "lifecycle_ineligible",
+    "exited_cleanup",
+    "sick_recovered",
+    "stock_blocked",
+    "missed",
+    "proof_pending",
+    "rejected_rework",
+    "completed_verified"
+  ],
+  "scenarios": [
+    {
+      "scenario": "eligible_day21",
+      "rfid": "GDEV-ET-ELIG-001",
+      "expected": "goat.created generates one ET primary obligation for the K1 published rule"
+    },
+    {
+      "scenario": "age_ineligible",
+      "rfid": "GDEV-ET-TOO-YOUNG-002",
+      "expected": "no day-21 ET primary obligation is generated"
+    },
+    {
+      "scenario": "stage_profile_mismatch",
+      "rfid": "GDEV-ET-STAGE-MISMATCH-003",
+      "expected": "shed_profiles K2 stage prevents a K1-only obligation even though goat management_stage is K1"
+    },
+    {
+      "scenario": "location_ineligible",
+      "rfid": "GDEV-ET-LOCATION-004",
+      "expected": "non-vaccination-usable shed blocks or skips generation visibly"
+    },
+    {
+      "scenario": "missing_dob",
+      "rfid": "GDEV-ET-MISSING-DOB-005",
+      "expected": "missing DOB does not silently create a day-21 obligation"
+    },
+    {
+      "scenario": "shifted",
+      "rfid": "GDEV-ET-SHIFT-006",
+      "post_import_action": "move goat from GDEV-CBE-K1-A to GDEV-CPT-K1-A through /admin/goats/{goat_id}/move",
+      "expected": "active scheduled/due work re-targets to the destination shed without duplicate obligations"
+    },
+    {
+      "scenario": "lifecycle_ineligible",
+      "rfid": "GDEV-ET-LIFECYCLE-007",
+      "post_import_action": "exit goat before generation through /admin/goats/{goat_id}/exit",
+      "expected": "generator does not create active obligations for exited lifecycle"
+    },
+    {
+      "scenario": "exited_cleanup",
+      "rfid": "GDEV-ET-EXITED-008",
+      "post_import_action": "generate obligation, then exit goat through /admin/goats/{goat_id}/exit",
+      "expected": "active or missed rows are canceled or cleaned up visibly"
+    },
+    {
+      "scenario": "sick_recovered",
+      "rfid": "GDEV-ET-SICK-RECOVER-009",
+      "post_import_action": "mark sick or under_treatment, then recover through health API",
+      "expected": "deferred work does not remain stuck after recovery"
+    },
+    {
+      "scenario": "stock_blocked",
+      "rfid": "GDEV-ET-STOCK-BLOCK-010",
+      "post_import_action": "reserve against low or quarantined GDEV ET lot during sweeper validation",
+      "expected": "stock blocker is visible and no negative stock movement is written"
+    },
+    {
+      "scenario": "missed",
+      "rfid": "GDEV-ET-MISSED-011",
+      "expected": "missed obligation appears in Action Center and Calendar missed lane"
+    },
+    {
+      "scenario": "proof_pending",
+      "rfid": "GDEV-ET-PROOF-PENDING-012",
+      "post_import_action": "advance to SOP task without accepted verification",
+      "expected": "task remains proof_pending or verification_pending and cannot complete without proof"
+    },
+    {
+      "scenario": "rejected_rework",
+      "rfid": "GDEV-ET-REWORK-013",
+      "post_import_action": "submit proof then reject verification",
+      "expected": "rework_due is visible and completion is not accepted"
+    },
+    {
+      "scenario": "completed_verified",
+      "rfid": "GDEV-ET-COMPLETE-014",
+      "post_import_action": "submit all required proof and accept verification",
+      "expected": "vaccination completion is accepted and stock consumption is ledger-backed"
+    }
+  ]
+}

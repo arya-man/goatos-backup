@@ -104,6 +104,16 @@ Keep a committed or attached seed ledger for every run. The ledger must include
 stable IDs, source fixture names, actor, timestamp, and the validation scenario
 covered.
 
+The committed synthetic seed pack lives in
+`fixtures/google-dev-clean-slate/`. It includes UI/sheet fixtures for sample
+sheds and goats, SQL helpers for shed profile and inventory lot data that the
+current UI does not author, and `seed-ledger.json` for required scenario
+coverage. Run this gate before using or editing the pack:
+
+```bash
+make verify-google-dev-seed-fixtures
+```
+
 Minimum seed set:
 
 - Tenant and four approved user grants.
