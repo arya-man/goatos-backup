@@ -6,9 +6,12 @@ This spec locks the architecture + scope for Vaccination v1. Config IA is now
 settled separately: Protocol Rules lives under generic Admin / Data Ops at
 `/config`, while PHC/Vaccination links to it filtered as `category=vaccination`.
 The vaccination-specific invariant in this spec is that eligibility must not be
-modelled with a generic `shed_status` text field. Authoritative business source:
-`wiki/goatOS.docx` (§1 locations, §6 vaccination, §11 shiftings) + committed
-migrations `000071`–`000075`. Visual source: `mock/goatos-dashboard-mock.html`.
+modelled with a generic `shed_status` text field. Authoritative source hierarchy:
+committed migrations `000071`-`000075`, `wiki/goatOS.docx` (§1 locations, §6
+vaccination, §11 shiftings), and the accepted source findings in
+`context/source-findings/phc-vaccination-roster-stage-proposal.md` plus
+`context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`.
+Visual source: `mock/goatos-dashboard-mock.html`.
 
 ## 1. Locked decisions
 
@@ -52,7 +55,7 @@ migrations `000071`–`000075`. Visual source: `mock/goatos-dashboard-mock.html`
 | `vaccination_shed_events` (drive) | `obligation_batches` (scope=shed) | planned date/window, reserved/used qty, lot |
 | `vaccination_completion` | `vaccination_completions` (000075) | dose_ml_given, lot, FEFO, cold chain, adverse |
 | `vaccine_stock` (FEFO) | `vaccines` + `inventory_stock` (000072) | partial FEFO expiry index exists |
-| `vaccination_sop_steps` | `sop_versions` form_dsl/proof_policy (seeded 000075) | shed video + vial video + dose/qty/lot |
+| `vaccination_sop_steps` | `sop_versions` form_dsl/proof_policy (seeded 000075) | `000075` is a draft skeleton (`shed_video`, `vial_lot`, `cold_chain`, `dose`, `route_site`, `administered_at`, `adverse_reaction`, `est_vs_used`, `verifier_review`); source parity also requires goat scan, medicine batch/vial-lot, proof media, adverse-reaction notes/follow-up, and verifier/park-head review. |
 
 **Rule eligibility fields (reconciled to the doc):** `animal_stage` (from
 `animal_stage_lookup`) · `sex` · `defer_states` (ICU/quarantine/sick) · vaccine ·
@@ -82,17 +85,40 @@ migrations `000071`–`000075`. Visual source: `mock/goatos-dashboard-mock.html`
 6. **Quarantine/ICU defer** — use as a defer/eligibility state (shed has_icu /
    ICU stage / context). Full Quarantine module can wait.
 
-## 4. Procurement DB [Goats].xlsx — evidence only
+## 4. Procurement DB [Goats].xlsx — evidence only, not completion truth
 
 Include in PHC/Vaccination source review as **arrival/intake/history evidence**:
 load/vendor/breed/gender/weight/moved-to location/tag update, selection health
-fields, unloading/transit records, historical vaccination-at-procurement evidence.
+fields, unloading/transit records, and any source-row vaccination mention.
 
-Supports: procured-goat backfill · `post_arrival` vaccination triggers · imported
-vaccination history/completion evidence · intake health/defer signals.
+Procurement may expose vaccination headers/notes, but the live legacy guardrail
+found no first-class vaccination evidence field in the cleaned BigQuery tables.
+Treat procurement vaccination mentions as source facts with confidence/proof
+semantics, not as administered-dose truth.
+
+Supports: procured-goat backfill · `post_arrival` vaccination triggers · intake
+health/defer signals · source references/confidence for any vaccination mention.
+It does **not** by itself support imported vaccination completion state.
 
 **Must NOT** replace the shed-stage eligibility model. **Do NOT** build the full
 Procurement vertical for v1.
+
+## 4.1 Legacy parity floor and import/replay mapping
+
+- Preserve source-backed SOP labels (`PPR`, `ET`, `FMD`, `HS`, `BQ`) as
+  vocabulary; only ET/K1/day-21 is schedule-bearing today.
+- Preserve the SOP proof shape: scheduled date, operator, goat scan, vaccine
+  name, medicine batch/vial-lot, dose ml, administered date/time, proof media,
+  adverse reaction + notes/follow-up, and verifier/park-head review.
+- Known gaps to close: empty medicine batch blocks submission; adverse reaction
+  requires notes/follow-up; proof/review confidence is explicit instead of
+  inferred from a row existing.
+- Import/replay mapping: reliable historical vaccination records, if later
+  proven, go through staging, reconcile into `vaccination_completions`, complete
+  matching obligations, and schedule boosters from actual `administered_at`.
+  Missing or untrusted history must not create completions; after PHC approval it
+  becomes baseline/catch-up shed drives per
+  `docs/protocol-engine/migration-and-cutover.md`.
 
 ## 5. Build order (each slice ends with a running local URL for review)
 

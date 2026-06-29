@@ -579,14 +579,23 @@ It is category/schema-driven. Vaccination, feed direction, deworming, and future
 modules all use the same generic engine, but category changes the form fields
 and `rule_dsl`.
 
+Current visible scope remains vaccination-only. Feed Direction Config fields are
+design references for the generic engine, not permission to expose
+`feed_direction` as an active category in admin-web. The backend page contract
+must keep `feed_direction` hidden unless the owner explicitly reopens Feed
+Direction scope after PHC/Vaccination and generic Config review. Internal
+compiler/DSL code can exist if it is contract-gated and unreachable from the
+current visible UI.
+
 Vaccination config may include animal/shed stage, age or post-arrival trigger,
 sex where needed, schedule dose rows, booster/catch-up/missed-dose policy,
 defer states such as ICU/quarantine/sick, SOP/proof policy, and stock/vaccine
 lot requirements.
 
-Feed Direction config uses different fields: animal stage, breed/class if
-needed, ration/feed item, quantity/unit, session timing, packing/execution
-proof, and inventory reserve/consume/release policy.
+Future Feed Direction config uses different fields: animal stage or shed tag,
+breed/class if needed, kid weight-band/ADG where applicable, ration/feed item,
+quantity/unit, session timing, packing/execution proof, and inventory
+reserve/consume/release policy.
 
 ## Removed From Current Admin-Web
 

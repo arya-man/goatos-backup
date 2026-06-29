@@ -112,7 +112,7 @@ explicit cancel/reversal policy only.
 3. **Reconcile stock** (SM-5): `consume` actual used + `release` remainder of the reservation.
 4. `batch in_progress→completed`; roll up `used_quantity`, counts.
 
-**Supersede:** if regenerated (e.g. feed 2 PM, SM-6) → old batch `→ superseded`, its still-`due` obligations move to the new batch.
+**Supersede:** if regenerated or corrected (e.g. Feed Direction cutoff Diff, SM-6) → old batch `→ superseded`, its still-`due` obligations move to the new batch.
 **Invariants:** exactly one open batch per `(scope, protocol_version, window)`; stock reserve/consume happen at batch boundaries, **never per goat** in a group drive.
 **Idempotency:** batch creation keyed on `(scope, protocol_version, planned_date, session)`; SOP submission idempotent via committed `sop_submissions UNIQUE(tenant, idempotency_key)`.
 
@@ -129,34 +129,57 @@ All writes go to `inventory_stock_movements` (append-only); `inventory_stock` ba
 | Manual correction | `adjust(±qty)` | `in_stock += qty` | actor has stock-adjust capability; reason required |
 | Lot expiry | `expire(qty)` | `in_stock −= qty` | `now > expiry_date` |
 
-**Mode split (no contradiction):** group drive = `reserve` at SM-4 create, `consume`+`release` at SM-4 close. PHC-approved catch-up creates canonical obligations/batches before execution; standalone per-goat individual override stock mode is not exposed in Phase 0.
+**Mode split (no contradiction):** vaccination group drives `reserve` at SM-4 batch create and `consume`+`release` at SM-4 close. Feed direction generation does not reserve stock; feed reserves only when the packing batch/task starts (SM-6 Phase 3), then consumes/releases on accepted packing proof. PHC-approved catch-up creates canonical obligations/batches before execution; standalone per-goat individual override stock mode is not exposed in Phase 0.
 **Idempotency:** every movement carries `idempotency_key` (UNIQUE per tenant); replay no-ops.
 **Invariants:** balance is always `= Σ movements`; never negative; expired lots never consumed.
 **Edge:** stock-out at reserve → batch flagged shortfall (anomaly surfaced), partial reserve allowed only if policy permits; never a negative balance.
 
 ---
 
-## SM-6 · Feed generation (direction publish → 2 PM recompute → packing)
-**Feed has three distinct phases; do NOT reserve stock at generation.** Generation only computes directions; stock is reserved/consumed at the **packing** phase (SM-4 execute).
+## SM-6 · Feed generation (full direction → Diff → packing)
+**Feed has distinct generation and execution stages; do NOT reserve stock at
+generation.** Generation only computes next-day direction work from the
+published feed protocol and the horizon-aware Counts/Shifting input contract.
+The current repo does not yet have the aggregate base-count + horizon-aware
+shifting projection Feed requires, so Feed generation is blocked until
+Counts/Shifting provides it or an approved per-goat derivation path exists.
+Stock is reserved/consumed at the **packing** phase (SM-4 execute).
 
-**Phase 1 — direction generation (Cloud Scheduler; day-before or ~morning publish):**
-1. Recompute `supply_planning` from published `feed_pattern × feed_pattern_feeds × live headcounts` per shed (headcount from `goats` by `shed_id`/stage). `supply_planning` is **replaced, not updated** (`generated_at` is truth).
-2. Write `feed_directions` **version 1** (status `active`), pushed through `feed_session_templates`.
-3. Per shed×session → an `obligation_batches` row (status `planned`). **No stock reservation yet.**
+**Phase 1 — full direction generation (Cloud Scheduler; recommended default Day N 09:00):**
+1. Read the published `protocol_versions.rule_dsl` for `category='feed_direction'`.
+2. Consume the Counts/Shifting projection for tomorrow's shed + breed +
+   stage/tag counts. Projection horizon is exactly one day. For this forward
+   projection, include authorized/directed future-effective shiftings effective
+   on Day N+1; physical proof gates tomorrow's realization/reconciliation, not
+   initial projection.
+3. Apply source-backed feed eligibility exclusions and ration transforms.
+4. Write a generation run + source/planning snapshot rows, then create
+   shed/session/feed obligations for Day N+1. **No stock reservation yet.**
 
-**Phase 2 — 2 PM recompute (Cloud Scheduler 14:00 OR `goat.shifted` location_event):**
-1. Regenerate `supply_planning` from current headcounts (post-shiftings).
-2. Write `feed_directions` **version 2** (`active`); set affected v1 directions `→ superseded`.
-3. **Reconcile batches (SM-4 supersede):** affected sheds' v1 batches `→ superseded`; new v2 batches for changed sheds. (Reservations only exist if packing already started — release/re-reserve the delta then.) Unchanged sheds keep v1 (no churn).
+<a id="sm-6-feed-diff-cancel-helper"></a>
 
-**Phase 3 — packing (the SOP/packing task starts, ~3 PM placement):**
-1. Batch `planned→in_progress`; **reserve** feed stock for the batch's `planned_quantity` (SM-5) — first lock here.
-2. On packing accepted/verified: **consume** packed qty + **release** remainder (SM-5); record `feed_packing`.
-3. Consumption recording (feeding sessions) → `feed_consumption`, variance = consumed vs packed.
+**Phase 2 — Diff generation (cutoff window; recommended default Day N 13:30-13:45):**
+1. Collect eligible target-date shiftings raised after the full direction and
+   before or at the cutoff under the horizon-aware projection policy:
+   authorized/directed future-effective moves for projection, applied/completed
+   moves for realized corrections.
+2. Generate full restatement rows for affected shed/session/feed targets only.
+   This is not an all-shed v2 restatement and not a bare numeric delta.
+3. **Reconcile open work explicitly:** affected stale obligations/batches are canceled or superseded before replacement/additional obligations are created. Idempotency-key dedupe is not sufficient by itself; model the feed-specific helper after `CancelOpenVaccinationObligationsForGoatExceptVersions` so stale open work cannot survive beside the Diff.
+4. High-priority post-cutoff additions use the manual 2x-ration bridge protocol and are logged as bridge events; do not implement the superseded 07:30 next-morning Diff design.
 
-**Invariants:** exactly one `active` direction per `(date, shed, session, breed, age, feed)`; v2 reflects current headcount; **stock is only locked at packing, never at generation**; reservations match the active direction.
-**Idempotency:** generation keyed on `(planning_date, shed, session, feed, direction_version)`.
-**Edge:** birth/death intra-day → folded into 2 PM (or on-demand regenerate); packing already done on a superseded direction → counts toward consumption, variance flagged.
+<a id="sm-6-feed-inventory-app-anchors"></a>
+
+**Phase 3 — packing (the SOP/packing task starts, recommended default Day N 15:00 staging):**
+1. Batch `planned→in_progress`; **reserve** feed stock for the batch's planned quantity via `ReserveForBatch` (SM-5) — first lock here.
+2. On packing accepted/verified: **consume** packed qty via `ConsumeForBatch` + **release** remainder (SM-5); record the packing stage completion and any projection rows.
+3. Packing shortfall or rejected packing proof reopens/reissues packing work and does not consume inventory.
+4. Transport, consumption, and wastage are separate proof-gated execution stages or typed stage records; they do not collapse into one Boolean processed flag.
+5. Consumption recording (feeding sessions) records consumed quantity, wasted quantity, variance, and proof through the chosen stage model.
+
+**Invariants:** exactly one open active instruction per `(target_date, shed, session, breed, shed_tag_or_stage, feed)` after full/Diff reconciliation; **stock is only locked at packing, never at generation**; reservations match the active instruction.
+**Idempotency:** generation is keyed by tenant, target date, shed, session, feed, run kind, and source/version hash.
+**Edge:** birth/death or shifting changes after the cutoff are absorbed by the next full direction unless the high-priority addition bridge applies. Packing already done on a superseded/canceled instruction counts toward consumption and is surfaced as variance.
 
 ---
 
@@ -175,4 +198,4 @@ All writes go to `inventory_stock_movements` (append-only); `inventory_stock` ba
 ---
 
 ## Build gate
-Migrations `000070–075` (PHC) and `000076–078` (Feed) implement the *tables*; **these seven machines are the behaviour those tables must support.** Agree this doc first; then SQL, then handlers. Each machine maps to one Cloud Run path: SM-1/2/3/7 = `consumer` (Pub/Sub push — `goat.created`/`shifted`/`exited`/`vaccination.completed`); SM-4 create + SM-6 generation = `sweeper`/feed-gen Jobs (Cloud Scheduler); SM-4 close + SM-5 + SM-6 packing = `api` (SOP submission/verification).
+Migrations `000070+` implemented the generic protocol/obligation/inventory kernel, and `000079` intentionally made Feed Direction reuse that kernel instead of adding a parallel typed feed execution stack. **These machines are the behavior the committed generic tables and any later module-specific run/projection tables must support.** Agree this doc first; then SQL, then handlers. Each machine maps to one Cloud Run path: SM-1/2/3/7 = `consumer` (Pub/Sub push — `goat.created`/`shifted`/`exited`/`vaccination.completed`); SM-4 create + SM-6 generation = `sweeper`/feed-gen Jobs (Cloud Scheduler); SM-4 close + SM-5 + SM-6 packing = `api` (SOP submission/verification).

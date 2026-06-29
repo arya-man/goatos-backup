@@ -474,6 +474,12 @@ Goat OS should preserve that operator-first mental model on Android.
 
 Feed operations:
 
+Legacy timing note: this block records older General/Slack source behavior. It
+is superseded for GoatOS Feed Direction implementation by
+`docs/feed-direction/PRD.md` / `TRD.md`, which use the June 2026 source model:
+Day N 09:00 full direction, 13:30 cutoff, 13:30-13:45 Diff, 15:00 staging, and
+Day N+1 09:00/15:00 serving.
+
 ```text
 08:30  feed directions for tomorrow sent
 09:00  morning feed distribution starts
@@ -482,6 +488,56 @@ Feed operations:
 two feeding sessions: 09:00 and 15:00
 current feed examples: Masoor Bhusa and Concentrate
 ```
+
+Feed Direction legacy sheet and proof signals:
+
+```text
+Feed Direction sheet fields:
+  date, farm, session, shed, shed tag, breed, age, count
+  feed item/quantity pairs up to five feeds
+  packing processed, consumption processed, session total, transport processed
+
+Feed generation / Diff signals:
+  K0 and K1 shed tags are excluded from normal packed-feed directions
+  Experiment sheds are tagged Experiment and generated with zero feed quantity
+  Diff processing deletes affected shed rows and regenerates those sheds
+  per-farm templates provide session labels and feed sets
+
+Feed Transport form fields:
+  date, farm, shed, time, video link, message link, user
+
+Feed Consumption & Wastage form fields:
+  consumed quantity, wasted quantity, consumption video, wastage video
+  difference, wastage percent
+
+Verification fields:
+  media correctness = Pending | Verified | Rejected
+  remarks required on rejection
+  rejected media is tracked for follow-up/rework
+  packing shortfall or rejected proof resets packing work for resend/rework
+```
+
+Goat OS implications:
+
+- Feed Direction rows should become generation snapshots/read-model rows and
+  shed/session/feed obligations, not a runtime Sheet clone.
+- Diff should mean full affected-shed restatement, not a numeric delta-only row.
+- Processed flags become idempotent task, proof, verification, and completion
+  state; they must not remain boolean source-of-truth columns.
+- Packing, transport, consumption, and wastage are first-class feed execution
+  stages with proof upload, verification status, rejection reason, and
+  rework/next action.
+- K0/K1 and Experiment-shed behavior are feed eligibility rules, not display
+  transforms.
+- Shifting rows need horizon-specific feed gates. Realized count/reconciliation
+  requires the chosen applied state, including required authorization,
+  completion/proof, and verification per policy. Tomorrow projection may include
+  authorized/directed future-effective shiftings with deterministic effective
+  date, source/destination, and cohort/stage impact before physical proof.
+  Pending unapproved requests, rejected movements, and canceled movements stay
+  process-visible but do not generate Feed Direction work.
+- K0 shifting cohort impact must be structured. Legacy comment parsing for
+  Mother vs Kid is evidence of a data-quality gap, not a policy source to copy.
 
 ### Procurement / Transport
 

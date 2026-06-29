@@ -1,8 +1,8 @@
 # PHC → Vaccination — Technical Requirements / Design (TRD)
 
-**Status:** Draft v2 (corrected against committed schema) · **Date:** 2026-06-22
+**Status:** Draft v2 (corrected against committed schema) · **Repo-state note:** 2026-06-29
 **Companion:** [PRD.md](./PRD.md) · **Foundation:** [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md)
-**Grounded in:** the committed migrations `backend/migrations/postgres/000001…000060`. The wiki goatOS handbook §6 is a *design reference*, **not** the committed schema — where they differ, committed wins.
+**Grounded in:** this TRD was originally grounded in `backend/migrations/postgres/000001…000060`; the repo now contains later protocol/obligation/inventory/vaccination migrations through `000117` at the Feed Direction correction. Use the live migrations and [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md) for current repo state. The wiki goatOS handbook §6 and accepted source findings (`context/source-findings/phc-vaccination-roster-stage-proposal.md`, `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`) are design/source references, **not** a replacement for committed schema — where they differ, committed wins.
 
 > **v2 correction note.** v1 assessed the wiki DDL as if committed and was wrong: it assumed `parks`/`sheds`/`vaccine_stock` tables and `goats.dob`/`goats.gender` columns that **do not exist**. v2 separates **committed → target**, builds on the generic obligation engine, and drops the unverified cost figure.
 
@@ -15,7 +15,7 @@ Vaccination is the **first module of the PHC vertical** (PHC also covers dewormi
 2. The **shed/location profile delta** (the dosing anchor).
 3. **Vaccination-specific tables** that link into the generic engine.
 4. Generic **inventory** for vaccine stock (FEFO).
-5. Migration plan + open inputs.
+5. Migration plan, legacy parity, and import/replay mapping.
 
 The engine itself (protocol_*, obligation_*, scheduler boundary, outbox, authority) is in the [engine doc](../protocol-engine/obligation-engine.md) — not repeated here.
 
@@ -73,6 +73,38 @@ The protocol/obligation/SOP/escalation tables are the [engine](../protocol-engin
 
 **Source / review metadata (nested `source` object on `rule_dsl` — canonical shape):** every rule carries provenance + an approval gate under `source:{ … }` — `source_system` (vaccinations_db / phc / vet / manual_admin), `source_ref`, `imported_at`, `reviewed_by`, `review_status` (extracted → reviewed → approved), `approved_by`, `approved_at`. **Publish gate:** a version may be published **only when `review_status='approved'`** and source-backed. **Dev policy:** values that come from a real source (Vaccinations DB / PHC / vet-approved) and are marked `approved` are **real config in `goatos-dev` and publishable there** — the **dev-real path**. Unsourced / `extracted` rows stay `status='draft'` with a **`not source-backed`** warning and cannot be published. Never hand-invent vaccine schedule values.
 
+### 4.1 Legacy parity, proof policy, and import replay
+
+When this slice replaces legacy Slack/Sheets/App Script vaccination SOP behavior,
+the parity floor is the useful source signal plus stronger GoatOS validation, not
+bug-for-bug row copying. Known legacy gaps to close are row/header evidence being
+treated as dose proof, optional/weak medicine-batch capture, adverse reactions
+without durable notes/follow-up, and review confidence not being first-class.
+
+- `rule_dsl.proof_policy` and `sop_versions.form_dsl` normalize the source SOP
+  shape: scheduled date, operator, goat scan, vaccine name, medicine
+  batch/vial-lot, dose ml, administered date/time, proof media, adverse reaction
+  + notes/follow-up, verifier/park-head review, and cold-chain/quantity checks
+  where the SOP version requires them.
+- The committed `000075` SOP version is only a draft skeleton
+  (`shed_video`, `vial_lot`, `cold_chain`, `dose`, `route_site`,
+  `administered_at`, `adverse_reaction`, `est_vs_used`, `verifier_review`). It
+  must be upgraded or superseded by a source-normalized SOP/proof-policy version
+  before vaccination SOP parity is called closed.
+- Procurement or legacy vaccination mentions are source evidence with
+  `source_ref` + confidence/proof semantics. The live legacy guardrail found no
+  first-class trusted vaccination evidence field in the cleaned BigQuery tables,
+  so a procurement row/header alone must not create a completed dose.
+- Reliable historical vaccination records, if later proven, import through
+  staging, reconcile into `vaccination_completions`, complete matching
+  obligations, and schedule boosters from actual `administered_at`. Missing or
+  untrusted history becomes PHC-approved catch-up shed drives via
+  [migration-and-cutover.md](../protocol-engine/migration-and-cutover.md), never
+  fabricated completions.
+- `PPR`, `FMD`, `HS`, and `BQ` are source-backed SOP/vocabulary labels only
+  until source extracts provide timing/dose/booster policy plus approval
+  metadata. Only ET/K1/day-21 is schedule-bearing today.
+
 **Due state:** per-goat doses = `obligation_instances` rows (`target_type='goat'`, `scope_type='shed'`, `rule_id` set so two vaccines/doses due the same day on one goat don't collide). `after_previous_completion` / booster doses generate on the prior dose's **actual `administered_at`** (`trigger_type='after_previous_completion'`, respecting `min_gap_days`) — see SM-7.
 
 **Shed drive = an `obligation_batches` row** (the generic work-unit, [engine §4](../protocol-engine/obligation-engine.md)), NOT just a `sop_task`. The batch carries drive-level fields the per-goat obligation can't — generic columns: `estimated_targets`, `planned_quantity`/`reserved_quantity`/`used_quantity` + `quantity_unit` (= doses/ml for vaccination), `primary_inventory_lot_id`, `conducted_by`, `proof_ref`, `context jsonb`. The sweeper groups a shed's due obligations into the batch (`obligation_instances.batch_id`), which spawns **one** `sop_task` (assigned via `vaccination.execute`) — many obligations → one batch → one task.
@@ -88,7 +120,9 @@ The protocol/obligation/SOP/escalation tables are the [engine](../protocol-engin
 
 ## 5. Vaccine stock = generic inventory (FEFO), not an island
 
-Inventory is **absent** in the repo — build it generic (per [engine §6](../protocol-engine/obligation-engine.md)):
+Inventory is **committed as the shared generic kernel** (starting with `000072`);
+PHC vaccination must reuse/enhance it, not rebuild a vaccination-only island (per
+[engine §6](../protocol-engine/obligation-engine.md)):
 - `inventory_items` `category` includes `'vaccine'`, `base_unit` = `dose`/`ml`; `vaccines` detail table (`manufacturer, default_dose_ml, requires_booster, booster_interval_days, storage_temp_min/max, withdrawal_period_days`) FK→`inventory_items`.
 - `inventory_stock` lots (running balances, **`numeric` + `quantity_unit`**, never int — engine is shared with feed which is kg/litre): `lot_number, expiry_date, quantity_in_stock numeric, quantity_reserved numeric, quantity_consumed numeric, quantity_unit`, park scope via `location_id`, **`CHECK(quantity_in_stock >= 0)`**.
 - **`inventory_stock_movements`** append-only ledger (reserve/release/consume/adjust/transfer/expire; `quantity numeric`) — the audit/reconciliation truth; balances are its projection. FEFO pick in app, expiry-gated (`expiry_date >= administered_at`).
@@ -117,7 +151,7 @@ Inventory is **absent** in the repo — build it generic (per [engine §6](../pr
 
 ---
 
-## 7. Migration plan (no vaccination/inventory/obligation table exists — clean runway; repo stops at `000060`)
+## 7. Migration plan (historical; later implemented as `000070+`)
 
 | Migration | Contents |
 |---|---|

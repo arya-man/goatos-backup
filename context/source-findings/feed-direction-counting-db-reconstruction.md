@@ -89,9 +89,9 @@ Count
 Staff (Counted)
 ```
 
-This supports the Feed Direction TRD assumption that feed planning consumes a
-daily or intra-day headcount by date, farm/park, shed, animal stage/tag, breed,
-and count. The source tabs also expose shedwise, tagwise, breedwise, kids/adults,
+This supports the Feed Direction assumption that planning consumes a daily or
+intra-day headcount by date, farm/park, shed, animal stage/tag, breed, and
+count. The source tabs also expose shedwise, tagwise, breedwise, kids/adults,
 active-goat, birth/death/sales, validation, projected, and total-count views
 that are useful for migration fixtures and parity checks.
 
@@ -99,15 +99,29 @@ that are useful for migration fixtures and parity checks.
 
 - `Farm` should map to canonical park/farm `locations`, not a hardcoded enum.
 - `Shed` should map to shed `locations` and `shed_profiles`.
-- `Shed Tag` / `Age` should be normalized through `animal_stage_lookup` and
-  source aliases instead of being embedded in feed code.
+- `Shed Tag` / `Age` should be normalized through stage/tag reference data and
+  source aliases instead of being embedded in feed code. Adult ration keys are
+  `breed + shed_tag/stage`; kid ration keys may require weight band and target
+  ADG. Raw `Age` is source evidence, not the ration key.
 - `Breed` should map through breed/species reference data with aliases.
 - `Count` is source evidence for headcount snapshots and feed planning fixtures;
-  Goat OS runtime feed generation still computes from canonical goat/location
-  state and writes `supply_planning` plus `feed_directions`.
-- The 2 PM feed-direction recompute in the TRD should be validated against this
-  source family: count updates and shifted/active goat views are separate
-  evidence surfaces that need deterministic import/replay semantics.
+  GoatOS runtime feed generation must not use the legacy sheet as the live
+  authority.
+- The source-required runtime target is a physical base-count anchor, realized
+  shifting ledger, and horizon-aware projection at shed + breed + stage/tag
+  grain. The committed Counts module currently has source-row sync/projection
+  tables, not that aggregate ledger, so Feed Direction needs an explicit
+  Counts/Shifting contract before generation can be operational.
+- That contract must expose separate realized `count_as_of` and one-day
+  `projected_count_for` semantics. Realized counts use applied/completed/proofed
+  movement state, while tomorrow projection may include authorized
+  future-effective shiftings known by generation/cutoff for the target date.
+- Shifting events that affect feed counts must carry structured stage/cohort
+  impact. Legacy K0 Mother/Kid handling used comments as a fallback, which is a
+  migration gap to close rather than a behavior to preserve.
+- The Feed Direction timing model should be validated against this source family:
+  count updates, shifted/active goat views, and projected-count views are
+  separate evidence surfaces that need deterministic import/replay semantics.
 
 Do not commit the raw CSV rows into `goatos`. If a seeded development fixture is
 needed, derive the smallest sanitized fixture from this local source and document

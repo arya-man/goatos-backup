@@ -2,11 +2,12 @@
 -- Phase 1B · Feed Direction module.
 --
 -- DESIGN: feed direction reuses the generic Phase 0/1A engine instead of parallel tables —
---   * config:     protocol_* with category='feed' (the source-backed publish gate is generic; a
---                 ration spec lives in the version rule_dsl, draft until source-backed).
+--   * config:     protocol_* with category='feed_direction' (the source-backed publish gate is generic;
+--                 ration policy lives in the version rule_dsl, draft until source-backed).
 --   * directions: obligation_instances with target_type='shed' (per-shed/per-ration directions, not
 --                 per-goat doses) + scope shed/park; SM-4 sweep groups them into drive batches.
---   * stock:      inventory_* with feed items (category='feed'); reserve/consume via the inventory app.
+--   * stock:      inventory_* with feed items (inventory_items.category='feed'); reserve/consume via
+--                 the inventory app.
 -- The only feed-specific table is the per-shed execution + verification record below (analog to
 -- vaccination_completions, but shed-scoped and quantity-fed). All cross-table refs use tenant-safe
 -- composite (tenant_id, *) FKs. NO ration/feed values are seeded — structure only.

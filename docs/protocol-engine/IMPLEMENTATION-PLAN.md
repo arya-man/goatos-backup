@@ -1,6 +1,6 @@
 # PHC Vaccination + Feed Direction — Implementation Plan (repo execution)
 
-**Date:** 2026-06-23 · **Grounded in** the committed repo (34 migrations, `000001–000060`; `internal/` domains) + the build-spec docs ([obligation-engine](./obligation-engine.md) · [state-machines](./state-machines.md) · [migration-and-cutover](./migration-and-cutover.md) · PHC/Feed PRD-TRD).
+**Date:** 2026-06-23 · **Correction:** updated 2026-06-29 for Feed Direction. This file is a historical Phase 0/1 execution plan; the repo now contains migrations through `000117` at this correction. For Feed Direction, use [../feed-direction/TRD.md](../feed-direction/TRD.md) as the current design source. The old `000076-078` typed feed table plan below is superseded by the committed `000079` generic-kernel design.
 
 ---
 
@@ -17,16 +17,27 @@
 | Projection-contract | `feature_coverage_registry`, process-integrity projection contracts | Obligation/vaccination projections; do not mirror deleted counts/mortality runtime modules |
 | Audit | `audit_log` (partitioned) (`000001`) | platform |
 
-### 2. Docs / spec only (written, zero code)
-- `obligation-engine.md` (+ §9 scale hard-rules, §2.1 config-UI contract), `state-machines.md` (SM-1…SM-7), `migration-and-cutover.md`, PHC PRD/TRD, Feed PRD/TRD.
-- The `protocol_*`, `obligation_*`, `inventory_*` schema + the 7 state machines = fully designed, **not built**.
+### 2. Docs / spec only vs current code
+- `obligation-engine.md`, `state-machines.md`, `migration-and-cutover.md`,
+  PHC PRD/TRD, and Feed PRD/TRD remain design references.
+- The generic `protocol_*`, `obligation_*`, and `inventory_*` schema is no
+  longer merely planned; it exists in later migrations. Check the live migration
+  tail before assigning any new number.
+- Feed Direction is partially present as the `000079` structure plus
+  `backend/internal/feed` execution/verification code, but no generation
+  pipeline or production entry point exists yet.
 
 ### 3. Mock only (UI prototype, static data, no backend)
 - `goatos/mock/goatos-dashboard-mock.html` — Control Tower, Action Center (adherence-grouped), **Protocol Adherence**, vaccination/feed module views, role switcher, scope toggle. All static.
 
 ### 4. Needs new migration / code
-- **Migrations `000070–078`** (below). `internal/vaccination` + `internal/feed` = **stubs** (build out); `internal/protocol`, `internal/obligation`, `internal/inventory` = **absent** (create).
-- Handlers per state machines; outbox **Pub/Sub publisher adapter** (today only the logging stub exists).
+- For current work, never reuse the historical `000070-078` numbers. The next
+  migration must follow the live repo tail.
+- Feed Direction still needs generation run/snapshot/bridge/projection storage if
+  the generic kernel cannot represent those facts directly, plus handlers per
+  the corrected SM-6 state machine.
+- Handlers per state machines; outbox publisher/consumer wiring as required by
+  the active slice.
 
 ### 5. External inputs / source-backed follow-ups
 - **Vaccination schedule values** — local/dev is unblocked by the source-derived
@@ -54,9 +65,7 @@
 | `000073_protocol_engine.sql` | `protocol_definitions/versions/rules/triggers`; GiST non-overlap on published windows; `protocol.draft.<cat>`/`protocol.publish.<cat>` capability seeds (explicit, no wildcard) |
 | `000074_obligation_engine.sql` | `obligation_instances` (rule_id in guard, NULLS NOT DISTINCT, deterministic idempotency_key), `obligation_batches`, `obligation_status_events` (RANGE-partitioned), `obligation_escalations` |
 | `000075_vaccination_module.sql` | `vaccination_completions` (UNIQUE, batch+inventory FK); ALTER `feature_coverage_registry` +`vaccination`; vaccination SOP definition/version seed |
-| `000076_feed_config.sql` | `feed_master`, `goat_class_energy_requirement` (**key `(tenant_id, breed_id, animal_stage_id)` → `animal_stage_lookup`, NOT shed_status**), `feed_pattern(+feeds)`, `feed_session_templates(+items)` |
-| `000077_feed_plan_directions.sql` | `supply_planning` (replace-not-update), `feed_directions` (v1/v2 supersede) |
-| `000078_feed_execution.sql` | `feed_packing`, `feed_consumption`, `feed_transport`; +`feed_direction` in coverage registry; feed SOP seeds; feed capability seeds |
+| `000076-000078` historical feed rows | **Superseded. Do not implement as written.** Feed config is generic `protocol_versions.rule_dsl`; directions are obligations/batches; execution is `feed_direction_completions`; only add feed-specific run/snapshot/bridge/projection tables where the generic kernel has no natural home. |
 
 Reuse exemplars: `000001` (partition+outbox+idempotency), `000030` (projection + COALESCE-unique), `000050` (RBAC+caps), `000060` (SOP engine).
 
@@ -65,7 +74,7 @@ Reuse exemplars: `000001` (partition+outbox+idempotency), `000030` (projection +
 ## C. Backend services / handlers (Cloud Run, by runtime role)
 - **`api`** — config CRUD (protocol draft/publish + impact-preview), completion submit, SOP submission. New Go domains: `protocol/`, `obligation/`, `inventory/`, build out `vaccination/`, `feed/` (hexagonal: domain/app/ports/adapters, like `sop`/`outbox`).
 - **`consumer`** (Pub/Sub push) — **SM-1** schedule-gen (`goat.created`), **SM-2** shift-recompute (`goat.shifted`), **SM-3** death/sale cancel (`goat.exited`), **SM-7** booster-gen (`vaccination.completed`). Idempotent.
-- **`sweeper`** (Cloud Run Job ← Cloud Scheduler) — **SM-4** batch create + due-flip; **SM-6** feed generation (midnight v1 + 2 PM v2). Chunked by park/date.
+- **`sweeper`** (Cloud Run Job ← Cloud Scheduler) — **SM-4** batch create + due-flip; **SM-6** feed generation (full direction + cutoff Diff + bridge logging). Chunked by tenant/park/date.
 - **`outbox-relay`** — exists; swap logging publisher → **Pub/Sub adapter** (only net-new piece here).
 - Execution reuses committed `internal/sop`.
 
@@ -94,7 +103,7 @@ Adherence = **computed**: expected (rule) vs actual (completion + proof + timing
 ## G. Order of implementation
 **Phase 0 — foundation deltas (no rule values needed):** `000070`–`000074` + outbox→Pub/Sub adapter + create `protocol`/`obligation`/`inventory` Go domains (schema + repos, no rules yet). Engine stands up empty.
 **Phase 1 — PHC Vaccination slice:** `000075`; build `vaccination` domain; SM-1/3/4/5/7 handlers; SOP form/proof seed; config-screen API + impact-preview; Control Tower + Action Center + Protocol Adherence reads + coverage projection. **Source-derived local/dev rule values now exist** for the ET/K1/day-21 proof path with K2=42; use them as source-backed dev config. Additional PPR/FMD/HS/BQ schedule rows arrive later through the same source-backed versioning path when timing/dose/booster extracts exist.
-**Phase 2 — Feed Direction:** `000076`–`000078`; build `feed` domain; SM-6 (gen + 2 PM recompute + packing reserve); feed screens.
+**Phase 2 — Feed Direction:** use new migration numbers after the live repo tail; build the generation pipeline and wiring around the committed `000079` generic-kernel design. SM-6 is full direction + cutoff Diff + bridge logging + packing reserve. Feed operational screens remain scope-gated until explicitly reopened.
 **Cutover (one-time, after Phase 1 engine ready):** freeze legacy → canonical → backfill generator per migration-and-cutover.md; `CUTOVER_DATE` policy (no historical-overdue flood).
 
 **Critical-path gate:** Phase 0 + the *engine* of Phase 1/2 can be built **now**. For PHC vaccination local/dev, the selected source-derived ET baseline can generate work; broader production roster expansion remains source-backed config/versioning work.

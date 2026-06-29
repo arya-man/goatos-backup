@@ -1,7 +1,11 @@
 # Goat OS — Generic Protocol & Obligation Engine
 
-**Status:** Draft v1 · **Date:** 2026-06-22
-**Grounded in:** the committed migrations in `backend/migrations/postgres/` (34 files, `000001`–`000060`; key: `000001`, `000023`, `000024`, `000050`, `000060`, `000030`, `000040`). Every "committed" claim here was read from SQL, not the wiki handbook.
+**Status:** Draft v2 correction · **Date:** 2026-06-29
+**Grounded in:** the committed migrations in `backend/migrations/postgres/`
+through the current tail (`000117` at this correction). The first draft was
+written when the repo stopped near `000060`; current work must check the live
+migration tail before adding tables or treating protocol/obligation/inventory as
+absent.
 **Why this doc:** PHC (vaccination, deworming, biosecurity, feed/water testing, panel cleaning, sanitization, fire-safety, SOP-video, stock checks, director reporting) **and** Feed Direction all need the same thing: admin-set rules → due obligations → tasks → proof → completion → projections. Build it **once**. Module-specific tables (e.g. `vaccination_completions`) link into this engine; they do not re-implement it.
 
 ---
@@ -20,8 +24,9 @@
 | `outbox_messages`, `idempotency_keys`, `audit_log`(partitioned) | reuse-as-is | egress, retry-safety, audit |
 | projection-contract (`feature_coverage_registry`, counts/mortality `*_projection_rows`/`*_projection_state`) | reuse-enhance | dashboard read-models |
 | `movement_commands` (CHECK `'shifting.apply'` only) | reference-only | the *only* hardcoded side-effect dispatch — do not overload |
-| inventory (`inventory_items`/`inventory_stock`/`vaccines`) | **ABSENT** | must build generic (see §6) |
-| `parks`, `sheds`, `vaccine_stock`, `protocol_*`, `obligation_*` | **ABSENT** | net-new |
+| inventory (`inventory_items`/`inventory_stock`/`inventory_stock_movements`/`vaccines`) | reuse-enhance | generic stock/FEFO ledger; feed items use `inventory_items.category='feed'` |
+| `protocol_*`, `obligation_*` | reuse-enhance | generic rule/version/trigger and obligation/batch/status kernel already exists |
+| `parks`, `sheds`, `vaccine_stock` | **ABSENT** | do not invent parallel tables; use `locations`, generic inventory, and module completion rows |
 
 ---
 
@@ -171,9 +176,12 @@ Assignment uses `workforce_member_capabilities` (e.g. `vaccination.execute` scop
 
 ---
 
-## 6. Generic inventory (ABSENT today — build once, FEFO)
+## 6. Generic inventory (committed kernel — reuse/enhance, FEFO)
 
-Do **not** build a vaccination-only stock island. Build tenant-scoped:
+Do **not** build a vaccination-only stock island or a second feed stock path.
+The generic inventory kernel is already committed (starting with `000072`);
+extend it through the inventory app/repository where needed. Tenant-scoped
+inventory uses:
 - `inventory_items` — `category text CHECK IN ('vaccine','medicine','feed','consumable','equipment', …) · base_unit text CHECK(dose/ml/kg/litre/unit)`. The unit is intrinsic to the item (vaccines = dose/ml, feed = kg/litre).
 - `vaccines` / `medicines` / `feed_items` — detail tables FK → `inventory_items` (dose/withdrawal/storage-temp for vaccines; ration attrs for feed).
 - `inventory_stock` — lot table (running **balances**), **`numeric` quantities, never int** (feed is kg/litres): `lot_number, expiry_date, quantity_in_stock numeric, quantity_reserved numeric, quantity_consumed numeric, quantity_unit text, reorder_threshold numeric, park scope via location_id` + `CHECK(quantity_in_stock >= 0)`, `CHECK(quantity_reserved >= 0)`.
@@ -206,7 +214,7 @@ Cascade is **application code via the transactional outbox**, not Postgres trigg
 1. **Nullable scope in a unique index → `NULLS NOT DISTINCT` (PG15+) or `COALESCE(col, sentinel_uuid)`.** Committed precedent: `counts_projection_state` uses `UNIQUE (tenant_id, COALESCE(view_id,'__all__'))`. Default `NULLS DISTINCT` silently allows duplicate NULL rows.
 2. **Scope/profile FKs target `locations(location_id)`, never `parks`/`sheds`** (they don't exist). Add a `validate_*_scope()` trigger like `validate_user_scope_grant()` (location exists AND `location_type` matches `scope_type`).
 3. **Inventory = generic lots, FEFO in app** (§6).
-4. **Extend, don't fork** `feature_coverage_registry.feature_module` CHECK — `ALTER` to add `'vaccination'`/`'feed_direction'`, don't make a parallel registry.
+4. **Extend, don't fork** `feature_coverage_registry.feature_module` CHECK. Naming is not identical across systems: protocol category = `feed_direction`; inventory item category = `feed`; committed feature coverage currently uses module `feed` from `000079`. If product wants feature coverage to say `feed_direction`, ship an explicit migration instead of silently mixing names.
 
 ---
 
@@ -215,9 +223,9 @@ Cascade is **application code via the transactional outbox**, not Postgres trigg
 | Vertical | Modules → each = a `protocol_definitions` category |
 |---|---|
 | **PHC** | vaccination · deworming · biosecurity · feed/water testing · panel cleaning · sanitization · fire/safety · SOP-video verification · stock anti-misuse · director reporting |
-| **Feed** (vertical) | feed-direction (config/ration → next-day direction → 2 PM recalc → packing → execution → wastage → stock); later modules: feed-stock/loads, wastage/variance, ration-library |
+| **Feed** (vertical) | feed-direction (config/ration -> next-day full direction -> cutoff Diff -> packing/staging -> execution -> wastage -> stock); later modules: feed-stock/loads, wastage/variance, ration-library |
 
-Module-specific tables (`vaccination_completions`, feed packing/execution) link via `obligation_id`. New modules add a category + protocol rules + an SOP form + (optionally) a completion table — **no new engine.**
+Module-specific tables (`vaccination_completions`, `feed_direction_completions`, and optional generation/bridge/projection rows where the generic kernel has no natural home) link via `obligation_id` or run/proof identifiers. New modules add a category + protocol rules + an SOP form + (optionally) a completion/projection table — **no new engine.**
 
 See: [PHC Vaccination TRD](../phc-vaccination/TRD.md) · [Feed Direction TRD](../feed-direction/TRD.md) · [State machines](./state-machines.md) · [Migration & cutover](./migration-and-cutover.md).
 

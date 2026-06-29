@@ -81,7 +81,7 @@ projections; display labels can change.
 | `all` | All | Combined scheduled work across all eligible pills. Filter-only; do not persist as an event owner. |
 | `counts` | Counts / Identity | Scheduled-only identity/count work: tagging due, weekly/monthly weigh-ins, count verification, count reconciliation. Most census/passport data is not Calendar. |
 | `phc` | PHC | Vaccination, deworming, treatment sessions, ICU follow-ups, quarantine health checks, feed/water lab tests, post-mortem/health verification, PHC biosecurity checks, SOP-video double verification, and PHC stock anti-misuse investigation with a dated human action. |
-| `feed` | Feed | Feed direction publish, 2 PM recompute, packing, feeding sessions, feed distribution, feed-prep staging, feed execution checks. Lab QA is not Feed; see PHC. |
+| `feed` | Feed | Feed direction publish, cutoff Diff, packing, feeding sessions, feed distribution, feed-prep staging, bridge exceptions, feed execution checks. Lab QA is not Feed; see PHC. |
 | `breeding` | Breeding | Estrus/heat windows, AI/natural breeding, pregnancy scan, kidding watch, colostrum, K1 bottle-feeding, lactation/milk sessions. PHC sees only downstream health exceptions. |
 | `parks` | Parks / Infra | Shed sanitation, deep clean, panel clean, shifting/movement, physical isolation moves, trough/water availability, infra inspection, ground execution proof. |
 | `procurement` | Procurement | Source warmup, source health/pre-dispatch checks, dispatch readiness, loading/transit handoff, arrival gate, load follow-up, rejected-before-load, accepted-intake handoff. |
@@ -200,8 +200,8 @@ Examples:
 
 - PHC future: deworming, biosecurity, quarantine-health checks, treatment, ICU,
   feed/water lab QA, post-mortem due work, adverse-reaction follow-up.
-- Feed future: ration direction generation, 2 PM recompute, feed packing,
-  feeding sessions, wastage/variance actions.
+- Feed future: ration direction generation, cutoff Diff, feed packing, bridge
+  exceptions, feeding sessions, wastage/variance actions.
 - Breeding future: estrus, AI, pregnancy scan, kidding, lactation, colostrum,
   milk-feeding sessions.
 - Parks/Infra future: ground movement, sanitation, physical isolation, infra

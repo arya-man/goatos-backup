@@ -1,7 +1,11 @@
 # PHC → Vaccination — Product Requirements (PRD)
 
 **Status:** Draft v2 · **Date:** 2026-06-22
-**Source of truth:** `/Users/ravi/mesha/wiki` (goatOS handbook, PHC/Health Director handbooks) + the product mock.
+**Source hierarchy:** committed GoatOS migrations and protocol-engine docs for
+repo state; `context/source-findings/phc-vaccination-roster-stage-proposal.md`
+and `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md` for
+accepted source findings; then `/Users/ravi/mesha/wiki` goatOS/PHC/Health
+handbook material and the product mock where they do not conflict.
 **Foundation:** [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md) — vaccination is the first module on a shared engine, not a one-off.
 **Explicitly NOT a source:** the older `goatos/context/*` and `goatos/docs/phases/*` planning docs (scrapped new-dashboard effort).
 
@@ -67,7 +71,10 @@ Birth report (`origin_type=birth`) or procurement (`origin_type=procured`) creat
 The sweeper batches due per-goat obligations into a **per-shed drive** (`sop_task`) and assigns it via `vaccination.execute` capability. Workers act on drives (hundreds of goats), not per-goat tickets — the scale lever.
 
 ### 4.4 Field worker executes (SOP + proof)
-Worker runs the vaccination SOP (scan → administer → record dose → upload shed + vial video → verify quantity). Per-goat completion recorded; verifier reviews.
+Worker runs the vaccination SOP: goat scan, administer, record vaccine, medicine
+batch or vial/lot, dose, administered date/time, cold-chain/quantity checks
+where required, proof media, adverse-reaction fields, and park-head/verifier
+review. Per-goat completion recorded; verifier reviews.
 
 ### 4.5 Completion → cascade
 Per `vaccination_completion`: obligation → `completed`; **FEFO inventory** consumed by writing `consume`/`release` rows to `inventory_stock_movements` (balance updates from the ledger in the same txn — no direct decrement); booster scheduled from *actual* administration date; coverage/overdue refresh.
@@ -101,3 +108,21 @@ Coverage % within window (per vaccine/park) · on-time drive rate · stock integ
    from source artifacts, but only ET has schedule/dose evidence in committed
    PRD text today. Add more schedule-bearing protocol rows when source extracts
    provide timing/dose/booster values.
+
+## 8. Legacy capability parity, proof policy, and import mapping
+
+Vaccination replaces legacy SOP/form behavior with GoatOS protocol, SOP, proof,
+completion, inventory, and verification records. Capability parity means
+preserve useful source signals and close legacy gaps; it does not mean copying
+weak proof assumptions. Known legacy gaps to close: row/header existence cannot
+count as dose proof, medicine batch/vial-lot cannot be optional, adverse
+reactions need notes/follow-up, and verifier/park-head review must be durable.
+
+| Legacy/source signal | GoatOS contract |
+| --- | --- |
+| SOP playground labels `PPR`, `ET`, `FMD`, `HS`, `BQ` | Keep as source-backed SOP/vocabulary labels. Only ET currently has schedule-bearing protocol evidence; labels alone do not generate obligations. |
+| SOP proof fields: scheduled date, operator, goat scan, vaccine name, medicine batch, dose ml, administered date, proof photo/media, adverse reaction, verifier, notes | Normalize into `protocol_versions.rule_dsl.proof_policy`, `sop_versions.form_dsl`, `sop_submissions`, and `vaccination_completions`. Required first-slice fields are goat scan, vaccine, medicine batch/vial-lot, dose, administered date/time, proof media, adverse-reaction flag/notes, and verifier/park-head review. |
+| Committed `000075` draft SOP skeleton (`shed_video`, `vial_lot`, `cold_chain`, `dose`, `route_site`, `administered_at`, `adverse_reaction`, `est_vs_used`, `verifier_review`) | Treat as the committed starting skeleton, not the final source contract. Upgrade the SOP version/proof policy to the source-normalized shape before calling vaccination SOP parity closed. |
+| Procurement/legacy rows that mention vaccination | Treat as source evidence with confidence/proof semantics only. The live legacy guardrail found no reliable first-class vaccination evidence field in cleaned BigQuery tables, so a procurement row/header alone is not an administered dose. |
+| Reliable historical vaccination record, if later proven | Import to staging, reconcile into `vaccination_completions`, mark matching obligations completed, and schedule boosters from the actual administered date. |
+| Missing or untrusted history | Do not invent completions. After PHC approval, generate baseline/catch-up shed drives per `docs/protocol-engine/migration-and-cutover.md` instead of fabricating administered history. |

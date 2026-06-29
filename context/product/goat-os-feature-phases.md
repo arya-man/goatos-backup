@@ -336,8 +336,9 @@ What users get:
   correction audit.
 - Overdue stage alerts like K1/K2/K3.
 - Weighing rhythms: K/F kids every Monday; adults monthly, currently 15th.
-- Feed rhythm: 8:30 AM directions, 9 AM morning feed, 2 PM revisions, 3 PM
-  next-day feed staging.
+- Feed rhythm: configured morning full direction for the next day, 13:30 cutoff
+  and Diff for affected sheds, 15:00 next-day feed staging, then 09:00/15:00
+  serving.
 
 In short:
 

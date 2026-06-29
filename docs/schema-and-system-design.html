@@ -46,7 +46,7 @@
 
 <header>
   <h1>Goat OS — Schema &amp; System Design</h1>
-  <div class="sub">PHC&nbsp;Vaccination + Feed&nbsp;Direction on one obligation engine · grounded in committed migrations <code>000001–000060</code> · 2026-06-22</div>
+  <div class="sub">PHC&nbsp;Vaccination + Feed&nbsp;Direction on one obligation engine · grounded in committed migrations through <code>000117</code> at the 2026-06-29 correction</div>
 </header>
 
 <nav>
@@ -196,7 +196,7 @@
         <!-- sop + completion + inventory -->
         <rect x="820" y="40" width="170" height="34" rx="8" fill="#13202c" stroke="#5b9bd5"/><text x="905" y="61" text-anchor="middle" fill="#5b9bd5">sop_tasks</text>
         <rect x="820" y="92" width="170" height="40" rx="8" fill="#16241f" stroke="#48c78e"/><text x="905" y="116" text-anchor="middle" fill="#48c78e" font-weight="700">vaccination_completions</text>
-        <rect x="820" y="148" width="170" height="36" rx="8" fill="#16241f" stroke="#48c78e"/><text x="905" y="170" text-anchor="middle" fill="#48c78e">feed_packing / directions</text>
+        <rect x="820" y="148" width="170" height="36" rx="8" fill="#16241f" stroke="#48c78e"/><text x="905" y="170" text-anchor="middle" fill="#48c78e">feed_direction_completions</text>
         <rect x="820" y="200" width="170" height="34" rx="8" fill="#16241f" stroke="#f0a93b"/><text x="905" y="221" text-anchor="middle" fill="#f0a93b">inventory_stock</text>
 
         <!-- edges -->
@@ -388,10 +388,10 @@
   <!-- ENGINE -->
   <section id="engine">
     <h2>6 · Generic obligation engine</h2>
-    <p class="lead">All net-new. Rules (admin-authored) → obligations (the queryable due state) → status ledger + escalation. PHC's 10 modules + Feed all reuse this.</p>
+    <p class="lead">Committed generic kernel (`000073`/`000074`) to reuse/enhance. Rules (admin-authored) → obligations (the queryable due state) → status ledger + escalation. PHC's 10 modules + Feed all reuse this.</p>
     <div class="cards">
       <div class="tbl">
-        <div class="h"><b>protocol_definitions</b> + <b>protocol_versions</b><span class="badge b-new">new</span></div>
+        <div class="h"><b>protocol_definitions</b> + <b>protocol_versions</b><span class="badge b-reuse">committed 000073</span></div>
         <table>
           <tr><td class="c"><span class="pk">protocol_id</span> · code · name</td><td class="t">uuid · text</td></tr>
           <tr><td class="c">category</td><td class="t">vaccination/deworming/…/feed_direction</td></tr>
@@ -405,7 +405,7 @@
         </table>
       </div>
       <div class="tbl">
-        <div class="h"><b>protocol_rules</b> + <b>protocol_triggers</b><span class="badge b-new">new</span></div>
+        <div class="h"><b>protocol_rules</b> + <b>protocol_triggers</b><span class="badge b-reuse">committed 000073</span></div>
         <table>
           <tr><td class="c"><span class="pk">rule_id</span></td><td class="t">uuid PK</td></tr>
           <tr><td class="c">rule_kind</td><td class="t">recurring/age_triggered/event…</td></tr>
@@ -417,7 +417,7 @@
         </table>
       </div>
       <div class="tbl">
-        <div class="h"><b>obligation_instances</b> ★<span class="badge b-new">new · due truth</span></div>
+        <div class="h"><b>obligation_instances</b> ★<span class="badge b-reuse">committed 000074 · due truth</span></div>
         <table>
           <tr><td class="c"><span class="pk">obligation_id</span></td><td class="t">uuid PK</td></tr>
           <tr><td class="c"><span class="fk">protocol_version_id · rule_id</span></td><td class="t">uuid · rule_id NN</td></tr>
@@ -432,7 +432,7 @@
         </table>
       </div>
       <div class="tbl">
-        <div class="h"><b>obligation_status_events</b> + <b>escalations</b><span class="badge b-new">new</span></div>
+        <div class="h"><b>obligation_status_events</b> + <b>escalations</b><span class="badge b-reuse">committed 000074</span></div>
         <table>
           <tr><td class="c"><span class="pk">obligation_event_id</span></td><td class="t">PK (partitioned by recorded_at)</td></tr>
           <tr><td class="c"><span class="fk">obligation_id</span> · event_type</td><td class="t">scheduled/became_due/completed…</td></tr>
@@ -443,7 +443,7 @@
         </table>
       </div>
       <div class="tbl">
-        <div class="h"><b>obligation_batches</b> — the DRIVE / work-unit<span class="badge b-new">new</span></div>
+        <div class="h"><b>obligation_batches</b> — the DRIVE / work-unit<span class="badge b-reuse">committed 000074</span></div>
         <table>
           <tr><td class="c"><span class="pk">batch_id</span></td><td class="t">uuid PK</td></tr>
           <tr><td class="c"><span class="fk">protocol_version_id</span></td><td class="t">uuid</td></tr>
@@ -463,10 +463,10 @@
   <!-- INVENTORY -->
   <section id="inventory">
     <h2>7 · Inventory (generic, FEFO)</h2>
-    <p class="lead">Net-new and generic — vaccines &amp; feed are item categories on ONE stock system. No per-module stock island.</p>
+    <p class="lead">Committed generic inventory kernel (`000072`) — vaccines &amp; feed are item categories on ONE stock system. No per-module stock island.</p>
     <div class="cards">
       <div class="tbl">
-        <div class="h"><b>inventory_items</b> + <b>vaccines</b> (detail)<span class="badge b-new">new</span></div>
+        <div class="h"><b>inventory_items</b> + <b>vaccines</b> (detail)<span class="badge b-reuse">committed 000072</span></div>
         <table>
           <tr><td class="c"><span class="pk">item_id</span> · name</td><td class="t">uuid · text</td></tr>
           <tr><td class="c">category · base_unit</td><td class="t">vaccine/feed/… · dose/ml/kg/litre</td></tr>
@@ -478,7 +478,7 @@
         </table>
       </div>
       <div class="tbl">
-        <div class="h"><b>inventory_stock</b> (lots)<span class="badge b-new">new</span></div>
+        <div class="h"><b>inventory_stock</b> (lots)<span class="badge b-reuse">committed 000072</span></div>
         <table>
           <tr><td class="c"><span class="pk">lot_id</span></td><td class="t">uuid PK</td></tr>
           <tr><td class="c"><span class="fk">item_id · location_id</span></td><td class="t">→item · →locations(park)</td></tr>
@@ -490,7 +490,7 @@
         </table>
       </div>
       <div class="tbl">
-        <div class="h"><b>inventory_stock_movements</b> — append-only ledger<span class="badge b-new">new · source of truth</span></div>
+        <div class="h"><b>inventory_stock_movements</b> — append-only ledger<span class="badge b-reuse">committed 000072 · source of truth</span></div>
         <table>
           <tr><td class="c"><span class="pk">movement_id</span></td><td class="t">uuid PK</td></tr>
           <tr><td class="c"><span class="fk">lot_id</span></td><td class="t">→inventory_stock</td></tr>
@@ -511,7 +511,7 @@
     <p class="lead">Config = <code>protocol_rules</code> (category=vaccination). Due = <code>obligation_instances</code>. Only the completion table is vaccination-specific.</p>
     <div class="cards">
       <div class="tbl">
-        <div class="h"><b>vaccination_completions</b><span class="badge b-new">new · links engine</span></div>
+        <div class="h"><b>vaccination_completions</b><span class="badge b-reuse">committed 000075 · links engine</span></div>
         <table>
           <tr><td class="c"><span class="pk">completion_id</span></td><td class="t">uuid PK</td></tr>
           <tr><td class="c"><span class="fk">obligation_id</span></td><td class="t">→obligation_instances NN</td></tr>
@@ -544,27 +544,27 @@
   <!-- FEED -->
   <section id="feed">
     <h2>9 · Feed direction module</h2>
-    <p class="lead">Ration config is typed (energy math); the plan + directions flow through the engine. v1=midnight, v2=2 PM after shiftings.</p>
+    <p class="lead">Feed Direction reuses the generic protocol, obligation, SOP, inventory, audit, outbox, and projection kernel. The current source model is morning full direction, cutoff Diff, bridge exceptions, and packing-time stock reserve.</p>
     <div class="cards">
       <div class="tbl">
-        <div class="h"><b>feed config</b> (ration rules)<span class="badge b-new">new · wiki §12</span></div>
+        <div class="h"><b>feed config</b> (ration rules)<span class="badge b-new">generic protocol</span></div>
         <table>
-          <tr><td class="c">feed_master</td><td class="t">catalog · feed_type concentrate/pellets/dry/green</td></tr>
-          <tr><td class="c">goat_class_energy_requirement</td><td class="t">UNIQUE(tenant_id, breed_id, animal_stage_id) · daily net energy</td></tr>
-          <tr><td class="c"><span class="pk">feed_pattern</span></td><td class="t">scope park_wide/shed_specific · static/step_change · draft/active/superseded · prev_feed_pattern_id</td></tr>
-          <tr><td class="c">feed_pattern_feeds</td><td class="t">start_qty · target_qty · step_delta</td></tr>
-          <tr><td class="c">feed_session_templates(+items)</td><td class="t">sessions per park (replaces Template sheet)</td></tr>
+          <tr><td class="c"><span class="pk">protocol_versions.rule_dsl</span></td><td class="t">category feed_direction · published/effective-dated ration policy</td></tr>
+          <tr><td class="c">inventory_items</td><td class="t">feed items live in the generic inventory catalog with category='feed'</td></tr>
+          <tr><td class="c">ration key</td><td class="t">adult breed + shed_tag/stage; kid weight_band + target_ADG</td></tr>
+          <tr><td class="c">proof_policy</td><td class="t">packing, transport, consumption, wastage, verification requirements</td></tr>
+          <tr><td class="c">source evidence</td><td class="t">rule source hash, review status, aliases, and source-backed validation</td></tr>
         </table>
       </div>
       <div class="tbl">
-        <div class="h"><b>plan + directions + execution</b><span class="badge b-new">new</span></div>
+        <div class="h"><b>generation + execution</b><span class="badge b-new">kernel-backed</span></div>
         <table>
-          <tr><td class="c">supply_planning</td><td class="t">per date×shed×breed×age×feed · replaced not updated</td></tr>
-          <tr><td class="c"><span class="pk">feed_directions</span></td><td class="t">+ direction_version (v1/v2) · active/superseded</td></tr>
-          <tr><td class="c">feed_packing</td><td class="t">packed_qty · video · <b>ledger consume/release (inventory_stock_movements)</b> · pending/packed/flagged/verified</td></tr>
-          <tr><td class="c">feed_consumption</td><td class="t">consumed_qty · 3 proof videos · variance</td></tr>
-          <tr><td class="c">feed_transport</td><td class="t">consolidated per shed/day</td></tr>
-          <tr><td class="c"><span class="fk">obligation_id</span></td><td class="t">each direction → obligation → sop_task</td></tr>
+          <tr><td class="c">generation runs</td><td class="t">full direction and cutoff Diff attempts with source hashes and idempotency</td></tr>
+          <tr><td class="c">snapshot rows</td><td class="t">date x shed x session x breed x stage/tag x feed as source/planning evidence</td></tr>
+          <tr><td class="c"><span class="pk">obligation_instances</span></td><td class="t">shed/session/feed work; stale affected work explicitly canceled/superseded</td></tr>
+          <tr><td class="c">bridge events</td><td class="t">high-priority post-cutoff 2x ration top-up with proof links</td></tr>
+          <tr><td class="c">feed_direction_completions</td><td class="t">execution/verification record linked to obligation, batch, SOP item, and feed lot</td></tr>
+          <tr><td class="c">inventory_stock_movements</td><td class="t">packing-time reserve; accepted proof consume/release; no bare decrement</td></tr>
         </table>
       </div>
     </div>
@@ -596,11 +596,11 @@
         <div class="h"><b>audit_log</b> + projection-contract<span class="badge b-reuse">reuse-enhance</span></div>
         <table>
           <tr><td class="c">audit_log</td><td class="t">partitioned · every publish/draft logged</td></tr>
-          <tr><td class="c">feature_coverage_registry</td><td class="t">ALTER CHECK +vaccination/feed_direction</td></tr>
+          <tr><td class="c">feature_coverage_registry</td><td class="t">ALTER CHECK +vaccination; committed Feed module key is feed unless a future migration renames it</td></tr>
           <tr><td class="c">*_projection_rows / state</td><td class="t">Control Tower read-models</td></tr>
         </table>
       </div>
     </div>
-    <p class="note"><b>Source-derived local/dev baseline:</b> ET K1 day-21 protocol and K2=42 are selected from the PRD/wiki/glossary; later production roster expansion can add more PHC/vet schedule rows. Feed ration values + sessions per park remain separate input. <b>Source:</b> committed migrations <code>000001–000060</code> + wiki goatOS §6/§12.</p>
+    <p class="note"><b>Source-derived local/dev baseline:</b> ET K1 day-21 protocol and K2=42 are selected from the PRD/wiki/glossary; later production roster expansion can add more PHC/vet schedule rows. Feed ration values + sessions per park remain separate input. <b>Source:</b> committed migrations through <code>000117</code> at this correction + wiki goatOS §6/§12.</p>
   </section>
 </main>
