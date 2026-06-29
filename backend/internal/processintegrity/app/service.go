@@ -104,7 +104,7 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 		case domain.WorkStateRejected, domain.WorkStateBlocked, domain.WorkStateOwnerMissing:
 			summary.CriticalCount += int(c.Count)
 			summary.OpenGapCount += int(c.Count)
-		case domain.WorkStateOverdue, domain.WorkStateProofPending, domain.WorkStateVerificationPending:
+		case domain.WorkStateOverdue, domain.WorkStateMissed, domain.WorkStateProofPending, domain.WorkStateVerificationPending:
 			summary.WarningCount += int(c.Count)
 			summary.OpenGapCount += int(c.Count)
 		}
@@ -192,6 +192,8 @@ func actualText(row domain.Row) string {
 		return fmt.Sprintf("%d rejected proof/completion record(s)", row.RejectedCount)
 	case domain.WorkStateDeferred:
 		return fmt.Sprintf("%d deferred/explained", max(row.DeferredCount, 1))
+	case domain.WorkStateMissed:
+		return "missed deadline"
 	default:
 		if row.CompletedCount > 0 {
 			return fmt.Sprintf("%d completed; %d still open", row.CompletedCount, row.ExpectedCount-row.CompletedCount)

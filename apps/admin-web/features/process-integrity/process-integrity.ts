@@ -20,6 +20,7 @@ interface Meta {
 export const WORK_STATE_META: Record<WorkState, Meta> = {
   due: { label: "Due", tone: "warn" },
   overdue: { label: "Overdue", tone: "dng" },
+  missed: { label: "Missed", tone: "warn" },
   blocked: { label: "Blocked", tone: "dng" },
   proof_pending: { label: "Proof pending", tone: "warn" },
   verification_pending: { label: "Verification pending", tone: "pur" },
@@ -34,6 +35,7 @@ export const WORK_STATE_META: Record<WorkState, Meta> = {
 // Display order for board columns / quick-filter chips (most-broken first).
 export const WORK_STATE_ORDER: WorkState[] = [
   "overdue",
+  "missed",
   "blocked",
   "owner_missing",
   "rejected",

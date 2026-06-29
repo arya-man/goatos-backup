@@ -773,9 +773,6 @@ func nextRepeatCycle(rule protodomain.Rule, due, asOf time.Time) (time.Time, boo
 	case "every_n_days":
 		interval := rule.MinGapDays
 		if interval <= 0 {
-			interval = rule.OffsetDays
-		}
-		if interval <= 0 {
 			return time.Time{}, false
 		}
 		next := due

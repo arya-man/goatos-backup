@@ -24,7 +24,7 @@ import {
   type ShedImportCommitRow,
   type ShedImportResponse,
 } from "./herd-actions";
-import { csvCell, stableCSVContentHash } from "./herd-import-utils";
+import { csvCell, isSpreadsheetFile, parseCSVRecords, sheetImportAccept, spreadsheetArrayBufferToCSV, stableCSVContentHash } from "./herd-import-utils";
 
 export type HerdAnimalStageOption = {
   code: string;
@@ -48,47 +48,6 @@ function csvFilename(label: string): string {
   return label.toLowerCase().endsWith(".csv") ? label : `${label}.csv`;
 }
 
-function parseCSVRecords(raw: string, unterminatedQuoteMessage: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = "";
-  let inQuotes = false;
-  for (let i = 0; i < raw.length; i += 1) {
-    const ch = raw[i];
-    if (ch === "\"") {
-      if (inQuotes && raw[i + 1] === "\"") {
-        cell += "\"";
-        i += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-    if (ch === "," && !inQuotes) {
-      row.push(cell.trim());
-      cell = "";
-      continue;
-    }
-    if ((ch === "\n" || ch === "\r") && !inQuotes) {
-      if (ch === "\r" && raw[i + 1] === "\n") i += 1;
-      row.push(cell.trim());
-      rows.push(row);
-      row = [];
-      cell = "";
-      continue;
-    }
-    cell += ch;
-  }
-  if (inQuotes) {
-    throw new Error(unterminatedQuoteMessage);
-  }
-  if (cell.length > 0 || row.length > 0) {
-    row.push(cell.trim());
-    rows.push(row);
-  }
-  return rows;
-}
-
 type ImportResultRow = {
   row_number: number;
   decision: string;
@@ -97,7 +56,7 @@ type ImportResultRow = {
 };
 
 function importRowFailed(row: ImportResultRow): boolean {
-  return row.errors.length > 0 || row.decision === "requires_review" || row.decision === "failed";
+  return row.errors.length > 0 || row.decision === "requires_review";
 }
 
 function failedImportRows<T extends ImportResultRow>(rows: T[]): T[] {
@@ -128,7 +87,7 @@ function downloadCSV(filename: string, records: unknown[][]) {
 function downloadFailedRows(filename: string, csv: string, templateColumns: string[], rows: ImportResultRow[], failureHeader: string, parseErrorMessage: string) {
   const failed = failedImportRows(rows);
   if (failed.length === 0) return;
-  const parsed = parseCSVRecords(csv, parseErrorMessage);
+  const parsed = parseCSVRecords(csv, { unterminatedQuoteMessage: parseErrorMessage });
   const header = parsed[0]?.length ? parsed[0] : templateColumns;
   const records: unknown[][] = [[...header, failureHeader]];
   failed.forEach((row) => {
@@ -618,7 +577,20 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    updateCSV(await file.text());
+    try {
+      const next = isSpreadsheetFile(file.name, file.type)
+        ? await spreadsheetArrayBufferToCSV(
+            await file.arrayBuffer(),
+            copy(pageContract, "error.xlsx_empty"),
+            copy(pageContract, "error.xlsx_parse_failed"),
+          )
+        : await file.text();
+      updateCSV(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : copy(pageContract, "error.xlsx_parse_failed"));
+    } finally {
+      event.target.value = "";
+    }
   }
 
   function runPreview() {
@@ -690,7 +662,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
           </div>
           <div className="fld">
             <label htmlFor="bulk_file">{copy(pageContract, "field.bulk_upload")}</label>
-            <input id="bulk_file" type="file" accept=".csv,text/csv" onChange={onFile} />
+            <input id="bulk_file" type="file" accept={sheetImportAccept} onChange={onFile} />
           </div>
           <div className="fld">
             <label htmlFor="bulk_csv">{copy(pageContract, "field.bulk_paste")}</label>
@@ -850,7 +822,20 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    updateCSV(await file.text());
+    try {
+      const next = isSpreadsheetFile(file.name, file.type)
+        ? await spreadsheetArrayBufferToCSV(
+            await file.arrayBuffer(),
+            copy(pageContract, "error.xlsx_empty"),
+            copy(pageContract, "error.xlsx_parse_failed"),
+          )
+        : await file.text();
+      updateCSV(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : copy(pageContract, "error.xlsx_parse_failed"));
+    } finally {
+      event.target.value = "";
+    }
   }
 
   function runPreview() {
@@ -919,7 +904,7 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
           </div>
           <div className="fld">
             <label htmlFor="shed_bulk_file">{copy(pageContract, "field.bulk_upload")}</label>
-            <input id="shed_bulk_file" type="file" accept=".csv,text/csv" onChange={onFile} />
+            <input id="shed_bulk_file" type="file" accept={sheetImportAccept} onChange={onFile} />
           </div>
           <div className="fld">
             <label htmlFor="shed_bulk_csv">{copy(pageContract, "field.bulk_paste")}</label>

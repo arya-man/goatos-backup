@@ -60,6 +60,10 @@ func TestVaccinationExecutionMapsProcessStates(t *testing.T) {
 			p.OperatorName = &operator
 			p.UsableForVaccination = false
 		}),
+		projection("shed-missed", dueTomorrow, 1, func(p *domain.ExecutionProjection) {
+			p.OperatorName = &operator
+			p.MissedCount = 1
+		}),
 		projection("shed-complete", dueTomorrow, 1, func(p *domain.ExecutionProjection) {
 			p.OperatorName = &operator
 			p.CompletedCount = 1
@@ -82,6 +86,7 @@ func TestVaccinationExecutionMapsProcessStates(t *testing.T) {
 		domain.WorkStateOwnerMissing,
 		domain.WorkStateVerificationPending,
 		domain.WorkStateBlocked,
+		domain.WorkStateMissed,
 		domain.WorkStateCompleted,
 	}
 	if len(got) != len(wantStates) {
@@ -101,8 +106,11 @@ func TestVaccinationExecutionMapsProcessStates(t *testing.T) {
 	if got[3].BlockerReason == nil {
 		t.Fatal("blocked row should include blocker reason")
 	}
-	if got[4].Severity != domain.SeverityOK {
-		t.Fatalf("completed severity = %q want ok", got[4].Severity)
+	if got[4].Severity != domain.SeverityAtRisk {
+		t.Fatalf("missed severity = %q want at_risk", got[4].Severity)
+	}
+	if got[5].Severity != domain.SeverityOK {
+		t.Fatalf("completed severity = %q want ok", got[5].Severity)
 	}
 }
 

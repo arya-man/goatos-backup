@@ -40,6 +40,7 @@ type ruleDSLEnvelope struct {
 type scheduleRow struct {
 	DoseCode    string          `json:"dose_code"`
 	SOPVersion  string          `json:"sop_version"`
+	MinGapDays  int32           `json:"min_gap_days"`
 	Repeat      string          `json:"repeat"`
 	ProofPolicy json.RawMessage `json:"proof_policy"`
 }
@@ -89,7 +90,7 @@ func ValidateExecutionContract(v domain.Version) error {
 		}
 	}
 	for idx, row := range env.Schedule {
-		if _, err := normalizeRepeatPolicy(row.Repeat); err != nil {
+		if _, err := normalizeRepeatPolicy(row.Repeat, row.MinGapDays); err != nil {
 			return fmt.Errorf("%w: schedule[%d] %v", ErrNotPublishable, idx, err)
 		}
 		if strings.TrimSpace(row.SOPVersion) == "" && strings.TrimSpace(v.SopVersionID) == "" {
@@ -105,13 +106,18 @@ func ValidateExecutionContract(v domain.Version) error {
 	return nil
 }
 
-func normalizeRepeatPolicy(value string) (string, error) {
+func normalizeRepeatPolicy(value string, minGapDays int32) (string, error) {
 	repeat := strings.TrimSpace(value)
 	if repeat == "" {
 		return "none", nil
 	}
 	switch repeat {
-	case "none", "every_n_days", "yearly":
+	case "none", "yearly":
+		return repeat, nil
+	case "every_n_days":
+		if minGapDays <= 0 {
+			return "", fmt.Errorf("%w: every_n_days requires min_gap_days > 0", ErrUnsupportedRepeatPolicy)
+		}
 		return repeat, nil
 	default:
 		return "", fmt.Errorf("%w: %q", ErrUnsupportedRepeatPolicy, repeat)

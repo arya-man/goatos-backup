@@ -474,7 +474,7 @@ stateful AS (
         OR enriched.health_deferred_count > 0
         OR enriched.is_quarantine
         OR enriched.is_icu THEN 'deferred'
-      WHEN enriched.missed_count > 0 THEN 'blocked'
+      WHEN enriched.missed_count > 0 THEN 'missed'
       WHEN enriched.operator_name IS NULL
        AND enriched.completed_count < enriched.obligation_count THEN 'owner_missing'
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'

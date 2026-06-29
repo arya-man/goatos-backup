@@ -36,7 +36,7 @@ import {
 import { ShedEventActions } from "./shed-event-actions";
 
 // Work states that mean "someone must act now" — used for the per-park attention count.
-const ATTENTION_STATES = new Set<VaccinationExecutionWorkState>(["overdue", "blocked", "owner_missing", "rejected"]);
+const ATTENTION_STATES = new Set<VaccinationExecutionWorkState>(["overdue", "missed", "blocked", "owner_missing", "rejected"]);
 
 interface ParkGroup {
   parkId: string;

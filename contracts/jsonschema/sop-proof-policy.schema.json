@@ -19,6 +19,9 @@
     },
     "minimum_count": { "type": "integer", "minimum": 0 },
     "verify_before_apply": { "type": "boolean" },
-    "retention_policy": { "type": "string" }
+    "retention_policy": {
+      "type": "string",
+      "enum": ["operational_90d", "standard_1y", "critical_7y", "legal_hold"]
+    }
   }
 }

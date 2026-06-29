@@ -171,6 +171,18 @@ func TestValidateExecutionContract(t *testing.T) {
 	if err := ValidateExecutionContract(unsupportedRepeat); !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("unsupported repeat policy should be not publishable, got %v", err)
 	}
+
+	everyNDays := valid
+	everyNDays.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","repeat":"every_n_days","min_gap_days":30}]}`)
+	if err := ValidateExecutionContract(everyNDays); err != nil {
+		t.Fatalf("every_n_days with min_gap_days should publish, got %v", err)
+	}
+
+	everyNDaysMissingGap := valid
+	everyNDaysMissingGap.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","repeat":"every_n_days","offset_days":30}]}`)
+	if err := ValidateExecutionContract(everyNDaysMissingGap); !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("every_n_days without min_gap_days should be not publishable, got %v", err)
+	}
 }
 
 func TestAddRuleRejectsUnsupportedRepeatPolicy(t *testing.T) {
@@ -183,6 +195,19 @@ func TestAddRuleRejectsUnsupportedRepeatPolicy(t *testing.T) {
 	}
 	if repo.createRuleCalled {
 		t.Fatalf("repo must not be called for unsupported repeat policies")
+	}
+}
+
+func TestAddRuleRejectsEveryNDaysWithoutMinGap(t *testing.T) {
+	repo := &fakeProtocolRepo{}
+	service := NewService(repo)
+
+	_, err := service.AddRule(context.Background(), domain.NewRule{Repeat: "every_n_days", OffsetDays: 30})
+	if !errors.Is(err, ErrUnsupportedRepeatPolicy) {
+		t.Fatalf("every_n_days without min_gap_days err=%v, want ErrUnsupportedRepeatPolicy", err)
+	}
+	if repo.createRuleCalled {
+		t.Fatalf("repo must not be called for unsafe every_n_days policies")
 	}
 }
 

@@ -737,7 +737,7 @@ export interface paths {
         put?: never;
         /**
          * Mark a goat exited and queue goat.exited cancellation.
-         * @description Non-death exits use this primitive. Death exits fail closed with 501 until the critical-action guardrail path owns death classification and approval.
+         * @description Non-death exits use this primitive. Death exits fail closed with 409 guardrail-required until the critical-action guardrail path owns death classification and approval.
          */
         post: operations["exitGoat"];
         delete?: never;
@@ -1224,7 +1224,8 @@ export interface components {
             minimum_count: number;
             verify_before_apply?: boolean;
             expected_subjects?: ("batch" | "goat" | "shed" | "task" | "vial_lot" | "administration" | "other")[];
-            retention_policy?: string;
+            /** @enum {string} */
+            retention_policy?: "operational_90d" | "standard_1y" | "critical_7y" | "legal_hold";
         } & {
             [key: string]: unknown;
         };
@@ -1804,7 +1805,7 @@ export interface components {
             result_skipped_no_due_date: number;
             result_suppressed_by_trusted_history: number;
         };
-        /** @description Dead/died exits are schema-visible for forward compatibility, but this primitive returns 501 for death transitions until the critical-action guardrail path owns them. */
+        /** @description Dead/died exits are schema-visible for forward compatibility, but this primitive returns 409 guardrail-required for death transitions until the critical-action guardrail path owns them. */
         ExitGoatRequest: components["schemas"]["ExitGoatDeadRequest"] | components["schemas"]["ExitGoatSoldRequest"] | components["schemas"]["ExitGoatCulledRequest"] | components["schemas"]["ExitGoatTransferredRequest"] | components["schemas"]["ExitGoatLostRequest"];
         ExitGoatDeadRequest: {
             /** @constant */

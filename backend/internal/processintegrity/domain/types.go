@@ -19,6 +19,7 @@ const (
 	WorkStateVerificationPending WorkState = "verification_pending"
 	WorkStateRejected            WorkState = "rejected"
 	WorkStateDeferred            WorkState = "deferred"
+	WorkStateMissed              WorkState = "missed"
 	WorkStateBlocked             WorkState = "blocked"
 	WorkStateOwnerMissing        WorkState = "owner_missing"
 	WorkStateCompleted           WorkState = "completed"

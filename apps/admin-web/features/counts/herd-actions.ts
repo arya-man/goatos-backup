@@ -26,6 +26,7 @@ import {
   type LocationMutationResponse,
   type LocationSummary,
 } from "@/lib/api/server";
+import { parseCSVRecords } from "./herd-import-utils";
 
 const SEXES = ["female", "male", "unknown"] as const;
 const ORIGIN_TYPES = ["birth", "procured", "imported", "unknown"] as const;
@@ -536,44 +537,7 @@ function resolvePark(parks: LocationSummary[], raw: string): LocationSummary | u
 }
 
 function parseCSV(raw: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = "";
-  let inQuotes = false;
-  for (let i = 0; i < raw.length; i += 1) {
-    const ch = raw[i];
-    if (ch === "\"") {
-      if (inQuotes && raw[i + 1] === "\"") {
-        cell += "\"";
-        i += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-    if (ch === "," && !inQuotes) {
-      row.push(cell.trim());
-      cell = "";
-      continue;
-    }
-    if ((ch === "\n" || ch === "\r") && !inQuotes) {
-      if (ch === "\r" && raw[i + 1] === "\n") i += 1;
-      row.push(cell.trim());
-      rows.push(row);
-      row = [];
-      cell = "";
-      continue;
-    }
-    cell += ch;
-  }
-  if (inQuotes) {
-    throw new Error("CSV contains an unterminated quoted cell.");
-  }
-  if (cell.length > 0 || row.length > 0) {
-    row.push(cell.trim());
-    rows.push(row);
-  }
-  return rows;
+  return parseCSVRecords(raw, { trimCells: true });
 }
 
 function headerMap(header: string[]): Map<string, number> {

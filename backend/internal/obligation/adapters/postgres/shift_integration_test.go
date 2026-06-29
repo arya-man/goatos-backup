@@ -138,6 +138,98 @@ func TestSM2ShiftReScopesDeferredThenReopensAtCurrentShed(t *testing.T) {
 	}
 }
 
+func TestSM2ShiftDoesNotRewriteInProgressBatchHistory(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+	batchDate := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+
+	obInProgress, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: testGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: batchDate, Status: "scheduled",
+		IdempotencyKey: "obl-shift-in-progress", Sequence: 3,
+	})
+	if err != nil || !applied {
+		t.Fatalf("seed in-progress obligation: applied=%v err=%v", applied, err)
+	}
+	batchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versionID, ScopeType: "park", ScopeID: cbePark,
+		PlannedDate: &batchDate, Status: "planned", EstimatedTargets: 1,
+		PlannedQuantity: "1", QuantityUnit: "dose",
+	}, []string{obInProgress})
+	if err != nil || attached != 1 {
+		t.Fatalf("create execution batch: batch=%s attached=%d err=%v", batchID, attached, err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches
+SET status='in_progress'
+WHERE tenant_id=$1 AND batch_id=$2::uuid`, tenantID, batchID); err != nil {
+		t.Fatalf("mark batch in progress: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET status='in_progress'
+WHERE tenant_id=$1 AND obligation_id=$2::uuid`, tenantID, obInProgress); err != nil {
+		t.Fatalf("mark batch in progress: %v", err)
+	}
+
+	obDone, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: testGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: batchDate.Add(24 * time.Hour), Status: "scheduled",
+		IdempotencyKey: "obl-shift-completed", Sequence: 4,
+	})
+	if err != nil || !applied {
+		t.Fatalf("seed completed obligation: applied=%v err=%v", applied, err)
+	}
+	if ok, err := repo.MarkCompleted(ctx, tenantID, obDone); err != nil || !ok {
+		t.Fatalf("mark completed: ok=%v err=%v", ok, err)
+	}
+
+	bus := eventbus.NewInProcessBus()
+	oblapp.NewGoatShiftedHandler(repo).Register(bus)
+	payload, _ := json.Marshal(oblapp.ShiftPayload{ScopeType: "park", ScopeID: cptPark})
+	if err := bus.Publish(ctx, eventbus.Event{
+		ID:         "60000000-0000-4000-8000-000000000203",
+		Type:       oblapp.EventGoatLocationChanged,
+		TenantID:   tenantID,
+		Key:        testGoatID,
+		Payload:    payload,
+		OccurredAt: time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("publish goat.location.changed: %v", err)
+	}
+
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM obligation_instances
+WHERE tenant_id=$1 AND obligation_id=$2::uuid AND scope_id=$3::uuid AND batch_id=$4::uuid AND status='in_progress'`,
+		tenantID, obInProgress, cbePark, batchID); got != 1 {
+		t.Fatalf("in-progress obligation must stay on original execution batch, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM obligation_instances
+WHERE tenant_id=$1 AND obligation_id=$2::uuid AND scope_id=$3::uuid AND status='completed'`,
+		tenantID, obDone, cbePark); got != 1 {
+		t.Fatalf("completed obligation must stay in historical scope, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM obligation_status_events
+WHERE tenant_id=$1 AND obligation_id IN ($2::uuid, $3::uuid) AND event_type='rescoped'`,
+		tenantID, obInProgress, obDone); got != 0 {
+		t.Fatalf("in-progress/completed work must not get rescoped events, got %d", got)
+	}
+}
+
 // TestSM2ShiftWatermarkRejectsOutOfOrderLocationChanged proves the event-driven SM-2 path is
 // arrival-order safe: a newer goat.location.changed event wins even when an older event is delivered
 // afterward by the transport.

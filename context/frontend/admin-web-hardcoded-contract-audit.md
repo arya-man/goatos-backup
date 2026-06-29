@@ -108,7 +108,7 @@ config compiler is being built, but must not hardcode live data:
 ## Audit Findings To Keep Watching
 
 - `features/config/rule-dsl.ts` still contains pure JSON builder defaults such
-  as version-level `next_due_basis` and stage-source field names. Frontend
+  as old version-level next-due-basis and stage-source field names. Frontend
   publishability now uses contract metadata, but source-system policy itself
   still needs a governed DB family table before Config can be called fully
   DB-governed.

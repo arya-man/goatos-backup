@@ -181,7 +181,7 @@ func TestActionCenterRejectsInvalidWorkState(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader))
 
-	req := httptest.NewRequest(http.MethodGet, "/action-center/obligations?work_state=missed", nil)
+	req := httptest.NewRequest(http.MethodGet, "/action-center/obligations?work_state=not_a_state", nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), handlerTenant))
 	rec := httptest.NewRecorder()
 
@@ -196,6 +196,25 @@ func TestActionCenterRejectsInvalidWorkState(t *testing.T) {
 	}
 	if body.Code != "invalid_work_state" {
 		t.Fatalf("error code = %q", body.Code)
+	}
+}
+
+func TestActionCenterAcceptsMissedWorkState(t *testing.T) {
+	reader := &fakeReader{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader))
+
+	req := httptest.NewRequest(http.MethodGet, "/action-center/obligations?work_state=missed", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), handlerTenant))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.actionQuery.WorkState == nil || *reader.actionQuery.WorkState != domain.WorkStateMissed {
+		t.Fatalf("work_state = %v", reader.actionQuery.WorkState)
 	}
 }
 

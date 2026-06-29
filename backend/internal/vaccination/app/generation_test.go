@@ -394,6 +394,37 @@ func TestGenerateAppliesMissedDosePolicy(t *testing.T) {
 		}
 	})
 
+	t.Run("next cycle every n days requires explicit min gap", func(t *testing.T) {
+		proto := &generationProtoFake{rules: []protodomain.Rule{{
+			RuleID: "rule-n-days", DoseCode: "dose-1", Sequence: 1,
+			TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, Repeat: "every_n_days", CatchUp: "next_cycle",
+		}}}
+		obl := &generationObligationFake{seen: map[string]bool{}}
+		result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("generate every_n_days without min gap: %v", err)
+		}
+		if result.Generated != 0 || len(obl.inserted) != 0 {
+			t.Fatalf("result=%#v inserted=%#v, want no unsafe every_n_days next-cycle obligation", result, obl.inserted)
+		}
+	})
+
+	t.Run("next cycle every n days uses min gap", func(t *testing.T) {
+		proto := &generationProtoFake{rules: []protodomain.Rule{{
+			RuleID: "rule-n-days", DoseCode: "dose-1", Sequence: 1,
+			TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, MinGapDays: 30, Repeat: "every_n_days", CatchUp: "next_cycle",
+		}}}
+		obl := &generationObligationFake{seen: map[string]bool{}}
+		result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("generate every_n_days: %v", err)
+		}
+		wantDue := time.Date(2026, time.June, 7, 0, 0, 0, 0, time.UTC)
+		if result.Generated != 1 || len(obl.inserted) != 1 || !obl.inserted[0].DueAt.Equal(wantDue) {
+			t.Fatalf("result=%#v inserted=%#v, want next cycle due %s", result, obl.inserted, wantDue)
+		}
+	})
+
 	t.Run("next cycle evidence uses advanced cycle fence", func(t *testing.T) {
 		originalDue := time.Date(2026, time.January, 8, 0, 0, 0, 0, time.UTC)
 		wantDue := time.Date(2027, time.January, 8, 0, 0, 0, 0, time.UTC)

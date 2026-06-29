@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "check:ia-guard": "node scripts/check-ia-guard.mjs",
     "check:herd-import-security": "node --experimental-strip-types scripts/check-herd-import-security.mjs",
+    "check:goal1-frontend": "node scripts/check-goal1-frontend-coverage.mjs",
     "check:ui-contract": "node scripts/check-ui-contract-literals.mjs",
     "check:mock-fidelity": "node scripts/check-ia-guard.mjs && node scripts/check-ui-contract-literals.mjs && node scripts/check-mock-fidelity.mjs"
   },
@@ -30,6 +31,7 @@
     "next": "16.2.9",
     "react": "19.2.7",
     "react-dom": "19.2.7",
+    "read-excel-file": "^9.2.0",
     "recharts": "3.8.1",
     "server-only": "0.0.1",
     "tailwind-merge": "3.6.0",
@@ -37,7 +39,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.11.3",
-    "@playwright/test": "^1.51.1",
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "4.3.0",
     "@types/node": "25.9.3",
     "@types/react": "19.2.17",
@@ -50,5 +52,8 @@
     "shadcn": "4.11.0",
     "tailwindcss": "4.3.0",
     "typescript": "6.0.3"
+  },
+  "overrides": {
+    "postcss": "8.5.15"
   }
 }

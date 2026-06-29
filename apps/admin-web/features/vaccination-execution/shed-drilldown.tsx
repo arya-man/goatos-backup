@@ -108,6 +108,7 @@ export async function ShedExecutionDetailPage({ shedId, asOf, pageContract }: { 
             <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "verification_pending")} value={s.verificationPending} tone="pur" />
             <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "rejected")} value={s.rejected} tone="dng" />
             <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "deferred")} value={s.deferred} tone="mut" />
+            <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "missed")} value={s.missed} tone="warn" />
             <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "blocked")} value={s.blocked} tone="dng" />
             <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "owner_missing")} value={s.ownerMissing} tone="dng" />
             <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "completed")} value={s.completed} tone="ok" />

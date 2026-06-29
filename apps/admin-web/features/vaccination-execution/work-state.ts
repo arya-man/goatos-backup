@@ -30,6 +30,7 @@ export const WORK_STATE_META: Record<VaccinationExecutionWorkState, StateMeta> =
   verification_pending: { label: "Verification pending", tone: "pur" },
   rejected: { label: "Rejected", tone: "dng" },
   deferred: { label: "Deferred", tone: "mut" },
+  missed: { label: "Missed", tone: "warn" },
   blocked: { label: "Blocked", tone: "dng" },
   owner_missing: { label: "Owner missing", tone: "dng" },
   completed: { label: "Completed", tone: "ok" },
@@ -68,6 +69,7 @@ export const VERIFICATION_META: Record<VerificationStatus, StateMeta> = {
 // Display order for work-state quick-filter chips (most-broken first so attention sorts to the top).
 export const WORK_STATE_ORDER: VaccinationExecutionWorkState[] = [
   "overdue",
+  "missed",
   "blocked",
   "owner_missing",
   "rejected",

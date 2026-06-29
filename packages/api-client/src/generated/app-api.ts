@@ -1710,7 +1710,7 @@ export interface components {
             idempotent_replay: boolean;
         };
         /** @enum {string} */
-        WorkState: "scheduled" | "due" | "overdue" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "owner_missing" | "blocked" | "completed";
+        WorkState: "scheduled" | "due" | "overdue" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "missed" | "owner_missing" | "blocked" | "completed";
         /** @enum {string} */
         ProcessIntegritySeverity: "ok" | "watch" | "at_risk" | "broken";
         /** @enum {string} */
@@ -1897,7 +1897,7 @@ export interface components {
             nodes: components["schemas"]["WorkflowNode"][];
         };
         /** @enum {string} */
-        VaccinationExecutionWorkState: "due" | "overdue" | "scheduled" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "blocked" | "owner_missing" | "completed";
+        VaccinationExecutionWorkState: "due" | "overdue" | "scheduled" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "missed" | "blocked" | "owner_missing" | "completed";
         /** @enum {string} */
         VaccinationExecutionSeverity: "ok" | "watch" | "at_risk" | "broken";
         /** @enum {string} */
@@ -2013,6 +2013,7 @@ export interface components {
             verificationPending: number;
             rejected: number;
             deferred: number;
+            missed: number;
             blocked: number;
             ownerMissing: number;
             completed: number;

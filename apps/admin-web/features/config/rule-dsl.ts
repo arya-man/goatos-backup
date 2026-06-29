@@ -99,7 +99,6 @@ export interface ProtocolRuleDraft {
 // ALL_STAGES filter below, which is a UI scope ("every stage"), not an animal_stage_lookup row.
 export const ALL_STAGES_VALUE = "all";
 
-export const NEXT_DUE_BASIS = "last_accepted_completion_else_dob";
 export const STAGE_SOURCE = "shed_profiles.animal_stage_id -> animal_stage_lookup";
 
 export function isRfc3339Timestamp(value: string): boolean {
@@ -200,7 +199,6 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       defer_states: input.eligibility.deferStates,
     },
     missed_dose_policy: input.missedDosePolicy,
-    next_due_basis: NEXT_DUE_BASIS,
     stock_policy: {
       vaccine_lot_requirement: input.vaccineLotPolicy,
       pick: "FEFO",

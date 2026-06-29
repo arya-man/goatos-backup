@@ -1092,9 +1092,9 @@ Minimum API/runtime requirements:
 - HF vaccination evidence is stored as trusted vaccination history/imported
   completion evidence only after review/trust. Until trusted, it is visible as a
   pending/conflicting evidence item and must not suppress post-arrival due work.
-- Generation uses `next_due_basis: last_accepted_completion_else_dob` so a
-  trusted HF dose avoids double-dosing; park quarantine and on-arrival rules are
-  separate post-arrival obligations.
+- Generation uses trusted accepted completion evidence plus trigger/repeat/
+  catch-up logic so a trusted HF dose avoids double-dosing; park quarantine and
+  on-arrival rules are separate post-arrival obligations.
 
 Minimum tests/fixtures:
 

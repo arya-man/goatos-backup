@@ -4731,6 +4731,7 @@ components:
         - verification_pending
         - rejected
         - deferred
+        - missed
         - owner_missing
         - blocked
         - completed
@@ -5235,6 +5236,7 @@ components:
         - verification_pending
         - rejected
         - deferred
+        - missed
         - blocked
         - owner_missing
         - completed
@@ -5521,6 +5523,7 @@ components:
         - verificationPending
         - rejected
         - deferred
+        - missed
         - blocked
         - ownerMissing
         - completed
@@ -5538,6 +5541,8 @@ components:
         rejected:
           type: integer
         deferred:
+          type: integer
+        missed:
           type: integer
         blocked:
           type: integer

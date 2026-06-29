@@ -63,7 +63,8 @@ SET version_label = 'Vaccination Session v1',
       "subject_scope": "batch",
       "verify_before_apply": true,
       "verify_capability": "proof.verify",
-      "expected_subjects": ["shed", "vial_lot", "administration"]
+      "expected_subjects": ["shed", "vial_lot", "administration"],
+      "retention_policy": "operational_90d"
     }'::jsonb,
     compatibility = '{
       "min_app_version": "0.2.0",

@@ -16,6 +16,7 @@ const (
 	WorkStateVerificationPending WorkState = "verification_pending"
 	WorkStateRejected            WorkState = "rejected"
 	WorkStateDeferred            WorkState = "deferred"
+	WorkStateMissed              WorkState = "missed"
 	WorkStateBlocked             WorkState = "blocked"
 	WorkStateOwnerMissing        WorkState = "owner_missing"
 	WorkStateCompleted           WorkState = "completed"
@@ -109,6 +110,7 @@ type ShedDrilldownSummary struct {
 	VerificationPending int `json:"verificationPending"`
 	Rejected            int `json:"rejected"`
 	Deferred            int `json:"deferred"`
+	Missed              int `json:"missed"`
 	Blocked             int `json:"blocked"`
 	OwnerMissing        int `json:"ownerMissing"`
 	Completed           int `json:"completed"`

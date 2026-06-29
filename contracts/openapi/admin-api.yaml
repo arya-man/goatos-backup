@@ -1567,7 +1567,7 @@ paths:
         - Admin Goats
       operationId: exitGoat
       summary: Mark a goat exited and queue goat.exited cancellation.
-      description: Non-death exits use this primitive. Death exits fail closed with 501 until the critical-action guardrail path owns death classification and approval.
+      description: Non-death exits use this primitive. Death exits fail closed with 409 guardrail-required until the critical-action guardrail path owns death classification and approval.
       parameters:
         - $ref: "#/components/parameters/GoatId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -2872,6 +2872,11 @@ components:
               - other
         retention_policy:
           type: string
+          enum:
+            - operational_90d
+            - standard_1y
+            - critical_7y
+            - legal_hold
     RetryFanoutsRequest:
       type: object
       additionalProperties: false
@@ -4611,7 +4616,7 @@ components:
           type: integer
           minimum: 0
     ExitGoatRequest:
-      description: Dead/died exits are schema-visible for forward compatibility, but this primitive returns 501 for death transitions until the critical-action guardrail path owns them.
+      description: Dead/died exits are schema-visible for forward compatibility, but this primitive returns 409 guardrail-required for death transitions until the critical-action guardrail path owns them.
       oneOf:
         - $ref: "#/components/schemas/ExitGoatDeadRequest"
         - $ref: "#/components/schemas/ExitGoatSoldRequest"

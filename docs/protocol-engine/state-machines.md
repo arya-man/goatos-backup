@@ -37,12 +37,28 @@
 **Failure/retry:** consumer failure → Pub/Sub redelivery → upsert no-ops. Poison → DLQ.
 **Edge:** procured adult unknown DOB → `dob_estimated=true`, `post_arrival` off `entry_date`. Backfilled import → history-based next-due (step 3), idempotent path.
 
+**Published version-change policy:** a rule/SOP change publishes a new immutable
+`protocol_version`. It never mutates accepted completions or the audit/proof
+history tied to an older version. Future generation uses the effective version
+for the goat/scope/as-of date. Already materialized open work follows this
+policy:
+
+- `scheduled`, `due`, and `deferred` rows may be canceled, superseded, or
+  regenerated only by an explicit repair command that writes
+  `obligation_status_events` and preserves the old row's version pointer.
+- `in_progress` rows stay tied to their execution batch and SOP task; proof
+  acceptance, rejection/rework, missed-window handling, or death/sale cancel is
+  the only way they leave that state.
+- `completed`, `waived`, `canceled`, `superseded`, and `missed` rows are
+  immutable history for coverage/as-of reads. A later policy correction creates
+  new work or a rework/correction record; it does not rewrite the closed row.
+
 ---
 
 ## SM-2 · Shift recompute
 **Trigger:** `goat.shifted` (shed change), emitted when `goats.shed_id`/`current_location_id` changes (and the committed `goat_location_history` row is written).
 
-**Steps (per pending obligation of the goat, status in `scheduled`/`due`):**
+**Steps (per pending obligation of the goat, status in `scheduled`/`due`/`deferred`):**
 1. Determine the goat's **new** `animal_stage` (from destination `shed_profiles.animal_stage_id` / cohort).
 2. Re-evaluate eligibility under the new stage for the **same vaccine/protocol**:
    - **Still eligible, dest batch open (same protocol_version, not completed):** re-point `obligation_instances.batch_id`/`scope_id` to the destination shed's batch.
@@ -50,7 +66,17 @@
    - **No longer eligible** (stage no longer matches the rule): `cancel` the obligation (status `canceled`, reason `ineligible_after_shift`); generate any newly-eligible obligations for the new stage (SM-1 path).
 3. **Never** blind-repoint across vaccines — re-point only within the same protocol/vaccine.
 
-**Invariants:** a goat's obligation can never reference a batch for a different protocol than its rule. Decrement old batch `estimated_targets`, increment new.
+**In-progress/completed shift edge:** SM-2 is not a post-hoc history rewrite.
+Open, unbatched rows and planned-batch rows can move because no field execution
+has begun. `in_progress` rows remain on the original execution batch/SOP task;
+if the dose is not accepted in time, the missed/rework path keeps it visible
+instead of silently moving it to the destination shed. `completed` rows remain
+accepted historical evidence at the original scope. Planned-batch repairs may
+decrement old batch `estimated_targets` and flag `shift_repair` stock release
+work; in-progress/completed batches are closed by proof, rework, missed, or
+explicit cancel/reversal policy only.
+
+**Invariants:** a goat's obligation can never reference a batch for a different protocol than its rule. Decrement old planned batch `estimated_targets`, increment new.
 **Idempotency:** keyed on `(goat, shift_event_id)`; re-delivery recomputes to the same end state.
 **Edge:** rapid double-shift → process in `occurred_at` order; final state reflects the latest shed.
 

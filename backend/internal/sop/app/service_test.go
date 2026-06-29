@@ -123,6 +123,25 @@ func TestEvaluateRequiresExpectedProofSubjects(t *testing.T) {
 	}
 }
 
+func TestValidateProofPolicyRetentionPolicy(t *testing.T) {
+	dsl := vaccinationDSL()
+	validPolicy := canonicalProofPolicy(true, "video")
+	validPolicy["retention_policy"] = "critical_7y"
+	if report := ValidateFormDSL(dsl, validPolicy); !report.Valid {
+		t.Fatalf("critical retention policy should validate: %#v", report.Errors)
+	}
+
+	invalidPolicy := canonicalProofPolicy(true, "video")
+	invalidPolicy["retention_policy"] = "delete_after_review"
+	report := ValidateFormDSL(dsl, invalidPolicy)
+	if report.Valid {
+		t.Fatalf("invalid retention policy should fail")
+	}
+	if len(report.Errors) == 0 || report.Errors[0].Field != "proof_policy.retention_policy" {
+		t.Fatalf("errors = %#v, want proof_policy.retention_policy", report.Errors)
+	}
+}
+
 func TestCreateVersionRejectsLegacyProofPolicyShape(t *testing.T) {
 	repo := newFakeRepo()
 	service := NewService(repo)

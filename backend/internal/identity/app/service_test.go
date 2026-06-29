@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -482,6 +483,26 @@ func TestCommitAdminGoatBulkRejectsUnrelatedValidFileHash(t *testing.T) {
 	}
 }
 
+func TestCommitAdminGoatBulkRejectsExpiredPreviewToken(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
+	token := validAdminGoatBulkPreviewTokenForRowAt(1, "RFID-EXPIRED-TOKEN", time.Now().Add(-adminGoatBulkPreviewTokenMaxAge-time.Minute), strings.Repeat("a", adminGoatBulkPreviewTokenNonceBytes*2))
+	_, err := svc.CommitAdminGoatBulkImport(context.Background(), CommitAdminGoatBulkInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "bulk-expired-preview",
+		TraceID:        testTrace,
+		RawBody:        []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q,"preview_token":%q}`, validAdminGoatCreateRaw("RFID-EXPIRED-TOKEN"), testBulkHash, token)),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_preview_token" {
+		t.Fatalf("err = %v, want invalid_preview_token", err)
+	}
+	if len(repo.createAdminGoatCmds) != 0 {
+		t.Fatalf("expired preview token must not create goats, calls=%d", len(repo.createAdminGoatCmds))
+	}
+}
+
 func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
@@ -496,6 +517,10 @@ func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
 	}
 	if resp.PreviewToken == "" {
 		t.Fatalf("preview token must be returned for commit binding")
+	}
+	tokenParts := strings.Split(resp.PreviewToken, ":")
+	if len(tokenParts) != 4 || tokenParts[0] != adminGoatBulkPreviewTokenV1 || len(tokenParts[2]) != adminGoatBulkPreviewTokenNonceBytes*2 {
+		t.Fatalf("preview token shape = %q, want version:issued_at:nonce:mac", resp.PreviewToken)
 	}
 	if resp.Summary.CreateReady != 1 || len(resp.Rows) != 1 {
 		t.Fatalf("summary=%#v rows=%d", resp.Summary, len(resp.Rows))
@@ -663,26 +688,28 @@ func TestHealthGoatBuildsLifecycleCommand(t *testing.T) {
 }
 
 func TestHealthGoatRejectsCriticalTargetBeforeRepository(t *testing.T) {
-	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
-	svc := NewService(repo)
+	for _, status := range []string{"quarantine", "icu"} {
+		repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
+		svc := NewService(repo)
 
-	_, err := svc.HealthGoat(context.Background(), HealthGoatInput{
-		TenantID:       testTenant,
-		ActorID:        testActor,
-		IdempotencyKey: "idem-health-critical-0001",
-		TraceID:        testTrace,
-		GoatID:         goatA,
-		RawBody:        []byte(`{"health_status":"quarantine","reason":"suspected contagious disease","evidence_refs":[{"evidence_type":"source_record","evidence_id":"health-ticket-2"}],"row_version":10}`),
-	})
-	var appErr *Error
-	if !errors.As(err, &appErr) {
-		t.Fatalf("HealthGoat error = %v, want app error", err)
-	}
-	if appErr.Code != "critical_health_transition_requires_guardrail" || appErr.HTTPStatus != 409 {
-		t.Fatalf("app error = %#v, want guardrail-required 409", appErr)
-	}
-	if repo.lastHealthGoatCmd.GoatID != "" {
-		t.Fatalf("repository should not be called for critical target, got %#v", repo.lastHealthGoatCmd)
+		_, err := svc.HealthGoat(context.Background(), HealthGoatInput{
+			TenantID:       testTenant,
+			ActorID:        testActor,
+			IdempotencyKey: "idem-health-critical-" + status,
+			TraceID:        testTrace,
+			GoatID:         goatA,
+			RawBody:        []byte(fmt.Sprintf(`{"health_status":%q,"reason":"suspected critical health state","evidence_refs":[{"evidence_type":"source_record","evidence_id":"health-ticket-2"}],"row_version":10}`, status)),
+		})
+		var appErr *Error
+		if !errors.As(err, &appErr) {
+			t.Fatalf("HealthGoat(%s) error = %v, want app error", status, err)
+		}
+		if appErr.Code != "critical_health_transition_requires_guardrail" || appErr.HTTPStatus != 409 {
+			t.Fatalf("HealthGoat(%s) app error = %#v, want guardrail-required 409", status, appErr)
+		}
+		if repo.lastHealthGoatCmd.GoatID != "" {
+			t.Fatalf("repository should not be called for critical target %s, got %#v", status, repo.lastHealthGoatCmd)
+		}
 	}
 }
 
@@ -837,6 +864,17 @@ func validAdminGoatBulkPreviewTokenForRow(rowNumber int, rfid string) string {
 		RowNumber:  rowNumber,
 		Normalized: validAdminGoatCreateRequest(rfid),
 	}}, defaultAdminGoatBulkPreviewSigningKey)
+	if err != nil {
+		panic(err)
+	}
+	return token
+}
+
+func validAdminGoatBulkPreviewTokenForRowAt(rowNumber int, rfid string, issuedAt time.Time, nonce string) string {
+	token, err := signAdminGoatBulkPreviewWithKeyAt(testTenant, testBulkHash, []domain.AdminGoatBulkCommitRow{{
+		RowNumber:  rowNumber,
+		Normalized: validAdminGoatCreateRequest(rfid),
+	}}, defaultAdminGoatBulkPreviewSigningKey, issuedAt, nonce)
 	if err != nil {
 		panic(err)
 	}

@@ -62,6 +62,12 @@ high-risk movement, or sale/allocation blocker state must either:
 - be limited to import/backfill paths that keep raw-source references without
   claiming guardrail-compliant canonical state
 
+Missing segregation-of-duties inputs are fail-closed. If a policy needs
+destination shed owner/manager mapping, requester/approver separation, or a
+second approver and those mappings are absent or conflicting, the action must
+block or create a process exception; it must not silently rely on the requester,
+direction author, or a guessed shed owner as the approval authority.
+
 A lower-level primitive being evidence-gated is useful, but it is not by itself
 permission to expose a critical workflow as live product behavior.
 
@@ -1231,8 +1237,14 @@ These must be confirmed before implementation:
 - whether post-mortem is mandatory for every quarantine/ICU death or only by
   severity
 - who verifies quarantine proof and who verifies death/investigation proof
-- human-PII policy for proof media: classification, access, export, redaction,
-  deletion/retention, and legal-hold behavior
+- proof/media retention policy: routine vaccination/SOP proof uses
+  `operational_90d`; standard non-critical operational proof uses
+  `standard_1y`; death, quarantine, ICU, contagious-isolation, high-value animal,
+  legal, and incident/investigation proof uses `critical_7y`; active
+  investigation/legal-hold proof uses `legal_hold` until the hold is released.
+  Raw media may expire by policy, but metadata, hash, audit link, verifier,
+  decision, and legal-hold state remain canonical. Human-PII media requires
+  role-gated access, export audit, and redaction before broad sharing.
 - policy owner, publish/rollback process, and effective-date behavior for each
   guardrail pack
 - feed-impact rules for urgent shiftings after the feed-direction cutoff

@@ -217,9 +217,10 @@ job, Secret Manager versions, IAM bindings) remain **external/provisioning
 blockers under the Mesha/VGoats `vgoats.com` org** — they are NOT local-code
 blockers, and none may be created/mutated from an unverified account/org/project.
 
-Local E2E is now green for Goal 1 via the 2026-06-29 run above. Google dev E2E
-remains Goal 2 and must not start until Goal 1 is fully committed, pushed, and
-the post-push gate is satisfied: GitHub Actions green when Actions can start, or
-the local CI-equivalent gate set in
+Local E2E is now green for the already-implemented Goal 1 local chain, but
+Google dev E2E remains Goal 2 and must not start until the Goal 1 handoff has
+zero active OCK/RVF rows, is fully committed and pushed, and the post-push gate
+is satisfied: GitHub Actions green when Actions can start, or the local
+CI-equivalent gate set in
 `context/execution/operational-kernel-stability-closure-handoff.md` when Actions
 is blocked by account/billing/spending-limit state.

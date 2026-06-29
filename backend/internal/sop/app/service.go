@@ -1180,6 +1180,9 @@ func validateProofPolicy(report *domain.ValidationReport, policy map[string]any,
 			addError(report, "proof_policy", "missing_proof_field", "proof policy requires a matching photo_proof or video_proof field")
 		}
 	}
+	if retention := stringValue(policy, "retention_policy"); retention != "" && !validProofRetentionPolicy(retention) {
+		addError(report, "proof_policy.retention_policy", "unsupported", "retention_policy must be operational_90d, standard_1y, critical_7y, or legal_hold")
+	}
 }
 
 func validProofSubjectScope(v string) bool {
@@ -1229,6 +1232,15 @@ func proofPolicyTypes(policy map[string]any) ([]string, bool) {
 func supportedProofType(v string) bool {
 	switch v {
 	case "photo", "video":
+		return true
+	default:
+		return false
+	}
+}
+
+func validProofRetentionPolicy(v string) bool {
+	switch strings.TrimSpace(v) {
+	case "", "operational_90d", "standard_1y", "critical_7y", "legal_hold":
 		return true
 	default:
 		return false

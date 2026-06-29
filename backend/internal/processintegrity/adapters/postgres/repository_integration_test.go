@@ -567,14 +567,14 @@ func TestProcessIntegrityAsOfTerminalEventReconstruction(t *testing.T) {
 		}
 	}
 
-	// missed proven at/before as_of -> missed (surfaces as blocked w/ gap missed).
-	mustState(piTeBatchBefore, domain.WorkStateBlocked)
+	// missed proven at/before as_of -> missed, not dependency/stock blocked.
+	mustState(piTeBatchBefore, domain.WorkStateMissed)
 	// future-only terminal event -> still open at as_of -> overdue.
 	mustState(piTeBatchFuture, domain.WorkStateOverdue)
-	// no terminal history -> trust stored status -> missed/blocked.
-	mustState(piTeBatchNoEvt, domain.WorkStateBlocked)
-	// churn: latest terminal at/before as_of wins -> missed/blocked (NOT overdue).
-	mustState(piTeBatchChurn, domain.WorkStateBlocked)
+	// no terminal history -> trust stored missed status.
+	mustState(piTeBatchNoEvt, domain.WorkStateMissed)
+	// churn: latest terminal at/before as_of wins -> missed (NOT overdue).
+	mustState(piTeBatchChurn, domain.WorkStateMissed)
 }
 
 func rowByBatchSubstr(rows []domain.Row, batchID string) *domain.Row {

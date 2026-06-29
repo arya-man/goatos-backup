@@ -59,6 +59,8 @@ func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (d
 			summary.Rejected++
 		case domain.WorkStateDeferred:
 			summary.Deferred++
+		case domain.WorkStateMissed:
+			summary.Missed++
 		case domain.WorkStateBlocked:
 			summary.Blocked++
 		case domain.WorkStateOwnerMissing:
@@ -181,7 +183,7 @@ func cellWorkState(r domain.OperationsRow) domain.WorkState {
 	case r.ProofPendingCount > 0:
 		return domain.WorkStateProofPending
 	case r.MissedCount > 0:
-		return domain.WorkStateBlocked
+		return domain.WorkStateMissed
 	case r.OverdueCount > 0:
 		return domain.WorkStateOverdue
 	case r.DueCount > 0:
@@ -200,24 +202,26 @@ func operationsRank(w domain.WorkState) int {
 	switch w {
 	case domain.WorkStateOverdue:
 		return 0
-	case domain.WorkStateBlocked:
+	case domain.WorkStateMissed:
 		return 1
-	case domain.WorkStateRejected:
+	case domain.WorkStateBlocked:
 		return 2
-	case domain.WorkStateProofPending:
+	case domain.WorkStateRejected:
 		return 3
-	case domain.WorkStateVerificationPending:
+	case domain.WorkStateProofPending:
 		return 4
-	case domain.WorkStateDue:
+	case domain.WorkStateVerificationPending:
 		return 5
-	case domain.WorkStateInProgress:
+	case domain.WorkStateDue:
 		return 6
-	case domain.WorkStateScheduled:
+	case domain.WorkStateInProgress:
 		return 7
-	case domain.WorkStateDeferred:
+	case domain.WorkStateScheduled:
 		return 8
-	default: // completed
+	case domain.WorkStateDeferred:
 		return 9
+	default: // completed
+		return 10
 	}
 }
 
@@ -265,7 +269,7 @@ func workState(p domain.ExecutionProjection, q domain.ExecutionQuery) domain.Wor
 		return domain.WorkStateDeferred
 	}
 	if p.MissedCount > 0 {
-		return domain.WorkStateBlocked
+		return domain.WorkStateMissed
 	}
 	if p.OperatorName == nil && p.CompletedCount < p.ObligationCount {
 		return domain.WorkStateOwnerMissing
@@ -318,7 +322,7 @@ func severity(workState domain.WorkState) domain.Severity {
 		return domain.SeverityOK
 	case domain.WorkStateScheduled, domain.WorkStateDue, domain.WorkStateInProgress, domain.WorkStateDeferred, domain.WorkStateVerificationPending:
 		return domain.SeverityWatch
-	case domain.WorkStateProofPending, domain.WorkStateOverdue:
+	case domain.WorkStateProofPending, domain.WorkStateOverdue, domain.WorkStateMissed:
 		return domain.SeverityAtRisk
 	default:
 		return domain.SeverityBroken
@@ -426,10 +430,9 @@ func nextAction(p domain.ExecutionProjection, workState domain.WorkState) string
 		return "No action - drive verified"
 	case domain.WorkStateRejected:
 		return "Review rejection and request rework"
+	case domain.WorkStateMissed:
+		return "Escalate missed dose to PHC"
 	case domain.WorkStateBlocked:
-		if p.MissedCount > 0 {
-			return "Escalate missed dose to PHC"
-		}
 		return "Resolve blocker before execution"
 	case domain.WorkStateDeferred:
 		return "Confirm defer reason with PHC"

@@ -41,7 +41,7 @@ func TestListVaccinationExecutionParsesQueryAndResponds(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader))
 
-	req := httptest.NewRequest(http.MethodGet, "/vaccination/execution?park_id=30000000-0000-4000-8000-000000000001&work_state=overdue&due_before=2026-07-01T00:00:00Z&limit=9000", nil)
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/execution?park_id=30000000-0000-4000-8000-000000000001&work_state=missed&due_before=2026-07-01T00:00:00Z&limit=9000", nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -55,7 +55,7 @@ func TestListVaccinationExecutionParsesQueryAndResponds(t *testing.T) {
 	if reader.last.ParkID == nil || *reader.last.ParkID != "30000000-0000-4000-8000-000000000001" {
 		t.Fatalf("park id = %v", reader.last.ParkID)
 	}
-	if reader.last.WorkState == nil || *reader.last.WorkState != domain.WorkStateOverdue {
+	if reader.last.WorkState == nil || *reader.last.WorkState != domain.WorkStateMissed {
 		t.Fatalf("work state = %v", reader.last.WorkState)
 	}
 	if reader.last.Limit != maxExecutionLimit {
@@ -75,7 +75,7 @@ func TestListVaccinationExecutionRejectsInvalidQuery(t *testing.T) {
 	Register(mux, NewHandler(&fakeReader{}))
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution?work_state=missed", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution?work_state=not_a_state", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid work_state status = %d want 400", rec.Code)
 	}
