@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -135,6 +136,10 @@ func TestNotificationRepositoryFinalFailureWritesAuditAndOutbox(t *testing.T) {
 	}
 	if err := repo.MarkFailed(ctx, testTenantID, requestID, claimed[0].LeaseToken, "test-dispatcher", "synthetic exhausted", nil, now.Add(time.Minute)); err != nil {
 		t.Fatalf("MarkFailed final: %v", err)
+	}
+	replayErr := repo.MarkFailed(ctx, testTenantID, requestID, claimed[0].LeaseToken, "test-dispatcher", "synthetic exhausted replay", nil, now.Add(2*time.Minute))
+	if replayErr == nil || !strings.Contains(replayErr.Error(), "mark failed claim missing") {
+		t.Fatalf("MarkFailed final replay error=%v, want claim missing", replayErr)
 	}
 	assertNotificationState(t, ctx, pool, requestID, "exhausted", 5, true)
 	assertCount(t, ctx, pool, "notification exhausted audit", `
