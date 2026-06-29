@@ -35,7 +35,8 @@ Request shape:
 tenant_id
 park_id
 as_of or target_date
-grain: shed + breed + stage/tag
+grain: shed + breed
+reviewed_shed_tag_context optional, derived from shed reference data for ration lookup
 horizon: realized | one_day_projection
 consumer: feed_direction
 consumer_version / protocol_version_id
@@ -48,7 +49,7 @@ tenant_id
 park_id
 shed_id
 breed_id
-stage_tag_id
+shed_tag_context_id nullable, derived
 head_count
 projection_horizon
 source_contract_version
@@ -67,7 +68,7 @@ Preferred aggregate-ledger tables:
 
 | Table | Purpose |
 | --- | --- |
-| `count_base_anchors` | Physical count anchor by tenant, park, shed, breed, stage/tag, counted_at, actor/source/evidence hash |
+| `count_base_anchors` | Physical count anchor by tenant, park, shed, breed, counted_at, actor/source/evidence hash |
 | `shifting_events` | Append-only movement header with logical key, priority, category, source/destination, raised/effective time, authorization, proof, verification, status |
 | `shifting_event_impacts` | Structured stage/cohort deltas; no free-text comments as policy truth |
 | `count_projection_snapshots` | Optional cached projection by tenant, park, date/as_of, grain, horizon, source hash |
@@ -79,6 +80,12 @@ use active `goat_identifiers`, authoritative `goat_location_history`, and
 reviewed location/stage reference data to produce the same aggregate output
 without full-herd scans. Even then, Feed still consumes this port and snapshot
 shape, and unresolved RFID, identifier, or location confidence fails closed.
+
+Initial closure must use aggregate ledger/projection output at shed + breed
+grain. Shed tag/ration context can be joined from reviewed shed reference data;
+it is not a separate Base Count grain. Per-goat derivation is a future
+replacement only after RFID-to-shed is implemented, confidence-gated,
+scale-tested, and owner-approved.
 
 ## 4. Horizon Rules
 
@@ -92,13 +99,16 @@ events remain visible process work and do not change quantities.
 A new physical Base Count becomes the next anchor immediately. The discrepancy
 between replayed count and physical count becomes investigation work; it does not
 block the physical anchor.
+Base Count cadence is reviewed policy or schedule config. Source history moved
+from roughly weekly to roughly monthly physical counts, so do not hardcode a
+fixed weekly or monthly cadence in the worker/projection model.
 
 ## 5. Idempotency And Replay
 
 Required keys:
 
 ```text
-base_count_anchor: tenant + park + shed + breed + stage_tag + counted_at + source_hash
+base_count_anchor: tenant + park + shed + breed + counted_at + source_hash
 shifting_event: tenant + logical_shifting_event_key
 shifting_impact: tenant + shifting_event_id + grain_key
 projection_snapshot: tenant + horizon + park + date/as_of + grain + source_hash
@@ -170,6 +180,7 @@ instead of a single opaque Counts/Shifting status.
 Non-negotiable tests:
 
 - Base Count adoption despite discrepancy investigation.
+- Base Count cadence read from policy/config instead of a hardcoded interval.
 - ShiftingEvent idempotency by logical key.
 - Same key/different payload conflict.
 - Missing structured impact fails closed.
@@ -181,6 +192,9 @@ Non-negotiable tests:
 - Count mismatch/unreported shifting creates exception work.
 - Projection snapshot source hash changes after input change.
 - Feed consumes immutable projection snapshot and does not mutate past runs.
+- Initial Feed projection output stays aggregate shed + breed grain, with shed
+  tag/ration context sourced from reviewed shed reference data, and does not
+  depend on RFID-to-shed per-goat derivation.
 - Query-plan checks for widest allowed projection/read paths.
 - Worker observability checks for latency, lag, retry, DLQ, exception, and
   stale-projection metrics.

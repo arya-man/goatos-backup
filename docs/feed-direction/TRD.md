@@ -39,7 +39,7 @@ Committed and reusable:
 Not operational yet:
 
 - No canonical Counts/Shifting horizon-aware aggregate projection contract for
-  shed + breed + stage/tag counts.
+  shed + breed counts plus reviewed shed-tag/ration context.
 - No non-UI RationTable solver or reviewed solver-output import with provenance.
 - No feed generation run model or worker.
 - No Feed Direction obligation creation.
@@ -100,10 +100,16 @@ needs. A Feed implementation must therefore first choose and implement one of
 these contracts:
 
 1. A Counts/Shifting-owned aggregate realized ledger plus horizon-aware
-   projection at tenant + park + shed + breed + stage/tag + effective time.
+   projection at tenant + park + shed + breed + effective time, with reviewed
+   shed-tag/ration context joined from shed reference data.
 2. A derivation from per-goat location history, only after RFID-to-shed
    association through `goat_identifiers` and `goat_location_history` is reliable
    enough to produce the same aggregate counts without full-herd scans.
+
+The initial Feed Direction build must take the aggregate-ledger path. The
+per-goat derivation remains a future replacement option only after RFID-to-shed
+association is separately implemented, confidence-gated, scale-tested, and
+owner-approved.
 
 Until one contract exists, Feed generation must remain blocked even if protocol
 rules, obligations, and completion records exist.
@@ -222,6 +228,15 @@ The protocol publish gate must reject Feed Direction ration rules unless
 the publisher has `protocol.publish.feed_direction` or the approved service
 equivalent. "Reviewed import" alone is not enough for live obligations.
 
+Ration solver limits are hard scope, not implementation blanks. The first build
+supports feed-type-level constraints only. Item-level feed ceilings and
+palatability modeling are deferred. The `60:40` structural ratio applies only to
+Milking and Fattening tags; roughage/category floor numbers are examples until
+confirmed per tag. Do not add a paired overshoot ceiling; source logic relies on
+cost minimization. When feed costs or feed-type availability changes, the
+reviewed re-solve replaces the RationTable output wholesale, with no versioned
+blend of old and new rows.
+
 ## 4. Minimal new persistence
 
 Use migration numbers after the current tail. At the time of this correction,
@@ -232,10 +247,10 @@ Candidate tables, to finalize during implementation:
 | Table | Purpose | Notes |
 | --- | --- | --- |
 | `feed_direction_generation_runs` | One row per full or Diff generation attempt | `run_kind` full/diff, target date, cutoff window, status, idempotency key, source hash, actor/job metadata |
-| `feed_direction_count_input_rows` | Snapshot of the Counts/Shifting projection consumed by a run | Grain: tenant, run, park, shed, target date, breed, stage/shed tag, headcount, source contract/version/hash, realized vs projection horizon |
+| `feed_direction_count_input_rows` | Snapshot of the Counts/Shifting projection consumed by a run | Grain: tenant, run, park, shed, target date, breed, headcount, reviewed shed-tag/ration context, source contract/version/hash, realized vs projection horizon |
 | `feed_direction_generation_rows` | Source/planning snapshot used to create obligations | Grain: tenant, run, park, shed, target date, session, breed, stage/shed tag, feed item, as-fed quantity, row kind full/diff/restatement, optional source-facing net correction quantity |
 | `feed_direction_stage_records` | Typed stage outcome rows, or replaced only by an indexed obligation-context/completion-stage projection with the same durable discriminator | Stage kind packing/transport/consumption/wastage/bridge, planned vs actual quantities, consumed/wasted/variance, proof refs, verifier status, rejection reason, rework link |
-| `feed_direction_bridge_events` | High-priority post-cutoff 2x-ration bridge log | Destination shed, animal or aggregate count, source shed tag, feed quantities, proof/submission links |
+| `feed_direction_bridge_events` | Manual high-priority post-cutoff 2x-ration bridge log | Destination shed, animal id or approved aggregate reference, timestamp, quantity, source shed tag where known, proof/submission links, reconciliation state |
 | `feed_direction_projection_rows` | Read model for admin/mobile lists and command buckets | Bounded by tenant, park, date, shed, session, status, bucket, owner, cursor key |
 
 If the implementation can derive a read model directly from generic obligations,
@@ -306,12 +321,15 @@ High-priority additions after the cutoff use the manual bridge protocol:
 priority=High AND raised_at > cutoff AND destination_shed added animals
   -> health/feed team places 2x daily ration at destination shed
   -> proof captured through SOP path
-  -> bridge event logged against destination shed/feed record
+  -> manual bridge log recorded against destination shed/feed record
   -> no source-shed claw-back
   -> normal Day N+2 full direction absorbs the change
 ```
 
-Do not implement the superseded 07:30 next-morning Diff design.
+Do not implement the superseded 07:30 next-morning Diff design. Bridge rows are
+logs of a manual video-confirmed SOP only. They must not generate source-shed
+claw-back, a bridge Diff, or any extra system-mediated instruction outside the
+normal Day N+2 catch-up direction.
 
 <a id="feed-direction-inventory-app-anchors"></a>
 
@@ -512,6 +530,12 @@ Other parity rules:
 
 - Session split is currently 50/50 by source priority, but legacy per-farm
   templates must be reviewed or explicitly superseded before implementation.
+- Base Count cadence has source history moving from roughly weekly to roughly
+  monthly. Treat cadence as reviewed policy or schedule config, never as a code
+  constant.
+- Feed Direction, Diff, packing, and field surfaces show as-fed gross
+  quantities only. `wastage_factor` and `DM_factor` remain internal nutrition
+  accounting inputs and must not appear as field-facing instruction quantities.
 - Legacy feed rounding grain, Warmup handling, K0/K1 exclusions, F2/Fattening
   alias handling, breed remaps, transport consolidation, discrepancy thresholds,
   retry/dedupe behavior, and processed-flag behavior must be captured as
@@ -529,7 +553,10 @@ idempotency keys, and audit/outbox evidence.
 
 ## 10. Admin-web and mobile constraints
 
-- Feed Direction operational UI remains gated by the admin-web scope lock.
+- `G1` is reopened for Feed Direction build as of 2026-06-30. The old
+  admin-web scope lock tied to PHC/Vaccination review is satisfied for
+  sequencing; Google dev vaccination rollout remains separate Goal 2 and does
+  not block Feed Direction.
 - Current Config may keep internal Feed DSL code paths only if the backend page
   contract does not expose `feed_direction` as a visible category.
 - The current Feed mock is static and stale on timing/nav labels; it does not
@@ -566,12 +593,22 @@ idempotency keys, and audit/outbox evidence.
 ## 12. Acceptance gates
 
 - Unit tests for ration key normalization and Diff/bridge decision tables.
+- Unit tests for the ration do-not-resolve rules: feed-type-level constraints
+  only, Milking/Fattening-only `60:40`, no paired overshoot ceiling, deferred
+  item-level ceilings, and wholesale RationTable replacement after re-solve.
 - Unit tests for feed eligibility exclusions, rounding grain/zero transforms,
   transport consolidation mapping, variance thresholds, and structured shifting
   cohort impact fail-closed behavior.
+- Integration tests that keep initial count projection at aggregate shed + breed
+  grain, join shed-tag/ration context from reviewed reference data, and fail if
+  RFID-to-shed per-goat derivation becomes an implicit dependency.
 - Integration tests for Counts/Shifting input snapshots, generation idempotency,
   affected-shed restatement, explicit stale-obligation cancel,
   reserve/consume/release, stage proof verification, and packing rework.
+- Integration tests for as-fed gross field outputs, proving `wastage_factor` and
+  `DM_factor` are internal only and never alter packing/field instruction copy.
+- Bridge tests prove manual log/proof/reconciliation behavior and no generated
+  `07:30` next-morning Diff or source-shed claw-back.
 - Integration tests for reminder/escalation SLA, NotificationGateway routing,
   missed/recovery events, audit rows, observability counters, and command-lens
   field mapping.
@@ -587,7 +624,7 @@ idempotency keys, and audit/outbox evidence.
 - SQL plan validation for hot list/filter queries.
 - Local end-to-end proof through Postgres, API, outbox/consumer or documented
   local equivalent, sweeper/job, SOP submission, verification, and read model.
-- UI visual smoke only after scope reopens and the mock is updated or explicitly
+- UI visual smoke under reopened `G1` after the mock is updated or explicitly
   superseded for stale Feed labels; the smoke must inspect mock anatomy, hover,
   focus, pagination, buttons, typography, and responsive layout.
 
@@ -595,9 +632,9 @@ idempotency keys, and audit/outbox evidence.
 
 Use the canonical gate table in
 [DEPENDENCY-CLOSURE-PRD.md](./DEPENDENCY-CLOSURE-PRD.md) rather than maintaining
-a separate blocker list. Technical implementation may start only for hidden
-backend prep allowed by `G1`; full Feed Direction backend readiness requires
-`G2`-`G17` to be closed or explicitly marked deferred with owner approval. `G15`
+a separate blocker list. Technical implementation may start under reopened
+`G1`; full Feed Direction backend readiness requires `G2`-`G17` to be closed or
+explicitly marked deferred with owner approval. `G15`
 closure specifically includes resolving or explicitly deferring the
 vaccination-locked Calendar projection blocker. The next migration number is a
 build-time check after the live repo tail, currently `000117`, is reverified.

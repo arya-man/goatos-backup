@@ -69,7 +69,8 @@ Required request shape:
 tenant_id
 park_id
 target_date or as_of
-grain: shed + breed + stage/tag
+grain: shed + breed
+reviewed_shed_tag_context optional, derived from shed reference data for ration lookup
 horizon: realized | one_day_projection
 protocol_version_id or source_hash consumer tag
 ```
@@ -81,7 +82,7 @@ tenant_id
 park_id
 shed_id
 breed_id
-stage_tag_id
+shed_tag_context_id nullable, derived
 head_count
 projection_horizon
 source_contract_version
@@ -106,7 +107,7 @@ Candidate tables owned by Counts/Shifting:
 
 | Table | Purpose |
 | --- | --- |
-| `count_base_anchors` | Physical count anchor by tenant, park, shed, breed, stage/tag, counted_at |
+| `count_base_anchors` | Physical count anchor by tenant, park, shed, breed, counted_at |
 | `shifting_events` | Append-only movement events with priority, category, effective time, authorization, source/destination, proof/verification state |
 | `shifting_event_impacts` | Structured cohort/stage deltas per event; no free-text policy decisions |
 | `count_projection_snapshots` | Optional cached output for tenant/park/date/grain with source hash |
@@ -126,9 +127,15 @@ Allowed only after RFID-to-shed association and committed GoatOS identity/locati
 state can prove the same aggregate grain without full-herd scans. This path must
 join active identifiers from `goat_identifiers`, authoritative movement/location
 history from `goat_location_history`, and reviewed shed/stage reference data into
-bounded tenant + park + shed + breed + stage/tag aggregates. It still must expose
-the same `CountProjectionProvider` interface and snapshot rows, and it must fail
-closed if RFID, identifier, or location confidence cannot support the aggregate.
+bounded tenant + park + shed + breed aggregates plus reviewed shed-tag/ration
+context. It still must expose the same `CountProjectionProvider` interface and
+snapshot rows, and it must fail closed if RFID, identifier, or location
+confidence cannot support the aggregate.
+
+This alternative is out of initial Feed Direction scope. The first build must
+consume aggregate shed + breed projections, with shed-tag/ration context joined
+from reviewed shed reference data; RFID-to-shed per-goat derivation can only
+replace that after separate implementation, scale proof, and owner approval.
 
 ### 3.3 Horizon Rules
 
@@ -147,6 +154,10 @@ exclude from one-day projection
 raise count_projection_exception
 preserve raw comments as audit only
 ```
+
+Base Count cadence is not a hardcoded interval. Source history moved from
+roughly weekly to roughly monthly physical counts, so cadence must live in
+reviewed policy or ops schedule config.
 
 ## 4. Ration Provenance Contract
 
@@ -207,6 +218,14 @@ stage/breed transforms must be captured as reviewed config or explicit
 Feed-Director exclusions. Do not treat automation zero rows as automatic policy
 authority.
 
+Initial solver scope is feed-type-level only: hard floor/ceiling, structural
+ratio, category floor, and quantity floor. Item-level feed ceilings and
+palatability modeling are deferred. The `60:40` structural ratio applies only to
+Milking/Fattening tags, roughage/category floor values such as 30 percent must be
+confirmed per tag before hardcoding, cost minimization means no paired overshoot
+ceiling is needed, and a reviewed re-solve replaces the RationTable output
+wholesale with no versioned blend.
+
 ## 5. Feed Generation Persistence
 
 Add only the feed-specific tables the generic kernel cannot naturally represent.
@@ -215,10 +234,10 @@ Candidate tables after the current migration tail:
 
 | Table | Required | Purpose |
 | --- | --- | --- |
-| `feed_direction_generation_runs` | yes | Full/Diff/bridge-log run header, idempotency, source hash, status |
+| `feed_direction_generation_runs` | yes | Full/Diff run header and manual bridge-log header where needed, idempotency, source hash, status |
 | `feed_direction_count_input_rows` | yes | Immutable projection snapshot consumed by the run |
 | `feed_direction_generation_rows` | yes | Canonical shed/session/feed/cohort instruction rows |
-| `feed_direction_bridge_events` | yes | Post-cutoff high-priority addition bridge log |
+| `feed_direction_bridge_events` | yes | Manual post-cutoff high-priority addition bridge log; not a generated bridge Diff |
 | `feed_direction_projection_rows` | maybe | Materialized cursor read model if generic joins are too expensive |
 | `feed_direction_stage_records` | yes/equivalent | Required typed `stage_kind` and detail projection unless an indexed obligation-context or completion-stage record supplies the same discriminator |
 
@@ -237,11 +256,15 @@ feed_item_id
 quantity_base_units
 display_unit
 quantity_unit
-row_kind: full | diff_restatement | bridge
+row_kind: full | diff_restatement | bridge_log_reference
 source_facing_net_delta_base_units nullable
 active_instruction_key
 superseded_by_run_id nullable
 ```
+
+Here `stage_tag_id` is the ration/shed-tag context resolved from reviewed shed
+reference data for the generation row. It is not part of the physical Base Count
+anchor, which remains aggregate shed + breed.
 
 Quantity convention for first build:
 
@@ -249,6 +272,9 @@ Quantity convention for first build:
 - liquids: milliliters as integer base units;
 - generation rows store immutable `quantity_base_units` plus `quantity_unit`;
 - display conversion belongs to API/UI contracts;
+- Feed Direction, Diff, packing, and field contracts display as-fed gross
+  quantities only; `wastage_factor` and `DM_factor` stay internal to nutrient
+  accounting and cannot surface as field-facing instruction quantities;
 - inventory stock and movement rows remain the committed SQL shape:
   `numeric` quantity columns plus `quantity_unit`;
 - the current inventory app port still accepts whole `int64` quantities, so Feed
@@ -313,6 +339,9 @@ Legacy two-cycle Diff behavior is cutover evidence, not the target runtime. The
 June source model keeps the Day N 09:00 full direction, Day N 13:30 cutoff, Day
 N 13:30-13:45 Diff, and post-cutoff bridge/no-claw-back protocol unless Feed
 Director explicitly reverses it.
+Do not implement the superseded `07:30` next-morning system Diff for
+high-priority bridge additions. Bridge handling is manual SOP proof and
+exception logging only.
 
 ## 8. Stage Model
 
@@ -354,7 +383,7 @@ Stage detail requirements:
 | Packing | `stage_kind='packing'`, planned quantity, actual packed, proof, verifier, discrepancy, shortfall, rejection, rework |
 | Transport | `stage_kind='transport'`, transport shed, mapped direction sheds, checklist/list entity where needed, proof media, verifier, rejection reason, rework |
 | Consumption/wastage | `stage_kind='consumption_wastage'`, planned packed, consumed, wasted, difference, wastage percent, proof, verifier |
-| Bridge | `stage_kind='bridge_exception'`, destination shed, source event, 2x ration quantity, proof, reconciliation link |
+| Bridge | `stage_kind='bridge_exception'`, destination shed, source event, animal id or approved aggregate reference, timestamp, 2x ration quantity, proof, reconciliation link |
 
 If these details do not fit cleanly in SOP submission items and completion
 metadata, add `feed_direction_stage_records` as typed detail rows linked to the
@@ -530,19 +559,20 @@ Add backend-owned contracts before UI work:
 | `POST /feed-direction/stages/{obligation_id}/proof` | Stage proof submission through SOP/proof path |
 | `POST /feed-direction/stages/{obligation_id}/verify` | Accept/reject/rework stage proof |
 | `POST /feed-direction/stages/{obligation_id}/recover` | Create or resolve recovery/rework after missed/rejected state |
-| `GET /feed-direction/bridge-events` | Bridge exception list and reconciliation state |
+| `GET /feed-direction/bridge-events` | Manual bridge exception list with destination shed, animal id or approved aggregate reference, timestamp, quantity, proof, and reconciliation state |
 
 OpenAPI and generated clients must be updated in the same build slice. Labels,
 filters, status copy, disabled reasons, and pagination semantics are backend
 owned.
 
 Frontend implementation must consume these contracts through generated clients.
-When `G1` reopens UI, mock anatomy still governs visual execution: pagination,
-buttons, icons, typography, spacing, colors/tokens, hover/active/focus/disabled
-states, drawers, filters, tables, empty/error states, and proof/status surfaces
-must match `mock/goatos-dashboard-mock.html` or a deliberately updated Feed
-mock. Do not ship a Feed UI that is only functionally wired but visually plainer
-than the Mesha mock system.
+`G1` is reopened for Feed Direction build as of 2026-06-30, but mock anatomy
+still governs visual execution: pagination, buttons, icons, typography, spacing,
+colors/tokens, hover/active/focus/disabled states, drawers, filters, tables,
+empty/error states, and proof/status surfaces must match
+`mock/goatos-dashboard-mock.html` or a deliberately updated Feed mock. Do not
+ship a Feed UI that is only functionally wired but visually plainer than the
+Mesha mock system.
 
 Command-lens rows must expose at least:
 
@@ -675,7 +705,8 @@ Required tests/checks:
    stub that fails closed with explicit `G2` readiness state.
 2. Add ration DSL validators, provenance requirements, Warmup/K0/K1/Experiment
    sign-off, and quantity/precision decisions.
-3. Add generation run/count snapshot/generation row/bridge migrations.
+3. Add generation run/count snapshot/generation row/manual bridge-log
+   migrations.
 4. Build full generation service and idempotency tests.
 5. Build Diff service and stale-obligation cancel/supersede helper.
 6. Build stage obligations, durable `stage_kind`, and proof/rework wiring.
@@ -687,9 +718,10 @@ Required tests/checks:
 10. Add exception threshold policy and variance tests.
 11. Add APIs, OpenAPI, generated clients, read models, command-lens field map,
    and plan checks.
-12. Only after `G1` reopens scope, update mock anatomy, build frontend, run
+12. Under reopened `G1`, update mock anatomy, build frontend, run
     `npm --prefix apps/admin-web run check:mock-fidelity`, and capture rendered
-    desktop/mobile visual proof.
+    desktop/mobile visual proof after Feed-owned backend contracts and source
+    data gates make the surface truthful.
 13. Run the build-to-done review gate from
     [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md): source/wiki parity,
     legacy/cutover/security, backend architecture, frontend fidelity, seeded E2E,
@@ -712,7 +744,8 @@ Required tests/checks:
 - Rounding and as-fed output; no DM/wastage field-facing quantities.
 - Generation idempotency.
 - Diff restatement plus zero stale open obligations.
-- Bridge decision table.
+- Bridge decision table proving manual log/proof/reconciliation only, with no
+  generated `07:30` next-morning Diff and no source-shed claw-back.
 - Durable `stage_kind` supports packing, transport, consumption/wastage, bridge,
   and execution-bucket queries without label parsing.
 - Packing discrepancy rework tests cover both legacy alert/reset evidence and

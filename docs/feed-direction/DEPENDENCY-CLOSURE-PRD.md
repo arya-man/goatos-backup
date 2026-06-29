@@ -27,18 +27,20 @@ mock UI, legacy Slack state, or unscoped Counts work is product truth.
 
 ## 2. Scope Gate
 
-Feed Direction operational UI remains gated by the current admin-web scope lock.
-This dependency phase may prepare backend contracts, tables, workers, tests, and
-source-backed config. It must not expose active Feed Direction UI, Feed Config
-categories, SOP cards, or command-room routes until the owner explicitly reopens
-Feed Direction after the current PHC/Vaccination scope is reviewed and approved.
+`G1` is reopened for Feed Direction build as of 2026-06-30. The older pause tied
+to PHC/Vaccination UI and foundation review is satisfied by the local Goal 1
+vaccination/kernel closure documented in
+`context/execution/operational-kernel-stability-closure-handoff.md`. Do not keep
+using the older pause wording as a live blocker.
 
-Gate `G1` blocks operational launch, visible UI, and active Config/SOP exposure.
-It does not block backend contract preparation, source analysis, migrations, or
-testable local worker/read-model work that remains hidden behind the scope gate.
+Google dev rollout, clean-slate seeding, and Google E2E are a separate Goal 2
+gate. They must not be claimed as done from local evidence, but they do not block
+starting Feed Direction.
 
-The result of this phase is "Feed Direction ready for backend build", not "Feed
-Direction shipped". UI build remains behind `G1`.
+The reopened `G1` does not remove Feed Direction's own gates. Active Feed UI,
+Feed Config categories, SOP cards, and command-lens surfaces must still be
+backed by source-backed or clearly marked local-dev data, backend-owned
+contracts, mock-fidelity, rendered visual proof, and the `G2`-`G17` closure path.
 
 ## 3. Source Base
 
@@ -46,7 +48,7 @@ Use these source families before asking the business to answer from memory:
 
 | Source family | Use in this phase |
 | --- | --- |
-| `Feed, Shiftings and Count.docx` v1.1 | Primary source for count/shifting ledger, one-day projection, timing, Diff, bridge, as-fed quantities, and ration model |
+| `Feed, Shiftings and Count.docx` v1.1 | Primary source for count/shifting ledger, one-day projection, timing, Diff, manual bridge SOP/logging, as-fed quantities, and ration model |
 | Other feed-relevant wiki/source findings | Goats & Parks tags, Counting DB reconstruction, Shifting reports, Feed Director ops, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
 | Legacy Slack/App Script feed automation | Feature inventory for packing, consumption, transport, verification, reset/re-send, retries, dedupe, notifications, and security/cutover evidence |
 | GoatOS protocol/kernel docs and committed code | Obligations, batches, SOP proof, inventory ledger, outbox, scheduler, notifications, read models, scale gates, RBAC, OpenAPI, and generated clients |
@@ -72,8 +74,8 @@ questions must reference these IDs rather than maintaining independent lists.
 
 | ID | Gate | Required outcome | Type |
 | --- | --- | --- | --- |
-| G1 | Scope launch gate | Owner explicitly reopens Feed Direction beyond the PHC/Vaccination review slice before any active Feed UI, Config category, SOP card, or command-room route is exposed | Owner |
-| G2 | Counts/Shifting long pole | Counts/Shifting closure PRD/TRD is accepted and implemented enough to expose Base Count anchors, realized ShiftingEvent ledger, one-day projection, idempotency, fail-closed exceptions, and `CSG1`-`CSG10` readiness breakdown under `G2` | Backend/source |
+| G1 | Scope launch gate | Reopened as of 2026-06-30 because local PHC/Vaccination UI/foundation closure is accepted for Feed Direction sequencing. Google dev vaccination rollout remains separate Goal 2 and is not required before Feed starts. Active Feed UI/Config/SOP exposure still requires Feed-owned backend contracts, mock fidelity, rendered proof, and `G2`-`G17` closure. | Owner |
+| G2 | Counts/Shifting long pole | Counts/Shifting closure PRD/TRD is accepted and implemented enough to expose aggregate Base Count anchors, realized ShiftingEvent ledger, one-day projection at shed + breed grain, reviewed shed-tag/ration context, idempotency, fail-closed exceptions, and `CSG1`-`CSG10` readiness breakdown under `G2`. RFID-to-shed per-goat derivation is out of initial Feed scope. | Backend/source |
 | G3 | Clock and legacy trigger inventory | Feed Director signs off park-level publish, cutoff, staging, serving, retry, archive, and parity/cutover treatment for canonical `09:00`/`13:30`/`15:00` clocks plus legacy `07:30`, `14:45`, `06:30`, `07:15`, `14:15`, `00:15`, `23:45`, and `07:00` trigger windows | Owner |
 | G4 | Ration source/provenance | Solver/import path, ration values, aliases, feed vectors, constraints, approval metadata, and publish authority checks are defined | Source/owner |
 | G5 | Eligibility and stage-tag policy | Warmup 14-day transition tags, ICU, Quarantine, Flushing, Breeding, K0/K1, Experiment sheds, F2/Fattening, SIROHI->Beetal or other breed aliases, and per-farm session/feed-set retention are explicitly approved or excluded | Source/owner |
@@ -103,7 +105,8 @@ DB rows.
 
 The contract must expose:
 
-- Physical Base Count anchors by tenant, park, shed, breed, and stage/tag.
+- Physical Base Count anchors by tenant, park, shed, and breed.
+- Reviewed shed-tag/ration context for joining aggregate counts to ration lookup.
 - Append-only ShiftingEvents with source, destination, priority, category,
   raised/effective time, authorization, completion/proof/verification state, and
   structured cohort/stage impact.
@@ -114,9 +117,16 @@ The contract must expose:
 - Count-mismatch/unreported-shifting detection as process exception work.
 - Breed/stage alias normalization before aggregate counts feed ration lookup.
 
+This is aggregate-first. RFID-to-shed per-animal association is a future
+replacement path only after separately proven identity/location confidence; it is
+not hidden work inside initial Feed Direction.
+
 A new physical Base Count becomes the new anchor immediately. Discrepancy
 investigation creates accountability/process work, but it does not block the
 physical count from becoming the next ledger anchor.
+Base Count cadence has source history moving from roughly weekly to roughly
+monthly. Treat it as reviewed policy or schedule config, not a hardcoded
+implementation interval.
 
 Close `G2` through the sibling Counts/Shifting closure docs, not by burying this
 module inside Feed implementation.
@@ -146,6 +156,14 @@ version can publish only when `review_status='approved'`, `approved_by` and
 `approved_at` are present, the source hashes match the reviewed solve/import,
 and the actor/job performing publication has `protocol.publish.feed_direction`
 or its approved equivalent.
+
+Initial ration scope is feed-type-level only: hard floor/ceiling, structural
+ratio, category floor, and quantity floor. Item-level feed ceilings and
+palatability modeling are deferred. The `60:40` structural ratio applies only to
+Milking/Fattening tags, roughage/category floor values such as 30 percent must be
+confirmed per tag before hardcoding, cost minimization means no paired overshoot
+ceiling is needed, and a reviewed re-solve replaces the RationTable output
+wholesale with no versioned blend.
 
 Adult ration keys are `breed + shed_tag/stage`. Kid ration keys are
 `weight_band + target_adg`. Raw `Age` is source evidence only; it is not the
@@ -184,6 +202,9 @@ Quantity boundary for the first build is explicit:
 - Feed generation stores `quantity_base_units` as whole grams or milliliters.
 - API/UI display quantities are derived from those base units; display
   conversion never changes the stored instruction.
+- Feed Direction, Diff, packing, and field outputs carry as-fed gross quantities
+  only. `wastage_factor` and `DM_factor` are internal nutrient-accounting inputs
+  and must not surface to packing/field teams as instruction quantities.
 - Inventory stock and movement rows remain `numeric` with `quantity_unit`, but
   the current inventory app port accepts whole `int64` quantities. Feed may call
   that port only with deterministic whole base units.
@@ -202,7 +223,11 @@ signals:
 - Packing due, packed, discrepancy, shortfall, rejected proof, and rework.
 - Transport pending, uploaded proof, verified, rejected, and rework.
 - Consumption recorded, wastage recorded, variance exception, and proof state.
-- Bridge exception for high-priority post-cutoff additions.
+- Manual bridge exception for high-priority post-cutoff additions: log the
+  video-confirmed 2x destination-shed top-up with `shed_id`, `animal_id` or
+  approved aggregate reference, `timestamp`, `quantity`, proof, and
+  reconciliation state. Do not build the superseded `07:30` next-morning Diff or
+  source-shed claw-back.
 
 Legacy processed flags become idempotent GoatOS obligations, SOP submissions,
 proof, verification, and read-model state. They must not be copied as Boolean
@@ -317,24 +342,30 @@ This phase is complete when:
    publishability requires `review_status='approved'`, approval metadata, and
    publish authority checks.
 4. Warmup, K0/K1, Experiment, breed aliases, and per-farm session/feed-set
-   decisions are explicitly approved or excluded.
-5. Stage execution model is chosen, reflected in the TRD, and includes a durable
+   decisions are explicitly approved or excluded. The June 2026 `50/50`
+   two-session split is a deliberate source simplification, not derived
+   nutrition logic.
+5. The wiki do-not-resolve items are represented in implementation gates:
+   aggregate-first counts, manual bridge logging only, as-fed gross field output,
+   ration solver limits, no hardcoded Base Count cadence, and no generated
+   `07:30` bridge Diff.
+6. Stage execution model is chosen, reflected in the TRD, and includes a durable
    queryable `stage_kind` discriminator before bucket APIs.
-6. Slack security closeout inventories affected legacy scripts, revokes or
+7. Slack security closeout inventories affected legacy scripts, revokes or
    rotates tokens/shared secrets, stores any bridge credential in a secret
    manager, and proves API-only ingress with auth/RBAC/idempotency before any
    bridge reuse.
-7. Feed-specific generation/read queries have plan-test coverage requirements.
-8. Feed Direction PRD/TRD and this dependency PRD/TRD agree on what is blocked,
+8. Feed-specific generation/read queries have plan-test coverage requirements.
+9. Feed Direction PRD/TRD and this dependency PRD/TRD agree on what is blocked,
    what is buildable under the scope gate, and what must remain hidden.
-9. The build-to-done charter is acknowledged for the next session, including
+10. The build-to-done charter is acknowledged for the next session, including
    source priority, seeded E2E proof, frontend mock-fidelity proof, high-effort
    review-agent gate, and `git mesha-push main` verification.
 
 ## 8. Readiness Output
 
-After this phase, the next build may start hidden Feed Direction backend
-implementation in this order:
+After this phase, the next build may start Feed Direction implementation under
+reopened `G1` in this order:
 
 1. Counts/Shifting projection closure.
 2. Ration provenance and eligibility policy.
@@ -345,6 +376,7 @@ implementation in this order:
    and command-lens field mapping.
 6. Read models/API/OpenAPI.
 7. UI mock update, frontend implementation, visual proof, and mock-fidelity
-   checks only after `G1` reopens scope.
+   checks under reopened `G1`, after Feed-owned backend contracts and source data
+   gates make the surface truthful.
 8. High-effort cross-source/code/UI/security/E2E review, fix confirmed findings,
    and push through the Mesha/VGoats PAT path only after final verification.

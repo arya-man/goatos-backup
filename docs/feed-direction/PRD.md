@@ -5,11 +5,12 @@
 **Vertical:** Feed. Feed Direction is the first Feed module. Parks are a scope
 dimension, not the owning vertical.
 
-**Scope gate:** Full Feed Direction operational screens are not in the current
-admin-web review scope. Do not build or expose Feed Direction UI, SOP cards, or
-Config categories as active product until the owner explicitly reopens scope
-after PHC/Vaccination and the generic Config foundation are reviewed and
-approved. Backend/generic-engine work can be prepared underneath that gate.
+**Scope gate:** `G1` is reopened for Feed Direction build as of 2026-06-30
+because local PHC/Vaccination UI and foundation closure is accepted for
+sequencing. Google dev rollout remains a separate Goal 2 gate and must not be
+claimed as done, but it does not block Feed Direction. Active Feed UI, SOP
+cards, and Config categories still require the Feed-owned gates, backend
+contracts, mock-fidelity, rendered proof, and no fake production data.
 
 **Dependency closure:** Before Feed Direction implementation starts, close the
 readiness phase in [DEPENDENCY-CLOSURE-PRD.md](./DEPENDENCY-CLOSURE-PRD.md) and
@@ -65,7 +66,7 @@ Use this priority when sources disagree:
 
 | Priority | Source | Use |
 | --- | --- | --- |
-| 1 | `Feed, Shiftings and Count.docx` v1.1, June 2026 | Primary Feed Direction business source: Base Count, append-only Shifting ledger, one-day projection, timing, Diff, bridge, as-fed quantities, and ration solver constraints |
+| 1 | `Feed, Shiftings and Count.docx` v1.1, June 2026 | Primary Feed Direction business source: Base Count, append-only Shifting ledger, one-day projection, timing, Diff, manual bridge SOP/logging, as-fed quantities, and ration solver constraints |
 | 2 | Feed-relevant wiki/source docs and findings | Counting DB reconstruction, Shifting reports, Feed Director ops, Goats & Parks stage tags, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
 | 3 | Legacy Slack/App Script feed workflows | Feature inventory for sheet fields, form stages, proof/rejection, reset/re-send, retry/dedupe, transport, notifications, and security/cutover evidence; not a code blueprint |
 | 4 | GoatOS protocol/kernel docs and committed code | Implementation shape for protocol, obligations, SOP proof, inventory, audit, outbox, reminders, read models, RBAC, OpenAPI, and generated clients |
@@ -77,6 +78,11 @@ The newer June 2026 source says Day N 09:00 full direction for Day N+1,
 Treat the newer model as the recommended default, keep the clock values
 configurable, and get Feed Director sign-off before hardcoding schedules.
 
+Bridge conflict rule: the June 2026 source keeps high-priority post-cutoff
+additions as a manual SOP. GoatOS may log the top-up and proof, but must not
+build the superseded `07:30` next-morning system Diff unless the owner explicitly
+reopens that design.
+
 ## 3. Scope
 
 | In scope for the first reopened Feed Direction slice | Fast follow | Out of scope |
@@ -87,7 +93,7 @@ configurable, and get Feed Director sign-off before hardcoding schedules.
 | Day N full direction and cutoff Diff | Uneven session split tuning | Feed procurement/fodder modules |
 | Packing, reserve/consume, proof, verification | Item-level palatability caps | Full feed cost accounting |
 | Consumption, transport, variance/wastage proof | Advanced transport optimization | Milk Preparation verification workflow |
-| Post-cutoff high-priority bridge logging | | |
+| Post-cutoff high-priority manual bridge logging | | |
 
 Milk Preparation is feed-adjacent legacy verification, but it is not part of the
 packed-feed Feed Direction slice. If it is reopened, scope it as a sibling
@@ -115,6 +121,15 @@ feed costs or available feed types change. A reviewed solve/import is not
 publishable until `review_status='approved'`, approval metadata is present, and
 the publish actor/job has `protocol.publish.feed_direction` or its approved
 service equivalent.
+
+Initial solver scope is deliberately narrower than the eventual nutrition
+optimizer. It is feed-type-level only: hard floor/ceiling, structural ratio,
+category floor, and quantity floor. Item-level feed ceilings and palatability
+modeling are deferred. Apply the `60:40` structural ratio only to Milking and
+Fattening tags, treat roughage/category floor numbers such as 30 percent as
+examples until confirmed per tag, rely on cost minimization rather than adding a
+paired overshoot ceiling, and replace the RationTable output wholesale after a
+reviewed re-solve instead of blending old and new versions.
 
 Feed eligibility is reviewed config, not presentation cleanup. K0/K1
 milk-fed exclusions and Experiment zero-direction handling are candidate policy
@@ -180,10 +195,13 @@ Repo compatibility note: the committed Counts tables are source-row sync and
 projection tables, and committed movement state is per-goat. They are not yet
 the aggregate base-count, realized-shifting ledger, and horizon-aware projection
 Feed Direction requires. Before Feed Direction is operational, gate `G2` must be
-closed through the Counts/Shifting closure docs: the Counts/Shifting owner must
-either provide that realized ledger plus horizon-aware projection at shed + breed
-and stage/tag grain, or prove an equivalent derivation from per-goat location
-history after RFID-to-shed association exists.
+closed through the Counts/Shifting closure docs with aggregate shed + breed
+output. Shed tag/ration context comes from reviewed shed reference data for
+ration lookup; it is not a separate physical count grain. RFID-to-shed
+per-animal association is planned but not implemented in the primary source and
+must not be introduced as hidden initial Feed scope. A future per-goat derivation
+can only replace the aggregate ledger after RFID/location confidence is
+separately proven and owner-approved.
 
 Packing, transport, consumption, and wastage are first-class execution stages,
 not generic proof footnotes. Legacy feed execution has separate processed flags,
@@ -226,8 +244,10 @@ High-priority additions after the cutoff do not get a next-morning system Diff.
 They use the source-defined bridge protocol: the health/feed team places a 2x
 daily ration at the destination shed with video proof, no source-shed claw-back,
 and the formal Feed Direction catches up in the normal Day N+2 cycle. GoatOS
-must log that bridge action as a first-class exception so consumption/wastage
-reconciliation can see it.
+must log that manual action as a first-class exception with at least `shed_id`,
+`animal_id` or approved aggregate reference, `timestamp`, `quantity`, and proof
+link so consumption/wastage reconciliation can see it. It must not generate a
+bridge Diff row that changes source-shed quantities.
 
 ## 6. Daily timeline
 
@@ -246,7 +266,9 @@ automation also contained additional trigger windows, retries, and archive
 timers; gate `G3` decides which are parity/cutover evidence and which become
 GoatOS schedules. The inventory for sign-off includes legacy `07:30`, `14:45`,
 `06:30`, `07:15`, `14:15`, `00:15`, `23:45`, and `07:00` windows, plus the
-canonical source clocks above.
+canonical source clocks above. Base Count cadence is an operational policy that
+has already moved from roughly weekly to roughly monthly in source history; store
+it as reviewed policy or schedule, not a code constant.
 
 ## 7. Current GoatOS implementation state
 
@@ -279,7 +301,7 @@ Direction. The current feed mock is a static chart band plus plain Feed
 Directions table and Feed Execution panels. It also carries stale timing labels
 and Parks breadcrumbs.
 
-When Feed Direction scope is reopened:
+Under reopened `G1`, when building Feed Direction UI:
 
 1. Update the mock first, or explicitly document which stale mock labels or
    missing Feed details are superseded by the source docs.
@@ -314,6 +336,9 @@ When Feed Direction scope is reopened:
   without reviewed source/provenance and Feed Director sign-off.
 - K0/K1 and Experiment-shed exclusions do not generate normal packed feed
   obligations only after the approved policy says so.
+- Field, packing, Feed Direction, and Diff quantities are as-fed gross values
+  only. `wastage_factor` and `DM_factor` remain internal nutrient-accounting
+  inputs and must not surface to packing/field teams as instruction quantities.
 - Zero stale open obligations after an affected-row Diff or cancel/rebuild.
 - Stock never goes negative and every reserve/consume/release is ledger-backed.
 - Transport obligations use reviewed direction-shed to transport-shed
@@ -324,7 +349,8 @@ When Feed Direction scope is reopened:
   verification state.
 - Rejected proof or packing shortfall records a reason and creates rework/next
   action.
-- High-priority post-cutoff bridge actions are logged and reconciled.
+- High-priority post-cutoff manual bridge actions are logged and reconciled, with
+  no generated `07:30` next-morning bridge Diff.
 - Reminder, notification, missed/recovery, audit, and observability paths exist
   for every execution stage before production readiness.
 - Read models remain bounded by tenant, park, date, shed, session, status, and
@@ -332,11 +358,15 @@ When Feed Direction scope is reopened:
 
 ## 10. Open questions
 
-1. `G1`: Confirm when Feed Direction scope is reopened for UI/Config/SOP
-   exposure; hidden backend prep may continue before that.
-2. `G2`: Close the Counts/Shifting input contract in the sibling closure docs:
-   aggregate base-count ledger vs derivation from per-goat history after
-   RFID-to-shed association exists.
+1. `G1`: Reopened for Feed Direction build as of 2026-06-30. Keep Google dev
+   rollout separate from this claim, and do not expose Feed UI/Config/SOP
+   surfaces without Feed-owned contracts, source-backed or clearly marked
+   local-dev data, mock-fidelity, and rendered proof.
+2. `G2`: Close the Counts/Shifting input contract in the sibling closure docs at
+   aggregate shed + breed grain, with reviewed shed-tag/ration context joined
+   from reference data. RFID-to-shed per-goat derivation is out of initial Feed
+   Direction scope and can only replace the aggregate ledger after separate
+   proof and owner approval.
 3. `G3`: Confirm Feed Director clock values per park, including canonical
    `09:00`/`13:30`/`15:00` timings and how legacy `07:30`, `14:45`, `06:30`,
    `07:15`, `14:15`, `00:15`, `23:45`, and `07:00` trigger windows, retry
