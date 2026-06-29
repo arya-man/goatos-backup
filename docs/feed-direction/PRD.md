@@ -139,9 +139,9 @@ projection tables, and committed movement state is per-goat. They are not yet
 the aggregate base-count, realized-shifting ledger, and horizon-aware projection
 Feed Direction requires.
 Before Feed Direction is operational, the Counts/Shifting owner must either
-provide that aggregate ledger/projection at shed + breed + stage/tag grain, or
-prove an equivalent derivation from per-goat location history after
-RFID-to-shed association exists.
+provide that realized ledger plus horizon-aware projection at shed + breed +
+stage/tag grain, or prove an equivalent derivation from per-goat location
+history after RFID-to-shed association exists.
 
 Packing, transport, consumption, and wastage are first-class execution stages,
 not generic proof footnotes. Legacy feed execution has separate processed flags,

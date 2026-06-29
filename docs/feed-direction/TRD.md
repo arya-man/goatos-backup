@@ -91,8 +91,8 @@ source sync/projections, while committed movement state is per-goat
 needs. A Feed implementation must therefore first choose and implement one of
 these contracts:
 
-1. A Counts/Shifting-owned aggregate ledger/projection at
-   tenant + park + shed + breed + stage/tag + effective time.
+1. A Counts/Shifting-owned aggregate realized ledger plus horizon-aware
+   projection at tenant + park + shed + breed + stage/tag + effective time.
 2. A derivation from per-goat location history, only after RFID-to-shed
    association is reliable enough to produce the same aggregate counts.
 
