@@ -640,7 +640,7 @@ INSERT INTO counts_shifting_readiness_subgates (
 ) VALUES (
   $1::uuid, 'CSG8', 'pending', 'Counts/Shifting + Feed Direction',
   $2,
-  'Source import replay evidence exists; full source parity, projection replay proof, and seeded local E2E remain before CSG8 can turn ready.',
+  'Source import replay evidence exists; full source workbook parity and seeded local E2E remain before CSG8 can turn ready.',
   'backend/cmd/counts-source-import;backend/internal/counts/adapters/postgres/repository.go;docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md',
   now(), now()
 )

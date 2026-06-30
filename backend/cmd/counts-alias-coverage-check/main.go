@@ -231,7 +231,7 @@ SELECT EXISTS (
 func coverageStatus(sourceRef string, result aliasCoverageResult) (string, string) {
 	if len(result.Missing) == 0 {
 		return "pending", fmt.Sprintf(
-			"Counts alias coverage check passed for %d required aliases from %s; source workbook parity, Sheds DB profile publish flow, projection replay, and owner-approved review remain before CSG7 can turn ready.",
+			"Counts alias coverage check passed for %d required aliases from %s; full source workbook parity, Sheds DB profile publish flow, seeded local E2E, and owner-approved review remain before CSG7 can turn ready.",
 			result.Total, sourceRef)
 	}
 	missing := make([]string, 0, len(result.Missing))

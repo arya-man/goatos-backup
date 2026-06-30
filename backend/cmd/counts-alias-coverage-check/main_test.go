@@ -49,7 +49,7 @@ func TestCoverageStatusNeverMarksCSG7Ready(t *testing.T) {
 	if status != "pending" {
 		t.Fatalf("status=%s, want pending", status)
 	}
-	if !strings.Contains(blocker, "owner-approved review remain") {
+	if !strings.Contains(blocker, "full source workbook parity") || !strings.Contains(blocker, "owner-approved review remain") {
 		t.Fatalf("blocker=%q, want owner review caveat", blocker)
 	}
 }

@@ -272,7 +272,7 @@ SELECT EXISTS (
 func coverageStatus(sourceRef string, result coverageResult) (string, string) {
 	if len(result.Missing) == 0 {
 		return "pending", fmt.Sprintf(
-			"Sheds DB location-profile coverage passed for %d required profiles from %s; owner-approved review, source parity, projection replay, and seeded local E2E remain before CSG7 can turn ready.",
+			"Sheds DB location-profile coverage passed for %d required profiles from %s; owner-approved review, full source workbook parity, and seeded local E2E remain before CSG7 can turn ready.",
 			result.Total, sourceRef)
 	}
 	missing := make([]string, 0, len(result.Missing))

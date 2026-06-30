@@ -60,7 +60,7 @@ func TestCoverageStatusNeverMarksCSG7Ready(t *testing.T) {
 	if status != "pending" {
 		t.Fatalf("status=%s, want pending", status)
 	}
-	if !strings.Contains(blocker, "seeded local E2E remain") {
+	if !strings.Contains(blocker, "full source workbook parity") || !strings.Contains(blocker, "seeded local E2E remain") {
 		t.Fatalf("blocker=%q, want remaining-evidence caveat", blocker)
 	}
 }
