@@ -409,6 +409,9 @@ Legacy capacity source rows from `counting_shed_capacity_status_dev`,
 `shed_capacity_count_dev`, and reviewed `Sheds DB.xlsx` extracts can create
 staging/evidence capacity records. Manual review or an approved import policy
 promotes them to active effective capacity.
+`backend/cmd/location-profile-source-import` is the typed JSONL import path for
+reviewed alias, capacity, and review-item rows. It does not parse raw workbooks
+or infer canonical locations from messy labels.
 
 All legacy-label dashboards use this same path. Mortality farm, housing, shed,
 and status-location labels must resolve through `location_aliases` with

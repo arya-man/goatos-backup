@@ -52,6 +52,12 @@ The sanitized executable fixture for current profile-tag coverage is
 contains required tag labels only, not raw sheet rows, formulas, or Google Sheet
 links.
 
+Reviewed Sheds DB extracts can now be fed into
+`backend/cmd/location-profile-source-import` as typed JSONL rows for
+`location_alias`, `location_capacity`, or `location_review_item`. That command
+requires canonical `location_id` for publishable alias/capacity rows; unresolved
+labels must become review items instead of guessed locations.
+
 ## Base Rule
 
 Sheds DB values are source evidence for location profiles, allowed/target shed

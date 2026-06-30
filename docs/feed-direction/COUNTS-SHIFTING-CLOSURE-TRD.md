@@ -162,8 +162,13 @@ Implementation status as of 2026-06-30:
 - Locations now accepts reviewed `sheds_db` source evidence for location aliases
   and capacity records, backed by the Postgres capacity-source constraint. This
   lets Sheds DB become governed Location/Park profile data instead of a raw
-  runtime spreadsheet; the import/review/publish workflow and owner approval are
-  still required before G2 can close.
+  runtime spreadsheet.
+- `backend/cmd/location-profile-source-import` accepts reviewed typed JSONL rows
+  for `location_alias`, `location_capacity`, and `location_review_item`, defaults
+  the source to `sheds_db`, derives idempotency when omitted, supports dry-run
+  validation without a database, and writes through the Locations service in
+  execute mode. It refuses to infer canonical locations from raw labels; unresolved
+  labels stay review work.
 - `count_projection_exceptions` now carries work metadata (`work_type`,
   `work_state`, `due_at`, `next_action`, `evidence_link`) and repeated open
   exceptions relink to the latest snapshot on upsert. This makes G2 blockers
@@ -245,10 +250,10 @@ Implementation status as of 2026-06-30:
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
 - This does **not** close `G2`: raw workbook/XLSX mapping and parity fixtures,
-  Sheds DB location-profile import/review/publish workflow, Shifting/Count
-  source-adapter hardening beyond typed JSONL, owner-approved alias mapping
-  coverage/admin review, production scheduling/metrics for the mismatch scan,
-  assignment policy, polished command-lens UX, observability,
+  Sheds DB owner-approved coverage/admin review and seeded publish evidence,
+  Shifting/Count source-adapter hardening beyond typed JSONL, production
+  scheduling/metrics for the mismatch scan, assignment policy, polished
+  command-lens UX, observability,
   query-plan/synthetic-scale proof, and seeded local E2E remain blockers.
 
 ## 3. Candidate Persistence

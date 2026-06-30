@@ -89,6 +89,11 @@ bounded recompute worker evidence with row counts, exception counts, projection
 status, snapshot reference, timing, source contract, trace id, and failure
 state. These are not raw XLSX parsers and do not approve workbook formulas,
 `80/20` examples, or breed/tag constraint tables as runtime truth.
+`backend/cmd/location-profile-source-import` provides the matching typed import
+path for reviewed Location/Park profile evidence such as Sheds DB aliases,
+capacity rows, and unresolved-label review items. Publishable rows must already
+reference canonical `location_id`; otherwise the row stays review work instead
+of becoming Feed/Counts runtime truth.
 
 For any Counts/Shifting behavior that affects Feed Direction timing, Diff,
 bridge handling, one-day projection, or physical count adoption,
@@ -152,9 +157,10 @@ Counts/Shifting closure is complete when:
    canonical projections without becoming runtime truth. The
    `counts-source-import` command covers typed Base Count/Shifting JSONL rows
    and records `count_source_import_runs` evidence; recompute paths record
-   `count_projection_recompute_runs` evidence; raw workbook/XLSX mapping and
-   parity fixtures remain review work. Stale imported mismatches are surfaced
-   by the bounded `counts-mismatch-scan` worker path.
+   `count_projection_recompute_runs` evidence; raw workbook/XLSX mapping,
+   Sheds DB typed profile fixtures, and parity fixtures remain review work.
+   Stale imported mismatches are surfaced by the bounded
+   `counts-mismatch-scan` worker path.
 5. SQL plan and synthetic-scale checks prove no full-herd or unbounded count
    scan is required for Feed generation. The first implementation artifact is
    `backend/cmd/counts-query-plan-check`, which checks the expected Postgres
