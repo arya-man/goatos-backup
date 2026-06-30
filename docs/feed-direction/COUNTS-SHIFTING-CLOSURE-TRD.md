@@ -148,6 +148,12 @@ Implementation status as of 2026-06-30:
   non-empty and has no alias conflicts, `CSG7` becomes `pending`, not `ready`,
   because full source workbook parity, Sheds DB profile-tag coverage, and
   owner-approved alias review remain required.
+- `backend/cmd/counts-alias-coverage-check` checks a sanitized required-alias
+  file such as `backend/testdata/counts/sheds-db-required-profile-tags.json`
+  against approved `count_dimension_aliases` rows. Missing required aliases
+  make `CSG7` `blocked`; complete coverage makes `CSG7` `pending`, never
+  `ready`. This is how Sheds DB profile-tag coverage becomes executable
+  evidence without importing the raw workbook as runtime truth.
 - `count_projection_exceptions` now carries work metadata (`work_type`,
   `work_state`, `due_at`, `next_action`, `evidence_link`) and repeated open
   exceptions relink to the latest snapshot on upsert. This makes G2 blockers
@@ -377,6 +383,7 @@ Required paths:
 | Shifting event ingest | API/import/outbox | Upsert event and impacts, emit idempotent `counts.shifting_event.recorded` outbox event, record `count_source_import_runs` batch evidence, audit, invalidate projections |
 | Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or the registered `countsapp.ProjectionInputHandler` consumer for tenant + park + as-of + target-date bounded horizons; write snapshot or exception; record `count_projection_recompute_runs` status, counts, timing, trace, and `CSG10` evidence |
 | Count mismatch scan | Base Count adoption plus `counts-mismatch-scan` scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. The bounded worker command pages through stale historical/imported anchors with tenant/window/limit/cursor guards, writes the same exception work, records `count_mismatch_scan_runs`, and updates `CSG6`/`CSG10` readiness evidence. The anchor page now has dedicated mismatch-scan indexes and query-plan coverage. |
+| Alias coverage proof | `counts-alias-coverage-check` | Check source-required aliases such as Sheds DB profile tags against approved `count_dimension_aliases`; update `CSG7` readiness evidence without turning it ready. |
 | Query-plan proof | `counts-query-plan-check` | Prove expected Postgres index paths for Counts hot reads and update `CSG10` readiness evidence; never use this alone as G2 completion proof. |
 | Exception fanout/read model | Projection exception open/update/close plus process-integrity query | Emit `counts.projection_exception.*` outbox events and project `category=feed_direction` exception rows into top-level Action Center/Workflows; assignment policy, frontend UX, and broader Calendar/Protocol Adherence/Control Tower mapping remain separate closure work. |
 | Feed projection read | API/app port | Return rows or typed blocker with source hash |

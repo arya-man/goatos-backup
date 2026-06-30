@@ -1,0 +1,70 @@
+{
+  "source_ref": "context/source-findings/sheds-db-source-findings.md",
+  "required_aliases": [
+    {
+      "dimension": "stage_tag",
+      "source_system": "sheds_db",
+      "source_value": "Buck"
+    },
+    {
+      "dimension": "stage_tag",
+      "source_system": "sheds_db",
+      "source_value": "F2-Female"
+    },
+    {
+      "dimension": "stage_tag",
+      "source_system": "sheds_db",
+      "source_value": "F2-Male"
+    },
+    {
+      "dimension": "stage_tag",
+      "source_system": "sheds_db",
+      "source_value": "ICU"
+    },
+    {
+      "dimension": "stage_tag",
+      "source_system": "sheds_db",
+      "source_value": "ICU-Kid"
+    },
+    {
+      "dimension": "stage_tag",
+      "source_system": "sheds_db",
+      "source_value": "K0"
+    },
+    {
+      "dimension": "stage_tag",
+      "source_system": "sheds_db",
+      "source_value": "K1"
+    },
+    {
+      "dimension": "stage_tag",
+      "source_system": "sheds_db",
+      "source_value": "K1/K2"
+    },
+    {
+      "dimension": "stage_tag",
+      "source_system": "sheds_db",
+      "source_value": "K2"
+    },
+    {
+      "dimension": "stage_tag",
+      "source_system": "sheds_db",
+      "source_value": "K3"
+    },
+    {
+      "dimension": "stage_tag",
+      "source_system": "sheds_db",
+      "source_value": "Mother"
+    },
+    {
+      "dimension": "stage_tag",
+      "source_system": "sheds_db",
+      "source_value": "Non-Pregnant"
+    },
+    {
+      "dimension": "stage_tag",
+      "source_system": "sheds_db",
+      "source_value": "Warmup"
+    }
+  ]
+}

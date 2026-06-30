@@ -47,6 +47,11 @@ assignments. Observed aggregate shape at review time:
 Treat those aggregates as source evidence only. They help size fixtures and
 validation checks, but they do not make raw Sheds DB rows runtime truth.
 
+The sanitized executable fixture for current profile-tag coverage is
+`backend/testdata/counts/sheds-db-required-profile-tags.json`. It intentionally
+contains required tag labels only, not raw sheet rows, formulas, or Google Sheet
+links.
+
 ## Base Rule
 
 Sheds DB values are source evidence for location profiles, allowed/target shed
