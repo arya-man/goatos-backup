@@ -16,28 +16,29 @@ import (
 )
 
 const (
-	piTenant     = "00000000-0000-4000-8000-000000000001"
-	piParty      = "00000000-0000-4000-8000-000000001001"
-	piPark       = "71000000-0000-4000-8000-000000000001"
-	piShed       = "71000000-0000-4000-8000-000000000002"
-	piStage      = "71000000-0000-4000-8000-000000000003"
-	piGoat       = "71000000-0000-4000-8000-000000000004"
-	piSOP        = "71000000-0000-4000-8000-000000000005"
-	piSOPVersion = "71000000-0000-4000-8000-000000000006"
-	piProtocol   = "71000000-0000-4000-8000-000000000007"
-	piVersion    = "71000000-0000-4000-8000-000000000008"
-	piRule       = "71000000-0000-4000-8000-000000000009"
-	piTask       = "71000000-0000-4000-8000-000000000010"
-	piSub        = "71000000-0000-4000-8000-000000000011"
-	piBatch      = "71000000-0000-4000-8000-000000000012"
-	piObligation = "71000000-0000-4000-8000-000000000013"
-	piCompletion = "71000000-0000-4000-8000-000000000014"
-	piOperator   = "71000000-0000-4000-8000-000000000015"
-	piParkHead   = "71000000-0000-4000-8000-000000000016"
-	piVerifier   = "71000000-0000-4000-8000-000000000017"
-	piProof      = "71000000-0000-4000-8000-000000000018"
-	piBatchNext  = "71000000-0000-4000-8000-000000000019"
-	piOblNext    = "71000000-0000-4000-8000-000000000020"
+	piTenant        = "00000000-0000-4000-8000-000000000001"
+	piParty         = "00000000-0000-4000-8000-000000001001"
+	piPark          = "71000000-0000-4000-8000-000000000001"
+	piShed          = "71000000-0000-4000-8000-000000000002"
+	piStage         = "71000000-0000-4000-8000-000000000003"
+	piGoat          = "71000000-0000-4000-8000-000000000004"
+	piSOP           = "71000000-0000-4000-8000-000000000005"
+	piSOPVersion    = "71000000-0000-4000-8000-000000000006"
+	piProtocol      = "71000000-0000-4000-8000-000000000007"
+	piVersion       = "71000000-0000-4000-8000-000000000008"
+	piRule          = "71000000-0000-4000-8000-000000000009"
+	piTask          = "71000000-0000-4000-8000-000000000010"
+	piSub           = "71000000-0000-4000-8000-000000000011"
+	piBatch         = "71000000-0000-4000-8000-000000000012"
+	piObligation    = "71000000-0000-4000-8000-000000000013"
+	piCompletion    = "71000000-0000-4000-8000-000000000014"
+	piOperator      = "71000000-0000-4000-8000-000000000015"
+	piParkHead      = "71000000-0000-4000-8000-000000000016"
+	piVerifier      = "71000000-0000-4000-8000-000000000017"
+	piProof         = "71000000-0000-4000-8000-000000000018"
+	piBatchNext     = "71000000-0000-4000-8000-000000000019"
+	piOblNext       = "71000000-0000-4000-8000-000000000020"
+	piFeedException = "71000000-0000-4000-8000-000000000021"
 )
 
 func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
@@ -125,6 +126,56 @@ func TestListRowsUsesKeysetCursorAfterFiltering(t *testing.T) {
 	}
 }
 
+func TestListRowsProjectsFeedDirectionProjectionExceptionWork(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	seedFeedProjectionException(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	category := domain.CategoryFeedDirection
+	result, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		Category:  &category,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListRows() error = %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("got %d rows want 1: %#v", len(result.Rows), result.Rows)
+	}
+	row := result.Rows[0]
+	if row.Category != domain.CategoryFeedDirection ||
+		row.RowID != "feed_projection_exception:"+piFeedException ||
+		row.WorkState != domain.WorkStateBlocked ||
+		row.Severity != domain.SeverityBroken {
+		t.Fatalf("feed exception row = %+v", row)
+	}
+	if row.GapType != "destination_shortage" || row.AnimalStage != "pregnant" ||
+		row.ProtocolName != "Feed Direction Counts/Shifting" {
+		t.Fatalf("feed exception classification = %+v", row)
+	}
+	if row.OwnerState != domain.OwnerStateMissing ||
+		row.NextAction != "Review pregnant destination ration before Feed Direction generation" ||
+		row.BlockerReason == nil ||
+		!strings.Contains(*row.BlockerReason, "pregnant destination shed shortage") {
+		t.Fatalf("feed exception work fields = %+v", row)
+	}
+	if row.ParkID != piPark || row.ShedID != piShed || row.Evidence.EvidenceCount != 1 ||
+		row.ProofState != domain.ProofStateNotRequired || row.VerificationState != domain.VerificationStateNotReady {
+		t.Fatalf("feed exception scope/evidence = %+v", row)
+	}
+	if countFor(result.CountsByWorkState, domain.WorkStateBlocked) != 1 {
+		t.Fatalf("counts = %+v, want one blocked feed exception", result.CountsByWorkState)
+	}
+}
+
 func TestProcessIntegrityProductionQueryPlanUsesIndexes(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -167,6 +218,7 @@ func TestProcessIntegrityProductionQueryPlanUsesIndexes(t *testing.T) {
 		"Seq Scan on shed_profiles",
 		"Seq Scan on animal_stage_lookup",
 		"Seq Scan on location_operational_attributes",
+		"Seq Scan on count_projection_exceptions",
 		// Substring also matches partition scans (obligation_status_events_2026_06, …).
 		"Seq Scan on obligation_status_events",
 	} {
@@ -179,6 +231,25 @@ func TestProcessIntegrityProductionQueryPlanUsesIndexes(t *testing.T) {
 		!strings.Contains(plan, "Bitmap Index Scan") {
 		t.Fatalf("process integrity plan did not use an index scan:\n%s", plan)
 	}
+}
+
+func seedFeedProjectionException(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	execPI(t, ctx, pool, "feed projection exception",
+		`INSERT INTO count_projection_exceptions (
+		   count_projection_exception_id, tenant_id, exception_type, source_key, grain_key,
+		   park_id, shed_id, breed_key, stage_tag, severity, status, owner_ref,
+		   work_state, due_at, next_action, evidence_link, blocker_reason, evidence_json
+		 ) VALUES (
+		   $1::uuid, $2::uuid, 'destination_shortage', 'shifting:pregnant-risk', 'shed:pregnant:beetal',
+		   $3::uuid, $4::uuid, 'beetal', 'pregnant', 'critical', 'open', NULL,
+		   'blocked', TIMESTAMPTZ '2026-06-24 13:00:00+00',
+		   'Review pregnant destination ration before Feed Direction generation',
+		   '/feed-direction/counts-projection/exceptions/' || $1::text,
+		   'pregnant destination shed shortage after shifting; underfeeding can cause abortion risk',
+		   '{"head_count":40,"pregnant_count":12,"risk":"underfeed_abortion"}'::jsonb
+		 )`,
+		piFeedException, piTenant, piPark, piShed)
 }
 
 func TestQueryArgsShapeMatchesRowsAndCountQueries(t *testing.T) {

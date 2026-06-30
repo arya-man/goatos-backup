@@ -134,7 +134,7 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 			DriveName:    row.DriveName,
 			Owner:        row.Owner,
 			NextAction:   row.NextAction,
-			EvidenceLink: "/vaccination/workflows/" + row.RowID,
+			EvidenceLink: workflowLink(row),
 		})
 	}
 	return domain.ControlTowerResponse{Source: domain.SourceAPI, Summary: summary, Alerts: alerts}, nil
@@ -150,6 +150,9 @@ func (s *Service) WorkflowDrilldown(ctx context.Context, q domain.Query, rowID s
 	if err != nil || !found {
 		return domain.WorkflowDrilldownResponse{}, found, err
 	}
+	if row.Category == domain.CategoryFeedDirection {
+		return domain.WorkflowDrilldownResponse{Source: domain.SourceAPI, Row: row, Nodes: feedDirectionExceptionNodes(row)}, true, nil
+	}
 	nodes := []domain.WorkflowNode{
 		{Key: "config_published", Label: "Config published", State: publishedState(row), Timestamp: nil, Owner: row.Owner.EscalationOwnerName},
 		{Key: "obligation_generated", Label: "Obligation generated", State: stateFromBool(true, "generated", "missing"), Timestamp: &row.DueAt},
@@ -161,6 +164,24 @@ func (s *Service) WorkflowDrilldown(ctx context.Context, q domain.Query, rowID s
 		{Key: "next_due", Label: "Booster / next dose basis", State: nextDueState(row), Timestamp: nil},
 	}
 	return domain.WorkflowDrilldownResponse{Source: domain.SourceAPI, Row: row, Nodes: nodes}, true, nil
+}
+
+func workflowLink(row domain.Row) string {
+	switch row.Category {
+	case domain.CategoryFeedDirection:
+		return "/workflows/" + row.RowID + "?category=feed_direction"
+	default:
+		return "/workflows/" + row.RowID
+	}
+}
+
+func feedDirectionExceptionNodes(row domain.Row) []domain.WorkflowNode {
+	return []domain.WorkflowNode{
+		{Key: "counts_projection", Label: "Counts/Shifting projection", State: stateFromBool(row.ProcessKey != "", "projected", "missing"), Timestamp: &row.DueAt},
+		{Key: "exception_open", Label: "Exception opened", State: string(row.WorkState), Timestamp: row.Evidence.LatestEvidenceAt, Evidence: row.Evidence.AuditRef},
+		{Key: "owner_review", Label: "Owner review", State: string(row.OwnerState), Timestamp: nil, Owner: row.Owner.EscalationOwnerName, Blocker: row.BlockerReason},
+		{Key: "resolution", Label: "Resolution", State: completionNodeState(row), Timestamp: nil, Evidence: row.CompletionID},
+	}
 }
 
 func (s *Service) defaults(q domain.Query) domain.Query {

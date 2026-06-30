@@ -112,6 +112,14 @@ Implementation status as of 2026-06-30:
   owner, severity, due time, next action, evidence link, and resolution fields
   where applicable. This gives shared command-lens projectors a durable
   subscription source without polling Counts tables.
+- The shared process-integrity read model now projects open/closed Counts
+  projection exceptions as `category=feed_direction` rows for the top-level
+  Action Center and Workflows APIs. Row IDs use
+  `feed_projection_exception:{count_projection_exception_id}`, and
+  `/action-center/obligations?category=feed_direction` plus
+  `/workflows/{row_id}?category=feed_direction` can show safety blockers such
+  as pregnant destination-shed shortages without creating nested Feed-owned
+  command routes.
 - Physical Base Count adoption now reconciles the new anchor against the
   previous adopted shed + breed anchor plus applied ShiftingEvents in the
   bounded window. Unexpected deltas create open `unreported_shifting` or
@@ -147,8 +155,8 @@ Implementation status as of 2026-06-30:
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
 - This does **not** close `G2`: source import/adapters, owner-approved alias
-  mapping coverage/admin review, scheduled/import-wide mismatch scans, shared
-  command-lens subscription/projector plus UX, observability,
+  mapping coverage/admin review, scheduled/import-wide mismatch scans,
+  assignment policy, polished command-lens UX, observability,
   query-plan/synthetic-scale proof, and seeded local E2E remain blockers.
 
 ## 3. Candidate Persistence
@@ -293,7 +301,7 @@ Required paths:
 | Shifting event ingest | API/import/outbox | Upsert event and impacts, emit idempotent `counts.shifting_event.recorded` outbox event, audit, invalidate projections |
 | Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or the registered `countsapp.ProjectionInputHandler` consumer for tenant + park + as-of + target-date bounded horizons; write snapshot or exception |
 | Count mismatch scan | Base Count adoption plus scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. Scheduled/import-wide scan remains to catch stale historical gaps. |
-| Exception fanout | Projection exception open/update/close | Emit `counts.projection_exception.*` outbox events for command-lens/projector consumption; shared command-lens subscription and UX remain separate closure work. |
+| Exception fanout/read model | Projection exception open/update/close plus process-integrity query | Emit `counts.projection_exception.*` outbox events and project `category=feed_direction` exception rows into top-level Action Center/Workflows; assignment policy, frontend UX, and broader Calendar/Protocol Adherence/Control Tower mapping remain separate closure work. |
 | Feed projection read | API/app port | Return rows or typed blocker with source hash |
 
 All workers must be tenant/park/date/grain bounded and replay-safe.

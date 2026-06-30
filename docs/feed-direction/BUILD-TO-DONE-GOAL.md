@@ -232,6 +232,11 @@ admin-web UI law as the current PHC/Vaccination work:
   Protocol Adherence, Workflows, Config, and SOP Library through filters or
   domain/category context. Do not create nested Feed-owned command/authority
   routes.
+- Counts projection exception work already uses the shared process-integrity
+  reader as `category=feed_direction` for top-level Action Center/Workflows;
+  use that path as evidence, then finish assignment policy, Feed-specific
+  visual UX, and the remaining command-lens mappings instead of creating a
+  second Feed-owned command room.
 - Before any frontend push or handoff, run
   `npm --prefix apps/admin-web run check:mock-fidelity`, capture rendered visual
   proof for relevant desktop and mobile widths, and compare the implemented

@@ -446,7 +446,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Compatibility path for the vaccination Action Center process-integrity rows. */
+        /** Top-level Action Center process-integrity rows across supported categories. */
         get: operations["listActionCenterObligations"];
         put?: never;
         post?: never;
@@ -499,6 +499,23 @@ export interface paths {
         };
         /** Summarize broken or at-risk vaccination process integrity for Control Tower. */
         get: operations["getVaccinationControlTower"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{row_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Explain one top-level process chain or exception workflow. */
+        get: operations["getWorkflowDrilldown"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1829,7 +1846,7 @@ export interface components {
         };
         ActionCenterObligation: {
             /** @enum {string} */
-            category: "vaccination";
+            category: "vaccination" | "feed_direction";
             row_id: string;
             process_key: string;
             /** Format: uuid */
@@ -1854,11 +1871,8 @@ export interface components {
             /** Format: uuid */
             goat_id?: string;
             animal_stage: string;
-            /** Format: uuid */
             protocol_id: string;
-            /** Format: uuid */
             protocol_version_id: string;
-            /** Format: uuid */
             rule_id: string;
             protocol_name: string;
             dose_code: string;
@@ -3258,6 +3272,8 @@ export interface operations {
     listActionCenterObligations: {
         parameters: {
             query?: {
+                /** @description Optional top-level command-lens category filter. Omit to include every supported category. */
+                category?: "vaccination" | "feed_direction";
                 park_id?: string;
                 /** @description Reconstruct process state as of this instant (top-bar date scope). Defaults to now. */
                 as_of?: string;
@@ -3396,6 +3412,36 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getWorkflowDrilldown: {
+        parameters: {
+            query?: {
+                category?: "vaccination" | "feed_direction";
+                due_before?: string;
+            };
+            header?: never;
+            path: {
+                row_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow drilldown. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDrilldownResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

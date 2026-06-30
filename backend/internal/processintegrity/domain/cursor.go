@@ -93,6 +93,8 @@ func ValidateRowID(rowID string) error {
 		parts[2] == "rule" && isUUIDString(parts[3]) &&
 		parts[4] == "shed" && isUUIDString(parts[5]):
 		return nil
+	case len(parts) == 2 && parts[0] == "feed_projection_exception" && isUUIDString(parts[1]):
+		return nil
 	default:
 		return fmt.Errorf("invalid shape")
 	}

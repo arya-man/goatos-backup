@@ -45,6 +45,7 @@ func TestValidateRowIDAllowsCurrentWorkflowKeys(t *testing.T) {
 	for _, rowID := range []string{
 		validBatchRowID,
 		"obligation:71000000-0000-4000-8000-000000000013",
+		"feed_projection_exception:71000000-0000-4000-8000-000000000021",
 	} {
 		if err := ValidateRowID(rowID); err != nil {
 			t.Fatalf("ValidateRowID(%q) error = %v", rowID, err)

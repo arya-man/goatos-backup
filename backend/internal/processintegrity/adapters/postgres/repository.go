@@ -19,8 +19,8 @@ const (
 	defaultClosedHistoryAge = 14 * 24 * time.Hour
 	defaultLimit            = 100
 	maxLimit                = 500
-	countQueryArgCount      = 14
-	rowsQueryArgCount       = 18
+	countQueryArgCount      = 15
+	rowsQueryArgCount       = 19
 )
 
 type Repository struct {
@@ -264,6 +264,7 @@ func queryArgs(q domain.Query) []any {
 		textValue(q.RowID),
 		q.OnlyBrokenOrAtRisk,
 		q.IncludeCompleted,
+		textValue(q.Category),
 		cursorSort,
 		cursorDue,
 		cursorRow,
@@ -876,84 +877,279 @@ filtered AS (
 )
 `
 
-const processIntegrityRowsSQL = processIntegrityBaseSQL + `
-SELECT
-  sort_priority,
-  row_id,
-  row_id AS process_key,
-  'vaccination' AS category,
-  obligation_id,
-  batch_id::text AS batch_id,
-  task_id AS sop_task_id,
-  task_row_version AS sop_task_row_version,
-  submission_id AS sop_submission_id,
-  completion_id,
-  park_uuid::text AS park_id,
-  park_name,
-  shed_uuid::text AS shed_id,
-  shed_name,
-  cohort_id,
-  goat_id,
-  animal_stage,
-  protocol_id::text,
-  protocol_version_id::text,
-  rule_id::text,
-  protocol_name,
-  dose_code,
-  NULLIF(protocol_name || CASE WHEN dose_code <> '' THEN ' - ' || dose_code ELSE '' END, '') AS drive_name,
-  sop_version_id,
-  proof_policy,
-  due_at,
-  window_start,
-  window_end,
-  expected_count,
-  obligation_status,
-  batch_status,
-  sop_state,
-  submission_state,
-  proof_state,
-  verification_state,
-  completion_state,
-  completed_count,
-  proof_count,
-  completion_rejected AS rejected_count,
-  deferred_count + health_deferred_count AS deferred_count,
-  work_state,
-  gap_type,
-  severity,
-  blocker_reason,
-  owner_state,
-  next_action,
-  process_intact,
-  operator_id,
-  operator_name,
-  park_head_id,
-  park_head_name,
-  verifier_id,
-  verifier_name,
-  escalation_owner_id,
-  escalation_owner_name,
-  COALESCE(array_to_string(ARRAY(
-    SELECT elem->>'proof_id'
-    FROM jsonb_array_elements(COALESCE(latest_proof_refs, '[]'::jsonb)) elem
-    WHERE elem->>'proof_id' IS NOT NULL AND elem->>'proof_id' <> ''
-  ), ','), '') AS proof_ids,
-  proof_count AS evidence_count,
-  latest_evidence_at,
-  latest_rejection_reason,
-  CASE WHEN submission_id IS NOT NULL THEN 'sop_submission:' || submission_id ELSE NULL END AS audit_ref
-FROM filtered
-WHERE (
-    $15::int < 0
-    OR (sort_priority, due_at, row_id) > ($15::int, $16::timestamptz, $17::text)
-  )
-ORDER BY sort_priority ASC, due_at ASC, row_id ASC
-LIMIT $18;
+const processIntegrityFeedExceptionSQL = `,
+feed_exception_rows AS (
+  SELECT
+    CASE
+      WHEN e.status IN ('resolved', 'dismissed') THEN 10
+      WHEN e.work_state = 'blocked' THEN 1
+      WHEN e.work_state = 'owner_missing' THEN 2
+      ELSE 3
+    END AS sort_priority,
+    'feed_projection_exception:' || e.count_projection_exception_id::text AS row_id,
+    'feed_projection_exception:' || e.count_projection_exception_id::text AS process_key,
+    'feed_direction' AS category,
+    e.count_projection_exception_id::text AS obligation_id,
+    NULL::text AS batch_id,
+    NULL::text AS sop_task_id,
+    NULL::integer AS sop_task_row_version,
+    NULL::text AS sop_submission_id,
+    NULL::text AS completion_id,
+    COALESCE(e.park_id::text, '') AS park_id,
+    COALESCE(park.name, '') AS park_name,
+    COALESCE(e.shed_id::text, '') AS shed_id,
+    COALESCE(shed.name, '') AS shed_name,
+    NULL::text AS cohort_id,
+    NULL::text AS goat_id,
+    COALESCE(NULLIF(e.stage_tag, ''), 'Counts/Shifting') AS animal_stage,
+    ''::text AS protocol_id,
+    ''::text AS protocol_version_id,
+    ''::text AS rule_id,
+    'Feed Direction Counts/Shifting' AS protocol_name,
+    e.exception_type AS dose_code,
+    NULLIF(
+      'Feed exception - ' || e.exception_type ||
+        CASE WHEN e.breed_key IS NOT NULL AND e.breed_key <> '' THEN ' / ' || e.breed_key ELSE '' END ||
+        CASE WHEN e.stage_tag IS NOT NULL AND e.stage_tag <> '' THEN ' / ' || e.stage_tag ELSE '' END,
+      ''
+    ) AS drive_name,
+    NULL::text AS sop_version_id,
+    '{}'::text AS proof_policy,
+    e.due_at,
+    NULL::timestamptz AS window_start,
+    NULL::timestamptz AS window_end,
+    1::integer AS expected_count,
+    e.status AS obligation_status,
+    NULL::text AS batch_status,
+    'not_started' AS sop_state,
+    NULL::text AS submission_state,
+    'not_required' AS proof_state,
+    'not_ready' AS verification_state,
+    e.status AS completion_state,
+    CASE WHEN e.status IN ('resolved', 'dismissed') THEN 1 ELSE 0 END AS completed_count,
+    0::integer AS proof_count,
+    0::integer AS rejected_count,
+    0::integer AS deferred_count,
+    CASE
+      WHEN e.status IN ('resolved', 'dismissed') THEN 'completed'
+      ELSE e.work_state
+    END AS work_state,
+    e.exception_type AS gap_type,
+    CASE
+      WHEN e.status IN ('resolved', 'dismissed') THEN 'ok'
+      WHEN e.severity = 'warning' THEN 'at_risk'
+      ELSE 'broken'
+    END AS severity,
+    NULLIF(e.blocker_reason, '') AS blocker_reason,
+    CASE WHEN e.owner_ref IS NULL OR e.owner_ref = '' THEN 'missing' ELSE 'assigned' END AS owner_state,
+    CASE
+      WHEN e.status IN ('resolved', 'dismissed') THEN 'No action - exception reviewed'
+      ELSE e.next_action
+    END AS next_action,
+    e.status IN ('resolved', 'dismissed') AS process_intact,
+    NULL::text AS operator_id,
+    NULL::text AS operator_name,
+    NULL::text AS park_head_id,
+    NULL::text AS park_head_name,
+    NULL::text AS verifier_id,
+    NULL::text AS verifier_name,
+    NULL::text AS escalation_owner_id,
+    e.owner_ref AS escalation_owner_name,
+    ''::text AS proof_ids,
+    CASE WHEN e.evidence_json <> '{}'::jsonb THEN 1 ELSE 0 END AS evidence_count,
+    e.updated_at AS latest_evidence_at,
+    e.resolution_reason AS latest_rejection_reason,
+    'count_projection_exception:' || e.count_projection_exception_id::text AS audit_ref
+  FROM count_projection_exceptions e
+  LEFT JOIN locations park
+    ON park.tenant_id = e.tenant_id
+   AND park.location_id = e.park_id
+  LEFT JOIN locations shed
+    ON shed.tenant_id = e.tenant_id
+   AND shed.location_id = e.shed_id
+  WHERE e.tenant_id = $1::uuid
+    AND ($15::text = '' OR $15::text = 'feed_direction')
+    AND ($2::text = '' OR e.park_id = $2::uuid)
+    AND ($3::text = '' OR e.shed_id = $3::uuid)
+    AND ($4::timestamptz IS NULL OR e.due_at >= $4::timestamptz)
+    AND e.due_at <= $5::timestamptz
+    AND ($9::text = '')
+    AND (
+      e.status = 'open'
+      OR $14::boolean
+      OR e.resolved_at >= $11::timestamptz
+    )
+    AND (
+      $6::text = ''
+      OR CASE WHEN e.status IN ('resolved', 'dismissed') THEN 'completed' ELSE e.work_state END = $6::text
+    )
+    AND (
+      $7::text = ''
+      OR CASE WHEN e.status IN ('resolved', 'dismissed') THEN 'ok' WHEN e.severity = 'warning' THEN 'at_risk' ELSE 'broken' END = $7::text
+    )
+    AND ($8::text = '' OR e.owner_ref = $8::text)
+    AND ($12::text = '' OR 'feed_projection_exception:' || e.count_projection_exception_id::text = $12::text)
+    AND (
+      NOT $13::boolean
+      OR CASE WHEN e.status IN ('resolved', 'dismissed') THEN 'completed' ELSE e.work_state END IN ('blocked', 'owner_missing')
+    )
+)
 `
 
-const processIntegrityCountsSQL = processIntegrityBaseSQL + `
+const processIntegrityRowsSQL = processIntegrityBaseSQL + processIntegrityFeedExceptionSQL + `,
+all_rows AS (
+  SELECT
+    sort_priority,
+    row_id,
+    row_id AS process_key,
+    'vaccination' AS category,
+    obligation_id,
+    batch_id::text AS batch_id,
+    task_id AS sop_task_id,
+    task_row_version AS sop_task_row_version,
+    submission_id AS sop_submission_id,
+    completion_id,
+    park_uuid::text AS park_id,
+    park_name,
+    shed_uuid::text AS shed_id,
+    shed_name,
+    cohort_id,
+    goat_id,
+    animal_stage,
+    protocol_id::text,
+    protocol_version_id::text,
+    rule_id::text,
+    protocol_name,
+    dose_code,
+    NULLIF(protocol_name || CASE WHEN dose_code <> '' THEN ' - ' || dose_code ELSE '' END, '') AS drive_name,
+    sop_version_id,
+    proof_policy,
+    due_at,
+    window_start,
+    window_end,
+    expected_count,
+    obligation_status,
+    batch_status,
+    sop_state,
+    submission_state,
+    proof_state,
+    verification_state,
+    completion_state,
+    completed_count,
+    proof_count,
+    completion_rejected AS rejected_count,
+    deferred_count + health_deferred_count AS deferred_count,
+    work_state,
+    gap_type,
+    severity,
+    blocker_reason,
+    owner_state,
+    next_action,
+    process_intact,
+    operator_id,
+    operator_name,
+    park_head_id,
+    park_head_name,
+    verifier_id,
+    verifier_name,
+    escalation_owner_id,
+    escalation_owner_name,
+    COALESCE(array_to_string(ARRAY(
+      SELECT elem->>'proof_id'
+      FROM jsonb_array_elements(COALESCE(latest_proof_refs, '[]'::jsonb)) elem
+      WHERE elem->>'proof_id' IS NOT NULL AND elem->>'proof_id' <> ''
+    ), ','), '') AS proof_ids,
+    proof_count AS evidence_count,
+    latest_evidence_at,
+    latest_rejection_reason,
+    CASE WHEN submission_id IS NOT NULL THEN 'sop_submission:' || submission_id ELSE NULL END AS audit_ref
+  FROM filtered
+  WHERE ($15::text = '' OR $15::text = 'vaccination')
+  UNION ALL
+  SELECT
+    sort_priority,
+    row_id,
+    process_key,
+    category,
+    obligation_id,
+    batch_id,
+    sop_task_id,
+    sop_task_row_version,
+    sop_submission_id,
+    completion_id,
+    park_id,
+    park_name,
+    shed_id,
+    shed_name,
+    cohort_id,
+    goat_id,
+    animal_stage,
+    protocol_id,
+    protocol_version_id,
+    rule_id,
+    protocol_name,
+    dose_code,
+    drive_name,
+    sop_version_id,
+    proof_policy,
+    due_at,
+    window_start,
+    window_end,
+    expected_count,
+    obligation_status,
+    batch_status,
+    sop_state,
+    submission_state,
+    proof_state,
+    verification_state,
+    completion_state,
+    completed_count,
+    proof_count,
+    rejected_count,
+    deferred_count,
+    work_state,
+    gap_type,
+    severity,
+    blocker_reason,
+    owner_state,
+    next_action,
+    process_intact,
+    operator_id,
+    operator_name,
+    park_head_id,
+    park_head_name,
+    verifier_id,
+    verifier_name,
+    escalation_owner_id,
+    escalation_owner_name,
+    proof_ids,
+    evidence_count,
+    latest_evidence_at,
+    latest_rejection_reason,
+    audit_ref
+  FROM feed_exception_rows
+)
+SELECT *
+FROM all_rows
+WHERE (
+    $16::int < 0
+    OR (sort_priority, due_at, row_id) > ($16::int, $17::timestamptz, $18::text)
+  )
+ORDER BY sort_priority ASC, due_at ASC, row_id ASC
+LIMIT $19;
+`
+
+const processIntegrityCountsSQL = processIntegrityBaseSQL + processIntegrityFeedExceptionSQL + `,
+all_counts AS (
+  SELECT work_state
+  FROM filtered
+  WHERE ($15::text = '' OR $15::text = 'vaccination')
+  UNION ALL
+  SELECT work_state
+  FROM feed_exception_rows
+)
 SELECT work_state, COUNT(*)::bigint
-FROM filtered
+FROM all_counts
 GROUP BY work_state
 ORDER BY work_state;
 `

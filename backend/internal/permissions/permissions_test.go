@@ -200,6 +200,7 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/vaccination/action-center"},
 		{"GET", "/vaccination/adherence"},
 		{"GET", "/control-tower/vaccination"},
+		{"GET", "/workflows/feed_projection_exception:77000000-0000-4000-8000-000000000001"},
 		{"GET", "/vaccination/workflows/batch:66000000-0000-4000-8000-000000000001:rule:65000000-0000-4000-8000-000000000001:shed:55000000-0000-4000-8000-000000000001"},
 		{"GET", "/vaccination/operations"},
 		{"GET", "/vaccination/execution"},
@@ -277,6 +278,20 @@ func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 	}
 	if !RolesAuthorize([]string{RoleParkHead}, route.Permissions, route.AdminOnly) {
 		t.Fatal("park head should authorize Feed Direction readiness via protocol.read")
+	}
+
+	workflowRoute, ok := Match("GET", "/workflows/feed_projection_exception:77000000-0000-4000-8000-000000000001")
+	if !ok {
+		t.Fatal("top-level Feed Direction workflow route is not registered")
+	}
+	if workflowRoute.OperationID != "getWorkflowDrilldown" {
+		t.Fatalf("operation_id=%q, want getWorkflowDrilldown", workflowRoute.OperationID)
+	}
+	if len(workflowRoute.Permissions) != 1 || workflowRoute.Permissions[0] != ObligationRead {
+		t.Fatalf("permissions=%v, want [%s]", workflowRoute.Permissions, ObligationRead)
+	}
+	if !RolesAuthorize([]string{RoleParkHead}, workflowRoute.Permissions, workflowRoute.AdminOnly) {
+		t.Fatal("park head should authorize top-level workflow route via obligation.read")
 	}
 
 	for _, path := range []string{

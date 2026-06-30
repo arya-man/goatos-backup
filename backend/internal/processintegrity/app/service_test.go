@@ -43,7 +43,22 @@ func TestControlTowerUsesFilteredCountsAndAlerts(t *testing.T) {
 	if got.Summary.CriticalCount != 2 || got.Summary.WarningCount != 3 || got.Summary.VerificationBacklog != 3 || got.Summary.OwnerMissingCount != 2 {
 		t.Fatalf("summary counts = %+v", got.Summary)
 	}
-	if len(got.Alerts) != 1 || got.Alerts[0].EvidenceLink != "/vaccination/workflows/r1" {
+	if len(got.Alerts) != 1 || got.Alerts[0].EvidenceLink != "/workflows/r1" {
+		t.Fatalf("alerts = %+v", got.Alerts)
+	}
+}
+
+func TestControlTowerUsesFeedDirectionWorkflowLinks(t *testing.T) {
+	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
+	row := processRow("feed_projection_exception:10000000-0000-4000-8000-000000000099", domain.WorkStateBlocked, domain.SeverityBroken, due)
+	row.Category = domain.CategoryFeedDirection
+	svc := NewService(fakeRepo{result: domain.ListResult{Rows: []domain.Row{row}}}).WithClock(func() time.Time { return due })
+
+	got, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("control tower: %v", err)
+	}
+	if len(got.Alerts) != 1 || got.Alerts[0].EvidenceLink != "/workflows/"+row.RowID+"?category=feed_direction" {
 		t.Fatalf("alerts = %+v", got.Alerts)
 	}
 }
@@ -87,6 +102,26 @@ func TestWorkflowDrilldownBuildsConfigToCompletionNodes(t *testing.T) {
 	}
 }
 
+func TestWorkflowDrilldownBuildsFeedDirectionExceptionNodes(t *testing.T) {
+	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
+	row := processRow("feed_projection_exception:10000000-0000-4000-8000-000000000099", domain.WorkStateBlocked, domain.SeverityBroken, due)
+	row.Category = domain.CategoryFeedDirection
+	row.BlockerReason = strPtr("pregnant destination shed shortage")
+	row.Evidence.AuditRef = strPtr("count_projection_exception:10000000-0000-4000-8000-000000000099")
+	svc := NewService(fakeRepo{row: row, found: true}).WithClock(func() time.Time { return due })
+
+	got, found, err := svc.WorkflowDrilldown(context.Background(), domain.Query{TenantID: "tenant-1"}, row.RowID)
+	if err != nil || !found {
+		t.Fatalf("workflow found=%v err=%v", found, err)
+	}
+	if len(got.Nodes) != 4 {
+		t.Fatalf("nodes = %d", len(got.Nodes))
+	}
+	if got.Nodes[0].Key != "counts_projection" || got.Nodes[1].Key != "exception_open" || got.Nodes[2].Blocker == nil {
+		t.Fatalf("nodes = %+v", got.Nodes)
+	}
+}
+
 func processRow(rowID string, state domain.WorkState, severity domain.Severity, due time.Time) domain.Row {
 	return domain.Row{
 		Category:          domain.CategoryVaccination,
@@ -119,3 +154,5 @@ func processRow(rowID string, state domain.WorkState, severity domain.Severity, 
 		Evidence:          domain.Evidence{ProofIDs: []string{}},
 	}
 }
+
+func strPtr(v string) *string { return &v }

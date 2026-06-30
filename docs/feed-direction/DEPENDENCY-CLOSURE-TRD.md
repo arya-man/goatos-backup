@@ -143,6 +143,12 @@ Projection exception state changes must also emit transactional outbox events:
 and `counts.projection_exception.closed`. These events are the durable
 subscription source for shared command-lens projectors; the Feed Direction API
 list/read route remains the bounded review surface, not a generation bypass.
+The current shared process-integrity reader also projects these exception rows
+as `category=feed_direction` top-level Action Center/Workflow items with
+`feed_projection_exception:{id}` row IDs. This proves Counts exception work can
+enter shared command-lens read models; it does not close Feed frontend UX,
+assignment policy, Calendar/Protocol Adherence/Control Tower mapping, or
+operator review workflows.
 
 Idempotency:
 
@@ -720,6 +726,11 @@ cursor_key
 
 These fields are what Calendar, Action Center, Protocol Adherence, Workflows,
 and Control Tower subscribe to. Do not let each lens derive a different truth.
+
+Current implementation note: Counts projection exceptions already feed the
+shared process-integrity Action Center/Workflows reader as
+`category=feed_direction`; stage obligations, Calendar, Protocol Adherence, and
+Control Tower still need their Feed-specific field mapping before `G15` closes.
 
 `G15` implementation note: the existing `calendar_event_projections` table and
 calendar identity constraints are currently limited to `slice_key='vaccination'`

@@ -793,8 +793,17 @@ paths:
       tags:
         - Action Center
       operationId: listActionCenterObligations
-      summary: Compatibility path for the vaccination Action Center process-integrity rows.
+      summary: Top-level Action Center process-integrity rows across supported categories.
       parameters:
+        - name: category
+          in: query
+          required: false
+          description: Optional top-level command-lens category filter. Omit to include every supported category.
+          schema:
+            type: string
+            enum:
+              - vaccination
+              - feed_direction
         - name: park_id
           in: query
           required: false
@@ -1113,6 +1122,51 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /workflows/{row_id}:
+    get:
+      tags:
+        - Workflows
+      operationId: getWorkflowDrilldown
+      summary: Explain one top-level process chain or exception workflow.
+      parameters:
+        - name: row_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - vaccination
+              - feed_direction
+        - name: due_before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Workflow drilldown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDrilldownResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
   /vaccination/workflows/{row_id}:
@@ -5067,6 +5121,7 @@ components:
           type: string
           enum:
             - vaccination
+            - feed_direction
         row_id:
           type: string
         process_key:
@@ -5108,13 +5163,10 @@ components:
           type: string
         protocol_id:
           type: string
-          format: uuid
         protocol_version_id:
           type: string
-          format: uuid
         rule_id:
           type: string
-          format: uuid
         protocol_name:
           type: string
         dose_code:

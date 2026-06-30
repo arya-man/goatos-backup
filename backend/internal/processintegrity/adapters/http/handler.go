@@ -1,4 +1,4 @@
-// Package http exposes vaccination process-integrity read APIs.
+// Package http exposes top-level process-integrity read APIs.
 package http
 
 import (
@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -39,6 +40,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/action-center", h.ActionCenter)
 	mux.HandleFunc("GET /vaccination/adherence", h.ProtocolAdherence)
 	mux.HandleFunc("GET /control-tower/vaccination", h.ControlTower)
+	mux.HandleFunc("GET /workflows/{row_id}", h.WorkflowDrilldown)
 	mux.HandleFunc("GET /vaccination/workflows/{row_id}", h.WorkflowDrilldown)
 }
 
@@ -118,7 +120,7 @@ func (h *Handler) ControlTower(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) WorkflowDrilldown(w http.ResponseWriter, r *http.Request) {
 	rowID := r.PathValue("row_id")
 	if err := domain.ValidateRowID(rowID); err != nil {
-		h.badRequest(w, r, "invalid_row_id", "row_id must be a supported vaccination workflow row id")
+		h.badRequest(w, r, "invalid_row_id", "row_id must be a supported workflow row id")
 		return
 	}
 	q, ok := h.query(w, r, 1)
@@ -132,7 +134,7 @@ func (h *Handler) WorkflowDrilldown(w http.ResponseWriter, r *http.Request) {
 	}
 	if !found {
 		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
-			errorEnvelope{Code: "not_found", Message: "vaccination workflow row was not found", TraceID: traceID(r)}, nil)
+			errorEnvelope{Code: "not_found", Message: "workflow row was not found", TraceID: traceID(r)}, nil)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
@@ -171,6 +173,17 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request, defaultRowLimit 
 		}
 		q.ShedID = &shedID
 	}
+	if categoryValue := values.Get("category"); categoryValue != "" {
+		if categoryValue != domain.CategoryVaccination && categoryValue != domain.CategoryFeedDirection {
+			h.badRequest(w, r, "invalid_category", "category must be vaccination or feed_direction")
+			return domain.Query{}, false
+		}
+		q.Category = &categoryValue
+	}
+	if isVaccinationScopedRoute(r.URL.Path) {
+		category := domain.CategoryVaccination
+		q.Category = &category
+	}
 	stateValue := values.Get("work_state")
 	if stateValue == "" {
 		stateValue = values.Get("status")
@@ -178,7 +191,7 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request, defaultRowLimit 
 	if stateValue != "" {
 		state := domain.WorkState(stateValue)
 		if !allowedWorkStates[state] {
-			h.badRequest(w, r, "invalid_work_state", "work_state must be a vaccination process work state")
+			h.badRequest(w, r, "invalid_work_state", "work_state must be a supported process work state")
 			return domain.Query{}, false
 		}
 		q.WorkState = &state
@@ -242,6 +255,13 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request, defaultRowLimit 
 		q.Cursor = &cursor
 	}
 	return q, true
+}
+
+func isVaccinationScopedRoute(path string) bool {
+	return path == "/control-tower/vaccination" ||
+		path == "/vaccination/action-center" ||
+		path == "/vaccination/adherence" ||
+		strings.HasPrefix(path, "/vaccination/workflows/")
 }
 
 func tenantID(r *http.Request) string {

@@ -4,8 +4,9 @@ package domain
 import "time"
 
 const (
-	CategoryVaccination = "vaccination"
-	SourceAPI           = "api"
+	CategoryVaccination   = "vaccination"
+	CategoryFeedDirection = "feed_direction"
+	SourceAPI             = "api"
 )
 
 type WorkState string
@@ -151,6 +152,7 @@ type Row struct {
 
 type Query struct {
 	TenantID           string
+	Category           *string
 	ParkID             *string
 	ShedID             *string
 	WorkState          *WorkState

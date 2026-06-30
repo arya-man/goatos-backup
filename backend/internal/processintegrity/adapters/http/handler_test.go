@@ -24,8 +24,9 @@ const (
 )
 
 type fakeReader struct {
-	actionQuery domain.Query
-	workflowID  string
+	actionQuery   domain.Query
+	workflowQuery domain.Query
+	workflowID    string
 }
 
 func (f *fakeReader) ActionCenter(_ context.Context, q domain.Query) (domain.ActionCenterResponse, error) {
@@ -41,7 +42,8 @@ func (f *fakeReader) ControlTower(_ context.Context, q domain.Query) (domain.Con
 	return domain.ControlTowerResponse{Source: domain.SourceAPI}, nil
 }
 
-func (f *fakeReader) WorkflowDrilldown(_ context.Context, _ domain.Query, rowID string) (domain.WorkflowDrilldownResponse, bool, error) {
+func (f *fakeReader) WorkflowDrilldown(_ context.Context, q domain.Query, rowID string) (domain.WorkflowDrilldownResponse, bool, error) {
+	f.workflowQuery = q
 	f.workflowID = rowID
 	return domain.WorkflowDrilldownResponse{}, false, nil
 }
@@ -76,6 +78,9 @@ func TestActionCenterParsesBoundedVaccinationQuery(t *testing.T) {
 	if q.TenantID != handlerTenant || q.ParkID == nil || *q.ParkID != handlerPark || q.ShedID == nil || *q.ShedID != handlerShed {
 		t.Fatalf("scope query = %+v", q)
 	}
+	if q.Category == nil || *q.Category != domain.CategoryVaccination {
+		t.Fatalf("category = %v, want vaccination", q.Category)
+	}
 	if q.WorkState == nil || *q.WorkState != domain.WorkStateVerificationPending {
 		t.Fatalf("work_state = %v", q.WorkState)
 	}
@@ -93,6 +98,51 @@ func TestActionCenterParsesBoundedVaccinationQuery(t *testing.T) {
 	}
 	if q.Cursor == nil || q.Cursor.SortPriority != 5 {
 		t.Fatalf("cursor = %+v", q.Cursor)
+	}
+}
+
+func TestActionCenterParsesTopLevelFeedDirectionCategory(t *testing.T) {
+	reader := &fakeReader{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader))
+
+	req := httptest.NewRequest(http.MethodGet, "/action-center/obligations?category=feed_direction&work_state=blocked", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), handlerTenant))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.actionQuery.Category == nil || *reader.actionQuery.Category != domain.CategoryFeedDirection {
+		t.Fatalf("category = %v, want feed_direction", reader.actionQuery.Category)
+	}
+	if reader.actionQuery.WorkState == nil || *reader.actionQuery.WorkState != domain.WorkStateBlocked {
+		t.Fatalf("work_state = %v, want blocked", reader.actionQuery.WorkState)
+	}
+}
+
+func TestActionCenterRejectsInvalidCategory(t *testing.T) {
+	reader := &fakeReader{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader))
+
+	req := httptest.NewRequest(http.MethodGet, "/action-center/obligations?category=procurement", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), handlerTenant))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if body.Code != "invalid_category" {
+		t.Fatalf("error code = %q", body.Code)
 	}
 }
 
@@ -234,6 +284,32 @@ func TestWorkflowDrilldownReturnsNotFoundForMissingVaccinationRow(t *testing.T) 
 	}
 	if reader.workflowID != handlerRowID {
 		t.Fatalf("workflow row id = %q", reader.workflowID)
+	}
+	if reader.workflowQuery.Category == nil || *reader.workflowQuery.Category != domain.CategoryVaccination {
+		t.Fatalf("workflow category = %v, want vaccination", reader.workflowQuery.Category)
+	}
+}
+
+func TestWorkflowDrilldownAcceptsTopLevelFeedDirectionRow(t *testing.T) {
+	reader := &fakeReader{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader))
+	rowID := "feed_projection_exception:70000000-0000-4000-8000-000000000099"
+
+	req := httptest.NewRequest(http.MethodGet, "/workflows/"+rowID+"?category=feed_direction", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), handlerTenant))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.workflowID != rowID {
+		t.Fatalf("workflow row id = %q", reader.workflowID)
+	}
+	if reader.workflowQuery.Category == nil || *reader.workflowQuery.Category != domain.CategoryFeedDirection {
+		t.Fatalf("workflow category = %v, want feed_direction", reader.workflowQuery.Category)
 	}
 }
 
