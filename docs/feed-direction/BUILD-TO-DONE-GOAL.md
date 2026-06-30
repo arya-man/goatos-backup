@@ -149,9 +149,10 @@ language.
    stale/imported mismatch scanning through the bounded `counts-mismatch-scan`
    worker path with durable scan-run evidence, dedicated mismatch-scan anchor
    indexes, `counts-alias-coverage-check` proof for source-required Sheds DB
-   profile-tag aliases, `counts-query-plan-check` index-path proof for Counts
-   hot reads, observability, aggregate breed-level count output, reviewed
-   ration-context resolution state for each shed + breed projection row, and
+   profile-tag aliases, `counts-source-parity-check` proof for sanitized
+   workbook/source parity fixtures, `counts-query-plan-check` index-path proof
+   for Counts hot reads, observability, aggregate breed-level count output,
+   reviewed ration-context resolution state for each shed + breed projection row, and
    `GET /feed-direction/readiness` subgate roll-up.
    Raw Counting DB / Feed Directions Automation XLSX parsing, parity fixtures,
    and workbook-column mapping remain source-review work; workbook formulas or

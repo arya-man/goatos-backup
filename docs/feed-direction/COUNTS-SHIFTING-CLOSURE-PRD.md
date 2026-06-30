@@ -123,8 +123,10 @@ keeps it `blocked`; a non-empty conflict-free snapshot can make it `pending`
 only. The `counts-alias-coverage-check` worker checks sanitized required alias
 fixtures, including Sheds DB profile tags, against approved
 `count_dimension_aliases` and can also move `CSG7` to `blocked` or `pending`
-but never `ready`. Canonical replay and source-import replay evidence may move
-`CSG8` to
+but never `ready`. The `counts-source-parity-check` worker compares sanitized
+source parity fixtures against canonical projection reads and can move `CSG10`
+to `blocked` or `pending`, but never `ready`. Canonical replay and source-import
+replay evidence may move `CSG8` to
 `pending`, but it does not become ready until full source replay parity,
 projection replay proof, and seeded E2E prove no double application. `CSG7`,
 `CSG8`, `CSG10`, source parity, UI, and seeded E2E still have to close in

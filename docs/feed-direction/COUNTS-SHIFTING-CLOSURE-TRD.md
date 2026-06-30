@@ -154,6 +154,11 @@ Implementation status as of 2026-06-30:
   make `CSG7` `blocked`; complete coverage makes `CSG7` `pending`, never
   `ready`. This is how Sheds DB profile-tag coverage becomes executable
   evidence without importing the raw workbook as runtime truth.
+- `backend/cmd/counts-source-parity-check` compares sanitized source parity
+  fixtures, such as `backend/testdata/counts/source-parity-sample.json`, against
+  the canonical `CountAsOf`/`ProjectedCountFor` read path. Missing, mismatched,
+  truncated, or unexpected exact-mode rows make `CSG10` `blocked`; passing
+  fixtures make `CSG10` `pending`, not `ready`.
 - `count_projection_exceptions` now carries work metadata (`work_type`,
   `work_state`, `due_at`, `next_action`, `evidence_link`) and repeated open
   exceptions relink to the latest snapshot on upsert. This makes G2 blockers
@@ -384,6 +389,7 @@ Required paths:
 | Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or the registered `countsapp.ProjectionInputHandler` consumer for tenant + park + as-of + target-date bounded horizons; write snapshot or exception; record `count_projection_recompute_runs` status, counts, timing, trace, and `CSG10` evidence |
 | Count mismatch scan | Base Count adoption plus `counts-mismatch-scan` scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. The bounded worker command pages through stale historical/imported anchors with tenant/window/limit/cursor guards, writes the same exception work, records `count_mismatch_scan_runs`, and updates `CSG6`/`CSG10` readiness evidence. The anchor page now has dedicated mismatch-scan indexes and query-plan coverage. |
 | Alias coverage proof | `counts-alias-coverage-check` | Check source-required aliases such as Sheds DB profile tags against approved `count_dimension_aliases`; update `CSG7` readiness evidence without turning it ready. |
+| Source parity proof | `counts-source-parity-check` | Compare sanitized source parity fixtures against canonical projection reads; update `CSG10` readiness evidence without turning it ready. |
 | Query-plan proof | `counts-query-plan-check` | Prove expected Postgres index paths for Counts hot reads and update `CSG10` readiness evidence; never use this alone as G2 completion proof. |
 | Exception fanout/read model | Projection exception open/update/close plus process-integrity query | Emit `counts.projection_exception.*` outbox events and project `category=feed_direction` exception rows into top-level Action Center/Workflows; assignment policy, frontend UX, and broader Calendar/Protocol Adherence/Control Tower mapping remain separate closure work. |
 | Feed projection read | API/app port | Return rows or typed blocker with source hash |
