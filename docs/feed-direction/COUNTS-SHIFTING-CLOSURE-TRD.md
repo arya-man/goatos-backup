@@ -2,7 +2,8 @@
 
 **Status:** Draft v1, technical design sketch for Feed Direction gate `G2`
 **Date:** 2026-06-30
-**Companions:** [Counts/Shifting Closure PRD](./COUNTS-SHIFTING-CLOSURE-PRD.md),
+**Companions:** [Feed Direction Feature Closure Plan](./FEATURE-CLOSURE-PLAN.md),
+[Counts/Shifting Closure PRD](./COUNTS-SHIFTING-CLOSURE-PRD.md),
 [Feed Direction Dependency Closure TRD](./DEPENDENCY-CLOSURE-TRD.md), and
 [Feed Direction Build-To-Done Goal](./BUILD-TO-DONE-GOAL.md)
 
@@ -27,6 +28,14 @@ flags, and script transforms are not Counts/Shifting runtime truth.
 for shed tags, capacity-like values, and potential tags. It must resolve into
 reviewed, effective-dated Location/Park profile data before Counts or Feed uses
 it; manual Sheds DB values are not a runtime table to copy.
+
+Closure boundary: this TRD closes the safe feed-input milestone from
+[FEATURE-CLOSURE-PLAN.md](./FEATURE-CLOSURE-PLAN.md). The required output is a
+bounded projection contract that lets Feed consume target-date shed/breed/cohort
+rows or explicit blocker rows. Ration calculation, session splitting,
+generated-run quantity rows, stage obligations, frontend surfaces, and full Feed
+E2E are downstream Feed milestones, not reasons to keep adding Counts proof
+producers.
 
 ```text
 physical Base Count anchor
@@ -331,14 +340,16 @@ Implementation status as of 2026-06-30:
   production-scale/load evidence, and seeded local E2E also exist.
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
-- This does **not** close `G2`: full row parsing/import, full row parity
-  fixtures, owner-approved workbook mapping review, Sheds DB owner-approved coverage/admin
-  review and seeded publish evidence,
-  Shifting/Count source-adapter hardening beyond typed JSONL, production
-  scheduling/metrics for the mismatch scan, actual generated-run quantity
-  calculation and obligation creation, assignment policy, polished command-lens
-  UX, observability, production-scale/load proof, and seeded local E2E remain
-  blockers.
+- This does **not** close the whole Feed Direction feature: full row
+  parsing/import, full row parity fixtures, owner-approved workbook mapping
+  review, Sheds DB owner-approved coverage/admin review and seeded publish
+  evidence, Shifting/Count source-adapter hardening beyond typed JSONL,
+  production scheduling/metrics for the mismatch scan, observability,
+  production-scale/load proof, and safe-input seeded local proof remain for the
+  input milestone. Actual generated-run quantity calculation, obligation
+  creation, assignment policy, polished command-lens UX, frontend, and full Feed
+  E2E are downstream product milestones; they must not be used as an excuse to
+  keep expanding Counts/Shifting scope.
 
 ## 3. Candidate Persistence
 

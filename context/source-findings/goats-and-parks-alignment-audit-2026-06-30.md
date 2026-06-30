@@ -78,10 +78,13 @@ audit, not a claim that every referenced feature is complete end to end.
 ## Remaining Implementation Work
 
 This audit does not finish the active Feed Direction goal. Remaining work before
-Feed Direction can be called done still includes the ordered `G2`-`G17` closure,
-real Counts/Shifting projection, reviewed ration/template imports, feed
-generation, obligations, proof/rework, read models, frontend surfaces, and local
-E2E proof.
+Feed Direction can be called done must follow
+`docs/feed-direction/FEATURE-CLOSURE-PLAN.md`: safe projected shed/cohort feed
+inputs, reviewed ration/template/session config, feed generation, obligations,
+proof/rework, read models, frontend surfaces, and local E2E proof. Gate labels
+remain traceability; product milestones are the execution boundary so the build
+does not keep adding source evidence after a milestone can already calculate or
+block rows explicitly.
 
 Future slices should add governed reference data for the full shed-tag/capacity
 table and its effective dates, then wire those references into Locations/Parks,

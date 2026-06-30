@@ -2,9 +2,10 @@
 
 **Status:** Draft v2, counter-reviewed source/kernel readiness phase before Feed Direction build
 **Date:** 2026-06-30
-**Companions:** [Feed Direction PRD](./PRD.md), [Feed Direction TRD](./TRD.md),
+**Companions:** [Feed Direction Feature Closure Plan](./FEATURE-CLOSURE-PLAN.md),
+[Feed Direction PRD](./PRD.md), [Feed Direction TRD](./TRD.md),
 [Dependency Closure TRD](./DEPENDENCY-CLOSURE-TRD.md),
-[Counts/Shifting Closure PRD](./COUNTS-SHIFTING-CLOSURE-PRD.md), and
+[Counts/Shifting Closure PRD](./COUNTS-SHIFTING-CLOSURE-PRD.md),
 [Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md), and
 [Feed Direction Build-To-Done Goal](./BUILD-TO-DONE-GOAL.md)
 
@@ -25,6 +26,13 @@ This phase converts those open items into explicit gates, owner decisions, and
 backend contracts so the next Feed Direction build can start without pretending
 mock UI, legacy Slack state, or unscoped Counts work is product truth.
 
+Use [FEATURE-CLOSURE-PLAN.md](./FEATURE-CLOSURE-PLAN.md) to execute the gates in
+feature language. The gate IDs below are traceability labels; the implementation
+run must close safe feed input projection first, then ration/template/session
+config, generation, stage/proof work, feed-safety rework, APIs/frontend, and
+real local E2E. Do not add more source-proof work once the milestone checker can
+either calculate a safe row or block it with an explicit reason.
+
 ## 2. Scope Gate
 
 `G1` is reopened for Feed Direction build as of 2026-06-30. The older pause tied
@@ -40,7 +48,8 @@ starting Feed Direction.
 The reopened `G1` does not remove Feed Direction's own gates. Active Feed UI,
 Feed Config categories, SOP cards, and command-lens surfaces must still be
 backed by source-backed or clearly marked local-dev data, backend-owned
-contracts, mock-fidelity, rendered visual proof, and the `G2`-`G17` closure path.
+contracts, mock-fidelity, rendered visual proof, the product milestones in
+`FEATURE-CLOSURE-PLAN.md`, and the `G2`-`G17` evidence map.
 
 ## 3. Source Base
 
@@ -70,9 +79,10 @@ Director explicitly reopens the rule. Legacy trigger times are audit/cutover
 evidence only, not GoatOS schedules by default.
 
 The next implementation session must use
-[BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md) as the stop-rule charter for
-source cross-check, backend/frontend integration, seeds, E2E, high-effort review
-agents, and Mesha/VGoats push verification.
+[FEATURE-CLOSURE-PLAN.md](./FEATURE-CLOSURE-PLAN.md) as the product milestone
+map and [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md) as the stop-rule
+charter for source cross-check, backend/frontend integration, seeds, E2E,
+high-effort review agents, and Mesha/VGoats push verification.
 
 Do not treat Feed dependency closure as Feed-only vocabulary. Gate decisions for
 Counts/Shifting, ration context, eligibility, proof, and UI must respect
@@ -90,7 +100,7 @@ questions must reference these IDs rather than maintaining independent lists.
 
 | ID | Gate | Required outcome | Type |
 | --- | --- | --- | --- |
-| G1 | Scope launch gate | Reopened as of 2026-06-30 because local PHC/Vaccination UI/foundation closure is accepted for Feed Direction sequencing. Google dev vaccination rollout remains separate Goal 2 and is not required before Feed starts. Active Feed UI/Config/SOP exposure still requires Feed-owned backend contracts, mock fidelity, rendered proof, and `G2`-`G17` closure. | Owner |
+| G1 | Scope launch gate | Reopened as of 2026-06-30 because local PHC/Vaccination UI/foundation closure is accepted for Feed Direction sequencing. Google dev vaccination rollout remains separate Goal 2 and is not required before Feed starts. Active Feed UI/Config/SOP exposure still requires Feed-owned backend contracts, mock fidelity, rendered proof, product-milestone closure from `FEATURE-CLOSURE-PLAN.md`, and `G2`-`G17` evidence closure. | Owner |
 | G2 | Counts/Shifting long pole | Counts/Shifting closure PRD/TRD is accepted and implemented enough to expose aggregate Base Count anchors, realized ShiftingEvent ledger, one-day projection at shed + breed grain, reviewed ration-context resolution state, idempotency, stale/imported mismatch scanning through the bounded `counts-mismatch-scan` worker path with durable scan-run evidence, recompute worker evidence through `count_projection_recompute_runs`, fail-closed exceptions with reviewed resolve/dismiss audit, and `CSG1`-`CSG10` readiness breakdown under `G2`. Breed/tag constraint tables without shed placement must produce a blocker until reviewed context resolves the physical count row to a nutrition cohort. RFID-to-shed per-goat derivation is out of initial Feed scope. | Backend/source |
 | G3 | Clock and legacy trigger inventory | Feed Director signs off the default Feed Direction clocks from `Feed, Shiftings and Count.docx`: Day N `09:00` full direction, Day N `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving slots. `G5` owns approved session-slot changes beyond that default. Legacy Slack/App Script trigger installers from `unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and `video_verification_system.js` are a separate audit-only cutover subgate for retain/retire/replace decisions; their timings must not be treated as GoatOS schedules unless explicitly retained or replaced against the docx. | Owner |
 | G4 | Ration source/provenance | Solver/import path, ration values, aliases, feed vectors, uploaded breed/tag/energy constraint tables, quantity/weight thresholds, constraint hashes, approval metadata, publish authority checks, and typed CRUD/import/review/publish flow are defined. KT examples such as `80/20`, `400-500g`, `600g`, `F1` `11-15kg`, and `F2` `15-20kg` are reviewed as candidate row values, not hardcoded constants. `G4` must define the runtime template pipeline: source tables -> typed parameter rows -> dimension/alias/source-hash validation -> calculation preview -> row repair/DLQ -> approved `feed_direction_config_pack`. Workbook formulas and tabs are evidence only. | Source/owner |
@@ -439,8 +449,9 @@ This phase is complete when:
 
 ## 8. Readiness Output
 
-After this phase, the next build starts under reopened `G1` by closing `G2`-`G17`
-in order:
+After this phase, the next build starts under reopened `G1` by following the
+product milestones in `FEATURE-CLOSURE-PLAN.md`, with this gate order as the
+evidence/readiness map:
 
 1. `G2` Counts/Shifting projection closure.
 2. `G3` clock and legacy trigger inventory sign-off.

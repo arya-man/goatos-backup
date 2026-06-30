@@ -2,7 +2,8 @@
 
 **Status:** Draft v1, dependency closure for Feed Direction gate `G2`
 **Date:** 2026-06-30
-**Companions:** [Feed Direction Dependency Closure PRD](./DEPENDENCY-CLOSURE-PRD.md),
+**Companions:** [Feed Direction Feature Closure Plan](./FEATURE-CLOSURE-PLAN.md),
+[Feed Direction Dependency Closure PRD](./DEPENDENCY-CLOSURE-PRD.md),
 [Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md), and
 [Feed Direction Build-To-Done Goal](./BUILD-TO-DONE-GOAL.md)
 
@@ -24,6 +25,14 @@ truth.
 Initial Counts/Shifting closure is aggregate-only at shed + breed grain.
 RFID-to-shed per-animal association is a future replacement path, not hidden
 work inside `G2`.
+
+Use the safe-input boundary from
+[FEATURE-CLOSURE-PLAN.md](./FEATURE-CLOSURE-PLAN.md). Counts/Shifting is done
+enough for Feed when it can produce bounded target-date shed + breed + cohort
+rows with reviewed source hashes, projection horizon, high-risk counters, and
+ration-context state, or an explicit blocker row. It does not need to own
+ration calculation, session splitting, packing obligations, frontend surfaces,
+or full Feed E2E before Feed moves to the next product milestone.
 
 High-risk shifted cohorts are part of the `G2` safety contract. If pregnant,
 lactating, warm-up, or similar stage/risk rows move into a destination shed,

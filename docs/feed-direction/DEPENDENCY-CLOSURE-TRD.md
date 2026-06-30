@@ -2,9 +2,10 @@
 
 **Status:** Draft v2, technical readiness design before Feed Direction build
 **Date:** 2026-06-30
-**Companions:** [Dependency Closure PRD](./DEPENDENCY-CLOSURE-PRD.md),
+**Companions:** [Feed Direction Feature Closure Plan](./FEATURE-CLOSURE-PLAN.md),
+[Dependency Closure PRD](./DEPENDENCY-CLOSURE-PRD.md),
 [Feed Direction PRD](./PRD.md), [Feed Direction TRD](./TRD.md),
-[Counts/Shifting Closure PRD](./COUNTS-SHIFTING-CLOSURE-PRD.md), and
+[Counts/Shifting Closure PRD](./COUNTS-SHIFTING-CLOSURE-PRD.md),
 [Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md), and
 [Feed Direction Build-To-Done Goal](./BUILD-TO-DONE-GOAL.md)
 
@@ -26,6 +27,12 @@ Counts/Shifting projection
 
 The existing GoatOS kernel remains the target. Do not build a parallel Feed
 execution engine.
+
+Execute this dependency design through
+[FEATURE-CLOSURE-PLAN.md](./FEATURE-CLOSURE-PLAN.md). Its product milestones are
+the stop condition for the next build; the `G*` and `CSG*` IDs in this TRD are
+evidence labels, not permission to keep expanding one milestone with adjacent
+proof work.
 
 Source authority for this slice is `Feed, Shiftings and Count.docx` v1.1. It
 owns the Feed Direction business clocks, Diff behavior, bridge rule, projection

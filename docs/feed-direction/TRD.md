@@ -8,6 +8,7 @@
 [Dependency Closure TRD](./DEPENDENCY-CLOSURE-TRD.md); Counts/Shifting long pole:
 [Counts/Shifting Closure PRD](./COUNTS-SHIFTING-CLOSURE-PRD.md) and
 [Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md)
+**Feature closure plan:** [Feed Direction Feature Closure Plan](./FEATURE-CLOSURE-PLAN.md)
 **Build-to-done charter:** [Feed Direction Build-To-Done Goal](./BUILD-TO-DONE-GOAL.md)
 
 > v2 correction: the previous TRD treated a typed Sheet-shaped `feed_*` schema as
@@ -30,6 +31,14 @@ lifecycle/stage, warm-up, pregnancy, lactation, fattening, milking, handling,
 weighing, feed-session, and feed-safety semantics. Feed Direction code may add
 stricter feed policy, but must not redefine these base meanings in templates,
 workers, API contracts, read models, or UI.
+
+Feature closeout rule: use
+[FEATURE-CLOSURE-PLAN.md](./FEATURE-CLOSURE-PLAN.md) as the bounded
+implementation map. A Counts/Shifting projection milestone closes when Feed can
+consume safe projected shed/cohort rows or explicit blocker rows; generation
+math, stage obligations, UI, and full E2E are separate milestones. Do not add a
+new source-proof command unless that milestone checker names the exact missing
+input.
 
 Workbook boundary rule: `Counting DB - values only.xlsx` and
 `Feed Directions Automation DB.xlsx` are source evidence for import mapping,
@@ -756,10 +765,12 @@ execution remains disabled until that closeout is complete.
 Use the canonical gate table in
 [DEPENDENCY-CLOSURE-PRD.md](./DEPENDENCY-CLOSURE-PRD.md) rather than maintaining
 a separate blocker list. Technical implementation may start under reopened `G1`
-by closing `G2`-`G17` in order. A gate may only unblock later work through a
-narrow owner decision that defines a fail-closed adapter or disabled capability;
-broad owner-deferral language does not make hidden runtime scope ready. `G15`
-closure specifically includes resolving or explicitly bounding the
+by following the product milestones in
+[FEATURE-CLOSURE-PLAN.md](./FEATURE-CLOSURE-PLAN.md), with `G2`-`G17` used as
+the evidence/readiness map. A gate may only unblock later work through a narrow
+owner decision that defines a fail-closed adapter or disabled capability; broad
+owner-deferral language does not make hidden runtime scope ready. `G15` closure
+specifically includes resolving or explicitly bounding the
 vaccination-locked Calendar projection blocker. If `G10` is bounded instead of
 closed, the bound is Slack bridge disabled. The next migration number is a
 build-time check after the live repo tail, currently `000117`, is reverified.

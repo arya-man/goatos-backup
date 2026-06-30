@@ -9,7 +9,8 @@ the local Goal 1 vaccination/kernel closure documented in
 `context/execution/operational-kernel-stability-closure-handoff.md`. Google dev
 rollout, clean-slate seeding, and Google E2E remain a separate Goal 2 gate; they
 must not be claimed as done, but they do not block starting Feed Direction.
-**Companions:** [Feed Direction PRD](./PRD.md),
+**Companions:** [Feed Direction Feature Closure Plan](./FEATURE-CLOSURE-PLAN.md),
+[Feed Direction PRD](./PRD.md),
 [Feed Direction TRD](./TRD.md),
 [Dependency Closure PRD](./DEPENDENCY-CLOSURE-PRD.md),
 [Dependency Closure TRD](./DEPENDENCY-CLOSURE-TRD.md),
@@ -19,15 +20,24 @@ must not be claimed as done, but they do not block starting Feed Direction.
 ## 1. Goal
 
 Build Feed Direction to real GoatOS closure, not a planning-only or mock-only
-finish. The next implementation session must start by closing `G2`-`G17` in
-order from the dependency PRD/TRD, recording status, owner, evidence, blocker
-reason, and any explicit owner decision at each gate before using that gate as
-implementation truth.
+finish. Execute the work through the product milestones in
+[FEATURE-CLOSURE-PLAN.md](./FEATURE-CLOSURE-PLAN.md): safe feed input
+projection, ration/template/session config, draft generation, stage obligations
+and proof, feed-safety rework, APIs/read models/frontend, and real local E2E.
+The `G2`-`G17` labels remain traceability gates from the dependency PRD/TRD,
+but the next implementation session must talk and plan in feature terms.
+Record status, owner, evidence, blocker reason, and explicit owner decision for
+each gate before using that gate as implementation truth.
 
 Do not mark the goal complete because the docs are cleaner, the UI renders with
 mock data, or a partial backend path exists. Closure means the process-integrity
 chain works through Postgres, API, generated clients, workers, proof,
 verification, read models, visual UI, tests, and pushed source.
+
+Do not continue a milestone by adding adjacent source-proof commands after the
+feature checker already identifies the product boundary. If a checker says the
+remaining issue is an owner decision, stop coding that branch and keep the
+runtime fail-closed or disabled.
 
 ## 2. Source Priority
 
@@ -92,6 +102,9 @@ stage obligations, proof/rework, audit/outbox, and bounded Postgres read models.
 
 The build goal remains open until all of these are true:
 
+- The milestone plan in [FEATURE-CLOSURE-PLAN.md](./FEATURE-CLOSURE-PLAN.md)
+  has been followed, and each milestone has a checker or explicit acceptance
+  predicate before new implementation work starts.
 - `G1`-`G17` and `CSG1`-`CSG10` have status, owner, evidence pointer, blocker
   reason, and implementation evidence where required.
 - Counts/Shifting exposes the accepted projection contract or a fail-closed
@@ -102,10 +115,11 @@ The build goal remains open until all of these are true:
   serving, underfeeding/shortage blocks with escalation, overfeeding/wastage
   triggers exception work, and moist/unsafe leftover feed cannot be treated as
   harmless surplus. This is herd-growth protection, not optional optimization.
-- `G2`-`G17` are closed in order, or a gate has a narrow owner decision that
-  defines a fail-closed adapter/disabled capability and the exact work that may
-  continue. A broad "owner-deferred" note must not green-light hidden runtime
-  scope.
+- Product milestones in `FEATURE-CLOSURE-PLAN.md` are closed in order, with
+  `G2`-`G17` used as traceability labels, or a gate has a narrow owner decision
+  that defines a fail-closed adapter/disabled capability and the exact work that
+  may continue. A broad "owner-deferred" note must not green-light hidden
+  runtime scope.
 - Generation, Diff, manual bridge logging, stage obligations, durable
   `stage_kind`, inventory unit binding, transport map, thresholds, reminders,
   notifications, missed/recovery, audit, observability, and cursor read models
@@ -133,10 +147,18 @@ The build goal remains open until all of these are true:
 
 ## 4. Backend Build Gates
 
-Start by closing `G2`-`G17` in the dependency order below unless a new source
-review proves a safer order. Do not wait for every later gate to be green before
-starting the first gate, and do not skip ahead using broad owner-deferral
-language.
+Start with the product milestones in `FEATURE-CLOSURE-PLAN.md`. Use the
+dependency order below as the evidence map for those milestones unless a new
+source review proves a safer order. Do not wait for every later gate to be green
+before starting the first milestone, and do not skip ahead using broad
+owner-deferral language.
+
+The first milestone is a feature boundary, not an unbounded module catch-all:
+finish safe feed input projection, then move to ration/template/session config.
+Counts work is complete for Feed when Feed can consume bounded projected
+shed/breed/cohort rows or explicit blocker rows for the target date. Generation
+math, stage obligations, frontend, and full E2E belong to later product
+milestones and must not be smuggled back into the Counts boundary.
 
 1. `G2` Counts/Shifting projection closure, including Base Count anchor,
    ShiftingEvent ledger, horizon split, fail-closed exceptions with bounded
@@ -171,7 +193,7 @@ language.
    metadata, shed+breed totals, detail rows, and typed blockers while keeping
    `generation_allowed=false`. This proves read-only Feed consumption of the
    Counts projection; actual generated-run quantity calculation and obligation
-   creation still remain later-gate work.
+   creation still remain later product-milestone work.
    The same Feed integration path now proves completed mismatch-scan evidence
    moves `CSG6` to ready, reviewed alias evidence can remove the `CSG7`
    `alias_conflict` blocker only when no open alias-conflict exception remains,
@@ -212,8 +234,10 @@ language.
    The Counts projection read model now also exposes page-bounded
    `ShedBreedTotals` for the returned projection rows so Feed can inspect
    aggregate shed + breed counts without losing stage/age/sex and
-   pregnant/lactating/warm-up detail rows; full no-cursor parity and seeded E2E
-   still remain before `G2` is green.
+   pregnant/lactating/warm-up detail rows. Before adding more Counts evidence,
+   use the safe feed input predicate in `FEATURE-CLOSURE-PLAN.md`: if the
+   remaining item is generation, obligations, UI, or full local E2E, move to the
+   matching later milestone instead of keeping Counts open.
    Full row parsing/import, full parity fixture breadth, and owner-approved
    mapping review remain source-review work; workbook formulas or examples must
    not bypass typed validation/import.

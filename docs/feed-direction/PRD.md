@@ -23,8 +23,10 @@ proof. Counts/Shifting gate `G2` has sibling docs:
 [COUNTS-SHIFTING-CLOSURE-PRD.md](./COUNTS-SHIFTING-CLOSURE-PRD.md) and
 [COUNTS-SHIFTING-CLOSURE-TRD.md](./COUNTS-SHIFTING-CLOSURE-TRD.md).
 
-**Build-to-done charter:** The next full Feed Direction build must follow
-[BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md). That charter owns the session
+**Feature closure plan:** The next full Feed Direction build must follow
+[FEATURE-CLOSURE-PLAN.md](./FEATURE-CLOSURE-PLAN.md) and
+[BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md). The feature plan owns the
+bounded product milestone order and loop guard; the build charter owns session
 stop rules for source priority, backend/frontend integration, seeds, E2E proof,
 high-effort review agents, and Mesha/VGoats push verification.
 
@@ -86,6 +88,14 @@ park/shed scope, shed tags, lifecycle/stage, warm-up, pregnancy, lactation,
 fattening, milking, handling, weighing, feed-session, and feed-safety semantics.
 The Feed source owns Direction timing and ration behavior; it does not erase the
 base shed-tag/cohort meanings.
+
+Goal-shaping rule: use
+[FEATURE-CLOSURE-PLAN.md](./FEATURE-CLOSURE-PLAN.md) to keep implementation
+bounded. First close safe projected shed/cohort feed inputs, then move to
+ration/template/session config, generation, stage work, rework, APIs/frontend,
+and E2E. Do not keep adding workbook/source proof after the safe-input checker
+can already either calculate from a row or block that row with an explicit
+reason.
 
 Sheds DB source rule: Feed Direction must treat
 `context/source-findings/sheds-db-source-findings.md` as legacy evidence for
