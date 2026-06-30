@@ -145,6 +145,15 @@ WHERE tenant_id = $1::uuid AND horizon = $2 AND park_id = $3::uuid AND target_da
 	return id, nil
 }
 
+func (r *Repository) CountAsOf(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error) {
+	req.TargetDate = req.AsOf
+	return r.projection(ctx, "count_as_of", req)
+}
+
+func (r *Repository) ProjectedCountFor(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error) {
+	return r.projection(ctx, "feed_target_date", req)
+}
+
 func (r *Repository) Readiness(ctx context.Context, tenantID string) (domain.Readiness, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -325,15 +334,18 @@ func insertProjectionRow(ctx context.Context, tx pgx.Tx, tenantID, snapshotID st
 	_, err := tx.Exec(ctx, `
 INSERT INTO count_projection_snapshot_rows (
   tenant_id, count_projection_snapshot_id, park_id, shed_id, target_date, grain_key,
+  base_count_anchor_id, included_shifting_event_ids_hash,
   breed_id, breed_key, breed_label, stage_tag, age_class, sex,
   head_count, pregnant_count, lactating_count, warmup_count,
   ration_context_resolution_state, ration_context_ref, blocker_reason, source_row_hash
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6,
-  nullif($7::text, '')::uuid, $8, $9, nullif($10, ''), nullif($11, ''), nullif($12, ''),
-  $13, $14, $15, $16,
-  $17, nullif($18, ''), nullif($19, ''), $20
+  $7::uuid, $8,
+  nullif($9::text, '')::uuid, $10, $11, nullif($12, ''), nullif($13, ''), nullif($14, ''),
+  $15, $16, $17, $18,
+  $19, nullif($20, ''), nullif($21, ''), $22
 )`, tenantID, snapshotID, row.ParkID, row.ShedID, dateOnly(row.TargetDate), row.GrainKey,
+		row.BaseCountAnchorID, row.IncludedShiftingEventIDsHash,
 		ptrValue(row.BreedID), row.BreedKey, row.BreedLabel, ptrValue(row.StageTag), ptrValue(row.AgeClass), ptrValue(row.Sex),
 		row.HeadCount, row.PregnantCount, row.LactatingCount, row.WarmupCount,
 		defaultResolution(row.RationContextResolutionState), ptrValue(row.RationContextRef), ptrValue(row.BlockerReason), row.SourceRowHash)
@@ -341,6 +353,139 @@ INSERT INTO count_projection_snapshot_rows (
 		return fmt.Errorf("counts: insert projection row: %w", err)
 	}
 	return nil
+}
+
+func (r *Repository) projection(ctx context.Context, horizon string, req domain.CountProjectionRequest) (domain.CountProjection, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	targetDate := dateOnly(req.TargetDate)
+	out := domain.CountProjection{
+		TenantID: req.TenantID, Horizon: horizon, ParkID: req.ParkID, TargetDate: targetDate,
+		ProjectionStatus: "blocked",
+	}
+	var target pgtype.Date
+	err := r.pool.QueryRow(ctx, `
+SELECT count_projection_snapshot_id::text, projection_status, source_contract_version,
+       source_hash, base_anchor_ids_hash, shifting_event_ids_hash,
+       exception_count, row_count, target_date
+FROM count_projection_snapshots
+WHERE tenant_id = $1::uuid
+  AND horizon = $2
+  AND park_id = $3::uuid
+  AND target_date = $4
+ORDER BY created_at DESC, count_projection_snapshot_id DESC
+LIMIT 1`, req.TenantID, horizon, req.ParkID, targetDate).Scan(
+		&out.SnapshotID, &out.ProjectionStatus, &out.SourceContractVersion,
+		&out.SourceHash, &out.BaseAnchorIDsHash, &out.ShiftingEventIDsHash,
+		&out.ExceptionCount, &out.TotalRowCount, &target,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		out.Blockers = append(out.Blockers, domain.ProjectionBlocker{
+			ExceptionType: "missing_projection_snapshot",
+			SourceKey:     horizon + ":" + targetDate.Format("2006-01-02"),
+			GrainKey:      "tenant:park:date",
+			Severity:      "blocking",
+			BlockerReason: "No Counts/Shifting projection snapshot exists for the requested tenant, park, horizon, and target date.",
+		})
+		return out, nil
+	}
+	if err != nil {
+		return domain.CountProjection{}, fmt.Errorf("counts: load projection snapshot: %w", err)
+	}
+	if target.Valid {
+		out.TargetDate = target.Time
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT count_projection_snapshot_row_id::text, park_id::text, shed_id::text, target_date,
+       grain_key, base_count_anchor_id::text, included_shifting_event_ids_hash,
+       COALESCE(breed_id::text, ''), breed_key, breed_label,
+       COALESCE(stage_tag, ''), COALESCE(age_class, ''), COALESCE(sex, ''),
+       head_count, pregnant_count, lactating_count, warmup_count,
+       ration_context_resolution_state, COALESCE(ration_context_ref, ''),
+       COALESCE(blocker_reason, ''), source_row_hash
+FROM count_projection_snapshot_rows
+WHERE tenant_id = $1::uuid
+  AND count_projection_snapshot_id = $2::uuid
+  AND (nullif($3::text, '')::uuid IS NULL OR shed_id = nullif($3::text, '')::uuid)
+  AND (nullif($4::text, '') IS NULL OR lower(breed_key) = lower(nullif($4::text, '')))
+  AND (nullif($5::text, '') IS NULL OR ration_context_resolution_state = nullif($5::text, ''))
+  AND (nullif($6::text, '')::uuid IS NULL OR count_projection_snapshot_row_id > nullif($6::text, '')::uuid)
+ORDER BY count_projection_snapshot_row_id
+LIMIT $7`, req.TenantID, out.SnapshotID, ptrValue(req.ShedID), ptrValue(req.BreedKey),
+		ptrValue(req.RationContextResolutionState), ptrValue(req.Cursor), req.Limit+1)
+	if err != nil {
+		return domain.CountProjection{}, fmt.Errorf("counts: query projection rows: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var row domain.ProjectionRow
+		var target pgtype.Date
+		var breedID, stage, age, sex, rationRef, blocker string
+		if err := rows.Scan(&row.ProjectionRowID, &row.ParkID, &row.ShedID, &target,
+			&row.GrainKey, &row.BaseCountAnchorID, &row.IncludedShiftingEventIDsHash,
+			&breedID, &row.BreedKey, &row.BreedLabel,
+			&stage, &age, &sex,
+			&row.HeadCount, &row.PregnantCount, &row.LactatingCount, &row.WarmupCount,
+			&row.RationContextResolutionState, &rationRef, &blocker, &row.SourceRowHash); err != nil {
+			return domain.CountProjection{}, fmt.Errorf("counts: scan projection row: %w", err)
+		}
+		if target.Valid {
+			row.TargetDate = target.Time
+		}
+		row.BreedID = ptrIfNotEmpty(breedID)
+		row.StageTag = ptrIfNotEmpty(stage)
+		row.AgeClass = ptrIfNotEmpty(age)
+		row.Sex = ptrIfNotEmpty(sex)
+		row.RationContextRef = ptrIfNotEmpty(rationRef)
+		row.BlockerReason = ptrIfNotEmpty(blocker)
+		out.Rows = append(out.Rows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.CountProjection{}, err
+	}
+	if int32(len(out.Rows)) > req.Limit {
+		limit := int(req.Limit)
+		next := out.Rows[limit].ProjectionRowID
+		out.NextCursor = &next
+		out.Rows = out.Rows[:limit]
+	}
+	if err := r.loadOpenProjectionExceptions(ctx, out.SnapshotID, &out); err != nil {
+		return domain.CountProjection{}, err
+	}
+	return out, nil
+}
+
+func (r *Repository) loadOpenProjectionExceptions(ctx context.Context, snapshotID string, out *domain.CountProjection) error {
+	rows, err := r.pool.Query(ctx, `
+SELECT count_projection_exception_id::text, exception_type, source_key, grain_key,
+       COALESCE(park_id::text, ''), COALESCE(shed_id::text, ''), COALESCE(breed_key, ''),
+       COALESCE(stage_tag, ''), severity, COALESCE(owner_ref, ''),
+       blocker_reason, evidence_json
+FROM count_projection_exceptions
+WHERE count_projection_snapshot_id = $1::uuid
+  AND status = 'open'
+ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'blocking' THEN 1 ELSE 2 END,
+         updated_at DESC, count_projection_exception_id DESC
+LIMIT 50`, snapshotID)
+	if err != nil {
+		return fmt.Errorf("counts: query projection exceptions: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ex domain.ProjectionException
+		var park, shed, breed, stage, owner string
+		if err := rows.Scan(&ex.ProjectionExceptionID, &ex.ExceptionType, &ex.SourceKey, &ex.GrainKey,
+			&park, &shed, &breed, &stage, &ex.Severity, &owner, &ex.BlockerReason, &ex.EvidenceJSON); err != nil {
+			return fmt.Errorf("counts: scan projection exception: %w", err)
+		}
+		ex.ParkID = ptrIfNotEmpty(park)
+		ex.ShedID = ptrIfNotEmpty(shed)
+		ex.BreedKey = ptrIfNotEmpty(breed)
+		ex.StageTag = ptrIfNotEmpty(stage)
+		ex.OwnerRef = ptrIfNotEmpty(owner)
+		out.Exceptions = append(out.Exceptions, ex)
+	}
+	return rows.Err()
 }
 
 func insertProjectionException(ctx context.Context, tx pgx.Tx, tenantID, snapshotID string, ex domain.ProjectionException) error {
@@ -372,14 +517,14 @@ func defaultSubgates(checkedAt time.Time) []domain.ReadinessSubgate {
 	}{
 		{"CSG1", "Base Count anchor not proven."},
 		{"CSG2", "Append-only ShiftingEvent ledger not proven."},
-		{"CSG3", "Realized vs one-day projection snapshot not proven."},
-		{"CSG4", "Ration-context resolver not proven."},
-		{"CSG5", "Idempotency/replay not proven."},
+		{"CSG3", "Structured cohort/stage impacts not proven."},
+		{"CSG4", "Realized count_as_of and one-day projected_count_for horizon split not proven."},
+		{"CSG5", "Immediate physical Base Count adoption plus discrepancy investigation not proven."},
 		{"CSG6", "Unreported-shifting and count-mismatch detection not proven."},
-		{"CSG7", "Exception workflow not proven."},
-		{"CSG8", "Observability not proven."},
-		{"CSG9", "Bounded read model/query plan not proven."},
-		{"CSG10", "Source parity and seeded E2E not proven."},
+		{"CSG7", "Breed/stage alias normalization not proven."},
+		{"CSG8", "Idempotency/replay across ingestion, projection, and source replay not proven."},
+		{"CSG9", "Feed projection API over bounded immutable rows not proven."},
+		{"CSG10", "Scale, observability, source parity, and seeded E2E not proven."},
 	}
 	out := make([]domain.ReadinessSubgate, 0, len(items))
 	for _, item := range items {
@@ -397,6 +542,13 @@ func ptrValue(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+func ptrIfNotEmpty(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
 }
 
 func nullableTime(t *time.Time) any {

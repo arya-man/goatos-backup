@@ -27,6 +27,12 @@ func (f *fakeRepo) CreateProjectionSnapshot(_ context.Context, in domain.Project
 	f.snap = in
 	return "snapshot-1", nil
 }
+func (f *fakeRepo) CountAsOf(_ context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error) {
+	return domain.CountProjection{TenantID: req.TenantID, Horizon: "count_as_of", TotalRowCount: int64(req.Limit)}, nil
+}
+func (f *fakeRepo) ProjectedCountFor(_ context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error) {
+	return domain.CountProjection{TenantID: req.TenantID, Horizon: "feed_target_date", TotalRowCount: int64(req.Limit)}, nil
+}
 func (f *fakeRepo) Readiness(context.Context, string) (domain.Readiness, error) {
 	return domain.Readiness{}, nil
 }
@@ -122,6 +128,22 @@ func TestCreateProjectionSnapshotDefaultsBlocked(t *testing.T) {
 	}
 }
 
+func TestCreateProjectionSnapshotRequiresRowSourceProvenance(t *testing.T) {
+	_, err := NewService(&fakeRepo{}).CreateProjectionSnapshot(context.Background(), domain.ProjectionSnapshot{
+		TenantID: "tenant", ParkID: "park", TargetDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		AsOf:                  time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC),
+		SourceContractVersion: "counts-shifting-v1", SourceHash: "hash-1",
+		BaseAnchorIDsHash: "anchors", ShiftingEventIDsHash: "shifts", GeneratedBy: "test",
+		Rows: []domain.ProjectionRow{{
+			ParkID: "park", ShedID: "shed", GrainKey: "shed:breed", BreedKey: "beetal", BreedLabel: "Beetal",
+			HeadCount: 1, SourceRowHash: "row-hash-1",
+		}},
+	})
+	if !errors.Is(err, ErrMissingRequiredField) {
+		t.Fatalf("err=%v, want ErrMissingRequiredField", err)
+	}
+}
+
 func TestCreateProjectionSnapshotRejectsInvalidExceptionEvidence(t *testing.T) {
 	_, err := NewService(&fakeRepo{}).CreateProjectionSnapshot(context.Background(), domain.ProjectionSnapshot{
 		TenantID: "tenant", ParkID: "park", TargetDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
@@ -150,5 +172,25 @@ func TestCreateProjectionSnapshotRejectsExceptionWithoutBlocker(t *testing.T) {
 	})
 	if !errors.Is(err, ErrMissingRequiredField) {
 		t.Fatalf("err=%v, want ErrMissingRequiredField", err)
+	}
+}
+
+func TestProjectedCountForDefaultsLimitAndRejectsUnboundedLimit(t *testing.T) {
+	repo := &fakeRepo{}
+	got, err := NewService(repo).ProjectedCountFor(context.Background(), domain.CountProjectionRequest{
+		TenantID: "tenant", ParkID: "park", TargetDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ProjectedCountFor default limit err=%v", err)
+	}
+	if got.TotalRowCount != int64(defaultProjectionLimit) {
+		t.Fatalf("default limit row count marker=%d, want %d", got.TotalRowCount, defaultProjectionLimit)
+	}
+	_, err = NewService(repo).ProjectedCountFor(context.Background(), domain.CountProjectionRequest{
+		TenantID: "tenant", ParkID: "park", TargetDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit: maxProjectionLimit + 1,
+	})
+	if !errors.Is(err, ErrInvalidLimit) {
+		t.Fatalf("err=%v, want ErrInvalidLimit", err)
 	}
 }

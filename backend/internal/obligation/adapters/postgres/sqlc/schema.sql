@@ -2069,7 +2069,7 @@ CREATE TABLE public.count_projection_exceptions (
     CONSTRAINT count_projection_exceptions_severity_check CHECK ((severity = ANY (ARRAY['warning'::text, 'blocking'::text, 'critical'::text]))),
     CONSTRAINT count_projection_exceptions_source_key_check CHECK ((btrim(source_key) <> ''::text)),
     CONSTRAINT count_projection_exceptions_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text, 'dismissed'::text]))),
-    CONSTRAINT count_projection_exceptions_type_check CHECK ((exception_type = ANY (ARRAY['missing_base_count'::text, 'missing_structured_impact'::text, 'unreported_shifting'::text, 'count_mismatch'::text, 'alias_conflict'::text, 'ration_context_unresolved'::text, 'destination_shortage'::text, 'unsafe_surplus'::text, 'query_plan_unproven'::text])))
+    CONSTRAINT count_projection_exceptions_type_check CHECK ((exception_type = ANY (ARRAY['missing_base_count'::text, 'missing_structured_impact'::text, 'unreported_shifting'::text, 'count_mismatch'::text, 'alias_conflict'::text, 'ration_context_unresolved'::text, 'destination_shortage'::text, 'unsafe_surplus'::text, 'query_plan_unproven'::text, 'missing_projection_snapshot'::text, 'stale_projection'::text])))
 );
 
 
@@ -2100,10 +2100,13 @@ CREATE TABLE public.count_projection_snapshot_rows (
     blocker_reason text,
     source_row_hash text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    base_count_anchor_id uuid,
+    included_shifting_event_ids_hash text DEFAULT 'no-shifting-events'::text NOT NULL,
     CONSTRAINT count_projection_snapshot_rows_breed_key_check CHECK ((btrim(breed_key) <> ''::text)),
     CONSTRAINT count_projection_snapshot_rows_count_check CHECK ((head_count >= 0)),
     CONSTRAINT count_projection_snapshot_rows_grain_key_check CHECK ((btrim(grain_key) <> ''::text)),
     CONSTRAINT count_projection_snapshot_rows_hash_check CHECK ((btrim(source_row_hash) <> ''::text)),
+    CONSTRAINT count_projection_snapshot_rows_included_shift_hash_check CHECK ((btrim(included_shifting_event_ids_hash) <> ''::text)),
     CONSTRAINT count_projection_snapshot_rows_resolution_check CHECK ((ration_context_resolution_state = ANY (ARRAY['resolved'::text, 'unresolved'::text, 'blocked'::text, 'not_required'::text]))),
     CONSTRAINT count_projection_snapshot_rows_risk_counts_check CHECK (((pregnant_count >= 0) AND (lactating_count >= 0) AND (warmup_count >= 0) AND (pregnant_count <= head_count) AND (lactating_count <= head_count) AND (warmup_count <= head_count)))
 );
@@ -7929,6 +7932,13 @@ CREATE UNIQUE INDEX count_base_anchors_source_unique ON public.count_base_anchor
 
 
 --
+-- Name: count_base_anchors_tenant_id_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX count_base_anchors_tenant_id_unique ON public.count_base_anchors USING btree (tenant_id, base_count_anchor_id);
+
+
+--
 -- Name: count_projection_exceptions_open_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7940,6 +7950,13 @@ CREATE UNIQUE INDEX count_projection_exceptions_open_unique ON public.count_proj
 --
 
 CREATE INDEX count_projection_exceptions_queue_idx ON public.count_projection_exceptions USING btree (tenant_id, status, severity, updated_at DESC, count_projection_exception_id DESC);
+
+
+--
+-- Name: count_projection_snapshot_rows_anchor_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_projection_snapshot_rows_anchor_idx ON public.count_projection_snapshot_rows USING btree (tenant_id, base_count_anchor_id) WHERE (base_count_anchor_id IS NOT NULL);
 
 
 --
@@ -7961,6 +7978,13 @@ CREATE INDEX count_projection_snapshot_rows_feed_hot_idx ON public.count_project
 --
 
 CREATE UNIQUE INDEX count_projection_snapshot_rows_grain_unique ON public.count_projection_snapshot_rows USING btree (tenant_id, count_projection_snapshot_id, grain_key);
+
+
+--
+-- Name: count_projection_snapshot_rows_resolution_feed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_projection_snapshot_rows_resolution_feed_idx ON public.count_projection_snapshot_rows USING btree (tenant_id, target_date, park_id, ration_context_resolution_state, shed_id, lower(breed_key), count_projection_snapshot_row_id);
 
 
 --
@@ -11863,6 +11887,14 @@ ALTER TABLE ONLY public.count_projection_snapshot_rows
 
 ALTER TABLE ONLY public.count_projection_snapshot_rows
     ADD CONSTRAINT count_projection_snapshot_rows_shed_id_fkey FOREIGN KEY (shed_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: count_projection_snapshot_rows count_projection_snapshot_rows_tenant_anchor_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshot_rows
+    ADD CONSTRAINT count_projection_snapshot_rows_tenant_anchor_fk FOREIGN KEY (tenant_id, base_count_anchor_id) REFERENCES public.count_base_anchors(tenant_id, base_count_anchor_id);
 
 
 --

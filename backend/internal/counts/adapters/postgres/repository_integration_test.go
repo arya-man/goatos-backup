@@ -70,6 +70,10 @@ func TestRepositoryCreatesBlockedProjectionSnapshotAndReadiness(t *testing.T) {
 	blocker := "pregnant destination shed shortage: reviewed ration context missing"
 	breed := "beetal"
 	stage := "pregnant"
+	anchorID, replay, err := repo.RecordBaseCountAnchor(ctx, baseAnchor("projection-anchor-key-1", "projection-anchor-fp-1"))
+	if err != nil || replay || anchorID == "" {
+		t.Fatalf("projection anchor id=%q replay=%v err=%v", anchorID, replay, err)
+	}
 	snapID, err := repo.CreateProjectionSnapshot(ctx, domain.ProjectionSnapshot{
 		TenantID: countsTenant, Horizon: "feed_target_date", ParkID: countsPark,
 		TargetDate:       time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
@@ -80,6 +84,7 @@ func TestRepositoryCreatesBlockedProjectionSnapshotAndReadiness(t *testing.T) {
 		Rows: []domain.ProjectionRow{{
 			ParkID: countsPark, ShedID: countsShedB, TargetDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 			GrainKey: "shed-b:beetal:pregnant", BreedKey: "beetal", BreedLabel: "Beetal",
+			BaseCountAnchorID: anchorID, IncludedShiftingEventIDsHash: "shift-hash-1",
 			StageTag: &stage, HeadCount: 12, PregnantCount: 12,
 			RationContextResolutionState: "blocked", BlockerReason: &blocker, SourceRowHash: "row-hash-1",
 		}},
@@ -107,6 +112,48 @@ func TestRepositoryCreatesBlockedProjectionSnapshotAndReadiness(t *testing.T) {
 	}
 	if readiness.LatestProjectionStatus != "blocked" || readiness.LatestProjectionRowCount != 1 {
 		t.Fatalf("latest projection status=%q rows=%d", readiness.LatestProjectionStatus, readiness.LatestProjectionRowCount)
+	}
+	projection, err := repo.ProjectedCountFor(ctx, domain.CountProjectionRequest{
+		TenantID: countsTenant, ParkID: countsPark, TargetDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		ShedID: strPtr(countsShedB), BreedKey: &breed, RationContextResolutionState: strPtr("blocked"), Limit: 25,
+	})
+	if err != nil {
+		t.Fatalf("projected count: %v", err)
+	}
+	if projection.SnapshotID != snapID || projection.ProjectionStatus != "blocked" || projection.ExceptionCount != 1 {
+		t.Fatalf("projection header=%+v, want blocked snapshot %s with one exception", projection, snapID)
+	}
+	if len(projection.Rows) != 1 {
+		t.Fatalf("projection rows=%d, want 1", len(projection.Rows))
+	}
+	row := projection.Rows[0]
+	if row.BaseCountAnchorID != anchorID || row.IncludedShiftingEventIDsHash != "shift-hash-1" {
+		t.Fatalf("row provenance anchor=%q shifts=%q", row.BaseCountAnchorID, row.IncludedShiftingEventIDsHash)
+	}
+	if row.PregnantCount != 12 || row.BlockerReason == nil || *row.BlockerReason != blocker {
+		t.Fatalf("pregnant blocked row=%+v", row)
+	}
+	if len(projection.Exceptions) != 1 || projection.Exceptions[0].ExceptionType != "destination_shortage" {
+		t.Fatalf("projection exceptions=%+v, want destination_shortage", projection.Exceptions)
+	}
+}
+
+func TestRepositoryProjectionProviderFailsClosedWhenSnapshotMissing(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 3*time.Second)
+
+	projection, err := repo.CountAsOf(ctx, domain.CountProjectionRequest{
+		TenantID: countsTenant, ParkID: countsPark, AsOf: time.Date(2026, 6, 30, 18, 0, 0, 0, time.UTC), Limit: 25,
+	})
+	if err != nil {
+		t.Fatalf("count as of: %v", err)
+	}
+	if projection.ProjectionStatus != "blocked" || len(projection.Blockers) != 1 {
+		t.Fatalf("projection=%+v, want blocked missing snapshot", projection)
+	}
+	if projection.Blockers[0].ExceptionType != "missing_projection_snapshot" {
+		t.Fatalf("blocker=%+v", projection.Blockers[0])
 	}
 }
 

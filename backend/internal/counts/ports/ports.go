@@ -18,5 +18,7 @@ type Repository interface {
 	RecordBaseCountAnchor(ctx context.Context, in domain.BaseCountAnchor) (id string, replay bool, err error)
 	RecordShiftingEvent(ctx context.Context, in domain.ShiftingEvent) (id string, replay bool, err error)
 	CreateProjectionSnapshot(ctx context.Context, in domain.ProjectionSnapshot) (id string, err error)
+	CountAsOf(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error)
+	ProjectedCountFor(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error)
 	Readiness(ctx context.Context, tenantID string) (domain.Readiness, error)
 }

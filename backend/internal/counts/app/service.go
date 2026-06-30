@@ -15,7 +15,13 @@ var (
 	ErrMissingRequiredField = errors.New("counts: missing required field")
 	ErrInvalidCount         = errors.New("counts: invalid count")
 	ErrInvalidJSON          = errors.New("counts: invalid json object")
+	ErrInvalidLimit         = errors.New("counts: invalid limit")
 	ErrMissingImpact        = errors.New("counts: shifting event requires structured impact")
+)
+
+const (
+	defaultProjectionLimit = int32(100)
+	maxProjectionLimit     = int32(500)
 )
 
 type Service struct {
@@ -87,7 +93,8 @@ func (s *Service) CreateProjectionSnapshot(ctx context.Context, in domain.Projec
 	for _, row := range in.Rows {
 		if strings.TrimSpace(row.ParkID) == "" || strings.TrimSpace(row.ShedID) == "" ||
 			strings.TrimSpace(row.GrainKey) == "" || strings.TrimSpace(row.BreedKey) == "" ||
-			strings.TrimSpace(row.BreedLabel) == "" || strings.TrimSpace(row.SourceRowHash) == "" {
+			strings.TrimSpace(row.BreedLabel) == "" || strings.TrimSpace(row.BaseCountAnchorID) == "" ||
+			strings.TrimSpace(row.IncludedShiftingEventIDsHash) == "" || strings.TrimSpace(row.SourceRowHash) == "" {
 			return "", ErrMissingRequiredField
 		}
 		if row.HeadCount < 0 || row.PregnantCount < 0 || row.LactatingCount < 0 || row.WarmupCount < 0 ||
@@ -107,11 +114,48 @@ func (s *Service) CreateProjectionSnapshot(ctx context.Context, in domain.Projec
 	return s.repo.CreateProjectionSnapshot(ctx, in)
 }
 
+func (s *Service) CountAsOf(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error) {
+	req, err := normalizeProjectionRequest(req, true)
+	if err != nil {
+		return domain.CountProjection{}, err
+	}
+	return s.repo.CountAsOf(ctx, req)
+}
+
+func (s *Service) ProjectedCountFor(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error) {
+	req, err := normalizeProjectionRequest(req, false)
+	if err != nil {
+		return domain.CountProjection{}, err
+	}
+	return s.repo.ProjectedCountFor(ctx, req)
+}
+
 func (s *Service) Readiness(ctx context.Context, tenantID string) (domain.Readiness, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.Readiness{}, ErrMissingRequiredField
 	}
 	return s.repo.Readiness(ctx, tenantID)
+}
+
+func normalizeProjectionRequest(req domain.CountProjectionRequest, asOf bool) (domain.CountProjectionRequest, error) {
+	if strings.TrimSpace(req.TenantID) == "" || strings.TrimSpace(req.ParkID) == "" {
+		return domain.CountProjectionRequest{}, ErrMissingRequiredField
+	}
+	if asOf {
+		if req.AsOf.IsZero() {
+			return domain.CountProjectionRequest{}, ErrMissingRequiredField
+		}
+		req.TargetDate = req.AsOf
+	} else if req.TargetDate.IsZero() {
+		return domain.CountProjectionRequest{}, ErrMissingRequiredField
+	}
+	if req.Limit == 0 {
+		req.Limit = defaultProjectionLimit
+	}
+	if req.Limit < 0 || req.Limit > maxProjectionLimit {
+		return domain.CountProjectionRequest{}, ErrInvalidLimit
+	}
+	return req, nil
 }
 
 func defaultString(value, fallback string) string {

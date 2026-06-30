@@ -6,8 +6,17 @@ import (
 	"testing"
 	"time"
 
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/feed/domain"
 )
+
+type fakeCountsReadiness struct {
+	readiness countsdomain.Readiness
+}
+
+func (f fakeCountsReadiness) Readiness(context.Context, string) (countsdomain.Readiness, error) {
+	return f.readiness, nil
+}
 
 func TestReadinessFailsClosedAtG2WithCountsShiftingSubgates(t *testing.T) {
 	checkedAt := time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC)
@@ -54,6 +63,37 @@ func TestReadinessFailsClosedAtG2WithCountsShiftingSubgates(t *testing.T) {
 		if !subgate.LastCheckedAt.Equal(checkedAt) {
 			t.Fatalf("%s last_checked_at=%s, want %s", subgate.ID, subgate.LastCheckedAt, checkedAt)
 		}
+	}
+}
+
+func TestReadinessUsesCountsSubgateStatusesWhenProviderIsWired(t *testing.T) {
+	checkedAt := time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC)
+	service := NewService(nil).
+		WithClock(func() time.Time { return checkedAt }).
+		WithCountsReadiness(fakeCountsReadiness{readiness: countsdomain.Readiness{
+			TenantID: "tenant-1", Status: countsdomain.ReadinessBlocked, OpenExceptionCount: 1,
+			Subgates: []countsdomain.ReadinessSubgate{{
+				ID: "CSG9", Status: countsdomain.ReadinessReady, Owner: "Counts/Shifting",
+				EvidenceRef: "counts-provider-test", BlockerReason: "", LastCheckedAt: checkedAt,
+			}},
+		}})
+
+	readiness, err := service.Readiness(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatalf("Readiness returned error: %v", err)
+	}
+	if len(readiness.CountsShiftingSubgates) != 1 {
+		t.Fatalf("subgates=%d, want 1 from provider", len(readiness.CountsShiftingSubgates))
+	}
+	if readiness.CountsShiftingSubgates[0].Name != "Projection API" ||
+		readiness.CountsShiftingSubgates[0].Status != domain.ReadinessReady {
+		t.Fatalf("subgate=%+v, want ready Projection API", readiness.CountsShiftingSubgates[0])
+	}
+	if !strings.Contains(readiness.Gates[1].BlockerReason, "open projection exceptions") {
+		t.Fatalf("G2 blocker=%q", readiness.Gates[1].BlockerReason)
+	}
+	if readiness.GenerationAllowed {
+		t.Fatal("generation must stay blocked even when one CSG is ready")
 	}
 }
 

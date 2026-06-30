@@ -73,6 +73,24 @@ exception_count
 The provider must fail closed. If source data is insufficient, it returns a
 typed blocker/exception instead of silently dropping or inventing counts.
 
+Implementation status as of 2026-06-30:
+
+- `backend/internal/counts` now exposes the provider shape over immutable
+  `count_projection_snapshots` and bounded `count_projection_snapshot_rows`.
+- `CountAsOf` reads `horizon='count_as_of'`; `ProjectedCountFor` reads
+  `horizon='feed_target_date'`.
+- Projection rows now carry `base_count_anchor_id`,
+  `included_shifting_event_ids_hash`, source row hash, contract hash, and
+  ration-context resolution state.
+- Missing snapshots return an explicit `missing_projection_snapshot` blocker
+  instead of empty success.
+- `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
+  provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
+- This does **not** close `G2`: source import/adapters, projection recompute
+  worker, alias normalization, count-mismatch detection, exception work routing,
+  observability, query-plan/synthetic-scale proof, and seeded local E2E remain
+  blockers.
+
 ## 3. Candidate Persistence
 
 Preferred aggregate-ledger tables:

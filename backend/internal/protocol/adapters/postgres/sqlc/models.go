@@ -416,6 +416,8 @@ type CountProjectionSnapshotRow struct {
 	BlockerReason                pgtype.Text
 	SourceRowHash                string
 	CreatedAt                    pgtype.Timestamptz
+	BaseCountAnchorID            pgtype.UUID
+	IncludedShiftingEventIdsHash string
 }
 
 type CountsCurrentSnapshotRow struct {

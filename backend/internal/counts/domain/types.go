@@ -94,10 +94,13 @@ type ProjectionSnapshot struct {
 }
 
 type ProjectionRow struct {
+	ProjectionRowID              string
 	ParkID                       string
 	ShedID                       string
 	TargetDate                   time.Time
 	GrainKey                     string
+	BaseCountAnchorID            string
+	IncludedShiftingEventIDsHash string
 	BreedID                      *string
 	BreedKey                     string
 	BreedLabel                   string
@@ -115,17 +118,57 @@ type ProjectionRow struct {
 }
 
 type ProjectionException struct {
+	ProjectionExceptionID string
+	ExceptionType         string
+	SourceKey             string
+	GrainKey              string
+	ParkID                *string
+	ShedID                *string
+	BreedKey              *string
+	StageTag              *string
+	Severity              string
+	OwnerRef              *string
+	BlockerReason         string
+	EvidenceJSON          []byte
+}
+
+type CountProjectionRequest struct {
+	TenantID                     string
+	ParkID                       string
+	AsOf                         time.Time
+	TargetDate                   time.Time
+	ShedID                       *string
+	BreedKey                     *string
+	RationContextResolutionState *string
+	Cursor                       *string
+	Limit                        int32
+}
+
+type CountProjection struct {
+	TenantID              string
+	Horizon               string
+	ParkID                string
+	TargetDate            time.Time
+	SnapshotID            string
+	ProjectionStatus      string
+	SourceContractVersion string
+	SourceHash            string
+	BaseAnchorIDsHash     string
+	ShiftingEventIDsHash  string
+	ExceptionCount        int64
+	TotalRowCount         int64
+	Rows                  []ProjectionRow
+	Exceptions            []ProjectionException
+	Blockers              []ProjectionBlocker
+	NextCursor            *string
+}
+
+type ProjectionBlocker struct {
 	ExceptionType string
 	SourceKey     string
 	GrainKey      string
-	ParkID        *string
-	ShedID        *string
-	BreedKey      *string
-	StageTag      *string
 	Severity      string
-	OwnerRef      *string
 	BlockerReason string
-	EvidenceJSON  []byte
 }
 
 type ReadinessSubgate struct {

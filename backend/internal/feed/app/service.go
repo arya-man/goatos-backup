@@ -5,14 +5,20 @@ import (
 	"context"
 	"time"
 
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/feed/domain"
 	"github.com/vgoats/goatos/backend/internal/feed/ports"
 )
 
+type countsReadinessReader interface {
+	Readiness(ctx context.Context, tenantID string) (countsdomain.Readiness, error)
+}
+
 // Service coordinates feed-direction use-cases over the repository boundary.
 type Service struct {
-	repo ports.Repository
-	now  func() time.Time
+	repo            ports.Repository
+	countsReadiness countsReadinessReader
+	now             func() time.Time
 }
 
 // NewService constructs a Service.
@@ -25,6 +31,11 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 	if now != nil {
 		s.now = now
 	}
+	return s
+}
+
+func (s *Service) WithCountsReadiness(reader countsReadinessReader) *Service {
+	s.countsReadiness = reader
 	return s
 }
 
@@ -57,9 +68,9 @@ func (s *Service) VerificationQueue(ctx context.Context, tenantID string, limit 
 // Readiness returns the Feed Direction build/runtime readiness contract. Until
 // Counts/Shifting exposes source-backed projection readiness, this deliberately
 // fails closed so no caller can treat Feed generation as safe.
-func (s *Service) Readiness(_ context.Context, tenantID string) (domain.Readiness, error) {
+func (s *Service) Readiness(ctx context.Context, tenantID string) (domain.Readiness, error) {
 	checkedAt := s.clock().UTC()
-	return domain.Readiness{
+	readiness := domain.Readiness{
 		TenantID:          tenantID,
 		Status:            domain.ReadinessBlocked,
 		CurrentGate:       "G2",
@@ -73,7 +84,16 @@ func (s *Service) Readiness(_ context.Context, tenantID string) (domain.Readines
 		CountsShiftingSubgates:   countsShiftingSubgates(checkedAt),
 		SafetyInvariants:         feedSafetyInvariants(checkedAt),
 		GeneratedDirectionsState: "disabled_until_g2_ready",
-	}, nil
+	}
+	if s.countsReadiness != nil {
+		countsReadiness, err := s.countsReadiness.Readiness(ctx, tenantID)
+		if err != nil {
+			readiness.Gates[1].BlockerReason = "Counts/Shifting readiness provider failed; Feed remains blocked."
+		} else {
+			applyCountsReadiness(&readiness, countsReadiness)
+		}
+	}
+	return readiness, nil
 }
 
 func (s *Service) clock() time.Time {
@@ -133,29 +153,93 @@ func pendingGate(id string, sequence int, name, owner, evidenceRef, blocker stri
 func countsShiftingSubgates(checkedAt time.Time) []domain.CountsShiftingSubgate {
 	items := []struct {
 		id      string
-		name    string
 		blocker string
 	}{
-		{"CSG1", "Base Count anchor", "Physical Base Count storage exists, but source-backed import/adoption and discrepancy workflow are not proven."},
-		{"CSG2", "Append-only ShiftingEvent ledger", "ShiftingEvent storage exists, but source adapters, source parity, and structured source/destination/cohort ingestion are not proven."},
-		{"CSG3", "Realized vs one-day projection snapshot", "Projection snapshot storage exists, but the worker that produces target-day Feed consumption snapshots is not implemented."},
-		{"CSG4", "Ration-context resolver", "Breed/tag/age/pregnancy/warm-up nutrition context is not resolved against reviewed shed/cohort data."},
-		{"CSG5", "Idempotency and replay", "Storage-level idempotency exists, but replay across adapters, workers, exceptions, and Feed consumption is not proven."},
-		{"CSG6", "Unreported-shifting and count-mismatch detection", "No exception worker/read model exists for unexpected deltas or unresolved movement."},
-		{"CSG7", "Exception workflow", "Count/projection exceptions do not yet create durable owner-visible work."},
-		{"CSG8", "Observability", "Projection latency, stale age, queue lag, retry, DLQ, and exception metrics are not wired."},
-		{"CSG9", "Bounded read model and query-plan evidence", "No indexed projection read path has been plan-checked for million-goat scale."},
-		{"CSG10", "Source parity and seeded E2E", "No local E2E proves Base Count, shifting, projection, exception, and Feed snapshot consumption together."},
+		{"CSG1", "Physical Base Count import/adoption and discrepancy workflow are not proven."},
+		{"CSG2", "Source-backed ShiftingEvent ingestion and structured source/destination/cohort ledger are not proven."},
+		{"CSG3", "Structured cohort/stage impact is not proven for every movement."},
+		{"CSG4", "Realized count_as_of and one-day projected_count_for horizon split are not proven."},
+		{"CSG5", "Immediate physical Base Count adoption plus discrepancy investigation is not proven."},
+		{"CSG6", "Unreported-shifting and count-mismatch detection are not proven."},
+		{"CSG7", "Breed/stage alias normalization is not proven."},
+		{"CSG8", "Idempotency/replay across ingestion, projection, and source replay is not proven."},
+		{"CSG9", "Feed projection API over bounded immutable rows is not proven."},
+		{"CSG10", "Scale, observability, source parity, and seeded E2E are not proven."},
 	}
 	subgates := make([]domain.CountsShiftingSubgate, 0, len(items))
 	for i, item := range items {
 		subgates = append(subgates, domain.CountsShiftingSubgate{
-			ID: item.id, Sequence: i + 1, Name: item.name, Status: domain.ReadinessBlocked,
+			ID: item.id, Sequence: i + 1, Name: csgName(item.id), Status: domain.ReadinessBlocked,
 			Owner: "Counts/Shifting + Feed Direction", EvidenceRef: "docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md",
 			BlockerReason: item.blocker, LastCheckedAt: checkedAt, AllowsGenerate: false,
 		})
 	}
 	return subgates
+}
+
+func applyCountsReadiness(readiness *domain.Readiness, counts countsdomain.Readiness) {
+	if len(readiness.Gates) >= 2 {
+		g2 := &readiness.Gates[1]
+		g2.Status = feedReadinessStatus(counts.Status)
+		g2.AllowsGenerate = false
+		if counts.Status == countsdomain.ReadinessReady {
+			g2.BlockerReason = ""
+			readiness.CurrentGate = "G3"
+		} else if counts.OpenExceptionCount > 0 {
+			g2.BlockerReason = "Counts/Shifting has open projection exceptions; Feed generation remains blocked."
+		}
+	}
+	if len(counts.Subgates) == 0 {
+		return
+	}
+	subgates := make([]domain.CountsShiftingSubgate, 0, len(counts.Subgates))
+	for i, subgate := range counts.Subgates {
+		subgates = append(subgates, domain.CountsShiftingSubgate{
+			ID: subgate.ID, Sequence: i + 1, Name: csgName(subgate.ID),
+			Status: feedReadinessStatus(subgate.Status), Owner: subgate.Owner,
+			EvidenceRef: subgate.EvidenceRef, BlockerReason: subgate.BlockerReason,
+			LastCheckedAt: subgate.LastCheckedAt, AllowsGenerate: false,
+		})
+	}
+	readiness.CountsShiftingSubgates = subgates
+}
+
+func feedReadinessStatus(status countsdomain.ReadinessStatus) domain.ReadinessStatus {
+	switch status {
+	case countsdomain.ReadinessReady:
+		return domain.ReadinessReady
+	case countsdomain.ReadinessPending:
+		return domain.ReadinessPending
+	default:
+		return domain.ReadinessBlocked
+	}
+}
+
+func csgName(id string) string {
+	switch id {
+	case "CSG1":
+		return "Base Count anchor"
+	case "CSG2":
+		return "ShiftingEvent ledger"
+	case "CSG3":
+		return "Structured impacts"
+	case "CSG4":
+		return "Horizon split"
+	case "CSG5":
+		return "Base Count adoption"
+	case "CSG6":
+		return "Unreported-shifting detection"
+	case "CSG7":
+		return "Alias normalization"
+	case "CSG8":
+		return "Idempotency and replay"
+	case "CSG9":
+		return "Projection API"
+	case "CSG10":
+		return "Scale and observability proof"
+	default:
+		return id
+	}
 }
 
 func feedSafetyInvariants(checkedAt time.Time) []domain.SafetyInvariant {
