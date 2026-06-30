@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -14,9 +15,18 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
 
 const defaultQueryTimeout = 3 * time.Second
+
+const (
+	countBaseAnchorRecordedEventType = "counts.base_count_anchor.recorded"
+	shiftingEventRecordedEventType   = "counts.shifting_event.recorded"
+	countsEventSchemaVersion         = "1.0.0"
+	countsEventSchemaRef             = "contracts/jsonschema/domain-event-envelope.schema.json"
+	countsEventTopic                 = "counts.events"
+)
 
 type Repository struct {
 	pool    *pgxpool.Pool
@@ -35,8 +45,14 @@ var _ ports.Repository = (*Repository)(nil)
 func (r *Repository) RecordBaseCountAnchor(ctx context.Context, in domain.BaseCountAnchor) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return "", false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	var id string
-	err := r.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 INSERT INTO count_base_anchors (
   tenant_id, park_id, shed_id, breed_id, breed_key, breed_label, counted_at, head_count,
   source_system, source_ref, source_hash, discrepancy_state, idempotency_key, request_fingerprint, recorded_by
@@ -50,11 +66,34 @@ RETURNING base_count_anchor_id::text`,
 		in.CountedAt, in.HeadCount, in.SourceSystem, in.SourceRef, in.SourceHash, in.DiscrepancyState,
 		in.IdempotencyKey, in.RequestFingerprint, ptrValue(in.RecordedBy)).Scan(&id)
 	if err == nil {
+		if err := insertCountsProjectionInputOutbox(ctx, tx, countsProjectionInputEvent{
+			EventType: countBaseAnchorRecordedEventType,
+			TenantID:  in.TenantID, AggregateType: "count_base_anchor", AggregateID: id,
+			SubjectType: "count_base_anchor", SubjectID: id,
+			ParkID: in.ParkID, ShedID: in.ShedID,
+			Payload: map[string]any{
+				"input_kind":           "base_count_anchor",
+				"base_count_anchor_id": id,
+				"park_id":              in.ParkID,
+				"shed_id":              in.ShedID,
+				"breed_key":            in.BreedKey,
+				"counted_at":           in.CountedAt.UTC().Format(time.RFC3339Nano),
+				"source_hash":          in.SourceHash,
+				"recompute_horizons":   []string{"count_as_of", "feed_target_date"},
+			},
+			EvidenceType: "count_base_anchor", EvidenceID: id,
+		}); err != nil {
+			return "", false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", false, err
+		}
 		return id, false, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return "", false, fmt.Errorf("counts: insert base count anchor: %w", err)
 	}
+	_ = tx.Rollback(ctx)
 	id, err = r.idempotentAnchor(ctx, in.TenantID, in.IdempotencyKey, in.RequestFingerprint)
 	if err != nil {
 		return "", false, err
@@ -83,6 +122,29 @@ func (r *Repository) RecordShiftingEvent(ctx context.Context, in domain.Shifting
 		if err := insertShiftingImpact(ctx, tx, in.TenantID, id, impact); err != nil {
 			return "", false, err
 		}
+	}
+	if err := insertCountsProjectionInputOutbox(ctx, tx, countsProjectionInputEvent{
+		EventType: shiftingEventRecordedEventType,
+		TenantID:  in.TenantID, AggregateType: "shifting_event", AggregateID: id,
+		SubjectType: "shifting_event", SubjectID: id,
+		ParkID: in.DestinationParkID, ShedID: in.DestinationShedID,
+		Payload: map[string]any{
+			"input_kind":                 "shifting_event",
+			"shifting_event_id":          id,
+			"logical_shifting_event_key": in.LogicalShiftingEventKey,
+			"source_park_id":             ptrValue(in.SourceParkID),
+			"source_shed_id":             ptrValue(in.SourceShedID),
+			"destination_park_id":        in.DestinationParkID,
+			"destination_shed_id":        in.DestinationShedID,
+			"effective_at":               in.EffectiveAt.UTC().Format(time.RFC3339Nano),
+			"authorization_state":        in.AuthorizationState,
+			"event_status":               in.EventStatus,
+			"payload_hash":               in.PayloadHash,
+			"recompute_horizons":         []string{"count_as_of", "feed_target_date"},
+		},
+		EvidenceType: "shifting_event", EvidenceID: id,
+	}); err != nil {
+		return "", false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", false, err
@@ -617,6 +679,94 @@ DO UPDATE SET blocker_reason = EXCLUDED.blocker_reason,
 		ex.BlockerReason, jsonObject(ex.EvidenceJSON))
 	if err != nil {
 		return fmt.Errorf("counts: insert projection exception: %w", err)
+	}
+	return nil
+}
+
+type countsProjectionInputEvent struct {
+	EventType     string
+	TenantID      string
+	AggregateType string
+	AggregateID   string
+	SubjectType   string
+	SubjectID     string
+	ParkID        string
+	ShedID        string
+	Payload       map[string]any
+	EvidenceType  string
+	EvidenceID    string
+}
+
+func insertCountsProjectionInputOutbox(ctx context.Context, tx pgx.Tx, event countsProjectionInputEvent) error {
+	eventID := platformoutbox.DeterministicUUID(event.EventType + ":" + event.TenantID + ":" + event.AggregateID)
+	idempotencyKey := event.EventType + ":" + event.AggregateID
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	visibility := map[string]any{"tenant_id": event.TenantID}
+	if event.ParkID != "" {
+		visibility["park_id"] = event.ParkID
+	}
+	if event.ShedID != "" {
+		visibility["shed_id"] = event.ShedID
+	}
+	payload := event.Payload
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     event.EventType,
+		"schema_version": countsEventSchemaVersion,
+		"schema_ref":     countsEventSchemaRef,
+		"aggregate_type": event.AggregateType,
+		"aggregate_id":   event.AggregateID,
+		"occurred_at":    now,
+		"recorded_at":    now,
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  "counts",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": "system_rule",
+			"actor_id":   nil,
+			"actor_ref":  nil,
+		},
+		"subject_type":     event.SubjectType,
+		"subject_id":       event.SubjectID,
+		"visibility_scope": visibility,
+		"evidence_refs": []map[string]string{{
+			"evidence_type": event.EvidenceType,
+			"evidence_id":   event.EvidenceID,
+		}},
+		"payload":  payload,
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: projection input envelope: %w", err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer":        "counts.RecordProjectionInput",
+		"schema_version":  countsEventSchemaVersion,
+		"idempotency_key": idempotencyKey,
+		"event_type":      event.EventType,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: projection input headers: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5, $6::uuid,
+  $7, $8::jsonb, $9::jsonb, $10, $10, 'pending', now()
+)
+ON CONFLICT DO NOTHING`,
+		event.TenantID, eventID, event.EventType, countsEventSchemaVersion,
+		event.AggregateType, event.AggregateID, countsEventTopic, envelope, headers, idempotencyKey)
+	if err != nil {
+		return fmt.Errorf("counts: projection input outbox: %w", err)
 	}
 	return nil
 }

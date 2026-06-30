@@ -62,7 +62,9 @@
         "vaccination.verify.accepted",
         "vaccination.verify.rejected",
         "vaccination.completed",
-        "protocol.version.published"
+        "protocol.version.published",
+        "counts.base_count_anchor.recorded",
+        "counts.shifting_event.recorded"
       ]
     },
     "schema_version": {
@@ -87,7 +89,9 @@
         "obligation_escalation",
         "obligation_instance",
         "vaccination_completion",
-        "protocol_version"
+        "protocol_version",
+        "count_base_anchor",
+        "shifting_event"
       ]
     },
     "aggregate_id": {
@@ -108,7 +112,9 @@
         "calendar_event",
         "obligation_instance",
         "vaccination_completion",
-        "protocol_version"
+        "protocol_version",
+        "count_base_anchor",
+        "shifting_event"
       ]
     },
     "subject_id": {
@@ -308,7 +314,9 @@
             "location",
             "actor",
             "notification_request",
-            "obligation_status_event"
+            "obligation_status_event",
+            "count_base_anchor",
+            "shifting_event"
           ]
         },
         "evidence_id": {

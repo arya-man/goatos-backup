@@ -123,6 +123,24 @@ func TestEnvelopeValidatorAcceptsOperationalKernelEvents(t *testing.T) {
 			subjectID:     "64000000-0000-4000-8000-000000000003",
 			evidenceRefs:  []any{map[string]any{"evidence_type": "obligation_status_event", "evidence_id": "64000000-0000-4000-8000-000000000003:completed"}},
 		},
+		{
+			name:          "counts base count anchor recorded",
+			eventType:     "counts.base_count_anchor.recorded",
+			aggregateType: "count_base_anchor",
+			subjectType:   "count_base_anchor",
+			aggregateID:   "65000000-0000-4000-8000-000000000001",
+			subjectID:     "65000000-0000-4000-8000-000000000001",
+			evidenceRefs:  []any{map[string]any{"evidence_type": "count_base_anchor", "evidence_id": "65000000-0000-4000-8000-000000000001"}},
+		},
+		{
+			name:          "counts shifting event recorded",
+			eventType:     "counts.shifting_event.recorded",
+			aggregateType: "shifting_event",
+			subjectType:   "shifting_event",
+			aggregateID:   "65000000-0000-4000-8000-000000000002",
+			subjectID:     "65000000-0000-4000-8000-000000000002",
+			evidenceRefs:  []any{map[string]any{"evidence_type": "shifting_event", "evidence_id": "65000000-0000-4000-8000-000000000002"}},
+		},
 	}
 	for idx, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

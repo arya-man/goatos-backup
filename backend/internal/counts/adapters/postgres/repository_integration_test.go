@@ -31,9 +31,23 @@ func TestRepositoryRecordsBaseCountAnchorIdempotently(t *testing.T) {
 	if err != nil || replay || id == "" {
 		t.Fatalf("first anchor id=%q replay=%v err=%v", id, replay, err)
 	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND aggregate_id=$2::uuid
+  AND event_type='counts.base_count_anchor.recorded'`, countsTenant, id); got != 1 {
+		t.Fatalf("base anchor outbox rows=%d, want 1", got)
+	}
 	again, replay, err := repo.RecordBaseCountAnchor(ctx, in)
 	if err != nil || !replay || again != id {
 		t.Fatalf("replay anchor id=%q replay=%v err=%v, want id=%q replay=true", again, replay, err, id)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND aggregate_id=$2::uuid
+  AND event_type='counts.base_count_anchor.recorded'`, countsTenant, id); got != 1 {
+		t.Fatalf("base anchor replay outbox rows=%d, want 1", got)
 	}
 	in.RequestFingerprint = "different-fp"
 	if _, _, err := repo.RecordBaseCountAnchor(ctx, in); !errors.Is(err, ports.ErrIdempotencyConflict) {
@@ -54,9 +68,23 @@ func TestRepositoryRecordsShiftingEventImpactAndRejectsLogicalConflict(t *testin
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM shifting_event_impacts WHERE tenant_id=$1 AND shifting_event_id=$2::uuid`, countsTenant, id); got != 1 {
 		t.Fatalf("impact rows=%d, want 1", got)
 	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND aggregate_id=$2::uuid
+  AND event_type='counts.shifting_event.recorded'`, countsTenant, id); got != 1 {
+		t.Fatalf("shifting event outbox rows=%d, want 1", got)
+	}
 	again, replay, err := repo.RecordShiftingEvent(ctx, in)
 	if err != nil || !replay || again != id {
 		t.Fatalf("shift replay id=%q replay=%v err=%v, want id=%q replay=true", again, replay, err, id)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND aggregate_id=$2::uuid
+  AND event_type='counts.shifting_event.recorded'`, countsTenant, id); got != 1 {
+		t.Fatalf("shifting event replay outbox rows=%d, want 1", got)
 	}
 	conflict := shiftingEvent("shift-key-1", "shift-idem-2", "payload-2", "fp-2")
 	if _, _, err := repo.RecordShiftingEvent(ctx, conflict); !errors.Is(err, ports.ErrLogicalKeyConflict) {
