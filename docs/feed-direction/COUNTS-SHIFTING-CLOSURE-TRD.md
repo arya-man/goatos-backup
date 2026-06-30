@@ -23,6 +23,10 @@ mother, milking, fattening, ICU/quarantine, buck, flushing, or breeding tags.
 `Counting DB - values only.xlsx` and `Feed Directions Automation DB.xlsx` are
 fixture/import evidence only. Their tabs, formulas, comparison sheets, processed
 flags, and script transforms are not Counts/Shifting runtime truth.
+`context/source-findings/sheds-db-source-findings.md` is legacy/manual evidence
+for shed tags, capacity-like values, and potential tags. It must resolve into
+reviewed, effective-dated Location/Park profile data before Counts or Feed uses
+it; manual Sheds DB values are not a runtime table to copy.
 
 ```text
 physical Base Count anchor
@@ -100,7 +104,15 @@ Implementation status as of 2026-06-30:
 - New Base Count anchors and ShiftingEvents emit idempotent transactional
   outbox events (`counts.base_count_anchor.recorded` and
   `counts.shifting_event.recorded`) with tenant/park/shed visibility, giving the
-  recompute worker a durable invalidation signal.
+  recompute worker a durable invalidation signal. New Base Count anchor writes
+  update `CSG1` readiness to ready with `count_base_anchors:<id>` evidence and
+  `CSG5` to ready because anchors are adopted immediately while discrepancy
+  investigation opens owner-visible exception work instead of blocking adoption.
+- New ShiftingEvent writes update `CSG2` readiness to ready with
+  `shifting_events:<id>` evidence and, when structured impacts are present,
+  `CSG3` to ready with `shifting_event_impacts:<id>` evidence. Missing or
+  ambiguous impacts still fail closed at the service boundary and must not
+  change projection truth.
 - `backend/cmd/counts-source-import` accepts reviewed typed JSONL rows for
   `base_count_anchor` and `shifting_event`, then writes through the canonical
   Counts service path. It derives deterministic source hashes, payload hashes,
@@ -131,6 +143,10 @@ Implementation status as of 2026-06-30:
   `work_state`, `due_at`, `next_action`, `evidence_link`) and repeated open
   exceptions relink to the latest snapshot on upsert. This makes G2 blockers
   owner/action visible to Feed reads instead of stranded on stale snapshots.
+- New projection snapshots update `CSG9` readiness to ready with
+  `count_projection_snapshots:<id>` evidence. They also update `CSG4`: one
+  horizon remains pending, and `CSG4` turns ready only after both
+  `count_as_of` and `feed_target_date` snapshot horizons exist for the tenant.
 - Projection exception open, relink/update, and close state changes now emit
   transactional outbox events
   (`counts.projection_exception.opened`,
@@ -199,9 +215,10 @@ Implementation status as of 2026-06-30:
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
 - This does **not** close `G2`: raw workbook/XLSX mapping and parity fixtures,
-  Shifting/Count source-adapter hardening beyond typed JSONL, owner-approved
-  alias mapping coverage/admin review, production scheduling/metrics for the
-  mismatch scan, assignment policy, polished command-lens UX, observability,
+  Sheds DB location-profile import/review/publish workflow, Shifting/Count
+  source-adapter hardening beyond typed JSONL, owner-approved alias mapping
+  coverage/admin review, production scheduling/metrics for the mismatch scan,
+  assignment policy, polished command-lens UX, observability,
   query-plan/synthetic-scale proof, and seeded local E2E remain blockers.
 
 ## 3. Candidate Persistence

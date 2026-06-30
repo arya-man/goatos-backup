@@ -32,6 +32,24 @@ const (
 	countsEventTopic                    = "counts.events"
 )
 
+type readinessSubgateUpdate struct {
+	ID                string
+	Status            string
+	Owner             string
+	EvidenceRef       string
+	BlockerReason     string
+	ImplementationRef string
+}
+
+type readinessSubgateExec interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+type readinessSubgateReadWriter interface {
+	readinessSubgateExec
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
 type Repository struct {
 	pool    *pgxpool.Pool
 	timeout time.Duration
@@ -93,6 +111,9 @@ RETURNING base_count_anchor_id::text`,
 		}); err != nil {
 			return "", false, err
 		}
+		if err := upsertBaseCountReadiness(ctx, tx, in.TenantID, id); err != nil {
+			return "", false, err
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return "", false, err
 		}
@@ -104,6 +125,9 @@ RETURNING base_count_anchor_id::text`,
 	_ = tx.Rollback(ctx)
 	id, err = r.idempotentAnchor(ctx, in.TenantID, in.IdempotencyKey, in.RequestFingerprint)
 	if err != nil {
+		return "", false, err
+	}
+	if err := upsertBaseCountReadiness(ctx, r.pool, in.TenantID, id); err != nil {
 		return "", false, err
 	}
 	return id, true, nil
@@ -124,6 +148,9 @@ func (r *Repository) RecordShiftingEvent(ctx context.Context, in domain.Shifting
 	}
 	if replay {
 		_ = tx.Rollback(ctx)
+		if err := upsertShiftingReadiness(ctx, r.pool, in.TenantID, id, len(in.Impacts) > 0); err != nil {
+			return "", false, err
+		}
 		return id, true, nil
 	}
 	for _, impact := range in.Impacts {
@@ -153,6 +180,9 @@ func (r *Repository) RecordShiftingEvent(ctx context.Context, in domain.Shifting
 		},
 		EvidenceType: "shifting_event", EvidenceID: id,
 	}); err != nil {
+		return "", false, err
+	}
+	if err := upsertShiftingReadiness(ctx, tx, in.TenantID, id, len(in.Impacts) > 0); err != nil {
 		return "", false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -333,6 +363,9 @@ WHERE tenant_id = $1::uuid AND horizon = $2 AND park_id = $3::uuid AND target_da
 			return "", fmt.Errorf("counts: load existing projection snapshot: %w", err)
 		}
 		_ = tx.Rollback(ctx)
+		if err := upsertProjectionSnapshotReadiness(ctx, r.pool, in.TenantID, id); err != nil {
+			return "", err
+		}
 		return id, nil
 	}
 	if err != nil {
@@ -348,10 +381,126 @@ WHERE tenant_id = $1::uuid AND horizon = $2 AND park_id = $3::uuid AND target_da
 			return "", err
 		}
 	}
+	if err := upsertProjectionSnapshotReadiness(ctx, tx, in.TenantID, id); err != nil {
+		return "", err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", err
 	}
 	return id, nil
+}
+
+func upsertBaseCountReadiness(ctx context.Context, q readinessSubgateExec, tenantID, anchorID string) error {
+	if err := upsertReadinessSubgate(ctx, q, tenantID, readinessSubgateUpdate{
+		ID:            "CSG1",
+		Status:        "ready",
+		Owner:         "Counts/Shifting",
+		EvidenceRef:   "count_base_anchors:" + anchorID,
+		BlockerReason: "No blocker: adopted Base Count anchor is durable at tenant/park/shed/breed grain with source hash provenance.",
+		ImplementationRef: "backend/internal/counts/adapters/postgres/repository.go:RecordBaseCountAnchor;" +
+			"backend/internal/counts/app/service.go",
+	}); err != nil {
+		return err
+	}
+	return upsertReadinessSubgate(ctx, q, tenantID, readinessSubgateUpdate{
+		ID:            "CSG5",
+		Status:        "ready",
+		Owner:         "Counts/Shifting",
+		EvidenceRef:   "count_base_anchors:" + anchorID,
+		BlockerReason: "No blocker: Base Count anchor is immediately adopted and unexpected deltas create owner-visible projection exception work.",
+		ImplementationRef: "backend/internal/counts/adapters/postgres/repository.go:RecordBaseCountAnchor;" +
+			"backend/internal/counts/adapters/postgres/repository.go:createBaseCountMismatchException",
+	})
+}
+
+func upsertShiftingReadiness(ctx context.Context, q readinessSubgateExec, tenantID, shiftingEventID string, hasImpacts bool) error {
+	if err := upsertReadinessSubgate(ctx, q, tenantID, readinessSubgateUpdate{
+		ID:            "CSG2",
+		Status:        "ready",
+		Owner:         "Counts/Shifting",
+		EvidenceRef:   "shifting_events:" + shiftingEventID,
+		BlockerReason: "No blocker: append-only ShiftingEvent ledger write is durable with logical-key conflict protection and projection invalidation.",
+		ImplementationRef: "backend/internal/counts/adapters/postgres/repository.go:RecordShiftingEvent;" +
+			"backend/migrations/postgres/000118_counts_shifting_feed_projection.sql",
+	}); err != nil {
+		return err
+	}
+	if !hasImpacts {
+		return nil
+	}
+	return upsertReadinessSubgate(ctx, q, tenantID, readinessSubgateUpdate{
+		ID:            "CSG3",
+		Status:        "ready",
+		Owner:         "Counts/Shifting + Feed Direction",
+		EvidenceRef:   "shifting_event_impacts:" + shiftingEventID,
+		BlockerReason: "No blocker: ShiftingEvent impacts persist structured shed/breed/stage/sex/pregnancy/warm-up counts for projection.",
+		ImplementationRef: "backend/internal/counts/adapters/postgres/repository.go:insertShiftingImpact;" +
+			"docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md",
+	})
+}
+
+func upsertProjectionSnapshotReadiness(ctx context.Context, q readinessSubgateReadWriter, tenantID, snapshotID string) error {
+	evidenceRef := "count_projection_snapshots:" + snapshotID
+	if err := upsertProjectionHorizonReadiness(ctx, q, tenantID, evidenceRef); err != nil {
+		return err
+	}
+	return upsertReadinessSubgate(ctx, q, tenantID, readinessSubgateUpdate{
+		ID:            "CSG9",
+		Status:        "ready",
+		Owner:         "Counts/Shifting + Feed Direction",
+		EvidenceRef:   evidenceRef,
+		BlockerReason: "No blocker: bounded immutable projection snapshot rows/exceptions are available through the Counts projection provider.",
+		ImplementationRef: "backend/internal/counts/adapters/postgres/repository.go:CreateProjectionSnapshot;" +
+			"backend/internal/counts/adapters/postgres/repository.go:ProjectedCountFor;" +
+			"backend/internal/counts/adapters/postgres/repository.go:CountAsOf",
+	})
+}
+
+func upsertProjectionHorizonReadiness(ctx context.Context, q readinessSubgateReadWriter, tenantID, evidenceRef string) error {
+	var horizonCount int
+	if err := q.QueryRow(ctx, `
+SELECT count(DISTINCT horizon)
+FROM count_projection_snapshots
+WHERE tenant_id = $1::uuid
+  AND horizon IN ('count_as_of', 'feed_target_date')`, tenantID).Scan(&horizonCount); err != nil {
+		return fmt.Errorf("counts: count projection readiness horizons: %w", err)
+	}
+	status := "pending"
+	blocker := "One projection horizon has durable snapshot evidence; run both count_as_of and feed_target_date horizons before CSG4 can turn ready."
+	if horizonCount >= 2 {
+		status = "ready"
+		blocker = "No blocker: realized count_as_of and feed_target_date projection horizons both have durable snapshot evidence."
+	}
+	return upsertReadinessSubgate(ctx, q, tenantID, readinessSubgateUpdate{
+		ID:                "CSG4",
+		Status:            status,
+		Owner:             "Counts/Shifting + Feed Direction",
+		EvidenceRef:       evidenceRef,
+		BlockerReason:     blocker,
+		ImplementationRef: "backend/internal/counts/app/service.go:RecomputeProjectionSnapshotWithResult;backend/internal/counts/adapters/postgres/repository.go:CreateProjectionSnapshot",
+	})
+}
+
+func upsertReadinessSubgate(ctx context.Context, q readinessSubgateExec, tenantID string, update readinessSubgateUpdate) error {
+	if _, err := q.Exec(ctx, `
+INSERT INTO counts_shifting_readiness_subgates (
+  tenant_id, subgate_id, status, owner, evidence_ref, blocker_reason, implementation_ref, last_checked_at, updated_at
+) VALUES (
+  $1::uuid, $2, $3, $4, $5, $6, nullif($7, ''), now(), now()
+)
+ON CONFLICT (tenant_id, subgate_id) DO UPDATE
+SET status = EXCLUDED.status,
+    owner = EXCLUDED.owner,
+    evidence_ref = EXCLUDED.evidence_ref,
+    blocker_reason = EXCLUDED.blocker_reason,
+    implementation_ref = EXCLUDED.implementation_ref,
+    last_checked_at = EXCLUDED.last_checked_at,
+    updated_at = now()`,
+		tenantID, update.ID, update.Status, update.Owner, update.EvidenceRef,
+		update.BlockerReason, update.ImplementationRef); err != nil {
+		return fmt.Errorf("counts: upsert %s readiness: %w", update.ID, err)
+	}
+	return nil
 }
 
 func (r *Repository) projectionAnchors(ctx context.Context, req domain.ProjectionRecomputeRequest) ([]domain.ProjectionBaseAnchor, error) {

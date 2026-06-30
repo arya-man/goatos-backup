@@ -49,7 +49,7 @@ Use these source families before asking the business to answer from memory:
 | Source family | Use in this phase |
 | --- | --- |
 | `Feed, Shiftings and Count.docx` v1.1 | Primary source for count/shifting ledger, one-day projection, timing, Diff, manual bridge SOP/logging, as-fed quantities, and ration model |
-| Other feed-relevant wiki/source findings | `context/source-findings/goats-and-parks-source-findings.md` for base goat/park/stage/shed-tag semantics; Counting DB reconstruction, Feed Transfer KT findings, Shifting reports, Feed Director ops, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
+| Other feed-relevant wiki/source findings | `context/source-findings/goats-and-parks-source-findings.md` for base goat/park/stage/shed-tag semantics; `context/source-findings/sheds-db-source-findings.md` for manual shed profile tags/capacity/potential tags; Counting DB reconstruction, Feed Transfer KT findings, Shifting reports, Feed Director ops, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
 | `Counting DB - values only.xlsx` and `Feed Directions Automation DB.xlsx` | Workbook/tab/formula/processed-flag evidence for import design, parity fixtures, known data-quality gaps, ration/source tables, session templates, and execution/proof stage inventory |
 | Legacy Slack/App Script feed automation | Feature inventory for packing, consumption, transport, verification, reset/re-send, retries, dedupe, notifications, and security/cutover evidence |
 | GoatOS protocol/kernel docs and committed code | Obligations, batches, SOP proof, inventory ledger, outbox, scheduler, notifications, read models, scale gates, RBAC, OpenAPI, and generated clients |

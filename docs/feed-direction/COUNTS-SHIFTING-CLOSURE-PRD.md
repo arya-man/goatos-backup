@@ -52,7 +52,7 @@ Counts/Shifting must answer these questions for Feed Direction:
 | Source | Use |
 | --- | --- |
 | `Feed, Shiftings and Count.docx` v1.1 | Primary source for physical Base Count, append-only shifting ledger, one-day projection, Diff source semantics, and physical count adoption |
-| Counting DB reconstruction, `Counting DB - values only.xlsx`, and feed-relevant wiki/source findings | Fixture/reference shape for aggregate counts, comparison tabs, stage tags, source discrepancies, aliases, and import validation gaps; `context/source-findings/goats-and-parks-source-findings.md` is the base source for shed-tag/cohort semantics; not runtime truth |
+| Counting DB reconstruction, `Counting DB - values only.xlsx`, and feed-relevant wiki/source findings | Fixture/reference shape for aggregate counts, comparison tabs, stage tags, source discrepancies, aliases, and import validation gaps; `context/source-findings/goats-and-parks-source-findings.md` is the base source for shed-tag/cohort semantics; `context/source-findings/sheds-db-source-findings.md` is source evidence for shed profile tags/capacity/potential tags; not runtime truth |
 | `Feed Directions Automation DB.xlsx` | Evidence for how old feed planning tried to join count rows to ration/session/formula tabs; not authoritative count truth or a target Counts schema |
 | Shifting reports/source findings | Movement categories, priority, source/destination, proof and approval states |
 | Legacy automation review | Dedup, retry, count-mismatch, alias-transform, and replay evidence |
@@ -70,6 +70,12 @@ Counts/Shifting must not invent shed-tag meanings. Use
 for K0/K1/K2/K3, warm-up, pregnancy, lactation, mother, milking, fattening,
 ICU/quarantine, buck, flushing, and breeding tag semantics. Unknown or
 conflicting tags must become reviewed exceptions before Feed consumes them.
+Use `context/source-findings/sheds-db-source-findings.md` for the legacy/manual
+shed profile matrix: current tags, capacity-like values, and potential tags are
+reviewed location-profile evidence only. GoatOS must replace manual Sheds DB
+maintenance with effective-dated source-backed profile CRUD plus event-driven
+birth, breeding, procurement, health, and ShiftingEvent workflows; direct sheet
+values must not become Feed or Counts runtime truth.
 
 Implementation status as of 2026-06-30: `backend/cmd/counts-source-import`
 provides a reviewed typed JSONL import path for `base_count_anchor` and
@@ -108,6 +114,12 @@ GoatOS schedules unless explicitly approved against that docx.
 `CSG1`-`CSG10` roll up into Feed gate `G2`. The Feed readiness endpoint must
 show the Counts/Shifting subgate statuses, owners, evidence pointers, and blocker
 reasons beneath `G2` so Counts closure is auditable from the Feed launch gate.
+Repository writes now promote only the subgates they directly prove: Base Count
+anchors promote `CSG1`/`CSG5`, ShiftingEvents with impacts promote
+`CSG2`/`CSG3`, projection snapshots promote `CSG9`, and both snapshot horizons
+are required before `CSG4` is ready. This evidence does not make `G2` green by
+itself; `CSG7`, `CSG8`, `CSG10`, source parity, UI, and seeded E2E still have
+to close in order.
 
 Base Count cadence has source history moving from roughly weekly to roughly
 monthly. The closure must expose cadence as reviewed policy or schedule config;

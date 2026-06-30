@@ -87,6 +87,14 @@ fattening, milking, handling, weighing, feed-session, and feed-safety semantics.
 The Feed source owns Direction timing and ration behavior; it does not erase the
 base shed-tag/cohort meanings.
 
+Sheds DB source rule: Feed Direction must treat
+`context/source-findings/sheds-db-source-findings.md` as legacy evidence for
+manual ground-reality shed tags, capacity-like values, and potential tags. These
+values must flow through governed Location/Park profile CRUD, review, effective
+dates, and workflow/event updates before Feed uses them. A raw Sheds DB value or
+manual spreadsheet edit cannot silently authorize a ration, shed capacity, or
+high-risk cohort placement.
+
 Known conflict: older docs and the current mock mention "v1 midnight / v2 2 PM".
 The newer June 2026 source says Day N 09:00 full direction for Day N+1,
 13:30 cutoff, 13:30-13:45 Diff, 15:00 stage, and Day N+1 09:00/15:00 serving.

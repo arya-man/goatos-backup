@@ -50,7 +50,7 @@ audit, not a claim that every referenced feature is complete end to end.
 | Feed Direction | Mostly aligned. Current docs already cover source priority, configurable sessions, breed/tag/stage ration keys, pregnancy/warm-up risk, underfeed/overfeed/moist-feed safety, and count/projection separation. | Patched the docs to make Goats and Parks the base stage/shed/feed-role source and to prevent KT/workbook examples from replacing source-backed runtime templates. |
 | Counts/Shifting | Aligned directionally. Aggregate shed + breed counts stay separate from nutrition cohort resolution, and RFID-to-shed is future scope. | The resolver must use reviewed shed-tag/cohort reference data from Goats and Parks before Feed generation can be safe. |
 | Procurement/source entry | Aligned directionally. Source-only identity, purpose-specific warm-up, accepted intake, and arrival proof are modeled separately from clean park truth. | Add destination shed tag/cohort review as part of accepted-intake-to-park truth when procurement/feed work resumes. |
-| Parks/Sheds/Locations | Partially aligned. Location and capacity models exist, and product taxonomy treats Parks as physical scope. | Full shed-tag reference data from Goats and Parks is not yet imported/published as governed data. Future Locations/Parks work should add effective-dated shed tag semantics. |
+| Parks/Sheds/Locations | Partially aligned. Location and capacity models exist, and product taxonomy treats Parks as physical scope. `sheds-db-source-findings.md` now captures the manual Sheds DB profile matrix and current manual ground-reality update process. | Full shed-tag/capacity reference data from Goats and Parks plus Sheds DB is not yet imported/published as governed data. Future Locations/Parks work should add effective-dated shed tag/capacity semantics and replace manual sheet updates with source-backed CRUD plus birth, breeding, procurement, health, and shifting workflow updates. |
 | SOP/workflows | Aligned at engine level. SOP/proof/verification exists as shared engine. | SOP packs must add handling, trained-operator, medicine, weighing, feed-panel cleaning, and unsafe-object rules as category-specific policy, not free text only. |
 | Critical animal guardrails | Aligned directionally for ICU/quarantine/high-risk transitions. | References now point to the committed Goats and Parks finding. Future packs should use the full shed-tag list rather than a subset. |
 | Analytics/read models | Aligned directionally: analytics docs already name Goats/Parks and RFID/scale/camera/device events as source material. | Add metrics only from canonical events/projections; do not derive product truth from BI shortcuts. |
@@ -83,6 +83,8 @@ real Counts/Shifting projection, reviewed ration/template imports, feed
 generation, obligations, proof/rework, read models, frontend surfaces, and local
 E2E proof.
 
-Future slices should add governed reference data for the full shed-tag table and
-its effective dates, then wire those references into Locations/Parks, Counts,
-Feed, PHC, Procurement, Breeding, SOP, and command-lens projections.
+Future slices should add governed reference data for the full shed-tag/capacity
+table and its effective dates, then wire those references into Locations/Parks,
+Counts, Feed, PHC, Procurement, Breeding, SOP, and command-lens projections.
+The Sheds DB manual matrix is evidence for that profile data, not a spreadsheet
+runtime dependency.

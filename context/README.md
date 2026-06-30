@@ -47,6 +47,9 @@ Goats and Parks base source findings
 Goats and Parks alignment audit
   context/source-findings/goats-and-parks-alignment-audit-2026-06-30.md
 
+Sheds DB source findings
+  context/source-findings/sheds-db-source-findings.md
+
 Customer promise safety source findings
   context/source-findings/customer-promise-safety-findings.md
 
@@ -181,6 +184,10 @@ context/source-findings/
   semantics across slices: identity, park/shed scope, shed tags, lifecycle,
   breed labels, pregnancy/lactation/warm-up/fattening, feed safety, weighing,
   handling, medicine administration, park roles, and feed session execution.
+
+  `sheds-db-source-findings.md` captures the manual shed profile matrix and the
+  rule that Sheds DB becomes governed Location/Park profile data, not a raw
+  runtime spreadsheet dependency.
 
 context/architecture/
   contexts, wires, ports, deploy model, infra decisions

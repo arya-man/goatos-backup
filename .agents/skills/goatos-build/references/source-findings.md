@@ -12,6 +12,7 @@ Canonical docs:
 - `context/source-findings/feed-direction-workbook-automation-findings.md`
 - `context/source-findings/goats-and-parks-source-findings.md`
 - `context/source-findings/goats-and-parks-alignment-audit-2026-06-30.md`
+- `context/source-findings/sheds-db-source-findings.md`
 - `context/product/glossary.md`
 - `context/analytics/final-analytics-infra.md`
 - `context/forms/final-forms-sop-engine.md`
@@ -31,6 +32,12 @@ Rules:
   `context/source-findings/goats-and-parks-source-findings.md`. Feature-specific
   docs can add stricter rules, but they must not silently redefine those base
   semantics.
+- `Sheds DB.xlsx` is manual legacy evidence for shed tags, capacity-like values,
+  area, and potential tags. Use
+  `context/source-findings/sheds-db-source-findings.md`; do not copy the
+  workbook as runtime truth. Build governed Location/Park profile CRUD with
+  review/effective dates, and let birth, breeding, procurement, health, and
+  shifting workflows update or schedule profile/placement work.
 - For Feed Direction, `Feed, Shiftings and Count.docx` v1.1 is the controlling
   business source for timing, Diff, bridge handling, one-day projection, Base
   Count adoption, as-fed quantities, and ration constraints. Legacy Slack/App

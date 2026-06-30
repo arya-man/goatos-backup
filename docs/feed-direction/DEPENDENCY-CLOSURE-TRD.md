@@ -183,6 +183,16 @@ reviewed source-backed evidence or blocked with a reason; RFID-to-shed per-goat
 derivation can only replace that after separate implementation, scale proof, and
 owner approval.
 
+Shed profile evidence currently comes from manual legacy sources such as
+`wiki/Sheds DB.xlsx`, summarized in
+`context/source-findings/sheds-db-source-findings.md`. Those rows are evidence
+for allowed/target tags, capacity-like limits, and potential tags, not
+authoritative runtime placement. The replacement path is governed Location/Park
+profile CRUD with source review, effective dates, and workflow/event updates
+from birth, breeding, procurement, health/ICU/quarantine, and ShiftingEvents.
+If the destination profile/ration context for a shifted high-risk cohort cannot
+be proven, the projection must block instead of inventing a safe feed quantity.
+
 ### 3.3 Horizon Rules
 
 `CountAsOf` uses only the configured applied state.

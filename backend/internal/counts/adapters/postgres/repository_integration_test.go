@@ -40,9 +40,34 @@ WHERE tenant_id=$1::uuid
   AND event_type='counts.base_count_anchor.recorded'`, countsTenant, id); got != 1 {
 		t.Fatalf("base anchor outbox rows=%d, want 1", got)
 	}
+	readiness, err := repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness after base anchor: %v", err)
+	}
+	csg1 := readinessSubgate(t, readiness, "CSG1")
+	if csg1.Status != domain.ReadinessReady || csg1.EvidenceRef != "count_base_anchors:"+id {
+		t.Fatalf("CSG1=%+v, want ready with base anchor evidence", csg1)
+	}
+	csg5 := readinessSubgate(t, readiness, "CSG5")
+	if csg5.Status != domain.ReadinessReady || csg5.EvidenceRef != "count_base_anchors:"+id {
+		t.Fatalf("CSG5=%+v, want ready with base anchor adoption evidence", csg5)
+	}
+	deleteReadinessSubgates(t, ctx, pool, "CSG1", "CSG5")
 	again, replay, err := repo.RecordBaseCountAnchor(ctx, in)
 	if err != nil || !replay || again != id {
 		t.Fatalf("replay anchor id=%q replay=%v err=%v, want id=%q replay=true", again, replay, err, id)
+	}
+	readiness, err = repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness after base anchor replay: %v", err)
+	}
+	csg1 = readinessSubgate(t, readiness, "CSG1")
+	if csg1.Status != domain.ReadinessReady || csg1.EvidenceRef != "count_base_anchors:"+id {
+		t.Fatalf("CSG1 after replay=%+v, want restored ready evidence", csg1)
+	}
+	csg5 = readinessSubgate(t, readiness, "CSG5")
+	if csg5.Status != domain.ReadinessReady || csg5.EvidenceRef != "count_base_anchors:"+id {
+		t.Fatalf("CSG5 after replay=%+v, want restored ready evidence", csg5)
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM outbox_messages
@@ -303,9 +328,34 @@ WHERE tenant_id=$1::uuid
   AND event_type='counts.shifting_event.recorded'`, countsTenant, id); got != 1 {
 		t.Fatalf("shifting event outbox rows=%d, want 1", got)
 	}
+	readiness, err := repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness after shifting event: %v", err)
+	}
+	csg2 := readinessSubgate(t, readiness, "CSG2")
+	if csg2.Status != domain.ReadinessReady || csg2.EvidenceRef != "shifting_events:"+id {
+		t.Fatalf("CSG2=%+v, want ready with shifting event evidence", csg2)
+	}
+	csg3 := readinessSubgate(t, readiness, "CSG3")
+	if csg3.Status != domain.ReadinessReady || csg3.EvidenceRef != "shifting_event_impacts:"+id {
+		t.Fatalf("CSG3=%+v, want ready with shifting impact evidence", csg3)
+	}
+	deleteReadinessSubgates(t, ctx, pool, "CSG2", "CSG3")
 	again, replay, err := repo.RecordShiftingEvent(ctx, in)
 	if err != nil || !replay || again != id {
 		t.Fatalf("shift replay id=%q replay=%v err=%v, want id=%q replay=true", again, replay, err, id)
+	}
+	readiness, err = repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness after shifting event replay: %v", err)
+	}
+	csg2 = readinessSubgate(t, readiness, "CSG2")
+	if csg2.Status != domain.ReadinessReady || csg2.EvidenceRef != "shifting_events:"+id {
+		t.Fatalf("CSG2 after replay=%+v, want restored ready evidence", csg2)
+	}
+	csg3 = readinessSubgate(t, readiness, "CSG3")
+	if csg3.Status != domain.ReadinessReady || csg3.EvidenceRef != "shifting_event_impacts:"+id {
+		t.Fatalf("CSG3 after replay=%+v, want restored ready evidence", csg3)
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM outbox_messages
@@ -331,15 +381,16 @@ func TestRepositoryCreatesBlockedProjectionSnapshotAndReadiness(t *testing.T) {
 	if err != nil || replay || anchorID == "" {
 		t.Fatalf("projection anchor id=%q replay=%v err=%v", anchorID, replay, err)
 	}
-	snapID, err := repo.CreateProjectionSnapshot(ctx, domain.ProjectionSnapshot{
+	target := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	snapshot := domain.ProjectionSnapshot{
 		TenantID: countsTenant, Horizon: "feed_target_date", ParkID: countsPark,
-		TargetDate:       time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		TargetDate:       target,
 		AsOf:             time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC),
 		ProjectionStatus: "blocked", SourceContractVersion: "counts-shifting-v1",
 		SourceHash: "snapshot-hash-1", BaseAnchorIDsHash: "anchors-hash-1",
 		ShiftingEventIDsHash: "shift-hash-1", GeneratedBy: "test",
 		Rows: []domain.ProjectionRow{{
-			ParkID: countsPark, ShedID: countsShedB, TargetDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+			ParkID: countsPark, ShedID: countsShedB, TargetDate: target,
 			GrainKey: "shed-b:beetal:pregnant", BreedKey: "beetal", BreedLabel: "Beetal",
 			BaseCountAnchorID: anchorID, IncludedShiftingEventIDsHash: "shift-hash-1",
 			StageTag: &stage, HeadCount: 12, PregnantCount: 12,
@@ -350,7 +401,8 @@ func TestRepositoryCreatesBlockedProjectionSnapshotAndReadiness(t *testing.T) {
 			ParkID: strPtr(countsPark), ShedID: strPtr(countsShedB), BreedKey: &breed, StageTag: &stage,
 			Severity: "critical", BlockerReason: blocker,
 		}},
-	})
+	}
+	snapID, err := repo.CreateProjectionSnapshot(ctx, snapshot)
 	if err != nil || snapID == "" {
 		t.Fatalf("snapshot id=%q err=%v", snapID, err)
 	}
@@ -370,8 +422,33 @@ func TestRepositoryCreatesBlockedProjectionSnapshotAndReadiness(t *testing.T) {
 	if readiness.LatestProjectionStatus != "blocked" || readiness.LatestProjectionRowCount != 1 {
 		t.Fatalf("latest projection status=%q rows=%d", readiness.LatestProjectionStatus, readiness.LatestProjectionRowCount)
 	}
+	csg4 := readinessSubgate(t, readiness, "CSG4")
+	if csg4.Status != domain.ReadinessPending || csg4.EvidenceRef != "count_projection_snapshots:"+snapID {
+		t.Fatalf("CSG4=%+v, want pending with single-horizon snapshot evidence", csg4)
+	}
+	csg9 := readinessSubgate(t, readiness, "CSG9")
+	if csg9.Status != domain.ReadinessReady || csg9.EvidenceRef != "count_projection_snapshots:"+snapID {
+		t.Fatalf("CSG9=%+v, want ready with projection snapshot evidence", csg9)
+	}
+	deleteReadinessSubgates(t, ctx, pool, "CSG4", "CSG9")
+	replayedSnapID, err := repo.CreateProjectionSnapshot(ctx, snapshot)
+	if err != nil || replayedSnapID != snapID {
+		t.Fatalf("replayed snapshot id=%q err=%v, want %q", replayedSnapID, err, snapID)
+	}
+	readiness, err = repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness after snapshot replay: %v", err)
+	}
+	csg4 = readinessSubgate(t, readiness, "CSG4")
+	if csg4.Status != domain.ReadinessPending || csg4.EvidenceRef != "count_projection_snapshots:"+snapID {
+		t.Fatalf("CSG4 after replay=%+v, want restored pending evidence", csg4)
+	}
+	csg9 = readinessSubgate(t, readiness, "CSG9")
+	if csg9.Status != domain.ReadinessReady || csg9.EvidenceRef != "count_projection_snapshots:"+snapID {
+		t.Fatalf("CSG9 after replay=%+v, want restored ready evidence", csg9)
+	}
 	projection, err := repo.ProjectedCountFor(ctx, domain.CountProjectionRequest{
-		TenantID: countsTenant, ParkID: countsPark, TargetDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		TenantID: countsTenant, ParkID: countsPark, TargetDate: target,
 		ShedID: strPtr(countsShedB), BreedKey: &breed, RationContextResolutionState: strPtr("blocked"), Limit: 25,
 	})
 	if err != nil {
@@ -442,6 +519,11 @@ WHERE tenant_id=$1::uuid
 		csg10.EvidenceRef != "count_projection_recompute_runs:"+result.RunID ||
 		!strings.Contains(csg10.BlockerReason, "seeded local E2E") {
 		t.Fatalf("CSG10=%+v, want pending recompute-run evidence", csg10)
+	}
+	csg4 := readinessSubgate(t, readiness, "CSG4")
+	if csg4.Status != domain.ReadinessPending ||
+		csg4.EvidenceRef != "count_projection_snapshots:"+result.SnapshotID {
+		t.Fatalf("CSG4=%+v, want pending single-horizon snapshot evidence", csg4)
 	}
 }
 
@@ -766,6 +848,14 @@ func TestServiceRecomputesProjectionWithAuthorizedShiftOnlyInProjectedHorizon(t 
 	}
 	if !foundShortage {
 		t.Fatalf("projected exceptions=%+v, want destination_shortage", projected.Exceptions)
+	}
+	readiness, err := repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness after dual-horizon recompute: %v", err)
+	}
+	csg4 := readinessSubgate(t, readiness, "CSG4")
+	if csg4.Status != domain.ReadinessReady {
+		t.Fatalf("CSG4=%+v, want ready after both count_as_of and feed_target_date snapshots", csg4)
 	}
 }
 
@@ -1108,6 +1198,17 @@ func readinessSubgate(t *testing.T, readiness domain.Readiness, id string) domai
 	}
 	t.Fatalf("missing readiness subgate %s in %+v", id, readiness.Subgates)
 	return domain.ReadinessSubgate{}
+}
+
+func deleteReadinessSubgates(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ids ...string) {
+	t.Helper()
+	for _, id := range ids {
+		if _, err := pool.Exec(ctx, `
+DELETE FROM counts_shifting_readiness_subgates
+WHERE tenant_id=$1::uuid AND subgate_id=$2`, countsTenant, id); err != nil {
+			t.Fatalf("delete readiness subgate %s: %v", id, err)
+		}
+	}
 }
 
 func strPtr(s string) *string { return &s }

@@ -24,6 +24,12 @@ Full base-source conversion: `Goats and Parks.docx` is now captured in
 goat identity, shed tags, lifecycle/stage, park roles, feed-session, handling,
 weighing, pregnancy/lactation/warm-up/fattening, and feed-safety semantics.
 
+Sheds DB source conversion: `wiki/Sheds DB.xlsx` is now captured in
+`context/source-findings/sheds-db-source-findings.md`. Use that file for the
+manual shed profile matrix: park-scoped shed tags, capacity-like values, area,
+potential tags, and the rule that GoatOS must replace manual ground-reality
+sheet edits with governed location-profile CRUD and event/workflow updates.
+
 ## Phase 1 Goat Passport Answers
 
 ### Core Site Codes

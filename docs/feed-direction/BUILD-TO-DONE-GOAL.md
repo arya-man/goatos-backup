@@ -73,6 +73,14 @@ safety. The Feed build must use it before creating or changing templates,
 resolver logic, config screens, stage obligations, read models, or UI copy that
 touch those semantics.
 
+Hard Sheds DB rule: `wiki/Sheds DB.xlsx`, as summarized in
+`context/source-findings/sheds-db-source-findings.md`, is evidence for manual
+ground-reality shed tags, capacity-like values, and potential tags. Do not copy
+it as a runtime table. Build governed Location/Park profile CRUD with review,
+effective dates, source evidence, and impact preview; birth, breeding,
+procurement, health/ICU/quarantine, and ShiftingEvent workflows should update
+or schedule profile/placement work instead of relying on manual sheet edits.
+
 Hard workbook rule: old workbook tabs and formulas are evidence only. Do not
 copy `Count-DB`, `CPT Validation`, `CBE Validation`, `Feed-Energy-Protein`,
 `Supply Planning`, `Template`, `Feed Packing Form`, `Feed Transport Form`, or
