@@ -19,6 +19,11 @@ Shifting Reports
 Death Reports
 ```
 
+Full base-source conversion: `Goats and Parks.docx` is now captured in
+`context/source-findings/goats-and-parks-source-findings.md`. Use that file for
+goat identity, shed tags, lifecycle/stage, park roles, feed-session, handling,
+weighing, pregnancy/lactation/warm-up/fattening, and feed-safety semantics.
+
 ## Phase 1 Goat Passport Answers
 
 ### Core Site Codes

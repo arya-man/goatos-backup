@@ -24,6 +24,13 @@ timings are audit/cutover evidence only. They must not become GoatOS schedules
 unless the Feed Director explicitly approves a retained or replaced behavior
 against that docx.
 
+Base goat/park rule: `context/source-findings/goats-and-parks-source-findings.md`
+is the controlling base source for goat identity, park/shed scope, shed tags,
+lifecycle/stage, warm-up, pregnancy, lactation, fattening, milking, handling,
+weighing, feed-session, and feed-safety semantics. Feed Direction code may add
+stricter feed policy, but must not redefine these base meanings in templates,
+workers, API contracts, read models, or UI.
+
 Workbook boundary rule: `Counting DB - values only.xlsx` and
 `Feed Directions Automation DB.xlsx` are source evidence for import mapping,
 parity fixtures, formula-gap review, and legacy execution-stage inventory. Their
@@ -606,6 +613,7 @@ references must be re-verified before import/cutover work.
 | Source surface | Source signals | GoatOS mapping |
 | --- | --- | --- |
 | Count-DB / Projected-DB / FutureDB | Date, farm, shed, shed tag, breed, age, count, counted-by; projected and comparison tabs (`feed-direction-counting-db-reconstruction.md`) | Source evidence and fixture/reference shape only. Runtime feed counts come from the physical Base Count anchor, realized ShiftingEvent ledger, and horizon-aware projection contract. |
+| Goats and Parks source | Base goat identity, park/shed scope, shed tags, lifecycle/stage, warm-up, pregnancy, lactation, milking, fattening, handling, weighing, feed roles, and feed safety (`context/source-findings/goats-and-parks-source-findings.md`) | Base reference semantics for resolver/config/read-model/UI behavior. Feed Direction can add stricter policy but must not redefine these meanings. |
 | Shifting reports | Type request/direction, category, priority, source/destination, comments, destination proof, approval/status | Process-visible movement workflow plus count input under horizon-specific gates: authorized/directed future-effective rows may feed the one-day projection, while realized counts wait for the configured applied state. Pending unauthorized, rejected, or canceled movement does not create Feed Direction work. Ledger application is idempotent by event id. |
 | K0 cohort parsing/validation | K0 in/out Mother-vs-Kid parsing, unresolved/insufficient-count halt | Structured cohort/stage impact is mandatory. Missing or unresolved impact fails closed and raises process-exception work instead of changing counts. K0/K1 feed exclusion still needs Feed Director approval before publish. |
 | Feed Direction sheet | Date, farm, session, shed, shed tag, breed, age, count, feed item/quantity pairs, session total | Generation snapshot/read-model fields, with quantities derived from reviewed RationTable output and count replay. |

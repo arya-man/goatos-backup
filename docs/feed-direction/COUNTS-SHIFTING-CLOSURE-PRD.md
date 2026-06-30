@@ -52,7 +52,7 @@ Counts/Shifting must answer these questions for Feed Direction:
 | Source | Use |
 | --- | --- |
 | `Feed, Shiftings and Count.docx` v1.1 | Primary source for physical Base Count, append-only shifting ledger, one-day projection, Diff source semantics, and physical count adoption |
-| Counting DB reconstruction, `Counting DB - values only.xlsx`, and feed-relevant wiki/source findings | Fixture/reference shape for aggregate counts, comparison tabs, stage tags, source discrepancies, aliases, and import validation gaps; not runtime truth |
+| Counting DB reconstruction, `Counting DB - values only.xlsx`, and feed-relevant wiki/source findings | Fixture/reference shape for aggregate counts, comparison tabs, stage tags, source discrepancies, aliases, and import validation gaps; `context/source-findings/goats-and-parks-source-findings.md` is the base source for shed-tag/cohort semantics; not runtime truth |
 | `Feed Directions Automation DB.xlsx` | Evidence for how old feed planning tried to join count rows to ration/session/formula tabs; not authoritative count truth or a target Counts schema |
 | Shifting reports/source findings | Movement categories, priority, source/destination, proof and approval states |
 | Legacy automation review | Dedup, retry, count-mismatch, alias-transform, and replay evidence |
@@ -64,6 +64,12 @@ Workbook formula tabs, processed flags, and App Script transforms must not be
 copied into Counts/Shifting. Counts owns physical aggregate count and movement
 truth; Feed owns the reviewed resolver from those rows into nutrition/ration
 cohorts.
+
+Counts/Shifting must not invent shed-tag meanings. Use
+`context/source-findings/goats-and-parks-source-findings.md` as the base source
+for K0/K1/K2/K3, warm-up, pregnancy, lactation, mother, milking, fattening,
+ICU/quarantine, buck, flushing, and breeding tag semantics. Unknown or
+conflicting tags must become reviewed exceptions before Feed consumes them.
 
 Implementation status as of 2026-06-30: `backend/cmd/counts-source-import`
 provides a reviewed typed JSONL import path for `base_count_anchor` and

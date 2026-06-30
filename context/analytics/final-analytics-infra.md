@@ -294,7 +294,9 @@ source-material/goatOS.docx:
 
 General/Goats and Parks plus Slack operating docs:
   business terminology, breed/location/status gotchas, and correction patterns.
-  Distill into domain reference docs and eval cases with human review.
+  `context/source-findings/goats-and-parks-source-findings.md` is the committed
+  base source for goat and park semantics. Distill future analytics fields from
+  canonical events/projections, not raw BI shortcuts.
 ```
 
 Legacy BigQuery project observed:

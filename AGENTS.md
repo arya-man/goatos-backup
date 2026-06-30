@@ -71,6 +71,14 @@ Purpose:
 
 - Goat OS is the operating system for goat identity, health, vaccination, genetics, breeding, workforce, SOP tasks, media proof, verification, devices, commerce interfaces, and analytics.
 - Canonical backend/data model/app APIs are built fresh.
+- `Goats and Parks.docx` is the base source for goat and park semantics across
+  every slice. Any feature touching goat identity, park/shed scope, shed tags,
+  lifecycle/stage, breed labels, pregnancy/lactation/warm-up/fattening, feed
+  safety, weighing, handling, medicine administration, park roles, or feed
+  sessions must start from
+  `context/source-findings/goats-and-parks-source-findings.md` and must not
+  invent conflicting semantics. Feature-specific docs may add stricter
+  source-backed rules, but conflicts require an explicit source/owner decision.
 - Scope lock: build exactly the user-approved slice, not adjacent product areas
   that the shared platform could theoretically support. Generic foundations are
   allowed only when they serve the approved slice; visible routes, nav, seeded

@@ -18,10 +18,10 @@ turn procurement-history clues into schedule math.
 
 | stage_code | name | min_age_days | max_age_days | decision | source |
 | --- | --- | ---: | ---: | --- | --- |
-| K0 | Newborn | 0 | 1 | Use for local/dev. | `wiki/graphify-out/converted/Goats and Parks_0e7e3494.md:271`; `context/product/glossary.md:205` |
-| K1 | Milk Training | 2 | 7 | Use for local/dev. | `wiki/graphify-out/converted/Goats and Parks_0e7e3494.md:272`; `context/product/glossary.md:210` |
-| K2 | Milk Drinking | 8 | 42 | Use **42**, not legacy mock 45, for local/dev. | `wiki/graphify-out/converted/Goats and Parks_0e7e3494.md:273`; `context/product/glossary.md:215`; `backend/migrations/postgres/000001_phase_1_identity_foundation.sql:922` |
-| K3 | Weaning | 43 | NULL | Use as the next age band when a seed needs K3. | `wiki/graphify-out/converted/Goats and Parks_0e7e3494.md:274`; `context/product/glossary.md:218` |
+| K0 | Newborn | 0 | 1 | Use for local/dev. | `context/source-findings/goats-and-parks-source-findings.md`; `context/product/glossary.md:205` |
+| K1 | Milk Training | 2 | 7 | Use for local/dev. | `context/source-findings/goats-and-parks-source-findings.md`; `context/product/glossary.md:210` |
+| K2 | Milk Drinking | 8 | 42 | Use **42**, not legacy mock 45, for local/dev. | `context/source-findings/goats-and-parks-source-findings.md`; `context/product/glossary.md:215`; `backend/migrations/postgres/000001_phase_1_identity_foundation.sql:922` |
+| K3 | Weaning | 43 | NULL | Use as the next age band when a seed needs K3. | `context/source-findings/goats-and-parks-source-findings.md`; `context/product/glossary.md:218` |
 
 Legacy dashboard `SHIFT_THRESH` used K2 = 45, but Goat OS treats that as mock
 legacy drift. The source-backed local/dev decision is 42 days / six weeks. If a

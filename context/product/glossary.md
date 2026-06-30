@@ -4,6 +4,13 @@ This glossary defines business terms, legacy labels, and operating codes that
 appear in Goat OS docs, source data, dashboards, Slack flows, and migration
 plans. If a term is not confirmed, mark it as pending instead of guessing.
 
+Base goat and park semantics come from
+`context/source-findings/goats-and-parks-source-findings.md`. Use that source for
+identity/tag/RFID, shed tags, lifecycle/stage, breed labels, pregnancy,
+lactation, warm-up, fattening, feed safety, weighing, handling, medicine
+administration, park roles, and feed session terms before adding glossary
+aliases or changing a definition.
+
 ## Legacy Farm And Source Codes
 
 ### CBE

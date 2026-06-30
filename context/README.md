@@ -41,6 +41,12 @@ Feed Transfer KT findings
 Feed Direction workbook and legacy automation findings
   context/source-findings/feed-direction-workbook-automation-findings.md
 
+Goats and Parks base source findings
+  context/source-findings/goats-and-parks-source-findings.md
+
+Goats and Parks alignment audit
+  context/source-findings/goats-and-parks-alignment-audit-2026-06-30.md
+
 Customer promise safety source findings
   context/source-findings/customer-promise-safety-findings.md
 
@@ -170,6 +176,11 @@ context/product/
 
 context/source-findings/
   derived findings from private/source docs; never raw PII or contacts
+
+  `goats-and-parks-source-findings.md` is the base source for goat and park
+  semantics across slices: identity, park/shed scope, shed tags, lifecycle,
+  breed labels, pregnancy/lactation/warm-up/fattening, feed safety, weighing,
+  handling, medicine administration, park roles, and feed session execution.
 
 context/architecture/
   contexts, wires, ports, deploy model, infra decisions

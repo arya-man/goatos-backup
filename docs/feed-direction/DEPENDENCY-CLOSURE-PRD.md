@@ -49,7 +49,7 @@ Use these source families before asking the business to answer from memory:
 | Source family | Use in this phase |
 | --- | --- |
 | `Feed, Shiftings and Count.docx` v1.1 | Primary source for count/shifting ledger, one-day projection, timing, Diff, manual bridge SOP/logging, as-fed quantities, and ration model |
-| Other feed-relevant wiki/source findings | Goats & Parks tags, Counting DB reconstruction, Feed Transfer KT findings, Shifting reports, Feed Director ops, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
+| Other feed-relevant wiki/source findings | `context/source-findings/goats-and-parks-source-findings.md` for base goat/park/stage/shed-tag semantics; Counting DB reconstruction, Feed Transfer KT findings, Shifting reports, Feed Director ops, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
 | `Counting DB - values only.xlsx` and `Feed Directions Automation DB.xlsx` | Workbook/tab/formula/processed-flag evidence for import design, parity fixtures, known data-quality gaps, ration/source tables, session templates, and execution/proof stage inventory |
 | Legacy Slack/App Script feed automation | Feature inventory for packing, consumption, transport, verification, reset/re-send, retries, dedupe, notifications, and security/cutover evidence |
 | GoatOS protocol/kernel docs and committed code | Obligations, batches, SOP proof, inventory ledger, outbox, scheduler, notifications, read models, scale gates, RBAC, OpenAPI, and generated clients |
@@ -73,6 +73,12 @@ The next implementation session must use
 [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md) as the stop-rule charter for
 source cross-check, backend/frontend integration, seeds, E2E, high-effort review
 agents, and Mesha/VGoats push verification.
+
+Do not treat Feed dependency closure as Feed-only vocabulary. Gate decisions for
+Counts/Shifting, ration context, eligibility, proof, and UI must respect
+`context/source-findings/goats-and-parks-source-findings.md` for identity,
+park/shed scope, shed tags, lifecycle/stage, pregnancy, lactation, warm-up,
+fattening, milking, handling, weighing, and feed-safety semantics.
 
 ## 4. Canonical Gate Table
 

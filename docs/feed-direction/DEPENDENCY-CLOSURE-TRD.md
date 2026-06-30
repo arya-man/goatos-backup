@@ -34,6 +34,13 @@ trigger installers are audit/cutover evidence only; their timings do not become
 GoatOS schedules unless the Feed Director explicitly retains or replaces the
 behavior against that docx.
 
+Base goat/park semantics come from
+`context/source-findings/goats-and-parks-source-findings.md`. Dependency closure
+must use that finding for goat identity, park/shed scope, shed tags,
+lifecycle/stage, pregnancy, lactation, warm-up, fattening, milking, handling,
+weighing, feed roles, and feed-safety semantics before gates approve resolver,
+eligibility, proof, API, read-model, or UI behavior.
+
 `Counting DB - values only.xlsx` and `Feed Directions Automation DB.xlsx` are
 workbook implementation evidence only. Their tabs, formulas, hidden copies,
 processed flags, script properties, and Slack media links must be replaced with

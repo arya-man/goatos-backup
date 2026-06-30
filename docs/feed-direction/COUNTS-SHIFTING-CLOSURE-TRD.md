@@ -16,6 +16,10 @@ Source authority for feed-facing count behavior is
 physical Base Count adoption, Diff source semantics, and any Feed Direction
 timing assumptions. Legacy App Script/Sheet timing is audit evidence for cutover,
 not a GoatOS schedule unless explicitly approved against that docx.
+Base shed-tag/cohort semantics come from
+`context/source-findings/goats-and-parks-source-findings.md`; Counts/Shifting
+must not invent or silently alias K0/K1/K2/K3, warm-up, pregnant, lactating,
+mother, milking, fattening, ICU/quarantine, buck, flushing, or breeding tags.
 `Counting DB - values only.xlsx` and `Feed Directions Automation DB.xlsx` are
 fixture/import evidence only. Their tabs, formulas, comparison sheets, processed
 flags, and script transforms are not Counts/Shifting runtime truth.

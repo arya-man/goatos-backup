@@ -66,6 +66,12 @@ Every phase must inspect available legacy/source artifacts before asking the
 business to answer from memory. Agents should produce evidence-backed proposals
 with source paths, counts, and confidence, then ask for confirmation. Raw PII or
 private source rows must not be committed.
+Every phase touching goat identity, park/shed scope, shed tags, lifecycle/stage,
+breed labels, pregnancy/lactation/warm-up/fattening, feed safety, weighing,
+handling, medicine administration, park roles, or feed sessions must start from
+`context/source-findings/goats-and-parks-source-findings.md` as the base
+goat/park source and must record an explicit source/owner decision before
+building conflicting semantics.
 When a phase or policy pack replaces a legacy Slack/Sheets/App Script workflow,
 it must declare the `legacy capability parity floor`, `known legacy gaps to
 close`, and `import/replay mapping`. Capability parity means preserving useful

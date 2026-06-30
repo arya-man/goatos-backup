@@ -40,6 +40,7 @@ AGENTS.md
 SKILLS.md
 context/README.md
 context/product/glossary.md
+context/source-findings/goats-and-parks-source-findings.md
 context/source-findings/drive-docs-findings.md
 context/product/goat-os-feature-phases.md
 docs/phc-vaccination/V1-FOUNDATION-SPEC.md
@@ -65,6 +66,10 @@ goat journey starts at purchase/source
 Existing documented basis:
 
 ```text
+context/source-findings/goats-and-parks-source-findings.md
+  base goat/park semantics for identity, tags/RFID, breeds, shed tags,
+  warm-up, pregnancy, fattening, weighing, handling, and trained-role boundary.
+
 context/product/glossary.md
   HF / Holding Farm:
     source-side facility after procurement and before dispatch to main parks.

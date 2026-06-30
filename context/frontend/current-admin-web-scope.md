@@ -77,6 +77,16 @@ Platform (generic engine: protocol rules, obligations, SOP tasks, proof/media,
   the page crumb (`PHC › Vaccination`), nothing more.
 - Do NOT bake vaccination into generic layers; do NOT show unbuilt modules as live.
 
+## Goat/Park Base Source Rule
+
+For any admin-web surface that displays or filters goat identity, park/shed
+scope, shed tags, lifecycle/stage, breed labels, pregnancy/lactation/warm-up,
+fattening, feed safety, weighing, handling, medicine administration, park roles,
+or feed sessions, use
+`context/source-findings/goats-and-parks-source-findings.md` as the base source.
+Backend contracts still own live UI labels/options, but those contracts must not
+invent semantics that conflict with the Goats and Parks finding.
+
 ## Non-Negotiable IA Rule
 
 **Vaccination-only is data scope, not UI hierarchy. Mock hierarchy wins.**

@@ -40,8 +40,9 @@ Use this order whenever sources disagree:
    constraints.
 2. Other feed-relevant wiki/source documents and source findings refine that
    primary doc: Counting DB reconstruction, Shifting reports, Feed Director ops,
-   Goats & Parks stage tags, transport consolidation, Warmup/K0/K1/Experiment
-   evidence, and feed-stock/procurement boundaries.
+   `context/source-findings/goats-and-parks-source-findings.md` for base
+   goat/park/stage/shed-tag/feed-safety semantics, transport consolidation,
+   Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries.
 3. `Counting DB - values only.xlsx` and `Feed Directions Automation DB.xlsx`
    are workbook/tab/formula evidence for import mapping, parity fixtures, known
    validation gaps, ration tables, session templates, processed flags, and
@@ -63,6 +64,14 @@ prior GoatOS notes, or implementation inventories disagree with
 `Feed, Shiftings and Count.docx`, follow the docx unless the Feed Director
 explicitly reopens the business rule. Legacy trigger times are audit/cutover
 evidence only; they are not GoatOS product schedules by default.
+
+Hard base-source rule: `Goats and Parks.docx`, as committed in
+`context/source-findings/goats-and-parks-source-findings.md`, is the base source
+for goat identity, park/shed scope, shed tags, lifecycle/stage, pregnancy,
+lactation, warm-up, fattening, milking, handling, weighing, feed roles, and feed
+safety. The Feed build must use it before creating or changing templates,
+resolver logic, config screens, stage obligations, read models, or UI copy that
+touch those semantics.
 
 Hard workbook rule: old workbook tabs and formulas are evidence only. Do not
 copy `Count-DB`, `CPT Validation`, `CBE Validation`, `Feed-Energy-Protein`,

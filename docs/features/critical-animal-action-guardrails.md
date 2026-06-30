@@ -184,6 +184,7 @@ For the quarantine incident class specifically:
 
 Sanitized committed findings:
 
+- `context/source-findings/goats-and-parks-source-findings.md`
 - `context/source-findings/drive-docs-findings.md`
 - `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`
 - `context/product/goat-os-feature-phases.md`
@@ -192,7 +193,6 @@ Sanitized committed findings:
 
 Maintainer-local wiki/legacy sources reviewed:
 
-- `wiki/graphify-out/converted/Goats and Parks_0e7e3494.md`
 - `wiki/graphify-out/converted/Goat Passport Q&A_26b0ac60.md`
 - `wiki/graphify-out/converted/Shifting Reports_27be55d1.md`
 - `wiki/graphify-out/converted/Health Reports_886d914e.md`

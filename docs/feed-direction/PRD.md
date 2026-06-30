@@ -67,7 +67,7 @@ Use this priority when sources disagree:
 | Priority | Source | Use |
 | --- | --- | --- |
 | 1 | `Feed, Shiftings and Count.docx` v1.1, June 2026 | Primary Feed Direction business source: Base Count, append-only Shifting ledger, one-day projection, timing, Diff, manual bridge SOP/logging, as-fed quantities, and ration solver constraints |
-| 2 | Feed-relevant wiki/source docs and findings | Counting DB reconstruction, Feed Transfer KT findings, Shifting reports, Feed Director ops, Goats & Parks stage tags, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
+| 2 | Feed-relevant wiki/source docs and findings | `context/source-findings/goats-and-parks-source-findings.md` for base goat/park/stage/shed-tag semantics; Counting DB reconstruction, Feed Transfer KT findings, Shifting reports, Feed Director ops, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
 | 3 | `Counting DB - values only.xlsx` and `Feed Directions Automation DB.xlsx` | Workbook/tab/column/formula evidence for imports, parity fixtures, validation gaps, ration tables, session templates, processed flags, and execution/proof stages; not runtime truth or target schema |
 | 4 | Legacy Slack/App Script feed workflows | Feature inventory for sheet fields, form stages, proof/rejection, reset/re-send, retry/dedupe, transport, notifications, and security/cutover evidence; not a code blueprint |
 | 5 | GoatOS protocol/kernel docs and committed code | Implementation shape for protocol, obligations, SOP proof, inventory, audit, outbox, reminders, read models, RBAC, OpenAPI, and generated clients |
@@ -79,6 +79,13 @@ quantity, or ration behavior conflicts with legacy scripts, older mocks, or
 prior GoatOS notes. Legacy Slack/App Script trigger times are audit/cutover
 evidence only and must not become GoatOS schedules unless the Feed Director
 explicitly approves a retained/replaced schedule against that docx.
+
+Goats and Parks base rule: Feed Direction must also obey
+`context/source-findings/goats-and-parks-source-findings.md` for goat identity,
+park/shed scope, shed tags, lifecycle/stage, warm-up, pregnancy, lactation,
+fattening, milking, handling, weighing, feed-session, and feed-safety semantics.
+The Feed source owns Direction timing and ration behavior; it does not erase the
+base shed-tag/cohort meanings.
 
 Known conflict: older docs and the current mock mention "v1 midnight / v2 2 PM".
 The newer June 2026 source says Day N 09:00 full direction for Day N+1,

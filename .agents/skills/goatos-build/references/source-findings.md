@@ -10,6 +10,8 @@ Canonical docs:
 - `context/source-findings/customer-promise-safety-findings.md`
 - `context/source-findings/feed-transfer-kt-2026-06-24.md`
 - `context/source-findings/feed-direction-workbook-automation-findings.md`
+- `context/source-findings/goats-and-parks-source-findings.md`
+- `context/source-findings/goats-and-parks-alignment-audit-2026-06-30.md`
 - `context/product/glossary.md`
 - `context/analytics/final-analytics-infra.md`
 - `context/forms/final-forms-sop-engine.md`
@@ -21,6 +23,14 @@ Rules:
   screenshots, or private rows.
 - If a source fact affects build behavior, it must land in an authoritative
   context doc, not only in analysis or archive.
+- `Goats and Parks.docx` is the base source for goat and park semantics across
+  GoatOS. Any slice touching goat identity, park/shed scope, shed tags,
+  lifecycle/stage, breed labels, pregnancy/lactation/warm-up/fattening, feed
+  safety, weighing, handling, medicine administration, park roles, or feed
+  sessions must start from
+  `context/source-findings/goats-and-parks-source-findings.md`. Feature-specific
+  docs can add stricter rules, but they must not silently redefine those base
+  semantics.
 - For Feed Direction, `Feed, Shiftings and Count.docx` v1.1 is the controlling
   business source for timing, Diff, bridge handling, one-day projection, Base
   Count adoption, as-fed quantities, and ration constraints. Legacy Slack/App
