@@ -582,11 +582,10 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
 
     const filters = page.getByRole("button", { name: "Filters", exact: true });
     const filterCount = await filters.count();
-    if (filterCount !== 4) {
-      throw new Error(`${routeName} expected 4 Filters buttons, found ${filterCount}`);
+    if (filterCount !== 3) {
+      throw new Error(`${routeName} expected 3 Filters buttons, found ${filterCount}`);
     }
     for (const [i, label] of [
-      "Filter — Supplier warmup",
       "Filter — Vaccination status matrix",
       "Filter — Per-cohort vaccination detail",
       "Filter — Vaccination shed events",
@@ -594,12 +593,6 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
       await openAndCloseDialog(page, filters.nth(i), label, "Close filters", routeName);
     }
 
-    await openAndCloseDrawer(
-      page,
-      page.locator('section:has-text("Supplier warmup") tbody tr .celllink').first(),
-      "WARMUP",
-      routeName,
-    );
     await openAndCloseDrawer(
       page,
       page.locator('section:has-text("Vaccination status matrix") tbody tr .celllink').first(),
