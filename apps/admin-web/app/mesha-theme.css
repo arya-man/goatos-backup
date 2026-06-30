@@ -284,6 +284,14 @@
   .btn:disabled,.btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed;pointer-events:none}
   .chipset[title] .chip[aria-disabled="true"],.chip[aria-disabled="true"]{cursor:not-allowed}
   .btn.p,.btn.primary{background:var(--brand);border-color:var(--brand);color:#08130B}.btn.p:hover,.btn.primary:hover{background:var(--brand-d)}
+  .btn.p:disabled,
+  .btn.primary:disabled,
+  .btn.p[aria-disabled="true"],
+  .btn.primary[aria-disabled="true"]{background:var(--panel);border-color:var(--line);color:var(--muted);opacity:.68}
+  .btn.p:disabled:hover,
+  .btn.primary:disabled:hover,
+  .btn.p[aria-disabled="true"]:hover,
+  .btn.primary[aria-disabled="true"]:hover{background:var(--panel);border-color:var(--line)}
   .btn.sm{padding:6px 10px;font-size:12.5px}
   .btn.gh{background:transparent;border-color:transparent;color:var(--brand-d)}
   /* Light theme: green fill is darker (--brand #54A02C), so near-black text reads muddy.
@@ -295,6 +303,10 @@
   :root.light .btn.primary,
   :root.light .btn.p:hover,
   :root.light .btn.primary:hover{color:#FFFFFF}
+  :root.light .btn.p:disabled,
+  :root.light .btn.primary:disabled,
+  :root.light .btn.p[aria-disabled="true"],
+  :root.light .btn.primary[aria-disabled="true"]{background:var(--panel);border-color:var(--line);color:var(--muted);opacity:.68}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
   .card.pad{padding:18px}
   .scope-title{margin:12px 0 8px;font-size:18px;letter-spacing:-.25px}

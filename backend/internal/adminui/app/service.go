@@ -332,7 +332,7 @@ func pageCopy(id string) map[string]string {
 		"filter.no_visible_match":      "No rows match the current filters.",
 		"drawer.record.title_source":   "selected row",
 		"drawer.record.close_label":    "Close record drawer",
-		"drawer.disabled_field_action": "Field execution happens in the operator workflow; admin-web links to the workflow record instead of mutating this state directly.",
+		"drawer.disabled_field_action": "Read-only here: this is the computed next action. Use enabled buttons for real mutations; open Workflow record only for audit context.",
 	}
 	for key, value := range pageSpecificCopy(id) {
 		copy[key] = value
@@ -484,7 +484,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.assign_owner_chain":           "Assign owner chain",
 			"action.capture_vaccination_proof":    "Capture vaccination proof",
 			"action.verify_vaccination_proof":     "Verify vaccination proof",
-			"note.board_explainer":                "Every vaccination obligation, grouped by computed work state. Act on a card: execute, submit SOP, verify, reject, request rework, escalate. Each links to its workflow, owner chain, and next action; every action writes the audit trail and ripples into",
+			"note.board_explainer":                "Every vaccination obligation, grouped by computed work state. Open a card to inspect the computed next action, SOP/proof gates, linked workflow record, and available controls. Disabled controls are read-only until their backing workflow handle exists. Live actions write the audit trail and ripple into",
 			"note.board_explainer.link_adherence": "Protocol Adherence",
 			"note.board_explainer.link_joiner":    "and",
 			"note.board_explainer.link_tower":     "Control Tower",

@@ -627,9 +627,9 @@ function ActionCenterRowDrawer({
         {/* Action row (mock #tdFoot). Verify / Request rework require a SOP review handle; un-backed
             steps keep the mock look but are disabled-with-reason. */}
         <div className="df">
-          <Link href={workflowHref} className="btn p">
+          <button type="button" className="btn p" disabled aria-disabled="true" title={fieldActionNote}>
             {row.next_action}
-          </Link>
+          </button>
           <button type="button" className="btn" disabled aria-disabled="true" title={fieldActionNote}>
             {copy(pageContract, "action.start_sop")}
           </button>
