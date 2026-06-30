@@ -142,6 +142,12 @@ Implementation status as of 2026-06-30:
   Projection recompute resolves approved breed/stage aliases before Feed sees
   rows; unreviewed aliases emit open `alias_conflict` exceptions and keep the
   affected row blocked.
+- Projection snapshot writes now refresh `CSG7` readiness evidence from the
+  snapshot itself. If the snapshot contains an `alias_conflict`, `CSG7` becomes
+  `blocked` with `count_projection_snapshots:<id>` evidence. If the snapshot is
+  non-empty and has no alias conflicts, `CSG7` becomes `pending`, not `ready`,
+  because full source workbook parity, Sheds DB profile-tag coverage, and
+  owner-approved alias review remain required.
 - `count_projection_exceptions` now carries work metadata (`work_type`,
   `work_state`, `due_at`, `next_action`, `evidence_link`) and repeated open
   exceptions relink to the latest snapshot on upsert. This makes G2 blockers

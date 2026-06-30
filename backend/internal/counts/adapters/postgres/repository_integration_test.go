@@ -911,6 +911,14 @@ func TestServiceRecomputeNormalizesReviewedBreedAndStageAliases(t *testing.T) {
 			t.Fatalf("unexpected alias_conflict with approved aliases: %+v", projected.Exceptions)
 		}
 	}
+	readiness, err := repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness after reviewed aliases: %v", err)
+	}
+	csg7 := readinessSubgate(t, readiness, "CSG7")
+	if csg7.Status != domain.ReadinessPending || csg7.EvidenceRef != "count_projection_snapshots:"+projected.SnapshotID {
+		t.Fatalf("CSG7=%+v, want pending snapshot evidence without alias conflicts", csg7)
+	}
 }
 
 func TestServiceRecomputeFailsClosedOnUnreviewedStageAlias(t *testing.T) {
@@ -958,6 +966,16 @@ func TestServiceRecomputeFailsClosedOnUnreviewedStageAlias(t *testing.T) {
 	dest := rowForShed(t, projected.Rows, countsShedB)
 	if dest.BlockerReason == nil || !strings.Contains(*dest.BlockerReason, "unreviewed stage_tag alias") {
 		t.Fatalf("destination blocker=%v, want unreviewed stage alias", dest.BlockerReason)
+	}
+	readiness, err := repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness after unreviewed alias: %v", err)
+	}
+	csg7 := readinessSubgate(t, readiness, "CSG7")
+	if csg7.Status != domain.ReadinessBlocked ||
+		csg7.EvidenceRef != "count_projection_snapshots:"+projected.SnapshotID ||
+		!strings.Contains(csg7.BlockerReason, "alias_conflict") {
+		t.Fatalf("CSG7=%+v, want blocked alias-conflict evidence", csg7)
 	}
 }
 

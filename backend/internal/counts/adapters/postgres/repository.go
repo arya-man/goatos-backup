@@ -372,6 +372,9 @@ WHERE tenant_id = $1::uuid AND horizon = $2 AND park_id = $3::uuid AND target_da
 		if err := upsertProjectionSnapshotReadiness(ctx, r.pool, in.TenantID, id); err != nil {
 			return "", err
 		}
+		if err := upsertAliasReadinessFromSnapshot(ctx, r.pool, in.TenantID, id, in.Rows, in.Exceptions); err != nil {
+			return "", err
+		}
 		if err := upsertReplayReadinessPending(ctx, r.pool, in.TenantID, "count_projection_snapshots:"+id); err != nil {
 			return "", err
 		}
@@ -391,6 +394,9 @@ WHERE tenant_id = $1::uuid AND horizon = $2 AND park_id = $3::uuid AND target_da
 		}
 	}
 	if err := upsertProjectionSnapshotReadiness(ctx, tx, in.TenantID, id); err != nil {
+		return "", err
+	}
+	if err := upsertAliasReadinessFromSnapshot(ctx, tx, in.TenantID, id, in.Rows, in.Exceptions); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -474,6 +480,35 @@ func upsertReplayReadinessPending(ctx context.Context, q readinessSubgateExec, t
 		BlockerReason: "Replay-safe canonical write evidence exists; full typed source replay, projection recompute replay, source parity, and seeded local E2E remain before CSG8 can turn ready.",
 		ImplementationRef: "backend/internal/counts/adapters/postgres/repository.go;" +
 			"backend/cmd/counts-source-import;docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md",
+	})
+}
+
+func upsertAliasReadinessFromSnapshot(ctx context.Context, q readinessSubgateExec, tenantID, snapshotID string, rows []domain.ProjectionRow, exceptions []domain.ProjectionException) error {
+	evidenceRef := "count_projection_snapshots:" + snapshotID
+	for _, exception := range exceptions {
+		if exception.ExceptionType == "alias_conflict" {
+			return upsertReadinessSubgate(ctx, q, tenantID, readinessSubgateUpdate{
+				ID:            "CSG7",
+				Status:        "blocked",
+				Owner:         "Counts/Shifting + Feed Direction",
+				EvidenceRef:   evidenceRef,
+				BlockerReason: "Projection snapshot contains alias_conflict work; review and approve breed/stage/tag aliases before Feed consumes this projection.",
+				ImplementationRef: "backend/internal/counts/adapters/postgres/repository.go:resolveProjectionAliases;" +
+					"backend/internal/counts/app/service.go:buildProjectionSnapshot;docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md",
+			})
+		}
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return upsertReadinessSubgate(ctx, q, tenantID, readinessSubgateUpdate{
+		ID:            "CSG7",
+		Status:        "pending",
+		Owner:         "Counts/Shifting + Feed Direction",
+		EvidenceRef:   evidenceRef,
+		BlockerReason: "Latest non-empty projection has no alias_conflict exceptions; full source workbook parity, Sheds DB profile-tag coverage, and owner-approved alias review remain before CSG7 can turn ready.",
+		ImplementationRef: "backend/internal/counts/adapters/postgres/repository.go:resolveProjectionAliases;" +
+			"backend/internal/counts/app/service.go:buildProjectionSnapshot;context/source-findings/sheds-db-source-findings.md",
 	})
 }
 

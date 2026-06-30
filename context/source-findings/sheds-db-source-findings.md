@@ -5,7 +5,8 @@ Date reviewed: 2026-06-30
 Sources reviewed:
 
 - `wiki/Sheds DB.xlsx` (`DB` sheet, root wiki copy modified 2026-06-30 12:00 IST)
-- `wiki/General/Sheds DB.xlsx` compared as older context only
+- `wiki/General/Sheds DB.xlsx` compared with the root wiki copy on 2026-06-30;
+  both files had the same SHA-256 at review time
 - Operator chat note from 2026-06-30: current values are updated manually to
   match ground reality; desired future workflow is scheduled actions around
   birth, breeding, and other goat events, with shiftings performed accordingly.
@@ -33,11 +34,18 @@ Observed tags include `Non-Pregnant`, `F2-Male`, `F2-Female`, `Buck`, `Mother`,
 spelling, casing, spacing, and blanks are legacy source values requiring alias
 review before runtime use.
 
-The current root wiki workbook differs from the older `wiki/General` copy. For
-example, multiple rows that previously carried pregnant, warmup, buck, mother,
-milking, or ICU-like tags now carry different current tags. Treat that as
-evidence that the sheet is manually maintained to reflect changing ground
-reality, not as immutable source law.
+The reviewed workbook has 1,013 data-row slots. Most sheet rows are blank
+capacity/profile slots; populated values are concentrated in current shed
+assignments. Observed aggregate shape at review time:
+
+- CBE: 70 populated tag rows, 71 populated capacity rows, 9 unique non-blank
+  tags, and roughly 1,116 total capacity units across populated tagged rows.
+- CPT: 45 populated tag rows, 44 populated capacity rows, 9 unique non-blank
+  tags, and roughly 725 total capacity units across populated tagged rows.
+- `Total Area (sq ft)` and `Potential Tags` are sparse, especially for CPT.
+
+Treat those aggregates as source evidence only. They help size fixtures and
+validation checks, but they do not make raw Sheds DB rows runtime truth.
 
 ## Base Rule
 

@@ -106,7 +106,7 @@ GoatOS schedules unless explicitly approved against that docx.
 | CSG4 | Horizon split | `count_as_of(time)` and `projected_count_for(target_date)` have separate rules for realized truth vs one-day authorized future-effective projection |
 | CSG5 | Base Count adoption | A new physical Base Count becomes the next anchor immediately; discrepancy investigation does not block adoption |
 | CSG6 | Unreported-shifting detection | Count mismatch or unexpected delta creates auditable process-exception work with reviewed resolve/dismiss closure, not silent correction. This includes the live Base Count write hook, the bounded `counts-mismatch-scan` worker path for stale imported/historical anchors, and durable scan-run evidence before readiness can turn green. |
-| CSG7 | Alias normalization | Breed and stage aliases such as SIROHI->Beetal and Warmup/Fattening variants are reviewed before projection output |
+| CSG7 | Alias normalization | Breed, stage, shed-tag, and Sheds DB profile-tag aliases such as SIROHI->Beetal, Warmup/Fattening variants, pregnancy/lactation/mother/kid labels, and dirty workbook spellings are reviewed before Feed consumes projection output. Projection snapshots may move `CSG7` to `blocked` when `alias_conflict` exceptions exist, or `pending` when a non-empty snapshot has no alias conflicts; `ready` still requires source workbook parity, Sheds DB profile-tag coverage, and owner-approved alias review. |
 | CSG8 | Idempotency and replay | Event ingestion, projection recompute, and source replay cannot double-apply movements |
 | CSG9 | Projection API | Feed can consume bounded projection rows with source hash, anchor id, included-event hash, exception count, contract version, and ration-context resolution state |
 | CSG10 | Scale and observability proof | Hot reads and projection queries are bounded by tenant, park, date, shed, breed, ration-context resolution state where materialized, and cursor where applicable; import, ingest, projection, retry, DLQ, exception, and query-plan metrics exist. `counts-query-plan-check` proves index paths for Counts hot reads and mismatch-scan anchor paging, while `count_source_import_runs` and `count_projection_recompute_runs` provide typed import and recompute worker evidence, but CSG10 remains pending until source parity, observability breadth, and seeded E2E are proven. |
@@ -118,7 +118,9 @@ Repository writes now promote only the subgates they directly prove: Base Count
 anchors promote `CSG1`/`CSG5`, ShiftingEvents with impacts promote
 `CSG2`/`CSG3`, projection snapshots promote `CSG9`, and both snapshot horizons
 are required before `CSG4` is ready. This evidence does not make `G2` green by
-itself. Canonical replay and source-import replay evidence may move `CSG8` to
+itself. Projection snapshots now refresh `CSG7` evidence: any `alias_conflict`
+keeps it `blocked`; a non-empty conflict-free snapshot can make it `pending`
+only. Canonical replay and source-import replay evidence may move `CSG8` to
 `pending`, but it does not become ready until full source replay parity,
 projection replay proof, and seeded E2E prove no double application. `CSG7`,
 `CSG8`, `CSG10`, source parity, UI, and seeded E2E still have to close in
