@@ -255,21 +255,32 @@ Implementation status as of 2026-06-30:
 - `000128_counts_mismatch_scan_anchor_indexes.sql` adds dedicated mismatch-scan
   anchor indexes so stale/imported Base Count comparisons have tenant/window/
   cursor bounded index paths, including optional park/shed scoped scans.
+- `000132_counts_projection_movement_window_indexes.sql` adds park-first
+  destination/source movement indexes for tenant + park + event status +
+  effective-time Feed projection windows. The projection repository now
+  materializes bounded destination/source event sets before fetching structured
+  impacts, carries source/destination park IDs into projection logic so
+  cross-park shifts only subtract from the source park or add to the destination
+  park for the requested projection, and projection-row pages restate snapshot
+  `park_id` and `target_date` so the feed-hot row index is usable.
 - `backend/cmd/counts-query-plan-check` runs `EXPLAIN (FORMAT JSON)` with
   sequential scans disabled to prove expected index paths exist for projection
   anchors, Feed-target ShiftingEvent windows, projection snapshot lookup,
-  projection-row hot reads, and mismatch-scan anchor paging. Passing checks
-  update `CSG10` to `pending` with query-plan evidence; failed checks update it
-  to `blocked`. Passing this command does not make `CSG10` ready until source
-  parity, observability breadth, and seeded local E2E also exist.
+  projection-row hot reads, and mismatch-scan anchor paging. Its migrated
+  Postgres integration test seeds synthetic destination/source movement windows
+  and projection rows, then requires both movement window indexes and an impact
+  join index. Passing checks update `CSG10` to `pending` with query-plan
+  evidence; failed checks update it to `blocked`. Passing this command does not
+  make `CSG10` ready until source parity, observability breadth,
+  production-scale/load evidence, and seeded local E2E also exist.
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
 - This does **not** close `G2`: raw workbook/XLSX mapping and parity fixtures,
   Sheds DB owner-approved coverage/admin review and seeded publish evidence,
   Shifting/Count source-adapter hardening beyond typed JSONL, production
   scheduling/metrics for the mismatch scan, assignment policy, polished
-  command-lens UX, observability,
-  query-plan/synthetic-scale proof, and seeded local E2E remain blockers.
+  command-lens UX, observability, production-scale/load proof, and seeded local
+  E2E remain blockers.
 
 ## 3. Candidate Persistence
 
@@ -416,7 +427,7 @@ Required paths:
 | Alias coverage proof | `counts-alias-coverage-check` | Check source-required aliases such as Sheds DB profile tags against approved `count_dimension_aliases`; update `CSG7` readiness evidence without turning it ready. |
 | Location profile coverage proof | `location-profile-coverage-check` | Check reviewed Sheds DB profile fixtures against active Location aliases and capacity rows; update `CSG7` readiness evidence without turning it ready. |
 | Source parity proof | `counts-source-parity-check` | Compare sanitized source parity fixtures against canonical projection reads; update `CSG10` readiness evidence without turning it ready. |
-| Query-plan proof | `counts-query-plan-check` | Prove expected Postgres index paths for Counts hot reads and update `CSG10` readiness evidence; never use this alone as G2 completion proof. |
+| Query-plan proof | `counts-query-plan-check` | Prove expected Postgres index paths for Counts hot reads, including park/date-bounded movement windows and projection-row hot pages, then update `CSG10` readiness evidence; never use this alone as G2 completion proof. |
 | Exception fanout/read model | Projection exception open/update/close plus process-integrity query | Emit `counts.projection_exception.*` outbox events and project `category=feed_direction` exception rows into top-level Action Center/Workflows; assignment policy, frontend UX, and broader Calendar/Protocol Adherence/Control Tower mapping remain separate closure work. |
 | Feed projection read | API/app port | Return rows or typed blocker with source hash |
 
@@ -461,7 +472,9 @@ Non-negotiable tests:
 - Initial Feed projection output stays aggregate shed + breed grain, with ration
   context either resolved from reviewed source-backed context or blocked with an
   explicit reason, and does not depend on RFID-to-shed per-goat derivation.
-- Query-plan checks for widest allowed projection/read paths.
+- Query-plan checks for widest allowed projection/read paths, including
+  migrated synthetic Feed-target source/destination movement windows and
+  projection-row hot pages.
 - Source import run observability records source rows read, successful Base
   Count/Shifting rows, replays, failed rows, source reference, status, last
   error, and `CSG10` evidence without making G2 green by itself.

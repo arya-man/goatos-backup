@@ -127,7 +127,7 @@ GoatOS schedules unless explicitly approved against that docx.
 | CSG7 | Alias normalization | Breed, stage, shed-tag, and Sheds DB profile-tag aliases such as SIROHI->Beetal, Warmup/Fattening variants, pregnancy/lactation/mother/kid labels, and dirty workbook spellings are reviewed before Feed consumes projection output. Projection snapshots may move `CSG7` to `blocked` when `alias_conflict` exceptions exist, or `pending` when a non-empty snapshot has no alias conflicts; `ready` still requires source workbook parity, Sheds DB profile-tag coverage, and owner-approved alias review. |
 | CSG8 | Idempotency and replay | Event ingestion, projection recompute, and source replay cannot double-apply movements |
 | CSG9 | Projection API | Feed can consume bounded projection rows with source hash, anchor id, included-event hash, exception count, contract version, and ration-context resolution state |
-| CSG10 | Scale and observability proof | Hot reads and projection queries are bounded by tenant, park, date, shed, breed, ration-context resolution state where materialized, and cursor where applicable; import, ingest, projection, retry, DLQ, exception, and query-plan metrics exist. `counts-query-plan-check` proves index paths for Counts hot reads and mismatch-scan anchor paging, while `count_source_import_runs` and `count_projection_recompute_runs` provide typed import and recompute worker evidence, but CSG10 remains pending until source parity, observability breadth, and seeded E2E are proven. |
+| CSG10 | Scale and observability proof | Hot reads and projection queries are bounded by tenant, park, date, shed, breed, ration-context resolution state where materialized, and cursor where applicable; import, ingest, projection, retry, DLQ, exception, and query-plan metrics exist. `counts-query-plan-check` proves index paths for Counts hot reads, including migrated synthetic Feed-target movement rows through park/date source and destination indexes plus projection-row hot reads with snapshot park/date filters, while `count_source_import_runs` and `count_projection_recompute_runs` provide typed import and recompute worker evidence. CSG10 remains pending until source parity, observability breadth, production-scale/load evidence, and seeded E2E are proven. |
 
 `CSG1`-`CSG10` roll up into Feed gate `G2`. The Feed readiness endpoint must
 show the Counts/Shifting subgate statuses, owners, evidence pointers, and blocker
@@ -146,8 +146,10 @@ Sheds DB profile fixtures against `location_aliases` and
 `location_capacity_records` and can also move `CSG7` to `blocked` or `pending`,
 but never `ready`. The `counts-source-parity-check` worker compares sanitized
 source parity fixtures against canonical projection reads and can move `CSG10`
-to `blocked` or `pending`, but never `ready`. Canonical replay and source-import
-replay evidence may move `CSG8` to
+to `blocked` or `pending`, but never `ready`. The `counts-query-plan-check`
+worker has migrated-Postgres proof for bounded movement/window and projection
+row index paths and can move `CSG10` to `blocked` or `pending`, but never
+`ready`. Canonical replay and source-import replay evidence may move `CSG8` to
 `pending`, but it does not become ready until full source replay parity,
 projection replay proof, and seeded E2E prove no double application. `CSG7`,
 `CSG8`, `CSG10`, source parity, UI, and seeded E2E still have to close in

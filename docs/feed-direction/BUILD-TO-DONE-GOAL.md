@@ -151,7 +151,8 @@ language.
    indexes, `counts-alias-coverage-check` proof for source-required Sheds DB
    profile-tag aliases, `counts-source-parity-check` proof for sanitized
    workbook/source parity fixtures, `counts-query-plan-check` index-path proof
-   for Counts hot reads, observability, aggregate breed-level count output,
+   for Counts hot reads with migrated synthetic movement and projection-row
+   fixtures, observability, aggregate breed-level count output,
    reviewed ration-context resolution state for each shed + breed projection row, and
    `GET /feed-direction/readiness` subgate roll-up.
    The Feed readiness path now has seeded local integration proof that real
@@ -163,6 +164,10 @@ language.
    `counts-source-parity-check` now also has migrated-Postgres proof against a
    canonical projection snapshot/read path and writes `CSG10` source-parity
    evidence as pending, not ready.
+   `counts-query-plan-check` now has migrated-Postgres proof that Feed-target
+   ShiftingEvent movement reads use park/date-bounded source and destination
+   indexes, projection rows carry the snapshot park/date filters needed for the
+   hot read index, and `CSG10` query-plan evidence stays pending, not ready.
    Raw Counting DB / Feed Directions Automation XLSX parsing, parity fixtures,
    and workbook-column mapping remain source-review work; workbook formulas or
    examples must not bypass typed validation/import.

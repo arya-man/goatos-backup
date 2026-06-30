@@ -177,7 +177,9 @@ type ProjectionMovementImpact struct {
 	ShiftingEventID              string
 	LogicalShiftingEventKey      string
 	SourceSystem                 string
+	SourceParkID                 *string
 	SourceShedID                 *string
+	DestinationParkID            string
 	DestinationShedID            string
 	EffectiveAt                  time.Time
 	GrainKey                     string

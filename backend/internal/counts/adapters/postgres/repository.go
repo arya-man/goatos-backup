@@ -602,16 +602,18 @@ func (r *Repository) projectionMovements(ctx context.Context, req domain.Project
 	out := []domain.ProjectionMovementImpact{}
 	for rows.Next() {
 		var movement domain.ProjectionMovementImpact
-		var sourceShed, breedID, stage, age, sex, rationRef, blocker string
+		var sourcePark, sourceShed, destinationPark, breedID, stage, age, sex, rationRef, blocker string
 		if err := rows.Scan(&movement.ShiftingEventID, &movement.LogicalShiftingEventKey,
-			&movement.SourceSystem, &sourceShed, &movement.DestinationShedID, &movement.EffectiveAt,
+			&movement.SourceSystem, &sourcePark, &sourceShed, &destinationPark, &movement.DestinationShedID, &movement.EffectiveAt,
 			&movement.GrainKey, &breedID, &movement.BreedKey, &movement.BreedLabel,
 			&stage, &age, &sex, &movement.HeadCount, &movement.PregnantCount,
 			&movement.LactatingCount, &movement.WarmupCount, &movement.RationContextResolutionState,
 			&rationRef, &blocker); err != nil {
 			return nil, fmt.Errorf("counts: scan projection movement: %w", err)
 		}
+		movement.SourceParkID = ptrIfNotEmpty(sourcePark)
 		movement.SourceShedID = ptrIfNotEmpty(sourceShed)
+		movement.DestinationParkID = destinationPark
 		movement.BreedID = ptrIfNotEmpty(breedID)
 		movement.StageTag = ptrIfNotEmpty(stage)
 		movement.SourceBreedKey = movement.BreedKey
@@ -626,38 +628,84 @@ func (r *Repository) projectionMovements(ctx context.Context, req domain.Project
 }
 
 func movementWindowQuery(req domain.ProjectionRecomputeRequest) (string, []any) {
-	base := `
+	if req.Horizon == "count_as_of" {
+		return movementWindowUnion(
+			`
+  AND se.destination_park_id = $2::uuid
+  AND se.event_status = 'applied'
+  AND se.effective_at <= $3`,
+			`
+  AND se.source_park_id = $2::uuid
+  AND se.source_shed_id IS NOT NULL
+  AND se.destination_park_id <> $2::uuid
+  AND se.event_status = 'applied'
+  AND se.effective_at <= $3`,
+		), []any{req.TenantID, req.ParkID, req.AsOf}
+	}
+	start := dateOnly(req.TargetDate)
+	end := start.AddDate(0, 0, 1)
+	return movementWindowUnion(
+		`
+  AND se.destination_park_id = $2::uuid
+  AND se.authorization_state = 'authorized'
+  AND se.event_status IN ('authorized', 'applied')
+  AND se.effective_at >= $3
+  AND se.effective_at < $4`,
+		`
+  AND se.source_park_id = $2::uuid
+  AND se.source_shed_id IS NOT NULL
+  AND se.destination_park_id <> $2::uuid
+  AND se.authorization_state = 'authorized'
+  AND se.event_status IN ('authorized', 'applied')
+  AND se.effective_at >= $3
+  AND se.effective_at < $4`,
+	), []any{req.TenantID, req.ParkID, start, end}
+}
+
+func movementWindowUnion(destinationFilter, sourceFilter string) string {
+	return `
+WITH destination_events AS MATERIALIZED (
+` + movementEventBranch(destinationFilter) + `
+),
+source_events AS MATERIALIZED (
+` + movementEventBranch(sourceFilter) + `
+),
+projection_events AS (
+  SELECT * FROM destination_events
+UNION ALL
+  SELECT * FROM source_events
+)
 SELECT se.shifting_event_id::text, se.logical_shifting_event_key,
        se.source_system,
-       COALESCE(se.source_shed_id::text, ''), se.destination_shed_id::text,
+       COALESCE(se.source_park_id::text, ''), COALESCE(se.source_shed_id::text, ''),
+       se.destination_park_id::text, se.destination_shed_id::text,
        se.effective_at, sei.grain_key, COALESCE(sei.breed_id::text, ''),
        sei.breed_key, sei.breed_label, COALESCE(sei.stage_tag, ''),
        COALESCE(sei.age_class, ''), COALESCE(sei.sex, ''),
        sei.head_count, sei.pregnant_count, sei.lactating_count, sei.warmup_count,
        sei.ration_context_resolution_state, COALESCE(sei.ration_context_ref, ''),
        COALESCE(sei.blocker_reason, '')
+FROM projection_events se
+JOIN LATERAL (
+  SELECT shifting_event_impact_id, grain_key, breed_id, breed_key, breed_label,
+         stage_tag, age_class, sex, head_count, pregnant_count, lactating_count,
+         warmup_count, ration_context_resolution_state, ration_context_ref,
+         blocker_reason
+  FROM shifting_event_impacts sei
+  WHERE sei.tenant_id = se.tenant_id
+    AND sei.shifting_event_id = se.shifting_event_id
+  ORDER BY sei.grain_key
+) sei ON true
+ORDER BY se.effective_at, se.shifting_event_id, sei.grain_key`
+}
+
+func movementEventBranch(filter string) string {
+	return `
+SELECT se.tenant_id, se.shifting_event_id, se.logical_shifting_event_key,
+       se.source_system, se.source_park_id, se.source_shed_id,
+       se.destination_park_id, se.destination_shed_id, se.effective_at
 FROM shifting_events se
-JOIN shifting_event_impacts sei
-  ON sei.tenant_id = se.tenant_id
- AND sei.shifting_event_id = se.shifting_event_id
-WHERE se.tenant_id = $1::uuid
-  AND (se.source_park_id = $2::uuid OR se.destination_park_id = $2::uuid)
-  AND se.event_status NOT IN ('rejected', 'canceled', 'unresolved')
-`
-	if req.Horizon == "count_as_of" {
-		return base + `
-  AND se.event_status = 'applied'
-  AND se.effective_at <= $3
-ORDER BY se.effective_at, se.shifting_event_id, sei.grain_key`, []any{req.TenantID, req.ParkID, req.AsOf}
-	}
-	start := dateOnly(req.TargetDate)
-	end := start.AddDate(0, 0, 1)
-	return base + `
-  AND se.authorization_state = 'authorized'
-  AND se.event_status IN ('authorized', 'applied')
-  AND se.effective_at >= $3
-  AND se.effective_at < $4
-ORDER BY se.effective_at, se.shifting_event_id, sei.grain_key`, []any{req.TenantID, req.ParkID, start, end}
+WHERE se.tenant_id = $1::uuid` + filter
 }
 
 type countAliasMapping struct {
@@ -1693,12 +1741,14 @@ SELECT count_projection_snapshot_row_id::text, park_id::text, shed_id::text, tar
 FROM count_projection_snapshot_rows
 WHERE tenant_id = $1::uuid
   AND count_projection_snapshot_id = $2::uuid
-  AND (nullif($3::text, '')::uuid IS NULL OR shed_id = nullif($3::text, '')::uuid)
-  AND (nullif($4::text, '') IS NULL OR lower(breed_key) = lower(nullif($4::text, '')))
-  AND (nullif($5::text, '') IS NULL OR ration_context_resolution_state = nullif($5::text, ''))
-  AND (nullif($6::text, '')::uuid IS NULL OR count_projection_snapshot_row_id > nullif($6::text, '')::uuid)
+  AND park_id = $3::uuid
+  AND target_date = $4
+  AND (nullif($5::text, '')::uuid IS NULL OR shed_id = nullif($5::text, '')::uuid)
+  AND (nullif($6::text, '') IS NULL OR lower(breed_key) = lower(nullif($6::text, '')))
+  AND (nullif($7::text, '') IS NULL OR ration_context_resolution_state = nullif($7::text, ''))
+  AND (nullif($8::text, '')::uuid IS NULL OR count_projection_snapshot_row_id > nullif($8::text, '')::uuid)
 ORDER BY count_projection_snapshot_row_id
-LIMIT $7`, req.TenantID, out.SnapshotID, ptrValue(req.ShedID), ptrValue(req.BreedKey),
+LIMIT $9`, req.TenantID, out.SnapshotID, req.ParkID, targetDate, ptrValue(req.ShedID), ptrValue(req.BreedKey),
 		ptrValue(req.RationContextResolutionState), ptrValue(req.Cursor), req.Limit+1)
 	if err != nil {
 		return domain.CountProjection{}, fmt.Errorf("counts: query projection rows: %w", err)

@@ -355,9 +355,13 @@ func buildProjectionSnapshot(req domain.ProjectionRecomputeRequest, inputs domai
 		movementIDs = append(movementIDs, movement.ShiftingEventID)
 		aliasBlocker := ptrValue(movement.AliasBlockerReason)
 		if aliasBlocker != "" {
-			exceptions = append(exceptions, projectionException("alias_conflict", movement.LogicalShiftingEventKey, projectionGrainKey(movement.DestinationShedID, movement.BreedKey), req.ParkID, movement.DestinationShedID, movement.BreedKey, movement.StageTag, "blocking", aliasBlocker))
+			if movementDestinationAppliesToPark(req.ParkID, movement) {
+				exceptions = append(exceptions, projectionException("alias_conflict", movement.LogicalShiftingEventKey, projectionGrainKey(movement.DestinationShedID, movement.BreedKey), req.ParkID, movement.DestinationShedID, movement.BreedKey, movement.StageTag, "blocking", aliasBlocker))
+			} else if movement.SourceShedID != nil && movementSourceAppliesToPark(req.ParkID, movement) {
+				exceptions = append(exceptions, projectionException("alias_conflict", movement.LogicalShiftingEventKey, projectionGrainKey(*movement.SourceShedID, movement.BreedKey), req.ParkID, *movement.SourceShedID, movement.BreedKey, movement.StageTag, "blocking", aliasBlocker))
+			}
 		}
-		if movement.SourceShedID != nil {
+		if movement.SourceShedID != nil && movementSourceAppliesToPark(req.ParkID, movement) {
 			sourceKey := projectionGrainKey(*movement.SourceShedID, movement.BreedKey)
 			if sourceRow, ok := rows[sourceKey]; ok {
 				sourceRow.row.HeadCount -= movement.HeadCount
@@ -379,6 +383,9 @@ func buildProjectionSnapshot(req domain.ProjectionRecomputeRequest, inputs domai
 			}
 		}
 
+		if !movementDestinationAppliesToPark(req.ParkID, movement) {
+			continue
+		}
 		destinationKey := projectionGrainKey(movement.DestinationShedID, movement.BreedKey)
 		destinationRow, ok := rows[destinationKey]
 		if !ok {
@@ -448,6 +455,20 @@ func buildProjectionSnapshot(req domain.ProjectionRecomputeRequest, inputs domai
 		BaseAnchorIDsHash: baseHash, ShiftingEventIDsHash: movementHash,
 		GeneratedBy: req.GeneratedBy, TraceID: req.TraceID, Rows: outRows, Exceptions: exceptions,
 	}
+}
+
+func movementSourceAppliesToPark(parkID string, movement domain.ProjectionMovementImpact) bool {
+	if movement.SourceParkID == nil || strings.TrimSpace(*movement.SourceParkID) == "" {
+		return true
+	}
+	return strings.TrimSpace(*movement.SourceParkID) == parkID
+}
+
+func movementDestinationAppliesToPark(parkID string, movement domain.ProjectionMovementImpact) bool {
+	if strings.TrimSpace(movement.DestinationParkID) == "" {
+		return true
+	}
+	return strings.TrimSpace(movement.DestinationParkID) == parkID
 }
 
 func projectionException(exceptionType, sourceKey, grainKey, parkID, shedID, breedKey string, stageTag *string, severity, reason string) domain.ProjectionException {

@@ -463,6 +463,48 @@ func TestRecomputeProjectionSnapshotBlocksPregnantDestinationShortage(t *testing
 	}
 }
 
+func TestRecomputeProjectionSnapshotAppliesCrossParkMovementOnlyForRequestedPark(t *testing.T) {
+	stage := "pregnant"
+	sourcePark := "park-source"
+	destinationPark := "park-destination"
+	repo := &fakeRepo{inputs: domain.ProjectionInputs{
+		Anchors: []domain.ProjectionBaseAnchor{{
+			BaseCountAnchorID: "anchor-source", ParkID: sourcePark, ShedID: "shed-a",
+			BreedKey: "beetal", BreedLabel: "Beetal", HeadCount: 20, SourceHash: "anchor-a",
+		}},
+		Movements: []domain.ProjectionMovementImpact{{
+			ShiftingEventID: "shift-out", LogicalShiftingEventKey: "shift-key-out",
+			SourceParkID: strPtr(sourcePark), SourceShedID: strPtr("shed-a"),
+			DestinationParkID: destinationPark, DestinationShedID: "shed-other",
+			EffectiveAt: time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC),
+			GrainKey:    "beetal:pregnant", BreedKey: "beetal", BreedLabel: "Beetal", StageTag: &stage,
+			HeadCount: 3, PregnantCount: 3, RationContextResolutionState: "blocked",
+			BlockerReason: strPtr("destination park is handled by its own projection"),
+		}},
+	}}
+	result, err := NewService(repo).RecomputeProjectionSnapshotWithResult(context.Background(), domain.ProjectionRecomputeRequest{
+		TenantID: "tenant", ParkID: sourcePark, Horizon: "feed_target_date",
+		TargetDate:            time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		AsOf:                  time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC),
+		SourceContractVersion: "counts-shifting-v1", GeneratedBy: "test",
+	})
+	if err != nil || result.SnapshotID != "snapshot-1" {
+		t.Fatalf("RecomputeProjectionSnapshot result=%+v err=%v", result, err)
+	}
+	if result.RowCount != 1 || result.ExceptionCount != 1 {
+		t.Fatalf("result=%+v, want only source park row plus its base ration exception", result)
+	}
+	row := repo.snap.Rows[0]
+	if row.ShedID != "shed-a" || row.HeadCount != 17 {
+		t.Fatalf("source row=%+v, want source-only subtraction", row)
+	}
+	for _, ex := range repo.snap.Exceptions {
+		if ex.SourceKey == "shift-key-out" || ex.ExceptionType == "destination_shortage" {
+			t.Fatalf("exception=%+v, want no destination exception in source park projection", ex)
+		}
+	}
+}
+
 func TestRecomputeProjectionSnapshotFailsClosedWithoutBaseAnchors(t *testing.T) {
 	repo := &fakeRepo{}
 	id, err := NewService(repo).RecomputeProjectionSnapshot(context.Background(), domain.ProjectionRecomputeRequest{

@@ -21,7 +21,10 @@ import (
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
-const defaultCheckLimit = int32(100)
+const (
+	defaultCheckLimit   = int32(100)
+	dummyPlanSnapshotID = "00000000-0000-4000-8000-000000000999"
+)
 
 type config struct {
 	TenantID   string
@@ -34,11 +37,12 @@ type config struct {
 }
 
 type planCheck struct {
-	Name            string
-	Query           string
-	Args            []any
-	ExpectedIndexes []string
-	ProtectedTables []string
+	Name                string
+	Query               string
+	Args                []any
+	ExpectedIndexes     []string
+	RequiredIndexGroups [][]string
+	ProtectedTables     []string
 }
 
 type checkResult struct {
@@ -157,7 +161,6 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 func buildChecks(cfg config) []planCheck {
 	targetStart := dateOnly(cfg.TargetDate)
 	targetEnd := targetStart.AddDate(0, 0, 1)
-	dummySnapshotID := "00000000-0000-4000-8000-000000000999"
 	return []planCheck{
 		{
 			Name: "projection_anchors_latest",
@@ -177,21 +180,50 @@ ORDER BY shed_id, lower(breed_key), counted_at DESC, base_count_anchor_id DESC`,
 		{
 			Name: "projection_movements_feed_target_date",
 			Query: `
+WITH destination_events AS MATERIALIZED (
+  SELECT se.tenant_id, se.shifting_event_id, se.effective_at
+  FROM shifting_events se
+  WHERE se.tenant_id = $1::uuid
+    AND se.destination_park_id = $2::uuid
+    AND se.authorization_state = 'authorized'
+    AND se.event_status IN ('authorized', 'applied')
+    AND se.effective_at >= $3
+    AND se.effective_at < $4
+),
+source_events AS MATERIALIZED (
+  SELECT se.tenant_id, se.shifting_event_id, se.effective_at
+  FROM shifting_events se
+  WHERE se.tenant_id = $1::uuid
+    AND se.source_park_id = $2::uuid
+    AND se.source_shed_id IS NOT NULL
+    AND se.destination_park_id <> $2::uuid
+    AND se.authorization_state = 'authorized'
+    AND se.event_status IN ('authorized', 'applied')
+    AND se.effective_at >= $3
+    AND se.effective_at < $4
+),
+projection_events AS (
+  SELECT * FROM destination_events
+  UNION ALL
+  SELECT * FROM source_events
+)
 SELECT se.shifting_event_id, sei.shifting_event_impact_id
-FROM shifting_events se
-JOIN shifting_event_impacts sei
-  ON sei.tenant_id = se.tenant_id
- AND sei.shifting_event_id = se.shifting_event_id
-WHERE se.tenant_id = $1::uuid
-  AND (se.source_park_id = $2::uuid OR se.destination_park_id = $2::uuid)
-  AND se.event_status NOT IN ('rejected', 'canceled', 'unresolved')
-  AND se.authorization_state = 'authorized'
-  AND se.event_status IN ('authorized', 'applied')
-  AND se.effective_at >= $3
-  AND se.effective_at < $4
+FROM projection_events se
+JOIN LATERAL (
+  SELECT shifting_event_impact_id, grain_key
+  FROM shifting_event_impacts sei
+  WHERE sei.tenant_id = se.tenant_id
+    AND sei.shifting_event_id = se.shifting_event_id
+  ORDER BY sei.grain_key
+) sei ON true
 ORDER BY se.effective_at, se.shifting_event_id, sei.grain_key`,
 			Args:            []any{cfg.TenantID, cfg.ParkID, targetStart, targetEnd},
-			ExpectedIndexes: []string{"shifting_events_projection_window_idx", "shifting_events_source_window_idx", "shifting_event_impacts_grain_unique"},
+			ExpectedIndexes: []string{"shifting_events_destination_park_window_idx", "shifting_events_source_park_window_idx", "shifting_event_impacts_grain_unique", "shifting_event_impacts_event_breed_idx"},
+			RequiredIndexGroups: [][]string{
+				{"shifting_events_destination_park_window_idx"},
+				{"shifting_events_source_park_window_idx"},
+				{"shifting_event_impacts_grain_unique", "shifting_event_impacts_event_breed_idx"},
+			},
 			ProtectedTables: []string{"shifting_events", "shifting_event_impacts"},
 		},
 		{
@@ -216,13 +248,15 @@ SELECT count_projection_snapshot_row_id
 FROM count_projection_snapshot_rows
 WHERE tenant_id = $1::uuid
   AND count_projection_snapshot_id = $2::uuid
-  AND (nullif($3::text, '')::uuid IS NULL OR shed_id = nullif($3::text, '')::uuid)
-  AND (nullif($4::text, '') IS NULL OR lower(breed_key) = lower(nullif($4::text, '')))
-  AND (nullif($5::text, '') IS NULL OR ration_context_resolution_state = nullif($5::text, ''))
-  AND (nullif($6::text, '')::uuid IS NULL OR count_projection_snapshot_row_id > nullif($6::text, '')::uuid)
+  AND park_id = $3::uuid
+  AND target_date = $4
+  AND (nullif($5::text, '')::uuid IS NULL OR shed_id = nullif($5::text, '')::uuid)
+  AND (nullif($6::text, '') IS NULL OR lower(breed_key) = lower(nullif($6::text, '')))
+  AND (nullif($7::text, '') IS NULL OR ration_context_resolution_state = nullif($7::text, ''))
+  AND (nullif($8::text, '')::uuid IS NULL OR count_projection_snapshot_row_id > nullif($8::text, '')::uuid)
 ORDER BY count_projection_snapshot_row_id
-LIMIT $7`,
-			Args:            []any{cfg.TenantID, dummySnapshotID, cfg.ShedID, cfg.BreedKey, "blocked", "", defaultCheckLimit},
+LIMIT $9`,
+			Args:            []any{cfg.TenantID, dummyPlanSnapshotID, cfg.ParkID, targetStart, cfg.ShedID, cfg.BreedKey, "blocked", "", defaultCheckLimit},
 			ExpectedIndexes: []string{"count_projection_snapshot_rows_grain_unique", "count_projection_snapshot_rows_feed_hot_idx", "count_projection_snapshot_rows_blocker_idx"},
 			ProtectedTables: []string{"count_projection_snapshot_rows"},
 		},
@@ -302,10 +336,13 @@ func analyzePlan(check planCheck, raw []byte) checkResult {
 			result.SeqScanTables = append(result.SeqScanTables, table)
 		}
 	}
+	missingRequiredGroups := missingIndexGroups(indexes, check.RequiredIndexGroups)
 	missing := missingIndexes(indexes, check.ExpectedIndexes)
 	switch {
 	case len(result.SeqScanTables) > 0:
 		result.Failure = "protected table used sequential scan: " + strings.Join(result.SeqScanTables, ",")
+	case len(missingRequiredGroups) > 0:
+		result.Failure = "missing expected index group: " + strings.Join(missingRequiredGroups, "; ")
 	case len(missing) == len(check.ExpectedIndexes):
 		result.Failure = "none of the expected indexes appeared: " + strings.Join(check.ExpectedIndexes, ",")
 	default:
@@ -331,6 +368,23 @@ func missingIndexes(found map[string]bool, expected []string) []string {
 	for _, index := range expected {
 		if !found[index] {
 			missing = append(missing, index)
+		}
+	}
+	return missing
+}
+
+func missingIndexGroups(found map[string]bool, groups [][]string) []string {
+	missing := []string{}
+	for _, group := range groups {
+		groupFound := false
+		for _, index := range group {
+			if found[index] {
+				groupFound = true
+				break
+			}
+		}
+		if !groupFound {
+			missing = append(missing, strings.Join(group, "|"))
 		}
 	}
 	return missing
