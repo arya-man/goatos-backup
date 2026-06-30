@@ -134,6 +134,12 @@ Implementation status as of 2026-06-30:
   replay test proving the same typed Base Count + pregnant ShiftingEvent batch
   does not duplicate canonical anchors, movement headers, or structured impacts;
   this is replay proof, not full G2 closure.
+- `backend/cmd/counts-projection-recompute` has migrated-Postgres replay proof
+  that the same pregnant shifted-cohort projection can be recomputed twice with
+  distinct audit run rows, one reused immutable snapshot, no duplicated
+  projection rows/exceptions, a still-visible destination `destination_shortage`
+  blocker, `CSG8` pending replay evidence, and `CSG10` evidence for the latest
+  recompute run. This is projection replay proof, not full G2 closure.
 - `countsapp.ProjectionInputHandler` consumes those events through both
   `backend/cmd/domain-event-consumer` and the local/dev `outbox-relay`
   in-process eventbus publisher. It recomputes bounded `count_as_of` and
@@ -177,8 +183,8 @@ Implementation status as of 2026-06-30:
   profile coverage fixtures against canonical active `location_aliases` and
   `location_capacity_records`. Missing alias/capacity rows block `CSG7`; complete
   fixture coverage moves `CSG7` to `pending`, never `ready`, because owner
-  approval, source parity, projection replay, and full Feed seeded local E2E
-  remain. The command has Docker/Postgres integration coverage proving
+  approval, full source workbook parity, and full Feed seeded local E2E remain.
+  The command has Docker/Postgres integration coverage proving
   Locations service writes plus coverage readiness evidence on a migrated schema.
 - `count_projection_exceptions` now carries work metadata (`work_type`,
   `work_state`, `due_at`, `next_action`, `evidence_link`) and repeated open
@@ -196,9 +202,11 @@ Implementation status as of 2026-06-30:
   Feed generation consumption.
 - Canonical idempotent replays of Base Count anchors, ShiftingEvents, and
   projection snapshots refresh readiness evidence and update `CSG8` to
-  `pending`. The typed import path has migrated source replay proof. `CSG8`
-  remains pending until projection recompute replay, source parity, and seeded
-  local E2E prove no double application across the full path.
+  `pending`. The typed import path has migrated source replay proof, and the
+  projection recompute worker has migrated replay proof that reruns do not
+  duplicate projection rows/exceptions. `CSG8` remains pending until full source
+  workbook parity and seeded local E2E prove no double application across the
+  full path.
 - Projection exception open, relink/update, and close state changes now emit
   transactional outbox events
   (`counts.projection_exception.opened`,

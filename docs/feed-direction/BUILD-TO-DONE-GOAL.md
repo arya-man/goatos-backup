@@ -168,6 +168,11 @@ language.
    same typed Base Count + pregnant ShiftingEvent JSONL batch records replay
    evidence, does not duplicate canonical rows/impacts, and keeps `CSG8`
    pending, not ready.
+   `counts-projection-recompute` now has migrated-Postgres proof that rerunning
+   the same pregnant shifted-cohort projection creates a second recompute audit
+   run while reusing the same immutable projection snapshot, does not duplicate
+   projection rows or exceptions, keeps the destination `destination_shortage`
+   blocker visible, and keeps `CSG8` pending, not ready.
    `counts-query-plan-check` now has migrated-Postgres proof that Feed-target
    ShiftingEvent movement reads use park/date-bounded source and destination
    indexes, projection rows carry the snapshot park/date filters needed for the
@@ -175,10 +180,10 @@ language.
    Raw Counting DB / Feed Directions Automation XLSX parsing, parity fixtures,
    and workbook-column mapping remain source-review work; workbook formulas or
    examples must not bypass typed validation/import.
-   Typed import run evidence, projection recompute run evidence, alias coverage
-   evidence, and query-plan evidence may move subgates from blocked to pending,
-   but they cannot turn `G2` green without source parity, full observability,
-   owner-approved alias review, and seeded local E2E.
+   Typed import run evidence, projection recompute run/replay evidence, alias
+   coverage evidence, and query-plan evidence may move subgates from blocked to
+   pending, but they cannot turn `G2` green without full source workbook parity,
+   full observability, owner-approved alias review, and seeded local E2E.
    Breed/tag constraint tables without shed placement must block until reviewed
    context resolves the nutrition cohort. RFID-to-shed per-animal association
    is out of scope for the initial Feed Direction build.

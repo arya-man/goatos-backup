@@ -92,6 +92,10 @@ state. These are not raw XLSX parsers and do not approve workbook formulas,
 The import command has migrated-Postgres proof that replaying the same reviewed
 Base Count + pregnant ShiftingEvent JSONL batch records replay evidence without
 duplicating canonical anchors, movement headers, or structured impact rows.
+The projection recompute command has migrated-Postgres proof that replaying the
+same pregnant shifted-cohort projection records a second recompute audit run
+while reusing the same immutable projection snapshot, without duplicating
+projection rows or exceptions.
 `backend/cmd/location-profile-source-import` provides the matching typed import
 path for reviewed Location/Park profile evidence such as Sheds DB aliases,
 capacity rows, and unresolved-label review items. Publishable rows must already
@@ -152,10 +156,11 @@ source parity fixtures against canonical projection reads and can move `CSG10`
 to `blocked` or `pending`, but never `ready`. The `counts-query-plan-check`
 worker has migrated-Postgres proof for bounded movement/window and projection
 row index paths and can move `CSG10` to `blocked` or `pending`, but never
-`ready`. Canonical replay and source-import replay evidence may move `CSG8` to
-`pending`, and the typed import path has migrated replay proof, but it does not
-become ready until full source replay parity, projection replay proof, and
-seeded E2E prove no double application. `CSG7`,
+`ready`. Canonical replay, source-import replay, and projection-recompute
+replay evidence may move `CSG8` to `pending`, and both the typed import path
+and projection recompute worker have migrated replay proof, but `CSG8` does not
+become ready until full source workbook parity and seeded E2E prove no double
+application across the full path. `CSG7`,
 `CSG8`, `CSG10`, source parity, UI, and seeded E2E still have to close in
 order.
 
