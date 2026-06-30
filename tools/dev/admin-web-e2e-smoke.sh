@@ -40,6 +40,40 @@ psqlq() {
   psql "$DATABASE_URL" -tAc "$1"
 }
 
+relay_once() {
+  local limit="${1:-500}"
+  (
+    cd "$backend_dir"
+    GOATOS_OUTBOX_ALLOW_NONDURABLE=1 GOATOS_OUTBOX_PUBLISHER=eventbus \
+      go run ./cmd/outbox-relay -limit "$limit" >/dev/null
+  )
+}
+
+relay_until_published() {
+  local label="$1"
+  local aggregate="$2"
+  local event_type="$3"
+  local i status last_error
+  for i in $(seq 1 5); do
+    relay_once 500
+    status="$(
+      psqlq "select status from outbox_messages where tenant_id='$GOATOS_TENANT_ID' and aggregate_id='$aggregate' and event_type='$event_type' order by created_at desc limit 1"
+    )"
+    if [ "$status" = "published" ]; then
+      echo "$label: $event_type published"
+      return 0
+    fi
+    if [ "$status" = "failed" ] || [ "$status" = "dead_letter" ]; then
+      last_error="$(
+        psqlq "select coalesce(last_error,'') from outbox_messages where tenant_id='$GOATOS_TENANT_ID' and aggregate_id='$aggregate' and event_type='$event_type' order by created_at desc limit 1"
+      )"
+      fail "$label target $event_type for aggregate=$aggregate reached status=$status last_error=$last_error"
+    fi
+    sleep 1
+  done
+  fail "$label did not publish $event_type for aggregate=$aggregate; last_status=$status"
+}
+
 assert_migration_head() {
   local latest_version applied
   latest_version="$(
@@ -146,7 +180,7 @@ seed_open_vaccination_goat() {
       -H "Content-Type: application/json" \
       -X POST "$GOATOS_API_BASE_URL/admin/goats" \
       -d @- <<JSON
-{"rfid":"SMOKE-OPEN-$stamp","park_code":"CBE","shed_code":"CBE_SHED_MANDELA_1_PART_1","sex":"female","dob":"$dob_day21","dob_estimated":true,"origin_type":"procured","entry_date":"$entry_date","management_stage":"K1","evidence_refs":[{"evidence_type":"source_record","evidence_id":"smoke-open-$stamp"}]}
+{"rfid":"SMOKE-OPEN-$stamp","park_code":"CBE","shed_code":"CBE_SHED_MANDELA_1_PART_1","sex":"female","dob":"$dob_day21","dob_estimated":true,"origin_type":"procured","entry_date":"$entry_date","management_stage":"K1","health_status":"healthy","evidence_refs":[{"evidence_type":"source_record","evidence_id":"smoke-open-$stamp"}]}
 JSON
   )"
   local goat_id
@@ -156,11 +190,7 @@ JSON
     return 1
   fi
 
-  (
-    cd "$backend_dir"
-    GOATOS_OUTBOX_ALLOW_NONDURABLE=1 GOATOS_OUTBOX_PUBLISHER=eventbus \
-      go run ./cmd/outbox-relay -limit 50 >/dev/null
-  )
+  relay_until_published "open visual goat.created delivery" "$goat_id" "goat.created"
   (
     cd "$backend_dir"
     GOATOS_TENANT_ID="$GOATOS_TENANT_ID" \
@@ -243,8 +273,54 @@ JSON
     return 1
   fi
   export GOATOS_SMOKE_GOAT_ID="$goat_id"
+  export GOATOS_SMOKE_BATCH_ID="$batch_id"
+  export GOATOS_SMOKE_TASK_ID="$task_id"
   export GOATOS_SMOKE_COMPLETION_ID="$completion_id"
   echo "open visual goat=$goat_id obligation=$obligation_id batch=$batch_id task=$task_id completion=$completion_id"
+}
+
+assert_open_vaccination_owner_chain_ready() {
+  local batch_id="${GOATOS_SMOKE_BATCH_ID:-}"
+  [ -n "$batch_id" ] || fail "open vaccination seed did not export GOATOS_SMOKE_BATCH_ID"
+  export GOATOS_ASSERT_BATCH_ID="$batch_id"
+
+  local execution execution_count execution_state execution_operator execution_next
+  execution="$(
+    curl -sS \
+      -H "Authorization: Bearer $GOATOS_BEARER_TOKEN" \
+      "$GOATOS_API_BASE_URL/vaccination/execution?limit=200"
+  )"
+  execution_count="$(echo "$execution" | jq_py 'len([r for r in d.get("rows", []) if r.get("batchId") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  [ "$execution_count" != "0" ] || fail "open vaccination batch $batch_id missing from /vaccination/execution"
+  execution_state="$(echo "$execution" | jq_py '(lambda rows: rows[0].get("workState", "") if rows else "")([r for r in d.get("rows", []) if r.get("batchId") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  execution_operator="$(echo "$execution" | jq_py '(lambda rows: ((rows[0].get("owner") or {}).get("operatorName") or "") if rows else "")([r for r in d.get("rows", []) if r.get("batchId") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  execution_next="$(echo "$execution" | jq_py '(lambda rows: rows[0].get("nextAction", "") if rows else "")([r for r in d.get("rows", []) if r.get("batchId") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  [ "$execution_state" != "owner_missing" ] || fail "open vaccination execution batch $batch_id regressed to owner_missing"
+  [ -n "$execution_operator" ] || fail "open vaccination execution batch $batch_id has no seeded operator"
+  case "$execution_next" in
+    *"Assign operator"*|*"Assign owner"*) fail "open vaccination execution batch $batch_id still routes to owner assignment: $execution_next" ;;
+  esac
+
+  local action action_count action_state action_owner_state action_operator action_next
+  action="$(
+    curl -sS \
+      -H "Authorization: Bearer $GOATOS_BEARER_TOKEN" \
+      "$GOATOS_API_BASE_URL/vaccination/action-center?limit=200"
+  )"
+  action_count="$(echo "$action" | jq_py 'len([r for r in (d.get("items") or d.get("rows") or []) if r.get("batch_id") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  [ "$action_count" != "0" ] || fail "open vaccination batch $batch_id missing from /vaccination/action-center"
+  action_state="$(echo "$action" | jq_py '(lambda rows: rows[0].get("work_state", "") if rows else "")([r for r in (d.get("items") or d.get("rows") or []) if r.get("batch_id") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  action_owner_state="$(echo "$action" | jq_py '(lambda rows: rows[0].get("owner_state", "") if rows else "")([r for r in (d.get("items") or d.get("rows") or []) if r.get("batch_id") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  action_operator="$(echo "$action" | jq_py '(lambda rows: ((rows[0].get("owner") or {}).get("operator_name") or (rows[0].get("owner") or {}).get("operatorName") or "") if rows else "")([r for r in (d.get("items") or d.get("rows") or []) if r.get("batch_id") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  action_next="$(echo "$action" | jq_py '(lambda rows: rows[0].get("next_action", "") if rows else "")([r for r in (d.get("items") or d.get("rows") or []) if r.get("batch_id") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  [ "$action_state" != "owner_missing" ] || fail "open vaccination action-center batch $batch_id regressed to owner_missing"
+  [ "$action_owner_state" = "assigned" ] || fail "open vaccination action-center batch $batch_id owner_state=$action_owner_state, want assigned"
+  [ -n "$action_operator" ] || fail "open vaccination action-center batch $batch_id has no seeded operator"
+  case "$action_next" in
+    *"Assign operator"*|*"Assign owner"*) fail "open vaccination action-center batch $batch_id still routes to owner assignment: $action_next" ;;
+  esac
+
+  echo "vaccination owner-chain guard: batch=$batch_id execution=$execution_state operator=$execution_operator action=$action_state next=$action_next"
 }
 
 seed_procurement_warmup_load() {
@@ -300,6 +376,9 @@ bash "$repo_root/tools/dev/procurement-vaccination-e2e-matrix.sh" | tee "$report
 
 echo "### seed: open vaccination work for browser click coverage"
 seed_open_vaccination_goat "$(date +%s)" > >(tee "$report_dir/open-visual-goat.log")
+
+echo "### guard: open vaccination work has seeded owner chain"
+assert_open_vaccination_owner_chain_ready | tee "$report_dir/open-vaccination-owner-chain.log"
 
 echo "### seed: procurement supplier warmup row for browser click coverage"
 seed_procurement_warmup_load "$(date +%s)" > >(tee "$report_dir/procurement-warmup.log")

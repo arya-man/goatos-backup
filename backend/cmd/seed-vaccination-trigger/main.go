@@ -28,6 +28,9 @@ const (
 	localV1VersionID  = "00000000-0000-4000-8000-00000000b051"
 	localV1PrimaryID  = "00000000-0000-4000-8000-00000000b052"
 	localV1BoosterID  = "00000000-0000-4000-8000-00000000b053"
+	localOperatorID   = "00000000-0000-4000-8000-00000000b071"
+	localParkHeadID   = "00000000-0000-4000-8000-00000000b072"
+	localVerifierID   = "00000000-0000-4000-8000-00000000b073"
 	localSOPVersionID = "b0000000-0000-4000-8000-000000000002"
 	localStageK0ID    = "00000000-0000-4000-8000-00000000b030"
 	localStageK1ID    = "00000000-0000-4000-8000-00000000b031"
@@ -141,6 +144,61 @@ SET usable_for_vaccination = true,
     is_quarantine = false,
     is_icu = false,
     updated_at = now();
+
+WITH seeded_workforce AS (
+  INSERT INTO workforce_members (
+    workforce_member_id, tenant_id, display_code, display_name, status,
+    primary_role_hint, primary_location_id, metadata, updated_at
+  ) VALUES
+    ('` + localOperatorID + `', $1::uuid, 'CBE-VACC-OP-01', 'CBE Vaccination Operator', 'active',
+     'operator', '` + localParkID + `', '{"seed":"vaccination-trigger","role":"vaccination_operator"}'::jsonb, now()),
+    ('` + localParkHeadID + `', $1::uuid, 'CBE-PARK-HEAD-01', 'CBE Park Head', 'active',
+     'park_head', '` + localParkID + `', '{"seed":"vaccination-trigger","role":"park_head"}'::jsonb, now()),
+    ('` + localVerifierID + `', $1::uuid, 'CBE-VACC-VERIFY-01', 'Video Verification Team', 'active',
+     'verifier', NULL, '{"seed":"vaccination-trigger","role":"vaccination_verifier"}'::jsonb, now())
+  ON CONFLICT (tenant_id, display_code) DO UPDATE
+  SET display_name = EXCLUDED.display_name,
+      status = 'active',
+      primary_role_hint = EXCLUDED.primary_role_hint,
+      primary_location_id = EXCLUDED.primary_location_id,
+      metadata = EXCLUDED.metadata,
+      updated_at = now(),
+      row_version = workforce_members.row_version + 1
+  RETURNING workforce_member_id, display_code
+),
+capability_grants AS (
+  SELECT
+    sw.workforce_member_id,
+    wc.capability_id,
+    CASE sw.display_code
+      WHEN 'CBE-VACC-OP-01' THEN 'vaccination.execute'
+      WHEN 'CBE-VACC-VERIFY-01' THEN 'proof.verify'
+      ELSE 'sop.execute'
+    END AS capability_code,
+    CASE sw.display_code
+      WHEN 'CBE-VACC-VERIFY-01' THEN 'tenant'
+      ELSE 'park'
+    END AS scope_type,
+    CASE sw.display_code
+      WHEN 'CBE-VACC-VERIFY-01' THEN $1::uuid
+      ELSE '` + localParkID + `'::uuid
+    END AS scope_id
+  FROM seeded_workforce sw
+  JOIN workforce_capabilities wc
+    ON wc.tenant_id = $1::uuid
+   AND wc.capability_code = CASE sw.display_code
+      WHEN 'CBE-VACC-OP-01' THEN 'vaccination.execute'
+      WHEN 'CBE-VACC-VERIFY-01' THEN 'proof.verify'
+      ELSE 'sop.execute'
+    END
+   AND wc.status = 'active'
+)
+INSERT INTO workforce_member_capabilities (
+  tenant_id, workforce_member_id, capability_id, scope_type, scope_id, status
+)
+SELECT $1::uuid, workforce_member_id, capability_id, scope_type, scope_id, 'active'
+FROM capability_grants
+ON CONFLICT DO NOTHING;
 
 	INSERT INTO inventory_items (
 	  item_id, tenant_id, item_code, name, category, base_unit, status, context

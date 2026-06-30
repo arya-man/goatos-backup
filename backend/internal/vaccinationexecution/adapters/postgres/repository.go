@@ -407,16 +407,28 @@ grouped AS (
       END,
       located.due_at DESC NULLS LAST
     ) FILTER (WHERE located.task_state IS NOT NULL))[1] AS task_state,
-    (ARRAY_AGG(operator.display_name ORDER BY
-      CASE
-        WHEN located.conducted_by IS NOT NULL THEN 0
-        WHEN located.assigned_to IS NOT NULL THEN 1
-        ELSE 2
-      END,
-      located.due_at DESC NULLS LAST,
-      operator.updated_at DESC NULLS LAST,
-      operator.workforce_member_id DESC
-    ) FILTER (WHERE operator.display_name IS NOT NULL))[1] AS operator_name,
+    COALESCE(
+      (ARRAY_AGG(operator.display_name ORDER BY
+        CASE
+          WHEN located.conducted_by IS NOT NULL THEN 0
+          WHEN located.assigned_to IS NOT NULL THEN 1
+          ELSE 2
+        END,
+        located.due_at DESC NULLS LAST,
+        operator.updated_at DESC NULLS LAST,
+        operator.workforce_member_id DESC
+      ) FILTER (WHERE operator.display_name IS NOT NULL))[1],
+      (ARRAY_AGG(default_operator.display_name ORDER BY
+        CASE
+          WHEN default_operator.primary_location_id = located.shed_uuid THEN 0
+          WHEN default_operator.primary_location_id = located.park_uuid THEN 1
+          ELSE 2
+        END,
+        located.due_at DESC NULLS LAST,
+        default_operator.updated_at DESC NULLS LAST,
+        default_operator.workforce_member_id DESC
+      ) FILTER (WHERE default_operator.display_name IS NOT NULL))[1]
+    ) AS operator_name,
     COALESCE(MAX(stage.stage_code), MAX(stage.name), MAX(located.goat_stage), 'Unknown') AS animal_stage,
     COUNT(*) FILTER (
       WHERE located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
@@ -448,6 +460,17 @@ grouped AS (
     ON operator.tenant_id = $1::uuid
    AND operator.workforce_member_id = COALESCE(located.conducted_by, located.assigned_to)
    AND operator.status = 'active'
+  LEFT JOIN LATERAL (
+    SELECT wm.workforce_member_id, wm.display_name, wm.primary_location_id, wm.updated_at
+    FROM workforce_members wm
+    WHERE wm.tenant_id = $1::uuid
+      AND wm.status = 'active'
+      AND wm.primary_role_hint = 'operator'
+      AND wm.primary_location_id IN (located.shed_uuid, located.park_uuid)
+    ORDER BY CASE WHEN wm.primary_location_id = located.shed_uuid THEN 0 WHEN wm.primary_location_id = located.park_uuid THEN 1 ELSE 2 END,
+             wm.updated_at DESC, wm.workforce_member_id DESC
+    LIMIT 1
+  ) default_operator ON true
   WHERE located.park_uuid IS NOT NULL
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
     AND ($3::text = '' OR located.shed_uuid = $3::uuid)
