@@ -726,7 +726,7 @@ Required worker paths:
 | --- | --- | --- |
 | Full generation | Cloud Scheduler / local job | Generate Day N+1 full direction |
 | Diff generation | Cloud Scheduler / local job | Generate pre-cutoff restatement Diff |
-| Count event consumer | Pub/Sub / local outbox relay | Invalidate or enqueue affected Feed generation |
+| Counts projection input consumer | Pub/Sub / local outbox relay | Consume Base Count/Shifting outbox events and recompute bounded `count_as_of` / `feed_target_date` snapshots for each affected park before Feed generation consumes counts |
 | Sweeper/deadline worker | Cloud Scheduler / local job | Mark due/missed, reminders, escalation buckets, recovery work |
 | Notification dispatcher | Outbox / notification queue | Send or stub feed alerts through replaceable adapters |
 | Projection refresh | Outbox consumer/local job | Refresh Feed read model and command buckets |

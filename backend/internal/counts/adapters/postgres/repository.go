@@ -21,8 +21,8 @@ import (
 const defaultQueryTimeout = 3 * time.Second
 
 const (
-	countBaseAnchorRecordedEventType = "counts.base_count_anchor.recorded"
-	shiftingEventRecordedEventType   = "counts.shifting_event.recorded"
+	countBaseAnchorRecordedEventType = domain.EventBaseCountAnchorRecorded
+	shiftingEventRecordedEventType   = domain.EventShiftingEventRecorded
 	countsEventSchemaVersion         = "1.0.0"
 	countsEventSchemaRef             = "contracts/jsonschema/domain-event-envelope.schema.json"
 	countsEventTopic                 = "counts.events"
@@ -72,14 +72,15 @@ RETURNING base_count_anchor_id::text`,
 			SubjectType: "count_base_anchor", SubjectID: id,
 			ParkID: in.ParkID, ShedID: in.ShedID,
 			Payload: map[string]any{
-				"input_kind":           "base_count_anchor",
-				"base_count_anchor_id": id,
-				"park_id":              in.ParkID,
-				"shed_id":              in.ShedID,
-				"breed_key":            in.BreedKey,
-				"counted_at":           in.CountedAt.UTC().Format(time.RFC3339Nano),
-				"source_hash":          in.SourceHash,
-				"recompute_horizons":   []string{"count_as_of", "feed_target_date"},
+				"input_kind":              "base_count_anchor",
+				"base_count_anchor_id":    id,
+				"park_id":                 in.ParkID,
+				"shed_id":                 in.ShedID,
+				"breed_key":               in.BreedKey,
+				"counted_at":              in.CountedAt.UTC().Format(time.RFC3339Nano),
+				"source_hash":             in.SourceHash,
+				"source_contract_version": domain.SourceContractVersionV1,
+				"recompute_horizons":      []string{"count_as_of", "feed_target_date"},
 			},
 			EvidenceType: "count_base_anchor", EvidenceID: id,
 		}); err != nil {
@@ -140,6 +141,7 @@ func (r *Repository) RecordShiftingEvent(ctx context.Context, in domain.Shifting
 			"authorization_state":        in.AuthorizationState,
 			"event_status":               in.EventStatus,
 			"payload_hash":               in.PayloadHash,
+			"source_contract_version":    domain.SourceContractVersionV1,
 			"recompute_horizons":         []string{"count_as_of", "feed_target_date"},
 		},
 		EvidenceType: "shifting_event", EvidenceID: id,

@@ -11,6 +11,7 @@ import (
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
@@ -256,6 +257,57 @@ func TestServiceRecomputesProjectionWithAuthorizedShiftOnlyInProjectedHorizon(t 
 	}
 }
 
+func TestProjectionInputOutboxEventRecomputesSnapshotsThroughHandler(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 3*time.Second)
+	service := countsapp.NewService(repo)
+
+	if _, _, err := repo.RecordBaseCountAnchor(ctx, baseAnchorFor(countsShedA, "event-source-anchor", "event-source-fp", 20)); err != nil {
+		t.Fatalf("record source anchor: %v", err)
+	}
+	if _, _, err := repo.RecordBaseCountAnchor(ctx, baseAnchorFor(countsShedB, "event-dest-anchor", "event-dest-fp", 5)); err != nil {
+		t.Fatalf("record dest anchor: %v", err)
+	}
+	shiftID, replay, err := repo.RecordShiftingEvent(ctx, shiftingEvent("event-shift-key", "event-shift-idem", "event-shift-payload", "event-shift-fp"))
+	if err != nil || replay || shiftID == "" {
+		t.Fatalf("record shift id=%q replay=%v err=%v", shiftID, replay, err)
+	}
+
+	eventPayload := outboxPayloadForAggregate(t, ctx, pool, domain.EventShiftingEventRecorded, shiftID)
+	event, err := eventbus.EventFromEnvelope(eventPayload, eventbus.Event{})
+	if err != nil {
+		t.Fatalf("EventFromEnvelope: %v", err)
+	}
+	bus := eventbus.NewInProcessBus()
+	countsapp.NewProjectionInputHandler(service).Register(bus)
+	if err := bus.Publish(ctx, event); err != nil {
+		t.Fatalf("publish projection input event: %v", err)
+	}
+
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM count_projection_snapshots
+WHERE tenant_id=$1::uuid
+  AND park_id=$2::uuid
+  AND generated_by='counts-projection-event-handler'`, countsTenant, countsPark); got != 2 {
+		t.Fatalf("event-driven snapshots=%d, want 2", got)
+	}
+	projected, err := repo.ProjectedCountFor(ctx, domain.CountProjectionRequest{
+		TenantID: countsTenant, ParkID: countsPark, TargetDate: time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC), Limit: 25,
+	})
+	if err != nil {
+		t.Fatalf("projected count after event: %v", err)
+	}
+	if projected.SnapshotID == "" || projected.SourceContractVersion != domain.SourceContractVersionV1 {
+		t.Fatalf("projected header=%+v", projected)
+	}
+	dest := rowForShed(t, projected.Rows, countsShedB)
+	if dest.HeadCount != 8 || dest.PregnantCount != 3 || dest.BlockerReason == nil {
+		t.Fatalf("projected destination row=%+v, want shifted pregnant blocked in destination", dest)
+	}
+}
+
 func setupCountsDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
 	pgtest.SkipIfNoDocker(t)
@@ -328,6 +380,20 @@ func countRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, query stri
 		t.Fatalf("count rows: %v", err)
 	}
 	return count
+}
+
+func outboxPayloadForAggregate(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventType, aggregateID string) []byte {
+	t.Helper()
+	var payload []byte
+	if err := pool.QueryRow(ctx, `
+SELECT payload
+FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND event_type=$2
+  AND aggregate_id=$3::uuid`, countsTenant, eventType, aggregateID).Scan(&payload); err != nil {
+		t.Fatalf("load outbox payload: %v", err)
+	}
+	return payload
 }
 
 func rowForShed(t *testing.T, rows []domain.ProjectionRow, shedID string) domain.ProjectionRow {

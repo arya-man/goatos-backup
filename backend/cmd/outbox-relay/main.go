@@ -13,6 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
+	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
@@ -122,6 +124,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		}
 		bus := eventbus.NewInProcessBus()
 		protocolRepo := protocolpg.NewRepository(pool, pgCfg.QueryTimeout)
+		countsService := countsapp.NewService(countspg.NewRepository(pool, pgCfg.QueryTimeout))
 		vaccinationRepo := vaccinationpg.NewRepository(pool, pgCfg.QueryTimeout)
 		obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
 		inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, pgCfg.QueryTimeout))
@@ -137,6 +140,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		vaccinationapp.NewManualCampaignHandler(generation).Register(bus)
 		vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 		vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
+		countsapp.NewProjectionInputHandler(countsService).Register(bus)
 		logger.Info("outbox_relay_eventbus_dispatcher_ready")
 		return eventbuspublisher.New(bus), nil, nil
 	case outboxpublisher.KindPubSub:

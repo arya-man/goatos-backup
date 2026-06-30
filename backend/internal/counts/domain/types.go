@@ -3,6 +3,12 @@ package domain
 
 import "time"
 
+const (
+	EventBaseCountAnchorRecorded = "counts.base_count_anchor.recorded"
+	EventShiftingEventRecorded   = "counts.shifting_event.recorded"
+	SourceContractVersionV1      = "counts-shifting-v1"
+)
+
 type ReadinessStatus string
 
 const (

@@ -90,6 +90,11 @@ Implementation status as of 2026-06-30:
   outbox events (`counts.base_count_anchor.recorded` and
   `counts.shifting_event.recorded`) with tenant/park/shed visibility, giving the
   recompute worker a durable invalidation signal.
+- `countsapp.ProjectionInputHandler` consumes those events through both
+  `backend/cmd/domain-event-consumer` and the local/dev `outbox-relay`
+  in-process eventbus publisher. It recomputes bounded `count_as_of` and
+  `feed_target_date` snapshots for the event day and each affected park,
+  including both source and destination parks for cross-park shifting.
 - Projection rows now carry `base_count_anchor_id`,
   `included_shifting_event_ids_hash`, source row hash, contract hash, and
   ration-context resolution state.
@@ -103,11 +108,10 @@ Implementation status as of 2026-06-30:
   `missing_base_count`, not an empty ready snapshot.
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
-- This does **not** close `G2`: source import/adapters, automatic outbox
-  consumer/queue scheduling for recompute, alias normalization, count-mismatch
-  detection beyond negative source protection, exception work routing,
-  observability, query-plan/synthetic-scale proof, and seeded local E2E remain
-  blockers.
+- This does **not** close `G2`: source import/adapters, alias normalization,
+  count-mismatch detection beyond negative source protection, exception work
+  routing, observability, query-plan/synthetic-scale proof, and seeded local E2E
+  remain blockers.
 
 ## 3. Candidate Persistence
 
@@ -207,7 +211,7 @@ Required paths:
 | --- | --- | --- |
 | Base Count import/record | API/import | Write anchor, emit idempotent `counts.base_count_anchor.recorded` outbox event, audit, invalidate projections |
 | Shifting event ingest | API/import/outbox | Upsert event and impacts, emit idempotent `counts.shifting_event.recorded` outbox event, audit, invalidate projections |
-| Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or equivalent queued worker for tenant + park + as-of + target-date bounded horizons; write snapshot or exception |
+| Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or the registered `countsapp.ProjectionInputHandler` consumer for tenant + park + as-of + target-date bounded horizons; write snapshot or exception |
 | Count mismatch scan | Scheduler/import compare | Detect unexpected deltas/unreported shifting and create exception work |
 | Feed projection read | API/app port | Return rows or typed blocker with source hash |
 
