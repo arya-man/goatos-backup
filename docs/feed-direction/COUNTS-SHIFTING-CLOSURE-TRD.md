@@ -130,8 +130,10 @@ Implementation status as of 2026-06-30:
   `pending` on success and `blocked` on failure; success still leaves source
   parity, observability breadth, and seeded local E2E open. When a successful
   import records replayed rows, it updates `CSG8` to `pending` with
-  `count_source_import_runs:<id>` evidence; this is replay proof, not full G2
-  closure.
+  `count_source_import_runs:<id>` evidence. The command has a migrated-Postgres
+  replay test proving the same typed Base Count + pregnant ShiftingEvent batch
+  does not duplicate canonical anchors, movement headers, or structured impacts;
+  this is replay proof, not full G2 closure.
 - `countsapp.ProjectionInputHandler` consumes those events through both
   `backend/cmd/domain-event-consumer` and the local/dev `outbox-relay`
   in-process eventbus publisher. It recomputes bounded `count_as_of` and
@@ -194,9 +196,9 @@ Implementation status as of 2026-06-30:
   Feed generation consumption.
 - Canonical idempotent replays of Base Count anchors, ShiftingEvents, and
   projection snapshots refresh readiness evidence and update `CSG8` to
-  `pending`. `CSG8` remains pending until typed source replay, projection
-  recompute replay, source parity, and seeded local E2E prove no double
-  application across the full path.
+  `pending`. The typed import path has migrated source replay proof. `CSG8`
+  remains pending until projection recompute replay, source parity, and seeded
+  local E2E prove no double application across the full path.
 - Projection exception open, relink/update, and close state changes now emit
   transactional outbox events
   (`counts.projection_exception.opened`,
@@ -477,7 +479,8 @@ Non-negotiable tests:
   projection-row hot pages.
 - Source import run observability records source rows read, successful Base
   Count/Shifting rows, replays, failed rows, source reference, status, last
-  error, and `CSG10` evidence without making G2 green by itself.
+  error, `CSG8` replay evidence, and `CSG10` evidence without making G2 green by
+  itself.
 - Projection recompute run observability records tenant, park, horizon, target
   date, as-of time, status, projection status, snapshot reference, row count,
   exception count, trace id, last error, and `CSG10` evidence without making G2

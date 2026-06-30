@@ -164,6 +164,10 @@ language.
    `counts-source-parity-check` now also has migrated-Postgres proof against a
    canonical projection snapshot/read path and writes `CSG10` source-parity
    evidence as pending, not ready.
+   `counts-source-import` now has migrated-Postgres proof that replaying the
+   same typed Base Count + pregnant ShiftingEvent JSONL batch records replay
+   evidence, does not duplicate canonical rows/impacts, and keeps `CSG8`
+   pending, not ready.
    `counts-query-plan-check` now has migrated-Postgres proof that Feed-target
    ShiftingEvent movement reads use park/date-bounded source and destination
    indexes, projection rows carry the snapshot park/date filters needed for the
