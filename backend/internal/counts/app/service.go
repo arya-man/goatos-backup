@@ -3,9 +3,14 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
@@ -16,6 +21,7 @@ var (
 	ErrInvalidCount         = errors.New("counts: invalid count")
 	ErrInvalidJSON          = errors.New("counts: invalid json object")
 	ErrInvalidLimit         = errors.New("counts: invalid limit")
+	ErrInvalidHorizon       = errors.New("counts: invalid projection horizon")
 	ErrMissingImpact        = errors.New("counts: shifting event requires structured impact")
 )
 
@@ -114,6 +120,18 @@ func (s *Service) CreateProjectionSnapshot(ctx context.Context, in domain.Projec
 	return s.repo.CreateProjectionSnapshot(ctx, in)
 }
 
+func (s *Service) RecomputeProjectionSnapshot(ctx context.Context, req domain.ProjectionRecomputeRequest) (string, error) {
+	req, err := normalizeRecomputeRequest(req)
+	if err != nil {
+		return "", err
+	}
+	inputs, err := s.repo.ProjectionInputs(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return s.CreateProjectionSnapshot(ctx, buildProjectionSnapshot(req, inputs))
+}
+
 func (s *Service) CountAsOf(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error) {
 	req, err := normalizeProjectionRequest(req, true)
 	if err != nil {
@@ -137,6 +155,191 @@ func (s *Service) Readiness(ctx context.Context, tenantID string) (domain.Readin
 	return s.repo.Readiness(ctx, tenantID)
 }
 
+type projectionRowAccumulator struct {
+	row         domain.ProjectionRow
+	movementIDs []string
+}
+
+func normalizeRecomputeRequest(req domain.ProjectionRecomputeRequest) (domain.ProjectionRecomputeRequest, error) {
+	req.Horizon = defaultString(req.Horizon, "feed_target_date")
+	if req.Horizon != "feed_target_date" && req.Horizon != "count_as_of" {
+		return domain.ProjectionRecomputeRequest{}, ErrInvalidHorizon
+	}
+	if strings.TrimSpace(req.TenantID) == "" || strings.TrimSpace(req.ParkID) == "" ||
+		strings.TrimSpace(req.SourceContractVersion) == "" || strings.TrimSpace(req.GeneratedBy) == "" ||
+		req.AsOf.IsZero() {
+		return domain.ProjectionRecomputeRequest{}, ErrMissingRequiredField
+	}
+	if req.TargetDate.IsZero() {
+		if req.Horizon == "count_as_of" {
+			req.TargetDate = req.AsOf
+		} else {
+			return domain.ProjectionRecomputeRequest{}, ErrMissingRequiredField
+		}
+	}
+	req.TargetDate = dateOnly(req.TargetDate)
+	return req, nil
+}
+
+func buildProjectionSnapshot(req domain.ProjectionRecomputeRequest, inputs domain.ProjectionInputs) domain.ProjectionSnapshot {
+	rows := map[string]*projectionRowAccumulator{}
+	exceptions := make([]domain.ProjectionException, 0)
+	anchorIDs := make([]string, 0, len(inputs.Anchors))
+	movementIDs := make([]string, 0, len(inputs.Movements))
+
+	for _, anchor := range inputs.Anchors {
+		key := projectionGrainKey(anchor.ShedID, anchor.BreedKey)
+		anchorIDs = append(anchorIDs, anchor.BaseCountAnchorID)
+		blocker := "reviewed ration context is unresolved for this physical count row"
+		rows[key] = &projectionRowAccumulator{row: domain.ProjectionRow{
+			ParkID: req.ParkID, ShedID: anchor.ShedID, TargetDate: req.TargetDate,
+			GrainKey: key, BaseCountAnchorID: anchor.BaseCountAnchorID, IncludedShiftingEventIDsHash: "no-shifting-events",
+			BreedID: anchor.BreedID, BreedKey: anchor.BreedKey, BreedLabel: anchor.BreedLabel,
+			HeadCount: anchor.HeadCount, RationContextResolutionState: "blocked",
+			BlockerReason: &blocker,
+		}}
+		exceptions = append(exceptions, projectionException("ration_context_unresolved", "base:"+anchor.BaseCountAnchorID, key, req.ParkID, anchor.ShedID, anchor.BreedKey, nil, "blocking", blocker))
+	}
+	if len(inputs.Anchors) == 0 {
+		reason := "no adopted Base Count anchors exist for this tenant, park, and projection horizon"
+		exceptions = append(exceptions, domain.ProjectionException{
+			ExceptionType: "missing_base_count",
+			SourceKey:     "base_anchor:" + req.ParkID,
+			GrainKey:      "park:" + req.ParkID,
+			ParkID:        &req.ParkID,
+			Severity:      "blocking",
+			BlockerReason: reason,
+			EvidenceJSON:  []byte(fmt.Sprintf(`{"source":"counts_projection_recompute","reason":%q}`, reason)),
+		})
+	}
+
+	for _, movement := range inputs.Movements {
+		movementIDs = append(movementIDs, movement.ShiftingEventID)
+		if movement.SourceShedID != nil {
+			sourceKey := projectionGrainKey(*movement.SourceShedID, movement.BreedKey)
+			if sourceRow, ok := rows[sourceKey]; ok {
+				sourceRow.row.HeadCount -= movement.HeadCount
+				sourceRow.movementIDs = append(sourceRow.movementIDs, movement.ShiftingEventID)
+				if sourceRow.row.HeadCount < 0 {
+					sourceRow.row.HeadCount = 0
+					reason := "shifting impact exceeds source Base Count for the shed/breed grain"
+					sourceRow.row.RationContextResolutionState = "blocked"
+					sourceRow.row.BlockerReason = &reason
+					exceptions = append(exceptions, projectionException("count_mismatch", movement.LogicalShiftingEventKey, sourceKey, req.ParkID, *movement.SourceShedID, movement.BreedKey, movement.StageTag, "critical", reason))
+				}
+			} else {
+				reason := "source shed Base Count is missing for shifting impact"
+				exceptions = append(exceptions, projectionException("missing_base_count", movement.LogicalShiftingEventKey, sourceKey, req.ParkID, *movement.SourceShedID, movement.BreedKey, movement.StageTag, "blocking", reason))
+			}
+		}
+
+		destinationKey := projectionGrainKey(movement.DestinationShedID, movement.BreedKey)
+		destinationRow, ok := rows[destinationKey]
+		if !ok {
+			reason := "destination shed Base Count is missing for shifting impact"
+			exceptions = append(exceptions, projectionException("missing_base_count", movement.LogicalShiftingEventKey, destinationKey, req.ParkID, movement.DestinationShedID, movement.BreedKey, movement.StageTag, "blocking", reason))
+			continue
+		}
+		destinationRow.row.HeadCount += movement.HeadCount
+		destinationRow.row.PregnantCount += movement.PregnantCount
+		destinationRow.row.LactatingCount += movement.LactatingCount
+		destinationRow.row.WarmupCount += movement.WarmupCount
+		destinationRow.movementIDs = append(destinationRow.movementIDs, movement.ShiftingEventID)
+		if movement.RationContextResolutionState == "resolved" || movement.RationContextResolutionState == "not_required" {
+			destinationRow.row.RationContextResolutionState = movement.RationContextResolutionState
+			destinationRow.row.RationContextRef = movement.RationContextRef
+			destinationRow.row.BlockerReason = nil
+		} else {
+			reason := defaultString(ptrValue(movement.BlockerReason), "destination shed ration context is unresolved for shifted cohort")
+			destinationRow.row.RationContextResolutionState = "blocked"
+			destinationRow.row.BlockerReason = &reason
+			exType := "ration_context_unresolved"
+			severity := "blocking"
+			if movement.PregnantCount > 0 || movement.LactatingCount > 0 || movement.WarmupCount > 0 {
+				exType = "destination_shortage"
+				severity = "critical"
+			}
+			exceptions = append(exceptions, projectionException(exType, movement.LogicalShiftingEventKey, destinationKey, req.ParkID, movement.DestinationShedID, movement.BreedKey, movement.StageTag, severity, reason))
+		}
+	}
+
+	outRows := make([]domain.ProjectionRow, 0, len(rows))
+	for _, acc := range rows {
+		sort.Strings(acc.movementIDs)
+		if len(acc.movementIDs) > 0 {
+			acc.row.IncludedShiftingEventIDsHash = hashStrings(acc.movementIDs)
+		}
+		acc.row.SourceRowHash = projectionRowHash(acc.row)
+		outRows = append(outRows, acc.row)
+	}
+	sort.Slice(outRows, func(i, j int) bool { return outRows[i].GrainKey < outRows[j].GrainKey })
+	sort.Slice(exceptions, func(i, j int) bool {
+		if exceptions[i].GrainKey == exceptions[j].GrainKey {
+			return exceptions[i].ExceptionType < exceptions[j].ExceptionType
+		}
+		return exceptions[i].GrainKey < exceptions[j].GrainKey
+	})
+
+	baseHash := hashStrings(anchorIDs)
+	movementHash := hashStrings(movementIDs)
+	sourceHash := hashStrings([]string{req.TenantID, req.ParkID, req.Horizon, req.TargetDate.Format("2006-01-02"), req.AsOf.UTC().Format(time.RFC3339Nano), baseHash, movementHash, rowHashSet(outRows)})
+	status := "ready"
+	if len(exceptions) > 0 {
+		status = "blocked"
+	}
+	return domain.ProjectionSnapshot{
+		TenantID: req.TenantID, Horizon: req.Horizon, ParkID: req.ParkID,
+		TargetDate: req.TargetDate, AsOf: req.AsOf, ProjectionStatus: status,
+		SourceContractVersion: req.SourceContractVersion, SourceHash: sourceHash,
+		BaseAnchorIDsHash: baseHash, ShiftingEventIDsHash: movementHash,
+		GeneratedBy: req.GeneratedBy, TraceID: req.TraceID, Rows: outRows, Exceptions: exceptions,
+	}
+}
+
+func projectionException(exceptionType, sourceKey, grainKey, parkID, shedID, breedKey string, stageTag *string, severity, reason string) domain.ProjectionException {
+	return domain.ProjectionException{
+		ExceptionType: exceptionType, SourceKey: sourceKey, GrainKey: grainKey,
+		ParkID: &parkID, ShedID: &shedID, BreedKey: &breedKey, StageTag: stageTag,
+		Severity: severity, BlockerReason: reason,
+		EvidenceJSON: []byte(fmt.Sprintf(`{"source":"counts_projection_recompute","reason":%q}`, reason)),
+	}
+}
+
+func projectionGrainKey(shedID, breedKey string) string {
+	return strings.ToLower(strings.TrimSpace(shedID)) + ":" + strings.ToLower(strings.TrimSpace(breedKey))
+}
+
+func projectionRowHash(row domain.ProjectionRow) string {
+	return hashStrings([]string{
+		row.ParkID, row.ShedID, row.GrainKey, row.BaseCountAnchorID, row.IncludedShiftingEventIDsHash,
+		row.BreedKey, fmt.Sprintf("%d", row.HeadCount), fmt.Sprintf("%d", row.PregnantCount),
+		fmt.Sprintf("%d", row.LactatingCount), fmt.Sprintf("%d", row.WarmupCount),
+		row.RationContextResolutionState, ptrValue(row.RationContextRef), ptrValue(row.BlockerReason),
+	})
+}
+
+func rowHashSet(rows []domain.ProjectionRow) string {
+	hashes := make([]string, 0, len(rows))
+	for _, row := range rows {
+		hashes = append(hashes, row.SourceRowHash)
+	}
+	return hashStrings(hashes)
+}
+
+func hashStrings(parts []string) string {
+	if len(parts) == 0 {
+		return "none"
+	}
+	clean := append([]string(nil), parts...)
+	sort.Strings(clean)
+	h := sha256.New()
+	for _, part := range clean {
+		_, _ = h.Write([]byte(part))
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 func normalizeProjectionRequest(req domain.CountProjectionRequest, asOf bool) (domain.CountProjectionRequest, error) {
 	if strings.TrimSpace(req.TenantID) == "" || strings.TrimSpace(req.ParkID) == "" {
 		return domain.CountProjectionRequest{}, ErrMissingRequiredField
@@ -156,6 +359,17 @@ func normalizeProjectionRequest(req domain.CountProjectionRequest, asOf bool) (d
 		return domain.CountProjectionRequest{}, ErrInvalidLimit
 	}
 	return req, nil
+}
+
+func dateOnly(t time.Time) time.Time {
+	return time.Date(t.UTC().Year(), t.UTC().Month(), t.UTC().Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func ptrValue(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 func defaultString(value, fallback string) string {

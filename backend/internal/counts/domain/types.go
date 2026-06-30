@@ -93,6 +93,56 @@ type ProjectionSnapshot struct {
 	Exceptions            []ProjectionException
 }
 
+type ProjectionRecomputeRequest struct {
+	TenantID              string
+	ParkID                string
+	Horizon               string
+	TargetDate            time.Time
+	AsOf                  time.Time
+	SourceContractVersion string
+	GeneratedBy           string
+	TraceID               *string
+}
+
+type ProjectionInputs struct {
+	Anchors   []ProjectionBaseAnchor
+	Movements []ProjectionMovementImpact
+}
+
+type ProjectionBaseAnchor struct {
+	BaseCountAnchorID string
+	ParkID            string
+	ShedID            string
+	BreedID           *string
+	BreedKey          string
+	BreedLabel        string
+	CountedAt         time.Time
+	HeadCount         int32
+	SourceHash        string
+}
+
+type ProjectionMovementImpact struct {
+	ShiftingEventID              string
+	LogicalShiftingEventKey      string
+	SourceShedID                 *string
+	DestinationShedID            string
+	EffectiveAt                  time.Time
+	GrainKey                     string
+	BreedID                      *string
+	BreedKey                     string
+	BreedLabel                   string
+	StageTag                     *string
+	AgeClass                     *string
+	Sex                          *string
+	HeadCount                    int32
+	PregnantCount                int32
+	LactatingCount               int32
+	WarmupCount                  int32
+	RationContextResolutionState string
+	RationContextRef             *string
+	BlockerReason                *string
+}
+
 type ProjectionRow struct {
 	ProjectionRowID              string
 	ParkID                       string

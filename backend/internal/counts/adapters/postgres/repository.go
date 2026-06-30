@@ -90,6 +90,20 @@ func (r *Repository) RecordShiftingEvent(ctx context.Context, in domain.Shifting
 	return id, false, nil
 }
 
+func (r *Repository) ProjectionInputs(ctx context.Context, req domain.ProjectionRecomputeRequest) (domain.ProjectionInputs, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	anchors, err := r.projectionAnchors(ctx, req)
+	if err != nil {
+		return domain.ProjectionInputs{}, err
+	}
+	movements, err := r.projectionMovements(ctx, req)
+	if err != nil {
+		return domain.ProjectionInputs{}, err
+	}
+	return domain.ProjectionInputs{Anchors: anchors, Movements: movements}, nil
+}
+
 func (r *Repository) CreateProjectionSnapshot(ctx context.Context, in domain.ProjectionSnapshot) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -143,6 +157,103 @@ WHERE tenant_id = $1::uuid AND horizon = $2 AND park_id = $3::uuid AND target_da
 		return "", err
 	}
 	return id, nil
+}
+
+func (r *Repository) projectionAnchors(ctx context.Context, req domain.ProjectionRecomputeRequest) ([]domain.ProjectionBaseAnchor, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT ON (shed_id, lower(breed_key))
+       base_count_anchor_id::text, park_id::text, shed_id::text,
+       COALESCE(breed_id::text, ''), breed_key, breed_label,
+       counted_at, head_count, source_hash
+FROM count_base_anchors
+WHERE tenant_id = $1::uuid
+  AND park_id = $2::uuid
+  AND counted_at <= $3
+  AND anchor_state = 'adopted'
+ORDER BY shed_id, lower(breed_key), counted_at DESC, base_count_anchor_id DESC`,
+		req.TenantID, req.ParkID, req.AsOf)
+	if err != nil {
+		return nil, fmt.Errorf("counts: query projection anchors: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.ProjectionBaseAnchor{}
+	for rows.Next() {
+		var anchor domain.ProjectionBaseAnchor
+		var breedID string
+		if err := rows.Scan(&anchor.BaseCountAnchorID, &anchor.ParkID, &anchor.ShedID,
+			&breedID, &anchor.BreedKey, &anchor.BreedLabel, &anchor.CountedAt,
+			&anchor.HeadCount, &anchor.SourceHash); err != nil {
+			return nil, fmt.Errorf("counts: scan projection anchor: %w", err)
+		}
+		anchor.BreedID = ptrIfNotEmpty(breedID)
+		out = append(out, anchor)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) projectionMovements(ctx context.Context, req domain.ProjectionRecomputeRequest) ([]domain.ProjectionMovementImpact, error) {
+	query, args := movementWindowQuery(req)
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("counts: query projection movements: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.ProjectionMovementImpact{}
+	for rows.Next() {
+		var movement domain.ProjectionMovementImpact
+		var sourceShed, breedID, stage, age, sex, rationRef, blocker string
+		if err := rows.Scan(&movement.ShiftingEventID, &movement.LogicalShiftingEventKey,
+			&sourceShed, &movement.DestinationShedID, &movement.EffectiveAt,
+			&movement.GrainKey, &breedID, &movement.BreedKey, &movement.BreedLabel,
+			&stage, &age, &sex, &movement.HeadCount, &movement.PregnantCount,
+			&movement.LactatingCount, &movement.WarmupCount, &movement.RationContextResolutionState,
+			&rationRef, &blocker); err != nil {
+			return nil, fmt.Errorf("counts: scan projection movement: %w", err)
+		}
+		movement.SourceShedID = ptrIfNotEmpty(sourceShed)
+		movement.BreedID = ptrIfNotEmpty(breedID)
+		movement.StageTag = ptrIfNotEmpty(stage)
+		movement.AgeClass = ptrIfNotEmpty(age)
+		movement.Sex = ptrIfNotEmpty(sex)
+		movement.RationContextRef = ptrIfNotEmpty(rationRef)
+		movement.BlockerReason = ptrIfNotEmpty(blocker)
+		out = append(out, movement)
+	}
+	return out, rows.Err()
+}
+
+func movementWindowQuery(req domain.ProjectionRecomputeRequest) (string, []any) {
+	base := `
+SELECT se.shifting_event_id::text, se.logical_shifting_event_key,
+       COALESCE(se.source_shed_id::text, ''), se.destination_shed_id::text,
+       se.effective_at, sei.grain_key, COALESCE(sei.breed_id::text, ''),
+       sei.breed_key, sei.breed_label, COALESCE(sei.stage_tag, ''),
+       COALESCE(sei.age_class, ''), COALESCE(sei.sex, ''),
+       sei.head_count, sei.pregnant_count, sei.lactating_count, sei.warmup_count,
+       sei.ration_context_resolution_state, COALESCE(sei.ration_context_ref, ''),
+       COALESCE(sei.blocker_reason, '')
+FROM shifting_events se
+JOIN shifting_event_impacts sei
+  ON sei.tenant_id = se.tenant_id
+ AND sei.shifting_event_id = se.shifting_event_id
+WHERE se.tenant_id = $1::uuid
+  AND (se.source_park_id = $2::uuid OR se.destination_park_id = $2::uuid)
+  AND se.event_status NOT IN ('rejected', 'canceled', 'unresolved')
+`
+	if req.Horizon == "count_as_of" {
+		return base + `
+  AND se.event_status = 'applied'
+  AND se.effective_at <= $3
+ORDER BY se.effective_at, se.shifting_event_id, sei.grain_key`, []any{req.TenantID, req.ParkID, req.AsOf}
+	}
+	start := dateOnly(req.TargetDate)
+	end := start.AddDate(0, 0, 1)
+	return base + `
+  AND se.authorization_state = 'authorized'
+  AND se.event_status IN ('authorized', 'applied')
+  AND se.effective_at >= $3
+  AND se.effective_at < $4
+ORDER BY se.effective_at, se.shifting_event_id, sei.grain_key`, []any{req.TenantID, req.ParkID, start, end}
 }
 
 func (r *Repository) CountAsOf(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error) {

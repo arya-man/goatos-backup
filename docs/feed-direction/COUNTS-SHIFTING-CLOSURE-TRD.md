@@ -79,17 +79,27 @@ Implementation status as of 2026-06-30:
   `count_projection_snapshots` and bounded `count_projection_snapshot_rows`.
 - `CountAsOf` reads `horizon='count_as_of'`; `ProjectedCountFor` reads
   `horizon='feed_target_date'`.
+- `RecomputeProjectionSnapshot` now builds immutable snapshots from bounded Base
+  Count anchors plus horizon-filtered ShiftingEvent impacts. `count_as_of`
+  includes only applied events; `feed_target_date` includes authorized/applied
+  events effective on the target date.
 - Projection rows now carry `base_count_anchor_id`,
   `included_shifting_event_ids_hash`, source row hash, contract hash, and
   ration-context resolution state.
+- Shifted pregnant, lactating, and warm-up impacts are projected into the
+  destination shed row. If the destination ration context is unresolved, the row
+  stays blocked and high-risk movement emits a critical `destination_shortage`
+  exception so Feed cannot generate normal shed-average quantities.
 - Missing snapshots return an explicit `missing_projection_snapshot` blocker
   instead of empty success.
+- A recompute with no adopted Base Count anchors writes a blocked snapshot with
+  `missing_base_count`, not an empty ready snapshot.
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
-- This does **not** close `G2`: source import/adapters, projection recompute
-  worker, alias normalization, count-mismatch detection, exception work routing,
-  observability, query-plan/synthetic-scale proof, and seeded local E2E remain
-  blockers.
+- This does **not** close `G2`: source import/adapters, scheduler/outbox
+  projection worker wiring, alias normalization, count-mismatch detection beyond
+  negative source protection, exception work routing, observability,
+  query-plan/synthetic-scale proof, and seeded local E2E remain blockers.
 
 ## 3. Candidate Persistence
 
@@ -223,6 +233,8 @@ Non-negotiable tests:
 - Realized vs one-day projection split.
 - Future-effective authorized move included only in projection horizon.
 - Pending/rejected/canceled/unresolved movement excluded.
+- Shifted pregnant/lactating/warm-up destination rows fail closed with
+  `destination_shortage` until reviewed destination ration context exists.
 - Count mismatch/unreported shifting creates exception work.
 - Projection snapshot source hash changes after input change.
 - Feed consumes immutable projection snapshot and does not mutate past runs.

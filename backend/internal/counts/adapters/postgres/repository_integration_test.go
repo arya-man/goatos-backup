@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
@@ -157,6 +158,76 @@ func TestRepositoryProjectionProviderFailsClosedWhenSnapshotMissing(t *testing.T
 	}
 }
 
+func TestServiceRecomputesProjectionWithAuthorizedShiftOnlyInProjectedHorizon(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 3*time.Second)
+	service := countsapp.NewService(repo)
+
+	sourceAnchor, replay, err := repo.RecordBaseCountAnchor(ctx, baseAnchorFor(countsShedA, "projection-source-anchor", "projection-source-fp", 20))
+	if err != nil || replay || sourceAnchor == "" {
+		t.Fatalf("source anchor id=%q replay=%v err=%v", sourceAnchor, replay, err)
+	}
+	destAnchor, replay, err := repo.RecordBaseCountAnchor(ctx, baseAnchorFor(countsShedB, "projection-dest-anchor", "projection-dest-fp", 5))
+	if err != nil || replay || destAnchor == "" {
+		t.Fatalf("dest anchor id=%q replay=%v err=%v", destAnchor, replay, err)
+	}
+	if _, _, err := repo.RecordShiftingEvent(ctx, shiftingEvent("projection-shift-key", "projection-shift-idem", "projection-shift-payload", "projection-shift-fp")); err != nil {
+		t.Fatalf("record shift: %v", err)
+	}
+
+	asOf := time.Date(2026, 6, 30, 18, 0, 0, 0, time.UTC)
+	target := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	if _, err := service.RecomputeProjectionSnapshot(ctx, domain.ProjectionRecomputeRequest{
+		TenantID: countsTenant, ParkID: countsPark, Horizon: "count_as_of", TargetDate: target, AsOf: asOf,
+		SourceContractVersion: "counts-shifting-v1", GeneratedBy: "test",
+	}); err != nil {
+		t.Fatalf("recompute count_as_of: %v", err)
+	}
+	if _, err := service.RecomputeProjectionSnapshot(ctx, domain.ProjectionRecomputeRequest{
+		TenantID: countsTenant, ParkID: countsPark, Horizon: "feed_target_date", TargetDate: target, AsOf: asOf,
+		SourceContractVersion: "counts-shifting-v1", GeneratedBy: "test",
+	}); err != nil {
+		t.Fatalf("recompute projected: %v", err)
+	}
+
+	realized, err := repo.CountAsOf(ctx, domain.CountProjectionRequest{
+		TenantID: countsTenant, ParkID: countsPark, AsOf: target, Limit: 25,
+	})
+	if err != nil {
+		t.Fatalf("count as of read: %v", err)
+	}
+	projected, err := repo.ProjectedCountFor(ctx, domain.CountProjectionRequest{
+		TenantID: countsTenant, ParkID: countsPark, TargetDate: target, Limit: 25,
+	})
+	if err != nil {
+		t.Fatalf("projected read: %v", err)
+	}
+	if got := rowForShed(t, realized.Rows, countsShedA).HeadCount; got != 20 {
+		t.Fatalf("realized source head_count=%d, want 20", got)
+	}
+	if got := rowForShed(t, realized.Rows, countsShedB).HeadCount; got != 5 {
+		t.Fatalf("realized destination head_count=%d, want 5", got)
+	}
+	if got := rowForShed(t, projected.Rows, countsShedA).HeadCount; got != 17 {
+		t.Fatalf("projected source head_count=%d, want 17", got)
+	}
+	projectedDest := rowForShed(t, projected.Rows, countsShedB)
+	if projectedDest.HeadCount != 8 || projectedDest.PregnantCount != 3 || projectedDest.BlockerReason == nil {
+		t.Fatalf("projected destination row=%+v, want 8 total, 3 pregnant, blocked", projectedDest)
+	}
+	foundShortage := false
+	for _, ex := range projected.Exceptions {
+		if ex.ExceptionType == "destination_shortage" {
+			foundShortage = true
+			break
+		}
+	}
+	if !foundShortage {
+		t.Fatalf("projected exceptions=%+v, want destination_shortage", projected.Exceptions)
+	}
+}
+
 func setupCountsDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
 	pgtest.SkipIfNoDocker(t)
@@ -191,11 +262,15 @@ ON CONFLICT (location_id) DO NOTHING;`,
 }
 
 func baseAnchor(key, fp string) domain.BaseCountAnchor {
+	return baseAnchorFor(countsShedA, key, fp, 20)
+}
+
+func baseAnchorFor(shedID, key, fp string, count int32) domain.BaseCountAnchor {
 	return domain.BaseCountAnchor{
-		TenantID: countsTenant, ParkID: countsPark, ShedID: countsShedA,
+		TenantID: countsTenant, ParkID: countsPark, ShedID: shedID,
 		BreedKey: "beetal", BreedLabel: "Beetal", CountedAt: time.Date(2026, 6, 30, 6, 0, 0, 0, time.UTC),
-		HeadCount: 20, SourceSystem: "physical_base_count", SourceRef: "base-count:cpt-s1:2026-06-30",
-		SourceHash: "base-hash-1", DiscrepancyState: "not_checked", IdempotencyKey: key, RequestFingerprint: fp,
+		HeadCount: count, SourceSystem: "physical_base_count", SourceRef: "base-count:" + shedID + ":2026-06-30",
+		SourceHash: "base-hash-" + shedID, DiscrepancyState: "not_checked", IdempotencyKey: key, RequestFingerprint: fp,
 	}
 }
 
@@ -225,6 +300,17 @@ func countRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, query stri
 		t.Fatalf("count rows: %v", err)
 	}
 	return count
+}
+
+func rowForShed(t *testing.T, rows []domain.ProjectionRow, shedID string) domain.ProjectionRow {
+	t.Helper()
+	for _, row := range rows {
+		if row.ShedID == shedID {
+			return row
+		}
+	}
+	t.Fatalf("missing projection row for shed %s in %+v", shedID, rows)
+	return domain.ProjectionRow{}
 }
 
 func strPtr(s string) *string { return &s }

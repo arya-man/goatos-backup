@@ -25,6 +25,13 @@ Initial Counts/Shifting closure is aggregate-only at shed + breed grain.
 RFID-to-shed per-animal association is a future replacement path, not hidden
 work inside `G2`.
 
+High-risk shifted cohorts are part of the `G2` safety contract. If pregnant,
+lactating, warm-up, or similar stage/risk rows move into a destination shed,
+Counts/Shifting must project the destination count impact and surface unresolved
+destination ration context as a blocker. Feed Direction must not quietly
+underfeed those animals, and it must not overfeed as a hidden safety buffer; the
+quantity/session/feed-safety policy closes through `G4`, `G5`, and `G9`.
+
 ## 2. Product Outcome
 
 Counts/Shifting must answer these questions for Feed Direction:
@@ -37,6 +44,8 @@ Counts/Shifting must answer these questions for Feed Direction:
 - Which movements are blocked from count impact because stage/cohort impact,
   authorization, proof, verification, or source quality is unresolved?
 - Which discrepancies or unreported shiftings require process work?
+- Which shifted high-risk cohorts require destination-shed ration-context
+  review before Feed can generate safe quantities?
 
 ## 3. Source Inputs
 
@@ -105,5 +114,8 @@ Counts/Shifting closure is complete when:
    with ration context either resolved from reviewed source-backed context or
    blocked with an explicit reason, and does not depend on RFID-to-shed per-goat
    derivation.
-8. The next build follows [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md) for
+8. Shifted pregnant/lactating/warm-up cohorts create projected destination rows
+   and fail closed when the destination shed ration context is unresolved,
+   instead of letting Feed generate normal shed-average quantities.
+9. The next build follows [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md) for
    source cross-check, seeded E2E proof, high-effort review, and push gating.

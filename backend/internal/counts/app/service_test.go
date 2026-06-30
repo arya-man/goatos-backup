@@ -12,6 +12,7 @@ import (
 type fakeRepo struct {
 	anchor domain.BaseCountAnchor
 	event  domain.ShiftingEvent
+	inputs domain.ProjectionInputs
 	snap   domain.ProjectionSnapshot
 }
 
@@ -22,6 +23,9 @@ func (f *fakeRepo) RecordBaseCountAnchor(_ context.Context, in domain.BaseCountA
 func (f *fakeRepo) RecordShiftingEvent(_ context.Context, in domain.ShiftingEvent) (string, bool, error) {
 	f.event = in
 	return "event-1", false, nil
+}
+func (f *fakeRepo) ProjectionInputs(context.Context, domain.ProjectionRecomputeRequest) (domain.ProjectionInputs, error) {
+	return f.inputs, nil
 }
 func (f *fakeRepo) CreateProjectionSnapshot(_ context.Context, in domain.ProjectionSnapshot) (string, error) {
 	f.snap = in
@@ -194,3 +198,73 @@ func TestProjectedCountForDefaultsLimitAndRejectsUnboundedLimit(t *testing.T) {
 		t.Fatalf("err=%v, want ErrInvalidLimit", err)
 	}
 }
+
+func TestRecomputeProjectionSnapshotBlocksPregnantDestinationShortage(t *testing.T) {
+	stage := "pregnant"
+	blocker := "destination shed ration context unresolved"
+	repo := &fakeRepo{inputs: domain.ProjectionInputs{
+		Anchors: []domain.ProjectionBaseAnchor{
+			{BaseCountAnchorID: "anchor-source", ParkID: "park", ShedID: "shed-a", BreedKey: "beetal", BreedLabel: "Beetal", HeadCount: 20, SourceHash: "anchor-a"},
+			{BaseCountAnchorID: "anchor-dest", ParkID: "park", ShedID: "shed-b", BreedKey: "beetal", BreedLabel: "Beetal", HeadCount: 5, SourceHash: "anchor-b"},
+		},
+		Movements: []domain.ProjectionMovementImpact{{
+			ShiftingEventID: "shift-1", LogicalShiftingEventKey: "shift-key-1", SourceShedID: strPtr("shed-a"),
+			DestinationShedID: "shed-b", EffectiveAt: time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC),
+			GrainKey: "beetal:pregnant", BreedKey: "beetal", BreedLabel: "Beetal", StageTag: &stage,
+			HeadCount: 3, PregnantCount: 3, RationContextResolutionState: "blocked", BlockerReason: &blocker,
+		}},
+	}}
+	id, err := NewService(repo).RecomputeProjectionSnapshot(context.Background(), domain.ProjectionRecomputeRequest{
+		TenantID: "tenant", ParkID: "park", Horizon: "feed_target_date",
+		TargetDate:            time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		AsOf:                  time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC),
+		SourceContractVersion: "counts-shifting-v1", GeneratedBy: "test",
+	})
+	if err != nil || id != "snapshot-1" {
+		t.Fatalf("RecomputeProjectionSnapshot id=%q err=%v", id, err)
+	}
+	if repo.snap.ProjectionStatus != "blocked" {
+		t.Fatalf("projection status=%q, want blocked", repo.snap.ProjectionStatus)
+	}
+	byGrain := map[string]domain.ProjectionRow{}
+	for _, row := range repo.snap.Rows {
+		byGrain[row.GrainKey] = row
+	}
+	if byGrain["shed-a:beetal"].HeadCount != 17 {
+		t.Fatalf("source head_count=%d, want 17", byGrain["shed-a:beetal"].HeadCount)
+	}
+	dest := byGrain["shed-b:beetal"]
+	if dest.HeadCount != 8 || dest.PregnantCount != 3 || dest.BlockerReason == nil || *dest.BlockerReason != blocker {
+		t.Fatalf("destination row=%+v, want blocked 8 total / 3 pregnant", dest)
+	}
+	found := false
+	for _, ex := range repo.snap.Exceptions {
+		if ex.ExceptionType == "destination_shortage" && ex.Severity == "critical" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("exceptions=%+v, want critical destination_shortage", repo.snap.Exceptions)
+	}
+}
+
+func TestRecomputeProjectionSnapshotFailsClosedWithoutBaseAnchors(t *testing.T) {
+	repo := &fakeRepo{}
+	id, err := NewService(repo).RecomputeProjectionSnapshot(context.Background(), domain.ProjectionRecomputeRequest{
+		TenantID: "tenant", ParkID: "park", Horizon: "feed_target_date",
+		TargetDate:            time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		AsOf:                  time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC),
+		SourceContractVersion: "counts-shifting-v1", GeneratedBy: "test",
+	})
+	if err != nil || id != "snapshot-1" {
+		t.Fatalf("RecomputeProjectionSnapshot id=%q err=%v", id, err)
+	}
+	if repo.snap.ProjectionStatus != "blocked" || len(repo.snap.Rows) != 0 {
+		t.Fatalf("snapshot status=%q rows=%d, want blocked empty rows", repo.snap.ProjectionStatus, len(repo.snap.Rows))
+	}
+	if len(repo.snap.Exceptions) != 1 || repo.snap.Exceptions[0].ExceptionType != "missing_base_count" {
+		t.Fatalf("exceptions=%+v, want missing_base_count", repo.snap.Exceptions)
+	}
+}
+
+func strPtr(s string) *string { return &s }
