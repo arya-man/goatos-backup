@@ -411,6 +411,49 @@ func TestLocationWritePathWithDockerPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("sheds db source evidence persists for aliases and capacity", func(t *testing.T) {
+		created, err := repo.CreateLocation(ctx, createLocationCommand("idem-location-sheds-db-source-seed", "Synthetic Sheds DB Source Shed"))
+		if err != nil {
+			t.Fatalf("CreateLocation setup: %v", err)
+		}
+		notes := "Reviewed Sheds DB source label."
+		if _, err := repo.CreateLocationAlias(ctx, ports.CreateLocationAliasCommand{
+			TenantID: testTenantID, ActorID: testActorID, ClientIdempotencyKey: "idem-location-sheds-db-alias-create",
+			StoredIdempotencyKey: testTenantID + ":createLocationAlias:" + created.Location.LocationID + ":idem-location-sheds-db-alias-create",
+			IdempotencyScope:     "createLocationAlias",
+			RequestHash:          "sha256:create-sheds-db-alias",
+			TraceID:              "trace-location-sheds-db-alias-create",
+			LocationID:           created.Location.LocationID,
+			AliasCode:            "Gandhi 1 - Part 1",
+			SourceContext:        "sheds_db",
+			Notes:                &notes,
+		}); err != nil {
+			t.Fatalf("CreateLocationAlias: %v", err)
+		}
+		sourceRef := "Sheds DB.xlsx#DB!A3:H1015"
+		if _, err := repo.CreateLocationCapacity(ctx, ports.CreateLocationCapacityCommand{
+			TenantID: testTenantID, ActorID: testActorID, ClientIdempotencyKey: "idem-location-sheds-db-capacity-create",
+			StoredIdempotencyKey: testTenantID + ":createLocationCapacity:" + created.Location.LocationID + ":idem-location-sheds-db-capacity-create",
+			IdempotencyScope:     "createLocationCapacity",
+			RequestHash:          "sha256:create-sheds-db-capacity",
+			TraceID:              "trace-location-sheds-db-capacity-create",
+			LocationID:           created.Location.LocationID,
+			CapacityKind:         "goat_occupancy",
+			CapacityValue:        25,
+			EffectiveFrom:        "2026-06-30",
+			Source:               "sheds_db",
+			SourceRef:            &sourceRef,
+		}); err != nil {
+			t.Fatalf("CreateLocationCapacity: %v", err)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM location_aliases WHERE canonical_location_id = $1::uuid AND source_context = 'sheds_db'`, created.Location.LocationID); got != 1 {
+			t.Fatalf("sheds_db alias rows = %d", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM location_capacity_records WHERE location_id = $1::uuid AND source = 'sheds_db' AND capacity_value = 25`, created.Location.LocationID); got != 1 {
+			t.Fatalf("sheds_db capacity rows = %d", got)
+		}
+	})
+
 	t.Run("source label resolver resolves aliases and opens reusable unknown reviews", func(t *testing.T) {
 		created, err := repo.CreateLocation(ctx, createLocationCommand("idem-location-resolver-seed", "Synthetic Resolver Shed"))
 		if err != nil {

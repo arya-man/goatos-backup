@@ -39,8 +39,8 @@ capacity/profile slots; populated values are concentrated in current shed
 assignments. Observed aggregate shape at review time:
 
 - CBE: 70 populated tag rows, 71 populated capacity rows, 9 unique non-blank
-  tags, and roughly 1,116 total capacity units across populated tagged rows.
-- CPT: 45 populated tag rows, 44 populated capacity rows, 9 unique non-blank
+  tags, and roughly 1,136 total capacity units across populated tagged rows.
+- CPT: 44 populated tag rows, 44 populated capacity rows, 9 unique non-blank
   tags, and roughly 725 total capacity units across populated tagged rows.
 - `Total Area (sq ft)` and `Potential Tags` are sparse, especially for CPT.
 

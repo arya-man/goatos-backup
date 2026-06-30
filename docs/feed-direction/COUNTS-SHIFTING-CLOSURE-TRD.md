@@ -159,6 +159,11 @@ Implementation status as of 2026-06-30:
   the canonical `CountAsOf`/`ProjectedCountFor` read path. Missing, mismatched,
   truncated, or unexpected exact-mode rows make `CSG10` `blocked`; passing
   fixtures make `CSG10` `pending`, not `ready`.
+- Locations now accepts reviewed `sheds_db` source evidence for location aliases
+  and capacity records, backed by the Postgres capacity-source constraint. This
+  lets Sheds DB become governed Location/Park profile data instead of a raw
+  runtime spreadsheet; the import/review/publish workflow and owner approval are
+  still required before G2 can close.
 - `count_projection_exceptions` now carries work metadata (`work_type`,
   `work_state`, `due_at`, `next_action`, `evidence_link`) and repeated open
   exceptions relink to the latest snapshot on upsert. This makes G2 blockers

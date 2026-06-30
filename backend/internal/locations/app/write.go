@@ -48,6 +48,7 @@ var allowedAliasSourceContexts = map[string]bool{
 	"legacy_bq_mortality":      true,
 	"counts_source":            true,
 	"mortality_source":         true,
+	"sheds_db":                 true,
 	"manual":                   true,
 	"import":                   true,
 }
@@ -57,7 +58,7 @@ var allowedCapacityKinds = map[string]bool{
 }
 
 var allowedCapacitySources = map[string]bool{
-	"manual": true, "legacy_bq": true, "android_sop": true, "import": true,
+	"manual": true, "legacy_bq": true, "android_sop": true, "import": true, "sheds_db": true,
 }
 
 var allowedReviewTypes = map[string]bool{

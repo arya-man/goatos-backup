@@ -141,6 +141,7 @@ Required source contexts include:
 - `legacy_bq_mortality`
 - `legacy_rfid_db`
 - `android_sop`
+- `sheds_db`
 - `manual`
 
 `legacy_location_code` and `legacy_bq_dashboard_shed` are already seeded by the
@@ -172,7 +173,7 @@ Required columns:
 - `capacity_value`
 - `effective_from`
 - `effective_to` nullable
-- `source`: `manual`, `legacy_bq`, `android_sop`, `import`
+- `source`: `manual`, `legacy_bq`, `android_sop`, `import`, `sheds_db`
 - `source_ref` nullable
 - `notes`
 - `created_by`
@@ -404,9 +405,10 @@ During Counts/Infra/Mortality sync:
 7. Projection input rows should carry canonical location IDs when resolved and
    source labels when unresolved.
 
-Legacy capacity source rows from `counting_shed_capacity_status_dev` and
-`shed_capacity_count_dev` can create staging/evidence capacity records. Manual
-review or an approved import policy promotes them to active effective capacity.
+Legacy capacity source rows from `counting_shed_capacity_status_dev`,
+`shed_capacity_count_dev`, and reviewed `Sheds DB.xlsx` extracts can create
+staging/evidence capacity records. Manual review or an approved import policy
+promotes them to active effective capacity.
 
 All legacy-label dashboards use this same path. Mortality farm, housing, shed,
 and status-location labels must resolve through `location_aliases` with

@@ -3852,7 +3852,7 @@ CREATE TABLE public.location_capacity_records (
     row_version integer DEFAULT 1 NOT NULL,
     CONSTRAINT location_capacity_records_kind_check CHECK ((capacity_kind = ANY (ARRAY['goat_occupancy'::text, 'quarantine'::text, 'feed_trial'::text, 'other'::text]))),
     CONSTRAINT location_capacity_records_positive_check CHECK ((capacity_value > 0)),
-    CONSTRAINT location_capacity_records_source_check CHECK ((source = ANY (ARRAY['manual'::text, 'legacy_bq'::text, 'android_sop'::text, 'import'::text]))),
+    CONSTRAINT location_capacity_records_source_check CHECK ((source = ANY (ARRAY['manual'::text, 'legacy_bq'::text, 'android_sop'::text, 'import'::text, 'sheds_db'::text]))),
     CONSTRAINT location_capacity_records_window_check CHECK (((effective_to IS NULL) OR (effective_to > effective_from)))
 );
 
