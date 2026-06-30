@@ -184,6 +184,12 @@ Implementation status as of 2026-06-30:
   `count_projection_snapshots:<id>` evidence. They also update `CSG4`: one
   horizon remains pending, and `CSG4` turns ready only after both
   `count_as_of` and `feed_target_date` snapshot horizons exist for the tenant.
+- Feed readiness now has a seeded migrated-Postgres integration test proving a
+  real Base Count + pregnant ShiftingEvent + dual-horizon projection recompute
+  flows into the Feed readiness provider, surfaces `CSG4`/`CSG9` evidence, and
+  keeps `G2` blocked when the projected destination shed has an open critical
+  `destination_shortage` exception. This is readiness/read-model proof, not full
+  Feed generation consumption.
 - Canonical idempotent replays of Base Count anchors, ShiftingEvents, and
   projection snapshots refresh readiness evidence and update `CSG8` to
   `pending`. `CSG8` remains pending until typed source replay, projection
@@ -464,8 +470,9 @@ Non-negotiable tests:
 - Worker observability checks for latency, lag, retry, DLQ, exception, and
   stale-projection metrics.
 - Seeded local E2E coverage for Base Count, realized ShiftingEvent, one-day
-  projection, fail-closed exception, and Feed generation consumption of the
-  immutable projection snapshot.
+  projection, fail-closed exception, Feed readiness consumption of the immutable
+  projection snapshot evidence, and later Feed generation consumption once the
+  generation slice exists.
 - High-effort review-agent findings from
   [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md) are resolved or explicitly
   owner-deferred before Counts/Shifting can turn `G2` green.

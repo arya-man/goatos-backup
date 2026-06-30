@@ -154,6 +154,12 @@ language.
    for Counts hot reads, observability, aggregate breed-level count output,
    reviewed ration-context resolution state for each shed + breed projection row, and
    `GET /feed-direction/readiness` subgate roll-up.
+   The Feed readiness path now has seeded local integration proof that real
+   Counts Base Count + ShiftingEvent + dual-horizon projection evidence flows
+   into `G2` and keeps Feed generation blocked when a pregnant destination shed
+   has an open `destination_shortage` exception. This is readiness consumption
+   proof only; full Feed generation consumption of immutable projection snapshots
+   still remains.
    Raw Counting DB / Feed Directions Automation XLSX parsing, parity fixtures,
    and workbook-column mapping remain source-review work; workbook formulas or
    examples must not bypass typed validation/import.

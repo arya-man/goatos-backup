@@ -99,6 +99,11 @@ coverage fixtures against canonical Location aliases and capacity records, and
 can move `CSG7` to `blocked` or `pending`, never `ready`. Its migrated-Postgres
 test proves canonical Locations service writes can satisfy the coverage check
 and write CSG7 evidence, but this is not full Feed seeded E2E.
+Feed readiness has seeded local integration proof that real Counts Base Count,
+pregnant ShiftingEvent, dual-horizon projection recompute, and the resulting
+`destination_shortage` exception flow through the Feed readiness provider and
+keep `G2` generation blocked. Full Feed generation from immutable projection
+snapshots remains separate closure work.
 
 For any Counts/Shifting behavior that affects Feed Direction timing, Diff,
 bridge handling, one-day projection, or physical count adoption,

@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
+	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	feedapp "github.com/vgoats/goatos/backend/internal/feed/app"
 	feeddomain "github.com/vgoats/goatos/backend/internal/feed/domain"
 	oblpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
@@ -16,8 +19,11 @@ import (
 )
 
 const (
-	feedTenant = "00000000-0000-4000-8000-000000000001"
-	feedShed   = "55000000-0000-4000-8000-0000000000f1" // a shed location seeded by the test
+	feedTenant                = "00000000-0000-4000-8000-000000000001"
+	feedShed                  = "55000000-0000-4000-8000-0000000000f1" // a shed location seeded by the test
+	feedCountsPark            = "55000000-0000-4000-8000-000000000101"
+	feedCountsSourceShed      = "55000000-0000-4000-8000-000000000102"
+	feedCountsDestinationShed = "55000000-0000-4000-8000-000000000103"
 )
 
 // TestFeedDirectionCompletionFlow drives the feed SM-5 verify+complete path: accept completes a shed
@@ -125,6 +131,154 @@ func TestFeedDirectionCompletionFlow(t *testing.T) {
 		t.Fatalf("shed history: want 2, got %d err=%v", len(hist), err)
 	}
 }
+
+func TestReadinessConsumesSeededCountsProjectionAndBlocksPregnantDestinationShortage(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedFeedCountsScope(t, ctx, pool)
+
+	countsRepo := countspg.NewRepository(pool, 5*time.Second)
+	countsService := countsapp.NewService(countsRepo)
+	feedService := feedapp.NewService(NewRepository(pool, 5*time.Second)).
+		WithCountsReadiness(countsRepo).
+		WithCountsProjectionExceptionLister(countsRepo)
+
+	if _, replay, err := countsRepo.RecordBaseCountAnchor(ctx, feedReadinessBaseAnchor(feedCountsSourceShed, "feed-readiness-source-anchor", "feed-readiness-source-fp", 20)); err != nil || replay {
+		t.Fatalf("record source anchor replay=%v err=%v", replay, err)
+	}
+	if _, replay, err := countsRepo.RecordBaseCountAnchor(ctx, feedReadinessBaseAnchor(feedCountsDestinationShed, "feed-readiness-dest-anchor", "feed-readiness-dest-fp", 5)); err != nil || replay {
+		t.Fatalf("record destination anchor replay=%v err=%v", replay, err)
+	}
+	if _, replay, err := countsRepo.RecordShiftingEvent(ctx, feedReadinessPregnantShift()); err != nil || replay {
+		t.Fatalf("record pregnant shift replay=%v err=%v", replay, err)
+	}
+
+	target := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 6, 30, 18, 0, 0, 0, time.UTC)
+	for _, horizon := range []string{"count_as_of", "feed_target_date"} {
+		if _, err := countsService.RecomputeProjectionSnapshot(ctx, countsdomain.ProjectionRecomputeRequest{
+			TenantID: feedTenant, ParkID: feedCountsPark, Horizon: horizon,
+			TargetDate: target, AsOf: asOf, SourceContractVersion: countsdomain.SourceContractVersionV1,
+			GeneratedBy: "feed-readiness-integration-test",
+		}); err != nil {
+			t.Fatalf("recompute %s: %v", horizon, err)
+		}
+	}
+
+	readiness, err := feedService.Readiness(ctx, feedTenant)
+	if err != nil {
+		t.Fatalf("feed readiness: %v", err)
+	}
+	if readiness.Status != feeddomain.ReadinessBlocked || readiness.GenerationAllowed {
+		t.Fatalf("feed readiness=%+v, want blocked/no-generation", readiness)
+	}
+	g2 := readinessGate(t, readiness.Gates, "G2")
+	if g2.Status != feeddomain.ReadinessBlocked || g2.AllowsGenerate ||
+		g2.BlockerReason != "Counts/Shifting has open projection exceptions; Feed generation remains blocked." {
+		t.Fatalf("G2=%+v, want open-exception blocker", g2)
+	}
+	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG4"); csg.Status != feeddomain.ReadinessReady {
+		t.Fatalf("CSG4=%+v, want ready after dual-horizon recompute", csg)
+	}
+	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG9"); csg.Status != feeddomain.ReadinessReady {
+		t.Fatalf("CSG9=%+v, want ready projection API evidence", csg)
+	}
+	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG10"); csg.Status != feeddomain.ReadinessPending {
+		t.Fatalf("CSG10=%+v, want pending observability/source/E2E evidence", csg)
+	}
+
+	exceptions, err := feedService.ListCountsProjectionExceptions(ctx, feeddomain.CountsProjectionExceptionQuery{
+		TenantID: feedTenant, Status: "open", ExceptionType: stringPtr("destination_shortage"),
+		Severity: stringPtr("critical"), WorkState: stringPtr("owner_missing"), Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("list feed counts projection exceptions: %v", err)
+	}
+	if len(exceptions.Items) != 1 {
+		t.Fatalf("exceptions=%+v, want one destination_shortage", exceptions)
+	}
+	item := exceptions.Items[0]
+	if item.ShedID == nil || *item.ShedID != feedCountsDestinationShed ||
+		item.StageTag == nil || *item.StageTag != "pregnant" ||
+		item.BlockerReason == "" {
+		t.Fatalf("exception item=%+v, want pregnant destination shortage", item)
+	}
+}
+
+func seedFeedCountsScope(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'CPT-FEED-READINESS', 'CPT Feed Readiness', 'active')
+ON CONFLICT (location_id) DO NOTHING`, feedTenant, feedCountsPark); err != nil {
+		t.Fatalf("seed counts park: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES
+  ($3::uuid, $1::uuid, 'shed', 'CPT-FEED-SOURCE', 'CPT Feed Source Shed', $2::uuid, 'active'),
+  ($4::uuid, $1::uuid, 'shed', 'CPT-FEED-PREGNANT-DEST', 'CPT Feed Pregnant Destination Shed', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		feedTenant, feedCountsPark, feedCountsSourceShed, feedCountsDestinationShed); err != nil {
+		t.Fatalf("seed counts sheds: %v", err)
+	}
+}
+
+func feedReadinessBaseAnchor(shedID, key, fingerprint string, count int32) countsdomain.BaseCountAnchor {
+	return countsdomain.BaseCountAnchor{
+		TenantID: feedTenant, ParkID: feedCountsPark, ShedID: shedID,
+		BreedKey: "beetal", BreedLabel: "Beetal", CountedAt: time.Date(2026, 6, 30, 6, 0, 0, 0, time.UTC),
+		HeadCount: count, SourceSystem: "physical_base_count", SourceRef: "feed-readiness-base-count:" + shedID,
+		SourceHash: "feed-readiness-base-hash:" + shedID, DiscrepancyState: "not_checked",
+		IdempotencyKey: key, RequestFingerprint: fingerprint,
+	}
+}
+
+func feedReadinessPregnantShift() countsdomain.ShiftingEvent {
+	stage := "pregnant"
+	return countsdomain.ShiftingEvent{
+		TenantID: feedTenant, LogicalShiftingEventKey: "feed-readiness-pregnant-shift",
+		Priority: "high", Category: "pregnancy", SourceParkID: stringPtr(feedCountsPark),
+		SourceShedID: stringPtr(feedCountsSourceShed), DestinationParkID: feedCountsPark,
+		DestinationShedID: feedCountsDestinationShed,
+		RaisedAt:          time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC), EffectiveAt: time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC),
+		AuthorizationState: "authorized", VerificationState: "verified", EventStatus: "authorized",
+		SourceSystem: "feed_shiftings_docx", SourceRef: "feed-readiness-shift-report",
+		PayloadHash: "feed-readiness-shift-payload", IdempotencyKey: "feed-readiness-shift-idem",
+		RequestFingerprint: "feed-readiness-shift-fp",
+		Impacts: []countsdomain.ShiftingEventImpact{{
+			GrainKey: "beetal:pregnant", BreedKey: "beetal", BreedLabel: "Beetal", StageTag: &stage,
+			HeadCount: 3, PregnantCount: 3, RiskFlagsJSON: []byte(`{"pregnant":true}`),
+			RationContextResolutionState: "blocked", BlockerReason: stringPtr("destination shed ration context unresolved"),
+		}},
+	}
+}
+
+func readinessGate(t *testing.T, gates []feeddomain.ReadinessGate, id string) feeddomain.ReadinessGate {
+	t.Helper()
+	for _, gate := range gates {
+		if gate.ID == id {
+			return gate
+		}
+	}
+	t.Fatalf("missing readiness gate %s in %+v", id, gates)
+	return feeddomain.ReadinessGate{}
+}
+
+func feedSubgate(t *testing.T, subgates []feeddomain.CountsShiftingSubgate, id string) feeddomain.CountsShiftingSubgate {
+	t.Helper()
+	for _, subgate := range subgates {
+		if subgate.ID == id {
+			return subgate
+		}
+	}
+	t.Fatalf("missing feed subgate %s in %+v", id, subgates)
+	return feeddomain.CountsShiftingSubgate{}
+}
+
+func stringPtr(s string) *string { return &s }
 
 func scanText(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) string {
 	t.Helper()
