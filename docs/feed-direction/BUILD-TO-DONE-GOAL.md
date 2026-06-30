@@ -150,7 +150,9 @@ language.
    worker path with durable scan-run evidence, dedicated mismatch-scan anchor
    indexes, `counts-alias-coverage-check` proof for source-required Sheds DB
    profile-tag aliases, `counts-source-parity-check` proof for sanitized
-   workbook/source parity fixtures, `counts-query-plan-check` index-path proof
+   workbook/source parity fixtures that compare shed, breed, stage/tag,
+   age class, sex, headcount, pregnant/lactating/warm-up counts, and
+   ration-context resolution state, `counts-query-plan-check` index-path proof
    for Counts hot reads with migrated synthetic movement and projection-row
    fixtures, observability, aggregate breed-level count output,
    reviewed ration-context resolution state for each shed + breed projection row, and
@@ -163,8 +165,9 @@ language.
    exception. This is readiness/outbox consumption proof only; full Feed
    generation consumption of immutable projection snapshots still remains.
    `counts-source-parity-check` now also has migrated-Postgres proof against a
-   canonical projection snapshot/read path and writes `CSG10` source-parity
-   evidence as pending, not ready.
+   canonical projection snapshot/read path for a pregnant adult-female
+   high-risk row, including pregnant and warm-up counts, and writes `CSG10`
+   source-parity evidence as pending, not ready.
    `counts-source-import` now has migrated-Postgres proof that replaying the
    same typed Base Count + pregnant ShiftingEvent JSONL batch records replay
    evidence, does not duplicate canonical rows/impacts, and keeps `CSG8`
@@ -178,9 +181,9 @@ language.
    ShiftingEvent movement reads use park/date-bounded source and destination
    indexes, projection rows carry the snapshot park/date filters needed for the
    hot read index, and `CSG10` query-plan evidence stays pending, not ready.
-   Raw Counting DB / Feed Directions Automation XLSX parsing, parity fixtures,
-   and workbook-column mapping remain source-review work; workbook formulas or
-   examples must not bypass typed validation/import.
+   Raw Counting DB / Feed Directions Automation XLSX parsing, full parity
+   fixture breadth, and workbook-column mapping remain source-review work;
+   workbook formulas or examples must not bypass typed validation/import.
    Typed import run evidence, projection recompute run/replay evidence, alias
    coverage evidence, and query-plan evidence may move subgates from blocked to
    pending, but they cannot turn `G2` green without full source workbook parity,

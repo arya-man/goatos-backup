@@ -164,11 +164,14 @@ Implementation status as of 2026-06-30:
   evidence without importing the raw workbook as runtime truth.
 - `backend/cmd/counts-source-parity-check` compares sanitized source parity
   fixtures, such as `backend/testdata/counts/source-parity-sample.json`, against
-  the canonical `CountAsOf`/`ProjectedCountFor` read path. Missing, mismatched,
-  truncated, or unexpected exact-mode rows make `CSG10` `blocked`; passing
-  fixtures make `CSG10` `pending`, not `ready`. The command has a
-  migrated-Postgres test proving canonical projection snapshots can satisfy a
-  sanitized parity fixture and write `CSG10` source-parity evidence.
+  the canonical `CountAsOf`/`ProjectedCountFor` read path. The fixture grain is
+  shed, breed, stage/tag, age class, and sex, and the checker compares
+  headcount, pregnant/lactating/warm-up counts, and ration-context resolution
+  state. Missing, mismatched, truncated, or unexpected exact-mode rows make
+  `CSG10` `blocked`; passing fixtures make `CSG10` `pending`, not `ready`. The
+  command has a migrated-Postgres test proving canonical projection snapshots
+  can satisfy a pregnant adult-female high-risk parity fixture and write
+  `CSG10` source-parity evidence.
 - Locations now accepts reviewed `sheds_db` source evidence for location aliases
   and capacity records, backed by the Postgres capacity-source constraint. This
   lets Sheds DB become governed Location/Park profile data instead of a raw
@@ -437,7 +440,7 @@ Required paths:
 | Count mismatch scan | Base Count adoption plus `counts-mismatch-scan` scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. The bounded worker command pages through stale historical/imported anchors with tenant/window/limit/cursor guards, writes the same exception work, records `count_mismatch_scan_runs`, and updates `CSG6`/`CSG10` readiness evidence. The anchor page now has dedicated mismatch-scan indexes and query-plan coverage. |
 | Alias coverage proof | `counts-alias-coverage-check` | Check source-required aliases such as Sheds DB profile tags against approved `count_dimension_aliases`; update `CSG7` readiness evidence without turning it ready. |
 | Location profile coverage proof | `location-profile-coverage-check` | Check reviewed Sheds DB profile fixtures against active Location aliases and capacity rows; update `CSG7` readiness evidence without turning it ready. |
-| Source parity proof | `counts-source-parity-check` | Compare sanitized source parity fixtures against canonical projection reads; update `CSG10` readiness evidence without turning it ready. |
+| Source parity proof | `counts-source-parity-check` | Compare sanitized source parity fixtures against canonical projection reads at shed/breed/stage-age-sex grain, including pregnant/lactating/warm-up counts and ration-context state; update `CSG10` readiness evidence without turning it ready. |
 | Query-plan proof | `counts-query-plan-check` | Prove expected Postgres index paths for Counts hot reads, including park/date-bounded movement windows and projection-row hot pages, then update `CSG10` readiness evidence; never use this alone as G2 completion proof. |
 | Exception fanout/read model | Projection exception open/update/close plus process-integrity query | Emit `counts.projection_exception.*` outbox events and project `category=feed_direction` exception rows into top-level Action Center/Workflows; assignment policy, frontend UX, and broader Calendar/Protocol Adherence/Control Tower mapping remain separate closure work. |
 | Feed projection read | API/app port | Return rows or typed blocker with source hash |
@@ -490,6 +493,11 @@ Non-negotiable tests:
   Count/Shifting rows, replays, failed rows, source reference, status, last
   error, `CSG8` replay evidence, and `CSG10` evidence without making G2 green by
   itself.
+- Source parity checks compare high-risk source/workbook dimensions
+  (`shed`, `breed`, `stage_tag`, `age_class`, `sex`,
+  `pregnant_count`, `lactating_count`, `warmup_count`) against canonical
+  projection reads; this is sample/parity evidence only until raw workbook
+  mapping, owner review, and seeded local E2E close.
 - Projection recompute run observability records tenant, park, horizon, target
   date, as-of time, status, projection status, snapshot reference, row count,
   exception count, trace id, last error, and `CSG10` evidence without making G2

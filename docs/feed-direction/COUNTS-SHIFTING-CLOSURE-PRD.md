@@ -113,8 +113,10 @@ local projection handler recomputes both horizons, and the resulting
 keep `G2` generation blocked. Full Feed generation from immutable projection
 snapshots remains separate closure work.
 `counts-source-parity-check` has migrated-Postgres proof that sanitized parity
-fixtures can be compared against the canonical projection read path and can
-write `CSG10` evidence without turning the gate ready.
+fixtures can be compared against the canonical projection read path for
+shed/breed/stage-age-sex rows with pregnant/lactating/warm-up counts and
+ration-context state, then write `CSG10` evidence without turning the gate
+ready.
 
 For any Counts/Shifting behavior that affects Feed Direction timing, Diff,
 bridge handling, one-day projection, or physical count adoption,
@@ -153,8 +155,10 @@ but never `ready`. The `location-profile-coverage-check` worker checks reviewed
 Sheds DB profile fixtures against `location_aliases` and
 `location_capacity_records` and can also move `CSG7` to `blocked` or `pending`,
 but never `ready`. The `counts-source-parity-check` worker compares sanitized
-source parity fixtures against canonical projection reads and can move `CSG10`
-to `blocked` or `pending`, but never `ready`. The `counts-query-plan-check`
+source parity fixtures against canonical projection reads, including
+shed/breed/stage, age class, sex, headcount, pregnant/lactating/warm-up counts,
+and ration-context state, and can move `CSG10` to `blocked` or `pending`, but
+never `ready`. The `counts-query-plan-check`
 worker has migrated-Postgres proof for bounded movement/window and projection
 row index paths and can move `CSG10` to `blocked` or `pending`, but never
 `ready`. Canonical replay, source-import replay, and projection-recompute

@@ -1,6 +1,6 @@
 {
   "tenant_id": "00000000-0000-4000-8000-000000000001",
-  "source_ref": "context/source-findings/feed-direction-counting-db-reconstruction.md",
+  "source_ref": "context/source-findings/feed-direction-counting-db-reconstruction.md;context/source-findings/feed-direction-workbook-automation-findings.md;context/source-findings/goats-and-parks-source-findings.md",
   "horizon": "feed_target_date",
   "park_id": "00000000-0000-4000-8000-000000000010",
   "target_date": "2026-07-01",
@@ -10,7 +10,13 @@
     {
       "shed_id": "00000000-0000-4000-8000-000000000011",
       "breed_key": "beetal",
+      "stage_tag": "pregnant",
+      "age_class": "adult_doe",
+      "sex": "female",
       "head_count": 10,
+      "pregnant_count": 2,
+      "lactating_count": 0,
+      "warmup_count": 1,
       "ration_context_resolution_state": "blocked"
     }
   ]

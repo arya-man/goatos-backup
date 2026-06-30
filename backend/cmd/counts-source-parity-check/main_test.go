@@ -31,7 +31,7 @@ func TestParseParityFileNormalizesRows(t *testing.T) {
 		"target_date": "2026-07-01T15:00:00Z",
 		"coverage_mode": "exact",
 		"expected_rows": [
-			{"shed_id": "shed-2", "breed_key": "Sirohi", "stage_tag": "Late Gestation", "head_count": 3},
+			{"shed_id": "shed-2", "breed_key": "Sirohi", "stage_tag": "Late Gestation", "age_class": "Adult Doe", "sex": "Female", "head_count": 3, "pregnant_count": 3},
 			{"shed_id": "shed-1", "breed_key": "Beetal", "head_count": 10, "ration_context_resolution_state": "resolved"}
 		]
 	}`), config{}, func() time.Time { return parityNow })
@@ -49,6 +49,15 @@ func TestParseParityFileNormalizesRows(t *testing.T) {
 	}
 	if fixture.ExpectedRows[1].StageTag == nil || *fixture.ExpectedRows[1].StageTag != "late_gestation" {
 		t.Fatalf("stage tag=%v", fixture.ExpectedRows[1].StageTag)
+	}
+	if fixture.ExpectedRows[1].AgeClass == nil || *fixture.ExpectedRows[1].AgeClass != "adult_doe" {
+		t.Fatalf("age class=%v", fixture.ExpectedRows[1].AgeClass)
+	}
+	if fixture.ExpectedRows[1].Sex == nil || *fixture.ExpectedRows[1].Sex != "female" {
+		t.Fatalf("sex=%v", fixture.ExpectedRows[1].Sex)
+	}
+	if fixture.ExpectedRows[1].PregnantCount != 3 {
+		t.Fatalf("pregnant_count=%d", fixture.ExpectedRows[1].PregnantCount)
 	}
 }
 
@@ -116,6 +125,69 @@ func TestCompareParityRowsFindsMissingAndMismatchedRows(t *testing.T) {
 	}
 	if len(result.Mismatched) != 2 {
 		t.Fatalf("mismatched=%v, want head_count and ration_state mismatches", result.Mismatched)
+	}
+}
+
+func TestCompareParityRowsChecksHighRiskCohortDimensions(t *testing.T) {
+	fixture, err := parseParityFile(strings.NewReader(`{
+		"tenant_id": "tenant-1",
+		"source_ref": "source.md",
+		"horizon": "feed_target_date",
+		"park_id": "park-1",
+		"target_date": "2026-07-01",
+		"expected_rows": [{
+			"shed_id": "shed-1",
+			"breed_key": "Beetal",
+			"stage_tag": "Pregnant",
+			"age_class": "Adult Doe",
+			"sex": "Female",
+			"head_count": 8,
+			"pregnant_count": 3,
+			"lactating_count": 1,
+			"warmup_count": 2,
+			"ration_context_resolution_state": "blocked"
+		}]
+	}`), config{}, func() time.Time { return parityNow })
+	if err != nil {
+		t.Fatalf("parseParityFile: %v", err)
+	}
+	actualStage := "pregnant"
+	actualAge := "adult_doe"
+	actualSex := "female"
+	projection := countsdomain.CountProjection{Rows: []countsdomain.ProjectionRow{{
+		ShedID: "shed-1", BreedKey: "beetal", StageTag: &actualStage, AgeClass: &actualAge, Sex: &actualSex,
+		HeadCount: 8, PregnantCount: 2, LactatingCount: 0, WarmupCount: 1,
+		RationContextResolutionState: "blocked",
+	}}}
+	result := compareParityRows(fixture, projection)
+	if len(result.Missing) != 0 {
+		t.Fatalf("missing=%v, want same shed/breed/stage/age/sex key", result.Missing)
+	}
+	if len(result.Mismatched) != 3 {
+		t.Fatalf("mismatched=%v, want pregnant/lactating/warmup mismatches", result.Mismatched)
+	}
+	for _, field := range []string{"pregnant_count", "lactating_count", "warmup_count"} {
+		found := false
+		for _, mismatch := range result.Mismatched {
+			found = found || strings.Contains(mismatch, field)
+		}
+		if !found {
+			t.Fatalf("mismatched=%v, want %s mismatch", result.Mismatched, field)
+		}
+	}
+}
+
+func TestParseParityFileRejectsHighRiskCountsAboveHeadCount(t *testing.T) {
+	_, err := parseParityFile(strings.NewReader(`{
+		"tenant_id": "tenant-1",
+		"source_ref": "source.md",
+		"horizon": "feed_target_date",
+		"park_id": "park-1",
+		"target_date": "2026-07-01",
+		"expected_rows": [{"shed_id": "shed-1", "breed_key": "beetal", "head_count": 2, "pregnant_count": 3}]
+	}`), config{}, func() time.Time { return parityNow })
+	if err == nil || !strings.Contains(err.Error(), "must not exceed head_count") {
+		t.Fatalf("err=%v, want high-risk count validation", err)
 	}
 }
 
@@ -200,6 +272,9 @@ func TestSourceParityAgainstMigratedProjectionUpdatesCSG10(t *testing.T) {
 		t.Fatalf("RecordBaseCountAnchor anchor=%q replay=%v err=%v", anchorID, replay, err)
 	}
 	target := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	stage := "pregnant"
+	age := "adult_doe"
+	sex := "female"
 	snapshotID, err := repo.CreateProjectionSnapshot(ctx, countsdomain.ProjectionSnapshot{
 		TenantID: parityTenant, Horizon: horizonFeedTargetDate, ParkID: parityPark,
 		TargetDate: target, AsOf: parityNow, ProjectionStatus: "blocked",
@@ -213,6 +288,7 @@ func TestSourceParityAgainstMigratedProjectionUpdatesCSG10(t *testing.T) {
 			GrainKey: "source-parity:beetal", BaseCountAnchorID: anchorID,
 			IncludedShiftingEventIDsHash: "source-parity-shift-hash",
 			BreedKey:                     "beetal", BreedLabel: "Beetal", HeadCount: 10,
+			StageTag: &stage, AgeClass: &age, Sex: &sex, PregnantCount: 2, WarmupCount: 1,
 			RationContextResolutionState: "blocked", SourceRowHash: "source-parity-row-hash",
 		}},
 	})
@@ -226,7 +302,8 @@ func TestSourceParityAgainstMigratedProjectionUpdatesCSG10(t *testing.T) {
 		Horizon: horizonFeedTargetDate, ParkID: parityPark, targetDate: target, asOf: parityNow,
 		effectiveMode: modeSample,
 		ExpectedRows: []expectedParityRow{{
-			ShedID: parityShed, BreedKey: "beetal", HeadCount: 10, RationContextResolutionState: &state,
+			ShedID: parityShed, BreedKey: "beetal", StageTag: &stage, AgeClass: &age, Sex: &sex,
+			HeadCount: 10, PregnantCount: 2, WarmupCount: 1, RationContextResolutionState: &state,
 		}},
 	}
 	result, err := checkSourceParity(ctx, repo, fixture, 25)

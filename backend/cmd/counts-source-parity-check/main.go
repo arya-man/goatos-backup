@@ -59,7 +59,12 @@ type expectedParityRow struct {
 	ShedID                       string  `json:"shed_id"`
 	BreedKey                     string  `json:"breed_key"`
 	StageTag                     *string `json:"stage_tag"`
+	AgeClass                     *string `json:"age_class"`
+	Sex                          *string `json:"sex"`
 	HeadCount                    int32   `json:"head_count"`
+	PregnantCount                int32   `json:"pregnant_count"`
+	LactatingCount               int32   `json:"lactating_count"`
+	WarmupCount                  int32   `json:"warmup_count"`
 	RationContextResolutionState *string `json:"ration_context_resolution_state"`
 }
 
@@ -226,6 +231,14 @@ func parseParityFile(r io.Reader, cfg config, now func() time.Time) (parityFile,
 			trimmed := aliasNorm(*row.StageTag)
 			row.StageTag = &trimmed
 		}
+		if row.AgeClass != nil {
+			trimmed := aliasNorm(*row.AgeClass)
+			row.AgeClass = &trimmed
+		}
+		if row.Sex != nil {
+			trimmed := aliasNorm(*row.Sex)
+			row.Sex = &trimmed
+		}
 		if row.RationContextResolutionState != nil {
 			trimmed := strings.TrimSpace(*row.RationContextResolutionState)
 			row.RationContextResolutionState = &trimmed
@@ -236,7 +249,13 @@ func parseParityFile(r io.Reader, cfg config, now func() time.Time) (parityFile,
 		if row.HeadCount < 0 {
 			return parityFile{}, fmt.Errorf("expected_rows[%d] head_count must be non-negative", i)
 		}
-		key := parityRowKey(row.ShedID, row.BreedKey, ptrValue(row.StageTag))
+		if row.PregnantCount < 0 || row.LactatingCount < 0 || row.WarmupCount < 0 {
+			return parityFile{}, fmt.Errorf("expected_rows[%d] high-risk counts must be non-negative", i)
+		}
+		if row.PregnantCount > row.HeadCount || row.LactatingCount > row.HeadCount || row.WarmupCount > row.HeadCount {
+			return parityFile{}, fmt.Errorf("expected_rows[%d] pregnant/lactating/warmup counts must not exceed head_count", i)
+		}
+		key := parityRowKey(row.ShedID, row.BreedKey, ptrValue(row.StageTag), ptrValue(row.AgeClass), ptrValue(row.Sex))
 		if seen[key] {
 			return parityFile{}, fmt.Errorf("duplicate expected row for %s", key)
 		}
@@ -245,8 +264,8 @@ func parseParityFile(r io.Reader, cfg config, now func() time.Time) (parityFile,
 	sort.Slice(file.ExpectedRows, func(i, j int) bool {
 		left := file.ExpectedRows[i]
 		right := file.ExpectedRows[j]
-		return parityRowKey(left.ShedID, left.BreedKey, ptrValue(left.StageTag)) <
-			parityRowKey(right.ShedID, right.BreedKey, ptrValue(right.StageTag))
+		return parityRowKey(left.ShedID, left.BreedKey, ptrValue(left.StageTag), ptrValue(left.AgeClass), ptrValue(left.Sex)) <
+			parityRowKey(right.ShedID, right.BreedKey, ptrValue(right.StageTag), ptrValue(right.AgeClass), ptrValue(right.Sex))
 	})
 	return file, nil
 }
@@ -284,12 +303,12 @@ func compareParityRows(fixture parityFile, projection countsdomain.CountProjecti
 	}
 	actual := map[string]countsdomain.ProjectionRow{}
 	for _, row := range projection.Rows {
-		key := parityRowKey(row.ShedID, row.BreedKey, ptrValue(row.StageTag))
+		key := parityRowKey(row.ShedID, row.BreedKey, ptrValue(row.StageTag), ptrValue(row.AgeClass), ptrValue(row.Sex))
 		actual[key] = row
 	}
 	expectedKeys := map[string]bool{}
 	for _, expected := range fixture.ExpectedRows {
-		key := parityRowKey(expected.ShedID, expected.BreedKey, ptrValue(expected.StageTag))
+		key := parityRowKey(expected.ShedID, expected.BreedKey, ptrValue(expected.StageTag), ptrValue(expected.AgeClass), ptrValue(expected.Sex))
 		expectedKeys[key] = true
 		got, ok := actual[key]
 		if !ok {
@@ -299,6 +318,18 @@ func compareParityRows(fixture parityFile, projection countsdomain.CountProjecti
 		if got.HeadCount != expected.HeadCount {
 			result.Mismatched = append(result.Mismatched,
 				fmt.Sprintf("%s head_count got=%d want=%d", key, got.HeadCount, expected.HeadCount))
+		}
+		if got.PregnantCount != expected.PregnantCount {
+			result.Mismatched = append(result.Mismatched,
+				fmt.Sprintf("%s pregnant_count got=%d want=%d", key, got.PregnantCount, expected.PregnantCount))
+		}
+		if got.LactatingCount != expected.LactatingCount {
+			result.Mismatched = append(result.Mismatched,
+				fmt.Sprintf("%s lactating_count got=%d want=%d", key, got.LactatingCount, expected.LactatingCount))
+		}
+		if got.WarmupCount != expected.WarmupCount {
+			result.Mismatched = append(result.Mismatched,
+				fmt.Sprintf("%s warmup_count got=%d want=%d", key, got.WarmupCount, expected.WarmupCount))
 		}
 		if expected.RationContextResolutionState != nil &&
 			got.RationContextResolutionState != strings.TrimSpace(*expected.RationContextResolutionState) {
@@ -373,8 +404,9 @@ func inputReader(path string) (io.Reader, func(), error) {
 	return f, func() { _ = f.Close() }, nil
 }
 
-func parityRowKey(shedID, breedKey, stageTag string) string {
-	return strings.TrimSpace(shedID) + "\x00" + aliasNorm(breedKey) + "\x00" + aliasNorm(stageTag)
+func parityRowKey(shedID, breedKey, stageTag, ageClass, sex string) string {
+	return strings.TrimSpace(shedID) + "\x00" + aliasNorm(breedKey) + "\x00" +
+		aliasNorm(stageTag) + "\x00" + aliasNorm(ageClass) + "\x00" + aliasNorm(sex)
 }
 
 func aliasNorm(value string) string {
