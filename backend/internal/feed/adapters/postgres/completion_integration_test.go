@@ -249,6 +249,28 @@ func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t 
 	if _, replay, err := countsRepo.RecordBaseCountAnchor(ctx, feedReadinessBaseAnchor(feedCountsDestinationShed, "feed-reviewed-dest-anchor", "feed-reviewed-dest-fp", 5)); err != nil || replay {
 		t.Fatalf("record reviewed destination anchor replay=%v err=%v", replay, err)
 	}
+	previousMismatchAnchor := feedReadinessBaseAnchor(feedCountsSourceShed, "feed-reviewed-mismatch-previous-anchor", "feed-reviewed-mismatch-previous-fp", 20)
+	previousMismatchAnchor.CountedAt = time.Date(2026, 6, 28, 6, 0, 0, 0, time.UTC)
+	if _, replay, err := countsRepo.RecordBaseCountAnchor(ctx, previousMismatchAnchor); err != nil || replay {
+		t.Fatalf("record previous mismatch anchor replay=%v err=%v", replay, err)
+	}
+	currentMismatchAnchor := feedReadinessBaseAnchor(feedCountsSourceShed, "feed-reviewed-mismatch-current-anchor", "feed-reviewed-mismatch-current-fp", 17)
+	currentMismatchAnchor.CountedAt = time.Date(2026, 6, 29, 6, 0, 0, 0, time.UTC)
+	currentMismatchAnchor.SourceSystem = "import"
+	currentMismatchAnchor.SourceRef = "counting-db-values-only:feed-reviewed-mismatch"
+	currentMismatchAnchor.SourceHash = "feed-reviewed-mismatch-current-source-hash"
+	insertFeedBaseCountAnchorDirect(t, ctx, pool, currentMismatchAnchor)
+	scan, err := countsRepo.ScanCountMismatches(ctx, countsdomain.CountMismatchScanRequest{
+		TenantID: feedTenant, ParkID: stringPtr(feedCountsPark),
+		CountedBefore: time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		Limit:         25,
+	})
+	if err != nil {
+		t.Fatalf("scan reviewed count mismatches: %v", err)
+	}
+	if scan.Status != "completed" || scan.NextCursor != nil || scan.ExceptionWriteCount != 1 {
+		t.Fatalf("count mismatch scan=%+v, want completed one-exception run", scan)
+	}
 	shift := feedReadinessPregnantShift()
 	shift.LogicalShiftingEventKey = "feed-reviewed-pregnant-shift"
 	shift.PayloadHash = "feed-reviewed-shift-payload"
@@ -291,10 +313,13 @@ func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t 
 			t.Fatalf("G2 blocker=%q, want %q", g2.BlockerReason, want)
 		}
 	}
-	for _, forbidden := range []string{"CSG7=blocked", "Projection snapshot contains alias_conflict"} {
+	for _, forbidden := range []string{"CSG6=blocked", "CSG7=blocked", "Projection snapshot contains alias_conflict"} {
 		if strings.Contains(g2.BlockerReason, forbidden) {
 			t.Fatalf("G2 blocker=%q, must not contain %q after approved aliases", g2.BlockerReason, forbidden)
 		}
+	}
+	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG6"); csg.Status != feeddomain.ReadinessReady || csg.EvidenceRef != "count_mismatch_scan_runs:"+scan.RunID {
+		t.Fatalf("CSG6=%+v, want ready scan evidence", csg)
 	}
 	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG7"); csg.Status != feeddomain.ReadinessPending || !strings.Contains(csg.BlockerReason, "no alias_conflict") {
 		t.Fatalf("CSG7=%+v, want pending reviewed-alias evidence without alias conflicts", csg)
@@ -358,6 +383,33 @@ INSERT INTO count_dimension_aliases (
 
 func feedCountAliasNorm(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), "_"))
+}
+
+func insertFeedBaseCountAnchorDirect(t *testing.T, ctx context.Context, pool *pgxpool.Pool, in countsdomain.BaseCountAnchor) string {
+	t.Helper()
+	var id string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO count_base_anchors (
+  tenant_id, park_id, shed_id, breed_id, breed_key, breed_label, counted_at, head_count,
+  source_system, source_ref, source_hash, discrepancy_state, idempotency_key, request_fingerprint, recorded_by
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, nullif($4::text, '')::uuid, $5, $6, $7, $8,
+  $9, $10, $11, $12, $13, $14, nullif($15::text, '')::uuid
+)
+RETURNING base_count_anchor_id::text`,
+		in.TenantID, in.ParkID, in.ShedID, feedStringValue(in.BreedID), in.BreedKey, in.BreedLabel,
+		in.CountedAt, in.HeadCount, in.SourceSystem, in.SourceRef, in.SourceHash, in.DiscrepancyState,
+		in.IdempotencyKey, in.RequestFingerprint, feedStringValue(in.RecordedBy)).Scan(&id); err != nil {
+		t.Fatalf("insert direct feed base count anchor: %v", err)
+	}
+	return id
+}
+
+func feedStringValue(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 func feedReadinessBaseAnchor(shedID, key, fingerprint string, count int32) countsdomain.BaseCountAnchor {
