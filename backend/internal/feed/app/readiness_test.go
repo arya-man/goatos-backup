@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	countsports "github.com/vgoats/goatos/backend/internal/counts/ports"
 	"github.com/vgoats/goatos/backend/internal/feed/domain"
 )
 
@@ -16,6 +18,17 @@ type fakeCountsReadiness struct {
 
 func (f fakeCountsReadiness) Readiness(context.Context, string) (countsdomain.Readiness, error) {
 	return f.readiness, nil
+}
+
+type fakeCountsExceptionResolver struct {
+	got countsdomain.ProjectionExceptionResolutionRequest
+	out countsdomain.ProjectionExceptionResolution
+	err error
+}
+
+func (f *fakeCountsExceptionResolver) ResolveProjectionException(_ context.Context, in countsdomain.ProjectionExceptionResolutionRequest) (countsdomain.ProjectionExceptionResolution, error) {
+	f.got = in
+	return f.out, f.err
 }
 
 func TestReadinessFailsClosedAtG2WithCountsShiftingSubgates(t *testing.T) {
@@ -132,3 +145,74 @@ func TestReadinessSurfacesShiftedPregnantAndFeedSafetyInvariants(t *testing.T) {
 		t.Fatalf("wastage invariant should name moist/stale feed risk, got %q", byKey["overfeed_wastage_moist_feed_exception"].BlockerReason)
 	}
 }
+
+func TestResolveCountsProjectionExceptionBuildsDeterministicCountsCommand(t *testing.T) {
+	ref := " shift-report:123 "
+	resolver := &fakeCountsExceptionResolver{out: countsdomain.ProjectionExceptionResolution{
+		ProjectionExceptionResolutionID: "resolution-1",
+		ProjectionExceptionID:           "exception-1",
+		Action:                          "resolve",
+		Status:                          "resolved",
+		WorkState:                       "resolved",
+		ResolvedByRef:                   "actor-1",
+		ResolutionReason:                "reviewed pregnant destination ration context",
+		ResolutionRef:                   strPtr("shift-report:123"),
+		ResolvedAt:                      time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC),
+	}}
+	out, err := NewService(nil).
+		WithCountsProjectionExceptionResolver(resolver).
+		ResolveCountsProjectionException(context.Background(), domain.CountsProjectionExceptionResolutionCommand{
+			TenantID: " tenant-1 ", ProjectionExceptionID: " exception-1 ", Action: " RESOLVE ",
+			ActorID: " actor-1 ", ResolutionReason: " reviewed pregnant destination ration context ",
+			ResolutionRef: &ref, IdempotencyKey: " resolve-exception-1 ",
+		})
+	if err != nil {
+		t.Fatalf("ResolveCountsProjectionException err=%v", err)
+	}
+	if out.ResolutionID != "resolution-1" || out.Status != "resolved" || out.ResolutionRef == nil || *out.ResolutionRef != "shift-report:123" {
+		t.Fatalf("resolution=%+v", out)
+	}
+	if resolver.got.TenantID != "tenant-1" || resolver.got.ProjectionExceptionID != "exception-1" ||
+		resolver.got.Action != "resolve" || resolver.got.ResolvedByRef != "actor-1" ||
+		resolver.got.ResolutionReason != "reviewed pregnant destination ration context" ||
+		resolver.got.IdempotencyKey != "resolve-exception-1" ||
+		resolver.got.RequestFingerprint == "" ||
+		resolver.got.ResolutionRef == nil || *resolver.got.ResolutionRef != "shift-report:123" {
+		t.Fatalf("counts command=%+v", resolver.got)
+	}
+	firstFP := resolver.got.RequestFingerprint
+	if _, err := NewService(nil).
+		WithCountsProjectionExceptionResolver(resolver).
+		ResolveCountsProjectionException(context.Background(), domain.CountsProjectionExceptionResolutionCommand{
+			TenantID: "tenant-1", ProjectionExceptionID: "exception-1", Action: "resolve",
+			ActorID: "actor-1", ResolutionReason: "reviewed pregnant destination ration context",
+			ResolutionRef: strPtr("shift-report:123"), IdempotencyKey: "resolve-exception-1",
+		}); err != nil {
+		t.Fatalf("second ResolveCountsProjectionException err=%v", err)
+	}
+	if resolver.got.RequestFingerprint != firstFP {
+		t.Fatalf("fingerprint changed: %q vs %q", resolver.got.RequestFingerprint, firstFP)
+	}
+}
+
+func TestResolveCountsProjectionExceptionFailsClosedAndMapsCountsErrors(t *testing.T) {
+	_, err := NewService(nil).ResolveCountsProjectionException(context.Background(), domain.CountsProjectionExceptionResolutionCommand{
+		TenantID: "tenant-1", ProjectionExceptionID: "exception-1", Action: "resolve",
+		ActorID: "actor-1", ResolutionReason: "reviewed", IdempotencyKey: "idem-key-1",
+	})
+	if !errors.Is(err, ErrCountsResolverUnavailable) {
+		t.Fatalf("err=%v, want ErrCountsResolverUnavailable", err)
+	}
+
+	_, err = NewService(nil).
+		WithCountsProjectionExceptionResolver(&fakeCountsExceptionResolver{err: countsports.ErrIdempotencyConflict}).
+		ResolveCountsProjectionException(context.Background(), domain.CountsProjectionExceptionResolutionCommand{
+			TenantID: "tenant-1", ProjectionExceptionID: "exception-1", Action: "dismiss",
+			ActorID: "actor-1", ResolutionReason: "duplicate", IdempotencyKey: "idem-key-1",
+		})
+	if !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("err=%v, want ErrIdempotencyConflict", err)
+	}
+}
+
+func strPtr(s string) *string { return &s }

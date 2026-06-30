@@ -3,22 +3,51 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"strings"
 	"time"
 
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	countsports "github.com/vgoats/goatos/backend/internal/counts/ports"
 	"github.com/vgoats/goatos/backend/internal/feed/domain"
 	"github.com/vgoats/goatos/backend/internal/feed/ports"
+)
+
+var (
+	ErrMissingRequiredField        = errors.New("feed: missing required field")
+	ErrInvalidResolutionAction     = errors.New("feed: invalid counts projection exception resolution action")
+	ErrInvalidIdempotencyKey       = errors.New("feed: invalid idempotency key")
+	ErrInvalidResolutionReason     = errors.New("feed: invalid resolution reason")
+	ErrInvalidResolutionRef        = errors.New("feed: invalid resolution ref")
+	ErrCountsResolverUnavailable   = errors.New("feed: counts projection exception resolver unavailable")
+	ErrIdempotencyConflict         = errors.New("feed: idempotency key reused with different payload")
+	ErrProjectionExceptionNotFound = errors.New("feed: counts projection exception not found")
+	ErrProjectionExceptionClosed   = errors.New("feed: counts projection exception already closed")
+)
+
+const (
+	minIdempotencyKeyLen   = 8
+	maxIdempotencyKeyLen   = 200
+	maxResolutionReasonLen = 2000
+	maxResolutionRefLen    = 500
 )
 
 type countsReadinessReader interface {
 	Readiness(ctx context.Context, tenantID string) (countsdomain.Readiness, error)
 }
 
+type countsProjectionExceptionResolver interface {
+	ResolveProjectionException(ctx context.Context, in countsdomain.ProjectionExceptionResolutionRequest) (countsdomain.ProjectionExceptionResolution, error)
+}
+
 // Service coordinates feed-direction use-cases over the repository boundary.
 type Service struct {
-	repo            ports.Repository
-	countsReadiness countsReadinessReader
-	now             func() time.Time
+	repo                      ports.Repository
+	countsReadiness           countsReadinessReader
+	countsExceptionResolution countsProjectionExceptionResolver
+	now                       func() time.Time
 }
 
 // NewService constructs a Service.
@@ -36,6 +65,11 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 
 func (s *Service) WithCountsReadiness(reader countsReadinessReader) *Service {
 	s.countsReadiness = reader
+	return s
+}
+
+func (s *Service) WithCountsProjectionExceptionResolver(resolver countsProjectionExceptionResolver) *Service {
+	s.countsExceptionResolution = resolver
 	return s
 }
 
@@ -63,6 +97,63 @@ func (s *Service) ShedHistory(ctx context.Context, tenantID, shedID string, limi
 // VerificationQueue returns directions awaiting review (earliest fed first).
 func (s *Service) VerificationQueue(ctx context.Context, tenantID string, limit int32) ([]domain.RecordedDirection, error) {
 	return s.repo.ListRecordedDirections(ctx, tenantID, limit)
+}
+
+func (s *Service) ResolveCountsProjectionException(ctx context.Context, in domain.CountsProjectionExceptionResolutionCommand) (domain.CountsProjectionExceptionResolution, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	in.ProjectionExceptionID = strings.TrimSpace(in.ProjectionExceptionID)
+	in.Action = strings.ToLower(strings.TrimSpace(in.Action))
+	in.ActorID = strings.TrimSpace(in.ActorID)
+	in.ResolutionReason = strings.TrimSpace(in.ResolutionReason)
+	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
+	if in.ResolutionRef != nil {
+		ref := strings.TrimSpace(*in.ResolutionRef)
+		in.ResolutionRef = ptrIfNotEmpty(ref)
+	}
+	if in.TenantID == "" || in.ProjectionExceptionID == "" || in.ActorID == "" ||
+		in.ResolutionReason == "" || in.IdempotencyKey == "" {
+		return domain.CountsProjectionExceptionResolution{}, ErrMissingRequiredField
+	}
+	if len(in.IdempotencyKey) < minIdempotencyKeyLen || len(in.IdempotencyKey) > maxIdempotencyKeyLen {
+		return domain.CountsProjectionExceptionResolution{}, ErrInvalidIdempotencyKey
+	}
+	if len(in.ResolutionReason) > maxResolutionReasonLen {
+		return domain.CountsProjectionExceptionResolution{}, ErrInvalidResolutionReason
+	}
+	if in.ResolutionRef != nil && len(*in.ResolutionRef) > maxResolutionRefLen {
+		return domain.CountsProjectionExceptionResolution{}, ErrInvalidResolutionRef
+	}
+	if in.Action != "resolve" && in.Action != "dismiss" {
+		return domain.CountsProjectionExceptionResolution{}, ErrInvalidResolutionAction
+	}
+	if s.countsExceptionResolution == nil {
+		return domain.CountsProjectionExceptionResolution{}, ErrCountsResolverUnavailable
+	}
+	out, err := s.countsExceptionResolution.ResolveProjectionException(ctx, countsdomain.ProjectionExceptionResolutionRequest{
+		TenantID:              in.TenantID,
+		ProjectionExceptionID: in.ProjectionExceptionID,
+		Action:                in.Action,
+		ResolvedByRef:         in.ActorID,
+		ResolutionReason:      in.ResolutionReason,
+		ResolutionRef:         in.ResolutionRef,
+		IdempotencyKey:        in.IdempotencyKey,
+		RequestFingerprint:    countsProjectionExceptionResolutionFingerprint(in),
+	})
+	if err != nil {
+		return domain.CountsProjectionExceptionResolution{}, mapCountsProjectionExceptionError(err)
+	}
+	return domain.CountsProjectionExceptionResolution{
+		ResolutionID:          out.ProjectionExceptionResolutionID,
+		ProjectionExceptionID: out.ProjectionExceptionID,
+		Action:                out.Action,
+		Status:                out.Status,
+		WorkState:             out.WorkState,
+		ResolvedByRef:         out.ResolvedByRef,
+		ResolutionReason:      out.ResolutionReason,
+		ResolutionRef:         out.ResolutionRef,
+		ResolvedAt:            out.ResolvedAt,
+		Replayed:              out.Replayed,
+	}, nil
 }
 
 // Readiness returns the Feed Direction build/runtime readiness contract. Until
@@ -94,6 +185,40 @@ func (s *Service) Readiness(ctx context.Context, tenantID string) (domain.Readin
 		}
 	}
 	return readiness, nil
+}
+
+func mapCountsProjectionExceptionError(err error) error {
+	switch {
+	case errors.Is(err, countsports.ErrIdempotencyConflict):
+		return ErrIdempotencyConflict
+	case errors.Is(err, countsports.ErrProjectionExceptionNotFound):
+		return ErrProjectionExceptionNotFound
+	case errors.Is(err, countsports.ErrProjectionExceptionClosed):
+		return ErrProjectionExceptionClosed
+	default:
+		return err
+	}
+}
+
+func countsProjectionExceptionResolutionFingerprint(in domain.CountsProjectionExceptionResolutionCommand) string {
+	ref := ""
+	if in.ResolutionRef != nil {
+		ref = *in.ResolutionRef
+	}
+	parts := []string{in.TenantID, in.ProjectionExceptionID, in.Action, in.ActorID, in.ResolutionReason, ref}
+	h := sha256.New()
+	for _, part := range parts {
+		_, _ = h.Write([]byte(part))
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func ptrIfNotEmpty(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
 }
 
 func (s *Service) clock() time.Time {

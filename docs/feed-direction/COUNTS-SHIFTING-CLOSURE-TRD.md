@@ -114,6 +114,10 @@ Implementation status as of 2026-06-30:
   `count_projection_exception_resolutions`, updates the exception `status`,
   `work_state`, `resolved_at`, actor/ref/reason fields, and clears the linked
   Base Count discrepancy when the exception came from a physical-count mismatch.
+- `POST /feed-direction/counts-projection/exceptions/{exception_id}/resolve`
+  and `/dismiss` expose that closure path through the protected Feed Direction
+  API with authenticated actor, `Idempotency-Key`, reason, optional resolution
+  reference, and OpenAPI contract coverage.
 - Projection rows now carry `base_count_anchor_id`,
   `included_shifting_event_ids_hash`, source row hash, contract hash, and
   ration-context resolution state.
@@ -129,7 +133,7 @@ Implementation status as of 2026-06-30:
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
 - This does **not** close `G2`: source import/adapters, owner-approved alias
   mapping coverage/admin review, scheduled/import-wide mismatch scans,
-  exception routing into shared command lenses/outbox/API, observability,
+  exception routing into shared command lenses/outbox/UX, observability,
   query-plan/synthetic-scale proof, and seeded local E2E remain blockers.
 
 ## 3. Candidate Persistence
@@ -246,8 +250,10 @@ Implementation status as of 2026-06-30:
 - Backend exception review now supports idempotent `resolve` and `dismiss`
   actions with actor, reason, optional resolution reference, audit row, closed
   exception state, and linked Base Count discrepancy cleanup when applicable.
-- Full command-lens subscription, API routing, outbox event fanout, assignment
-  policy, and review-surface UX remain G2 blockers.
+- The protected Feed Direction API now exposes resolve/dismiss, registered in
+  the route-permission matrix and OpenAPI. Full command-lens subscription,
+  outbox event fanout, assignment policy, and review-surface UX remain G2
+  blockers.
 - New physical Base Count anchors compare against the previous adopted anchor
   plus applied shifting ledger net for the same tenant, park, shed, and breed.
   A matching delta stays clean; an unexplained delta creates `unreported_shifting`

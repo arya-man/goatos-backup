@@ -1320,6 +1320,93 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-direction/counts-projection/exceptions/{exception_id}/resolve:
+    post:
+      tags:
+        - Feed Direction
+      operationId: resolveFeedDirectionCountsProjectionException
+      summary: Resolve a Counts/Shifting projection exception after reviewed feed-safety closure.
+      description: >-
+        Closes an open Counts/Shifting projection exception through the Feed Direction surface with
+        actor, reason, optional source reference, and idempotent replay protection. This does not
+        make Feed generation ready by itself; the next projection recompute must still prove the
+        underlying shed/cohort ration context.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: exception_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedDirectionCountsProjectionExceptionActionRequest"
+      responses:
+        "200":
+          description: Counts/Shifting projection exception resolution.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedDirectionCountsProjectionExceptionActionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /feed-direction/counts-projection/exceptions/{exception_id}/dismiss:
+    post:
+      tags:
+        - Feed Direction
+      operationId: dismissFeedDirectionCountsProjectionException
+      summary: Dismiss a duplicate or intentionally non-blocking Counts/Shifting projection exception.
+      description: >-
+        Dismisses an open Counts/Shifting projection exception with actor, reason, optional source
+        reference, and idempotent replay protection. This path is for reviewed duplicates or
+        explicitly accepted non-blocking findings; it must not be used as a hidden generation bypass.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: exception_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedDirectionCountsProjectionExceptionActionRequest"
+      responses:
+        "200":
+          description: Counts/Shifting projection exception dismissal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedDirectionCountsProjectionExceptionActionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /calendar/vaccination/events:
     get:
       tags:
@@ -6006,6 +6093,82 @@ components:
         - ready
         - blocked
         - pending
+    FeedDirectionCountsProjectionExceptionActionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - resolution_reason
+      properties:
+        resolution_reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Reviewed reason for closing the Counts/Shifting projection exception.
+        resolution_ref:
+          type: string
+          nullable: true
+          maxLength: 500
+          description: Optional source, ticket, shifting-event, proof, or owner-review reference.
+    FeedDirectionCountsProjectionExceptionActionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - resolution
+        - trace_id
+      properties:
+        resolution:
+          $ref: "#/components/schemas/FeedDirectionCountsProjectionExceptionResolution"
+        trace_id:
+          type: string
+    FeedDirectionCountsProjectionExceptionResolution:
+      type: object
+      additionalProperties: false
+      required:
+        - resolution_id
+        - projection_exception_id
+        - action
+        - status
+        - work_state
+        - resolved_by_ref
+        - resolution_reason
+        - resolved_at
+        - replayed
+      properties:
+        resolution_id:
+          type: string
+          format: uuid
+        projection_exception_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum:
+            - resolve
+            - dismiss
+        status:
+          type: string
+          enum:
+            - resolved
+            - dismissed
+        work_state:
+          type: string
+          enum:
+            - resolved
+            - dismissed
+        resolved_by_ref:
+          type: string
+          minLength: 1
+        resolution_reason:
+          type: string
+          minLength: 1
+        resolution_ref:
+          type: string
+          nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+        replayed:
+          type: boolean
     FeedDirectionReadinessResponse:
       type: object
       additionalProperties: false

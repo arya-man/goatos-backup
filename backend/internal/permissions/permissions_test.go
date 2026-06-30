@@ -278,6 +278,25 @@ func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 	if !RolesAuthorize([]string{RoleParkHead}, route.Permissions, route.AdminOnly) {
 		t.Fatal("park head should authorize Feed Direction readiness via protocol.read")
 	}
+
+	for _, path := range []string{
+		"/feed-direction/counts-projection/exceptions/77000000-0000-4000-8000-000000000001/resolve",
+		"/feed-direction/counts-projection/exceptions/77000000-0000-4000-8000-000000000001/dismiss",
+	} {
+		route, ok := Match("POST", path)
+		if !ok {
+			t.Fatalf("feed direction counts exception action route is not registered: %s", path)
+		}
+		if len(route.Permissions) != 1 || route.Permissions[0] != ProtocolWrite {
+			t.Fatalf("permissions=%v, want [%s]", route.Permissions, ProtocolWrite)
+		}
+		if RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("operator must not authorize Feed Direction counts exception action: %s", path)
+		}
+		if !RolesAuthorize([]string{RoleAdmin}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("admin should authorize Feed Direction counts exception action: %s", path)
+		}
+	}
 }
 
 func TestProcurementBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {

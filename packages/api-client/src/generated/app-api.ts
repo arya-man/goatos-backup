@@ -595,6 +595,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-direction/counts-projection/exceptions/{exception_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve a Counts/Shifting projection exception after reviewed feed-safety closure.
+         * @description Closes an open Counts/Shifting projection exception through the Feed Direction surface with actor, reason, optional source reference, and idempotent replay protection. This does not make Feed generation ready by itself; the next projection recompute must still prove the underlying shed/cohort ration context.
+         */
+        post: operations["resolveFeedDirectionCountsProjectionException"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-direction/counts-projection/exceptions/{exception_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss a duplicate or intentionally non-blocking Counts/Shifting projection exception.
+         * @description Dismisses an open Counts/Shifting projection exception with actor, reason, optional source reference, and idempotent replay protection. This path is for reviewed duplicates or explicitly accepted non-blocking findings; it must not be used as a hidden generation bypass.
+         */
+        post: operations["dismissFeedDirectionCountsProjectionException"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/calendar/vaccination/events": {
         parameters: {
             query?: never;
@@ -2216,6 +2256,34 @@ export interface components {
         };
         /** @enum {string} */
         FeedDirectionReadinessStatus: "ready" | "blocked" | "pending";
+        FeedDirectionCountsProjectionExceptionActionRequest: {
+            /** @description Reviewed reason for closing the Counts/Shifting projection exception. */
+            resolution_reason: string;
+            /** @description Optional source, ticket, shifting-event, proof, or owner-review reference. */
+            resolution_ref?: string | null;
+        };
+        FeedDirectionCountsProjectionExceptionActionResponse: {
+            resolution: components["schemas"]["FeedDirectionCountsProjectionExceptionResolution"];
+            trace_id: string;
+        };
+        FeedDirectionCountsProjectionExceptionResolution: {
+            /** Format: uuid */
+            resolution_id: string;
+            /** Format: uuid */
+            projection_exception_id: string;
+            /** @enum {string} */
+            action: "resolve" | "dismiss";
+            /** @enum {string} */
+            status: "resolved" | "dismissed";
+            /** @enum {string} */
+            work_state: "resolved" | "dismissed";
+            resolved_by_ref: string;
+            resolution_reason: string;
+            resolution_ref?: string | null;
+            /** Format: date-time */
+            resolved_at: string;
+            replayed: boolean;
+        };
         FeedDirectionReadinessResponse: {
             tenant_id: string;
             status: components["schemas"]["FeedDirectionReadinessStatus"];
@@ -3403,6 +3471,74 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    resolveFeedDirectionCountsProjectionException: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                exception_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedDirectionCountsProjectionExceptionActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Counts/Shifting projection exception resolution. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedDirectionCountsProjectionExceptionActionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    dismissFeedDirectionCountsProjectionException: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                exception_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedDirectionCountsProjectionExceptionActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Counts/Shifting projection exception dismissal. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedDirectionCountsProjectionExceptionActionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

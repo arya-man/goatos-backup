@@ -657,6 +657,8 @@ Add backend-owned contracts before UI work:
 | API | Purpose |
 | --- | --- |
 | `GET /feed-direction/readiness` | Shows canonical gates `G1`-`G17`, missing source inputs, blocker reasons, owner, evidence pointer, and `CSG1`-`CSG10` subgate breakdown under `G2` |
+| `POST /feed-direction/counts-projection/exceptions/{exception_id}/resolve` | Reviewed closure for a Counts/Shifting projection exception; requires authenticated actor, `Idempotency-Key`, reason, optional source/review reference, and does not by itself green-light generation |
+| `POST /feed-direction/counts-projection/exceptions/{exception_id}/dismiss` | Reviewed dismissal for a duplicate or explicitly non-blocking Counts/Shifting projection exception; requires authenticated actor, `Idempotency-Key`, reason, optional source/review reference, and must not be a hidden generation bypass |
 | `POST /feed-direction/generation-runs` | Manually enqueue/generate full run or Diff with idempotency |
 | `GET /feed-direction/generation-runs` | Cursor list by tenant/park/date/kind/status |
 | `GET /feed-direction/directions` | Cursor instruction rows with active/superseded state |

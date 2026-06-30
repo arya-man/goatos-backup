@@ -59,6 +59,29 @@ type RecordedDirection struct {
 	HeadCount    int32
 }
 
+type CountsProjectionExceptionResolutionCommand struct {
+	TenantID              string
+	ProjectionExceptionID string
+	Action                string
+	ActorID               string
+	ResolutionReason      string
+	ResolutionRef         *string
+	IdempotencyKey        string
+}
+
+type CountsProjectionExceptionResolution struct {
+	ResolutionID          string    `json:"resolution_id"`
+	ProjectionExceptionID string    `json:"projection_exception_id"`
+	Action                string    `json:"action"`
+	Status                string    `json:"status"`
+	WorkState             string    `json:"work_state"`
+	ResolvedByRef         string    `json:"resolved_by_ref"`
+	ResolutionReason      string    `json:"resolution_reason"`
+	ResolutionRef         *string   `json:"resolution_ref,omitempty"`
+	ResolvedAt            time.Time `json:"resolved_at"`
+	Replayed              bool      `json:"replayed"`
+}
+
 // ReadinessStatus is the public gate state for Feed Direction build/readiness.
 type ReadinessStatus string
 
