@@ -72,9 +72,13 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("counts mismatch scan tenant=%s scanned=%d exception_writes=%d investigating=%d counted_before=%s limit=%d\n",
-		result.TenantID, result.ScannedAnchorCount, result.ExceptionWriteCount,
-		result.InvestigatingAnchorCount, cfg.CountedBefore.UTC().Format(time.RFC3339), cfg.Limit)
+	completedAt := ""
+	if result.CompletedAt != nil {
+		completedAt = result.CompletedAt.UTC().Format(time.RFC3339)
+	}
+	fmt.Printf("counts mismatch scan run=%s tenant=%s status=%s scanned=%d exception_writes=%d investigating=%d counted_before=%s completed_at=%s limit=%d\n",
+		result.RunID, result.TenantID, result.Status, result.ScannedAnchorCount, result.ExceptionWriteCount,
+		result.InvestigatingAnchorCount, cfg.CountedBefore.UTC().Format(time.RFC3339), completedAt, cfg.Limit)
 	if result.NextCursor != nil {
 		fmt.Printf("next_cursor_counted_at=%s next_cursor_anchor_id=%s\n",
 			result.NextCursor.CountedAt.UTC().Format(time.RFC3339Nano), result.NextCursor.BaseCountAnchorID)

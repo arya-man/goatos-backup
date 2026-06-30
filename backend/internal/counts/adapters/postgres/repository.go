@@ -164,22 +164,27 @@ func (r *Repository) RecordShiftingEvent(ctx context.Context, in domain.Shifting
 func (r *Repository) ScanCountMismatches(ctx context.Context, req domain.CountMismatchScanRequest) (domain.CountMismatchScanResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+
+	result, err := r.startCountMismatchScanRun(ctx, req)
 	if err != nil {
 		return domain.CountMismatchScanResult{}, err
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return r.finishCountMismatchScanRun(ctx, result, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	anchors, hasMore, err := scanCountMismatchAnchors(ctx, tx, req)
 	if err != nil {
-		return domain.CountMismatchScanResult{}, err
+		return r.finishCountMismatchScanRun(ctx, result, err)
 	}
-	result := domain.CountMismatchScanResult{TenantID: req.TenantID}
 	for _, anchor := range anchors {
 		result.ScannedAnchorCount++
 		wrote, err := createBaseCountMismatchException(ctx, tx, req.TenantID, anchor.ID, anchor.BaseCountAnchor)
 		if err != nil {
-			return domain.CountMismatchScanResult{}, err
+			return r.finishCountMismatchScanRun(ctx, result, err)
 		}
 		if wrote {
 			result.ExceptionWriteCount++
@@ -194,9 +199,9 @@ func (r *Repository) ScanCountMismatches(ctx context.Context, req domain.CountMi
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return domain.CountMismatchScanResult{}, err
+		return r.finishCountMismatchScanRun(ctx, result, err)
 	}
-	return result, nil
+	return r.finishCountMismatchScanRun(ctx, result, nil)
 }
 
 func (r *Repository) ProjectionInputs(ctx context.Context, req domain.ProjectionRecomputeRequest) (domain.ProjectionInputs, error) {
@@ -914,6 +919,134 @@ type previousBaseCountAnchor struct {
 type countMismatchScanAnchor struct {
 	ID string
 	domain.BaseCountAnchor
+}
+
+func (r *Repository) startCountMismatchScanRun(ctx context.Context, req domain.CountMismatchScanRequest) (domain.CountMismatchScanResult, error) {
+	var result domain.CountMismatchScanResult
+	err := r.pool.QueryRow(ctx, `
+INSERT INTO count_mismatch_scan_runs (
+  tenant_id, park_id, shed_id, counted_after, counted_before, cursor_counted_at, cursor_anchor_id
+) VALUES (
+  $1::uuid, nullif($2::text, '')::uuid, nullif($3::text, '')::uuid,
+  $4::timestamptz, $5::timestamptz, $6::timestamptz, nullif($7::text, '')::uuid
+)
+RETURNING count_mismatch_scan_run_id::text, tenant_id::text, status, started_at`,
+		req.TenantID, ptrValue(req.ParkID), ptrValue(req.ShedID), nullableTime(req.CountedAfter),
+		req.CountedBefore, nullableTime(req.CursorCountedAt), ptrValue(req.CursorAnchorID)).
+		Scan(&result.RunID, &result.TenantID, &result.Status, &result.StartedAt)
+	if err != nil {
+		return domain.CountMismatchScanResult{}, fmt.Errorf("counts: start mismatch scan run: %w", err)
+	}
+	return result, nil
+}
+
+func (r *Repository) finishCountMismatchScanRun(ctx context.Context, result domain.CountMismatchScanResult, scanErr error) (domain.CountMismatchScanResult, error) {
+	status := "completed"
+	lastError := ""
+	if scanErr != nil {
+		status = "failed"
+		lastError = scanErr.Error()
+	}
+	var completedAt pgtype.Timestamptz
+	var nextCursorAt pgtype.Timestamptz
+	var nextCursorID string
+	var errorOut string
+	if result.NextCursor != nil {
+		nextCursorAt = pgtype.Timestamptz{Time: result.NextCursor.CountedAt, Valid: true}
+		nextCursorID = result.NextCursor.BaseCountAnchorID
+	}
+	err := r.pool.QueryRow(ctx, `
+UPDATE count_mismatch_scan_runs
+SET status = $3,
+    completed_at = now(),
+    scanned_anchor_count = $4,
+    exception_write_count = $5,
+    investigating_anchor_count = $6,
+    next_cursor_counted_at = $7::timestamptz,
+    next_cursor_anchor_id = nullif($8::text, '')::uuid,
+    last_error = nullif($9, ''),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND count_mismatch_scan_run_id = $2::uuid
+RETURNING status, completed_at, COALESCE(last_error, '')`,
+		result.TenantID, result.RunID, status, result.ScannedAnchorCount, result.ExceptionWriteCount,
+		result.InvestigatingAnchorCount, nextCursorAt, nextCursorID, lastError).
+		Scan(&result.Status, &completedAt, &errorOut)
+	if err != nil {
+		if scanErr != nil {
+			return result, fmt.Errorf("%w; counts: finish mismatch scan run: %v", scanErr, err)
+		}
+		return result, fmt.Errorf("counts: finish mismatch scan run: %w", err)
+	}
+	if completedAt.Valid {
+		completed := completedAt.Time
+		result.CompletedAt = &completed
+	}
+	result.LastError = ptrIfNotEmpty(errorOut)
+	if err := r.upsertCountMismatchScanReadiness(ctx, result); err != nil {
+		if scanErr != nil {
+			return result, fmt.Errorf("%w; counts: update mismatch scan readiness: %v", scanErr, err)
+		}
+		return result, err
+	}
+	return result, scanErr
+}
+
+func (r *Repository) upsertCountMismatchScanReadiness(ctx context.Context, result domain.CountMismatchScanResult) error {
+	csg6Status := "ready"
+	csg6Blocker := "No blocker: live Base Count mismatch detection and bounded stale/imported scan have durable run evidence."
+	if result.Status == "failed" {
+		csg6Status = "blocked"
+		csg6Blocker = "Count mismatch scan failed: " + ptrValue(result.LastError)
+	} else if result.NextCursor != nil {
+		csg6Status = "pending"
+		csg6Blocker = "Count mismatch scan page completed, but a next cursor remains; continue scanning stale imported/historical anchors."
+	}
+	csg6Evidence := "count_mismatch_scan_runs:" + result.RunID
+	if _, err := r.pool.Exec(ctx, `
+INSERT INTO counts_shifting_readiness_subgates (
+  tenant_id, subgate_id, status, owner, evidence_ref, blocker_reason, implementation_ref, last_checked_at, updated_at
+) VALUES (
+  $1::uuid, 'CSG6', $2, 'Counts/Shifting',
+  $3, $4, 'backend/cmd/counts-mismatch-scan;backend/internal/counts/adapters/postgres/repository.go',
+  now(), now()
+)
+ON CONFLICT (tenant_id, subgate_id) DO UPDATE
+SET status = EXCLUDED.status,
+    owner = EXCLUDED.owner,
+    evidence_ref = EXCLUDED.evidence_ref,
+    blocker_reason = EXCLUDED.blocker_reason,
+    implementation_ref = EXCLUDED.implementation_ref,
+    last_checked_at = EXCLUDED.last_checked_at,
+    updated_at = now()`, result.TenantID, csg6Status, csg6Evidence, csg6Blocker); err != nil {
+		return fmt.Errorf("counts: upsert CSG6 mismatch scan readiness: %w", err)
+	}
+	csg10Status := "pending"
+	csg10Blocker := "Mismatch scan run metrics exist; broader base-count import latency, projection latency, query-plan proof, source parity, and seeded E2E evidence remain."
+	if result.Status == "failed" {
+		csg10Status = "blocked"
+		csg10Blocker = "Mismatch scan observability recorded a failed run; repair the worker error before CSG10 can progress."
+	}
+	if _, err := r.pool.Exec(ctx, `
+INSERT INTO counts_shifting_readiness_subgates (
+  tenant_id, subgate_id, status, owner, evidence_ref, blocker_reason, implementation_ref, last_checked_at, updated_at
+) VALUES (
+  $1::uuid, 'CSG10', $2, 'Counts/Shifting + Feed Direction',
+  $3, $4, 'backend/cmd/counts-mismatch-scan;docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md',
+  now(), now()
+)
+ON CONFLICT (tenant_id, subgate_id) DO UPDATE
+SET status = EXCLUDED.status,
+    owner = EXCLUDED.owner,
+    evidence_ref = EXCLUDED.evidence_ref,
+    blocker_reason = EXCLUDED.blocker_reason,
+    implementation_ref = EXCLUDED.implementation_ref,
+    last_checked_at = EXCLUDED.last_checked_at,
+    updated_at = now()`, result.TenantID, csg10Status, csg6Evidence, csg10Blocker); err != nil {
+		return fmt.Errorf("counts: upsert CSG10 mismatch scan readiness: %w", err)
+	}
+	return nil
 }
 
 func scanCountMismatchAnchors(ctx context.Context, tx pgx.Tx, req domain.CountMismatchScanRequest) ([]countMismatchScanAnchor, bool, error) {

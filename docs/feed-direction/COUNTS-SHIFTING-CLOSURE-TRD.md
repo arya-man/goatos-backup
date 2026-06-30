@@ -155,7 +155,10 @@ Implementation status as of 2026-06-30:
 - `backend/cmd/counts-mismatch-scan` now exposes the scheduler/import-wide
   comparison path for stale historical/imported anchors. It is tenant-scoped,
   optional park/shed scoped, counted-at-window bounded, cursorable, and limited
-  to 500 anchors per page.
+  to 500 anchors per page. Each page writes `count_mismatch_scan_runs` durable
+  run evidence and updates readiness: `CSG6` is ready only after a successful
+  page with no next cursor, while `CSG10` remains pending until the broader
+  observability, query-plan, source-parity, and seeded-E2E evidence exists.
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
 - This does **not** close `G2`: source import/adapters, owner-approved alias
@@ -304,7 +307,7 @@ Required paths:
 | Base Count import/record | API/import | Write anchor, emit idempotent `counts.base_count_anchor.recorded` outbox event, audit, invalidate projections |
 | Shifting event ingest | API/import/outbox | Upsert event and impacts, emit idempotent `counts.shifting_event.recorded` outbox event, audit, invalidate projections |
 | Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or the registered `countsapp.ProjectionInputHandler` consumer for tenant + park + as-of + target-date bounded horizons; write snapshot or exception |
-| Count mismatch scan | Base Count adoption plus `counts-mismatch-scan` scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. The bounded worker command pages through stale historical/imported anchors with tenant/window/limit/cursor guards and writes the same exception work. |
+| Count mismatch scan | Base Count adoption plus `counts-mismatch-scan` scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. The bounded worker command pages through stale historical/imported anchors with tenant/window/limit/cursor guards, writes the same exception work, records `count_mismatch_scan_runs`, and updates `CSG6`/`CSG10` readiness evidence. |
 | Exception fanout/read model | Projection exception open/update/close plus process-integrity query | Emit `counts.projection_exception.*` outbox events and project `category=feed_direction` exception rows into top-level Action Center/Workflows; assignment policy, frontend UX, and broader Calendar/Protocol Adherence/Control Tower mapping remain separate closure work. |
 | Feed projection read | API/app port | Return rows or typed blocker with source hash |
 
@@ -341,7 +344,8 @@ Non-negotiable tests:
 - Shifted pregnant/lactating/warm-up destination rows fail closed with
   `destination_shortage` until reviewed destination ration context exists.
 - Count mismatch/unreported shifting creates exception work from both live Base
-  Count adoption and stale imported/historical scan paths.
+  Count adoption and stale imported/historical scan paths, with durable
+  `count_mismatch_scan_runs` evidence and readiness updates.
 - Projection snapshot source hash changes after input change.
 - Feed consumes immutable projection snapshot and does not mutate past runs.
 - Initial Feed projection output stays aggregate shed + breed grain, with ration

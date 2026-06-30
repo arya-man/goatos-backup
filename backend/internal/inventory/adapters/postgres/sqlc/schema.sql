@@ -1352,6 +1352,48 @@ CREATE FUNCTION public.validate_outbox_event_tenant() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
+  IF NEW.aggregate_type = 'count_base_anchor' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM count_base_anchors
+      WHERE tenant_id = NEW.tenant_id
+        AND base_count_anchor_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'count base anchor outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'shifting_event' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM shifting_events
+      WHERE tenant_id = NEW.tenant_id
+        AND shifting_event_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'shifting event outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'count_projection_exception' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM count_projection_exceptions
+      WHERE tenant_id = NEW.tenant_id
+        AND count_projection_exception_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'count projection exception outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
   IF NEW.aggregate_type = 'admin_ui_config_family' THEN
     IF NOT EXISTS (
       SELECT 1
@@ -2041,6 +2083,94 @@ CREATE TABLE public.count_base_anchors (
 
 
 --
+-- Name: count_dimension_aliases; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.count_dimension_aliases (
+    alias_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    dimension text NOT NULL,
+    source_system text DEFAULT '*'::text NOT NULL,
+    source_value text NOT NULL,
+    source_value_norm text NOT NULL,
+    canonical_value text NOT NULL,
+    canonical_label text,
+    review_status text DEFAULT 'draft'::text NOT NULL,
+    source_ref text NOT NULL,
+    source_hash text NOT NULL,
+    approved_by uuid,
+    approved_at timestamp with time zone,
+    effective_from date DEFAULT '1970-01-01'::date NOT NULL,
+    effective_to date,
+    notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT count_dimension_aliases_canonical_check CHECK ((btrim(canonical_value) <> ''::text)),
+    CONSTRAINT count_dimension_aliases_dimension_check CHECK ((dimension = ANY (ARRAY['breed'::text, 'stage_tag'::text, 'age_class'::text, 'sex'::text, 'shed_tag'::text]))),
+    CONSTRAINT count_dimension_aliases_effective_range_check CHECK (((effective_to IS NULL) OR (effective_to > effective_from))),
+    CONSTRAINT count_dimension_aliases_evidence_check CHECK (((btrim(source_ref) <> ''::text) AND (btrim(source_hash) <> ''::text))),
+    CONSTRAINT count_dimension_aliases_review_status_check CHECK ((review_status = ANY (ARRAY['draft'::text, 'approved'::text, 'rejected'::text, 'retired'::text]))),
+    CONSTRAINT count_dimension_aliases_source_check CHECK (((btrim(source_system) <> ''::text) AND (btrim(source_value) <> ''::text) AND (btrim(source_value_norm) <> ''::text)))
+);
+
+
+--
+-- Name: count_mismatch_scan_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.count_mismatch_scan_runs (
+    count_mismatch_scan_run_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid,
+    shed_id uuid,
+    counted_after timestamp with time zone,
+    counted_before timestamp with time zone NOT NULL,
+    cursor_counted_at timestamp with time zone,
+    cursor_anchor_id uuid,
+    status text DEFAULT 'running'::text NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    scanned_anchor_count integer DEFAULT 0 NOT NULL,
+    exception_write_count integer DEFAULT 0 NOT NULL,
+    investigating_anchor_count integer DEFAULT 0 NOT NULL,
+    next_cursor_counted_at timestamp with time zone,
+    next_cursor_anchor_id uuid,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT count_mismatch_scan_runs_counts_check CHECK (((scanned_anchor_count >= 0) AND (exception_write_count >= 0) AND (investigating_anchor_count >= 0))),
+    CONSTRAINT count_mismatch_scan_runs_cursor_pair_check CHECK ((((cursor_counted_at IS NULL) AND (cursor_anchor_id IS NULL)) OR ((cursor_counted_at IS NOT NULL) AND (cursor_anchor_id IS NOT NULL)))),
+    CONSTRAINT count_mismatch_scan_runs_next_cursor_pair_check CHECK ((((next_cursor_counted_at IS NULL) AND (next_cursor_anchor_id IS NULL)) OR ((next_cursor_counted_at IS NOT NULL) AND (next_cursor_anchor_id IS NOT NULL)))),
+    CONSTRAINT count_mismatch_scan_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text]))),
+    CONSTRAINT count_mismatch_scan_runs_window_check CHECK (((counted_after IS NULL) OR (counted_after < counted_before)))
+);
+
+
+--
+-- Name: count_projection_exception_resolutions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.count_projection_exception_resolutions (
+    count_projection_exception_resolution_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    count_projection_exception_id uuid NOT NULL,
+    action text NOT NULL,
+    resolved_by_ref text NOT NULL,
+    resolution_reason text NOT NULL,
+    resolution_ref text,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT count_projection_exception_resolutions_action_check CHECK ((action = ANY (ARRAY['resolve'::text, 'dismiss'::text]))),
+    CONSTRAINT count_projection_exception_resolutions_actor_check CHECK ((btrim(resolved_by_ref) <> ''::text)),
+    CONSTRAINT count_projection_exception_resolutions_idem_check CHECK (((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text))),
+    CONSTRAINT count_projection_exception_resolutions_reason_check CHECK ((btrim(resolution_reason) <> ''::text))
+);
+
+
+--
 -- Name: count_projection_exceptions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2063,13 +2193,26 @@ CREATE TABLE public.count_projection_exceptions (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     resolved_at timestamp with time zone,
+    work_type text DEFAULT 'counts_projection_exception'::text NOT NULL,
+    work_state text DEFAULT 'blocked'::text NOT NULL,
+    due_at timestamp with time zone DEFAULT now() NOT NULL,
+    next_action text DEFAULT 'Review Counts/Shifting projection exception'::text NOT NULL,
+    evidence_link text DEFAULT '/feed-direction/counts-projection/exceptions'::text NOT NULL,
+    resolution_id uuid,
+    resolved_by_ref text,
+    resolution_reason text,
+    resolution_ref text,
+    CONSTRAINT count_projection_exceptions_evidence_link_check CHECK ((btrim(evidence_link) <> ''::text)),
     CONSTRAINT count_projection_exceptions_evidence_object_check CHECK ((jsonb_typeof(evidence_json) = 'object'::text)),
     CONSTRAINT count_projection_exceptions_grain_key_check CHECK ((btrim(grain_key) <> ''::text)),
+    CONSTRAINT count_projection_exceptions_next_action_check CHECK ((btrim(next_action) <> ''::text)),
     CONSTRAINT count_projection_exceptions_reason_check CHECK ((btrim(blocker_reason) <> ''::text)),
     CONSTRAINT count_projection_exceptions_severity_check CHECK ((severity = ANY (ARRAY['warning'::text, 'blocking'::text, 'critical'::text]))),
     CONSTRAINT count_projection_exceptions_source_key_check CHECK ((btrim(source_key) <> ''::text)),
     CONSTRAINT count_projection_exceptions_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text, 'dismissed'::text]))),
-    CONSTRAINT count_projection_exceptions_type_check CHECK ((exception_type = ANY (ARRAY['missing_base_count'::text, 'missing_structured_impact'::text, 'unreported_shifting'::text, 'count_mismatch'::text, 'alias_conflict'::text, 'ration_context_unresolved'::text, 'destination_shortage'::text, 'unsafe_surplus'::text, 'query_plan_unproven'::text, 'missing_projection_snapshot'::text, 'stale_projection'::text])))
+    CONSTRAINT count_projection_exceptions_type_check CHECK ((exception_type = ANY (ARRAY['missing_base_count'::text, 'missing_structured_impact'::text, 'unreported_shifting'::text, 'count_mismatch'::text, 'alias_conflict'::text, 'ration_context_unresolved'::text, 'destination_shortage'::text, 'unsafe_surplus'::text, 'query_plan_unproven'::text, 'missing_projection_snapshot'::text, 'stale_projection'::text]))),
+    CONSTRAINT count_projection_exceptions_work_state_check CHECK ((work_state = ANY (ARRAY['blocked'::text, 'owner_missing'::text, 'resolved'::text, 'dismissed'::text]))),
+    CONSTRAINT count_projection_exceptions_work_type_check CHECK ((work_type = 'counts_projection_exception'::text))
 );
 
 
@@ -5814,6 +5957,30 @@ ALTER TABLE ONLY public.count_base_anchors
 
 
 --
+-- Name: count_dimension_aliases count_dimension_aliases_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_dimension_aliases
+    ADD CONSTRAINT count_dimension_aliases_pkey PRIMARY KEY (alias_id);
+
+
+--
+-- Name: count_mismatch_scan_runs count_mismatch_scan_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_mismatch_scan_runs
+    ADD CONSTRAINT count_mismatch_scan_runs_pkey PRIMARY KEY (count_mismatch_scan_run_id);
+
+
+--
+-- Name: count_projection_exception_resolutions count_projection_exception_resolutions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_exception_resolutions
+    ADD CONSTRAINT count_projection_exception_resolutions_pkey PRIMARY KEY (count_projection_exception_resolution_id);
+
+
+--
 -- Name: count_projection_exceptions count_projection_exceptions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7939,6 +8106,76 @@ CREATE UNIQUE INDEX count_base_anchors_tenant_id_unique ON public.count_base_anc
 
 
 --
+-- Name: count_dimension_aliases_current_approved_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX count_dimension_aliases_current_approved_unique ON public.count_dimension_aliases USING btree (tenant_id, dimension, source_system, source_value_norm) WHERE ((review_status = 'approved'::text) AND (effective_to IS NULL));
+
+
+--
+-- Name: count_dimension_aliases_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_dimension_aliases_lookup_idx ON public.count_dimension_aliases USING btree (tenant_id, dimension, source_system, source_value_norm, review_status, effective_from, effective_to);
+
+
+--
+-- Name: count_dimension_aliases_review_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_dimension_aliases_review_queue_idx ON public.count_dimension_aliases USING btree (tenant_id, review_status, updated_at DESC, alias_id DESC);
+
+
+--
+-- Name: count_mismatch_scan_runs_scope_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_mismatch_scan_runs_scope_idx ON public.count_mismatch_scan_runs USING btree (tenant_id, park_id, shed_id, counted_before DESC);
+
+
+--
+-- Name: count_mismatch_scan_runs_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_mismatch_scan_runs_status_idx ON public.count_mismatch_scan_runs USING btree (tenant_id, status, updated_at DESC);
+
+
+--
+-- Name: count_mismatch_scan_runs_tenant_started_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_mismatch_scan_runs_tenant_started_idx ON public.count_mismatch_scan_runs USING btree (tenant_id, started_at DESC, count_mismatch_scan_run_id DESC);
+
+
+--
+-- Name: count_projection_exception_resolutions_exception_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_projection_exception_resolutions_exception_idx ON public.count_projection_exception_resolutions USING btree (tenant_id, count_projection_exception_id, created_at DESC, count_projection_exception_resolution_id DESC);
+
+
+--
+-- Name: count_projection_exception_resolutions_idempotency_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX count_projection_exception_resolutions_idempotency_unique ON public.count_projection_exception_resolutions USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: count_projection_exceptions_closed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_projection_exceptions_closed_idx ON public.count_projection_exceptions USING btree (tenant_id, status, resolved_at DESC, count_projection_exception_id DESC) WHERE (status = ANY (ARRAY['resolved'::text, 'dismissed'::text]));
+
+
+--
+-- Name: count_projection_exceptions_location_list_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_projection_exceptions_location_list_idx ON public.count_projection_exceptions USING btree (tenant_id, status, park_id, shed_id, updated_at DESC, count_projection_exception_id DESC);
+
+
+--
 -- Name: count_projection_exceptions_open_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7950,6 +8187,20 @@ CREATE UNIQUE INDEX count_projection_exceptions_open_unique ON public.count_proj
 --
 
 CREATE INDEX count_projection_exceptions_queue_idx ON public.count_projection_exceptions USING btree (tenant_id, status, severity, updated_at DESC, count_projection_exception_id DESC);
+
+
+--
+-- Name: count_projection_exceptions_status_list_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_projection_exceptions_status_list_idx ON public.count_projection_exceptions USING btree (tenant_id, status, updated_at DESC, count_projection_exception_id DESC);
+
+
+--
+-- Name: count_projection_exceptions_work_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_projection_exceptions_work_queue_idx ON public.count_projection_exceptions USING btree (tenant_id, status, work_state, severity, due_at, updated_at DESC, count_projection_exception_id DESC) WHERE (status = 'open'::text);
 
 
 --
@@ -9570,6 +9821,41 @@ CREATE UNIQUE INDEX outbox_messages_config_changed_idempotency_idx ON public.out
 
 
 --
+-- Name: outbox_messages_counts_base_anchor_recorded_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_counts_base_anchor_recorded_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'counts.base_count_anchor.recorded'::text);
+
+
+--
+-- Name: outbox_messages_counts_projection_exception_closed_idempotency_; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_counts_projection_exception_closed_idempotency_ ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'counts.projection_exception.closed'::text);
+
+
+--
+-- Name: outbox_messages_counts_projection_exception_opened_idempotency_; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_counts_projection_exception_opened_idempotency_ ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'counts.projection_exception.opened'::text);
+
+
+--
+-- Name: outbox_messages_counts_projection_exception_updated_idempotency; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_counts_projection_exception_updated_idempotency ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'counts.projection_exception.updated'::text);
+
+
+--
+-- Name: outbox_messages_counts_shifting_event_recorded_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_counts_shifting_event_recorded_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'counts.shifting_event.recorded'::text);
+
+
+--
 -- Name: outbox_messages_created_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9822,6 +10108,13 @@ CREATE INDEX shed_profiles_animal_stage_idx ON public.shed_profiles USING btree 
 
 
 --
+-- Name: shifting_event_impacts_event_breed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shifting_event_impacts_event_breed_idx ON public.shifting_event_impacts USING btree (tenant_id, shifting_event_id, lower(breed_key));
+
+
+--
 -- Name: shifting_event_impacts_grain_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9854,6 +10147,13 @@ CREATE UNIQUE INDEX shifting_events_logical_key_unique ON public.shifting_events
 --
 
 CREATE INDEX shifting_events_projection_window_idx ON public.shifting_events USING btree (tenant_id, event_status, effective_at, destination_park_id, destination_shed_id, shifting_event_id);
+
+
+--
+-- Name: shifting_events_source_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shifting_events_source_window_idx ON public.shifting_events USING btree (tenant_id, event_status, effective_at, source_park_id, source_shed_id, shifting_event_id) WHERE (source_shed_id IS NOT NULL);
 
 
 --
@@ -11802,6 +12102,70 @@ ALTER TABLE ONLY public.count_base_anchors
 
 
 --
+-- Name: count_dimension_aliases count_dimension_aliases_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_dimension_aliases
+    ADD CONSTRAINT count_dimension_aliases_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: count_mismatch_scan_runs count_mismatch_scan_runs_park_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_mismatch_scan_runs
+    ADD CONSTRAINT count_mismatch_scan_runs_park_id_fkey FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: count_mismatch_scan_runs count_mismatch_scan_runs_shed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_mismatch_scan_runs
+    ADD CONSTRAINT count_mismatch_scan_runs_shed_id_fkey FOREIGN KEY (shed_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: count_mismatch_scan_runs count_mismatch_scan_runs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_mismatch_scan_runs
+    ADD CONSTRAINT count_mismatch_scan_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: count_mismatch_scan_runs count_mismatch_scan_runs_tenant_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_mismatch_scan_runs
+    ADD CONSTRAINT count_mismatch_scan_runs_tenant_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: count_mismatch_scan_runs count_mismatch_scan_runs_tenant_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_mismatch_scan_runs
+    ADD CONSTRAINT count_mismatch_scan_runs_tenant_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: count_projection_exception_resolutions count_projection_exception_re_count_projection_exception_i_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_exception_resolutions
+    ADD CONSTRAINT count_projection_exception_re_count_projection_exception_i_fkey FOREIGN KEY (count_projection_exception_id) REFERENCES public.count_projection_exceptions(count_projection_exception_id) ON DELETE CASCADE;
+
+
+--
+-- Name: count_projection_exception_resolutions count_projection_exception_resolutions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_exception_resolutions
+    ADD CONSTRAINT count_projection_exception_resolutions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: count_projection_exceptions count_projection_exceptions_count_projection_snapshot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11815,6 +12179,14 @@ ALTER TABLE ONLY public.count_projection_exceptions
 
 ALTER TABLE ONLY public.count_projection_exceptions
     ADD CONSTRAINT count_projection_exceptions_park_id_fkey FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: count_projection_exceptions count_projection_exceptions_resolution_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_exceptions
+    ADD CONSTRAINT count_projection_exceptions_resolution_id_fkey FOREIGN KEY (resolution_id) REFERENCES public.count_projection_exception_resolutions(count_projection_exception_resolution_id);
 
 
 --

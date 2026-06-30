@@ -135,10 +135,15 @@ type CountMismatchScanRequest struct {
 }
 
 type CountMismatchScanResult struct {
+	RunID                    string
 	TenantID                 string
+	Status                   string
+	StartedAt                time.Time
+	CompletedAt              *time.Time
 	ScannedAnchorCount       int32
 	ExceptionWriteCount      int32
 	InvestigatingAnchorCount int32
+	LastError                *string
 	NextCursor               *CountMismatchScanCursor
 }
 

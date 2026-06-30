@@ -351,6 +351,51 @@ type CountBaseAnchor struct {
 	RowVersion         int32
 }
 
+type CountDimensionAlias struct {
+	AliasID         pgtype.UUID
+	TenantID        pgtype.UUID
+	Dimension       string
+	SourceSystem    string
+	SourceValue     string
+	SourceValueNorm string
+	CanonicalValue  string
+	CanonicalLabel  pgtype.Text
+	ReviewStatus    string
+	SourceRef       string
+	SourceHash      string
+	ApprovedBy      pgtype.UUID
+	ApprovedAt      pgtype.Timestamptz
+	EffectiveFrom   pgtype.Date
+	EffectiveTo     pgtype.Date
+	Notes           pgtype.Text
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	RowVersion      int32
+}
+
+type CountMismatchScanRun struct {
+	CountMismatchScanRunID   pgtype.UUID
+	TenantID                 pgtype.UUID
+	ParkID                   pgtype.UUID
+	ShedID                   pgtype.UUID
+	CountedAfter             pgtype.Timestamptz
+	CountedBefore            pgtype.Timestamptz
+	CursorCountedAt          pgtype.Timestamptz
+	CursorAnchorID           pgtype.UUID
+	Status                   string
+	StartedAt                pgtype.Timestamptz
+	CompletedAt              pgtype.Timestamptz
+	ScannedAnchorCount       int32
+	ExceptionWriteCount      int32
+	InvestigatingAnchorCount int32
+	NextCursorCountedAt      pgtype.Timestamptz
+	NextCursorAnchorID       pgtype.UUID
+	LastError                pgtype.Text
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+	RowVersion               int32
+}
+
 type CountProjectionException struct {
 	CountProjectionExceptionID pgtype.UUID
 	TenantID                   pgtype.UUID
@@ -370,6 +415,28 @@ type CountProjectionException struct {
 	CreatedAt                  pgtype.Timestamptz
 	UpdatedAt                  pgtype.Timestamptz
 	ResolvedAt                 pgtype.Timestamptz
+	WorkType                   string
+	WorkState                  string
+	DueAt                      pgtype.Timestamptz
+	NextAction                 string
+	EvidenceLink               string
+	ResolutionID               pgtype.UUID
+	ResolvedByRef              pgtype.Text
+	ResolutionReason           pgtype.Text
+	ResolutionRef              pgtype.Text
+}
+
+type CountProjectionExceptionResolution struct {
+	CountProjectionExceptionResolutionID pgtype.UUID
+	TenantID                             pgtype.UUID
+	CountProjectionExceptionID           pgtype.UUID
+	Action                               string
+	ResolvedByRef                        string
+	ResolutionReason                     string
+	ResolutionRef                        pgtype.Text
+	IdempotencyKey                       string
+	RequestFingerprint                   string
+	CreatedAt                            pgtype.Timestamptz
 }
 
 type CountProjectionSnapshot struct {

@@ -80,7 +80,7 @@ GoatOS schedules unless explicitly approved against that docx.
 | CSG3 | Structured impacts | Each event carries structured cohort/stage impact; missing or ambiguous impact fails closed into exception work |
 | CSG4 | Horizon split | `count_as_of(time)` and `projected_count_for(target_date)` have separate rules for realized truth vs one-day authorized future-effective projection |
 | CSG5 | Base Count adoption | A new physical Base Count becomes the next anchor immediately; discrepancy investigation does not block adoption |
-| CSG6 | Unreported-shifting detection | Count mismatch or unexpected delta creates auditable process-exception work with reviewed resolve/dismiss closure, not silent correction. This includes the live Base Count write hook and the bounded `counts-mismatch-scan` worker path for stale imported/historical anchors. |
+| CSG6 | Unreported-shifting detection | Count mismatch or unexpected delta creates auditable process-exception work with reviewed resolve/dismiss closure, not silent correction. This includes the live Base Count write hook, the bounded `counts-mismatch-scan` worker path for stale imported/historical anchors, and durable scan-run evidence before readiness can turn green. |
 | CSG7 | Alias normalization | Breed and stage aliases such as SIROHI->Beetal and Warmup/Fattening variants are reviewed before projection output |
 | CSG8 | Idempotency and replay | Event ingestion, projection recompute, and source replay cannot double-apply movements |
 | CSG9 | Projection API | Feed can consume bounded projection rows with source hash, anchor id, included-event hash, exception count, contract version, and ration-context resolution state |

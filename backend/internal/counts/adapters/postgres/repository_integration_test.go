@@ -196,6 +196,9 @@ func TestRepositoryScanCountMismatchesCreatesExceptionForStaleImportedAnchor(t *
 	if first.ScannedAnchorCount != 1 || first.ExceptionWriteCount != 0 || first.NextCursor == nil {
 		t.Fatalf("first scan page=%+v, want one earlier anchor and cursor", first)
 	}
+	if first.RunID == "" || first.Status != "completed" || first.CompletedAt == nil {
+		t.Fatalf("first scan run=%+v, want completed durable run", first)
+	}
 	second, err := repo.ScanCountMismatches(ctx, domain.CountMismatchScanRequest{
 		TenantID: countsTenant, ParkID: strPtr(countsPark),
 		CountedBefore:   time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
@@ -209,6 +212,21 @@ func TestRepositoryScanCountMismatchesCreatesExceptionForStaleImportedAnchor(t *
 	if second.ScannedAnchorCount != 1 || second.ExceptionWriteCount != 1 ||
 		second.InvestigatingAnchorCount != 1 || second.NextCursor != nil {
 		t.Fatalf("second scan page=%+v, want one mismatch and no further cursor", second)
+	}
+	if second.RunID == "" || second.Status != "completed" || second.CompletedAt == nil || second.LastError != nil {
+		t.Fatalf("second scan run=%+v, want completed run with no error", second)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM count_mismatch_scan_runs
+WHERE tenant_id=$1::uuid
+  AND count_mismatch_scan_run_id=$2::uuid
+  AND status='completed'
+  AND scanned_anchor_count=1
+  AND exception_write_count=1
+  AND investigating_anchor_count=1
+  AND next_cursor_anchor_id IS NULL
+  AND last_error IS NULL`, countsTenant, second.RunID); got != 1 {
+		t.Fatalf("completed mismatch scan run rows=%d, want 1", got)
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM count_projection_exceptions
@@ -235,6 +253,18 @@ WHERE tenant_id=$1::uuid
   AND aggregate_id=$2::uuid
   AND event_type=$3`, countsTenant, exceptionID, domain.EventProjectionExceptionOpened); got != 1 {
 		t.Fatalf("scan-opened projection exception outbox rows=%d, want 1", got)
+	}
+	readiness, err := repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness after mismatch scan: %v", err)
+	}
+	csg6 := readinessSubgate(t, readiness, "CSG6")
+	if csg6.Status != domain.ReadinessReady || csg6.EvidenceRef != "count_mismatch_scan_runs:"+second.RunID {
+		t.Fatalf("CSG6=%+v, want ready with second run evidence", csg6)
+	}
+	csg10 := readinessSubgate(t, readiness, "CSG10")
+	if csg10.Status != domain.ReadinessPending || csg10.EvidenceRef != "count_mismatch_scan_runs:"+second.RunID {
+		t.Fatalf("CSG10=%+v, want pending with scan run evidence", csg10)
 	}
 	if _, err := repo.ScanCountMismatches(ctx, domain.CountMismatchScanRequest{
 		TenantID: countsTenant, ParkID: strPtr(countsPark),
@@ -1022,6 +1052,17 @@ func rowForShed(t *testing.T, rows []domain.ProjectionRow, shedID string) domain
 	}
 	t.Fatalf("missing projection row for shed %s in %+v", shedID, rows)
 	return domain.ProjectionRow{}
+}
+
+func readinessSubgate(t *testing.T, readiness domain.Readiness, id string) domain.ReadinessSubgate {
+	t.Helper()
+	for _, subgate := range readiness.Subgates {
+		if subgate.ID == id {
+			return subgate
+		}
+	}
+	t.Fatalf("missing readiness subgate %s in %+v", id, readiness.Subgates)
+	return domain.ReadinessSubgate{}
 }
 
 func strPtr(s string) *string { return &s }
