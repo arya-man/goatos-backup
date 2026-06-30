@@ -149,6 +149,75 @@ PHC vaccination must reuse/enhance it, not rebuild a vaccination-only island (pe
 | Multi-park, different rule | park-scoped `protocol_version`, not a per-table `park_id` |
 | Far-future booster | `obligation_instances` row in Postgres (queryable), enqueued to Cloud Tasks only near due |
 
+## 6A. V2 drive planner algorithm
+
+V1 generation remains the source of truth for due work: published matrix config
+plus goat facts creates or updates `obligation_instances` for each goat. The V2
+planner consumes those rows and produces execution-ready `obligation_batches`
+without recomputing the whole herd.
+
+**Inputs**
+- `obligation_instances` for vaccination rules, including `rule_id`,
+  `protocol_version_id`, `due_at`, `window_start`, `window_end`, target goat,
+  scope shed/cohort, status, and trusted completion suppression.
+- Goat facts used by eligibility and replanning: lifecycle, exit reason,
+  health, reproductive status, management stage, approximate DOB/age, breed,
+  sex, current park/shed/cohort, identity/tag state, and source confidence.
+- Rule config: schedule rows, eligibility JSON, defer states, min gaps,
+  due-window policy, missed-dose policy, proof policy, SOP binding, withdrawal
+  days, and future vaccine compatibility metadata.
+- Operational facts: available stock/lot/cold-chain, trained worker/verifier,
+  route capacity, proof requirements, and active drive locks.
+
+**Algorithm**
+1. Select due candidates through indexed windows, never an unbounded goat scan:
+   `(tenant_id, status, due_at)` plus scope filters. Candidates are active
+   `scheduled`/`due`/`deferred-ready` obligations only.
+2. Revalidate each candidate against current goat facts. Dead, sold,
+   transferred, culled, or lost goats cancel open work. Sick, quarantine, ICU,
+   pregnancy, and lactation states apply the rule's allow/defer/block/review
+   policy. Shed shifts re-scope only same-vaccine open work.
+3. Bucket candidates by:
+   `(tenant_id, park, shed_or_cohort, protocol_version_id, rule_id, dose_code,
+   due_window_bucket, eligibility/defer_state)`. This reduces million-goat
+   planning from animal-level iteration to bounded cohort work.
+4. For each shed/time bucket, build a vaccine conflict graph. Each vaccine or
+   dose family is a node. An edge means the two nodes cannot be executed in the
+   same drive because of live/killed compatibility, same-vaccine gap, required
+   2-week/4-week separation, route/site restriction, or unknown compatibility
+   that must fail closed. Graph partitioning/coloring yields safe same-day
+   vaccine groups.
+5. Generate candidate drive dates only inside each group's medical window:
+   `earliest_safe_date <= planned_date <= last_safe_date`. Dates outside the
+   window are rejected before scoring.
+6. Score safe candidates deterministically. Hard constraints are not scores.
+   Scored factors are urgency/earliest deadline, goats covered, disease
+   priority, stock expiry, worker/route efficiency, cold-chain route duration,
+   and fairness to small sheds that have already waited.
+7. Pick the best candidate with stable tie-breakers:
+   earliest deadline, higher medical priority, more goats covered, expiring
+   stock, lower route cost, then oldest waiting shed bucket.
+8. Assign resources under transaction/lease control: create or update
+   `obligation_batches`, attach obligations, reserve stock where vaccination
+   policy requires it, create the SOP task, and store worker/verifier/proof
+   requirements. Concurrent planners must use idempotency keys and row locks so
+   two workers cannot claim the same obligations.
+9. Execute and reconcile by scan. Missing goats stay open/missed/follow-up;
+   shifted-in eligible goats become explicit extras; shifted-out goats move to
+   the destination bucket; newly sick/pregnant/quarantined goats defer or block;
+   deaths/sales cancel; unreadable tags create identity exceptions; proof
+   rejection and cold-chain failure create rework.
+10. Replan incrementally. Events such as `goat.exited`, `goat.location.changed`,
+    `goat.health.changed`, `goat.reproductive_status.changed`,
+    `proof.rejected`, `stock.shortfall`, or `cold_chain.failed` invalidate only
+    the affected goat, bucket, vaccine group, and batch. The whole herd is never
+    recalculated for one state change.
+
+**Boundary**
+V2 requires first-class vaccine compatibility metadata and policy-approved
+drive thresholds. Until those are built, V1 remains a per-goat due engine plus
+basic shed batching; it must not claim optimized cross-vaccine drive planning.
+
 ---
 
 ## 7. Migration plan (historical; later implemented as `000070+`)

@@ -82,6 +82,54 @@ Per `vaccination_completion`: obligation → `completed`; **FEFO inventory** con
 ### 4.6 Edge cases (must handle)
 Shift (re-target + re-eval same vaccine), death/sale (cancel pending in same txn), missed vs blocked (distinct), double-submit (idempotent), stock-out (reserve-at-start, no negative). Detail in [TRD §6](./TRD.md).
 
+### 4.7 V2 drive-planning algorithm
+V1 answers the first question: for every goat, what vaccine is due, by what date,
+in which shed, and under which approved rule. V2 answers the operations question:
+when should the farm run a practical drive, which goats go into it, and which
+vaccines can safely be done together.
+
+The planner works like this:
+
+1. Start from V1 due work. This includes new goat creation, purchased/intake
+   goats, existing-goat backfill after a published rule, stage changes, shed
+   shifts, trusted history suppression, and next-dose generation from accepted
+   completions.
+2. Convert one-goat rows into buckets such as:
+   `park + shed + vaccine + dose + due-window + eligibility state`.
+   This keeps one million goats manageable because the planner works on buckets
+   and affected cohorts, not a full-herd recalculation every time.
+3. Apply hard safety gates before scoring anything: lifecycle active, not
+   dead/sold/transferred/lost/culled, health/defer state, pregnancy/lactation
+   rule, quarantine/ICU rule, proof/SOP requirement, trained worker, stock,
+   cold-chain, and vaccine compatibility.
+4. Build a vaccine conflict graph for each shed/time window. Vaccines are nodes;
+   unsafe same-day combinations or required 2-week/4-week gaps are edges. The
+   planner separates unsafe combinations and keeps only safe vaccine groups.
+5. Search candidate dates only inside the approved medical window
+   (`earliest_safe_date`, `ideal_date`, `last_safe_date`). A date outside the
+   safe window is rejected, not merely given a bad score.
+6. Score the remaining safe plans by operational value: goats covered, urgency,
+   disease priority, stock expiry, route/resource efficiency, and fairness to
+   small sheds. A one-goat shed can be held if waiting is medically safe, but it
+   becomes a micro-drive if waiting would break the window.
+7. Create the drive with its goat list, vaccine list, lot/stock reservation,
+   SOP/proof requirements, worker, verifier, and route. A route may contain
+   multiple sheds, but each shed keeps its own goat list, proof, and
+   reconciliation.
+8. On execution day, reconcile the scan against the plan: missing goats,
+   shifted-in goats, shifted-out goats, newly sick/pregnant/quarantined goats,
+   unreadable tags, deaths, sales, proof rejection, and cold-chain failure all
+   create explicit cancel/defer/rework/replan actions. Nothing silently
+   disappears from the process.
+9. Replan incrementally. If one goat dies, moves shed, becomes sick, gets sold,
+   or a proof fails, only that goat and its affected shed/vaccine bucket are
+   invalidated. The system does not recompute the full million-goat herd.
+
+V2 is therefore a constraint-based shed-drive planner: per-goat due generation
+plus cohort bucketing, vaccine conflict partitioning, bounded date search,
+deterministic scoring, resource assignment, execution reconciliation, and
+incremental replanning.
+
 ## 5. Surfaces (per the mock)
 
 | Surface | Shows | Nav location |

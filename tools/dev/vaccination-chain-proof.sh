@@ -68,6 +68,19 @@ PY
 )
   [ -z "$relay_bad" ] || fail "$label relay reported non-green counts: $relay_bad output=$(echo "$out" | tail -3 | tr '\n' ' ')"
 }
+relay_until_published(){
+  local label=$1 aggregate=$2 event_type=$3
+  local i status
+  for i in $(seq 1 5); do
+    relay_once "$label" 500
+    status=$(psqlq "select status from outbox_messages where tenant_id='$TENANT' and aggregate_id='$aggregate' and event_type='$event_type' order by created_at desc limit 1")
+    if [ "$status" = "published" ]; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "$label did not publish $event_type for aggregate=$aggregate; last_status=$status"
+}
 assert_outbox_published(){
   local label=$1 aggregate=$2 event_type=$3
   local bad not_published
@@ -103,7 +116,7 @@ psql "$PGURL" -c "select event_id,event_type,status from outbox_messages where a
 EVENT=$(psqlq "select event_id from outbox_messages where aggregate_id='$GOAT' limit 1")
 
 echo; echo "### 3. outbox-relay eventbus delivery -> generation"
-relay_once "goat.created delivery" 50
+relay_until_published "goat.created delivery" "$GOAT" "goat.created"
 OBL=$(psqlq "select obligation_id from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE' limit 1")
 [ -n "$OBL" ] || { echo "FAIL step3 (no obligation generated)"; exit 1; }
 assert_outbox_published "goat.created" "$GOAT" "goat.created"
@@ -180,7 +193,8 @@ echo "Operations (API):         my-shed accepted=$(curl -s "${A[@]}" "$API/vacci
 
 echo; echo "### 9. replay / idempotency (no duplicates)"
 psql "$PGURL" -tAc "update outbox_messages set status='pending', published_at=null, next_attempt_at=null where aggregate_id='$GOAT'" >/dev/null
-relay_once "replay delivery" 50
+relay_until_published "goat.created replay" "$GOAT" "goat.created"
+relay_until_published "vaccination.completed delivery" "$OBL" "vaccination.completed"
 ( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/obligation-sweeper -tenant-id "$TENANT" -version-id "$VERSION" -sop-version-id "$SOPVER" -vaccine-item-id "$ITEM" -actor-id "$USER" 2>&1 | tail -1 )
 assert_outbox_published "goat.created replay" "$GOAT" "goat.created"
 assert_outbox_published "vaccination.completed delivery" "$OBL" "vaccination.completed"

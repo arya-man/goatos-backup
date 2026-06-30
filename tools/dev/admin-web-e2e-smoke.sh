@@ -51,6 +51,15 @@ assert_migration_head() {
   [ "$applied" = "1" ] || fail "local Postgres is not migrated to head version $latest_version"
 }
 
+assert_calendar_missed_status_allowed() {
+  local constraint
+  constraint="$(psqlq "select pg_get_constraintdef(oid) from pg_constraint where conname='calendar_event_status_check'" 2>/dev/null || true)"
+  case "$constraint" in
+    *"'missed'"*) ;;
+    *) fail "local Postgres has stale calendar_event_status_check; re-apply backend/migrations/postgres/000103_calendar_missed_status_check.sql before running vaccination smoke" ;;
+  esac
+}
+
 on_exit() {
   local status=$?
   {
@@ -80,6 +89,7 @@ curl -fsS "$GOATOS_API_BASE_URL/readyz" >/dev/null
 
 echo "### readiness: Postgres migrations"
 assert_migration_head
+assert_calendar_missed_status_allowed
 
 echo "### readiness: admin-web"
 curl -fsS "$GOATOS_ADMIN_WEB_BASE_URL/" >/dev/null

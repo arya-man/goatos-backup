@@ -73,6 +73,22 @@ PY
   [ -z "$relay_bad" ] || fail "$label relay reported non-green counts: $relay_bad output=$(echo "$out" | tail -3 | tr '\n' ' ')"
 }
 
+relay_until_published() {
+  local label="$1"
+  local aggregate="$2"
+  local event_type="$3"
+  local i status
+  for i in $(seq 1 5); do
+    relay_once "$label" 500
+    status="$(psqlq "select status from outbox_messages where tenant_id='$TENANT' and aggregate_id='$aggregate' and event_type='$event_type' order by created_at desc limit 1")"
+    if [ "$status" = "published" ]; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "$label did not publish $event_type for aggregate=$aggregate; last_status=$status"
+}
+
 TOKEN="$(cd "$backend_dir" && go run ./cmd/mint-dev-token -tenant-id "$TENANT" -user-id "$USER" -ttl 2h 2>/dev/null)"
 AUTH=(-H "Authorization: Bearer $TOKEN")
 
@@ -264,7 +280,7 @@ EXPECTED_STATE="female:$DOB_DAY21:true:K1:healthy:alive:$PARK:$SHED"
 echo "clean_canonical_state=$CANONICAL_STATE"
 
 echo "### relay goat.created and generate vaccination work"
-relay_once "clean goat.created delivery" 100
+relay_until_published "clean goat.created delivery" "$CLEAN" "goat.created"
 (
   cd "$backend_dir"
   GOATOS_TENANT_ID="$TENANT" \

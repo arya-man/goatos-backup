@@ -1,7 +1,7 @@
 "use client";
 
-// Counts -> Herd Register write UI: the "Register goat" drawer (single create) and the "Import sheet" drawer
-// (bulk preview -> commit). Mock-faithful drawer behavior (right panel, backdrop/Escape close, focus, footer
+// Counts -> Herd Register write UI: the "Register goat" modal (single create) and the "Import sheet" modal
+// (bulk preview -> commit). Mock-faithful modal behavior (centered overlay, backdrop/Escape close, focus, footer
 // actions) over the Mesha theme. Single create posts a real server action (createGoatAction) and redirects
 // with a banner; bulk calls real preview/commit server actions and holds ONLY the backend's response as
 // transient UI state. No fixtures, no fake totals, no client-only business mutation.
@@ -145,14 +145,14 @@ function mergeShedCommitResult(preview: ShedImportResponse, committed: ShedImpor
   };
 }
 
-// ---- Drawer shell (right panel; backdrop + Escape close; focus trap entry; body scroll lock) ----
+// ---- Modal shell (centered overlay; backdrop + Escape close; focus trap entry; body scroll lock) ----
 function Drawer({
   open,
   onClose,
   closeLabel,
   title,
   subtitle,
-  width = 560,
+  width = 760,
   children,
 }: {
   open: boolean;
@@ -187,42 +187,39 @@ function Drawer({
   if (!open) return null;
 
   return (
-    <div
-      role="presentation"
-      onClick={onClose}
-      style={{ position: "fixed", inset: 0, zIndex: 220, background: "rgba(0,0,0,.55)", display: "flex", justifyContent: "flex-end" }}
-    >
+    <>
+      <div onClick={onClose} aria-hidden="true" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 210 }} />
       <div
         ref={panelRef}
+        className="modal on card"
         role="dialog"
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
         style={{
-          width: `min(${width}px, 100%)`,
-          height: "100%",
-          background: "var(--panel)",
-          borderLeft: "1px solid var(--line)",
-          boxShadow: "var(--shadow)",
+          width: `min(${width}px, calc(100vw - 32px))`,
+          maxHeight: "calc(100vh - 48px)",
           display: "flex",
           flexDirection: "column",
+          overflow: "hidden",
           outline: "none",
         }}
       >
-        <div className="hd" style={{ flexShrink: 0 }}>
+        <div className="hd" style={{ borderBottom: "1px solid var(--line2)", flex: "0 0 auto" }}>
+          <Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
           <div>
             <h3>{title}</h3>
             {subtitle ? <div className="muted small" style={{ marginTop: 2 }}>{subtitle}</div> : null}
           </div>
           <div className="sp" style={{ flex: 1 }} />
-          <button type="button" className="btn sm" onClick={onClose} aria-label={closeLabel}>
-            <X className="ic" style={{ width: 14 }} aria-hidden="true" />
+          <button type="button" className="iconbtn" onClick={onClose} aria-label={closeLabel}>
+            <X className="ic" aria-hidden="true" />
           </button>
         </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px" }}>{children}</div>
+        <div className="bd" style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: "18px 22px" }}>{children}</div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -239,7 +236,7 @@ function Row({ children }: { children: React.ReactNode }) {
   return <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>{children}</div>;
 }
 
-// ---- Register goat drawer (single create) ----
+// ---- Register goat modal (single create) ----
 function RegisterGoatDrawer({
   open,
   onClose,
@@ -282,6 +279,7 @@ function RegisterGoatDrawer({
       closeLabel={copy(pageContract, "action.close")}
       title={copy(pageContract, "drawer.register.title")}
       subtitle={copy(pageContract, "drawer.register.subtitle")}
+      width={820}
     >
       {!hasLocations ? (
         <div className="alert" style={{ marginBottom: 14 }}>
@@ -302,8 +300,8 @@ function RegisterGoatDrawer({
         </div>
       ) : null}
 
-      {/* The action redirects (banner). Close the drawer as the form submits so the banner is visible and
-          the client drawer state does not linger over the navigated page. onSubmit fires only after the
+      {/* The action redirects (banner). Close the modal as the form submits so the banner is visible and
+          the client modal state does not linger over the navigated page. onSubmit fires only after the
           browser's required-field validation passes, and React still dispatches the action this event. */}
       <form action={createGoatAction} onSubmit={() => onClose()} className="fld" style={{ margin: 0 }}>
         <input type="hidden" name="idempotency_key" value={idempotencyKey} />
@@ -442,7 +440,7 @@ function RegisterGoatDrawer({
   );
 }
 
-// ---- Register shed drawer (single create) ----
+// ---- Register shed modal (single create) ----
 function RegisterShedDrawer({
   open,
   onClose,
@@ -467,6 +465,7 @@ function RegisterShedDrawer({
       closeLabel={copy(pageContract, "action.close")}
       title={copy(pageContract, "drawer.shed_register.title")}
       subtitle={copy(pageContract, "drawer.shed_register.subtitle")}
+      width={760}
     >
       {!canCreate ? (
         <div className="alert" style={{ marginBottom: 14 }}>
@@ -529,7 +528,7 @@ function RegisterShedDrawer({
   );
 }
 
-// ---- Bulk import drawer (download template -> paste/upload CSV -> preview -> commit) ----
+// ---- Bulk import modal (download template -> paste/upload CSV -> preview -> commit) ----
 function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onClose: () => void; pageContract: AdminUiPageContract }) {
   const router = useRouter();
   const [csv, setCsv] = useState("");
@@ -645,7 +644,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
       closeLabel={copy(pageContract, "action.close")}
       title={copy(pageContract, "drawer.import.title")}
       subtitle={copy(pageContract, "drawer.import.subtitle")}
-      width={820}
+      width={900}
     >
       {/* Step 1 — template + input. Hidden once a commit result is shown. */}
       {!committed ? (
@@ -774,7 +773,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   );
 }
 
-// ---- Shed bulk import drawer (download template -> paste/upload CSV -> preview -> commit) ----
+// ---- Shed bulk import modal (download template -> paste/upload CSV -> preview -> commit) ----
 function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onClose: () => void; pageContract: AdminUiPageContract }) {
   const router = useRouter();
   const [csv, setCsv] = useState("");
@@ -888,7 +887,7 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
       closeLabel={copy(pageContract, "action.close")}
       title={copy(pageContract, "drawer.shed_import.title")}
       subtitle={copy(pageContract, "drawer.shed_import.subtitle")}
-      width={820}
+      width={900}
     >
       {!committed ? (
         <>
