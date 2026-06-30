@@ -36,7 +36,7 @@ PHC (Preventive Health Care) is **not** just vaccination. The config engine must
 | In scope (v1) | Fast-follow (P2) | Out of scope |
 |---|---|---|
 | Goats-config delta (identity the cascade reads) | Deworming + FAMACHA-driven dosing | Breeding / milking / growth verticals |
-| Vaccination rules as `protocol_*` + admin UI | Vaccination coverage projection | Procurement intake saga |
+| Full vaccine-goat matrix as `protocol_*` config + admin UI | Vaccination coverage projection | Procurement intake saga |
 | Auto obligation generation on birth/procurement | Cold-chain excursion + quarantine | Full analytics warehouse / Cube |
 | Per-shed drives + SOP execution + proof video | Booster-chain interrupt policy | Other PHC modules (engine-ready, not built) |
 | Generic inventory + FEFO ledger movements | Withdrawal-period sale-block automation | |
@@ -61,8 +61,16 @@ Role = **Vertical × Tier**, park-scoped (committed `user_scope_grants`: roles `
 
 ### 4.1 Admin authors the rule → leadership publishes
 PHC Director drafts a protocol rule (`protocol_rules` under a `vaccination` protocol):
-> *Enterotoxaemia · goat · all sexes · shed-stage K1 · primary dose 1 · 0.5 ml · trigger age_based day 21 · window 7d · booster +14d.*
+> *Enterotoxaemia · goat · all sexes · shed-stage K1 · primary dose 1 · 0.5 ml · trigger birth_age day 21 · window 7d · booster +14d.*
 COO/CEO reviews and **publishes** → version becomes immutable with an `effective_from`. The engine reads the published version at generation time. No code ships.
+
+V1 is not complete with a generic "booster yes/no" form. It needs a practical
+vaccine-goat matrix: for each vaccine and dose, the approved config must say
+which goat types it applies to, at what age/stage, with what pregnancy/lactation
+or health restrictions, what due window is safe, what repeat/booster rule
+applies, what proof/SOP is required, and what source approval backs the row.
+Purchased/intake goats and existing goats already in the database must be run
+through the same matrix as farm-born goats.
 
 ### 4.2 Goat enters → obligations auto-generate
 Birth report (`origin_type=birth`) or procurement (`origin_type=procured`) creates the goat. The engine reads published vaccination rules matching the goat's `sex × shed-stage × dose sequence` and **materializes `obligation_instances`** (one per due dose), `scheduled_date` computed from the trigger.
@@ -83,17 +91,17 @@ Per `vaccination_completion`: obligation → `completed`; **FEFO inventory** con
 Shift (re-target + re-eval same vaccine), death/sale (cancel pending in same txn), missed vs blocked (distinct), double-submit (idempotent), stock-out (reserve-at-start, no negative). Detail in [TRD §6](./TRD.md).
 
 ### 4.7 V2 drive-planning algorithm
-V1 answers the first question: for every goat, what vaccine is due, by what date,
-in which shed, and under which approved rule. V2 answers the operations question:
-when should the farm run a practical drive, which goats go into it, and which
-vaccines can safely be done together.
+V1 must already answer: for every goat, what vaccine is due, by what date, in
+which shed, and under which approved vaccine-goat matrix row. V2 starts after
+that. It answers the operations question: when should the farm run a practical
+drive, which goats go into it, and which vaccines can safely be done together.
 
 The planner works like this:
 
-1. Start from V1 due work. This includes new goat creation, purchased/intake
-   goats, existing-goat backfill after a published rule, stage changes, shed
-   shifts, trusted history suppression, and next-dose generation from accepted
-   completions.
+1. Start from V1 due work generated from the completed vaccine-goat matrix. This
+   includes new goat creation, purchased/intake goats, existing-goat backfill
+   after a published rule, stage changes, shed shifts, trusted history
+   suppression, and next-dose generation from accepted completions.
 2. Convert one-goat rows into buckets such as:
    `park + shed + vaccine + dose + due-window + eligibility state`.
    This keeps one million goats manageable because the planner works on buckets
@@ -129,6 +137,11 @@ V2 is therefore a constraint-based shed-drive planner: per-goat due generation
 plus cohort bucketing, vaccine conflict partitioning, bounded date search,
 deterministic scoring, resource assignment, execution reconciliation, and
 incremental replanning.
+
+The split is deliberate: V1 owns the complete vaccine-goat matrix and per-goat
+due generation. V2 consumes those due rows and the vaccine compatibility fields
+to optimize shed drives. Do not treat V2 drive planning as a substitute for the
+V1 matrix.
 
 ## 5. Surfaces (per the mock)
 

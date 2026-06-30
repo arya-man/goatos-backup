@@ -71,6 +71,39 @@ The protocol/obligation/SOP/escalation tables are the [engine](../protocol-engin
 
 **Config (multi-dose / multi-phase — NOT trigger-day + booster-offset):** a `protocol_definitions` row `category='vaccination'`; the schedule is authored in `protocol_versions.rule_dsl` as a **`schedule[]` array — one entry per dose/phase** (`primary`, `booster_1`, `booster_2`, `annual`, `catch_up`, …), each with `trigger_type` (birth_age/post_arrival/calendar/after_previous_completion/manual_campaign) · `offset_days` · `due_window_days` · `min_gap_days` · `repeat` (none/every_n_days/yearly; age-window repeat authoring is rejected until generator support lands) · `repeat_until_after_age` · `catch_up` · per-dose `sop_label` (display only — the executable SOP binds at `protocol_versions.sop_version_id`; a genuine per-dose executable override uses `protocol_rules.sop_version_id`, never a free-text label) + `proof_policy`. The engine **expands each `schedule[]` row into one `protocol_rules` row**. Rule-level: multi-factor `eligibility_json` (age_band + animal_stage + sex + breed + lifecycle + health + reproductive[exclude pregnant/lactating] + defer_states[ICU/quarantine/sick]), `missed_dose_policy` (immediate/next_cycle/phc_approval/defer), `withdrawal_days`. Per-park override = a park-scoped `protocol_version` (no `park_id` column on a vaccine table — scope is the obligation's `scope_id`). **No `vaccine_config` table** — it *is* `protocol_rules`. _Lifecycle example:_ `0–12mo` → `primary` (birth_age) + `booster_1` (after_previous_completion) + repeat every N months; `>12mo` → `annual` (`repeat:yearly`, modeled as its own eligible lifecycle row); next due is derived from trigger/repeat/catch-up logic and trusted accepted completions, not a separate DSL field.
 
+### 4.0 V1 vaccine-goat matrix acceptance
+
+The first voice-note requirement maps to V1, not V2: GoatOS must support a
+reviewable matrix that says which vaccine applies to which goat type and when.
+The matrix is authored through protocol/version/rule config and must be usable
+for goat creation, purchased/intake goats, existing-goat backfill, stage change,
+location/shed change, health change, and accepted-completion next-dose
+generation.
+
+Each source-approved vaccine matrix row must carry:
+
+| Matrix field | V1 requirement |
+|---|---|
+| Vaccine identity | vaccine code/name, inventory item, manufacturer/detail linkage where known |
+| Vaccine property | vaccine type/class such as live, killed, toxoid, combo, or unknown-review-needed |
+| Dose row | dose code, sequence, dose amount, route/site if required, proof/SOP binding |
+| Trigger | birth-age, post-arrival/intake, calendar, manual campaign, or after previous completion |
+| Medical window | earliest safe date, ideal/offset date, latest safe date, min gap, max delay, missed-dose policy |
+| Repeat/lifetime | none, every N days, yearly, booster sequence, lifetime/age cutoff, course-lapse/restart policy or explicit unsupported/review-needed |
+| Goat category | age range, animal stage/shed tag, sex, breed if relevant, lifecycle state, source confidence |
+| Reproductive state | allowed/blocked/review-needed for pregnant, lactating, mother, buck, flushing, breeding, warm-up |
+| Health/defer state | allowed/deferred/blocked for sick, under treatment, ICU, quarantine, recovery, adverse-event review |
+| History handling | trusted accepted history suppresses or advances the row; untrusted/unknown history produces catch-up/review |
+| Source approval | source system/ref, reviewer, approval status, approved_at, effective dates |
+
+Without those rows, GoatOS can only prove reusable engine plumbing; it cannot
+honestly claim the full practical vaccine matrix is complete. `PPR`, `FMD`,
+`HS`, `BQ`, Goat Pox, and ET+TT-style combinations must not become live
+schedule-bearing rules from labels alone; each needs source-approved matrix
+rows before V1 can demo it as real config. Cross-vaccine pair compatibility
+fields may be stored with the matrix in V1, but optimized use of those fields
+for combined shed drives belongs to the V2 planner in §6A.
+
 **Source / review metadata (nested `source` object on `rule_dsl` — canonical shape):** every rule carries provenance + an approval gate under `source:{ … }` — `source_system` (vaccinations_db / phc / vet / manual_admin), `source_ref`, `imported_at`, `reviewed_by`, `review_status` (extracted → reviewed → approved), `approved_by`, `approved_at`. **Publish gate:** a version may be published **only when `review_status='approved'`** and source-backed. **Dev policy:** values that come from a real source (Vaccinations DB / PHC / vet-approved) and are marked `approved` are **real config in `goatos-dev` and publishable there** — the **dev-real path**. Unsourced / `extracted` rows stay `status='draft'` with a **`not source-backed`** warning and cannot be published. Never hand-invent vaccine schedule values.
 
 ### 4.1 Legacy parity, proof policy, and import replay
@@ -151,10 +184,11 @@ PHC vaccination must reuse/enhance it, not rebuild a vaccination-only island (pe
 
 ## 6A. V2 drive planner algorithm
 
-V1 generation remains the source of truth for due work: published matrix config
-plus goat facts creates or updates `obligation_instances` for each goat. The V2
-planner consumes those rows and produces execution-ready `obligation_batches`
-without recomputing the whole herd.
+V1 generation remains the source of truth for due work: the complete
+source-approved vaccine-goat matrix plus goat facts creates or updates
+`obligation_instances` for each goat. The V2 planner consumes those rows and
+produces execution-ready `obligation_batches` without recomputing the whole
+herd.
 
 **Inputs**
 - `obligation_instances` for vaccination rules, including `rule_id`,
@@ -172,7 +206,9 @@ without recomputing the whole herd.
 **Algorithm**
 1. Select due candidates through indexed windows, never an unbounded goat scan:
    `(tenant_id, status, due_at)` plus scope filters. Candidates are active
-   `scheduled`/`due`/`deferred-ready` obligations only.
+   `scheduled`/`due` obligations, plus `deferred` obligations whose current goat
+   facts now satisfy a derived ready-again predicate. Readiness after defer is a
+   computed predicate, not a stored canonical status.
 2. Revalidate each candidate against current goat facts. Dead, sold,
    transferred, culled, or lost goats cancel open work. Sick, quarantine, ICU,
    pregnancy, and lactation states apply the rule's allow/defer/block/review
@@ -214,9 +250,11 @@ without recomputing the whole herd.
     recalculated for one state change.
 
 **Boundary**
-V2 requires first-class vaccine compatibility metadata and policy-approved
-drive thresholds. Until those are built, V1 remains a per-goat due engine plus
-basic shed batching; it must not claim optimized cross-vaccine drive planning.
+V2 requires the V1-authored vaccine compatibility fields plus policy-approved
+drive thresholds. Until the planner is built, GoatOS may have per-goat due work
+and basic shed batching, but it must not claim optimized cross-vaccine drive
+planning. Separately, V1 itself must not be called complete until the
+source-approved vaccine-goat matrix in §4.0 is configured and proven.
 
 ---
 

@@ -1,14 +1,19 @@
-# Vaccination v1 — Foundation Spec (locked)
+# Vaccination v1 — Matrix + Due Engine Spec (locked)
 
 **Date:** 2026-06-24 · **Status:** locked for build · **Owner surface:** PHC vertical → Vaccination module.
 
-This spec locks the architecture + scope for Vaccination v1. Config IA is now
-settled separately: Protocol Rules lives under generic Admin / Data Ops at
-`/config`, while PHC/Vaccination links to it filtered as `category=vaccination`.
-The vaccination-specific invariant in this spec is that eligibility must not be
+This spec locks the architecture + scope for Vaccination v1. V1 is not just an
+engine foundation or a booster toggle; it must prove a reviewable
+vaccine-goat matrix that can generate per-goat due work for new goats,
+purchased/intake goats, existing-goat backfill, stage changes, shed changes,
+health/defer changes, and accepted-completion next doses. Config IA is settled
+separately: Protocol Rules lives under generic Admin / Data Ops at `/config`,
+while PHC/Vaccination links to it filtered as `category=vaccination`. The
+vaccination-specific invariant in this spec is that eligibility must not be
 modelled with a generic `shed_status` text field. Authoritative source hierarchy:
 committed migrations `000071`-`000075`, `wiki/goatOS.docx` (§1 locations, §6
-vaccination, §11 shiftings), and the accepted source findings in
+vaccination, §11 shiftings), voice-note matrix requirements, and the accepted
+source findings in
 `context/source-findings/phc-vaccination-roster-stage-proposal.md` plus
 `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`.
 Visual source: `mock/goatos-dashboard-mock.html`.
@@ -44,7 +49,7 @@ Visual source: `mock/goatos-dashboard-mock.html`.
 - **Do not build full Parks modules now:** no Sanitation, no PHC & Biosecurity
   Parks page, no Feed Direction, no Feed Execution, no Ground Team module, no
   Park Inventory screen. **Feed Direction stays paused** until PHC/Vaccination UI
-  + this foundation are reviewed and approved.
+  + the V1 matrix/due engine are reviewed and approved.
 
 ## 2. Engine ↔ doc mapping (already committed — reconcile vocab, don't rebuild)
 
@@ -58,31 +63,49 @@ Visual source: `mock/goatos-dashboard-mock.html`.
 | `vaccination_sop_steps` | `sop_versions` form_dsl/proof_policy (seeded 000075) | `000075` is a draft skeleton (`shed_video`, `vial_lot`, `cold_chain`, `dose`, `route_site`, `administered_at`, `adverse_reaction`, `est_vs_used`, `verifier_review`); source parity also requires goat scan, medicine batch/vial-lot, proof media, adverse-reaction notes/follow-up, and verifier/park-head review. |
 
 **Rule eligibility fields (reconciled to the doc):** `animal_stage` (from
-`animal_stage_lookup`) · `sex` · `defer_states` (ICU/quarantine/sick) · vaccine ·
-`config_type` (primary/booster) · `dose_number` · `dose_ml` · trigger
-(`age_based`/`post_arrival`/`calendar`) + offset/window. Stored in `rule_dsl`
-(structured columns for stage/sex/dose_ml/config_type; jsonb for the rest).
+`animal_stage_lookup`) · age band · `sex` · breed where relevant · lifecycle ·
+reproductive state · `defer_states` (ICU/quarantine/sick) · vaccine · vaccine
+type/class (live/killed/toxoid/combo/unknown-review-needed) · dose row ·
+`config_type` (primary/booster/catch-up/annual) · `dose_number` · `dose_ml` ·
+route/site where required · trigger
+(`birth_age`/`post_arrival`/`calendar`/`manual_campaign`/`after_previous_completion`)
++ earliest/ideal/latest window · min gap · max delay · repeat/lifetime policy ·
+missed-dose/course-lapse policy · proof/SOP binding · source approval metadata.
+Stored in `rule_dsl` (structured columns for stable selectors where present;
+jsonb for matrix-specific eligibility and source metadata).
 
-## 3. v1 minimum foundation (build only this)
+## 3. v1 acceptance scope
 
-1. **Sheds foundation** — active sheds are locations under parent parks; every
+1. **Source-approved vaccine-goat matrix** — each schedule-bearing vaccine row
+   must say which goat category receives which dose, at what age/stage, under
+   what pregnancy/lactation/health restrictions, inside what safe window, with
+   what booster/repeat/course-lapse policy, and with what SOP/proof/source
+   approval. `PPR`, `FMD`, `HS`, `BQ`, Goat Pox, and ET+TT-style labels are not
+   enough by themselves; they become real V1 config only when their matrix rows
+   are source-approved.
+2. **Sheds foundation** — active sheds are locations under parent parks; every
    active shed has `animal_stage_id`; include `sex` grouping + `has_icu` /
    quarantine / defer metadata (existing `shed_profiles` columns + `context`
    jsonb). Use existing `capacity`. **Gap:** seed `animal_stage_lookup` +
    `shed_lifecycle_status_lookup`; backfill `shed_profiles.animal_stage_id` for
    active sheds.
-2. **Current goat location** — every goat resolves to a current shed/location;
+3. **Current goat location** — every goat resolves to a current shed/location;
    `goat_location_history` stays intact. **Gap:** reliable current-shed
    resolution + backfill (verify/derive a current pointer without rewriting history).
-3. **Minimal shifting recompute** — when a goat changes shed, recompute/rescope
+4. **Matrix-driven generation and backfill** — goat creation/import,
+   purchase/intake, existing-goat backfill after publish, stage change, shed
+   change, health/defer exit, and accepted completion must all re-run the matrix
+   for only the affected goat/cohort and produce/cancel/defer the right open
+   obligations.
+5. **Minimal shifting recompute** — when a goat changes shed, recompute/rescope
    only **pending/due** vaccination obligations (re-stage, re-batch to the
    destination shed drive; pre-shift / individual completion where the drive
    already ran). **Never** rewrite completed/accepted/rejected history.
-4. **Minimal ownership/assignment** — enough to route a shed vaccination drive to
+6. **Minimal ownership/assignment** — enough to route a shed vaccination drive to
    the correct worker/manager (reuse workforce 000050). No full Ground Team module.
-5. **Inventory hooks** — vaccine lots, expiry, FEFO reserve/consume/release on
+7. **Inventory hooks** — vaccine lots, expiry, FEFO reserve/consume/release on
    completion. No Park Inventory UI.
-6. **Quarantine/ICU defer** — use as a defer/eligibility state (shed has_icu /
+8. **Quarantine/ICU defer** — use as a defer/eligibility state (shed has_icu /
    ICU stage / context). Full Quarantine module can wait.
 
 ## 4. Procurement DB [Goats].xlsx — evidence only, not completion truth
@@ -106,7 +129,9 @@ Procurement vertical for v1.
 ## 4.1 Legacy parity floor and import/replay mapping
 
 - Preserve source-backed SOP labels (`PPR`, `ET`, `FMD`, `HS`, `BQ`) as
-  vocabulary; only ET/K1/day-21 is schedule-bearing today.
+  vocabulary. Labels alone are not V1 completion; every demoed
+  schedule-bearing vaccine needs source-approved timing, dose, eligibility,
+  window, repeat/booster, defer, and proof rows.
 - Preserve the SOP proof shape: scheduled date, operator, goat scan, vaccine
   name, medicine batch/vial-lot, dose ml, administered date/time, proof media,
   adverse reaction + notes/follow-up, and verifier/park-head review.
@@ -124,10 +149,12 @@ Procurement vertical for v1.
 
 1. Seed/backfill `animal_stage_lookup` + active sheds' `animal_stage_id` (+ shed_lifecycle_status_lookup).
 2. Current goat location resolution + backfill (history preserved).
-3. Config UI fields aligned to the `animal_stage` model (screen at `/config?category=vaccination`, mock-faithful).
-4. Vaccination generation engine using current shed stage (birth / post_arrival / age-cron).
-5. Minimal shifting recompute for pending/due obligations only.
-6. FEFO inventory reserve/consume/release + quarantine/ICU defer hooks.
+3. Configure the source-approved vaccine-goat matrix rows, not just vaccine labels.
+4. Config UI fields aligned to the `animal_stage` model (screen at `/config?category=vaccination`, mock-faithful).
+5. Vaccination generation engine using current goat facts and the matrix (birth / post_arrival / calendar / after_previous_completion).
+6. Existing-goat backfill and changed-fact recheck for the same matrix.
+7. Minimal shifting recompute for pending/due obligations only.
+8. FEFO inventory reserve/consume/release + quarantine/ICU defer hooks.
 
 Keep all backend/API/RBAC/schema work. Run the narrowest typecheck/build/test
 per slice; for migrations on hot tables, verify indexed plans
