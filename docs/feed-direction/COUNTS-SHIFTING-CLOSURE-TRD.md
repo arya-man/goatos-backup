@@ -100,6 +100,10 @@ Implementation status as of 2026-06-30:
   Projection recompute resolves approved breed/stage aliases before Feed sees
   rows; unreviewed aliases emit open `alias_conflict` exceptions and keep the
   affected row blocked.
+- `count_projection_exceptions` now carries work metadata (`work_type`,
+  `work_state`, `due_at`, `next_action`, `evidence_link`) and repeated open
+  exceptions relink to the latest snapshot on upsert. This makes G2 blockers
+  owner/action visible to Feed reads instead of stranded on stale snapshots.
 - Projection rows now carry `base_count_anchor_id`,
   `included_shifting_event_ids_hash`, source row hash, contract hash, and
   ration-context resolution state.
@@ -115,8 +119,9 @@ Implementation status as of 2026-06-30:
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
 - This does **not** close `G2`: source import/adapters, owner-approved alias
   mapping coverage/admin review, count-mismatch detection beyond negative source
-  protection, exception work routing, observability, query-plan/synthetic-scale
-  proof, and seeded local E2E remain blockers.
+  protection, exception routing into shared command lenses/outbox,
+  observability, query-plan/synthetic-scale proof, and seeded local E2E remain
+  blockers.
 
 ## 3. Candidate Persistence
 
@@ -217,9 +222,22 @@ Counts/Shifting creates durable process-exception work for:
 - replay conflict where the same logical event has a different payload;
 - projection stale because Base Count or ShiftingEvents changed after snapshot.
 
-Each exception must include owner, due/deadline policy, audit, outbox, and read
-model visibility. Feed generation consumes the exception count/hash and blocks
-or narrows generation according to policy; it does not hide the problem.
+Implementation status as of 2026-06-30:
+
+- Projection exceptions are durable and expose owner/action work metadata:
+  `owner_ref`, `work_type`, `work_state`, `due_at`, `next_action`, and
+  `evidence_link`.
+- Critical exceptions are due immediately from the projection `as_of`; blocking
+  exceptions default to a two-hour deadline; warning exceptions default to a
+  one-day deadline.
+- Open exception upsert moves repeated exceptions to the newest snapshot so a
+  latest Feed projection cannot appear clean because the blocker is still
+  attached to an older snapshot.
+- Full command-lens subscription, outbox event fanout, assignment policy, and
+  resolve/dismiss workflow remain G2 blockers.
+
+Feed generation consumes the exception count/hash and blocks or narrows
+generation according to policy; it does not hide the problem.
 
 ## 8. Worker And Projection Shape
 

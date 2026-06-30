@@ -179,6 +179,40 @@ func TestCreateProjectionSnapshotRejectsExceptionWithoutBlocker(t *testing.T) {
 	}
 }
 
+func TestCreateProjectionSnapshotDefaultsExceptionWorkFields(t *testing.T) {
+	repo := &fakeRepo{}
+	asOf := time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC)
+	_, err := NewService(repo).CreateProjectionSnapshot(context.Background(), domain.ProjectionSnapshot{
+		TenantID: "tenant", ParkID: "park", TargetDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		AsOf:                  asOf,
+		SourceContractVersion: "counts-shifting-v1", SourceHash: "hash-1",
+		BaseAnchorIDsHash: "anchors", ShiftingEventIDsHash: "shifts", GeneratedBy: "test",
+		Exceptions: []domain.ProjectionException{{
+			ExceptionType: "destination_shortage", SourceKey: "shift-1", GrainKey: "shed:breed:pregnant",
+			Severity: "critical", BlockerReason: "pregnant destination shortage",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateProjectionSnapshot err=%v", err)
+	}
+	if len(repo.snap.Exceptions) != 1 {
+		t.Fatalf("exceptions=%d, want 1", len(repo.snap.Exceptions))
+	}
+	ex := repo.snap.Exceptions[0]
+	if ex.WorkType != "counts_projection_exception" || ex.WorkState != "owner_missing" {
+		t.Fatalf("work defaults=%+v", ex)
+	}
+	if !ex.DueAt.Equal(asOf) {
+		t.Fatalf("due_at=%s, want %s", ex.DueAt, asOf)
+	}
+	if ex.NextAction != "Resolve destination ration context before Feed generation" {
+		t.Fatalf("next_action=%q", ex.NextAction)
+	}
+	if ex.EvidenceLink != "/feed-direction/counts-projection/exceptions/shift-1" {
+		t.Fatalf("evidence_link=%q", ex.EvidenceLink)
+	}
+}
+
 func TestProjectedCountForDefaultsLimitAndRejectsUnboundedLimit(t *testing.T) {
 	repo := &fakeRepo{}
 	got, err := NewService(repo).ProjectedCountFor(context.Background(), domain.CountProjectionRequest{

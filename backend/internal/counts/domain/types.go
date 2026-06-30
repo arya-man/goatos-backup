@@ -201,6 +201,11 @@ type ProjectionException struct {
 	StageTag              *string
 	Severity              string
 	OwnerRef              *string
+	WorkType              string
+	WorkState             string
+	DueAt                 time.Time
+	NextAction            string
+	EvidenceLink          string
 	BlockerReason         string
 	EvidenceJSON          []byte
 }

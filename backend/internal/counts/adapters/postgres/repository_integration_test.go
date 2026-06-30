@@ -167,6 +167,49 @@ func TestRepositoryCreatesBlockedProjectionSnapshotAndReadiness(t *testing.T) {
 	if len(projection.Exceptions) != 1 || projection.Exceptions[0].ExceptionType != "destination_shortage" {
 		t.Fatalf("projection exceptions=%+v, want destination_shortage", projection.Exceptions)
 	}
+	ex := projection.Exceptions[0]
+	if ex.WorkType != "counts_projection_exception" || ex.WorkState != "owner_missing" || ex.DueAt.IsZero() ||
+		ex.NextAction == "" || ex.EvidenceLink == "" {
+		t.Fatalf("exception work fields not populated: %+v", ex)
+	}
+}
+
+func TestRepositoryRelinksRepeatedOpenExceptionToLatestSnapshot(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 3*time.Second)
+	blocker := "pregnant destination shed shortage: reviewed ration context missing"
+	breed := "beetal"
+	stage := "pregnant"
+	anchorID, replay, err := repo.RecordBaseCountAnchor(ctx, baseAnchor("projection-relink-anchor-key", "projection-relink-anchor-fp"))
+	if err != nil || replay || anchorID == "" {
+		t.Fatalf("projection anchor id=%q replay=%v err=%v", anchorID, replay, err)
+	}
+	firstTarget := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	secondTarget := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
+	if _, err := repo.CreateProjectionSnapshot(ctx, repeatedExceptionSnapshot(anchorID, firstTarget, "snapshot-relink-hash-1", blocker, breed, stage)); err != nil {
+		t.Fatalf("first snapshot: %v", err)
+	}
+	secondID, err := repo.CreateProjectionSnapshot(ctx, repeatedExceptionSnapshot(anchorID, secondTarget, "snapshot-relink-hash-2", blocker, breed, stage))
+	if err != nil {
+		t.Fatalf("second snapshot: %v", err)
+	}
+	projection, err := repo.ProjectedCountFor(ctx, domain.CountProjectionRequest{
+		TenantID: countsTenant, ParkID: countsPark, TargetDate: secondTarget,
+		ShedID: strPtr(countsShedB), BreedKey: &breed, RationContextResolutionState: strPtr("blocked"), Limit: 25,
+	})
+	if err != nil {
+		t.Fatalf("projected count: %v", err)
+	}
+	if projection.SnapshotID != secondID {
+		t.Fatalf("snapshot=%s, want latest %s", projection.SnapshotID, secondID)
+	}
+	if len(projection.Exceptions) != 1 || projection.Exceptions[0].ExceptionType != "destination_shortage" {
+		t.Fatalf("projection exceptions=%+v, want relinked destination_shortage", projection.Exceptions)
+	}
+	if projection.Exceptions[0].WorkState != "owner_missing" || projection.Exceptions[0].EvidenceLink == "" {
+		t.Fatalf("exception work fields=%+v", projection.Exceptions[0])
+	}
 }
 
 func TestRepositoryProjectionProviderFailsClosedWhenSnapshotMissing(t *testing.T) {
@@ -429,6 +472,29 @@ VALUES
 ON CONFLICT (location_id) DO NOTHING;`,
 		countsTenant, countsPark, countsShedA, countsShedB); err != nil {
 		t.Fatalf("seed sheds: %v", err)
+	}
+}
+
+func repeatedExceptionSnapshot(anchorID string, target time.Time, sourceHash, blocker, breed, stage string) domain.ProjectionSnapshot {
+	return domain.ProjectionSnapshot{
+		TenantID: countsTenant, Horizon: "feed_target_date", ParkID: countsPark,
+		TargetDate:       target,
+		AsOf:             time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC),
+		ProjectionStatus: "blocked", SourceContractVersion: domain.SourceContractVersionV1,
+		SourceHash: sourceHash, BaseAnchorIDsHash: "anchors-relink",
+		ShiftingEventIDsHash: "shift-relink", GeneratedBy: "test",
+		Rows: []domain.ProjectionRow{{
+			ParkID: countsPark, ShedID: countsShedB, TargetDate: target,
+			GrainKey: "shed-b:beetal:pregnant", BreedKey: "beetal", BreedLabel: "Beetal",
+			BaseCountAnchorID: anchorID, IncludedShiftingEventIDsHash: "shift-relink",
+			StageTag: &stage, HeadCount: 12, PregnantCount: 12,
+			RationContextResolutionState: "blocked", BlockerReason: &blocker, SourceRowHash: sourceHash + ":row",
+		}},
+		Exceptions: []domain.ProjectionException{{
+			ExceptionType: "destination_shortage", SourceKey: "shift-key-relink", GrainKey: "shed-b:beetal:pregnant",
+			ParkID: strPtr(countsPark), ShedID: strPtr(countsShedB), BreedKey: &breed, StageTag: &stage,
+			Severity: "critical", BlockerReason: blocker,
+		}},
 	}
 }
 

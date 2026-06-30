@@ -806,7 +806,7 @@ func (r *Repository) loadOpenProjectionExceptions(ctx context.Context, snapshotI
 SELECT count_projection_exception_id::text, exception_type, source_key, grain_key,
        COALESCE(park_id::text, ''), COALESCE(shed_id::text, ''), COALESCE(breed_key, ''),
        COALESCE(stage_tag, ''), severity, COALESCE(owner_ref, ''),
-       blocker_reason, evidence_json
+       work_type, work_state, due_at, next_action, evidence_link, blocker_reason, evidence_json
 FROM count_projection_exceptions
 WHERE count_projection_snapshot_id = $1::uuid
   AND status = 'open'
@@ -821,7 +821,8 @@ LIMIT 50`, snapshotID)
 		var ex domain.ProjectionException
 		var park, shed, breed, stage, owner string
 		if err := rows.Scan(&ex.ProjectionExceptionID, &ex.ExceptionType, &ex.SourceKey, &ex.GrainKey,
-			&park, &shed, &breed, &stage, &ex.Severity, &owner, &ex.BlockerReason, &ex.EvidenceJSON); err != nil {
+			&park, &shed, &breed, &stage, &ex.Severity, &owner, &ex.WorkType, &ex.WorkState, &ex.DueAt,
+			&ex.NextAction, &ex.EvidenceLink, &ex.BlockerReason, &ex.EvidenceJSON); err != nil {
 			return fmt.Errorf("counts: scan projection exception: %w", err)
 		}
 		ex.ParkID = ptrIfNotEmpty(park)
@@ -838,18 +839,39 @@ func insertProjectionException(ctx context.Context, tx pgx.Tx, tenantID, snapsho
 	_, err := tx.Exec(ctx, `
 INSERT INTO count_projection_exceptions (
   tenant_id, count_projection_snapshot_id, exception_type, source_key, grain_key,
-  park_id, shed_id, breed_key, stage_tag, severity, owner_ref, blocker_reason, evidence_json
+  park_id, shed_id, breed_key, stage_tag, severity, owner_ref, work_type, work_state,
+  due_at, next_action, evidence_link, blocker_reason, evidence_json
 ) VALUES (
   $1::uuid, $2::uuid, $3, $4, $5,
-  nullif($6::text, '')::uuid, nullif($7::text, '')::uuid, nullif($8, ''), nullif($9, ''), $10, nullif($11, ''), $12, $13::jsonb
+  nullif($6::text, '')::uuid, nullif($7::text, '')::uuid, nullif($8, ''), nullif($9, ''),
+  $10, nullif($11, ''),
+  COALESCE(NULLIF($12, ''), 'counts_projection_exception'),
+  COALESCE(NULLIF($13, ''), CASE WHEN nullif($11, '') IS NULL THEN 'owner_missing' ELSE 'blocked' END),
+  COALESCE($14::timestamptz, CASE $10 WHEN 'critical' THEN now() WHEN 'warning' THEN now() + interval '24 hours' ELSE now() + interval '2 hours' END),
+  COALESCE(NULLIF($15, ''), 'Review Counts/Shifting projection exception'),
+  COALESCE(NULLIF($16, ''), '/feed-direction/counts-projection/exceptions/' || $4),
+  $17,
+  $18::jsonb
 )
 ON CONFLICT (tenant_id, exception_type, source_key, grain_key) WHERE status = 'open'
-DO UPDATE SET blocker_reason = EXCLUDED.blocker_reason,
+DO UPDATE SET count_projection_snapshot_id = EXCLUDED.count_projection_snapshot_id,
+              park_id = EXCLUDED.park_id,
+              shed_id = EXCLUDED.shed_id,
+              breed_key = EXCLUDED.breed_key,
+              stage_tag = EXCLUDED.stage_tag,
+              severity = EXCLUDED.severity,
+              owner_ref = EXCLUDED.owner_ref,
+              work_type = EXCLUDED.work_type,
+              work_state = EXCLUDED.work_state,
+              due_at = LEAST(count_projection_exceptions.due_at, EXCLUDED.due_at),
+              next_action = EXCLUDED.next_action,
+              evidence_link = EXCLUDED.evidence_link,
+              blocker_reason = EXCLUDED.blocker_reason,
               evidence_json = EXCLUDED.evidence_json,
               updated_at = now()`,
 		tenantID, snapshotID, ex.ExceptionType, ex.SourceKey, ex.GrainKey, ptrValue(ex.ParkID), ptrValue(ex.ShedID),
 		ptrValue(ex.BreedKey), ptrValue(ex.StageTag), defaultString(ex.Severity, "blocking"), ptrValue(ex.OwnerRef),
-		ex.BlockerReason, jsonObject(ex.EvidenceJSON))
+		ex.WorkType, ex.WorkState, nullableZeroTime(ex.DueAt), ex.NextAction, ex.EvidenceLink, ex.BlockerReason, jsonObject(ex.EvidenceJSON))
 	if err != nil {
 		return fmt.Errorf("counts: insert projection exception: %w", err)
 	}
@@ -990,6 +1012,13 @@ func nullableTime(t *time.Time) any {
 		return nil
 	}
 	return *t
+}
+
+func nullableZeroTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t
 }
 
 func dateOnly(t time.Time) time.Time {

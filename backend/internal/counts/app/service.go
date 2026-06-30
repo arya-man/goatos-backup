@@ -108,9 +108,14 @@ func (s *Service) CreateProjectionSnapshot(ctx context.Context, in domain.Projec
 			return "", ErrInvalidCount
 		}
 	}
-	for _, exception := range in.Exceptions {
+	for i := range in.Exceptions {
+		normalizeProjectionExceptionWork(&in.Exceptions[i], in.AsOf)
+		exception := in.Exceptions[i]
 		if strings.TrimSpace(exception.ExceptionType) == "" || strings.TrimSpace(exception.SourceKey) == "" ||
-			strings.TrimSpace(exception.GrainKey) == "" || strings.TrimSpace(exception.BlockerReason) == "" {
+			strings.TrimSpace(exception.GrainKey) == "" || strings.TrimSpace(exception.Severity) == "" ||
+			strings.TrimSpace(exception.WorkType) == "" || strings.TrimSpace(exception.WorkState) == "" ||
+			exception.DueAt.IsZero() || strings.TrimSpace(exception.NextAction) == "" ||
+			strings.TrimSpace(exception.EvidenceLink) == "" || strings.TrimSpace(exception.BlockerReason) == "" {
 			return "", ErrMissingRequiredField
 		}
 		if !isJSONObject(exception.EvidenceJSON) {
@@ -345,6 +350,63 @@ func projectionException(exceptionType, sourceKey, grainKey, parkID, shedID, bre
 		ParkID: &parkID, ShedID: &shedID, BreedKey: &breedKey, StageTag: stageTag,
 		Severity: severity, BlockerReason: reason,
 		EvidenceJSON: []byte(fmt.Sprintf(`{"source":"counts_projection_recompute","reason":%q}`, reason)),
+	}
+}
+
+func normalizeProjectionExceptionWork(exception *domain.ProjectionException, anchor time.Time) {
+	exception.Severity = defaultString(exception.Severity, "blocking")
+	exception.WorkType = defaultString(exception.WorkType, "counts_projection_exception")
+	if strings.TrimSpace(exception.WorkState) == "" {
+		if exception.OwnerRef == nil || strings.TrimSpace(*exception.OwnerRef) == "" {
+			exception.WorkState = "owner_missing"
+		} else {
+			exception.WorkState = "blocked"
+		}
+	}
+	if anchor.IsZero() {
+		anchor = time.Now().UTC()
+	}
+	if exception.DueAt.IsZero() {
+		exception.DueAt = exceptionDueAt(anchor, exception.Severity)
+	}
+	exception.NextAction = defaultString(exception.NextAction, exceptionNextAction(exception.ExceptionType))
+	exception.EvidenceLink = defaultString(exception.EvidenceLink, "/feed-direction/counts-projection/exceptions/"+exception.SourceKey)
+}
+
+func exceptionDueAt(anchor time.Time, severity string) time.Time {
+	anchor = anchor.UTC()
+	switch severity {
+	case "critical":
+		return anchor
+	case "warning":
+		return anchor.Add(24 * time.Hour)
+	default:
+		return anchor.Add(2 * time.Hour)
+	}
+}
+
+func exceptionNextAction(exceptionType string) string {
+	switch exceptionType {
+	case "missing_base_count":
+		return "Record or adopt the physical Base Count anchor"
+	case "missing_structured_impact":
+		return "Capture structured source/destination cohort impact"
+	case "unreported_shifting":
+		return "Review mismatch and create or confirm the missing ShiftingEvent"
+	case "count_mismatch":
+		return "Investigate count mismatch before Feed generation"
+	case "alias_conflict":
+		return "Review and approve the Counts dimension alias mapping"
+	case "ration_context_unresolved":
+		return "Resolve ration context for the projection row"
+	case "destination_shortage":
+		return "Resolve destination ration context before Feed generation"
+	case "unsafe_surplus":
+		return "Review unsafe surplus or wastage risk before Feed generation"
+	case "query_plan_unproven":
+		return "Run bounded query-plan proof for the Counts projection"
+	default:
+		return "Review Counts/Shifting projection exception"
 	}
 }
 
