@@ -104,6 +104,14 @@ Implementation status as of 2026-06-30:
   `work_state`, `due_at`, `next_action`, `evidence_link`) and repeated open
   exceptions relink to the latest snapshot on upsert. This makes G2 blockers
   owner/action visible to Feed reads instead of stranded on stale snapshots.
+- Projection exception open, relink/update, and close state changes now emit
+  transactional outbox events
+  (`counts.projection_exception.opened`,
+  `counts.projection_exception.updated`, and
+  `counts.projection_exception.closed`) with tenant/park/shed visibility,
+  owner, severity, due time, next action, evidence link, and resolution fields
+  where applicable. This gives shared command-lens projectors a durable
+  subscription source without polling Counts tables.
 - Physical Base Count adoption now reconciles the new anchor against the
   previous adopted shed + breed anchor plus applied ShiftingEvents in the
   bounded window. Unexpected deltas create open `unreported_shifting` or
@@ -140,8 +148,8 @@ Implementation status as of 2026-06-30:
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
 - This does **not** close `G2`: source import/adapters, owner-approved alias
   mapping coverage/admin review, scheduled/import-wide mismatch scans, shared
-  command-lens UX/outbox fanout, observability, query-plan/synthetic-scale
-  proof, and seeded local E2E remain blockers.
+  command-lens subscription/projector plus UX, observability,
+  query-plan/synthetic-scale proof, and seeded local E2E remain blockers.
 
 ## 3. Candidate Persistence
 
@@ -258,10 +266,14 @@ Implementation status as of 2026-06-30:
   idempotent `resolve` and `dismiss` actions with actor, reason, optional
   resolution reference, audit row, closed exception state, and linked Base Count
   discrepancy cleanup when applicable.
+- Backend exception state changes now emit durable outbox events for opened,
+  updated/relinked, and closed projection exceptions. The outbox event is in the
+  same Postgres transaction as the exception write, with a tenant validator for
+  the `count_projection_exception` aggregate.
 - The protected Feed Direction API now exposes the exception queue and close
   actions, registered in the route-permission matrix and OpenAPI. Full
-  command-lens subscription, outbox event fanout, assignment policy, and
-  review-surface UX remain G2 blockers.
+  command-lens subscription/projector, assignment policy, and review-surface UX
+  remain G2 blockers.
 - New physical Base Count anchors compare against the previous adopted anchor
   plus applied shifting ledger net for the same tenant, park, shed, and breed.
   A matching delta stays clean; an unexplained delta creates `unreported_shifting`
@@ -281,6 +293,7 @@ Required paths:
 | Shifting event ingest | API/import/outbox | Upsert event and impacts, emit idempotent `counts.shifting_event.recorded` outbox event, audit, invalidate projections |
 | Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or the registered `countsapp.ProjectionInputHandler` consumer for tenant + park + as-of + target-date bounded horizons; write snapshot or exception |
 | Count mismatch scan | Base Count adoption plus scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. Scheduled/import-wide scan remains to catch stale historical gaps. |
+| Exception fanout | Projection exception open/update/close | Emit `counts.projection_exception.*` outbox events for command-lens/projector consumption; shared command-lens subscription and UX remain separate closure work. |
 | Feed projection read | API/app port | Return rows or typed blocker with source hash |
 
 All workers must be tenant/park/date/grain bounded and replay-safe.

@@ -4,9 +4,12 @@ package domain
 import "time"
 
 const (
-	EventBaseCountAnchorRecorded = "counts.base_count_anchor.recorded"
-	EventShiftingEventRecorded   = "counts.shifting_event.recorded"
-	SourceContractVersionV1      = "counts-shifting-v1"
+	EventBaseCountAnchorRecorded    = "counts.base_count_anchor.recorded"
+	EventShiftingEventRecorded      = "counts.shifting_event.recorded"
+	EventProjectionExceptionOpened  = "counts.projection_exception.opened"
+	EventProjectionExceptionUpdated = "counts.projection_exception.updated"
+	EventProjectionExceptionClosed  = "counts.projection_exception.closed"
+	SourceContractVersionV1         = "counts-shifting-v1"
 )
 
 type ReadinessStatus string

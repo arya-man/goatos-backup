@@ -138,6 +138,12 @@ Candidate tables owned by Counts/Shifting:
 | `count_projection_exceptions` | Durable fail-closed work for unresolved cohort/stage, unreported shifting, or insufficient source data |
 | `count_projection_exception_resolutions` | Reviewed resolve/dismiss audit for exception work; includes actor, reason, optional source reference, idempotency key, and replay fingerprint |
 
+Projection exception state changes must also emit transactional outbox events:
+`counts.projection_exception.opened`, `counts.projection_exception.updated`,
+and `counts.projection_exception.closed`. These events are the durable
+subscription source for shared command-lens projectors; the Feed Direction API
+list/read route remains the bounded review surface, not a generation bypass.
+
 Idempotency:
 
 - `shifting_events` must be unique by tenant + logical shifting event key.

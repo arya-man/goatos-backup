@@ -22,11 +22,14 @@ import (
 const defaultQueryTimeout = 3 * time.Second
 
 const (
-	countBaseAnchorRecordedEventType = domain.EventBaseCountAnchorRecorded
-	shiftingEventRecordedEventType   = domain.EventShiftingEventRecorded
-	countsEventSchemaVersion         = "1.0.0"
-	countsEventSchemaRef             = "contracts/jsonschema/domain-event-envelope.schema.json"
-	countsEventTopic                 = "counts.events"
+	countBaseAnchorRecordedEventType    = domain.EventBaseCountAnchorRecorded
+	shiftingEventRecordedEventType      = domain.EventShiftingEventRecorded
+	projectionExceptionOpenedEventType  = domain.EventProjectionExceptionOpened
+	projectionExceptionUpdatedEventType = domain.EventProjectionExceptionUpdated
+	projectionExceptionClosedEventType  = domain.EventProjectionExceptionClosed
+	countsEventSchemaVersion            = "1.0.0"
+	countsEventSchemaRef                = "contracts/jsonschema/domain-event-envelope.schema.json"
+	countsEventTopic                    = "counts.events"
 )
 
 type Repository struct {
@@ -668,6 +671,20 @@ WHERE tenant_id = $1::uuid
 	if err := markBaseCountDiscrepancyResolved(ctx, tx, in.TenantID, sourceKey); err != nil {
 		return domain.ProjectionExceptionResolution{}, err
 	}
+	closedException, err := loadProjectionExceptionForOutbox(ctx, tx, in.TenantID, in.ProjectionExceptionID)
+	if err != nil {
+		return domain.ProjectionExceptionResolution{}, err
+	}
+	if err := insertProjectionExceptionOutbox(ctx, tx, in.TenantID, closedException, projectionExceptionOutboxOptions{
+		EventType:        projectionExceptionClosedEventType,
+		IdempotencyKey:   projectionExceptionClosedEventType + ":" + resolutionID,
+		ActorType:        "user",
+		ActorRef:         in.ResolvedByRef,
+		ResolutionID:     resolutionID,
+		ResolutionAction: in.Action,
+	}); err != nil {
+		return domain.ProjectionExceptionResolution{}, err
+	}
 	out, err := loadProjectionExceptionResolution(ctx, tx, in.TenantID, resolutionID)
 	if err != nil {
 		return domain.ProjectionExceptionResolution{}, err
@@ -1274,8 +1291,48 @@ func scanProjectionException(scanner projectionExceptionScanner) (domain.Project
 	return ex, nil
 }
 
+func loadProjectionExceptionForOutbox(ctx context.Context, q projectionExceptionResolutionQuerier, tenantID, exceptionID string) (domain.ProjectionException, error) {
+	ex, err := scanProjectionException(q.QueryRow(ctx, `
+SELECT count_projection_exception_id::text,
+       COALESCE(count_projection_snapshot_id::text, ''),
+       exception_type,
+       source_key,
+       grain_key,
+       COALESCE(park_id::text, ''),
+       COALESCE(shed_id::text, ''),
+       COALESCE(breed_key, ''),
+       COALESCE(stage_tag, ''),
+       severity,
+       status,
+       COALESCE(owner_ref, ''),
+       work_type,
+       work_state,
+       due_at,
+       next_action,
+       evidence_link,
+       blocker_reason,
+       evidence_json,
+       COALESCE(resolution_id::text, ''),
+       COALESCE(resolved_by_ref, ''),
+       COALESCE(resolution_reason, ''),
+       COALESCE(resolution_ref, ''),
+       resolved_at,
+       created_at,
+       updated_at
+FROM count_projection_exceptions
+WHERE tenant_id = $1::uuid
+  AND count_projection_exception_id = $2::uuid`, tenantID, exceptionID))
+	if err != nil {
+		return domain.ProjectionException{}, err
+	}
+	return ex, nil
+}
+
 func insertProjectionException(ctx context.Context, tx pgx.Tx, tenantID, snapshotID string, ex domain.ProjectionException) error {
-	_, err := tx.Exec(ctx, `
+	var persisted domain.ProjectionException
+	var inserted bool
+	var snapshotOut, park, shed, breed, stage, owner string
+	err := tx.QueryRow(ctx, `
 INSERT INTO count_projection_exceptions (
   tenant_id, count_projection_snapshot_id, exception_type, source_key, grain_key,
   park_id, shed_id, breed_key, stage_tag, severity, owner_ref, work_type, work_state,
@@ -1307,14 +1364,188 @@ DO UPDATE SET count_projection_snapshot_id = EXCLUDED.count_projection_snapshot_
               evidence_link = EXCLUDED.evidence_link,
               blocker_reason = EXCLUDED.blocker_reason,
               evidence_json = EXCLUDED.evidence_json,
-              updated_at = now()`,
+              updated_at = now()
+RETURNING count_projection_exception_id::text,
+          COALESCE(count_projection_snapshot_id::text, ''),
+          exception_type,
+          source_key,
+          grain_key,
+          COALESCE(park_id::text, ''),
+          COALESCE(shed_id::text, ''),
+          COALESCE(breed_key, ''),
+          COALESCE(stage_tag, ''),
+          severity,
+          status,
+          COALESCE(owner_ref, ''),
+          work_type,
+          work_state,
+          due_at,
+          next_action,
+          evidence_link,
+          blocker_reason,
+          evidence_json,
+          created_at,
+          updated_at,
+          (xmax = 0)`,
 		tenantID, snapshotID, ex.ExceptionType, ex.SourceKey, ex.GrainKey, ptrValue(ex.ParkID), ptrValue(ex.ShedID),
 		ptrValue(ex.BreedKey), ptrValue(ex.StageTag), defaultString(ex.Severity, "blocking"), ptrValue(ex.OwnerRef),
-		ex.WorkType, ex.WorkState, nullableZeroTime(ex.DueAt), ex.NextAction, ex.EvidenceLink, ex.BlockerReason, jsonObject(ex.EvidenceJSON))
+		ex.WorkType, ex.WorkState, nullableZeroTime(ex.DueAt), ex.NextAction, ex.EvidenceLink, ex.BlockerReason, jsonObject(ex.EvidenceJSON)).
+		Scan(&persisted.ProjectionExceptionID, &snapshotOut, &persisted.ExceptionType, &persisted.SourceKey,
+			&persisted.GrainKey, &park, &shed, &breed, &stage, &persisted.Severity, &persisted.Status,
+			&owner, &persisted.WorkType, &persisted.WorkState, &persisted.DueAt, &persisted.NextAction,
+			&persisted.EvidenceLink, &persisted.BlockerReason, &persisted.EvidenceJSON, &persisted.CreatedAt,
+			&persisted.UpdatedAt, &inserted)
 	if err != nil {
 		return fmt.Errorf("counts: insert projection exception: %w", err)
 	}
+	persisted.ProjectionSnapshotID = ptrIfNotEmpty(snapshotOut)
+	persisted.ParkID = ptrIfNotEmpty(park)
+	persisted.ShedID = ptrIfNotEmpty(shed)
+	persisted.BreedKey = ptrIfNotEmpty(breed)
+	persisted.StageTag = ptrIfNotEmpty(stage)
+	persisted.OwnerRef = ptrIfNotEmpty(owner)
+	eventType := projectionExceptionUpdatedEventType
+	if inserted {
+		eventType = projectionExceptionOpenedEventType
+	}
+	if err := insertProjectionExceptionOutbox(ctx, tx, tenantID, persisted, projectionExceptionOutboxOptions{EventType: eventType}); err != nil {
+		return err
+	}
 	return nil
+}
+
+type projectionExceptionOutboxOptions struct {
+	EventType        string
+	IdempotencyKey   string
+	ActorType        string
+	ActorRef         string
+	ResolutionID     string
+	ResolutionAction string
+}
+
+func insertProjectionExceptionOutbox(ctx context.Context, tx pgx.Tx, tenantID string, ex domain.ProjectionException, opts projectionExceptionOutboxOptions) error {
+	eventType := defaultString(opts.EventType, projectionExceptionUpdatedEventType)
+	idempotencyKey := opts.IdempotencyKey
+	if idempotencyKey == "" {
+		idempotencyKey = eventType + ":" + ex.ProjectionExceptionID + ":" + ex.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	actorType := defaultString(opts.ActorType, "system_rule")
+	payload := projectionExceptionOutboxPayload(ex)
+	if opts.ResolutionID != "" {
+		payload["resolution_id"] = opts.ResolutionID
+	}
+	if opts.ResolutionAction != "" {
+		payload["resolution_action"] = opts.ResolutionAction
+	}
+	visibility := map[string]any{"tenant_id": tenantID}
+	if ex.ParkID != nil && *ex.ParkID != "" {
+		visibility["park_id"] = *ex.ParkID
+	}
+	if ex.ShedID != nil && *ex.ShedID != "" {
+		visibility["shed_id"] = *ex.ShedID
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     eventType,
+		"schema_version": countsEventSchemaVersion,
+		"schema_ref":     countsEventSchemaRef,
+		"aggregate_type": "count_projection_exception",
+		"aggregate_id":   ex.ProjectionExceptionID,
+		"occurred_at":    now,
+		"recorded_at":    now,
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  "counts",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": actorType,
+			"actor_id":   nil,
+			"actor_ref":  ptrIfNotEmpty(opts.ActorRef),
+		},
+		"subject_type":     "count_projection_exception",
+		"subject_id":       ex.ProjectionExceptionID,
+		"visibility_scope": visibility,
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "count_projection_exception",
+			"evidence_id":   ex.ProjectionExceptionID,
+		}},
+		"payload":  payload,
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: projection exception envelope: %w", err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer":        "counts.ProjectionException",
+		"schema_version":  countsEventSchemaVersion,
+		"idempotency_key": idempotencyKey,
+		"event_type":      eventType,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: projection exception headers: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, 'count_projection_exception', $5::uuid,
+  $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
+)
+ON CONFLICT DO NOTHING`,
+		tenantID, eventID, eventType, countsEventSchemaVersion, ex.ProjectionExceptionID,
+		countsEventTopic, envelope, headers, idempotencyKey)
+	if err != nil {
+		return fmt.Errorf("counts: projection exception outbox: %w", err)
+	}
+	return nil
+}
+
+func projectionExceptionOutboxPayload(ex domain.ProjectionException) map[string]any {
+	payload := map[string]any{
+		"projection_exception_id": ex.ProjectionExceptionID,
+		"projection_snapshot_id":  ptrValue(ex.ProjectionSnapshotID),
+		"exception_type":          ex.ExceptionType,
+		"source_key":              ex.SourceKey,
+		"grain_key":               ex.GrainKey,
+		"park_id":                 ptrValue(ex.ParkID),
+		"shed_id":                 ptrValue(ex.ShedID),
+		"breed_key":               ptrValue(ex.BreedKey),
+		"stage_tag":               ptrValue(ex.StageTag),
+		"severity":                ex.Severity,
+		"status":                  ex.Status,
+		"owner_ref":               ptrValue(ex.OwnerRef),
+		"work_type":               ex.WorkType,
+		"work_state":              ex.WorkState,
+		"due_at":                  ex.DueAt.UTC().Format(time.RFC3339Nano),
+		"next_action":             ex.NextAction,
+		"evidence_link":           ex.EvidenceLink,
+		"blocker_reason":          ex.BlockerReason,
+		"evidence_json":           json.RawMessage(jsonObject(ex.EvidenceJSON)),
+		"created_at":              ex.CreatedAt.UTC().Format(time.RFC3339Nano),
+		"updated_at":              ex.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		"source_contract_version": domain.SourceContractVersionV1,
+	}
+	if ex.ResolutionID != nil {
+		payload["resolution_id"] = *ex.ResolutionID
+	}
+	if ex.ResolvedByRef != nil {
+		payload["resolved_by_ref"] = *ex.ResolvedByRef
+	}
+	if ex.ResolutionReason != nil {
+		payload["resolution_reason"] = *ex.ResolutionReason
+	}
+	if ex.ResolutionRef != nil {
+		payload["resolution_ref"] = *ex.ResolutionRef
+	}
+	if ex.ResolvedAt != nil {
+		payload["resolved_at"] = ex.ResolvedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return payload
 }
 
 type countsProjectionInputEvent struct {

@@ -80,6 +80,22 @@ WHERE tenant_id=$1::uuid
   AND count_projection_snapshot_id IS NULL`, countsTenant, "base_count_anchor:"+currentID); got != 1 {
 		t.Fatalf("unreported shifting exceptions=%d, want 1", got)
 	}
+	exceptionID := projectionExceptionID(t, ctx, pool, "unreported_shifting", "base_count_anchor:"+currentID)
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND aggregate_id=$2::uuid
+  AND event_type=$3`, countsTenant, exceptionID, domain.EventProjectionExceptionOpened); got != 1 {
+		t.Fatalf("projection exception opened outbox rows=%d, want 1", got)
+	}
+	openedPayload := outboxPayloadForAggregate(t, ctx, pool, domain.EventProjectionExceptionOpened, exceptionID)
+	openedEvent, err := eventbus.EventFromEnvelope(openedPayload, eventbus.Event{})
+	if err != nil {
+		t.Fatalf("opened EventFromEnvelope: %v", err)
+	}
+	if openedEvent.Type != domain.EventProjectionExceptionOpened || openedEvent.Key != exceptionID || openedEvent.TenantID != countsTenant {
+		t.Fatalf("opened event=%+v, want projection exception aggregate", openedEvent)
+	}
 	var discrepancyState string
 	if err := pool.QueryRow(ctx, `
 SELECT discrepancy_state FROM count_base_anchors
@@ -301,6 +317,22 @@ func TestRepositoryResolvesProjectionExceptionIdempotently(t *testing.T) {
 		t.Fatalf("resolution=%+v", out)
 	}
 	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND aggregate_id=$2::uuid
+  AND event_type=$3`, countsTenant, exceptionID, domain.EventProjectionExceptionClosed); got != 1 {
+		t.Fatalf("projection exception closed outbox rows=%d, want 1", got)
+	}
+	closedPayload := outboxPayloadForAggregate(t, ctx, pool, domain.EventProjectionExceptionClosed, exceptionID)
+	closedEvent, err := eventbus.EventFromEnvelope(closedPayload, eventbus.Event{})
+	if err != nil {
+		t.Fatalf("closed EventFromEnvelope: %v", err)
+	}
+	if closedEvent.Type != domain.EventProjectionExceptionClosed || closedEvent.Key != exceptionID ||
+		!strings.Contains(string(closedEvent.Payload), out.ProjectionExceptionResolutionID) {
+		t.Fatalf("closed event=%+v payload=%s", closedEvent, string(closedEvent.Payload))
+	}
+	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM count_projection_exceptions
 WHERE tenant_id=$1::uuid
   AND count_projection_exception_id=$2::uuid
@@ -337,6 +369,13 @@ WHERE tenant_id=$1::uuid AND base_count_anchor_id=$2::uuid`, countsTenant, curre
 	replayOut, err := repo.ResolveProjectionException(ctx, in)
 	if err != nil || !replayOut.Replayed || replayOut.ProjectionExceptionResolutionID != out.ProjectionExceptionResolutionID {
 		t.Fatalf("replay resolution=%+v err=%v, want replay of %s", replayOut, err, out.ProjectionExceptionResolutionID)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND aggregate_id=$2::uuid
+  AND event_type=$3`, countsTenant, exceptionID, domain.EventProjectionExceptionClosed); got != 1 {
+		t.Fatalf("projection exception closed replay outbox rows=%d, want 1", got)
 	}
 	conflict := in
 	conflict.RequestFingerprint = "different-fp"
@@ -473,6 +512,14 @@ func TestRepositoryRelinksRepeatedOpenExceptionToLatestSnapshot(t *testing.T) {
 	}
 	if projection.Exceptions[0].WorkState != "owner_missing" || projection.Exceptions[0].EvidenceLink == "" {
 		t.Fatalf("exception work fields=%+v", projection.Exceptions[0])
+	}
+	exceptionID := projectionExceptionID(t, ctx, pool, "destination_shortage", "shift-key-relink")
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND aggregate_id=$2::uuid
+  AND event_type=$3`, countsTenant, exceptionID, domain.EventProjectionExceptionUpdated); got != 1 {
+		t.Fatalf("projection exception updated outbox rows=%d, want 1", got)
 	}
 }
 
