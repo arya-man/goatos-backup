@@ -85,22 +85,6 @@ function Kpi({ label, value, sub, tone, icon }: { label: string; value: React.Re
 const ACTIVE_STATES: WorkState[] = ["in_progress", "scheduled"];
 const BLOCKED_STATES: WorkState[] = ["blocked", "proof_pending", "owner_missing", "rejected"];
 
-function workflowStepHref(row: ActionCenterObligation, stepKey: string, scope: ReturnType<typeof parseScope>): string {
-  switch (stepKey) {
-    case "config":
-      return scopeHref("/config", scope, {}, { category: "vaccination", config_rule: row.protocol_version_id });
-    case "drive":
-      return scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(row.shed_id)}`, scope);
-    case "obligation":
-    case "sop":
-    case "proof":
-    case "verify":
-    case "close":
-    default:
-      return scopeHref("/action-center", scope, {}, { ac_row: row.row_id });
-  }
-}
-
 export async function VaccinationWorkflowsPage({
   searchParams,
   pageContract,
@@ -283,17 +267,14 @@ export async function VaccinationWorkflowsPage({
 	              <div className="ostages" aria-label={copy(pageContract, "section.chain.aria")}>
 	                {steps.map((c, i) => {
                   const st = chainNodeStates[i];
-                  const href = activeWorkflow ? workflowStepHref(activeWorkflow, c.key, scope) : scopeHref("/action-center", scope);
                   return (
-                    <Link
+                    <span
                       key={c.key}
-                      href={href}
-                      scroll={false}
                       className={`ostage${st === "done" ? " on" : ""}${st === "cur" || st === "blocked" ? " cur" : ""}`}
                       title={`${c.title}: ${c.detail}`}
                     >
                       {c.stage}
-                    </Link>
+                    </span>
                   );
                 })}
               </div>
@@ -326,13 +307,10 @@ export async function VaccinationWorkflowsPage({
 	              <div className="otree" role="group" aria-label={copy(pageContract, "section.chain.aria")}>
 	                {steps.map((c, i) => {
                   const st = chainNodeStates[i];
-                  const href = activeWorkflow ? workflowStepHref(activeWorkflow, c.key, scope) : scopeHref("/action-center", scope);
                   return (
-                    <Link
+                    <div
                       className={`onode ${st}`}
-                      href={href}
                       key={c.key}
-                      scroll={false}
                       title={`${c.title}: ${c.detail}`}
                     >
                       <div className="dotn">
@@ -347,7 +325,7 @@ export async function VaccinationWorkflowsPage({
 	                      ) : st === "next" ? (
 	                        <span className="nxt">{copy(pageContract, "label.next_upper")}</span>
 	                      ) : null}
-                    </Link>
+                    </div>
                   );
                 })}
               </div>
