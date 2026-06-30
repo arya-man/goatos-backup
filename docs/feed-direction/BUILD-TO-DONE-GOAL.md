@@ -160,6 +160,9 @@ language.
    has an open `destination_shortage` exception. This is readiness consumption
    proof only; full Feed generation consumption of immutable projection snapshots
    still remains.
+   `counts-source-parity-check` now also has migrated-Postgres proof against a
+   canonical projection snapshot/read path and writes `CSG10` source-parity
+   evidence as pending, not ready.
    Raw Counting DB / Feed Directions Automation XLSX parsing, parity fixtures,
    and workbook-column mapping remain source-review work; workbook formulas or
    examples must not bypass typed validation/import.

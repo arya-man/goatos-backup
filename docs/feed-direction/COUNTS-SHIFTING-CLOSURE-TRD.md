@@ -158,7 +158,9 @@ Implementation status as of 2026-06-30:
   fixtures, such as `backend/testdata/counts/source-parity-sample.json`, against
   the canonical `CountAsOf`/`ProjectedCountFor` read path. Missing, mismatched,
   truncated, or unexpected exact-mode rows make `CSG10` `blocked`; passing
-  fixtures make `CSG10` `pending`, not `ready`.
+  fixtures make `CSG10` `pending`, not `ready`. The command has a
+  migrated-Postgres test proving canonical projection snapshots can satisfy a
+  sanitized parity fixture and write `CSG10` source-parity evidence.
 - Locations now accepts reviewed `sheds_db` source evidence for location aliases
   and capacity records, backed by the Postgres capacity-source constraint. This
   lets Sheds DB become governed Location/Park profile data instead of a raw

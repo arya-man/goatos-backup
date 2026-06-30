@@ -7,11 +7,20 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
+	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 var parityNow = time.Date(2026, 6, 30, 13, 30, 0, 0, time.UTC)
+
+const (
+	parityTenant = "00000000-0000-4000-8000-000000000001"
+	parityPark   = "62000000-0000-4000-8000-000000000001"
+	parityShed   = "62000000-0000-4000-8000-000000000002"
+)
 
 func TestParseParityFileNormalizesRows(t *testing.T) {
 	fixture, err := parseParityFile(strings.NewReader(`{
@@ -169,6 +178,96 @@ func TestUpsertCSG10ReadinessWritesParityEvidence(t *testing.T) {
 	evidence, _ := db.args[2].(string)
 	if !strings.HasPrefix(evidence, "counts-source-parity-check:source.md:") {
 		t.Fatalf("evidence=%q", evidence)
+	}
+}
+
+func TestSourceParityAgainstMigratedProjectionUpdatesCSG10(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedParityScope(t, ctx, pool)
+
+	repo := countspg.NewRepository(pool, 5*time.Second)
+	anchorID, replay, err := repo.RecordBaseCountAnchor(ctx, countsdomain.BaseCountAnchor{
+		TenantID: parityTenant, ParkID: parityPark, ShedID: parityShed,
+		BreedKey: "beetal", BreedLabel: "Beetal", CountedAt: time.Date(2026, 6, 30, 6, 0, 0, 0, time.UTC),
+		HeadCount: 10, SourceSystem: "physical_base_count", SourceRef: "source-parity-base-count",
+		SourceHash: "source-parity-base-hash", DiscrepancyState: "not_checked",
+		IdempotencyKey: "source-parity-base-anchor", RequestFingerprint: "source-parity-base-fp",
+	})
+	if err != nil || replay || anchorID == "" {
+		t.Fatalf("RecordBaseCountAnchor anchor=%q replay=%v err=%v", anchorID, replay, err)
+	}
+	target := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	snapshotID, err := repo.CreateProjectionSnapshot(ctx, countsdomain.ProjectionSnapshot{
+		TenantID: parityTenant, Horizon: horizonFeedTargetDate, ParkID: parityPark,
+		TargetDate: target, AsOf: parityNow, ProjectionStatus: "blocked",
+		SourceContractVersion: countsdomain.SourceContractVersionV1,
+		SourceHash:            "source-parity-snapshot-hash",
+		BaseAnchorIDsHash:     "source-parity-anchor-hash",
+		ShiftingEventIDsHash:  "source-parity-shift-hash",
+		GeneratedBy:           "counts-source-parity-check-test",
+		Rows: []countsdomain.ProjectionRow{{
+			ParkID: parityPark, ShedID: parityShed, TargetDate: target,
+			GrainKey: "source-parity:beetal", BaseCountAnchorID: anchorID,
+			IncludedShiftingEventIDsHash: "source-parity-shift-hash",
+			BreedKey:                     "beetal", BreedLabel: "Beetal", HeadCount: 10,
+			RationContextResolutionState: "blocked", SourceRowHash: "source-parity-row-hash",
+		}},
+	})
+	if err != nil || snapshotID == "" {
+		t.Fatalf("CreateProjectionSnapshot snapshot=%q err=%v", snapshotID, err)
+	}
+
+	state := "blocked"
+	fixture := parityFile{
+		TenantID: parityTenant, SourceRef: "context/source-findings/feed-direction-counting-db-reconstruction.md",
+		Horizon: horizonFeedTargetDate, ParkID: parityPark, targetDate: target, asOf: parityNow,
+		effectiveMode: modeSample,
+		ExpectedRows: []expectedParityRow{{
+			ShedID: parityShed, BreedKey: "beetal", HeadCount: 10, RationContextResolutionState: &state,
+		}},
+	}
+	result, err := checkSourceParity(ctx, repo, fixture, 25)
+	if err != nil {
+		t.Fatalf("checkSourceParity: %v", err)
+	}
+	if result.Expected != 1 || result.Actual != 1 || len(result.Missing) != 0 || len(result.Mismatched) != 0 || len(result.Unexpected) != 0 || result.Truncated {
+		t.Fatalf("result=%+v, want migrated projection parity pass", result)
+	}
+	status, blocker := parityStatus(fixture.SourceRef, result)
+	if status != "pending" || !strings.Contains(blocker, "seeded local E2E") {
+		t.Fatalf("status=%s blocker=%q, want pending caveat", status, blocker)
+	}
+	if err := upsertCSG10Readiness(ctx, pool, parityTenant, fixture.SourceRef, status, blocker); err != nil {
+		t.Fatalf("upsertCSG10Readiness: %v", err)
+	}
+	var gotStatus, gotEvidence, gotBlocker string
+	if err := pool.QueryRow(ctx, `
+SELECT status, evidence_ref, blocker_reason
+FROM counts_shifting_readiness_subgates
+WHERE tenant_id=$1::uuid AND subgate_id='CSG10'`, parityTenant).Scan(&gotStatus, &gotEvidence, &gotBlocker); err != nil {
+		t.Fatalf("load CSG10 readiness: %v", err)
+	}
+	if gotStatus != "pending" || !strings.Contains(gotEvidence, "counts-source-parity-check") || !strings.Contains(gotBlocker, "seeded local E2E") {
+		t.Fatalf("CSG10 status=%s evidence=%s blocker=%q, want pending source parity evidence", gotStatus, gotEvidence, gotBlocker)
+	}
+}
+
+func seedParityScope(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'PARITY-PARK', 'Parity Park', 'active')
+ON CONFLICT (location_id) DO NOTHING`, parityTenant, parityPark); err != nil {
+		t.Fatalf("seed parity park: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($3::uuid, $1::uuid, 'shed', 'PARITY-SHED', 'Parity Shed', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`, parityTenant, parityPark, parityShed); err != nil {
+		t.Fatalf("seed parity shed: %v", err)
 	}
 }
 

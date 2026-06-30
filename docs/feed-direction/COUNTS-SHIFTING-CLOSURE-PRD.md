@@ -104,6 +104,9 @@ pregnant ShiftingEvent, dual-horizon projection recompute, and the resulting
 `destination_shortage` exception flow through the Feed readiness provider and
 keep `G2` generation blocked. Full Feed generation from immutable projection
 snapshots remains separate closure work.
+`counts-source-parity-check` has migrated-Postgres proof that sanitized parity
+fixtures can be compared against the canonical projection read path and can
+write `CSG10` evidence without turning the gate ready.
 
 For any Counts/Shifting behavior that affects Feed Direction timing, Diff,
 bridge handling, one-day projection, or physical count adoption,
