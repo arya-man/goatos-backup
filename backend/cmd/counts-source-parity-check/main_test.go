@@ -191,6 +191,41 @@ func TestParseParityFileRejectsHighRiskCountsAboveHeadCount(t *testing.T) {
 	}
 }
 
+func TestParseHighRiskSourceParityFixtureCoversCriticalCohorts(t *testing.T) {
+	fixture := loadHighRiskParityFixture(t)
+	if fixture.TenantID != parityTenant || fixture.ParkID != parityPark {
+		t.Fatalf("tenant=%s park=%s, want committed parity scope", fixture.TenantID, fixture.ParkID)
+	}
+	if len(fixture.ExpectedRows) != 5 {
+		t.Fatalf("rows=%d, want five high-risk/sample rows", len(fixture.ExpectedRows))
+	}
+	required := map[string]bool{
+		"pregnant_late_gestation": false,
+		"mother_milking_waiting":  false,
+		"warmup_pregnant":         false,
+		"fattening_male_warmup":   false,
+		"non_pregnant":            false,
+	}
+	var pregnant, lactating, warmup bool
+	for _, row := range fixture.ExpectedRows {
+		stage := ptrValue(row.StageTag)
+		if _, ok := required[stage]; ok {
+			required[stage] = true
+		}
+		pregnant = pregnant || row.PregnantCount > 0
+		lactating = lactating || row.LactatingCount > 0
+		warmup = warmup || row.WarmupCount > 0
+	}
+	for stage, found := range required {
+		if !found {
+			t.Fatalf("missing stage %s in high-risk source parity fixture", stage)
+		}
+	}
+	if !pregnant || !lactating || !warmup {
+		t.Fatalf("pregnant=%v lactating=%v warmup=%v, want all critical counters covered", pregnant, lactating, warmup)
+	}
+}
+
 func TestCheckSourceParityReadsRequestedHorizon(t *testing.T) {
 	reader := &fakeProjectionReader{projected: countsdomain.CountProjection{Rows: []countsdomain.ProjectionRow{{
 		ShedID: "shed-1", BreedKey: "beetal", HeadCount: 10,
@@ -258,60 +293,32 @@ func TestSourceParityAgainstMigratedProjectionUpdatesCSG10(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
-	seedParityScope(t, ctx, pool)
+	fixture := loadHighRiskParityFixture(t)
+	seedParityScope(t, ctx, pool, parityShedsFromFixture(fixture)...)
 
 	repo := countspg.NewRepository(pool, 5*time.Second)
-	anchorID, replay, err := repo.RecordBaseCountAnchor(ctx, countsdomain.BaseCountAnchor{
-		TenantID: parityTenant, ParkID: parityPark, ShedID: parityShed,
-		BreedKey: "beetal", BreedLabel: "Beetal", CountedAt: time.Date(2026, 6, 30, 6, 0, 0, 0, time.UTC),
-		HeadCount: 10, SourceSystem: "physical_base_count", SourceRef: "source-parity-base-count",
-		SourceHash: "source-parity-base-hash", DiscrepancyState: "not_checked",
-		IdempotencyKey: "source-parity-base-anchor", RequestFingerprint: "source-parity-base-fp",
-	})
-	if err != nil || replay || anchorID == "" {
-		t.Fatalf("RecordBaseCountAnchor anchor=%q replay=%v err=%v", anchorID, replay, err)
-	}
-	target := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
-	stage := "pregnant"
-	age := "adult_doe"
-	sex := "female"
+	rows := projectionRowsForFixture(t, ctx, repo, fixture)
 	snapshotID, err := repo.CreateProjectionSnapshot(ctx, countsdomain.ProjectionSnapshot{
-		TenantID: parityTenant, Horizon: horizonFeedTargetDate, ParkID: parityPark,
-		TargetDate: target, AsOf: parityNow, ProjectionStatus: "blocked",
+		TenantID: fixture.TenantID, Horizon: fixture.Horizon, ParkID: fixture.ParkID,
+		TargetDate: fixture.targetDate, AsOf: fixture.asOf, ProjectionStatus: "blocked",
 		SourceContractVersion: countsdomain.SourceContractVersionV1,
-		SourceHash:            "source-parity-snapshot-hash",
-		BaseAnchorIDsHash:     "source-parity-anchor-hash",
-		ShiftingEventIDsHash:  "source-parity-shift-hash",
+		SourceHash:            "source-parity-high-risk-snapshot-hash",
+		BaseAnchorIDsHash:     "source-parity-high-risk-anchor-hash",
+		ShiftingEventIDsHash:  "source-parity-high-risk-shift-hash",
 		GeneratedBy:           "counts-source-parity-check-test",
-		Rows: []countsdomain.ProjectionRow{{
-			ParkID: parityPark, ShedID: parityShed, TargetDate: target,
-			GrainKey: "source-parity:beetal", BaseCountAnchorID: anchorID,
-			IncludedShiftingEventIDsHash: "source-parity-shift-hash",
-			BreedKey:                     "beetal", BreedLabel: "Beetal", HeadCount: 10,
-			StageTag: &stage, AgeClass: &age, Sex: &sex, PregnantCount: 2, WarmupCount: 1,
-			RationContextResolutionState: "blocked", SourceRowHash: "source-parity-row-hash",
-		}},
+		Rows:                  rows,
 	})
 	if err != nil || snapshotID == "" {
 		t.Fatalf("CreateProjectionSnapshot snapshot=%q err=%v", snapshotID, err)
 	}
 
-	state := "blocked"
-	fixture := parityFile{
-		TenantID: parityTenant, SourceRef: "context/source-findings/feed-direction-counting-db-reconstruction.md",
-		Horizon: horizonFeedTargetDate, ParkID: parityPark, targetDate: target, asOf: parityNow,
-		effectiveMode: modeSample,
-		ExpectedRows: []expectedParityRow{{
-			ShedID: parityShed, BreedKey: "beetal", StageTag: &stage, AgeClass: &age, Sex: &sex,
-			HeadCount: 10, PregnantCount: 2, WarmupCount: 1, RationContextResolutionState: &state,
-		}},
-	}
 	result, err := checkSourceParity(ctx, repo, fixture, 25)
 	if err != nil {
 		t.Fatalf("checkSourceParity: %v", err)
 	}
-	if result.Expected != 1 || result.Actual != 1 || len(result.Missing) != 0 || len(result.Mismatched) != 0 || len(result.Unexpected) != 0 || result.Truncated {
-		t.Fatalf("result=%+v, want migrated projection parity pass", result)
+	if result.Expected != len(fixture.ExpectedRows) || result.Actual != len(fixture.ExpectedRows) ||
+		len(result.Missing) != 0 || len(result.Mismatched) != 0 || len(result.Unexpected) != 0 || result.Truncated {
+		t.Fatalf("result=%+v, want migrated multi-cohort projection parity pass", result)
 	}
 	status, blocker := parityStatus(fixture.SourceRef, result)
 	if status != "pending" || !strings.Contains(blocker, "seeded local E2E") {
@@ -332,19 +339,117 @@ WHERE tenant_id=$1::uuid AND subgate_id='CSG10'`, parityTenant).Scan(&gotStatus,
 	}
 }
 
-func seedParityScope(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func loadHighRiskParityFixture(t *testing.T) parityFile {
 	t.Helper()
+	reader, closeFn, err := inputReader("../../testdata/counts/source-parity-high-risk-sample.json")
+	if err != nil {
+		t.Fatalf("open high-risk parity fixture: %v", err)
+	}
+	defer closeFn()
+	fixture, err := parseParityFile(reader, config{}, func() time.Time { return parityNow })
+	if err != nil {
+		t.Fatalf("parse high-risk parity fixture: %v", err)
+	}
+	return fixture
+}
+
+func projectionRowsForFixture(t *testing.T, ctx context.Context, repo *countspg.Repository, fixture parityFile) []countsdomain.ProjectionRow {
+	t.Helper()
+	rows := make([]countsdomain.ProjectionRow, 0, len(fixture.ExpectedRows))
+	for _, expected := range fixture.ExpectedRows {
+		anchorID, replay, err := repo.RecordBaseCountAnchor(ctx, countsdomain.BaseCountAnchor{
+			TenantID: fixture.TenantID, ParkID: fixture.ParkID, ShedID: expected.ShedID,
+			BreedKey: expected.BreedKey, BreedLabel: breedLabelFor(expected.BreedKey),
+			CountedAt:          time.Date(2026, 6, 30, 6, 0, 0, 0, time.UTC),
+			HeadCount:          expected.HeadCount,
+			SourceSystem:       "physical_base_count",
+			SourceRef:          "source-parity-high-risk-base-count",
+			SourceHash:         "source-parity-high-risk-base-hash-" + expected.ShedID,
+			DiscrepancyState:   "not_checked",
+			IdempotencyKey:     "source-parity-high-risk-base-anchor-" + expected.ShedID,
+			RequestFingerprint: "source-parity-high-risk-base-fp-" + expected.ShedID,
+		})
+		if err != nil || replay || anchorID == "" {
+			t.Fatalf("RecordBaseCountAnchor shed=%s anchor=%q replay=%v err=%v", expected.ShedID, anchorID, replay, err)
+		}
+		blocker := ""
+		if expected.RationContextResolutionState != nil && *expected.RationContextResolutionState == "blocked" {
+			blocker = "source parity sample blocks until destination shed ration context is reviewed"
+		}
+		rows = append(rows, countsdomain.ProjectionRow{
+			ParkID: fixture.ParkID, ShedID: expected.ShedID, TargetDate: fixture.targetDate,
+			GrainKey:                     "source-parity-high-risk:" + expected.ShedID + ":" + expected.BreedKey + ":" + ptrValue(expected.StageTag),
+			BaseCountAnchorID:            anchorID,
+			IncludedShiftingEventIDsHash: "source-parity-high-risk-shift-hash",
+			BreedKey:                     expected.BreedKey,
+			BreedLabel:                   breedLabelFor(expected.BreedKey),
+			StageTag:                     expected.StageTag,
+			AgeClass:                     expected.AgeClass,
+			Sex:                          expected.Sex,
+			HeadCount:                    expected.HeadCount,
+			PregnantCount:                expected.PregnantCount,
+			LactatingCount:               expected.LactatingCount,
+			WarmupCount:                  expected.WarmupCount,
+			RationContextResolutionState: ptrValue(expected.RationContextResolutionState),
+			BlockerReason:                ptrIfNotEmpty(blocker),
+			SourceRowHash:                "source-parity-high-risk-row-hash-" + expected.ShedID,
+		})
+	}
+	return rows
+}
+
+func parityShedsFromFixture(fixture parityFile) []string {
+	seen := map[string]bool{}
+	var sheds []string
+	for _, row := range fixture.ExpectedRows {
+		if !seen[row.ShedID] {
+			seen[row.ShedID] = true
+			sheds = append(sheds, row.ShedID)
+		}
+	}
+	return sheds
+}
+
+func breedLabelFor(key string) string {
+	switch key {
+	case "beetal":
+		return "Beetal"
+	case "sirohi":
+		return "Sirohi"
+	case "osmanabadi":
+		return "Osmanabadi"
+	case "boer":
+		return "Boer"
+	default:
+		return key
+	}
+}
+
+func ptrIfNotEmpty(value string) *string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return &value
+}
+
+func seedParityScope(t *testing.T, ctx context.Context, pool *pgxpool.Pool, shedIDs ...string) {
+	t.Helper()
+	if len(shedIDs) == 0 {
+		shedIDs = []string{parityShed}
+	}
 	if _, err := pool.Exec(ctx, `
 INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
 VALUES ($2::uuid, $1::uuid, 'park', 'PARITY-PARK', 'Parity Park', 'active')
 ON CONFLICT (location_id) DO NOTHING`, parityTenant, parityPark); err != nil {
 		t.Fatalf("seed parity park: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `
+	for _, shedID := range shedIDs {
+		if _, err := pool.Exec(ctx, `
 INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
-VALUES ($3::uuid, $1::uuid, 'shed', 'PARITY-SHED', 'Parity Shed', $2::uuid, 'active')
-ON CONFLICT (location_id) DO NOTHING`, parityTenant, parityPark, parityShed); err != nil {
-		t.Fatalf("seed parity shed: %v", err)
+VALUES ($3::uuid, $1::uuid, 'shed', 'PARITY-SHED-' || right($3::text, 2), 'Parity Shed ' || right($3::text, 2), $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`, parityTenant, parityPark, shedID); err != nil {
+			t.Fatalf("seed parity shed %s: %v", shedID, err)
+		}
 	}
 }
 

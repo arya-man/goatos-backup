@@ -116,7 +116,10 @@ snapshots remains separate closure work.
 fixtures can be compared against the canonical projection read path for
 shed/breed/stage-age-sex rows with pregnant/lactating/warm-up counts and
 ration-context state, then write `CSG10` evidence without turning the gate
-ready.
+ready. The executable high-risk sample fixture covers pregnant late gestation,
+lactating/mother, pregnant warm-up, fattening male warm-up, and normal
+non-pregnant rows; it is sanitized parity evidence, not a full workbook import
+or owner-approved nutrition policy.
 
 For any Counts/Shifting behavior that affects Feed Direction timing, Diff,
 bridge handling, one-day projection, or physical count adoption,

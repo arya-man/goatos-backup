@@ -157,6 +157,13 @@ status, row counts, exception counts, snapshot reference, trace, and failure
 evidence for the same `G2` closure lane. Neither path is a raw workbook parser,
 and neither promotes workbook ratios, feed vector examples, breed/tag shortcuts,
 or formula outputs into Feed Direction runtime truth.
+`backend/testdata/counts/source-parity-high-risk-sample.json` is the executable
+sanitized parity sample for pregnancy/lactation/warm-up breadth: pregnant late
+gestation, lactating/mother, pregnant warm-up, fattening male warm-up, and
+normal non-pregnant rows are compared against canonical projection reads by
+`backend/cmd/counts-source-parity-check`. This proves the comparison shape; it
+does not replace full workbook row parity, owner-approved nutrition policy, or
+seeded local E2E.
 
 Required runtime shape:
 

@@ -176,15 +176,17 @@ Implementation status as of 2026-06-30:
   evidence. Missing required canonical fields make `CSG10` `blocked`; complete
   mapping coverage makes `CSG10` `pending`, never `ready`.
 - `backend/cmd/counts-source-parity-check` compares sanitized source parity
-  fixtures, such as `backend/testdata/counts/source-parity-sample.json`, against
-  the canonical `CountAsOf`/`ProjectedCountFor` read path. The fixture grain is
+  fixtures, such as `backend/testdata/counts/source-parity-sample.json` and
+  `backend/testdata/counts/source-parity-high-risk-sample.json`, against the
+  canonical `CountAsOf`/`ProjectedCountFor` read path. The fixture grain is
   shed, breed, stage/tag, age class, and sex, and the checker compares
   headcount, pregnant/lactating/warm-up counts, and ration-context resolution
   state. Missing, mismatched, truncated, or unexpected exact-mode rows make
   `CSG10` `blocked`; passing fixtures make `CSG10` `pending`, not `ready`. The
   command has a migrated-Postgres test proving canonical projection snapshots
-  can satisfy a pregnant adult-female high-risk parity fixture and write
-  `CSG10` source-parity evidence.
+  can satisfy the high-risk fixture rows for pregnant late gestation,
+  lactating/mother, pregnant warm-up, fattening male warm-up, and normal
+  non-pregnant cohorts and write `CSG10` source-parity evidence.
 - Locations now accepts reviewed `sheds_db` source evidence for location aliases
   and capacity records, backed by the Postgres capacity-source constraint. This
   lets Sheds DB become governed Location/Park profile data instead of a raw
@@ -519,8 +521,10 @@ Non-negotiable tests:
 - Source parity checks compare high-risk source/workbook dimensions
   (`shed`, `breed`, `stage_tag`, `age_class`, `sex`,
   `pregnant_count`, `lactating_count`, `warmup_count`) against canonical
-  projection reads; this is sample/parity evidence only until raw workbook
-  mapping, owner review, and seeded local E2E close.
+  projection reads; the committed high-risk sample fixture now covers pregnant
+  late gestation, lactating/mother, pregnant warm-up, fattening male warm-up,
+  and normal non-pregnant rows. This remains sample/parity evidence only until
+  raw workbook mapping, owner review, and seeded local E2E close.
 - Projection recompute run observability records tenant, park, horizon, target
   date, as-of time, status, projection status, snapshot reference, row count,
   exception count, trace id, last error, and `CSG10` evidence without making G2

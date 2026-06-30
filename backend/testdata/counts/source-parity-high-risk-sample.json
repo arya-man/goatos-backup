@@ -1,0 +1,71 @@
+{
+  "tenant_id": "00000000-0000-4000-8000-000000000001",
+  "source_ref": "context/source-findings/feed-direction-counting-db-reconstruction.md;context/source-findings/feed-direction-workbook-automation-findings.md;context/source-findings/feed-transfer-kt-2026-06-24.md;context/source-findings/goats-and-parks-source-findings.md;context/source-findings/sheds-db-source-findings.md",
+  "horizon": "feed_target_date",
+  "park_id": "62000000-0000-4000-8000-000000000001",
+  "target_date": "2026-07-01",
+  "as_of": "2026-06-30T13:30:00Z",
+  "coverage_mode": "sample",
+  "expected_rows": [
+    {
+      "shed_id": "62000000-0000-4000-8000-000000000002",
+      "breed_key": "beetal",
+      "stage_tag": "pregnant_late_gestation",
+      "age_class": "adult_doe",
+      "sex": "female",
+      "head_count": 12,
+      "pregnant_count": 12,
+      "lactating_count": 0,
+      "warmup_count": 0,
+      "ration_context_resolution_state": "blocked"
+    },
+    {
+      "shed_id": "62000000-0000-4000-8000-000000000003",
+      "breed_key": "sirohi",
+      "stage_tag": "mother_milking_waiting",
+      "age_class": "adult_doe",
+      "sex": "female",
+      "head_count": 8,
+      "pregnant_count": 0,
+      "lactating_count": 8,
+      "warmup_count": 0,
+      "ration_context_resolution_state": "resolved"
+    },
+    {
+      "shed_id": "62000000-0000-4000-8000-000000000004",
+      "breed_key": "osmanabadi",
+      "stage_tag": "warmup_pregnant",
+      "age_class": "adult_doe",
+      "sex": "female",
+      "head_count": 5,
+      "pregnant_count": 5,
+      "lactating_count": 0,
+      "warmup_count": 5,
+      "ration_context_resolution_state": "blocked"
+    },
+    {
+      "shed_id": "62000000-0000-4000-8000-000000000005",
+      "breed_key": "boer",
+      "stage_tag": "fattening_male_warmup",
+      "age_class": "kid",
+      "sex": "male",
+      "head_count": 18,
+      "pregnant_count": 0,
+      "lactating_count": 0,
+      "warmup_count": 18,
+      "ration_context_resolution_state": "resolved"
+    },
+    {
+      "shed_id": "62000000-0000-4000-8000-000000000006",
+      "breed_key": "beetal",
+      "stage_tag": "non_pregnant",
+      "age_class": "adult_doe",
+      "sex": "female",
+      "head_count": 30,
+      "pregnant_count": 0,
+      "lactating_count": 0,
+      "warmup_count": 0,
+      "ration_context_resolution_state": "resolved"
+    }
+  ]
+}

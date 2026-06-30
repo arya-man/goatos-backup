@@ -167,9 +167,11 @@ language.
    exception. This is readiness/outbox consumption proof only; full Feed
    generation consumption of immutable projection snapshots still remains.
    `counts-source-parity-check` now also has migrated-Postgres proof against a
-   canonical projection snapshot/read path for a pregnant adult-female
-   high-risk row, including pregnant and warm-up counts, and writes `CSG10`
-   source-parity evidence as pending, not ready.
+   canonical projection snapshot/read path for the sanitized
+   `source-parity-high-risk-sample.json` fixture, including pregnant late
+   gestation, lactating/mother, pregnant warm-up, fattening male warm-up, and
+   normal non-pregnant rows with pregnant/lactating/warm-up counts, and writes
+   `CSG10` source-parity evidence as pending, not ready.
    `counts-source-import` now has migrated-Postgres proof that replaying the
    same typed Base Count + pregnant ShiftingEvent JSONL batch records replay
    evidence, does not duplicate canonical rows/impacts, and keeps `CSG8`
