@@ -132,6 +132,85 @@ type CountsProjectionExceptionResolution struct {
 	Replayed              bool      `json:"replayed"`
 }
 
+type GenerationPreviewQuery struct {
+	TenantID   string
+	ParkID     string
+	TargetDate time.Time
+	ShedID     *string
+	BreedKey   *string
+	Cursor     *string
+	Limit      int32
+}
+
+// GenerationPreview is Feed Direction's bounded, fail-closed view of the
+// immutable Counts/Shifting projection. It is a preview/read model only; it
+// cannot approve generated directions while later gates remain open.
+type GenerationPreview struct {
+	TenantID              string                     `json:"tenant_id"`
+	ParkID                string                     `json:"park_id"`
+	TargetDate            time.Time                  `json:"target_date"`
+	Status                ReadinessStatus            `json:"status"`
+	GenerationAllowed     bool                       `json:"generation_allowed"`
+	BlockerReason         string                     `json:"blocker_reason"`
+	SnapshotID            string                     `json:"snapshot_id"`
+	ProjectionStatus      string                     `json:"projection_status"`
+	SourceContractVersion string                     `json:"source_contract_version"`
+	SourceHash            string                     `json:"source_hash"`
+	BaseAnchorIDsHash     string                     `json:"base_anchor_ids_hash"`
+	ShiftingEventIDsHash  string                     `json:"shifting_event_ids_hash"`
+	ExceptionCount        int64                      `json:"exception_count"`
+	TotalRowCount         int64                      `json:"total_row_count"`
+	Rows                  []GenerationPreviewRow     `json:"rows"`
+	ShedBreedTotals       []GenerationPreviewTotal   `json:"shed_breed_totals"`
+	Blockers              []GenerationPreviewBlocker `json:"blockers"`
+	NextCursor            *string                    `json:"next_cursor,omitempty"`
+}
+
+type GenerationPreviewRow struct {
+	ProjectionRowID              string    `json:"projection_row_id"`
+	ParkID                       string    `json:"park_id"`
+	ShedID                       string    `json:"shed_id"`
+	TargetDate                   time.Time `json:"target_date"`
+	GrainKey                     string    `json:"grain_key"`
+	BaseCountAnchorID            string    `json:"base_count_anchor_id"`
+	IncludedShiftingEventIDsHash string    `json:"included_shifting_event_ids_hash"`
+	BreedID                      *string   `json:"breed_id,omitempty"`
+	BreedKey                     string    `json:"breed_key"`
+	BreedLabel                   string    `json:"breed_label"`
+	StageTag                     *string   `json:"stage_tag,omitempty"`
+	AgeClass                     *string   `json:"age_class,omitempty"`
+	Sex                          *string   `json:"sex,omitempty"`
+	HeadCount                    int32     `json:"head_count"`
+	PregnantCount                int32     `json:"pregnant_count"`
+	LactatingCount               int32     `json:"lactating_count"`
+	WarmupCount                  int32     `json:"warmup_count"`
+	RationContextResolutionState string    `json:"ration_context_resolution_state"`
+	RationContextRef             *string   `json:"ration_context_ref,omitempty"`
+	BlockerReason                *string   `json:"blocker_reason,omitempty"`
+	SourceRowHash                string    `json:"source_row_hash"`
+}
+
+type GenerationPreviewTotal struct {
+	ParkID                       string `json:"park_id"`
+	ShedID                       string `json:"shed_id"`
+	BreedKey                     string `json:"breed_key"`
+	BreedLabel                   string `json:"breed_label"`
+	HeadCount                    int32  `json:"head_count"`
+	PregnantCount                int32  `json:"pregnant_count"`
+	LactatingCount               int32  `json:"lactating_count"`
+	WarmupCount                  int32  `json:"warmup_count"`
+	RationContextResolutionState string `json:"ration_context_resolution_state"`
+}
+
+type GenerationPreviewBlocker struct {
+	Source        string `json:"source"`
+	Type          string `json:"type"`
+	SourceKey     string `json:"source_key"`
+	GrainKey      string `json:"grain_key"`
+	Severity      string `json:"severity"`
+	BlockerReason string `json:"blocker_reason"`
+}
+
 // ReadinessStatus is the public gate state for Feed Direction build/readiness.
 type ReadinessStatus string
 

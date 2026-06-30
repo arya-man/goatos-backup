@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	feedapp "github.com/vgoats/goatos/backend/internal/feed/app"
 	"github.com/vgoats/goatos/backend/internal/feed/domain"
@@ -21,6 +22,7 @@ const maxActionBodyBytes = 16 * 1024
 // Service is the Feed Direction application surface required by this handler.
 type Service interface {
 	Readiness(ctx context.Context, tenantID string) (domain.Readiness, error)
+	GenerationPreview(ctx context.Context, in domain.GenerationPreviewQuery) (domain.GenerationPreview, error)
 	ListCountsProjectionExceptions(ctx context.Context, in domain.CountsProjectionExceptionQuery) (domain.CountsProjectionExceptionList, error)
 	ResolveCountsProjectionException(ctx context.Context, in domain.CountsProjectionExceptionResolutionCommand) (domain.CountsProjectionExceptionResolution, error)
 }
@@ -43,6 +45,7 @@ func NewHandler(service Service, log ...*slog.Logger) *Handler {
 // Register mounts the Feed Direction routes.
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /feed-direction/readiness", h.GetReadiness)
+	mux.HandleFunc("GET /feed-direction/generation-preview", h.GetGenerationPreview)
 	mux.HandleFunc("GET /feed-direction/counts-projection/exceptions", h.ListCountsProjectionExceptions)
 	mux.HandleFunc("POST /feed-direction/counts-projection/exceptions/{exception_id}/resolve", h.ResolveCountsProjectionException)
 	mux.HandleFunc("POST /feed-direction/counts-projection/exceptions/{exception_id}/dismiss", h.DismissCountsProjectionException)
@@ -57,6 +60,41 @@ func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, readiness)
+}
+
+type generationPreviewResponse struct {
+	Preview domain.GenerationPreview `json:"preview"`
+	TraceID string                   `json:"trace_id"`
+}
+
+func (h *Handler) GetGenerationPreview(w http.ResponseWriter, r *http.Request) {
+	limit, ok := h.parseExceptionListLimit(w, r)
+	if !ok {
+		return
+	}
+	values := r.URL.Query()
+	targetDate, err := parseTargetDate(values.Get("target_date"))
+	if err != nil {
+		h.badRequest(w, r, "invalid_target_date", "target_date must be YYYY-MM-DD")
+		return
+	}
+	preview, err := h.service.GenerationPreview(r.Context(), domain.GenerationPreviewQuery{
+		TenantID:   tenantID(r),
+		ParkID:     values.Get("park_id"),
+		TargetDate: targetDate,
+		ShedID:     optionalQuery(values.Get("shed_id")),
+		BreedKey:   optionalQuery(values.Get("breed_key")),
+		Cursor:     optionalQuery(values.Get("cursor")),
+		Limit:      limit,
+	})
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, generationPreviewResponse{
+		Preview: preview,
+		TraceID: traceID(r),
+	})
 }
 
 func (h *Handler) ResolveCountsProjectionException(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +195,7 @@ func (h *Handler) writeAppError(w http.ResponseWriter, r *http.Request, err erro
 	case errors.Is(err, feedapp.ErrMissingRequiredField):
 		status = http.StatusBadRequest
 		code = "missing_required_field"
-		message = "tenant, exception id, actor, resolution reason, and Idempotency-Key are required"
+		message = "required fields are missing"
 	case errors.Is(err, feedapp.ErrInvalidResolutionAction):
 		status = http.StatusBadRequest
 		code = "invalid_action"
@@ -186,6 +224,10 @@ func (h *Handler) writeAppError(w http.ResponseWriter, r *http.Request, err erro
 		status = http.StatusBadRequest
 		code = "invalid_filter"
 		message = "one or more counts projection exception filters are invalid"
+	case errors.Is(err, feedapp.ErrInvalidPreviewFilter):
+		status = http.StatusBadRequest
+		code = "invalid_filter"
+		message = "one or more generation preview filters are invalid"
 	case errors.Is(err, feedapp.ErrProjectionExceptionNotFound):
 		status = http.StatusNotFound
 		code = "not_found"
@@ -206,6 +248,10 @@ func (h *Handler) writeAppError(w http.ResponseWriter, r *http.Request, err erro
 		status = http.StatusInternalServerError
 		code = "lister_unavailable"
 		message = "counts projection exception lister is unavailable"
+	case errors.Is(err, feedapp.ErrCountsProjectionUnavailable):
+		status = http.StatusInternalServerError
+		code = "projection_unavailable"
+		message = "counts projection provider is unavailable"
 	}
 	httpresponse.WriteError(w, r, h.log, status, errorEnvelope{Code: code, Message: message, TraceID: traceID(r)}, err)
 }
@@ -232,6 +278,13 @@ func optionalQuery(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+func parseTargetDate(raw string) (time.Time, error) {
+	if raw == "" {
+		return time.Time{}, feedapp.ErrMissingRequiredField
+	}
+	return time.Parse("2006-01-02", raw)
 }
 
 func tenantID(r *http.Request) string {

@@ -26,8 +26,10 @@ var (
 	ErrInvalidLimit                = errors.New("feed: invalid limit")
 	ErrInvalidCursor               = errors.New("feed: invalid cursor")
 	ErrInvalidExceptionFilter      = errors.New("feed: invalid counts projection exception filter")
+	ErrInvalidPreviewFilter        = errors.New("feed: invalid generation preview filter")
 	ErrCountsResolverUnavailable   = errors.New("feed: counts projection exception resolver unavailable")
 	ErrCountsListerUnavailable     = errors.New("feed: counts projection exception lister unavailable")
+	ErrCountsProjectionUnavailable = errors.New("feed: counts projection provider unavailable")
 	ErrIdempotencyConflict         = errors.New("feed: idempotency key reused with different payload")
 	ErrProjectionExceptionNotFound = errors.New("feed: counts projection exception not found")
 	ErrProjectionExceptionClosed   = errors.New("feed: counts projection exception already closed")
@@ -40,6 +42,8 @@ const (
 	maxResolutionRefLen    = 500
 	defaultExceptionLimit  = int32(50)
 	maxExceptionLimit      = int32(200)
+	defaultPreviewLimit    = int32(50)
+	maxPreviewLimit        = int32(200)
 )
 
 type countsReadinessReader interface {
@@ -54,12 +58,17 @@ type countsProjectionExceptionLister interface {
 	ListProjectionExceptions(ctx context.Context, in countsdomain.ProjectionExceptionQuery) (countsdomain.ProjectionExceptionList, error)
 }
 
+type countsProjectionProvider interface {
+	ProjectedCountFor(ctx context.Context, req countsdomain.CountProjectionRequest) (countsdomain.CountProjection, error)
+}
+
 // Service coordinates feed-direction use-cases over the repository boundary.
 type Service struct {
 	repo                      ports.Repository
 	countsReadiness           countsReadinessReader
 	countsExceptionResolution countsProjectionExceptionResolver
 	countsExceptionList       countsProjectionExceptionLister
+	countsProjection          countsProjectionProvider
 	now                       func() time.Time
 }
 
@@ -88,6 +97,11 @@ func (s *Service) WithCountsProjectionExceptionResolver(resolver countsProjectio
 
 func (s *Service) WithCountsProjectionExceptionLister(lister countsProjectionExceptionLister) *Service {
 	s.countsExceptionList = lister
+	return s
+}
+
+func (s *Service) WithCountsProjectionProvider(provider countsProjectionProvider) *Service {
+	s.countsProjection = provider
 	return s
 }
 
@@ -173,6 +187,43 @@ func (s *Service) ListCountsProjectionExceptions(ctx context.Context, in domain.
 		items = append(items, mapCountsProjectionException(item))
 	}
 	return domain.CountsProjectionExceptionList{Items: items, NextCursor: out.NextCursor}, nil
+}
+
+func (s *Service) GenerationPreview(ctx context.Context, in domain.GenerationPreviewQuery) (domain.GenerationPreview, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	in.ParkID = strings.TrimSpace(in.ParkID)
+	in.ShedID = trimOptional(in.ShedID)
+	in.BreedKey = trimOptionalLower(in.BreedKey)
+	in.Cursor = trimOptional(in.Cursor)
+	if in.TenantID == "" || in.ParkID == "" || in.TargetDate.IsZero() {
+		return domain.GenerationPreview{}, ErrMissingRequiredField
+	}
+	if !countsdomain.IsUUIDString(in.ParkID) ||
+		(in.ShedID != nil && !countsdomain.IsUUIDString(*in.ShedID)) {
+		return domain.GenerationPreview{}, ErrInvalidPreviewFilter
+	}
+	if in.Limit == 0 {
+		in.Limit = defaultPreviewLimit
+	}
+	if in.Limit < 0 || in.Limit > maxPreviewLimit {
+		return domain.GenerationPreview{}, ErrInvalidLimit
+	}
+	if s.countsProjection == nil {
+		return domain.GenerationPreview{}, ErrCountsProjectionUnavailable
+	}
+	projection, err := s.countsProjection.ProjectedCountFor(ctx, countsdomain.CountProjectionRequest{
+		TenantID:   in.TenantID,
+		ParkID:     in.ParkID,
+		TargetDate: dateOnly(in.TargetDate),
+		ShedID:     in.ShedID,
+		BreedKey:   in.BreedKey,
+		Cursor:     in.Cursor,
+		Limit:      in.Limit,
+	})
+	if err != nil {
+		return domain.GenerationPreview{}, err
+	}
+	return mapGenerationPreview(projection), nil
 }
 
 func (s *Service) ResolveCountsProjectionException(ctx context.Context, in domain.CountsProjectionExceptionResolutionCommand) (domain.CountsProjectionExceptionResolution, error) {
@@ -263,6 +314,187 @@ func (s *Service) Readiness(ctx context.Context, tenantID string) (domain.Readin
 	return readiness, nil
 }
 
+func mapGenerationPreview(in countsdomain.CountProjection) domain.GenerationPreview {
+	blockers := generationPreviewBlockers(in)
+	status := domain.ReadinessPending
+	blockerReason := "Counts/Shifting projection page has no blocking rows; Feed generation still remains disabled until G3-G17 close ration policy, quantity precision, stage model, packing/wastage, UI, and E2E proof."
+	if len(blockers) > 0 {
+		status = domain.ReadinessBlocked
+		blockerReason = generationPreviewBlockerSummary(blockers)
+	}
+	return domain.GenerationPreview{
+		TenantID:              in.TenantID,
+		ParkID:                in.ParkID,
+		TargetDate:            dateOnly(in.TargetDate),
+		Status:                status,
+		GenerationAllowed:     false,
+		BlockerReason:         blockerReason,
+		SnapshotID:            in.SnapshotID,
+		ProjectionStatus:      in.ProjectionStatus,
+		SourceContractVersion: in.SourceContractVersion,
+		SourceHash:            in.SourceHash,
+		BaseAnchorIDsHash:     in.BaseAnchorIDsHash,
+		ShiftingEventIDsHash:  in.ShiftingEventIDsHash,
+		ExceptionCount:        in.ExceptionCount,
+		TotalRowCount:         in.TotalRowCount,
+		Rows:                  generationPreviewRows(in.Rows),
+		ShedBreedTotals:       generationPreviewTotals(in.ShedBreedTotals),
+		Blockers:              blockers,
+		NextCursor:            in.NextCursor,
+	}
+}
+
+func generationPreviewRows(in []countsdomain.ProjectionRow) []domain.GenerationPreviewRow {
+	if len(in) == 0 {
+		return []domain.GenerationPreviewRow{}
+	}
+	out := make([]domain.GenerationPreviewRow, 0, len(in))
+	for _, row := range in {
+		out = append(out, domain.GenerationPreviewRow{
+			ProjectionRowID:              row.ProjectionRowID,
+			ParkID:                       row.ParkID,
+			ShedID:                       row.ShedID,
+			TargetDate:                   dateOnly(row.TargetDate),
+			GrainKey:                     row.GrainKey,
+			BaseCountAnchorID:            row.BaseCountAnchorID,
+			IncludedShiftingEventIDsHash: row.IncludedShiftingEventIDsHash,
+			BreedID:                      row.BreedID,
+			BreedKey:                     row.BreedKey,
+			BreedLabel:                   row.BreedLabel,
+			StageTag:                     row.StageTag,
+			AgeClass:                     row.AgeClass,
+			Sex:                          row.Sex,
+			HeadCount:                    row.HeadCount,
+			PregnantCount:                row.PregnantCount,
+			LactatingCount:               row.LactatingCount,
+			WarmupCount:                  row.WarmupCount,
+			RationContextResolutionState: row.RationContextResolutionState,
+			RationContextRef:             row.RationContextRef,
+			BlockerReason:                row.BlockerReason,
+			SourceRowHash:                row.SourceRowHash,
+		})
+	}
+	return out
+}
+
+func generationPreviewTotals(in []countsdomain.ProjectionShedBreedTotal) []domain.GenerationPreviewTotal {
+	if len(in) == 0 {
+		return []domain.GenerationPreviewTotal{}
+	}
+	out := make([]domain.GenerationPreviewTotal, 0, len(in))
+	for _, total := range in {
+		out = append(out, domain.GenerationPreviewTotal{
+			ParkID: total.ParkID, ShedID: total.ShedID, BreedKey: total.BreedKey,
+			BreedLabel: total.BreedLabel, HeadCount: total.HeadCount,
+			PregnantCount: total.PregnantCount, LactatingCount: total.LactatingCount,
+			WarmupCount: total.WarmupCount, RationContextResolutionState: total.RationContextResolutionState,
+		})
+	}
+	return out
+}
+
+func generationPreviewBlockers(projection countsdomain.CountProjection) []domain.GenerationPreviewBlocker {
+	blockers := make([]domain.GenerationPreviewBlocker, 0, len(projection.Blockers)+len(projection.Exceptions)+len(projection.Rows))
+	if strings.ToLower(strings.TrimSpace(projection.ProjectionStatus)) != "ready" {
+		blockers = append(blockers, domain.GenerationPreviewBlocker{
+			Source:        "projection",
+			Type:          "projection_not_ready",
+			SourceKey:     projection.SnapshotID,
+			GrainKey:      "park:" + projection.ParkID,
+			Severity:      "blocking",
+			BlockerReason: "Counts/Shifting projection status is not ready for Feed Direction generation preview.",
+		})
+	}
+	for _, blocker := range projection.Blockers {
+		blockers = append(blockers, domain.GenerationPreviewBlocker{
+			Source:        "counts_projection",
+			Type:          blocker.ExceptionType,
+			SourceKey:     blocker.SourceKey,
+			GrainKey:      blocker.GrainKey,
+			Severity:      blocker.Severity,
+			BlockerReason: blocker.BlockerReason,
+		})
+	}
+	for _, exception := range projection.Exceptions {
+		blockers = append(blockers, domain.GenerationPreviewBlocker{
+			Source:        "counts_projection_exception",
+			Type:          exception.ExceptionType,
+			SourceKey:     exception.SourceKey,
+			GrainKey:      exception.GrainKey,
+			Severity:      exception.Severity,
+			BlockerReason: exception.BlockerReason,
+		})
+	}
+	if projection.ExceptionCount > 0 && len(projection.Exceptions) == 0 {
+		blockers = append(blockers, domain.GenerationPreviewBlocker{
+			Source:        "counts_projection_exception",
+			Type:          "open_exception_count",
+			SourceKey:     projection.SnapshotID,
+			GrainKey:      "park:" + projection.ParkID,
+			Severity:      "blocking",
+			BlockerReason: "Counts/Shifting reports open projection exceptions outside this page.",
+		})
+	}
+	for _, row := range projection.Rows {
+		if rationContextResolved(row.RationContextResolutionState) && row.BlockerReason == nil {
+			continue
+		}
+		reason := strings.TrimSpace(ptrValue(row.BlockerReason))
+		if reason == "" {
+			reason = "ration context is not resolved for this shed/breed/stage projection row"
+		}
+		blockers = append(blockers, domain.GenerationPreviewBlocker{
+			Source:        "projection_row",
+			Type:          "ration_context_unresolved",
+			SourceKey:     row.ProjectionRowID,
+			GrainKey:      row.GrainKey,
+			Severity:      "blocking",
+			BlockerReason: reason,
+		})
+	}
+	for _, total := range projection.ShedBreedTotals {
+		if rationContextResolved(total.RationContextResolutionState) {
+			continue
+		}
+		blockers = append(blockers, domain.GenerationPreviewBlocker{
+			Source:        "shed_breed_total",
+			Type:          "ration_context_unresolved",
+			SourceKey:     total.ShedID + ":" + total.BreedKey,
+			GrainKey:      total.ShedID + ":" + total.BreedKey,
+			Severity:      "blocking",
+			BlockerReason: "aggregate shed/breed total has unresolved ration context",
+		})
+	}
+	return blockers
+}
+
+func generationPreviewBlockerSummary(blockers []domain.GenerationPreviewBlocker) string {
+	const maxDetails = 4
+	details := make([]string, 0, maxDetails)
+	for _, blocker := range blockers {
+		detail := blocker.Type
+		if blocker.GrainKey != "" {
+			detail += "@" + blocker.GrainKey
+		}
+		if reason := strings.TrimSpace(blocker.BlockerReason); reason != "" {
+			detail += " (" + reason + ")"
+		}
+		details = append(details, detail)
+		if len(details) == maxDetails {
+			break
+		}
+	}
+	summary := "Counts/Shifting projection has Feed Direction blockers: " + strings.Join(details, "; ")
+	if remaining := len(blockers) - len(details); remaining > 0 {
+		summary += fmt.Sprintf("; +%d more", remaining)
+	}
+	return summary
+}
+
+func rationContextResolved(state string) bool {
+	return strings.ToLower(strings.TrimSpace(state)) == "resolved"
+}
+
 func mapCountsProjectionException(in countsdomain.ProjectionException) domain.CountsProjectionException {
 	evidence := json.RawMessage([]byte(`{}`))
 	if len(in.EvidenceJSON) > 0 {
@@ -332,6 +564,13 @@ func ptrIfNotEmpty(v string) *string {
 	return &v
 }
 
+func ptrValue(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
 func trimOptional(v *string) *string {
 	if v == nil {
 		return nil
@@ -360,6 +599,10 @@ func (s *Service) clock() time.Time {
 		return time.Now()
 	}
 	return s.now()
+}
+
+func dateOnly(t time.Time) time.Time {
+	return time.Date(t.UTC().Year(), t.UTC().Month(), t.UTC().Day(), 0, 0, 0, 0, time.UTC)
 }
 
 func feedReadinessGates(checkedAt time.Time) []domain.ReadinessGate {

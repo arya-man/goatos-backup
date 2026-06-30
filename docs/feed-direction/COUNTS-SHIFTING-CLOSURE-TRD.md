@@ -283,6 +283,13 @@ Implementation status as of 2026-06-30:
   route-permission registration and OpenAPI/client contract coverage. The list
   route is read-only; resolve/dismiss requires authenticated actor,
   `Idempotency-Key`, reason, and optional resolution reference.
+- `GET /feed-direction/generation-preview` now consumes the same bounded
+  `ProjectedCountFor` provider through the Feed app service and returns
+  immutable projection metadata, shed+breed totals, detail rows, and typed
+  blockers for pregnant/lactating/warm-up, destination shortage, unsafe-surplus,
+  and unresolved ration-context risk. It is read-only and always
+  `generation_allowed=false` while later gates remain open; it proves Feed can
+  consume the projection without letting preview become generation.
 - Projection rows now carry `base_count_anchor_id`,
   `included_shifting_event_ids_hash`, source row hash, contract hash, and
   ration-context resolution state.
@@ -328,9 +335,10 @@ Implementation status as of 2026-06-30:
   fixtures, owner-approved workbook mapping review, Sheds DB owner-approved coverage/admin
   review and seeded publish evidence,
   Shifting/Count source-adapter hardening beyond typed JSONL, production
-  scheduling/metrics for the mismatch scan, assignment policy, polished
-  command-lens UX, observability, production-scale/load proof, and seeded local
-  E2E remain blockers.
+  scheduling/metrics for the mismatch scan, actual generated-run quantity
+  calculation and obligation creation, assignment policy, polished command-lens
+  UX, observability, production-scale/load proof, and seeded local E2E remain
+  blockers.
 
 ## 3. Candidate Persistence
 

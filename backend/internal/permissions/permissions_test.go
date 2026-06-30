@@ -206,6 +206,7 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/vaccination/execution"},
 		{"GET", "/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001"},
 		{"GET", "/feed-direction/readiness"},
+		{"GET", "/feed-direction/generation-preview"},
 		{"GET", "/calendar/vaccination/events"},
 		{"GET", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001"},
 		{"GET", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/history"},
@@ -263,21 +264,29 @@ func TestVaccinationBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 }
 
 func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
-	route, ok := Match("GET", "/feed-direction/readiness")
-	if !ok {
-		t.Fatal("feed direction readiness route is not registered")
-	}
-	if route.OperationID != "getFeedDirectionReadiness" {
-		t.Fatalf("operation_id=%q, want getFeedDirectionReadiness", route.OperationID)
-	}
-	if len(route.Permissions) != 1 || route.Permissions[0] != ProtocolRead {
-		t.Fatalf("permissions=%v, want [%s]", route.Permissions, ProtocolRead)
-	}
-	if RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
-		t.Fatal("operator must not authorize Feed Direction readiness")
-	}
-	if !RolesAuthorize([]string{RoleParkHead}, route.Permissions, route.AdminOnly) {
-		t.Fatal("park head should authorize Feed Direction readiness via protocol.read")
+	for _, item := range []struct {
+		path        string
+		operationID string
+	}{
+		{"/feed-direction/readiness", "getFeedDirectionReadiness"},
+		{"/feed-direction/generation-preview", "getFeedDirectionGenerationPreview"},
+	} {
+		route, ok := Match("GET", item.path)
+		if !ok {
+			t.Fatalf("feed direction route is not registered: %s", item.path)
+		}
+		if route.OperationID != item.operationID {
+			t.Fatalf("operation_id=%q, want %s", route.OperationID, item.operationID)
+		}
+		if len(route.Permissions) != 1 || route.Permissions[0] != ProtocolRead {
+			t.Fatalf("permissions=%v, want [%s]", route.Permissions, ProtocolRead)
+		}
+		if RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("operator must not authorize Feed Direction read route: %s", item.path)
+		}
+		if !RolesAuthorize([]string{RoleParkHead}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("park head should authorize Feed Direction read route via protocol.read: %s", item.path)
+		}
 	}
 
 	workflowRoute, ok := Match("GET", "/workflows/feed_projection_exception:77000000-0000-4000-8000-000000000001")

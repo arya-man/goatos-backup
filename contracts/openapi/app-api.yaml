@@ -1374,6 +1374,71 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-direction/generation-preview:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedDirectionGenerationPreview
+      summary: Preview Feed Direction generation inputs from the bounded Counts/Shifting projection.
+      description: >-
+        Returns Feed Direction's read-only view of Counts/Shifting projected_count_for rows and
+        aggregate shed+breed totals. The preview surfaces pregnant/lactating/warm-up shifted-cohort
+        ration blockers, destination shortages, unsafe surplus, and unresolved ration context before
+        generation. It never enables generation while G2-G17 remain open.
+      parameters:
+        - name: park_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: target_date
+          in: query
+          required: true
+          description: Feed projection date in YYYY-MM-DD form.
+          schema:
+            type: string
+            format: date
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: breed_key
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Opaque keyset cursor returned by the previous page.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+          description: Defaults to 50.
+      responses:
+        "200":
+          description: Fail-closed Feed Direction generation preview.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedDirectionGenerationPreviewResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /feed-direction/counts-projection/exceptions:
     get:
       tags:
@@ -6238,6 +6303,221 @@ components:
         - ready
         - blocked
         - pending
+    FeedDirectionGenerationPreviewResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - preview
+        - trace_id
+      properties:
+        preview:
+          $ref: "#/components/schemas/FeedDirectionGenerationPreview"
+        trace_id:
+          type: string
+    FeedDirectionGenerationPreview:
+      type: object
+      additionalProperties: false
+      required:
+        - tenant_id
+        - park_id
+        - target_date
+        - status
+        - generation_allowed
+        - blocker_reason
+        - snapshot_id
+        - projection_status
+        - source_contract_version
+        - source_hash
+        - base_anchor_ids_hash
+        - shifting_event_ids_hash
+        - exception_count
+        - total_row_count
+        - rows
+        - shed_breed_totals
+        - blockers
+      properties:
+        tenant_id:
+          type: string
+        park_id:
+          type: string
+          format: uuid
+        target_date:
+          type: string
+          format: date-time
+        status:
+          $ref: "#/components/schemas/FeedDirectionReadinessStatus"
+        generation_allowed:
+          type: boolean
+          description: Always false until Feed Direction closure gates explicitly allow generation.
+        blocker_reason:
+          type: string
+        snapshot_id:
+          type: string
+        projection_status:
+          type: string
+          description: Counts/Shifting projection status for the returned immutable snapshot/page.
+        source_contract_version:
+          type: string
+        source_hash:
+          type: string
+        base_anchor_ids_hash:
+          type: string
+        shifting_event_ids_hash:
+          type: string
+        exception_count:
+          type: integer
+          format: int64
+        total_row_count:
+          type: integer
+          format: int64
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedDirectionGenerationPreviewRow"
+        shed_breed_totals:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedDirectionGenerationPreviewTotal"
+        blockers:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedDirectionGenerationPreviewBlocker"
+        next_cursor:
+          type: string
+    FeedDirectionGenerationPreviewRow:
+      type: object
+      additionalProperties: false
+      required:
+        - projection_row_id
+        - park_id
+        - shed_id
+        - target_date
+        - grain_key
+        - base_count_anchor_id
+        - included_shifting_event_ids_hash
+        - breed_key
+        - breed_label
+        - head_count
+        - pregnant_count
+        - lactating_count
+        - warmup_count
+        - ration_context_resolution_state
+        - source_row_hash
+      properties:
+        projection_row_id:
+          type: string
+        park_id:
+          type: string
+          format: uuid
+        shed_id:
+          type: string
+          format: uuid
+        target_date:
+          type: string
+          format: date-time
+        grain_key:
+          type: string
+        base_count_anchor_id:
+          type: string
+        included_shifting_event_ids_hash:
+          type: string
+        breed_id:
+          type: string
+          nullable: true
+        breed_key:
+          type: string
+        breed_label:
+          type: string
+        stage_tag:
+          type: string
+          nullable: true
+        age_class:
+          type: string
+          nullable: true
+        sex:
+          type: string
+          nullable: true
+        head_count:
+          type: integer
+        pregnant_count:
+          type: integer
+        lactating_count:
+          type: integer
+        warmup_count:
+          type: integer
+        ration_context_resolution_state:
+          type: string
+        ration_context_ref:
+          type: string
+          nullable: true
+        blocker_reason:
+          type: string
+          nullable: true
+        source_row_hash:
+          type: string
+    FeedDirectionGenerationPreviewTotal:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - shed_id
+        - breed_key
+        - breed_label
+        - head_count
+        - pregnant_count
+        - lactating_count
+        - warmup_count
+        - ration_context_resolution_state
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        shed_id:
+          type: string
+          format: uuid
+        breed_key:
+          type: string
+        breed_label:
+          type: string
+        head_count:
+          type: integer
+        pregnant_count:
+          type: integer
+        lactating_count:
+          type: integer
+        warmup_count:
+          type: integer
+        ration_context_resolution_state:
+          type: string
+    FeedDirectionGenerationPreviewBlocker:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - type
+        - source_key
+        - grain_key
+        - severity
+        - blocker_reason
+      properties:
+        source:
+          type: string
+          enum:
+            - projection
+            - counts_projection
+            - counts_projection_exception
+            - projection_row
+            - shed_breed_total
+        type:
+          type: string
+        source_key:
+          type: string
+        grain_key:
+          type: string
+        severity:
+          type: string
+        blocker_reason:
+          type: string
     FeedDirectionCountsProjectionExceptionListResponse:
       type: object
       additionalProperties: false

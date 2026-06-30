@@ -18,6 +18,9 @@ import (
 type fakeService struct {
 	gotTenantID string
 	readiness   domain.Readiness
+	preview     domain.GenerationPreview
+	previewErr  error
+	previewGot  domain.GenerationPreviewQuery
 	listQuery   domain.CountsProjectionExceptionQuery
 	list        domain.CountsProjectionExceptionList
 	listErr     error
@@ -31,6 +34,11 @@ type fakeService struct {
 func (f *fakeService) Readiness(_ context.Context, tenantID string) (domain.Readiness, error) {
 	f.gotTenantID = tenantID
 	return f.readiness, f.err
+}
+
+func (f *fakeService) GenerationPreview(_ context.Context, in domain.GenerationPreviewQuery) (domain.GenerationPreview, error) {
+	f.previewGot = in
+	return f.preview, f.previewErr
 }
 
 func (f *fakeService) ListCountsProjectionExceptions(_ context.Context, in domain.CountsProjectionExceptionQuery) (domain.CountsProjectionExceptionList, error) {
@@ -112,6 +120,83 @@ func TestGetReadinessSurfacesInternalError(t *testing.T) {
 		t.Fatalf("decode error envelope: %v", err)
 	}
 	if env.Code != "internal_error" {
+		t.Fatalf("error code=%q", env.Code)
+	}
+}
+
+func TestGetGenerationPreviewForwardsBoundedProjectionQuery(t *testing.T) {
+	service := &fakeService{preview: domain.GenerationPreview{
+		TenantID:          "00000000-0000-4000-8000-000000000001",
+		ParkID:            "10000000-0000-4000-8000-000000000001",
+		TargetDate:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Status:            domain.ReadinessBlocked,
+		GenerationAllowed: false,
+		BlockerReason:     "pregnant destination shortage blocks generation",
+		ProjectionStatus:  "ready",
+		Rows: []domain.GenerationPreviewRow{{
+			ProjectionRowID:              "44000000-0000-4000-8000-000000000001",
+			ParkID:                       "10000000-0000-4000-8000-000000000001",
+			ShedID:                       "20000000-0000-4000-8000-000000000001",
+			TargetDate:                   time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+			GrainKey:                     "20000000-0000-4000-8000-000000000001:f1:pregnant",
+			BreedKey:                     "f1",
+			BreedLabel:                   "F1",
+			HeadCount:                    18,
+			PregnantCount:                12,
+			RationContextResolutionState: "blocked",
+		}},
+		Blockers: []domain.GenerationPreviewBlocker{{
+			Source: "counts_projection", Type: "destination_shortage", Severity: "critical",
+			BlockerReason: "destination shed does not have enough reviewed feed for pregnant animals",
+		}},
+	}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(service))
+	req := httptest.NewRequest(http.MethodGet, "/feed-direction/generation-preview?park_id=10000000-0000-4000-8000-000000000001&shed_id=20000000-0000-4000-8000-000000000001&breed_key=f1&target_date=2026-07-01&limit=25", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if service.previewGot.TenantID != "00000000-0000-4000-8000-000000000001" ||
+		service.previewGot.ParkID != "10000000-0000-4000-8000-000000000001" ||
+		service.previewGot.ShedID == nil || *service.previewGot.ShedID != "20000000-0000-4000-8000-000000000001" ||
+		service.previewGot.BreedKey == nil || *service.previewGot.BreedKey != "f1" ||
+		service.previewGot.Limit != 25 ||
+		!service.previewGot.TargetDate.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("preview query=%+v", service.previewGot)
+	}
+	var got generationPreviewResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.Preview.GenerationAllowed || got.Preview.Status != domain.ReadinessBlocked ||
+		len(got.Preview.Rows) != 1 || got.Preview.Rows[0].PregnantCount != 12 ||
+		len(got.Preview.Blockers) != 1 || got.TraceID == "" {
+		t.Fatalf("response=%+v", got)
+	}
+}
+
+func TestGetGenerationPreviewRejectsInvalidTargetDate(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeService{}))
+	req := httptest.NewRequest(http.MethodGet, "/feed-direction/generation-preview?park_id=10000000-0000-4000-8000-000000000001&target_date=07-01-2026", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if env.Code != "invalid_target_date" {
 		t.Fatalf("error code=%q", env.Code)
 	}
 }

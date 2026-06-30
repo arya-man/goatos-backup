@@ -166,8 +166,12 @@ language.
    the in-process projection handler recomputes both horizons, and Feed
    readiness consumes that evidence under `G2` while keeping generation blocked
    when a pregnant destination shed has an open `destination_shortage`
-   exception. This is readiness/outbox consumption proof only; full Feed
-   generation consumption of immutable projection snapshots still remains.
+   exception. `GET /feed-direction/generation-preview` now also consumes the
+   same bounded `ProjectedCountFor` path and returns immutable projection
+   metadata, shed+breed totals, detail rows, and typed blockers while keeping
+   `generation_allowed=false`. This proves read-only Feed consumption of the
+   Counts projection; actual generated-run quantity calculation and obligation
+   creation still remain later-gate work.
    The same Feed integration path now proves completed mismatch-scan evidence
    moves `CSG6` to ready, reviewed alias evidence can remove the `CSG7`
    `alias_conflict` blocker only when no open alias-conflict exception remains,

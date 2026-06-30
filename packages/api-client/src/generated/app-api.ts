@@ -612,6 +612,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-direction/generation-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Feed Direction generation inputs from the bounded Counts/Shifting projection.
+         * @description Returns Feed Direction's read-only view of Counts/Shifting projected_count_for rows and aggregate shed+breed totals. The preview surfaces pregnant/lactating/warm-up shifted-cohort ration blockers, destination shortages, unsafe surplus, and unresolved ration context before generation. It never enables generation while G2-G17 remain open.
+         */
+        get: operations["getFeedDirectionGenerationPreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-direction/counts-projection/exceptions": {
         parameters: {
             query?: never;
@@ -2290,6 +2310,84 @@ export interface components {
         };
         /** @enum {string} */
         FeedDirectionReadinessStatus: "ready" | "blocked" | "pending";
+        FeedDirectionGenerationPreviewResponse: {
+            preview: components["schemas"]["FeedDirectionGenerationPreview"];
+            trace_id: string;
+        };
+        FeedDirectionGenerationPreview: {
+            tenant_id: string;
+            /** Format: uuid */
+            park_id: string;
+            /** Format: date-time */
+            target_date: string;
+            status: components["schemas"]["FeedDirectionReadinessStatus"];
+            /** @description Always false until Feed Direction closure gates explicitly allow generation. */
+            generation_allowed: boolean;
+            blocker_reason: string;
+            snapshot_id: string;
+            /** @description Counts/Shifting projection status for the returned immutable snapshot/page. */
+            projection_status: string;
+            source_contract_version: string;
+            source_hash: string;
+            base_anchor_ids_hash: string;
+            shifting_event_ids_hash: string;
+            /** Format: int64 */
+            exception_count: number;
+            /** Format: int64 */
+            total_row_count: number;
+            rows: components["schemas"]["FeedDirectionGenerationPreviewRow"][];
+            shed_breed_totals: components["schemas"]["FeedDirectionGenerationPreviewTotal"][];
+            blockers: components["schemas"]["FeedDirectionGenerationPreviewBlocker"][];
+            next_cursor?: string;
+        };
+        FeedDirectionGenerationPreviewRow: {
+            projection_row_id: string;
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            /** Format: date-time */
+            target_date: string;
+            grain_key: string;
+            base_count_anchor_id: string;
+            included_shifting_event_ids_hash: string;
+            breed_id?: string | null;
+            breed_key: string;
+            breed_label: string;
+            stage_tag?: string | null;
+            age_class?: string | null;
+            sex?: string | null;
+            head_count: number;
+            pregnant_count: number;
+            lactating_count: number;
+            warmup_count: number;
+            ration_context_resolution_state: string;
+            ration_context_ref?: string | null;
+            blocker_reason?: string | null;
+            source_row_hash: string;
+        };
+        FeedDirectionGenerationPreviewTotal: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            breed_key: string;
+            breed_label: string;
+            head_count: number;
+            pregnant_count: number;
+            lactating_count: number;
+            warmup_count: number;
+            ration_context_resolution_state: string;
+        };
+        FeedDirectionGenerationPreviewBlocker: {
+            /** @enum {string} */
+            source: "projection" | "counts_projection" | "counts_projection_exception" | "projection_row" | "shed_breed_total";
+            type: string;
+            source_key: string;
+            grain_key: string;
+            severity: string;
+            blocker_reason: string;
+        };
         FeedDirectionCountsProjectionExceptionListResponse: {
             items: components["schemas"]["FeedDirectionCountsProjectionException"][];
             next_cursor?: string;
@@ -3594,6 +3692,40 @@ export interface operations {
                     "application/json": components["schemas"]["FeedDirectionReadinessResponse"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getFeedDirectionGenerationPreview: {
+        parameters: {
+            query: {
+                park_id: string;
+                /** @description Feed projection date in YYYY-MM-DD form. */
+                target_date: string;
+                shed_id?: string;
+                breed_key?: string;
+                /** @description Opaque keyset cursor returned by the previous page. */
+                cursor?: string;
+                /** @description Defaults to 50. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fail-closed Feed Direction generation preview. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedDirectionGenerationPreviewResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
