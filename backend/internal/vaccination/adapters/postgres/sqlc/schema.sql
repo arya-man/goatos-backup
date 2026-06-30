@@ -8092,6 +8092,20 @@ CREATE UNIQUE INDEX count_base_anchors_idempotency_unique ON public.count_base_a
 
 
 --
+-- Name: count_base_anchors_mismatch_scan_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_base_anchors_mismatch_scan_idx ON public.count_base_anchors USING btree (tenant_id, counted_at, base_count_anchor_id) WHERE ((anchor_state = 'adopted'::text) AND (discrepancy_state <> 'resolved'::text));
+
+
+--
+-- Name: count_base_anchors_mismatch_scan_scope_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_base_anchors_mismatch_scan_scope_idx ON public.count_base_anchors USING btree (tenant_id, park_id, shed_id, counted_at, base_count_anchor_id) WHERE ((anchor_state = 'adopted'::text) AND (discrepancy_state <> 'resolved'::text));
+
+
+--
 -- Name: count_base_anchors_source_unique; Type: INDEX; Schema: public; Owner: -
 --
 

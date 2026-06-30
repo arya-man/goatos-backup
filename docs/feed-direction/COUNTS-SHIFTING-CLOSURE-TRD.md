@@ -169,6 +169,16 @@ Implementation status as of 2026-06-30:
   run evidence and updates readiness: `CSG6` is ready only after a successful
   page with no next cursor, while `CSG10` remains pending until the broader
   observability, query-plan, source-parity, and seeded-E2E evidence exists.
+- `000128_counts_mismatch_scan_anchor_indexes.sql` adds dedicated mismatch-scan
+  anchor indexes so stale/imported Base Count comparisons have tenant/window/
+  cursor bounded index paths, including optional park/shed scoped scans.
+- `backend/cmd/counts-query-plan-check` runs `EXPLAIN (FORMAT JSON)` with
+  sequential scans disabled to prove expected index paths exist for projection
+  anchors, Feed-target ShiftingEvent windows, projection snapshot lookup,
+  projection-row hot reads, and mismatch-scan anchor paging. Passing checks
+  update `CSG10` to `pending` with query-plan evidence; failed checks update it
+  to `blocked`. Passing this command does not make `CSG10` ready until source
+  parity, observability breadth, and seeded local E2E also exist.
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
 - This does **not** close `G2`: raw workbook/XLSX mapping and parity fixtures,
@@ -318,7 +328,8 @@ Required paths:
 | Base Count import/record | API/import | Write anchor, emit idempotent `counts.base_count_anchor.recorded` outbox event, audit, invalidate projections |
 | Shifting event ingest | API/import/outbox | Upsert event and impacts, emit idempotent `counts.shifting_event.recorded` outbox event, audit, invalidate projections |
 | Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or the registered `countsapp.ProjectionInputHandler` consumer for tenant + park + as-of + target-date bounded horizons; write snapshot or exception |
-| Count mismatch scan | Base Count adoption plus `counts-mismatch-scan` scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. The bounded worker command pages through stale historical/imported anchors with tenant/window/limit/cursor guards, writes the same exception work, records `count_mismatch_scan_runs`, and updates `CSG6`/`CSG10` readiness evidence. |
+| Count mismatch scan | Base Count adoption plus `counts-mismatch-scan` scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. The bounded worker command pages through stale historical/imported anchors with tenant/window/limit/cursor guards, writes the same exception work, records `count_mismatch_scan_runs`, and updates `CSG6`/`CSG10` readiness evidence. The anchor page now has dedicated mismatch-scan indexes and query-plan coverage. |
+| Query-plan proof | `counts-query-plan-check` | Prove expected Postgres index paths for Counts hot reads and update `CSG10` readiness evidence; never use this alone as G2 completion proof. |
 | Exception fanout/read model | Projection exception open/update/close plus process-integrity query | Emit `counts.projection_exception.*` outbox events and project `category=feed_direction` exception rows into top-level Action Center/Workflows; assignment policy, frontend UX, and broader Calendar/Protocol Adherence/Control Tower mapping remain separate closure work. |
 | Feed projection read | API/app port | Return rows or typed blocker with source hash |
 

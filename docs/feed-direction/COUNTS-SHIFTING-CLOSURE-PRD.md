@@ -93,7 +93,7 @@ GoatOS schedules unless explicitly approved against that docx.
 | CSG7 | Alias normalization | Breed and stage aliases such as SIROHI->Beetal and Warmup/Fattening variants are reviewed before projection output |
 | CSG8 | Idempotency and replay | Event ingestion, projection recompute, and source replay cannot double-apply movements |
 | CSG9 | Projection API | Feed can consume bounded projection rows with source hash, anchor id, included-event hash, exception count, contract version, and ration-context resolution state |
-| CSG10 | Scale and observability proof | Hot reads and projection queries are bounded by tenant, park, date, shed, breed, ration-context resolution state where materialized, and cursor where applicable; import, ingest, projection, retry, DLQ, exception, and query-plan metrics exist |
+| CSG10 | Scale and observability proof | Hot reads and projection queries are bounded by tenant, park, date, shed, breed, ration-context resolution state where materialized, and cursor where applicable; import, ingest, projection, retry, DLQ, exception, and query-plan metrics exist. `counts-query-plan-check` now proves index paths for Counts hot reads and mismatch-scan anchor paging, but CSG10 remains pending until source parity, observability breadth, and seeded E2E are proven. |
 
 `CSG1`-`CSG10` roll up into Feed gate `G2`. The Feed readiness endpoint must
 show the Counts/Shifting subgate statuses, owners, evidence pointers, and blocker
@@ -122,7 +122,10 @@ Counts/Shifting closure is complete when:
    imported mismatches are surfaced by the bounded `counts-mismatch-scan`
    worker path.
 5. SQL plan and synthetic-scale checks prove no full-herd or unbounded count
-   scan is required for Feed generation.
+   scan is required for Feed generation. The first implementation artifact is
+   `backend/cmd/counts-query-plan-check`, which checks the expected Postgres
+   indexes for projection anchors, ShiftingEvent windows, projection snapshots,
+   projection row reads, and stale/imported mismatch-scan paging.
 6. `GET /feed-direction/readiness` can expose `CSG1`-`CSG10` breakdown under
    Feed gate `G2`.
 7. Acceptance evidence proves initial output is aggregate shed + breed grain,
