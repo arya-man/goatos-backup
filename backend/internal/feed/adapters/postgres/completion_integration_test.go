@@ -228,6 +228,99 @@ WHERE tenant_id=$1::uuid
 	}
 }
 
+func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedFeedCountsScope(t, ctx, pool)
+	seedFeedCountDimensionAlias(t, ctx, pool, "breed", "*", "beetal", "Beetal", "Beetal")
+	seedFeedCountDimensionAlias(t, ctx, pool, "stage_tag", "*", "pregnant", "pregnant", "Pregnant")
+
+	countsRepo := countspg.NewRepository(pool, 5*time.Second)
+	countsService := countsapp.NewService(countsRepo)
+	feedService := feedapp.NewService(NewRepository(pool, 5*time.Second)).
+		WithCountsReadiness(countsRepo).
+		WithCountsProjectionExceptionLister(countsRepo)
+
+	if _, replay, err := countsRepo.RecordBaseCountAnchor(ctx, feedReadinessBaseAnchor(feedCountsSourceShed, "feed-reviewed-source-anchor", "feed-reviewed-source-fp", 20)); err != nil || replay {
+		t.Fatalf("record reviewed source anchor replay=%v err=%v", replay, err)
+	}
+	if _, replay, err := countsRepo.RecordBaseCountAnchor(ctx, feedReadinessBaseAnchor(feedCountsDestinationShed, "feed-reviewed-dest-anchor", "feed-reviewed-dest-fp", 5)); err != nil || replay {
+		t.Fatalf("record reviewed destination anchor replay=%v err=%v", replay, err)
+	}
+	shift := feedReadinessPregnantShift()
+	shift.LogicalShiftingEventKey = "feed-reviewed-pregnant-shift"
+	shift.PayloadHash = "feed-reviewed-shift-payload"
+	shift.IdempotencyKey = "feed-reviewed-shift-idem"
+	shift.RequestFingerprint = "feed-reviewed-shift-fp"
+	shiftID, replay, err := countsRepo.RecordShiftingEvent(ctx, shift)
+	if err != nil || replay || shiftID == "" {
+		t.Fatalf("record reviewed pregnant shift id=%q replay=%v err=%v", shiftID, replay, err)
+	}
+
+	outboxPayload := feedOutboxPayloadForAggregate(t, ctx, pool, countsdomain.EventShiftingEventRecorded, shiftID)
+	event, err := eventbus.EventFromEnvelope(outboxPayload, eventbus.Event{})
+	if err != nil {
+		t.Fatalf("decode reviewed shifting outbox event: %v", err)
+	}
+	bus := eventbus.NewInProcessBus()
+	countsapp.NewProjectionInputHandler(countsService, countsapp.WithProjectionInputHandlerGeneratedBy("feed-reviewed-alias-integration-test")).Register(bus)
+	if err := bus.Publish(ctx, event); err != nil {
+		t.Fatalf("publish reviewed shifting event to projection handler: %v", err)
+	}
+
+	readiness, err := feedService.Readiness(ctx, feedTenant)
+	if err != nil {
+		t.Fatalf("feed readiness with reviewed aliases: %v", err)
+	}
+	if readiness.Status != feeddomain.ReadinessBlocked || readiness.GenerationAllowed {
+		t.Fatalf("feed readiness=%+v, want pregnant-shortage blocker", readiness)
+	}
+	g2 := readinessGate(t, readiness.Gates, "G2")
+	if g2.Status != feeddomain.ReadinessBlocked || g2.AllowsGenerate {
+		t.Fatalf("G2=%+v, want blocked/no-generation", g2)
+	}
+	for _, want := range []string{
+		"Counts/Shifting has open projection exceptions",
+		"CSG7=pending",
+		"CSG8=blocked",
+		"CSG10=pending",
+	} {
+		if !strings.Contains(g2.BlockerReason, want) {
+			t.Fatalf("G2 blocker=%q, want %q", g2.BlockerReason, want)
+		}
+	}
+	for _, forbidden := range []string{"CSG7=blocked", "Projection snapshot contains alias_conflict"} {
+		if strings.Contains(g2.BlockerReason, forbidden) {
+			t.Fatalf("G2 blocker=%q, must not contain %q after approved aliases", g2.BlockerReason, forbidden)
+		}
+	}
+	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG7"); csg.Status != feeddomain.ReadinessPending || !strings.Contains(csg.BlockerReason, "no alias_conflict") {
+		t.Fatalf("CSG7=%+v, want pending reviewed-alias evidence without alias conflicts", csg)
+	}
+
+	aliasConflicts, err := feedService.ListCountsProjectionExceptions(ctx, feeddomain.CountsProjectionExceptionQuery{
+		TenantID: feedTenant, Status: "open", ExceptionType: stringPtr("alias_conflict"), Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("list alias conflicts: %v", err)
+	}
+	if len(aliasConflicts.Items) != 0 {
+		t.Fatalf("alias conflicts=%+v, want none after reviewed aliases", aliasConflicts.Items)
+	}
+	shortages, err := feedService.ListCountsProjectionExceptions(ctx, feeddomain.CountsProjectionExceptionQuery{
+		TenantID: feedTenant, Status: "open", ExceptionType: stringPtr("destination_shortage"),
+		Severity: stringPtr("critical"), WorkState: stringPtr("owner_missing"), Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("list destination shortages: %v", err)
+	}
+	if len(shortages.Items) != 1 {
+		t.Fatalf("destination shortages=%+v, want pregnant destination shortage to remain blocking", shortages.Items)
+	}
+}
+
 func seedFeedCountsScope(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
@@ -245,6 +338,26 @@ ON CONFLICT (location_id) DO NOTHING`,
 		feedTenant, feedCountsPark, feedCountsSourceShed, feedCountsDestinationShed); err != nil {
 		t.Fatalf("seed counts sheds: %v", err)
 	}
+}
+
+func seedFeedCountDimensionAlias(t *testing.T, ctx context.Context, pool *pgxpool.Pool, dimension, sourceSystem, sourceValue, canonicalValue, canonicalLabel string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO count_dimension_aliases (
+  tenant_id, dimension, source_system, source_value, source_value_norm,
+  canonical_value, canonical_label, review_status, source_ref, source_hash,
+  approved_at
+) VALUES (
+  $1::uuid, $2, $3, $4, $5, $6, $7, 'approved', $8, $9, now()
+)`,
+		feedTenant, dimension, sourceSystem, sourceValue, feedCountAliasNorm(sourceValue),
+		canonicalValue, canonicalLabel, "test:"+dimension+":"+sourceValue, "hash:"+dimension+":"+sourceValue); err != nil {
+		t.Fatalf("seed feed count alias: %v", err)
+	}
+}
+
+func feedCountAliasNorm(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), "_"))
 }
 
 func feedReadinessBaseAnchor(shedID, key, fingerprint string, count int32) countsdomain.BaseCountAnchor {
