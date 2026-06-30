@@ -24,6 +24,10 @@ const (
 	localProtocolID   = "00000000-0000-4000-8000-00000000b010"
 	localVersionID    = "00000000-0000-4000-8000-00000000b011"
 	localRuleID       = "00000000-0000-4000-8000-00000000b012"
+	localV1ProtocolID = "00000000-0000-4000-8000-00000000b050"
+	localV1VersionID  = "00000000-0000-4000-8000-00000000b051"
+	localV1PrimaryID  = "00000000-0000-4000-8000-00000000b052"
+	localV1BoosterID  = "00000000-0000-4000-8000-00000000b053"
 	localSOPVersionID = "b0000000-0000-4000-8000-000000000002"
 	localStageK0ID    = "00000000-0000-4000-8000-00000000b030"
 	localStageK1ID    = "00000000-0000-4000-8000-00000000b031"
@@ -190,7 +194,7 @@ INSERT INTO protocol_versions (
 	) VALUES (
 	  '` + localVersionID + `', $1::uuid, '` + localProtocolID + `', 'park', '` + localParkID + `', 1,
 	  'Source-derived dev baseline', 'draft', DATE '2026-01-01', DATE '2028-01-01',
-	  '{"eligibility":{"stage":"K1","sex":"all","breed":"all","defer_states":["sick","quarantine","icu"]},"schedule":[{"dose_code":"ET-PRIMARY-1","trigger_type":"birth_age","offset_days":21,"due_window_days":7,"min_gap_days":14,"repeat":"none","catch_up":"immediate","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}}],"source":{"source_system":"phc","source_ref":"docs/phc-vaccination/PRD.md:60; context/source-findings/phc-vaccination-roster-stage-proposal.md","imported_at":"2026-06-26T00:00:00Z","reviewed_by":"source-findings","review_status":"approved","approved_by":"source-derived-dev-baseline","approved_at":"2026-06-26T00:00:00Z"}}'::jsonb,
+	  '{"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid","inventory_item_id":"00000000-0000-4000-8000-00000000b001","manufacturer":"Mesha source-derived dev baseline","disease":"Enterotoxaemia","compatibility_group":"ET"},"eligibility":{"stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","quarantine","icu"]},"schedule":[{"dose_code":"ET-PRIMARY-1","trigger_type":"birth_age","offset_days":21,"due_window_days":7,"dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review","min_gap_days":14,"repeat":"none","catch_up":"immediate","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}}],"source":{"source_system":"phc","source_ref":"docs/phc-vaccination/PRD.md:60; context/source-findings/phc-vaccination-roster-stage-proposal.md","imported_at":"2026-06-26T00:00:00Z","reviewed_by":"source-findings","review_status":"approved","approved_by":"source-derived-dev-baseline","approved_at":"2026-06-26T00:00:00Z"}}'::jsonb,
 	  '{"required_proofs":["shed","vial_lot","administration"],"seed":"vaccination-source-derived-dev-baseline"}'::jsonb,
 	  '` + localSOPVersionID + `', NULL
 	)
@@ -211,7 +215,7 @@ INSERT INTO protocol_rules (
 	)
 	SELECT
 	  '` + localRuleID + `'::uuid, $1::uuid, '` + localVersionID + `'::uuid, 'ET-PRIMARY-1', 1, 'birth_age',
-	  21, 7, 14, 'none', 'immediate', '{"stage":"K1","source_ref":"docs/phc-vaccination/PRD.md:60"}'::jsonb,
+	  21, 7, 14, 'none', 'immediate', '{"stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","quarantine","icu"],"source_ref":"docs/phc-vaccination/PRD.md:60"}'::jsonb,
 	  '` + localSOPVersionID + `'::uuid, '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb, 10
 	WHERE EXISTS (
 	  SELECT 1
@@ -228,5 +232,83 @@ SET status = 'published',
     updated_at = now()
 WHERE tenant_id = $1::uuid
   AND protocol_version_id = '` + localVersionID + `'
+  AND status = 'draft';
+
+INSERT INTO protocol_definitions (
+  protocol_id, tenant_id, code, name, category, status
+) VALUES (
+  '` + localV1ProtocolID + `', $1::uuid, 'vaccination.enterotoxaemia_k1_v1_matrix_proof', 'Enterotoxaemia K1 V1 Matrix Proof', 'vaccination', 'active'
+)
+ON CONFLICT (protocol_id) DO UPDATE
+SET code = EXCLUDED.code,
+    name = EXCLUDED.name,
+    status = 'active',
+    updated_at = now();
+
+INSERT INTO protocol_versions (
+  protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
+  version_label, status, effective_from, effective_to, rule_dsl, proof_policy,
+  sop_version_id, published_at
+) VALUES (
+  '` + localV1VersionID + `', $1::uuid, '` + localV1ProtocolID + `', 'park', '` + localParkID + `', 1,
+  'V1 matrix proof baseline', 'draft', DATE '2026-01-01', DATE '2028-01-01',
+  '{"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid","inventory_item_id":"00000000-0000-4000-8000-00000000b001","manufacturer":"Mesha source-derived dev baseline","disease":"Enterotoxaemia","compatibility_group":"ET"},"eligibility":{"stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","quarantine","icu"]},"missed_dose_policy":"phc_approval","schedule":[{"dose_code":"ET-PRIMARY-1","sequence":1,"trigger_type":"birth_age","offset_days":21,"due_window_days":7,"dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review","min_gap_days":0,"repeat":"none","catch_up":"immediate","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}},{"dose_code":"ET-BOOSTER-1","sequence":2,"trigger_type":"after_previous_completion","offset_days":14,"due_window_days":7,"dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review","min_gap_days":14,"repeat":"none","catch_up":"phc_approval","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}}],"source":{"source_system":"phc","source_ref":"docs/phc-vaccination/PRD.md:60; context/source-findings/phc-vaccination-roster-stage-proposal.md","imported_at":"2026-06-30T00:00:00Z","reviewed_by":"source-findings","review_status":"approved","approved_by":"source-derived-dev-baseline","approved_at":"2026-06-30T00:00:00Z"}}'::jsonb,
+  '{"required_proofs":["shed","vial_lot","administration"],"seed":"vaccination-v1-matrix-proof-baseline"}'::jsonb,
+  '` + localSOPVersionID + `', NULL
+)
+ON CONFLICT (protocol_version_id) DO UPDATE
+SET version_label = EXCLUDED.version_label,
+    effective_from = EXCLUDED.effective_from,
+    effective_to = EXCLUDED.effective_to,
+    rule_dsl = EXCLUDED.rule_dsl,
+    proof_policy = EXCLUDED.proof_policy,
+    sop_version_id = EXCLUDED.sop_version_id,
+    updated_at = now()
+WHERE protocol_versions.status = 'draft';
+
+INSERT INTO protocol_rules (
+  rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
+  offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json,
+  sop_version_id, proof_policy, sort_order
+)
+SELECT
+  '` + localV1PrimaryID + `'::uuid, $1::uuid, '` + localV1VersionID + `'::uuid, 'ET-PRIMARY-1', 1, 'birth_age',
+  21, 7, 0, 'none', 'immediate',
+  '{"stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","quarantine","icu"],"source_ref":"docs/phc-vaccination/PRD.md:60"}'::jsonb,
+  '` + localSOPVersionID + `'::uuid, '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb, 10
+WHERE EXISTS (
+  SELECT 1
+  FROM protocol_versions pv
+  WHERE pv.tenant_id = $1::uuid
+    AND pv.protocol_version_id = '` + localV1VersionID + `'
+    AND pv.status = 'draft'
+)
+ON CONFLICT (rule_id) DO NOTHING;
+
+INSERT INTO protocol_rules (
+  rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
+  offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json,
+  sop_version_id, proof_policy, sort_order
+)
+SELECT
+  '` + localV1BoosterID + `'::uuid, $1::uuid, '` + localV1VersionID + `'::uuid, 'ET-BOOSTER-1', 2, 'after_previous_completion',
+  14, 7, 14, 'none', 'phc_approval',
+  '{"stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","quarantine","icu"],"source_ref":"docs/phc-vaccination/PRD.md:60"}'::jsonb,
+  '` + localSOPVersionID + `'::uuid, '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb, 20
+WHERE EXISTS (
+  SELECT 1
+  FROM protocol_versions pv
+  WHERE pv.tenant_id = $1::uuid
+    AND pv.protocol_version_id = '` + localV1VersionID + `'
+    AND pv.status = 'draft'
+)
+ON CONFLICT (rule_id) DO NOTHING;
+
+UPDATE protocol_versions
+SET status = 'published',
+    published_at = COALESCE(published_at, now()),
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND protocol_version_id = '` + localV1VersionID + `'
   AND status = 'draft';
 	`

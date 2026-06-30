@@ -84,7 +84,7 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
       repeat_until_after_age: d.repeatUntilAfterAge,
       catch_up: d.catchUp,
       proof_policy: d.proofPolicy,
-      eligibility_json: {},
+      eligibility_json: typeof ruleDsl.eligibility === "object" && ruleDsl.eligibility !== null ? ruleDsl.eligibility : {},
       sort_order: d.sortOrder,
     };
     const rule = await addProtocolRule(

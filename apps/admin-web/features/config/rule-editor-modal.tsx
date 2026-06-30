@@ -56,6 +56,11 @@ export function RuleEditorModal({
   const reproductiveOptions = optionGroup(pageContract, "rule_reproductive");
   const deferOptions = optionGroup(pageContract, "defer_states");
   const missedDoseOptions = optionGroup(pageContract, "missed_dose_policies");
+  const vaccineTypeOptions = optionGroup(pageContract, "vaccine_types");
+  const excludedReproductiveOptions = optionGroup(pageContract, "excluded_reproductive_states");
+  const doseUnitOptions = optionGroup(pageContract, "dose_units");
+  const routeSiteOptions = optionGroup(pageContract, "route_sites");
+  const courseLapseOptions = optionGroup(pageContract, "course_lapse_policies");
   const sourceSystemOptions = optionGroup(pageContract, "source_systems");
   const reviewStatusOptions = optionGroup(pageContract, "review_statuses");
   const triggerOptions = optionGroup(pageContract, "trigger_types");
@@ -132,6 +137,11 @@ export function RuleEditorModal({
       trigger: isPrimary ? requireKey(triggerOptions, "birth_age", "trigger_types") : requireKey(triggerOptions, "after_previous_completion", "trigger_types"),
       offsetDays: isPrimary ? 21 : 30,
       dueWindowDays: 7,
+      doseAmount: 0.5,
+      doseUnit: requireKey(doseUnitOptions, "ml", "dose_units"),
+      routeSite: requireKey(routeSiteOptions, "subcutaneous", "route_sites"),
+      maxDelayDays: 7,
+      courseLapsePolicy: requireKey(courseLapseOptions, "phc_review", "course_lapse_policies"),
       repeat: firstKey(repeatOptions, "repeat_policies"),
       repeatUntilAfterAge: copy(pageContract, "modal.rule_editor.default_repeat_until"),
       minGapDays: isPrimary ? 0 : 14,
@@ -193,6 +203,13 @@ export function RuleEditorModal({
   const [scope, setScope] = useState(firstKey(scopeOptions, "rule_scopes"));
   const [effectiveFrom, setEffectiveFrom] = useState("");
   const [sopVersionId, setSopVersionId] = useState("");
+  const [vaccineCode, setVaccineCode] = useState("");
+  const [vaccineName, setVaccineName] = useState("");
+  const [vaccineType, setVaccineType] = useState(firstKey(vaccineTypeOptions, "vaccine_types"));
+  const [vaccineInventoryItemId, setVaccineInventoryItemId] = useState("");
+  const [vaccineManufacturer, setVaccineManufacturer] = useState("");
+  const [vaccineDisease, setVaccineDisease] = useState("");
+  const [vaccineCompatibilityGroup, setVaccineCompatibilityGroup] = useState("");
 
   // Default to the first backend stage band (lowest sort_order) when seeded, else the ALL_STAGES UI
   // filter. No hardcoded K1 default — the stage vocabulary is owned by animal_stage_lookup.
@@ -202,6 +219,7 @@ export function RuleEditorModal({
   const [health, setHealth] = useState(requireKey(healthOptions, "any", "rule_healths"));
   const [lifecycle, setLifecycle] = useState(firstKey(lifecycleOptions, "rule_lifecycles"));
   const [reproductive, setReproductive] = useState(firstKey(reproductiveOptions, "rule_reproductive"));
+  const [excludeReproductiveStates, setExcludeReproductiveStates] = useState<string[]>(() => excludedReproductiveOptions.map((option) => option.key));
   const [deferStates, setDeferStates] = useState<string[]>(() => deferOptions.map((option) => option.key));
   const [vaccineLotPolicy, setVaccineLotPolicy] = useState(copy(pageContract, "modal.rule_editor.default_vaccine_lot_policy"));
 
@@ -238,7 +256,16 @@ export function RuleEditorModal({
       scope,
       effectiveFrom,
       sopVersionId,
-      eligibility: { stage, sex, breed, lifecycle, health, reproductive, deferStates },
+      vaccine: {
+        code: vaccineCode,
+        name: vaccineName,
+        type: vaccineType,
+        inventoryItemId: vaccineInventoryItemId,
+        manufacturer: vaccineManufacturer,
+        disease: vaccineDisease,
+        compatibilityGroup: vaccineCompatibilityGroup,
+      },
+      eligibility: { stage, sex, breed, lifecycle, health, reproductive, excludeReproductiveStates, deferStates },
       vaccineLotPolicy,
       missedDosePolicy,
       escalation,
@@ -247,8 +274,9 @@ export function RuleEditorModal({
       feed,
     }),
     [
-      category, code, name, scope, effectiveFrom, sopVersionId, stage, sex, breed, lifecycle, health, reproductive,
-      deferStates, vaccineLotPolicy, missedDosePolicy, escalation, sourceSystem, sourceRef,
+      category, code, name, scope, effectiveFrom, sopVersionId, vaccineCode, vaccineName, vaccineType,
+      vaccineInventoryItemId, vaccineManufacturer, vaccineDisease, vaccineCompatibilityGroup, stage, sex, breed,
+      lifecycle, health, reproductive, excludeReproductiveStates, deferStates, vaccineLotPolicy, missedDosePolicy, escalation, sourceSystem, sourceRef,
       reviewStatus, reviewedBy, approvedBy, approvedAt, doses, feed,
     ],
   );
@@ -302,6 +330,9 @@ export function RuleEditorModal({
   }
   function toggleDefer(value: string) {
     setDeferStates((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
+  }
+  function toggleExcludeReproductive(value: string) {
+    setExcludeReproductiveStates((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
   }
   function changeCategory(nextCategory: string) {
     setCategory(nextCategory);
@@ -615,6 +646,31 @@ export function RuleEditorModal({
               </>
             ) : (
               <>
+                <label>{copy(pageContract, "modal.rule_editor.field.vaccine_matrix")}</label>
+                <div className="rowf">
+                  <input aria-label={copy(pageContract, "modal.rule_editor.field.vaccine_matrix")} value={vaccineCode} onChange={(e) => setVaccineCode(e.target.value)} placeholder={copy(pageContract, "modal.rule_editor.placeholder.vaccine_code")} />
+                  <input aria-label={copy(pageContract, "modal.rule_editor.field.vaccine_matrix")} value={vaccineName} onChange={(e) => setVaccineName(e.target.value)} placeholder={copy(pageContract, "modal.rule_editor.placeholder.vaccine_name")} />
+                </div>
+                <div className="rowf" style={{ marginTop: 6 }}>
+                  <select aria-label={copy(pageContract, "modal.rule_editor.field.vaccine_matrix")} value={vaccineType} onChange={(e) => setVaccineType(e.target.value)}>
+                    {vaccineTypeOptions.map((option) => (
+                      <option key={option.key} value={option.key}>{option.label}</option>
+                    ))}
+                  </select>
+                  <input aria-label={copy(pageContract, "modal.rule_editor.field.vaccine_matrix")} value={vaccineInventoryItemId} onChange={(e) => setVaccineInventoryItemId(e.target.value)} placeholder={copy(pageContract, "modal.rule_editor.placeholder.vaccine_inventory_item")} />
+                </div>
+                <div className="rowf" style={{ marginTop: 6 }}>
+                  <input aria-label={copy(pageContract, "modal.rule_editor.field.vaccine_matrix")} value={vaccineManufacturer} onChange={(e) => setVaccineManufacturer(e.target.value)} placeholder={copy(pageContract, "modal.rule_editor.placeholder.vaccine_manufacturer")} />
+                  <input aria-label={copy(pageContract, "modal.rule_editor.field.vaccine_matrix")} value={vaccineDisease} onChange={(e) => setVaccineDisease(e.target.value)} placeholder={copy(pageContract, "modal.rule_editor.placeholder.vaccine_disease")} />
+                </div>
+                <input
+                  aria-label={copy(pageContract, "modal.rule_editor.field.vaccine_matrix")}
+                  value={vaccineCompatibilityGroup}
+                  onChange={(e) => setVaccineCompatibilityGroup(e.target.value)}
+                  placeholder={copy(pageContract, "modal.rule_editor.placeholder.vaccine_compatibility_group")}
+                  style={{ marginTop: 6, width: "100%", border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", borderRadius: 8, padding: "8px 10px", font: "inherit", fontSize: 13 }}
+                />
+
                 <label>{copy(pageContract, "modal.rule_editor.field.vaccination_eligibility")}</label>
                 <div className="rowf">
                   <select
@@ -669,6 +725,13 @@ export function RuleEditorModal({
                       </option>
                     ))}
                   </select>
+                </div>
+                <div className="cfgchk" style={{ marginTop: 7 }}>
+                  {excludedReproductiveOptions.map((option) => (
+                    <label key={option.key} title={option.title}>
+                      <input type="checkbox" checked={excludeReproductiveStates.includes(option.key)} onChange={() => toggleExcludeReproductive(option.key)} /> {option.label}
+                    </label>
+                  ))}
                 </div>
 
                 <label>{copy(pageContract, "modal.rule_editor.field.defer")}</label>
@@ -807,6 +870,11 @@ export function RuleEditorModal({
                     <th>{copy(pageContract, "modal.rule_editor.table.trigger")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.offset")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.window")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.dose_amount")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.dose_unit")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.route_site")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.max_delay")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.course_lapse")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.repeat")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.repeat_until")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.min_gap")}</th>
@@ -834,6 +902,33 @@ export function RuleEditorModal({
                       </td>
                       <td>
                         <input aria-label={copy(pageContract, "modal.rule_editor.table.window")} type="number" value={d.dueWindowDays} onChange={(e) => setDose(i, { dueWindowDays: Number(e.target.value) })} />
+                      </td>
+                      <td>
+                        <input aria-label={copy(pageContract, "modal.rule_editor.table.dose_amount")} type="number" min="0" step="0.01" value={d.doseAmount} onChange={(e) => setDose(i, { doseAmount: Number(e.target.value) })} />
+                      </td>
+                      <td style={{ minWidth: 90 }}>
+                        <select aria-label={copy(pageContract, "modal.rule_editor.table.dose_unit")} value={d.doseUnit} onChange={(e) => setDose(i, { doseUnit: e.target.value })}>
+                          {doseUnitOptions.map((option) => (
+                            <option key={option.key} value={option.key}>{option.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={{ minWidth: 150 }}>
+                        <select aria-label={copy(pageContract, "modal.rule_editor.table.route_site")} value={d.routeSite} onChange={(e) => setDose(i, { routeSite: e.target.value })}>
+                          {routeSiteOptions.map((option) => (
+                            <option key={option.key} value={option.key}>{option.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <input aria-label={copy(pageContract, "modal.rule_editor.table.max_delay")} type="number" value={d.maxDelayDays} onChange={(e) => setDose(i, { maxDelayDays: Number(e.target.value) })} />
+                      </td>
+                      <td style={{ minWidth: 140 }}>
+                        <select aria-label={copy(pageContract, "modal.rule_editor.table.course_lapse")} value={d.courseLapsePolicy} onChange={(e) => setDose(i, { courseLapsePolicy: e.target.value })}>
+                          {courseLapseOptions.map((option) => (
+                            <option key={option.key} value={option.key}>{option.label}</option>
+                          ))}
+                        </select>
                       </td>
                       <td style={{ minWidth: 120 }}>
                         <select aria-label={copy(pageContract, "modal.rule_editor.table.repeat")} value={d.repeat} onChange={(e) => setDose(i, { repeat: e.target.value })}>

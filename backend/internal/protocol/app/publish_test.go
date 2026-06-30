@@ -201,10 +201,31 @@ func TestValidateExecutionContract(t *testing.T) {
 	if err := ValidateExecutionContract(missingTrigger); !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("missing trigger_type should be not publishable, got %v", err)
 	}
+
+	vaccination := valid
+	vaccination.Category = "vaccination"
+	vaccination.RuleDsl = []byte(validVaccinationMatrixRuleDSL())
+	if err := ValidateExecutionContract(vaccination); err != nil {
+		t.Fatalf("vaccination matrix execution contract rejected: %v", err)
+	}
+
+	missingMatrix := valid
+	missingMatrix.Category = "vaccination"
+	missingMatrix.RuleDsl = []byte(`{"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},"schedule":[{"dose_code":"primary","trigger_type":"birth_age","dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","due_window_days":7,"max_delay_days":7,"course_lapse_policy":"phc_review"}]}`)
+	if err := ValidateExecutionContract(missingMatrix); !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("vaccination without vaccine matrix object should be not publishable, got %v", err)
+	}
+
+	missingDoseAmount := valid
+	missingDoseAmount.Category = "vaccination"
+	missingDoseAmount.RuleDsl = []byte(`{"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},"schedule":[{"dose_code":"primary","trigger_type":"birth_age","dose_unit":"ml","route_site":"subcutaneous","due_window_days":7,"max_delay_days":7,"course_lapse_policy":"phc_review"}]}`)
+	if err := ValidateExecutionContract(missingDoseAmount); !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("vaccination without dose amount should be not publishable, got %v", err)
+	}
 }
 
 func TestValidateRuleDSLRejectsUnknownKeys(t *testing.T) {
-	valid := []byte(`{"category":"vaccination","scope":{"type":"tenant","id":null},"eligibility":{"animal_stage":"K1","defer_states":["icu"]},"schedule":[{"dose_code":"primary","sop_label":"display"}],"source":{"source_system":"phc","source_ref":"ref","review_status":"reviewed"}}`)
+	valid := []byte(`{"category":"vaccination","scope":{"type":"tenant","id":null},"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid"},"eligibility":{"animal_stage":"K1","defer_states":["icu"]},"schedule":[{"dose_code":"primary","sop_label":"display","dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review"}],"source":{"source_system":"phc","source_ref":"ref","review_status":"reviewed"}}`)
 	if err := ValidateRuleDSL(valid); err != nil {
 		t.Fatalf("valid rule_dsl rejected: %v", err)
 	}
@@ -214,6 +235,7 @@ func TestValidateRuleDSLRejectsUnknownKeys(t *testing.T) {
 	}
 	for _, bad := range []string{
 		`{"eligibilty":{"animal_stage":"K1"}}`,
+		`{"vaccine":{"code":"ET","vaccine_type":"toxoid"}}`,
 		`{"eligibility":{"animal_stage":"K1","defer_state":["icu"]}}`,
 		`{"schedule":[{"dose_code":"primary","sop_version_id":"display-only"}]}`,
 		`{"source":{"source_system":"phc","approvedby":"x"}}`,
@@ -330,7 +352,7 @@ func TestPublishVersionDelegatesDraftPublishToRepository(t *testing.T) {
 	if got := repo.createdRule; got.DoseCode != "primary" || got.TriggerType != "birth_age" || got.CatchUp != "phc_approval" || got.Sequence != 1 {
 		t.Fatalf("created rule = %#v, want primary birth_age phc_approval sequence 1", got)
 	}
-	if string(repo.createdRule.EligibilityJSON) != `{"animal_stage":"K1","defer_states":["icu"]}` {
+	if string(repo.createdRule.EligibilityJSON) != `{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["icu"]}` {
 		t.Fatalf("eligibility json = %s", repo.createdRule.EligibilityJSON)
 	}
 	if repo.createdRule.IdempotencyKey != "protocol-schedule-rule:version-1:primary" {
@@ -379,7 +401,7 @@ func TestPublishVersionRejectsInvalidScheduleRowBeforePublish(t *testing.T) {
 	repo := &fakeProtocolRepo{
 		version: validPublishVersion("draft"),
 	}
-	repo.version.RuleDsl = []byte(`{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"},"schedule":[{"dose_code":"primary"}]}`)
+	repo.version.RuleDsl = []byte(`{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"},"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},"schedule":[{"dose_code":"primary","dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","due_window_days":7,"max_delay_days":7,"course_lapse_policy":"phc_review"}]}`)
 	service := NewService(repo)
 
 	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
@@ -399,8 +421,12 @@ func validPublishVersion(status string) domain.Version {
 		Status:            status,
 		SopVersionID:      "62000000-0000-4000-8000-000000000001",
 		ProofPolicy:       []byte(`{"required_proofs":["administration_video"]}`),
-		RuleDsl:           []byte(`{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"},"eligibility":{"animal_stage":"K1","defer_states":["icu"]},"missed_dose_policy":"phc_approval","schedule":[{"dose_code":"primary","sequence":1,"trigger_type":"birth_age","offset_days":21,"due_window_days":7,"repeat":"none","catch_up":"phc_approval"}]}`),
+		RuleDsl:           []byte(validVaccinationMatrixRuleDSL()),
 	}
+}
+
+func validVaccinationMatrixRuleDSL() string {
+	return `{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"},"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid","inventory_item_id":"item-et","manufacturer":"source-derived","disease":"Enterotoxaemia","compatibility_group":"ET"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["icu"]},"missed_dose_policy":"phc_approval","schedule":[{"dose_code":"primary","sequence":1,"trigger_type":"birth_age","offset_days":21,"due_window_days":7,"dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review","repeat":"none","catch_up":"phc_approval"}]}`
 }
 
 type fakeProtocolRepo struct {

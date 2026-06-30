@@ -7,6 +7,11 @@ export interface DoseRow {
   trigger: string;
   offsetDays: number;
   dueWindowDays: number;
+  doseAmount: number;
+  doseUnit: string;
+  routeSite: string;
+  maxDelayDays: number;
+  courseLapsePolicy: string;
   repeat: string;
   repeatUntilAfterAge: string;
   minGapDays: number;
@@ -22,7 +27,18 @@ export interface Eligibility {
   lifecycle: string;
   health: string;
   reproductive: string;
+  excludeReproductiveStates: string[];
   deferStates: string[];
+}
+
+export interface VaccineMatrix {
+  code: string;
+  name: string;
+  type: string;
+  inventoryItemId: string;
+  manufacturer: string;
+  disease: string;
+  compatibilityGroup: string;
 }
 
 export interface FeedFields {
@@ -63,6 +79,7 @@ export interface RuleInput {
   // protocol-version level. Backend publish (publish.go ValidateExecutionContract) requires it; an empty
   // value keeps the version a draft that cannot publish.
   sopVersionId: string;
+  vaccine: VaccineMatrix;
   eligibility: Eligibility;
   vaccineLotPolicy: string;
   missedDosePolicy: string;
@@ -138,6 +155,11 @@ export function newDose(seq: number): DoseRow {
     trigger: seq === 1 ? "birth_age" : "after_previous_completion",
     offsetDays: seq === 1 ? 21 : 30,
     dueWindowDays: 7,
+    doseAmount: 0.5,
+    doseUnit: "ml",
+    routeSite: "subcutaneous",
+    maxDelayDays: 7,
+    courseLapsePolicy: "phc_review",
     repeat: "none",
     repeatUntilAfterAge: "-",
     minGapDays: seq === 1 ? 0 : 14,
@@ -202,6 +224,15 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
   return {
     category: input.category,
     scope: parseScope(input.scope),
+    vaccine: {
+      code: input.vaccine.code.trim() || input.code.trim(),
+      name: input.vaccine.name.trim() || input.name.trim(),
+      type: input.vaccine.type,
+      inventory_item_id: input.vaccine.inventoryItemId.trim() || null,
+      manufacturer: input.vaccine.manufacturer.trim() || null,
+      disease: input.vaccine.disease.trim() || input.name.trim() || null,
+      compatibility_group: input.vaccine.compatibilityGroup.trim() || input.vaccine.code.trim() || input.code.trim(),
+    },
     eligibility: {
       animal_stage: input.eligibility.stage,
       animal_stage_source: STAGE_SOURCE,
@@ -210,6 +241,7 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       lifecycle: input.eligibility.lifecycle,
       health: input.eligibility.health,
       reproductive: input.eligibility.reproductive,
+      exclude_reproductive_states: input.eligibility.excludeReproductiveStates,
       defer_states: input.eligibility.deferStates,
     },
     missed_dose_policy: input.missedDosePolicy,
@@ -225,6 +257,11 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       trigger_type: d.trigger,
       offset_days: Number(d.offsetDays) || 0,
       due_window_days: Number(d.dueWindowDays) || 0,
+      dose_amount: Number(d.doseAmount) || 0,
+      dose_unit: d.doseUnit,
+      route_site: d.routeSite,
+      max_delay_days: Number(d.maxDelayDays) || Number(d.dueWindowDays) || 0,
+      course_lapse_policy: d.courseLapsePolicy,
       min_gap_days: Number(d.minGapDays) || 0,
       repeat: d.repeat,
       repeat_until_after_age: d.repeatUntilAfterAge,
