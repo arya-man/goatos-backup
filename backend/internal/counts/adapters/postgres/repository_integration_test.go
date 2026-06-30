@@ -171,6 +171,88 @@ WHERE tenant_id=$1::uuid
 	}
 }
 
+func TestRepositoryScanCountMismatchesCreatesExceptionForStaleImportedAnchor(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 3*time.Second)
+	previous := baseAnchorForAt(countsShedA, "scan-previous-anchor", "scan-previous-fp", 20, time.Date(2026, 6, 28, 6, 0, 0, 0, time.UTC))
+	if _, replay, err := repo.RecordBaseCountAnchor(ctx, previous); err != nil || replay {
+		t.Fatalf("previous anchor replay=%v err=%v", replay, err)
+	}
+	current := baseAnchorForAt(countsShedA, "scan-current-anchor", "scan-current-fp", 17, time.Date(2026, 6, 29, 6, 0, 0, 0, time.UTC))
+	current.SourceSystem = "import"
+	current.SourceRef = "counting-db-values-only:row-17"
+	current.SourceHash = "scan-current-source-hash"
+	currentID := insertBaseCountAnchorDirect(t, ctx, pool, current)
+
+	first, err := repo.ScanCountMismatches(ctx, domain.CountMismatchScanRequest{
+		TenantID: countsTenant, ParkID: strPtr(countsPark),
+		CountedBefore: time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		Limit:         1,
+	})
+	if err != nil {
+		t.Fatalf("scan first page: %v", err)
+	}
+	if first.ScannedAnchorCount != 1 || first.ExceptionWriteCount != 0 || first.NextCursor == nil {
+		t.Fatalf("first scan page=%+v, want one earlier anchor and cursor", first)
+	}
+	second, err := repo.ScanCountMismatches(ctx, domain.CountMismatchScanRequest{
+		TenantID: countsTenant, ParkID: strPtr(countsPark),
+		CountedBefore:   time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		CursorCountedAt: &first.NextCursor.CountedAt,
+		CursorAnchorID:  &first.NextCursor.BaseCountAnchorID,
+		Limit:           25,
+	})
+	if err != nil {
+		t.Fatalf("scan second page: %v", err)
+	}
+	if second.ScannedAnchorCount != 1 || second.ExceptionWriteCount != 1 ||
+		second.InvestigatingAnchorCount != 1 || second.NextCursor != nil {
+		t.Fatalf("second scan page=%+v, want one mismatch and no further cursor", second)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM count_projection_exceptions
+WHERE tenant_id=$1::uuid
+  AND exception_type='unreported_shifting'
+  AND source_key=$2
+  AND status='open'
+  AND count_projection_snapshot_id IS NULL`, countsTenant, "base_count_anchor:"+currentID); got != 1 {
+		t.Fatalf("stale import mismatch exceptions=%d, want 1", got)
+	}
+	var discrepancyState string
+	if err := pool.QueryRow(ctx, `
+SELECT discrepancy_state FROM count_base_anchors
+WHERE tenant_id=$1::uuid AND base_count_anchor_id=$2::uuid`, countsTenant, currentID).Scan(&discrepancyState); err != nil {
+		t.Fatalf("load discrepancy state: %v", err)
+	}
+	if discrepancyState != "investigating" {
+		t.Fatalf("discrepancy_state=%q, want investigating", discrepancyState)
+	}
+	exceptionID := projectionExceptionID(t, ctx, pool, "unreported_shifting", "base_count_anchor:"+currentID)
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND aggregate_id=$2::uuid
+  AND event_type=$3`, countsTenant, exceptionID, domain.EventProjectionExceptionOpened); got != 1 {
+		t.Fatalf("scan-opened projection exception outbox rows=%d, want 1", got)
+	}
+	if _, err := repo.ScanCountMismatches(ctx, domain.CountMismatchScanRequest{
+		TenantID: countsTenant, ParkID: strPtr(countsPark),
+		CountedBefore: time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		Limit:         25,
+	}); err != nil {
+		t.Fatalf("rescan: %v", err)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM count_projection_exceptions
+WHERE tenant_id=$1::uuid
+  AND exception_type='unreported_shifting'
+  AND source_key=$2
+  AND status='open'`, countsTenant, "base_count_anchor:"+currentID); got != 1 {
+		t.Fatalf("stale import mismatch exceptions after rescan=%d, want 1", got)
+	}
+}
+
 func TestRepositoryRecordsShiftingEventImpactAndRejectsLogicalConflict(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
@@ -832,6 +914,26 @@ func baseAnchorForBreedAt(shedID, key, fp string, count int32, breedKey, breedLa
 		HeadCount: count, SourceSystem: "physical_base_count", SourceRef: "base-count:" + shedID + ":2026-06-30",
 		SourceHash: "base-hash-" + shedID, DiscrepancyState: "not_checked", IdempotencyKey: key, RequestFingerprint: fp,
 	}
+}
+
+func insertBaseCountAnchorDirect(t *testing.T, ctx context.Context, pool *pgxpool.Pool, in domain.BaseCountAnchor) string {
+	t.Helper()
+	var id string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO count_base_anchors (
+  tenant_id, park_id, shed_id, breed_id, breed_key, breed_label, counted_at, head_count,
+  source_system, source_ref, source_hash, discrepancy_state, idempotency_key, request_fingerprint, recorded_by
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, nullif($4::text, '')::uuid, $5, $6, $7, $8,
+  $9, $10, $11, $12, $13, $14, nullif($15::text, '')::uuid
+)
+RETURNING base_count_anchor_id::text`,
+		in.TenantID, in.ParkID, in.ShedID, ptrValue(in.BreedID), in.BreedKey, in.BreedLabel,
+		in.CountedAt, in.HeadCount, in.SourceSystem, in.SourceRef, in.SourceHash, in.DiscrepancyState,
+		in.IdempotencyKey, in.RequestFingerprint, ptrValue(in.RecordedBy)).Scan(&id); err != nil {
+		t.Fatalf("insert direct base count anchor: %v", err)
+	}
+	return id
 }
 
 func shiftingEvent(logicalKey, idemKey, payloadHash, fp string) domain.ShiftingEvent {

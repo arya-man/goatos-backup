@@ -14,6 +14,7 @@ type fakeRepo struct {
 	event      domain.ShiftingEvent
 	inputs     domain.ProjectionInputs
 	snap       domain.ProjectionSnapshot
+	scanReq    domain.CountMismatchScanRequest
 	query      domain.ProjectionExceptionQuery
 	resolution domain.ProjectionExceptionResolutionRequest
 }
@@ -25,6 +26,10 @@ func (f *fakeRepo) RecordBaseCountAnchor(_ context.Context, in domain.BaseCountA
 func (f *fakeRepo) RecordShiftingEvent(_ context.Context, in domain.ShiftingEvent) (string, bool, error) {
 	f.event = in
 	return "event-1", false, nil
+}
+func (f *fakeRepo) ScanCountMismatches(_ context.Context, req domain.CountMismatchScanRequest) (domain.CountMismatchScanResult, error) {
+	f.scanReq = req
+	return domain.CountMismatchScanResult{TenantID: req.TenantID, ScannedAnchorCount: req.Limit}, nil
 }
 func (f *fakeRepo) ProjectionInputs(context.Context, domain.ProjectionRecomputeRequest) (domain.ProjectionInputs, error) {
 	return f.inputs, nil
@@ -334,6 +339,46 @@ func TestListProjectionExceptionsDefaultsAndValidatesFilters(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalidLimit) {
 		t.Fatalf("limit err=%v, want ErrInvalidLimit", err)
+	}
+}
+
+func TestScanCountMismatchesDefaultsAndValidatesWindow(t *testing.T) {
+	repo := &fakeRepo{}
+	after := time.Date(2026, 6, 1, 0, 0, 0, 0, time.FixedZone("IST", 5*60*60+30*60))
+	before := time.Date(2026, 6, 30, 23, 59, 0, 0, time.FixedZone("IST", 5*60*60+30*60))
+	out, err := NewService(repo).ScanCountMismatches(context.Background(), domain.CountMismatchScanRequest{
+		TenantID: " tenant ", CountedAfter: &after, CountedBefore: before,
+	})
+	if err != nil {
+		t.Fatalf("ScanCountMismatches err=%v", err)
+	}
+	if out.ScannedAnchorCount != defaultCountMismatchScanLimit {
+		t.Fatalf("scan result=%+v, want default limit marker %d", out, defaultCountMismatchScanLimit)
+	}
+	if repo.scanReq.TenantID != "tenant" || repo.scanReq.Limit != defaultCountMismatchScanLimit ||
+		repo.scanReq.CountedAfter == nil || repo.scanReq.CountedAfter.Location() != time.UTC ||
+		repo.scanReq.CountedBefore.Location() != time.UTC {
+		t.Fatalf("normalized scan request=%+v", repo.scanReq)
+	}
+
+	_, err = NewService(repo).ScanCountMismatches(context.Background(), domain.CountMismatchScanRequest{
+		TenantID: "tenant", CountedAfter: &before, CountedBefore: after,
+	})
+	if !errors.Is(err, ErrInvalidScanWindow) {
+		t.Fatalf("window err=%v, want ErrInvalidScanWindow", err)
+	}
+	_, err = NewService(repo).ScanCountMismatches(context.Background(), domain.CountMismatchScanRequest{
+		TenantID: "tenant", CountedBefore: before, Limit: maxCountMismatchScanLimit + 1,
+	})
+	if !errors.Is(err, ErrInvalidLimit) {
+		t.Fatalf("limit err=%v, want ErrInvalidLimit", err)
+	}
+	cursorAt := before
+	_, err = NewService(repo).ScanCountMismatches(context.Background(), domain.CountMismatchScanRequest{
+		TenantID: "tenant", CountedBefore: before, CursorCountedAt: &cursorAt,
+	})
+	if !errors.Is(err, ErrMissingRequiredField) {
+		t.Fatalf("cursor err=%v, want ErrMissingRequiredField", err)
 	}
 }
 

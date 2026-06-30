@@ -70,7 +70,7 @@ RETURNING base_count_anchor_id::text`,
 		in.CountedAt, in.HeadCount, in.SourceSystem, in.SourceRef, in.SourceHash, in.DiscrepancyState,
 		in.IdempotencyKey, in.RequestFingerprint, ptrValue(in.RecordedBy)).Scan(&id)
 	if err == nil {
-		if err := createBaseCountMismatchException(ctx, tx, in.TenantID, id, in); err != nil {
+		if _, err := createBaseCountMismatchException(ctx, tx, in.TenantID, id, in); err != nil {
 			return "", false, err
 		}
 		if err := insertCountsProjectionInputOutbox(ctx, tx, countsProjectionInputEvent{
@@ -159,6 +159,44 @@ func (r *Repository) RecordShiftingEvent(ctx context.Context, in domain.Shifting
 		return "", false, err
 	}
 	return id, false, nil
+}
+
+func (r *Repository) ScanCountMismatches(ctx context.Context, req domain.CountMismatchScanRequest) (domain.CountMismatchScanResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.CountMismatchScanResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	anchors, hasMore, err := scanCountMismatchAnchors(ctx, tx, req)
+	if err != nil {
+		return domain.CountMismatchScanResult{}, err
+	}
+	result := domain.CountMismatchScanResult{TenantID: req.TenantID}
+	for _, anchor := range anchors {
+		result.ScannedAnchorCount++
+		wrote, err := createBaseCountMismatchException(ctx, tx, req.TenantID, anchor.ID, anchor.BaseCountAnchor)
+		if err != nil {
+			return domain.CountMismatchScanResult{}, err
+		}
+		if wrote {
+			result.ExceptionWriteCount++
+			result.InvestigatingAnchorCount++
+		}
+	}
+	if hasMore && len(anchors) > 0 {
+		last := anchors[len(anchors)-1]
+		result.NextCursor = &domain.CountMismatchScanCursor{
+			CountedAt:         last.CountedAt,
+			BaseCountAnchorID: last.ID,
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.CountMismatchScanResult{}, err
+	}
+	return result, nil
 }
 
 func (r *Repository) ProjectionInputs(ctx context.Context, req domain.ProjectionRecomputeRequest) (domain.ProjectionInputs, error) {
@@ -873,18 +911,88 @@ type previousBaseCountAnchor struct {
 	HeadCount int32
 }
 
-func createBaseCountMismatchException(ctx context.Context, tx pgx.Tx, tenantID, anchorID string, in domain.BaseCountAnchor) error {
+type countMismatchScanAnchor struct {
+	ID string
+	domain.BaseCountAnchor
+}
+
+func scanCountMismatchAnchors(ctx context.Context, tx pgx.Tx, req domain.CountMismatchScanRequest) ([]countMismatchScanAnchor, bool, error) {
+	rows, err := tx.Query(ctx, `
+SELECT base_count_anchor_id::text,
+       park_id::text,
+       shed_id::text,
+       COALESCE(breed_id::text, ''),
+       breed_key,
+       breed_label,
+       counted_at,
+       head_count,
+       source_system,
+       source_ref,
+       source_hash,
+       discrepancy_state,
+       idempotency_key,
+       request_fingerprint,
+       COALESCE(recorded_by::text, '')
+FROM count_base_anchors
+WHERE tenant_id = $1::uuid
+  AND anchor_state = 'adopted'
+  AND discrepancy_state <> 'resolved'
+  AND counted_at <= $2
+  AND (nullif($3::text, '')::uuid IS NULL OR park_id = nullif($3::text, '')::uuid)
+  AND (nullif($4::text, '')::uuid IS NULL OR shed_id = nullif($4::text, '')::uuid)
+  AND ($5::timestamptz IS NULL OR counted_at > $5::timestamptz)
+  AND (
+    $6::timestamptz IS NULL
+    OR nullif($7::text, '')::uuid IS NULL
+    OR (counted_at, base_count_anchor_id) > ($6::timestamptz, nullif($7::text, '')::uuid)
+  )
+ORDER BY counted_at ASC, base_count_anchor_id ASC
+LIMIT $8
+FOR UPDATE SKIP LOCKED`,
+		req.TenantID, req.CountedBefore, ptrValue(req.ParkID), ptrValue(req.ShedID),
+		nullableTime(req.CountedAfter), nullableTime(req.CursorCountedAt), ptrValue(req.CursorAnchorID),
+		req.Limit+1)
+	if err != nil {
+		return nil, false, fmt.Errorf("counts: query count mismatch scan anchors: %w", err)
+	}
+	defer rows.Close()
+	out := []countMismatchScanAnchor{}
+	for rows.Next() {
+		var anchor countMismatchScanAnchor
+		var breedID, recordedBy string
+		if err := rows.Scan(&anchor.ID, &anchor.ParkID, &anchor.ShedID, &breedID, &anchor.BreedKey,
+			&anchor.BreedLabel, &anchor.CountedAt, &anchor.HeadCount, &anchor.SourceSystem,
+			&anchor.SourceRef, &anchor.SourceHash, &anchor.DiscrepancyState, &anchor.IdempotencyKey,
+			&anchor.RequestFingerprint, &recordedBy); err != nil {
+			return nil, false, fmt.Errorf("counts: scan count mismatch anchor: %w", err)
+		}
+		anchor.TenantID = req.TenantID
+		anchor.BreedID = ptrIfNotEmpty(breedID)
+		anchor.RecordedBy = ptrIfNotEmpty(recordedBy)
+		out = append(out, anchor)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	hasMore := int32(len(out)) > req.Limit
+	if hasMore {
+		out = out[:req.Limit]
+	}
+	return out, hasMore, nil
+}
+
+func createBaseCountMismatchException(ctx context.Context, tx pgx.Tx, tenantID, anchorID string, in domain.BaseCountAnchor) (bool, error) {
 	previous, found, err := loadPreviousBaseCountAnchor(ctx, tx, tenantID, anchorID, in)
 	if err != nil || !found {
-		return err
+		return false, err
 	}
 	netShift, err := appliedShiftNetForAnchorWindow(ctx, tx, tenantID, in, previous.CountedAt)
 	if err != nil {
-		return err
+		return false, err
 	}
 	expected := previous.HeadCount + netShift
 	if expected == in.HeadCount {
-		return nil
+		return false, nil
 	}
 	actualDelta := in.HeadCount - previous.HeadCount
 	unexplainedDelta := in.HeadCount - expected
@@ -915,7 +1023,7 @@ func createBaseCountMismatchException(ctx context.Context, tx pgx.Tx, tenantID, 
 		"discrepancy_state_after_record": "investigating",
 	})
 	if err != nil {
-		return fmt.Errorf("counts: build count mismatch evidence: %w", err)
+		return false, fmt.Errorf("counts: build count mismatch evidence: %w", err)
 	}
 	grainKey := countProjectionGrainKey(in.ShedID, in.BreedKey)
 	exception := domain.ProjectionException{
@@ -938,15 +1046,15 @@ func createBaseCountMismatchException(ctx context.Context, tx pgx.Tx, tenantID, 
 		exception.NextAction = "Review mismatch and create or confirm the missing ShiftingEvent"
 	}
 	if err := insertProjectionException(ctx, tx, tenantID, "", exception); err != nil {
-		return err
+		return false, err
 	}
 	if _, err := tx.Exec(ctx, `
 UPDATE count_base_anchors
 SET discrepancy_state = 'investigating', updated_at = now(), row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND base_count_anchor_id = $2::uuid`, tenantID, anchorID); err != nil {
-		return fmt.Errorf("counts: mark base count discrepancy investigating: %w", err)
+		return false, fmt.Errorf("counts: mark base count discrepancy investigating: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 func loadPreviousBaseCountAnchor(ctx context.Context, tx pgx.Tx, tenantID, anchorID string, in domain.BaseCountAnchor) (previousBaseCountAnchor, bool, error) {

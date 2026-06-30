@@ -123,6 +123,30 @@ type ProjectionRecomputeResult struct {
 	ExceptionCount   int
 }
 
+type CountMismatchScanRequest struct {
+	TenantID        string
+	ParkID          *string
+	ShedID          *string
+	CountedAfter    *time.Time
+	CountedBefore   time.Time
+	CursorCountedAt *time.Time
+	CursorAnchorID  *string
+	Limit           int32
+}
+
+type CountMismatchScanResult struct {
+	TenantID                 string
+	ScannedAnchorCount       int32
+	ExceptionWriteCount      int32
+	InvestigatingAnchorCount int32
+	NextCursor               *CountMismatchScanCursor
+}
+
+type CountMismatchScanCursor struct {
+	CountedAt         time.Time
+	BaseCountAnchorID string
+}
+
 type ProjectionInputs struct {
 	Anchors   []ProjectionBaseAnchor
 	Movements []ProjectionMovementImpact

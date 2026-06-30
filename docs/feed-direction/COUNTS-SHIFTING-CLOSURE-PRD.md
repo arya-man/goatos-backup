@@ -80,7 +80,7 @@ GoatOS schedules unless explicitly approved against that docx.
 | CSG3 | Structured impacts | Each event carries structured cohort/stage impact; missing or ambiguous impact fails closed into exception work |
 | CSG4 | Horizon split | `count_as_of(time)` and `projected_count_for(target_date)` have separate rules for realized truth vs one-day authorized future-effective projection |
 | CSG5 | Base Count adoption | A new physical Base Count becomes the next anchor immediately; discrepancy investigation does not block adoption |
-| CSG6 | Unreported-shifting detection | Count mismatch or unexpected delta creates auditable process-exception work with reviewed resolve/dismiss closure, not silent correction |
+| CSG6 | Unreported-shifting detection | Count mismatch or unexpected delta creates auditable process-exception work with reviewed resolve/dismiss closure, not silent correction. This includes the live Base Count write hook and the bounded `counts-mismatch-scan` worker path for stale imported/historical anchors. |
 | CSG7 | Alias normalization | Breed and stage aliases such as SIROHI->Beetal and Warmup/Fattening variants are reviewed before projection output |
 | CSG8 | Idempotency and replay | Event ingestion, projection recompute, and source replay cannot double-apply movements |
 | CSG9 | Projection API | Feed can consume bounded projection rows with source hash, anchor id, included-event hash, exception count, contract version, and ration-context resolution state |
@@ -106,8 +106,9 @@ Counts/Shifting closure is complete when:
    conflicts surface as owner-visible exception work that can be reviewed,
    resolved, or dismissed with actor, reason, optional source reference, and
    idempotent replay protection.
-4. Source evidence and fixture rows can be compared to canonical projections
-   without becoming runtime truth.
+4. Source evidence, imported anchors, and fixture rows can be compared to
+   canonical projections without becoming runtime truth; stale imported
+   mismatches are surfaced by the bounded `counts-mismatch-scan` worker path.
 5. SQL plan and synthetic-scale checks prove no full-herd or unbounded count
    scan is required for Feed generation.
 6. `GET /feed-direction/readiness` can expose `CSG1`-`CSG10` breakdown under

@@ -25,6 +25,7 @@ var (
 	ErrMissingImpact           = errors.New("counts: shifting event requires structured impact")
 	ErrInvalidResolutionAction = errors.New("counts: invalid projection exception resolution action")
 	ErrInvalidExceptionFilter  = errors.New("counts: invalid projection exception filter")
+	ErrInvalidScanWindow       = errors.New("counts: invalid mismatch scan window")
 )
 
 const (
@@ -32,6 +33,8 @@ const (
 	maxProjectionLimit              = int32(500)
 	defaultProjectionExceptionLimit = int32(50)
 	maxProjectionExceptionLimit     = int32(200)
+	defaultCountMismatchScanLimit   = int32(100)
+	maxCountMismatchScanLimit       = int32(500)
 )
 
 type Service struct {
@@ -89,6 +92,14 @@ func (s *Service) RecordShiftingEvent(ctx context.Context, in domain.ShiftingEve
 		}
 	}
 	return s.repo.RecordShiftingEvent(ctx, in)
+}
+
+func (s *Service) ScanCountMismatches(ctx context.Context, req domain.CountMismatchScanRequest) (domain.CountMismatchScanResult, error) {
+	req, err := normalizeCountMismatchScanRequest(req)
+	if err != nil {
+		return domain.CountMismatchScanResult{}, err
+	}
+	return s.repo.ScanCountMismatches(ctx, req)
 }
 
 func (s *Service) CreateProjectionSnapshot(ctx context.Context, in domain.ProjectionSnapshot) (string, error) {
@@ -238,6 +249,45 @@ func normalizeRecomputeRequest(req domain.ProjectionRecomputeRequest) (domain.Pr
 		}
 	}
 	req.TargetDate = dateOnly(req.TargetDate)
+	return req, nil
+}
+
+func normalizeCountMismatchScanRequest(req domain.CountMismatchScanRequest) (domain.CountMismatchScanRequest, error) {
+	req.TenantID = strings.TrimSpace(req.TenantID)
+	req.ParkID = trimOptional(req.ParkID)
+	req.ShedID = trimOptional(req.ShedID)
+	if req.TenantID == "" || req.CountedBefore.IsZero() {
+		return domain.CountMismatchScanRequest{}, ErrMissingRequiredField
+	}
+	req.CountedBefore = req.CountedBefore.UTC()
+	if req.CountedAfter != nil {
+		countedAfter := req.CountedAfter.UTC()
+		req.CountedAfter = &countedAfter
+		if !countedAfter.Before(req.CountedBefore) {
+			return domain.CountMismatchScanRequest{}, ErrInvalidScanWindow
+		}
+	}
+	if (req.CursorCountedAt == nil) != (req.CursorAnchorID == nil) {
+		return domain.CountMismatchScanRequest{}, ErrMissingRequiredField
+	}
+	if req.CursorCountedAt != nil {
+		cursorCountedAt := req.CursorCountedAt.UTC()
+		cursorAnchorID := strings.TrimSpace(*req.CursorAnchorID)
+		if cursorAnchorID == "" {
+			return domain.CountMismatchScanRequest{}, ErrMissingRequiredField
+		}
+		if cursorCountedAt.After(req.CountedBefore) {
+			return domain.CountMismatchScanRequest{}, ErrInvalidScanWindow
+		}
+		req.CursorCountedAt = &cursorCountedAt
+		req.CursorAnchorID = &cursorAnchorID
+	}
+	if req.Limit == 0 {
+		req.Limit = defaultCountMismatchScanLimit
+	}
+	if req.Limit < 0 || req.Limit > maxCountMismatchScanLimit {
+		return domain.CountMismatchScanRequest{}, ErrInvalidLimit
+	}
 	return req, nil
 }
 

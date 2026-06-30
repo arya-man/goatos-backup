@@ -124,12 +124,13 @@ language.
 1. `G2` Counts/Shifting projection closure, including Base Count anchor,
    ShiftingEvent ledger, horizon split, fail-closed exceptions with bounded
    list/read queue, transactional outbox fanout, reviewed resolve/dismiss audit,
-   idempotency, observability, aggregate breed-level count output, reviewed
-   ration-context resolution state for each shed + breed projection row, and
-   `GET /feed-direction/readiness` subgate roll-up. Breed/tag constraint tables
-   without shed placement must block until reviewed context resolves the
-   nutrition cohort. RFID-to-shed per-animal association is out of scope for the
-   initial Feed Direction build.
+   idempotency, stale/imported mismatch scanning through the bounded
+   `counts-mismatch-scan` worker path, observability, aggregate breed-level
+   count output, reviewed ration-context resolution state for each shed + breed
+   projection row, and `GET /feed-direction/readiness` subgate roll-up.
+   Breed/tag constraint tables without shed placement must block until reviewed
+   context resolves the nutrition cohort. RFID-to-shed per-animal association
+   is out of scope for the initial Feed Direction build.
 2. `G3` clock and legacy trigger inventory sign-off: confirm the docx-owned
    default clocks first (`09:00`, `13:30`, `13:30-13:45`, `15:00`, and
    next-day default serving slots `09:00`/`15:00`). `G5` owns any approved
