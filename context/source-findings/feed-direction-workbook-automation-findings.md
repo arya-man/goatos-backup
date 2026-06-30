@@ -48,6 +48,15 @@ reference-data review, not through feed code:
   aggregate shed + breed, with reviewed ration-context resolution attached or
   blocked. RFID-to-shed per-animal derivation remains future scope.
 
+Sanitized alias extraction from the Counting DB, Feed Directions Automation
+workbook, and Sheds DB evidence produced
+`backend/testdata/counts/source-workbook-required-aliases.json`: 121 required
+aliases across `breed`, `stage_tag`, `age_class`, and `sex`. This fixture
+intentionally includes dirty source variants such as `Pregant`, `Bukcs`,
+`Anathapur Sheep`, F1/F2 weight-band labels, warm-up variants, ICU variants, and
+male/female labels so `counts-alias-coverage-check` can force owner-reviewed
+retain/merge/retire decisions before Feed consumes projection rows.
+
 The Feed Directions Automation workbook is a sheet implementation of feed
 planning and execution, not a clean domain model:
 

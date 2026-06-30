@@ -148,8 +148,9 @@ language.
    recompute path,
    stale/imported mismatch scanning through the bounded `counts-mismatch-scan`
    worker path with durable scan-run evidence, dedicated mismatch-scan anchor
-   indexes, `counts-alias-coverage-check` proof for source-required Sheds DB
-   profile-tag aliases, `counts-source-parity-check` proof for sanitized
+   indexes, `counts-alias-coverage-check` proof for source/workbook-required
+   Counting DB, Feed Automation workbook, and Sheds DB aliases,
+   `counts-source-parity-check` proof for sanitized
    workbook/source parity fixtures that compare shed, breed, stage/tag,
    age class, sex, headcount, pregnant/lactating/warm-up counts, and
    ration-context resolution state, `counts-query-plan-check` index-path proof
@@ -185,8 +186,10 @@ language.
    fixture breadth, and workbook-column mapping remain source-review work;
    workbook formulas or examples must not bypass typed validation/import.
    Typed import run evidence, projection recompute run/replay evidence, alias
-   coverage evidence, and query-plan evidence may move subgates from blocked to
-   pending, but they cannot turn `G2` green without full source workbook parity,
+   coverage evidence, including the 121-alias sanitized
+   `source-workbook-required-aliases.json` manifest, and query-plan evidence may
+   move subgates from blocked to pending, but they cannot turn `G2` green
+   without full source workbook parity,
    full observability, owner-approved alias review, and seeded local E2E.
    Breed/tag constraint tables without shed placement must block until reviewed
    context resolves the nutrition cohort. RFID-to-shed per-animal association

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -29,6 +30,35 @@ func TestParseRequiredAliasesNormalizesAndSorts(t *testing.T) {
 	}
 	if got.RequiredAliases[1].SourceSystem != "sheds_db" || got.RequiredAliases[1].SourceValue != "Warmup" {
 		t.Fatalf("second alias=%+v", got.RequiredAliases[1])
+	}
+}
+
+func TestParseSourceWorkbookRequiredAliasesFixture(t *testing.T) {
+	f, err := os.Open("../../testdata/counts/source-workbook-required-aliases.json")
+	if err != nil {
+		t.Fatalf("open source workbook aliases fixture: %v", err)
+	}
+	defer f.Close()
+	got, err := parseRequiredAliases(f)
+	if err != nil {
+		t.Fatalf("parseRequiredAliases fixture: %v", err)
+	}
+	if !strings.Contains(got.SourceRef, "feed-direction-workbook-automation-findings.md") {
+		t.Fatalf("source_ref=%q, want workbook source finding", got.SourceRef)
+	}
+	if len(got.RequiredAliases) != 121 {
+		t.Fatalf("required aliases=%d, want 121", len(got.RequiredAliases))
+	}
+	for _, want := range []requiredAlias{
+		{Dimension: "stage_tag", SourceSystem: "counting_db", SourceValue: "Pregant"},
+		{Dimension: "breed", SourceSystem: "feed_automation_workbook", SourceValue: "Anathapur Sheep"},
+		{Dimension: "stage_tag", SourceSystem: "feed_automation_workbook", SourceValue: "F2(30kg +)"},
+		{Dimension: "sex", SourceSystem: "counting_db", SourceValue: "Female"},
+		{Dimension: "sex", SourceSystem: "counting_db", SourceValue: "Male"},
+	} {
+		if !hasRequiredAlias(got.RequiredAliases, want) {
+			t.Fatalf("fixture missing %+v", want)
+		}
 	}
 }
 
@@ -150,6 +180,17 @@ func TestUpsertCSG7ReadinessWritesCommandEvidence(t *testing.T) {
 	if db.args[3] != "still pending" {
 		t.Fatalf("blocker arg=%v", db.args[3])
 	}
+}
+
+func hasRequiredAlias(required []requiredAlias, want requiredAlias) bool {
+	for _, got := range required {
+		if got.Dimension == want.Dimension &&
+			got.SourceSystem == want.SourceSystem &&
+			got.SourceValue == want.SourceValue {
+			return true
+		}
+	}
+	return false
 }
 
 type fakeAliasDB struct {

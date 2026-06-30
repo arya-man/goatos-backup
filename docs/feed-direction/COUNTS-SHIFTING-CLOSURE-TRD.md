@@ -157,11 +157,16 @@ Implementation status as of 2026-06-30:
   because full source workbook parity, Sheds DB profile-tag coverage, and
   owner-approved alias review remain required.
 - `backend/cmd/counts-alias-coverage-check` checks a sanitized required-alias
-  file such as `backend/testdata/counts/sheds-db-required-profile-tags.json`
-  against approved `count_dimension_aliases` rows. Missing required aliases
-  make `CSG7` `blocked`; complete coverage makes `CSG7` `pending`, never
-  `ready`. This is how Sheds DB profile-tag coverage becomes executable
-  evidence without importing the raw workbook as runtime truth.
+  file such as `backend/testdata/counts/source-workbook-required-aliases.json`
+  or `backend/testdata/counts/sheds-db-required-profile-tags.json` against
+  approved `count_dimension_aliases` rows. The source-workbook manifest covers
+  121 sanitized Counting DB, Feed Automation workbook, and Sheds DB aliases
+  across `breed`, `stage_tag`, `age_class`, and `sex`, including dirty spellings
+  such as `Pregant`, `Bukcs`, `Anathapur Sheep`, `F2(30kg +)`, warm-up
+  variants, ICU variants, and sex labels. Missing required aliases make `CSG7`
+  `blocked`; complete coverage makes `CSG7` `pending`, never `ready`. This is
+  how source workbook and Sheds DB alias coverage becomes executable evidence
+  without importing the raw workbook as runtime truth.
 - `backend/cmd/counts-source-parity-check` compares sanitized source parity
   fixtures, such as `backend/testdata/counts/source-parity-sample.json`, against
   the canonical `CountAsOf`/`ProjectedCountFor` read path. The fixture grain is
@@ -438,7 +443,7 @@ Required paths:
 | Shifting event ingest | API/import/outbox | Upsert event and impacts, emit idempotent `counts.shifting_event.recorded` outbox event, record `count_source_import_runs` batch evidence, audit, invalidate projections |
 | Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or the registered `countsapp.ProjectionInputHandler` consumer for tenant + park + as-of + target-date bounded horizons; write snapshot or exception; record `count_projection_recompute_runs` status, counts, timing, trace, and `CSG10` evidence |
 | Count mismatch scan | Base Count adoption plus `counts-mismatch-scan` scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. The bounded worker command pages through stale historical/imported anchors with tenant/window/limit/cursor guards, writes the same exception work, records `count_mismatch_scan_runs`, and updates `CSG6`/`CSG10` readiness evidence. The anchor page now has dedicated mismatch-scan indexes and query-plan coverage. |
-| Alias coverage proof | `counts-alias-coverage-check` | Check source-required aliases such as Sheds DB profile tags against approved `count_dimension_aliases`; update `CSG7` readiness evidence without turning it ready. |
+| Alias coverage proof | `counts-alias-coverage-check` | Check source-required aliases such as the 121-alias Counting DB / Feed Automation / Sheds DB manifest and Sheds DB profile tags against approved `count_dimension_aliases`; update `CSG7` readiness evidence without turning it ready. |
 | Location profile coverage proof | `location-profile-coverage-check` | Check reviewed Sheds DB profile fixtures against active Location aliases and capacity rows; update `CSG7` readiness evidence without turning it ready. |
 | Source parity proof | `counts-source-parity-check` | Compare sanitized source parity fixtures against canonical projection reads at shed/breed/stage-age-sex grain, including pregnant/lactating/warm-up counts and ration-context state; update `CSG10` readiness evidence without turning it ready. |
 | Query-plan proof | `counts-query-plan-check` | Prove expected Postgres index paths for Counts hot reads, including park/date-bounded movement windows and projection-row hot pages, then update `CSG10` readiness evidence; never use this alone as G2 completion proof. |
@@ -493,6 +498,10 @@ Non-negotiable tests:
   Count/Shifting rows, replays, failed rows, source reference, status, last
   error, `CSG8` replay evidence, and `CSG10` evidence without making G2 green by
   itself.
+- Source/workbook alias fixture parsing proves the required alias manifest
+  remains valid and includes high-risk source variants such as misspelled
+  pregnancy, F2 weight bands, sex labels, and workbook breed misspellings;
+  database coverage still requires owner-approved `count_dimension_aliases`.
 - Source parity checks compare high-risk source/workbook dimensions
   (`shed`, `breed`, `stage_tag`, `age_class`, `sex`,
   `pregnant_count`, `lactating_count`, `warmup_count`) against canonical
