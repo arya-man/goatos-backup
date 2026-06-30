@@ -151,6 +151,8 @@ language.
    indexes, `counts-alias-coverage-check` proof for source/workbook-required
    Counting DB, Feed Automation workbook, and Sheds DB aliases,
    `counts-workbook-mapping-check` proof for the sanitized workbook column map,
+   `counts-workbook-source-scan` proof that the real local XLSX files still
+   expose the mapped sheets and headers without importing private rows,
    `counts-source-parity-check` proof for sanitized
    workbook/source parity fixtures that compare shed, breed, stage/tag,
    age class, sex, headcount, pregnant/lactating/warm-up counts, and
@@ -185,17 +187,22 @@ language.
    ShiftingEvent movement reads use park/date-bounded source and destination
    indexes, projection rows carry the snapshot park/date filters needed for the
    hot read index, and `CSG10` query-plan evidence stays pending, not ready.
-   `counts-workbook-mapping-check` now validates a sanitized 116-column mapping
+   `counts-workbook-mapping-check` now validates a sanitized 117-column mapping
    across 16 source-role groups for Counting DB, Feed Automation workbook, and
    Sheds DB evidence, and writes `CSG10` mapping evidence as pending, not ready.
+   `counts-workbook-source-scan` now validates the actual local Counting DB,
+   Feed Directions Automation DB, and Sheds DB XLSX files for 117 required
+   headers across 14 sheets / 3 workbooks, including the Template sheet's
+   `CBE`/`CPT` section-header shape, and writes `CSG10` source-scan evidence as
+   pending, not ready.
    The Counts projection read model now also exposes page-bounded
    `ShedBreedTotals` for the returned projection rows so Feed can inspect
    aggregate shed + breed counts without losing stage/age/sex and
    pregnant/lactating/warm-up detail rows; full no-cursor parity and seeded E2E
    still remain before `G2` is green.
-   Raw Counting DB / Feed Directions Automation XLSX parsing, full parity
-   fixture breadth, and owner-approved mapping review remain source-review work;
-   workbook formulas or examples must not bypass typed validation/import.
+   Full row parsing/import, full parity fixture breadth, and owner-approved
+   mapping review remain source-review work; workbook formulas or examples must
+   not bypass typed validation/import.
    Typed import run evidence, projection recompute run/replay evidence, alias
    coverage evidence, including the 121-alias sanitized
    `source-workbook-required-aliases.json` manifest, and query-plan evidence may

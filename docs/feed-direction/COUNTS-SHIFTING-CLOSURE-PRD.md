@@ -145,7 +145,7 @@ GoatOS schedules unless explicitly approved against that docx.
 | CSG7 | Alias normalization | Breed, stage, shed-tag, age-class, and sex aliases from Counting DB, Feed Automation workbook, and Sheds DB are reviewed before Feed consumes projection output. The sanitized fixture `backend/testdata/counts/source-workbook-required-aliases.json` captures 121 required aliases, including SIROHI->Beetal-style breed review, Warmup/Fattening variants, pregnancy/lactation/mother/kid labels, sex labels, and dirty workbook spellings. Projection snapshots may move `CSG7` to `blocked` when `alias_conflict` exceptions exist, or `pending` when a non-empty snapshot has no alias conflicts; `ready` still requires source workbook parity, Sheds DB profile-tag coverage, and owner-approved alias review. |
 | CSG8 | Idempotency and replay | Event ingestion, projection recompute, and source replay cannot double-apply movements |
 | CSG9 | Projection API | Feed can consume bounded projection rows with source hash, anchor id, included-event hash, exception count, contract version, and ration-context resolution state |
-| CSG10 | Scale and observability proof | Hot reads and projection queries are bounded by tenant, park, date, shed, breed, ration-context resolution state where materialized, and cursor where applicable; import, ingest, projection, retry, DLQ, exception, and query-plan metrics exist. `counts-workbook-mapping-check` validates the sanitized 116-column workbook/source map before parity work can rely on those columns. `counts-query-plan-check` proves index paths for Counts hot reads, including migrated synthetic Feed-target movement rows through park/date source and destination indexes plus projection-row hot reads with snapshot park/date filters, while `count_source_import_runs` and `count_projection_recompute_runs` provide typed import and recompute worker evidence. CSG10 remains pending until source parity, observability breadth, production-scale/load evidence, and seeded E2E are proven. |
+| CSG10 | Scale and observability proof | Hot reads and projection queries are bounded by tenant, park, date, shed, breed, ration-context resolution state where materialized, and cursor where applicable; import, ingest, projection, retry, DLQ, exception, and query-plan metrics exist. `counts-workbook-mapping-check` validates the sanitized 117-column workbook/source map before parity work can rely on those columns, and `counts-workbook-source-scan` validates that the real local XLSX files expose those mapped sheets/headers without importing private rows. `counts-query-plan-check` proves index paths for Counts hot reads, including migrated synthetic Feed-target movement rows through park/date source and destination indexes plus projection-row hot reads with snapshot park/date filters, while `count_source_import_runs` and `count_projection_recompute_runs` provide typed import and recompute worker evidence. CSG10 remains pending until source parity, observability breadth, production-scale/load evidence, and seeded E2E are proven. |
 
 `CSG1`-`CSG10` roll up into Feed gate `G2`. The Feed readiness endpoint must
 show the Counts/Shifting subgate statuses, owners, evidence pointers, and blocker
@@ -167,6 +167,10 @@ but never `ready`. The `counts-workbook-mapping-check` worker validates the
 sanitized workbook column map, including count source, feed output, feed-vector,
 supply planning, proof, transport, consumption/wastage, and Sheds DB profile
 role groups, and can move `CSG10` to `blocked` or `pending`, but never `ready`.
+The `counts-workbook-source-scan` worker checks local XLSX workbook structure
+against the same sanitized map, including the Template sheet's `CBE`/`CPT`
+section-header farm/park shape, and can move `CSG10` to `blocked` or `pending`,
+but never `ready`; it does not import raw rows or approve formulas.
 The `counts-source-parity-check` worker compares sanitized
 source parity fixtures against canonical projection reads, including
 shed/breed/stage, age class, sex, headcount, pregnant/lactating/warm-up counts,
@@ -203,9 +207,9 @@ Counts/Shifting closure is complete when:
    `counts-source-import` command covers typed Base Count/Shifting JSONL rows
    and records `count_source_import_runs` evidence; recompute paths record
    `count_projection_recompute_runs` evidence; the sanitized workbook column
-   map has checker coverage, while raw XLSX parsing, owner-approved mapping
-   review, Sheds DB typed profile fixtures, and full parity fixtures remain
-   review work.
+   map has checker coverage and real local XLSX sheet/header scan proof, while
+   full row parsing/import, owner-approved mapping review, Sheds DB typed
+   profile fixtures, and full parity fixtures remain review work.
    Stale imported mismatches are surfaced by the bounded
    `counts-mismatch-scan` worker path.
 5. SQL plan and synthetic-scale checks prove no full-herd or unbounded count

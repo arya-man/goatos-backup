@@ -58,7 +58,7 @@ male/female labels so `counts-alias-coverage-check` can force owner-reviewed
 retain/merge/retire decisions before Feed consumes projection rows.
 
 Sanitized column mapping extraction produced
-`backend/testdata/counts/source-workbook-column-map.json`: 116 mapped columns
+`backend/testdata/counts/source-workbook-column-map.json`: 117 mapped columns
 across 16 source-role groups for count source tabs, future/projected count
 candidate tabs, Feed Direction output rows, validation/feed-vector tables,
 supply planning tables, session template rows, packing proof, transport proof,
@@ -67,6 +67,15 @@ consumption/wastage proof, and Sheds DB profile evidence. The companion
 group has the required canonical fields before `CSG10` can move even to
 pending. This is mapping coverage evidence only; it does not import raw
 workbook rows or approve formulas as runtime truth.
+
+The companion `backend/cmd/counts-workbook-source-scan` command checks the
+actual local XLSX files for sheet/header structure only. Current evidence covers
+the Counting DB, Feed Directions Automation DB, and Sheds DB workbooks with 117
+required headers across 14 sheets / 3 workbooks. The Feed Automation `Template`
+sheet represents farm/park context as `CBE` and `CPT` section headers, not as a
+literal `Farm` column. The scan intentionally imports no private rows, formulas,
+media links, Slack refs, or workbook values; it is structure proof for parity
+work, not runtime truth.
 
 The Feed Directions Automation workbook is a sheet implementation of feed
 planning and execution, not a clean domain model:
@@ -157,6 +166,9 @@ status, row counts, exception counts, snapshot reference, trace, and failure
 evidence for the same `G2` closure lane. Neither path is a raw workbook parser,
 and neither promotes workbook ratios, feed vector examples, breed/tag shortcuts,
 or formula outputs into Feed Direction runtime truth.
+`counts-workbook-source-scan` is the limited exception that opens raw XLSX files,
+but only to validate workbook/sheet/header presence against the sanitized map;
+it still does not import rows, calculate formulas, or approve source values.
 `backend/testdata/counts/source-parity-high-risk-sample.json` is the executable
 sanitized parity sample for pregnancy/lactation/warm-up breadth: pregnant late
 gestation, lactating/mother, pregnant warm-up, fattening male warm-up, and

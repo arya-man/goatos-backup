@@ -169,12 +169,20 @@ Implementation status as of 2026-06-30:
   without importing the raw workbook as runtime truth.
 - `backend/cmd/counts-workbook-mapping-check` checks a sanitized column-mapping
   file such as `backend/testdata/counts/source-workbook-column-map.json`. The
-  fixture maps 116 workbook columns across 16 source-role groups for count
+  fixture maps 117 workbook columns across 16 source-role groups for count
   source tabs, future/projected count candidates, Feed Direction output,
   validation/feed-vector tables, supply planning, session template, packing
   proof, transport proof, consumption/wastage proof, and Sheds DB profile
   evidence. Missing required canonical fields make `CSG10` `blocked`; complete
   mapping coverage makes `CSG10` `pending`, never `ready`.
+- `backend/cmd/counts-workbook-source-scan` opens the actual local XLSX files
+  and validates sheet/header structure against that sanitized map. Its current
+  proof covers the Counting DB, Feed Directions Automation DB, and Sheds DB
+  workbooks with 117 required headers across 14 sheets / 3 workbooks, including
+  the Feed Automation `Template` sheet's `CBE`/`CPT` section-header shape for
+  farm/park context. It imports no raw rows, formulas, media links, Slack refs,
+  or private values. Missing files, sheets, or headers make `CSG10` `blocked`;
+  complete source-structure coverage makes `CSG10` `pending`, never `ready`.
 - `backend/cmd/counts-source-parity-check` compares sanitized source parity
   fixtures, such as `backend/testdata/counts/source-parity-sample.json` and
   `backend/testdata/counts/source-parity-high-risk-sample.json`, against the
@@ -309,8 +317,8 @@ Implementation status as of 2026-06-30:
   production-scale/load evidence, and seeded local E2E also exist.
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
-- This does **not** close `G2`: raw XLSX parsing, full row parity fixtures,
-  owner-approved workbook mapping review, Sheds DB owner-approved coverage/admin
+- This does **not** close `G2`: full row parsing/import, full row parity
+  fixtures, owner-approved workbook mapping review, Sheds DB owner-approved coverage/admin
   review and seeded publish evidence,
   Shifting/Count source-adapter hardening beyond typed JSONL, production
   scheduling/metrics for the mismatch scan, assignment policy, polished
@@ -461,7 +469,8 @@ Required paths:
 | Count mismatch scan | Base Count adoption plus `counts-mismatch-scan` scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. The bounded worker command pages through stale historical/imported anchors with tenant/window/limit/cursor guards, writes the same exception work, records `count_mismatch_scan_runs`, and updates `CSG6`/`CSG10` readiness evidence. The anchor page now has dedicated mismatch-scan indexes and query-plan coverage. |
 | Alias coverage proof | `counts-alias-coverage-check` | Check source-required aliases such as the 121-alias Counting DB / Feed Automation / Sheds DB manifest and Sheds DB profile tags against approved `count_dimension_aliases`; update `CSG7` readiness evidence without turning it ready. |
 | Location profile coverage proof | `location-profile-coverage-check` | Check reviewed Sheds DB profile fixtures against active Location aliases and capacity rows; update `CSG7` readiness evidence without turning it ready. |
-| Workbook mapping proof | `counts-workbook-mapping-check` | Validate the sanitized 116-column workbook/source map across count, feed-output, feed-vector, supply-planning, proof, transport, consumption/wastage, and Sheds DB profile role groups; update `CSG10` readiness evidence without turning it ready. |
+| Workbook mapping proof | `counts-workbook-mapping-check` | Validate the sanitized 117-column workbook/source map across count, feed-output, feed-vector, supply-planning, proof, transport, consumption/wastage, session template, and Sheds DB profile role groups; update `CSG10` readiness evidence without turning it ready. |
+| Workbook source scan proof | `counts-workbook-source-scan` | Validate real local XLSX workbook sheet/header structure for the mapped Counting DB, Feed Directions Automation DB, and Sheds DB evidence, without importing raw rows or approving formulas; update `CSG10` readiness evidence without turning it ready. |
 | Source parity proof | `counts-source-parity-check` | Compare sanitized source parity fixtures against canonical projection reads at shed/breed/stage-age-sex grain, including pregnant/lactating/warm-up counts and ration-context state; update `CSG10` readiness evidence without turning it ready. |
 | Query-plan proof | `counts-query-plan-check` | Prove expected Postgres index paths for Counts hot reads, including park/date-bounded movement windows and projection-row hot pages, then update `CSG10` readiness evidence; never use this alone as G2 completion proof. |
 | Exception fanout/read model | Projection exception open/update/close plus process-integrity query | Emit `counts.projection_exception.*` outbox events and project `category=feed_direction` exception rows into top-level Action Center/Workflows; assignment policy, frontend UX, and broader Calendar/Protocol Adherence/Control Tower mapping remain separate closure work. |
@@ -524,6 +533,10 @@ Non-negotiable tests:
   fields exist for each workbook role group before parity work relies on those
   columns; database/import parity still requires reviewed row mappings and
   seeded local E2E.
+- Source workbook sheet/header scanning proves the local XLSX files still expose
+  the mapped workbook structure, including the `Template` tab's `CBE`/`CPT`
+  section headers; it does not prove row parity, formula validity, owner
+  approval, or Feed generation readiness.
 - Source parity checks compare high-risk source/workbook dimensions
   (`shed`, `breed`, `stage_tag`, `age_class`, `sex`,
   `pregnant_count`, `lactating_count`, `warmup_count`) against canonical
