@@ -441,7 +441,7 @@ function shedEventId(row: VaccinationExecutionRow): string {
 
 function ShedEventDrawer({ row, scope, closeHref, pageContract }: { row: VaccinationExecutionRow; scope: ReturnType<typeof parseScope>; closeHref: string; pageContract: AdminUiPageContract }) {
   const driveLabel = executionDriveLabel(row);
-  const detailHref = `/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`;
+  const detailHref = scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`, scope, { mode: "park", park: row.parkId });
   const actionCenterHref = scopeHref("/action-center", scope, {}, { state: row.workState });
   return (
     <>
@@ -487,14 +487,7 @@ function ShedEventDrawer({ row, scope, closeHref, pageContract }: { row: Vaccina
           </div>
           <VaccinationRecordFormFields cohortShed={`${row.animalStage} · ${row.shedName}`} vaccineName={driveLabel} pageContract={pageContract} />
           <div style={{ marginTop: 16 }}>
-            <ShedEventActions
-              obligationId={row.obligationId}
-              sopTaskId={row.sopTaskId}
-              sopVersionId={row.sopVersionId}
-              sopTaskRowVersion={row.sopTaskRowVersion}
-              completionId={row.completionId}
-              pageContract={pageContract}
-            />
+            <ShedEventActions pageContract={pageContract} />
           </div>
         </div>
         <div className="df">

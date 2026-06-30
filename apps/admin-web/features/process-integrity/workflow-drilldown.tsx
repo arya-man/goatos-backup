@@ -115,7 +115,7 @@ export async function VaccinationWorkflowDrilldownPage({
 	            {copy(pageContract, "action.goat_passport")} →
           </Link>
         ) : null}
-        <Link href={scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(row.shed_id)}`, scope)} className="lk small">
+        <Link href={scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(row.shed_id)}`, scope, { mode: "park", park: row.park_id })} className="lk small">
 	          {copy(pageContract, "action.shed_execution")} →
         </Link>
         <Link href={scopeHref("/action-center", scope, {}, { ac_row: row.row_id })} className="lk small">

@@ -352,7 +352,7 @@ export async function VaccinationWorkflowsPage({
               {activeWorkflow ? (
                 <div className="row" style={{ marginTop: 14, gap: 10 }}>
                   <Link href={actionCenterHref} scroll={false} className="btn p">
-                    {activeWorkflow.next_action}
+                    {copy(pageContract, "action.open_action_center")}
                     <ArrowRight className="ic" style={{ width: 14 }} aria-hidden="true" />
                   </Link>
 	                  <Link href={scopeHref(`/workflows/${encodeURIComponent(activeWorkflow.row_id)}`, scope)} className="btn">

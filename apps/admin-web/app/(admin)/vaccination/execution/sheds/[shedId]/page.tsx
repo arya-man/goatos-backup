@@ -14,6 +14,7 @@ export default async function Page({
 }) {
   const { shedId } = await params;
   const sp = (await searchParams) ?? {};
-  const { asOf } = backendScope(parseScope(sp));
-  return <ShedExecutionDetailPage shedId={shedId} asOf={asOf} pageContract={await requireAdminWebPageContract("shed-execution")} />;
+  const scope = parseScope(sp);
+  const { asOf } = backendScope(scope);
+  return <ShedExecutionDetailPage shedId={shedId} scope={scope} asOf={asOf} pageContract={await requireAdminWebPageContract("shed-execution")} />;
 }

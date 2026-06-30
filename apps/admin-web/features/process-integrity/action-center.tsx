@@ -30,8 +30,7 @@ import { WorkBoard, actionWorkTitle } from "./work-board";
 import { Tag } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
 
-// Backend has no manual priority field — it is derived from computed severity. The drawer shows the
-// mock's High/Med/Low chips read-only (disabled-with-reason), reflecting severity, never editable.
+// Backend has no manual priority field — it is derived from computed severity.
 const PRIORITY_BY_SEVERITY: Record<ProcessIntegritySeverity, "high" | "med" | "low"> = {
   broken: "high",
   at_risk: "med",
@@ -74,6 +73,10 @@ function shortId(id: string): string {
   return id ? id.slice(0, 8) : "—";
 }
 
+function hasReviewHandle(taskId?: string, rowVersion?: number): boolean {
+  return Boolean(taskId) && Number(rowVersion ?? 0) > 0;
+}
+
 // ActionForm posts a per-row server action (Verify / Reject / Rework) against a real completion id.
 function ActionForm({
   action,
@@ -96,7 +99,7 @@ function ActionForm({
   primary?: boolean;
   children: React.ReactNode;
 }) {
-  const canReview = Boolean(taskId) && Number(rowVersion ?? 0) > 0;
+  const canReview = hasReviewHandle(taskId, rowVersion);
   return (
     <form action={action} style={{ display: "inline" }}>
       <input type="hidden" name="completion_id" value={completionId} />
@@ -291,33 +294,42 @@ export async function VaccinationActionCenterPage({
 	                      <th key={label}>{label}</th>
 	                    ))}
 	                  </tr>
-	                </thead>
+                </thead>
                 <tbody>
-                  {queuePaged.items.map((q) => (
-                    <tr key={q.completion_id}>
-                      <td>
-                        <span className="gid">{shortId(q.goat_id)}</span>
-                      </td>
-                      <td>{fmtDate(q.administered_at)}</td>
-                      <td>{q.doses}</td>
-                      <td>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          <ActionForm action={verifyCompletionAction} completionId={q.completion_id} taskId={q.sop_task_id} rowVersion={q.sop_task_row_version} returnTo={verifyReturnTo} disabledTitle={copy(pageContract, "reason.no_sop_review_handle")} primary>
-                            {copy(pageContract, "action.verify")}
-                          </ActionForm>
-                          <ActionForm action={rejectCompletionAction} completionId={q.completion_id} taskId={q.sop_task_id} rowVersion={q.sop_task_row_version} returnTo={verifyReturnTo} reason="rejected" disabledTitle={copy(pageContract, "reason.no_sop_review_handle")}>
-                            {copy(pageContract, "action.reject")}
-                          </ActionForm>
-                          <ActionForm action={rejectCompletionAction} completionId={q.completion_id} taskId={q.sop_task_id} rowVersion={q.sop_task_row_version} returnTo={verifyReturnTo} reason="rework_requested" disabledTitle={copy(pageContract, "reason.no_sop_review_handle")}>
-                            {copy(pageContract, "action.request_rework")}
-                          </ActionForm>
-	                          <Link href={`/goats/${q.goat_id}`} className="btn sm">
-	                            {copy(pageContract, "action.passport")}
-	                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {queuePaged.items.map((q) => {
+                    const canReview = hasReviewHandle(q.sop_task_id, q.sop_task_row_version);
+                    return (
+                      <tr key={q.completion_id}>
+                        <td>
+                          <span className="gid">{shortId(q.goat_id)}</span>
+                        </td>
+                        <td>{fmtDate(q.administered_at)}</td>
+                        <td>{q.doses}</td>
+                        <td>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            {canReview ? (
+                              <>
+                                <ActionForm action={verifyCompletionAction} completionId={q.completion_id} taskId={q.sop_task_id} rowVersion={q.sop_task_row_version} returnTo={verifyReturnTo} primary>
+                                  {copy(pageContract, "action.verify")}
+                                </ActionForm>
+                                <ActionForm action={rejectCompletionAction} completionId={q.completion_id} taskId={q.sop_task_id} rowVersion={q.sop_task_row_version} returnTo={verifyReturnTo} reason="rejected">
+                                  {copy(pageContract, "action.reject")}
+                                </ActionForm>
+                                <ActionForm action={rejectCompletionAction} completionId={q.completion_id} taskId={q.sop_task_id} rowVersion={q.sop_task_row_version} returnTo={verifyReturnTo} reason="rework_requested">
+                                  {copy(pageContract, "action.request_rework")}
+                                </ActionForm>
+                              </>
+                            ) : (
+                              <Tag tone="warn">{copy(pageContract, "reason.no_sop_review_handle")}</Tag>
+                            )}
+	                            <Link href={`/goats/${q.goat_id}`} className="btn sm">
+	                              {copy(pageContract, "action.passport")}
+	                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -432,8 +444,7 @@ export async function VaccinationActionCenterPage({
 	            </div>
 	          ) : null}
 
-          {/* Board shell — always the full work-state column set (mock taskboard), "—" where empty. */}
-	          <WorkBoard pageContract={pageContract} rows={boardPaged.items} showAllColumns drawerHrefForRow={(row) => hrefWith({ ac_row: row.row_id })} />
+          <WorkBoard pageContract={pageContract} rows={boardPaged.items} drawerHrefForRow={(row) => hrefWith({ ac_row: row.row_id })} />
           <VaccinationTablePager
             pageContract={pageContract}
             pageSizeOptions={boardPageSizeOptions}
@@ -493,7 +504,6 @@ function ActionCenterRowDrawer({
   const completionId = row.completion_id ?? "";
   const taskId = row.sop_task_id;
   const taskRowVersion = row.sop_task_row_version;
-  const fieldActionNote = copy(pageContract, "drawer.disabled_field_action");
   return (
     <>
       <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.work_item.close_label")} scroll={false} />
@@ -522,35 +532,22 @@ function ActionCenterRowDrawer({
             </div>
           </div>
 
-          {/* Owner chain + Due. Owner is assigned via the workflow record; due comes from the protocol schedule. */}
-          <div className="fld" style={{ display: "flex", gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <label>{copy(pageContract, "drawer.owner_chain_label")}</label>
-              {ownerMissing ? (
-                <div style={{ paddingTop: 4 }}>
-                  <Tag tone="dng">{copy(pageContract, "drawer.owner_missing")}</Tag>
-                </div>
-              ) : (
-                <select disabled title={copy(pageContract, "drawer.owner_chain_disabled")} defaultValue={ownerName}>
-                  <option>{ownerName}</option>
-                </select>
-              )}
+          <div className="metagrid" style={{ marginBottom: 14 }}>
+            <div>
+              <div className="k">{copy(pageContract, "drawer.owner_chain_label")}</div>
+              <div className="v">
+                {ownerMissing ? <Tag tone="dng">{copy(pageContract, "drawer.owner_missing")}</Tag> : ownerName}
+              </div>
             </div>
-            <div style={{ flex: 1 }}>
-              <label>{copy(pageContract, "drawer.due_label")}</label>
-              <input disabled title={copy(pageContract, "drawer.due_date_disabled")} defaultValue={fmtDate(row.due_at)} />
+            <div>
+              <div className="k">{copy(pageContract, "drawer.due_label")}</div>
+              <div className="v">{fmtDate(row.due_at)}</div>
             </div>
-          </div>
-
-          {/* Priority — derived from computed severity, shown read-only (disabled-with-reason). */}
-          <div className="fld">
-            <label>{copy(pageContract, "drawer.priority_label")}</label>
-            <div className="chipset" title={copy(pageContract, "drawer.priority_disabled")}>
-              {priorityOptions.map((p) => (
-                <span key={p.key} className={`chip${p.key === priority ? " on" : ""}`} aria-disabled="true">
-                  {p.label}
-                </span>
-              ))}
+            <div>
+              <div className="k">{copy(pageContract, "drawer.priority_label")}</div>
+              <div className="v">
+                <Tag tone={optionTone(priorityOptions, priority)}>{optionLabel(priorityOptions, priority)}</Tag>
+              </div>
             </div>
           </div>
 
@@ -624,39 +621,17 @@ function ActionCenterRowDrawer({
           </div>
         </div>
 
-        {/* Action row (mock #tdFoot). Verify / Request rework require a SOP review handle; un-backed
-            steps keep the mock look but are disabled-with-reason. */}
         <div className="df">
-          <button type="button" className="btn p" disabled aria-disabled="true" title={fieldActionNote}>
-            {row.next_action}
-          </button>
-          <button type="button" className="btn" disabled aria-disabled="true" title={fieldActionNote}>
-            {copy(pageContract, "action.start_sop")}
-          </button>
-          <button type="button" className="btn" disabled aria-disabled="true" title={fieldActionNote}>
-            {copy(pageContract, "action.submit_proof")}
-          </button>
-          {hasCompletion ? (
-            <ActionForm action={verifyCompletionAction} completionId={completionId} taskId={taskId} rowVersion={taskRowVersion} returnTo={returnTo} disabledTitle={copy(pageContract, "reason.no_sop_review_handle")}>
+          {hasCompletion && hasReviewHandle(taskId, taskRowVersion) ? (
+            <ActionForm action={verifyCompletionAction} completionId={completionId} taskId={taskId} rowVersion={taskRowVersion} returnTo={returnTo}>
               {copy(pageContract, "action.verify")}
             </ActionForm>
-          ) : (
-            <button type="button" className="btn" disabled aria-disabled="true" title={copy(pageContract, "reason.no_recorded_dose_verify")}>
-              {copy(pageContract, "action.verify")}
-            </button>
-          )}
-          {hasCompletion ? (
-            <ActionForm action={rejectCompletionAction} completionId={completionId} taskId={taskId} rowVersion={taskRowVersion} returnTo={returnTo} reason="rework_requested" disabledTitle={copy(pageContract, "reason.no_sop_review_handle")}>
+          ) : null}
+          {hasCompletion && hasReviewHandle(taskId, taskRowVersion) ? (
+            <ActionForm action={rejectCompletionAction} completionId={completionId} taskId={taskId} rowVersion={taskRowVersion} returnTo={returnTo} reason="rework_requested">
               {copy(pageContract, "action.request_rework")}
             </ActionForm>
-          ) : (
-            <button type="button" className="btn" disabled aria-disabled="true" title={copy(pageContract, "reason.no_recorded_dose_rework")}>
-              {copy(pageContract, "action.request_rework")}
-            </button>
-          )}
-          <button type="button" className="btn" disabled aria-disabled="true" title={fieldActionNote}>
-            {copy(pageContract, "action.escalate")}
-          </button>
+          ) : null}
           <Link href={workflowHref} className="btn">
             {copy(pageContract, "action.workflow_record")}
           </Link>

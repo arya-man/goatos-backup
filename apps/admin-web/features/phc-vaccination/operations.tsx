@@ -34,7 +34,7 @@ async function loadLinkedVaccinationSop(): Promise<LinkedSop> {
 }
 
 // PHC · Vaccination — the operations floor, ported to the mock's single stacked screen:
-//   header (SOP · Import sheet · New drive) → drive-mechanic band (Target → Group → Route → Execute)
+//   header (SOP · Protocol Rules) → drive-mechanic band (Target → Group → Route → Execute)
 //   → Vaccination status matrix → Per-cohort vaccination detail → shed-event execution section.
 // No KPI strip, no tab switch — it is one mock-shaped screen. Command lenses (Control Tower / Action
 // Center / Protocol Adherence / Workflows) stay top-level; this screen does not embed or shortcut them.
