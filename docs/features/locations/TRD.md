@@ -412,6 +412,9 @@ promotes them to active effective capacity.
 `backend/cmd/location-profile-source-import` is the typed JSONL import path for
 reviewed alias, capacity, and review-item rows. It does not parse raw workbooks
 or infer canonical locations from messy labels.
+`backend/cmd/location-profile-coverage-check` verifies reviewed profile fixtures
+against canonical active aliases and effective capacity rows, and reports
+missing aliases/capacity as G2 readiness blockers.
 
 All legacy-label dashboards use this same path. Mortality farm, housing, shed,
 and status-location labels must resolve through `location_aliases` with

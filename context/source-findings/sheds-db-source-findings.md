@@ -57,6 +57,11 @@ Reviewed Sheds DB extracts can now be fed into
 `location_alias`, `location_capacity`, or `location_review_item`. That command
 requires canonical `location_id` for publishable alias/capacity rows; unresolved
 labels must become review items instead of guessed locations.
+`backend/cmd/location-profile-coverage-check` verifies a reviewed profile
+coverage fixture such as
+`backend/testdata/locations/sheds-db-profile-coverage-sample.json` against
+canonical `location_aliases` and `location_capacity_records`, then writes G2
+`CSG7` evidence without making the gate ready.
 
 ## Base Rule
 

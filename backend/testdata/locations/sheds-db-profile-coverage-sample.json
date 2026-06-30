@@ -1,0 +1,23 @@
+{
+  "source_ref": "context/source-findings/sheds-db-source-findings.md",
+  "required_profiles": [
+    {
+      "location_id": "00000000-0000-4000-8000-000000000101",
+      "alias_code": "Gandhi 1 - Part 1",
+      "source_context": "sheds_db",
+      "capacity_kind": "goat_occupancy",
+      "capacity_value": 25,
+      "effective_from": "2026-06-30",
+      "source": "sheds_db"
+    },
+    {
+      "location_id": "00000000-0000-4000-8000-000000000102",
+      "alias_code": "Castro 1",
+      "source_context": "sheds_db",
+      "capacity_kind": "goat_occupancy",
+      "capacity_value": 50,
+      "effective_from": "2026-06-30",
+      "source": "sheds_db"
+    }
+  ]
+}

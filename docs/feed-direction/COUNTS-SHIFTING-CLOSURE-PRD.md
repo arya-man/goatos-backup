@@ -94,6 +94,9 @@ path for reviewed Location/Park profile evidence such as Sheds DB aliases,
 capacity rows, and unresolved-label review items. Publishable rows must already
 reference canonical `location_id`; otherwise the row stays review work instead
 of becoming Feed/Counts runtime truth.
+`backend/cmd/location-profile-coverage-check` verifies reviewed Sheds DB profile
+coverage fixtures against canonical Location aliases and capacity records, and
+can move `CSG7` to `blocked` or `pending`, never `ready`.
 
 For any Counts/Shifting behavior that affects Feed Direction timing, Diff,
 bridge handling, one-day projection, or physical count adoption,
@@ -128,6 +131,9 @@ keeps it `blocked`; a non-empty conflict-free snapshot can make it `pending`
 only. The `counts-alias-coverage-check` worker checks sanitized required alias
 fixtures, including Sheds DB profile tags, against approved
 `count_dimension_aliases` and can also move `CSG7` to `blocked` or `pending`
+but never `ready`. The `location-profile-coverage-check` worker checks reviewed
+Sheds DB profile fixtures against `location_aliases` and
+`location_capacity_records` and can also move `CSG7` to `blocked` or `pending`,
 but never `ready`. The `counts-source-parity-check` worker compares sanitized
 source parity fixtures against canonical projection reads and can move `CSG10`
 to `blocked` or `pending`, but never `ready`. Canonical replay and source-import
