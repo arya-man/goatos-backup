@@ -114,6 +114,7 @@ type ProjectionRecomputeRequest struct {
 }
 
 type ProjectionRecomputeResult struct {
+	RunID            string
 	SnapshotID       string
 	Horizon          string
 	TargetDate       time.Time

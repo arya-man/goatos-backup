@@ -86,6 +86,13 @@ Implementation status as of 2026-06-30:
 - `backend/cmd/counts-projection-recompute` provides the scheduler-facing
   one-shot worker entrypoint for tenant + park + as-of + target-date bounded
   recompute of `count_as_of`, `feed_target_date`, or both horizons.
+- `count_projection_recompute_runs` records every service-level recompute run
+  from the CLI worker or domain-event consumer with tenant, park, horizon,
+  target date, as-of time, status, projection status, snapshot reference, row
+  count, exception count, source contract, generated-by, trace id, timestamps,
+  and last error. Successful runs update `CSG10` readiness evidence to
+  `pending`; failed runs update it to `blocked`. This still does not make `G2`
+  green without source parity, observability breadth, and seeded local E2E.
 - New Base Count anchors and ShiftingEvents emit idempotent transactional
   outbox events (`counts.base_count_anchor.recorded` and
   `counts.shifting_event.recorded`) with tenant/park/shed visibility, giving the
@@ -333,7 +340,7 @@ Required paths:
 | --- | --- | --- |
 | Base Count import/record | API/import | Write anchor, emit idempotent `counts.base_count_anchor.recorded` outbox event, record `count_source_import_runs` batch evidence, audit, invalidate projections |
 | Shifting event ingest | API/import/outbox | Upsert event and impacts, emit idempotent `counts.shifting_event.recorded` outbox event, record `count_source_import_runs` batch evidence, audit, invalidate projections |
-| Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or the registered `countsapp.ProjectionInputHandler` consumer for tenant + park + as-of + target-date bounded horizons; write snapshot or exception |
+| Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or the registered `countsapp.ProjectionInputHandler` consumer for tenant + park + as-of + target-date bounded horizons; write snapshot or exception; record `count_projection_recompute_runs` status, counts, timing, trace, and `CSG10` evidence |
 | Count mismatch scan | Base Count adoption plus `counts-mismatch-scan` scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. The bounded worker command pages through stale historical/imported anchors with tenant/window/limit/cursor guards, writes the same exception work, records `count_mismatch_scan_runs`, and updates `CSG6`/`CSG10` readiness evidence. The anchor page now has dedicated mismatch-scan indexes and query-plan coverage. |
 | Query-plan proof | `counts-query-plan-check` | Prove expected Postgres index paths for Counts hot reads and update `CSG10` readiness evidence; never use this alone as G2 completion proof. |
 | Exception fanout/read model | Projection exception open/update/close plus process-integrity query | Emit `counts.projection_exception.*` outbox events and project `category=feed_direction` exception rows into top-level Action Center/Workflows; assignment policy, frontend UX, and broader Calendar/Protocol Adherence/Control Tower mapping remain separate closure work. |
@@ -343,11 +350,11 @@ All workers must be tenant/park/date/grain bounded and replay-safe.
 
 Worker observability is part of `CSG10`, not a future ops cleanup. Counts/Shifting
 must expose or emit source rows read, import status/latency, successful
-Base Count and ShiftingEvent rows, replay counts, failed row counts, projection
-recompute latency, stale-projection age, queue/outbox lag, retry counts, DLQ
-counts, exception counts by type, and query-plan failures. Those signals roll
-into Feed gate `G2` and the same monitoring slice used by Feed generation
-workers.
+Base Count and ShiftingEvent rows, replay counts, failed row counts, recompute
+run status/latency, projection row counts, projection exception counts,
+stale-projection age, queue/outbox lag, retry counts, DLQ counts, exception
+counts by type, and query-plan failures. Those signals roll into Feed gate `G2`
+and the same monitoring slice used by Feed generation workers.
 
 ## 9. Readiness Roll-Up
 
@@ -384,6 +391,10 @@ Non-negotiable tests:
 - Source import run observability records source rows read, successful Base
   Count/Shifting rows, replays, failed rows, source reference, status, last
   error, and `CSG10` evidence without making G2 green by itself.
+- Projection recompute run observability records tenant, park, horizon, target
+  date, as-of time, status, projection status, snapshot reference, row count,
+  exception count, trace id, last error, and `CSG10` evidence without making G2
+  green by itself.
 - Worker observability checks for latency, lag, retry, DLQ, exception, and
   stale-projection metrics.
 - Seeded local E2E coverage for Base Count, realized ShiftingEvent, one-day

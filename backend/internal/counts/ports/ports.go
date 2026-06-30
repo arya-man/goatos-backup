@@ -20,6 +20,8 @@ type Repository interface {
 	RecordBaseCountAnchor(ctx context.Context, in domain.BaseCountAnchor) (id string, replay bool, err error)
 	RecordShiftingEvent(ctx context.Context, in domain.ShiftingEvent) (id string, replay bool, err error)
 	ScanCountMismatches(ctx context.Context, req domain.CountMismatchScanRequest) (domain.CountMismatchScanResult, error)
+	BeginProjectionRecomputeRun(ctx context.Context, req domain.ProjectionRecomputeRequest) (runID string, err error)
+	FinishProjectionRecomputeRun(ctx context.Context, runID string, result domain.ProjectionRecomputeResult, recomputeErr error) error
 	ProjectionInputs(ctx context.Context, req domain.ProjectionRecomputeRequest) (domain.ProjectionInputs, error)
 	CreateProjectionSnapshot(ctx context.Context, in domain.ProjectionSnapshot) (id string, err error)
 	CountAsOf(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error)

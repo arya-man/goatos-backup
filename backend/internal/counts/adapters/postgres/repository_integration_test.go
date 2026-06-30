@@ -400,6 +400,51 @@ func TestRepositoryCreatesBlockedProjectionSnapshotAndReadiness(t *testing.T) {
 	}
 }
 
+func TestRepositoryRecordsProjectionRecomputeRunEvidence(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 3*time.Second)
+	if _, replay, err := repo.RecordBaseCountAnchor(ctx, baseAnchor("recompute-run-anchor-key", "recompute-run-anchor-fp")); err != nil || replay {
+		t.Fatalf("base anchor replay=%v err=%v", replay, err)
+	}
+	result, err := countsapp.NewService(repo).RecomputeProjectionSnapshotWithResult(ctx, domain.ProjectionRecomputeRequest{
+		TenantID: countsTenant, ParkID: countsPark, Horizon: "feed_target_date",
+		TargetDate:            time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		AsOf:                  time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC),
+		SourceContractVersion: domain.SourceContractVersionV1,
+		GeneratedBy:           "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+	if result.RunID == "" || result.SnapshotID == "" || result.ProjectionStatus != "blocked" ||
+		result.RowCount != 1 || result.ExceptionCount != 1 {
+		t.Fatalf("recompute result=%+v, want run/snapshot and blocked row evidence", result)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM count_projection_recompute_runs
+WHERE tenant_id=$1::uuid
+  AND count_projection_recompute_run_id=$2::uuid
+  AND snapshot_id=$3::uuid
+  AND status='completed'
+  AND projection_status='blocked'
+  AND row_count=1
+  AND exception_count=1`, countsTenant, result.RunID, result.SnapshotID); got != 1 {
+		t.Fatalf("projection recompute run rows=%d, want completed run evidence", got)
+	}
+	readiness, err := repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness: %v", err)
+	}
+	csg10 := readinessSubgate(t, readiness, "CSG10")
+	if csg10.Status != domain.ReadinessPending ||
+		csg10.EvidenceRef != "count_projection_recompute_runs:"+result.RunID ||
+		!strings.Contains(csg10.BlockerReason, "seeded local E2E") {
+		t.Fatalf("CSG10=%+v, want pending recompute-run evidence", csg10)
+	}
+}
+
 func TestRepositoryResolvesProjectionExceptionIdempotently(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)

@@ -2217,6 +2217,39 @@ CREATE TABLE public.count_projection_exceptions (
 
 
 --
+-- Name: count_projection_recompute_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.count_projection_recompute_runs (
+    count_projection_recompute_run_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    horizon text NOT NULL,
+    target_date date NOT NULL,
+    as_of timestamp with time zone NOT NULL,
+    status text DEFAULT 'running'::text NOT NULL,
+    projection_status text,
+    snapshot_id uuid,
+    row_count integer DEFAULT 0 NOT NULL,
+    exception_count integer DEFAULT 0 NOT NULL,
+    source_contract_version text NOT NULL,
+    generated_by text NOT NULL,
+    trace_id text,
+    last_error text,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT count_projection_recompute_runs_completion_check CHECK ((((status = 'running'::text) AND (completed_at IS NULL)) OR ((status = ANY (ARRAY['completed'::text, 'failed'::text])) AND (completed_at IS NOT NULL)))),
+    CONSTRAINT count_projection_recompute_runs_contract_check CHECK ((btrim(source_contract_version) <> ''::text)),
+    CONSTRAINT count_projection_recompute_runs_counts_check CHECK (((row_count >= 0) AND (exception_count >= 0))),
+    CONSTRAINT count_projection_recompute_runs_generated_by_check CHECK ((btrim(generated_by) <> ''::text)),
+    CONSTRAINT count_projection_recompute_runs_horizon_check CHECK ((horizon = ANY (ARRAY['count_as_of'::text, 'feed_target_date'::text]))),
+    CONSTRAINT count_projection_recompute_runs_projection_status_check CHECK (((projection_status IS NULL) OR (projection_status = ANY (ARRAY['ready'::text, 'blocked'::text, 'stale'::text, 'failed'::text])))),
+    CONSTRAINT count_projection_recompute_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text])))
+);
+
+
+--
 -- Name: count_projection_snapshot_rows; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6018,6 +6051,14 @@ ALTER TABLE ONLY public.count_projection_exceptions
 
 
 --
+-- Name: count_projection_recompute_runs count_projection_recompute_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_recompute_runs
+    ADD CONSTRAINT count_projection_recompute_runs_pkey PRIMARY KEY (count_projection_recompute_run_id);
+
+
+--
 -- Name: count_projection_snapshot_rows count_projection_snapshot_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8252,6 +8293,20 @@ CREATE INDEX count_projection_exceptions_status_list_idx ON public.count_project
 --
 
 CREATE INDEX count_projection_exceptions_work_queue_idx ON public.count_projection_exceptions USING btree (tenant_id, status, work_state, severity, due_at, updated_at DESC, count_projection_exception_id DESC) WHERE (status = 'open'::text);
+
+
+--
+-- Name: count_projection_recompute_runs_scope_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_projection_recompute_runs_scope_idx ON public.count_projection_recompute_runs USING btree (tenant_id, park_id, horizon, target_date DESC, status, updated_at DESC);
+
+
+--
+-- Name: count_projection_recompute_runs_tenant_started_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_projection_recompute_runs_tenant_started_idx ON public.count_projection_recompute_runs USING btree (tenant_id, started_at DESC, count_projection_recompute_run_id DESC);
 
 
 --
@@ -12292,6 +12347,30 @@ ALTER TABLE ONLY public.count_projection_exceptions
 
 ALTER TABLE ONLY public.count_projection_exceptions
     ADD CONSTRAINT count_projection_exceptions_tenant_snapshot_fk FOREIGN KEY (tenant_id, count_projection_snapshot_id) REFERENCES public.count_projection_snapshots(tenant_id, count_projection_snapshot_id) ON DELETE SET NULL;
+
+
+--
+-- Name: count_projection_recompute_runs count_projection_recompute_runs_park_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_recompute_runs
+    ADD CONSTRAINT count_projection_recompute_runs_park_id_fkey FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: count_projection_recompute_runs count_projection_recompute_runs_snapshot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_recompute_runs
+    ADD CONSTRAINT count_projection_recompute_runs_snapshot_id_fkey FOREIGN KEY (snapshot_id) REFERENCES public.count_projection_snapshots(count_projection_snapshot_id) ON DELETE SET NULL;
+
+
+--
+-- Name: count_projection_recompute_runs count_projection_recompute_runs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_recompute_runs
+    ADD CONSTRAINT count_projection_recompute_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

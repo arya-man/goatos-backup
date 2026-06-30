@@ -204,6 +204,83 @@ func (r *Repository) ScanCountMismatches(ctx context.Context, req domain.CountMi
 	return r.finishCountMismatchScanRun(ctx, result, nil)
 }
 
+func (r *Repository) BeginProjectionRecomputeRun(ctx context.Context, req domain.ProjectionRecomputeRequest) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var runID string
+	err := r.pool.QueryRow(ctx, `
+INSERT INTO count_projection_recompute_runs (
+  tenant_id, park_id, horizon, target_date, as_of, status,
+  source_contract_version, generated_by, trace_id
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5, 'running',
+  $6, $7, nullif($8, '')
+)
+RETURNING count_projection_recompute_run_id::text`,
+		req.TenantID, req.ParkID, req.Horizon, dateOnly(req.TargetDate), req.AsOf,
+		req.SourceContractVersion, req.GeneratedBy, ptrValue(req.TraceID)).Scan(&runID)
+	if err != nil {
+		return "", fmt.Errorf("counts: begin projection recompute run: %w", err)
+	}
+	return runID, nil
+}
+
+func (r *Repository) FinishProjectionRecomputeRun(ctx context.Context, runID string, result domain.ProjectionRecomputeResult, recomputeErr error) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	status := "completed"
+	projectionStatus := result.ProjectionStatus
+	lastError := ""
+	if recomputeErr != nil {
+		status = "failed"
+		projectionStatus = "failed"
+		lastError = recomputeErr.Error()
+	}
+	var tenantID string
+	if err := r.pool.QueryRow(ctx, `
+UPDATE count_projection_recompute_runs
+SET status = $2,
+    projection_status = nullif($3, ''),
+    snapshot_id = nullif($4, '')::uuid,
+    row_count = $5,
+    exception_count = $6,
+    last_error = nullif($7, ''),
+    completed_at = now(),
+    updated_at = now()
+WHERE count_projection_recompute_run_id = $1::uuid
+RETURNING tenant_id::text`,
+		runID, status, projectionStatus, result.SnapshotID, result.RowCount,
+		result.ExceptionCount, lastError).Scan(&tenantID); err != nil {
+		return fmt.Errorf("counts: finish projection recompute run: %w", err)
+	}
+	csg10Status := "pending"
+	csg10Blocker := "Projection recompute run metrics exist; source parity, full observability, query-plan proof, and seeded local E2E evidence remain before CSG10 can turn ready."
+	if recomputeErr != nil {
+		csg10Status = "blocked"
+		csg10Blocker = "Projection recompute failed; repair the worker error before CSG10 can progress: " + recomputeErr.Error()
+	}
+	if _, err := r.pool.Exec(ctx, `
+INSERT INTO counts_shifting_readiness_subgates (
+  tenant_id, subgate_id, status, owner, evidence_ref, blocker_reason, implementation_ref, last_checked_at, updated_at
+) VALUES (
+  $1::uuid, 'CSG10', $2, 'Counts/Shifting + Feed Direction',
+  $3, $4, 'backend/cmd/counts-projection-recompute;backend/internal/counts/app/service.go;docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md',
+  now(), now()
+)
+ON CONFLICT (tenant_id, subgate_id) DO UPDATE
+SET status = EXCLUDED.status,
+    owner = EXCLUDED.owner,
+    evidence_ref = EXCLUDED.evidence_ref,
+    blocker_reason = EXCLUDED.blocker_reason,
+    implementation_ref = EXCLUDED.implementation_ref,
+    last_checked_at = EXCLUDED.last_checked_at,
+    updated_at = now()`,
+		tenantID, csg10Status, "count_projection_recompute_runs:"+runID, csg10Blocker); err != nil {
+		return fmt.Errorf("counts: upsert CSG10 projection recompute readiness: %w", err)
+	}
+	return nil
+}
+
 func (r *Repository) ProjectionInputs(ctx context.Context, req domain.ProjectionRecomputeRequest) (domain.ProjectionInputs, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()

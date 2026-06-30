@@ -132,9 +132,11 @@ Implementation note as of 2026-06-30: Counts/Shifting now has
 Counting DB / Feed Direction workbook evidence once a reviewer has mapped the
 row into GoatOS fields, and `count_source_import_runs` records execute-mode
 import status, row counts, replays, failures, source reference, and readiness
-evidence. It is not a raw workbook parser and does not promote workbook ratios,
-feed vector examples, breed/tag shortcuts, or formula outputs into Feed
-Direction runtime truth.
+evidence. `count_projection_recompute_runs` records bounded projection worker
+status, row counts, exception counts, snapshot reference, trace, and failure
+evidence for the same `G2` closure lane. Neither path is a raw workbook parser,
+and neither promotes workbook ratios, feed vector examples, breed/tag shortcuts,
+or formula outputs into Feed Direction runtime truth.
 
 Required runtime shape:
 

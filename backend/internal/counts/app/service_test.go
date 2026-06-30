@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,7 +14,13 @@ type fakeRepo struct {
 	anchor     domain.BaseCountAnchor
 	event      domain.ShiftingEvent
 	inputs     domain.ProjectionInputs
+	inputsErr  error
 	snap       domain.ProjectionSnapshot
+	createErr  error
+	beginReq   domain.ProjectionRecomputeRequest
+	finishRun  string
+	finish     domain.ProjectionRecomputeResult
+	finishErr  error
 	scanReq    domain.CountMismatchScanRequest
 	query      domain.ProjectionExceptionQuery
 	resolution domain.ProjectionExceptionResolutionRequest
@@ -31,10 +38,26 @@ func (f *fakeRepo) ScanCountMismatches(_ context.Context, req domain.CountMismat
 	f.scanReq = req
 	return domain.CountMismatchScanResult{TenantID: req.TenantID, ScannedAnchorCount: req.Limit}, nil
 }
+func (f *fakeRepo) BeginProjectionRecomputeRun(_ context.Context, req domain.ProjectionRecomputeRequest) (string, error) {
+	f.beginReq = req
+	return "run-1", nil
+}
+func (f *fakeRepo) FinishProjectionRecomputeRun(_ context.Context, runID string, result domain.ProjectionRecomputeResult, recomputeErr error) error {
+	f.finishRun = runID
+	f.finish = result
+	f.finishErr = recomputeErr
+	return nil
+}
 func (f *fakeRepo) ProjectionInputs(context.Context, domain.ProjectionRecomputeRequest) (domain.ProjectionInputs, error) {
+	if f.inputsErr != nil {
+		return domain.ProjectionInputs{}, f.inputsErr
+	}
 	return f.inputs, nil
 }
 func (f *fakeRepo) CreateProjectionSnapshot(_ context.Context, in domain.ProjectionSnapshot) (string, error) {
+	if f.createErr != nil {
+		return "", f.createErr
+	}
 	f.snap = in
 	return "snapshot-1", nil
 }
@@ -432,6 +455,12 @@ func TestRecomputeProjectionSnapshotBlocksPregnantDestinationShortage(t *testing
 	if !found {
 		t.Fatalf("exceptions=%+v, want critical destination_shortage", repo.snap.Exceptions)
 	}
+	if result.RunID != "run-1" || repo.finishRun != "run-1" || repo.finishErr != nil {
+		t.Fatalf("run evidence result=%+v finish=%s finish_err=%v", result, repo.finishRun, repo.finishErr)
+	}
+	if repo.finish.SnapshotID != "snapshot-1" || repo.finish.RowCount != 2 || repo.finish.ExceptionCount != 3 {
+		t.Fatalf("finish result=%+v, want snapshot/row/exception counts", repo.finish)
+	}
 }
 
 func TestRecomputeProjectionSnapshotFailsClosedWithoutBaseAnchors(t *testing.T) {
@@ -450,6 +479,26 @@ func TestRecomputeProjectionSnapshotFailsClosedWithoutBaseAnchors(t *testing.T) 
 	}
 	if len(repo.snap.Exceptions) != 1 || repo.snap.Exceptions[0].ExceptionType != "missing_base_count" {
 		t.Fatalf("exceptions=%+v, want missing_base_count", repo.snap.Exceptions)
+	}
+}
+
+func TestRecomputeProjectionSnapshotRecordsFailedRunEvidence(t *testing.T) {
+	repo := &fakeRepo{inputsErr: errors.New("input lookup failed")}
+	result, err := NewService(repo).RecomputeProjectionSnapshotWithResult(context.Background(), domain.ProjectionRecomputeRequest{
+		TenantID: "tenant", ParkID: "park", Horizon: "feed_target_date",
+		TargetDate:            time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		AsOf:                  time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC),
+		SourceContractVersion: "counts-shifting-v1", GeneratedBy: "test",
+	})
+	if err == nil || !strings.Contains(err.Error(), "input lookup failed") {
+		t.Fatalf("err=%v, want input lookup failure", err)
+	}
+	if result.RunID != "run-1" || repo.finishRun != "run-1" || repo.finishErr == nil ||
+		!strings.Contains(repo.finishErr.Error(), "input lookup failed") {
+		t.Fatalf("failed run evidence result=%+v finish_run=%s finish_err=%v", result, repo.finishRun, repo.finishErr)
+	}
+	if repo.finish.SnapshotID != "" || repo.finish.RowCount != 0 || repo.finish.ExceptionCount != 0 {
+		t.Fatalf("failed finish result=%+v, want empty snapshot counts", repo.finish)
 	}
 }
 

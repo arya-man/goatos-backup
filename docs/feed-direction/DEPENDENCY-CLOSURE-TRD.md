@@ -593,10 +593,11 @@ errors, retry counts, queue/outbox lag, notification result counts, projection
 refresh lag, DLQ counts, and DB/query-plan failures.
 
 Counts/Shifting workers must meet the same observability bar before `G2` can turn
-green: base-count import latency, shifting ingest latency, projection recompute
-latency, stale-projection age, queue/outbox lag, retry and DLQ counts,
-exception counts by type, and query-plan failures must be emitted or made
-available to the same monitoring slice.
+green: base-count import latency, shifting ingest latency, durable recompute run
+status/latency/row/exception evidence through `count_projection_recompute_runs`,
+stale-projection age, queue/outbox lag, retry and DLQ counts, exception counts
+by type, and query-plan failures must be emitted or made available to the same
+monitoring slice.
 
 ## 11. Transport Consolidation Contract
 

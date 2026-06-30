@@ -153,16 +153,27 @@ func (s *Service) RecomputeProjectionSnapshotWithResult(ctx context.Context, req
 	if err != nil {
 		return domain.ProjectionRecomputeResult{}, err
 	}
-	inputs, err := s.repo.ProjectionInputs(ctx, req)
+	runID, err := s.repo.BeginProjectionRecomputeRun(ctx, req)
 	if err != nil {
 		return domain.ProjectionRecomputeResult{}, err
+	}
+	result := domain.ProjectionRecomputeResult{
+		RunID:      runID,
+		Horizon:    req.Horizon,
+		TargetDate: req.TargetDate,
+		AsOf:       req.AsOf,
+	}
+	inputs, err := s.repo.ProjectionInputs(ctx, req)
+	if err != nil {
+		return s.finishProjectionRecomputeRun(ctx, runID, result, err)
 	}
 	snapshot := buildProjectionSnapshot(req, inputs)
 	id, err := s.CreateProjectionSnapshot(ctx, snapshot)
 	if err != nil {
-		return domain.ProjectionRecomputeResult{}, err
+		return s.finishProjectionRecomputeRun(ctx, runID, result, err)
 	}
-	return domain.ProjectionRecomputeResult{
+	result = domain.ProjectionRecomputeResult{
+		RunID:            runID,
 		SnapshotID:       id,
 		Horizon:          snapshot.Horizon,
 		TargetDate:       snapshot.TargetDate,
@@ -170,7 +181,18 @@ func (s *Service) RecomputeProjectionSnapshotWithResult(ctx context.Context, req
 		ProjectionStatus: snapshot.ProjectionStatus,
 		RowCount:         len(snapshot.Rows),
 		ExceptionCount:   len(snapshot.Exceptions),
-	}, nil
+	}
+	return s.finishProjectionRecomputeRun(ctx, runID, result, nil)
+}
+
+func (s *Service) finishProjectionRecomputeRun(ctx context.Context, runID string, result domain.ProjectionRecomputeResult, recomputeErr error) (domain.ProjectionRecomputeResult, error) {
+	if err := s.repo.FinishProjectionRecomputeRun(ctx, runID, result, recomputeErr); err != nil {
+		if recomputeErr != nil {
+			return result, fmt.Errorf("%w; finish projection recompute run: %v", recomputeErr, err)
+		}
+		return result, err
+	}
+	return result, recomputeErr
 }
 
 func (s *Service) CountAsOf(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error) {

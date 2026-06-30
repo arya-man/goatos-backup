@@ -439,6 +439,27 @@ type CountProjectionExceptionResolution struct {
 	CreatedAt                            pgtype.Timestamptz
 }
 
+type CountProjectionRecomputeRun struct {
+	CountProjectionRecomputeRunID pgtype.UUID
+	TenantID                      pgtype.UUID
+	ParkID                        pgtype.UUID
+	Horizon                       string
+	TargetDate                    pgtype.Date
+	AsOf                          pgtype.Timestamptz
+	Status                        string
+	ProjectionStatus              pgtype.Text
+	SnapshotID                    pgtype.UUID
+	RowCount                      int32
+	ExceptionCount                int32
+	SourceContractVersion         string
+	GeneratedBy                   string
+	TraceID                       pgtype.Text
+	LastError                     pgtype.Text
+	StartedAt                     pgtype.Timestamptz
+	CompletedAt                   pgtype.Timestamptz
+	UpdatedAt                     pgtype.Timestamptz
+}
+
 type CountProjectionSnapshot struct {
 	CountProjectionSnapshotID pgtype.UUID
 	TenantID                  pgtype.UUID

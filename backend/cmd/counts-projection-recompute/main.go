@@ -80,8 +80,8 @@ func run(args []string) error {
 		if err != nil {
 			return fmt.Errorf("recompute %s: %w", horizon, err)
 		}
-		fmt.Printf("counts projection recomputed horizon=%s snapshot=%s status=%s rows=%d exceptions=%d target_date=%s as_of=%s\n",
-			result.Horizon, result.SnapshotID, result.ProjectionStatus, result.RowCount, result.ExceptionCount,
+		fmt.Printf("counts projection recomputed run=%s horizon=%s snapshot=%s status=%s rows=%d exceptions=%d target_date=%s as_of=%s\n",
+			result.RunID, result.Horizon, result.SnapshotID, result.ProjectionStatus, result.RowCount, result.ExceptionCount,
 			result.TargetDate.Format("2006-01-02"), result.AsOf.UTC().Format(time.RFC3339))
 	}
 	return nil

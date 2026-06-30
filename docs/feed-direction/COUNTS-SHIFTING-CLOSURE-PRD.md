@@ -72,9 +72,11 @@ deterministic source hashes/idempotency/fingerprints when omitted, requires
 explicit shifting lifecycle state, and leaves ration context unresolved unless a
 reviewed row supplies it. `count_source_import_runs` records each execute-mode
 import batch with row counts, replay counts, failure counts, source reference,
-status, and readiness evidence. This is not a raw XLSX parser and does not
-approve workbook formulas, `80/20` examples, or breed/tag constraint tables as
-runtime truth.
+status, and readiness evidence. `count_projection_recompute_runs` records
+bounded recompute worker evidence with row counts, exception counts, projection
+status, snapshot reference, timing, source contract, trace id, and failure
+state. These are not raw XLSX parsers and do not approve workbook formulas,
+`80/20` examples, or breed/tag constraint tables as runtime truth.
 
 For any Counts/Shifting behavior that affects Feed Direction timing, Diff,
 bridge handling, one-day projection, or physical count adoption,
@@ -95,7 +97,7 @@ GoatOS schedules unless explicitly approved against that docx.
 | CSG7 | Alias normalization | Breed and stage aliases such as SIROHI->Beetal and Warmup/Fattening variants are reviewed before projection output |
 | CSG8 | Idempotency and replay | Event ingestion, projection recompute, and source replay cannot double-apply movements |
 | CSG9 | Projection API | Feed can consume bounded projection rows with source hash, anchor id, included-event hash, exception count, contract version, and ration-context resolution state |
-| CSG10 | Scale and observability proof | Hot reads and projection queries are bounded by tenant, park, date, shed, breed, ration-context resolution state where materialized, and cursor where applicable; import, ingest, projection, retry, DLQ, exception, and query-plan metrics exist. `counts-query-plan-check` proves index paths for Counts hot reads and mismatch-scan anchor paging, and `count_source_import_runs` provides typed import run evidence, but CSG10 remains pending until source parity, observability breadth, and seeded E2E are proven. |
+| CSG10 | Scale and observability proof | Hot reads and projection queries are bounded by tenant, park, date, shed, breed, ration-context resolution state where materialized, and cursor where applicable; import, ingest, projection, retry, DLQ, exception, and query-plan metrics exist. `counts-query-plan-check` proves index paths for Counts hot reads and mismatch-scan anchor paging, while `count_source_import_runs` and `count_projection_recompute_runs` provide typed import and recompute worker evidence, but CSG10 remains pending until source parity, observability breadth, and seeded E2E are proven. |
 
 `CSG1`-`CSG10` roll up into Feed gate `G2`. The Feed readiness endpoint must
 show the Counts/Shifting subgate statuses, owners, evidence pointers, and blocker
@@ -120,9 +122,10 @@ Counts/Shifting closure is complete when:
 4. Source evidence, reviewed typed imports, and fixture rows can be compared to
    canonical projections without becoming runtime truth. The
    `counts-source-import` command covers typed Base Count/Shifting JSONL rows
-   and records `count_source_import_runs` evidence; raw workbook/XLSX mapping
-   and parity fixtures remain review work. Stale imported mismatches are
-   surfaced by the bounded `counts-mismatch-scan` worker path.
+   and records `count_source_import_runs` evidence; recompute paths record
+   `count_projection_recompute_runs` evidence; raw workbook/XLSX mapping and
+   parity fixtures remain review work. Stale imported mismatches are surfaced
+   by the bounded `counts-mismatch-scan` worker path.
 5. SQL plan and synthetic-scale checks prove no full-herd or unbounded count
    scan is required for Feed generation. The first implementation artifact is
    `backend/cmd/counts-query-plan-check`, which checks the expected Postgres
