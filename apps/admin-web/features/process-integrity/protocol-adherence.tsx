@@ -33,6 +33,29 @@ function ownerOf(pageContract: AdminUiPageContract, row: AdherenceRow): string {
   return row.owner?.operator_name ?? row.owner?.park_head_name ?? copy(pageContract, "label.unassigned");
 }
 
+function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string {
+  switch (row.gap) {
+    case "owner_missing":
+      return copy(pageContract, "gap.owner_missing");
+    case "proof_missing":
+      return copy(pageContract, "gap.proof_missing");
+    case "verification_pending":
+      return copy(pageContract, "gap.verification_pending");
+    case "deferred_explained":
+      return copy(pageContract, "gap.deferred_explained");
+    case "proof_rejected":
+      return copy(pageContract, "gap.proof_rejected");
+    case "missed":
+      return copy(pageContract, "gap.missed");
+    case "blocked":
+      return copy(pageContract, "gap.blocked");
+    case "overdue":
+      return copy(pageContract, "gap.overdue");
+    default:
+      return row.gap.replaceAll("_", " ");
+  }
+}
+
 function EvidenceCell({ evidence, pageContract }: { evidence: ProcessIntegrityEvidence; pageContract: AdminUiPageContract }) {
   if (evidence.latest_rejection_reason) {
     return <Tag tone="dng" title={evidence.latest_rejection_reason}>{copy(pageContract, "label.rejected")}</Tag>;
@@ -207,7 +230,7 @@ export async function ProtocolAdherencePage({
                       </td>
                       <td>
                         <Link href={href} className="celllink" scroll={false}>
-	                          <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone}>{row.gap}</Tag>
+	                          <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone}>{gapLabel(pageContract, row)}</Tag>
                         </Link>
                       </td>
                       <td>
@@ -325,7 +348,7 @@ function AdherenceRecordDrawer({
             <div>
               <div className="k">{tableLabels(pageContract, "adherence-ledger")[2]}</div>
               <div className="v">
-                <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone}>{row.gap}</Tag>
+                <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone}>{gapLabel(pageContract, row)}</Tag>
               </div>
             </div>
             <div>
