@@ -214,14 +214,17 @@ func TestRecomputeProjectionSnapshotBlocksPregnantDestinationShortage(t *testing
 			HeadCount: 3, PregnantCount: 3, RationContextResolutionState: "blocked", BlockerReason: &blocker,
 		}},
 	}}
-	id, err := NewService(repo).RecomputeProjectionSnapshot(context.Background(), domain.ProjectionRecomputeRequest{
+	result, err := NewService(repo).RecomputeProjectionSnapshotWithResult(context.Background(), domain.ProjectionRecomputeRequest{
 		TenantID: "tenant", ParkID: "park", Horizon: "feed_target_date",
 		TargetDate:            time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
 		AsOf:                  time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC),
 		SourceContractVersion: "counts-shifting-v1", GeneratedBy: "test",
 	})
-	if err != nil || id != "snapshot-1" {
-		t.Fatalf("RecomputeProjectionSnapshot id=%q err=%v", id, err)
+	if err != nil || result.SnapshotID != "snapshot-1" {
+		t.Fatalf("RecomputeProjectionSnapshot result=%+v err=%v", result, err)
+	}
+	if result.ProjectionStatus != "blocked" || result.RowCount != 2 || result.ExceptionCount != 3 {
+		t.Fatalf("recompute result=%+v, want blocked with 2 rows and 3 exceptions", result)
 	}
 	if repo.snap.ProjectionStatus != "blocked" {
 		t.Fatalf("projection status=%q, want blocked", repo.snap.ProjectionStatus)

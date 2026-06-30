@@ -121,15 +121,36 @@ func (s *Service) CreateProjectionSnapshot(ctx context.Context, in domain.Projec
 }
 
 func (s *Service) RecomputeProjectionSnapshot(ctx context.Context, req domain.ProjectionRecomputeRequest) (string, error) {
-	req, err := normalizeRecomputeRequest(req)
+	result, err := s.RecomputeProjectionSnapshotWithResult(ctx, req)
 	if err != nil {
 		return "", err
+	}
+	return result.SnapshotID, nil
+}
+
+func (s *Service) RecomputeProjectionSnapshotWithResult(ctx context.Context, req domain.ProjectionRecomputeRequest) (domain.ProjectionRecomputeResult, error) {
+	req, err := normalizeRecomputeRequest(req)
+	if err != nil {
+		return domain.ProjectionRecomputeResult{}, err
 	}
 	inputs, err := s.repo.ProjectionInputs(ctx, req)
 	if err != nil {
-		return "", err
+		return domain.ProjectionRecomputeResult{}, err
 	}
-	return s.CreateProjectionSnapshot(ctx, buildProjectionSnapshot(req, inputs))
+	snapshot := buildProjectionSnapshot(req, inputs)
+	id, err := s.CreateProjectionSnapshot(ctx, snapshot)
+	if err != nil {
+		return domain.ProjectionRecomputeResult{}, err
+	}
+	return domain.ProjectionRecomputeResult{
+		SnapshotID:       id,
+		Horizon:          snapshot.Horizon,
+		TargetDate:       snapshot.TargetDate,
+		AsOf:             snapshot.AsOf,
+		ProjectionStatus: snapshot.ProjectionStatus,
+		RowCount:         len(snapshot.Rows),
+		ExceptionCount:   len(snapshot.Exceptions),
+	}, nil
 }
 
 func (s *Service) CountAsOf(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error) {

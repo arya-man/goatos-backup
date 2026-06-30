@@ -104,6 +104,16 @@ type ProjectionRecomputeRequest struct {
 	TraceID               *string
 }
 
+type ProjectionRecomputeResult struct {
+	SnapshotID       string
+	Horizon          string
+	TargetDate       time.Time
+	AsOf             time.Time
+	ProjectionStatus string
+	RowCount         int
+	ExceptionCount   int
+}
+
 type ProjectionInputs struct {
 	Anchors   []ProjectionBaseAnchor
 	Movements []ProjectionMovementImpact

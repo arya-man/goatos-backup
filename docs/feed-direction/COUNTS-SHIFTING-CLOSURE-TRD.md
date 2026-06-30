@@ -83,6 +83,9 @@ Implementation status as of 2026-06-30:
   Count anchors plus horizon-filtered ShiftingEvent impacts. `count_as_of`
   includes only applied events; `feed_target_date` includes authorized/applied
   events effective on the target date.
+- `backend/cmd/counts-projection-recompute` provides the scheduler-facing
+  one-shot worker entrypoint for tenant + park + as-of + target-date bounded
+  recompute of `count_as_of`, `feed_target_date`, or both horizons.
 - Projection rows now carry `base_count_anchor_id`,
   `included_shifting_event_ids_hash`, source row hash, contract hash, and
   ration-context resolution state.
@@ -96,9 +99,9 @@ Implementation status as of 2026-06-30:
   `missing_base_count`, not an empty ready snapshot.
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
-- This does **not** close `G2`: source import/adapters, scheduler/outbox
-  projection worker wiring, alias normalization, count-mismatch detection beyond
-  negative source protection, exception work routing, observability,
+- This does **not** close `G2`: source import/adapters, outbox invalidation from
+  Base Count/Shifting writes, alias normalization, count-mismatch detection
+  beyond negative source protection, exception work routing, observability,
   query-plan/synthetic-scale proof, and seeded local E2E remain blockers.
 
 ## 3. Candidate Persistence
@@ -199,7 +202,7 @@ Required paths:
 | --- | --- | --- |
 | Base Count import/record | API/import | Write anchor, audit, outbox, invalidate projections |
 | Shifting event ingest | API/import/outbox | Upsert event and impacts, audit, outbox, invalidate projections |
-| Projection recompute | Scheduler/outbox | Recompute bounded grains, write snapshot or exception |
+| Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or equivalent queued worker for tenant + park + as-of + target-date bounded horizons; write snapshot or exception |
 | Count mismatch scan | Scheduler/import compare | Detect unexpected deltas/unreported shifting and create exception work |
 | Feed projection read | API/app port | Return rows or typed blocker with source hash |
 
