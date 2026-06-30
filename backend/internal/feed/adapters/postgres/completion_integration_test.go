@@ -243,8 +243,14 @@ func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t 
 		WithCountsReadiness(countsRepo).
 		WithCountsProjectionExceptionLister(countsRepo)
 
-	if _, replay, err := countsRepo.RecordBaseCountAnchor(ctx, feedReadinessBaseAnchor(feedCountsSourceShed, "feed-reviewed-source-anchor", "feed-reviewed-source-fp", 20)); err != nil || replay {
-		t.Fatalf("record reviewed source anchor replay=%v err=%v", replay, err)
+	sourceAnchor := feedReadinessBaseAnchor(feedCountsSourceShed, "feed-reviewed-source-anchor", "feed-reviewed-source-fp", 20)
+	sourceAnchorID, replay, err := countsRepo.RecordBaseCountAnchor(ctx, sourceAnchor)
+	if err != nil || replay || sourceAnchorID == "" {
+		t.Fatalf("record reviewed source anchor id=%q replay=%v err=%v", sourceAnchorID, replay, err)
+	}
+	replayedSourceAnchorID, replay, err := countsRepo.RecordBaseCountAnchor(ctx, sourceAnchor)
+	if err != nil || !replay || replayedSourceAnchorID != sourceAnchorID {
+		t.Fatalf("replay reviewed source anchor id=%q replay=%v err=%v, want %q replay=true", replayedSourceAnchorID, replay, err, sourceAnchorID)
 	}
 	if _, replay, err := countsRepo.RecordBaseCountAnchor(ctx, feedReadinessBaseAnchor(feedCountsDestinationShed, "feed-reviewed-dest-anchor", "feed-reviewed-dest-fp", 5)); err != nil || replay {
 		t.Fatalf("record reviewed destination anchor replay=%v err=%v", replay, err)
@@ -306,14 +312,14 @@ func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t 
 	for _, want := range []string{
 		"Counts/Shifting has open projection exceptions",
 		"CSG7=pending",
-		"CSG8=blocked",
+		"CSG8=pending",
 		"CSG10=pending",
 	} {
 		if !strings.Contains(g2.BlockerReason, want) {
 			t.Fatalf("G2 blocker=%q, want %q", g2.BlockerReason, want)
 		}
 	}
-	for _, forbidden := range []string{"CSG6=blocked", "CSG7=blocked", "Projection snapshot contains alias_conflict"} {
+	for _, forbidden := range []string{"CSG6=blocked", "CSG7=blocked", "CSG8=blocked", "Projection snapshot contains alias_conflict"} {
 		if strings.Contains(g2.BlockerReason, forbidden) {
 			t.Fatalf("G2 blocker=%q, must not contain %q after approved aliases", g2.BlockerReason, forbidden)
 		}
@@ -323,6 +329,9 @@ func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t 
 	}
 	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG7"); csg.Status != feeddomain.ReadinessPending || !strings.Contains(csg.BlockerReason, "no alias_conflict") {
 		t.Fatalf("CSG7=%+v, want pending reviewed-alias evidence without alias conflicts", csg)
+	}
+	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG8"); csg.Status != feeddomain.ReadinessPending || csg.EvidenceRef != "count_base_anchors:"+sourceAnchorID {
+		t.Fatalf("CSG8=%+v, want pending replay evidence", csg)
 	}
 
 	aliasConflicts, err := feedService.ListCountsProjectionExceptions(ctx, feeddomain.CountsProjectionExceptionQuery{
