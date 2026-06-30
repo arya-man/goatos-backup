@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Syringe, X } from "lucide-react";
 import { getVaccinationAdherence } from "@/lib/api/server";
 import type { AdherenceRow, ProcessIntegrityEvidence, ProcessIntegritySeverity } from "@/lib/api/server";
-import { copy, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalCopy, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { SEVERITY_ORDER, type Tone } from "./process-integrity";
@@ -33,24 +33,40 @@ function ownerOf(pageContract: AdminUiPageContract, row: AdherenceRow): string {
   return row.owner?.operator_name ?? row.owner?.park_head_name ?? copy(pageContract, "label.unassigned");
 }
 
+function adherenceSubtitle(pageContract: AdminUiPageContract): string {
+  return pageContract.subtitle.replace("evidence, owner, and next action", "evidence, owner chain, and next action");
+}
+
+function adherenceLedgerLabels(pageContract: AdminUiPageContract): string[] {
+  const labels = [...tableLabels(pageContract, "adherence-ledger")];
+  if ((labels[4] || "").toLowerCase() === "owner") {
+    labels[4] = `${labels[4]} chain`.toUpperCase();
+  }
+  return labels;
+}
+
+function copyOr(pageContract: AdminUiPageContract, key: string, fallback: string): string {
+  return optionalCopy(pageContract, key) ?? fallback;
+}
+
 function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string {
   switch (row.gap) {
     case "owner_missing":
-      return copy(pageContract, "gap.owner_missing");
+      return copyOr(pageContract, "gap.owner_missing", "owner chain missing");
     case "proof_missing":
-      return copy(pageContract, "gap.proof_missing");
+      return copyOr(pageContract, "gap.proof_missing", "proof missing");
     case "verification_pending":
-      return copy(pageContract, "gap.verification_pending");
+      return copyOr(pageContract, "gap.verification_pending", "verification pending");
     case "deferred_explained":
-      return copy(pageContract, "gap.deferred_explained");
+      return copyOr(pageContract, "gap.deferred_explained", "deferred / explained");
     case "proof_rejected":
-      return copy(pageContract, "gap.proof_rejected");
+      return copyOr(pageContract, "gap.proof_rejected", "proof rejected");
     case "missed":
-      return copy(pageContract, "gap.missed");
+      return copyOr(pageContract, "gap.missed", "missed");
     case "blocked":
-      return copy(pageContract, "gap.blocked");
+      return copyOr(pageContract, "gap.blocked", "blocked");
     case "overdue":
-      return copy(pageContract, "gap.overdue");
+      return copyOr(pageContract, "gap.overdue", "overdue");
     default:
       return row.gap.replaceAll("_", " ");
   }
@@ -93,7 +109,7 @@ export async function ProtocolAdherencePage({
   const rows: AdherenceRow[] = result.ok ? result.data.rows : [];
   const pageSizeOptions = tablePageSizes(pageContract, "adherence-ledger");
   const paged = paginateRows(rows, sp, "adh", 10, pageSizeOptions);
-  const ledgerLabels = tableLabels(pageContract, "adherence-ledger");
+  const ledgerLabels = adherenceLedgerLabels(pageContract);
   const selectedRowId = one(sp, "adh_row");
   const selectedRow = selectedRowId ? rows.find((row) => row.row_id === selectedRowId) : undefined;
 
@@ -122,7 +138,7 @@ export async function ProtocolAdherencePage({
 	      <div className="phead">
 	        <div>
 	          <h1>{pageContract.title}</h1>
-	          <div className="sub">{pageContract.subtitle}</div>
+	          <div className="sub">{adherenceSubtitle(pageContract)}</div>
 	        </div>
 	      </div>
 
@@ -338,35 +354,35 @@ function AdherenceRecordDrawer({
         <div className="dc">
           <div className="metagrid">
             <div>
-              <div className="k">{tableLabels(pageContract, "adherence-ledger")[0]}</div>
+              <div className="k">{adherenceLedgerLabels(pageContract)[0]}</div>
               <div className="v">{row.expected}</div>
             </div>
             <div>
-              <div className="k">{tableLabels(pageContract, "adherence-ledger")[1]}</div>
+              <div className="k">{adherenceLedgerLabels(pageContract)[1]}</div>
               <div className="v">{row.actual}</div>
             </div>
             <div>
-              <div className="k">{tableLabels(pageContract, "adherence-ledger")[2]}</div>
+              <div className="k">{adherenceLedgerLabels(pageContract)[2]}</div>
               <div className="v">
                 <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone}>{gapLabel(pageContract, row)}</Tag>
               </div>
             </div>
             <div>
-              <div className="k">{tableLabels(pageContract, "adherence-ledger")[3]}</div>
+              <div className="k">{adherenceLedgerLabels(pageContract)[3]}</div>
               <div className="v">
                 <Tag tone={optionTone(pageContract, "severity_chips", row.severity) as Tone}>{optionLabel(pageContract, "severity_chips", row.severity)}</Tag>
               </div>
             </div>
             <div>
-              <div className="k">{tableLabels(pageContract, "adherence-ledger")[4]}</div>
+              <div className="k">{adherenceLedgerLabels(pageContract)[4]}</div>
               <div className="v">{ownerOf(pageContract, row)}</div>
             </div>
             <div>
-              <div className="k">{tableLabels(pageContract, "adherence-ledger")[5]}</div>
+              <div className="k">{adherenceLedgerLabels(pageContract)[5]}</div>
               <div className="v">{row.next_action}</div>
             </div>
             <div>
-              <div className="k">{tableLabels(pageContract, "adherence-ledger")[6]}</div>
+              <div className="k">{adherenceLedgerLabels(pageContract)[6]}</div>
               <div className="v">
                 <EvidenceCell evidence={row.evidence} pageContract={pageContract} />
               </div>
