@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -444,7 +445,9 @@ func applyCountsReadiness(readiness *domain.Readiness, counts countsdomain.Readi
 			g2.BlockerReason = ""
 			readiness.CurrentGate = "G3"
 		} else if counts.OpenExceptionCount > 0 {
-			g2.BlockerReason = "Counts/Shifting has open projection exceptions; Feed generation remains blocked."
+			g2.BlockerReason = countsReadinessBlockerSummary(counts, "Counts/Shifting has open projection exceptions; Feed generation remains blocked.")
+		} else {
+			g2.BlockerReason = countsReadinessBlockerSummary(counts, "Counts/Shifting subgates are not ready; Feed generation remains blocked.")
 		}
 	}
 	if len(counts.Subgates) == 0 {
@@ -460,6 +463,43 @@ func applyCountsReadiness(readiness *domain.Readiness, counts countsdomain.Readi
 		})
 	}
 	readiness.CountsShiftingSubgates = subgates
+}
+
+func countsReadinessBlockerSummary(counts countsdomain.Readiness, prefix string) string {
+	const maxDetails = 4
+	details := make([]string, 0, maxDetails)
+	for _, subgate := range counts.Subgates {
+		if subgate.Status == countsdomain.ReadinessReady {
+			continue
+		}
+		detail := subgate.ID + "=" + string(subgate.Status)
+		if reason := strings.TrimSpace(subgate.BlockerReason); reason != "" {
+			detail += " (" + reason + ")"
+		}
+		details = append(details, detail)
+		if len(details) == maxDetails {
+			break
+		}
+	}
+	if len(details) == 0 {
+		return prefix
+	}
+	remaining := nonReadySubgateCount(counts.Subgates) - len(details)
+	summary := prefix + " Non-ready Counts/Shifting subgates: " + strings.Join(details, "; ")
+	if remaining > 0 {
+		summary += fmt.Sprintf("; +%d more", remaining)
+	}
+	return summary
+}
+
+func nonReadySubgateCount(subgates []countsdomain.ReadinessSubgate) int {
+	count := 0
+	for _, subgate := range subgates {
+		if subgate.Status != countsdomain.ReadinessReady {
+			count++
+		}
+	}
+	return count
 }
 
 func feedReadinessStatus(status countsdomain.ReadinessStatus) domain.ReadinessStatus {

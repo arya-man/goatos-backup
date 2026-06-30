@@ -118,6 +118,37 @@ func TestReadinessUsesCountsSubgateStatusesWhenProviderIsWired(t *testing.T) {
 	}
 }
 
+func TestReadinessSummarizesSpecificNonReadyCountsSubgates(t *testing.T) {
+	checkedAt := time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC)
+	service := NewService(nil).
+		WithClock(func() time.Time { return checkedAt }).
+		WithCountsReadiness(fakeCountsReadiness{readiness: countsdomain.Readiness{
+			TenantID: "tenant-1", Status: countsdomain.ReadinessBlocked,
+			Subgates: []countsdomain.ReadinessSubgate{
+				{ID: "CSG1", Status: countsdomain.ReadinessReady, Owner: "Counts/Shifting", EvidenceRef: "count_base_anchors:1", LastCheckedAt: checkedAt},
+				{ID: "CSG7", Status: countsdomain.ReadinessPending, Owner: "Counts/Shifting + Feed Direction", EvidenceRef: "alias-check", BlockerReason: "owner-approved alias review remains", LastCheckedAt: checkedAt},
+				{ID: "CSG10", Status: countsdomain.ReadinessBlocked, Owner: "Counts/Shifting + Feed Direction", EvidenceRef: "workbook-source-scan", BlockerReason: "full row parity and seeded local E2E remain", LastCheckedAt: checkedAt},
+			},
+		}})
+
+	readiness, err := service.Readiness(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatalf("Readiness returned error: %v", err)
+	}
+	g2 := readiness.Gates[1]
+	if g2.Status != domain.ReadinessBlocked || g2.AllowsGenerate {
+		t.Fatalf("G2=%+v, want blocked/no-generate", g2)
+	}
+	for _, want := range []string{"CSG7=pending", "owner-approved alias review", "CSG10=blocked", "full row parity"} {
+		if !strings.Contains(g2.BlockerReason, want) {
+			t.Fatalf("G2 blocker=%q, want %q", g2.BlockerReason, want)
+		}
+	}
+	if len(readiness.CountsShiftingSubgates) != 3 {
+		t.Fatalf("subgates=%d, want provider subgates", len(readiness.CountsShiftingSubgates))
+	}
+}
+
 func TestReadinessSurfacesShiftedPregnantAndFeedSafetyInvariants(t *testing.T) {
 	service := NewService(nil).WithClock(func() time.Time {
 		return time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC)
