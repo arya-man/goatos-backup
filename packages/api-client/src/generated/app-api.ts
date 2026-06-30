@@ -595,6 +595,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-direction/counts-projection/exceptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List bounded Counts/Shifting projection exceptions for Feed Direction review.
+         * @description Returns owner-visible Counts/Shifting exception work for Feed Direction before any resolve or dismiss action. This queue is for reviewed closure of blockers such as pregnant shifted cohorts with unresolved destination ration context, count mismatches, alias conflicts, unsafe surplus, or query-plan proof gaps. It does not allow generation by itself.
+         */
+        get: operations["listFeedDirectionCountsProjectionExceptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-direction/counts-projection/exceptions/{exception_id}/resolve": {
         parameters: {
             query?: never;
@@ -2256,6 +2276,55 @@ export interface components {
         };
         /** @enum {string} */
         FeedDirectionReadinessStatus: "ready" | "blocked" | "pending";
+        FeedDirectionCountsProjectionExceptionListResponse: {
+            items: components["schemas"]["FeedDirectionCountsProjectionException"][];
+            next_cursor?: string;
+            trace_id: string;
+        };
+        FeedDirectionCountsProjectionException: {
+            /** Format: uuid */
+            projection_exception_id: string;
+            /** Format: uuid */
+            projection_snapshot_id?: string;
+            /** @enum {string} */
+            exception_type: "missing_base_count" | "missing_structured_impact" | "unreported_shifting" | "count_mismatch" | "alias_conflict" | "ration_context_unresolved" | "destination_shortage" | "unsafe_surplus" | "query_plan_unproven";
+            source_key: string;
+            grain_key: string;
+            /** Format: uuid */
+            park_id?: string;
+            /** Format: uuid */
+            shed_id?: string;
+            breed_key?: string;
+            stage_tag?: string;
+            /** @enum {string} */
+            severity: "warning" | "blocking" | "critical";
+            /** @enum {string} */
+            status: "open" | "resolved" | "dismissed";
+            owner_ref?: string;
+            /** @enum {string} */
+            work_type: "counts_projection_exception";
+            /** @enum {string} */
+            work_state: "blocked" | "owner_missing" | "resolved" | "dismissed";
+            /** Format: date-time */
+            due_at: string;
+            next_action: string;
+            evidence_link: string;
+            blocker_reason: string;
+            evidence_json: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            resolution_id?: string;
+            resolved_by_ref?: string;
+            resolution_reason?: string;
+            resolution_ref?: string;
+            /** Format: date-time */
+            resolved_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
         FeedDirectionCountsProjectionExceptionActionRequest: {
             /** @description Reviewed reason for closing the Counts/Shifting projection exception. */
             resolution_reason: string;
@@ -3469,6 +3538,43 @@ export interface operations {
                     "application/json": components["schemas"]["FeedDirectionReadinessResponse"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedDirectionCountsProjectionExceptions: {
+        parameters: {
+            query?: {
+                /** @description Defaults to open. */
+                status?: "open" | "resolved" | "dismissed";
+                park_id?: string;
+                shed_id?: string;
+                exception_type?: "missing_base_count" | "missing_structured_impact" | "unreported_shifting" | "count_mismatch" | "alias_conflict" | "ration_context_unresolved" | "destination_shortage" | "unsafe_surplus" | "query_plan_unproven";
+                severity?: "warning" | "blocking" | "critical";
+                owner_ref?: string;
+                work_state?: "blocked" | "owner_missing" | "resolved" | "dismissed";
+                /** @description Opaque keyset cursor returned by the previous page. */
+                cursor?: string;
+                /** @description Defaults to 50. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded Counts/Shifting projection exception queue. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedDirectionCountsProjectionExceptionListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];

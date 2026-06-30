@@ -24,11 +24,14 @@ var (
 	ErrInvalidHorizon          = errors.New("counts: invalid projection horizon")
 	ErrMissingImpact           = errors.New("counts: shifting event requires structured impact")
 	ErrInvalidResolutionAction = errors.New("counts: invalid projection exception resolution action")
+	ErrInvalidExceptionFilter  = errors.New("counts: invalid projection exception filter")
 )
 
 const (
-	defaultProjectionLimit = int32(100)
-	maxProjectionLimit     = int32(500)
+	defaultProjectionLimit          = int32(100)
+	maxProjectionLimit              = int32(500)
+	defaultProjectionExceptionLimit = int32(50)
+	maxProjectionExceptionLimit     = int32(200)
 )
 
 type Service struct {
@@ -173,6 +176,14 @@ func (s *Service) ProjectedCountFor(ctx context.Context, req domain.CountProject
 		return domain.CountProjection{}, err
 	}
 	return s.repo.ProjectedCountFor(ctx, req)
+}
+
+func (s *Service) ListProjectionExceptions(ctx context.Context, req domain.ProjectionExceptionQuery) (domain.ProjectionExceptionList, error) {
+	req, err := normalizeProjectionExceptionQuery(req)
+	if err != nil {
+		return domain.ProjectionExceptionList{}, err
+	}
+	return s.repo.ListProjectionExceptions(ctx, req)
 }
 
 func (s *Service) ResolveProjectionException(ctx context.Context, in domain.ProjectionExceptionResolutionRequest) (domain.ProjectionExceptionResolution, error) {
@@ -505,6 +516,42 @@ func normalizeProjectionRequest(req domain.CountProjectionRequest, asOf bool) (d
 	return req, nil
 }
 
+func normalizeProjectionExceptionQuery(req domain.ProjectionExceptionQuery) (domain.ProjectionExceptionQuery, error) {
+	req.TenantID = strings.TrimSpace(req.TenantID)
+	if req.TenantID == "" {
+		return domain.ProjectionExceptionQuery{}, ErrMissingRequiredField
+	}
+	req.Status = strings.ToLower(strings.TrimSpace(req.Status))
+	if req.Status == "" {
+		req.Status = "open"
+	}
+	if !oneOf(req.Status, "open", "resolved", "dismissed") {
+		return domain.ProjectionExceptionQuery{}, ErrInvalidExceptionFilter
+	}
+	req.ParkID = trimOptional(req.ParkID)
+	req.ShedID = trimOptional(req.ShedID)
+	req.ExceptionType = trimOptionalLower(req.ExceptionType)
+	req.Severity = trimOptionalLower(req.Severity)
+	req.OwnerRef = trimOptional(req.OwnerRef)
+	req.WorkState = trimOptionalLower(req.WorkState)
+	if req.ExceptionType != nil && !oneOf(*req.ExceptionType, "missing_base_count", "missing_structured_impact", "unreported_shifting", "count_mismatch", "alias_conflict", "ration_context_unresolved", "destination_shortage", "unsafe_surplus", "query_plan_unproven") {
+		return domain.ProjectionExceptionQuery{}, ErrInvalidExceptionFilter
+	}
+	if req.Severity != nil && !oneOf(*req.Severity, "warning", "blocking", "critical") {
+		return domain.ProjectionExceptionQuery{}, ErrInvalidExceptionFilter
+	}
+	if req.WorkState != nil && !oneOf(*req.WorkState, "blocked", "owner_missing", "resolved", "dismissed") {
+		return domain.ProjectionExceptionQuery{}, ErrInvalidExceptionFilter
+	}
+	if req.Limit == 0 {
+		req.Limit = defaultProjectionExceptionLimit
+	}
+	if req.Limit < 0 || req.Limit > maxProjectionExceptionLimit {
+		return domain.ProjectionExceptionQuery{}, ErrInvalidLimit
+	}
+	return req, nil
+}
+
 func dateOnly(t time.Time) time.Time {
 	return time.Date(t.UTC().Year(), t.UTC().Month(), t.UTC().Day(), 0, 0, 0, 0, time.UTC)
 }
@@ -521,6 +568,29 @@ func ptrIfNotEmpty(v string) *string {
 		return nil
 	}
 	return &v
+}
+
+func trimOptional(v *string) *string {
+	if v == nil {
+		return nil
+	}
+	return ptrIfNotEmpty(strings.TrimSpace(*v))
+}
+
+func trimOptionalLower(v *string) *string {
+	if v == nil {
+		return nil
+	}
+	return ptrIfNotEmpty(strings.ToLower(strings.TrimSpace(*v)))
+}
+
+func oneOf(value string, allowed ...string) bool {
+	for _, item := range allowed {
+		if value == item {
+			return true
+		}
+	}
+	return false
 }
 
 func appendBlockerReason(existing *string, reason string) *string {

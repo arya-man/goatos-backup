@@ -192,6 +192,7 @@ type ProjectionRow struct {
 
 type ProjectionException struct {
 	ProjectionExceptionID string
+	ProjectionSnapshotID  *string
 	ExceptionType         string
 	SourceKey             string
 	GrainKey              string
@@ -214,6 +215,31 @@ type ProjectionException struct {
 	ResolutionReason      *string
 	ResolutionRef         *string
 	ResolvedAt            *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+type ProjectionExceptionCursor struct {
+	UpdatedAt             time.Time
+	ProjectionExceptionID string
+}
+
+type ProjectionExceptionQuery struct {
+	TenantID      string
+	Status        string
+	ParkID        *string
+	ShedID        *string
+	ExceptionType *string
+	Severity      *string
+	OwnerRef      *string
+	WorkState     *string
+	Cursor        *ProjectionExceptionCursor
+	Limit         int32
+}
+
+type ProjectionExceptionList struct {
+	Items      []ProjectionException
+	NextCursor *string
 }
 
 type ProjectionExceptionResolutionRequest struct {

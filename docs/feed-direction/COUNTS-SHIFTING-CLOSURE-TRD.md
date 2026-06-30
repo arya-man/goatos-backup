@@ -114,10 +114,17 @@ Implementation status as of 2026-06-30:
   `count_projection_exception_resolutions`, updates the exception `status`,
   `work_state`, `resolved_at`, actor/ref/reason fields, and clears the linked
   Base Count discrepancy when the exception came from a physical-count mismatch.
+- `ListProjectionExceptions` now exposes a bounded, status/location/filter
+  queue over exception work with keyset cursor pagination. This is the read
+  path operators and later command lenses use to find high-risk blockers such
+  as shifted pregnant destination shortages, alias conflicts, and count
+  mismatches without scanning herd-level source data.
 - `POST /feed-direction/counts-projection/exceptions/{exception_id}/resolve`
-  and `/dismiss` expose that closure path through the protected Feed Direction
-  API with authenticated actor, `Idempotency-Key`, reason, optional resolution
-  reference, and OpenAPI contract coverage.
+  and `/dismiss`, plus `GET /feed-direction/counts-projection/exceptions`,
+  expose that review path through the protected Feed Direction API with
+  route-permission registration and OpenAPI/client contract coverage. The list
+  route is read-only; resolve/dismiss requires authenticated actor,
+  `Idempotency-Key`, reason, and optional resolution reference.
 - Projection rows now carry `base_count_anchor_id`,
   `included_shifting_event_ids_hash`, source row hash, contract hash, and
   ration-context resolution state.
@@ -132,9 +139,9 @@ Implementation status as of 2026-06-30:
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
 - This does **not** close `G2`: source import/adapters, owner-approved alias
-  mapping coverage/admin review, scheduled/import-wide mismatch scans,
-  exception routing into shared command lenses/outbox/UX, observability,
-  query-plan/synthetic-scale proof, and seeded local E2E remain blockers.
+  mapping coverage/admin review, scheduled/import-wide mismatch scans, shared
+  command-lens UX/outbox fanout, observability, query-plan/synthetic-scale
+  proof, and seeded local E2E remain blockers.
 
 ## 3. Candidate Persistence
 
@@ -247,13 +254,14 @@ Implementation status as of 2026-06-30:
 - Open exception upsert moves repeated exceptions to the newest snapshot so a
   latest Feed projection cannot appear clean because the blocker is still
   attached to an older snapshot.
-- Backend exception review now supports idempotent `resolve` and `dismiss`
-  actions with actor, reason, optional resolution reference, audit row, closed
-  exception state, and linked Base Count discrepancy cleanup when applicable.
-- The protected Feed Direction API now exposes resolve/dismiss, registered in
-  the route-permission matrix and OpenAPI. Full command-lens subscription,
-  outbox event fanout, assignment policy, and review-surface UX remain G2
-  blockers.
+- Backend exception review now supports a bounded list/read route plus
+  idempotent `resolve` and `dismiss` actions with actor, reason, optional
+  resolution reference, audit row, closed exception state, and linked Base Count
+  discrepancy cleanup when applicable.
+- The protected Feed Direction API now exposes the exception queue and close
+  actions, registered in the route-permission matrix and OpenAPI. Full
+  command-lens subscription, outbox event fanout, assignment policy, and
+  review-surface UX remain G2 blockers.
 - New physical Base Count anchors compare against the previous adopted anchor
   plus applied shifting ledger net for the same tenant, park, shed, and breed.
   A matching delta stays clean; an unexplained delta creates `unreported_shifting`

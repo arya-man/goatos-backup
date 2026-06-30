@@ -1,7 +1,10 @@
 // Package domain holds the feed-direction module domain types (per-shed feed execution records).
 package domain
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // NewDirection is the input to record one shed feed-direction execution against an obligation.
 // QuantityFed/QuantityUnit are optional ("" = unset). BatchID/lot/submission/ration are optional.
@@ -67,6 +70,53 @@ type CountsProjectionExceptionResolutionCommand struct {
 	ResolutionReason      string
 	ResolutionRef         *string
 	IdempotencyKey        string
+}
+
+type CountsProjectionExceptionQuery struct {
+	TenantID      string
+	Status        string
+	ParkID        *string
+	ShedID        *string
+	ExceptionType *string
+	Severity      *string
+	OwnerRef      *string
+	WorkState     *string
+	Cursor        *string
+	Limit         int32
+}
+
+type CountsProjectionExceptionList struct {
+	Items      []CountsProjectionException `json:"items"`
+	NextCursor *string                     `json:"next_cursor,omitempty"`
+}
+
+type CountsProjectionException struct {
+	ProjectionExceptionID string          `json:"projection_exception_id"`
+	ProjectionSnapshotID  *string         `json:"projection_snapshot_id,omitempty"`
+	ExceptionType         string          `json:"exception_type"`
+	SourceKey             string          `json:"source_key"`
+	GrainKey              string          `json:"grain_key"`
+	ParkID                *string         `json:"park_id,omitempty"`
+	ShedID                *string         `json:"shed_id,omitempty"`
+	BreedKey              *string         `json:"breed_key,omitempty"`
+	StageTag              *string         `json:"stage_tag,omitempty"`
+	Severity              string          `json:"severity"`
+	Status                string          `json:"status"`
+	OwnerRef              *string         `json:"owner_ref,omitempty"`
+	WorkType              string          `json:"work_type"`
+	WorkState             string          `json:"work_state"`
+	DueAt                 time.Time       `json:"due_at"`
+	NextAction            string          `json:"next_action"`
+	EvidenceLink          string          `json:"evidence_link"`
+	BlockerReason         string          `json:"blocker_reason"`
+	EvidenceJSON          json.RawMessage `json:"evidence_json"`
+	ResolutionID          *string         `json:"resolution_id,omitempty"`
+	ResolvedByRef         *string         `json:"resolved_by_ref,omitempty"`
+	ResolutionReason      *string         `json:"resolution_reason,omitempty"`
+	ResolutionRef         *string         `json:"resolution_ref,omitempty"`
+	ResolvedAt            *time.Time      `json:"resolved_at,omitempty"`
+	CreatedAt             time.Time       `json:"created_at"`
+	UpdatedAt             time.Time       `json:"updated_at"`
 }
 
 type CountsProjectionExceptionResolution struct {

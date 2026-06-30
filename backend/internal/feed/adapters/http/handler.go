@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	feedapp "github.com/vgoats/goatos/backend/internal/feed/app"
 	"github.com/vgoats/goatos/backend/internal/feed/domain"
@@ -20,6 +21,7 @@ const maxActionBodyBytes = 16 * 1024
 // Service is the Feed Direction application surface required by this handler.
 type Service interface {
 	Readiness(ctx context.Context, tenantID string) (domain.Readiness, error)
+	ListCountsProjectionExceptions(ctx context.Context, in domain.CountsProjectionExceptionQuery) (domain.CountsProjectionExceptionList, error)
 	ResolveCountsProjectionException(ctx context.Context, in domain.CountsProjectionExceptionResolutionCommand) (domain.CountsProjectionExceptionResolution, error)
 }
 
@@ -41,6 +43,7 @@ func NewHandler(service Service, log ...*slog.Logger) *Handler {
 // Register mounts the Feed Direction routes.
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /feed-direction/readiness", h.GetReadiness)
+	mux.HandleFunc("GET /feed-direction/counts-projection/exceptions", h.ListCountsProjectionExceptions)
 	mux.HandleFunc("POST /feed-direction/counts-projection/exceptions/{exception_id}/resolve", h.ResolveCountsProjectionException)
 	mux.HandleFunc("POST /feed-direction/counts-projection/exceptions/{exception_id}/dismiss", h.DismissCountsProjectionException)
 }
@@ -62,6 +65,39 @@ func (h *Handler) ResolveCountsProjectionException(w http.ResponseWriter, r *htt
 
 func (h *Handler) DismissCountsProjectionException(w http.ResponseWriter, r *http.Request) {
 	h.closeCountsProjectionException(w, r, "dismiss")
+}
+
+type countsProjectionExceptionListResponse struct {
+	Items      []domain.CountsProjectionException `json:"items"`
+	NextCursor *string                            `json:"next_cursor,omitempty"`
+	TraceID    string                             `json:"trace_id"`
+}
+
+func (h *Handler) ListCountsProjectionExceptions(w http.ResponseWriter, r *http.Request) {
+	limit, ok := h.parseExceptionListLimit(w, r)
+	if !ok {
+		return
+	}
+	values := r.URL.Query()
+	resp, err := h.service.ListCountsProjectionExceptions(r.Context(), domain.CountsProjectionExceptionQuery{
+		TenantID:      tenantID(r),
+		Status:        values.Get("status"),
+		ParkID:        optionalQuery(values.Get("park_id")),
+		ShedID:        optionalQuery(values.Get("shed_id")),
+		ExceptionType: optionalQuery(values.Get("exception_type")),
+		Severity:      optionalQuery(values.Get("severity")),
+		OwnerRef:      optionalQuery(values.Get("owner_ref")),
+		WorkState:     optionalQuery(values.Get("work_state")),
+		Cursor:        optionalQuery(values.Get("cursor")),
+		Limit:         limit,
+	})
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, countsProjectionExceptionListResponse{
+		Items: resp.Items, NextCursor: resp.NextCursor, TraceID: traceID(r),
+	})
 }
 
 type countsProjectionExceptionActionRequest struct {
@@ -138,6 +174,18 @@ func (h *Handler) writeAppError(w http.ResponseWriter, r *http.Request, err erro
 		status = http.StatusBadRequest
 		code = "invalid_resolution_ref"
 		message = "resolution_ref may not exceed 500 characters"
+	case errors.Is(err, feedapp.ErrInvalidLimit):
+		status = http.StatusBadRequest
+		code = "invalid_limit"
+		message = "limit must be between 1 and 200"
+	case errors.Is(err, feedapp.ErrInvalidCursor):
+		status = http.StatusBadRequest
+		code = "invalid_cursor"
+		message = "cursor must be a valid counts projection exception cursor"
+	case errors.Is(err, feedapp.ErrInvalidExceptionFilter):
+		status = http.StatusBadRequest
+		code = "invalid_filter"
+		message = "one or more counts projection exception filters are invalid"
 	case errors.Is(err, feedapp.ErrProjectionExceptionNotFound):
 		status = http.StatusNotFound
 		code = "not_found"
@@ -154,12 +202,36 @@ func (h *Handler) writeAppError(w http.ResponseWriter, r *http.Request, err erro
 		status = http.StatusInternalServerError
 		code = "resolver_unavailable"
 		message = "counts projection exception resolver is unavailable"
+	case errors.Is(err, feedapp.ErrCountsListerUnavailable):
+		status = http.StatusInternalServerError
+		code = "lister_unavailable"
+		message = "counts projection exception lister is unavailable"
 	}
 	httpresponse.WriteError(w, r, h.log, status, errorEnvelope{Code: code, Message: message, TraceID: traceID(r)}, err)
 }
 
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, message string) {
 	httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, errorEnvelope{Code: code, Message: message, TraceID: traceID(r)}, nil)
+}
+
+func (h *Handler) parseExceptionListLimit(w http.ResponseWriter, r *http.Request) (int32, bool) {
+	raw := r.URL.Query().Get("limit")
+	if raw == "" {
+		return 0, true
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+		return 0, false
+	}
+	return int32(n), true
+}
+
+func optionalQuery(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func tenantID(r *http.Request) string {

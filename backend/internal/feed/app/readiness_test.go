@@ -21,14 +21,22 @@ func (f fakeCountsReadiness) Readiness(context.Context, string) (countsdomain.Re
 }
 
 type fakeCountsExceptionResolver struct {
-	got countsdomain.ProjectionExceptionResolutionRequest
-	out countsdomain.ProjectionExceptionResolution
-	err error
+	got     countsdomain.ProjectionExceptionResolutionRequest
+	out     countsdomain.ProjectionExceptionResolution
+	err     error
+	listGot countsdomain.ProjectionExceptionQuery
+	listOut countsdomain.ProjectionExceptionList
+	listErr error
 }
 
 func (f *fakeCountsExceptionResolver) ResolveProjectionException(_ context.Context, in countsdomain.ProjectionExceptionResolutionRequest) (countsdomain.ProjectionExceptionResolution, error) {
 	f.got = in
 	return f.out, f.err
+}
+
+func (f *fakeCountsExceptionResolver) ListProjectionExceptions(_ context.Context, in countsdomain.ProjectionExceptionQuery) (countsdomain.ProjectionExceptionList, error) {
+	f.listGot = in
+	return f.listOut, f.listErr
 }
 
 func TestReadinessFailsClosedAtG2WithCountsShiftingSubgates(t *testing.T) {
@@ -192,6 +200,77 @@ func TestResolveCountsProjectionExceptionBuildsDeterministicCountsCommand(t *tes
 	}
 	if resolver.got.RequestFingerprint != firstFP {
 		t.Fatalf("fingerprint changed: %q vs %q", resolver.got.RequestFingerprint, firstFP)
+	}
+}
+
+func TestListCountsProjectionExceptionsBuildsBoundedCountsQuery(t *testing.T) {
+	cursor, err := countsdomain.EncodeProjectionExceptionCursor(countsdomain.ProjectionExceptionCursor{
+		UpdatedAt:             time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC),
+		ProjectionExceptionID: "77000000-0000-4000-8000-000000000001",
+	})
+	if err != nil {
+		t.Fatalf("cursor encode err=%v", err)
+	}
+	parkID := "10000000-0000-4000-8000-000000000001"
+	exceptionType := " DESTINATION_SHORTAGE "
+	severity := " CRITICAL "
+	lister := &fakeCountsExceptionResolver{listOut: countsdomain.ProjectionExceptionList{
+		Items: []countsdomain.ProjectionException{{
+			ProjectionExceptionID: "77000000-0000-4000-8000-000000000002",
+			ExceptionType:         "destination_shortage",
+			SourceKey:             "shift-key-1",
+			GrainKey:              "shed-b:beetal:pregnant",
+			ParkID:                &parkID,
+			Severity:              "critical",
+			Status:                "open",
+			WorkType:              "counts_projection_exception",
+			WorkState:             "owner_missing",
+			DueAt:                 time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC),
+			NextAction:            "Resolve destination ration context before Feed generation",
+			EvidenceLink:          "/feed-direction/counts-projection/exceptions/shift-key-1",
+			BlockerReason:         "destination shed ration context unresolved",
+			EvidenceJSON:          []byte(`{"pregnant":true}`),
+			CreatedAt:             time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC),
+			UpdatedAt:             time.Date(2026, 6, 30, 10, 1, 0, 0, time.UTC),
+		}},
+		NextCursor: strPtr("next-cursor"),
+	}}
+	got, err := NewService(nil).
+		WithCountsProjectionExceptionLister(lister).
+		ListCountsProjectionExceptions(context.Background(), domain.CountsProjectionExceptionQuery{
+			TenantID: " tenant-1 ", ParkID: &parkID, ExceptionType: &exceptionType,
+			Severity: &severity, Cursor: &cursor, Limit: 25,
+		})
+	if err != nil {
+		t.Fatalf("ListCountsProjectionExceptions err=%v", err)
+	}
+	if lister.listGot.TenantID != "tenant-1" || lister.listGot.Status != "open" ||
+		lister.listGot.ParkID == nil || *lister.listGot.ParkID != parkID ||
+		lister.listGot.ExceptionType == nil || *lister.listGot.ExceptionType != "destination_shortage" ||
+		lister.listGot.Severity == nil || *lister.listGot.Severity != "critical" ||
+		lister.listGot.Cursor == nil || lister.listGot.Cursor.ProjectionExceptionID != "77000000-0000-4000-8000-000000000001" ||
+		lister.listGot.Limit != 25 {
+		t.Fatalf("counts list query=%+v", lister.listGot)
+	}
+	if len(got.Items) != 1 || got.Items[0].EvidenceJSON == nil || string(got.Items[0].EvidenceJSON) != `{"pregnant":true}` ||
+		got.NextCursor == nil || *got.NextCursor != "next-cursor" {
+		t.Fatalf("list response=%+v", got)
+	}
+}
+
+func TestListCountsProjectionExceptionsFailsClosedOnInvalidCursorAndMissingLister(t *testing.T) {
+	cursor := "not+url+base64"
+	_, err := NewService(nil).ListCountsProjectionExceptions(context.Background(), domain.CountsProjectionExceptionQuery{
+		TenantID: "tenant-1", Cursor: &cursor,
+	})
+	if !errors.Is(err, ErrInvalidCursor) {
+		t.Fatalf("cursor err=%v, want ErrInvalidCursor", err)
+	}
+	_, err = NewService(nil).ListCountsProjectionExceptions(context.Background(), domain.CountsProjectionExceptionQuery{
+		TenantID: "tenant-1",
+	})
+	if !errors.Is(err, ErrCountsListerUnavailable) {
+		t.Fatalf("missing lister err=%v, want ErrCountsListerUnavailable", err)
 	}
 }
 

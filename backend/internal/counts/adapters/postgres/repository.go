@@ -507,6 +507,91 @@ func (r *Repository) ProjectedCountFor(ctx context.Context, req domain.CountProj
 	return r.projection(ctx, "feed_target_date", req)
 }
 
+func (r *Repository) ListProjectionExceptions(ctx context.Context, req domain.ProjectionExceptionQuery) (domain.ProjectionExceptionList, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	fetchLimit := req.Limit + 1
+	cursorUpdated := pgtype.Timestamptz{}
+	var cursorID any
+	if req.Cursor != nil {
+		cursorUpdated = pgtype.Timestamptz{Time: req.Cursor.UpdatedAt, Valid: true}
+		cursorID = req.Cursor.ProjectionExceptionID
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT count_projection_exception_id::text,
+       COALESCE(count_projection_snapshot_id::text, ''),
+       exception_type,
+       source_key,
+       grain_key,
+       COALESCE(park_id::text, ''),
+       COALESCE(shed_id::text, ''),
+       COALESCE(breed_key, ''),
+       COALESCE(stage_tag, ''),
+       severity,
+       status,
+       COALESCE(owner_ref, ''),
+       work_type,
+       work_state,
+       due_at,
+       next_action,
+       evidence_link,
+       blocker_reason,
+       evidence_json,
+       COALESCE(resolution_id::text, ''),
+       COALESCE(resolved_by_ref, ''),
+       COALESCE(resolution_reason, ''),
+       COALESCE(resolution_ref, ''),
+       resolved_at,
+       created_at,
+       updated_at
+FROM count_projection_exceptions
+WHERE tenant_id = $1::uuid
+  AND status = $2
+  AND (nullif($3::text, '')::uuid IS NULL OR park_id = nullif($3::text, '')::uuid)
+  AND (nullif($4::text, '')::uuid IS NULL OR shed_id = nullif($4::text, '')::uuid)
+  AND (nullif($5::text, '') IS NULL OR exception_type = nullif($5::text, ''))
+  AND (nullif($6::text, '') IS NULL OR severity = nullif($6::text, ''))
+  AND (nullif($7::text, '') IS NULL OR owner_ref = nullif($7::text, ''))
+  AND (nullif($8::text, '') IS NULL OR work_state = nullif($8::text, ''))
+  AND ($9::timestamptz IS NULL OR (updated_at, count_projection_exception_id) < ($9::timestamptz, $10::uuid))
+ORDER BY updated_at DESC, count_projection_exception_id DESC
+LIMIT $11`,
+		req.TenantID, req.Status, ptrValue(req.ParkID), ptrValue(req.ShedID),
+		ptrValue(req.ExceptionType), ptrValue(req.Severity), ptrValue(req.OwnerRef),
+		ptrValue(req.WorkState), cursorUpdated, cursorID, fetchLimit)
+	if err != nil {
+		return domain.ProjectionExceptionList{}, fmt.Errorf("counts: list projection exceptions: %w", err)
+	}
+	defer rows.Close()
+
+	out := []domain.ProjectionException{}
+	for rows.Next() {
+		ex, err := scanProjectionException(rows)
+		if err != nil {
+			return domain.ProjectionExceptionList{}, err
+		}
+		out = append(out, ex)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.ProjectionExceptionList{}, err
+	}
+	var next *string
+	if int32(len(out)) > req.Limit {
+		out = out[:req.Limit]
+		last := out[len(out)-1]
+		cursor, err := domain.EncodeProjectionExceptionCursor(domain.ProjectionExceptionCursor{
+			UpdatedAt:             last.UpdatedAt,
+			ProjectionExceptionID: last.ProjectionExceptionID,
+		})
+		if err != nil {
+			return domain.ProjectionExceptionList{}, err
+		}
+		next = &cursor
+	}
+	return domain.ProjectionExceptionList{Items: out, NextCursor: next}, nil
+}
+
 func (r *Repository) ResolveProjectionException(ctx context.Context, in domain.ProjectionExceptionResolutionRequest) (domain.ProjectionExceptionResolution, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -1156,6 +1241,37 @@ LIMIT 50`, snapshotID, out.TenantID, out.ParkID)
 		out.Exceptions = append(out.Exceptions, ex)
 	}
 	return rows.Err()
+}
+
+type projectionExceptionScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanProjectionException(scanner projectionExceptionScanner) (domain.ProjectionException, error) {
+	var ex domain.ProjectionException
+	var snapshotID, park, shed, breed, stage, owner, resolutionID, resolvedBy, reason, ref string
+	var resolvedAt pgtype.Timestamptz
+	if err := scanner.Scan(&ex.ProjectionExceptionID, &snapshotID, &ex.ExceptionType, &ex.SourceKey, &ex.GrainKey,
+		&park, &shed, &breed, &stage, &ex.Severity, &ex.Status, &owner, &ex.WorkType, &ex.WorkState,
+		&ex.DueAt, &ex.NextAction, &ex.EvidenceLink, &ex.BlockerReason, &ex.EvidenceJSON,
+		&resolutionID, &resolvedBy, &reason, &ref, &resolvedAt, &ex.CreatedAt, &ex.UpdatedAt); err != nil {
+		return domain.ProjectionException{}, fmt.Errorf("counts: scan projection exception: %w", err)
+	}
+	ex.ProjectionSnapshotID = ptrIfNotEmpty(snapshotID)
+	ex.ParkID = ptrIfNotEmpty(park)
+	ex.ShedID = ptrIfNotEmpty(shed)
+	ex.BreedKey = ptrIfNotEmpty(breed)
+	ex.StageTag = ptrIfNotEmpty(stage)
+	ex.OwnerRef = ptrIfNotEmpty(owner)
+	ex.ResolutionID = ptrIfNotEmpty(resolutionID)
+	ex.ResolvedByRef = ptrIfNotEmpty(resolvedBy)
+	ex.ResolutionReason = ptrIfNotEmpty(reason)
+	ex.ResolutionRef = ptrIfNotEmpty(ref)
+	if resolvedAt.Valid {
+		t := resolvedAt.Time
+		ex.ResolvedAt = &t
+	}
+	return ex, nil
 }
 
 func insertProjectionException(ctx context.Context, tx pgx.Tx, tenantID, snapshotID string, ex domain.ProjectionException) error {

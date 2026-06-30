@@ -23,6 +23,7 @@ type Repository interface {
 	CreateProjectionSnapshot(ctx context.Context, in domain.ProjectionSnapshot) (id string, err error)
 	CountAsOf(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error)
 	ProjectedCountFor(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error)
+	ListProjectionExceptions(ctx context.Context, req domain.ProjectionExceptionQuery) (domain.ProjectionExceptionList, error)
 	ResolveProjectionException(ctx context.Context, in domain.ProjectionExceptionResolutionRequest) (domain.ProjectionExceptionResolution, error)
 	Readiness(ctx context.Context, tenantID string) (domain.Readiness, error)
 }

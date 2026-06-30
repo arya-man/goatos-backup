@@ -386,6 +386,58 @@ WHERE tenant_id=$1::uuid
 	}
 }
 
+func TestRepositoryListsProjectionExceptionsWithBoundedCursor(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 3*time.Second)
+	anchorID, replay, err := repo.RecordBaseCountAnchor(ctx, baseAnchor("list-exceptions-anchor-key", "list-exceptions-anchor-fp"))
+	if err != nil || replay || anchorID == "" {
+		t.Fatalf("anchor id=%q replay=%v err=%v", anchorID, replay, err)
+	}
+	target := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	blocker := "pregnant destination shed shortage: reviewed ration context missing"
+	snapshot := repeatedExceptionSnapshot(anchorID, target, "snapshot-list-hash", blocker, "beetal", "pregnant")
+	snapshot.Exceptions = append(snapshot.Exceptions, domain.ProjectionException{
+		ExceptionType: "destination_shortage", SourceKey: "shift-key-list-2", GrainKey: "shed-b:beetal:pregnant:2",
+		ParkID: strPtr(countsPark), ShedID: strPtr(countsShedB), BreedKey: strPtr("beetal"), StageTag: strPtr("pregnant"),
+		Severity: "critical", BlockerReason: blocker,
+	})
+	if _, err := repo.CreateProjectionSnapshot(ctx, snapshot); err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+
+	first, err := repo.ListProjectionExceptions(ctx, domain.ProjectionExceptionQuery{
+		TenantID: countsTenant, Status: "open", ParkID: strPtr(countsPark), Severity: strPtr("critical"), Limit: 1,
+	})
+	if err != nil {
+		t.Fatalf("list first page: %v", err)
+	}
+	if len(first.Items) != 1 || first.NextCursor == nil {
+		t.Fatalf("first page=%+v, want one item and cursor", first)
+	}
+	if first.Items[0].ProjectionExceptionID == "" || first.Items[0].ProjectionSnapshotID == nil ||
+		first.Items[0].WorkType != "counts_projection_exception" || first.Items[0].DueAt.IsZero() ||
+		first.Items[0].CreatedAt.IsZero() || first.Items[0].UpdatedAt.IsZero() {
+		t.Fatalf("first exception missing work metadata: %+v", first.Items[0])
+	}
+	cursor, err := domain.DecodeProjectionExceptionCursor(*first.NextCursor)
+	if err != nil {
+		t.Fatalf("decode next cursor: %v", err)
+	}
+	second, err := repo.ListProjectionExceptions(ctx, domain.ProjectionExceptionQuery{
+		TenantID: countsTenant, Status: "open", ParkID: strPtr(countsPark), Severity: strPtr("critical"), Cursor: &cursor, Limit: 1,
+	})
+	if err != nil {
+		t.Fatalf("list second page: %v", err)
+	}
+	if len(second.Items) != 1 || second.NextCursor != nil {
+		t.Fatalf("second page=%+v, want one final item", second)
+	}
+	if second.Items[0].ProjectionExceptionID == first.Items[0].ProjectionExceptionID {
+		t.Fatalf("cursor repeated same exception %s", second.Items[0].ProjectionExceptionID)
+	}
+}
+
 func TestRepositoryRelinksRepeatedOpenExceptionToLatestSnapshot(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)

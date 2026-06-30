@@ -1320,6 +1320,99 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-direction/counts-projection/exceptions:
+    get:
+      tags:
+        - Feed Direction
+      operationId: listFeedDirectionCountsProjectionExceptions
+      summary: List bounded Counts/Shifting projection exceptions for Feed Direction review.
+      description: >-
+        Returns owner-visible Counts/Shifting exception work for Feed Direction before any resolve
+        or dismiss action. This queue is for reviewed closure of blockers such as pregnant shifted
+        cohorts with unresolved destination ration context, count mismatches, alias conflicts,
+        unsafe surplus, or query-plan proof gaps. It does not allow generation by itself.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - open
+              - resolved
+              - dismissed
+          description: Defaults to open.
+        - name: park_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: exception_type
+          in: query
+          schema:
+            type: string
+            enum:
+              - missing_base_count
+              - missing_structured_impact
+              - unreported_shifting
+              - count_mismatch
+              - alias_conflict
+              - ration_context_unresolved
+              - destination_shortage
+              - unsafe_surplus
+              - query_plan_unproven
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum:
+              - warning
+              - blocking
+              - critical
+        - name: owner_ref
+          in: query
+          schema:
+            type: string
+        - name: work_state
+          in: query
+          schema:
+            type: string
+            enum:
+              - blocked
+              - owner_missing
+              - resolved
+              - dismissed
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: Opaque keyset cursor returned by the previous page.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+          description: Defaults to 50.
+      responses:
+        "200":
+          description: Bounded Counts/Shifting projection exception queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedDirectionCountsProjectionExceptionListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /feed-direction/counts-projection/exceptions/{exception_id}/resolve:
     post:
       tags:
@@ -6093,6 +6186,133 @@ components:
         - ready
         - blocked
         - pending
+    FeedDirectionCountsProjectionExceptionListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedDirectionCountsProjectionException"
+        next_cursor:
+          type: string
+        trace_id:
+          type: string
+    FeedDirectionCountsProjectionException:
+      type: object
+      additionalProperties: false
+      required:
+        - projection_exception_id
+        - exception_type
+        - source_key
+        - grain_key
+        - severity
+        - status
+        - work_type
+        - work_state
+        - due_at
+        - next_action
+        - evidence_link
+        - blocker_reason
+        - evidence_json
+        - created_at
+        - updated_at
+      properties:
+        projection_exception_id:
+          type: string
+          format: uuid
+        projection_snapshot_id:
+          type: string
+          format: uuid
+        exception_type:
+          type: string
+          enum:
+            - missing_base_count
+            - missing_structured_impact
+            - unreported_shifting
+            - count_mismatch
+            - alias_conflict
+            - ration_context_unresolved
+            - destination_shortage
+            - unsafe_surplus
+            - query_plan_unproven
+        source_key:
+          type: string
+          minLength: 1
+        grain_key:
+          type: string
+          minLength: 1
+        park_id:
+          type: string
+          format: uuid
+        shed_id:
+          type: string
+          format: uuid
+        breed_key:
+          type: string
+        stage_tag:
+          type: string
+        severity:
+          type: string
+          enum:
+            - warning
+            - blocking
+            - critical
+        status:
+          type: string
+          enum:
+            - open
+            - resolved
+            - dismissed
+        owner_ref:
+          type: string
+        work_type:
+          type: string
+          enum:
+            - counts_projection_exception
+        work_state:
+          type: string
+          enum:
+            - blocked
+            - owner_missing
+            - resolved
+            - dismissed
+        due_at:
+          type: string
+          format: date-time
+        next_action:
+          type: string
+          minLength: 1
+        evidence_link:
+          type: string
+          minLength: 1
+        blocker_reason:
+          type: string
+          minLength: 1
+        evidence_json:
+          type: object
+          additionalProperties: true
+        resolution_id:
+          type: string
+          format: uuid
+        resolved_by_ref:
+          type: string
+        resolution_reason:
+          type: string
+        resolution_ref:
+          type: string
+        resolved_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     FeedDirectionCountsProjectionExceptionActionRequest:
       type: object
       additionalProperties: false

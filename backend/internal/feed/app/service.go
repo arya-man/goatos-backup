@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -21,7 +22,11 @@ var (
 	ErrInvalidIdempotencyKey       = errors.New("feed: invalid idempotency key")
 	ErrInvalidResolutionReason     = errors.New("feed: invalid resolution reason")
 	ErrInvalidResolutionRef        = errors.New("feed: invalid resolution ref")
+	ErrInvalidLimit                = errors.New("feed: invalid limit")
+	ErrInvalidCursor               = errors.New("feed: invalid cursor")
+	ErrInvalidExceptionFilter      = errors.New("feed: invalid counts projection exception filter")
 	ErrCountsResolverUnavailable   = errors.New("feed: counts projection exception resolver unavailable")
+	ErrCountsListerUnavailable     = errors.New("feed: counts projection exception lister unavailable")
 	ErrIdempotencyConflict         = errors.New("feed: idempotency key reused with different payload")
 	ErrProjectionExceptionNotFound = errors.New("feed: counts projection exception not found")
 	ErrProjectionExceptionClosed   = errors.New("feed: counts projection exception already closed")
@@ -32,6 +37,8 @@ const (
 	maxIdempotencyKeyLen   = 200
 	maxResolutionReasonLen = 2000
 	maxResolutionRefLen    = 500
+	defaultExceptionLimit  = int32(50)
+	maxExceptionLimit      = int32(200)
 )
 
 type countsReadinessReader interface {
@@ -42,11 +49,16 @@ type countsProjectionExceptionResolver interface {
 	ResolveProjectionException(ctx context.Context, in countsdomain.ProjectionExceptionResolutionRequest) (countsdomain.ProjectionExceptionResolution, error)
 }
 
+type countsProjectionExceptionLister interface {
+	ListProjectionExceptions(ctx context.Context, in countsdomain.ProjectionExceptionQuery) (countsdomain.ProjectionExceptionList, error)
+}
+
 // Service coordinates feed-direction use-cases over the repository boundary.
 type Service struct {
 	repo                      ports.Repository
 	countsReadiness           countsReadinessReader
 	countsExceptionResolution countsProjectionExceptionResolver
+	countsExceptionList       countsProjectionExceptionLister
 	now                       func() time.Time
 }
 
@@ -70,6 +82,11 @@ func (s *Service) WithCountsReadiness(reader countsReadinessReader) *Service {
 
 func (s *Service) WithCountsProjectionExceptionResolver(resolver countsProjectionExceptionResolver) *Service {
 	s.countsExceptionResolution = resolver
+	return s
+}
+
+func (s *Service) WithCountsProjectionExceptionLister(lister countsProjectionExceptionLister) *Service {
+	s.countsExceptionList = lister
 	return s
 }
 
@@ -97,6 +114,64 @@ func (s *Service) ShedHistory(ctx context.Context, tenantID, shedID string, limi
 // VerificationQueue returns directions awaiting review (earliest fed first).
 func (s *Service) VerificationQueue(ctx context.Context, tenantID string, limit int32) ([]domain.RecordedDirection, error) {
 	return s.repo.ListRecordedDirections(ctx, tenantID, limit)
+}
+
+func (s *Service) ListCountsProjectionExceptions(ctx context.Context, in domain.CountsProjectionExceptionQuery) (domain.CountsProjectionExceptionList, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	in.Status = strings.ToLower(strings.TrimSpace(in.Status))
+	if in.Status == "" {
+		in.Status = "open"
+	}
+	in.ParkID = trimOptional(in.ParkID)
+	in.ShedID = trimOptional(in.ShedID)
+	in.ExceptionType = trimOptionalLower(in.ExceptionType)
+	in.Severity = trimOptionalLower(in.Severity)
+	in.OwnerRef = trimOptional(in.OwnerRef)
+	in.WorkState = trimOptionalLower(in.WorkState)
+	if in.TenantID == "" {
+		return domain.CountsProjectionExceptionList{}, ErrMissingRequiredField
+	}
+	if !oneOf(in.Status, "open", "resolved", "dismissed") ||
+		(in.ParkID != nil && !countsdomain.IsUUIDString(*in.ParkID)) ||
+		(in.ShedID != nil && !countsdomain.IsUUIDString(*in.ShedID)) ||
+		(in.ExceptionType != nil && !oneOf(*in.ExceptionType, "missing_base_count", "missing_structured_impact", "unreported_shifting", "count_mismatch", "alias_conflict", "ration_context_unresolved", "destination_shortage", "unsafe_surplus", "query_plan_unproven")) ||
+		(in.Severity != nil && !oneOf(*in.Severity, "warning", "blocking", "critical")) ||
+		(in.WorkState != nil && !oneOf(*in.WorkState, "blocked", "owner_missing", "resolved", "dismissed")) {
+		return domain.CountsProjectionExceptionList{}, ErrInvalidExceptionFilter
+	}
+	if in.Limit == 0 {
+		in.Limit = defaultExceptionLimit
+	}
+	if in.Limit < 0 || in.Limit > maxExceptionLimit {
+		return domain.CountsProjectionExceptionList{}, ErrInvalidLimit
+	}
+	var cursor *countsdomain.ProjectionExceptionCursor
+	if in.Cursor != nil {
+		raw := strings.TrimSpace(*in.Cursor)
+		if raw != "" {
+			decoded, err := countsdomain.DecodeProjectionExceptionCursor(raw)
+			if err != nil {
+				return domain.CountsProjectionExceptionList{}, ErrInvalidCursor
+			}
+			cursor = &decoded
+		}
+	}
+	if s.countsExceptionList == nil {
+		return domain.CountsProjectionExceptionList{}, ErrCountsListerUnavailable
+	}
+	out, err := s.countsExceptionList.ListProjectionExceptions(ctx, countsdomain.ProjectionExceptionQuery{
+		TenantID: in.TenantID, Status: in.Status, ParkID: in.ParkID, ShedID: in.ShedID,
+		ExceptionType: in.ExceptionType, Severity: in.Severity, OwnerRef: in.OwnerRef,
+		WorkState: in.WorkState, Cursor: cursor, Limit: in.Limit,
+	})
+	if err != nil {
+		return domain.CountsProjectionExceptionList{}, err
+	}
+	items := make([]domain.CountsProjectionException, 0, len(out.Items))
+	for _, item := range out.Items {
+		items = append(items, mapCountsProjectionException(item))
+	}
+	return domain.CountsProjectionExceptionList{Items: items, NextCursor: out.NextCursor}, nil
 }
 
 func (s *Service) ResolveCountsProjectionException(ctx context.Context, in domain.CountsProjectionExceptionResolutionCommand) (domain.CountsProjectionExceptionResolution, error) {
@@ -187,6 +262,41 @@ func (s *Service) Readiness(ctx context.Context, tenantID string) (domain.Readin
 	return readiness, nil
 }
 
+func mapCountsProjectionException(in countsdomain.ProjectionException) domain.CountsProjectionException {
+	evidence := json.RawMessage([]byte(`{}`))
+	if len(in.EvidenceJSON) > 0 {
+		evidence = append(json.RawMessage(nil), in.EvidenceJSON...)
+	}
+	return domain.CountsProjectionException{
+		ProjectionExceptionID: in.ProjectionExceptionID,
+		ProjectionSnapshotID:  in.ProjectionSnapshotID,
+		ExceptionType:         in.ExceptionType,
+		SourceKey:             in.SourceKey,
+		GrainKey:              in.GrainKey,
+		ParkID:                in.ParkID,
+		ShedID:                in.ShedID,
+		BreedKey:              in.BreedKey,
+		StageTag:              in.StageTag,
+		Severity:              in.Severity,
+		Status:                in.Status,
+		OwnerRef:              in.OwnerRef,
+		WorkType:              in.WorkType,
+		WorkState:             in.WorkState,
+		DueAt:                 in.DueAt,
+		NextAction:            in.NextAction,
+		EvidenceLink:          in.EvidenceLink,
+		BlockerReason:         in.BlockerReason,
+		EvidenceJSON:          evidence,
+		ResolutionID:          in.ResolutionID,
+		ResolvedByRef:         in.ResolvedByRef,
+		ResolutionReason:      in.ResolutionReason,
+		ResolutionRef:         in.ResolutionRef,
+		ResolvedAt:            in.ResolvedAt,
+		CreatedAt:             in.CreatedAt,
+		UpdatedAt:             in.UpdatedAt,
+	}
+}
+
 func mapCountsProjectionExceptionError(err error) error {
 	switch {
 	case errors.Is(err, countsports.ErrIdempotencyConflict):
@@ -219,6 +329,29 @@ func ptrIfNotEmpty(v string) *string {
 		return nil
 	}
 	return &v
+}
+
+func trimOptional(v *string) *string {
+	if v == nil {
+		return nil
+	}
+	return ptrIfNotEmpty(strings.TrimSpace(*v))
+}
+
+func trimOptionalLower(v *string) *string {
+	if v == nil {
+		return nil
+	}
+	return ptrIfNotEmpty(strings.ToLower(strings.TrimSpace(*v)))
+}
+
+func oneOf(value string, allowed ...string) bool {
+	for _, item := range allowed {
+		if value == item {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) clock() time.Time {

@@ -14,6 +14,7 @@ type fakeRepo struct {
 	event      domain.ShiftingEvent
 	inputs     domain.ProjectionInputs
 	snap       domain.ProjectionSnapshot
+	query      domain.ProjectionExceptionQuery
 	resolution domain.ProjectionExceptionResolutionRequest
 }
 
@@ -37,6 +38,18 @@ func (f *fakeRepo) CountAsOf(_ context.Context, req domain.CountProjectionReques
 }
 func (f *fakeRepo) ProjectedCountFor(_ context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error) {
 	return domain.CountProjection{TenantID: req.TenantID, Horizon: "feed_target_date", TotalRowCount: int64(req.Limit)}, nil
+}
+func (f *fakeRepo) ListProjectionExceptions(_ context.Context, req domain.ProjectionExceptionQuery) (domain.ProjectionExceptionList, error) {
+	f.query = req
+	return domain.ProjectionExceptionList{Items: []domain.ProjectionException{{
+		ProjectionExceptionID: "77000000-0000-4000-8000-000000000001",
+		ExceptionType:         "destination_shortage",
+		SourceKey:             "shift-key-1",
+		GrainKey:              "shed-b:beetal:pregnant",
+		Severity:              "critical",
+		Status:                req.Status,
+		BlockerReason:         "destination shed ration context unresolved",
+	}}}, nil
 }
 func (f *fakeRepo) ResolveProjectionException(_ context.Context, in domain.ProjectionExceptionResolutionRequest) (domain.ProjectionExceptionResolution, error) {
 	f.resolution = in
@@ -287,6 +300,40 @@ func TestProjectedCountForDefaultsLimitAndRejectsUnboundedLimit(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalidLimit) {
 		t.Fatalf("err=%v, want ErrInvalidLimit", err)
+	}
+}
+
+func TestListProjectionExceptionsDefaultsAndValidatesFilters(t *testing.T) {
+	repo := &fakeRepo{}
+	severity := " CRITICAL "
+	workState := " OWNER_MISSING "
+	out, err := NewService(repo).ListProjectionExceptions(context.Background(), domain.ProjectionExceptionQuery{
+		TenantID: " tenant ", Severity: &severity, WorkState: &workState,
+	})
+	if err != nil {
+		t.Fatalf("ListProjectionExceptions err=%v", err)
+	}
+	if len(out.Items) != 1 {
+		t.Fatalf("items=%d, want 1", len(out.Items))
+	}
+	if repo.query.TenantID != "tenant" || repo.query.Status != "open" ||
+		repo.query.Severity == nil || *repo.query.Severity != "critical" ||
+		repo.query.WorkState == nil || *repo.query.WorkState != "owner_missing" ||
+		repo.query.Limit != defaultProjectionExceptionLimit {
+		t.Fatalf("normalized query=%+v", repo.query)
+	}
+
+	_, err = NewService(repo).ListProjectionExceptions(context.Background(), domain.ProjectionExceptionQuery{
+		TenantID: "tenant", Status: "all",
+	})
+	if !errors.Is(err, ErrInvalidExceptionFilter) {
+		t.Fatalf("status err=%v, want ErrInvalidExceptionFilter", err)
+	}
+	_, err = NewService(repo).ListProjectionExceptions(context.Background(), domain.ProjectionExceptionQuery{
+		TenantID: "tenant", Limit: maxProjectionExceptionLimit + 1,
+	})
+	if !errors.Is(err, ErrInvalidLimit) {
+		t.Fatalf("limit err=%v, want ErrInvalidLimit", err)
 	}
 }
 
