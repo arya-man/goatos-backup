@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -165,7 +166,11 @@ func (r *Repository) ProjectionInputs(ctx context.Context, req domain.Projection
 	if err != nil {
 		return domain.ProjectionInputs{}, err
 	}
-	return domain.ProjectionInputs{Anchors: anchors, Movements: movements}, nil
+	inputs := domain.ProjectionInputs{Anchors: anchors, Movements: movements}
+	if err := r.resolveProjectionAliases(ctx, req, &inputs); err != nil {
+		return domain.ProjectionInputs{}, err
+	}
+	return inputs, nil
 }
 
 func (r *Repository) CreateProjectionSnapshot(ctx context.Context, in domain.ProjectionSnapshot) (string, error) {
@@ -228,7 +233,7 @@ func (r *Repository) projectionAnchors(ctx context.Context, req domain.Projectio
 SELECT DISTINCT ON (shed_id, lower(breed_key))
        base_count_anchor_id::text, park_id::text, shed_id::text,
        COALESCE(breed_id::text, ''), breed_key, breed_label,
-       counted_at, head_count, source_hash
+       source_system, counted_at, head_count, source_hash
 FROM count_base_anchors
 WHERE tenant_id = $1::uuid
   AND park_id = $2::uuid
@@ -245,11 +250,12 @@ ORDER BY shed_id, lower(breed_key), counted_at DESC, base_count_anchor_id DESC`,
 		var anchor domain.ProjectionBaseAnchor
 		var breedID string
 		if err := rows.Scan(&anchor.BaseCountAnchorID, &anchor.ParkID, &anchor.ShedID,
-			&breedID, &anchor.BreedKey, &anchor.BreedLabel, &anchor.CountedAt,
+			&breedID, &anchor.BreedKey, &anchor.BreedLabel, &anchor.SourceSystem, &anchor.CountedAt,
 			&anchor.HeadCount, &anchor.SourceHash); err != nil {
 			return nil, fmt.Errorf("counts: scan projection anchor: %w", err)
 		}
 		anchor.BreedID = ptrIfNotEmpty(breedID)
+		anchor.SourceBreedKey = anchor.BreedKey
 		out = append(out, anchor)
 	}
 	return out, rows.Err()
@@ -267,7 +273,7 @@ func (r *Repository) projectionMovements(ctx context.Context, req domain.Project
 		var movement domain.ProjectionMovementImpact
 		var sourceShed, breedID, stage, age, sex, rationRef, blocker string
 		if err := rows.Scan(&movement.ShiftingEventID, &movement.LogicalShiftingEventKey,
-			&sourceShed, &movement.DestinationShedID, &movement.EffectiveAt,
+			&movement.SourceSystem, &sourceShed, &movement.DestinationShedID, &movement.EffectiveAt,
 			&movement.GrainKey, &breedID, &movement.BreedKey, &movement.BreedLabel,
 			&stage, &age, &sex, &movement.HeadCount, &movement.PregnantCount,
 			&movement.LactatingCount, &movement.WarmupCount, &movement.RationContextResolutionState,
@@ -277,6 +283,8 @@ func (r *Repository) projectionMovements(ctx context.Context, req domain.Project
 		movement.SourceShedID = ptrIfNotEmpty(sourceShed)
 		movement.BreedID = ptrIfNotEmpty(breedID)
 		movement.StageTag = ptrIfNotEmpty(stage)
+		movement.SourceBreedKey = movement.BreedKey
+		movement.SourceStageTag = movement.StageTag
 		movement.AgeClass = ptrIfNotEmpty(age)
 		movement.Sex = ptrIfNotEmpty(sex)
 		movement.RationContextRef = ptrIfNotEmpty(rationRef)
@@ -289,6 +297,7 @@ func (r *Repository) projectionMovements(ctx context.Context, req domain.Project
 func movementWindowQuery(req domain.ProjectionRecomputeRequest) (string, []any) {
 	base := `
 SELECT se.shifting_event_id::text, se.logical_shifting_event_key,
+       se.source_system,
        COALESCE(se.source_shed_id::text, ''), se.destination_shed_id::text,
        se.effective_at, sei.grain_key, COALESCE(sei.breed_id::text, ''),
        sei.breed_key, sei.breed_label, COALESCE(sei.stage_tag, ''),
@@ -318,6 +327,168 @@ ORDER BY se.effective_at, se.shifting_event_id, sei.grain_key`, []any{req.Tenant
   AND se.effective_at >= $3
   AND se.effective_at < $4
 ORDER BY se.effective_at, se.shifting_event_id, sei.grain_key`, []any{req.TenantID, req.ParkID, start, end}
+}
+
+type countAliasMapping struct {
+	CanonicalValue string
+	CanonicalLabel string
+}
+
+type breedAliasMapping struct {
+	BreedID       string
+	CanonicalName string
+}
+
+func (r *Repository) resolveProjectionAliases(ctx context.Context, req domain.ProjectionRecomputeRequest, inputs *domain.ProjectionInputs) error {
+	approved, err := r.approvedCountAliases(ctx, req.TenantID, req.AsOf)
+	if err != nil {
+		return err
+	}
+	breedAliases, err := r.activeBreedAliases(ctx)
+	if err != nil {
+		return err
+	}
+	for i := range inputs.Anchors {
+		anchor := &inputs.Anchors[i]
+		resolved, blocker := resolveBreedAlias(anchor.BreedKey, anchor.SourceSystem, approved, breedAliases)
+		if resolved.CanonicalValue != "" {
+			anchor.BreedKey = countAliasNorm(resolved.CanonicalValue)
+			anchor.BreedLabel = defaultString(resolved.CanonicalLabel, resolved.CanonicalValue)
+			if breed, ok := breedAliases[countAliasNorm(resolved.CanonicalValue)]; ok {
+				anchor.BreedID = &breed.BreedID
+				anchor.BreedLabel = breed.CanonicalName
+			}
+		}
+		if blocker != "" {
+			anchor.AliasBlockerReason = appendAliasBlocker(anchor.AliasBlockerReason, blocker)
+		}
+	}
+	for i := range inputs.Movements {
+		movement := &inputs.Movements[i]
+		resolved, blocker := resolveBreedAlias(movement.BreedKey, movement.SourceSystem, approved, breedAliases)
+		if resolved.CanonicalValue != "" {
+			movement.BreedKey = countAliasNorm(resolved.CanonicalValue)
+			movement.BreedLabel = defaultString(resolved.CanonicalLabel, resolved.CanonicalValue)
+			if breed, ok := breedAliases[countAliasNorm(resolved.CanonicalValue)]; ok {
+				movement.BreedID = &breed.BreedID
+				movement.BreedLabel = breed.CanonicalName
+			}
+		}
+		if blocker != "" {
+			movement.AliasBlockerReason = appendAliasBlocker(movement.AliasBlockerReason, blocker)
+		}
+		if movement.StageTag != nil {
+			stage, stageBlocker := resolveDimensionAlias("stage_tag", *movement.StageTag, movement.SourceSystem, approved)
+			if stage.CanonicalValue != "" {
+				canonical := countAliasNorm(stage.CanonicalValue)
+				movement.StageTag = &canonical
+			}
+			if stageBlocker != "" {
+				movement.AliasBlockerReason = appendAliasBlocker(movement.AliasBlockerReason, stageBlocker)
+			}
+		}
+	}
+	return nil
+}
+
+func (r *Repository) approvedCountAliases(ctx context.Context, tenantID string, asOf time.Time) (map[string]countAliasMapping, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT dimension, source_system, source_value_norm, canonical_value, COALESCE(canonical_label, '')
+FROM count_dimension_aliases
+WHERE tenant_id = $1::uuid
+  AND review_status = 'approved'
+  AND effective_from <= $2::date
+  AND (effective_to IS NULL OR effective_to > $2::date)`, tenantID, dateOnly(asOf))
+	if err != nil {
+		return nil, fmt.Errorf("counts: query approved aliases: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]countAliasMapping{}
+	for rows.Next() {
+		var dimension, sourceSystem, sourceValueNorm string
+		var mapping countAliasMapping
+		if err := rows.Scan(&dimension, &sourceSystem, &sourceValueNorm, &mapping.CanonicalValue, &mapping.CanonicalLabel); err != nil {
+			return nil, fmt.Errorf("counts: scan approved alias: %w", err)
+		}
+		out[countAliasKey(dimension, sourceSystem, sourceValueNorm)] = mapping
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) activeBreedAliases(ctx context.Context) (map[string]breedAliasMapping, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT ba.normalized_alias, b.breed_id::text, b.canonical_name
+FROM breed_aliases ba
+JOIN breeds b ON b.breed_id = ba.breed_id
+WHERE b.status = 'active'
+ORDER BY ba.source_system NULLS LAST, ba.alias_id`)
+	if err != nil {
+		return nil, fmt.Errorf("counts: query breed aliases: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]breedAliasMapping{}
+	for rows.Next() {
+		var norm string
+		var mapping breedAliasMapping
+		if err := rows.Scan(&norm, &mapping.BreedID, &mapping.CanonicalName); err != nil {
+			return nil, fmt.Errorf("counts: scan breed alias: %w", err)
+		}
+		if _, exists := out[norm]; !exists {
+			out[norm] = mapping
+		}
+	}
+	return out, rows.Err()
+}
+
+func resolveBreedAlias(raw, sourceSystem string, approved map[string]countAliasMapping, breedAliases map[string]breedAliasMapping) (countAliasMapping, string) {
+	norm := countAliasNorm(raw)
+	if norm == "" {
+		return countAliasMapping{}, ""
+	}
+	if mapping, ok := approved[countAliasKey("breed", sourceSystem, norm)]; ok {
+		return mapping, ""
+	}
+	if mapping, ok := approved[countAliasKey("breed", "*", norm)]; ok {
+		return mapping, ""
+	}
+	if breed, ok := breedAliases[norm]; ok {
+		return countAliasMapping{CanonicalValue: breed.CanonicalName, CanonicalLabel: breed.CanonicalName}, ""
+	}
+	return countAliasMapping{}, fmt.Sprintf("unreviewed breed alias %q from source_system %q", raw, sourceSystem)
+}
+
+func resolveDimensionAlias(dimension, raw, sourceSystem string, approved map[string]countAliasMapping) (countAliasMapping, string) {
+	norm := countAliasNorm(raw)
+	if norm == "" {
+		return countAliasMapping{}, ""
+	}
+	if mapping, ok := approved[countAliasKey(dimension, sourceSystem, norm)]; ok {
+		return mapping, ""
+	}
+	if mapping, ok := approved[countAliasKey(dimension, "*", norm)]; ok {
+		return mapping, ""
+	}
+	return countAliasMapping{}, fmt.Sprintf("unreviewed %s alias %q from source_system %q", dimension, raw, sourceSystem)
+}
+
+func countAliasKey(dimension, sourceSystem, norm string) string {
+	return strings.TrimSpace(dimension) + "\x00" + strings.TrimSpace(sourceSystem) + "\x00" + strings.TrimSpace(norm)
+}
+
+func countAliasNorm(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), "_"))
+}
+
+func appendAliasBlocker(existing *string, reason string) *string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return existing
+	}
+	if existing == nil || strings.TrimSpace(*existing) == "" {
+		return &reason
+	}
+	combined := strings.TrimSpace(*existing) + "; " + reason
+	return &combined
 }
 
 func (r *Repository) CountAsOf(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error) {
@@ -784,7 +955,7 @@ func defaultSubgates(checkedAt time.Time) []domain.ReadinessSubgate {
 		{"CSG4", "Realized count_as_of and one-day projected_count_for horizon split not proven."},
 		{"CSG5", "Immediate physical Base Count adoption plus discrepancy investigation not proven."},
 		{"CSG6", "Unreported-shifting and count-mismatch detection not proven."},
-		{"CSG7", "Breed/stage alias normalization not proven."},
+		{"CSG7", "Owner-approved breed/stage alias mapping coverage is not complete."},
 		{"CSG8", "Idempotency/replay across ingestion, projection, and source replay not proven."},
 		{"CSG9", "Feed projection API over bounded immutable rows not proven."},
 		{"CSG10", "Scale, observability, source parity, and seeded E2E not proven."},

@@ -126,20 +126,24 @@ type ProjectionInputs struct {
 }
 
 type ProjectionBaseAnchor struct {
-	BaseCountAnchorID string
-	ParkID            string
-	ShedID            string
-	BreedID           *string
-	BreedKey          string
-	BreedLabel        string
-	CountedAt         time.Time
-	HeadCount         int32
-	SourceHash        string
+	BaseCountAnchorID  string
+	ParkID             string
+	ShedID             string
+	BreedID            *string
+	BreedKey           string
+	BreedLabel         string
+	SourceSystem       string
+	SourceBreedKey     string
+	CountedAt          time.Time
+	HeadCount          int32
+	SourceHash         string
+	AliasBlockerReason *string
 }
 
 type ProjectionMovementImpact struct {
 	ShiftingEventID              string
 	LogicalShiftingEventKey      string
+	SourceSystem                 string
 	SourceShedID                 *string
 	DestinationShedID            string
 	EffectiveAt                  time.Time
@@ -147,7 +151,9 @@ type ProjectionMovementImpact struct {
 	BreedID                      *string
 	BreedKey                     string
 	BreedLabel                   string
+	SourceBreedKey               string
 	StageTag                     *string
+	SourceStageTag               *string
 	AgeClass                     *string
 	Sex                          *string
 	HeadCount                    int32
@@ -157,6 +163,7 @@ type ProjectionMovementImpact struct {
 	RationContextResolutionState string
 	RationContextRef             *string
 	BlockerReason                *string
+	AliasBlockerReason           *string
 }
 
 type ProjectionRow struct {

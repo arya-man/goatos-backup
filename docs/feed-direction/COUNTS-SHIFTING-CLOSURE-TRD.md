@@ -95,6 +95,11 @@ Implementation status as of 2026-06-30:
   in-process eventbus publisher. It recomputes bounded `count_as_of` and
   `feed_target_date` snapshots for the event day and each affected park,
   including both source and destination parks for cross-park shifting.
+- `count_dimension_aliases` stores reviewed, source-evidenced aliases for
+  Counts dimensions (`breed`, `stage_tag`, `age_class`, `sex`, `shed_tag`).
+  Projection recompute resolves approved breed/stage aliases before Feed sees
+  rows; unreviewed aliases emit open `alias_conflict` exceptions and keep the
+  affected row blocked.
 - Projection rows now carry `base_count_anchor_id`,
   `included_shifting_event_ids_hash`, source row hash, contract hash, and
   ration-context resolution state.
@@ -108,10 +113,10 @@ Implementation status as of 2026-06-30:
   `missing_base_count`, not an empty ready snapshot.
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
-- This does **not** close `G2`: source import/adapters, alias normalization,
-  count-mismatch detection beyond negative source protection, exception work
-  routing, observability, query-plan/synthetic-scale proof, and seeded local E2E
-  remain blockers.
+- This does **not** close `G2`: source import/adapters, owner-approved alias
+  mapping coverage/admin review, count-mismatch detection beyond negative source
+  protection, exception work routing, observability, query-plan/synthetic-scale
+  proof, and seeded local E2E remain blockers.
 
 ## 3. Candidate Persistence
 
@@ -187,6 +192,19 @@ output is consumed by Feed. Known review items include:
 
 Aliases must carry source reference, review_status, reviewer, effective range,
 and approval metadata when they affect count or ration selection.
+
+Implementation status as of 2026-06-30:
+
+- Reviewed aliases live in `count_dimension_aliases`; no legacy workbook alias
+  is approved automatically.
+- Breed normalization first checks approved Counts aliases, then active canonical
+  `breed_aliases` for pass-through labels such as Beetal.
+- Stage/tag aliases require approved Counts alias rows. Values such as K0,
+  F2/Fattening, Warmup, Pregnant, and Mother/M0 remain blocked until reviewed
+  for the specific Feed Direction source context.
+- Unreviewed aliases do not get silently "fixed"; recompute produces
+  `alias_conflict` exceptions and includes those exceptions in the projection
+  source hash.
 
 ## 7. Exception Work
 

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -257,6 +258,96 @@ func TestServiceRecomputesProjectionWithAuthorizedShiftOnlyInProjectedHorizon(t 
 	}
 }
 
+func TestServiceRecomputeNormalizesReviewedBreedAndStageAliases(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	seedCountDimensionAlias(t, ctx, pool, "breed", "*", "SIROHI", "Beetal", "Beetal")
+	seedCountDimensionAlias(t, ctx, pool, "stage_tag", "*", "Pregnant", "pregnant", "Pregnant")
+	repo := NewRepository(pool, 3*time.Second)
+	service := countsapp.NewService(repo)
+
+	if _, _, err := repo.RecordBaseCountAnchor(ctx, baseAnchorForBreed(countsShedA, "alias-source-anchor", "alias-source-fp", 20, "SIROHI", "Sirohi")); err != nil {
+		t.Fatalf("record source anchor: %v", err)
+	}
+	if _, _, err := repo.RecordBaseCountAnchor(ctx, baseAnchorForBreed(countsShedB, "alias-dest-anchor", "alias-dest-fp", 5, "SIROHI", "Sirohi")); err != nil {
+		t.Fatalf("record dest anchor: %v", err)
+	}
+	if _, _, err := repo.RecordShiftingEvent(ctx, shiftingEventWithBreedStage("alias-shift-key", "alias-shift-idem", "alias-shift-payload", "alias-shift-fp", "SIROHI", "Sirohi", "Pregnant")); err != nil {
+		t.Fatalf("record shift: %v", err)
+	}
+	target := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	if _, err := service.RecomputeProjectionSnapshot(ctx, domain.ProjectionRecomputeRequest{
+		TenantID: countsTenant, ParkID: countsPark, Horizon: "feed_target_date",
+		TargetDate: target, AsOf: time.Date(2026, 6, 30, 18, 0, 0, 0, time.UTC),
+		SourceContractVersion: domain.SourceContractVersionV1, GeneratedBy: "test",
+	}); err != nil {
+		t.Fatalf("recompute projected: %v", err)
+	}
+	projected, err := repo.ProjectedCountFor(ctx, domain.CountProjectionRequest{
+		TenantID: countsTenant, ParkID: countsPark, TargetDate: target, Limit: 25,
+	})
+	if err != nil {
+		t.Fatalf("projected read: %v", err)
+	}
+	dest := rowForShed(t, projected.Rows, countsShedB)
+	if dest.BreedKey != "beetal" || dest.BreedLabel != "Beetal" {
+		t.Fatalf("destination breed alias not normalized: %+v", dest)
+	}
+	for _, ex := range projected.Exceptions {
+		if ex.ExceptionType == "alias_conflict" {
+			t.Fatalf("unexpected alias_conflict with approved aliases: %+v", projected.Exceptions)
+		}
+	}
+}
+
+func TestServiceRecomputeFailsClosedOnUnreviewedStageAlias(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 3*time.Second)
+	service := countsapp.NewService(repo)
+
+	if _, _, err := repo.RecordBaseCountAnchor(ctx, baseAnchorFor(countsShedA, "unreviewed-stage-source-anchor", "unreviewed-stage-source-fp", 20)); err != nil {
+		t.Fatalf("record source anchor: %v", err)
+	}
+	if _, _, err := repo.RecordBaseCountAnchor(ctx, baseAnchorFor(countsShedB, "unreviewed-stage-dest-anchor", "unreviewed-stage-dest-fp", 5)); err != nil {
+		t.Fatalf("record dest anchor: %v", err)
+	}
+	if _, _, err := repo.RecordShiftingEvent(ctx, shiftingEventWithBreedStage("unreviewed-stage-shift-key", "unreviewed-stage-shift-idem", "unreviewed-stage-shift-payload", "unreviewed-stage-shift-fp", "beetal", "Beetal", "Pregnant")); err != nil {
+		t.Fatalf("record shift: %v", err)
+	}
+	target := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	if _, err := service.RecomputeProjectionSnapshot(ctx, domain.ProjectionRecomputeRequest{
+		TenantID: countsTenant, ParkID: countsPark, Horizon: "feed_target_date",
+		TargetDate: target, AsOf: time.Date(2026, 6, 30, 18, 0, 0, 0, time.UTC),
+		SourceContractVersion: domain.SourceContractVersionV1, GeneratedBy: "test",
+	}); err != nil {
+		t.Fatalf("recompute projected: %v", err)
+	}
+	projected, err := repo.ProjectedCountFor(ctx, domain.CountProjectionRequest{
+		TenantID: countsTenant, ParkID: countsPark, TargetDate: target, Limit: 25,
+	})
+	if err != nil {
+		t.Fatalf("projected read: %v", err)
+	}
+	foundAliasConflict := false
+	foundDestinationShortage := false
+	for _, ex := range projected.Exceptions {
+		switch ex.ExceptionType {
+		case "alias_conflict":
+			foundAliasConflict = true
+		case "destination_shortage":
+			foundDestinationShortage = true
+		}
+	}
+	if !foundAliasConflict || !foundDestinationShortage {
+		t.Fatalf("exceptions=%+v, want alias_conflict and destination_shortage", projected.Exceptions)
+	}
+	dest := rowForShed(t, projected.Rows, countsShedB)
+	if dest.BlockerReason == nil || !strings.Contains(*dest.BlockerReason, "unreviewed stage_tag alias") {
+		t.Fatalf("destination blocker=%v, want unreviewed stage alias", dest.BlockerReason)
+	}
+}
+
 func TestProjectionInputOutboxEventRecomputesSnapshotsThroughHandler(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
@@ -346,16 +437,24 @@ func baseAnchor(key, fp string) domain.BaseCountAnchor {
 }
 
 func baseAnchorFor(shedID, key, fp string, count int32) domain.BaseCountAnchor {
+	return baseAnchorForBreed(shedID, key, fp, count, "beetal", "Beetal")
+}
+
+func baseAnchorForBreed(shedID, key, fp string, count int32, breedKey, breedLabel string) domain.BaseCountAnchor {
 	return domain.BaseCountAnchor{
 		TenantID: countsTenant, ParkID: countsPark, ShedID: shedID,
-		BreedKey: "beetal", BreedLabel: "Beetal", CountedAt: time.Date(2026, 6, 30, 6, 0, 0, 0, time.UTC),
+		BreedKey: breedKey, BreedLabel: breedLabel, CountedAt: time.Date(2026, 6, 30, 6, 0, 0, 0, time.UTC),
 		HeadCount: count, SourceSystem: "physical_base_count", SourceRef: "base-count:" + shedID + ":2026-06-30",
 		SourceHash: "base-hash-" + shedID, DiscrepancyState: "not_checked", IdempotencyKey: key, RequestFingerprint: fp,
 	}
 }
 
 func shiftingEvent(logicalKey, idemKey, payloadHash, fp string) domain.ShiftingEvent {
-	stage := "pregnant"
+	return shiftingEventWithBreedStage(logicalKey, idemKey, payloadHash, fp, "beetal", "Beetal", "pregnant")
+}
+
+func shiftingEventWithBreedStage(logicalKey, idemKey, payloadHash, fp, breedKey, breedLabel, stageValue string) domain.ShiftingEvent {
+	stage := stageValue
 	return domain.ShiftingEvent{
 		TenantID: countsTenant, LogicalShiftingEventKey: logicalKey, Priority: "high", Category: "pregnancy",
 		SourceParkID: strPtr(countsPark), SourceShedID: strPtr(countsShedA),
@@ -366,10 +465,26 @@ func shiftingEvent(logicalKey, idemKey, payloadHash, fp string) domain.ShiftingE
 		SourceSystem: "feed_shiftings_docx", SourceRef: "shift-report-1",
 		PayloadHash: payloadHash, IdempotencyKey: idemKey, RequestFingerprint: fp,
 		Impacts: []domain.ShiftingEventImpact{{
-			GrainKey: "beetal:pregnant", BreedKey: "beetal", BreedLabel: "Beetal", StageTag: &stage,
+			GrainKey: breedKey + ":" + stageValue, BreedKey: breedKey, BreedLabel: breedLabel, StageTag: &stage,
 			HeadCount: 3, PregnantCount: 3, RiskFlagsJSON: []byte(`{"pregnant":true}`),
 			RationContextResolutionState: "blocked", BlockerReason: strPtr("destination shed ration context unresolved"),
 		}},
+	}
+}
+
+func seedCountDimensionAlias(t *testing.T, ctx context.Context, pool *pgxpool.Pool, dimension, sourceSystem, sourceValue, canonicalValue, canonicalLabel string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO count_dimension_aliases (
+  tenant_id, dimension, source_system, source_value, source_value_norm,
+  canonical_value, canonical_label, review_status, source_ref, source_hash,
+  approved_at
+) VALUES (
+  $1::uuid, $2, $3, $4, $5, $6, $7, 'approved', $8, $9, now()
+)`,
+		countsTenant, dimension, sourceSystem, sourceValue, countAliasNorm(sourceValue),
+		canonicalValue, canonicalLabel, "test:"+dimension+":"+sourceValue, "hash:"+dimension+":"+sourceValue); err != nil {
+		t.Fatalf("seed count alias: %v", err)
 	}
 }
 

@@ -212,6 +212,9 @@ func buildProjectionSnapshot(req domain.ProjectionRecomputeRequest, inputs domai
 		key := projectionGrainKey(anchor.ShedID, anchor.BreedKey)
 		anchorIDs = append(anchorIDs, anchor.BaseCountAnchorID)
 		blocker := "reviewed ration context is unresolved for this physical count row"
+		if aliasBlocker := ptrValue(anchor.AliasBlockerReason); aliasBlocker != "" {
+			blocker = combineBlockerReasons(blocker, aliasBlocker)
+		}
 		rows[key] = &projectionRowAccumulator{row: domain.ProjectionRow{
 			ParkID: req.ParkID, ShedID: anchor.ShedID, TargetDate: req.TargetDate,
 			GrainKey: key, BaseCountAnchorID: anchor.BaseCountAnchorID, IncludedShiftingEventIDsHash: "no-shifting-events",
@@ -220,6 +223,9 @@ func buildProjectionSnapshot(req domain.ProjectionRecomputeRequest, inputs domai
 			BlockerReason: &blocker,
 		}}
 		exceptions = append(exceptions, projectionException("ration_context_unresolved", "base:"+anchor.BaseCountAnchorID, key, req.ParkID, anchor.ShedID, anchor.BreedKey, nil, "blocking", blocker))
+		if aliasBlocker := ptrValue(anchor.AliasBlockerReason); aliasBlocker != "" {
+			exceptions = append(exceptions, projectionException("alias_conflict", "base:"+anchor.BaseCountAnchorID, key, req.ParkID, anchor.ShedID, anchor.BreedKey, nil, "blocking", aliasBlocker))
+		}
 	}
 	if len(inputs.Anchors) == 0 {
 		reason := "no adopted Base Count anchors exist for this tenant, park, and projection horizon"
@@ -236,11 +242,19 @@ func buildProjectionSnapshot(req domain.ProjectionRecomputeRequest, inputs domai
 
 	for _, movement := range inputs.Movements {
 		movementIDs = append(movementIDs, movement.ShiftingEventID)
+		aliasBlocker := ptrValue(movement.AliasBlockerReason)
+		if aliasBlocker != "" {
+			exceptions = append(exceptions, projectionException("alias_conflict", movement.LogicalShiftingEventKey, projectionGrainKey(movement.DestinationShedID, movement.BreedKey), req.ParkID, movement.DestinationShedID, movement.BreedKey, movement.StageTag, "blocking", aliasBlocker))
+		}
 		if movement.SourceShedID != nil {
 			sourceKey := projectionGrainKey(*movement.SourceShedID, movement.BreedKey)
 			if sourceRow, ok := rows[sourceKey]; ok {
 				sourceRow.row.HeadCount -= movement.HeadCount
 				sourceRow.movementIDs = append(sourceRow.movementIDs, movement.ShiftingEventID)
+				if aliasBlocker != "" {
+					sourceRow.row.RationContextResolutionState = "blocked"
+					sourceRow.row.BlockerReason = appendBlockerReason(sourceRow.row.BlockerReason, aliasBlocker)
+				}
 				if sourceRow.row.HeadCount < 0 {
 					sourceRow.row.HeadCount = 0
 					reason := "shifting impact exceeds source Base Count for the shed/breed grain"
@@ -267,11 +281,19 @@ func buildProjectionSnapshot(req domain.ProjectionRecomputeRequest, inputs domai
 		destinationRow.row.WarmupCount += movement.WarmupCount
 		destinationRow.movementIDs = append(destinationRow.movementIDs, movement.ShiftingEventID)
 		if movement.RationContextResolutionState == "resolved" || movement.RationContextResolutionState == "not_required" {
+			if aliasBlocker != "" {
+				destinationRow.row.RationContextResolutionState = "blocked"
+				destinationRow.row.BlockerReason = appendBlockerReason(destinationRow.row.BlockerReason, aliasBlocker)
+				continue
+			}
 			destinationRow.row.RationContextResolutionState = movement.RationContextResolutionState
 			destinationRow.row.RationContextRef = movement.RationContextRef
 			destinationRow.row.BlockerReason = nil
 		} else {
 			reason := defaultString(ptrValue(movement.BlockerReason), "destination shed ration context is unresolved for shifted cohort")
+			if aliasBlocker != "" {
+				reason = combineBlockerReasons(reason, aliasBlocker)
+			}
 			destinationRow.row.RationContextResolutionState = "blocked"
 			destinationRow.row.BlockerReason = &reason
 			exType := "ration_context_unresolved"
@@ -303,7 +325,7 @@ func buildProjectionSnapshot(req domain.ProjectionRecomputeRequest, inputs domai
 
 	baseHash := hashStrings(anchorIDs)
 	movementHash := hashStrings(movementIDs)
-	sourceHash := hashStrings([]string{req.TenantID, req.ParkID, req.Horizon, req.TargetDate.Format("2006-01-02"), req.AsOf.UTC().Format(time.RFC3339Nano), baseHash, movementHash, rowHashSet(outRows)})
+	sourceHash := hashStrings([]string{req.TenantID, req.ParkID, req.Horizon, req.TargetDate.Format("2006-01-02"), req.AsOf.UTC().Format(time.RFC3339Nano), baseHash, movementHash, rowHashSet(outRows), exceptionHashSet(exceptions)})
 	status := "ready"
 	if len(exceptions) > 0 {
 		status = "blocked"
@@ -343,6 +365,22 @@ func rowHashSet(rows []domain.ProjectionRow) string {
 	hashes := make([]string, 0, len(rows))
 	for _, row := range rows {
 		hashes = append(hashes, row.SourceRowHash)
+	}
+	return hashStrings(hashes)
+}
+
+func exceptionHashSet(exceptions []domain.ProjectionException) string {
+	hashes := make([]string, 0, len(exceptions))
+	for _, exception := range exceptions {
+		hashes = append(hashes, strings.Join([]string{
+			exception.ExceptionType,
+			exception.SourceKey,
+			exception.GrainKey,
+			exception.Severity,
+			exception.BlockerReason,
+			ptrValue(exception.BreedKey),
+			ptrValue(exception.StageTag),
+		}, "|"))
 	}
 	return hashStrings(hashes)
 }
@@ -391,6 +429,30 @@ func ptrValue(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+func appendBlockerReason(existing *string, reason string) *string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return existing
+	}
+	if existing == nil || strings.TrimSpace(*existing) == "" {
+		return &reason
+	}
+	combined := combineBlockerReasons(*existing, reason)
+	return &combined
+}
+
+func combineBlockerReasons(left, right string) string {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == "" {
+		return right
+	}
+	if right == "" {
+		return left
+	}
+	return left + "; " + right
 }
 
 func defaultString(value, fallback string) string {

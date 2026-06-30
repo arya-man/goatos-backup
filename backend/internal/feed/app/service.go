@@ -161,7 +161,7 @@ func countsShiftingSubgates(checkedAt time.Time) []domain.CountsShiftingSubgate 
 		{"CSG4", "Realized count_as_of and one-day projected_count_for horizon split are not proven."},
 		{"CSG5", "Immediate physical Base Count adoption plus discrepancy investigation is not proven."},
 		{"CSG6", "Unreported-shifting and count-mismatch detection are not proven."},
-		{"CSG7", "Breed/stage alias normalization is not proven."},
+		{"CSG7", "Owner-approved breed/stage alias mapping coverage is not complete."},
 		{"CSG8", "Idempotency/replay across ingestion, projection, and source replay is not proven."},
 		{"CSG9", "Feed projection API over bounded immutable rows is not proven."},
 		{"CSG10", "Scale, observability, source parity, and seeded E2E are not proven."},
