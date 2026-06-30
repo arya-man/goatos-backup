@@ -100,6 +100,12 @@ Implementation status as of 2026-06-30:
   unresolved unless the reviewed row supplies a resolved context. A shifted
   pregnant/lactating/warm-up import therefore blocks later Feed generation via
   projection exceptions instead of guessing a destination shed quantity.
+- `count_source_import_runs` records execute-mode typed import batches with
+  source row count, successful Base Count rows, successful ShiftingEvent rows,
+  replay count, failure count, source reference, trace id, status, timestamps,
+  and last error. `counts-source-import` updates `CSG10` readiness evidence to
+  `pending` on success and `blocked` on failure; success still leaves source
+  parity, observability breadth, and seeded local E2E open.
 - `countsapp.ProjectionInputHandler` consumes those events through both
   `backend/cmd/domain-event-consumer` and the local/dev `outbox-relay`
   in-process eventbus publisher. It recomputes bounded `count_as_of` and
@@ -325,8 +331,8 @@ Required paths:
 
 | Path | Trigger | Behavior |
 | --- | --- | --- |
-| Base Count import/record | API/import | Write anchor, emit idempotent `counts.base_count_anchor.recorded` outbox event, audit, invalidate projections |
-| Shifting event ingest | API/import/outbox | Upsert event and impacts, emit idempotent `counts.shifting_event.recorded` outbox event, audit, invalidate projections |
+| Base Count import/record | API/import | Write anchor, emit idempotent `counts.base_count_anchor.recorded` outbox event, record `count_source_import_runs` batch evidence, audit, invalidate projections |
+| Shifting event ingest | API/import/outbox | Upsert event and impacts, emit idempotent `counts.shifting_event.recorded` outbox event, record `count_source_import_runs` batch evidence, audit, invalidate projections |
 | Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or the registered `countsapp.ProjectionInputHandler` consumer for tenant + park + as-of + target-date bounded horizons; write snapshot or exception |
 | Count mismatch scan | Base Count adoption plus `counts-mismatch-scan` scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. The bounded worker command pages through stale historical/imported anchors with tenant/window/limit/cursor guards, writes the same exception work, records `count_mismatch_scan_runs`, and updates `CSG6`/`CSG10` readiness evidence. The anchor page now has dedicated mismatch-scan indexes and query-plan coverage. |
 | Query-plan proof | `counts-query-plan-check` | Prove expected Postgres index paths for Counts hot reads and update `CSG10` readiness evidence; never use this alone as G2 completion proof. |
@@ -336,11 +342,12 @@ Required paths:
 All workers must be tenant/park/date/grain bounded and replay-safe.
 
 Worker observability is part of `CSG10`, not a future ops cleanup. Counts/Shifting
-must expose or emit base-count import latency, shifting ingest latency,
-projection recompute latency, stale-projection age, queue/outbox lag, retry
-counts, DLQ counts, exception counts by type, and query-plan failures. Those
-signals roll into Feed gate `G2` and the same monitoring slice used by Feed
-generation workers.
+must expose or emit source rows read, import status/latency, successful
+Base Count and ShiftingEvent rows, replay counts, failed row counts, projection
+recompute latency, stale-projection age, queue/outbox lag, retry counts, DLQ
+counts, exception counts by type, and query-plan failures. Those signals roll
+into Feed gate `G2` and the same monitoring slice used by Feed generation
+workers.
 
 ## 9. Readiness Roll-Up
 
@@ -374,6 +381,9 @@ Non-negotiable tests:
   context either resolved from reviewed source-backed context or blocked with an
   explicit reason, and does not depend on RFID-to-shed per-goat derivation.
 - Query-plan checks for widest allowed projection/read paths.
+- Source import run observability records source rows read, successful Base
+  Count/Shifting rows, replays, failed rows, source reference, status, last
+  error, and `CSG10` evidence without making G2 green by itself.
 - Worker observability checks for latency, lag, retry, DLQ, exception, and
   stale-projection metrics.
 - Seeded local E2E coverage for Base Count, realized ShiftingEvent, one-day

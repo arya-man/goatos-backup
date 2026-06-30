@@ -2287,6 +2287,35 @@ CREATE TABLE public.count_projection_snapshots (
 
 
 --
+-- Name: count_source_import_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.count_source_import_runs (
+    count_source_import_run_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    source_system text NOT NULL,
+    mode text DEFAULT 'execute'::text NOT NULL,
+    status text DEFAULT 'running'::text NOT NULL,
+    source_ref text,
+    source_rows_read integer DEFAULT 0 NOT NULL,
+    base_anchor_rows integer DEFAULT 0 NOT NULL,
+    shifting_event_rows integer DEFAULT 0 NOT NULL,
+    replay_count integer DEFAULT 0 NOT NULL,
+    failed_row_count integer DEFAULT 0 NOT NULL,
+    trace_id text,
+    last_error text,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT count_source_import_runs_counts_check CHECK (((source_rows_read >= 0) AND (base_anchor_rows >= 0) AND (shifting_event_rows >= 0) AND (replay_count >= 0) AND (failed_row_count >= 0))),
+    CONSTRAINT count_source_import_runs_mode_check CHECK ((mode = ANY (ARRAY['dry_run'::text, 'execute'::text]))),
+    CONSTRAINT count_source_import_runs_source_system_check CHECK ((source_system = ANY (ARRAY['physical_base_count'::text, 'manual_review'::text, 'import'::text, 'feed_shiftings_docx'::text, 'legacy_slack'::text, 'goatos_canonical'::text]))),
+    CONSTRAINT count_source_import_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text]))),
+    CONSTRAINT count_source_import_runs_status_completion_check CHECK ((((status = 'running'::text) AND (completed_at IS NULL)) OR ((status = ANY (ARRAY['completed'::text, 'failed'::text])) AND (completed_at IS NOT NULL))))
+);
+
+
+--
 -- Name: counts_current_snapshot_rows; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6005,6 +6034,14 @@ ALTER TABLE ONLY public.count_projection_snapshots
 
 
 --
+-- Name: count_source_import_runs count_source_import_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_source_import_runs
+    ADD CONSTRAINT count_source_import_runs_pkey PRIMARY KEY (count_source_import_run_id);
+
+
+--
 -- Name: counts_current_snapshot_rows counts_current_snapshot_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8271,6 +8308,20 @@ CREATE UNIQUE INDEX count_projection_snapshots_source_unique ON public.count_pro
 --
 
 CREATE UNIQUE INDEX count_projection_snapshots_tenant_id_unique ON public.count_projection_snapshots USING btree (tenant_id, count_projection_snapshot_id);
+
+
+--
+-- Name: count_source_import_runs_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_source_import_runs_status_idx ON public.count_source_import_runs USING btree (tenant_id, status, updated_at DESC);
+
+
+--
+-- Name: count_source_import_runs_tenant_started_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_source_import_runs_tenant_started_idx ON public.count_source_import_runs USING btree (tenant_id, started_at DESC, count_source_import_run_id DESC);
 
 
 --
@@ -12337,6 +12388,14 @@ ALTER TABLE ONLY public.count_projection_snapshots
 
 ALTER TABLE ONLY public.count_projection_snapshots
     ADD CONSTRAINT count_projection_snapshots_tenant_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: count_source_import_runs count_source_import_runs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_source_import_runs
+    ADD CONSTRAINT count_source_import_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

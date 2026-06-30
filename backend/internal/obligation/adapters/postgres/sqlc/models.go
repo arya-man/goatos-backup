@@ -487,6 +487,25 @@ type CountProjectionSnapshotRow struct {
 	IncludedShiftingEventIdsHash string
 }
 
+type CountSourceImportRun struct {
+	CountSourceImportRunID pgtype.UUID
+	TenantID               pgtype.UUID
+	SourceSystem           string
+	Mode                   string
+	Status                 string
+	SourceRef              pgtype.Text
+	SourceRowsRead         int32
+	BaseAnchorRows         int32
+	ShiftingEventRows      int32
+	ReplayCount            int32
+	FailedRowCount         int32
+	TraceID                pgtype.Text
+	LastError              pgtype.Text
+	StartedAt              pgtype.Timestamptz
+	CompletedAt            pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+}
+
 type CountsCurrentSnapshotRow struct {
 	CountsSnapshotRowID  pgtype.UUID
 	TenantID             pgtype.UUID

@@ -18,6 +18,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
@@ -34,7 +37,9 @@ type config struct {
 	File         string
 	TenantID     string
 	SourceSystem string
+	SourceRef    string
 	RecordedBy   string
+	TraceID      string
 	DryRun       bool
 	Timeout      time.Duration
 }
@@ -122,6 +127,7 @@ type importSummary struct {
 	BaseAnchors    int
 	ShiftingEvents int
 	Replayed       int
+	FailedRows     int
 	DryRun         bool
 }
 
@@ -156,6 +162,11 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 			summary.Rows, summary.BaseAnchors, summary.ShiftingEvents)
 		return nil
 	}
+	tenantID, err := sourceImportTenantID(rows, cfg.TenantID)
+	if err != nil {
+		return err
+	}
+	cfg.TenantID = tenantID
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
@@ -167,12 +178,22 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 	defer pool.Close()
 
 	service := countsapp.NewService(countspg.NewRepository(pool, pgCfg.QueryTimeout))
-	summary, err := importRows(ctx, service, rows, stdout)
+	runID, err := beginSourceImportRun(ctx, pool, cfg, len(rows))
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "counts source import complete rows=%d base_anchors=%d shifting_events=%d replays=%d\n",
-		summary.Rows, summary.BaseAnchors, summary.ShiftingEvents, summary.Replayed)
+	summary, err := importRows(ctx, service, rows, stdout)
+	if err != nil {
+		if finishErr := finishSourceImportRun(ctx, pool, cfg.TenantID, runID, summary, err); finishErr != nil {
+			return fmt.Errorf("%w; finish import run: %v", err, finishErr)
+		}
+		return err
+	}
+	if err := finishSourceImportRun(ctx, pool, cfg.TenantID, runID, summary, nil); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "counts source import complete run=%s rows=%d base_anchors=%d shifting_events=%d replays=%d\n",
+		runID, summary.Rows, summary.BaseAnchors, summary.ShiftingEvents, summary.Replayed)
 	return nil
 }
 
@@ -182,7 +203,9 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.File, "file", getenv("GOATOS_COUNTS_SOURCE_IMPORT_FILE"), "JSONL import file; default stdin")
 	fs.StringVar(&cfg.TenantID, "tenant-id", getenv("GOATOS_TENANT_ID"), "default tenant id for rows that omit tenant_id")
 	fs.StringVar(&cfg.SourceSystem, "source-system", getenvDefault("GOATOS_COUNTS_SOURCE_IMPORT_SOURCE_SYSTEM", defaultSourceSystem), "default source_system for rows that omit source_system")
+	fs.StringVar(&cfg.SourceRef, "source-ref", getenv("GOATOS_COUNTS_SOURCE_IMPORT_SOURCE_REF"), "optional source import batch/file reference")
 	fs.StringVar(&cfg.RecordedBy, "recorded-by", getenv("GOATOS_COUNTS_SOURCE_IMPORT_RECORDED_BY"), "default recorded_by actor id for base-count rows")
+	fs.StringVar(&cfg.TraceID, "trace-id", getenv("GOATOS_TRACE_ID"), "optional trace id")
 	fs.BoolVar(&cfg.DryRun, "dry-run", boolEnv("GOATOS_COUNTS_SOURCE_IMPORT_DRY_RUN"), "validate rows without writing to Postgres")
 	fs.DurationVar(&cfg.Timeout, "timeout", durationEnv("GOATOS_COUNTS_SOURCE_IMPORT_TIMEOUT", 120*time.Second), "import timeout")
 	if err := fs.Parse(args); err != nil {
@@ -191,7 +214,12 @@ func parseFlags(args []string) (config, error) {
 	cfg.File = strings.TrimSpace(cfg.File)
 	cfg.TenantID = strings.TrimSpace(cfg.TenantID)
 	cfg.SourceSystem = defaultString(strings.TrimSpace(cfg.SourceSystem), defaultSourceSystem)
+	cfg.SourceRef = strings.TrimSpace(cfg.SourceRef)
 	cfg.RecordedBy = strings.TrimSpace(cfg.RecordedBy)
+	cfg.TraceID = strings.TrimSpace(cfg.TraceID)
+	if cfg.SourceRef == "" && cfg.File != "" && cfg.File != "-" {
+		cfg.SourceRef = cfg.File
+	}
 	if cfg.Timeout <= 0 {
 		return config{}, errors.New("timeout must be positive")
 	}
@@ -465,6 +493,7 @@ func importRows(ctx context.Context, service countsService, rows []importRow, st
 		case kindBaseCountAnchor:
 			id, replay, err := service.RecordBaseCountAnchor(ctx, *row.BaseCountAnchor)
 			if err != nil {
+				summary.FailedRows++
 				return summary, fmt.Errorf("line %d base_count_anchor import: %w", row.SourceLine, err)
 			}
 			summary.BaseAnchors++
@@ -475,6 +504,7 @@ func importRows(ctx context.Context, service countsService, rows []importRow, st
 		case kindShiftingEvent:
 			id, replay, err := service.RecordShiftingEvent(ctx, *row.ShiftingEvent)
 			if err != nil {
+				summary.FailedRows++
 				return summary, fmt.Errorf("line %d shifting_event import: %w", row.SourceLine, err)
 			}
 			summary.ShiftingEvents++
@@ -487,6 +517,114 @@ func importRows(ctx context.Context, service countsService, rows []importRow, st
 		}
 	}
 	return summary, nil
+}
+
+func sourceImportTenantID(rows []importRow, fallback string) (string, error) {
+	expected := strings.TrimSpace(fallback)
+	for _, row := range rows {
+		rowTenant := ""
+		switch row.Kind {
+		case kindBaseCountAnchor:
+			rowTenant = strings.TrimSpace(row.BaseCountAnchor.TenantID)
+		case kindShiftingEvent:
+			rowTenant = strings.TrimSpace(row.ShiftingEvent.TenantID)
+		}
+		if rowTenant == "" {
+			continue
+		}
+		if expected == "" {
+			expected = rowTenant
+			continue
+		}
+		if rowTenant != expected {
+			return "", fmt.Errorf("all import rows must belong to one tenant: saw %s and %s", expected, rowTenant)
+		}
+	}
+	if expected == "" {
+		return "", errors.New("tenant-id is required for execute imports")
+	}
+	return expected, nil
+}
+
+type sourceImportRunDB interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func beginSourceImportRun(ctx context.Context, db sourceImportRunDB, cfg config, rowCount int) (string, error) {
+	var runID string
+	err := db.QueryRow(ctx, `
+INSERT INTO count_source_import_runs (
+  tenant_id, source_system, mode, status, source_ref, source_rows_read, trace_id
+) VALUES (
+  $1::uuid, $2, 'execute', 'running', nullif($3, ''), $4, nullif($5, '')
+)
+RETURNING count_source_import_run_id::text`,
+		cfg.TenantID, cfg.SourceSystem, cfg.SourceRef, rowCount, cfg.TraceID).Scan(&runID)
+	if err != nil {
+		return "", fmt.Errorf("counts: begin source import run: %w", err)
+	}
+	return runID, nil
+}
+
+func finishSourceImportRun(ctx context.Context, db sourceImportRunDB, tenantID, runID string, summary importSummary, importErr error) error {
+	status := "completed"
+	lastError := ""
+	if importErr != nil {
+		status = "failed"
+		lastError = importErr.Error()
+		if summary.FailedRows == 0 {
+			summary.FailedRows = 1
+		}
+	}
+	_, err := db.Exec(ctx, `
+UPDATE count_source_import_runs
+SET status = $3,
+    base_anchor_rows = $4,
+    shifting_event_rows = $5,
+    replay_count = $6,
+    failed_row_count = $7,
+    last_error = nullif($8, ''),
+    completed_at = now(),
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND count_source_import_run_id = $2::uuid`,
+		tenantID, runID, status, summary.BaseAnchors, summary.ShiftingEvents,
+		summary.Replayed, summary.FailedRows, lastError)
+	if err != nil {
+		return fmt.Errorf("counts: finish source import run: %w", err)
+	}
+	return upsertCSG10ImportReadiness(ctx, db, tenantID, runID, importErr)
+}
+
+func upsertCSG10ImportReadiness(ctx context.Context, db sourceImportRunDB, tenantID, runID string, importErr error) error {
+	status := "pending"
+	blocker := "Typed Counts source import run evidence exists; source parity, full observability, and seeded local E2E evidence remain before CSG10 can turn ready."
+	if importErr != nil {
+		status = "blocked"
+		blocker = "Counts source import failed; repair typed import rows before CSG10 can progress: " + importErr.Error()
+	}
+	_, err := db.Exec(ctx, `
+INSERT INTO counts_shifting_readiness_subgates (
+  tenant_id, subgate_id, status, owner, evidence_ref, blocker_reason, implementation_ref, last_checked_at, updated_at
+) VALUES (
+  $1::uuid, 'CSG10', $2, 'Counts/Shifting + Feed Direction',
+  $3, $4, 'backend/cmd/counts-source-import;docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md',
+  now(), now()
+)
+ON CONFLICT (tenant_id, subgate_id) DO UPDATE
+SET status = EXCLUDED.status,
+    owner = EXCLUDED.owner,
+    evidence_ref = EXCLUDED.evidence_ref,
+    blocker_reason = EXCLUDED.blocker_reason,
+    implementation_ref = EXCLUDED.implementation_ref,
+    last_checked_at = EXCLUDED.last_checked_at,
+    updated_at = now()`,
+		tenantID, status, "count_source_import_runs:"+runID, blocker)
+	if err != nil {
+		return fmt.Errorf("counts: upsert CSG10 source import readiness: %w", err)
+	}
+	return nil
 }
 
 func summarize(rows []importRow, dryRun bool) importSummary {

@@ -125,7 +125,8 @@ language.
    ShiftingEvent ledger, horizon split, fail-closed exceptions with bounded
    list/read queue, transactional outbox fanout, reviewed resolve/dismiss audit,
    idempotency, reviewed typed source import through
-   `backend/cmd/counts-source-import` for Base Count/Shifting JSONL rows,
+   `backend/cmd/counts-source-import` for Base Count/Shifting JSONL rows with
+   durable `count_source_import_runs` evidence,
    stale/imported mismatch scanning through the bounded `counts-mismatch-scan`
    worker path with durable scan-run evidence, dedicated mismatch-scan anchor
    indexes, `counts-query-plan-check` index-path proof for Counts hot reads,
@@ -135,9 +136,9 @@ language.
    Raw Counting DB / Feed Directions Automation XLSX parsing, parity fixtures,
    and workbook-column mapping remain source-review work; workbook formulas or
    examples must not bypass typed validation/import.
-   Query-plan evidence may move `CSG10` from blocked to pending, but it cannot
-   turn `G2` green without source parity, full observability, and seeded local
-   E2E.
+   Typed import run evidence and query-plan evidence may move `CSG10` from
+   blocked to pending, but they cannot turn `G2` green without source parity,
+   full observability, and seeded local E2E.
    Breed/tag constraint tables without shed placement must block until reviewed
    context resolves the nutrition cohort. RFID-to-shed per-animal association
    is out of scope for the initial Feed Direction build.

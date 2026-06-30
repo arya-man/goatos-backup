@@ -3,9 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 )
@@ -137,5 +141,140 @@ func TestImportRowsWritesBothKindsThroughService(t *testing.T) {
 	}
 	if len(service.baseIDs) != 1 || len(service.shiftIDs) != 1 {
 		t.Fatalf("service writes base=%d shift=%d", len(service.baseIDs), len(service.shiftIDs))
+	}
+}
+
+type failingCountsService struct{}
+
+func (f failingCountsService) RecordBaseCountAnchor(context.Context, countsdomain.BaseCountAnchor) (string, bool, error) {
+	return "", false, errors.New("db rejected row")
+}
+
+func (f failingCountsService) RecordShiftingEvent(context.Context, countsdomain.ShiftingEvent) (string, bool, error) {
+	return "", false, errors.New("db rejected row")
+}
+
+func TestImportRowsCountsFailedRow(t *testing.T) {
+	rows, err := parseImportRows(strings.NewReader(`{"kind":"base_count_anchor","tenant_id":"tenant","park_id":"park","shed_id":"shed","breed_key":"beetal","counted_at":"2026-06-30","head_count":1,"source_ref":"row"}`+"\n"), config{SourceSystem: defaultSourceSystem})
+	if err != nil {
+		t.Fatalf("parseImportRows: %v", err)
+	}
+	var out bytes.Buffer
+	summary, err := importRows(context.Background(), failingCountsService{}, rows, &out)
+	if err == nil || !strings.Contains(err.Error(), "db rejected row") {
+		t.Fatalf("err=%v, want service error", err)
+	}
+	if summary.Rows != 1 || summary.FailedRows != 1 || summary.BaseAnchors != 0 {
+		t.Fatalf("summary=%+v, want one failed row and no successful base anchors", summary)
+	}
+}
+
+func TestSourceImportTenantIDDerivesFromRows(t *testing.T) {
+	rows, err := parseImportRows(strings.NewReader(strings.Join([]string{
+		`{"kind":"base_count_anchor","tenant_id":"00000000-0000-4000-8000-000000000001","park_id":"park","shed_id":"shed","breed_key":"beetal","counted_at":"2026-06-30","head_count":1,"source_ref":"row"}`,
+		`{"kind":"shifting_event","tenant_id":"00000000-0000-4000-8000-000000000001","logical_shifting_event_key":"shift-1","destination_park_id":"park","destination_shed_id":"shed","raised_at":"2026-06-30T12:30:00Z","effective_at":"2026-06-30T14:00:00Z","authorization_state":"authorized","event_status":"authorized","source_ref":"row","impacts":[{"breed_key":"beetal","head_count":1}]}`,
+	}, "\n")+"\n"), config{SourceSystem: defaultSourceSystem})
+	if err != nil {
+		t.Fatalf("parseImportRows: %v", err)
+	}
+	tenantID, err := sourceImportTenantID(rows, "")
+	if err != nil {
+		t.Fatalf("sourceImportTenantID: %v", err)
+	}
+	if tenantID != "00000000-0000-4000-8000-000000000001" {
+		t.Fatalf("tenantID=%s", tenantID)
+	}
+}
+
+func TestSourceImportTenantIDRejectsMixedRows(t *testing.T) {
+	rows, err := parseImportRows(strings.NewReader(strings.Join([]string{
+		`{"kind":"base_count_anchor","tenant_id":"00000000-0000-4000-8000-000000000001","park_id":"park","shed_id":"shed","breed_key":"beetal","counted_at":"2026-06-30","head_count":1,"source_ref":"row"}`,
+		`{"kind":"shifting_event","tenant_id":"00000000-0000-4000-8000-000000000002","logical_shifting_event_key":"shift-1","destination_park_id":"park","destination_shed_id":"shed","raised_at":"2026-06-30T12:30:00Z","effective_at":"2026-06-30T14:00:00Z","authorization_state":"authorized","event_status":"authorized","source_ref":"row","impacts":[{"breed_key":"beetal","head_count":1}]}`,
+	}, "\n")+"\n"), config{SourceSystem: defaultSourceSystem})
+	if err != nil {
+		t.Fatalf("parseImportRows: %v", err)
+	}
+	_, err = sourceImportTenantID(rows, "")
+	if err == nil || !strings.Contains(err.Error(), "one tenant") {
+		t.Fatalf("err=%v, want mixed tenant rejection", err)
+	}
+}
+
+type fakeImportRunDB struct {
+	rowID string
+	execs []fakeExec
+}
+
+type fakeExec struct {
+	query string
+	args  []any
+}
+
+func (f *fakeImportRunDB) QueryRow(context.Context, string, ...any) pgx.Row {
+	return fakeImportRunRow{id: f.rowID}
+}
+
+func (f *fakeImportRunDB) Exec(_ context.Context, query string, args ...any) (pgconn.CommandTag, error) {
+	f.execs = append(f.execs, fakeExec{query: query, args: args})
+	return pgconn.CommandTag{}, nil
+}
+
+type fakeImportRunRow struct {
+	id string
+}
+
+func (r fakeImportRunRow) Scan(dest ...any) error {
+	*(dest[0].(*string)) = r.id
+	return nil
+}
+
+func TestSourceImportRunEvidenceUpdatesCSG10Pending(t *testing.T) {
+	db := &fakeImportRunDB{rowID: "00000000-0000-4000-8000-000000001234"}
+	cfg := config{
+		TenantID:     "00000000-0000-4000-8000-000000000001",
+		SourceSystem: defaultSourceSystem,
+		SourceRef:    "Counting DB - values only.xlsx:reviewed-jsonl",
+		TraceID:      "trace-1",
+	}
+	runID, err := beginSourceImportRun(context.Background(), db, cfg, 2)
+	if err != nil {
+		t.Fatalf("beginSourceImportRun: %v", err)
+	}
+	if runID != db.rowID {
+		t.Fatalf("runID=%s", runID)
+	}
+	err = finishSourceImportRun(context.Background(), db, cfg.TenantID, runID, importSummary{
+		Rows: 2, BaseAnchors: 1, ShiftingEvents: 1, Replayed: 1,
+	}, nil)
+	if err != nil {
+		t.Fatalf("finishSourceImportRun: %v", err)
+	}
+	if len(db.execs) != 2 {
+		t.Fatalf("exec count=%d, want finish + readiness", len(db.execs))
+	}
+	readinessArgs := db.execs[1].args
+	if readinessArgs[1] != "pending" {
+		t.Fatalf("readiness status=%v, want pending", readinessArgs[1])
+	}
+	if !strings.Contains(readinessArgs[2].(string), runID) {
+		t.Fatalf("evidence_ref=%v, want run id", readinessArgs[2])
+	}
+	if !strings.Contains(readinessArgs[3].(string), "seeded local E2E") {
+		t.Fatalf("blocker=%v", readinessArgs[3])
+	}
+}
+
+func TestSourceImportRunEvidenceBlocksOnFailure(t *testing.T) {
+	db := &fakeImportRunDB{rowID: "00000000-0000-4000-8000-000000001235"}
+	err := finishSourceImportRun(context.Background(), db, "00000000-0000-4000-8000-000000000001", db.rowID, importSummary{}, errors.New("bad source row"))
+	if err != nil {
+		t.Fatalf("finishSourceImportRun: %v", err)
+	}
+	readinessArgs := db.execs[1].args
+	if readinessArgs[1] != "blocked" {
+		t.Fatalf("readiness status=%v, want blocked", readinessArgs[1])
+	}
+	if !strings.Contains(readinessArgs[3].(string), "bad source row") {
+		t.Fatalf("blocker=%v, want error text", readinessArgs[3])
 	}
 }
