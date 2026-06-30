@@ -57,6 +57,17 @@ intentionally includes dirty source variants such as `Pregant`, `Bukcs`,
 male/female labels so `counts-alias-coverage-check` can force owner-reviewed
 retain/merge/retire decisions before Feed consumes projection rows.
 
+Sanitized column mapping extraction produced
+`backend/testdata/counts/source-workbook-column-map.json`: 116 mapped columns
+across 16 source-role groups for count source tabs, future/projected count
+candidate tabs, Feed Direction output rows, validation/feed-vector tables,
+supply planning tables, session template rows, packing proof, transport proof,
+consumption/wastage proof, and Sheds DB profile evidence. The companion
+`backend/cmd/counts-workbook-mapping-check` command validates that each role
+group has the required canonical fields before `CSG10` can move even to
+pending. This is mapping coverage evidence only; it does not import raw
+workbook rows or approve formulas as runtime truth.
+
 The Feed Directions Automation workbook is a sheet implementation of feed
 planning and execution, not a clean domain model:
 
