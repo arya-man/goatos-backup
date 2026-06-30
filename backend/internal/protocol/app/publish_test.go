@@ -222,6 +222,20 @@ func TestValidateExecutionContract(t *testing.T) {
 	if err := ValidateExecutionContract(missingDoseAmount); !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("vaccination without dose amount should be not publishable, got %v", err)
 	}
+
+	missingReproductiveExclusions := valid
+	missingReproductiveExclusions.Category = "vaccination"
+	missingReproductiveExclusions.RuleDsl = []byte(`{"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},"schedule":[{"dose_code":"primary","trigger_type":"birth_age","dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","due_window_days":7,"max_delay_days":7,"course_lapse_policy":"phc_review"}]}`)
+	if err := ValidateExecutionContract(missingReproductiveExclusions); !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("vaccination without reproductive exclusions should be not publishable, got %v", err)
+	}
+
+	missingMaxDelay := valid
+	missingMaxDelay.Category = "vaccination"
+	missingMaxDelay.RuleDsl = []byte(`{"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":[]},"schedule":[{"dose_code":"primary","trigger_type":"birth_age","dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","course_lapse_policy":"phc_review"}]}`)
+	if err := ValidateExecutionContract(missingMaxDelay); !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("vaccination without max delay should be not publishable, got %v", err)
+	}
 }
 
 func TestValidateRuleDSLRejectsUnknownKeys(t *testing.T) {

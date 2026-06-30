@@ -65,8 +65,8 @@ func run(args []string) error {
 	if err := execSeedSQL(ctx, pool, seedSQL, *tenantID); err != nil {
 		return err
 	}
-	fmt.Printf("seeded vaccination trigger fixtures tenant=%s farm=%s park=%s shed=%s vaccine_item=%s protocol_version=%s\n",
-		*tenantID, localFarmID, localParkID, localShedID, localItemID, localVersionID)
+	fmt.Printf("seeded vaccination trigger fixtures tenant=%s farm=%s park=%s shed=%s vaccine_item=%s legacy_protocol_version=%s legacy_status=retired v1_protocol_version=%s\n",
+		*tenantID, localFarmID, localParkID, localShedID, localItemID, localVersionID, localV1VersionID)
 	return nil
 }
 
@@ -233,6 +233,14 @@ SET status = 'published',
 WHERE tenant_id = $1::uuid
   AND protocol_version_id = '` + localVersionID + `'
   AND status = 'draft';
+
+UPDATE protocol_versions
+SET status = 'retired',
+    retired_at = COALESCE(retired_at, now()),
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND protocol_version_id = '` + localVersionID + `'
+  AND status = 'published';
 
 INSERT INTO protocol_definitions (
   protocol_id, tenant_id, code, name, category, status

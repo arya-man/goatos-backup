@@ -403,6 +403,9 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 	if _, ok := eligibility["defer_states"]; !ok {
 		return fmt.Errorf("%w: vaccination matrix eligibility.defer_states required", ErrNotPublishable)
 	}
+	if _, ok := eligibility["exclude_reproductive_states"]; !ok {
+		return fmt.Errorf("%w: vaccination matrix eligibility.exclude_reproductive_states required", ErrNotPublishable)
+	}
 	for idx, row := range env.Schedule {
 		if strings.TrimSpace(row.DoseCode) == "" {
 			return fmt.Errorf("%w: schedule[%d] dose_code required for vaccination matrix", ErrNotPublishable, idx)
@@ -415,6 +418,9 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 		}
 		if strings.TrimSpace(row.RouteSite) == "" {
 			return fmt.Errorf("%w: schedule[%d] route_site required for vaccination matrix", ErrNotPublishable, idx)
+		}
+		if row.MaxDelayDays <= 0 {
+			return fmt.Errorf("%w: schedule[%d] max_delay_days required for vaccination matrix", ErrNotPublishable, idx)
 		}
 		if row.MaxDelayDays < row.DueWindow {
 			return fmt.Errorf("%w: schedule[%d] max_delay_days must cover due_window_days", ErrNotPublishable, idx)

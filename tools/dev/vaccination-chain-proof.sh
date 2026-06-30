@@ -37,10 +37,12 @@ PGURL="$DATABASE_URL"; API="${GOATOS_API_BASE_URL:-http://127.0.0.1:8080}"
 TENANT=00000000-0000-4000-8000-000000000001
 USER=90000000-0000-4000-8000-000000000101
 VERSION=00000000-0000-4000-8000-00000000b051        # published source-derived ET V1 matrix baseline
+OLD_VERSION=00000000-0000-4000-8000-00000000b011    # retired legacy ET baseline; must not generate obligations
 SOPVER=b0000000-0000-4000-8000-000000000002         # linked published SOP version
 ITEM=00000000-0000-4000-8000-00000000b001           # vaccine inventory item
 LOT=00000000-0000-4000-8000-00000000b002            # inventory_stock.stock_id (FEFO lot ET-LOT-001 @ CBE)
 RULE=00000000-0000-4000-8000-00000000b052           # ET-PRIMARY-1 birth_age day-21 rule
+OLD_RULE=00000000-0000-4000-8000-00000000b012       # retired legacy ET primary rule
 BOOSTER_RULE=00000000-0000-4000-8000-00000000b053   # ET-BOOSTER-1 after_previous_completion +14d rule
 BACKEND="$(cd "$(dirname "$0")/../../backend" && pwd)"
 psqlq(){ psql "$PGURL" -tAc "$1"; }
@@ -100,6 +102,10 @@ echo; echo "### 0. V1 vaccine-goat matrix fixture is present"
 ( cd "$BACKEND" && go run ./cmd/seed-vaccination-trigger -tenant-id "$TENANT" >/dev/null )
 MATRIX=$(psqlq "select concat_ws('|', rule_dsl->'vaccine'->>'code', rule_dsl->'vaccine'->>'type', rule_dsl #>> '{schedule,0,dose_amount}', rule_dsl #>> '{schedule,0,dose_unit}', rule_dsl #>> '{schedule,0,route_site}', rule_dsl #>> '{schedule,0,max_delay_days}', rule_dsl #>> '{schedule,0,course_lapse_policy}', rule_dsl #>> '{eligibility,stage}', rule_dsl #>> '{eligibility,sex}', rule_dsl #>> '{eligibility,breed}', rule_dsl #>> '{eligibility,lifecycle}', rule_dsl #>> '{eligibility,health}', rule_dsl #>> '{eligibility,reproductive}', jsonb_array_length(rule_dsl->'schedule')) from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$VERSION'")
 [ "$MATRIX" = "ET|toxoid|0.5|ml|subcutaneous|7|phc_review|K1|all|all|alive|any|any|2" ] || fail "V1 matrix fixture missing/wrong for version=$VERSION got=$MATRIX"
+MATRIX_REPRO_EXCLUSIONS=$(psqlq "select jsonb_array_length(rule_dsl #> '{eligibility,exclude_reproductive_states}') from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$VERSION'")
+[ "$MATRIX_REPRO_EXCLUSIONS" = "2" ] || fail "V1 matrix missing reproductive exclusions; count=$MATRIX_REPRO_EXCLUSIONS version=$VERSION"
+OLD_STATUS=$(psqlq "select status from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$OLD_VERSION'")
+[ "$OLD_STATUS" = "retired" ] || fail "legacy ET baseline status=$OLD_STATUS, want retired for version=$OLD_VERSION"
 echo "matrix=$MATRIX"
 BACKFILL_SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status) values (gen_random_uuid(), '$TENANT', 'shed', '$BACKFILL_SHED_CODE', 'Chain Proof Backfill $STAMP', '00000000-0000-4000-8000-000000003001', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active') returning location_id" | head -n 1)
 MAIN_SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status) values (gen_random_uuid(), '$TENANT', 'shed', '$MAIN_SHED_CODE', 'Chain Proof Main $STAMP', '00000000-0000-4000-8000-000000003001', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active') returning location_id" | head -n 1)
@@ -115,11 +121,15 @@ BACKFILL_EVENT_COUNT=$(psqlq "select count(*) from goat_identity_events where te
 relay_until_published "backfilled goat.created delivery" "$BACKFILL_GOAT" "goat.created"
 BACKFILL_OBL_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$BACKFILL_GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")
 [ "$BACKFILL_OBL_COUNT" = "1" ] || fail "backfill obligation count=$BACKFILL_OBL_COUNT goat=$BACKFILL_GOAT"
+BACKFILL_OLD_OBL_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$BACKFILL_GOAT' and protocol_version_id='$OLD_VERSION' and rule_id='$OLD_RULE'")
+[ "$BACKFILL_OLD_OBL_COUNT" = "0" ] || fail "backfill generated retired legacy ET obligation count=$BACKFILL_OLD_OBL_COUNT goat=$BACKFILL_GOAT"
 ( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/backfill-goat-created -tenant-id "$TENANT" -goat-id "$BACKFILL_GOAT" -limit 1 >/dev/null )
 BACKFILL_OUTBOX_REPLAY_COUNT=$(psqlq "select count(*) from outbox_messages where tenant_id='$TENANT' and aggregate_id='$BACKFILL_GOAT' and event_type='goat.created'")
 [ "$BACKFILL_OUTBOX_REPLAY_COUNT" = "1" ] || fail "backfill replay outbox count=$BACKFILL_OUTBOX_REPLAY_COUNT goat=$BACKFILL_GOAT"
 BACKFILL_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$BACKFILL_GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")
 [ "$BACKFILL_REPLAY_COUNT" = "1" ] || fail "backfill replay obligation count=$BACKFILL_REPLAY_COUNT goat=$BACKFILL_GOAT"
+BACKFILL_OLD_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$BACKFILL_GOAT' and protocol_version_id='$OLD_VERSION' and rule_id='$OLD_RULE'")
+[ "$BACKFILL_OLD_REPLAY_COUNT" = "0" ] || fail "backfill replay generated retired legacy ET obligation count=$BACKFILL_OLD_REPLAY_COUNT goat=$BACKFILL_GOAT"
 echo "BACKFILL_GOAT=$BACKFILL_GOAT obligations=$BACKFILL_OBL_COUNT replay=$BACKFILL_REPLAY_COUNT"
 
 echo; echo "### 1. Herd Register create  POST /admin/goats"
@@ -139,6 +149,8 @@ echo; echo "### 3. outbox-relay eventbus delivery -> generation"
 relay_until_published "goat.created delivery" "$GOAT" "goat.created"
 OBL=$(psqlq "select obligation_id from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE' limit 1")
 [ -n "$OBL" ] || { echo "FAIL step3 (no obligation generated)"; exit 1; }
+OLD_OBL_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$OLD_VERSION' and rule_id='$OLD_RULE'")
+[ "$OLD_OBL_COUNT" = "0" ] || fail "goat generated retired legacy ET obligation count=$OLD_OBL_COUNT goat=$GOAT"
 assert_outbox_published "goat.created" "$GOAT" "goat.created"
 psql "$PGURL" -c "select obligation_id,status,due_at from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'"
 
@@ -227,9 +239,11 @@ echo "primary obligations for goat after replay (expect 1): $(psqlq "select coun
 echo "booster obligations for goat after replay (expect 1): $(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$BOOSTER_RULE'")"
 echo "completions for goat after replay (expect 1): $(psqlq "select count(*) from vaccination_completions where goat_id='$GOAT'")"
 OBL_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")
+OLD_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$OLD_VERSION' and rule_id='$OLD_RULE'")
 BOOSTER_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$BOOSTER_RULE'")
 COMP_REPLAY_COUNT=$(psqlq "select count(*) from vaccination_completions where goat_id='$GOAT'")
 [ "$OBL_REPLAY_COUNT" = "1" ] || fail "replay obligation count=$OBL_REPLAY_COUNT"
+[ "$OLD_REPLAY_COUNT" = "0" ] || fail "replay generated retired legacy ET obligation count=$OLD_REPLAY_COUNT"
 [ "$BOOSTER_REPLAY_COUNT" = "1" ] || fail "replay booster obligation count=$BOOSTER_REPLAY_COUNT"
 [ "$COMP_REPLAY_COUNT" = "1" ] || fail "replay completion count=$COMP_REPLAY_COUNT"
 

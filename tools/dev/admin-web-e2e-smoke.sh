@@ -124,11 +124,11 @@ npm --prefix "$repo_root/apps/admin-web" run check:herd-import-security | tee "$
 
 seed_open_vaccination_goat() {
   local stamp="$1"
-  local version="00000000-0000-4000-8000-00000000b011"
+  local version="00000000-0000-4000-8000-00000000b051"
   local sop_version="b0000000-0000-4000-8000-000000000002"
   local vaccine_item="00000000-0000-4000-8000-00000000b001"
   local vaccine_lot="00000000-0000-4000-8000-00000000b002"
-  local rule="00000000-0000-4000-8000-00000000b012"
+  local rule="00000000-0000-4000-8000-00000000b052"
   local entry_date
   local dob_day21
   entry_date="$(date -u +%F)"
