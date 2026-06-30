@@ -249,8 +249,8 @@ func TestSourceImportRunEvidenceUpdatesCSG10Pending(t *testing.T) {
 	if err != nil {
 		t.Fatalf("finishSourceImportRun: %v", err)
 	}
-	if len(db.execs) != 2 {
-		t.Fatalf("exec count=%d, want finish + readiness", len(db.execs))
+	if len(db.execs) != 3 {
+		t.Fatalf("exec count=%d, want finish + CSG10 + CSG8 readiness", len(db.execs))
 	}
 	readinessArgs := db.execs[1].args
 	if readinessArgs[1] != "pending" {
@@ -261,6 +261,10 @@ func TestSourceImportRunEvidenceUpdatesCSG10Pending(t *testing.T) {
 	}
 	if !strings.Contains(readinessArgs[3].(string), "seeded local E2E") {
 		t.Fatalf("blocker=%v", readinessArgs[3])
+	}
+	replayArgs := db.execs[2].args
+	if !strings.Contains(replayArgs[1].(string), runID) {
+		t.Fatalf("CSG8 evidence_ref=%v, want run id", replayArgs[1])
 	}
 }
 

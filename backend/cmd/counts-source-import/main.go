@@ -594,7 +594,13 @@ WHERE tenant_id = $1::uuid
 	if err != nil {
 		return fmt.Errorf("counts: finish source import run: %w", err)
 	}
-	return upsertCSG10ImportReadiness(ctx, db, tenantID, runID, importErr)
+	if err := upsertCSG10ImportReadiness(ctx, db, tenantID, runID, importErr); err != nil {
+		return err
+	}
+	if importErr == nil && summary.Replayed > 0 {
+		return upsertCSG8SourceReplayReadiness(ctx, db, tenantID, runID)
+	}
+	return nil
 }
 
 func upsertCSG10ImportReadiness(ctx context.Context, db sourceImportRunDB, tenantID, runID string, importErr error) error {
@@ -623,6 +629,32 @@ SET status = EXCLUDED.status,
 		tenantID, status, "count_source_import_runs:"+runID, blocker)
 	if err != nil {
 		return fmt.Errorf("counts: upsert CSG10 source import readiness: %w", err)
+	}
+	return nil
+}
+
+func upsertCSG8SourceReplayReadiness(ctx context.Context, db sourceImportRunDB, tenantID, runID string) error {
+	_, err := db.Exec(ctx, `
+INSERT INTO counts_shifting_readiness_subgates (
+  tenant_id, subgate_id, status, owner, evidence_ref, blocker_reason, implementation_ref, last_checked_at, updated_at
+) VALUES (
+  $1::uuid, 'CSG8', 'pending', 'Counts/Shifting + Feed Direction',
+  $2,
+  'Source import replay evidence exists; full source parity, projection replay proof, and seeded local E2E remain before CSG8 can turn ready.',
+  'backend/cmd/counts-source-import;backend/internal/counts/adapters/postgres/repository.go;docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md',
+  now(), now()
+)
+ON CONFLICT (tenant_id, subgate_id) DO UPDATE
+SET status = EXCLUDED.status,
+    owner = EXCLUDED.owner,
+    evidence_ref = EXCLUDED.evidence_ref,
+    blocker_reason = EXCLUDED.blocker_reason,
+    implementation_ref = EXCLUDED.implementation_ref,
+    last_checked_at = EXCLUDED.last_checked_at,
+    updated_at = now()`,
+		tenantID, "count_source_import_runs:"+runID)
+	if err != nil {
+		return fmt.Errorf("counts: upsert CSG8 source replay readiness: %w", err)
 	}
 	return nil
 }

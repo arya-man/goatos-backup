@@ -130,6 +130,9 @@ RETURNING base_count_anchor_id::text`,
 	if err := upsertBaseCountReadiness(ctx, r.pool, in.TenantID, id); err != nil {
 		return "", false, err
 	}
+	if err := upsertReplayReadinessPending(ctx, r.pool, in.TenantID, "count_base_anchors:"+id); err != nil {
+		return "", false, err
+	}
 	return id, true, nil
 }
 
@@ -149,6 +152,9 @@ func (r *Repository) RecordShiftingEvent(ctx context.Context, in domain.Shifting
 	if replay {
 		_ = tx.Rollback(ctx)
 		if err := upsertShiftingReadiness(ctx, r.pool, in.TenantID, id, len(in.Impacts) > 0); err != nil {
+			return "", false, err
+		}
+		if err := upsertReplayReadinessPending(ctx, r.pool, in.TenantID, "shifting_events:"+id); err != nil {
 			return "", false, err
 		}
 		return id, true, nil
@@ -366,6 +372,9 @@ WHERE tenant_id = $1::uuid AND horizon = $2 AND park_id = $3::uuid AND target_da
 		if err := upsertProjectionSnapshotReadiness(ctx, r.pool, in.TenantID, id); err != nil {
 			return "", err
 		}
+		if err := upsertReplayReadinessPending(ctx, r.pool, in.TenantID, "count_projection_snapshots:"+id); err != nil {
+			return "", err
+		}
 		return id, nil
 	}
 	if err != nil {
@@ -453,6 +462,18 @@ func upsertProjectionSnapshotReadiness(ctx context.Context, q readinessSubgateRe
 		ImplementationRef: "backend/internal/counts/adapters/postgres/repository.go:CreateProjectionSnapshot;" +
 			"backend/internal/counts/adapters/postgres/repository.go:ProjectedCountFor;" +
 			"backend/internal/counts/adapters/postgres/repository.go:CountAsOf",
+	})
+}
+
+func upsertReplayReadinessPending(ctx context.Context, q readinessSubgateExec, tenantID, evidenceRef string) error {
+	return upsertReadinessSubgate(ctx, q, tenantID, readinessSubgateUpdate{
+		ID:            "CSG8",
+		Status:        "pending",
+		Owner:         "Counts/Shifting + Feed Direction",
+		EvidenceRef:   evidenceRef,
+		BlockerReason: "Replay-safe canonical write evidence exists; full typed source replay, projection recompute replay, source parity, and seeded local E2E remain before CSG8 can turn ready.",
+		ImplementationRef: "backend/internal/counts/adapters/postgres/repository.go;" +
+			"backend/cmd/counts-source-import;docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md",
 	})
 }
 

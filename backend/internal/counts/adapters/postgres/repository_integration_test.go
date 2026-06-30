@@ -69,6 +69,10 @@ WHERE tenant_id=$1::uuid
 	if csg5.Status != domain.ReadinessReady || csg5.EvidenceRef != "count_base_anchors:"+id {
 		t.Fatalf("CSG5 after replay=%+v, want restored ready evidence", csg5)
 	}
+	csg8 := readinessSubgate(t, readiness, "CSG8")
+	if csg8.Status != domain.ReadinessPending || csg8.EvidenceRef != "count_base_anchors:"+id {
+		t.Fatalf("CSG8 after base replay=%+v, want pending replay evidence", csg8)
+	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM outbox_messages
 WHERE tenant_id=$1::uuid
@@ -357,6 +361,10 @@ WHERE tenant_id=$1::uuid
 	if csg3.Status != domain.ReadinessReady || csg3.EvidenceRef != "shifting_event_impacts:"+id {
 		t.Fatalf("CSG3 after replay=%+v, want restored ready evidence", csg3)
 	}
+	csg8 := readinessSubgate(t, readiness, "CSG8")
+	if csg8.Status != domain.ReadinessPending || csg8.EvidenceRef != "shifting_events:"+id {
+		t.Fatalf("CSG8 after shifting replay=%+v, want pending replay evidence", csg8)
+	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM outbox_messages
 WHERE tenant_id=$1::uuid
@@ -446,6 +454,10 @@ func TestRepositoryCreatesBlockedProjectionSnapshotAndReadiness(t *testing.T) {
 	csg9 = readinessSubgate(t, readiness, "CSG9")
 	if csg9.Status != domain.ReadinessReady || csg9.EvidenceRef != "count_projection_snapshots:"+snapID {
 		t.Fatalf("CSG9 after replay=%+v, want restored ready evidence", csg9)
+	}
+	csg8 := readinessSubgate(t, readiness, "CSG8")
+	if csg8.Status != domain.ReadinessPending || csg8.EvidenceRef != "count_projection_snapshots:"+snapID {
+		t.Fatalf("CSG8 after snapshot replay=%+v, want pending replay evidence", csg8)
 	}
 	projection, err := repo.ProjectedCountFor(ctx, domain.CountProjectionRequest{
 		TenantID: countsTenant, ParkID: countsPark, TargetDate: target,

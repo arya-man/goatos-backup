@@ -118,8 +118,11 @@ Repository writes now promote only the subgates they directly prove: Base Count
 anchors promote `CSG1`/`CSG5`, ShiftingEvents with impacts promote
 `CSG2`/`CSG3`, projection snapshots promote `CSG9`, and both snapshot horizons
 are required before `CSG4` is ready. This evidence does not make `G2` green by
-itself; `CSG7`, `CSG8`, `CSG10`, source parity, UI, and seeded E2E still have
-to close in order.
+itself. Canonical replay and source-import replay evidence may move `CSG8` to
+`pending`, but it does not become ready until full source replay parity,
+projection replay proof, and seeded E2E prove no double application. `CSG7`,
+`CSG8`, `CSG10`, source parity, UI, and seeded E2E still have to close in
+order.
 
 Base Count cadence has source history moving from roughly weekly to roughly
 monthly. The closure must expose cadence as reviewed policy or schedule config;

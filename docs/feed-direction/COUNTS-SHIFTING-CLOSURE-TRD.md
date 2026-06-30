@@ -128,7 +128,10 @@ Implementation status as of 2026-06-30:
   replay count, failure count, source reference, trace id, status, timestamps,
   and last error. `counts-source-import` updates `CSG10` readiness evidence to
   `pending` on success and `blocked` on failure; success still leaves source
-  parity, observability breadth, and seeded local E2E open.
+  parity, observability breadth, and seeded local E2E open. When a successful
+  import records replayed rows, it updates `CSG8` to `pending` with
+  `count_source_import_runs:<id>` evidence; this is replay proof, not full G2
+  closure.
 - `countsapp.ProjectionInputHandler` consumes those events through both
   `backend/cmd/domain-event-consumer` and the local/dev `outbox-relay`
   in-process eventbus publisher. It recomputes bounded `count_as_of` and
@@ -147,6 +150,11 @@ Implementation status as of 2026-06-30:
   `count_projection_snapshots:<id>` evidence. They also update `CSG4`: one
   horizon remains pending, and `CSG4` turns ready only after both
   `count_as_of` and `feed_target_date` snapshot horizons exist for the tenant.
+- Canonical idempotent replays of Base Count anchors, ShiftingEvents, and
+  projection snapshots refresh readiness evidence and update `CSG8` to
+  `pending`. `CSG8` remains pending until typed source replay, projection
+  recompute replay, source parity, and seeded local E2E prove no double
+  application across the full path.
 - Projection exception open, relink/update, and close state changes now emit
   transactional outbox events
   (`counts.projection_exception.opened`,
