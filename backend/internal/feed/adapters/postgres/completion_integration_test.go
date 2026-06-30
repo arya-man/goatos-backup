@@ -13,6 +13,7 @@ import (
 	feeddomain "github.com/vgoats/goatos/backend/internal/feed/domain"
 	oblpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -151,20 +152,20 @@ func TestReadinessConsumesSeededCountsProjectionAndBlocksPregnantDestinationShor
 	if _, replay, err := countsRepo.RecordBaseCountAnchor(ctx, feedReadinessBaseAnchor(feedCountsDestinationShed, "feed-readiness-dest-anchor", "feed-readiness-dest-fp", 5)); err != nil || replay {
 		t.Fatalf("record destination anchor replay=%v err=%v", replay, err)
 	}
-	if _, replay, err := countsRepo.RecordShiftingEvent(ctx, feedReadinessPregnantShift()); err != nil || replay {
-		t.Fatalf("record pregnant shift replay=%v err=%v", replay, err)
+	shiftID, replay, err := countsRepo.RecordShiftingEvent(ctx, feedReadinessPregnantShift())
+	if err != nil || replay || shiftID == "" {
+		t.Fatalf("record pregnant shift id=%q replay=%v err=%v", shiftID, replay, err)
 	}
 
-	target := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
-	asOf := time.Date(2026, 6, 30, 18, 0, 0, 0, time.UTC)
-	for _, horizon := range []string{"count_as_of", "feed_target_date"} {
-		if _, err := countsService.RecomputeProjectionSnapshot(ctx, countsdomain.ProjectionRecomputeRequest{
-			TenantID: feedTenant, ParkID: feedCountsPark, Horizon: horizon,
-			TargetDate: target, AsOf: asOf, SourceContractVersion: countsdomain.SourceContractVersionV1,
-			GeneratedBy: "feed-readiness-integration-test",
-		}); err != nil {
-			t.Fatalf("recompute %s: %v", horizon, err)
-		}
+	outboxPayload := feedOutboxPayloadForAggregate(t, ctx, pool, countsdomain.EventShiftingEventRecorded, shiftID)
+	event, err := eventbus.EventFromEnvelope(outboxPayload, eventbus.Event{})
+	if err != nil {
+		t.Fatalf("decode shifting outbox event: %v", err)
+	}
+	bus := eventbus.NewInProcessBus()
+	countsapp.NewProjectionInputHandler(countsService, countsapp.WithProjectionInputHandlerGeneratedBy("feed-readiness-integration-test")).Register(bus)
+	if err := bus.Publish(ctx, event); err != nil {
+		t.Fatalf("publish shifting event to projection handler: %v", err)
 	}
 
 	readiness, err := feedService.Readiness(ctx, feedTenant)
@@ -187,6 +188,14 @@ func TestReadinessConsumesSeededCountsProjectionAndBlocksPregnantDestinationShor
 	}
 	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG10"); csg.Status != feeddomain.ReadinessPending {
 		t.Fatalf("CSG10=%+v, want pending observability/source/E2E evidence", csg)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM count_projection_snapshots
+WHERE tenant_id=$1::uuid
+  AND park_id=$2::uuid
+  AND generated_by='feed-readiness-integration-test'`, feedTenant, feedCountsPark); got != 2 {
+		t.Fatalf("event-driven projection snapshots=%d, want count_as_of and feed_target_date", got)
 	}
 
 	exceptions, err := feedService.ListCountsProjectionExceptions(ctx, feeddomain.CountsProjectionExceptionQuery{
@@ -279,6 +288,20 @@ func feedSubgate(t *testing.T, subgates []feeddomain.CountsShiftingSubgate, id s
 }
 
 func stringPtr(s string) *string { return &s }
+
+func feedOutboxPayloadForAggregate(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventType, aggregateID string) []byte {
+	t.Helper()
+	var payload []byte
+	if err := pool.QueryRow(ctx, `
+SELECT payload
+FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND event_type=$2
+  AND aggregate_id=$3::uuid`, feedTenant, eventType, aggregateID).Scan(&payload); err != nil {
+		t.Fatalf("load outbox payload: %v", err)
+	}
+	return payload
+}
 
 func scanText(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) string {
 	t.Helper()

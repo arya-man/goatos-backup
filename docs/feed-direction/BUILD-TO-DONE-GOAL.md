@@ -156,11 +156,12 @@ language.
    reviewed ration-context resolution state for each shed + breed projection row, and
    `GET /feed-direction/readiness` subgate roll-up.
    The Feed readiness path now has seeded local integration proof that real
-   Counts Base Count + ShiftingEvent + dual-horizon projection evidence flows
-   into `G2` and keeps Feed generation blocked when a pregnant destination shed
-   has an open `destination_shortage` exception. This is readiness consumption
-   proof only; full Feed generation consumption of immutable projection snapshots
-   still remains.
+   Counts Base Count + ShiftingEvent writes emit the ShiftingEvent outbox event,
+   the in-process projection handler recomputes both horizons, and Feed
+   readiness consumes that evidence under `G2` while keeping generation blocked
+   when a pregnant destination shed has an open `destination_shortage`
+   exception. This is readiness/outbox consumption proof only; full Feed
+   generation consumption of immutable projection snapshots still remains.
    `counts-source-parity-check` now also has migrated-Postgres proof against a
    canonical projection snapshot/read path and writes `CSG10` source-parity
    evidence as pending, not ready.

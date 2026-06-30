@@ -194,12 +194,13 @@ Implementation status as of 2026-06-30:
   `count_projection_snapshots:<id>` evidence. They also update `CSG4`: one
   horizon remains pending, and `CSG4` turns ready only after both
   `count_as_of` and `feed_target_date` snapshot horizons exist for the tenant.
-- Feed readiness now has a seeded migrated-Postgres integration test proving a
-  real Base Count + pregnant ShiftingEvent + dual-horizon projection recompute
-  flows into the Feed readiness provider, surfaces `CSG4`/`CSG9` evidence, and
-  keeps `G2` blocked when the projected destination shed has an open critical
-  `destination_shortage` exception. This is readiness/read-model proof, not full
-  Feed generation consumption.
+- Feed readiness now has a seeded migrated-Postgres integration test proving
+  real Base Count + pregnant ShiftingEvent writes emit the ShiftingEvent outbox
+  event, the in-process projection handler recomputes both horizons, the Feed
+  readiness provider surfaces `CSG4`/`CSG9` evidence, and `G2` remains blocked
+  when the projected destination shed has an open critical
+  `destination_shortage` exception. This is readiness/outbox/read-model proof,
+  not full Feed generation consumption.
 - Canonical idempotent replays of Base Count anchors, ShiftingEvents, and
   projection snapshots refresh readiness evidence and update `CSG8` to
   `pending`. The typed import path has migrated source replay proof, and the
