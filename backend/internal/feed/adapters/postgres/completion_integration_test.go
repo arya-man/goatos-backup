@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,9 +177,20 @@ func TestReadinessConsumesSeededCountsProjectionAndBlocksPregnantDestinationShor
 		t.Fatalf("feed readiness=%+v, want blocked/no-generation", readiness)
 	}
 	g2 := readinessGate(t, readiness.Gates, "G2")
-	if g2.Status != feeddomain.ReadinessBlocked || g2.AllowsGenerate ||
-		g2.BlockerReason != "Counts/Shifting has open projection exceptions; Feed generation remains blocked." {
+	if g2.Status != feeddomain.ReadinessBlocked || g2.AllowsGenerate {
 		t.Fatalf("G2=%+v, want open-exception blocker", g2)
+	}
+	for _, want := range []string{
+		"Counts/Shifting has open projection exceptions",
+		"CSG6=blocked",
+		"CSG7=blocked",
+		"alias_conflict",
+		"CSG8=blocked",
+		"CSG10=pending",
+	} {
+		if !strings.Contains(g2.BlockerReason, want) {
+			t.Fatalf("G2 blocker=%q, want %q", g2.BlockerReason, want)
+		}
 	}
 	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG4"); csg.Status != feeddomain.ReadinessReady {
 		t.Fatalf("CSG4=%+v, want ready after dual-horizon recompute", csg)
