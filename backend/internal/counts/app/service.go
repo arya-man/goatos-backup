@@ -17,12 +17,13 @@ import (
 )
 
 var (
-	ErrMissingRequiredField = errors.New("counts: missing required field")
-	ErrInvalidCount         = errors.New("counts: invalid count")
-	ErrInvalidJSON          = errors.New("counts: invalid json object")
-	ErrInvalidLimit         = errors.New("counts: invalid limit")
-	ErrInvalidHorizon       = errors.New("counts: invalid projection horizon")
-	ErrMissingImpact        = errors.New("counts: shifting event requires structured impact")
+	ErrMissingRequiredField    = errors.New("counts: missing required field")
+	ErrInvalidCount            = errors.New("counts: invalid count")
+	ErrInvalidJSON             = errors.New("counts: invalid json object")
+	ErrInvalidLimit            = errors.New("counts: invalid limit")
+	ErrInvalidHorizon          = errors.New("counts: invalid projection horizon")
+	ErrMissingImpact           = errors.New("counts: shifting event requires structured impact")
+	ErrInvalidResolutionAction = errors.New("counts: invalid projection exception resolution action")
 )
 
 const (
@@ -172,6 +173,28 @@ func (s *Service) ProjectedCountFor(ctx context.Context, req domain.CountProject
 		return domain.CountProjection{}, err
 	}
 	return s.repo.ProjectedCountFor(ctx, req)
+}
+
+func (s *Service) ResolveProjectionException(ctx context.Context, in domain.ProjectionExceptionResolutionRequest) (domain.ProjectionExceptionResolution, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	in.ProjectionExceptionID = strings.TrimSpace(in.ProjectionExceptionID)
+	in.Action = strings.ToLower(strings.TrimSpace(in.Action))
+	in.ResolvedByRef = strings.TrimSpace(in.ResolvedByRef)
+	in.ResolutionReason = strings.TrimSpace(in.ResolutionReason)
+	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
+	in.RequestFingerprint = strings.TrimSpace(in.RequestFingerprint)
+	if in.ResolutionRef != nil {
+		ref := strings.TrimSpace(*in.ResolutionRef)
+		in.ResolutionRef = ptrIfNotEmpty(ref)
+	}
+	if in.TenantID == "" || in.ProjectionExceptionID == "" || in.ResolvedByRef == "" ||
+		in.ResolutionReason == "" || in.IdempotencyKey == "" || in.RequestFingerprint == "" {
+		return domain.ProjectionExceptionResolution{}, ErrMissingRequiredField
+	}
+	if in.Action != "resolve" && in.Action != "dismiss" {
+		return domain.ProjectionExceptionResolution{}, ErrInvalidResolutionAction
+	}
+	return s.repo.ResolveProjectionException(ctx, in)
 }
 
 func (s *Service) Readiness(ctx context.Context, tenantID string) (domain.Readiness, error) {
@@ -491,6 +514,13 @@ func ptrValue(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+func ptrIfNotEmpty(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
 }
 
 func appendBlockerReason(existing *string, reason string) *string {

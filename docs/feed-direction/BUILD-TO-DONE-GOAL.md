@@ -122,9 +122,10 @@ starting the first gate, and do not skip ahead using broad owner-deferral
 language.
 
 1. `G2` Counts/Shifting projection closure, including Base Count anchor,
-   ShiftingEvent ledger, horizon split, fail-closed exceptions, idempotency,
-   observability, aggregate breed-level count output, reviewed ration-context
-   resolution state for each shed + breed projection row, and
+   ShiftingEvent ledger, horizon split, fail-closed exceptions with reviewed
+   resolve/dismiss audit, idempotency, observability, aggregate breed-level
+   count output, reviewed ration-context resolution state for each shed + breed
+   projection row, and
    `GET /feed-direction/readiness` subgate roll-up. Breed/tag constraint tables
    without shed placement must block until reviewed context resolves the
    nutrition cohort. RFID-to-shed per-animal association is out of scope for the

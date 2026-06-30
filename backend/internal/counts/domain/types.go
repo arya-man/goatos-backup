@@ -200,6 +200,7 @@ type ProjectionException struct {
 	BreedKey              *string
 	StageTag              *string
 	Severity              string
+	Status                string
 	OwnerRef              *string
 	WorkType              string
 	WorkState             string
@@ -208,6 +209,35 @@ type ProjectionException struct {
 	EvidenceLink          string
 	BlockerReason         string
 	EvidenceJSON          []byte
+	ResolutionID          *string
+	ResolvedByRef         *string
+	ResolutionReason      *string
+	ResolutionRef         *string
+	ResolvedAt            *time.Time
+}
+
+type ProjectionExceptionResolutionRequest struct {
+	TenantID              string
+	ProjectionExceptionID string
+	Action                string
+	ResolvedByRef         string
+	ResolutionReason      string
+	ResolutionRef         *string
+	IdempotencyKey        string
+	RequestFingerprint    string
+}
+
+type ProjectionExceptionResolution struct {
+	ProjectionExceptionResolutionID string
+	ProjectionExceptionID           string
+	Action                          string
+	Status                          string
+	WorkState                       string
+	ResolvedByRef                   string
+	ResolutionReason                string
+	ResolutionRef                   *string
+	ResolvedAt                      time.Time
+	Replayed                        bool
 }
 
 type CountProjectionRequest struct {

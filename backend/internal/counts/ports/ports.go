@@ -9,9 +9,11 @@ import (
 )
 
 var (
-	ErrIdempotencyConflict   = errors.New("counts: idempotency key reused with different payload")
-	ErrIdempotencyInProgress = errors.New("counts: idempotency key is still in progress")
-	ErrLogicalKeyConflict    = errors.New("counts: logical shifting event key reused with different payload")
+	ErrIdempotencyConflict         = errors.New("counts: idempotency key reused with different payload")
+	ErrIdempotencyInProgress       = errors.New("counts: idempotency key is still in progress")
+	ErrLogicalKeyConflict          = errors.New("counts: logical shifting event key reused with different payload")
+	ErrProjectionExceptionNotFound = errors.New("counts: projection exception not found")
+	ErrProjectionExceptionClosed   = errors.New("counts: projection exception already closed")
 )
 
 type Repository interface {
@@ -21,5 +23,6 @@ type Repository interface {
 	CreateProjectionSnapshot(ctx context.Context, in domain.ProjectionSnapshot) (id string, err error)
 	CountAsOf(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error)
 	ProjectedCountFor(ctx context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error)
+	ResolveProjectionException(ctx context.Context, in domain.ProjectionExceptionResolutionRequest) (domain.ProjectionExceptionResolution, error)
 	Readiness(ctx context.Context, tenantID string) (domain.Readiness, error)
 }

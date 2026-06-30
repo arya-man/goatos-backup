@@ -10,10 +10,11 @@ import (
 )
 
 type fakeRepo struct {
-	anchor domain.BaseCountAnchor
-	event  domain.ShiftingEvent
-	inputs domain.ProjectionInputs
-	snap   domain.ProjectionSnapshot
+	anchor     domain.BaseCountAnchor
+	event      domain.ShiftingEvent
+	inputs     domain.ProjectionInputs
+	snap       domain.ProjectionSnapshot
+	resolution domain.ProjectionExceptionResolutionRequest
 }
 
 func (f *fakeRepo) RecordBaseCountAnchor(_ context.Context, in domain.BaseCountAnchor) (string, bool, error) {
@@ -36,6 +37,20 @@ func (f *fakeRepo) CountAsOf(_ context.Context, req domain.CountProjectionReques
 }
 func (f *fakeRepo) ProjectedCountFor(_ context.Context, req domain.CountProjectionRequest) (domain.CountProjection, error) {
 	return domain.CountProjection{TenantID: req.TenantID, Horizon: "feed_target_date", TotalRowCount: int64(req.Limit)}, nil
+}
+func (f *fakeRepo) ResolveProjectionException(_ context.Context, in domain.ProjectionExceptionResolutionRequest) (domain.ProjectionExceptionResolution, error) {
+	f.resolution = in
+	return domain.ProjectionExceptionResolution{
+		ProjectionExceptionResolutionID: "resolution-1",
+		ProjectionExceptionID:           in.ProjectionExceptionID,
+		Action:                          in.Action,
+		Status:                          "resolved",
+		WorkState:                       "resolved",
+		ResolvedByRef:                   in.ResolvedByRef,
+		ResolutionReason:                in.ResolutionReason,
+		ResolutionRef:                   in.ResolutionRef,
+		ResolvedAt:                      time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC),
+	}, nil
 }
 func (f *fakeRepo) Readiness(context.Context, string) (domain.Readiness, error) {
 	return domain.Readiness{}, nil
@@ -210,6 +225,48 @@ func TestCreateProjectionSnapshotDefaultsExceptionWorkFields(t *testing.T) {
 	}
 	if ex.EvidenceLink != "/feed-direction/counts-projection/exceptions/shift-1" {
 		t.Fatalf("evidence_link=%q", ex.EvidenceLink)
+	}
+}
+
+func TestResolveProjectionExceptionNormalizesAndPassesThrough(t *testing.T) {
+	ref := "  shift-report:123  "
+	repo := &fakeRepo{}
+	out, err := NewService(repo).ResolveProjectionException(context.Background(), domain.ProjectionExceptionResolutionRequest{
+		TenantID:              " tenant ",
+		ProjectionExceptionID: " exception-1 ",
+		Action:                " RESOLVE ",
+		ResolvedByRef:         " feed-director:ravi ",
+		ResolutionReason:      " reviewed pregnant cohort ration context ",
+		ResolutionRef:         &ref,
+		IdempotencyKey:        " resolve-exception-1 ",
+		RequestFingerprint:    " fp-1 ",
+	})
+	if err != nil {
+		t.Fatalf("ResolveProjectionException err=%v", err)
+	}
+	if out.Action != "resolve" || out.Status != "resolved" {
+		t.Fatalf("resolution=%+v", out)
+	}
+	if repo.resolution.TenantID != "tenant" || repo.resolution.ProjectionExceptionID != "exception-1" ||
+		repo.resolution.ResolutionRef == nil || *repo.resolution.ResolutionRef != "shift-report:123" {
+		t.Fatalf("normalized request=%+v", repo.resolution)
+	}
+}
+
+func TestResolveProjectionExceptionRejectsBadEnvelope(t *testing.T) {
+	_, err := NewService(&fakeRepo{}).ResolveProjectionException(context.Background(), domain.ProjectionExceptionResolutionRequest{
+		TenantID: "tenant", ProjectionExceptionID: "exception-1", Action: "approve",
+		ResolvedByRef: "feed-director:ravi", ResolutionReason: "reviewed", IdempotencyKey: "idem", RequestFingerprint: "fp",
+	})
+	if !errors.Is(err, ErrInvalidResolutionAction) {
+		t.Fatalf("err=%v, want ErrInvalidResolutionAction", err)
+	}
+	_, err = NewService(&fakeRepo{}).ResolveProjectionException(context.Background(), domain.ProjectionExceptionResolutionRequest{
+		TenantID: "tenant", ProjectionExceptionID: "exception-1", Action: "dismiss",
+		ResolvedByRef: "feed-director:ravi", IdempotencyKey: "idem", RequestFingerprint: "fp",
+	})
+	if !errors.Is(err, ErrMissingRequiredField) {
+		t.Fatalf("err=%v, want ErrMissingRequiredField", err)
 	}
 }
 

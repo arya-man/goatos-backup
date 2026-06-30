@@ -272,6 +272,120 @@ func TestRepositoryCreatesBlockedProjectionSnapshotAndReadiness(t *testing.T) {
 	}
 }
 
+func TestRepositoryResolvesProjectionExceptionIdempotently(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 3*time.Second)
+	previous := baseAnchorForAt(countsShedA, "resolve-previous-anchor", "resolve-previous-fp", 20, time.Date(2026, 6, 29, 6, 0, 0, 0, time.UTC))
+	if _, replay, err := repo.RecordBaseCountAnchor(ctx, previous); err != nil || replay {
+		t.Fatalf("previous anchor replay=%v err=%v", replay, err)
+	}
+	current := baseAnchorForAt(countsShedA, "resolve-current-anchor", "resolve-current-fp", 17, time.Date(2026, 6, 30, 6, 0, 0, 0, time.UTC))
+	currentID, replay, err := repo.RecordBaseCountAnchor(ctx, current)
+	if err != nil || replay || currentID == "" {
+		t.Fatalf("current anchor id=%q replay=%v err=%v", currentID, replay, err)
+	}
+	exceptionID := projectionExceptionID(t, ctx, pool, "unreported_shifting", "base_count_anchor:"+currentID)
+	ref := "shift-report:resolved-by-feed-director"
+	in := domain.ProjectionExceptionResolutionRequest{
+		TenantID: countsTenant, ProjectionExceptionID: exceptionID, Action: "resolve",
+		ResolvedByRef: "feed-director:ravi", ResolutionReason: "reviewed physical count and entered missing ShiftingEvent",
+		ResolutionRef: &ref, IdempotencyKey: "resolve-exception-idem", RequestFingerprint: "resolve-exception-fp",
+	}
+	out, err := repo.ResolveProjectionException(ctx, in)
+	if err != nil {
+		t.Fatalf("resolve projection exception: %v", err)
+	}
+	if out.ProjectionExceptionID != exceptionID || out.Status != "resolved" || out.WorkState != "resolved" ||
+		out.Action != "resolve" || out.Replayed || out.ResolutionRef == nil || *out.ResolutionRef != ref || out.ResolvedAt.IsZero() {
+		t.Fatalf("resolution=%+v", out)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM count_projection_exceptions
+WHERE tenant_id=$1::uuid
+  AND count_projection_exception_id=$2::uuid
+  AND status='resolved'
+  AND work_state='resolved'
+  AND resolved_by_ref='feed-director:ravi'
+  AND resolution_reason=$3
+  AND resolution_ref=$4`, countsTenant, exceptionID, in.ResolutionReason, ref); got != 1 {
+		t.Fatalf("resolved exception rows=%d, want 1", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM count_projection_exception_resolutions
+WHERE tenant_id=$1::uuid
+  AND count_projection_exception_id=$2::uuid
+  AND idempotency_key=$3`, countsTenant, exceptionID, in.IdempotencyKey); got != 1 {
+		t.Fatalf("resolution audit rows=%d, want 1", got)
+	}
+	var discrepancyState string
+	if err := pool.QueryRow(ctx, `
+SELECT discrepancy_state FROM count_base_anchors
+WHERE tenant_id=$1::uuid AND base_count_anchor_id=$2::uuid`, countsTenant, currentID).Scan(&discrepancyState); err != nil {
+		t.Fatalf("load discrepancy state: %v", err)
+	}
+	if discrepancyState != "resolved" {
+		t.Fatalf("discrepancy_state=%q, want resolved", discrepancyState)
+	}
+	readiness, err := repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness: %v", err)
+	}
+	if readiness.OpenExceptionCount != 0 || readiness.GenerationAllowed {
+		t.Fatalf("readiness=%+v, want no open exceptions but generation still blocked by subgates/latest projection", readiness)
+	}
+	replayOut, err := repo.ResolveProjectionException(ctx, in)
+	if err != nil || !replayOut.Replayed || replayOut.ProjectionExceptionResolutionID != out.ProjectionExceptionResolutionID {
+		t.Fatalf("replay resolution=%+v err=%v, want replay of %s", replayOut, err, out.ProjectionExceptionResolutionID)
+	}
+	conflict := in
+	conflict.RequestFingerprint = "different-fp"
+	if _, err := repo.ResolveProjectionException(ctx, conflict); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("conflict err=%v, want ErrIdempotencyConflict", err)
+	}
+	closedAgain := in
+	closedAgain.IdempotencyKey = "resolve-exception-new-key"
+	closedAgain.RequestFingerprint = "resolve-exception-new-fp"
+	if _, err := repo.ResolveProjectionException(ctx, closedAgain); !errors.Is(err, ports.ErrProjectionExceptionClosed) {
+		t.Fatalf("closed err=%v, want ErrProjectionExceptionClosed", err)
+	}
+}
+
+func TestRepositoryDismissesProjectionException(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 3*time.Second)
+	anchorID, replay, err := repo.RecordBaseCountAnchor(ctx, baseAnchor("dismiss-anchor-key", "dismiss-anchor-fp"))
+	if err != nil || replay || anchorID == "" {
+		t.Fatalf("anchor id=%q replay=%v err=%v", anchorID, replay, err)
+	}
+	target := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	blocker := "pregnant destination shed shortage: reviewed ration context missing"
+	if _, err := repo.CreateProjectionSnapshot(ctx, repeatedExceptionSnapshot(anchorID, target, "snapshot-dismiss-hash", blocker, "beetal", "pregnant")); err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	exceptionID := projectionExceptionID(t, ctx, pool, "destination_shortage", "shift-key-relink")
+	out, err := repo.ResolveProjectionException(ctx, domain.ProjectionExceptionResolutionRequest{
+		TenantID: countsTenant, ProjectionExceptionID: exceptionID, Action: "dismiss",
+		ResolvedByRef: "feed-director:ravi", ResolutionReason: "reviewed duplicate shortage warning from superseded sheet",
+		IdempotencyKey: "dismiss-exception-idem", RequestFingerprint: "dismiss-exception-fp",
+	})
+	if err != nil {
+		t.Fatalf("dismiss projection exception: %v", err)
+	}
+	if out.Status != "dismissed" || out.WorkState != "dismissed" || out.Action != "dismiss" {
+		t.Fatalf("dismissal=%+v", out)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM count_projection_exceptions
+WHERE tenant_id=$1::uuid
+  AND count_projection_exception_id=$2::uuid
+  AND status='dismissed'
+  AND work_state='dismissed'`, countsTenant, exceptionID); got != 1 {
+		t.Fatalf("dismissed exception rows=%d, want 1", got)
+	}
+}
+
 func TestRepositoryRelinksRepeatedOpenExceptionToLatestSnapshot(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
@@ -667,6 +781,21 @@ func countRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, query stri
 		t.Fatalf("count rows: %v", err)
 	}
 	return count
+}
+
+func projectionExceptionID(t *testing.T, ctx context.Context, pool *pgxpool.Pool, exceptionType, sourceKey string) string {
+	t.Helper()
+	var id string
+	if err := pool.QueryRow(ctx, `
+SELECT count_projection_exception_id::text
+FROM count_projection_exceptions
+WHERE tenant_id=$1::uuid
+  AND exception_type=$2
+  AND source_key=$3
+  AND status='open'`, countsTenant, exceptionType, sourceKey).Scan(&id); err != nil {
+		t.Fatalf("load projection exception id: %v", err)
+	}
+	return id
 }
 
 func outboxPayloadForAggregate(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventType, aggregateID string) []byte {

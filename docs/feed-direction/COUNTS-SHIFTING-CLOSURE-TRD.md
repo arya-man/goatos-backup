@@ -109,6 +109,11 @@ Implementation status as of 2026-06-30:
   bounded window. Unexpected deltas create open `unreported_shifting` or
   `count_mismatch` exception work and move the new anchor to
   `discrepancy_state=investigating` without blocking adoption.
+- `ResolveProjectionException` now closes Counts/Shifting exceptions through an
+  idempotent reviewed workflow. Each `resolve` or `dismiss` action writes
+  `count_projection_exception_resolutions`, updates the exception `status`,
+  `work_state`, `resolved_at`, actor/ref/reason fields, and clears the linked
+  Base Count discrepancy when the exception came from a physical-count mismatch.
 - Projection rows now carry `base_count_anchor_id`,
   `included_shifting_event_ids_hash`, source row hash, contract hash, and
   ration-context resolution state.
@@ -123,10 +128,9 @@ Implementation status as of 2026-06-30:
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
 - This does **not** close `G2`: source import/adapters, owner-approved alias
-  mapping coverage/admin review, scheduled/import-wide mismatch scans and
-  exception resolve/dismiss workflow, exception routing into shared command
-  lenses/outbox, observability, query-plan/synthetic-scale proof, and seeded
-  local E2E remain blockers.
+  mapping coverage/admin review, scheduled/import-wide mismatch scans,
+  exception routing into shared command lenses/outbox/API, observability,
+  query-plan/synthetic-scale proof, and seeded local E2E remain blockers.
 
 ## 3. Candidate Persistence
 
@@ -139,6 +143,7 @@ Preferred aggregate-ledger tables:
 | `shifting_event_impacts` | Structured stage/cohort deltas; no free-text comments as policy truth |
 | `count_projection_snapshots` | Optional cached projection by tenant, park, date/as_of, grain, horizon, source hash |
 | `count_projection_exceptions` | Durable process work for ambiguous impact, unreported shifting, count mismatch, alias conflict, or insufficient source |
+| `count_projection_exception_resolutions` | Idempotent reviewed `resolve`/`dismiss` audit for projection exception work |
 
 Alternative per-goat derivation is allowed only after RFID-to-shed association
 can be proven from committed GoatOS identity/location state. The derivation must
@@ -238,8 +243,11 @@ Implementation status as of 2026-06-30:
 - Open exception upsert moves repeated exceptions to the newest snapshot so a
   latest Feed projection cannot appear clean because the blocker is still
   attached to an older snapshot.
-- Full command-lens subscription, outbox event fanout, assignment policy, and
-  resolve/dismiss workflow remain G2 blockers.
+- Backend exception review now supports idempotent `resolve` and `dismiss`
+  actions with actor, reason, optional resolution reference, audit row, closed
+  exception state, and linked Base Count discrepancy cleanup when applicable.
+- Full command-lens subscription, API routing, outbox event fanout, assignment
+  policy, and review-surface UX remain G2 blockers.
 - New physical Base Count anchors compare against the previous adopted anchor
   plus applied shifting ledger net for the same tenant, park, shed, and breed.
   A matching delta stays clean; an unexplained delta creates `unreported_shifting`

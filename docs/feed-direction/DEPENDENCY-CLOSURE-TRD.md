@@ -136,6 +136,7 @@ Candidate tables owned by Counts/Shifting:
 | `shifting_event_impacts` | Structured cohort/stage deltas per event; no free-text policy decisions |
 | `count_projection_snapshots` | Optional cached output for tenant/park/date/grain with source hash |
 | `count_projection_exceptions` | Durable fail-closed work for unresolved cohort/stage, unreported shifting, or insufficient source data |
+| `count_projection_exception_resolutions` | Reviewed resolve/dismiss audit for exception work; includes actor, reason, optional source reference, idempotency key, and replay fingerprint |
 
 Idempotency:
 
@@ -879,7 +880,8 @@ Required tests/checks:
 - Base Count adoption not blocked by discrepancy investigation.
 - Shifting event idempotency by event key.
 - Missing cohort/stage impact fails closed.
-- Count-mismatch/unreported-shifting detection creates exception work.
+- Count-mismatch/unreported-shifting detection creates exception work and
+  reviewed resolve/dismiss closure is idempotent.
 - Ration key normalization and eligibility exclusions.
 - Warmup/K0/K1/Experiment policy cannot publish without sign-off/provenance.
 - Ration publish gate rejects missing approval metadata or missing publish

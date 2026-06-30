@@ -507,6 +507,92 @@ func (r *Repository) ProjectedCountFor(ctx context.Context, req domain.CountProj
 	return r.projection(ctx, "feed_target_date", req)
 }
 
+func (r *Repository) ResolveProjectionException(ctx context.Context, in domain.ProjectionExceptionResolutionRequest) (domain.ProjectionExceptionResolution, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.ProjectionExceptionResolution{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if out, found, err := maybeProjectionExceptionResolutionByIdempotency(ctx, tx, in); err != nil || found {
+		return out, err
+	}
+
+	var currentStatus, sourceKey string
+	if err := tx.QueryRow(ctx, `
+SELECT status, source_key
+FROM count_projection_exceptions
+WHERE tenant_id = $1::uuid
+  AND count_projection_exception_id = $2::uuid
+FOR UPDATE`, in.TenantID, in.ProjectionExceptionID).Scan(&currentStatus, &sourceKey); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ProjectionExceptionResolution{}, ports.ErrProjectionExceptionNotFound
+		}
+		return domain.ProjectionExceptionResolution{}, fmt.Errorf("counts: lock projection exception: %w", err)
+	}
+	if currentStatus != "open" {
+		return domain.ProjectionExceptionResolution{}, ports.ErrProjectionExceptionClosed
+	}
+
+	var resolutionID string
+	if err := tx.QueryRow(ctx, `
+INSERT INTO count_projection_exception_resolutions (
+  tenant_id, count_projection_exception_id, action, resolved_by_ref, resolution_reason,
+  resolution_ref, idempotency_key, request_fingerprint
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5,
+  nullif($6, ''), $7, $8
+)
+RETURNING count_projection_exception_resolution_id::text`,
+		in.TenantID, in.ProjectionExceptionID, in.Action, in.ResolvedByRef, in.ResolutionReason,
+		ptrValue(in.ResolutionRef), in.IdempotencyKey, in.RequestFingerprint).Scan(&resolutionID); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.ConstraintName == "count_projection_exception_resolutions_idempotency_unique" {
+			if out, found, replayErr := maybeProjectionExceptionResolutionByIdempotency(ctx, tx, in); replayErr != nil || found {
+				return out, replayErr
+			}
+			return domain.ProjectionExceptionResolution{}, ports.ErrIdempotencyConflict
+		}
+		return domain.ProjectionExceptionResolution{}, fmt.Errorf("counts: insert projection exception resolution: %w", err)
+	}
+
+	closedStatus := projectionExceptionClosedStatus(in.Action)
+	tag, err := tx.Exec(ctx, `
+UPDATE count_projection_exceptions
+SET status = $3,
+    work_state = $3,
+    resolved_at = now(),
+    resolution_id = $4::uuid,
+    resolved_by_ref = $5,
+    resolution_reason = $6,
+    resolution_ref = nullif($7, ''),
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND count_projection_exception_id = $2::uuid
+  AND status = 'open'`,
+		in.TenantID, in.ProjectionExceptionID, closedStatus, resolutionID, in.ResolvedByRef,
+		in.ResolutionReason, ptrValue(in.ResolutionRef))
+	if err != nil {
+		return domain.ProjectionExceptionResolution{}, fmt.Errorf("counts: close projection exception: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return domain.ProjectionExceptionResolution{}, ports.ErrProjectionExceptionClosed
+	}
+	if err := markBaseCountDiscrepancyResolved(ctx, tx, in.TenantID, sourceKey); err != nil {
+		return domain.ProjectionExceptionResolution{}, err
+	}
+	out, err := loadProjectionExceptionResolution(ctx, tx, in.TenantID, resolutionID)
+	if err != nil {
+		return domain.ProjectionExceptionResolution{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.ProjectionExceptionResolution{}, err
+	}
+	return out, nil
+}
+
 func (r *Repository) Readiness(ctx context.Context, tenantID string) (domain.Readiness, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -573,6 +659,96 @@ LIMIT 1`, tenantID).Scan(&out.LatestProjectionStatus, &target, &out.LatestProjec
 		out.GenerationAllowed = true
 	}
 	return out, nil
+}
+
+type projectionExceptionResolutionQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func maybeProjectionExceptionResolutionByIdempotency(ctx context.Context, tx pgx.Tx, in domain.ProjectionExceptionResolutionRequest) (domain.ProjectionExceptionResolution, bool, error) {
+	var resolutionID, existingFP string
+	err := tx.QueryRow(ctx, `
+SELECT count_projection_exception_resolution_id::text, request_fingerprint
+FROM count_projection_exception_resolutions
+WHERE tenant_id = $1::uuid AND idempotency_key = $2`, in.TenantID, in.IdempotencyKey).Scan(&resolutionID, &existingFP)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ProjectionExceptionResolution{}, false, nil
+	}
+	if err != nil {
+		return domain.ProjectionExceptionResolution{}, false, fmt.Errorf("counts: load projection exception resolution idempotency: %w", err)
+	}
+	if existingFP != in.RequestFingerprint {
+		return domain.ProjectionExceptionResolution{}, false, ports.ErrIdempotencyConflict
+	}
+	out, err := loadProjectionExceptionResolution(ctx, tx, in.TenantID, resolutionID)
+	if err != nil {
+		return domain.ProjectionExceptionResolution{}, false, err
+	}
+	out.Replayed = true
+	return out, true, nil
+}
+
+func loadProjectionExceptionResolution(ctx context.Context, q projectionExceptionResolutionQuerier, tenantID, resolutionID string) (domain.ProjectionExceptionResolution, error) {
+	var out domain.ProjectionExceptionResolution
+	var ref string
+	if err := q.QueryRow(ctx, `
+SELECT r.count_projection_exception_resolution_id::text,
+       r.count_projection_exception_id::text,
+       r.action,
+       e.status,
+       e.work_state,
+       r.resolved_by_ref,
+       r.resolution_reason,
+       COALESCE(r.resolution_ref, ''),
+       e.resolved_at
+FROM count_projection_exception_resolutions r
+JOIN count_projection_exceptions e
+  ON e.count_projection_exception_id = r.count_projection_exception_id
+WHERE r.tenant_id = $1::uuid
+  AND r.count_projection_exception_resolution_id = $2::uuid`, tenantID, resolutionID).Scan(
+		&out.ProjectionExceptionResolutionID,
+		&out.ProjectionExceptionID,
+		&out.Action,
+		&out.Status,
+		&out.WorkState,
+		&out.ResolvedByRef,
+		&out.ResolutionReason,
+		&ref,
+		&out.ResolvedAt,
+	); err != nil {
+		return domain.ProjectionExceptionResolution{}, fmt.Errorf("counts: load projection exception resolution: %w", err)
+	}
+	out.ResolutionRef = ptrIfNotEmpty(ref)
+	return out, nil
+}
+
+func projectionExceptionClosedStatus(action string) string {
+	if action == "dismiss" {
+		return "dismissed"
+	}
+	return "resolved"
+}
+
+func markBaseCountDiscrepancyResolved(ctx context.Context, tx pgx.Tx, tenantID, sourceKey string) error {
+	const prefix = "base_count_anchor:"
+	if !strings.HasPrefix(sourceKey, prefix) {
+		return nil
+	}
+	anchorID := strings.TrimSpace(strings.TrimPrefix(sourceKey, prefix))
+	if anchorID == "" {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE count_base_anchors
+SET discrepancy_state = 'resolved',
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND base_count_anchor_id = $2::uuid
+  AND discrepancy_state = 'investigating'`, tenantID, anchorID); err != nil {
+		return fmt.Errorf("counts: resolve base count discrepancy: %w", err)
+	}
+	return nil
 }
 
 func (r *Repository) idempotentAnchor(ctx context.Context, tenantID, key, fingerprint string) (string, error) {
@@ -945,7 +1121,7 @@ func (r *Repository) loadOpenProjectionExceptions(ctx context.Context, snapshotI
 	rows, err := r.pool.Query(ctx, `
 SELECT count_projection_exception_id::text, exception_type, source_key, grain_key,
        COALESCE(park_id::text, ''), COALESCE(shed_id::text, ''), COALESCE(breed_key, ''),
-       COALESCE(stage_tag, ''), severity, COALESCE(owner_ref, ''),
+       COALESCE(stage_tag, ''), severity, status, COALESCE(owner_ref, ''),
        work_type, work_state, due_at, next_action, evidence_link, blocker_reason, evidence_json
 FROM count_projection_exceptions
 WHERE (
@@ -968,7 +1144,7 @@ LIMIT 50`, snapshotID, out.TenantID, out.ParkID)
 		var ex domain.ProjectionException
 		var park, shed, breed, stage, owner string
 		if err := rows.Scan(&ex.ProjectionExceptionID, &ex.ExceptionType, &ex.SourceKey, &ex.GrainKey,
-			&park, &shed, &breed, &stage, &ex.Severity, &owner, &ex.WorkType, &ex.WorkState, &ex.DueAt,
+			&park, &shed, &breed, &stage, &ex.Severity, &ex.Status, &owner, &ex.WorkType, &ex.WorkState, &ex.DueAt,
 			&ex.NextAction, &ex.EvidenceLink, &ex.BlockerReason, &ex.EvidenceJSON); err != nil {
 			return fmt.Errorf("counts: scan projection exception: %w", err)
 		}
