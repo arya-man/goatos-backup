@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 func TestParseWorkbookColumnMapFixtureCoversRequiredRoles(t *testing.T) {
@@ -113,6 +115,44 @@ func TestUpsertCSG10MappingReadinessWritesCommandEvidence(t *testing.T) {
 	evidence, _ := db.args[2].(string)
 	if !strings.HasPrefix(evidence, "counts-workbook-mapping-check:source.md:") {
 		t.Fatalf("evidence=%q, want command evidence ref", evidence)
+	}
+}
+
+func TestWorkbookMappingReadinessWritesCSG10OnPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	f, err := os.Open("../../testdata/counts/source-workbook-column-map.json")
+	if err != nil {
+		t.Fatalf("open source workbook column map fixture: %v", err)
+	}
+	defer f.Close()
+	mapping, err := parseWorkbookMappingFile(f)
+	if err != nil {
+		t.Fatalf("parseWorkbookMappingFile fixture: %v", err)
+	}
+	result := checkWorkbookMapping(mapping)
+	status, blocker := mappingStatus(mapping.SourceRef, result)
+	if status != "pending" || !strings.Contains(blocker, "seeded local E2E") {
+		t.Fatalf("status=%s blocker=%q, want pending remaining-work caveat", status, blocker)
+	}
+	const tenantID = "00000000-0000-4000-8000-000000000001"
+	if err := upsertCSG10MappingReadiness(ctx, pool, tenantID, mapping.SourceRef, status, blocker); err != nil {
+		t.Fatalf("upsertCSG10MappingReadiness: %v", err)
+	}
+
+	var gotStatus, gotEvidence, gotBlocker string
+	if err := pool.QueryRow(ctx, `
+SELECT status, evidence_ref, blocker_reason
+FROM counts_shifting_readiness_subgates
+WHERE tenant_id=$1::uuid AND subgate_id='CSG10'`, tenantID).Scan(&gotStatus, &gotEvidence, &gotBlocker); err != nil {
+		t.Fatalf("load CSG10 readiness: %v", err)
+	}
+	if gotStatus != "pending" || !strings.Contains(gotEvidence, "counts-workbook-mapping-check") ||
+		!strings.Contains(gotBlocker, "owner-approved mapping review") {
+		t.Fatalf("CSG10 status=%s evidence=%s blocker=%q, want pending workbook mapping evidence", gotStatus, gotEvidence, gotBlocker)
 	}
 }
 
