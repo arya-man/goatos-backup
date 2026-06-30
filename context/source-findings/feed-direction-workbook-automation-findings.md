@@ -126,6 +126,14 @@ capabilities:
 - bounded Postgres queries, idempotency keys, audit/outbox, scheduler/sweeper
   jobs, notification ports, and command-lens read models.
 
+Implementation note as of 2026-06-30: Counts/Shifting now has
+`backend/cmd/counts-source-import` for reviewed typed JSONL
+`base_count_anchor` and `shifting_event` rows. That command is the safe path for
+Counting DB / Feed Direction workbook evidence once a reviewer has mapped the
+row into GoatOS fields. It is not a raw workbook parser and does not promote
+workbook ratios, feed vector examples, breed/tag shortcuts, or formula outputs
+into Feed Direction runtime truth.
+
 Required runtime shape:
 
 ```text

@@ -124,11 +124,16 @@ language.
 1. `G2` Counts/Shifting projection closure, including Base Count anchor,
    ShiftingEvent ledger, horizon split, fail-closed exceptions with bounded
    list/read queue, transactional outbox fanout, reviewed resolve/dismiss audit,
-   idempotency, stale/imported mismatch scanning through the bounded
-   `counts-mismatch-scan` worker path with durable scan-run evidence,
+   idempotency, reviewed typed source import through
+   `backend/cmd/counts-source-import` for Base Count/Shifting JSONL rows,
+   stale/imported mismatch scanning through the bounded `counts-mismatch-scan`
+   worker path with durable scan-run evidence,
    observability, aggregate breed-level count output, reviewed ration-context
    resolution state for each shed + breed projection row, and
    `GET /feed-direction/readiness` subgate roll-up.
+   Raw Counting DB / Feed Directions Automation XLSX parsing, parity fixtures,
+   and workbook-column mapping remain source-review work; workbook formulas or
+   examples must not bypass typed validation/import.
    Breed/tag constraint tables without shed placement must block until reviewed
    context resolves the nutrition cohort. RFID-to-shed per-animal association
    is out of scope for the initial Feed Direction build.

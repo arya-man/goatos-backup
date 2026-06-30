@@ -90,6 +90,16 @@ Implementation status as of 2026-06-30:
   outbox events (`counts.base_count_anchor.recorded` and
   `counts.shifting_event.recorded`) with tenant/park/shed visibility, giving the
   recompute worker a durable invalidation signal.
+- `backend/cmd/counts-source-import` accepts reviewed typed JSONL rows for
+  `base_count_anchor` and `shifting_event`, then writes through the canonical
+  Counts service path. It derives deterministic source hashes, payload hashes,
+  idempotency keys, and request fingerprints when source review did not provide
+  them; requires explicit `authorization_state` and `event_status` for imported
+  ShiftingEvents; infers a pregnancy or warm-up movement category from structured
+  impact counts only when the row omits category; and leaves ration context
+  unresolved unless the reviewed row supplies a resolved context. A shifted
+  pregnant/lactating/warm-up import therefore blocks later Feed generation via
+  projection exceptions instead of guessing a destination shed quantity.
 - `countsapp.ProjectionInputHandler` consumes those events through both
   `backend/cmd/domain-event-consumer` and the local/dev `outbox-relay`
   in-process eventbus publisher. It recomputes bounded `count_as_of` and
@@ -161,9 +171,10 @@ Implementation status as of 2026-06-30:
   observability, query-plan, source-parity, and seeded-E2E evidence exists.
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
-- This does **not** close `G2`: source import/adapters, owner-approved alias
-  mapping coverage/admin review, production scheduling/metrics for the mismatch
-  scan, assignment policy, polished command-lens UX, observability,
+- This does **not** close `G2`: raw workbook/XLSX mapping and parity fixtures,
+  Shifting/Count source-adapter hardening beyond typed JSONL, owner-approved
+  alias mapping coverage/admin review, production scheduling/metrics for the
+  mismatch scan, assignment policy, polished command-lens UX, observability,
   query-plan/synthetic-scale proof, and seeded local E2E remain blockers.
 
 ## 3. Candidate Persistence

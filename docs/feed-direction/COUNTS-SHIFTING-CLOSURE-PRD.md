@@ -65,6 +65,15 @@ copied into Counts/Shifting. Counts owns physical aggregate count and movement
 truth; Feed owns the reviewed resolver from those rows into nutrition/ration
 cohorts.
 
+Implementation status as of 2026-06-30: `backend/cmd/counts-source-import`
+provides a reviewed typed JSONL import path for `base_count_anchor` and
+`shifting_event` rows. It writes through the canonical Counts service, derives
+deterministic source hashes/idempotency/fingerprints when omitted, requires
+explicit shifting lifecycle state, and leaves ration context unresolved unless a
+reviewed row supplies it. This is not a raw XLSX parser and does not approve
+workbook formulas, `80/20` examples, or breed/tag constraint tables as runtime
+truth.
+
 For any Counts/Shifting behavior that affects Feed Direction timing, Diff,
 bridge handling, one-day projection, or physical count adoption,
 `Feed, Shiftings and Count.docx` v1.1 is the controlling source. Legacy
@@ -75,8 +84,8 @@ GoatOS schedules unless explicitly approved against that docx.
 
 | ID | Gate | Required outcome |
 | --- | --- | --- |
-| CSG1 | Base Count anchor | Physical counts can create immutable anchors by tenant, park, shed, breed, counted_at, source, actor, and evidence hash |
-| CSG2 | ShiftingEvent ledger | Movements are append-only, idempotent, and carry source/destination, category, priority, raised/effective time, authorization, proof, verification, and status |
+| CSG1 | Base Count anchor | Physical counts and reviewed typed source imports can create immutable anchors by tenant, park, shed, breed, counted_at, source, actor, and evidence hash |
+| CSG2 | ShiftingEvent ledger | Manual/reviewed imported movements are append-only, idempotent, and carry source/destination, category, priority, raised/effective time, authorization, proof, verification, and status |
 | CSG3 | Structured impacts | Each event carries structured cohort/stage impact; missing or ambiguous impact fails closed into exception work |
 | CSG4 | Horizon split | `count_as_of(time)` and `projected_count_for(target_date)` have separate rules for realized truth vs one-day authorized future-effective projection |
 | CSG5 | Base Count adoption | A new physical Base Count becomes the next anchor immediately; discrepancy investigation does not block adoption |
@@ -106,9 +115,12 @@ Counts/Shifting closure is complete when:
    conflicts surface as owner-visible exception work that can be reviewed,
    resolved, or dismissed with actor, reason, optional source reference, and
    idempotent replay protection.
-4. Source evidence, imported anchors, and fixture rows can be compared to
-   canonical projections without becoming runtime truth; stale imported
-   mismatches are surfaced by the bounded `counts-mismatch-scan` worker path.
+4. Source evidence, reviewed typed imports, and fixture rows can be compared to
+   canonical projections without becoming runtime truth. The
+   `counts-source-import` command covers typed Base Count/Shifting JSONL rows;
+   raw workbook/XLSX mapping and parity fixtures remain review work. Stale
+   imported mismatches are surfaced by the bounded `counts-mismatch-scan`
+   worker path.
 5. SQL plan and synthetic-scale checks prove no full-herd or unbounded count
    scan is required for Feed generation.
 6. `GET /feed-direction/readiness` can expose `CSG1`-`CSG10` breakdown under
