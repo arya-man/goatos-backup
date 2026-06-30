@@ -1108,6 +1108,9 @@ WHERE tenant_id = $1::uuid`, tenantID)
 	if err := r.attachRecentReadinessEvidence(ctx, &out, byID); err != nil {
 		return domain.Readiness{}, err
 	}
+	if err := r.applyCompositeReadinessGuards(ctx, &out, byID); err != nil {
+		return domain.Readiness{}, err
+	}
 	if err := r.pool.QueryRow(ctx, `
 SELECT count(*) FROM count_projection_exceptions
 WHERE tenant_id = $1::uuid AND status = 'open'`, tenantID).Scan(&out.OpenExceptionCount); err != nil {
@@ -1183,6 +1186,93 @@ ORDER BY wanted.subgate_order, evidence.recorded_at DESC, evidence.counts_shifti
 		readiness.Subgates[idx].RecentEvidence = append(readiness.Subgates[idx].RecentEvidence, evidence)
 	}
 	return rows.Err()
+}
+
+func (r *Repository) applyCompositeReadinessGuards(ctx context.Context, readiness *domain.Readiness, byID map[string]int) error {
+	if err := r.applyCSG7ReadinessGuard(ctx, readiness, byID); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *Repository) applyCSG7ReadinessGuard(ctx context.Context, readiness *domain.Readiness, byID map[string]int) error {
+	idx, ok := byID["CSG7"]
+	if !ok {
+		return nil
+	}
+	subgate := &readiness.Subgates[idx]
+	var openAliasConflicts int
+	if err := r.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM count_projection_exceptions
+WHERE tenant_id = $1::uuid
+  AND exception_type = 'alias_conflict'
+  AND status = 'open'`, readiness.TenantID).Scan(&openAliasConflicts); err != nil {
+		return fmt.Errorf("counts: CSG7 alias-conflict readiness guard: %w", err)
+	}
+	if openAliasConflicts > 0 {
+		subgate.Status = domain.ReadinessBlocked
+		subgate.EvidenceRef = "count_projection_exceptions:alias_conflict"
+		subgate.BlockerReason = fmt.Sprintf("%d open alias_conflict projection exception(s) remain; approve or resolve breed/stage/tag aliases before CSG7 can become pending.", openAliasConflicts)
+		subgate.ImplementationRef = "backend/internal/counts/adapters/postgres/repository.go:applyCSG7ReadinessGuard;docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md"
+		return nil
+	}
+	missing, err := r.missingCSG7EvidenceFamilies(ctx, readiness.TenantID)
+	if err != nil {
+		return err
+	}
+	if len(missing) > 0 {
+		subgate.Status = domain.ReadinessBlocked
+		subgate.EvidenceRef = "counts_shifting_readiness_evidence:CSG7"
+		subgate.BlockerReason = "CSG7 is missing required evidence families before it can become pending: " + strings.Join(missing, ", ")
+		subgate.ImplementationRef = "backend/cmd/counts-alias-coverage-check;backend/cmd/location-profile-coverage-check;docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md"
+		return nil
+	}
+	if subgate.Status != domain.ReadinessReady {
+		subgate.Status = domain.ReadinessPending
+		subgate.EvidenceRef = "counts_shifting_readiness_evidence:CSG7"
+		subgate.BlockerReason = "Required CSG7 alias and Sheds DB profile coverage evidence exists; owner-approved review, full source workbook parity, and seeded local E2E remain before CSG7 can turn ready."
+		subgate.ImplementationRef = "backend/cmd/counts-alias-coverage-check;backend/cmd/location-profile-coverage-check;context/source-findings/sheds-db-source-findings.md"
+	}
+	return nil
+}
+
+func (r *Repository) missingCSG7EvidenceFamilies(ctx context.Context, tenantID string) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT requirement.label, COALESCE(latest.status, '') AS latest_status
+FROM (
+  VALUES
+    ('counts-alias-coverage-check:'::text, 'counts alias coverage'::text),
+    ('location-profile-coverage-check:'::text, 'Sheds DB location-profile coverage'::text)
+) AS requirement(prefix, label)
+LEFT JOIN LATERAL (
+  SELECT status
+  FROM counts_shifting_readiness_evidence
+  WHERE tenant_id = $1::uuid
+    AND subgate_id = 'CSG7'
+    AND evidence_ref LIKE requirement.prefix || '%'
+  ORDER BY recorded_at DESC, counts_shifting_readiness_evidence_id DESC
+  LIMIT 1
+) latest ON true
+ORDER BY requirement.label`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("counts: CSG7 evidence family readiness guard: %w", err)
+	}
+	defer rows.Close()
+	missing := []string{}
+	for rows.Next() {
+		var label, status string
+		if err := rows.Scan(&label, &status); err != nil {
+			return nil, fmt.Errorf("counts: scan CSG7 evidence family readiness guard: %w", err)
+		}
+		if status != string(domain.ReadinessPending) && status != string(domain.ReadinessReady) {
+			missing = append(missing, label)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("counts: CSG7 evidence family readiness guard rows: %w", err)
+	}
+	return missing, nil
 }
 
 type projectionExceptionResolutionQuerier interface {

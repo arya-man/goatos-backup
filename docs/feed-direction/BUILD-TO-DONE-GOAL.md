@@ -169,8 +169,10 @@ language.
    exception. This is readiness/outbox consumption proof only; full Feed
    generation consumption of immutable projection snapshots still remains.
    The same Feed integration path now proves completed mismatch-scan evidence
-   moves `CSG6` to ready, reviewed alias evidence removes the `CSG7`
-   `alias_conflict` blocker while keeping it pending, replay evidence moves
+   moves `CSG6` to ready, reviewed alias evidence can remove the `CSG7`
+   `alias_conflict` blocker only when no open alias-conflict exception remains,
+   both alias coverage and Sheds DB location-profile coverage evidence families
+   are present, and `CSG7` still stays pending, not ready. Replay evidence moves
    `CSG8` to pending, and the new
    `counts_shifting_readiness_evidence` ledger plus
    `/feed-direction/readiness` recent-evidence output preserve both

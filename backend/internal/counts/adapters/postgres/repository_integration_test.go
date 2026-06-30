@@ -961,8 +961,22 @@ func TestServiceRecomputeNormalizesReviewedBreedAndStageAliases(t *testing.T) {
 		t.Fatalf("readiness after reviewed aliases: %v", err)
 	}
 	csg7 := readinessSubgate(t, readiness, "CSG7")
-	if csg7.Status != domain.ReadinessPending || csg7.EvidenceRef != "count_projection_snapshots:"+projected.SnapshotID {
-		t.Fatalf("CSG7=%+v, want pending snapshot evidence without alias conflicts", csg7)
+	if csg7.Status != domain.ReadinessBlocked ||
+		csg7.EvidenceRef != "counts_shifting_readiness_evidence:CSG7" ||
+		!strings.Contains(csg7.BlockerReason, "counts alias coverage") ||
+		!strings.Contains(csg7.BlockerReason, "Sheds DB location-profile coverage") {
+		t.Fatalf("CSG7=%+v, want blocked until source coverage evidence exists", csg7)
+	}
+	seedCSG7CoverageEvidence(t, ctx, pool)
+	readiness, err = repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness after CSG7 coverage evidence: %v", err)
+	}
+	csg7 = readinessSubgate(t, readiness, "CSG7")
+	if csg7.Status != domain.ReadinessPending ||
+		csg7.EvidenceRef != "counts_shifting_readiness_evidence:CSG7" ||
+		!strings.Contains(csg7.BlockerReason, "owner-approved review") {
+		t.Fatalf("CSG7=%+v, want pending after both required coverage evidence families", csg7)
 	}
 }
 
@@ -1018,9 +1032,20 @@ func TestServiceRecomputeFailsClosedOnUnreviewedStageAlias(t *testing.T) {
 	}
 	csg7 := readinessSubgate(t, readiness, "CSG7")
 	if csg7.Status != domain.ReadinessBlocked ||
-		csg7.EvidenceRef != "count_projection_snapshots:"+projected.SnapshotID ||
+		csg7.EvidenceRef != "count_projection_exceptions:alias_conflict" ||
 		!strings.Contains(csg7.BlockerReason, "alias_conflict") {
 		t.Fatalf("CSG7=%+v, want blocked alias-conflict evidence", csg7)
+	}
+	seedCSG7CoverageEvidence(t, ctx, pool)
+	readiness, err = repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness after CSG7 coverage evidence with open alias conflict: %v", err)
+	}
+	csg7 = readinessSubgate(t, readiness, "CSG7")
+	if csg7.Status != domain.ReadinessBlocked ||
+		csg7.EvidenceRef != "count_projection_exceptions:alias_conflict" ||
+		!strings.Contains(csg7.BlockerReason, "open alias_conflict") {
+		t.Fatalf("CSG7=%+v, want open alias conflict to override coverage evidence", csg7)
 	}
 }
 
@@ -1212,6 +1237,25 @@ INSERT INTO count_dimension_aliases (
 		countsTenant, dimension, sourceSystem, sourceValue, countAliasNorm(sourceValue),
 		canonicalValue, canonicalLabel, "test:"+dimension+":"+sourceValue, "hash:"+dimension+":"+sourceValue); err != nil {
 		t.Fatalf("seed count alias: %v", err)
+	}
+}
+
+func seedCSG7CoverageEvidence(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	for _, evidenceRef := range []string{
+		"counts-alias-coverage-check:test-source:pending",
+		"location-profile-coverage-check:test-source:pending",
+	} {
+		if err := upsertReadinessSubgate(ctx, pool, countsTenant, readinessSubgateUpdate{
+			ID:                "CSG7",
+			Status:            string(domain.ReadinessPending),
+			Owner:             "Counts/Shifting + Feed Direction",
+			EvidenceRef:       evidenceRef,
+			BlockerReason:     "seeded CSG7 coverage evidence for integration test",
+			ImplementationRef: "backend/internal/counts/adapters/postgres/repository_integration_test.go",
+		}); err != nil {
+			t.Fatalf("seed CSG7 coverage evidence %s: %v", evidenceRef, err)
+		}
 	}
 }
 

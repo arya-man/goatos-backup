@@ -297,6 +297,7 @@ func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t 
 	if err := bus.Publish(ctx, event); err != nil {
 		t.Fatalf("publish reviewed shifting event to projection handler: %v", err)
 	}
+	seedFeedCSG7CoverageEvidence(t, ctx, pool)
 
 	readiness, err := feedService.Readiness(ctx, feedTenant)
 	if err != nil {
@@ -327,8 +328,9 @@ func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t 
 	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG6"); csg.Status != feeddomain.ReadinessReady || csg.EvidenceRef != "count_mismatch_scan_runs:"+scan.RunID {
 		t.Fatalf("CSG6=%+v, want ready scan evidence", csg)
 	}
-	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG7"); csg.Status != feeddomain.ReadinessPending || !strings.Contains(csg.BlockerReason, "no alias_conflict") {
-		t.Fatalf("CSG7=%+v, want pending reviewed-alias evidence without alias conflicts", csg)
+	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG7"); csg.Status != feeddomain.ReadinessPending ||
+		!strings.Contains(csg.BlockerReason, "owner-approved review") {
+		t.Fatalf("CSG7=%+v, want pending after alias and location-profile coverage evidence", csg)
 	}
 	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG8"); csg.Status != feeddomain.ReadinessPending || csg.EvidenceRef != "count_base_anchors:"+sourceAnchorID {
 		t.Fatalf("CSG8=%+v, want pending replay evidence", csg)
@@ -339,6 +341,8 @@ func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t 
 		t.Fatalf("CSG10 recent evidence=%+v, want scan and recompute evidence", csg10.RecentEvidence)
 	}
 	assertReadinessEvidenceRef(t, ctx, pool, "CSG6", "count_mismatch_scan_runs:"+scan.RunID)
+	assertReadinessEvidenceLike(t, ctx, pool, "CSG7", "counts-alias-coverage-check:%")
+	assertReadinessEvidenceLike(t, ctx, pool, "CSG7", "location-profile-coverage-check:%")
 	assertReadinessEvidenceRef(t, ctx, pool, "CSG8", "count_base_anchors:"+sourceAnchorID)
 	assertReadinessEvidenceLike(t, ctx, pool, "CSG10", "count_mismatch_scan_runs:%")
 	assertReadinessEvidenceLike(t, ctx, pool, "CSG10", "count_projection_recompute_runs:%")
@@ -437,6 +441,34 @@ func feedRecentEvidenceHasPrefix(items []feeddomain.ReadinessEvidence, prefix st
 		}
 	}
 	return false
+}
+
+func seedFeedCSG7CoverageEvidence(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	for _, evidenceRef := range []string{
+		"counts-alias-coverage-check:feed-readiness-test:pending",
+		"location-profile-coverage-check:feed-readiness-test:pending",
+	} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO counts_shifting_readiness_subgates (
+  tenant_id, subgate_id, status, owner, evidence_ref, blocker_reason, implementation_ref, last_checked_at, updated_at
+) VALUES (
+  $1::uuid, 'CSG7', 'pending', 'Counts/Shifting + Feed Direction',
+  $2, 'seeded CSG7 coverage evidence for Feed readiness integration test',
+  'backend/internal/feed/adapters/postgres/completion_integration_test.go',
+  now(), now()
+)
+ON CONFLICT (tenant_id, subgate_id) DO UPDATE
+SET status = EXCLUDED.status,
+    owner = EXCLUDED.owner,
+    evidence_ref = EXCLUDED.evidence_ref,
+    blocker_reason = EXCLUDED.blocker_reason,
+    implementation_ref = EXCLUDED.implementation_ref,
+    last_checked_at = EXCLUDED.last_checked_at,
+    updated_at = now()`, feedTenant, evidenceRef); err != nil {
+			t.Fatalf("seed CSG7 coverage evidence %s: %v", evidenceRef, err)
+		}
+	}
 }
 
 func assertReadinessEvidenceRef(t *testing.T, ctx context.Context, pool *pgxpool.Pool, subgateID, evidenceRef string) {

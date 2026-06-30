@@ -171,7 +171,12 @@ source-workbook manifest and Sheds DB profile tags, against approved
 but never `ready`. The `location-profile-coverage-check` worker checks reviewed
 Sheds DB profile fixtures against `location_aliases` and
 `location_capacity_records` and can also move `CSG7` to `blocked` or `pending`,
-but never `ready`. The `counts-workbook-mapping-check` worker validates the
+but never `ready`. Counts readiness treats `CSG7` as composite: pending requires
+no open `alias_conflict` projection exception plus non-blocked latest evidence
+from both `counts-alias-coverage-check:*` and
+`location-profile-coverage-check:*`; one passing checker cannot hide the other
+missing evidence family.
+The `counts-workbook-mapping-check` worker validates the
 sanitized workbook column map, including count source, feed output, feed-vector,
 supply planning, proof, transport, consumption/wastage, and Sheds DB profile
 role groups, and can move `CSG10` to `blocked` or `pending`, but never `ready`.

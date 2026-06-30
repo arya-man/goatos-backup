@@ -8476,6 +8476,13 @@ CREATE INDEX counts_projection_version_idx ON public.counts_projection_rows USIN
 
 
 --
+-- Name: counts_shifting_readiness_evidence_prefix_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_shifting_readiness_evidence_prefix_idx ON public.counts_shifting_readiness_evidence USING btree (tenant_id, subgate_id, evidence_ref text_pattern_ops, recorded_at DESC);
+
+
+--
 -- Name: counts_shifting_readiness_evidence_subgate_idx; Type: INDEX; Schema: public; Owner: -
 --
 

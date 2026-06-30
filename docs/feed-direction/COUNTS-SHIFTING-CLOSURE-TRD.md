@@ -212,6 +212,13 @@ Implementation status as of 2026-06-30:
   approval, full source workbook parity, and full Feed seeded local E2E remain.
   The command has Docker/Postgres integration coverage proving
   Locations service writes plus coverage readiness evidence on a migrated schema.
+- Counts readiness now applies a composite `CSG7` guard: any open
+  `alias_conflict` projection exception keeps `CSG7` blocked, and the read model
+  cannot show `CSG7` as pending until the latest
+  `counts-alias-coverage-check:*` and `location-profile-coverage-check:*`
+  evidence families are both non-blocked. The evidence-family lookup is
+  tenant/subgate/prefix-bounded by
+  `counts_shifting_readiness_evidence_prefix_idx`.
 - `count_projection_exceptions` now carries work metadata (`work_type`,
   `work_state`, `due_at`, `next_action`, `evidence_link`) and repeated open
   exceptions relink to the latest snapshot on upsert. This makes G2 blockers
@@ -540,6 +547,10 @@ Non-negotiable tests:
   remains valid and includes high-risk source variants such as misspelled
   pregnancy, F2 weight bands, sex labels, and workbook breed misspellings;
   database coverage still requires owner-approved `count_dimension_aliases`.
+- `CSG7` readiness is composite: a passing alias checker cannot hide missing
+  Sheds DB location-profile coverage, a passing location-profile checker cannot
+  hide missing alias coverage, and neither can hide open `alias_conflict`
+  exception work.
 - Source/workbook column mapping fixture parsing proves required canonical
   fields exist for each workbook role group before parity work relies on those
   columns; database/import parity still requires reviewed row mappings and
