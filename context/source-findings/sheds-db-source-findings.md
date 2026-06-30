@@ -34,12 +34,17 @@ Observed tags include `Non-Pregnant`, `F2-Male`, `F2-Female`, `Buck`, `Mother`,
 spelling, casing, spacing, and blanks are legacy source values requiring alias
 review before runtime use.
 
-The reviewed workbook has 1,013 data-row slots. Most sheet rows are blank
-capacity/profile slots; populated values are concentrated in current shed
-assignments. Observed aggregate shape at review time:
+The reviewed workbook's used range is `DB!A1:I95`: two header rows and 93
+data rows. Eleven rows are blank/aggregate placeholders such as `All Sheds`,
+`Multiple Sheds`, `Mandela`, `Godel`, and `Sumathi`; populated values are
+concentrated in current shed assignments. The scan found 10 normalized tag
+labels and 25 rows where CBE and CPT tags differ while both sides are populated,
+so park-specific profile differences require review instead of automatic merge.
+Observed aggregate shape at review time:
 
 - CBE: 70 populated tag rows, 71 populated capacity rows, 9 unique non-blank
-  tags, and roughly 1,136 total capacity units across populated tagged rows.
+  tags, roughly 1,116 capacity units across tagged rows, and 1,136 total
+  capacity units across all populated capacity rows.
 - CPT: 44 populated tag rows, 44 populated capacity rows, 9 unique non-blank
   tags, and roughly 725 total capacity units across populated tagged rows.
 - `Total Area (sq ft)` and `Potential Tags` are sparse, especially for CPT.

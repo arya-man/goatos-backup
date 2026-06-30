@@ -96,7 +96,9 @@ reference canonical `location_id`; otherwise the row stays review work instead
 of becoming Feed/Counts runtime truth.
 `backend/cmd/location-profile-coverage-check` verifies reviewed Sheds DB profile
 coverage fixtures against canonical Location aliases and capacity records, and
-can move `CSG7` to `blocked` or `pending`, never `ready`.
+can move `CSG7` to `blocked` or `pending`, never `ready`. Its migrated-Postgres
+test proves canonical Locations service writes can satisfy the coverage check
+and write CSG7 evidence, but this is not full Feed seeded E2E.
 
 For any Counts/Shifting behavior that affects Feed Direction timing, Diff,
 bridge handling, one-day projection, or physical count adoption,

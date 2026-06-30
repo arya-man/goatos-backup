@@ -173,7 +173,9 @@ Implementation status as of 2026-06-30:
   profile coverage fixtures against canonical active `location_aliases` and
   `location_capacity_records`. Missing alias/capacity rows block `CSG7`; complete
   fixture coverage moves `CSG7` to `pending`, never `ready`, because owner
-  approval, source parity, projection replay, and seeded local E2E remain.
+  approval, source parity, projection replay, and full Feed seeded local E2E
+  remain. The command has Docker/Postgres integration coverage proving
+  Locations service writes plus coverage readiness evidence on a migrated schema.
 - `count_projection_exceptions` now carries work metadata (`work_type`,
   `work_state`, `due_at`, `next_action`, `evidence_link`) and repeated open
   exceptions relink to the latest snapshot on upsert. This makes G2 blockers

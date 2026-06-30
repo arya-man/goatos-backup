@@ -3,12 +3,24 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	locationpg "github.com/vgoats/goatos/backend/internal/locations/adapters/postgres"
+	locationapp "github.com/vgoats/goatos/backend/internal/locations/app"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+)
+
+const (
+	testTenantID    = "00000000-0000-4000-8000-000000000001"
+	testActorID     = "90000000-0000-4000-8000-000000000001"
+	testCBELocation = "00000000-0000-4000-8000-000000003001"
 )
 
 func TestParseRequiredProfilesDefaultsAndSorts(t *testing.T) {
@@ -125,6 +137,89 @@ func TestUpsertCSG7ReadinessWritesProfileCoverageEvidence(t *testing.T) {
 	evidence, _ := db.args[2].(string)
 	if !strings.HasPrefix(evidence, "location-profile-coverage-check:source.md:") {
 		t.Fatalf("evidence=%q, want command evidence ref", evidence)
+	}
+}
+
+func TestProfileCoverageAgainstMigratedLocations(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	service := locationapp.NewService(locationpg.NewRepository(pool, 5*time.Second))
+	created, err := service.CreateLocation(ctx, locationapp.CreateLocationInput{
+		TenantID:       testTenantID,
+		ActorID:        testActorID,
+		IdempotencyKey: "idem-sheds-db-profile-coverage-location",
+		TraceID:        "trace-sheds-db-profile-coverage-location",
+		RawBody: []byte(fmt.Sprintf(`{
+			"location_type": "shed",
+			"location_code": "SDB_PROFILE_COVERAGE_1",
+			"name": "Sheds DB Profile Coverage Shed",
+			"parent_location_id": %q,
+			"status": "active",
+			"country": "IN",
+			"timezone": "Asia/Kolkata",
+			"operational": {
+				"usable_for_counts": true,
+				"usable_for_feed": true,
+				"usable_for_vaccination": true,
+				"usable_for_sop": true
+			}
+		}`, testCBELocation)),
+	})
+	if err != nil {
+		t.Fatalf("CreateLocation: %v", err)
+	}
+	locationID := created.Location.LocationID
+	if _, err := service.CreateLocationAlias(ctx, locationapp.CreateLocationAliasInput{
+		TenantID:       testTenantID,
+		ActorID:        testActorID,
+		IdempotencyKey: "idem-sheds-db-profile-coverage-alias",
+		TraceID:        "trace-sheds-db-profile-coverage-alias",
+		LocationID:     locationID,
+		RawBody:        []byte(`{"alias_code":"Gandhi    1","source_context":"sheds_db","notes":"Reviewed Sheds DB alias"}`),
+	}); err != nil {
+		t.Fatalf("CreateLocationAlias: %v", err)
+	}
+	if _, err := service.CreateLocationCapacity(ctx, locationapp.CreateLocationCapacityInput{
+		TenantID:       testTenantID,
+		ActorID:        testActorID,
+		IdempotencyKey: "idem-sheds-db-profile-coverage-capacity",
+		TraceID:        "trace-sheds-db-profile-coverage-capacity",
+		LocationID:     locationID,
+		RawBody:        []byte(`{"capacity_kind":"goat_occupancy","capacity_value":25,"effective_from":"2026-06-30","source":"sheds_db","source_ref":"Sheds DB.xlsx#DB!D6"}`),
+	}); err != nil {
+		t.Fatalf("CreateLocationCapacity: %v", err)
+	}
+
+	required := []requiredProfile{{
+		LocationID: locationID, AliasCode: "Gandhi 1", SourceContext: "sheds_db",
+		CapacityKind: "goat_occupancy", CapacityValue: 25, EffectiveFrom: "2026-06-30", Source: "sheds_db",
+	}}
+	result, err := checkProfileCoverage(ctx, pool, testTenantID, required)
+	if err != nil {
+		t.Fatalf("checkProfileCoverage: %v", err)
+	}
+	if result.Total != 1 || len(result.Missing) != 0 {
+		t.Fatalf("result=%+v, want covered profile", result)
+	}
+	status, blocker := coverageStatus("backend/testdata/locations/sheds-db-profile-coverage-sample.json", result)
+	if status != "pending" {
+		t.Fatalf("status=%s, want pending", status)
+	}
+	if err := upsertCSG7Readiness(ctx, pool, testTenantID, "backend/testdata/locations/sheds-db-profile-coverage-sample.json", status, blocker); err != nil {
+		t.Fatalf("upsertCSG7Readiness: %v", err)
+	}
+	var gotStatus, gotEvidence string
+	if err := pool.QueryRow(ctx, `
+SELECT status, evidence_ref
+FROM counts_shifting_readiness_subgates
+WHERE tenant_id = $1::uuid AND subgate_id = 'CSG7'`, testTenantID).Scan(&gotStatus, &gotEvidence); err != nil {
+		t.Fatalf("readiness row: %v", err)
+	}
+	if gotStatus != "pending" || !strings.Contains(gotEvidence, "location-profile-coverage-check") {
+		t.Fatalf("readiness status=%s evidence=%s, want pending coverage evidence", gotStatus, gotEvidence)
 	}
 }
 
