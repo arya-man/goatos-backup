@@ -104,6 +104,11 @@ Implementation status as of 2026-06-30:
   `work_state`, `due_at`, `next_action`, `evidence_link`) and repeated open
   exceptions relink to the latest snapshot on upsert. This makes G2 blockers
   owner/action visible to Feed reads instead of stranded on stale snapshots.
+- Physical Base Count adoption now reconciles the new anchor against the
+  previous adopted shed + breed anchor plus applied ShiftingEvents in the
+  bounded window. Unexpected deltas create open `unreported_shifting` or
+  `count_mismatch` exception work and move the new anchor to
+  `discrepancy_state=investigating` without blocking adoption.
 - Projection rows now carry `base_count_anchor_id`,
   `included_shifting_event_ids_hash`, source row hash, contract hash, and
   ration-context resolution state.
@@ -118,10 +123,10 @@ Implementation status as of 2026-06-30:
 - `GET /feed-direction/readiness` is wired to the Counts/Shifting readiness
   provider so `CSG1`-`CSG10` can move independently under Feed gate `G2`.
 - This does **not** close `G2`: source import/adapters, owner-approved alias
-  mapping coverage/admin review, count-mismatch detection beyond negative source
-  protection, exception routing into shared command lenses/outbox,
-  observability, query-plan/synthetic-scale proof, and seeded local E2E remain
-  blockers.
+  mapping coverage/admin review, scheduled/import-wide mismatch scans and
+  exception resolve/dismiss workflow, exception routing into shared command
+  lenses/outbox, observability, query-plan/synthetic-scale proof, and seeded
+  local E2E remain blockers.
 
 ## 3. Candidate Persistence
 
@@ -235,6 +240,11 @@ Implementation status as of 2026-06-30:
   attached to an older snapshot.
 - Full command-lens subscription, outbox event fanout, assignment policy, and
   resolve/dismiss workflow remain G2 blockers.
+- New physical Base Count anchors compare against the previous adopted anchor
+  plus applied shifting ledger net for the same tenant, park, shed, and breed.
+  A matching delta stays clean; an unexplained delta creates `unreported_shifting`
+  or `count_mismatch` work and the Feed projection read includes that open
+  tenant/park exception even before it is attached to a recomputed snapshot.
 
 Feed generation consumes the exception count/hash and blocks or narrows
 generation according to policy; it does not hide the problem.
@@ -248,7 +258,7 @@ Required paths:
 | Base Count import/record | API/import | Write anchor, emit idempotent `counts.base_count_anchor.recorded` outbox event, audit, invalidate projections |
 | Shifting event ingest | API/import/outbox | Upsert event and impacts, emit idempotent `counts.shifting_event.recorded` outbox event, audit, invalidate projections |
 | Projection recompute | Scheduler/outbox | Run `backend/cmd/counts-projection-recompute` or the registered `countsapp.ProjectionInputHandler` consumer for tenant + park + as-of + target-date bounded horizons; write snapshot or exception |
-| Count mismatch scan | Scheduler/import compare | Detect unexpected deltas/unreported shifting and create exception work |
+| Count mismatch scan | Base Count adoption plus scheduler/import compare | On new physical Base Count, compare previous adopted anchor + applied shifting net and create `unreported_shifting`/`count_mismatch` work for unexpected deltas. Scheduled/import-wide scan remains to catch stale historical gaps. |
 | Feed projection read | API/app port | Return rows or typed blocker with source hash |
 
 All workers must be tenant/park/date/grain bounded and replay-safe.

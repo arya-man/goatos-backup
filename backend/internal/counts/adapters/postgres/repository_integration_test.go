@@ -57,6 +57,104 @@ WHERE tenant_id=$1::uuid
 	}
 }
 
+func TestRepositoryRecordsUnreportedShiftingExceptionOnBaseCountMismatch(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 3*time.Second)
+	previous := baseAnchorForAt(countsShedA, "mismatch-previous-anchor", "mismatch-previous-fp", 20, time.Date(2026, 6, 29, 6, 0, 0, 0, time.UTC))
+	if _, replay, err := repo.RecordBaseCountAnchor(ctx, previous); err != nil || replay {
+		t.Fatalf("previous anchor replay=%v err=%v", replay, err)
+	}
+	current := baseAnchorForAt(countsShedA, "mismatch-current-anchor", "mismatch-current-fp", 17, time.Date(2026, 6, 30, 6, 0, 0, 0, time.UTC))
+	currentID, replay, err := repo.RecordBaseCountAnchor(ctx, current)
+	if err != nil || replay || currentID == "" {
+		t.Fatalf("current anchor id=%q replay=%v err=%v", currentID, replay, err)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM count_projection_exceptions
+WHERE tenant_id=$1::uuid
+  AND exception_type='unreported_shifting'
+  AND source_key=$2
+  AND status='open'
+  AND work_state='owner_missing'
+  AND count_projection_snapshot_id IS NULL`, countsTenant, "base_count_anchor:"+currentID); got != 1 {
+		t.Fatalf("unreported shifting exceptions=%d, want 1", got)
+	}
+	var discrepancyState string
+	if err := pool.QueryRow(ctx, `
+SELECT discrepancy_state FROM count_base_anchors
+WHERE tenant_id=$1::uuid AND base_count_anchor_id=$2::uuid`, countsTenant, currentID).Scan(&discrepancyState); err != nil {
+		t.Fatalf("load discrepancy state: %v", err)
+	}
+	if discrepancyState != "investigating" {
+		t.Fatalf("discrepancy_state=%q, want investigating", discrepancyState)
+	}
+	target := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	if _, err := repo.CreateProjectionSnapshot(ctx, domain.ProjectionSnapshot{
+		TenantID: countsTenant, Horizon: "feed_target_date", ParkID: countsPark,
+		TargetDate: target, AsOf: current.CountedAt, ProjectionStatus: "blocked",
+		SourceContractVersion: domain.SourceContractVersionV1,
+		SourceHash:            "mismatch-projection-source-hash",
+		BaseAnchorIDsHash:     "mismatch-anchor-hash",
+		ShiftingEventIDsHash:  "mismatch-shift-hash",
+		GeneratedBy:           "test",
+		Rows: []domain.ProjectionRow{{
+			ParkID: countsPark, ShedID: countsShedA, TargetDate: target,
+			GrainKey: countProjectionGrainKey(countsShedA, "beetal"), BreedKey: "beetal", BreedLabel: "Beetal",
+			BaseCountAnchorID: currentID, IncludedShiftingEventIDsHash: "mismatch-shift-hash",
+			HeadCount: current.HeadCount, RationContextResolutionState: "blocked",
+			BlockerReason: strPtr("count mismatch investigation open"), SourceRowHash: "mismatch-row-hash",
+		}},
+	}); err != nil {
+		t.Fatalf("create projection snapshot: %v", err)
+	}
+	projection, err := repo.ProjectedCountFor(ctx, domain.CountProjectionRequest{
+		TenantID: countsTenant, ParkID: countsPark, TargetDate: target, ShedID: strPtr(countsShedA), BreedKey: strPtr("beetal"), Limit: 25,
+	})
+	if err != nil {
+		t.Fatalf("projected count: %v", err)
+	}
+	if len(projection.Exceptions) != 1 || projection.Exceptions[0].ExceptionType != "unreported_shifting" {
+		t.Fatalf("projection exceptions=%+v, want open unreported shifting", projection.Exceptions)
+	}
+	readiness, err := repo.Readiness(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("readiness: %v", err)
+	}
+	if readiness.OpenExceptionCount != 1 || readiness.GenerationAllowed {
+		t.Fatalf("readiness=%+v, want one open exception and no generation", readiness)
+	}
+}
+
+func TestRepositoryDoesNotFlagBaseCountMismatchWhenAppliedShiftExplainsDelta(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 3*time.Second)
+	previous := baseAnchorForAt(countsShedA, "matched-previous-anchor", "matched-previous-fp", 20, time.Date(2026, 6, 29, 6, 0, 0, 0, time.UTC))
+	if _, replay, err := repo.RecordBaseCountAnchor(ctx, previous); err != nil || replay {
+		t.Fatalf("previous anchor replay=%v err=%v", replay, err)
+	}
+	shift := shiftingEvent("matched-shift-key", "matched-shift-idem", "matched-shift-payload", "matched-shift-fp")
+	shift.EventStatus = "applied"
+	shift.EffectiveAt = time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
+	if _, replay, err := repo.RecordShiftingEvent(ctx, shift); err != nil || replay {
+		t.Fatalf("shift replay=%v err=%v", replay, err)
+	}
+	current := baseAnchorForAt(countsShedA, "matched-current-anchor", "matched-current-fp", 17, time.Date(2026, 6, 30, 6, 0, 0, 0, time.UTC))
+	currentID, replay, err := repo.RecordBaseCountAnchor(ctx, current)
+	if err != nil || replay || currentID == "" {
+		t.Fatalf("current anchor id=%q replay=%v err=%v", currentID, replay, err)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM count_projection_exceptions
+WHERE tenant_id=$1::uuid
+  AND exception_type IN ('unreported_shifting','count_mismatch')
+  AND source_key=$2
+  AND status='open'`, countsTenant, "base_count_anchor:"+currentID); got != 0 {
+		t.Fatalf("count mismatch exceptions=%d, want 0", got)
+	}
+}
+
 func TestRepositoryRecordsShiftingEventImpactAndRejectsLogicalConflict(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
@@ -507,9 +605,17 @@ func baseAnchorFor(shedID, key, fp string, count int32) domain.BaseCountAnchor {
 }
 
 func baseAnchorForBreed(shedID, key, fp string, count int32, breedKey, breedLabel string) domain.BaseCountAnchor {
+	return baseAnchorForBreedAt(shedID, key, fp, count, breedKey, breedLabel, time.Date(2026, 6, 30, 6, 0, 0, 0, time.UTC))
+}
+
+func baseAnchorForAt(shedID, key, fp string, count int32, countedAt time.Time) domain.BaseCountAnchor {
+	return baseAnchorForBreedAt(shedID, key, fp, count, "beetal", "Beetal", countedAt)
+}
+
+func baseAnchorForBreedAt(shedID, key, fp string, count int32, breedKey, breedLabel string, countedAt time.Time) domain.BaseCountAnchor {
 	return domain.BaseCountAnchor{
 		TenantID: countsTenant, ParkID: countsPark, ShedID: shedID,
-		BreedKey: breedKey, BreedLabel: breedLabel, CountedAt: time.Date(2026, 6, 30, 6, 0, 0, 0, time.UTC),
+		BreedKey: breedKey, BreedLabel: breedLabel, CountedAt: countedAt,
 		HeadCount: count, SourceSystem: "physical_base_count", SourceRef: "base-count:" + shedID + ":2026-06-30",
 		SourceHash: "base-hash-" + shedID, DiscrepancyState: "not_checked", IdempotencyKey: key, RequestFingerprint: fp,
 	}

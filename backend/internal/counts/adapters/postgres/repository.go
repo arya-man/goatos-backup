@@ -67,6 +67,9 @@ RETURNING base_count_anchor_id::text`,
 		in.CountedAt, in.HeadCount, in.SourceSystem, in.SourceRef, in.SourceHash, in.DiscrepancyState,
 		in.IdempotencyKey, in.RequestFingerprint, ptrValue(in.RecordedBy)).Scan(&id)
 	if err == nil {
+		if err := createBaseCountMismatchException(ctx, tx, in.TenantID, id, in); err != nil {
+			return "", false, err
+		}
 		if err := insertCountsProjectionInputOutbox(ctx, tx, countsProjectionInputEvent{
 			EventType: countBaseAnchorRecordedEventType,
 			TenantID:  in.TenantID, AggregateType: "count_base_anchor", AggregateID: id,
@@ -479,6 +482,10 @@ func countAliasNorm(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), "_"))
 }
 
+func countProjectionGrainKey(shedID, breedKey string) string {
+	return strings.ToLower(strings.TrimSpace(shedID)) + ":" + strings.ToLower(strings.TrimSpace(breedKey))
+}
+
 func appendAliasBlocker(existing *string, reason string) *string {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
@@ -580,6 +587,139 @@ WHERE tenant_id = $1::uuid AND idempotency_key = $2`, tenantID, key).Scan(&id, &
 		return "", ports.ErrIdempotencyConflict
 	}
 	return id, nil
+}
+
+type previousBaseCountAnchor struct {
+	ID        string
+	CountedAt time.Time
+	HeadCount int32
+}
+
+func createBaseCountMismatchException(ctx context.Context, tx pgx.Tx, tenantID, anchorID string, in domain.BaseCountAnchor) error {
+	previous, found, err := loadPreviousBaseCountAnchor(ctx, tx, tenantID, anchorID, in)
+	if err != nil || !found {
+		return err
+	}
+	netShift, err := appliedShiftNetForAnchorWindow(ctx, tx, tenantID, in, previous.CountedAt)
+	if err != nil {
+		return err
+	}
+	expected := previous.HeadCount + netShift
+	if expected == in.HeadCount {
+		return nil
+	}
+	actualDelta := in.HeadCount - previous.HeadCount
+	unexplainedDelta := in.HeadCount - expected
+	exceptionType := "count_mismatch"
+	if netShift == 0 {
+		exceptionType = "unreported_shifting"
+	}
+	reason := fmt.Sprintf(
+		"physical Base Count differs from prior anchor plus applied shiftings for shed/breed grain: previous=%d, applied_shift_net=%d, expected=%d, actual=%d, unexplained_delta=%d",
+		previous.HeadCount, netShift, expected, in.HeadCount, unexplainedDelta,
+	)
+	evidence, err := json.Marshal(map[string]any{
+		"source":                         "base_count_anchor_reconciliation",
+		"base_count_anchor_id":           anchorID,
+		"previous_base_count_anchor_id":  previous.ID,
+		"park_id":                        in.ParkID,
+		"shed_id":                        in.ShedID,
+		"breed_key":                      in.BreedKey,
+		"previous_counted_at":            previous.CountedAt.UTC().Format(time.RFC3339Nano),
+		"current_counted_at":             in.CountedAt.UTC().Format(time.RFC3339Nano),
+		"previous_head_count":            previous.HeadCount,
+		"actual_head_count":              in.HeadCount,
+		"actual_delta":                   actualDelta,
+		"applied_shifting_net":           netShift,
+		"expected_head_count":            expected,
+		"unexplained_delta":              unexplainedDelta,
+		"source_contract_version":        domain.SourceContractVersionV1,
+		"discrepancy_state_after_record": "investigating",
+	})
+	if err != nil {
+		return fmt.Errorf("counts: build count mismatch evidence: %w", err)
+	}
+	grainKey := countProjectionGrainKey(in.ShedID, in.BreedKey)
+	exception := domain.ProjectionException{
+		ExceptionType: exceptionType,
+		SourceKey:     "base_count_anchor:" + anchorID,
+		GrainKey:      grainKey,
+		ParkID:        &in.ParkID,
+		ShedID:        &in.ShedID,
+		BreedKey:      &in.BreedKey,
+		Severity:      "blocking",
+		WorkType:      "counts_projection_exception",
+		WorkState:     "owner_missing",
+		DueAt:         in.CountedAt.UTC().Add(2 * time.Hour),
+		NextAction:    "Investigate count mismatch before Feed generation",
+		EvidenceLink:  "/feed-direction/counts-projection/exceptions/base_count_anchor:" + anchorID,
+		BlockerReason: reason,
+		EvidenceJSON:  evidence,
+	}
+	if exceptionType == "unreported_shifting" {
+		exception.NextAction = "Review mismatch and create or confirm the missing ShiftingEvent"
+	}
+	if err := insertProjectionException(ctx, tx, tenantID, "", exception); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE count_base_anchors
+SET discrepancy_state = 'investigating', updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND base_count_anchor_id = $2::uuid`, tenantID, anchorID); err != nil {
+		return fmt.Errorf("counts: mark base count discrepancy investigating: %w", err)
+	}
+	return nil
+}
+
+func loadPreviousBaseCountAnchor(ctx context.Context, tx pgx.Tx, tenantID, anchorID string, in domain.BaseCountAnchor) (previousBaseCountAnchor, bool, error) {
+	var out previousBaseCountAnchor
+	err := tx.QueryRow(ctx, `
+SELECT base_count_anchor_id::text, counted_at, head_count
+FROM count_base_anchors
+WHERE tenant_id = $1::uuid
+  AND park_id = $2::uuid
+  AND shed_id = $3::uuid
+  AND lower(breed_key) = lower($4)
+  AND counted_at < $5
+  AND anchor_state = 'adopted'
+  AND base_count_anchor_id <> $6::uuid
+ORDER BY counted_at DESC, base_count_anchor_id DESC
+LIMIT 1`, tenantID, in.ParkID, in.ShedID, in.BreedKey, in.CountedAt, anchorID).Scan(&out.ID, &out.CountedAt, &out.HeadCount)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return previousBaseCountAnchor{}, false, nil
+	}
+	if err != nil {
+		return previousBaseCountAnchor{}, false, fmt.Errorf("counts: load previous base count anchor: %w", err)
+	}
+	return out, true, nil
+}
+
+func appliedShiftNetForAnchorWindow(ctx context.Context, tx pgx.Tx, tenantID string, in domain.BaseCountAnchor, previousCountedAt time.Time) (int32, error) {
+	var net int32
+	if err := tx.QueryRow(ctx, `
+SELECT COALESCE(SUM(
+  CASE
+    WHEN se.destination_park_id = $2::uuid AND se.destination_shed_id = $3::uuid THEN sei.head_count
+    WHEN se.source_park_id = $2::uuid AND se.source_shed_id = $3::uuid THEN -sei.head_count
+    ELSE 0
+  END
+), 0)::integer
+FROM shifting_events se
+JOIN shifting_event_impacts sei
+  ON sei.tenant_id = se.tenant_id
+ AND sei.shifting_event_id = se.shifting_event_id
+WHERE se.tenant_id = $1::uuid
+  AND se.event_status = 'applied'
+  AND se.effective_at > $5
+  AND se.effective_at <= $6
+  AND lower(sei.breed_key) = lower($4)
+  AND (
+    (se.destination_park_id = $2::uuid AND se.destination_shed_id = $3::uuid)
+    OR (se.source_park_id = $2::uuid AND se.source_shed_id = $3::uuid)
+  )`, tenantID, in.ParkID, in.ShedID, in.BreedKey, previousCountedAt, in.CountedAt).Scan(&net); err != nil {
+		return 0, fmt.Errorf("counts: compute applied shifting net: %w", err)
+	}
+	return net, nil
 }
 
 func insertShiftingEvent(ctx context.Context, tx pgx.Tx, in domain.ShiftingEvent) (string, bool, error) {
@@ -808,11 +948,18 @@ SELECT count_projection_exception_id::text, exception_type, source_key, grain_ke
        COALESCE(stage_tag, ''), severity, COALESCE(owner_ref, ''),
        work_type, work_state, due_at, next_action, evidence_link, blocker_reason, evidence_json
 FROM count_projection_exceptions
-WHERE count_projection_snapshot_id = $1::uuid
+WHERE (
+    count_projection_snapshot_id = $1::uuid
+    OR (
+      count_projection_snapshot_id IS NULL
+      AND tenant_id = $2::uuid
+      AND (park_id IS NULL OR park_id = $3::uuid)
+    )
+  )
   AND status = 'open'
 ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'blocking' THEN 1 ELSE 2 END,
          updated_at DESC, count_projection_exception_id DESC
-LIMIT 50`, snapshotID)
+LIMIT 50`, snapshotID, out.TenantID, out.ParkID)
 	if err != nil {
 		return fmt.Errorf("counts: query projection exceptions: %w", err)
 	}
@@ -842,7 +989,7 @@ INSERT INTO count_projection_exceptions (
   park_id, shed_id, breed_key, stage_tag, severity, owner_ref, work_type, work_state,
   due_at, next_action, evidence_link, blocker_reason, evidence_json
 ) VALUES (
-  $1::uuid, $2::uuid, $3, $4, $5,
+  $1::uuid, nullif($2::text, '')::uuid, $3, $4, $5,
   nullif($6::text, '')::uuid, nullif($7::text, '')::uuid, nullif($8, ''), nullif($9, ''),
   $10, nullif($11, ''),
   COALESCE(NULLIF($12, ''), 'counts_projection_exception'),
