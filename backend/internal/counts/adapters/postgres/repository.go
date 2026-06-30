@@ -1105,6 +1105,9 @@ WHERE tenant_id = $1::uuid`, tenantID)
 	if err := rows.Err(); err != nil {
 		return domain.Readiness{}, err
 	}
+	if err := r.attachRecentReadinessEvidence(ctx, &out, byID); err != nil {
+		return domain.Readiness{}, err
+	}
 	if err := r.pool.QueryRow(ctx, `
 SELECT count(*) FROM count_projection_exceptions
 WHERE tenant_id = $1::uuid AND status = 'open'`, tenantID).Scan(&out.OpenExceptionCount); err != nil {
@@ -1135,6 +1138,51 @@ LIMIT 1`, tenantID).Scan(&out.LatestProjectionStatus, &target, &out.LatestProjec
 		out.GenerationAllowed = true
 	}
 	return out, nil
+}
+
+func (r *Repository) attachRecentReadinessEvidence(ctx context.Context, readiness *domain.Readiness, byID map[string]int) error {
+	const evidenceLimitPerSubgate = 5
+	subgateIDs := make([]string, 0, len(readiness.Subgates))
+	for _, subgate := range readiness.Subgates {
+		if _, ok := byID[subgate.ID]; ok {
+			subgateIDs = append(subgateIDs, subgate.ID)
+		}
+	}
+	if len(subgateIDs) == 0 {
+		return nil
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT subgate_id, status, evidence_ref, blocker_reason, COALESCE(implementation_ref, ''), recorded_at
+FROM unnest($2::text[]) WITH ORDINALITY AS wanted(subgate_id, subgate_order)
+CROSS JOIN LATERAL (
+  SELECT status, evidence_ref, blocker_reason, implementation_ref, recorded_at,
+         counts_shifting_readiness_evidence_id
+  FROM counts_shifting_readiness_evidence
+  WHERE tenant_id = $1::uuid AND subgate_id = wanted.subgate_id
+  ORDER BY recorded_at DESC, counts_shifting_readiness_evidence_id DESC
+  LIMIT $3
+) evidence
+ORDER BY wanted.subgate_order, evidence.recorded_at DESC, evidence.counts_shifting_readiness_evidence_id DESC`,
+		readiness.TenantID, subgateIDs, evidenceLimitPerSubgate)
+	if err != nil {
+		return fmt.Errorf("counts: readiness evidence: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var subgateID, status, implementation string
+		var evidence domain.ReadinessEvidence
+		if err := rows.Scan(&subgateID, &status, &evidence.EvidenceRef, &evidence.BlockerReason, &implementation, &evidence.RecordedAt); err != nil {
+			return fmt.Errorf("counts: scan readiness evidence: %w", err)
+		}
+		idx, ok := byID[subgateID]
+		if !ok {
+			continue
+		}
+		evidence.Status = domain.ReadinessStatus(status)
+		evidence.ImplementationRef = implementation
+		readiness.Subgates[idx].RecentEvidence = append(readiness.Subgates[idx].RecentEvidence, evidence)
+	}
+	return rows.Err()
 }
 
 type projectionExceptionResolutionQuerier interface {

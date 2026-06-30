@@ -154,7 +154,10 @@ The current subgate row shows the latest status/evidence, while
 `counts_shifting_readiness_evidence` keeps a write-by-write evidence ledger so
 multi-proof gates such as `CSG10` do not lose mapping, source-scan,
 source-parity, query-plan, import, mismatch-scan, or recompute evidence when a
-later worker refreshes the same subgate.
+later worker refreshes the same subgate. The readiness API exposes a bounded
+recent-evidence summary under each CSG subgate so `G2` launch review can inspect
+multi-proof closure without treating any single pending `CSG10` pointer as
+complete.
 Repository writes now promote only the subgates they directly prove: Base Count
 anchors promote `CSG1`/`CSG5`, ShiftingEvents with impacts promote
 `CSG2`/`CSG3`, projection snapshots promote `CSG9`, and both snapshot horizons

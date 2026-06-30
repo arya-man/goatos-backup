@@ -460,9 +460,27 @@ func applyCountsReadiness(readiness *domain.Readiness, counts countsdomain.Readi
 			Status: feedReadinessStatus(subgate.Status), Owner: subgate.Owner,
 			EvidenceRef: subgate.EvidenceRef, BlockerReason: subgate.BlockerReason,
 			LastCheckedAt: subgate.LastCheckedAt, AllowsGenerate: false,
+			RecentEvidence: countsRecentEvidence(subgate.RecentEvidence),
 		})
 	}
 	readiness.CountsShiftingSubgates = subgates
+}
+
+func countsRecentEvidence(in []countsdomain.ReadinessEvidence) []domain.ReadinessEvidence {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]domain.ReadinessEvidence, 0, len(in))
+	for _, evidence := range in {
+		out = append(out, domain.ReadinessEvidence{
+			Status:            feedReadinessStatus(evidence.Status),
+			EvidenceRef:       evidence.EvidenceRef,
+			BlockerReason:     evidence.BlockerReason,
+			ImplementationRef: evidence.ImplementationRef,
+			RecordedAt:        evidence.RecordedAt,
+		})
+	}
+	return out
 }
 
 func countsReadinessBlockerSummary(counts countsdomain.Readiness, prefix string) string {

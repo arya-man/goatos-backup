@@ -2406,6 +2406,16 @@ export interface components {
             /** Format: date-time */
             last_checked_at: string;
             allows_generate: boolean;
+            /** @description Bounded latest evidence rows recorded for this Counts/Shifting readiness subgate. */
+            recent_evidence?: components["schemas"]["FeedDirectionReadinessEvidence"][];
+        };
+        FeedDirectionReadinessEvidence: {
+            status: components["schemas"]["FeedDirectionReadinessStatus"];
+            evidence_ref: string;
+            blocker_reason: string;
+            implementation_ref?: string;
+            /** Format: date-time */
+            recorded_at: string;
         };
         FeedDirectionSafetyInvariant: {
             /** @enum {string} */

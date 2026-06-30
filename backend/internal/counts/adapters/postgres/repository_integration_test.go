@@ -329,6 +329,9 @@ WHERE tenant_id=$1::uuid
 	if csg10.Status != domain.ReadinessPending || csg10.EvidenceRef != "count_mismatch_scan_runs:"+second.RunID {
 		t.Fatalf("CSG10=%+v, want pending with scan run evidence", csg10)
 	}
+	if !readinessEvidenceHasRef(csg10.RecentEvidence, "count_mismatch_scan_runs:"+second.RunID) {
+		t.Fatalf("CSG10 recent evidence=%+v, want scan run evidence", csg10.RecentEvidence)
+	}
 	if _, err := repo.ScanCountMismatches(ctx, domain.CountMismatchScanRequest{
 		TenantID: countsTenant, ParkID: strPtr(countsPark),
 		CountedBefore: time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
@@ -570,6 +573,9 @@ WHERE tenant_id=$1::uuid
 		csg10.EvidenceRef != "count_projection_recompute_runs:"+result.RunID ||
 		!strings.Contains(csg10.BlockerReason, "seeded local E2E") {
 		t.Fatalf("CSG10=%+v, want pending recompute-run evidence", csg10)
+	}
+	if !readinessEvidenceHasRef(csg10.RecentEvidence, "count_projection_recompute_runs:"+result.RunID) {
+		t.Fatalf("CSG10 recent evidence=%+v, want recompute-run evidence", csg10.RecentEvidence)
 	}
 	csg4 := readinessSubgate(t, readiness, "CSG4")
 	if csg4.Status != domain.ReadinessPending ||
@@ -1267,6 +1273,15 @@ func readinessSubgate(t *testing.T, readiness domain.Readiness, id string) domai
 	}
 	t.Fatalf("missing readiness subgate %s in %+v", id, readiness.Subgates)
 	return domain.ReadinessSubgate{}
+}
+
+func readinessEvidenceHasRef(items []domain.ReadinessEvidence, evidenceRef string) bool {
+	for _, item := range items {
+		if item.EvidenceRef == evidenceRef {
+			return true
+		}
+	}
+	return false
 }
 
 func deleteReadinessSubgates(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ids ...string) {

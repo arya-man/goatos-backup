@@ -363,6 +363,15 @@ type ReadinessSubgate struct {
 	BlockerReason     string
 	ImplementationRef string
 	LastCheckedAt     time.Time
+	RecentEvidence    []ReadinessEvidence
+}
+
+type ReadinessEvidence struct {
+	Status            ReadinessStatus
+	EvidenceRef       string
+	BlockerReason     string
+	ImplementationRef string
+	RecordedAt        time.Time
 }
 
 type Readiness struct {

@@ -333,6 +333,11 @@ func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t 
 	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG8"); csg.Status != feeddomain.ReadinessPending || csg.EvidenceRef != "count_base_anchors:"+sourceAnchorID {
 		t.Fatalf("CSG8=%+v, want pending replay evidence", csg)
 	}
+	csg10 := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG10")
+	if !feedRecentEvidenceHasPrefix(csg10.RecentEvidence, "count_mismatch_scan_runs:") ||
+		!feedRecentEvidenceHasPrefix(csg10.RecentEvidence, "count_projection_recompute_runs:") {
+		t.Fatalf("CSG10 recent evidence=%+v, want scan and recompute evidence", csg10.RecentEvidence)
+	}
 	assertReadinessEvidenceRef(t, ctx, pool, "CSG6", "count_mismatch_scan_runs:"+scan.RunID)
 	assertReadinessEvidenceRef(t, ctx, pool, "CSG8", "count_base_anchors:"+sourceAnchorID)
 	assertReadinessEvidenceLike(t, ctx, pool, "CSG10", "count_mismatch_scan_runs:%")
@@ -423,6 +428,15 @@ func feedStringValue(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+func feedRecentEvidenceHasPrefix(items []feeddomain.ReadinessEvidence, prefix string) bool {
+	for _, item := range items {
+		if strings.HasPrefix(item.EvidenceRef, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func assertReadinessEvidenceRef(t *testing.T, ctx context.Context, pool *pgxpool.Pool, subgateID, evidenceRef string) {

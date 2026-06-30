@@ -6553,6 +6553,31 @@ components:
           format: date-time
         allows_generate:
           type: boolean
+        recent_evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedDirectionReadinessEvidence"
+          description: Bounded latest evidence rows recorded for this Counts/Shifting readiness subgate.
+    FeedDirectionReadinessEvidence:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - evidence_ref
+        - blocker_reason
+        - recorded_at
+      properties:
+        status:
+          $ref: "#/components/schemas/FeedDirectionReadinessStatus"
+        evidence_ref:
+          type: string
+        blocker_reason:
+          type: string
+        implementation_ref:
+          type: string
+        recorded_at:
+          type: string
+          format: date-time
     FeedDirectionSafetyInvariant:
       type: object
       additionalProperties: false

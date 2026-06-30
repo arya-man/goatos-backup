@@ -52,6 +52,10 @@ func TestGetReadinessReturnsFailClosedContract(t *testing.T) {
 		GenerationAllowed: false,
 		CountsShiftingSubgates: []domain.CountsShiftingSubgate{{
 			ID: "CSG1", Status: domain.ReadinessBlocked, LastCheckedAt: checkedAt,
+			RecentEvidence: []domain.ReadinessEvidence{{
+				Status: domain.ReadinessPending, EvidenceRef: "counts-query-plan-check:2026-06-30T09:00:00Z",
+				BlockerReason: "source parity remains", RecordedAt: checkedAt,
+			}},
 		}},
 		SafetyInvariants: []domain.SafetyInvariant{{
 			Key: "shifted_pregnant_destination_recompute", Status: domain.ReadinessBlocked,
@@ -81,6 +85,10 @@ func TestGetReadinessReturnsFailClosedContract(t *testing.T) {
 	}
 	if got.CurrentGate != "G2" {
 		t.Fatalf("current_gate=%q, want G2", got.CurrentGate)
+	}
+	if len(got.CountsShiftingSubgates) != 1 || len(got.CountsShiftingSubgates[0].RecentEvidence) != 1 ||
+		got.CountsShiftingSubgates[0].RecentEvidence[0].EvidenceRef != "counts-query-plan-check:2026-06-30T09:00:00Z" {
+		t.Fatalf("counts recent evidence = %+v", got.CountsShiftingSubgates)
 	}
 	if len(got.SafetyInvariants) != 1 || got.SafetyInvariants[0].Key != "shifted_pregnant_destination_recompute" {
 		t.Fatalf("safety invariants = %+v", got.SafetyInvariants)

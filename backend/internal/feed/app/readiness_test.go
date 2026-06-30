@@ -127,7 +127,10 @@ func TestReadinessSummarizesSpecificNonReadyCountsSubgates(t *testing.T) {
 			Subgates: []countsdomain.ReadinessSubgate{
 				{ID: "CSG1", Status: countsdomain.ReadinessReady, Owner: "Counts/Shifting", EvidenceRef: "count_base_anchors:1", LastCheckedAt: checkedAt},
 				{ID: "CSG7", Status: countsdomain.ReadinessPending, Owner: "Counts/Shifting + Feed Direction", EvidenceRef: "alias-check", BlockerReason: "owner-approved alias review remains", LastCheckedAt: checkedAt},
-				{ID: "CSG10", Status: countsdomain.ReadinessBlocked, Owner: "Counts/Shifting + Feed Direction", EvidenceRef: "workbook-source-scan", BlockerReason: "full row parity and seeded local E2E remain", LastCheckedAt: checkedAt},
+				{ID: "CSG10", Status: countsdomain.ReadinessBlocked, Owner: "Counts/Shifting + Feed Direction", EvidenceRef: "workbook-source-scan", BlockerReason: "full row parity and seeded local E2E remain", LastCheckedAt: checkedAt, RecentEvidence: []countsdomain.ReadinessEvidence{
+					{Status: countsdomain.ReadinessPending, EvidenceRef: "counts-query-plan-check:2026-06-30T09:00:00Z", BlockerReason: "source parity remains", ImplementationRef: "backend/cmd/counts-query-plan-check", RecordedAt: checkedAt.Add(-time.Minute)},
+					{Status: countsdomain.ReadinessPending, EvidenceRef: "counts-source-parity-check:fixture", BlockerReason: "seeded E2E remains", ImplementationRef: "backend/cmd/counts-source-parity-check", RecordedAt: checkedAt},
+				}},
 			},
 		}})
 
@@ -146,6 +149,12 @@ func TestReadinessSummarizesSpecificNonReadyCountsSubgates(t *testing.T) {
 	}
 	if len(readiness.CountsShiftingSubgates) != 3 {
 		t.Fatalf("subgates=%d, want provider subgates", len(readiness.CountsShiftingSubgates))
+	}
+	csg10 := readiness.CountsShiftingSubgates[2]
+	if len(csg10.RecentEvidence) != 2 ||
+		csg10.RecentEvidence[0].EvidenceRef != "counts-query-plan-check:2026-06-30T09:00:00Z" ||
+		csg10.RecentEvidence[1].EvidenceRef != "counts-source-parity-check:fixture" {
+		t.Fatalf("CSG10 recent evidence=%+v, want provider evidence trail", csg10.RecentEvidence)
 	}
 }
 

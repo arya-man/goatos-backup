@@ -157,15 +157,24 @@ type ReadinessGate struct {
 
 // CountsShiftingSubgate is the G2 subgate roll-up (CSG1-CSG10).
 type CountsShiftingSubgate struct {
-	ID             string          `json:"id"`
-	Sequence       int             `json:"sequence"`
-	Name           string          `json:"name"`
-	Status         ReadinessStatus `json:"status"`
-	Owner          string          `json:"owner"`
-	EvidenceRef    string          `json:"evidence_ref"`
-	BlockerReason  string          `json:"blocker_reason"`
-	LastCheckedAt  time.Time       `json:"last_checked_at"`
-	AllowsGenerate bool            `json:"allows_generate"`
+	ID             string              `json:"id"`
+	Sequence       int                 `json:"sequence"`
+	Name           string              `json:"name"`
+	Status         ReadinessStatus     `json:"status"`
+	Owner          string              `json:"owner"`
+	EvidenceRef    string              `json:"evidence_ref"`
+	BlockerReason  string              `json:"blocker_reason"`
+	LastCheckedAt  time.Time           `json:"last_checked_at"`
+	AllowsGenerate bool                `json:"allows_generate"`
+	RecentEvidence []ReadinessEvidence `json:"recent_evidence,omitempty"`
+}
+
+type ReadinessEvidence struct {
+	Status            ReadinessStatus `json:"status"`
+	EvidenceRef       string          `json:"evidence_ref"`
+	BlockerReason     string          `json:"blocker_reason"`
+	ImplementationRef string          `json:"implementation_ref,omitempty"`
+	RecordedAt        time.Time       `json:"recorded_at"`
 }
 
 // SafetyInvariant is a feed-safety rule that must stay fail-closed until its

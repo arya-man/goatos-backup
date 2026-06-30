@@ -172,8 +172,10 @@ language.
    moves `CSG6` to ready, reviewed alias evidence removes the `CSG7`
    `alias_conflict` blocker while keeping it pending, replay evidence moves
    `CSG8` to pending, and the new
-   `counts_shifting_readiness_evidence` ledger preserves both mismatch-scan and
-   projection-recompute `CSG10` proof instead of overwriting prior evidence.
+   `counts_shifting_readiness_evidence` ledger plus
+   `/feed-direction/readiness` recent-evidence output preserve both
+   mismatch-scan and projection-recompute `CSG10` proof instead of overwriting
+   prior evidence.
    `counts-source-parity-check` now also has migrated-Postgres proof against a
    canonical projection snapshot/read path for the sanitized
    `source-parity-high-risk-sample.json` fixture, including pregnant late

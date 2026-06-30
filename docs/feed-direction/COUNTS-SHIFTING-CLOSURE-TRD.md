@@ -499,7 +499,10 @@ The current subgate row is not the whole audit record. Every write to
 later workers refresh the same subgate. This matters most for `CSG10`, where
 mapping, source-scan, source-parity, query-plan, source-import, mismatch-scan,
 and projection-recompute proof all contribute to closure but none is enough to
-make the gate ready by itself.
+make the gate ready by itself. Counts readiness and
+`GET /feed-direction/readiness` expose a bounded recent-evidence list per CSG
+subgate so launch review can see the accumulated proof trail without querying
+the raw ledger.
 
 ## 10. Tests
 
