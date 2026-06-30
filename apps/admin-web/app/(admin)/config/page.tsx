@@ -9,5 +9,5 @@ export const dynamic = "force-dynamic";
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   const params = await searchParams;
   const category = one(params, "category") ?? "vaccination";
-  return <ConfigProtocolRulesPage category={category} pageContract={await requireAdminWebPageContract("config")} />;
+  return <ConfigProtocolRulesPage searchParams={params} category={category} pageContract={await requireAdminWebPageContract("config")} />;
 }

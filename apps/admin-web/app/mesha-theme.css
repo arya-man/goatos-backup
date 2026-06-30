@@ -438,12 +438,13 @@
   .ocell .c{color:var(--faint);font-weight:600;font-size:11px}
   .scrim{position:fixed;inset:0;background:rgba(6,12,9,.55);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:.2s;z-index:210}
   .scrim.on{opacity:1;pointer-events:auto}
+  html:has(.drawer.on),body:has(.drawer.on){overflow:hidden}
 	  .drawer{position:fixed;top:0;right:0;height:100vh;width:498px;max-width:94vw;background:var(--bg);box-shadow:-12px 0 40px rgba(0,0,0,.4);transform:translateX(100%);transition:.26s cubic-bezier(.4,.0,.2,1);z-index:220;display:flex;flex-direction:column}
 	  .drawer.on{transform:none}
-	  .veil{position:fixed;inset:0;background:rgba(0,0,0,.66);backdrop-filter:blur(3px);z-index:219}
+	  .veil{position:fixed;inset:0;background:rgba(0,0,0,.66);backdrop-filter:blur(3px);z-index:219;touch-action:none}
 	  .drawer .dh{display:flex;align-items:center;gap:12px;padding:18px 20px;border-bottom:1px solid var(--line2);background:var(--panel)}
 	  .drawer .dh h2{margin:0;font-size:17px;line-height:1.2}
-	  .drawer .dc{padding:18px 20px;overflow:auto;flex:1}
+	  .drawer .dc{padding:18px 20px;overflow:auto;flex:1;overscroll-behavior:contain}
 	  /* Footer action row WRAPS (never clips a button) with consistent button sizing — fixes the mock's own
      overflow defect where a long primary label wrapped tall and the last action was cut off. */
   .drawer .df{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:14px 20px;border-top:1px solid var(--line2);background:var(--panel)}

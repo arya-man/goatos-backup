@@ -7,8 +7,9 @@ import {
   type AnimalStageOption,
   type SopVersionOption,
 } from "./rule-dsl";
-import { listAnimalStages, listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
+import { getProtocolVersion, listAnimalStages, listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
 import { control, copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { one, type RouteSearchParams } from "@/lib/search-params";
 
 // The generic CEO/COO authoring surface (obligation-engine §2.1 config-UI contract). One Config screen
 // authors every protocol category; the engine, obligations, SOP tasks, and adherence all flow from
@@ -95,16 +96,28 @@ function toRuleRow(item: ProtocolConfigItem, pageContract: AdminUiPageContract):
 // Vaccination links here with category=vaccination, but no module owns the screen. Rules are read
 // from the real backend protocol list (B3, GET /protocols?category=…) through the generated client —
 // never fabricated. A failed read surfaces an error band, not a silent empty table.
-export async function ConfigProtocolRulesPage({ category, pageContract }: { category: string; pageContract: AdminUiPageContract }) {
+export async function ConfigProtocolRulesPage({
+  category,
+  searchParams,
+  pageContract,
+}: {
+  category: string;
+  searchParams?: RouteSearchParams;
+  pageContract: AdminUiPageContract;
+}) {
   const initialCategory = resolveCategory(category, pageContract);
   const publishControl = control(pageContract, "publish_protocol_version");
-  const [res, sopRes, stagesRes] = await Promise.all([
+  const selectedRuleId = searchParams ? one(searchParams, "config_rule") : undefined;
+  const [res, sopRes, stagesRes, selectedRes] = await Promise.all([
     listProtocolConfigs(initialCategory),
     listSops({ status: "active" }),
     listAnimalStages(),
+    selectedRuleId ? getProtocolVersion(selectedRuleId) : Promise.resolve(null),
   ]);
   const rules: ConfigRuleRow[] = res.ok ? res.data.items.map((item) => toRuleRow(item, pageContract)) : [];
   const loadError = res.ok ? null : (res.error.message ?? copy(pageContract, "error.rules_load"));
+  const selectedRuleDetail = selectedRes && selectedRes.ok ? selectedRes.data : null;
+  const selectedRuleError = selectedRes && !selectedRes.ok ? (selectedRes.error.message ?? selectedRes.error.kind) : null;
 
   // Real published SOP versions the author can bind to a protocol version. An active SOP exposes its
   // published version via active_sop_version_id; publish requires one (no hardcoded SOP labels). A
@@ -137,6 +150,10 @@ export async function ConfigProtocolRulesPage({ category, pageContract }: { cate
       <ConfigConsole
         rules={rules}
         initialCategory={initialCategory}
+        searchParams={searchParams}
+        selectedRuleId={selectedRuleId}
+        selectedRuleDetail={selectedRuleDetail}
+        selectedRuleError={selectedRuleError}
         sopVersions={sopVersions}
         animalStages={animalStages}
         loadError={loadError}

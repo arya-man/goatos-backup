@@ -1,10 +1,16 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { AlertTriangle, Calculator, ChevronLeft, ChevronRight, Database, Pencil, Plus, Search } from "lucide-react";
+import { AlertTriangle, Calculator, ChevronLeft, ChevronRight, Database, Pencil, Plus, Search, X } from "lucide-react";
+import type { AppApiComponents } from "@goatos/api-client";
 import { RuleEditorModal } from "./rule-editor-modal";
 import type { AnimalStageOption, SopVersionOption } from "./rule-dsl";
 import { copy, optionGroup, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import type { RouteSearchParams } from "@/lib/search-params";
+
+type ProtocolVersionDetail = AppApiComponents["schemas"]["ProtocolVersionResponse"];
 
 export interface ConfigRuleRow {
   id: string;
@@ -21,6 +27,124 @@ export interface ConfigRuleRow {
 }
 
 const TONE_CLASS = { warn: "t-warn", info: "t-info", ok: "t-ok", mut: "t-mut" } as const;
+
+function configHref(params: RouteSearchParams | undefined, category: string, selectedRuleId?: string): string {
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (key === "config_rule" || key === "category") continue;
+    if (Array.isArray(value)) {
+      for (const item of value) if (item) next.append(key, item);
+    } else if (value) {
+      next.set(key, value);
+    }
+  }
+  next.set("category", category);
+  if (selectedRuleId) next.set("config_rule", selectedRuleId);
+  const qs = next.toString();
+  return qs ? `/config?${qs}` : "/config";
+}
+
+function jsonText(value: unknown): string {
+  return JSON.stringify(value ?? {}, null, 2);
+}
+
+function ProtocolRuleDrawer({
+  row,
+  detail,
+  detailError,
+  closeHref,
+  pageContract,
+}: {
+  row?: ConfigRuleRow;
+  detail: ProtocolVersionDetail | null;
+  detailError?: string | null;
+  closeHref: string;
+  pageContract: AdminUiPageContract;
+}) {
+  if (!row && !detailError) return null;
+  return (
+    <>
+      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.record.close_label")} scroll={false} />
+      <aside className="drawer on" aria-label={copy(pageContract, "drawer.record.aria")}>
+        <div className="dh">
+          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
+            <Pencil className="ic" aria-hidden="true" />
+          </span>
+          <div>
+            <div className="mt">{copy(pageContract, "drawer.record.eyebrow")}</div>
+            <h2>{row?.categoryLabel ?? copy(pageContract, "drawer.record.detail_unavailable")}</h2>
+          </div>
+          <span className="sp" style={{ flex: 1 }} />
+          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.record.close_label")} scroll={false}>
+            <X className="ic" />
+          </Link>
+        </div>
+        <div className="dc">
+          {detailError ? (
+            <div className="alert warn" role="alert" style={{ marginBottom: 14 }}>
+              <AlertTriangle className="ic" aria-hidden="true" />
+              <div>{copy(pageContract, "drawer.record.detail_unavailable")} ({detailError})</div>
+            </div>
+          ) : null}
+          <div className="note">{copy(pageContract, "drawer.record.note")}</div>
+          {row ? (
+            <div className="metagrid" style={{ marginTop: 14 }}>
+              <div>
+                <div className="k">{copy(pageContract, "drawer.record.version")}</div>
+                <div className="v mono">{row.version}</div>
+              </div>
+              <div>
+                <div className="k">{copy(pageContract, "drawer.record.status")}</div>
+                <div className="v"><span className={`tag ${TONE_CLASS[row.statusTone]}`}>{row.statusText}</span></div>
+              </div>
+              <div>
+                <div className="k">{copy(pageContract, "drawer.record.scope")}</div>
+                <div className="v">{row.scope}</div>
+              </div>
+              <div>
+                <div className="k">{copy(pageContract, "drawer.record.effective")}</div>
+                <div className="v">{row.effective}</div>
+              </div>
+              <div>
+                <div className="k">{copy(pageContract, "drawer.record.linked_sop")}</div>
+                <div className="v mono">{row.linkedSop}</div>
+              </div>
+              <div>
+                <div className="k">{copy(pageContract, "drawer.record.publisher")}</div>
+                <div className="v mono">{row.lastPublisher}</div>
+              </div>
+              <div>
+                <div className="k">{copy(pageContract, "drawer.record.row_version")}</div>
+                <div className="v mono">{detail?.row_version ?? "-"}</div>
+              </div>
+              <div>
+                <div className="k">{copy(pageContract, "drawer.record.version_id")}</div>
+                <div className="v mono">{row.id.slice(0, 8)}...</div>
+              </div>
+            </div>
+          ) : null}
+          {detail ? (
+            <>
+              <div className="k" style={{ marginTop: 16 }}>{copy(pageContract, "drawer.record.rule_dsl")}</div>
+              <pre className="cfgjson" style={{ marginTop: 8, maxHeight: 300, overflow: "auto" }}>
+                {jsonText(detail.rule_dsl)}
+              </pre>
+              <div className="k" style={{ marginTop: 14 }}>{copy(pageContract, "drawer.record.proof_policy")}</div>
+              <pre className="cfgjson" style={{ marginTop: 8, maxHeight: 160, overflow: "auto" }}>
+                {jsonText(detail.proof_policy)}
+              </pre>
+            </>
+          ) : null}
+        </div>
+        <div className="df">
+          <Link href={closeHref} replace className="btn" scroll={false}>
+            {copy(pageContract, "action.cancel")}
+          </Link>
+        </div>
+      </aside>
+    </>
+  );
+}
 
 function FeedDirectionTemplatePanel({ pageContract }: { pageContract: AdminUiPageContract }) {
   const sourceTables = optionGroup(pageContract, "feed_source_tables");
@@ -112,6 +236,10 @@ function FeedDirectionTemplatePanel({ pageContract }: { pageContract: AdminUiPag
 export function ConfigConsole({
   rules,
   initialCategory,
+  searchParams,
+  selectedRuleId,
+  selectedRuleDetail,
+  selectedRuleError,
   sopVersions = [],
   animalStages = [],
   loadError = null,
@@ -123,6 +251,10 @@ export function ConfigConsole({
 }: {
   rules: ConfigRuleRow[];
   initialCategory: string;
+  searchParams?: RouteSearchParams;
+  selectedRuleId?: string;
+  selectedRuleDetail?: ProtocolVersionDetail | null;
+  selectedRuleError?: string | null;
   sopVersions?: SopVersionOption[];
   animalStages?: AnimalStageOption[];
   loadError?: string | null;
@@ -132,6 +264,7 @@ export function ConfigConsole({
   publishDisabledReason: string;
   pageContract: AdminUiPageContract;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [requestedPage, setRequestedPage] = useState(1);
@@ -163,6 +296,8 @@ export function ConfigConsole({
   const start = filteredRules.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = filteredRules.length === 0 ? 0 : Math.min(filteredRules.length, page * pageSize);
   const pagedRules = filteredRules.slice((page - 1) * pageSize, page * pageSize);
+  const selectedRule = selectedRuleId ? rules.find((rule) => rule.id === selectedRuleId) : undefined;
+  const closeRecordHref = configHref(searchParams, initialCategory);
 
   return (
     <>
@@ -275,8 +410,28 @@ export function ConfigConsole({
 	                  </td>
                 </tr>
               ) : (
-                pagedRules.map((r) => (
-                  <tr key={r.id} style={r.statusTone !== "ok" ? { boxShadow: "inset 2px 0 0 var(--amber)" } : undefined}>
+                pagedRules.map((r) => {
+                  const recordHref = configHref(searchParams, initialCategory, r.id);
+                  const selected = selectedRuleId === r.id;
+                  return (
+                  <tr
+                    key={r.id}
+                    role="link"
+                    tabIndex={0}
+                    aria-label={`${copy(pageContract, "action.open_protocol_record")} ${r.categoryLabel}`}
+                    onClick={() => router.push(recordHref, { scroll: false })}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        router.push(recordHref, { scroll: false });
+                      }
+                    }}
+                    style={{
+                      cursor: "pointer",
+                      ...(r.statusTone !== "ok" ? { boxShadow: "inset 2px 0 0 var(--amber)" } : {}),
+                      ...(selected ? { background: "color-mix(in srgb,var(--brand-soft) 55%,transparent)" } : {}),
+                    }}
+                  >
                     <td>
                       <b>{r.categoryLabel}</b>{" "}
                       <span className="muted small">
@@ -292,10 +447,13 @@ export function ConfigConsole({
                     <td className="mono">{r.linkedSop}</td>
                     <td className="muted">{r.lastPublisher}</td>
                     <td style={{ whiteSpace: "nowrap" }}>
-                      <span className="muted small">—</span>
+                      <Link href={recordHref} className="lk small" scroll={false} onClick={(event) => event.stopPropagation()}>
+                        {copy(pageContract, "drawer.record.eyebrow")}
+                      </Link>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -360,6 +518,15 @@ export function ConfigConsole({
         publishDisabledReason={publishDisabledReason}
         pageContract={pageContract}
       />
+      {selectedRuleId ? (
+        <ProtocolRuleDrawer
+          row={selectedRule}
+          detail={selectedRuleDetail ?? null}
+          detailError={selectedRuleError}
+          closeHref={closeRecordHref}
+          pageContract={pageContract}
+        />
+      ) : null}
     </>
   );
 }
