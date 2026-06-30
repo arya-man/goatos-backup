@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -1786,10 +1787,57 @@ LIMIT $9`, req.TenantID, out.SnapshotID, req.ParkID, targetDate, ptrValue(req.Sh
 		out.NextCursor = &next
 		out.Rows = out.Rows[:limit]
 	}
+	out.ShedBreedTotals = summarizeShedBreedTotals(out.Rows)
 	if err := r.loadOpenProjectionExceptions(ctx, out.SnapshotID, &out); err != nil {
 		return domain.CountProjection{}, err
 	}
 	return out, nil
+}
+
+func summarizeShedBreedTotals(rows []domain.ProjectionRow) []domain.ProjectionShedBreedTotal {
+	byKey := map[string]*domain.ProjectionShedBreedTotal{}
+	for _, row := range rows {
+		key := row.ShedID + "\x00" + strings.ToLower(strings.TrimSpace(row.BreedKey))
+		total, ok := byKey[key]
+		if !ok {
+			byKey[key] = &domain.ProjectionShedBreedTotal{
+				ParkID: row.ParkID, ShedID: row.ShedID, BreedKey: row.BreedKey, BreedLabel: row.BreedLabel,
+				RationContextResolutionState: defaultResolution(row.RationContextResolutionState),
+			}
+			total = byKey[key]
+		}
+		total.HeadCount += row.HeadCount
+		total.PregnantCount += row.PregnantCount
+		total.LactatingCount += row.LactatingCount
+		total.WarmupCount += row.WarmupCount
+		total.RationContextResolutionState = aggregateResolution(total.RationContextResolutionState, row.RationContextResolutionState)
+	}
+	out := make([]domain.ProjectionShedBreedTotal, 0, len(byKey))
+	for _, total := range byKey {
+		out = append(out, *total)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ShedID == out[j].ShedID {
+			return out[i].BreedKey < out[j].BreedKey
+		}
+		return out[i].ShedID < out[j].ShedID
+	})
+	return out
+}
+
+func aggregateResolution(current, next string) string {
+	current = defaultResolution(current)
+	next = defaultResolution(next)
+	if current == "blocked" || next == "blocked" {
+		return "blocked"
+	}
+	if current == "unresolved" || next == "unresolved" {
+		return "unresolved"
+	}
+	if current == "resolved" || next == "resolved" {
+		return "resolved"
+	}
+	return "not_required"
 }
 
 func (r *Repository) loadOpenProjectionExceptions(ctx context.Context, snapshotID string, out *domain.CountProjection) error {

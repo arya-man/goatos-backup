@@ -188,6 +188,11 @@ language.
    `counts-workbook-mapping-check` now validates a sanitized 116-column mapping
    across 16 source-role groups for Counting DB, Feed Automation workbook, and
    Sheds DB evidence, and writes `CSG10` mapping evidence as pending, not ready.
+   The Counts projection read model now also exposes page-bounded
+   `ShedBreedTotals` for the returned projection rows so Feed can inspect
+   aggregate shed + breed counts without losing stage/age/sex and
+   pregnant/lactating/warm-up detail rows; full no-cursor parity and seeded E2E
+   still remain before `G2` is green.
    Raw Counting DB / Feed Directions Automation XLSX parsing, full parity
    fixture breadth, and owner-approved mapping review remain source-review work;
    workbook formulas or examples must not bypass typed validation/import.

@@ -225,6 +225,20 @@ type ProjectionRow struct {
 	SourceRowHash                string
 }
 
+// ProjectionShedBreedTotal summarizes the returned projection page at the
+// aggregate shed + breed grain Feed Direction needs for generation review.
+type ProjectionShedBreedTotal struct {
+	ParkID                       string
+	ShedID                       string
+	BreedKey                     string
+	BreedLabel                   string
+	HeadCount                    int32
+	PregnantCount                int32
+	LactatingCount               int32
+	WarmupCount                  int32
+	RationContextResolutionState string
+}
+
 type ProjectionException struct {
 	ProjectionExceptionID string
 	ProjectionSnapshotID  *string
@@ -327,6 +341,7 @@ type CountProjection struct {
 	ExceptionCount        int64
 	TotalRowCount         int64
 	Rows                  []ProjectionRow
+	ShedBreedTotals       []ProjectionShedBreedTotal
 	Exceptions            []ProjectionException
 	Blockers              []ProjectionBlocker
 	NextCursor            *string

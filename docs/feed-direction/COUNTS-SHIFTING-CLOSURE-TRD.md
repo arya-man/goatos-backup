@@ -212,6 +212,11 @@ Implementation status as of 2026-06-30:
   `count_projection_snapshots:<id>` evidence. They also update `CSG4`: one
   horizon remains pending, and `CSG4` turns ready only after both
   `count_as_of` and `feed_target_date` snapshot horizons exist for the tenant.
+- `CountProjection` now returns page-bounded `ShedBreedTotals` beside detail
+  rows. The totals aggregate the returned rows by shed + breed and preserve
+  pregnant/lactating/warm-up counters plus the worst ration-context resolution
+  state. This gives Feed a cheap aggregate view while keeping high-risk
+  stage/age/sex detail available; it is not full no-cursor parity evidence.
 - Feed readiness now has a seeded migrated-Postgres integration test proving
   real Base Count + pregnant ShiftingEvent writes emit the ShiftingEvent outbox
   event, the in-process projection handler recomputes both horizons, the Feed
@@ -500,9 +505,10 @@ Non-negotiable tests:
   `count_mismatch_scan_runs` evidence and readiness updates.
 - Projection snapshot source hash changes after input change.
 - Feed consumes immutable projection snapshot and does not mutate past runs.
-- Initial Feed projection output stays aggregate shed + breed grain, with ration
-  context either resolved from reviewed source-backed context or blocked with an
-  explicit reason, and does not depend on RFID-to-shed per-goat derivation.
+- Initial Feed projection output exposes aggregate shed + breed totals for the
+  returned page, with ration context either resolved from reviewed source-backed
+  context or blocked with an explicit reason, and does not depend on
+  RFID-to-shed per-goat derivation.
 - Query-plan checks for widest allowed projection/read paths, including
   migrated synthetic Feed-target source/destination movement windows and
   projection-row hot pages.

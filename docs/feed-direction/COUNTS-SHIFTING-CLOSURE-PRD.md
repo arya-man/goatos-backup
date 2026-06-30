@@ -120,6 +120,11 @@ ready. The executable high-risk sample fixture covers pregnant late gestation,
 lactating/mother, pregnant warm-up, fattening male warm-up, and normal
 non-pregnant rows; it is sanitized parity evidence, not a full workbook import
 or owner-approved nutrition policy.
+The canonical projection read model now includes page-bounded
+`ShedBreedTotals` alongside detail rows, so Feed can see aggregate shed + breed
+counts while retaining stage/age/sex and pregnant/lactating/warm-up counters for
+safety review. The aggregate is evidence for the returned page only; full
+workbook parity/no-cursor reads and seeded E2E remain open.
 
 For any Counts/Shifting behavior that affects Feed Direction timing, Diff,
 bridge handling, one-day projection, or physical count adoption,

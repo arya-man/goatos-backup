@@ -23,6 +23,40 @@ const (
 	countsShedB  = "00000000-0000-4000-8000-000000004002"
 )
 
+func TestSummarizeShedBreedTotalsAggregatesReturnedProjectionRows(t *testing.T) {
+	stagePregnant := "pregnant"
+	stageMother := "mother"
+	rows := []domain.ProjectionRow{
+		{
+			ParkID: countsPark, ShedID: countsShedB, BreedKey: "beetal", BreedLabel: "Beetal",
+			StageTag: &stagePregnant, HeadCount: 12, PregnantCount: 12, RationContextResolutionState: "blocked",
+		},
+		{
+			ParkID: countsPark, ShedID: countsShedB, BreedKey: "beetal", BreedLabel: "Beetal",
+			StageTag: &stageMother, HeadCount: 8, LactatingCount: 8, RationContextResolutionState: "resolved",
+		},
+		{
+			ParkID: countsPark, ShedID: countsShedA, BreedKey: "sirohi", BreedLabel: "Sirohi",
+			HeadCount: 4, RationContextResolutionState: "not_required",
+		},
+	}
+	totals := summarizeShedBreedTotals(rows)
+	if len(totals) != 2 {
+		t.Fatalf("totals=%+v, want two shed/breed aggregates", totals)
+	}
+	if totals[0].ShedID != countsShedA || totals[0].BreedKey != "sirohi" || totals[0].HeadCount != 4 {
+		t.Fatalf("first total=%+v, want sorted shed A sirohi count", totals[0])
+	}
+	beetal := totals[1]
+	if beetal.ShedID != countsShedB || beetal.BreedKey != "beetal" ||
+		beetal.HeadCount != 20 || beetal.PregnantCount != 12 || beetal.LactatingCount != 8 {
+		t.Fatalf("beetal total=%+v, want combined high-risk counters", beetal)
+	}
+	if beetal.RationContextResolutionState != "blocked" {
+		t.Fatalf("aggregate resolution=%s, want blocked when any child row blocks", beetal.RationContextResolutionState)
+	}
+}
+
 func TestRepositoryRecordsBaseCountAnchorIdempotently(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
@@ -478,6 +512,11 @@ func TestRepositoryCreatesBlockedProjectionSnapshotAndReadiness(t *testing.T) {
 	}
 	if row.PregnantCount != 12 || row.BlockerReason == nil || *row.BlockerReason != blocker {
 		t.Fatalf("pregnant blocked row=%+v", row)
+	}
+	if len(projection.ShedBreedTotals) != 1 || projection.ShedBreedTotals[0].HeadCount != 12 ||
+		projection.ShedBreedTotals[0].PregnantCount != 12 ||
+		projection.ShedBreedTotals[0].RationContextResolutionState != "blocked" {
+		t.Fatalf("shed/breed totals=%+v, want blocked Beetal aggregate", projection.ShedBreedTotals)
 	}
 	if len(projection.Exceptions) != 1 || projection.Exceptions[0].ExceptionType != "destination_shortage" {
 		t.Fatalf("projection exceptions=%+v, want destination_shortage", projection.Exceptions)
