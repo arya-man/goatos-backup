@@ -493,6 +493,14 @@ must return each subgate with status, owner, evidence pointer, blocker reason,
 and last_checked_at so `GET /feed-direction/readiness` can show the breakdown
 instead of a single opaque Counts/Shifting status.
 
+The current subgate row is not the whole audit record. Every write to
+`counts_shifting_readiness_subgates` is copied into
+`counts_shifting_readiness_evidence`, preserving each evidence pointer even when
+later workers refresh the same subgate. This matters most for `CSG10`, where
+mapping, source-scan, source-parity, query-plan, source-import, mismatch-scan,
+and projection-recompute proof all contribute to closure but none is enough to
+make the gate ready by itself.
+
 ## 10. Tests
 
 Non-negotiable tests:

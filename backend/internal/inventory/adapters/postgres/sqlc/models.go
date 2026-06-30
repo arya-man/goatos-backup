@@ -610,6 +610,17 @@ type CountsProjectionState struct {
 	UpdatedAt               pgtype.Timestamptz
 }
 
+type CountsShiftingReadinessEvidence struct {
+	CountsShiftingReadinessEvidenceID pgtype.UUID
+	TenantID                          pgtype.UUID
+	SubgateID                         string
+	Status                            string
+	EvidenceRef                       string
+	BlockerReason                     string
+	ImplementationRef                 pgtype.Text
+	RecordedAt                        pgtype.Timestamptz
+}
+
 type CountsShiftingReadinessSubgate struct {
 	TenantID          pgtype.UUID
 	SubgateID         string

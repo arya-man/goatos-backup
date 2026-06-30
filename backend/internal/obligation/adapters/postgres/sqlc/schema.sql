@@ -1146,6 +1146,25 @@ $$;
 
 
 --
+-- Name: record_counts_shifting_readiness_evidence(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.record_counts_shifting_readiness_evidence() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  INSERT INTO counts_shifting_readiness_evidence (
+    tenant_id, subgate_id, status, evidence_ref, blocker_reason, implementation_ref, recorded_at
+  ) VALUES (
+    NEW.tenant_id, NEW.subgate_id, NEW.status, NEW.evidence_ref,
+    NEW.blocker_reason, NEW.implementation_ref, now()
+  );
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: reject_overlapping_location_capacity(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2459,6 +2478,26 @@ CREATE TABLE public.counts_projection_state (
     CONSTRAINT counts_projection_state_source_composition_check CHECK ((source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text]))),
     CONSTRAINT counts_projection_state_unavailable_array_check CHECK ((jsonb_typeof(unavailable_sources) = 'array'::text)),
     CONSTRAINT counts_projection_state_view_check CHECK (((view_id IS NULL) OR (view_id = ANY (ARRAY['overall'::text, 'core-farms'::text, 'cbe'::text, 'cpt'::text, 'holdings'::text]))))
+);
+
+
+--
+-- Name: counts_shifting_readiness_evidence; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.counts_shifting_readiness_evidence (
+    counts_shifting_readiness_evidence_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    subgate_id text NOT NULL,
+    status text NOT NULL,
+    evidence_ref text NOT NULL,
+    blocker_reason text NOT NULL,
+    implementation_ref text,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT counts_shifting_readiness_evidence_blocker_check CHECK ((btrim(blocker_reason) <> ''::text)),
+    CONSTRAINT counts_shifting_readiness_evidence_ref_check CHECK ((btrim(evidence_ref) <> ''::text)),
+    CONSTRAINT counts_shifting_readiness_evidence_status_check CHECK ((status = ANY (ARRAY['ready'::text, 'blocked'::text, 'pending'::text]))),
+    CONSTRAINT counts_shifting_readiness_evidence_subgate_id_check CHECK ((subgate_id = ANY (ARRAY['CSG1'::text, 'CSG2'::text, 'CSG3'::text, 'CSG4'::text, 'CSG5'::text, 'CSG6'::text, 'CSG7'::text, 'CSG8'::text, 'CSG9'::text, 'CSG10'::text])))
 );
 
 
@@ -6107,6 +6146,14 @@ ALTER TABLE ONLY public.counts_projection_state
 
 
 --
+-- Name: counts_shifting_readiness_evidence counts_shifting_readiness_evidence_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_shifting_readiness_evidence
+    ADD CONSTRAINT counts_shifting_readiness_evidence_pkey PRIMARY KEY (counts_shifting_readiness_evidence_id);
+
+
+--
 -- Name: counts_shifting_readiness_subgates counts_shifting_readiness_subgates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8429,6 +8476,13 @@ CREATE INDEX counts_projection_version_idx ON public.counts_projection_rows USIN
 
 
 --
+-- Name: counts_shifting_readiness_evidence_subgate_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_shifting_readiness_evidence_subgate_idx ON public.counts_shifting_readiness_evidence USING btree (tenant_id, subgate_id, recorded_at DESC);
+
+
+--
 -- Name: counts_shifting_readiness_status_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10249,6 +10303,13 @@ CREATE INDEX shifting_event_impacts_projection_idx ON public.shifting_event_impa
 
 
 --
+-- Name: shifting_events_destination_park_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shifting_events_destination_park_window_idx ON public.shifting_events USING btree (tenant_id, destination_park_id, event_status, effective_at, shifting_event_id) WHERE (event_status = ANY (ARRAY['authorized'::text, 'applied'::text]));
+
+
+--
 -- Name: shifting_events_idempotency_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10267,6 +10328,13 @@ CREATE UNIQUE INDEX shifting_events_logical_key_unique ON public.shifting_events
 --
 
 CREATE INDEX shifting_events_projection_window_idx ON public.shifting_events USING btree (tenant_id, event_status, effective_at, destination_park_id, destination_shed_id, shifting_event_id);
+
+
+--
+-- Name: shifting_events_source_park_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shifting_events_source_park_window_idx ON public.shifting_events USING btree (tenant_id, source_park_id, event_status, effective_at, shifting_event_id) WHERE ((source_shed_id IS NOT NULL) AND (event_status = ANY (ARRAY['authorized'::text, 'applied'::text])));
 
 
 --
@@ -11740,6 +11808,13 @@ CREATE TRIGGER calendar_event_projections_identity_trg BEFORE INSERT OR UPDATE O
 
 
 --
+-- Name: counts_shifting_readiness_subgates counts_shifting_readiness_evidence_after_write; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER counts_shifting_readiness_evidence_after_write AFTER INSERT OR UPDATE ON public.counts_shifting_readiness_subgates FOR EACH ROW EXECUTE FUNCTION public.record_counts_shifting_readiness_evidence();
+
+
+--
 -- Name: farm_profiles farm_profiles_validate_type_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -12571,6 +12646,14 @@ ALTER TABLE ONLY public.counts_projection_state
 
 ALTER TABLE ONLY public.counts_projection_state
     ADD CONSTRAINT counts_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: counts_shifting_readiness_evidence counts_shifting_readiness_evidence_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_shifting_readiness_evidence
+    ADD CONSTRAINT counts_shifting_readiness_evidence_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

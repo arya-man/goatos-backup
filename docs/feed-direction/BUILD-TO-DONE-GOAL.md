@@ -168,6 +168,12 @@ language.
    when a pregnant destination shed has an open `destination_shortage`
    exception. This is readiness/outbox consumption proof only; full Feed
    generation consumption of immutable projection snapshots still remains.
+   The same Feed integration path now proves completed mismatch-scan evidence
+   moves `CSG6` to ready, reviewed alias evidence removes the `CSG7`
+   `alias_conflict` blocker while keeping it pending, replay evidence moves
+   `CSG8` to pending, and the new
+   `counts_shifting_readiness_evidence` ledger preserves both mismatch-scan and
+   projection-recompute `CSG10` proof instead of overwriting prior evidence.
    `counts-source-parity-check` now also has migrated-Postgres proof against a
    canonical projection snapshot/read path for the sanitized
    `source-parity-high-risk-sample.json` fixture, including pregnant late

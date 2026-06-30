@@ -333,6 +333,10 @@ func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t 
 	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG8"); csg.Status != feeddomain.ReadinessPending || csg.EvidenceRef != "count_base_anchors:"+sourceAnchorID {
 		t.Fatalf("CSG8=%+v, want pending replay evidence", csg)
 	}
+	assertReadinessEvidenceRef(t, ctx, pool, "CSG6", "count_mismatch_scan_runs:"+scan.RunID)
+	assertReadinessEvidenceRef(t, ctx, pool, "CSG8", "count_base_anchors:"+sourceAnchorID)
+	assertReadinessEvidenceLike(t, ctx, pool, "CSG10", "count_mismatch_scan_runs:%")
+	assertReadinessEvidenceLike(t, ctx, pool, "CSG10", "count_projection_recompute_runs:%")
 
 	aliasConflicts, err := feedService.ListCountsProjectionExceptions(ctx, feeddomain.CountsProjectionExceptionQuery{
 		TenantID: feedTenant, Status: "open", ExceptionType: stringPtr("alias_conflict"), Limit: 10,
@@ -419,6 +423,30 @@ func feedStringValue(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+func assertReadinessEvidenceRef(t *testing.T, ctx context.Context, pool *pgxpool.Pool, subgateID, evidenceRef string) {
+	t.Helper()
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM counts_shifting_readiness_evidence
+WHERE tenant_id=$1::uuid
+  AND subgate_id=$2
+  AND evidence_ref=$3`, feedTenant, subgateID, evidenceRef); got < 1 {
+		t.Fatalf("readiness evidence %s/%s rows=%d, want at least one", subgateID, evidenceRef, got)
+	}
+}
+
+func assertReadinessEvidenceLike(t *testing.T, ctx context.Context, pool *pgxpool.Pool, subgateID, evidenceLike string) {
+	t.Helper()
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM counts_shifting_readiness_evidence
+WHERE tenant_id=$1::uuid
+  AND subgate_id=$2
+  AND evidence_ref LIKE $3`, feedTenant, subgateID, evidenceLike); got < 1 {
+		t.Fatalf("readiness evidence %s LIKE %s rows=%d, want at least one", subgateID, evidenceLike, got)
+	}
 }
 
 func feedReadinessBaseAnchor(shedID, key, fingerprint string, count int32) countsdomain.BaseCountAnchor {

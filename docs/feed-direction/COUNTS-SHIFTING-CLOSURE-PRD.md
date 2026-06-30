@@ -150,6 +150,11 @@ GoatOS schedules unless explicitly approved against that docx.
 `CSG1`-`CSG10` roll up into Feed gate `G2`. The Feed readiness endpoint must
 show the Counts/Shifting subgate statuses, owners, evidence pointers, and blocker
 reasons beneath `G2` so Counts closure is auditable from the Feed launch gate.
+The current subgate row shows the latest status/evidence, while
+`counts_shifting_readiness_evidence` keeps a write-by-write evidence ledger so
+multi-proof gates such as `CSG10` do not lose mapping, source-scan,
+source-parity, query-plan, import, mismatch-scan, or recompute evidence when a
+later worker refreshes the same subgate.
 Repository writes now promote only the subgates they directly prove: Base Count
 anchors promote `CSG1`/`CSG5`, ShiftingEvents with impacts promote
 `CSG2`/`CSG3`, projection snapshots promote `CSG9`, and both snapshot horizons
