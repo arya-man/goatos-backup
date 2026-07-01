@@ -105,10 +105,10 @@ Coverage % within window (per vaccine/park) · on-time drive rate · stock integ
    ET+TT, PPR, Goat Pox, Sheep Pox, FMD, HS, and Blue Tongue with species split,
    course type, dose, vial, repeat, procurement, pregnancy, and gap rules.
 2. **Stage/tag base source** — use
-   `context/source-findings/goats-and-parks-source-findings.md` and the source
-   `Goats and Parks.docx` for K0/K1/K2/K3, fattening, warmup, adult,
-   pregnancy, ICU, and quarantine meanings. Tags are context; due dates are
-   driven by DOB/herd-entry plus accepted vaccination history.
+   `context/source-findings/goats-and-parks-source-findings.md` for K0/K1/K2/K3,
+   fattening, warmup, adult, pregnancy, ICU, and quarantine meanings. Tags are
+   context; due dates are driven by DOB/herd-entry plus accepted vaccination
+   history.
 3. **BQ** — remains a SOP/vocabulary label only. Do not create BQ obligations
    until a later reviewed source adds timing, dose, vial, repeat, and gap values.
 
