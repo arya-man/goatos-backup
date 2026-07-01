@@ -17,6 +17,32 @@ The alternate early-kid source branch is intentionally excluded from this file.
 Do not add it to config, tests, UI tables, source comparisons, catch-up logic, or
 seed data unless Ravi explicitly reopens that branch.
 
+## Binding Rules (govern ALL vaccination work)
+
+These two rules are non-negotiable and MUST be honored by every piece of
+vaccination authoring, review, seed data, config, obligation/rule generation,
+tests, drive planning, and admin-web/operator UI. They are stated in full in the
+sections below; this block makes them binding law, not commentary.
+
+1. **Kid-course rendering rule (4w → 20w only).** Schedule boards, drive
+   previews, and generated obligations show ages where a vaccine is actually
+   **due** for the selected species/path — not every week of life. The goat/sheep
+   kid path has exactly five due points: 4w, 7w, 12w, 16w, and 20w (20w only when
+   it applies). K0 / K1 / early K2 have **no** approved-schedule vaccine before
+   4w. After 20w the kid course is complete and the animal moves to steady-state
+   repeat scheduling driven by accepted completion dates, not fixed week slots.
+   Adult procurement is a separate two-slot path (first eligible day after the
+   7-day warmup hold, then +4w). See "Kid Course Rendering Rule".
+
+2. **Goat Pox source-conflict rule (16w raw / 20w derived).** The Nuance Rules
+   source records both PPR and Goat Pox at 16w; both are live and the same source
+   mandates a 4-week live→live gap. Therefore PPR holds 16w and Goat Pox is
+   **derived** to 20w whenever PPR is administered at 16w. Preserve BOTH truths:
+   raw source (16w) and effective safe schedule (20w). This is an intentional,
+   labeled derivation from the live→live gap rule — never render it as a plain
+   source value, and never silently drop the 16w raw truth. See "Source Conflict
+   To Preserve".
+
 ## Operating Rules
 
 - Tags are housing/lifecycle context; vaccine due dates are driven by DOB or

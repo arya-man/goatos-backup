@@ -44,8 +44,10 @@ Visual source: `mock/goatos-dashboard-mock.html`.
   already exists).
 - **Do not build full Parks modules now:** no Sanitation, no PHC & Biosecurity
   Parks page, no Feed Direction, no Feed Execution, no Ground Team module, no
-  Park Inventory screen. **Feed Direction stays paused** until PHC/Vaccination UI
-  + this foundation are reviewed and approved.
+  Park Inventory screen. **Status update, 2026-06-30:** this old Feed Direction
+  pause is satisfied for sequencing by the local Goal 1 vaccination/kernel
+  closure. Feed Direction may resume as its own build goal; Google dev rollout
+  remains separate Goal 2 and must not be claimed from local evidence.
 
 ## 2. Engine ↔ doc mapping (already committed — reconcile vocab, don't rebuild)
 
@@ -106,6 +108,12 @@ Procurement vertical for v1.
 
 ## 4.1 Legacy parity floor and import/replay mapping
 
+- Binding matrix rules (non-negotiable): every v1 obligation/rule generation,
+  seed, test, and rendered board MUST follow the two Binding Rules at the top of
+  `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`: (a) kid-course rendering
+  (4w/7w/12w/16w/20w due points only; nothing before 4w; steady-state repeats
+  after 20w) and (b) Goat Pox source-conflict (16w raw / 20w derived when PPR is
+  at 16w; keep both truths, label the derivation, never drop 16w raw).
 - Preserve source-backed SOP labels, but schedule-bearing vaccine rows now come
   from `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`: ET+TT, PPR, Goat Pox,
   Sheep Pox, FMD, HS, and Blue Tongue with species split, dose, vial, repeat,

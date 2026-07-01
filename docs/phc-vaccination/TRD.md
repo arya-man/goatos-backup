@@ -176,6 +176,12 @@ PHC vaccination must reuse/enhance it, not rebuild a vaccination-only island (pe
 - **DITCH from runtime (reference/migration-only):** legacy_import_*, legacy_sync_* as read source, BQ reconcile, dashboard-parity-with-BigQuery thinking. Control Tower reads Postgres/projection only.
 
 ## 9. Source-derived schedule and stage inputs
+- Binding matrix rules (non-negotiable): schedule/rule generation, seed, tests,
+  drive planning, and rendering MUST follow the two Binding Rules at the top of
+  `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`: (a) kid-course rendering
+  (due points 4w/7w/12w/16w/20w only; no vaccine before 4w; steady-state repeats
+  after 20w) and (b) Goat Pox source-conflict (16w raw / 20w derived when PPR is
+  at 16w; preserve both, label the derivation, never drop 16w raw).
 - Current schedule matrix: `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`
   is the source-backed schedule table for ET+TT, PPR, Goat Pox, Sheep Pox, FMD,
   HS, and Blue Tongue. It includes timing, dose, vial, repeat, species split,

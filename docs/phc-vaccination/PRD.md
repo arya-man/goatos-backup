@@ -100,6 +100,14 @@ Shift (re-target + re-eval same vaccine), death/sale (cancel pending in same txn
 Coverage % within window (per vaccine/park) · on-time drive rate · stock integrity (zero negative, zero expired-lot use) · **zero ghost-overdue** (dead/sold never overdue) · engine latency (obligation generated promptly after goat CRUD).
 
 ## 7. Source-derived schedule and stage inputs
+0. **Binding matrix rules (non-negotiable)** — all vaccination authoring, config,
+   obligation/rule generation, seed, tests, drive planning, and UI MUST follow
+   the two Binding Rules at the top of
+   `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`: (a) the kid-course
+   rendering rule (5 due points 4w/7w/12w/16w/20w; nothing before 4w; steady-state
+   repeats after 20w) and (b) the Goat Pox source-conflict rule (16w raw source /
+   20w derived when PPR is at 16w — preserve both truths, label the derivation,
+   never drop the 16w raw value).
 1. **Current schedule matrix selected** — use
    `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md` for schedule-bearing rows:
    ET+TT, PPR, Goat Pox, Sheep Pox, FMD, HS, and Blue Tongue with species split,
