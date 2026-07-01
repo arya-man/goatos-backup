@@ -40,13 +40,12 @@
   the active slice.
 
 ### 5. External inputs / source-backed follow-ups
-- **Vaccination schedule values** — local/dev is unblocked by the source-derived
-  ET/K1/day-21 baseline and K2=42 decision recorded in
-  `context/source-findings/phc-vaccination-roster-stage-proposal.md`. Broader
-  production roster expansion (PPR/FMD/HS/BQ or any replacement ET values) still
-  needs timing/dose/booster/route/storage evidence from PHC/vet sign-off or a
-  reviewed extract of the live "Vaccination DB" sheet (Slack `F0AK7S3NR4K`/
-  `F0AKC6EBD9U`).
+- **Vaccination schedule values** — current source-backed schedule rows are in
+  `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`: ET+TT, PPR, Goat Pox,
+  Sheep Pox, FMD, HS, and Blue Tongue with species split, dose, vial, repeat,
+  procurement, pregnancy, and gap rules. BQ and any future override still need
+  timing/dose/booster/route/storage evidence from PHC/vet sign-off or a reviewed
+  source extract before they can generate obligations.
 - **Feed ration VALUES** + session clock times per park.
 - **CUTOVER_DATE** + vaccination-history-trust decision (migration-and-cutover §6).
 - The **4 superadmin mail IDs** + capability grants (`protocol.publish.<category>`).
@@ -102,8 +101,8 @@ Adherence = **computed**: expected (rule) vs actual (completion + proof + timing
 
 ## G. Order of implementation
 **Phase 0 — foundation deltas (no rule values needed):** `000070`–`000074` + outbox→Pub/Sub adapter + create `protocol`/`obligation`/`inventory` Go domains (schema + repos, no rules yet). Engine stands up empty.
-**Phase 1 — PHC Vaccination slice:** `000075`; build `vaccination` domain; SM-1/3/4/5/7 handlers; SOP form/proof seed; config-screen API + impact-preview; Control Tower + Action Center + Protocol Adherence reads + coverage projection. **Source-derived local/dev rule values now exist** for the ET/K1/day-21 proof path with K2=42; use them as source-backed dev config. Additional PPR/FMD/HS/BQ schedule rows arrive later through the same source-backed versioning path when timing/dose/booster extracts exist.
+**Phase 1 — PHC Vaccination slice:** `000075`; build `vaccination` domain; SM-1/3/4/5/7 handlers; SOP form/proof seed; config-screen API + impact-preview; Control Tower + Action Center + Protocol Adherence reads + coverage projection. **Source-derived rule values now exist** in `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`; use them as source-backed dev config for ET+TT, PPR, Goat Pox, Sheep Pox, FMD, HS, and Blue Tongue. BQ and future overrides arrive later through the same source-backed versioning path when timing/dose/booster extracts exist.
 **Phase 2 — Feed Direction:** use new migration numbers after the live repo tail; build the generation pipeline and wiring around the committed `000079` generic-kernel design. SM-6 is full direction + cutoff Diff + bridge logging + packing reserve. Feed operational screens remain scope-gated until explicitly reopened.
 **Cutover (one-time, after Phase 1 engine ready):** freeze legacy → canonical → backfill generator per migration-and-cutover.md; `CUTOVER_DATE` policy (no historical-overdue flood).
 
-**Critical-path gate:** Phase 0 + the *engine* of Phase 1/2 can be built **now**. For PHC vaccination local/dev, the selected source-derived ET baseline can generate work; broader production roster expansion remains source-backed config/versioning work.
+**Critical-path gate:** Phase 0 + the *engine* of Phase 1/2 can be built **now**. For PHC vaccination local/dev, the approved schedule matrix can generate source-backed work for its listed vaccine rows; BQ and future overrides remain source-backed config/versioning work.

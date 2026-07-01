@@ -88,7 +88,7 @@ Capability is checked via `workforce_member_capabilities` (same mechanism as `va
 | Field worker | **no config** — Action Center + SOP execution only |
 | Verifier | **no config** — proof queue only |
 
-**Publish gate + dev policy (source-backed):** a version publishes **only when `review_status='approved'`** and source-backed. Values that come from a **real source (Vaccinations DB / PHC / vet-approved / committed PHC PRD source finding)** and are marked `approved` are **real config in `goatos-dev` and publishable there** — the **dev-real path**. **Unsourced / `manual_admin` / `extracted`** rows stay `status='draft'` and carry a **`not source-backed`** warning — they cannot be published and generate no production work. **Never hand-invent** PPR/FMD/ET schedule values; the local/dev ET row is source-derived from `docs/phc-vaccination/PRD.md:60` and future values arrive via this config UI or a reviewed source extract.
+**Publish gate + dev policy (source-backed):** a version publishes **only when `review_status='approved'`** and source-backed. Values that come from a **real source (Vaccinations DB / PHC / vet-approved / committed approved schedule matrix)** and are marked `approved` are **real config in `goatos-dev` and publishable there** — the **dev-real path**. **Unsourced / `manual_admin` / `extracted`** rows stay `status='draft'` and carry a **`not source-backed`** warning — they cannot be published and generate no production work. **Never hand-invent** vaccine schedule values; current PHC Vaccination values come from `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`, and future values arrive via this config UI or a reviewed source extract.
 
 ---
 

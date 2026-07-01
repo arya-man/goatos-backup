@@ -3,8 +3,11 @@
 **Status:** Draft v2 · **Date:** 2026-06-22
 **Source hierarchy:** committed GoatOS migrations and protocol-engine docs for
 repo state; `context/source-findings/phc-vaccination-roster-stage-proposal.md`
-and `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md` for
-accepted source findings; then `/Users/ravi/mesha/wiki` goatOS/PHC/Health
+as historical local/dev baseline context,
+`docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md` for current source-backed
+vaccination timing/dose/vial/repeat/gap rules, and
+`context/source-findings/live-legacy-critical-guardrails-2026-06-28.md` for
+accepted import/proof guardrails; then `/Users/ravi/mesha/wiki` goatOS/PHC/Health
 handbook material and the product mock where they do not conflict.
 **Foundation:** [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md) — vaccination is the first module on a shared engine, not a one-off.
 **Explicitly NOT a source:** the older `goatos/context/*` and `goatos/docs/phases/*` planning docs (scrapped new-dashboard effort).
@@ -61,7 +64,7 @@ Role = **Vertical × Tier**, park-scoped (committed `user_scope_grants`: roles `
 
 ### 4.1 Admin authors the rule → leadership publishes
 PHC Director drafts a protocol rule (`protocol_rules` under a `vaccination` protocol):
-> *Enterotoxaemia · goat · all sexes · shed-stage K1 · primary dose 1 · 0.5 ml · trigger age_based day 21 · window 7d · booster +14d.*
+> *ET+TT · goat + sheep · 4w dose 1 · 7w booster · 2 ml · vial 100 · repeat every 6 months after course.*
 COO/CEO reviews and **publishes** → version becomes immutable with an `effective_from`. The engine reads the published version at generation time. No code ships.
 
 ### 4.2 Goat enters → obligations auto-generate
@@ -96,18 +99,18 @@ Shift (re-target + re-eval same vaccine), death/sale (cancel pending in same txn
 ## 6. Success metrics
 Coverage % within window (per vaccine/park) · on-time drive rate · stock integrity (zero negative, zero expired-lot use) · **zero ghost-overdue** (dead/sold never overdue) · engine latency (obligation generated promptly after goat CRUD).
 
-## 7. Source-derived baseline and remaining production inputs
-1. **Local/dev schedule baseline selected** — use the source-derived ET row from
-   §4.1 (`Enterotoxaemia`, K1, day 21, 0.5 ml, 7d window, +14d booster clue) for
-   local/dev protocol proof; see
-   `context/source-findings/phc-vaccination-roster-stage-proposal.md`.
-2. **K2 age band** — use 42 days / six weeks for local/dev because the wiki,
-   glossary, and legacy identity seed agree; the legacy dashboard's 45 is mock
-   drift. Keep it data-driven on `animal_stage_lookup`.
-3. **Production roster expansion** — PPR/FMD/HS/BQ are valid SOP/roster labels
-   from source artifacts, but only ET has schedule/dose evidence in committed
-   PRD text today. Add more schedule-bearing protocol rows when source extracts
-   provide timing/dose/booster values.
+## 7. Source-derived schedule and stage inputs
+1. **Current schedule matrix selected** — use
+   `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md` for schedule-bearing rows:
+   ET+TT, PPR, Goat Pox, Sheep Pox, FMD, HS, and Blue Tongue with species split,
+   course type, dose, vial, repeat, procurement, pregnancy, and gap rules.
+2. **Stage/tag base source** — use
+   `context/source-findings/goats-and-parks-source-findings.md` and the source
+   `Goats and Parks.docx` for K0/K1/K2/K3, fattening, warmup, adult,
+   pregnancy, ICU, and quarantine meanings. Tags are context; due dates are
+   driven by DOB/herd-entry plus accepted vaccination history.
+3. **BQ** — remains a SOP/vocabulary label only. Do not create BQ obligations
+   until a later reviewed source adds timing, dose, vial, repeat, and gap values.
 
 ## 8. Legacy capability parity, proof policy, and import mapping
 
@@ -120,7 +123,7 @@ reactions need notes/follow-up, and verifier/park-head review must be durable.
 
 | Legacy/source signal | GoatOS contract |
 | --- | --- |
-| SOP playground labels `PPR`, `ET`, `FMD`, `HS`, `BQ` | Keep as source-backed SOP/vocabulary labels. Only ET currently has schedule-bearing protocol evidence; labels alone do not generate obligations. |
+| SOP playground labels `PPR`, `ET`, `FMD`, `HS`, `BQ` | Keep as source-backed SOP/vocabulary labels. Schedule-bearing rows are only the approved rows in `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`; BQ remains label-only until a later reviewed source adds schedule values. |
 | SOP proof fields: scheduled date, operator, goat scan, vaccine name, medicine batch, dose ml, administered date, proof photo/media, adverse reaction, verifier, notes | Normalize into `protocol_versions.rule_dsl.proof_policy`, `sop_versions.form_dsl`, `sop_submissions`, and `vaccination_completions`. Required first-slice fields are goat scan, vaccine, medicine batch/vial-lot, dose, administered date/time, proof media, adverse-reaction flag/notes, and verifier/park-head review. |
 | Committed `000075` draft SOP skeleton (`shed_video`, `vial_lot`, `cold_chain`, `dose`, `route_site`, `administered_at`, `adverse_reaction`, `est_vs_used`, `verifier_review`) | Treat as the committed starting skeleton, not the final source contract. Upgrade the SOP version/proof policy to the source-normalized shape before calling vaccination SOP parity closed. |
 | Procurement/legacy rows that mention vaccination | Treat as source evidence with confidence/proof semantics only. The live legacy guardrail found no reliable first-class vaccination evidence field in cleaned BigQuery tables, so a procurement row/header alone is not an administered dose. |

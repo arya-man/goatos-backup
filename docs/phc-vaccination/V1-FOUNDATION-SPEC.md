@@ -8,8 +8,9 @@ settled separately: Protocol Rules lives under generic Admin / Data Ops at
 The vaccination-specific invariant in this spec is that eligibility must not be
 modelled with a generic `shed_status` text field. Authoritative source hierarchy:
 committed migrations `000071`-`000075`, `wiki/goatOS.docx` (§1 locations, §6
-vaccination, §11 shiftings), and the accepted source findings in
-`context/source-findings/phc-vaccination-roster-stage-proposal.md` plus
+vaccination, §11 shiftings), `context/source-findings/goats-and-parks-source-findings.md`
+for stage/tag semantics, `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`
+for vaccine timing/dose/vial/repeat/gap rules, and the accepted guardrails in
 `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`.
 Visual source: `mock/goatos-dashboard-mock.html`.
 
@@ -105,8 +106,11 @@ Procurement vertical for v1.
 
 ## 4.1 Legacy parity floor and import/replay mapping
 
-- Preserve source-backed SOP labels (`PPR`, `ET`, `FMD`, `HS`, `BQ`) as
-  vocabulary; only ET/K1/day-21 is schedule-bearing today.
+- Preserve source-backed SOP labels, but schedule-bearing vaccine rows now come
+  from `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`: ET+TT, PPR, Goat Pox,
+  Sheep Pox, FMD, HS, and Blue Tongue with species split, dose, vial, repeat,
+  and gap rules. BQ remains label-only until a later reviewed source adds
+  schedule-bearing values.
 - Preserve the SOP proof shape: scheduled date, operator, goat scan, vaccine
   name, medicine batch/vial-lot, dose ml, administered date/time, proof media,
   adverse reaction + notes/follow-up, and verifier/park-head review.

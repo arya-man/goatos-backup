@@ -2,7 +2,7 @@
 
 **Status:** Draft v2 (corrected against committed schema) · **Repo-state note:** 2026-06-29
 **Companion:** [PRD.md](./PRD.md) · **Foundation:** [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md)
-**Grounded in:** this TRD was originally grounded in `backend/migrations/postgres/000001…000060`; the repo now contains later protocol/obligation/inventory/vaccination migrations through `000117` at the Feed Direction correction. Use the live migrations and [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md) for current repo state. The wiki goatOS handbook §6 and accepted source findings (`context/source-findings/phc-vaccination-roster-stage-proposal.md`, `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`) are design/source references, **not** a replacement for committed schema — where they differ, committed wins.
+**Grounded in:** this TRD was originally grounded in `backend/migrations/postgres/000001…000060`; the repo now contains later protocol/obligation/inventory/vaccination migrations through `000117` at the Feed Direction correction. Use the live migrations and [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md) for current repo state. The wiki goatOS handbook §6, `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`, and accepted source findings (`context/source-findings/goats-and-parks-source-findings.md`, `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`) are design/source references, **not** a replacement for committed schema — where they differ, committed wins.
 
 > **v2 correction note.** v1 assessed the wiki DDL as if committed and was wrong: it assumed `parks`/`sheds`/`vaccine_stock` tables and `goats.dob`/`goats.gender` columns that **do not exist**. v2 separates **committed → target**, builds on the generic obligation engine, and drops the unverified cost figure.
 
@@ -71,7 +71,7 @@ The protocol/obligation/SOP/escalation tables are the [engine](../protocol-engin
 
 **Config (multi-dose / multi-phase — NOT trigger-day + booster-offset):** a `protocol_definitions` row `category='vaccination'`; the schedule is authored in `protocol_versions.rule_dsl` as a **`schedule[]` array — one entry per dose/phase** (`primary`, `booster_1`, `booster_2`, `annual`, `catch_up`, …), each with `trigger_type` (birth_age/post_arrival/calendar/after_previous_completion/manual_campaign) · `offset_days` · `due_window_days` · `min_gap_days` · `repeat` (none/every_n_days/yearly; age-window repeat authoring is rejected until generator support lands) · `repeat_until_after_age` · `catch_up` · per-dose `sop_label` (display only — the executable SOP binds at `protocol_versions.sop_version_id`; a genuine per-dose executable override uses `protocol_rules.sop_version_id`, never a free-text label) + `proof_policy`. The engine **expands each `schedule[]` row into one `protocol_rules` row**. Rule-level: multi-factor `eligibility_json` (age_band + animal_stage + sex + breed + lifecycle + health + reproductive[exclude pregnant/lactating] + defer_states[ICU/quarantine/sick]), `missed_dose_policy` (immediate/next_cycle/phc_approval/defer), `withdrawal_days`. Per-park override = a park-scoped `protocol_version` (no `park_id` column on a vaccine table — scope is the obligation's `scope_id`). **No `vaccine_config` table** — it *is* `protocol_rules`. _Lifecycle example:_ `0–12mo` → `primary` (birth_age) + `booster_1` (after_previous_completion) + repeat every N months; `>12mo` → `annual` (`repeat:yearly`, modeled as its own eligible lifecycle row); next due is derived from trigger/repeat/catch-up logic and trusted accepted completions, not a separate DSL field.
 
-**Source / review metadata (nested `source` object on `rule_dsl` — canonical shape):** every rule carries provenance + an approval gate under `source:{ … }` — `source_system` (vaccinations_db / phc / vet / manual_admin), `source_ref`, `imported_at`, `reviewed_by`, `review_status` (extracted → reviewed → approved), `approved_by`, `approved_at`. **Publish gate:** a version may be published **only when `review_status='approved'`** and source-backed. **Dev policy:** values that come from a real source (Vaccinations DB / PHC / vet-approved) and are marked `approved` are **real config in `goatos-dev` and publishable there** — the **dev-real path**. Unsourced / `extracted` rows stay `status='draft'` with a **`not source-backed`** warning and cannot be published. Never hand-invent vaccine schedule values.
+**Source / review metadata (nested `source` object on `rule_dsl` — canonical shape):** every rule carries provenance + an approval gate under `source:{ … }` — `source_system` (vaccinations_db / phc / vet / manual_admin), `source_ref`, `imported_at`, `reviewed_by`, `review_status` (extracted → reviewed → approved), `approved_by`, `approved_at`. **Publish gate:** a version may be published **only when `review_status='approved'`** and source-backed. **Dev policy:** values that come from a real source (Vaccinations DB / PHC / vet-approved / committed approved schedule matrix) and are marked `approved` are **real config in `goatos-dev` and publishable there** — the **dev-real path**. Unsourced / `extracted` rows stay `status='draft'` with a **`not source-backed`** warning and cannot be published. Never hand-invent vaccine schedule values.
 
 ### 4.1 Legacy parity, proof policy, and import replay
 
@@ -101,9 +101,11 @@ without durable notes/follow-up, and review confidence not being first-class.
   untrusted history becomes PHC-approved catch-up shed drives via
   [migration-and-cutover.md](../protocol-engine/migration-and-cutover.md), never
   fabricated completions.
-- `PPR`, `FMD`, `HS`, and `BQ` are source-backed SOP/vocabulary labels only
-  until source extracts provide timing/dose/booster policy plus approval
-  metadata. Only ET/K1/day-21 is schedule-bearing today.
+- Schedule-bearing vaccine rows come from
+  `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`: ET+TT, PPR, Goat Pox,
+  Sheep Pox, FMD, HS, and Blue Tongue with species split, timing, dose, vial,
+  repeat, procurement, pregnancy, and gap rules. BQ remains label-only until a
+  later reviewed source adds schedule-bearing values.
 
 **Due state:** per-goat doses = `obligation_instances` rows (`target_type='goat'`, `scope_type='shed'`, `rule_id` set so two vaccines/doses due the same day on one goat don't collide). `after_previous_completion` / booster doses generate on the prior dose's **actual `administered_at`** (`trigger_type='after_previous_completion'`, respecting `min_gap_days`) — see SM-7.
 
@@ -173,12 +175,14 @@ PHC vaccination must reuse/enhance it, not rebuild a vaccination-only island (pe
 - **ENHANCE:** goats (provenance/lifecycle cols + CHECKs), locations (+profiles), feature_coverage_registry (+vaccination).
 - **DITCH from runtime (reference/migration-only):** legacy_import_*, legacy_sync_* as read source, BQ reconcile, dashboard-parity-with-BigQuery thinking. Control Tower reads Postgres/projection only.
 
-## 9. Source-derived local/dev baseline and later inputs
-- Local/dev schedule baseline: `Enterotoxaemia` / ET, K1, day 21, 0.5 ml, 7d
-  window, +14d booster clue, sourced from the PRD example and recorded in
-  `context/source-findings/phc-vaccination-roster-stage-proposal.md`.
-- Local/dev stage baseline: K0 max 1d, K1 max 7d, K2 max 42d, K3 from day 43;
-  seed/read this from `animal_stage_lookup`.
-- Later production expansion: add PPR/FMD/HS/BQ schedule-bearing rows only when
-  source extracts provide timing/dose/booster values. These are roster/SOP labels
-  today, not blockers for local/dev or E2E.
+## 9. Source-derived schedule and stage inputs
+- Current schedule matrix: `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`
+  is the source-backed schedule table for ET+TT, PPR, Goat Pox, Sheep Pox, FMD,
+  HS, and Blue Tongue. It includes timing, dose, vial, repeat, species split,
+  procurement, pregnancy, and compatibility/gap rules.
+- Stage/tag source: `context/source-findings/goats-and-parks-source-findings.md`
+  anchors K0/K1/K2/K3, fattening, warmup, adult, pregnancy, ICU, and quarantine
+  meanings. Tags guide eligibility context, but schedule generation must still
+  use DOB/herd-entry date plus accepted vaccination completion history.
+- BQ remains roster/SOP label-only until a later reviewed source adds timing,
+  dose, vial, repeat, and gap placement.
