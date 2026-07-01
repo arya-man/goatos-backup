@@ -32,7 +32,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "modal.rule_editor.field.skip_through_pregnancy_month": "skip through pregnancy month",
     "modal.rule_editor.field.post_delivery_catch_up_days": "post-delivery catch-up days",
     "modal.rule_editor.action.add_matrix_row": "Add matrix row",
-    "modal.rule_editor.action.load_nuance_rules": "Load Nuance Rules",
+    "modal.rule_editor.action.load_source_vaccine_matrix": "Load Source Vaccine Matrix",
     "modal.rule_editor.action.apply_source_schedule": "Apply source schedule",
     "modal.rule_editor.action.remove_matrix_row": "Remove matrix row",
     "modal.rule_editor.title.keep_one_matrix_row": "At least one matrix row is required",
