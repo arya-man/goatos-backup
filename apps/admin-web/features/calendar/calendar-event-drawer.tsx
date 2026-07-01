@@ -14,11 +14,13 @@ import {
   ownerColor,
   ownerLabel,
   parseLinks,
+  type CalendarDriveTarget,
   type CalendarEventDetail,
   type CalendarJSONBlock,
   type CalendarPresentation,
   type OwnerPresentationMap,
 } from "./calendar-contract";
+import { ProcurementPager } from "@/features/procurement/pager";
 
 function MetaCell({ k, v }: { k: string; v: React.ReactNode }) {
   return (
@@ -58,6 +60,12 @@ function contractStateLabel(pageContract: AdminUiPageContract, groupId: string, 
 
 export function CalendarEventDrawer({
   detail,
+  targets,
+  targetsError,
+  targetsNextHref,
+  targetsPrevHref,
+  targetsPage,
+  targetsOnPage,
   closeHref,
   returnTo,
   scope,
@@ -66,6 +74,12 @@ export function CalendarEventDrawer({
   pageContract,
 }: {
   detail: CalendarEventDetail;
+  targets: CalendarDriveTarget[] | null;
+  targetsError: string | null;
+  targetsNextHref: string | null;
+  targetsPrevHref: string | null;
+  targetsPage: number;
+  targetsOnPage: number;
   closeHref: string;
   returnTo: string;
   scope: Scope;
@@ -160,6 +174,51 @@ export function CalendarEventDrawer({
             leading={<Tag tone={event.source_backed ? "ok" : "warn"}>{event.source_backed ? copy(pageContract, "label.source_backed") : copy(pageContract, "label.not_source_backed")}</Tag>}
           />
           <BlockCard title={copy(pageContract, "label.execution")} block={detail.execution} />
+          {event.event_type === "vaccination_drive" ? (
+            <div style={{ marginTop: 16 }}>
+              <div className="b700" style={{ margin: "2px 0 8px" }}>
+                {copy(pageContract, "calendar.drawer.eligible_goats")}
+              </div>
+              {targetsError ? (
+                <div className="alert" style={{ marginBottom: 10 }}>
+                  {targetsError}
+                </div>
+              ) : null}
+              {targets && targets.length > 0 ? (
+                <div className="bd" style={{ padding: 0, border: "1px solid var(--line2)", borderRadius: 10, overflow: "hidden" }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>{copy(pageContract, "label.rfid")}</th>
+                        <th>{copy(pageContract, "label.stage")}</th>
+                        <th>{copy(pageContract, "label.status")}</th>
+                        <th>{copy(pageContract, "label.when")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {targets.map((row) => (
+                        <tr key={row.obligation_id}>
+                          <td>{row.rfid ?? copy(pageContract, "label.placeholder")}</td>
+                          <td>{row.stage ?? copy(pageContract, "label.placeholder")}</td>
+                          <td>
+                            <Tag tone={optionTone(pageContract, "calendar_status", row.status) as "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal"}>
+                              {optionLabel(pageContract, "calendar_status", row.status)}
+                            </Tag>
+                          </td>
+                          <td className="muted small">{fmtDateTime(row.due_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <ProcurementPager prevHref={targetsPrevHref} nextHref={targetsNextHref} page={targetsPage} count={targetsOnPage} noun="goat" />
+                </div>
+              ) : (
+                <p className="muted small" style={{ margin: 0 }}>
+                  {copy(pageContract, "calendar.drawer.eligible_goats_empty")}
+                </p>
+              )}
+            </div>
+          ) : null}
           <BlockCard title={copy(pageContract, "label.stock_readiness")} block={detail.stock} />
           <BlockCard title={copy(pageContract, "label.proof")} block={detail.proof} />
           <BlockCard title={copy(pageContract, "label.verification")} block={detail.verification} />

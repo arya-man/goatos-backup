@@ -209,6 +209,7 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/feed-direction/generation-preview"},
 		{"GET", "/calendar/vaccination/events"},
 		{"GET", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001"},
+		{"GET", "/calendar/vaccination/events/batch:86000000-0000-4000-8000-000000001002:rule:86000000-0000-4000-8000-000000000503:shed:86000000-0000-4000-8000-000000000101/targets"},
 		{"GET", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/history"},
 		{"POST", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/nudge"},
 		{"POST", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/snooze"},
@@ -231,6 +232,7 @@ func TestCalendarBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 	}{
 		{"GET", "/calendar/vaccination/events"},
 		{"GET", "/calendar/vaccination/events/batch:86000000-0000-4000-8000-000000001002:rule:86000000-0000-4000-8000-000000000503:shed:86000000-0000-4000-8000-000000000101"},
+		{"GET", "/calendar/vaccination/events/batch:86000000-0000-4000-8000-000000001002:rule:86000000-0000-4000-8000-000000000503:shed:86000000-0000-4000-8000-000000000101/targets"},
 		{"GET", "/calendar/vaccination/events/calendar:86000000-0000-4000-8000-000000001003/history"},
 		{"POST", "/calendar/vaccination/events/calendar:86000000-0000-4000-8000-000000001003/nudge"},
 		{"POST", "/calendar/vaccination/events/calendar:86000000-0000-4000-8000-000000001003/snooze"},

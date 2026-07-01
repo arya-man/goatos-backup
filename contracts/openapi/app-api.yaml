@@ -1715,6 +1715,46 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /calendar/vaccination/events/{event_id}/targets:
+    get:
+      tags:
+        - Calendar
+      operationId: listCalendarVaccinationDriveTargets
+      summary: List goats eligible for a vaccination drive calendar event with cursor pagination.
+      parameters:
+        - $ref: "#/components/parameters/CalendarEventId"
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        "200":
+          description: Paginated goats for the selected vaccination drive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarDriveTargetListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /calendar/vaccination/events/{event_id}/history:
     get:
       tags:
@@ -4945,6 +4985,56 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CalendarHistoryItem"
+    CalendarDriveTarget:
+      type: object
+      additionalProperties: false
+      required:
+        - obligation_id
+        - goat_id
+        - status
+        - due_at
+      properties:
+        obligation_id:
+          type: string
+          format: uuid
+        goat_id:
+          type: string
+          format: uuid
+        rfid:
+          type:
+            - string
+            - "null"
+        stage:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+        due_at:
+          type: string
+          format: date-time
+    CalendarDriveTargetListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - event_id
+        - items
+        - next_cursor
+      properties:
+        source:
+          type: string
+          const: api
+        event_id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarDriveTarget"
+        next_cursor:
+          type:
+            - string
+            - "null"
     CalendarNudgeRequest:
       type: object
       additionalProperties: false

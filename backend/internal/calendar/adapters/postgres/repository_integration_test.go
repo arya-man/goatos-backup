@@ -20,8 +20,10 @@ import (
 const (
 	testTenantID      = "00000000-0000-4000-8000-000000000001"
 	testActorID       = "86000000-0000-4000-8000-000000009999"
-	testCalendarEvent = "obligation:86000000-0000-4000-8000-000000001001"
-	testReminderEvent = "calendar:86000000-0000-4000-8000-000000001002"
+	testDriveRuleID   = "86000000-0000-4000-8000-000000001011"
+	testDriveShedID   = "86000000-0000-4000-8000-000000001012"
+	testCalendarEvent = "batch:86000000-0000-4000-8000-000000001001:rule:86000000-0000-4000-8000-000000001011:shed:86000000-0000-4000-8000-000000001012"
+	testReminderEvent = "batch:86000000-0000-4000-8000-000000001002:rule:86000000-0000-4000-8000-000000001011:shed:86000000-0000-4000-8000-000000001012"
 	testParkA         = "86000000-0000-4000-8000-000000000701"
 	testParkB         = "86000000-0000-4000-8000-000000000702"
 	testShedA         = "86000000-0000-4000-8000-000000000711"
@@ -55,7 +57,12 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 		t.Fatalf("ListEvents: %v", err)
 	}
 	if len(list.Items) != 2 {
-		t.Fatalf("list items = %d, want 2", len(list.Items))
+		t.Fatalf("list items = %d, want 2 drive events", len(list.Items))
+	}
+	for _, item := range list.Items {
+		if item.EventType != domain.EventVaccinationDrive {
+			t.Fatalf("list item type = %s, want vaccination_drive", item.EventType)
+		}
 	}
 	detail, err := repo.GetEventDetail(ctx, domain.EventQuery{TenantID: testTenantID, EventID: testCalendarEvent, Scope: domain.ScopeFilter{TenantWide: true}})
 	if err != nil {
@@ -249,8 +256,8 @@ func TestCalendarPostgresAppliesParkShedScope(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
-	eventA := "obligation:86000000-0000-4000-8000-000000001101"
-	eventB := "obligation:86000000-0000-4000-8000-000000001102"
+	eventA := "batch:86000000-0000-4000-8000-000000001101:rule:86000000-0000-4000-8000-000000001111:shed:" + testShedA
+	eventB := "batch:86000000-0000-4000-8000-000000001102:rule:86000000-0000-4000-8000-000000001112:shed:" + testShedB
 	seedScopedCalendarProjection(t, ctx, pool, eventA, "86000000-0000-4000-8000-00000000a101", testParkA, testShedA, false)
 	seedScopedCalendarProjection(t, ctx, pool, eventB, "86000000-0000-4000-8000-00000000a102", testParkB, testShedB, false)
 
@@ -336,9 +343,9 @@ func TestCalendarListExcludesClosedEventsByDefault(t *testing.T) {
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
 	dueAt := time.Now().UTC().Add(2 * time.Hour)
-	activeID := "obligation:86000000-0000-4000-8000-000000000791"
-	completedID := "obligation:86000000-0000-4000-8000-000000000792"
-	canceledID := "obligation:86000000-0000-4000-8000-000000000793"
+	activeID := "batch:86000000-0000-4000-8000-000000000791:rule:86000000-0000-4000-8000-000000000794:shed:" + testShedA
+	completedID := "batch:86000000-0000-4000-8000-000000000792:rule:86000000-0000-4000-8000-000000000795:shed:" + testShedA
+	canceledID := "batch:86000000-0000-4000-8000-000000000793:rule:86000000-0000-4000-8000-000000000796:shed:" + testShedA
 	seedCalendarProjection(t, ctx, pool, activeID, dueAt, "not_scheduled")
 	seedCalendarProjection(t, ctx, pool, completedID, dueAt.Add(time.Minute), "not_scheduled")
 	seedCalendarProjection(t, ctx, pool, canceledID, dueAt.Add(2*time.Minute), "not_scheduled")
@@ -408,19 +415,21 @@ func TestCalendarVaccinationProjectionRefreshBackfillsObligations(t *testing.T) 
 		t.Fatalf("RefreshVaccinationProjection: %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("projection count = %d, want 1", count)
+		t.Fatalf("projection count = %d, want 1 catch-up drive", count)
 	}
+	wantEventID := catchupEventID(testTenantID, ruleID, dueAt)
 	var gotEventID string
 	var sourceBacked bool
+	var targetCount int
 	if err := pool.QueryRow(ctx, `
-SELECT event_id, source_backed
+SELECT event_id, source_backed, target_count
 FROM calendar_event_projections
 WHERE tenant_id = $1::uuid AND event_id = $2`,
-		testTenantID, "obligation:"+obligationID).Scan(&gotEventID, &sourceBacked); err != nil {
+		testTenantID, wantEventID).Scan(&gotEventID, &sourceBacked, &targetCount); err != nil {
 		t.Fatalf("query projection: %v", err)
 	}
-	if gotEventID != "obligation:"+obligationID || !sourceBacked {
-		t.Fatalf("projection event_id=%s source_backed=%t", gotEventID, sourceBacked)
+	if gotEventID != wantEventID || !sourceBacked || targetCount != 1 {
+		t.Fatalf("projection event_id=%s source_backed=%t target_count=%d", gotEventID, sourceBacked, targetCount)
 	}
 }
 
@@ -452,11 +461,12 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 		t.Fatalf("RefreshVaccinationProjection: %v", err)
 	}
 	var status string
+	wantEventID := catchupEventID(testTenantID, ruleID, dueAt)
 	if err := pool.QueryRow(ctx, `
 SELECT status
 FROM calendar_event_projections
 WHERE tenant_id = $1::uuid AND event_id = $2`,
-		testTenantID, "obligation:"+obligationID).Scan(&status); err != nil {
+		testTenantID, wantEventID).Scan(&status); err != nil {
 		t.Fatalf("query projection: %v", err)
 	}
 	if status != domain.StatusMissed {
@@ -507,7 +517,8 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(list.Items) != 1 || list.Items[0].EventID != "obligation:"+obligationID || list.Items[0].Status != domain.StatusMissed {
+	wantEventID := catchupEventID(testTenantID, ruleID, dueAt)
+	if len(list.Items) != 1 || list.Items[0].EventID != wantEventID || list.Items[0].Status != domain.StatusMissed {
 		t.Fatalf("list items=%#v, want old missed obligation visible outside date window", list.Items)
 	}
 }
@@ -549,7 +560,8 @@ func TestCalendarProjectionAndListIncludePastDueOpenExceptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(list.Items) != 1 || list.Items[0].EventID != "obligation:"+obligationID || list.Items[0].Status != domain.StatusOverdue {
+	wantEventID := catchupEventID(testTenantID, ruleID, dueAt)
+	if len(list.Items) != 1 || list.Items[0].EventID != wantEventID || list.Items[0].Status != domain.StatusOverdue {
 		t.Fatalf("list items=%#v, want old overdue obligation visible outside date window", list.Items)
 	}
 }
@@ -589,7 +601,7 @@ func TestCalendarEscalationSweepQueuesNotificationAndObligationEscalation(t *tes
 	if queued != 1 {
 		t.Fatalf("queued escalations = %d, want 1", queued)
 	}
-	eventID := "obligation:" + obligationID
+	eventID := catchupEventID(testTenantID, ruleID, dueAt)
 	assertCount(t, ctx, pool, "escalation notifications", `
 SELECT count(*)
 FROM notification_requests
@@ -740,8 +752,10 @@ func TestCalendarEscalationSweepTargetsObligationBeforeLimit(t *testing.T) {
 	if queued != 1 {
 		t.Fatalf("targeted queued escalations = %d, want 1", queued)
 	}
-	targetEventID := "obligation:" + targetObligationID
-	olderEventID := "obligation:" + olderObligationID
+	targetRuleID := "86000000-0000-4000-8000-0000000008b3"
+	olderRuleID := "86000000-0000-4000-8000-0000000008a3"
+	targetEventID := catchupEventID(testTenantID, targetRuleID, now.Add(-2*time.Hour))
+	olderEventID := catchupEventID(testTenantID, olderRuleID, now.Add(-3*time.Hour))
 	assertCount(t, ctx, pool, "target escalation notification", `
 SELECT count(*)
 FROM notification_requests
@@ -801,7 +815,7 @@ func TestCalendarEscalationAcknowledgeAndResolveWorkflow(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SweepEscalations: %v", err)
 	}
-	eventID := "obligation:" + obligationID
+	eventID := catchupEventID(testTenantID, ruleID, dueAt)
 	ack, err := repo.AcknowledgeEscalation(ctx, ports.AcknowledgeEscalation{
 		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
 		TraceID: "trace-escalation-ack", IdempotencyKey: "calendar-escalation-ack-key",
@@ -940,7 +954,7 @@ func TestCalendarEscalationResolveClosesActiveLadder(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SweepEscalations level 1: %v", err)
 	}
-	eventID := "obligation:" + obligationID
+	eventID := catchupEventID(testTenantID, ruleID, dueAt)
 	level1, err := repo.AcknowledgeEscalation(ctx, ports.AcknowledgeEscalation{
 		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
 		TraceID: "trace-escalation-ladder-ack", IdempotencyKey: "calendar-escalation-ladder-ack-key",
@@ -1057,7 +1071,7 @@ func TestCalendarEscalationResolveDoesNotSilenceNextLevel(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SweepEscalations level 1: %v", err)
 	}
-	eventID := "obligation:" + obligationID
+	eventID := catchupEventID(testTenantID, ruleID, dueAt)
 	resolved, err := repo.ResolveEscalation(ctx, ports.ResolveEscalation{
 		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
 		TraceID: "trace-escalation-rearm-resolve", IdempotencyKey: "calendar-escalation-rearm-resolve-key",
@@ -1138,7 +1152,7 @@ func TestCalendarEscalationSweepRoutesLevel3ToPHCDirector(t *testing.T) {
 	if queued != 1 {
 		t.Fatalf("queued escalations = %d, want 1", queued)
 	}
-	eventID := "obligation:" + obligationID
+	eventID := catchupEventID(testTenantID, ruleID, dueAt)
 	assertCount(t, ctx, pool, "phc director escalation notification", `
 SELECT count(*)
 FROM notification_requests
@@ -1175,6 +1189,7 @@ func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
 	dueAt := time.Now().UTC().Add(4 * time.Hour)
+	sharedRuleID := "86000000-0000-4000-8000-000000000830"
 	obligationIDs := []string{
 		"86000000-0000-4000-8000-000000000814",
 		"86000000-0000-4000-8000-000000000824",
@@ -1184,7 +1199,7 @@ func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t
 		seedVaccinationObligation(t, ctx, pool,
 			fmt.Sprintf("86000000-0000-4000-8000-00000000081%d", i),
 			fmt.Sprintf("86000000-0000-4000-8000-00000000082%d", i),
-			fmt.Sprintf("86000000-0000-4000-8000-00000000083%d", i),
+			sharedRuleID,
 			obligationID,
 			dueAt.Add(time.Duration(i)*time.Hour),
 		)
@@ -1198,19 +1213,17 @@ func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t
 	if err != nil {
 		t.Fatalf("RefreshVaccinationProjection page size 1: %v", err)
 	}
-	if count != len(obligationIDs) {
-		t.Fatalf("projection count = %d, want %d", count, len(obligationIDs))
+	if count != 1 {
+		t.Fatalf("projection count = %d, want 1 aggregated catch-up drive", count)
 	}
-	assertCount(t, ctx, pool, "projected obligations", `
+	catchupID := catchupEventID(testTenantID, sharedRuleID, dueAt)
+	assertCount(t, ctx, pool, "projected catch-up drive", `
 SELECT count(*)
 FROM calendar_event_projections
 WHERE tenant_id=$1::uuid
-  AND event_id = ANY($2::text[])
-  AND status <> 'canceled'`, len(obligationIDs), testTenantID, []string{
-		"obligation:" + obligationIDs[0],
-		"obligation:" + obligationIDs[1],
-		"obligation:" + obligationIDs[2],
-	})
+  AND event_id = $2
+  AND status <> 'canceled'
+  AND target_count = 3`, 1, testTenantID, catchupID)
 	if _, err := pool.Exec(ctx, `
 UPDATE obligation_instances
 SET status = 'completed', updated_at = now()
@@ -1225,18 +1238,16 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 	}); err != nil {
 		t.Fatalf("RefreshVaccinationProjection tombstone: %v", err)
 	}
-	var status string
-	var severity string
-	var tombstoneReason string
+	var targetCount int
 	if err := pool.QueryRow(ctx, `
-SELECT status, severity, COALESCE(detail -> 'tombstone' ->> 'reason', '')
+SELECT target_count
 FROM calendar_event_projections
 WHERE tenant_id = $1::uuid AND event_id = $2`,
-		testTenantID, "obligation:"+obligationIDs[1]).Scan(&status, &severity, &tombstoneReason); err != nil {
-		t.Fatalf("query completed projection: %v", err)
+		testTenantID, catchupID).Scan(&targetCount); err != nil {
+		t.Fatalf("query catch-up drive after completion: %v", err)
 	}
-	if status != domain.StatusCompleted || severity != domain.SeverityInfo || tombstoneReason != "" {
-		t.Fatalf("completed projection status=%s severity=%s tombstoneReason=%s", status, severity, tombstoneReason)
+	if targetCount != 2 {
+		t.Fatalf("catch-up target_count=%d, want 2 after one completed obligation", targetCount)
 	}
 }
 
@@ -1275,9 +1286,9 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 	assertCount(t, ctx, pool, "old completed projection", `
 SELECT count(*)
 FROM calendar_event_projections
-WHERE tenant_id=$1::uuid AND event_id=$2`, 0, testTenantID, "obligation:"+obligationID)
+WHERE tenant_id=$1::uuid AND event_id=$2`, 0, testTenantID, catchupEventID(testTenantID, ruleID, oldDueAt))
 
-	oldEventID := "obligation:86000000-0000-4000-8000-000000000925"
+	oldEventID := testCalendarEvent
 	seedCalendarProjection(t, ctx, pool, oldEventID, oldDueAt, "not_scheduled")
 	if _, err := pool.Exec(ctx, `
 UPDATE calendar_event_projections
@@ -1348,6 +1359,15 @@ INSERT INTO calendar_event_projections (
 	}
 }
 
+func catchupEventID(tenantID, ruleID string, dueAt time.Time) string {
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		loc = time.FixedZone("IST", 5*60*60+30*60)
+	}
+	day := dueAt.In(loc).Format("2006-01-02")
+	return fmt.Sprintf("catchup:tenant:%s:rule:%s:due:%s", tenantID, ruleID, day)
+}
+
 func seedCalendarProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID string, dueAt time.Time, reminderState string) {
 	t.Helper()
 	_, err := pool.Exec(ctx, `
@@ -1358,10 +1378,10 @@ INSERT INTO calendar_event_projections (
   executor_role, reminder_state, primary_notification_channel, escalation_state,
   system, cross_cutting, links, detail
 ) VALUES (
-  $1::uuid, $2, 'vaccination', 'vaccination_dose_due', 'phc', 'ET primary dose due',
+  $1::uuid, $2, 'vaccination', 'vaccination_drive', 'phc', 'ET primary drive',
   'Calendar integration test', 'due', 'warning', $3::timestamptz, $3::timestamptz,
-  $3::timestamptz + interval '1 day', 'Asia/Kolkata', 'fallback', 'cohort', 20,
-  true, 'integration source-backed rule', 'cohort', '86000000-0000-4000-8000-00000000f001',
+  $3::timestamptz + interval '1 day', 'Asia/Kolkata', 'fallback', 'shed', 20,
+  true, 'integration source-backed rule', 'batch', '86000000-0000-4000-8000-000000001001',
   'PHC test owner', 'phc_vaccinator', $4, 'local-stub', 'none', false, false,
   '{"workflow":"/vaccination/workflows/test"}'::jsonb,
   '{"summary":{"owner":"PHC"},"source_and_rule":{"source_backed":true},"execution":{"work_state":"due"},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub","slack"],"notification_policy":{"nudge_allowed":true},"links":{}}'::jsonb
@@ -1398,7 +1418,7 @@ INSERT INTO calendar_event_projections (
   assignee_label, executor_role, reminder_state, primary_notification_channel, escalation_state,
   system, cross_cutting, links, detail
 ) VALUES (
-  $5::uuid, $3, 'vaccination', 'vaccination_dose_due', 'phc', 'Scoped dose due',
+  $5::uuid, $3, 'vaccination', 'vaccination_drive', 'phc', 'Scoped drive',
   'Scoped integration test', 'due', 'warning', now() + interval '2 hours', now(), now() + interval '1 day',
   'Asia/Kolkata', 'location', $1::uuid, 'TST', $2::uuid, 'Scoped Shed',
   'shed', 1, true, 'source-backed test', 'shed', $4::uuid,
