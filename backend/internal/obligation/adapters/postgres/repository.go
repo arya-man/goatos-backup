@@ -885,6 +885,116 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 	return out, nil
 }
 
+// ListUnbatchedShedDueForParkConsolidation lists shed-scoped unbatched obligations with their park
+// parent location for the second-pass park drive planner.
+func (r *Repository) ListUnbatchedShedDueForParkConsolidation(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32) ([]domain.ParkConsolidationCandidate, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	version, err := pgconv.UUID(versionID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: version id: %w", err)
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT o.obligation_id::text,
+       o.rule_id::text,
+       COALESCE(o.scope_id::text, '')::text AS shed_id,
+       o.due_at,
+       o.window_start,
+       COALESCE(o.window_end, o.due_at + make_interval(days => GREATEST(pr.due_window_days, 0))) AS effective_window_end,
+       park.location_id::text AS park_id
+FROM obligation_instances o
+JOIN protocol_rules pr
+  ON pr.tenant_id = o.tenant_id
+ AND pr.rule_id = o.rule_id
+JOIN locations shed
+  ON shed.tenant_id = o.tenant_id
+ AND shed.location_id = o.scope_id
+ AND shed.location_type = 'shed'
+JOIN locations park
+  ON park.tenant_id = o.tenant_id
+ AND park.location_id = shed.parent_location_id
+ AND park.location_type = 'park'
+WHERE o.tenant_id = $1
+  AND o.protocol_version_id = $2
+  AND o.status IN ('scheduled', 'due', 'missed')
+  AND o.batch_id IS NULL
+  AND o.scope_type = 'shed'
+  AND o.due_at <= $3
+ORDER BY park.location_id, o.rule_id, o.due_at, o.obligation_id
+LIMIT $4`, tenant, version, pgconv.Timestamptz(dueBefore), limit)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: list park consolidation candidates: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.ParkConsolidationCandidate, 0)
+	for rows.Next() {
+		var row domain.ParkConsolidationCandidate
+		var windowStart, windowEnd pgtype.Timestamptz
+		if err := rows.Scan(
+			&row.ObligationID,
+			&row.RuleID,
+			&row.ShedID,
+			&row.DueAt,
+			&windowStart,
+			&windowEnd,
+			&row.ParkID,
+		); err != nil {
+			return nil, fmt.Errorf("obligation: scan park consolidation candidate: %w", err)
+		}
+		row.WindowStart = timestamptzValue(windowStart)
+		row.WindowEnd = timestamptzValue(windowEnd)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: list park consolidation candidates: %w", err)
+	}
+	return out, nil
+}
+
+// CountAttachedObligationsByRule returns attached obligation counts grouped by rule for one batch.
+func (r *Repository) CountAttachedObligationsByRule(ctx context.Context, tenantID, batchID string) ([]domain.RuleAttachmentCount, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	batch, err := pgconv.UUID(batchID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: batch id: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT oi.rule_id::text, COUNT(*)::bigint
+FROM obligation_instances oi
+WHERE oi.tenant_id = $1
+  AND oi.batch_id = $2
+GROUP BY oi.rule_id
+ORDER BY oi.rule_id`, tenant, batch)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: count attached by rule: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.RuleAttachmentCount, 0)
+	for rows.Next() {
+		var row domain.RuleAttachmentCount
+		if err := rows.Scan(&row.RuleID, &row.Count); err != nil {
+			return nil, fmt.Errorf("obligation: scan attached by rule: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: count attached by rule: %w", err)
+	}
+	return out, nil
+}
+
 // AttachObligationsToBatch attaches still-unbatched obligations to a batch (returns count attached).
 func (r *Repository) AttachObligationsToBatch(ctx context.Context, tenantID, batchID string, obligationIDs []string) (int64, error) {
 	ctx, cancel := r.withTimeout(ctx)
@@ -1206,7 +1316,7 @@ FROM obligation_batches ob
 JOIN obligation_instances oi
   ON oi.tenant_id = ob.tenant_id
  AND oi.batch_id = ob.batch_id
- AND oi.status IN ('scheduled', 'due', 'in_progress')
+ AND oi.status IN ('scheduled', 'due', 'in_progress', 'missed')
 WHERE ob.tenant_id = $1
   AND ob.protocol_version_id = $2
   AND ob.status = 'planned'

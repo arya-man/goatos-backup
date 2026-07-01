@@ -331,6 +331,7 @@ func TestSweeperMarkMissedPagesUntilDrained(t *testing.T) {
 
 type fakeSweepRepo struct {
 	rows                 []domain.UnbatchedDue
+	parkRows             []domain.ParkConsolidationCandidate
 	createBatchID        string
 	createBatchIDs       []string
 	createBatchAttached  int64
@@ -431,6 +432,20 @@ func (f *fakeSweepRepo) ListPlannedBatchesNeedingFinalization(context.Context, s
 
 func (f *fakeSweepRepo) ListUnbatchedDueForVersion(context.Context, string, string, time.Time, int32) ([]domain.UnbatchedDue, error) {
 	return f.rows, nil
+}
+
+func (f *fakeSweepRepo) ListUnbatchedShedDueForParkConsolidation(context.Context, string, string, time.Time, int32) ([]domain.ParkConsolidationCandidate, error) {
+	return f.parkRows, nil
+}
+
+func (f *fakeSweepRepo) CountAttachedObligationsByRule(_ context.Context, _, batchID string) ([]domain.RuleAttachmentCount, error) {
+	for _, b := range f.createdFinalization {
+		if b.BatchID != batchID {
+			continue
+		}
+		return []domain.RuleAttachmentCount{{RuleID: b.RuleID, Count: b.AttachedObligations}}, nil
+	}
+	return nil, nil
 }
 
 func (f *fakeSweepRepo) AttachObligationsToBatch(context.Context, string, string, []string) (int64, error) {

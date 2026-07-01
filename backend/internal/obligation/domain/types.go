@@ -87,6 +87,42 @@ type UnbatchedDue struct {
 	WindowEnd    *time.Time
 }
 
+// ParkConsolidationCandidate is a shed-scoped unbatched obligation eligible for park-level
+// drive consolidation after the shed sweep pass.
+type ParkConsolidationCandidate struct {
+	ObligationID string
+	RuleID       string
+	ShedID       string
+	ParkID       string
+	DueAt        time.Time
+	WindowStart  *time.Time
+	WindowEnd    *time.Time
+}
+
+// ParkConsolidationSettings controls the second-pass park drive planner (after shed batching).
+type ParkConsolidationSettings struct {
+	Enabled             bool
+	MinShedDriveTargets int32 // layer 1 defers shed groups smaller than this to the park pass
+	MinParkMergeTargets int32 // cross-shed park batch needs at least this many goats
+	MinParkMergeSheds   int32 // cross-shed park batch needs goats from at least this many sheds
+}
+
+// DefaultParkConsolidationSettings returns the standard park consolidation thresholds.
+func DefaultParkConsolidationSettings() ParkConsolidationSettings {
+	return ParkConsolidationSettings{
+		Enabled:             true,
+		MinShedDriveTargets: 2,
+		MinParkMergeTargets: 2,
+		MinParkMergeSheds:   2,
+	}
+}
+
+// RuleAttachmentCount is the number of obligations attached to a batch for one protocol rule.
+type RuleAttachmentCount struct {
+	RuleID string
+	Count  int64
+}
+
 // PlannedBatchFinalization is a planned batch that already owns obligations but still needs
 // replayable side-effect finalization (SOP task link and/or stock reservation).
 type PlannedBatchFinalization struct {
@@ -104,8 +140,10 @@ type PlannedBatchFinalization struct {
 
 // SweepResult summarises an SM-4 sweep (batches created, obligations attached).
 type SweepResult struct {
-	Batches     int
-	Obligations int
+	Batches         int
+	Obligations     int
+	ParkBatches     int
+	ParkObligations int
 }
 
 // NewStatusEvent is the input to append an obligation status event. Scope/RequestHash drive the

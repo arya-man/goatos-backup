@@ -610,6 +610,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			ScopeType:         scopeType,
 			ScopeID:           scopeID,
 			DueAt:             due,
+			WindowEnd:         obligationWindowEnd(rule, due),
 			Status:            status,
 			IdempotencyKey:    key,
 			Sequence:          rule.Sequence,
@@ -1045,6 +1046,14 @@ func wholeDaysBetween(start, end time.Time) int {
 // dueAt computes a rule's due date for a goat. ok=false with skip=false means the trigger is not an
 // SM-1 trigger (after_previous_completion → SM-7, manual_campaign). skip=true means an SM-1 trigger
 // that cannot be scheduled for this goat (missing dob/entry_date).
+func obligationWindowEnd(rule protodomain.Rule, due time.Time) *time.Time {
+	if rule.DueWindowDays <= 0 {
+		return nil
+	}
+	end := due.Add(time.Duration(rule.DueWindowDays) * 24 * time.Hour)
+	return &end
+}
+
 func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, opts generationOptions) (due time.Time, ok bool, skip bool) {
 	off := time.Duration(rule.OffsetDays) * 24 * time.Hour
 	switch rule.TriggerType {

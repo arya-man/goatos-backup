@@ -258,7 +258,7 @@ SELECT obligation_id::text AS obligation_id,
 FROM obligation_instances
 WHERE tenant_id = $1
   AND protocol_version_id = $2
-  AND status IN ('scheduled', 'due')
+  AND status IN ('scheduled', 'due', 'missed')
   AND batch_id IS NULL
   AND due_at <= $3
 ORDER BY scope_type, scope_id, rule_id, due_at, obligation_id
