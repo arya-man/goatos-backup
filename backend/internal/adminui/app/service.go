@@ -1723,7 +1723,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"feed_config.table.output":                                  "Calculation output",
 			"feed_config.action.preview":                                "Run feed calculation preview",
 			"feed_config.action.preview_disabled":                       "Feed import/solver preview endpoint is not built yet; the UI shows the required contract shape and blocks publish through source/review gates.",
-			"modal.rule_editor.impact_title_vaccination":                "Impact preview - computed from schedule[]",
+			"modal.rule_editor.impact_title_vaccination":                "Impact preview - selected row live eligibility",
 			"modal.rule_editor.kpi.eligible_goats":                      "Eligible goats",
 			"modal.rule_editor.kpi.obligations":                         "Obligations / cycle",
 			"modal.rule_editor.kpi.batches":                             "Batches (SOP tasks)",

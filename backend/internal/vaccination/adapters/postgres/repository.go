@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -1525,12 +1526,22 @@ func (r *Repository) eligParams(f domain.ImpactFilter) (vaccinationdb.CountEligi
 	}
 	return vaccinationdb.CountEligibleGoatsParams{
 		TenantID: tenant,
-		Stage:    f.Stage,
-		Sex:      f.Sex,
-		Breed:    f.Breed,
-		Health:   f.Health,
+		Stage:    eligibilityWildcard(f.Stage),
+		Sex:      eligibilityWildcard(f.Sex),
+		Breed:    eligibilityWildcard(f.Breed),
+		Health:   eligibilityWildcard(f.Health),
 		ParkID:   pgconv.NullableUUID(f.ParkID),
 	}, nil
+}
+
+func eligibilityWildcard(value string) string {
+	value = strings.TrimSpace(value)
+	switch strings.ToLower(value) {
+	case "", "all", "any":
+		return ""
+	default:
+		return value
+	}
 }
 
 // CountEligibleGoats counts alive goats matching the eligibility filter.

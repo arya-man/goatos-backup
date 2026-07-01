@@ -1008,8 +1008,25 @@ export function RuleEditorModal({
                       </tr>
                     </thead>
                     <tbody>
-                      {matrixRows.map((row, i) => (
-                        <tr key={row.id} style={row.id === selectedMatrixRow.id ? { outline: "1px solid var(--brand)" } : undefined}>
+                      {matrixRows.map((row, i) => {
+                        const selected = row.id === selectedMatrixRow.id;
+                        return (
+                          <tr
+                            key={row.id}
+                            tabIndex={0}
+                            aria-selected={selected}
+                            onClick={() => setSelectedMatrixRowId(row.id)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                setSelectedMatrixRowId(row.id);
+                              }
+                            }}
+                            style={{
+                              cursor: "pointer",
+                              ...(selected ? { outline: "1px solid var(--brand)", background: "rgba(120, 210, 72, 0.08)" } : {}),
+                            }}
+                          >
                           <td className="mono">{i + 1}</td>
                           <td style={{ minWidth: 130 }}>
                             <input
@@ -1088,7 +1105,10 @@ export function RuleEditorModal({
                             <button
                               type="button"
                               className="btn sm"
-                              onClick={() => removeMatrixRow(row.id)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                removeMatrixRow(row.id);
+                              }}
                               disabled={matrixRows.length === 1}
                               aria-label={`${copy(pageContract, "modal.rule_editor.action.remove_matrix_row")} ${i + 1}`}
                               title={matrixRows.length === 1 ? copy(pageContract, "modal.rule_editor.title.keep_one_matrix_row") : copy(pageContract, "modal.rule_editor.action.remove_matrix_row")}
@@ -1097,8 +1117,9 @@ export function RuleEditorModal({
                               <X className="ic" />
                             </button>
                           </td>
-                        </tr>
-                      ))}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

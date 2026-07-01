@@ -112,6 +112,26 @@ func TestImpactPreviewLiveCounts(t *testing.T) {
 	if !foundShortage {
 		t.Fatalf("expected stock shortage warning, got %v", out.Warnings)
 	}
+
+	allOut, err := svc.ImpactPreview(ctx, domain.ImpactRequest{
+		Filter:       domain.ImpactFilter{TenantID: impTenant, Stage: "all", Sex: "all", Breed: "all", Health: "any", ParkID: &park},
+		DosesPerGoat: 1,
+		DoseRows:     2,
+		HorizonDays:  30,
+		AsOf:         time.Date(2026, 6, 23, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("impact all/any wildcard: %v", err)
+	}
+	if allOut.EligibleGoats != 5 {
+		t.Fatalf("all/any wildcard eligible: want 5 live goats in park, got %d", allOut.EligibleGoats)
+	}
+	if allOut.Obligations != 10 {
+		t.Fatalf("all/any wildcard obligations: want 10, got %d", allOut.Obligations)
+	}
+	if allOut.Batches != 1 {
+		t.Fatalf("all/any wildcard batches: want 1, got %d", allOut.Batches)
+	}
 }
 
 func TestEligibleGoatListingUsesShedProfileAnimalStage(t *testing.T) {

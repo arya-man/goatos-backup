@@ -46,6 +46,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "modal.rule_editor.table.stage": "Stage",
     "modal.rule_editor.table.sex": "Sex",
     "modal.rule_editor.table.breed": "Breed",
+    "modal.rule_editor.impact_title_vaccination": "Impact preview - selected row live eligibility",
   },
 };
 
