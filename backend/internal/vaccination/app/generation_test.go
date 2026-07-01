@@ -219,6 +219,124 @@ func TestGenerateForVersionDefaultsClinicalHoldStatesToDeferred(t *testing.T) {
 	}
 }
 
+func TestGenerateForVersionHonorsNuanceClinicalAndPregnancyRules(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21, DueWindowDays: 30,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-ok", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Stage: "K1", DOB: &dob},
+		{GoatID: "goat-pregnant", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "pregnant", Stage: "K1", DOB: &dob},
+		{GoatID: "goat-lactating", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "lactating", Stage: "K1", DOB: &dob},
+		{GoatID: "goat-sick", LifecycleStatus: "alive", HealthStatus: "sick", ReproductiveStatus: "open", Stage: "K1", DOB: &dob},
+		{GoatID: "goat-quarantine", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Stage: "K1", DOB: &dob, LocationIsQuarantine: true},
+		{GoatID: "goat-icu", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Stage: "K1", DOB: &dob, LocationIsICU: true},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 4 || result.Deferred != 3 || len(obl.inserted) != 4 {
+		t.Fatalf("result=%#v inserted=%#v, want eligible plus sick/quarantine/ICU visible holds only", result, obl.inserted)
+	}
+	got := map[string]string{}
+	for _, inserted := range obl.inserted {
+		got[inserted.TargetID] = inserted.Status
+	}
+	if got["goat-ok"] != "scheduled" || got["goat-sick"] != "deferred" || got["goat-quarantine"] != "deferred" || got["goat-icu"] != "deferred" {
+		t.Fatalf("statuses=%#v, want scheduled healthy goat and deferred clinical holds", got)
+	}
+	if got["goat-pregnant"] != "" || got["goat-lactating"] != "" {
+		t.Fatalf("statuses=%#v, pregnant/lactating goats should be excluded until a reviewed row allows them", got)
+	}
+}
+
+func TestGenerateForVersionHonorsProcurementWarmupOffset(t *testing.T) {
+	ctx := context.Background()
+	entryDate := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"adult","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_source_vaccination_allowed":true}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-et-ppr-wave", DoseCode: "source_warmup_wave_1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 2,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "adult-procured", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Stage: "adult", EntryDate: &entryDate},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.July, 2, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	wantDue := time.Date(2026, time.July, 8, 0, 0, 0, 0, time.UTC)
+	if result.Generated != 1 || len(obl.inserted) != 1 || !obl.inserted[0].DueAt.Equal(wantDue) {
+		t.Fatalf("result=%#v inserted=%#v, want post-arrival warmup due %s", result, obl.inserted, wantDue)
+	}
+}
+
+func TestGenerateForVersionHonorsNuanceSourceScheduleWithTrustedHistory(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	et4w := dob.AddDate(0, 0, 28)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]},"compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21},"pregnancy_policy":{"allow_until_pregnancy_month":3,"skip_from_pregnancy_month":4,"skip_through_pregnancy_month":5,"post_delivery_catch_up_days":14}}`),
+		rules: []protodomain.Rule{
+			{RuleID: "rule-et-4w", DoseCode: "et_tt_4w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7, CatchUp: "phc_approval"},
+			{RuleID: "rule-et-7w", DoseCode: "et_tt_7w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 49, DueWindowDays: 7, MinGapDays: 21, Repeat: "none", CatchUp: "phc_approval"},
+			{RuleID: "rule-fmd-12w", DoseCode: "fmd_12w", Sequence: 3, TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7, CatchUp: "phc_approval"},
+			{RuleID: "rule-hs-12w", DoseCode: "hs_12w", Sequence: 4, TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7, CatchUp: "phc_approval"},
+			{RuleID: "rule-ppr-16w", DoseCode: "ppr_16w", Sequence: 5, TriggerType: "birth_age", OffsetDays: 112, DueWindowDays: 7, CatchUp: "phc_approval"},
+			// Goat Pox source is 16 weeks, but V1 same-day live-live spacing moves the effective row
+			// four weeks after PPR when the full Nuance Rules matrix is loaded.
+			{RuleID: "rule-goatpox-20w", DoseCode: "goat_pox_20w", Sequence: 6, TriggerType: "birth_age", OffsetDays: 140, DueWindowDays: 7, CatchUp: "phc_approval"},
+		},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{GoatID: "goat-source-table", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Stage: "K1", DOB: &dob}},
+		trustedByDue: map[string]bool{
+			et4w.UTC().Format(time.RFC3339Nano): true,
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.January, 2, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate nuance schedule: %v", err)
+	}
+	if result.Generated != 5 || result.SuppressedByTrustedHistory != 1 || len(obl.inserted) != 5 {
+		t.Fatalf("result=%#v inserted=%#v, want ET 4w suppressed and five source-table obligations generated", result, obl.inserted)
+	}
+	got := map[string]time.Time{}
+	for _, inserted := range obl.inserted {
+		got[inserted.RuleID] = inserted.DueAt
+	}
+	want := map[string]time.Time{
+		"rule-et-7w":       dob.AddDate(0, 0, 49),
+		"rule-fmd-12w":     dob.AddDate(0, 0, 84),
+		"rule-hs-12w":      dob.AddDate(0, 0, 84),
+		"rule-ppr-16w":     dob.AddDate(0, 0, 112),
+		"rule-goatpox-20w": dob.AddDate(0, 0, 140),
+	}
+	for ruleID, due := range want {
+		if !got[ruleID].Equal(due) {
+			t.Fatalf("due for %s = %s, want %s; all=%#v", ruleID, got[ruleID], due, got)
+		}
+	}
+	if _, ok := got["rule-et-4w"]; ok {
+		t.Fatalf("trusted ET+TT 4-week dose should not create a duplicate obligation: %#v", got)
+	}
+}
+
 func TestGenerateEffectiveForAllGoatsSkipsExitedBeforeVersionLookup(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
@@ -624,6 +742,105 @@ func TestImmediateCatchUpRecheckKeepsOriginalCycleKey(t *testing.T) {
 	}
 	if second.Generated != 0 || len(obl.inserted) != 1 {
 		t.Fatalf("second result=%#v inserted=%#v, want no duplicate when asOf moves", second, obl.inserted)
+	}
+}
+
+func TestOlderGoatUnknownHistoryCreatesOnlyOneHistoricalCatchUp(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{rules: []protodomain.Rule{
+		{
+			RuleID: "rule-dose-1", DoseCode: "dose-1", Sequence: 1,
+			TriggerType: "birth_age", OffsetDays: 180, DueWindowDays: 7, CatchUp: "immediate",
+		},
+		{
+			RuleID: "rule-dose-2", DoseCode: "dose-2", Sequence: 2,
+			TriggerType: "birth_age", OffsetDays: 300, DueWindowDays: 7, CatchUp: "immediate",
+		},
+	}}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "older-goat", LifecycleStatus: "alive", DOB: &dob},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+
+	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate older unknown-history goat: %v", err)
+	}
+	if result.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want one historical catch-up only", result, obl.inserted)
+	}
+	got := obl.inserted[0]
+	if got.RuleID != "rule-dose-1" || got.Sequence != 1 || !got.DueAt.Equal(asOf) || got.Status != "scheduled" {
+		t.Fatalf("inserted=%#v, want first missed dose as the single safe catch-up", got)
+	}
+}
+
+func TestOlderGoatUnknownHistoryCreatesOnlyOnePHCReviewCatchUp(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{rules: []protodomain.Rule{
+		{
+			RuleID: "rule-dose-1", DoseCode: "dose-1", Sequence: 1,
+			TriggerType: "birth_age", OffsetDays: 180, DueWindowDays: 7, CatchUp: "phc_approval",
+		},
+		{
+			RuleID: "rule-dose-2", DoseCode: "dose-2", Sequence: 2,
+			TriggerType: "birth_age", OffsetDays: 300, DueWindowDays: 7, CatchUp: "phc_approval",
+		},
+	}}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "older-goat", LifecycleStatus: "alive", DOB: &dob},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+
+	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate older unknown-history goat: %v", err)
+	}
+	if result.Generated != 1 || result.Deferred != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want one PHC-review catch-up only", result, obl.inserted)
+	}
+	if got := obl.inserted[0]; got.RuleID != "rule-dose-1" || got.Status != "deferred" || !got.DueAt.Equal(asOf) {
+		t.Fatalf("inserted=%#v, want first missed dose as one deferred review item", got)
+	}
+}
+
+func TestOlderGoatTrustedFirstDoseAllowsNextMissingDose(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
+	firstDue := dob.AddDate(0, 0, 180)
+	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{rules: []protodomain.Rule{
+		{
+			RuleID: "rule-dose-1", DoseCode: "dose-1", Sequence: 1,
+			TriggerType: "birth_age", OffsetDays: 180, DueWindowDays: 7, CatchUp: "immediate",
+		},
+		{
+			RuleID: "rule-dose-2", DoseCode: "dose-2", Sequence: 2,
+			TriggerType: "birth_age", OffsetDays: 300, DueWindowDays: 7, CatchUp: "immediate",
+		},
+	}}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{GoatID: "older-goat", LifecycleStatus: "alive", DOB: &dob}},
+		trustedByDue: map[string]bool{
+			firstDue.UTC().Format(time.RFC3339Nano): true,
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+
+	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate older goat with trusted first dose: %v", err)
+	}
+	if result.SuppressedByTrustedHistory != 1 || result.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want first dose suppressed and next missing dose generated", result, obl.inserted)
+	}
+	got := obl.inserted[0]
+	if got.RuleID != "rule-dose-2" || got.Sequence != 2 || !got.DueAt.Equal(asOf) {
+		t.Fatalf("inserted=%#v, want second dose catch-up after trusted first-dose history", got)
 	}
 }
 

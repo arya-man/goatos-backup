@@ -1894,6 +1894,7 @@ WITH obligation_events AS (
       END AS shed_name
   ) loc ON true
   WHERE oi.tenant_id = $1::uuid
+    AND oi.batch_id IS NULL
     AND (
       (oi.due_at >= $2::timestamptz AND oi.due_at < $3::timestamptz)
       OR oi.status IN ('missed', 'in_progress', 'deferred')
@@ -2287,6 +2288,7 @@ WITH source_event_ids AS (
   JOIN protocol_definitions pd
     ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
   WHERE oi.tenant_id = $1::uuid
+    AND oi.batch_id IS NULL
     AND (
       (oi.due_at >= $2::timestamptz AND oi.due_at < $3::timestamptz)
       OR oi.status IN ('missed', 'in_progress', 'deferred')

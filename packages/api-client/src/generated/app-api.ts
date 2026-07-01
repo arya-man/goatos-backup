@@ -2530,6 +2530,8 @@ export interface components {
             obligation_id: string;
             protocol_version_id: string;
             rule_id: string;
+            batch_id?: string;
+            workflow_row_id: string;
             status: string;
             /** Format: date-time */
             due_at: string;

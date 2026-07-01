@@ -6897,6 +6897,7 @@ components:
         - obligation_id
         - protocol_version_id
         - rule_id
+        - workflow_row_id
         - status
         - due_at
         - sequence
@@ -6906,6 +6907,10 @@ components:
         protocol_version_id:
           type: string
         rule_id:
+          type: string
+        batch_id:
+          type: string
+        workflow_row_id:
           type: string
         status:
           type: string

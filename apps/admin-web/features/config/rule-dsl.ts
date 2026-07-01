@@ -9,6 +9,9 @@ export interface DoseRow {
   dueWindowDays: number;
   doseAmount: number;
   doseUnit: string;
+  vialDoses: number;
+  revaccinationIntervalDays: number;
+  sourceSchedule: string;
   routeSite: string;
   maxDelayDays: number;
   courseLapsePolicy: string;
@@ -35,10 +38,21 @@ export interface VaccineMatrix {
   code: string;
   name: string;
   type: string;
+  pathogenClass: string;
+  courseType: string;
   inventoryItemId: string;
   manufacturer: string;
   disease: string;
   compatibilityGroup: string;
+}
+
+export interface VaccinationMatrixRow {
+  id: string;
+  vaccine: VaccineMatrix;
+  stage: string;
+  sex: string;
+  breed: string;
+  doses?: DoseRow[];
 }
 
 export interface FeedFields {
@@ -69,6 +83,31 @@ export interface SourceMeta {
   approvedAt: string;
 }
 
+export interface CompatibilityPolicy {
+  liveToKilledGapDays: number;
+  killedToKilledGapDays: number;
+  liveToLiveGapDays: number;
+  kidBoosterMinGapDays: number;
+  bacterialViralSameDayAllowed: boolean;
+  liveKilledViralSameDayAllowed: boolean;
+}
+
+export interface ProcurementPolicy {
+  warmupNoVaccinationDays: number;
+  kidsNormalScheduleUntilWeeks: number;
+  adultSourceVaccinationAllowed: boolean;
+  firstWave: string;
+  secondWaveAfterDays: number;
+  goatSecondWave: string;
+}
+
+export interface PregnancyPolicy {
+  allowUntilPregnancyMonth: number;
+  skipFromPregnancyMonth: number;
+  skipThroughPregnancyMonth: number;
+  postDeliveryCatchUpDays: number;
+}
+
 export interface RuleInput {
   category: string;
   code: string;
@@ -85,6 +124,9 @@ export interface RuleInput {
   missedDosePolicy: string;
   escalation: string;
   source: SourceMeta;
+  compatibilityPolicy: CompatibilityPolicy;
+  procurementPolicy: ProcurementPolicy;
+  pregnancyPolicy: PregnancyPolicy;
   doses: DoseRow[];
   feed: FeedFields;
 }
@@ -157,6 +199,9 @@ export function newDose(seq: number): DoseRow {
     dueWindowDays: 7,
     doseAmount: 0.5,
     doseUnit: "ml",
+    vialDoses: 0,
+    revaccinationIntervalDays: 0,
+    sourceSchedule: "",
     routeSite: "subcutaneous",
     maxDelayDays: 7,
     courseLapsePolicy: "phc_review",
@@ -187,6 +232,37 @@ export function newFeedFields(): FeedFields {
     inventoryPolicy: "reserve_consume_release",
     validationChecks: [],
     calculationOutputs: [],
+  };
+}
+
+export function newCompatibilityPolicy(): CompatibilityPolicy {
+  return {
+    liveToKilledGapDays: 14,
+    killedToKilledGapDays: 14,
+    liveToLiveGapDays: 28,
+    kidBoosterMinGapDays: 21,
+    bacterialViralSameDayAllowed: true,
+    liveKilledViralSameDayAllowed: true,
+  };
+}
+
+export function newProcurementPolicy(): ProcurementPolicy {
+  return {
+    warmupNoVaccinationDays: 7,
+    kidsNormalScheduleUntilWeeks: 16,
+    adultSourceVaccinationAllowed: true,
+    firstWave: "ET+TT,PPR",
+    secondWaveAfterDays: 28,
+    goatSecondWave: "Goat Pox,ET+TT booster",
+  };
+}
+
+export function newPregnancyPolicy(): PregnancyPolicy {
+  return {
+    allowUntilPregnancyMonth: 3,
+    skipFromPregnancyMonth: 4,
+    skipThroughPregnancyMonth: 5,
+    postDeliveryCatchUpDays: 14,
   };
 }
 
@@ -228,6 +304,8 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       code: input.vaccine.code.trim() || input.code.trim(),
       name: input.vaccine.name.trim() || input.name.trim(),
       type: input.vaccine.type,
+      pathogen_class: input.vaccine.pathogenClass,
+      course_type: input.vaccine.courseType,
       inventory_item_id: input.vaccine.inventoryItemId.trim() || null,
       manufacturer: input.vaccine.manufacturer.trim() || null,
       disease: input.vaccine.disease.trim() || input.name.trim() || null,
@@ -251,6 +329,28 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       reject_expired_lot: true,
       cold_chain_required: true,
     },
+    compatibility_policy: {
+      live_to_killed_gap_days: Number(input.compatibilityPolicy.liveToKilledGapDays) || 0,
+      killed_to_killed_gap_days: Number(input.compatibilityPolicy.killedToKilledGapDays) || 0,
+      live_to_live_gap_days: Number(input.compatibilityPolicy.liveToLiveGapDays) || 0,
+      kid_booster_min_gap_days: Number(input.compatibilityPolicy.kidBoosterMinGapDays) || 0,
+      bacterial_viral_same_day_allowed: input.compatibilityPolicy.bacterialViralSameDayAllowed,
+      live_killed_viral_same_day_allowed: input.compatibilityPolicy.liveKilledViralSameDayAllowed,
+    },
+    procurement_policy: {
+      warmup_no_vaccination_days: Number(input.procurementPolicy.warmupNoVaccinationDays) || 0,
+      kids_normal_schedule_until_weeks: Number(input.procurementPolicy.kidsNormalScheduleUntilWeeks) || 0,
+      adult_source_vaccination_allowed: input.procurementPolicy.adultSourceVaccinationAllowed,
+      first_wave: csvToArr(input.procurementPolicy.firstWave),
+      second_wave_after_days: Number(input.procurementPolicy.secondWaveAfterDays) || 0,
+      goat_second_wave: csvToArr(input.procurementPolicy.goatSecondWave),
+    },
+    pregnancy_policy: {
+      allow_until_pregnancy_month: Number(input.pregnancyPolicy.allowUntilPregnancyMonth) || 0,
+      skip_from_pregnancy_month: Number(input.pregnancyPolicy.skipFromPregnancyMonth) || 0,
+      skip_through_pregnancy_month: Number(input.pregnancyPolicy.skipThroughPregnancyMonth) || 0,
+      post_delivery_catch_up_days: Number(input.pregnancyPolicy.postDeliveryCatchUpDays) || 0,
+    },
     schedule: input.doses.map((d, i) => ({
       dose_code: d.doseCode,
       sequence: i + 1,
@@ -259,6 +359,9 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       due_window_days: Number(d.dueWindowDays) || 0,
       dose_amount: Number(d.doseAmount) || 0,
       dose_unit: d.doseUnit,
+      vial_doses: Number(d.vialDoses) || 0,
+      revaccination_interval_days: Number(d.revaccinationIntervalDays) || 0,
+      source_schedule: d.sourceSchedule.trim() || null,
       route_site: d.routeSite,
       max_delay_days: Number(d.maxDelayDays) || Number(d.dueWindowDays) || 0,
       course_lapse_policy: d.courseLapsePolicy,
@@ -339,6 +442,52 @@ function feedDsl(input: RuleInput): Record<string, unknown> {
 export function buildRuleDsl(input: RuleInput): Record<string, unknown> {
   if (input.category === "feed_direction") return feedDsl(input);
   return vaccinationDsl(input);
+}
+
+export function ruleInputForVaccinationMatrixRow(input: RuleInput, row: VaccinationMatrixRow, index: number, total: number): RuleInput {
+  if (input.category !== "vaccination") return input;
+  const suffix = compactSlug([row.vaccine.code, row.stage, row.sex, row.breed]).join("_") || `row_${index + 1}`;
+  return {
+    ...input,
+    code: total > 1 ? `${input.code}.${suffix}` : input.code,
+    name: total > 1 ? `${input.name} - ${row.vaccine.code || row.vaccine.name || `row ${index + 1}`} ${row.stage}/${row.breed}` : input.name,
+    vaccine: row.vaccine,
+    eligibility: {
+      ...input.eligibility,
+      stage: row.stage,
+      sex: row.sex,
+      breed: row.breed,
+    },
+    doses: row.doses && row.doses.length > 0 ? row.doses : input.doses,
+  };
+}
+
+export function buildVaccinationMatrixPreview(input: RuleInput, rows: VaccinationMatrixRow[]): Record<string, unknown> {
+  if (input.category !== "vaccination") return buildRuleDsl(input);
+  if (rows.length <= 1 && rows[0]) return buildRuleDsl(ruleInputForVaccinationMatrixRow(input, rows[0], 0, 1));
+  return {
+    category: input.category,
+    scope: parseScope(input.scope),
+    matrix_rows: rows.map((row, index) => buildRuleDsl(ruleInputForVaccinationMatrixRow(input, row, index, rows.length))),
+    source: sourceDsl(input.source),
+  };
+}
+
+function compactSlug(values: string[]): string[] {
+  return values
+    .map((value) => slugPart(value))
+    .filter(Boolean);
+}
+
+function slugPart(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_{2,}/g, "_");
+  if (!slug || slug === "all" || slug === "any") return "";
+  return /^[a-z]/.test(slug) ? slug : `r_${slug}`;
 }
 
 // proofTokens collects the authored proof tokens for the active category (per-dose proof for

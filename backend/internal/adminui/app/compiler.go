@@ -790,7 +790,7 @@ func compileConfigOptionGroups(groups []domain.OptionGroup, families ReferenceFa
 	out = replaceOptionGroup(out, "rule_breeds", prependOption("all", "all", "", "", optionsFromReferences(families.Breeds, "")))
 	out = replaceOptionGroup(out, "rule_healths", prependOption("any", "any", "", "", optionsFromReferences(families.HealthStatuses, "")))
 	out = replaceOptionGroup(out, "rule_reproductive", prependOption("any", "any", "", "", optionsFromReferences(families.ReproductiveStates, "")))
-	out = replaceOptionGroup(out, "defer_states", optionsFromReferences(deferableStates(families.DeferStates), ""))
+	out = replaceOptionGroup(out, "defer_states", optionsFromReferences(defaultedDeferableStates(families.DeferStates), ""))
 	out = replaceOptionGroup(out, "schedule_sop_labels", optionsFromReferences(families.SOPLabels, ""))
 	out = mergeOptionGroupReferences(out, "feed_items", families.FeedItems, "")
 	return out
@@ -840,6 +840,27 @@ func deferableStates(options []ReferenceOption) []ReferenceOption {
 		}
 	}
 	return out
+}
+
+func defaultedDeferableStates(options []ReferenceOption) []ReferenceOption {
+	defaults := []ReferenceOption{
+		{Key: "sick", Label: "sick"},
+		{Key: "under_treatment", Label: "under treatment"},
+		{Key: "quarantine", Label: "quarantine"},
+		{Key: "icu", Label: "ICU"},
+	}
+	out := deferableStates(options)
+	seen := make(map[string]bool, len(out)+len(defaults))
+	merged := make([]ReferenceOption, 0, len(defaults)+len(out))
+	for _, option := range append(defaults, out...) {
+		key := strings.ToLower(strings.TrimSpace(option.Key))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		merged = append(merged, option)
+	}
+	return merged
 }
 
 func replaceOptionGroup(groups []domain.OptionGroup, id string, options []domain.Option) []domain.OptionGroup {

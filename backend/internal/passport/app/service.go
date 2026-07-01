@@ -5,6 +5,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
@@ -38,6 +39,8 @@ type DueItem struct {
 	ObligationID      string    `json:"obligation_id"`
 	ProtocolVersionID string    `json:"protocol_version_id"`
 	RuleID            string    `json:"rule_id"`
+	BatchID           string    `json:"batch_id,omitempty"`
+	WorkflowRowID     string    `json:"workflow_row_id"`
 	Status            string    `json:"status"`
 	DueAt             time.Time `json:"due_at"`
 	Sequence          int32     `json:"sequence"`
@@ -100,6 +103,8 @@ func (s *Service) GetPassport(ctx context.Context, tenantID, goatID string) (Pas
 			ObligationID:      o.ObligationID,
 			ProtocolVersionID: o.ProtocolVersionID,
 			RuleID:            o.RuleID,
+			BatchID:           o.BatchID,
+			WorkflowRowID:     workflowRowID(o),
 			Status:            o.Status,
 			DueAt:             o.DueAt,
 			Sequence:          o.Sequence,
@@ -130,4 +135,11 @@ func (s *Service) GetPassport(ctx context.Context, tenantID, goatID string) (Pas
 		}
 	}
 	return p, nil
+}
+
+func workflowRowID(o obldomain.OpenObligation) string {
+	if o.BatchID != "" && o.RuleID != "" && o.ScopeType == "shed" && o.ScopeID != "" {
+		return fmt.Sprintf("batch:%s:rule:%s:shed:%s", o.BatchID, o.RuleID, o.ScopeID)
+	}
+	return "obligation:" + o.ObligationID
 }

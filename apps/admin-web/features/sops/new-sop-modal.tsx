@@ -12,13 +12,14 @@ import {
   type BuilderStep,
   type OnAnswerAction,
   type ProofType,
+  type SopCardView,
   type SopBuilderInput,
   type SopSliceDomain,
   type SopTrigger,
   type StepTypeValue,
   type SubjectScope,
 } from "./sop-derive";
-import { runDryRun, saveSopDraft, publishSop, type SaveSopResult } from "./sop-actions";
+import { runDryRun, saveSopDraft, saveSopVersionDraft, publishSop, type SaveSopResult } from "./sop-actions";
 import type { DryRunResponse } from "@/lib/api/server";
 import { copy, optionGroup, optionLabel, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -29,7 +30,58 @@ function makeStep(type: StepTypeValue, label: string, showIf = -1): BuilderStep 
   return { id: `step-${crypto.randomUUID()}`, type, label, showIf, onAnswer: "none" };
 }
 
-export function NewSopModal({ open, onClose, pageContract }: { open: boolean; onClose: () => void; pageContract: AdminUiPageContract }) {
+function builderTypeFromBackend(type: string): StepTypeValue {
+  switch (type) {
+    case "number":
+      return "number";
+    case "boolean":
+      return "yesno";
+    case "select":
+      return "select";
+    case "multiselect":
+      return "multiselect";
+    case "goat_scan":
+    case "rfid_scan":
+    case "goat_lookup":
+      return "goat_scan";
+    case "shed_picker":
+    case "cohort_picker":
+    case "location_picker":
+      return "shed_picker";
+    case "vaccine_batch_picker":
+      return "vaccine_batch_picker";
+    case "medicine_picker":
+      return "medicine_picker";
+    case "photo_proof":
+      return "photo_proof";
+    case "video_proof":
+      return "video_proof";
+    default:
+      return "text";
+  }
+}
+
+function stepsFromView(view: SopCardView | null | undefined): BuilderStep[] | null {
+  if (!view || view.fields.length === 0) return null;
+  return view.fields.map((field) => makeStep(builderTypeFromBackend(field.type), field.label));
+}
+
+function proofTypeFromView(view: SopCardView | null | undefined, fallback: ProofType): ProofType {
+  const proofField = view?.fields.find((field) => field.type === "photo_proof" || field.type === "video_proof");
+  return proofField?.type === "photo_proof" ? "photo" : proofField?.type === "video_proof" ? "video" : fallback;
+}
+
+export function NewSopModal({
+  open,
+  onClose,
+  pageContract,
+  initialView,
+}: {
+  open: boolean;
+  onClose: () => void;
+  pageContract: AdminUiPageContract;
+  initialView?: SopCardView | null;
+}) {
   const router = useRouter();
   const triggerOptions = optionGroup(pageContract, "sop_trigger_chips");
   const seedStepOptions = optionGroup(pageContract, "sop_seed_steps");
@@ -49,18 +101,23 @@ export function NewSopModal({ open, onClose, pageContract }: { open: boolean; on
     return seedStepOptions.map((step) => makeStep(step.key as StepTypeValue, step.label));
   }
 
-  const [name, setName] = useState(copy(pageContract, "modal.builder.default_name"));
+  const [name, setName] = useState(initialView?.name ?? copy(pageContract, "modal.builder.default_name"));
   // Domain is LOCKED to the vaccination slice — not user-selectable in this product slice.
   const domain: SopSliceDomain = "vaccination";
-  const [trigger, setTrigger] = useState<SopTrigger>(defaultKey(triggerOptions, "sop_trigger_chips", "cron") as SopTrigger);
-  const [steps, setSteps] = useState<BuilderStep[]>(() => seedSteps());
+  const [trigger, setTrigger] = useState<SopTrigger>((initialView?.trigger ?? defaultKey(triggerOptions, "sop_trigger_chips", "cron")) as SopTrigger);
+  const [steps, setSteps] = useState<BuilderStep[]>(() => stepsFromView(initialView) ?? seedSteps());
 
-  const [proofRequired, setProofRequired] = useState(true);
-  const [proofType, setProofType] = useState<ProofType>(defaultKey(proofTypeOptions, "proof_types", "video") as ProofType);
-  const [verifyBeforeApply, setVerifyBeforeApply] = useState(true);
+  const defaultProofType = defaultKey(proofTypeOptions, "proof_types", "video") as ProofType;
+  const [proofRequired, setProofRequired] = useState(initialView ? initialView.gates.some((gate) => gate.toLowerCase().includes("proof")) : true);
+  const [proofType, setProofType] = useState<ProofType>(proofTypeFromView(initialView, defaultProofType));
+  const [verifyBeforeApply, setVerifyBeforeApply] = useState(initialView ? initialView.gates.some((gate) => gate.toLowerCase().includes("verify")) : true);
   const [minCount, setMinCount] = useState(1);
   // Vaccination drives are per-goat (repeat-per-goat) by default.
-  const [subjectScope, setSubjectScope] = useState<SubjectScope>(defaultKey(subjectScopeOptions, "subject_scopes", "goat") as SubjectScope);
+  const [subjectScope, setSubjectScope] = useState<SubjectScope>(
+    (initialView?.gates.some((gate) => gate.toLowerCase().includes("batch"))
+      ? "batch"
+      : defaultKey(subjectScopeOptions, "subject_scopes", "goat")) as SubjectScope,
+  );
 
   const [saved, setSaved] = useState<SaveSopResult | null>(null);
   const [dryRun, setDryRun] = useState<DryRunResponse | null>(null);
@@ -110,7 +167,7 @@ export function NewSopModal({ open, onClose, pageContract }: { open: boolean; on
   function save() {
     setNotice(null);
     startTransition(async () => {
-      const res = await saveSopDraft(input);
+      const res = initialView?.sopId ? await saveSopVersionDraft(initialView.sopId, input) : await saveSopDraft(input);
       setSaved(res);
       setDryRun(null);
       setNotice({ ok: res.ok, message: res.message });
@@ -211,7 +268,7 @@ export function NewSopModal({ open, onClose, pageContract }: { open: boolean; on
               </div>
             </div>
             <div className="muted small" style={{ marginTop: 5 }}>
-              {copy(pageContract, "modal.builder.code_prefix")} <span className="mono">{code}</span> · {copy(pageContract, "modal.builder.policy_label")}
+              {copy(pageContract, "modal.builder.code_prefix")} <span className="mono">{initialView?.code ?? code}</span> · {copy(pageContract, "modal.builder.policy_label")}
             </div>
           </div>
 
