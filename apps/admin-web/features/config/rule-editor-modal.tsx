@@ -743,7 +743,7 @@ export function RuleEditorModal({
     <>
       {presentation === "modal" ? <div className="cfgback on" onClick={onClose} /> : null}
       <div
-        className={presentation === "page" ? "cfgpage on" : "cfgmodal on"}
+        className={presentation === "page" ? "cfgpage cfgpage-rule on" : "cfgmodal on"}
         data-testid="rule-editor"
         style={presentation === "modal" ? { width: "min(1180px,96vw)" } : undefined}
         role={presentation === "modal" ? "dialog" : "region"}
@@ -1002,7 +1002,7 @@ export function RuleEditorModal({
               </>
             ) : (
               <>
-                <div className="cmh" style={{ border: "1px solid var(--line2)", borderRadius: 8, marginTop: 10, position: "static" }}>
+                <div className="cmh cfgmatrix-head">
                   <CalendarDays className="ic" />
                   <h4 style={{ margin: 0 }}>{copy(pageContract, "modal.rule_editor.matrix_grid_title")}</h4>
                   <span className="tag t-info">{matrixRows.length} {copy(pageContract, matrixRows.length === 1 ? "modal.rule_editor.label.rule_singular" : "modal.rule_editor.label.rule_plural")}</span>
@@ -1017,8 +1017,8 @@ export function RuleEditorModal({
                     <Copy className="ic" /> {copy(pageContract, "modal.rule_editor.action.copy_selected_matrix_row")}
                   </button>
                 </div>
-                <div style={{ overflowX: "auto", border: "1px solid var(--line2)", borderTop: 0, borderRadius: "0 0 8px 8px", marginBottom: 8 }}>
-                  <table>
+                <div className="cfgtablewrap cfgmatrix-table" tabIndex={0} role="group" aria-label={copy(pageContract, "modal.rule_editor.matrix_grid_title")}>
+                  <table className="cfgmatrix-grid">
                     <thead>
                       <tr>
                         <th>{copy(pageContract, "modal.rule_editor.table.row")}</th>
@@ -1340,8 +1340,8 @@ export function RuleEditorModal({
           </div>
 
           {/* Live rule_dsl JSONB preview */}
-          <div>
-            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".4px", marginBottom: 5 }}>
+          <div className="cfgdsl-panel">
+            <label className="cfgdsl-label">
               {copy(pageContract, "modal.rule_editor.label.rule_dsl")}
             </label>
             <div className="cfgjson" aria-label={copy(pageContract, "modal.rule_editor.rule_dsl_aria")}>
@@ -1355,12 +1355,12 @@ export function RuleEditorModal({
 
         {isFeedDirection ? (
           <>
-            <div className="cmh" style={{ borderTop: "1px solid var(--line2)", borderBottom: "1px solid var(--line2)", position: "static" }}>
+            <div className="cmh cfgsection-head">
               <CalendarDays className="ic" />
               <h4 style={{ margin: 0 }}>{copy(pageContract, "modal.rule_editor.table.feed_title")}</h4>
               <span className={`tag ${TONE_CLASS[badge.tone]}`}>{badge.text}</span>
             </div>
-            <div style={{ overflowX: "auto", padding: "0 18px 6px" }}>
+            <div className="cfgtablewrap cfgschedule-table">
               <table>
                 <thead>
                   <tr>
@@ -1398,7 +1398,7 @@ export function RuleEditorModal({
           </>
         ) : (
           <>
-            <div className="cmh" style={{ borderTop: "1px solid var(--line2)", borderBottom: "1px solid var(--line2)", position: "static" }}>
+            <div className="cmh cfgsection-head">
               <CalendarDays className="ic" />
               <h4 style={{ margin: 0 }}>{copy(pageContract, "modal.rule_editor.table.schedule_title")}</h4>
               <span className={`tag ${TONE_CLASS[badge.tone]}`}>{badge.text}</span>
@@ -1407,7 +1407,7 @@ export function RuleEditorModal({
                 <Plus className="ic" /> {copy(pageContract, "modal.rule_editor.action.add_dose")}
               </button>
             </div>
-            <div style={{ overflowX: "auto", padding: "0 18px 6px" }}>
+            <div className="cfgtablewrap cfgschedule-table">
               <table>
                 <thead>
                   <tr>
@@ -1545,7 +1545,7 @@ export function RuleEditorModal({
         )}
 
         {/* Impact preview */}
-        <div className="cmh" style={{ borderTop: "1px solid var(--line2)", position: "static" }}>
+        <div className="cmh cfgsection-head cfgimpact-head">
           <h4 style={{ margin: 0 }}>
             {copy(pageContract, isFeedDirection ? "modal.rule_editor.impact_title_feed" : "modal.rule_editor.impact_title_vaccination")}
           </h4>
@@ -1558,7 +1558,7 @@ export function RuleEditorModal({
             <span className="muted small">{copy(pageContract, "modal.rule_editor.preview_feed_pending")}</span>
           )}
         </div>
-        <div style={{ padding: "0 18px 12px" }}>
+        <div className="cfgimpact-body">
           {impact ? (
             <>
               <div className="grid g4">
