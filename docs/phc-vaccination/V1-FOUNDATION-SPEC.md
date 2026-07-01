@@ -141,8 +141,10 @@ Procurement vertical for v1.
 - Import/replay mapping: reliable historical vaccination records, if later
   proven, go through staging, reconcile into `vaccination_completions`, complete
   matching obligations, and schedule boosters from actual `administered_at`.
-  Missing or untrusted history must not create completions; after PHC approval it
-  becomes baseline/catch-up shed drives per
+  Missing or untrusted history must not create completions; older goats whose
+  historical windows are already past get one safe catch-up/review action first,
+  not every old dose as same-day work. After PHC approval it becomes
+  baseline/catch-up shed drives per
   `docs/protocol-engine/migration-and-cutover.md`.
 
 ## 5. Build order (each slice ends with a running local URL for review)

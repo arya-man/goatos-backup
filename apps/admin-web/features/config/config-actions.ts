@@ -11,13 +11,22 @@ import {
   type ImpactPreviewInput,
   type ImpactPreviewResult,
 } from "@/lib/api/server";
-import { buildProtocolRuleRows, buildProofPolicy, buildRuleDsl, parseScope, type RuleInput } from "./rule-dsl";
+import {
+  buildProtocolRuleRows,
+  buildProofPolicy,
+  buildRuleDsl,
+  parseScope,
+  ruleInputForVaccinationMatrixRow,
+  type RuleInput,
+  type VaccinationMatrixRow,
+} from "./rule-dsl";
 
 export interface ActionResult {
   ok: boolean;
   message: string;
   code?: string;
   versionId?: string;
+  versionIds?: string[];
 }
 
 // runImpactPreview computes the live impact via the backend (real inventory/eligibility math). The
@@ -99,6 +108,33 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
   return { ok: true, message: `draft saved - ${protocolRows.length} rule rows - no live obligations`, versionId: version.data.protocol_version_id };
 }
 
+export async function saveDraftBatch(input: RuleInput, matrixRows: VaccinationMatrixRow[]): Promise<ActionResult> {
+  const rows = normalizeVaccinationMatrixRows(input, matrixRows);
+  if (input.category !== "vaccination") return saveDraft(input);
+
+  const versionIds: string[] = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    const rowInput = ruleInputForVaccinationMatrixRow(input, rows[i], i, rows.length);
+    const result = await saveDraft(rowInput);
+    if (!result.ok || !result.versionId) {
+      return {
+        ok: false,
+        message: `matrix row ${i + 1} (${rows[i].vaccine.code || rows[i].vaccine.name || "unnamed"}) failed: ${result.message}`,
+        code: result.code,
+        versionIds,
+      };
+    }
+    versionIds.push(result.versionId);
+  }
+  revalidatePath("/config");
+  return {
+    ok: true,
+    message: `${versionIds.length} matrix drafts saved - one protocol row per vaccine/stage/breed combo - no live obligations`,
+    versionId: versionIds[0],
+    versionIds,
+  };
+}
+
 // publishVersion attempts to publish through the backend source-backed gate. The form may show a
 // pre-submit disabled reason from backend contract metadata, but this action still treats the
 // protocol API as authoritative for the final not_publishable decision.
@@ -111,6 +147,55 @@ export async function publishVersion(versionId: string): Promise<ActionResult> {
     revalidatePath(p);
   }
   return { ok: true, message: "published — immutable · source-backed; obligations now generate from this version" };
+}
+
+export async function publishVersions(versionIds: string[]): Promise<ActionResult> {
+  const ids = Array.from(new Set(versionIds.map((id) => id.trim()).filter(Boolean)));
+  if (ids.length === 0) return { ok: false, message: "save the draft first" };
+  const published: string[] = [];
+  for (const versionId of ids) {
+    const result = await publishVersion(versionId);
+    if (!result.ok) {
+      return {
+        ok: false,
+        message: `publish failed after ${published.length}/${ids.length} matrix rows: ${result.message}`,
+        code: result.code,
+        versionIds: published,
+      };
+    }
+    published.push(versionId);
+  }
+  return {
+    ok: true,
+    message: `${published.length} matrix rows published - obligations now generate per eligible breed/stage combo`,
+    versionId: published[0],
+    versionIds: published,
+  };
+}
+
+function normalizeVaccinationMatrixRows(input: RuleInput, matrixRows: VaccinationMatrixRow[]): VaccinationMatrixRow[] {
+  if (input.category !== "vaccination") return [];
+  const rows = matrixRows.length > 0
+    ? matrixRows
+    : [{ id: "current", vaccine: input.vaccine, stage: input.eligibility.stage, sex: input.eligibility.sex, breed: input.eligibility.breed }];
+  return rows.map((row, index) => ({
+    id: row.id || `row-${index + 1}`,
+    vaccine: {
+      code: row.vaccine.code.trim(),
+      name: row.vaccine.name.trim(),
+      type: row.vaccine.type,
+      pathogenClass: row.vaccine.pathogenClass,
+      courseType: row.vaccine.courseType,
+      inventoryItemId: row.vaccine.inventoryItemId.trim(),
+      manufacturer: row.vaccine.manufacturer.trim(),
+      disease: row.vaccine.disease.trim(),
+      compatibilityGroup: row.vaccine.compatibilityGroup.trim(),
+    },
+    stage: row.stage || input.eligibility.stage,
+    sex: row.sex || input.eligibility.sex,
+    breed: row.breed || input.eligibility.breed,
+    doses: row.doses && row.doses.length > 0 ? row.doses : input.doses,
+  }));
 }
 
 function stableMutationKey(scope: string, payload: unknown): string {

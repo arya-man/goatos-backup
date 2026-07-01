@@ -49,6 +49,7 @@ type OpenObligation struct {
 	ObligationID      string
 	ProtocolVersionID string
 	RuleID            string
+	BatchID           string
 	ScopeType         string
 	ScopeID           string
 	DueAt             time.Time

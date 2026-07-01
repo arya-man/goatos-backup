@@ -42,7 +42,7 @@ func TestGetPassportComposesAndPicksNextDue(t *testing.T) {
 			found: true,
 		},
 		fakeObl{open: []obldomain.OpenObligation{
-			{ObligationID: "o1", DueAt: t0, Status: "due", Sequence: 1}, // earliest → next due
+			{ObligationID: "o1", RuleID: "r1", ScopeType: "shed", ScopeID: "shed1", BatchID: "b1", DueAt: t0, Status: "due", Sequence: 1}, // earliest → next due
 			{ObligationID: "o2", DueAt: t1, Status: "scheduled", Sequence: 2},
 		}},
 	)
@@ -56,6 +56,12 @@ func TestGetPassportComposesAndPicksNextDue(t *testing.T) {
 	}
 	if p.NextDue == nil || p.NextDue.ObligationID != "o1" {
 		t.Fatalf("next due: want o1, got %+v", p.NextDue)
+	}
+	if p.NextDue.WorkflowRowID != "batch:b1:rule:r1:shed:shed1" {
+		t.Fatalf("workflow row id: %q", p.NextDue.WorkflowRowID)
+	}
+	if p.OpenObligations[1].WorkflowRowID != "obligation:o2" {
+		t.Fatalf("fallback workflow row id: %q", p.OpenObligations[1].WorkflowRowID)
 	}
 	if p.LastAccepted == nil || p.LastAccepted.CompletionID != "c1" {
 		t.Fatalf("last accepted: %+v", p.LastAccepted)

@@ -70,6 +70,7 @@ export interface SopLibraryProps {
 export function SopLibrary({ sops, error, authRequired, initialCreating = false, pageContract }: SopLibraryProps) {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(initialCreating);
+  const [editing, setEditing] = useState<SopCardView | null>(null);
   const [detail, setDetail] = useState<SopCardView | null>(null);
   const [requestedPage, setRequestedPage] = useState(1);
 	  const pageSizeOptions = tablePageSizes(pageContract, "sop-library");
@@ -101,7 +102,14 @@ export function SopLibrary({ sops, error, authRequired, initialCreating = false,
 	          <div className="sub">{pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <button type="button" className="btn p" onClick={() => setCreating(true)}>
+        <button
+          type="button"
+          className="btn p"
+          onClick={() => {
+            setEditing(null);
+            setCreating(true);
+          }}
+        >
 	          <Plus className="ic" /> {copy(pageContract, "action.new_sop")}
         </button>
       </div>
@@ -163,7 +171,15 @@ export function SopLibrary({ sops, error, authRequired, initialCreating = false,
             <p className="muted" style={{ maxWidth: 640, margin: "8px auto 0", lineHeight: 1.6, fontSize: 13 }}>
 	              {copy(pageContract, "empty.body")}
             </p>
-            <button type="button" className="btn p" style={{ marginTop: 14 }} onClick={() => setCreating(true)}>
+            <button
+              type="button"
+              className="btn p"
+              style={{ marginTop: 14 }}
+              onClick={() => {
+                setEditing(null);
+                setCreating(true);
+              }}
+            >
 	              <Plus className="ic" /> {copy(pageContract, "action.new_sop")}
             </button>
           </div>
@@ -258,8 +274,28 @@ export function SopLibrary({ sops, error, authRequired, initialCreating = false,
         </>
       )}
 
-      {detail ? <SopDetailModal view={detail} pageContract={pageContract} onClose={() => setDetail(null)} onEdit={() => { setDetail(null); setCreating(true); }} /> : null}
-      <NewSopModal open={creating} onClose={() => setCreating(false)} pageContract={pageContract} />
+      {detail ? (
+        <SopDetailModal
+          view={detail}
+          pageContract={pageContract}
+          onClose={() => setDetail(null)}
+          onEdit={() => {
+            setDetail(null);
+            setEditing(detail);
+            setCreating(true);
+          }}
+        />
+      ) : null}
+      <NewSopModal
+        key={`${creating ? "open" : "closed"}-${editing?.sopId ?? "new"}`}
+        open={creating}
+        onClose={() => {
+          setCreating(false);
+          setEditing(null);
+        }}
+        pageContract={pageContract}
+        initialView={editing}
+      />
     </div>
   );
 }
