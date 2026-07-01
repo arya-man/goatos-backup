@@ -20,7 +20,7 @@ import {
   type CalendarPresentation,
   type OwnerPresentationMap,
 } from "./calendar-contract";
-import { ProcurementPager } from "@/features/procurement/pager";
+import { ProcurementPager } from "@/features/procurement";
 
 function MetaCell({ k, v }: { k: string; v: React.ReactNode }) {
   return (
