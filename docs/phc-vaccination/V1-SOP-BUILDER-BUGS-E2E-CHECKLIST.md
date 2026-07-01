@@ -19,18 +19,18 @@ scope.
 Validated V1 demo closure evidence:
 
 - Full E2E smoke: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-  - Report: `/Users/ravi/mesha/goatos-vaccination-v1-close/.codex-goatos-render/e2e-smoke/NUANCE-RULES-20260701-V1-MATRIX-R2`
+  - Report: `.codex-goatos-render/e2e-smoke/NUANCE-RULES-20260701-V1-MATRIX-R2`
 - SOP/Config authoring smoke: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-  - Report: `/Users/ravi/mesha/goatos-vaccination-v1-close/.codex-goatos-render/vaccination-authoring/NUANCE-RULES-20260701-V1-MATRIX-R2/authoring.md`
+  - Report: `.codex-goatos-render/vaccination-authoring/NUANCE-RULES-20260701-V1-MATRIX-R2/authoring.md`
   - Proves the Nuance Rules matrix loads, saves, and publishes ET+TT, PPR, Goat Pox, FMD, and HS as separate protocol versions from one grid flow.
 - Click/interlink matrix: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-  - Report: `/Users/ravi/mesha/goatos-vaccination-v1-close/.codex-goatos-render/vaccination-click-matrix/NUANCE-RULES-20260701-V1-MATRIX-R2/matrix.md`
+  - Report: `.codex-goatos-render/vaccination-click-matrix/NUANCE-RULES-20260701-V1-MATRIX-R2/matrix.md`
 - Chain proof: `vaccination-chain-proof stamp=1782915162`
 - Rework proof: `vaccination-rework-proof stamp=1782899439`
   - Proves reject -> rework -> resubmit -> accept, accepted/rejected Passport history, and real Passport workflow row linkage.
 - Visual smoke screenshots:
-  - `/Users/ravi/mesha/goatos-vaccination-v1-close/.codex-goatos-render/admin-web-screenshots/2026-07-01T14-12-57-572Z`
-  - Rework Passport: `/Users/ravi/mesha/goatos-vaccination-v1-close/.codex-goatos-render/admin-web-screenshots/2026-07-01T09-04-55-269Z/desktop-goat-passport-rework-proof.png`
+  - `.codex-goatos-render/admin-web-screenshots/2026-07-01T14-12-57-572Z`
+  - Rework Passport: `.codex-goatos-render/admin-web-screenshots/2026-07-01T09-04-55-269Z/desktop-goat-passport-rework-proof.png`
 
 Closed for V1 demo: SOP builder lifecycle, all supported SOP question types,
 multi-row Config matrix authoring/publish, source schedule/dose/vial/revaccination

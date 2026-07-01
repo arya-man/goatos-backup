@@ -2,7 +2,7 @@
 
 Date: 2026-07-01
 Branch: `vaccination-v1-close`
-Worktree: `/Users/ravi/mesha/goatos-vaccination-v1-close`
+Worktree: local GoatOS checkout
 
 ## Status
 
@@ -148,11 +148,11 @@ GOATOS_E2E_RUN_ID=NUANCE-RULES-20260701-V1-MATRIX-R2 bash tools/dev/admin-web-e2
 ```
 
 ```bash
-GOATOS_AUTHORING_RUN_ID=NUANCE-RULES-20260701-V1-MATRIX-R2 npm --prefix /Users/ravi/mesha/goatos-vaccination-v1-close/apps/admin-web run smoke:vaccination-authoring:live
+GOATOS_AUTHORING_RUN_ID=NUANCE-RULES-20260701-V1-MATRIX-R2 npm --prefix apps/admin-web run smoke:vaccination-authoring:live
 ```
 
 ```bash
-GOATOS_CLICK_MATRIX_RUN_ID=NUANCE-RULES-20260701-V1-MATRIX-R2 npm --prefix /Users/ravi/mesha/goatos-vaccination-v1-close/apps/admin-web run smoke:vaccination-click-matrix:live
+GOATOS_CLICK_MATRIX_RUN_ID=NUANCE-RULES-20260701-V1-MATRIX-R2 npm --prefix apps/admin-web run smoke:vaccination-click-matrix:live
 ```
 
 ```bash
@@ -168,9 +168,9 @@ go test ./internal/vaccination/app ./cmd/generate-vaccination-obligations ./inte
 ```
 
 ```bash
-npm --prefix /Users/ravi/mesha/goatos-vaccination-v1-close/apps/admin-web run lint
-npm --prefix /Users/ravi/mesha/goatos-vaccination-v1-close/apps/admin-web run typecheck -- --pretty false
-npm --prefix /Users/ravi/mesha/goatos-vaccination-v1-close/apps/admin-web run check:mock-fidelity
+npm --prefix apps/admin-web run lint
+npm --prefix apps/admin-web run typecheck -- --pretty false
+npm --prefix apps/admin-web run check:mock-fidelity
 ```
 
 ## Demo Script
