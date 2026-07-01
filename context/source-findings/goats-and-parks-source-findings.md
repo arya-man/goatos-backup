@@ -3,6 +3,7 @@
 Date reviewed: 2026-06-30
 
 Source reviewed: `wiki/Goats and Parks.docx`
+Tracked source extract: `context/source-findings/goats-and-parks-source-extract.md`
 
 Status: sanitized source finding and base livestock/park rule for GoatOS. Do not
 commit the raw DOCX, screenshots, local paths, or private media. If a later

@@ -140,6 +140,13 @@ The planner works like this:
    disease priority, stock expiry, route/resource efficiency, and fairness to
    small sheds. A one-goat shed can be held if waiting is medically safe, but it
    becomes a micro-drive if waiting would break the window.
+   Example: if CBE has 5 K1-compatible goats due in one shed today and 15
+   compatible goats in another shed whose safe medical window overlaps the next
+   week, the planner may hold the smaller shed and create one 20-goat park drive
+   only if every goat remains inside its medical `last_safe_date`. If the
+   smaller shed's medical window ends before the batching hold date, it must run
+   as a micro-drive now. The batching window is an operations hold, never a
+   medical override.
 7. Create the drive with its goat list, vaccine list, lot/stock reservation,
    SOP/proof requirements, worker, verifier, and route. A route may contain
    multiple sheds, but each shed keeps its own goat list, proof, and

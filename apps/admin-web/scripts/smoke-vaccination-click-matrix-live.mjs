@@ -41,7 +41,7 @@ try {
   await step("action center: board filters, queue tab, drawer, and linked records", () => verifyActionCenter(page));
   await step("protocol adherence: filters, ledger drawer, and linked records", () => verifyProtocolAdherence(page));
   await step("workflows: catalog, chain links, and workflow detail", () => verifyWorkflows(page));
-  await step("config: protocol-rule drawer and new draft modal controls", () => verifyConfig(page));
+  await step("config: protocol-rule drawer and new draft page controls", () => verifyConfig(page));
   await step("sop library: SOP card drawer and new SOP modal controls", () => verifySops(page));
 } finally {
   await browser.close();
@@ -292,16 +292,30 @@ async function verifyConfig(page) {
     await expectVisibleText(page, /PROTOCOL RULE/i, "Config protocol rule drawer");
     await closeDrawer(page, "Config protocol record drawer");
   }
-  await openAndCloseDialog(page, page.getByRole("button", { name: /New draft rule/i }).first(), /New draft rule|Protocol rule/i, /Close|Cancel/i, "Config new draft rule modal");
-  await page.getByRole("button", { name: /New draft rule/i }).first().click();
-  const dialog = page.locator('[role="dialog"]').first();
-  await dialog.waitFor({ state: "visible", timeout: 5_000 });
-  await dialog.getByRole("button", { name: /Preview Impact/i }).click();
+  const newRule = page.getByRole("link", { name: /New draft rule/i }).first();
+  await expectAtLeastOne("Config new draft rule page link", newRule);
+  await Promise.all([
+    page.waitForURL((url) => url.pathname === "/config" && url.searchParams.get("new_rule") === "1", { timeout: 10_000 }),
+    newRule.click(),
+  ]);
+  await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined);
+  await assertHealthy(page, "Config new draft rule page");
+  const editor = page.getByTestId("rule-editor").first();
+  await editor.waitFor({ state: "visible", timeout: 5_000 });
+  if ((await page.locator('[role="dialog"]').count()) > 0) {
+    throw new Error("Config new draft rule should render as a page, not a dialog");
+  }
+  await expectVisibleText(page, /New draft rule/i, "Config new draft rule page title");
+  await expectVisibleText(page, /Admin \/ Data Ops/i, "Config new draft rule breadcrumb");
+  await editor.getByRole("button", { name: /Preview Impact/i }).click();
   await expectVisibleText(page, /Eligible goats|Preview|impact/i, "Config preview impact feedback");
-  const addDose = dialog.getByRole("button", { name: /Add dose/i }).first();
+  const addDose = editor.getByRole("button", { name: /Add dose/i }).first();
   if ((await addDose.count()) === 1) await addDose.click();
-  await dialog.getByRole("button", { name: /Cancel/i }).last().click();
-  await dialog.waitFor({ state: "hidden", timeout: 5_000 });
+  await Promise.all([
+    page.waitForURL((url) => url.pathname === "/config" && url.searchParams.get("new_rule") !== "1", { timeout: 10_000 }),
+    editor.getByRole("button", { name: /Cancel/i }).last().click(),
+  ]);
+  await assertHealthy(page, "Config new draft rule cancel");
 }
 
 async function verifySops(page) {

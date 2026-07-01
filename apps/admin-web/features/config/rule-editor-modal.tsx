@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { AlertTriangle, CalendarDays, Pencil, Plus, X } from "lucide-react";
+import { AlertTriangle, CalendarDays, Copy, Pencil, Plus, X } from "lucide-react";
 import { publishVersions, runImpactPreview, saveDraftBatch, type ActionResult } from "./config-actions";
 import {
   buildVaccinationMatrixPreview,
@@ -47,6 +47,7 @@ type SourceVaccinePreset = {
 
 export function RuleEditorModal({
   open,
+  presentation = "modal",
   onClose,
   initialCategory,
   sopVersions = [],
@@ -58,6 +59,7 @@ export function RuleEditorModal({
   pageContract,
 }: {
   open: boolean;
+  presentation?: "modal" | "page";
   onClose: () => void;
   initialCategory: string;
   sopVersions?: SopVersionOption[];
@@ -328,19 +330,31 @@ export function RuleEditorModal({
   }
   function addMatrixRow() {
     const next = newMatrixRow(matrixRows.length + 1, {
-      vaccine: {
-        ...selectedMatrixRow.vaccine,
-        code: "",
-        name: "",
-        disease: selectedMatrixRow.vaccine.disease,
-        compatibilityGroup: selectedMatrixRow.vaccine.compatibilityGroup,
-      },
-      sex: selectedMatrixRow.sex,
-      breed: selectedMatrixRow.breed,
-      doses: selectedMatrixRow.doses ?? doses,
+      doses: [],
     });
     setMatrixRows((rows) => [...rows, next]);
     setSelectedMatrixRowId(next.id);
+  }
+  function copySelectedMatrixRow() {
+    const baseCode = selectedMatrixRow.vaccine.code.trim();
+    const baseName = selectedMatrixRow.vaccine.name.trim();
+    const sourceDoses = selectedMatrixRow.doses !== undefined ? selectedMatrixRow.doses : doses;
+    const next = newMatrixRow(matrixRows.length + 1, {
+      vaccine: {
+        ...selectedMatrixRow.vaccine,
+        code: baseCode ? `${baseCode}_COPY` : "",
+        name: baseName ? `${baseName} copy` : "",
+      },
+      sex: selectedMatrixRow.sex,
+      breed: selectedMatrixRow.breed,
+      stage: selectedMatrixRow.stage,
+      doses: cloneDoseRows(sourceDoses),
+    });
+    setMatrixRows((rows) => [...rows, next]);
+    setSelectedMatrixRowId(next.id);
+  }
+  function cloneDoseRows(rows: DoseRow[]): DoseRow[] {
+    return rows.map((row) => ({ ...row }));
   }
   function applySourcePresetToSelectedRow() {
     const preset = findSourcePreset(selectedMatrixRow.vaccine.code || selectedMatrixRow.vaccine.name);
@@ -633,7 +647,11 @@ export function RuleEditorModal({
   const publishDisabled = pending || publishBlock !== "";
 
   function selectedDoses(): DoseRow[] {
-    return selectedMatrixRow.doses && selectedMatrixRow.doses.length > 0 ? selectedMatrixRow.doses : doses;
+    return selectedMatrixRow.doses !== undefined ? selectedMatrixRow.doses : doses;
+  }
+  function sourceScheduleDisplay(row: VaccinationMatrixRow): string {
+    const sourceSchedule = row.doses?.find((dose) => dose.sourceSchedule.trim())?.sourceSchedule.trim();
+    return sourceSchedule || copy(pageContract, "modal.rule_editor.table.no_source_schedule");
   }
   function setSelectedDose(i: number, patch: Partial<DoseRow>) {
     const rows = selectedDoses().map((r, idx) => (idx === i ? { ...r, ...patch } : r));
@@ -723,8 +741,15 @@ export function RuleEditorModal({
 
   return (
     <>
-      <div className="cfgback on" onClick={onClose} />
-      <div className="cfgmodal on" style={{ width: "min(1180px,96vw)" }} role="dialog" aria-modal="true" aria-label={copy(pageContract, "modal.rule_editor.aria")}>
+      {presentation === "modal" ? <div className="cfgback on" onClick={onClose} /> : null}
+      <div
+        className={presentation === "page" ? "cfgpage on" : "cfgmodal on"}
+        data-testid="rule-editor"
+        style={presentation === "modal" ? { width: "min(1180px,96vw)" } : undefined}
+        role={presentation === "modal" ? "dialog" : "region"}
+        aria-modal={presentation === "modal" ? true : undefined}
+        aria-label={copy(pageContract, "modal.rule_editor.aria")}
+      >
         <div className="cmh">
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}>
             <Pencil className="ic" />
@@ -985,8 +1010,11 @@ export function RuleEditorModal({
                   <button type="button" className="btn sm" onClick={loadGoatSourceMatrix}>
                     <CalendarDays className="ic" /> {copy(pageContract, "modal.rule_editor.action.load_source_vaccine_matrix")}
                   </button>
-                  <button type="button" className="btn sm" onClick={addMatrixRow}>
+                  <button type="button" className="btn sm" onClick={addMatrixRow} title={copy(pageContract, "modal.rule_editor.title.add_blank_matrix_row")}>
                     <Plus className="ic" /> {copy(pageContract, "modal.rule_editor.action.add_matrix_row")}
+                  </button>
+                  <button type="button" className="btn sm" onClick={copySelectedMatrixRow} title={copy(pageContract, "modal.rule_editor.title.copy_selected_matrix_row")}>
+                    <Copy className="ic" /> {copy(pageContract, "modal.rule_editor.action.copy_selected_matrix_row")}
                   </button>
                 </div>
                 <div style={{ overflowX: "auto", border: "1px solid var(--line2)", borderTop: 0, borderRadius: "0 0 8px 8px", marginBottom: 8 }}>
@@ -1056,7 +1084,12 @@ export function RuleEditorModal({
                               ))}
                             </select>
                           </td>
-                          <td className="muted small" style={{ minWidth: 180 }}>{row.doses?.[0]?.sourceSchedule || "-"}</td>
+                          <td style={{ minWidth: 220 }}>
+                            <div className="muted small" title={copy(pageContract, "modal.rule_editor.table.source_schedule_derived_title")}>
+                              <span className="tag t-mut">{copy(pageContract, "modal.rule_editor.table.source_schedule_derived_badge")}</span>
+                              <div style={{ marginTop: 4, whiteSpace: "normal", lineHeight: 1.35 }}>{sourceScheduleDisplay(row)}</div>
+                            </div>
+                          </td>
                           <td className="mono" style={{ minWidth: 90 }}>{row.doses?.[0]?.doseAmount ?? "-"}</td>
                           <td className="mono" style={{ minWidth: 80 }}>{row.doses?.[0]?.vialDoses || "-"}</td>
                           <td className="mono" style={{ minWidth: 110 }}>{row.doses?.[0]?.revaccinationIntervalDays || "-"}</td>

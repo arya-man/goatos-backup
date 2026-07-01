@@ -220,15 +220,21 @@
   .lk{color:var(--info);cursor:pointer;font-weight:600}.lk:hover{text-decoration:underline}
   .cfgback{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:120;display:none}.cfgback.on{display:block}
   .cfgmodal{position:fixed;z-index:121;top:50%;left:50%;transform:translate(-50%,-50%);width:min(920px,94vw);max-height:90vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);display:none}.cfgmodal.on{display:block}
-  .cfgmodal .cmh{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line2);position:sticky;top:0;background:var(--panel);z-index:1}
-  .cfgmodal .cmb{padding:16px 18px;display:grid;grid-template-columns:1fr 330px;gap:18px}@media(max-width:780px){.cfgmodal .cmb{grid-template-columns:1fr}}
+  .cfgpage{display:none;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:clip}
+  .cfgpage.on{display:block}
+  .cfgmodal .cmh,.cfgpage .cmh{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line2);position:sticky;top:0;background:var(--panel);z-index:1}
+  .cfgmodal .cmb,.cfgpage .cmb{padding:16px 18px;display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,360px);gap:18px;align-items:start}
+  .cfgpage .cmb{grid-template-columns:minmax(0,1fr) minmax(320px,390px);padding:18px}
+  .cfgpage .cfgjson{max-height:calc(100vh - 260px)}
+  @media(max-width:980px){.cfgmodal .cmb,.cfgpage .cmb{grid-template-columns:1fr}}
   .cfgform label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:11px 0 4px}
   .cfgform input,.cfgform select{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;outline:0}
   .cfgform input:focus,.cfgform select:focus{border-color:var(--brand)}
   .cfgform .rowf{display:flex;gap:8px}.cfgform .rowf>*{flex:1}
   .cfgchk{display:flex;flex-wrap:wrap;gap:7px;margin-top:4px}.cfgchk label{display:inline-flex;align-items:center;gap:6px;text-transform:none;font-weight:600;color:var(--ink);font-size:12px;margin:0;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:6px 9px;cursor:pointer}.cfgchk input{width:auto}
+  @media(max-width:640px){.cfgform .rowf{flex-direction:column}.cfgchk label{flex:1 1 100%;max-width:100%;white-space:normal;line-height:1.25}.cfgchk input{flex:0 0 auto}}
   .cfgjson{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px;font:11px/1.5 ui-monospace,Menlo,monospace;color:var(--muted);white-space:pre-wrap;max-height:430px;overflow:auto}
-  .cfgmf{display:flex;gap:8px;align-items:center;padding:13px 18px;border-top:1px solid var(--line2);position:sticky;bottom:0;background:var(--panel)}
+  .cfgmf{display:flex;gap:8px;align-items:center;padding:13px 18px;border-top:1px solid var(--line2);position:sticky;bottom:0;background:var(--panel);z-index:1}
   #cfgToastEl{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--brand);color:#08130B;font-weight:700;padding:10px 16px;border-radius:10px;z-index:130;box-shadow:var(--shadow);opacity:0;transition:opacity .2s;pointer-events:none}
   /* layout + sidebar */
   .layout{display:flex;min-height:calc(100vh - 58px)}

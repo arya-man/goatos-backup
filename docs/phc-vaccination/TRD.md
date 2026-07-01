@@ -233,7 +233,10 @@ available to detail and audit surfaces.
 2. Revalidate each candidate against current goat facts. Dead, sold,
    transferred, culled, or lost goats cancel open work. Sick, quarantine, ICU,
    pregnancy, and lactation states apply the rule's allow/defer/block/review
-   policy. Shed shifts re-scope only same-vaccine open work.
+   policy. Shed shifts re-scope only same-vaccine open work. V1 already enforces
+   pregnancy/lactation from current facts during generation/backfill; a
+   standalone `goat.reproductive_status.changed` recheck event is a V2/provenance
+   extension until a producer and consumer are shipped.
 3. Bucket candidates by:
    `(tenant_id, park, shed_or_cohort, protocol_version_id, rule_id, dose_code,
    due_window_bucket, eligibility/defer_state)`. This reduces million-goat
@@ -246,29 +249,40 @@ available to detail and audit surfaces.
    vaccine groups.
 5. Generate candidate drive dates only inside each group's medical window:
    `earliest_safe_date <= planned_date <= last_safe_date`. Dates outside the
-   window are rejected before scoring.
-6. Score safe candidates deterministically. Hard constraints are not scores.
+   window are rejected before scoring. The planner must also carry an operations
+   hold window, for example `batch_hold_until = min(first_due_at + max_safe_wait_days,
+   last_safe_date)`, plus policy fields for `minimum_drive_size`,
+   `force_micro_drive_below_last_safe_date`, shed-tag compatibility, park route
+   scope, operator capacity, verifier capacity, stock/lot expiry, and cold-chain
+   duration.
+6. Decide hold-vs-micro-drive before scoring. Waiting to combine sheds/cohorts
+   is allowed only when every goat in the merged candidate remains inside its
+   medical safe window. If a +1 week hold would pass any goat's `last_safe_date`,
+   the small shed becomes a micro-drive now. Example: 5 due K1 goats in one CBE
+   shed and 15 compatible K1 goats in another CBE shed may become one 20-goat
+   drive only if the 5 goats can medically wait through that hold.
+7. Score safe candidates deterministically. Hard constraints are not scores.
    Scored factors are urgency/earliest deadline, goats covered, disease
    priority, stock expiry, worker/route efficiency, cold-chain route duration,
    and fairness to small sheds that have already waited.
-7. Pick the best candidate with stable tie-breakers:
+8. Pick the best candidate with stable tie-breakers:
    earliest deadline, higher medical priority, more goats covered, expiring
    stock, lower route cost, then oldest waiting shed bucket.
-8. Assign resources under transaction/lease control: create or update
+9. Assign resources under transaction/lease control: create or update
    `obligation_batches`, attach obligations, reserve stock where vaccination
    policy requires it, create the SOP task, and store worker/verifier/proof
    requirements. Concurrent planners must use idempotency keys and row locks so
    two workers cannot claim the same obligations.
-9. Execute and reconcile by scan. Missing goats stay open/missed/follow-up;
+10. Execute and reconcile by scan. Missing goats stay open/missed/follow-up;
    shifted-in eligible goats become explicit extras; shifted-out goats move to
    the destination bucket; newly sick/pregnant/quarantined goats defer or block;
    deaths/sales cancel; unreadable tags create identity exceptions; proof
    rejection and cold-chain failure create rework.
-10. Replan incrementally. Events such as `goat.exited`, `goat.location.changed`,
-    `goat.health.changed`, `goat.reproductive_status.changed`,
-    `proof.rejected`, `stock.shortfall`, or `cold_chain.failed` invalidate only
-    the affected goat, bucket, vaccine group, and batch. The whole herd is never
-    recalculated for one state change.
+11. Replan incrementally. Events such as `goat.exited`,
+    `goat.location.changed`, `goat.health.changed`, future/proven
+    `goat.reproductive_status.changed`, `proof.rejected`, `stock.shortfall`, or
+    `cold_chain.failed` invalidate only the affected goat, bucket, vaccine
+    group, and batch. The whole herd is never recalculated for one state change.
 
 **Boundary**
 The later optimizer requires the V1-authored vaccine compatibility fields plus

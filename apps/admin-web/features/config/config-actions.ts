@@ -109,8 +109,10 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
 }
 
 export async function saveDraftBatch(input: RuleInput, matrixRows: VaccinationMatrixRow[]): Promise<ActionResult> {
-  const rows = normalizeVaccinationMatrixRows(input, matrixRows);
   if (input.category !== "vaccination") return saveDraft(input);
+  const validationError = validateVaccinationMatrixRows(input, matrixRows);
+  if (validationError) return { ok: false, message: validationError };
+  const rows = normalizeVaccinationMatrixRows(input, matrixRows);
 
   const versionIds: string[] = [];
   for (let i = 0; i < rows.length; i += 1) {
@@ -194,8 +196,27 @@ function normalizeVaccinationMatrixRows(input: RuleInput, matrixRows: Vaccinatio
     stage: row.stage || input.eligibility.stage,
     sex: row.sex || input.eligibility.sex,
     breed: row.breed || input.eligibility.breed,
-    doses: row.doses && row.doses.length > 0 ? row.doses : input.doses,
+    doses: row.doses !== undefined ? row.doses : input.doses,
   }));
+}
+
+function validateVaccinationMatrixRows(input: RuleInput, matrixRows: VaccinationMatrixRow[]): string {
+  const rows = matrixRows.length > 0
+    ? matrixRows
+    : [{ id: "current", vaccine: input.vaccine, stage: input.eligibility.stage, sex: input.eligibility.sex, breed: input.eligibility.breed }];
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    const rowLabel = `matrix row ${i + 1}`;
+    const vaccineCode = row.vaccine.code.trim();
+    const vaccineName = row.vaccine.name.trim();
+    if (!vaccineCode) return `${rowLabel}: vaccine code is required`;
+    if (!vaccineName) return `${rowLabel}: vaccine name is required`;
+    const doseRows = row.doses !== undefined ? row.doses : input.doses;
+    if (doseRows.length === 0) {
+      return `${rowLabel} (${vaccineCode || vaccineName || "unnamed"}): add at least one dose row or use Copy selected row`;
+    }
+  }
+  return "";
 }
 
 function stableMutationKey(scope: string, payload: unknown): string {

@@ -44,6 +44,9 @@ Feed Direction workbook and legacy automation findings
 Goats and Parks base source findings
   context/source-findings/goats-and-parks-source-findings.md
 
+Goats and Parks tracked source extract
+  context/source-findings/goats-and-parks-source-extract.md
+
 Goats and Parks alignment audit
   context/source-findings/goats-and-parks-alignment-audit-2026-06-30.md
 

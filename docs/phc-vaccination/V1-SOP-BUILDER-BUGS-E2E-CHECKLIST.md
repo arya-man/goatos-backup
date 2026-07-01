@@ -19,18 +19,31 @@ scope.
 Validated V1 demo closure evidence:
 
 - Full E2E smoke: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-  - Report: `/Users/ravi/mesha/goatos-vaccination-v1-close/.codex-goatos-render/e2e-smoke/NUANCE-RULES-20260701-V1-MATRIX-R2`
+  - Report: `.codex-goatos-render/e2e-smoke/NUANCE-RULES-20260701-V1-MATRIX-R2`
 - SOP/Config authoring smoke: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-  - Report: `/Users/ravi/mesha/goatos-vaccination-v1-close/.codex-goatos-render/vaccination-authoring/NUANCE-RULES-20260701-V1-MATRIX-R2/authoring.md`
+  - Report: `.codex-goatos-render/vaccination-authoring/NUANCE-RULES-20260701-V1-MATRIX-R2/authoring.md`
   - Proves the Nuance Rules matrix loads, saves, and publishes ET+TT, PPR, Goat Pox, FMD, and HS as separate protocol versions from one grid flow.
 - Click/interlink matrix: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-  - Report: `/Users/ravi/mesha/goatos-vaccination-v1-close/.codex-goatos-render/vaccination-click-matrix/NUANCE-RULES-20260701-V1-MATRIX-R2/matrix.md`
+  - Report: `.codex-goatos-render/vaccination-click-matrix/NUANCE-RULES-20260701-V1-MATRIX-R2/matrix.md`
 - Chain proof: `vaccination-chain-proof stamp=1782915162`
 - Rework proof: `vaccination-rework-proof stamp=1782899439`
   - Proves reject -> rework -> resubmit -> accept, accepted/rejected Passport history, and real Passport workflow row linkage.
 - Visual smoke screenshots:
-  - `/Users/ravi/mesha/goatos-vaccination-v1-close/.codex-goatos-render/admin-web-screenshots/2026-07-01T14-12-57-572Z`
-  - Rework Passport: `/Users/ravi/mesha/goatos-vaccination-v1-close/.codex-goatos-render/admin-web-screenshots/2026-07-01T09-04-55-269Z/desktop-goat-passport-rework-proof.png`
+  - `.codex-goatos-render/admin-web-screenshots/2026-07-01T14-12-57-572Z`
+  - Rework Passport: `.codex-goatos-render/admin-web-screenshots/2026-07-01T09-04-55-269Z/desktop-goat-passport-rework-proof.png`
+
+Additional Config page UX follow-up after converting New draft rule from modal
+to normal page:
+
+- Full E2E smoke: `CONFIG-PAGE-V2-20260701`
+  - Report: `.codex-goatos-render/e2e-smoke/CONFIG-PAGE-V2-20260701`
+- SOP/Config authoring smoke: `AUTHORING-2026-07-01T18-35-03-998Z`
+  - Report: `.codex-goatos-render/vaccination-authoring/AUTHORING-2026-07-01T18-35-03-998Z/authoring.md`
+- Click/interlink matrix: `CONFIG-PAGE-V2-20260701-R2`
+  - Report: `.codex-goatos-render/vaccination-click-matrix/CONFIG-PAGE-V2-20260701-R2/matrix.md`
+- Config authoring page screenshots:
+  - `.codex-goatos-render/config-page/config-authoring-desktop.png`
+  - `.codex-goatos-render/config-page/config-authoring-mobile-after.png`
 
 Closed for V1 demo: SOP builder lifecycle, all supported SOP question types,
 multi-row Config matrix authoring/publish, source schedule/dose/vial/revaccination
@@ -193,7 +206,7 @@ The E2E must prove the kernel for these event families:
 - goat stage changed
 - goat shed/location changed
 - goat health/defer state changed
-- goat reproductive state changed
+- goat reproductive facts evaluated during generation/backfill
 - goat death/sale/exit cancels open work
 - trusted external vaccination history suppresses duplicate work
 - vaccination due work generated
@@ -204,6 +217,13 @@ The E2E must prove the kernel for these event families:
 - proof accepted records vaccination history
 - proof rejected creates rework
 - completion schedules next dose/booster where configured
+
+V1 honesty boundary: `goat.created`, `goat.stage_changed`,
+`goat.location.changed`, and `goat.health.changed` re-run the per-goat
+vaccination check. Pregnant/lactating exclusions are enforced from current goat
+facts during preview, generation, and explicit backfill, but a standalone
+`goat.reproductive_status.changed` producer/consumer path is not proven in V1.
+If that event is added, this checklist must gain its own defer/reopen proof.
 
 Scale rule:
 
@@ -407,8 +427,8 @@ Expected:
 Observed on 2026-07-01 after the source-matrix preset work:
 
 - The `Source schedule` column is visible after **Load Source Vaccine Matrix**,
-  but it is not directly editable in the grid and the modal does not clearly
-  explain whether it is a locked source label or derived from the dose rows
+  but it is not directly editable in the grid and the authoring page does not
+  clearly explain whether it is a locked source label or derived from the dose rows
   below.
 - After loading the source matrix, **Add matrix row** creates a new row with
   source/preset-like schedule data already present instead of an obviously blank
@@ -437,6 +457,18 @@ Expected:
     copied with visible copy semantics;
   - save/publish rejects any incomplete newly added blank row with row-indexed
     errors.
+
+Fix status on 2026-07-01:
+
+- The matrix grid now renders `Source schedule` as a derived, read-only summary
+  and points admins to the selected-row schedule builder for edits.
+- **Add matrix row** creates an intentionally blank row with no copied source
+  schedule or dose rows.
+- **Copy selected row** is the explicit copy command when an admin wants to
+  duplicate the selected source/preset row.
+- `smoke-vaccination-authoring-live.mjs` now asserts the derived label, the
+  blank-row default, row-indexed blank-row validation, and explicit copy
+  behavior.
 
 ### 9. Escalation policy is free-text and over-claims behavior
 
@@ -491,19 +523,20 @@ Observed:
 Expected:
 
 - Each checkbox must be tested as a real rule, not only as saved UI state.
-- Pregnant/lactating exclusions must affect Preview Impact and generated work.
+- Pregnant/lactating exclusions must affect Preview Impact and generated work
+  when generation/backfill reads current goat facts.
 - Sick/Treatment/ICU/Quarantine rules must mark affected obligations deferred,
   not hide or silently drop them.
 - Each dose/phase row must affect Preview Impact and generated obligations.
 - E2E must include one goat included by the matrix, one goat excluded by the
   matrix, and one goat deferred by the matrix.
 
-### 12. Every vaccination modal needs save/publish/click E2E
+### 12. Every vaccination authoring surface needs save/publish/click E2E
 
 Observed:
 
-- Bugs were found only after manually clicking modals, dropdowns, side drawers,
-  pagination, and row actions.
+- Bugs were found only after manually clicking modals, authoring pages,
+  dropdowns, side drawers, pagination, and row actions.
 - Current tests were not strong enough to catch broken clicks, silent disabled
   buttons, missing success states, raw IDs, text overlap, or wrong redirects.
 - Some controls looked like real actions but only opened explanatory drawers or
@@ -513,8 +546,9 @@ Observed:
 
 Expected:
 
-- Every modal in the vaccination slice must have the same save/draft/publish,
-  validation, success, failure, reopen, close, and screenshot checks.
+- Every modal or authoring page in the vaccination slice must have the same
+  save/draft/publish, validation, success, failure, reopen, close/back, and
+  screenshot checks.
 - Every row action and drawer action must either perform a real backed action or
   show a clear disabled/unavailable reason.
 - Every control must be tested both before and after refresh so the test proves
@@ -783,7 +817,9 @@ from a clean tenant/state, not isolated page checks.
 - [ ] Fill schedule rows: dose, trigger, offset, window, amount, unit,
   route/site.
 - [ ] Toggle pregnant, lactating, Sick, Treatment, ICU, and Quarantine rules and
-  prove they change preview/generation behavior where expected.
+  prove they change preview/generation behavior where expected. For V1,
+  pregnant/lactating proof is current-fact preview/generation/backfill proof,
+  not a standalone reproductive-state-change event proof.
 - [ ] Preview impact and verify eligible goats, obligations, shed tasks, doses,
   and stock warnings.
 - [ ] Publish config only after every validation passes.
@@ -1014,12 +1050,13 @@ These checks are in addition to the clean-slate E2E path above.
 - [x] Photo proof field can be saved, reopened, and binds to proof policy.
 - [x] Video proof field can be saved, reopened, and binds to proof policy.
 
-### Vaccination modal coverage
+### Vaccination authoring surface coverage
 
 - [x] SOP builder modal supports save draft, reopen, dry-run, publish, close,
   validation errors, success states, and failure states.
-- [x] Vaccination config modal supports save draft, reopen, preview impact,
-  publish, close, validation errors, success states, and failure states.
+- [x] Vaccination config authoring page supports save draft, reopen, preview
+  impact, publish, close/back, validation errors, success states, and failure
+  states.
 - [x] Vaccination row/detail drawer supports open, close, drilldown, disabled
   action explanation, and no fake working controls.
 - [x] Action Center drawer supports open, close, drilldown, disabled action
@@ -1032,8 +1069,8 @@ These checks are in addition to the clean-slate E2E path above.
   open the wrong row/drawer.
 - [ ] Search/filter controls on every vaccination slice list either work or show
   a clear unavailable reason.
-- [x] Every V1 demo modal/drawer is checked at desktop and narrow viewport with
-  screenshots.
+- [x] Every V1 demo modal/drawer/page authoring surface is checked at desktop
+  and narrow viewport with screenshots.
 
 ### Conditional rule validation
 
@@ -1060,12 +1097,12 @@ These checks are in addition to the clean-slate E2E path above.
 
 ### Visual and click QA
 
-- [x] No modal text overlaps at desktop viewport in the V1 demo smoke.
-- [x] No modal text overlaps at narrow viewport in the V1 demo smoke.
+- [x] No modal/authoring-page text overlaps at desktop viewport in the V1 demo smoke.
+- [x] No modal/authoring-page text overlaps at narrow viewport in the V1 demo smoke.
 - [x] Error text does not overlap controls in the V1 demo smoke.
 - [x] Success/error toasts do not cover sticky footer actions in the V1 demo smoke.
 - [x] Sticky footer does not cover fields in the V1 demo smoke.
-- [x] Dropdowns do not overflow outside the modal in the V1 demo smoke.
+- [x] Dropdowns do not overflow outside the authoring surface in the V1 demo smoke.
 - [x] Close/cancel behavior is consistent and does not lose saved drafts in the V1 demo smoke.
 - [x] Every visible V1 demo clickable control either works or shows a clear disabled
   reason.
@@ -1074,7 +1111,7 @@ These checks are in addition to the clean-slate E2E path above.
 
 - [x] Open Config -> Vaccination.
 - [x] Click New draft rule.
-- [ ] Capture screenshot of the empty New draft rule modal.
+- [x] Capture screenshot of the empty New draft rule page.
 - [ ] Capture screenshot after filling a valid vaccination matrix row.
 - [x] Every visible V1 demo field can be focused without layout shift or overlap.
 - [ ] Protocol code validates required/format/duplicate cases.
@@ -1180,11 +1217,11 @@ These checks are in addition to the clean-slate E2E path above.
   failures are returned by the batch save/publish action.
 - [x] Matrix/grid entry mode persists all rows as separate protocol versions and
   reloads them in the Config list/drawer.
-- [x] Matrix/grid entry mode shows row-level controls/errors in the modal without
-  text overlap in the tested desktop viewport.
-- [ ] BUG: `Source schedule` is visible but not directly editable and does not
+- [x] Matrix/grid entry mode shows row-level controls/errors in the authoring
+  page without text overlap in the tested desktop viewport.
+- [x] BUG: `Source schedule` is visible but not directly editable and does not
   clearly say whether it is derived/read-only or where the admin edits it.
-- [ ] BUG: After **Load Source Vaccine Matrix**, **Add matrix row** must not
+- [x] BUG: After **Load Source Vaccine Matrix**, **Add matrix row** must not
   silently prefill the new row with source/preset schedule data; blank-vs-copy
   behavior needs explicit UX and E2E proof.
 - [ ] Escalation policy is configured with structured role/action fields, not
@@ -1249,6 +1286,13 @@ and source compatibility spacing are V1.
 - Add batching thresholds:
   minimum goats per shed drive, max safe wait days, force micro-drive rule, and
   small-shed fairness rule.
+- Add an explicit medical-window vs batching-window proof case:
+  if one shed has a small due count now and a compatible same-park shed/tag
+  cohort becomes due within the allowed batching hold, combine them only when
+  every goat remains inside its medical safe window. Example: 5 eligible K1
+  goats in one shed plus 15 compatible K1 goats in another shed may become one
+  20-goat drive with a +1 week operations hold only when the medical clock is
+  still safe; otherwise the smaller shed becomes a micro-drive now.
 - Add route/resource controls:
   operator capacity, cold-chain duration, stock lot/expiry, and verifier
   availability.

@@ -172,6 +172,8 @@ compact sidebar · PHC vertical with Vaccination as an operational module ·
 Admin/Data Ops with Config · Parks/Sheds as foundation only · no
 Operations/Legacy/SOP/cyan nav · no huge fonts · no horizontal clipping · clean
 theme toggle · Goat Passport contextual/detail only (no global goat search).
-Config screen matches `mock/goatos-dashboard-mock.html` (table + New-draft-rule +
-editor modal: left form / right `rule_dsl` JSON / sticky footer). "mock" is a
-visual reference only — never a name in product code/UI.
+Config screen matches `mock/goatos-dashboard-mock.html` for the table and
+authoring anatomy. `New draft rule` opens a normal `/config?new_rule=1`
+authoring page with breadcrumb, left form, right `rule_dsl` JSON rail, and
+sticky footer instead of an oversized modal. "mock" is a visual reference only
+— never a name in product code/UI.

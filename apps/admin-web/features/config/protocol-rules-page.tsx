@@ -106,6 +106,7 @@ export async function ConfigProtocolRulesPage({
   pageContract: AdminUiPageContract;
 }) {
   const initialCategory = resolveCategory(category, pageContract);
+  const authoringOpen = searchParams ? one(searchParams, "new_rule") === "1" : false;
   const publishControl = control(pageContract, "publish_protocol_version");
   const selectedRuleId = searchParams ? one(searchParams, "config_rule") : undefined;
   const [res, sopRes, stagesRes, selectedRes] = await Promise.all([
@@ -165,7 +166,7 @@ export async function ConfigProtocolRulesPage({
       />
 
       {/* How a published rule maps to live work */}
-      <section className="card">
+      {!authoringOpen ? <section className="card">
         <div className="hd">
           <Workflow className="ic" aria-hidden="true" />
           <h3>{copy(pageContract, "section.process_map.title")}</h3>
@@ -191,7 +192,7 @@ export async function ConfigProtocolRulesPage({
             </Link>
           </div>
         </div>
-      </section>
+      </section> : null}
     </div>
   );
 }

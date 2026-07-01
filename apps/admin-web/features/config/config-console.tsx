@@ -8,7 +8,7 @@ import type { AppApiComponents } from "@goatos/api-client";
 import { RuleEditorModal } from "./rule-editor-modal";
 import type { AnimalStageOption, SopVersionOption } from "./rule-dsl";
 import { copy, optionGroup, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import type { RouteSearchParams } from "@/lib/search-params";
+import { one, type RouteSearchParams } from "@/lib/search-params";
 
 type ProtocolVersionDetail = AppApiComponents["schemas"]["ProtocolVersionResponse"];
 
@@ -28,10 +28,10 @@ export interface ConfigRuleRow {
 
 const TONE_CLASS = { warn: "t-warn", info: "t-info", ok: "t-ok", mut: "t-mut" } as const;
 
-function configHref(params: RouteSearchParams | undefined, category: string, selectedRuleId?: string): string {
+function configHref(params: RouteSearchParams | undefined, category: string, selectedRuleId?: string, newRule = false): string {
   const next = new URLSearchParams();
   for (const [key, value] of Object.entries(params ?? {})) {
-    if (key === "config_rule" || key === "category") continue;
+    if (key === "config_rule" || key === "category" || key === "new_rule") continue;
     if (Array.isArray(value)) {
       for (const item of value) if (item) next.append(key, item);
     } else if (value) {
@@ -40,6 +40,7 @@ function configHref(params: RouteSearchParams | undefined, category: string, sel
   }
   next.set("category", category);
   if (selectedRuleId) next.set("config_rule", selectedRuleId);
+  if (newRule) next.set("new_rule", "1");
   const qs = next.toString();
   return qs ? `/config?${qs}` : "/config";
 }
@@ -265,7 +266,6 @@ export function ConfigConsole({
   pageContract: AdminUiPageContract;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [requestedPage, setRequestedPage] = useState(1);
   const pageSizeOptions = tablePageSizes(pageContract, "protocol-rules");
@@ -298,27 +298,72 @@ export function ConfigConsole({
   const pagedRules = filteredRules.slice((page - 1) * pageSize, page * pageSize);
   const selectedRule = selectedRuleId ? rules.find((rule) => rule.id === selectedRuleId) : undefined;
   const closeRecordHref = configHref(searchParams, initialCategory);
+  const newRule = searchParams ? one(searchParams, "new_rule") === "1" : false;
+  const newRuleHref = configHref(searchParams, initialCategory, undefined, true);
+
+  if (newRule) {
+    return (
+      <>
+        <nav className="navback" aria-label={copy(pageContract, "breadcrumb.config_rule_editor")}>
+          <Link href={closeRecordHref} replace className="nbback" scroll={false}>
+            <ChevronLeft className="ic" aria-hidden="true" /> {pageContract.title}
+          </Link>
+          <div className="nbtrail">
+            <span className="nbc">{copy(pageContract, "crumb")}</span>
+            <ChevronRight className="nbsep" aria-hidden="true" />
+            <Link href={closeRecordHref} replace className="nbc" scroll={false}>
+              {pageContract.title}
+            </Link>
+            <ChevronRight className="nbsep" aria-hidden="true" />
+            <span className="nbc cur">{copy(pageContract, "action.new_draft_rule")}</span>
+          </div>
+        </nav>
+        <RuleEditorModal
+          key={initialCategory}
+          open
+          presentation="page"
+          onClose={() => router.push(closeRecordHref, { scroll: false })}
+          initialCategory={initialCategory}
+          sopVersions={sopVersions}
+          animalStages={animalStages}
+          stagesError={stagesError}
+          sopsError={sopsError}
+          canPublish={canPublish}
+          publishDisabledReason={publishDisabledReason}
+          pageContract={pageContract}
+        />
+      </>
+    );
+  }
 
   return (
     <>
-	      <div className="phead">
+      <div className="phead">
 	        <div>
+	          <div className="crumb">
+	            <b>{copy(pageContract, "crumb")}</b> / {pageContract.title}
+	          </div>
 	          <h1>{pageContract.title}</h1>
 	          <div className="sub">
 	            <b>{copy(pageContract, "page.lede")}</b> {copy(pageContract, "page.lede_detail")}
 	          </div>
 	        </div>
 	        <div className="sp" />
-	        <button
-	          type="button"
-	          className="btn p"
-	          onClick={() => setOpen(true)}
-	          disabled={authoringDisabled}
-	          title={authoringDisabledReason}
-	          style={authoringDisabled ? { opacity: 0.45, cursor: "not-allowed" } : undefined}
-	        >
-	          <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.new_draft_rule")}
-	        </button>
+	        {authoringDisabled ? (
+	          <button
+	            type="button"
+	            className="btn p"
+	            disabled
+	            title={authoringDisabledReason}
+	            style={{ opacity: 0.45, cursor: "not-allowed" }}
+	          >
+	            <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.new_draft_rule")}
+	          </button>
+	        ) : (
+	          <Link href={newRuleHref} className="btn p" scroll={false}>
+	            <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.new_draft_rule")}
+	          </Link>
+	        )}
       </div>
 
       <div className="alert warn" style={{ marginBottom: 16 }}>
@@ -505,19 +550,6 @@ export function ConfigConsole({
         ) : null}
       </section>
 
-      <RuleEditorModal
-        key={initialCategory}
-        open={open}
-        onClose={() => setOpen(false)}
-        initialCategory={initialCategory}
-        sopVersions={sopVersions}
-        animalStages={animalStages}
-        stagesError={stagesError}
-        sopsError={sopsError}
-        canPublish={canPublish}
-        publishDisabledReason={publishDisabledReason}
-        pageContract={pageContract}
-      />
       {selectedRuleId ? (
         <ProtocolRuleDrawer
           row={selectedRule}

@@ -1506,6 +1506,7 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "config":
 		return map[string]string{
+			"crumb":                                                       "Admin / Data Ops",
 			"page.lede":                                                 "What should happen.",
 			"page.lede_detail":                                          "CEO/COO author + publish the business/medical config. Obligations, SOP tasks & adherence gaps all flow from published rules.",
 			"security.warning":                                          "Real business/medical config — not public. Only CEO/COO publish · Directors draft/propose if granted the capability · field / verifier / park never see raw config (they get generated obligations + SOP tasks only).",
@@ -1550,6 +1551,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"pager.rules_noun":                                          "rules",
 			"process_map.text":                                          "published rule → obligations (per goat / dose) → shed-drive SOP task → proof + verify → adherence gap",
 			"process_map.note":                                          "After publish, every obligation, SOP task, and adherence gap is generated from this config. Review the effect in",
+			"breadcrumb.config_rule_editor":                             "Config breadcrumb",
 			"modal.rule_editor.aria":                                    "Protocol rule editor",
 			"modal.rule_editor.title":                                   "New draft rule",
 			"modal.rule_editor.subtitle":                                "stored as rule_dsl (JSONB · JSON-Schema-validated · not YAML) · category changes fields and payload",
@@ -1633,9 +1635,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.placeholder.vaccine_compatibility_group": "compatibility group / family",
 			"modal.rule_editor.matrix_grid_title":                       "Vaccination matrix rows",
 			"modal.rule_editor.action.add_matrix_row":                   "Add matrix row",
+			"modal.rule_editor.action.copy_selected_matrix_row":         "Copy selected row",
 			"modal.rule_editor.action.load_source_vaccine_matrix":       "Load Source Vaccine Matrix",
 			"modal.rule_editor.action.apply_source_schedule":            "Apply source schedule",
 			"modal.rule_editor.action.remove_matrix_row":                "Remove matrix row",
+			"modal.rule_editor.title.add_blank_matrix_row":              "Add a blank matrix row; source schedule and dose rows stay empty until you choose or copy a source preset",
+			"modal.rule_editor.title.copy_selected_matrix_row":          "Create an intentional copy of the selected row, including source schedule and dose rows",
 			"modal.rule_editor.title.keep_one_matrix_row":               "At least one matrix row is required",
 			"modal.rule_editor.field.vaccination_eligibility":           "Vaccination eligibility - animal / shed stage + sex",
 			"modal.rule_editor.option.all_stages":                       "all (every stage)",
@@ -1679,6 +1684,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.table.vaccine_name":                      "Name",
 			"modal.rule_editor.table.course_type":                       "Course",
 			"modal.rule_editor.table.source_schedule":                   "Source schedule",
+			"modal.rule_editor.table.source_schedule_derived_badge":     "derived",
+			"modal.rule_editor.table.source_schedule_derived_title":     "Read-only summary from the row's dose schedule; edit Source schedule in the Schedule builder below",
+			"modal.rule_editor.table.no_source_schedule":                "No source schedule - edit selected-row dose rows below",
 			"modal.rule_editor.table.vial_doses":                        "Vial",
 			"modal.rule_editor.table.revaccination":                     "Revaccination (d)",
 			"modal.rule_editor.table.stage":                             "Stage",

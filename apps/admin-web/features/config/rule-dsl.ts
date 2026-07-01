@@ -458,7 +458,7 @@ export function ruleInputForVaccinationMatrixRow(input: RuleInput, row: Vaccinat
       sex: row.sex,
       breed: row.breed,
     },
-    doses: row.doses && row.doses.length > 0 ? row.doses : input.doses,
+    doses: row.doses !== undefined ? row.doses : input.doses,
   };
 }
 
