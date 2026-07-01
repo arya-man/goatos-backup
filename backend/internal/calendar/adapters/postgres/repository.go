@@ -998,7 +998,6 @@ LIMIT $7`, in.TenantID, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4
 }
 
 func (r *Repository) selectEscalationEventForObligation(ctx context.Context, in ports.SweepEscalations, obligationID string, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff time.Time) ([]escalationEvent, error) {
-	eventID := "obligation:" + obligationID
 	var event escalationEvent
 	err := r.pool.QueryRow(ctx, `
 WITH candidate AS (
@@ -1013,7 +1012,10 @@ WITH candidate AS (
     END AS level
   FROM calendar_event_projections
   WHERE tenant_id = $1::uuid
-    AND event_id = $7
+    AND (
+      event_id = 'obligation:' || $7::text
+      OR (source_target_type = 'obligation' AND source_target_id = $7::uuid)
+    )
     AND slice_key = 'vaccination'
     AND system = false
     AND due_at IS NOT NULL
@@ -1028,7 +1030,7 @@ WHERE level > 0
     FROM notification_requests nr
     WHERE nr.tenant_id = $1::uuid
       AND nr.idempotency_key = $1 || ':calendar.escalation:' || c.event_id || ':level:' || c.level::text
-  )`, in.TenantID, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff, eventID).Scan(&event.EventID, &event.Level)
+  )`, in.TenantID, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff, obligationID).Scan(&event.EventID, &event.Level)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return []escalationEvent{}, nil
 	}
@@ -1228,7 +1230,7 @@ func escalationRole(level int, target escalationTarget) string {
 		return permissions.RolePHCDirector
 	case level == 2:
 		return permissions.RoleParkHead
-	case target.Status == "verification_pending" || strings.TrimSpace(target.VerifierLabel) != "":
+	case target.Status == "verification_pending":
 		return permissions.RoleVerifier
 	default:
 		return permissions.RoleOperator
@@ -1819,8 +1821,8 @@ WITH catchup_drive_events AS (
     grouped.dose_code,
     true AS source_backed,
     grouped.source_label,
-    'catchup'::text AS source_target_type,
-    COALESCE(grouped.shed_id, $1::uuid) AS source_target_id,
+    CASE WHEN grouped.target_count = 1 THEN 'obligation' ELSE 'catchup' END AS source_target_type,
+    CASE WHEN grouped.target_count = 1 THEN grouped.single_obligation_id ELSE COALESCE(grouped.shed_id, $1::uuid) END AS source_target_id,
     'PHC drive team'::text AS assignee_label,
     'phc_vaccinator'::text AS executor_role,
     'PHC verifier'::text AS verifier_label,
@@ -1861,6 +1863,7 @@ WITH catchup_drive_events AS (
       pv.protocol_version_id,
       pd.name AS vaccine_name,
       pr.dose_code,
+      (array_agg(oi.obligation_id ORDER BY oi.obligation_id))[1] AS single_obligation_id,
       COALESCE(NULLIF(pv.rule_dsl -> 'source' ->> 'source_ref', ''), pd.name) AS source_label,
       pv.rule_dsl -> 'source' ->> 'source_ref' AS source_ref,
       COALESCE(scope_loc.timezone, 'Asia/Kolkata') AS timezone,
@@ -1932,8 +1935,7 @@ WITH catchup_drive_events AS (
       AND pv.status = 'published'
       AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
       AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
-      AND oi.status NOT IN ('waived', 'canceled', 'superseded')
-      AND (oi.status <> 'completed' OR oi.due_at >= now() - interval '90 days')
+      AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
     GROUP BY
       loc.shed_id, loc.shed_name, loc.park_id, loc.park_code,
       pr.rule_id, pd.protocol_id, pv.protocol_version_id, pd.name, pr.dose_code,
@@ -2378,8 +2380,7 @@ WITH source_event_ids AS (
     AND pv.status = 'published'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
-    AND oi.status NOT IN ('waived', 'canceled', 'superseded')
-    AND (oi.status <> 'completed' OR oi.due_at >= now() - interval '90 days')
+    AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
   GROUP BY event_id
 ),
 tombstoned AS (

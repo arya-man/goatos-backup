@@ -1189,6 +1189,8 @@ func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
 	dueAt := time.Now().UTC().Add(4 * time.Hour)
+	protocolID := "86000000-0000-4000-8000-000000000810"
+	versionID := "86000000-0000-4000-8000-000000000820"
 	sharedRuleID := "86000000-0000-4000-8000-000000000830"
 	obligationIDs := []string{
 		"86000000-0000-4000-8000-000000000814",
@@ -1197,8 +1199,8 @@ func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t
 	}
 	for i, obligationID := range obligationIDs {
 		seedVaccinationObligation(t, ctx, pool,
-			fmt.Sprintf("86000000-0000-4000-8000-00000000081%d", i),
-			fmt.Sprintf("86000000-0000-4000-8000-00000000082%d", i),
+			protocolID,
+			versionID,
 			sharedRuleID,
 			obligationID,
 			dueAt.Add(time.Duration(i)*time.Hour),
@@ -1461,27 +1463,26 @@ INSERT INTO protocol_versions (
   'Projection source-backed published test', 'draft', DATE '2026-01-01', DATE '2028-01-01',
   '{"source":{"review_status":"approved","source_ref":"docs/phc-vaccination/PRD.md","source_system":"phc","approved_by":"test","approved_at":"2026-06-27T00:00:00Z"}}'::jsonb,
   '{"required_proofs":["administration"]}'::jsonb, NULL
-)
-ON CONFLICT (protocol_version_id) DO UPDATE
-SET status = 'draft',
-    rule_dsl = EXCLUDED.rule_dsl,
-    published_at = NULL,
-    updated_at = now()`,
+	)
+	ON CONFLICT (protocol_version_id) DO NOTHING`,
 		versionID, testTenantID, protocolID)
 	if err != nil {
 		t.Fatalf("seed protocol version: %v", err)
 	}
 	_, err = pool.Exec(ctx, `
-INSERT INTO protocol_rules (
-  rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
-  offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json,
-  proof_policy, sort_order
-) VALUES (
-  $1::uuid, $2::uuid, $3::uuid, 'PROJ-PRIMARY', 1, 'calendar',
-  0, 1, 0, 'none', 'immediate', '{}'::jsonb, '{"required_proofs":["administration"]}'::jsonb, 10
-)
-ON CONFLICT (rule_id) DO UPDATE
-SET dose_code = EXCLUDED.dose_code`,
+	INSERT INTO protocol_rules (
+	  rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
+	  offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json,
+	  proof_policy, sort_order
+	)
+	SELECT
+	  $1::uuid, $2::uuid, $3::uuid, 'PROJ-PRIMARY', 1, 'calendar',
+	  0, 1, 0, 'none', 'immediate', '{}'::jsonb, '{"required_proofs":["administration"]}'::jsonb, 10
+	WHERE NOT EXISTS (
+	  SELECT 1
+	  FROM protocol_rules
+	  WHERE tenant_id = $2::uuid AND rule_id = $1::uuid
+	)`,
 		ruleID, testTenantID, versionID)
 	if err != nil {
 		t.Fatalf("seed protocol rule: %v", err)

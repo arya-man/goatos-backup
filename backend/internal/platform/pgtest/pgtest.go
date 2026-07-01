@@ -60,13 +60,21 @@ func applyMigrations(t *testing.T, container string) {
 		t.Fatal(err)
 	}
 	sort.Strings(migrations)
+	var script strings.Builder
 	for _, migration := range migrations {
 		sqlBytes, err := os.ReadFile(migration)
 		if err != nil {
 			t.Fatal(err)
 		}
-		psql(t, container, extractGooseUp(string(sqlBytes)))
+		upSQL := strings.TrimSpace(extractGooseUp(string(sqlBytes)))
+		if upSQL == "" {
+			continue
+		}
+		fmt.Fprintf(&script, "\\echo applying %s\n", filepath.Base(migration))
+		script.WriteString(upSQL)
+		script.WriteByte('\n')
 	}
+	psql(t, container, script.String())
 }
 
 func openPool(t *testing.T, ctx context.Context, container string) *pgxpool.Pool {
