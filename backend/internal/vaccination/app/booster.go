@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"time"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
@@ -62,16 +63,22 @@ type ScheduleNextInput struct {
 }
 
 // ScheduleNextDose schedules the next higher-sequence dose when that rule is triggered
-// after_previous_completion. Returns scheduled=false when there is no such next rule (series complete,
-// or the next dose is calendar/age-triggered and already covered by SM-1), or on an idempotent replay.
+// after_previous_completion. When the completed rule is a repeatable adult revaccination row and the
+// series has no higher sequence left, it schedules the same rule's next repeat cycle from the accepted
+// administered_at. Returns scheduled=false when no next/recurring dose is due, or on an idempotent
+// replay.
 func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextInput) (scheduled bool, err error) {
 	rules, err := s.proto.ListRules(ctx, in.TenantID, in.ProtocolVersionID)
 	if err != nil {
 		return false, err
 	}
+	var current *protodomain.Rule
 	var next *protodomain.Rule
 	var nextSequence int32
 	for i := range rules {
+		if rules[i].Sequence == in.PrevSequence {
+			current = &rules[i]
+		}
 		if rules[i].Sequence <= in.PrevSequence {
 			continue
 		}
@@ -83,15 +90,25 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 			nextSequence = rules[i].Sequence
 		}
 	}
-	if next == nil || next.TriggerType != "after_previous_completion" {
-		return false, nil // series complete, or the immediate next dose is SM-1 scheduled
-	}
 
-	gap := next.OffsetDays
-	if next.MinGapDays > gap {
-		gap = next.MinGapDays // enforce the minimum interval
+	candidate := next
+	var due time.Time
+	if next != nil && next.TriggerType == "after_previous_completion" {
+		gap := next.OffsetDays
+		if next.MinGapDays > gap {
+			gap = next.MinGapDays // enforce the minimum interval
+		}
+		due = in.AdministeredAt.AddDate(0, 0, int(gap))
+	} else if next == nil && current != nil {
+		var ok bool
+		due, ok = repeatDueAfterCompletion(*current, in.AdministeredAt)
+		if !ok {
+			return false, nil
+		}
+		candidate = current
+	} else {
+		return false, nil // immediate next dose is SM-1 scheduled
 	}
-	due := in.AdministeredAt.AddDate(0, 0, int(gap))
 
 	status := "scheduled"
 	deferReason := ""
@@ -117,12 +134,12 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		}
 	}
 
-	key := obligationKey(in.TenantID, in.ProtocolVersionID, next.RuleID, "goat", in.GoatID,
-		due.UTC().Format(time.RFC3339), strconv.Itoa(int(next.Sequence)))
+	key := obligationKey(in.TenantID, in.ProtocolVersionID, candidate.RuleID, "goat", in.GoatID,
+		due.UTC().Format(time.RFC3339), strconv.Itoa(int(candidate.Sequence)))
 	obID, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{
 		TenantID:          in.TenantID,
 		ProtocolVersionID: in.ProtocolVersionID,
-		RuleID:            next.RuleID,
+		RuleID:            candidate.RuleID,
 		TargetType:        "goat",
 		TargetID:          in.GoatID,
 		ScopeType:         in.ScopeType,
@@ -130,7 +147,7 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		DueAt:             due,
 		Status:            status,
 		IdempotencyKey:    key,
-		Sequence:          next.Sequence,
+		Sequence:          candidate.Sequence,
 	})
 	if err != nil {
 		return false, err
@@ -151,4 +168,22 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		}
 	}
 	return applied, nil
+}
+
+func repeatDueAfterCompletion(rule protodomain.Rule, administeredAt time.Time) (time.Time, bool) {
+	switch strings.ToLower(strings.TrimSpace(rule.Repeat)) {
+	case "every_n_days":
+		gap := rule.MinGapDays
+		if rule.OffsetDays > gap {
+			gap = rule.OffsetDays
+		}
+		if gap <= 0 {
+			return time.Time{}, false
+		}
+		return administeredAt.AddDate(0, 0, int(gap)), true
+	case "yearly":
+		return administeredAt.AddDate(1, 0, 0), true
+	default:
+		return time.Time{}, false
+	}
 }

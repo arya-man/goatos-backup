@@ -108,6 +108,70 @@ func TestScheduleNextDoseDoesNotSkipCalendarRuleBeforeNextCompletionBooster(t *t
 	}
 }
 
+func TestScheduleNextDoseRepeatsAdultRevaccinationRule(t *testing.T) {
+	ctx := context.Background()
+	proto := &boosterRuleReaderFake{rules: []protodomain.Rule{
+		{RuleID: "rule-et-primary", DoseCode: "et_tt_7w", Sequence: 2, TriggerType: "birth_age"},
+		{RuleID: "rule-et-adult", DoseCode: "et_tt_adult_revac_182d", Sequence: 3, TriggerType: "after_previous_completion", OffsetDays: 182, MinGapDays: 182, Repeat: "every_n_days"},
+	}}
+	obl := &boosterObligationWriterFake{}
+	svc := NewBoosterService(proto, obl)
+	administered := time.Date(2026, time.July, 1, 8, 0, 0, 0, time.UTC)
+
+	scheduled, err := svc.ScheduleNextDose(ctx, ScheduleNextInput{
+		TenantID:          "tenant-1",
+		ProtocolVersionID: "version-1",
+		GoatID:            "goat-1",
+		ScopeType:         "shed",
+		ScopeID:           "shed-1",
+		PrevSequence:      3,
+		AdministeredAt:    administered,
+	})
+
+	if err != nil {
+		t.Fatalf("schedule adult repeat: %v", err)
+	}
+	if !scheduled || len(obl.inserted) != 1 {
+		t.Fatalf("scheduled=%v inserted=%d, want one adult repeat obligation", scheduled, len(obl.inserted))
+	}
+	got := obl.inserted[0]
+	wantDue := administered.AddDate(0, 0, 182)
+	if got.RuleID != "rule-et-adult" || got.Sequence != 3 || !got.DueAt.Equal(wantDue) {
+		t.Fatalf("inserted=%#v, want same adult rule sequence 3 due %s", got, wantDue)
+	}
+}
+
+func TestScheduleNextDoseRepeatsYearlyAdultRule(t *testing.T) {
+	ctx := context.Background()
+	proto := &boosterRuleReaderFake{rules: []protodomain.Rule{
+		{RuleID: "rule-goat-pox-adult", DoseCode: "goat_pox_adult_revac_365d", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 365, MinGapDays: 365, Repeat: "yearly"},
+	}}
+	obl := &boosterObligationWriterFake{}
+	svc := NewBoosterService(proto, obl)
+	administered := time.Date(2026, time.July, 1, 8, 0, 0, 0, time.UTC)
+
+	scheduled, err := svc.ScheduleNextDose(ctx, ScheduleNextInput{
+		TenantID:          "tenant-1",
+		ProtocolVersionID: "version-1",
+		GoatID:            "goat-1",
+		ScopeType:         "shed",
+		ScopeID:           "shed-1",
+		PrevSequence:      2,
+		AdministeredAt:    administered,
+	})
+
+	if err != nil {
+		t.Fatalf("schedule yearly adult repeat: %v", err)
+	}
+	if !scheduled || len(obl.inserted) != 1 {
+		t.Fatalf("scheduled=%v inserted=%d, want one yearly repeat obligation", scheduled, len(obl.inserted))
+	}
+	wantDue := administered.AddDate(1, 0, 0)
+	if got := obl.inserted[0]; got.RuleID != "rule-goat-pox-adult" || !got.DueAt.Equal(wantDue) {
+		t.Fatalf("inserted=%#v, want yearly repeat due %s", got, wantDue)
+	}
+}
+
 func TestScheduleNextDoseDefersWhenCurrentGoatIsInDeferState(t *testing.T) {
 	ctx := context.Background()
 	proto := &boosterRuleReaderFake{

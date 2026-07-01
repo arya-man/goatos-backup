@@ -21,7 +21,7 @@ var ErrNotPublishable = errors.New("protocol: version not publishable")
 var ErrInvalidRuleDSL = errors.New("protocol: invalid rule_dsl")
 
 // ErrUnsupportedRepeatPolicy is returned when direct protocol authoring attempts to store a repeat
-// policy that the generator does not execute yet.
+// policy that the generator cannot execute safely.
 var ErrUnsupportedRepeatPolicy = errors.New("protocol: unsupported repeat policy")
 
 // publishableSources are the real source systems whose approved values may be published. Anything
@@ -526,8 +526,13 @@ func normalizeRepeatPolicy(value string, minGapDays int32) (string, error) {
 	switch repeat {
 	case "none":
 		return repeat, nil
-	case "yearly", "every_n_days":
-		return "", fmt.Errorf("%w: forward recurrence %q is not materialized yet", ErrUnsupportedRepeatPolicy, repeat)
+	case "yearly":
+		return repeat, nil
+	case "every_n_days":
+		if minGapDays <= 0 {
+			return "", fmt.Errorf("%w: every_n_days requires min_gap_days", ErrUnsupportedRepeatPolicy)
+		}
+		return repeat, nil
 	default:
 		return "", fmt.Errorf("%w: %q", ErrUnsupportedRepeatPolicy, repeat)
 	}

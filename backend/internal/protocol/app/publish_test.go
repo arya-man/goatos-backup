@@ -176,10 +176,14 @@ func TestValidateExecutionContract(t *testing.T) {
 
 	everyNDays := valid
 	everyNDays.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","trigger_type":"birth_age","repeat":"every_n_days","min_gap_days":30}]}`)
-	if err := ValidateExecutionContract(everyNDays); !errors.Is(err, ErrNotPublishable) {
-		t.Fatalf("every_n_days should be blocked until forward recurrence is materialized, got %v", err)
-	} else if !errors.Is(err, ErrUnsupportedRepeatPolicy) {
-		t.Fatalf("every_n_days should preserve sentinel, got %v", err)
+	if err := ValidateExecutionContract(everyNDays); err != nil {
+		t.Fatalf("every_n_days with min_gap_days should publish, got %v", err)
+	}
+
+	yearly := valid
+	yearly.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","trigger_type":"birth_age","repeat":"yearly"}]}`)
+	if err := ValidateExecutionContract(yearly); err != nil {
+		t.Fatalf("yearly repeat should publish, got %v", err)
 	}
 
 	everyNDaysMissingGap := valid
@@ -300,6 +304,27 @@ func TestAddRuleRejectsEveryNDaysWithoutMinGap(t *testing.T) {
 	}
 	if repo.createRuleCalled {
 		t.Fatalf("repo must not be called for unsafe every_n_days policies")
+	}
+}
+
+func TestAddRuleAcceptsMaterializedRepeatPolicies(t *testing.T) {
+	repo := &fakeProtocolRepo{}
+	service := NewService(repo)
+
+	if _, err := service.AddRule(context.Background(), domain.NewRule{Repeat: "every_n_days", MinGapDays: 30}); err != nil {
+		t.Fatalf("every_n_days with min_gap_days should be accepted: %v", err)
+	}
+	if !repo.createRuleCalled || repo.createdRule.Repeat != "every_n_days" {
+		t.Fatalf("repo called=%v repeat=%q, want every_n_days stored", repo.createRuleCalled, repo.createdRule.Repeat)
+	}
+
+	repo = &fakeProtocolRepo{}
+	service = NewService(repo)
+	if _, err := service.AddRule(context.Background(), domain.NewRule{Repeat: "yearly"}); err != nil {
+		t.Fatalf("yearly repeat should be accepted: %v", err)
+	}
+	if !repo.createRuleCalled || repo.createdRule.Repeat != "yearly" {
+		t.Fatalf("repo called=%v repeat=%q, want yearly stored", repo.createRuleCalled, repo.createdRule.Repeat)
 	}
 }
 

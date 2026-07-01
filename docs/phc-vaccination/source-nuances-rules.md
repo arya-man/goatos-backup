@@ -1,4 +1,4 @@
-# Vaccination Nuance Rules Source
+# Vaccination Source Rules Matrix
 
 **Source file:** `/Users/ravi/mesha/wiki/Nuances_Rules.docx`
 **Extracted into repo:** 2026-07-01 18:18 local source revision
@@ -131,7 +131,10 @@ The V1 kernel must enforce:
 
 ## V1 Source Matrix Presets
 
-These are the V1 authoring presets loaded by the Config modal.
+These are the V1 authoring presets loaded by the Config modal's
+**Load Source Vaccine Matrix** action. Rows target all stages by default because
+the medical timing is DOB/completion based; stage, sex, and breed can still be
+narrowed by an admin after loading when the source rule needs a specific combo.
 
 | Species/source row | Vaccine | Type | Pathogen | Course | Source schedule days from DOB | V1 effective days | Revaccination days | Dose | Vial |
 |---|---|---|---|---|---:|---:|---:|---:|---:|
@@ -149,8 +152,16 @@ These are the V1 authoring presets loaded by the Config modal.
 
 Goat Pox has a source schedule of 16 weeks, but PPR is also a live viral row at
 16 weeks and priority 2. V1 therefore preserves PPR at 112 days and moves Goat
-Pox to 140 days when the Nuance matrix is loaded, honoring the source live-live
-4-week spacing rule.
+Pox to 140 days when the source vaccine matrix is loaded, honoring the source
+live-live 4-week spacing rule.
+
+Each goat source preset also authors an adult revaccination dose row using the
+source revaccination interval (`after_previous_completion` with the source
+interval as the offset/minimum gap and `repeat=every_n_days`). SM-7 schedules
+the first adult revaccination after the prior accepted completion, then
+reschedules the same adult row after each accepted adult dose so the source
+6-month, 9-month, 1-year, and 3-year adult cycles continue from actual accepted
+completion dates.
 
 The current runtime target type is still named `goat`; sheep rows are retained
 in the V1 source matrix so the config source is complete. Runtime species-aware

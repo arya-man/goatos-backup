@@ -29,7 +29,7 @@ import { copy, optionalCopy, optionGroup, optionLabel, optionalOptionGroup, type
 
 const TONE_CLASS = { warn: "t-warn", info: "t-info", ok: "t-ok" } as const;
 
-type NuanceVaccinePreset = {
+type SourceVaccinePreset = {
   code: string;
   name: string;
   vaccineType: string;
@@ -44,29 +44,6 @@ type NuanceVaccinePreset = {
   priority?: number;
   goatRow: boolean;
 };
-
-function parseNuanceVaccinePresets(options: AdminUiOption[]): NuanceVaccinePreset[] {
-  return options.flatMap((option) => {
-    const [code, vaccineType, pathogenClass, courseType, compatibilityGroup, rawWeeks, rawRevaccinationDays, rawDoseAmount, rawVialDoses, rawPriority, rowScope] = option.key.split("|");
-    const weeks = (rawWeeks ?? "").split(",").map((value) => Number.parseInt(value, 10)).filter((value) => Number.isFinite(value));
-    if (!code || !vaccineType || !pathogenClass || !courseType || weeks.length === 0) return [];
-    return [{
-      code,
-      name: option.label || code,
-      vaccineType,
-      pathogenClass,
-      courseType,
-      disease: option.title || option.label || code,
-      compatibilityGroup: compatibilityGroup || code,
-      motherVaccinatedWeeks: weeks,
-      revaccinationDays: Number.parseInt(rawRevaccinationDays ?? "", 10) || 0,
-      doseAmount: Number.parseFloat(rawDoseAmount ?? "") || 1,
-      vialDoses: Number.parseInt(rawVialDoses ?? "", 10) || 1,
-      priority: Number.parseInt(rawPriority ?? "", 10) || undefined,
-      goatRow: rowScope === "goat",
-    }];
-  });
-}
 
 export function RuleEditorModal({
   open,
@@ -106,6 +83,7 @@ export function RuleEditorModal({
   const vaccineTypeOptions = optionGroup(pageContract, "vaccine_types");
   const pathogenClassOptions = optionGroup(pageContract, "vaccine_pathogen_classes");
   const courseTypeOptions = optionGroup(pageContract, "vaccine_course_types");
+  const sourceVaccinePresetOptions = optionGroup(pageContract, "source_vaccine_matrix_presets");
   const excludedReproductiveOptions = optionGroup(pageContract, "excluded_reproductive_states");
   const doseUnitOptions = optionGroup(pageContract, "dose_units");
   const routeSiteOptions = optionGroup(pageContract, "route_sites");
@@ -116,7 +94,6 @@ export function RuleEditorModal({
   const repeatOptions = optionGroup(pageContract, "repeat_policies");
   const catchUpOptions = optionGroup(pageContract, "catch_up_policies");
   const scheduleSopOptions = optionGroup(pageContract, "schedule_sop_labels");
-  const nuanceVaccinePresets = useMemo(() => parseNuanceVaccinePresets(optionGroup(pageContract, "nuance_vaccine_presets")), [pageContract]);
   const feedClassOptions = optionalOptionGroup(pageContract, "feed_classes");
   const feedItemOptions = optionalOptionGroup(pageContract, "feed_items");
   const feedUnitOptions = optionalOptionGroup(pageContract, "feed_units");
@@ -331,6 +308,7 @@ export function RuleEditorModal({
   const [impact, setImpact] = useState<ImpactPreviewResult | null>(null);
   const [pending, startTransition] = useTransition();
   const isFeedDirection = category === "feed_direction" && supportsFeedDirection;
+  const sourceVaccinePresets = sourceVaccinePresetOptions.map(sourcePresetFromOption).filter((preset) => preset.motherVaccinatedWeeks.length > 0);
 
   function patchMatrixRow(rowId: string, patch: Partial<VaccinationMatrixRow>) {
     setMatrixRows((rows) =>
@@ -364,21 +342,26 @@ export function RuleEditorModal({
     setMatrixRows((rows) => [...rows, next]);
     setSelectedMatrixRowId(next.id);
   }
-  function applyNuancePresetToSelectedRow() {
-    const preset = findNuancePreset(selectedMatrixRow.vaccine.code || selectedMatrixRow.vaccine.name);
+  function applySourcePresetToSelectedRow() {
+    const preset = findSourcePreset(selectedMatrixRow.vaccine.code || selectedMatrixRow.vaccine.name);
     if (!preset) return;
-    patchSelectedMatrixRow(rowFromNuancePreset(preset, selectedMatrixRow.id, selectedMatrixRow.stage, selectedMatrixRow.sex, selectedMatrixRow.breed));
+    patchSelectedMatrixRow(rowFromSourcePreset(preset, selectedMatrixRow.id, sourceMatrixStage(), selectedMatrixRow.sex, selectedMatrixRow.breed));
   }
-  function loadGoatNuanceMatrix() {
-    const fallbackStage = animalStages[0]?.code ?? firstKey(animalStageScope, "animal_stage_scope");
+  function loadGoatSourceMatrix() {
+    const fallbackStage = sourceMatrixStage();
     const fallbackSex = firstKey(sexOptions, "rule_sexes");
     const fallbackBreed = firstKey(breedOptions, "rule_breeds");
-    const rows = nuanceVaccinePresets
+    const rows = sourceVaccinePresets
       .filter((preset) => preset.goatRow)
-      .map((preset, index) => rowFromNuancePreset(preset, `nuance-${index + 1}`, fallbackStage, fallbackSex, fallbackBreed));
+      .map((preset, index) => rowFromSourcePreset(preset, `source-vaccine-${index + 1}`, fallbackStage, fallbackSex, fallbackBreed));
     const spacedRows = applyV1CompatibilitySpacing(rows);
     setMatrixRows(spacedRows);
     setSelectedMatrixRowId(spacedRows[0]?.id ?? null);
+  }
+  function sourceMatrixStage(): string {
+    return animalStageScope.some((option) => option.key === ALL_STAGES_VALUE)
+      ? ALL_STAGES_VALUE
+      : firstKey(animalStageScope, "animal_stage_scope");
   }
   function applyV1CompatibilitySpacing(rows: VaccinationMatrixRow[]): VaccinationMatrixRow[] {
     const occupiedLiveDays = new Set<number>();
@@ -398,6 +381,7 @@ export function RuleEditorModal({
             ? {
                 ...dose,
                 offsetDays: effectiveOffset,
+                doseCode: `${slugSource(row.vaccine.code)}_${Math.round(effectiveOffset / 7)}w`,
                 sourceSchedule: `${dose.sourceSchedule}; V1 live-live spacing effective due ${effectiveOffset}d`,
               }
             : dose,
@@ -405,7 +389,7 @@ export function RuleEditorModal({
       };
     });
   }
-  function rowFromNuancePreset(preset: NuanceVaccinePreset, id: string, stageValue: string, sexValue: string, breedValue: string): VaccinationMatrixRow {
+  function rowFromSourcePreset(preset: SourceVaccinePreset, id: string, stageValue: string, sexValue: string, breedValue: string): VaccinationMatrixRow {
     return {
       id,
       vaccine: {
@@ -422,11 +406,11 @@ export function RuleEditorModal({
       stage: stageValue,
       sex: sexValue,
       breed: breedValue,
-      doses: dosesFromNuancePreset(preset),
+      doses: dosesFromSourcePreset(preset),
     };
   }
-  function dosesFromNuancePreset(preset: NuanceVaccinePreset): DoseRow[] {
-    return preset.motherVaccinatedWeeks.map((week, index) => {
+  function dosesFromSourcePreset(preset: SourceVaccinePreset): DoseRow[] {
+    const kidDoses = preset.motherVaccinatedWeeks.map((week, index) => {
       const previousWeek = preset.motherVaccinatedWeeks[index - 1] ?? 0;
       const gapDays = index === 0 ? 0 : (week - previousWeek) * 7;
       return {
@@ -439,17 +423,95 @@ export function RuleEditorModal({
         doseUnit: requireKey(doseUnitOptions, "ml", "dose_units"),
         vialDoses: preset.vialDoses,
         revaccinationIntervalDays: preset.revaccinationDays,
-        sourceSchedule: `mother vaccinated: ${preset.motherVaccinatedWeeks.join(" and ")} weeks; mother-not-vaccinated ignored by V1 policy`,
+        sourceSchedule: sourceScheduleSummary(preset),
         minGapDays: index === 0 ? 0 : Math.max(gapDays, compatibilityPolicy.kidBoosterMinGapDays),
         repeat: "none",
         repeatUntilAfterAge: "-",
         catchUp: requireKey(catchUpOptions, "phc_approval", "catch_up_policies"),
       };
     });
+    return [...kidDoses, adultRevaccinationDose(preset, kidDoses.length + 1)];
   }
-  function findNuancePreset(value: string): NuanceVaccinePreset | undefined {
+  function adultRevaccinationDose(preset: SourceVaccinePreset, seq: number): DoseRow {
+    return {
+      ...newContractDose(seq),
+      doseCode: `${slugSource(preset.code)}_adult_revac_${preset.revaccinationDays}d`,
+      trigger: requireKey(triggerOptions, "after_previous_completion", "trigger_types"),
+      offsetDays: preset.revaccinationDays,
+      dueWindowDays: 30,
+      maxDelayDays: 30,
+      doseAmount: preset.doseAmount,
+      doseUnit: requireKey(doseUnitOptions, "ml", "dose_units"),
+      vialDoses: preset.vialDoses,
+      revaccinationIntervalDays: preset.revaccinationDays,
+      sourceSchedule: `adult revaccination: ${formatRevaccination(preset.revaccinationDays)} after accepted completion; source table revaccination ${formatRevaccination(preset.revaccinationDays)}`,
+      minGapDays: preset.revaccinationDays,
+      repeat: requireKey(repeatOptions, "every_n_days", "repeat_policies"),
+      repeatUntilAfterAge: "lifetime",
+      catchUp: requireKey(catchUpOptions, "next_cycle", "catch_up_policies"),
+    };
+  }
+  function sourceScheduleSummary(preset: SourceVaccinePreset): string {
+    return `kid critical schedule: mother vaccinated ${formatWeeks(preset.motherVaccinatedWeeks)} (${preset.motherVaccinatedWeeks.map((week) => `${week * 7}d`).join(", ")} from DOB); adult revaccination: ${formatRevaccination(preset.revaccinationDays)} after accepted completion; mother-not-vaccinated ignored by V1 policy`;
+  }
+  function formatWeeks(weeks: number[]): string {
+    if (weeks.length === 0) return "-";
+    if (weeks.length === 1) return `${weeks[0]} weeks`;
+    return `${weeks.slice(0, -1).join(", ")} and ${weeks[weeks.length - 1]} weeks`;
+  }
+  function formatRevaccination(days: number): string {
+    switch (days) {
+      case 182:
+        return "6 months";
+      case 274:
+        return "9 months";
+      case 365:
+        return "1 year";
+      case 1095:
+        return "3 years";
+      default:
+        return `${days} days`;
+    }
+  }
+  function findSourcePreset(value: string): SourceVaccinePreset | undefined {
     const key = slugSource(value);
-    return nuanceVaccinePresets.find((preset) => slugSource(preset.code) === key || slugSource(preset.name) === key);
+    return sourceVaccinePresets.find((preset) => slugSource(preset.code) === key || slugSource(preset.name) === key);
+  }
+  function sourcePresetFromOption(option: AdminUiOption): SourceVaccinePreset {
+    const meta = parsePresetMeta(option.title);
+    return {
+      code: option.key,
+      name: option.label,
+      vaccineType: meta.vaccine_type ?? "unknown_review_needed",
+      pathogenClass: meta.pathogen_class ?? "unknown_review_needed",
+      courseType: meta.course_type ?? "single",
+      disease: meta.disease ?? option.label,
+      compatibilityGroup: meta.compatibility_group ?? option.key,
+      motherVaccinatedWeeks: numberList(meta.weeks),
+      revaccinationDays: numberValue(meta.revaccination_days),
+      doseAmount: numberValue(meta.dose_amount),
+      vialDoses: numberValue(meta.vial_doses),
+      priority: meta.priority ? numberValue(meta.priority) : undefined,
+      goatRow: meta.goat_row !== "false",
+    };
+  }
+  function parsePresetMeta(raw: string): Record<string, string> {
+    return raw.split("|").reduce<Record<string, string>>((acc, pair) => {
+      const [key, ...rest] = pair.split("=");
+      const value = rest.join("=");
+      if (key && value) acc[key.trim()] = value.trim();
+      return acc;
+    }, {});
+  }
+  function numberList(raw: string | undefined): number[] {
+    return (raw ?? "")
+      .split(",")
+      .map((value) => Number(value.trim()))
+      .filter((value) => Number.isFinite(value) && value > 0);
+  }
+  function numberValue(raw: string | undefined): number {
+    const value = Number(raw ?? 0);
+    return Number.isFinite(value) ? value : 0;
   }
   function optionKeyOrFallback(options: AdminUiOption[], desired: string): string {
     return options.some((option) => option.key === desired) ? desired : firstKey(options, "source_option");
@@ -920,8 +982,8 @@ export function RuleEditorModal({
                   <h4 style={{ margin: 0 }}>{copy(pageContract, "modal.rule_editor.matrix_grid_title")}</h4>
                   <span className="tag t-info">{matrixRows.length} {copy(pageContract, matrixRows.length === 1 ? "modal.rule_editor.label.rule_singular" : "modal.rule_editor.label.rule_plural")}</span>
                   <div className="sp" style={{ flex: 1 }} />
-                  <button type="button" className="btn sm" onClick={loadGoatNuanceMatrix}>
-                    <CalendarDays className="ic" /> {copy(pageContract, "modal.rule_editor.action.load_nuance_rules")}
+                  <button type="button" className="btn sm" onClick={loadGoatSourceMatrix}>
+                    <CalendarDays className="ic" /> {copy(pageContract, "modal.rule_editor.action.load_source_vaccine_matrix")}
                   </button>
                   <button type="button" className="btn sm" onClick={addMatrixRow}>
                     <Plus className="ic" /> {copy(pageContract, "modal.rule_editor.action.add_matrix_row")}
@@ -1065,7 +1127,7 @@ export function RuleEditorModal({
                       <option key={option.key} value={option.key}>{option.label}</option>
                     ))}
                   </select>
-                  <button type="button" className="btn sm" onClick={applyNuancePresetToSelectedRow}>
+                  <button type="button" className="btn sm" onClick={applySourcePresetToSelectedRow}>
                     {copy(pageContract, "modal.rule_editor.action.apply_source_schedule")}
                   </button>
                 </div>
