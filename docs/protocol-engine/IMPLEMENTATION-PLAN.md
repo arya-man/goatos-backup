@@ -45,7 +45,10 @@
   Sheep Pox, FMD, HS, and Blue Tongue with species split, dose, vial, repeat,
   procurement, pregnancy, and gap rules. BQ and any future override still need
   timing/dose/booster/route/storage evidence from PHC/vet sign-off or a reviewed
-  source extract before they can generate obligations.
+  source extract before they can generate obligations. The matrix also controls
+  schedule rendering: fixed kid-course drive days are due points (4w, 7w, 12w,
+  16w, and applicable 20w follow-through), while adult/fattening steady-state
+  rows are repeat-interval driven from accepted completions.
 - **Feed ration VALUES** + session clock times per park.
 - **CUTOVER_DATE** + vaccination-history-trust decision (migration-and-cutover §6).
 - The **4 superadmin mail IDs** + capability grants (`protocol.publish.<category>`).

@@ -111,6 +111,10 @@ Procurement vertical for v1.
   Sheep Pox, FMD, HS, and Blue Tongue with species split, dose, vial, repeat,
   and gap rules. BQ remains label-only until a later reviewed source adds
   schedule-bearing values.
+- Preserve the matrix interpretation: kid boards show only actual due ages
+  (4w, 7w, 12w, 16w, and applicable 20w follow-through), while adult/fattening
+  steady state follows repeat intervals from accepted completions and adult
+  procurement follows its own first-step/+4w path.
 - Preserve the SOP proof shape: scheduled date, operator, goat scan, vaccine
   name, medicine batch/vial-lot, dose ml, administered date/time, proof media,
   adverse reaction + notes/follow-up, and verifier/park-head review.

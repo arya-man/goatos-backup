@@ -90,6 +90,11 @@ Capability is checked via `workforce_member_capabilities` (same mechanism as `va
 
 **Publish gate + dev policy (source-backed):** a version publishes **only when `review_status='approved'`** and source-backed. Values that come from a **real source (Vaccinations DB / PHC / vet-approved / committed approved schedule matrix)** and are marked `approved` are **real config in `goatos-dev` and publishable there** — the **dev-real path**. **Unsourced / `manual_admin` / `extracted`** rows stay `status='draft'` and carry a **`not source-backed`** warning — they cannot be published and generate no production work. **Never hand-invent** vaccine schedule values; current PHC Vaccination values come from `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`, and future values arrive via this config UI or a reviewed source extract.
 
+For PHC Vaccination, schedule expansion must preserve the approved matrix mode:
+fixed kid-course due points are authored as due schedule rows, and adult/fattening
+steady-state repeats are driven from accepted completion dates. Do not turn the
+kid timeline into arbitrary weekly drive slots.
+
 ---
 
 ## 3. Schema — protocol layer (the ruleset, admin-authored)

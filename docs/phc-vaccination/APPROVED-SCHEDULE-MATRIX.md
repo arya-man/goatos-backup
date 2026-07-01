@@ -32,6 +32,26 @@ seed data unless Ravi explicitly reopens that branch.
   three months of pregnancy; during months 4 and 5, skip and catch up within two
   weeks after delivery.
 
+## Kid Course Rendering Rule
+
+Schedule boards and drive previews must show ages where a vaccine is actually
+due for the selected species/path, not every age in the animal's life. For the
+approved goat/sheep kid path, the fixed due points are:
+
+| Age | Goat due item | Sheep due item |
+| ---: | --- | --- |
+| 4w | ET+TT dose 1 | ET+TT dose 1 |
+| 7w | ET+TT booster | ET+TT booster |
+| 12w | FMD + HS | FMD + HS + Sheep Pox |
+| 16w | PPR | PPR + Blue Tongue dose 1 |
+| 20w | Goat Pox, only when moved after 16w PPR to satisfy live-live gap | Blue Tongue booster |
+
+K0, K1, and early K2 have no approved-schedule vaccine due before 4w. After
+20w, the fixed kid course is complete; steady-state adult/fattening vaccination
+uses repeat intervals from accepted completion dates, not fixed week-number
+slots. Adult procurement is a separate path with two procurement slots: first
+eligible day after the warmup hold, then 4w later.
+
 ## Schedule By Tag And Age
 
 | Base tag / bucket | Goats & Parks meaning | Timing anchor | Goat vaccine | Sheep vaccine | Dose / vial | Repeat / note |

@@ -180,6 +180,11 @@ PHC vaccination must reuse/enhance it, not rebuild a vaccination-only island (pe
   is the source-backed schedule table for ET+TT, PPR, Goat Pox, Sheep Pox, FMD,
   HS, and Blue Tongue. It includes timing, dose, vial, repeat, species split,
   procurement, pregnancy, and compatibility/gap rules.
+- Schedule rendering and rule expansion must preserve the matrix mode split:
+  fixed kid-course due points are 4w, 7w, 12w, 16w, and applicable 20w
+  follow-through; adult/fattening steady state uses repeat intervals from
+  accepted completions; adult procurement uses its own first-eligible-day and
+  +4w sequence.
 - Stage/tag source: `context/source-findings/goats-and-parks-source-findings.md`
   anchors K0/K1/K2/K3, fattening, warmup, adult, pregnancy, ICU, and quarantine
   meanings. Tags guide eligibility context, but schedule generation must still

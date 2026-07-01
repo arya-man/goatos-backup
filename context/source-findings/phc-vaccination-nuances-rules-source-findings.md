@@ -95,6 +95,15 @@ and the same source requires a 4-week live-live gap. Therefore Goat Pox remains
 recorded as 16w raw source timing, but the effective schedule moves Goat Pox to
 20w when PPR is administered at 16w.
 
+## Kid Course Interpretation For GoatOS
+
+The kid schedule is a fixed primary course with due points at 4w, 7w, 12w, 16w,
+and, where applicable, 20w. It is not an instruction to render every week of
+life as a drive day. There is no approved-schedule vaccine before 4w, and after
+the 20w due point the animal moves to steady-state repeat scheduling driven by
+accepted completion dates. Adult procurement remains a separate source rule:
+ET+TT + PPR first, then 4w later pox + ET+TT booster.
+
 ## GoatOS Implication
 
 - `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md` is the assembled schedule

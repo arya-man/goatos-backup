@@ -104,6 +104,10 @@ Coverage % within window (per vaccine/park) · on-time drive rate · stock integ
    `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md` for schedule-bearing rows:
    ET+TT, PPR, Goat Pox, Sheep Pox, FMD, HS, and Blue Tongue with species split,
    course type, dose, vial, repeat, procurement, pregnancy, and gap rules.
+   Schedule boards must render matrix due points, not all possible ages: the kid
+   path is 4w, 7w, 12w, 16w, and applicable 20w follow-through; after that,
+   vaccination moves to repeat intervals from accepted completions. Adult
+   procurement is a separate two-slot path.
 2. **Stage/tag base source** — use
    `context/source-findings/goats-and-parks-source-findings.md` for K0/K1/K2/K3,
    fattening, warmup, adult, pregnancy, ICU, and quarantine meanings. Tags are
