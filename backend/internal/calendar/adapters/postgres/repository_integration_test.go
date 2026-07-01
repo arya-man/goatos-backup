@@ -19,6 +19,7 @@ import (
 
 const (
 	testTenantID      = "00000000-0000-4000-8000-000000000001"
+	testCustodianID   = "00000000-0000-4000-8000-000000001001"
 	testActorID       = "86000000-0000-4000-8000-000000009999"
 	testDriveRuleID   = "86000000-0000-4000-8000-000000001011"
 	testDriveShedID   = "86000000-0000-4000-8000-000000001012"
@@ -430,6 +431,71 @@ WHERE tenant_id = $1::uuid AND event_id = $2`,
 	}
 	if gotEventID != wantEventID || !sourceBacked || targetCount != 1 {
 		t.Fatalf("projection event_id=%s source_backed=%t target_count=%d", gotEventID, sourceBacked, targetCount)
+	}
+}
+
+func TestCalendarVaccinationProjectionCollapsesBatchedGoatDosesToDrive(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID := "86000000-0000-4000-8000-000000000a01"
+	versionID := "86000000-0000-4000-8000-000000000a02"
+	ruleID := "86000000-0000-4000-8000-000000000a03"
+	batchID := "86000000-0000-4000-8000-000000000a04"
+	obligationIDs := []string{
+		"86000000-0000-4000-8000-000000000a05",
+		"86000000-0000-4000-8000-000000000a06",
+	}
+	dueAt := time.Now().UTC().Add(4 * time.Hour)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationIDs[0], dueAt)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, obligationIDs[1], dueAt)
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: time.Now().UTC().Add(-time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection before batch: %v", err)
+	}
+	assertCount(t, ctx, pool, "pre-batch visible dose events", `
+SELECT count(*)
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid
+  AND event_type='vaccination_dose_due'
+  AND status <> 'canceled'`, len(obligationIDs), testTenantID)
+
+	seedVaccinationBatch(t, ctx, pool, batchID, versionID, dueAt, obligationIDs...)
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: time.Now().UTC().Add(-time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection after batch: %v", err)
+	}
+
+	assertCount(t, ctx, pool, "active dose events after batching", `
+SELECT count(*)
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid
+  AND event_type='vaccination_dose_due'
+  AND status <> 'canceled'`, 0, testTenantID)
+	var eventID, eventType string
+	var targetCount int
+	if err := pool.QueryRow(ctx, `
+SELECT event_id, event_type, target_count
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid
+  AND event_type='vaccination_drive'
+  AND status <> 'canceled'`,
+		testTenantID).Scan(&eventID, &eventType, &targetCount); err != nil {
+		t.Fatalf("query drive projection: %v", err)
+	}
+	if !strings.HasPrefix(eventID, "batch:"+batchID+":rule:"+ruleID+":shed:") || eventType != domain.EventVaccinationDrive || targetCount != len(obligationIDs) {
+		t.Fatalf("drive projection id=%s type=%s targets=%d, want one batch drive with %d goats", eventID, eventType, targetCount, len(obligationIDs))
 	}
 }
 
@@ -1397,20 +1463,8 @@ SET due_at = EXCLUDED.due_at,
 
 func seedScopedCalendarProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID, sourceID, parkID, shedID string, system bool) {
 	t.Helper()
+	seedCalendarLocations(t, ctx, pool, parkID, shedID)
 	_, err := pool.Exec(ctx, `
-INSERT INTO locations (
-  location_id, tenant_id, location_type, location_code, name, parent_location_id,
-  country, timezone, status, updated_at
-) VALUES
-  ($1::uuid, $3::uuid, 'park', 'TST-' || right(($1::uuid)::text, 4), 'Test Park ' || right(($1::uuid)::text, 4), NULL, 'IN', 'Asia/Kolkata', 'active', now()),
-  ($2::uuid, $3::uuid, 'shed', 'TST-' || right(($2::uuid)::text, 4), 'Test Shed ' || right(($2::uuid)::text, 4), $1::uuid, 'IN', 'Asia/Kolkata', 'active', now())
-ON CONFLICT (location_id) DO UPDATE
-SET status = 'active',
-    updated_at = now()`, parkID, shedID, testTenantID)
-	if err != nil {
-		t.Fatalf("seed scoped locations: %v", err)
-	}
-	_, err = pool.Exec(ctx, `
 INSERT INTO calendar_event_projections (
   tenant_id, event_id, slice_key, event_type, owner_key, title, subtitle, status, severity,
   due_at, window_start, window_end, timezone, timezone_source, park_id, park_code, shed_id, shed_name,
@@ -1433,6 +1487,23 @@ SET park_id = EXCLUDED.park_id,
     updated_at = now()`, parkID, shedID, eventID, sourceID, testTenantID, system)
 	if err != nil {
 		t.Fatalf("seed scoped calendar projection: %v", err)
+	}
+}
+
+func seedCalendarLocations(t *testing.T, ctx context.Context, pool *pgxpool.Pool, parkID, shedID string) {
+	t.Helper()
+	_, err := pool.Exec(ctx, `
+INSERT INTO locations (
+  location_id, tenant_id, location_type, location_code, name, parent_location_id,
+  country, timezone, status, updated_at
+) VALUES
+  ($1::uuid, $3::uuid, 'park', 'TST-' || right(($1::uuid)::text, 4), 'Test Park ' || right(($1::uuid)::text, 4), NULL, 'IN', 'Asia/Kolkata', 'active', now()),
+  ($2::uuid, $3::uuid, 'shed', 'TST-' || right(($2::uuid)::text, 4), 'Test Shed ' || right(($2::uuid)::text, 4), $1::uuid, 'IN', 'Asia/Kolkata', 'active', now())
+ON CONFLICT (location_id) DO UPDATE
+SET status = 'active',
+    updated_at = now()`, parkID, shedID, testTenantID)
+	if err != nil {
+		t.Fatalf("seed scoped locations: %v", err)
 	}
 }
 
@@ -1512,6 +1583,81 @@ SET due_at = EXCLUDED.due_at,
 		obligationID, testTenantID, versionID, ruleID, dueAt)
 	if err != nil {
 		t.Fatalf("seed vaccination obligation: %v", err)
+	}
+}
+
+func seedAdditionalVaccinationObligation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, versionID, ruleID, obligationID string, dueAt time.Time) {
+	t.Helper()
+	seedCalendarGoat(t, ctx, pool, obligationID)
+	_, err := pool.Exec(ctx, `
+INSERT INTO obligation_instances (
+  obligation_id, tenant_id, protocol_version_id, rule_id, target_type, target_id,
+  scope_type, scope_id, due_at, window_start, window_end, status, idempotency_key
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, $4::uuid, 'goat', $1::uuid,
+  'tenant', $2::uuid, $5::timestamptz, $5::timestamptz, $5::timestamptz + interval '1 day',
+  'scheduled', 'calendar-projection-test-' || ($1::uuid)::text
+)
+ON CONFLICT (obligation_id) DO UPDATE
+SET due_at = EXCLUDED.due_at,
+    status = 'scheduled',
+    batch_id = NULL,
+    updated_at = now()`,
+		obligationID, testTenantID, versionID, ruleID, dueAt)
+	if err != nil {
+		t.Fatalf("seed additional vaccination obligation: %v", err)
+	}
+}
+
+func seedCalendarGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID string) {
+	t.Helper()
+	_, err := pool.Exec(ctx, `
+INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id)
+VALUES ($1::uuid, $2::uuid, 'alive', 'clean', $3::uuid)
+ON CONFLICT (goat_id) DO UPDATE
+SET lifecycle_status = 'alive',
+    identity_state = 'clean',
+    updated_at = now()`, goatID, testTenantID, testCustodianID)
+	if err != nil {
+		t.Fatalf("seed calendar goat: %v", err)
+	}
+}
+
+func seedVaccinationBatch(t *testing.T, ctx context.Context, pool *pgxpool.Pool, batchID, versionID string, dueAt time.Time, obligationIDs ...string) {
+	t.Helper()
+	seedCalendarLocations(t, ctx, pool, testParkA, testShedA)
+	_, err := pool.Exec(ctx, `
+INSERT INTO obligation_batches (
+  batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status,
+  planned_date, window_start, window_end, estimated_targets, planned_quantity
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'shed', $4::uuid, 'planned',
+  ($5::timestamptz AT TIME ZONE 'UTC')::date, $5::timestamptz, $5::timestamptz + interval '8 hours',
+  $6::int, ($6::int)::numeric
+)
+ON CONFLICT (batch_id) DO UPDATE
+SET scope_type = 'shed',
+    scope_id = EXCLUDED.scope_id,
+    window_start = EXCLUDED.window_start,
+    window_end = EXCLUDED.window_end,
+    estimated_targets = EXCLUDED.estimated_targets,
+    planned_quantity = EXCLUDED.planned_quantity,
+    updated_at = now()`,
+		batchID, testTenantID, versionID, testShedA, dueAt, len(obligationIDs))
+	if err != nil {
+		t.Fatalf("seed vaccination batch: %v", err)
+	}
+	for _, obligationID := range obligationIDs {
+		if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET batch_id = $3::uuid,
+    scope_type = 'shed',
+    scope_id = $4::uuid,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+			testTenantID, obligationID, batchID, testShedA); err != nil {
+			t.Fatalf("attach obligation %s to batch: %v", obligationID, err)
+		}
 	}
 }
 

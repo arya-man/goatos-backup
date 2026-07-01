@@ -2302,6 +2302,7 @@ func (r *Repository) ListOpenByGoat(ctx context.Context, tenantID, goatID string
 			ObligationID:      row.ObligationID,
 			ProtocolVersionID: row.ProtocolVersionID,
 			RuleID:            row.RuleID,
+			BatchID:           row.BatchID,
 			ScopeType:         row.ScopeType,
 			ScopeID:           row.ScopeID,
 			DueAt:             row.DueAt.Time,

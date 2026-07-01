@@ -189,7 +189,7 @@ func (q *Queries) ListDueObligations(ctx context.Context, arg ListDueObligations
 const listOpenObligationsByGoat = `-- name: ListOpenObligationsByGoat :many
 SELECT obligation_id::text AS obligation_id, protocol_version_id::text AS protocol_version_id,
        rule_id::text AS rule_id, scope_type, COALESCE(scope_id::text, '')::text AS scope_id,
-       due_at, status, "sequence"
+       COALESCE(batch_id::text, '')::text AS batch_id, due_at, status, "sequence"
 FROM obligation_instances
 WHERE tenant_id = $1 AND target_type = 'goat' AND target_id = $2
   AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
@@ -209,6 +209,7 @@ type ListOpenObligationsByGoatRow struct {
 	RuleID            string
 	ScopeType         string
 	ScopeID           string
+	BatchID           string
 	DueAt             pgtype.Timestamptz
 	Status            string
 	Sequence          int32
@@ -231,6 +232,7 @@ func (q *Queries) ListOpenObligationsByGoat(ctx context.Context, arg ListOpenObl
 			&i.RuleID,
 			&i.ScopeType,
 			&i.ScopeID,
+			&i.BatchID,
 			&i.DueAt,
 			&i.Status,
 			&i.Sequence,

@@ -21,7 +21,7 @@ var ErrNotPublishable = errors.New("protocol: version not publishable")
 var ErrInvalidRuleDSL = errors.New("protocol: invalid rule_dsl")
 
 // ErrUnsupportedRepeatPolicy is returned when direct protocol authoring attempts to store a repeat
-// policy that the generator does not execute yet.
+// policy that the generator cannot execute safely.
 var ErrUnsupportedRepeatPolicy = errors.New("protocol: unsupported repeat policy")
 
 // publishableSources are the real source systems whose approved values may be published. Anything
@@ -60,6 +60,8 @@ type vaccineMeta struct {
 	Manufacturer       string `json:"manufacturer"`
 	Disease            string `json:"disease"`
 	CompatibilityGroup string `json:"compatibility_group"`
+	PathogenClass      string `json:"pathogen_class"`
+	CourseType         string `json:"course_type"`
 }
 
 type scheduleRow struct {
@@ -70,6 +72,9 @@ type scheduleRow struct {
 	DueWindow         int32           `json:"due_window_days"`
 	DoseAmount        float64         `json:"dose_amount"`
 	DoseUnit          string          `json:"dose_unit"`
+	VialDoses         int32           `json:"vial_doses"`
+	RevaccinationDays int32           `json:"revaccination_interval_days"`
+	SourceSchedule    string          `json:"source_schedule"`
 	RouteSite         string          `json:"route_site"`
 	MaxDelayDays      int32           `json:"max_delay_days"`
 	CourseLapsePolicy string          `json:"course_lapse_policy"`
@@ -84,20 +89,23 @@ type scheduleRow struct {
 
 var (
 	ruleDSLTopLevelKeys = map[string]bool{
-		"category":           true,
-		"scope":              true,
-		"vaccine":            true,
-		"eligibility":        true,
-		"missed_dose_policy": true,
-		"stock_policy":       true,
-		"schedule":           true,
-		"escalation":         true,
-		"source":             true,
-		"parameter_template": true,
-		"ration":             true,
-		"session_timing":     true,
-		"inventory_policy":   true,
-		"validation_policy":  true,
+		"category":             true,
+		"scope":                true,
+		"vaccine":              true,
+		"eligibility":          true,
+		"missed_dose_policy":   true,
+		"stock_policy":         true,
+		"schedule":             true,
+		"escalation":           true,
+		"source":               true,
+		"compatibility_policy": true,
+		"procurement_policy":   true,
+		"pregnancy_policy":     true,
+		"parameter_template":   true,
+		"ration":               true,
+		"session_timing":       true,
+		"inventory_policy":     true,
+		"validation_policy":    true,
 	}
 	ruleDSLScopeKeys = map[string]bool{
 		"type": true,
@@ -127,6 +135,30 @@ var (
 		"manufacturer":        true,
 		"disease":             true,
 		"compatibility_group": true,
+		"pathogen_class":      true,
+		"course_type":         true,
+	}
+	ruleDSLCompatibilityPolicyKeys = map[string]bool{
+		"live_to_killed_gap_days":            true,
+		"killed_to_killed_gap_days":          true,
+		"live_to_live_gap_days":              true,
+		"kid_booster_min_gap_days":           true,
+		"bacterial_viral_same_day_allowed":   true,
+		"live_killed_viral_same_day_allowed": true,
+	}
+	ruleDSLProcurementPolicyKeys = map[string]bool{
+		"warmup_no_vaccination_days":       true,
+		"kids_normal_schedule_until_weeks": true,
+		"adult_source_vaccination_allowed": true,
+		"first_wave":                       true,
+		"second_wave_after_days":           true,
+		"goat_second_wave":                 true,
+	}
+	ruleDSLPregnancyPolicyKeys = map[string]bool{
+		"allow_until_pregnancy_month":  true,
+		"skip_from_pregnancy_month":    true,
+		"skip_through_pregnancy_month": true,
+		"post_delivery_catch_up_days":  true,
 	}
 	ruleDSLSourceKeys = map[string]bool{
 		"source_system": true,
@@ -138,23 +170,26 @@ var (
 		"approved_at":   true,
 	}
 	ruleDSLScheduleKeys = map[string]bool{
-		"dose_code":              true,
-		"sequence":               true,
-		"trigger_type":           true,
-		"offset_days":            true,
-		"due_window_days":        true,
-		"dose_amount":            true,
-		"dose_unit":              true,
-		"route_site":             true,
-		"max_delay_days":         true,
-		"course_lapse_policy":    true,
-		"min_gap_days":           true,
-		"repeat":                 true,
-		"repeat_until_after_age": true,
-		"catch_up":               true,
-		"sop_version":            true,
-		"sop_label":              true,
-		"proof_policy":           true,
+		"dose_code":                   true,
+		"sequence":                    true,
+		"trigger_type":                true,
+		"offset_days":                 true,
+		"due_window_days":             true,
+		"dose_amount":                 true,
+		"dose_unit":                   true,
+		"vial_doses":                  true,
+		"revaccination_interval_days": true,
+		"source_schedule":             true,
+		"route_site":                  true,
+		"max_delay_days":              true,
+		"course_lapse_policy":         true,
+		"min_gap_days":                true,
+		"repeat":                      true,
+		"repeat_until_after_age":      true,
+		"catch_up":                    true,
+		"sop_version":                 true,
+		"sop_label":                   true,
+		"proof_policy":                true,
 	}
 	ruleDSLStockPolicyKeys = map[string]bool{
 		"vaccine_lot_requirement": true,
@@ -230,6 +265,21 @@ func ValidateRuleDSL(ruleDSL []byte) error {
 	}
 	if raw, ok := root["stock_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
 		if _, err := decodeRuleDSLObject(raw, "rule_dsl.stock_policy", ruleDSLStockPolicyKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["compatibility_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.compatibility_policy", ruleDSLCompatibilityPolicyKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["procurement_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.procurement_policy", ruleDSLProcurementPolicyKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["pregnancy_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.pregnancy_policy", ruleDSLPregnancyPolicyKeys); err != nil {
 			return err
 		}
 	}
@@ -476,8 +526,13 @@ func normalizeRepeatPolicy(value string, minGapDays int32) (string, error) {
 	switch repeat {
 	case "none":
 		return repeat, nil
-	case "yearly", "every_n_days":
-		return "", fmt.Errorf("%w: forward recurrence %q is not materialized yet", ErrUnsupportedRepeatPolicy, repeat)
+	case "yearly":
+		return repeat, nil
+	case "every_n_days":
+		if minGapDays <= 0 {
+			return "", fmt.Errorf("%w: every_n_days requires min_gap_days", ErrUnsupportedRepeatPolicy)
+		}
+		return repeat, nil
 	default:
 		return "", fmt.Errorf("%w: %q", ErrUnsupportedRepeatPolicy, repeat)
 	}

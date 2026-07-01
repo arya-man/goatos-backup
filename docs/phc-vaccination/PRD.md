@@ -5,7 +5,9 @@
 repo state; `context/source-findings/phc-vaccination-roster-stage-proposal.md`
 and `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md` for
 accepted source findings; then `/Users/ravi/mesha/wiki` goatOS/PHC/Health
-handbook material and the product mock where they do not conflict.
+handbook material, including the tracked vaccination nuance source
+[source-nuances-rules.md](./source-nuances-rules.md), and the product mock
+where they do not conflict.
 **Foundation:** [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md) — vaccination is the first module on a shared engine, not a one-off.
 **Explicitly NOT a source:** the older `goatos/context/*` and `goatos/docs/phases/*` planning docs (scrapped new-dashboard effort).
 
@@ -72,6 +74,16 @@ applies, what proof/SOP is required, and what source approval backs the row.
 Purchased/intake goats and existing goats already in the database must be run
 through the same matrix as farm-born goats.
 
+The matrix must also carry the vaccination nuance rules from
+[source-nuances-rules.md](./source-nuances-rules.md): vaccine class and
+pathogen class, post-procurement warm-up hold, live/killed spacing metadata,
+same-day allowance metadata, quarantine/ICU/sick defer states, pregnancy and
+post-delivery policy, and adult-source-vaccination policy. V1 enforces the
+eligibility, defer, schedule, trusted-history, catch-up, source compatibility
+spacing, and Calendar drive-first parts. A later operations optimizer may use
+the same V1-authored compatibility fields for route/resource planning, but it
+does not own the medical rule matrix.
+
 ### 4.2 Goat enters → obligations auto-generate
 Birth report (`origin_type=birth`) or procurement (`origin_type=procured`) creates the goat. The engine reads published vaccination rules matching the goat's `sex × shed-stage × dose sequence` and **materializes `obligation_instances`** (one per due dose), `scheduled_date` computed from the trigger.
 
@@ -90,11 +102,18 @@ Per `vaccination_completion`: obligation → `completed`; **FEFO inventory** con
 ### 4.6 Edge cases (must handle)
 Shift (re-target + re-eval same vaccine), death/sale (cancel pending in same txn), missed vs blocked (distinct), double-submit (idempotent), stock-out (reserve-at-start, no negative). Detail in [TRD §6](./TRD.md).
 
-### 4.7 V2 drive-planning algorithm
+### 4.7 Later drive-planning optimizer
 V1 must already answer: for every goat, what vaccine is due, by what date, in
-which shed, and under which approved vaccine-goat matrix row. V2 starts after
-that. It answers the operations question: when should the farm run a practical
-drive, which goats go into it, and which vaccines can safely be done together.
+which shed, and under which approved vaccine-goat matrix row. The later
+optimizer starts after that. It answers the operations question: when should
+the farm run a practical drive, which goats go into it, and how to allocate
+route/resources around the V1-approved vaccine groups.
+
+Basic Calendar aggregation is V1. Once the sweeper attaches goat due
+rows to a shed-drive batch, Calendar must show the drive as the active item and
+must not duplicate every batched per-goat `dose_due` row as a separate active
+Calendar event. Goat-level due status remains visible in Passport, Protocol
+Adherence, Vaccination detail, and audit surfaces.
 
 The planner works like this:
 
@@ -109,10 +128,11 @@ The planner works like this:
 3. Apply hard safety gates before scoring anything: lifecycle active, not
    dead/sold/transferred/lost/culled, health/defer state, pregnancy/lactation
    rule, quarantine/ICU rule, proof/SOP requirement, trained worker, stock,
-   cold-chain, and vaccine compatibility.
-4. Build a vaccine conflict graph for each shed/time window. Vaccines are nodes;
-   unsafe same-day combinations or required 2-week/4-week gaps are edges. The
-   planner separates unsafe combinations and keeps only safe vaccine groups.
+   cold-chain, and the V1-authored vaccine compatibility policy.
+4. Build operational drive groups from the V1-safe vaccine groups for each
+   shed/time window. Unsafe same-day combinations or required 2-week/4-week gaps
+   are already represented by the V1 matrix and source policy; the optimizer
+   separates them while planning routes and resources.
 5. Search candidate dates only inside the approved medical window
    (`earliest_safe_date`, `ideal_date`, `last_safe_date`). A date outside the
    safe window is rejected, not merely given a bad score.
@@ -133,15 +153,18 @@ The planner works like this:
    or a proof fails, only that goat and its affected shed/vaccine bucket are
    invalidated. The system does not recompute the full million-goat herd.
 
-V2 is therefore a constraint-based shed-drive planner: per-goat due generation
-plus cohort bucketing, vaccine conflict partitioning, bounded date search,
+The later optimizer is therefore a constraint-based shed-drive planner:
+per-goat due generation plus cohort bucketing, V1-safe vaccine grouping,
+bounded date search,
 deterministic scoring, resource assignment, execution reconciliation, and
 incremental replanning.
 
 The split is deliberate: V1 owns the complete vaccine-goat matrix and per-goat
-due generation. V2 consumes those due rows and the vaccine compatibility fields
-to optimize shed drives. Do not treat V2 drive planning as a substitute for the
-V1 matrix.
+due generation plus basic shed-drive batching and Calendar drive-first
+projection. The later optimizer consumes those due rows, batches, and
+V1-authored compatibility fields to optimize routes, resources, timing, and
+multi-vaccine drive plans. Do not treat drive planning as a substitute for the
+V1 matrix or V1 Calendar de-duplication.
 
 ## 5. Surfaces (per the mock)
 
@@ -165,10 +188,10 @@ Coverage % within window (per vaccine/park) · on-time drive rate · stock integ
 2. **K2 age band** — use 42 days / six weeks for local/dev because the wiki,
    glossary, and legacy identity seed agree; the legacy dashboard's 45 is mock
    drift. Keep it data-driven on `animal_stage_lookup`.
-3. **Production roster expansion** — PPR/FMD/HS/BQ are valid SOP/roster labels
-   from source artifacts, but only ET has schedule/dose evidence in committed
-   PRD text today. Add more schedule-bearing protocol rows when source extracts
-   provide timing/dose/booster values.
+3. **Source Nuance roster** — [source-nuances-rules.md](./source-nuances-rules.md)
+   now carries the V1 schedule/dose/vial/revaccination source for ET+TT, PPR,
+   Goat Pox, FMD, and HS goat rows, with Blue Tongue and Sheep Pox retained as
+   source rows for species-aware expansion.
 
 ## 8. Legacy capability parity, proof policy, and import mapping
 
@@ -186,4 +209,4 @@ reactions need notes/follow-up, and verifier/park-head review must be durable.
 | Committed `000075` draft SOP skeleton (`shed_video`, `vial_lot`, `cold_chain`, `dose`, `route_site`, `administered_at`, `adverse_reaction`, `est_vs_used`, `verifier_review`) | Treat as the committed starting skeleton, not the final source contract. Upgrade the SOP version/proof policy to the source-normalized shape before calling vaccination SOP parity closed. |
 | Procurement/legacy rows that mention vaccination | Treat as source evidence with confidence/proof semantics only. The live legacy guardrail found no reliable first-class vaccination evidence field in cleaned BigQuery tables, so a procurement row/header alone is not an administered dose. |
 | Reliable historical vaccination record, if later proven | Import to staging, reconcile into `vaccination_completions`, mark matching obligations completed, and schedule boosters from the actual administered date. |
-| Missing or untrusted history | Do not invent completions. After PHC approval, generate baseline/catch-up shed drives per `docs/protocol-engine/migration-and-cutover.md` instead of fabricating administered history. |
+| Missing or untrusted history | Do not invent completions. For older goats whose old dose windows are already past, create one safe catch-up/review action first, not every missed historical dose as same-day work. After PHC approval, generate baseline/catch-up shed drives per `docs/protocol-engine/migration-and-cutover.md` instead of fabricating administered history. |

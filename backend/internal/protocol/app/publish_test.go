@@ -176,10 +176,14 @@ func TestValidateExecutionContract(t *testing.T) {
 
 	everyNDays := valid
 	everyNDays.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","trigger_type":"birth_age","repeat":"every_n_days","min_gap_days":30}]}`)
-	if err := ValidateExecutionContract(everyNDays); !errors.Is(err, ErrNotPublishable) {
-		t.Fatalf("every_n_days should be blocked until forward recurrence is materialized, got %v", err)
-	} else if !errors.Is(err, ErrUnsupportedRepeatPolicy) {
-		t.Fatalf("every_n_days should preserve sentinel, got %v", err)
+	if err := ValidateExecutionContract(everyNDays); err != nil {
+		t.Fatalf("every_n_days with min_gap_days should publish, got %v", err)
+	}
+
+	yearly := valid
+	yearly.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","trigger_type":"birth_age","repeat":"yearly"}]}`)
+	if err := ValidateExecutionContract(yearly); err != nil {
+		t.Fatalf("yearly repeat should publish, got %v", err)
 	}
 
 	everyNDaysMissingGap := valid
@@ -303,6 +307,27 @@ func TestAddRuleRejectsEveryNDaysWithoutMinGap(t *testing.T) {
 	}
 }
 
+func TestAddRuleAcceptsMaterializedRepeatPolicies(t *testing.T) {
+	repo := &fakeProtocolRepo{}
+	service := NewService(repo)
+
+	if _, err := service.AddRule(context.Background(), domain.NewRule{Repeat: "every_n_days", MinGapDays: 30}); err != nil {
+		t.Fatalf("every_n_days with min_gap_days should be accepted: %v", err)
+	}
+	if !repo.createRuleCalled || repo.createdRule.Repeat != "every_n_days" {
+		t.Fatalf("repo called=%v repeat=%q, want every_n_days stored", repo.createRuleCalled, repo.createdRule.Repeat)
+	}
+
+	repo = &fakeProtocolRepo{}
+	service = NewService(repo)
+	if _, err := service.AddRule(context.Background(), domain.NewRule{Repeat: "yearly"}); err != nil {
+		t.Fatalf("yearly repeat should be accepted: %v", err)
+	}
+	if !repo.createRuleCalled || repo.createdRule.Repeat != "yearly" {
+		t.Fatalf("repo called=%v repeat=%q, want yearly stored", repo.createRuleCalled, repo.createdRule.Repeat)
+	}
+}
+
 func TestAddRuleDefaultsBlankRepeatToNone(t *testing.T) {
 	repo := &fakeProtocolRepo{}
 	service := NewService(repo)
@@ -363,14 +388,20 @@ func TestPublishVersionDelegatesDraftPublishToRepository(t *testing.T) {
 	if !repo.createRuleCalled {
 		t.Fatalf("publish should materialize schedule[] into protocol_rules before publishing")
 	}
-	if got := repo.createdRule; got.DoseCode != "primary" || got.TriggerType != "birth_age" || got.CatchUp != "phc_approval" || got.Sequence != 1 {
-		t.Fatalf("created rule = %#v, want primary birth_age phc_approval sequence 1", got)
+	if len(repo.createdRules) != 2 {
+		t.Fatalf("created rules = %#v, want ET+TT 4-week and 7-week rows", repo.createdRules)
 	}
-	if string(repo.createdRule.EligibilityJSON) != `{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["icu"]}` {
+	if got := repo.createdRules[0]; got.DoseCode != "et_tt_4w" || got.TriggerType != "birth_age" || got.OffsetDays != 28 || got.CatchUp != "phc_approval" || got.Sequence != 1 {
+		t.Fatalf("created rule[0] = %#v, want ET+TT 4-week birth_age phc_approval sequence 1", got)
+	}
+	if got := repo.createdRules[1]; got.DoseCode != "et_tt_7w" || got.TriggerType != "birth_age" || got.OffsetDays != 49 || got.MinGapDays != 21 || got.Sequence != 2 {
+		t.Fatalf("created rule[1] = %#v, want ET+TT 7-week source row with 21-day min gap", got)
+	}
+	if string(repo.createdRule.EligibilityJSON) != `{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["icu","quarantine"]}` {
 		t.Fatalf("eligibility json = %s", repo.createdRule.EligibilityJSON)
 	}
-	if repo.createdRule.IdempotencyKey != "protocol-schedule-rule:version-1:primary" {
-		t.Fatalf("idempotency key = %q", repo.createdRule.IdempotencyKey)
+	if repo.createdRules[0].IdempotencyKey != "protocol-schedule-rule:version-1:et_tt_4w" {
+		t.Fatalf("idempotency key = %q", repo.createdRules[0].IdempotencyKey)
 	}
 	if repo.version.Status != "published" {
 		t.Fatalf("repo status = %s, want published", repo.version.Status)
@@ -380,15 +411,15 @@ func TestPublishVersionDelegatesDraftPublishToRepository(t *testing.T) {
 func TestPublishVersionUsesExistingProtocolRuleRows(t *testing.T) {
 	repo := &fakeProtocolRepo{
 		version: validPublishVersion("draft"),
-		rules:   []domain.Rule{{DoseCode: "primary", Sequence: 1, TriggerType: "birth_age"}},
+		rules:   []domain.Rule{{DoseCode: "et_tt_4w", Sequence: 1, TriggerType: "birth_age"}},
 	}
 	service := NewService(repo)
 
 	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); err != nil {
 		t.Fatalf("publish with existing rule: %v", err)
 	}
-	if repo.createRuleCalled {
-		t.Fatalf("publish should not duplicate an existing protocol_rules dose_code")
+	if len(repo.createdRules) != 1 || repo.createdRules[0].DoseCode != "et_tt_7w" {
+		t.Fatalf("created rules=%#v, want only missing ET+TT 7-week row", repo.createdRules)
 	}
 	if !repo.publishCalled {
 		t.Fatalf("repo publish was not called")
@@ -440,7 +471,7 @@ func validPublishVersion(status string) domain.Version {
 }
 
 func validVaccinationMatrixRuleDSL() string {
-	return `{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"},"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid","inventory_item_id":"item-et","manufacturer":"source-derived","disease":"Enterotoxaemia","compatibility_group":"ET"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["icu"]},"missed_dose_policy":"phc_approval","schedule":[{"dose_code":"primary","sequence":1,"trigger_type":"birth_age","offset_days":21,"due_window_days":7,"dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review","repeat":"none","catch_up":"phc_approval"}]}`
+	return `{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"},"vaccine":{"code":"ET+TT","name":"ET+TT","type":"toxoid","pathogen_class":"bacterial","course_type":"booster","inventory_item_id":"item-et","manufacturer":"source-derived","disease":"Enterotoxaemia + Tetanus","compatibility_group":"ET+TT"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["icu","quarantine"]},"missed_dose_policy":"phc_approval","compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21,"bacterial_viral_same_day_allowed":true,"live_killed_viral_same_day_allowed":true},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_source_vaccination_allowed":true,"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox","ET+TT booster"]},"pregnancy_policy":{"allow_until_pregnancy_month":3,"skip_from_pregnancy_month":4,"skip_through_pregnancy_month":5,"post_delivery_catch_up_days":14},"schedule":[{"dose_code":"et_tt_4w","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","vial_doses":100,"revaccination_interval_days":182,"source_schedule":"mother vaccinated: 4 weeks and 7 weeks; mother-not-vaccinated column intentionally ignored","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review","repeat":"none","catch_up":"phc_approval"},{"dose_code":"et_tt_7w","sequence":2,"trigger_type":"birth_age","offset_days":49,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","vial_doses":100,"revaccination_interval_days":182,"source_schedule":"mother vaccinated: 4 weeks and 7 weeks; booster gap 3 weeks","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review","min_gap_days":21,"repeat":"none","repeat_until_after_age":"-","catch_up":"phc_approval"}]}`
 }
 
 type fakeProtocolRepo struct {
@@ -450,6 +481,7 @@ type fakeProtocolRepo struct {
 	createVersionCalled bool
 	createRuleCalled    bool
 	createdRule         domain.NewRule
+	createdRules        []domain.NewRule
 	rules               []domain.Rule
 }
 
@@ -482,6 +514,7 @@ func (f *fakeProtocolRepo) PublishVersion(context.Context, string, string, *stri
 func (f *fakeProtocolRepo) CreateRule(_ context.Context, in domain.NewRule) (string, error) {
 	f.createRuleCalled = true
 	f.createdRule = in
+	f.createdRules = append(f.createdRules, in)
 	f.rules = append(f.rules, domain.Rule{
 		RuleID:        "rule-1",
 		DoseCode:      in.DoseCode,
