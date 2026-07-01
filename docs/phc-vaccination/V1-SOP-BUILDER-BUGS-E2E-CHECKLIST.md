@@ -402,6 +402,42 @@ Expected:
   admin UX should not force repeated full-form entry for every simple
   vaccine/stage combination.
 
+### 8a. Matrix source schedule editability and Add-row defaulting bugs
+
+Observed on 2026-07-01 after the source-matrix preset work:
+
+- The `Source schedule` column is visible after **Load Source Vaccine Matrix**,
+  but it is not directly editable in the grid and the modal does not clearly
+  explain whether it is a locked source label or derived from the dose rows
+  below.
+- After loading the source matrix, **Add matrix row** creates a new row with
+  source/preset-like schedule data already present instead of an obviously blank
+  row. That can make admins accidentally save a copied source row when they
+  meant to create a fresh vaccine/stage/breed combo.
+
+Expected:
+
+- `Source schedule` must have one clear behavior:
+  - either read-only, explicitly labeled as derived from the selected row's dose
+    rows/source preset; or
+  - editable through a clear selected-row detail control that updates the row's
+    schedule/dose rows and JSON preview.
+- The column must not look like a normal form field if it cannot be edited.
+- **Add matrix row** must either create a truly blank row, or expose an explicit
+  command such as `Copy selected row` / `Add from source preset`. It must not
+  silently inherit source schedule, dose, vial, revaccination, or source metadata
+  from the previously selected/source-loaded row.
+- E2E must cover:
+  - load source matrix;
+  - select each source row and confirm selected-row details/dose rows match that
+    row;
+  - edit the schedule through the intended control or verify the read-only label
+    and disabled reason;
+  - click **Add matrix row** and assert the new row is blank or intentionally
+    copied with visible copy semantics;
+  - save/publish rejects any incomplete newly added blank row with row-indexed
+    errors.
+
 ### 9. Escalation policy is free-text and over-claims behavior
 
 Observed:
@@ -1146,6 +1182,11 @@ These checks are in addition to the clean-slate E2E path above.
   reloads them in the Config list/drawer.
 - [x] Matrix/grid entry mode shows row-level controls/errors in the modal without
   text overlap in the tested desktop viewport.
+- [ ] BUG: `Source schedule` is visible but not directly editable and does not
+  clearly say whether it is derived/read-only or where the admin edits it.
+- [ ] BUG: After **Load Source Vaccine Matrix**, **Add matrix row** must not
+  silently prefill the new row with source/preset schedule data; blank-vs-copy
+  behavior needs explicit UX and E2E proof.
 - [ ] Escalation policy is configured with structured role/action fields, not
   free text.
 - [ ] Escalation preview shows whether it creates Action Center item, Control
