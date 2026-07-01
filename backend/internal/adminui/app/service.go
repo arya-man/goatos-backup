@@ -2378,6 +2378,18 @@ func configOptionGroups() []domain.OptionGroup {
 			},
 		},
 		{
+			ID: "nuance_vaccine_presets",
+			Options: []domain.Option{
+				option("ET+TT|toxoid|bacterial|booster|ET+TT|4,7|182|2|100|1|goat", "ET+TT", "Enterotoxaemia + Tetanus", ""),
+				option("PPR|live|viral|single|PPR|16|1095|1|100|2|goat", "PPR", "Peste des petits ruminants", ""),
+				option("Goat Pox|live|viral|single|Goat Pox|16|365|1|25|0|goat", "Goat Pox", "Goat Pox", ""),
+				option("FMD|killed|viral|single|FMD|12|274|1|30|0|goat", "FMD", "Foot and mouth disease", ""),
+				option("HS|killed|bacterial|single|HS|12|365|2|100|0|goat", "HS", "Haemorrhagic septicaemia", ""),
+				option("Blue Tongue|killed|viral|booster|Blue Tongue|16,20|365|2|100|0|other", "Blue Tongue", "Blue Tongue", ""),
+				option("Sheep Pox|live|viral|single|Sheep Pox|12|365|1|100|0|other", "Sheep Pox", "Sheep Pox", ""),
+			},
+		},
+		{
 			ID: "dose_units",
 			Options: []domain.Option{
 				option("ml", "ml", "", ""),

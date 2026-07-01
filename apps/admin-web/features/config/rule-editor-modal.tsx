@@ -45,15 +45,28 @@ type NuanceVaccinePreset = {
   goatRow: boolean;
 };
 
-const NUANCE_VACCINE_PRESETS: NuanceVaccinePreset[] = [
-  { code: "ET+TT", name: "ET+TT", vaccineType: "toxoid", pathogenClass: "bacterial", courseType: "booster", disease: "Enterotoxaemia + Tetanus", compatibilityGroup: "ET+TT", motherVaccinatedWeeks: [4, 7], revaccinationDays: 182, doseAmount: 2, vialDoses: 100, priority: 1, goatRow: true },
-  { code: "PPR", name: "PPR", vaccineType: "live", pathogenClass: "viral", courseType: "single", disease: "Peste des petits ruminants", compatibilityGroup: "PPR", motherVaccinatedWeeks: [16], revaccinationDays: 1095, doseAmount: 1, vialDoses: 100, priority: 2, goatRow: true },
-  { code: "Goat Pox", name: "Goat Pox", vaccineType: "live", pathogenClass: "viral", courseType: "single", disease: "Goat Pox", compatibilityGroup: "Goat Pox", motherVaccinatedWeeks: [16], revaccinationDays: 365, doseAmount: 1, vialDoses: 25, goatRow: true },
-  { code: "FMD", name: "FMD", vaccineType: "killed", pathogenClass: "viral", courseType: "single", disease: "Foot and mouth disease", compatibilityGroup: "FMD", motherVaccinatedWeeks: [12], revaccinationDays: 274, doseAmount: 1, vialDoses: 30, goatRow: true },
-  { code: "HS", name: "HS", vaccineType: "killed", pathogenClass: "bacterial", courseType: "single", disease: "Haemorrhagic septicaemia", compatibilityGroup: "HS", motherVaccinatedWeeks: [12], revaccinationDays: 365, doseAmount: 2, vialDoses: 100, goatRow: true },
-  { code: "Blue Tongue", name: "Blue Tongue", vaccineType: "killed", pathogenClass: "viral", courseType: "booster", disease: "Blue Tongue", compatibilityGroup: "Blue Tongue", motherVaccinatedWeeks: [16, 20], revaccinationDays: 365, doseAmount: 2, vialDoses: 100, goatRow: false },
-  { code: "Sheep Pox", name: "Sheep Pox", vaccineType: "live", pathogenClass: "viral", courseType: "single", disease: "Sheep Pox", compatibilityGroup: "Sheep Pox", motherVaccinatedWeeks: [12], revaccinationDays: 365, doseAmount: 1, vialDoses: 100, goatRow: false },
-];
+function parseNuanceVaccinePresets(options: AdminUiOption[]): NuanceVaccinePreset[] {
+  return options.flatMap((option) => {
+    const [code, vaccineType, pathogenClass, courseType, compatibilityGroup, rawWeeks, rawRevaccinationDays, rawDoseAmount, rawVialDoses, rawPriority, rowScope] = option.key.split("|");
+    const weeks = (rawWeeks ?? "").split(",").map((value) => Number.parseInt(value, 10)).filter((value) => Number.isFinite(value));
+    if (!code || !vaccineType || !pathogenClass || !courseType || weeks.length === 0) return [];
+    return [{
+      code,
+      name: option.label || code,
+      vaccineType,
+      pathogenClass,
+      courseType,
+      disease: option.title || option.label || code,
+      compatibilityGroup: compatibilityGroup || code,
+      motherVaccinatedWeeks: weeks,
+      revaccinationDays: Number.parseInt(rawRevaccinationDays ?? "", 10) || 0,
+      doseAmount: Number.parseFloat(rawDoseAmount ?? "") || 1,
+      vialDoses: Number.parseInt(rawVialDoses ?? "", 10) || 1,
+      priority: Number.parseInt(rawPriority ?? "", 10) || undefined,
+      goatRow: rowScope === "goat",
+    }];
+  });
+}
 
 export function RuleEditorModal({
   open,
@@ -103,6 +116,7 @@ export function RuleEditorModal({
   const repeatOptions = optionGroup(pageContract, "repeat_policies");
   const catchUpOptions = optionGroup(pageContract, "catch_up_policies");
   const scheduleSopOptions = optionGroup(pageContract, "schedule_sop_labels");
+  const nuanceVaccinePresets = useMemo(() => parseNuanceVaccinePresets(optionGroup(pageContract, "nuance_vaccine_presets")), [pageContract]);
   const feedClassOptions = optionalOptionGroup(pageContract, "feed_classes");
   const feedItemOptions = optionalOptionGroup(pageContract, "feed_items");
   const feedUnitOptions = optionalOptionGroup(pageContract, "feed_units");
@@ -359,7 +373,7 @@ export function RuleEditorModal({
     const fallbackStage = animalStages[0]?.code ?? firstKey(animalStageScope, "animal_stage_scope");
     const fallbackSex = firstKey(sexOptions, "rule_sexes");
     const fallbackBreed = firstKey(breedOptions, "rule_breeds");
-    const rows = NUANCE_VACCINE_PRESETS
+    const rows = nuanceVaccinePresets
       .filter((preset) => preset.goatRow)
       .map((preset, index) => rowFromNuancePreset(preset, `nuance-${index + 1}`, fallbackStage, fallbackSex, fallbackBreed));
     const spacedRows = applyV1CompatibilitySpacing(rows);
@@ -435,7 +449,7 @@ export function RuleEditorModal({
   }
   function findNuancePreset(value: string): NuanceVaccinePreset | undefined {
     const key = slugSource(value);
-    return NUANCE_VACCINE_PRESETS.find((preset) => slugSource(preset.code) === key || slugSource(preset.name) === key);
+    return nuanceVaccinePresets.find((preset) => slugSource(preset.code) === key || slugSource(preset.name) === key);
   }
   function optionKeyOrFallback(options: AdminUiOption[], desired: string): string {
     return options.some((option) => option.key === desired) ? desired : firstKey(options, "source_option");
