@@ -44,7 +44,7 @@ Use this path for a first review.
 | Step | Open | What to check |
 | --- | --- | --- |
 | 1 | Control Tower | Overall vaccination health, top broken items, owner, next action. |
-| 2 | PHC -> Vaccination | Cohort matrix, per-cohort detail, supplier warmup, and shed execution rows. |
+| 2 | Preventive Care (PC) -> Vaccination | Cohort matrix, per-cohort detail, supplier warmup, and shed execution rows. |
 | 3 | Action Center | Due, overdue, proof-pending, verification-pending, rejected, blocked, and owner-missing work. |
 | 4 | Calendar | The date view of vaccination due work, reminders, snoozes, and escalations. |
 | 5 | Protocol Adherence | Expected vs actual work, adherence percent, proof count, and gaps by rule/shed. |
@@ -70,9 +70,9 @@ What this proves:
 - The dashboard shows who should act next.
 - CEO review starts from exceptions, not raw goat counts.
 
-## PHC -> Vaccination
+## Preventive Care (PC) -> Vaccination
 
-Use PHC -> Vaccination as the operating floor.
+Use Preventive Care (PC) -> Vaccination as the operating floor.
 
 Expected review:
 
@@ -120,7 +120,7 @@ Use Calendar to see vaccination work by date.
 Expected review:
 
 - Week and month views show vaccination due work.
-- Owner lanes separate PHC, stock, and admin/data work when the data supports
+- Owner lanes separate Preventive Care (PC), stock, and admin/data work when the data supports
   those lanes.
 - Open an event to see detail and actions such as nudge, snooze, escalation, or
   open workflow.
@@ -248,7 +248,7 @@ Supplier or holding-farm vaccination evidence:
 
 - Accepted evidence is used to avoid double-dosing after intake.
 - Goats rejected before truck or intake remain procurement history and do not
-  become active PHC vaccination work.
+  become active Preventive Care (PC) vaccination work.
 
 ## What To Test
 
@@ -256,7 +256,7 @@ For a short CEO review, test these:
 
 1. Login works for an approved Mesha account.
 2. Control Tower shows process health and opens an alert drawer.
-3. PHC -> Vaccination shows the matrix and shed execution rows.
+3. Preventive Care (PC) -> Vaccination shows the matrix and shed execution rows.
 4. A disabled rollup Record / verify drawer explains why action must happen on
    the real work item.
 5. Action Center filters work by status and opens a work drawer.
@@ -295,7 +295,7 @@ These are the items to state plainly during review:
   resolution flow belongs to a separate owner workflow.
 - Missed-dose operating ownership still needs the final business rule for who
   receives the follow-up, how fast they must act, and what closes the exception.
-- Final PHC production schedules and large source data must be loaded and
+- Final Preventive Care (PC) production schedules and large source data must be loaded and
   approved before production use.
 - Real notification channels may be dev-safe during review. Treat dev messages
   as proof of routing, not production delivery.
@@ -312,7 +312,7 @@ Reviewed URL:
 Reviewer:
 Date:
 Seed/source summary:
-Screens checked: Control Tower, PHC -> Vaccination, Action Center, Calendar,
+Screens checked: Control Tower, Preventive Care (PC) -> Vaccination, Action Center, Calendar,
 Protocol Adherence, Workflows, Config, SOP Library.
 Observed process states:
 Disabled buttons explained correctly:

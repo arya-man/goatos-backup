@@ -53,6 +53,7 @@ const routes = [
   { name: "procurement-source-entry", path: "/procurement/source-entry?scope_mode=company" },
   { name: "config", path: "/config?scope_mode=company&category=vaccination" },
   { name: "sops", path: "/sops?scope_mode=company" },
+  { name: "sops-builder", path: "/sops?compose=1&scope_mode=company" },
   { name: "counts-herd", path: "/counts/herd?scope_mode=company" },
   { name: "operations-audit", path: "/operations/audit?scope_mode=company" },
   { name: "operations-dlq", path: "/operations/dlq?scope_mode=company" },
@@ -69,8 +70,8 @@ const pagerMinimums = new Map([
   ["action-center", 1],
   ["protocol-adherence", 1],
   ["workflows", 1],
-  ["vaccination", 4],
-  ["vaccination-execution", 4],
+  ["vaccination", 3],
+  ["vaccination-execution", 3],
   ["procurement-source-entry", 1],
   ["config", 1],
   ["sops", 1],
@@ -576,17 +577,19 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
 
   if (routeName === "vaccination") {
     await openAndCloseDialog(page, page.getByRole("button", { name: "SOP", exact: true }), "Vaccination Drive SOP", "Close", routeName);
-    // Do not exercise unbuilt/future vaccination write flows here. Import sheet and New drive are
-    // read-only guidance affordances in the current slice; the active E2E path is config -> obligation
-    // generation -> sweeper -> SOP/proof/verification.
+    if ((await page.getByRole("button", { name: "Import sheet", exact: true }).count()) > 0) {
+      throw new Error(`${routeName} still exposes the removed Import sheet action`);
+    }
+    if ((await page.getByRole("button", { name: "New drive", exact: true }).count()) > 0) {
+      throw new Error(`${routeName} still exposes the removed New drive action`);
+    }
 
     const filters = page.getByRole("button", { name: "Filters", exact: true });
     const filterCount = await filters.count();
-    if (filterCount !== 4) {
-      throw new Error(`${routeName} expected 4 Filters buttons, found ${filterCount}`);
+    if (filterCount !== 3) {
+      throw new Error(`${routeName} expected 3 Filters buttons, found ${filterCount}`);
     }
     for (const [i, label] of [
-      "Filter — Supplier warmup",
       "Filter — Vaccination status matrix",
       "Filter — Per-cohort vaccination detail",
       "Filter — Vaccination shed events",
@@ -596,23 +599,19 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
 
     await openAndCloseDrawer(
       page,
-      page.locator('section:has-text("Supplier warmup") tbody tr .celllink').first(),
-      "WARMUP",
-      routeName,
-    );
-    await openAndCloseDrawer(
-      page,
       page.locator('section:has-text("Vaccination status matrix") tbody tr .celllink').first(),
-      "Record / verify vaccination",
+      "Vaccination work context",
       routeName,
+      assertNoFakeVaccinationDrawerControls,
     );
     await openAndCloseDrawer(
       page,
       page.locator('section:has-text("Per-cohort vaccination detail") tbody tr .celllink').first(),
-      "RECORD",
+      "Vaccination work context",
       routeName,
+      assertNoFakeVaccinationDrawerControls,
     );
-    await openAndCloseDrawer(page, page.locator(".pexec .pexr").first(), "RECORD", routeName);
+    await openAndCloseDrawer(page, page.locator(".pexec .pexr").first(), "WORK CONTEXT", routeName, assertNoFakeVaccinationDrawerControls);
   }
 }
 
@@ -632,8 +631,12 @@ async function submitActionCenterVerification(page, routeName) {
   const verifyButton = page.locator('form button:not([disabled])').filter({ hasText: /^Verify$/ }).first();
   const verifyCount = await verifyButton.count();
   if (verifyCount !== 1) {
+    const emptyQueue = await page.getByText("Nothing awaiting verification.", { exact: false }).count();
+    if (verifyCount === 0 && emptyQueue === 1) {
+      return;
+    }
     const bodyText = await page.locator("body").innerText().catch(() => "");
-    throw new Error(`${routeName} expected one enabled SOP Verify button, found ${verifyCount}; body=${bodyText.replace(/\s+/g, " ").slice(0, 800)}`);
+    throw new Error(`${routeName} expected one enabled SOP Verify button or a coherent empty verification queue, found ${verifyCount}; body=${bodyText.replace(/\s+/g, " ").slice(0, 800)}`);
   }
   await verifyButton.scrollIntoViewIfNeeded();
   await Promise.all([
@@ -669,7 +672,7 @@ async function openAndCloseDialog(page, trigger, dialogLabel, closeName, routeNa
   await dialog.waitFor({ state: "hidden", timeout: 5_000 });
 }
 
-async function openAndCloseDrawer(page, trigger, expectedText, routeName) {
+async function openAndCloseDrawer(page, trigger, expectedText, routeName, inspectDrawer) {
   await trigger.first().waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
   const triggerCount = await trigger.count();
   if (triggerCount !== 1) {
@@ -709,6 +712,9 @@ async function openAndCloseDrawer(page, trigger, expectedText, routeName) {
     }
   }
   await drawer.getByText(expectedText, { exact: false }).first().waitFor({ state: "visible", timeout: 5_000 });
+  if (inspectDrawer) {
+    await inspectDrawer(drawer, routeName, expectedText);
+  }
   const close = drawer.locator('a[aria-label^="Close"]').first();
   const closeCount = await close.count();
   if (closeCount !== 1) {
@@ -724,6 +730,21 @@ async function openAndCloseDrawer(page, trigger, expectedText, routeName) {
   }
   await close.click();
   await drawer.waitFor({ state: "hidden", timeout: 5_000 });
+}
+
+async function assertNoFakeVaccinationDrawerControls(drawer, routeName, expectedText) {
+  for (const selector of ['input[type="file"]', "select", 'button[disabled]', 'button[aria-disabled="true"]']) {
+    const visible = await drawer.locator(selector).filter({ visible: true }).count();
+    if (visible > 0) {
+      throw new Error(`${routeName} drawer "${expectedText}" contains non-demo-safe control ${selector}`);
+    }
+  }
+  const text = await drawer.innerText();
+  for (const stale of ["New vaccination drive", "Import vaccination sheet", "Record + verify", "Choose files"]) {
+    if (text.includes(stale)) {
+      throw new Error(`${routeName} drawer "${expectedText}" still contains stale/fake copy "${stale}"`);
+    }
+  }
 }
 
 function cssString(value) {

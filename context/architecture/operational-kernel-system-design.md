@@ -5,7 +5,7 @@ Status: authoritative architecture addendum.
 Date: 2026-06-27
 
 This document turns the operational kernel golden rule into the concrete system
-design used by PHC vaccination and every future Goat OS vertical. The goal is a
+design used by Preventive Care (PC) vaccination and every future Goat OS vertical. The goal is a
 single reusable kernel, not separate workflow engines hidden inside separate
 screens.
 
@@ -25,7 +25,7 @@ What evidence proves the answer?
 What reminder, escalation, acknowledgement, or resolution happened when the SLA was missed?
 ```
 
-For PHC vaccination, this is the CEO-facing promise:
+For Preventive Care (PC) vaccination, this is the CEO-facing promise:
 
 ```text
 Config -> Due List -> Shed Drive -> SOP Execution -> Proof -> Verification -> Completion -> Alerts
@@ -255,9 +255,9 @@ If a vertical marks any item `N/A`, the reason must be written in the PRD/TRD or
 handoff. Agents must not invent fake proof, fake alerts, or frontend-only
 workflow state to satisfy the checklist.
 
-## PHC Vaccination Reference Slice
+## Preventive Care (PC) Vaccination Reference Slice
 
-PHC is the vertical. Vaccination is the first reference module/slice for this
+Preventive Care (PC) is the vertical. Vaccination is the first reference module/slice for this
 kernel.
 
 | CEO statement | Runtime meaning |
@@ -271,13 +271,13 @@ kernel.
 | Booster is prepared after completion. | Booster/follow-up obligations are created from accepted completion events, not from unverified proof. |
 | Missed vaccination is highlighted. | Due/overdue/missed/blocked/proof-pending/verification-pending states feed projections and command lenses. |
 | Reminder and escalation happen. | Durable notification and escalation rows support role-based waterfall delivery, acknowledgement, and resolution. |
-| Shift and exit are handled. | Goat location-change and exit events re-scope or cancel open work through the same event spine. Current PHC shift handling covers open unbatched work and planned batched work by detaching/re-scoping with stock reconciliation markers; in-progress/completed drive migration remains an explicit exception/rework policy. |
+| Shift and exit are handled. | Goat location-change and exit events re-scope or cancel open work through the same event spine. Current Preventive Care (PC) shift handling covers open unbatched work and planned batched work by detaching/re-scoping with stock reconciliation markers; in-progress/completed drive migration remains an explicit exception/rework policy. |
 
 The vaccination slice should remain the proving ground for future domains: when
 an edge case is fixed for vaccination, the kernel contract should capture the
 generic rule so feed, breeding, procurement, and HR do not rebuild it.
 
-Exact PHC vaccination runtime coverage is tracked in
+Exact Preventive Care (PC) vaccination runtime coverage is tracked in
 `context/execution/vaccination-edge-case-code-coverage.md`; that ledger is the
 place to keep implementation caveats separate from the generic kernel design.
 The business closure backlog for the remaining CEO-message gaps is tracked in
@@ -299,7 +299,7 @@ Production-complete DLQ rules:
 - A replayed event must not duplicate obligations, notifications,
   verification outcomes, or stock consumption.
 
-Current PHC/kernel status is tracked in
+Current Preventive Care (PC) / kernel status is tracked in
 `context/execution/vaccination-edge-case-code-coverage.md`. That ledger should
 distinguish the wired outbox DLQ/error/replay/discard UI from Pub/Sub DLQ import,
 environment monitoring alerts, and vendor-specific incident sync when those are
@@ -313,7 +313,7 @@ Each obligation or work item that has a deadline must know:
 
 - owner role and owner user/team when available
 - backup role or manager role
-- higher-level escalation role such as PHC Director when the slice declares it
+- higher-level escalation role such as Preventive Care (PC) Director when the slice declares it
 - reminder timing
 - missed-SLA timing
 - channels to attempt

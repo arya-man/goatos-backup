@@ -42,6 +42,7 @@ export type ImpactPreviewInput = AppApiComponents["schemas"]["ImpactPreviewInput
 export type ImpactPreviewResult = AppApiComponents["schemas"]["ImpactPreviewResult"];
 export type ProtocolConfigItem = AppApiComponents["schemas"]["ProtocolConfigItem"];
 export type ProtocolConfigListResponse = AppApiComponents["schemas"]["ProtocolConfigListResponse"];
+export type ProtocolVersionResponse = AppApiComponents["schemas"]["ProtocolVersionResponse"];
 export type AnimalStageItem = AppApiComponents["schemas"]["AnimalStageItem"];
 export type AnimalStageListResponse = AppApiComponents["schemas"]["AnimalStageListResponse"];
 export type VaccinationPassportDue = AppApiComponents["schemas"]["VaccinationPassportDue"];
@@ -500,8 +501,18 @@ export async function listProtocolConfigs(category: string): Promise<ApiResult<P
   );
 }
 
+export async function getProtocolVersion(versionId: string): Promise<ApiResult<ProtocolVersionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/protocols/versions/${encodeURIComponent(versionId)}` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<ProtocolVersionResponse>(path, { cache: "no-store" }),
+  );
+}
+
 // listAnimalStages reads the tenant's active animal-stage reference data (animal_stage_lookup) so the
-// Config authoring stage picker is backend-driven, not hardcoded K0/K1/K2 literals (PHC vaccination
+// Config authoring stage picker is backend-driven, not hardcoded K0/K1/K2 literals (Preventive Care (PC) vaccination
 // TRD). Read-only; an empty list is honest — the editor shows a seed-stages state, never fallback codes.
 export async function listAnimalStages(): Promise<ApiResult<AnimalStageListResponse>> {
   const config = await getServerConfig(true);

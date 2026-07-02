@@ -10,7 +10,7 @@ have been verified as Mesha/VGoats.
 `goatos-dev` starts as a clean-slate environment. It is not a legacy data
 migration.
 
-Preserve only the five approved user grants. Seed a small, representative PHC
+Preserve only the five approved user grants. Seed a small, representative Preventive Care (PC)
 vaccination slice that proves the operational kernel end to end:
 
 ```text
@@ -84,7 +84,7 @@ start legacy migration:
   handler. Treat this as replay-safety evidence work during dev rehearsal:
   prove each handler is deterministic/idempotent, then decide whether any
   handler needs a durable progress table.
-- ICU/quarantine routing is fail-closed for critical health states. A richer PHC
+- ICU/quarantine routing is fail-closed for critical health states. A richer Preventive Care (PC)
   health workflow can be designed later, but dev must prove blocked/deferred
   visibility and recovery behavior.
 - Shift/death/recovery paths have repository coverage, but the Google dev seed
@@ -174,7 +174,7 @@ Minimum seed set:
   profile stage can override stale goat stage.
 - Operators and verifiers with explicit scopes.
 - SOP template and published SOP version for vaccination proof and verification.
-- PHC vaccination protocol version with approved source metadata, schedule rows,
+- Preventive Care (PC) vaccination protocol version with approved source metadata, schedule rows,
   executable `protocol_rules`, SOP binding, and stock policy item binding.
 - Vaccine inventory item and FEFO lots:
   eligible lot, expiring lot, expired lot, quarantined lot, and insufficient lot.
@@ -188,7 +188,7 @@ Minimum seed set:
   DOB, and unsupported lifecycle or stage.
 
 For clean-slate dev, set `CUTOVER_DATE` to the dev seed launch date. This avoids
-accidental historical overdue noise. If PHC wants catch-up behavior tested, add
+accidental historical overdue noise. If Preventive Care (PC) wants catch-up behavior tested, add
 one deliberate baseline/catch-up fixture instead of importing history by
 accident.
 

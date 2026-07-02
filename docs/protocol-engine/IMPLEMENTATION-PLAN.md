@@ -1,4 +1,4 @@
-# PHC Vaccination + Feed Direction — Implementation Plan (repo execution)
+# Preventive Care (PC) Vaccination + Feed Direction — Implementation Plan (repo execution)
 
 **Date:** 2026-06-23 · **Correction:** updated 2026-06-29 for Feed Direction. This file is a historical Phase 0/1 execution plan; the repo now contains migrations through `000117` at this correction. For Feed Direction, use [../feed-direction/TRD.md](../feed-direction/TRD.md) as the current design source. The old `000076-078` typed feed table plan below is superseded by the committed `000079` generic-kernel design.
 
@@ -19,7 +19,7 @@
 
 ### 2. Docs / spec only vs current code
 - `obligation-engine.md`, `state-machines.md`, `migration-and-cutover.md`,
-  PHC PRD/TRD, and Feed PRD/TRD remain design references.
+  Preventive Care (PC) PRD/TRD, and Feed PRD/TRD remain design references.
 - The generic `protocol_*`, `obligation_*`, and `inventory_*` schema is no
   longer merely planned; it exists in later migrations. Check the live migration
   tail before assigning any new number.
@@ -39,21 +39,23 @@
 - Handlers per state machines; outbox publisher/consumer wiring as required by
   the active slice.
 
-### 5. External inputs / source-backed follow-ups
-- **Vaccination schedule values** — current source-backed schedule rows are in
-  `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`: ET+TT, PPR, Goat Pox,
-  Sheep Pox, FMD, HS, and Blue Tongue with species split, dose, vial, repeat,
-  procurement, pregnancy, and gap rules. BQ and any future override still need
-  timing/dose/booster/route/storage evidence from PHC/vet sign-off or a reviewed
-  source extract before they can generate obligations. The matrix also controls
-  schedule rendering: fixed kid-course drive days are due points (4w, 7w, 12w,
-  16w, and applicable 20w follow-through), while adult/fattening steady-state
-  rows are repeat-interval driven from accepted completions.
+### 5. External inputs / evidence-derived follow-ups
+- **Vaccination schedule values** — current approved schedule rows are in
+  `docs/preventive-care-vaccination/APPROVED-SCHEDULE-MATRIX.md`: ET+TT, PPR,
+  Goat Pox, Sheep Pox, FMD, HS, and Blue Tongue with species split, dose, vial,
+  repeat, procurement, pregnancy, and gap rules. They live inside one scoped
+  `vaccination.matrix` version; broader production changes are new company/park
+  matrix versions, not new one-vaccine protocol rows. BQ and any future override
+  still need timing/dose/booster/route/storage evidence before they can generate
+  obligations. The matrix also controls schedule rendering: fixed kid-course
+  drive days are due points (4w, 7w, 12w, 16w, and applicable 20w
+  follow-through), while adult/fattening steady-state rows are repeat-interval
+  driven from accepted completions.
 - **Feed ration VALUES** + session clock times per park.
 - **CUTOVER_DATE** + vaccination-history-trust decision (migration-and-cutover §6).
 - The **4 superadmin mail IDs** + capability grants (`protocol.publish.<category>`).
-- **K2 age band** — closed for local/dev at 42 days / six weeks; any later PHC
-  override must land as source-backed `animal_stage_lookup` data/config, not a
+- **K2 age band** — closed for local/dev at 42 days / six weeks; any later Preventive Care (PC)
+  override must land as evidence-derived `animal_stage_lookup` data/config, not a
   frontend hardcode.
 
 ---
@@ -93,19 +95,19 @@ protocol_definitions → protocol_versions (PUBLISHED, effective-dated) → prot
 Adherence = **computed**: expected (rule) vs actual (completion + proof + timing). `sop_versions` = the *how*; obligations = the *what's due*; protocol = the *what should happen*.
 
 ## E. Frontend: current slice vs later
-- **Build now:** Admin Config / Protocol Rules (`/config`), PHC Vaccination module surface, vaccination execution context scoped by park/shed, contextual Goat Passport vaccination history, and the work-state data needed by those screens.
-- **Design now, full UI later:** standalone Action Center and Control Tower. Their status model must exist underneath PHC/Parks, but their full command-room surfaces should summarize real gaps only after the operating workflows are wired.
+- **Build now:** Admin Config / Protocol Rules (`/config`), Preventive Care (PC) Vaccination module surface, vaccination execution context scoped by park/shed, contextual Goat Passport vaccination history, and the work-state data needed by those screens.
+- **Design now, full UI later:** standalone Action Center and Control Tower. Their status model must exist underneath Preventive Care (PC) / Parks, but their full command-room surfaces should summarize real gaps only after the operating workflows are wired.
 - **Later verticals:** feed direction, procurement, breeding, HR, analytics, and the other non-vaccination modules remain valid Goat OS scope, but must not pull this slice back into the old generic dashboard/admin phase ladder.
 
 ## F. Seed / draft test data
-- **Allowed:** structural seeds — `animal_stage_lookup` bands, park/shed profiles from **real `locations`**, vaccination SOP `form_dsl`/`proof_policy` (from wiki §6 + PHC handbook), capability seeds, and **draft test `protocol_rules` (`status='draft'`, `source_system='manual_admin'`/`review_status='extracted'`)** — these carry a **`not source-backed`** warning, are never `published`, and generate no obligations.
-- **Source-backed real config (dev):** a rule whose `source_system` is a real source (Vaccinations DB / PHC / vet) and `review_status='approved'` is **real config in `goatos-dev`, publishable there** — the **dev-real path** — and may generate real dev obligations. Unsourced / `manual_admin` / `extracted` rows stay `status='draft'` and carry the **`not source-backed`** warning; they cannot be published.
-- **NOT allowed:** **hand-invented** vaccine/feed schedule values as production logic. Unsourced draft rules (warning: `not source-backed`) never generate production obligations and cannot be published.
+- **Allowed:** structural seeds — `animal_stage_lookup` bands, park/shed profiles from **real `locations`**, vaccination SOP `form_dsl`/`proof_policy` (from wiki §6 + Preventive Care (PC) handbook), capability seeds, and draft test `protocol_rules` that are never published and generate no obligations.
+- **Evidence-derived real config (dev):** rule values taken from tracked source/nuance docs may be loaded in `goatos-dev` and published there by CEO/COO/superadmin authority after JSON-schema validation, SOP binding, impact preview, and effective-date checks. The UI must not ask for source-system/reviewer/approval fields.
+- **NOT allowed:** **hand-invented** vaccine/feed schedule values as production logic. Experimental local drafts never generate production obligations and cannot be treated as approved business policy.
 
 ## G. Order of implementation
 **Phase 0 — foundation deltas (no rule values needed):** `000070`–`000074` + outbox→Pub/Sub adapter + create `protocol`/`obligation`/`inventory` Go domains (schema + repos, no rules yet). Engine stands up empty.
-**Phase 1 — PHC Vaccination slice:** `000075`; build `vaccination` domain; SM-1/3/4/5/7 handlers; SOP form/proof seed; config-screen API + impact-preview; Control Tower + Action Center + Protocol Adherence reads + coverage projection. **Source-derived rule values now exist** in `docs/phc-vaccination/APPROVED-SCHEDULE-MATRIX.md`; use them as source-backed dev config for ET+TT, PPR, Goat Pox, Sheep Pox, FMD, HS, and Blue Tongue. BQ and future overrides arrive later through the same source-backed versioning path when timing/dose/booster extracts exist.
+**Phase 1 — Preventive Care (PC) Vaccination slice:** `000075`; build `vaccination` domain; SM-1/3/4/5/7 handlers; SOP form/proof seed; config-screen API + impact-preview; Control Tower + Action Center + Protocol Adherence reads + coverage projection. Approved rule values now live in the scoped vaccination matrix path; use `vaccination.matrix` as the company/park active ruleset family for ET+TT, PPR, Goat Pox, Sheep Pox, FMD, HS, and Blue Tongue. Additional or corrected values arrive later as new inactive versions that CEO/COO activates for company or park scope.
 **Phase 2 — Feed Direction:** use new migration numbers after the live repo tail; build the generation pipeline and wiring around the committed `000079` generic-kernel design. SM-6 is full direction + cutoff Diff + bridge logging + packing reserve. Feed operational screens remain scope-gated until explicitly reopened.
 **Cutover (one-time, after Phase 1 engine ready):** freeze legacy → canonical → backfill generator per migration-and-cutover.md; `CUTOVER_DATE` policy (no historical-overdue flood).
 
-**Critical-path gate:** Phase 0 + the *engine* of Phase 1/2 can be built **now**. For PHC vaccination local/dev, the approved schedule matrix can generate source-backed work for its listed vaccine rows; BQ and future overrides remain source-backed config/versioning work.
+**Critical-path gate:** Phase 0 + the *engine* of Phase 1/2 can be built **now**. For Preventive Care (PC) vaccination local/dev, the approved schedule matrix can generate work for its listed vaccine rows; BQ and future overrides remain versioned matrix work based on tracked business/medical evidence.

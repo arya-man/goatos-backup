@@ -1,5 +1,5 @@
-// Package app holds the protocol application service. Phase 0 keeps it thin; the source-backed
-// publish gate and rule_dsl -> protocol_rules expansion (SM-1 generation) arrive in Phase 1.
+// Package app holds the protocol application service. Phase 0 keeps it thin; publish readiness and
+// rule_dsl -> protocol_rules expansion (SM-1 generation) live in publish.go.
 package app
 
 import (

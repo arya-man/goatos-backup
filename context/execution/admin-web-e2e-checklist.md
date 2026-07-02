@@ -20,7 +20,7 @@ frontend clicks, stop on failure, collect defects, rerun only failed checks, and
 prove CT / AC / PA / Calendar / Workflows read the same truth.
 
 Do not turn that into "click every future product route" or broad CRUD before
-the active slice needs it. Current approved admin-web scope is PHC Vaccination,
+the active slice needs it. Current approved admin-web scope is Preventive Care (PC) Vaccination,
 Calendar vaccination due-work, Procurement Source Entry bridge, Counts Herd
 Register, Config, SOP Library, Audit Log, Goat Passport, and top-level command
 lenses. Unbuilt verticals and future Counts modules must stay absent, not
@@ -212,10 +212,10 @@ Create through `/procurement/source-entry` APIs/UI:
 
 | Goat | Procurement path | Expected downstream |
 | --- | --- | --- |
-| `E2E-PROC-CLEAN` | source health pass -> pre-dispatch accepted -> loaded -> arrived -> accepted intake | enters PHC vaccination work |
-| `E2E-PROC-REJECT` | rejected before truck | procurement history only, never PHC work |
-| `E2E-PROC-OWNER-MISSING` | owner/ownership unresolved | procurement CT/AC gap only, never PHC work |
-| `E2E-PROC-EXTRA-UNKNOWN` | extra unknown at arrival | arrival/identity review only, never PHC work |
+| `E2E-PROC-CLEAN` | source health pass -> pre-dispatch accepted -> loaded -> arrived -> accepted intake | enters Preventive Care (PC) vaccination work |
+| `E2E-PROC-REJECT` | rejected before truck | procurement history only, never Preventive Care (PC) work |
+| `E2E-PROC-OWNER-MISSING` | owner/ownership unresolved | procurement CT/AC gap only, never Preventive Care (PC) work |
+| `E2E-PROC-EXTRA-UNKNOWN` | extra unknown at arrival | arrival/identity review only, never Preventive Care (PC) work |
 | `E2E-PROC-DEFERRED` | accepted intake with health defer signal | defer visible; no active dose obligation until eligible |
 
 ## Backend/API Cases
@@ -384,7 +384,7 @@ hiding later columns, or forcing users to guess the value.
 - Mobile hamburger open/close, scrim click, Escape close.
 - Sidebar group open/close, active leaf, badges, disabled leaf state.
 - Control Tower, Action Center, Calendar, Protocol Adherence, Workflows.
-- PHC / Vaccination.
+- Preventive Care (PC) / Vaccination.
 - Procurement / Source Entry.
 - Counts / Herd Register.
 - Admin / Data Ops / Config, Audit Log, SOP Library.
@@ -623,7 +623,7 @@ Current status:
 - `MeshaShell` now consumes backend-owned shell/nav/top-bar/route-label data
   from `GET /admin-web/bootstrap`.
 - Parks in the top bar are backend-backed.
-- Action Center / PHC badges are fetched through `/api/nav-counts`.
+- Action Center / Preventive Care (PC) badges are fetched through `/api/nav-counts`.
 - Role preview lenses are now backend contract text, but still preview-only UI
   state; they do not bypass RBAC.
 - Calendar page presentation is partly frontend-local contract code.

@@ -9,15 +9,15 @@ This is not a generic Control Tower, not a generic Action Center, and not a
 generic all-domain Workflow/SOP rollout.
 
 The backend can be generic. The visible admin-web review surface for this build
-must remain the PHC / Vaccination lens only.
+must remain the Preventive Care (PC) / Vaccination lens only.
 
 ## Platform Model (READ FIRST — this is NOT a vaccination app)
 
 Goat OS is a **generic, multi-vertical OS**: a module-agnostic engine (protocol
 rules, obligations, SOP tasks, proof, verification, process-integrity) →
-**verticals** (e.g. PHC) → **modules** (Vaccination today; Feed Direction,
+**verticals** (e.g. Preventive Care (PC)) → **modules** (Vaccination today; Feed Direction,
 deworming, others next, on the **same engine**). **Vaccination is one module under
-PHC — the current visible slice, not the app's identity.** "Vaccination-only" /
+Preventive Care (PC) — the current visible slice, not the app's identity.** "Vaccination-only" /
 "vaccination lens" below means the current visible *content slice*; the engine,
 shell, Config, and SOP layers stay generic. Never treat vaccination as an app-wide
 scope (no global "Vaccination" badge/label); the active module is shown by the
@@ -38,8 +38,8 @@ context/forms/final-forms-sop-engine.md
 .agents/skills/goatos-build/references/forms-sop.md
 docs/protocol-engine/obligation-engine.md
 docs/protocol-engine/state-machines.md
-docs/phc-vaccination/PRD.md
-docs/phc-vaccination/TRD.md
+docs/preventive-care-vaccination/PRD.md
+docs/preventive-care-vaccination/TRD.md
 mock/goatos-dashboard-mock.html
 ```
 
@@ -75,16 +75,16 @@ command-room screens**, placed exactly where the mock places them:
 /action-center       Action Center
 /protocol-adherence  Protocol Adherence
 /workflows           Workflows  (+ /workflows/{row_id} drilldown)
-/vaccination         PHC Vaccination module surface only
+/vaccination         Preventive Care (PC) Vaccination module surface only
 ```
 
-They are NOT tabs inside PHC / Vaccination. Filtering content to vaccination
+They are NOT tabs inside Preventive Care (PC) / Vaccination. Filtering content to vaccination
 data does not move these screens under a vertical. Do not rebuild an Action
 Center / Adherence / Verification tab strip inside `/vaccination`. Do not keep
 compatibility redirects such as `/vaccination/adherence` or
 `/vaccination/workflows/{row}`; old nested command paths must disappear. Parks is
 NOT a vaccination product route. There is no `/parks/vaccination` exception:
-Vaccination execution is owned by PHC/Vaccination and must use `/vaccination`
+Vaccination execution is owned by Preventive Care (PC) / Vaccination and must use `/vaccination`
 plus `/vaccination/execution/sheds/[shedId]` for shed drilldown.
 
 ## Non-Negotiable Scope Rule
@@ -93,7 +93,7 @@ The content is vaccination-only:
 
 ```text
 show:
-  PHC / Vaccination process integrity
+  Preventive Care (PC) / Vaccination process integrity
   Admin / Data Ops Config for vaccination rules
   Admin / Data Ops SOP Library for vaccination SOP policy
   Vaccination execution context scoped by park/shed
@@ -125,7 +125,7 @@ top-level command screens (mock hierarchy):
                        backend API
 
 verticals below:
-  /vaccination         PHC Vaccination module surface: mock-faithful matrix,
+  /vaccination         Preventive Care (PC) Vaccination module surface: mock-faithful matrix,
                        cohort detail, drive/shed-event execution, proof +
                        verification backlog, rejected/rework — links out, not the
                        Action Center, no tab strip.
@@ -146,8 +146,8 @@ Latest review state on 2026-06-24:
 ```text
 mostly fixed:
   Control Tower, Action Center, Protocol Adherence, and Workflows are top-level.
-  /vaccination is PHC operations only.
-  Action Center no longer owns a PHC tab strip.
+  /vaccination is Preventive Care (PC) operations only.
+  Action Center no longer owns a Preventive Care (PC) tab strip.
   route_not_registered copy no longer blames DB grants.
   most repeated body scope bars were removed.
 
@@ -273,7 +273,7 @@ raw herd counts/census KPIs
 ### `/action-center` Action Center (top-level)
 
 Use the mock Action Center board style, but columns/chips are vaccination work
-states. This is a top-level command screen, not a PHC tab.
+states. This is a top-level command screen, not a Preventive Care (PC) tab.
 
 Required states:
 
@@ -314,7 +314,7 @@ Actions must be real or honestly disabled with a reason. Do not fake success.
 ### `/protocol-adherence` Protocol Adherence (top-level)
 
 This screen is not useless. It is the proof that config + SOP are being followed.
-It is a top-level command screen, not a PHC tab.
+It is a top-level command screen, not a Preventive Care (PC) tab.
 
 Use the mock Protocol Adherence shape:
 
@@ -377,9 +377,9 @@ booster/next-dose generated when applicable
 Use the mock's chain-reaction map style, but only for a selected vaccination
 drive/obligation/task.
 
-### `/vaccination` PHC Vaccination module surface
+### `/vaccination` Preventive Care (PC) Vaccination module surface
 
-This is the PHC vertical's own Vaccination module surface — NOT the Action
+This is the Preventive Care (PC) vertical's own Vaccination module surface — NOT the Action
 Center. It must match the mock shape:
 
 ```text
@@ -518,7 +518,7 @@ cursor/limit metadata
    `/workflows/{row_id}` drilldown; Control Tower / Action Center / Adherence rows
    link into it.
 
-6. Keep `/vaccination` as the PHC Vaccination module surface only (no tab strip),
+6. Keep `/vaccination` as the Preventive Care (PC) Vaccination module surface only (no tab strip),
    matching the mock's vaccination screen structure.
 
 7. Keep park/shed execution as Vaccination-owned physical context inside
@@ -582,7 +582,7 @@ For procured goats, include the accepted-intake boundary plan:
 context/execution/procurement-vaccination-e2e-plan.md
 ```
 
-This confirms PHC/Parks screens show accepted-intake goats only, while
+This confirms Preventive Care (PC) / Parks screens show accepted-intake goats only, while
 rejected-before-truck, owner-missing, and extra-unknown source goats remain in
 procurement surfaces.
 

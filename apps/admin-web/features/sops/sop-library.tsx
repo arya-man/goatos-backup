@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   BookText,
   Calendar,
@@ -25,8 +26,12 @@ import {
   Zap,
 } from "lucide-react";
 import { type SopCardView, type SopTrigger } from "./sop-derive";
-import { NewSopModal } from "./new-sop-modal";
 import { copy, optionGroup, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+
+// The New SOP builder is a dedicated full-page surface at /sops?compose=1 (same top-level authority
+// route — the IA guard forbids a nested /sops/new page). The library links out to it; it is no longer a
+// modal. Legacy `?new=1` deep-links (vaccination SOP quick-view) resolve to the same builder.
+const BUILDER_HREF = "/sops?compose=1";
 
 const TRIGGER_ICON: Record<SopTrigger, React.ElementType> = {
   form: SquarePen,
@@ -58,19 +63,19 @@ export interface SopLibraryProps {
   sops: SopCardView[];
   error?: { code?: string; message: string } | null;
   authRequired?: boolean;
-	  // When true (e.g. arriving from /sops?new=1, the "Create SOP" action on the vaccination SOP quick-view),
-	  // the New SOP builder opens immediately so the create path lands ready, not on a cold library.
-	  initialCreating?: boolean;
-	  pageContract: AdminUiPageContract;
-	}
+  pageContract: AdminUiPageContract;
+}
 
 // SOP Library client console. Ported from the mock SOP Library screen (header, search, domain chips,
-// card grid, detail modal) + New SOP builder modal. Cards render ONLY real `/admin/sops` data; facets
-// are derived from real code/description/form_dsl/proof_policy. No mock inventory, no fake source rows.
-export function SopLibrary({ sops, error, authRequired, initialCreating = false, pageContract }: SopLibraryProps) {
+// card grid, detail modal). "New SOP" / "Edit" navigate to the dedicated full-page builder
+// (/sops?compose=1 [&edit=<sop_id>]). Cards render ONLY real `/admin/sops` data; facets are derived from
+// real code/description/form_dsl/proof_policy. No mock inventory, no fake source rows.
+export function SopLibrary({ sops, error, authRequired, pageContract }: SopLibraryProps) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState(initialCreating);
   const [detail, setDetail] = useState<SopCardView | null>(null);
+  const openBuilder = () => router.push(BUILDER_HREF);
+  const openEditor = (sopId: string) => router.push(`${BUILDER_HREF}&edit=${sopId}`);
   const [requestedPage, setRequestedPage] = useState(1);
 	  const pageSizeOptions = tablePageSizes(pageContract, "sop-library");
 	  const [pageSize, setPageSize] = useState<number>(pageSizeOptions.includes(10) ? 10 : (pageSizeOptions[0] ?? 10));
@@ -101,7 +106,11 @@ export function SopLibrary({ sops, error, authRequired, initialCreating = false,
 	          <div className="sub">{pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <button type="button" className="btn p" onClick={() => setCreating(true)}>
+        <button
+          type="button"
+          className="btn p"
+          onClick={openBuilder}
+        >
 	          <Plus className="ic" /> {copy(pageContract, "action.new_sop")}
         </button>
       </div>
@@ -163,7 +172,12 @@ export function SopLibrary({ sops, error, authRequired, initialCreating = false,
             <p className="muted" style={{ maxWidth: 640, margin: "8px auto 0", lineHeight: 1.6, fontSize: 13 }}>
 	              {copy(pageContract, "empty.body")}
             </p>
-            <button type="button" className="btn p" style={{ marginTop: 14 }} onClick={() => setCreating(true)}>
+            <button
+              type="button"
+              className="btn p"
+              style={{ marginTop: 14 }}
+              onClick={openBuilder}
+            >
 	              <Plus className="ic" /> {copy(pageContract, "action.new_sop")}
             </button>
           </div>
@@ -258,8 +272,17 @@ export function SopLibrary({ sops, error, authRequired, initialCreating = false,
         </>
       )}
 
-      {detail ? <SopDetailModal view={detail} pageContract={pageContract} onClose={() => setDetail(null)} onEdit={() => { setDetail(null); setCreating(true); }} /> : null}
-      <NewSopModal open={creating} onClose={() => setCreating(false)} pageContract={pageContract} />
+      {detail ? (
+        <SopDetailModal
+          view={detail}
+          pageContract={pageContract}
+          onClose={() => setDetail(null)}
+          onEdit={() => {
+            setDetail(null);
+            openEditor(detail.sopId);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

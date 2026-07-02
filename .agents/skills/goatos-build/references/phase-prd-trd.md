@@ -4,7 +4,7 @@ Load this before implementing, reviewing, or changing any delivery phase.
 
 ## Active Override — Protocol Engine Phase 0
 
-For current PHC vaccination, vaccination execution context, protocol config,
+For current Preventive Care (PC) vaccination, vaccination execution context, protocol config,
 obligation, and inventory-ledger work, the active build spec is:
 
 ```text
@@ -14,13 +14,13 @@ docs/protocol-engine/obligation-engine.md
 docs/protocol-engine/state-machines.md
 docs/protocol-engine/migration-and-cutover.md
 context/architecture/operational-kernel.md
-docs/phc-vaccination/PRD.md
-docs/phc-vaccination/TRD.md
+docs/preventive-care-vaccination/PRD.md
+docs/preventive-care-vaccination/TRD.md
 ```
 
-Use those files as the source of truth for migrations `000070-074`, protocol
-rules, obligations, inventory ledger, source-backed config, and million-goat
-query shape.
+Use those files as the source of truth for migrations `000070-074`, scoped
+protocol rulesets, obligations, inventory ledger, Config activation policy, and
+million-goat query shape.
 
 Canonical docs:
 
@@ -32,7 +32,7 @@ Canonical docs:
 
 Rules:
 
-- For Protocol Engine / PHC Vaccination work, read the active docs above before
+- For Protocol Engine / Preventive Care (PC) Vaccination work, read the active docs above before
   code. Do not rely on deleted old phase docs for the protocol/obligation
   schema or frontend direction.
 - Write and review the detailed PRD/TRD for the selected phase before code.
@@ -69,8 +69,9 @@ Rules:
 - Use phase docs for "what to build"; use skill references for "what context to
   load and which rules must not be forgotten."
 - For protocol/config work, never treat "demo" or "sandbox" as a rule state.
-  `protocol_versions.status` remains `draft`/`published`/`retired`; source and
-  approval are separate metadata.
+  Separate draft/published immutability from active/inactive selection. For
+  vaccination, one company `vaccination.matrix` version is active and a park
+  override replaces it only for that park.
 
 Locked identity foundation:
 

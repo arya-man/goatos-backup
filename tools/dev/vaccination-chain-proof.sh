@@ -2,12 +2,16 @@
 # Local DATA-PLANE vaccination business-chain proof — NOT browser/Playwright E2E.
 #
 # Drives the REAL local stack end-to-end and prints concrete IDs:
+#   Existing in-DB goat without goat.created
+#     -> backfill-goat-created emits the missing canonical event
+#     -> outbox-relay eventbus delivery -> generation
+#     -> obligation_instances
 #   Herd Register create (POST /admin/goats)
 #     -> goat.created outbox row
 #     -> outbox-relay GOATOS_OUTBOX_PUBLISHER=eventbus delivery -> generation
 #     -> obligation_instances
 #     -> obligation-sweeper -> obligation_batch + SOP task
-#     -> 3 video proofs (local storage) -> SOP task submission -> vaccination_completion (recorded)
+#     -> 3 execution proof uploads (local storage) -> SOP task submission -> vaccination_completion (recorded)
 #     -> verification-queue -> SOP task verify -> completion accepted + obligation completed
 #     -> CT / AC / PA / WF / vaccination ops / shed drilldown / Passport read the same Postgres truth
 #
@@ -16,11 +20,12 @@
 #   - DB migrated to head. `make dev-local` does NOT migrate; in particular migration
 #     000082 (sop_task_review_fanouts / sop_task_submission_fanouts) must be applied or the
 #     SOP submission step 500s with: relation "sop_task_submission_fanouts" does not exist.
-#   - seeded source-derived ET dev baseline (seed-vaccination-trigger): published version b011,
-#     rule b012 (ET-PRIMARY-1, birth_age day 21), linked published SOP b0..0002, FEFO vaccine lot b002.
+#   - seeded source-derived ET V1 matrix baseline (seed-vaccination-trigger): published version b051,
+#     rules b052 (ET-PRIMARY-1, birth_age day 21) + b053 (ET-BOOSTER-1, after_previous_completion +14d),
+#     linked published SOP b0..0002, FEFO vaccine lot b002.
 #
 # This uses the source-derived local/dev baseline in
-# context/source-findings/phc-vaccination-roster-stage-proposal.md. Production can replace it
+# context/source-findings/preventive-care-vaccination-roster-stage-proposal.md. Production can replace it
 # with a later source-backed version if PHC/vet data changes.
 set -euo pipefail
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
@@ -31,11 +36,14 @@ export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:55432/
 PGURL="$DATABASE_URL"; API="${GOATOS_API_BASE_URL:-http://127.0.0.1:8080}"
 TENANT=00000000-0000-4000-8000-000000000001
 USER=90000000-0000-4000-8000-000000000101
-VERSION=00000000-0000-4000-8000-00000000b011        # published source-derived ET dev baseline
+VERSION=00000000-0000-4000-8000-00000000b051        # published source-derived ET V1 matrix baseline
+OLD_VERSION=00000000-0000-4000-8000-00000000b011    # retired legacy ET baseline; must not generate obligations
 SOPVER=b0000000-0000-4000-8000-000000000002         # linked published SOP version
 ITEM=00000000-0000-4000-8000-00000000b001           # vaccine inventory item
 LOT=00000000-0000-4000-8000-00000000b002            # inventory_stock.stock_id (FEFO lot ET-LOT-001 @ CBE)
-RULE=00000000-0000-4000-8000-00000000b012           # ET-PRIMARY-1 birth_age day-21 rule
+RULE=00000000-0000-4000-8000-00000000b052           # ET-PRIMARY-1 birth_age day-21 rule
+OLD_RULE=00000000-0000-4000-8000-00000000b012       # retired legacy ET primary rule
+BOOSTER_RULE=00000000-0000-4000-8000-00000000b053   # ET-BOOSTER-1 after_previous_completion +14d rule
 BACKEND="$(cd "$(dirname "$0")/../../backend" && pwd)"
 psqlq(){ psql "$PGURL" -tAc "$1"; }
 jqp(){ python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null; }
@@ -43,30 +51,29 @@ has(){ grep -q "$1" <<<"$2" && echo HIT || echo MISS; }
 fail(){ echo "FAIL $*" >&2; exit 1; }
 assert_hit(){ local label=$1 needle=$2 haystack=$3; [ "$(has "$needle" "$haystack")" = HIT ] || fail "$label missing $needle"; }
 relay_once(){
-  local label=$1 limit=${2:-50} out relay_bad
+  local label=$1 limit=${2:-50} out
   out=$(cd "$BACKEND" && GOATOS_OUTBOX_ALLOW_NONDURABLE=1 GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay -limit "$limit" 2>&1)
-  echo "$out" | tail -1
-  relay_bad=$(RELAY_OUTPUT="$out" python3 - <<'PY'
-import json
-import os
-import re
-
-bad = []
-for line in os.environ.get("RELAY_OUTPUT", "").splitlines():
-    try:
-        obj = json.loads(line)
-    except Exception:
-        obj = {}
-    for key in ("failed", "dead_letter", "retry_scheduled"):
-        value = obj.get(key)
-        if isinstance(value, int) and value > 0:
-            bad.append(f"{key}={value}")
-    for match in re.finditer(r'"?(failed|dead_letter|retry_scheduled)"?\s*[:=]\s*([1-9][0-9]*)', line):
-        bad.append(f"{match.group(1)}={match.group(2)}")
-print(" ".join(dict.fromkeys(bad)))
-PY
-)
-  [ -z "$relay_bad" ] || fail "$label relay reported non-green counts: $relay_bad output=$(echo "$out" | tail -3 | tr '\n' ' ')"
+  if [ "${GOATOS_PROOF_VERBOSE_RELAY:-0}" = "1" ]; then
+    echo "$out" | tail -1
+  fi
+}
+relay_until_published(){
+  local label=$1 aggregate=$2 event_type=$3
+  local i status last_error
+  for i in $(seq 1 5); do
+    relay_once "$label" 500
+    status=$(psqlq "select status from outbox_messages where tenant_id='$TENANT' and aggregate_id='$aggregate' and event_type='$event_type' order by created_at desc limit 1")
+    if [ "$status" = "published" ]; then
+      echo "$label: $event_type published"
+      return 0
+    fi
+    if [ "$status" = "failed" ] || [ "$status" = "dead_letter" ]; then
+      last_error=$(psqlq "select coalesce(last_error,'') from outbox_messages where tenant_id='$TENANT' and aggregate_id='$aggregate' and event_type='$event_type' order by created_at desc limit 1")
+      fail "$label target $event_type for aggregate=$aggregate reached status=$status last_error=$last_error"
+    fi
+    sleep 1
+  done
+  fail "$label did not publish $event_type for aggregate=$aggregate; last_status=$status"
 }
 assert_outbox_published(){
   local label=$1 aggregate=$2 event_type=$3
@@ -80,6 +87,8 @@ assert_outbox_published(){
 TOKEN=$(cd "$BACKEND" && go run ./cmd/mint-dev-token -tenant-id "$TENANT" -user-id "$USER" -ttl 2h 2>/dev/null)
 A=(-H "Authorization: Bearer $TOKEN")
 STAMP=$(date +%s); RFID="CHAINPROOF-$STAMP"
+BACKFILL_SHED_CODE="CHAIN-BF-$STAMP"
+MAIN_SHED_CODE="CHAIN-MAIN-$STAMP"
 ENTRY_DATE=$(date -u +%F)
 ADMINISTERED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 if DOB_DAY21=$(date -u -v-21d +%F 2>/dev/null); then
@@ -89,9 +98,43 @@ else
 fi
 echo "## vaccination-chain-proof stamp=$STAMP api=$API"
 
+echo; echo "### 0. V1 vaccine-goat matrix fixture is present"
+( cd "$BACKEND" && go run ./cmd/seed-vaccination-trigger -tenant-id "$TENANT" >/dev/null )
+MATRIX=$(psqlq "select concat_ws('|', rule_dsl->'vaccine'->>'code', rule_dsl->'vaccine'->>'type', rule_dsl #>> '{schedule,0,dose_amount}', rule_dsl #>> '{schedule,0,dose_unit}', rule_dsl #>> '{schedule,0,route_site}', rule_dsl #>> '{schedule,0,max_delay_days}', rule_dsl #>> '{schedule,0,course_lapse_policy}', rule_dsl #>> '{eligibility,stage}', rule_dsl #>> '{eligibility,sex}', rule_dsl #>> '{eligibility,breed}', rule_dsl #>> '{eligibility,lifecycle}', rule_dsl #>> '{eligibility,health}', rule_dsl #>> '{eligibility,reproductive}', jsonb_array_length(rule_dsl->'schedule')) from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$VERSION'")
+[ "$MATRIX" = "ET|toxoid|0.5|ml|subcutaneous|7|phc_review|K1|all|all|alive|any|any|2" ] || fail "V1 matrix fixture missing/wrong for version=$VERSION got=$MATRIX"
+MATRIX_REPRO_EXCLUSIONS=$(psqlq "select jsonb_array_length(rule_dsl #> '{eligibility,exclude_reproductive_states}') from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$VERSION'")
+[ "$MATRIX_REPRO_EXCLUSIONS" = "2" ] || fail "V1 matrix missing reproductive exclusions; count=$MATRIX_REPRO_EXCLUSIONS version=$VERSION"
+OLD_STATUS=$(psqlq "select status from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$OLD_VERSION'")
+[ "$OLD_STATUS" = "retired" ] || fail "legacy ET baseline status=$OLD_STATUS, want retired for version=$OLD_VERSION"
+echo "matrix=$MATRIX"
+BACKFILL_SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status) values (gen_random_uuid(), '$TENANT', 'shed', '$BACKFILL_SHED_CODE', 'Chain Proof Backfill $STAMP', '00000000-0000-4000-8000-000000003001', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active') returning location_id" | head -n 1)
+MAIN_SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status) values (gen_random_uuid(), '$TENANT', 'shed', '$MAIN_SHED_CODE', 'Chain Proof Main $STAMP', '00000000-0000-4000-8000-000000003001', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active') returning location_id" | head -n 1)
+echo "proof_sheds backfill=$BACKFILL_SHED_CODE/$BACKFILL_SHED main=$MAIN_SHED_CODE/$MAIN_SHED"
+
+echo; echo "### 0b. existing-goat backfill generates V1 due work"
+BACKFILL_GOAT=$(psqlq "insert into goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id, shed_id, management_stage, sex, dob, approx_dob, entry_date) values (gen_random_uuid(), '$TENANT', 'alive', 'clean', '00000000-0000-4000-8000-000000001001', '$BACKFILL_SHED', '00000000-0000-4000-8000-000000003001', '$BACKFILL_SHED', 'K1', 'female', DATE '$DOB_DAY21', DATE '$DOB_DAY21', DATE '$ENTRY_DATE') returning goat_id" | head -n 1)
+BACKFILL_OUTBOX_COUNT=$(psqlq "select count(*) from outbox_messages where tenant_id='$TENANT' and aggregate_id='$BACKFILL_GOAT' and event_type='goat.created'")
+[ "$BACKFILL_OUTBOX_COUNT" = "0" ] || fail "backfill goat unexpectedly has goat.created outbox count=$BACKFILL_OUTBOX_COUNT"
+( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/backfill-goat-created -tenant-id "$TENANT" -goat-id "$BACKFILL_GOAT" -limit 1 )
+BACKFILL_EVENT_COUNT=$(psqlq "select count(*) from goat_identity_events where tenant_id='$TENANT' and goat_id='$BACKFILL_GOAT' and event_type='goat.created'")
+[ "$BACKFILL_EVENT_COUNT" = "1" ] || fail "backfill goat.created identity event count=$BACKFILL_EVENT_COUNT goat=$BACKFILL_GOAT"
+relay_until_published "backfilled goat.created delivery" "$BACKFILL_GOAT" "goat.created"
+BACKFILL_OBL_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$BACKFILL_GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")
+[ "$BACKFILL_OBL_COUNT" = "1" ] || fail "backfill obligation count=$BACKFILL_OBL_COUNT goat=$BACKFILL_GOAT"
+BACKFILL_OLD_OBL_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$BACKFILL_GOAT' and protocol_version_id='$OLD_VERSION' and rule_id='$OLD_RULE'")
+[ "$BACKFILL_OLD_OBL_COUNT" = "0" ] || fail "backfill generated retired legacy ET obligation count=$BACKFILL_OLD_OBL_COUNT goat=$BACKFILL_GOAT"
+( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/backfill-goat-created -tenant-id "$TENANT" -goat-id "$BACKFILL_GOAT" -limit 1 >/dev/null )
+BACKFILL_OUTBOX_REPLAY_COUNT=$(psqlq "select count(*) from outbox_messages where tenant_id='$TENANT' and aggregate_id='$BACKFILL_GOAT' and event_type='goat.created'")
+[ "$BACKFILL_OUTBOX_REPLAY_COUNT" = "1" ] || fail "backfill replay outbox count=$BACKFILL_OUTBOX_REPLAY_COUNT goat=$BACKFILL_GOAT"
+BACKFILL_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$BACKFILL_GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")
+[ "$BACKFILL_REPLAY_COUNT" = "1" ] || fail "backfill replay obligation count=$BACKFILL_REPLAY_COUNT goat=$BACKFILL_GOAT"
+BACKFILL_OLD_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$BACKFILL_GOAT' and protocol_version_id='$OLD_VERSION' and rule_id='$OLD_RULE'")
+[ "$BACKFILL_OLD_REPLAY_COUNT" = "0" ] || fail "backfill replay generated retired legacy ET obligation count=$BACKFILL_OLD_REPLAY_COUNT goat=$BACKFILL_GOAT"
+echo "BACKFILL_GOAT=$BACKFILL_GOAT obligations=$BACKFILL_OBL_COUNT replay=$BACKFILL_REPLAY_COUNT"
+
 echo; echo "### 1. Herd Register create  POST /admin/goats"
 CREATE=$(curl -s "${A[@]}" -H "Idempotency-Key: chain-$STAMP" -H "Content-Type: application/json" -X POST "$API/admin/goats" -d @- <<JSON
-{"rfid":"$RFID","park_code":"CBE","shed_code":"CBE_SHED_MANDELA_1_PART_1","sex":"female","dob":"$DOB_DAY21","dob_estimated":true,"origin_type":"procured","entry_date":"$ENTRY_DATE","management_stage":"K1","evidence_refs":[{"evidence_type":"source_record","evidence_id":"chain-$STAMP"}]}
+{"rfid":"$RFID","park_code":"CBE","shed_code":"$MAIN_SHED_CODE","sex":"female","dob":"$DOB_DAY21","dob_estimated":true,"origin_type":"procured","entry_date":"$ENTRY_DATE","management_stage":"K1","evidence_refs":[{"evidence_type":"source_record","evidence_id":"chain-$STAMP"}]}
 JSON
 )
 GOAT=$(echo "$CREATE" | jqp 'd["goat"]["goat_id"]'); SHED=$(echo "$CREATE" | jqp 'd["goat"]["location_path"]["shed_id"]')
@@ -103,9 +146,11 @@ psql "$PGURL" -c "select event_id,event_type,status from outbox_messages where a
 EVENT=$(psqlq "select event_id from outbox_messages where aggregate_id='$GOAT' limit 1")
 
 echo; echo "### 3. outbox-relay eventbus delivery -> generation"
-relay_once "goat.created delivery" 50
+relay_until_published "goat.created delivery" "$GOAT" "goat.created"
 OBL=$(psqlq "select obligation_id from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE' limit 1")
 [ -n "$OBL" ] || { echo "FAIL step3 (no obligation generated)"; exit 1; }
+OLD_OBL_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$OLD_VERSION' and rule_id='$OLD_RULE'")
+[ "$OLD_OBL_COUNT" = "0" ] || fail "goat generated retired legacy ET obligation count=$OLD_OBL_COUNT goat=$GOAT"
 assert_outbox_published "goat.created" "$GOAT" "goat.created"
 psql "$PGURL" -c "select obligation_id,status,due_at from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'"
 
@@ -116,7 +161,7 @@ TASK=$(psqlq "select sop_task_id from obligation_batches where batch_id='$BATCH'
 [ -n "$TASK" ] || { echo "FAIL step4 (no SOP task)"; exit 1; }
 echo "BATCH=$BATCH TASK=$TASK"
 
-echo; echo "### 5. 3 video proofs (scope=task) shed/vial_lot/administration"
+echo; echo "### 5. 3 execution proof uploads (scope=task) shed/vial_lot/administration"
 mkproof(){ local subj=$1
   local r=$(curl -s "${A[@]}" -H "Content-Type: application/json" -X POST "$API/app/proofs/uploads" \
     -d "{\"proof_type\":\"video\",\"mime_type\":\"video/mp4\",\"scope_type\":\"task\",\"scope_id\":\"$TASK\",\"subject_type\":\"$subj\"}")
@@ -156,6 +201,12 @@ COMPLETE_STATE=$(psqlq "select c.status || ':' || o.status || ':' || (o.complete
 VAX_OUTBOX_COUNT=$(psqlq "select count(*) from outbox_messages where tenant_id='$TENANT' and event_type='vaccination.completed' and aggregate_id='$OBL'")
 [ "$VAX_OUTBOX_COUNT" = "1" ] || fail "step7 vaccination.completed outbox count=$VAX_OUTBOX_COUNT"
 
+echo; echo "### 7b. vaccination.completed -> same-vaccine booster obligation"
+relay_until_published "vaccination.completed delivery" "$OBL" "vaccination.completed"
+BOOSTER_OBL=$(psqlq "select obligation_id from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$BOOSTER_RULE' limit 1")
+[ -n "$BOOSTER_OBL" ] || fail "step7b no booster obligation generated for goat=$GOAT rule=$BOOSTER_RULE"
+psql "$PGURL" -c "select obligation_id,status,due_at from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$BOOSTER_RULE'"
+
 echo; echo "### 8. read models reflect the same Postgres truth"
 RID=$(curl -s "${A[@]}" "$API/vaccination/action-center?limit=500" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next((r["row_id"] for r in d.get("items",[]) if r.get("batch_id")=="'$BATCH'"),""))')
 AC=$(curl -s "${A[@]}" "$API/vaccination/action-center?limit=500")
@@ -180,15 +231,20 @@ echo "Operations (API):         my-shed accepted=$(curl -s "${A[@]}" "$API/vacci
 
 echo; echo "### 9. replay / idempotency (no duplicates)"
 psql "$PGURL" -tAc "update outbox_messages set status='pending', published_at=null, next_attempt_at=null where aggregate_id='$GOAT'" >/dev/null
-relay_once "replay delivery" 50
+relay_until_published "goat.created replay" "$GOAT" "goat.created"
 ( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/obligation-sweeper -tenant-id "$TENANT" -version-id "$VERSION" -sop-version-id "$SOPVER" -vaccine-item-id "$ITEM" -actor-id "$USER" 2>&1 | tail -1 )
 assert_outbox_published "goat.created replay" "$GOAT" "goat.created"
 assert_outbox_published "vaccination.completed delivery" "$OBL" "vaccination.completed"
-echo "obligations for goat after replay (expect 1): $(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")"
+echo "primary obligations for goat after replay (expect 1): $(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")"
+echo "booster obligations for goat after replay (expect 1): $(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$BOOSTER_RULE'")"
 echo "completions for goat after replay (expect 1): $(psqlq "select count(*) from vaccination_completions where goat_id='$GOAT'")"
 OBL_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")
+OLD_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$OLD_VERSION' and rule_id='$OLD_RULE'")
+BOOSTER_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$BOOSTER_RULE'")
 COMP_REPLAY_COUNT=$(psqlq "select count(*) from vaccination_completions where goat_id='$GOAT'")
 [ "$OBL_REPLAY_COUNT" = "1" ] || fail "replay obligation count=$OBL_REPLAY_COUNT"
+[ "$OLD_REPLAY_COUNT" = "0" ] || fail "replay generated retired legacy ET obligation count=$OLD_REPLAY_COUNT"
+[ "$BOOSTER_REPLAY_COUNT" = "1" ] || fail "replay booster obligation count=$BOOSTER_REPLAY_COUNT"
 [ "$COMP_REPLAY_COUNT" = "1" ] || fail "replay completion count=$COMP_REPLAY_COUNT"
 
-echo; echo "## CLOSED  goat=$GOAT event=$EVENT obligation=$OBL batch=$BATCH task=$TASK submission=$SUBID completion=$COMP rule=$RULE version=$VERSION"
+echo; echo "## CLOSED  goat=$GOAT event=$EVENT obligation=$OBL booster_obligation=$BOOSTER_OBL batch=$BATCH task=$TASK submission=$SUBID completion=$COMP rule=$RULE booster_rule=$BOOSTER_RULE version=$VERSION"

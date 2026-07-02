@@ -64,9 +64,9 @@ Before implementing any phase:
 Current override:
 
 ```text
-For Protocol Engine Phase 0 (PHC vaccination, feed direction, protocol config,
+For Protocol Engine Phase 0 (Preventive Care (PC) vaccination, feed direction, protocol config,
 obligations, inventory ledger), load .agents/skills/goatos-build/SKILL.md and
-then docs/protocol-engine/* and docs/phc-vaccination/*.
+then docs/protocol-engine/* and docs/preventive-care-vaccination/*.
 ```
 
 After implementing any phase:

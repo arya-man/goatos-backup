@@ -549,6 +549,7 @@ func trustedCompletionCandidate(rule protodomain.Rule, g domain.EligibleGoat, du
 // genOneGoat applies every applicable rule to one goat: compute due_at, idempotent insert, and a
 // canonical deferred state when the goat is in a defer state. Accumulates counts into res.
 func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, g domain.EligibleGoat, asOf time.Time, opts generationOptions, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
+	historicalCatchUpMaterialized := false
 	for _, rule := range rules {
 		baseDue, ok, skip := dueAt(rule, g, asOf, opts)
 		if skip {
@@ -576,6 +577,12 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		due, catchUpDeferReason, skip := applyMissedDosePolicy(rule, baseDue, asOf)
 		if skip {
 			continue
+		}
+		if limitsHistoricalCatchUp(rule, baseDue, due, asOf, opts) {
+			if historicalCatchUpMaterialized {
+				continue
+			}
+			historicalCatchUpMaterialized = true
 		}
 		// Scope to the goat's shed so the SM-4 sweeper batches one vaccination drive per shed (the
 		// operational "one shed = one drive" rule), falling back to park then tenant when the goat
@@ -666,6 +673,20 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 	}
 	return nil
+}
+
+func limitsHistoricalCatchUp(rule protodomain.Rule, baseDue, materializedDue, asOf time.Time, opts generationOptions) bool {
+	if opts.ManualCampaignID != "" || rule.TriggerType == "manual_campaign" {
+		return false
+	}
+	if rule.DueWindowDays <= 0 {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(rule.CatchUp), "next_cycle") {
+		return false
+	}
+	windowEnd := baseDue.Add(time.Duration(rule.DueWindowDays) * 24 * time.Hour)
+	return asOf.After(windowEnd) && materializedDue.Equal(asOf)
 }
 
 func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, res *domain.GenerateResult) error {

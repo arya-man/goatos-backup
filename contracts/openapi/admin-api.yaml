@@ -2242,7 +2242,7 @@ paths:
       tags:
         - Procurement Source Entry
       operationId: acceptProcurementIntake
-      summary: Accept arrived goats into canonical herd truth and create PHC handoff markers.
+      summary: Accept arrived goats into canonical herd truth and create Preventive Care (PC) handoff markers.
       parameters:
         - $ref: "#/components/parameters/ProcurementLoadId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -2254,7 +2254,7 @@ paths:
               $ref: "#/components/schemas/AcceptProcurementIntakeRequest"
       responses:
         "200":
-          description: Accepted intake PHC handoff markers.
+          description: Accepted intake Preventive Care (PC) handoff markers.
           content:
             application/json:
               schema:

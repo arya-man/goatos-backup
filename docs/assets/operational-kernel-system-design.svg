@@ -36,7 +36,7 @@
   <rect class="bg" x="0" y="0" width="1680" height="1180"/>
 
   <text class="title" x="72" y="70">Goat OS Operational Kernel</text>
-  <text class="subtitle" x="72" y="102">One reusable backend, frontend, and infra spine for PHC vaccination now and every future vertical later.</text>
+  <text class="subtitle" x="72" y="102">One reusable backend, frontend, and infra spine for Preventive Care (PC) vaccination now and every future vertical later.</text>
 
   <rect class="lane" x="48" y="128" width="1584" height="164"/>
   <text class="section" x="72" y="166">1. CANONICAL INTAKE AND SOURCE OF TRUTH</text>
@@ -165,7 +165,7 @@
 
   <rect class="box-orange" x="1110" y="980" width="466" height="80"/>
   <text class="label" x="1136" y="1012">Vertical plug-ins</text>
-  <text class="small" x="1136" y="1036">PHC, feed, breeding, procurement, HR,</text>
+  <text class="small" x="1136" y="1036">Preventive Care (PC), feed, breeding, procurement, HR,</text>
   <text class="small" x="1136" y="1054">farmer network, sales</text>
 
   <path class="arrow" d="M802 826 C802 904 222 904 222 980"/>

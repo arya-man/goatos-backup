@@ -453,7 +453,7 @@ Examples:
 | location display/alias update | `locations`, pages using park display chips |
 | animal stage update | `animal-stages`, `protocols:vaccination`, config page |
 | protocol version publish | `protocols:vaccination`, Action Center, Calendar, Vaccination, Workflows, Config |
-| SOP version publish | `sops:vaccination`, Config, SOP Library, PHC execution pages |
+| SOP version publish | `sops:vaccination`, Config, SOP Library, Preventive Care (PC) execution pages |
 | role/capability change | `permissions`, `chrome`, every page with action availability |
 | backend contract deployment | code contract hash changes; no DB bump required |
 

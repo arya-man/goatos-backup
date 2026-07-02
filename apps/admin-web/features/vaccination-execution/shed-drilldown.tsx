@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArrowLeft, Ban, MapPin, ShieldCheck, Syringe, UserRound, Warehouse } from "lucide-react";
 import { getVaccinationExecutionShedDrilldown } from "@/lib/api/server";
 import type { VaccinationExecutionRow } from "@/lib/api/vaccination-execution";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
 import { copy, optionLabel, optionTone, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { scopeHref, type Scope } from "@/lib/scope";
 
 function Stat({ label, value, tone, pageContract }: { label: string; value: number; tone: Tone; pageContract: AdminUiPageContract }) {
   return (
@@ -30,13 +32,13 @@ function StatusChips({ row, pageContract }: { row: VaccinationExecutionRow; page
   );
 }
 
-function NotFoundOrError({ shedId, message, pageContract }: { shedId: string; message: string; pageContract: AdminUiPageContract }) {
+function NotFoundOrError({ shedId, message, backHref, pageContract }: { shedId: string; message: string; backHref: string; pageContract: AdminUiPageContract }) {
   return (
     <div className="screen on">
       <div className="phead">
         <div>
           <div className="crumb">
-            <Link href="/vaccination#execution" className="lk">
+            <Link href={backHref} className="lk">
               {copy(pageContract, "crumb")}
             </Link>
           </div>
@@ -49,7 +51,7 @@ function NotFoundOrError({ shedId, message, pageContract }: { shedId: string; me
           <p className="muted small" style={{ marginBottom: 12 }}>
             {shedId}: {copy(pageContract, "fallback.body")}
           </p>
-          <Link href="/vaccination#execution" className="btn">
+          <Link href={backHref} className="btn">
 	            <ArrowLeft className="ic" style={{ width: 14 }} aria-hidden="true" /> {copy(pageContract, "action.back")}
           </Link>
         </div>
@@ -58,12 +60,17 @@ function NotFoundOrError({ shedId, message, pageContract }: { shedId: string; me
   );
 }
 
-export async function ShedExecutionDetailPage({ shedId, asOf, pageContract }: { shedId: string; asOf?: string; pageContract: AdminUiPageContract }) {
+export async function ShedExecutionDetailPage({ shedId, scope, asOf, pageContract }: { shedId: string; scope?: Scope; asOf?: string; pageContract: AdminUiPageContract }) {
   const result = await getVaccinationExecutionShedDrilldown(shedId, { asOf });
+  const fallbackBackHref = scope ? `${scopeHref("/vaccination", scope)}#execution` : "/vaccination#execution";
   if (!result.ok) {
-    return <NotFoundOrError shedId={shedId} message={result.error.message} pageContract={pageContract} />;
+    return <NotFoundOrError shedId={shedId} message={result.error.message} backHref={fallbackBackHref} pageContract={pageContract} />;
   }
   const shed = result.data;
+  if (scope && scope.mode !== "park" && shed.parkId) {
+    redirect(scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(shedId)}`, scope, { mode: "park", park: shed.parkId }));
+  }
+  const backHref = scope ? `${scopeHref("/vaccination", scope, { mode: "park", park: shed.parkId })}#execution` : "/vaccination#execution";
 
   const s = shed.summary;
   // Owner chain comes from the most-at-risk row so the drilldown header shows the live accountable chain.
@@ -76,7 +83,7 @@ export async function ShedExecutionDetailPage({ shedId, asOf, pageContract }: { 
       <div className="phead">
         <div>
           <div className="crumb">
-            <Link href="/vaccination#execution" className="lk">
+            <Link href={backHref} className="lk">
               {copy(pageContract, "crumb")}
             </Link>{" "}
             · {shed.parkName} · <b>{shed.shedName}</b>
@@ -88,7 +95,7 @@ export async function ShedExecutionDetailPage({ shedId, asOf, pageContract }: { 
           <div className="sub">{copy(pageContract, "label.animal_stages")}: {shed.animalStages.join(" · ") || copy(pageContract, "label.placeholder")}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <Link href="/vaccination#execution" className="btn">
+        <Link href={backHref} className="btn">
 	          <ArrowLeft className="ic" style={{ width: 14 }} aria-hidden="true" /> {copy(pageContract, "action.back")}
         </Link>
       </div>

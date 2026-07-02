@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -40,6 +41,7 @@ func main() {
 func run(args []string) error {
 	fs := flag.NewFlagSet("backfill-goat-created", flag.ContinueOnError)
 	tenantID := fs.String("tenant-id", os.Getenv("GOATOS_TENANT_ID"), "tenant id")
+	goatID := fs.String("goat-id", "", "optional goat id to backfill exactly one existing goat")
 	limit := fs.Int("limit", 500, "maximum goats to backfill")
 	dryRun := fs.Bool("dry-run", false, "list candidate count without writing")
 	timeout := fs.Duration("timeout", 60*time.Second, "backfill timeout")
@@ -67,6 +69,7 @@ FROM goats g
 WHERE tenant_id = $1::uuid
   AND identity_state = 'clean'
   AND lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND (NULLIF($3::text, '') IS NULL OR goat_id = NULLIF($3::text, '')::uuid)
   AND NOT EXISTS (
     SELECT 1
     FROM goat_identity_events gie
@@ -75,7 +78,7 @@ WHERE tenant_id = $1::uuid
       AND gie.event_type = 'goat.created'
   )
 ORDER BY created_at ASC, goat_id ASC
-LIMIT $2`, *tenantID, *limit)
+LIMIT $2`, *tenantID, *limit, strings.TrimSpace(*goatID))
 	if err != nil {
 		return err
 	}

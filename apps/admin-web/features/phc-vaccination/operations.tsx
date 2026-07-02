@@ -9,7 +9,6 @@ import { VaccinationStatusMatrix } from "./status-matrix";
 import { VaccinationCohortDetail } from "./cohort-detail";
 import { VaccinationSopButton } from "./sop-quick-view";
 import { VaccinationHeaderActions } from "./vaccination-action-dialogs";
-import { SupplierWarmupContext } from "./supplier-warmup-context";
 
 // Linked vaccination SOP for the header quick-view. Derived from the REAL /admin/sops data (same source as
 // /sops), filtered to the vaccination slice and reduced to the primary (active preferred) SOP + its latest
@@ -34,8 +33,8 @@ async function loadLinkedVaccinationSop(): Promise<LinkedSop> {
   return { view: toSopView(primary, detail.data.latest_version ?? null) };
 }
 
-// PHC · Vaccination — the operations floor, ported to the mock's single stacked screen:
-//   header (SOP · Import sheet · New drive) → drive-mechanic band (Target → Group → Route → Execute)
+// Preventive Care (PC) · Vaccination — the operations floor, ported to the mock's single stacked screen:
+//   header (SOP · Protocol Rules) → drive-mechanic band (Target → Group → Route → Execute)
 //   → Vaccination status matrix → Per-cohort vaccination detail → shed-event execution section.
 // No KPI strip, no tab switch — it is one mock-shaped screen. Command lenses (Control Tower / Action
 // Center / Protocol Adherence / Workflows) stay top-level; this screen does not embed or shortcut them.
@@ -98,10 +97,6 @@ export async function VaccinationOperationsPage({
           </div>
         </div>
       </section>
-
-      {/* Supplier / Holding-Farm warmup — read-only PHC context for trusted pre-arrival vaccination evidence.
-          Source Entry owns the write actions; PHC consumes evidence to avoid double-dosing. */}
-      <SupplierWarmupContext scope={scope} searchParams={sp} pageContract={pageContract} />
 
       {/* Vaccination status matrix — cohort × vaccine protocol, from /vaccination/operations. */}
       <VaccinationStatusMatrix operations={ops} ok={operations.ok} scope={scope} searchParams={sp} pageContract={pageContract} />

@@ -4,7 +4,7 @@
 //
 // Business-rule helpers live here too: source warmup is purpose-specific. Breeding stock has a long
 // 45-70 day warmup; fattening/non-breeding can legitimately move in a 0-14 day window. Only
-// accepted-intake goats may flow to PHC/Parks — every rejected, source-only, or unresolved goat stays
+// accepted-intake goats may flow to Preventive Care (PC) / Parks — every rejected, source-only, or unresolved goat stays
 // procurement history. UI must reflect that boundary, not leak it.
 import type { Tone } from "@/components/ui-primitives";
 import type {
@@ -233,7 +233,7 @@ export function warmupMeta(
 }
 
 // Goats whose journey ended before accepted intake. These remain procurement history/work and must NEVER
-// be presented as active PHC vaccination work.
+// be presented as active Preventive Care (PC) vaccination work.
 const PROCUREMENT_HISTORY_GOAT_STATES = new Set<ProcurementGoatState>([
   "source_rejected",
   "pre_dispatch_rejected",
@@ -248,7 +248,7 @@ export function isProcurementHistoryOnly(state: ProcurementGoatState): boolean {
   return PROCUREMENT_HISTORY_GOAT_STATES.has(state);
 }
 
-// The single handoff that makes a procured goat eligible for post-arrival PHC vaccination work.
+// The single handoff that makes a procured goat eligible for post-arrival Preventive Care (PC) vaccination work.
 export function isAcceptedIntake(state: ProcurementGoatState): boolean {
   return state === "accepted_herd_intake";
 }

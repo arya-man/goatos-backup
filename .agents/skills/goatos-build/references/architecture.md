@@ -12,7 +12,7 @@ Canonical docs:
 - `context/product/glossary.md`
 - `docs/decisions/go-backend-stack.md`
 - `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
-- `docs/phc-vaccination/TRD.md`
+- `docs/preventive-care-vaccination/TRD.md`
 
 Rules:
 

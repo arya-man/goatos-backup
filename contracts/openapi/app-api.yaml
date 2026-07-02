@@ -572,8 +572,8 @@ paths:
       summary: List protocol config versions for a category (Config authority screen).
       description: >-
         Tenant- and category-scoped list of every protocol version (draft, published, retired) with
-        rule-row count, source-review state, linked SOP, effective window, and publisher metadata.
-        Read-only; the source-backed approval gate is enforced on publish, not here.
+        rule-row count, linked SOP, effective window, scope, and publisher metadata.
+        Read-only; executable readiness is enforced on publish.
       parameters:
         - name: category
           in: query
@@ -633,7 +633,7 @@ paths:
       description: >-
         Tenant-scoped active rows of animal_stage_lookup (e.g. K1 ≈ milk training, K2 ≈ milk
         drinking), in display order. Drives the Config authoring stage picker so stage bands are
-        backend-driven and never hardcoded frontend literals (PHC vaccination TRD). Read-only; an
+        backend-driven and never hardcoded frontend literals (Preventive Care (PC) vaccination TRD). Read-only; an
         empty list is honest (no stages seeded) — the UI shows a seed-stages state, not fallback codes.
       responses:
         "200":
@@ -740,7 +740,7 @@ paths:
       tags:
         - Protocol Config
       operationId: publishProtocolVersion
-      summary: Publish a source-backed protocol version.
+      summary: Publish a protocol version.
       parameters:
         - $ref: "#/components/parameters/ProtocolVersionId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1211,7 +1211,7 @@ paths:
       tags:
         - Vaccination
       operationId: getVaccinationOperations
-      summary: Source-backed vaccination operations — cohort × protocol matrix + per-cohort detail.
+      summary: Configured vaccination operations — cohort × protocol matrix + per-cohort detail.
       parameters:
         - name: park_id
           in: query
@@ -1624,7 +1624,7 @@ paths:
       tags:
         - Calendar
       operationId: listCalendarVaccinationEvents
-      summary: List bounded Calendar events for the PHC vaccination slice.
+      summary: List bounded Calendar events for the Preventive Care (PC) vaccination slice.
       parameters:
         - name: park_id
           in: query
@@ -2076,7 +2076,7 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
     UnprocessableEntity:
-      description: Request is syntactically valid but cannot pass the current source-backed gate.
+      description: Request is syntactically valid but cannot pass the current executable-contract gate.
       content:
         application/json:
           schema:
@@ -4405,7 +4405,7 @@ components:
         - vaccine_cold_chain_check
         - vaccine_reorder_expiry_grn
         - phc_stock_anti_misuse
-        - vaccination_config_source_approval
+        - vaccination_config_activation_review
     CalendarJSONBlock:
       type: object
       additionalProperties: true
@@ -6200,11 +6200,6 @@ components:
         - scope_type
         - scope_label
         - status
-        - source_system
-        - source_ref
-        - review_status
-        - approved_by
-        - approved_at
         - rule_count
       properties:
         protocol_id:
@@ -6252,15 +6247,20 @@ components:
           nullable: true
         source_system:
           type: string
-          description: From rule_dsl.source — must be vaccinations_db/phc/vet (with source_ref, approved review, approved_by, approved_at) for the version to be publishable.
+          deprecated: true
+          description: Legacy rule_dsl.source metadata retained only for old rows. Not a publish gate and not shown in the V1 Config UI.
         source_ref:
           type: string
+          deprecated: true
         review_status:
           type: string
+          deprecated: true
         approved_by:
           type: string
+          deprecated: true
         approved_at:
           type: string
+          deprecated: true
         rule_count:
           type: integer
     AnimalStageListResponse:
@@ -6897,6 +6897,7 @@ components:
         - obligation_id
         - protocol_version_id
         - rule_id
+        - workflow_row_id
         - status
         - due_at
         - sequence
@@ -6906,6 +6907,10 @@ components:
         protocol_version_id:
           type: string
         rule_id:
+          type: string
+        batch_id:
+          type: string
+        workflow_row_id:
           type: string
         status:
           type: string

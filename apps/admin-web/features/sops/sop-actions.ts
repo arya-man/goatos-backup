@@ -67,6 +67,38 @@ export async function saveSopDraft(input: SopBuilderInput): Promise<SaveSopResul
   };
 }
 
+export async function saveSopVersionDraft(sopId: string, input: SopBuilderInput): Promise<SaveSopResult> {
+  if (!sopId) return { ok: false, message: "SOP id is required" };
+  const name = input.name.trim();
+  if (!name) return { ok: false, message: "SOP name is required" };
+  if (input.steps.length === 0) return { ok: false, message: "add at least one step / question" };
+  if (input.proofRequired && !hasProofField(input)) {
+    return { ok: false, message: "Proof is required but no photo/video proof step exists — add one or turn proof off." };
+  }
+
+  const version = await createSopVersion(sopId, {
+    version_label: "edited draft",
+    form_dsl: buildFormDsl(input) as unknown as Record<string, unknown>,
+    proof_policy: buildProofPolicy(input),
+  });
+  if (!version.ok) {
+    return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
+  }
+
+  revalidatePath("/sops");
+  const report = version.data.version.validation_report;
+  return {
+    ok: true,
+    message: report?.valid
+      ? "Edited draft saved — form_dsl validated. Dry-run or publish below."
+      : "Edited draft saved — backend flagged validation issues (see report).",
+    sopId,
+    versionId: version.data.version.sop_version_id,
+    rowVersion: version.data.version.row_version,
+    report,
+  };
+}
+
 export interface DryRunActionResult {
   ok: boolean;
   message?: string;

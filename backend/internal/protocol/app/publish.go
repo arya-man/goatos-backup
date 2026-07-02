@@ -6,13 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/protocol/ports"
 )
 
-// ErrNotPublishable is returned when a protocol version fails the source-backed approval gate.
+// ErrNotPublishable is returned when a protocol version cannot safely generate executable work.
 // The wrapped message carries the specific reason for the UI/API.
 var ErrNotPublishable = errors.New("protocol: version not publishable")
 
@@ -21,12 +20,9 @@ var ErrNotPublishable = errors.New("protocol: version not publishable")
 var ErrInvalidRuleDSL = errors.New("protocol: invalid rule_dsl")
 
 // ErrUnsupportedRepeatPolicy is returned when direct protocol authoring attempts to store a repeat
-// policy that the generator does not execute yet.
+// policy that the generator cannot execute safely.
 var ErrUnsupportedRepeatPolicy = errors.New("protocol: unsupported repeat policy")
 
-// publishableSources are the real source systems whose approved values may be published. Anything
-// else (manual_admin, extracted, empty) stays draft / not source-backed.
-var publishableSources = map[string]bool{"vaccinations_db": true, "phc": true, "vet": true, "feed_direction_config_pack": true}
 var executableTriggerTypes = map[string]bool{
 	"birth_age":                 true,
 	"post_arrival":              true,
@@ -35,52 +31,66 @@ var executableTriggerTypes = map[string]bool{
 	"after_previous_completion": true,
 }
 
-type sourceMeta struct {
-	SourceSystem string `json:"source_system"`
-	SourceRef    string `json:"source_ref"`
-	ReviewStatus string `json:"review_status"`
-	ApprovedBy   string `json:"approved_by"`
-	ApprovedAt   string `json:"approved_at"`
-}
-
 type ruleDSLEnvelope struct {
 	Category         string          `json:"category"`
+	Vaccine          vaccineMeta     `json:"vaccine"`
 	Eligibility      json.RawMessage `json:"eligibility"`
 	MissedDosePolicy string          `json:"missed_dose_policy"`
-	Source           sourceMeta      `json:"source"`
 	Schedule         []scheduleRow   `json:"schedule"`
 }
 
+type vaccineMeta struct {
+	Code               string `json:"code"`
+	Name               string `json:"name"`
+	Type               string `json:"type"`
+	InventoryItemID    string `json:"inventory_item_id"`
+	Manufacturer       string `json:"manufacturer"`
+	Disease            string `json:"disease"`
+	CompatibilityGroup string `json:"compatibility_group"`
+	PathogenClass      string `json:"pathogen_class"`
+	CourseType         string `json:"course_type"`
+}
+
 type scheduleRow struct {
-	DoseCode    string          `json:"dose_code"`
-	Sequence    int32           `json:"sequence"`
-	TriggerType string          `json:"trigger_type"`
-	OffsetDays  int32           `json:"offset_days"`
-	DueWindow   int32           `json:"due_window_days"`
-	SOPVersion  string          `json:"sop_version"`
-	SOPLabel    string          `json:"sop_label"`
-	MinGapDays  int32           `json:"min_gap_days"`
-	Repeat      string          `json:"repeat"`
-	RepeatUntil string          `json:"repeat_until_after_age"`
-	CatchUp     string          `json:"catch_up"`
-	ProofPolicy json.RawMessage `json:"proof_policy"`
+	DoseCode          string          `json:"dose_code"`
+	Sequence          int32           `json:"sequence"`
+	TriggerType       string          `json:"trigger_type"`
+	OffsetDays        int32           `json:"offset_days"`
+	DueWindow         int32           `json:"due_window_days"`
+	DoseAmount        float64         `json:"dose_amount"`
+	DoseUnit          string          `json:"dose_unit"`
+	VialDoses         int32           `json:"vial_doses"`
+	RevaccinationDays int32           `json:"revaccination_interval_days"`
+	RouteSite         string          `json:"route_site"`
+	MaxDelayDays      int32           `json:"max_delay_days"`
+	CourseLapsePolicy string          `json:"course_lapse_policy"`
+	SOPVersion        string          `json:"sop_version"`
+	SOPLabel          string          `json:"sop_label"`
+	MinGapDays        int32           `json:"min_gap_days"`
+	Repeat            string          `json:"repeat"`
+	RepeatUntil       string          `json:"repeat_until_after_age"`
+	CatchUp           string          `json:"catch_up"`
+	ProofPolicy       json.RawMessage `json:"proof_policy"`
 }
 
 var (
 	ruleDSLTopLevelKeys = map[string]bool{
-		"category":           true,
-		"scope":              true,
-		"eligibility":        true,
-		"missed_dose_policy": true,
-		"stock_policy":       true,
-		"schedule":           true,
-		"escalation":         true,
-		"source":             true,
-		"parameter_template": true,
-		"ration":             true,
-		"session_timing":     true,
-		"inventory_policy":   true,
-		"validation_policy":  true,
+		"category":             true,
+		"scope":                true,
+		"vaccine":              true,
+		"eligibility":          true,
+		"missed_dose_policy":   true,
+		"stock_policy":         true,
+		"schedule":             true,
+		"escalation":           true,
+		"compatibility_policy": true,
+		"procurement_policy":   true,
+		"pregnancy_policy":     true,
+		"parameter_template":   true,
+		"ration":               true,
+		"session_timing":       true,
+		"inventory_policy":     true,
+		"validation_policy":    true,
 	}
 	ruleDSLScopeKeys = map[string]bool{
 		"type": true,
@@ -102,28 +112,60 @@ var (
 		"max_age_days":                true,
 		"age_band":                    true,
 	}
-	ruleDSLSourceKeys = map[string]bool{
-		"source_system": true,
-		"source_ref":    true,
-		"imported_at":   true,
-		"reviewed_by":   true,
-		"review_status": true,
-		"approved_by":   true,
-		"approved_at":   true,
+	ruleDSLVaccineKeys = map[string]bool{
+		"code":                true,
+		"name":                true,
+		"type":                true,
+		"inventory_item_id":   true,
+		"manufacturer":        true,
+		"disease":             true,
+		"compatibility_group": true,
+		"pathogen_class":      true,
+		"course_type":         true,
+	}
+	ruleDSLCompatibilityPolicyKeys = map[string]bool{
+		"live_to_killed_gap_days":            true,
+		"killed_to_killed_gap_days":          true,
+		"live_to_live_gap_days":              true,
+		"kid_booster_min_gap_days":           true,
+		"bacterial_viral_same_day_allowed":   true,
+		"live_killed_viral_same_day_allowed": true,
+	}
+	ruleDSLProcurementPolicyKeys = map[string]bool{
+		"warmup_no_vaccination_days":       true,
+		"kids_normal_schedule_until_weeks": true,
+		"adult_prior_vaccination_allowed":  true,
+		"first_wave":                       true,
+		"second_wave_after_days":           true,
+		"goat_second_wave":                 true,
+	}
+	ruleDSLPregnancyPolicyKeys = map[string]bool{
+		"allow_until_pregnancy_month":  true,
+		"skip_from_pregnancy_month":    true,
+		"skip_through_pregnancy_month": true,
+		"post_delivery_catch_up_days":  true,
 	}
 	ruleDSLScheduleKeys = map[string]bool{
-		"dose_code":              true,
-		"sequence":               true,
-		"trigger_type":           true,
-		"offset_days":            true,
-		"due_window_days":        true,
-		"min_gap_days":           true,
-		"repeat":                 true,
-		"repeat_until_after_age": true,
-		"catch_up":               true,
-		"sop_version":            true,
-		"sop_label":              true,
-		"proof_policy":           true,
+		"dose_code":                   true,
+		"sequence":                    true,
+		"trigger_type":                true,
+		"offset_days":                 true,
+		"due_window_days":             true,
+		"dose_amount":                 true,
+		"dose_unit":                   true,
+		"vial_doses":                  true,
+		"revaccination_interval_days": true,
+		"schedule_note":               true,
+		"route_site":                  true,
+		"max_delay_days":              true,
+		"course_lapse_policy":         true,
+		"min_gap_days":                true,
+		"repeat":                      true,
+		"repeat_until_after_age":      true,
+		"catch_up":                    true,
+		"sop_version":                 true,
+		"sop_label":                   true,
+		"proof_policy":                true,
 	}
 	ruleDSLStockPolicyKeys = map[string]bool{
 		"vaccine_lot_requirement": true,
@@ -187,13 +229,28 @@ func ValidateRuleDSL(ruleDSL []byte) error {
 			return err
 		}
 	}
-	if raw, ok := root["source"]; ok && len(raw) > 0 && string(raw) != "null" {
-		if _, err := decodeRuleDSLObject(raw, "rule_dsl.source", ruleDSLSourceKeys); err != nil {
+	if raw, ok := root["vaccine"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.vaccine", ruleDSLVaccineKeys); err != nil {
 			return err
 		}
 	}
 	if raw, ok := root["stock_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
 		if _, err := decodeRuleDSLObject(raw, "rule_dsl.stock_policy", ruleDSLStockPolicyKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["compatibility_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.compatibility_policy", ruleDSLCompatibilityPolicyKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["procurement_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.procurement_policy", ruleDSLProcurementPolicyKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["pregnancy_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.pregnancy_policy", ruleDSLPregnancyPolicyKeys); err != nil {
 			return err
 		}
 	}
@@ -259,33 +316,18 @@ func validateRuleDSLArray(raw []byte, path string, allowed map[string]bool) erro
 	return nil
 }
 
-// ValidatePublishable enforces the source-backed approval gate on a version's rule_dsl: the nested
-// source object must be a real source (vaccinations_db/phc/vet), carry a source_ref, be
-// review_status='approved', and name approved_by + approved_at. Pure logic — no DB. Mirrors the
-// config-mock gate; this is the backend source of truth. Never publishes manual/extracted/unsourced
-// values.
+// ValidatePublishable is retained for old callers/tests that used this helper as a publish precheck.
+// The former source/review gate is retired for Protocol Engine Phase 0: publishability is now driven
+// by RBAC at the API boundary plus ValidateRuleDSL and ValidateExecutionContract. This helper only
+// reports malformed JSON as not-publishable; empty or source-less DSL is allowed to proceed to the
+// executable-contract checks.
 func ValidatePublishable(ruleDSL []byte) error {
-	var env ruleDSLEnvelope
-	if len(ruleDSL) > 0 {
-		if err := json.Unmarshal(ruleDSL, &env); err != nil {
-			return fmt.Errorf("%w: invalid rule_dsl: %v", ErrNotPublishable, err)
-		}
+	if strings.TrimSpace(string(ruleDSL)) == "" {
+		return nil
 	}
-	s := env.Source
-	switch {
-	case !publishableSources[strings.TrimSpace(s.SourceSystem)]:
-		return fmt.Errorf("%w: source_system must be vaccinations_db/phc/vet/feed_direction_config_pack (got %q)", ErrNotPublishable, s.SourceSystem)
-	case strings.TrimSpace(s.SourceRef) == "":
-		return fmt.Errorf("%w: source_ref required", ErrNotPublishable)
-	case strings.TrimSpace(s.ReviewStatus) != "approved":
-		return fmt.Errorf("%w: review_status must be approved (got %q)", ErrNotPublishable, s.ReviewStatus)
-	case strings.TrimSpace(s.ApprovedBy) == "":
-		return fmt.Errorf("%w: approved_by required", ErrNotPublishable)
-	case strings.TrimSpace(s.ApprovedAt) == "":
-		return fmt.Errorf("%w: approved_at required", ErrNotPublishable)
-	}
-	if _, err := time.Parse(time.RFC3339, strings.TrimSpace(s.ApprovedAt)); err != nil {
-		return fmt.Errorf("%w: approved_at must be RFC3339 (got %q)", ErrNotPublishable, s.ApprovedAt)
+	var env any
+	if err := json.Unmarshal(ruleDSL, &env); err != nil {
+		return fmt.Errorf("%w: invalid rule_dsl: %v", ErrNotPublishable, err)
 	}
 	return nil
 }
@@ -301,6 +343,11 @@ func ValidateExecutionContract(v domain.Version) error {
 	if len(v.RuleDsl) > 0 {
 		if err := json.Unmarshal(v.RuleDsl, &env); err != nil {
 			return fmt.Errorf("%w: invalid rule_dsl: %v", ErrNotPublishable, err)
+		}
+	}
+	if isVaccinationVersion(v, env) {
+		if err := validateVaccinationMatrix(env); err != nil {
+			return err
 		}
 	}
 	for idx, row := range env.Schedule {
@@ -327,6 +374,106 @@ func ValidateExecutionContract(v domain.Version) error {
 	return nil
 }
 
+func isVaccinationVersion(v domain.Version, env ruleDSLEnvelope) bool {
+	return strings.TrimSpace(v.Category) == "vaccination" || strings.TrimSpace(env.Category) == "vaccination"
+}
+
+func validateVaccinationMatrix(env ruleDSLEnvelope) error {
+	if strings.TrimSpace(env.Vaccine.Code) == "" {
+		return fmt.Errorf("%w: vaccine.code required for vaccination matrix", ErrNotPublishable)
+	}
+	if strings.TrimSpace(env.Vaccine.Name) == "" {
+		return fmt.Errorf("%w: vaccine.name required for vaccination matrix", ErrNotPublishable)
+	}
+	if strings.TrimSpace(env.Vaccine.Type) == "" {
+		return fmt.Errorf("%w: vaccine.type required for vaccination matrix", ErrNotPublishable)
+	}
+	if len(env.Schedule) == 0 {
+		return fmt.Errorf("%w: vaccination matrix requires at least one schedule row", ErrNotPublishable)
+	}
+	if len(env.Eligibility) == 0 || strings.TrimSpace(string(env.Eligibility)) == "" || strings.TrimSpace(string(env.Eligibility)) == "null" {
+		return fmt.Errorf("%w: vaccination matrix eligibility required", ErrNotPublishable)
+	}
+	eligibility, err := decodeRuleDSLObject(env.Eligibility, "rule_dsl.eligibility", ruleDSLEligibilityKeys)
+	if err != nil {
+		return err
+	}
+	if !hasAnyNonBlank(eligibility, "animal_stage", "stage", "age_band") && !hasAnyNumber(eligibility, "min_age_days", "max_age_days") {
+		return fmt.Errorf("%w: vaccination matrix eligibility must include age/stage targeting", ErrNotPublishable)
+	}
+	for _, key := range []string{"sex", "breed", "lifecycle", "health", "reproductive"} {
+		if !hasAnyNonBlank(eligibility, key) {
+			return fmt.Errorf("%w: vaccination matrix eligibility.%s required", ErrNotPublishable, key)
+		}
+	}
+	if _, ok := eligibility["defer_states"]; !ok {
+		return fmt.Errorf("%w: vaccination matrix eligibility.defer_states required", ErrNotPublishable)
+	}
+	if _, ok := eligibility["exclude_reproductive_states"]; !ok {
+		return fmt.Errorf("%w: vaccination matrix eligibility.exclude_reproductive_states required", ErrNotPublishable)
+	}
+	for idx, row := range env.Schedule {
+		if strings.TrimSpace(row.DoseCode) == "" {
+			return fmt.Errorf("%w: schedule[%d] dose_code required for vaccination matrix", ErrNotPublishable, idx)
+		}
+		if row.DoseAmount <= 0 {
+			return fmt.Errorf("%w: schedule[%d] dose_amount required for vaccination matrix", ErrNotPublishable, idx)
+		}
+		if strings.TrimSpace(row.DoseUnit) == "" {
+			return fmt.Errorf("%w: schedule[%d] dose_unit required for vaccination matrix", ErrNotPublishable, idx)
+		}
+		if strings.TrimSpace(row.RouteSite) == "" {
+			return fmt.Errorf("%w: schedule[%d] route_site required for vaccination matrix", ErrNotPublishable, idx)
+		}
+		if row.MaxDelayDays <= 0 {
+			return fmt.Errorf("%w: schedule[%d] max_delay_days required for vaccination matrix", ErrNotPublishable, idx)
+		}
+		if row.MaxDelayDays < row.DueWindow {
+			return fmt.Errorf("%w: schedule[%d] max_delay_days must cover due_window_days", ErrNotPublishable, idx)
+		}
+		if strings.TrimSpace(row.CourseLapsePolicy) == "" {
+			return fmt.Errorf("%w: schedule[%d] course_lapse_policy required for vaccination matrix", ErrNotPublishable, idx)
+		}
+	}
+	return nil
+}
+
+func hasAnyNonBlank(obj map[string]json.RawMessage, keys ...string) bool {
+	for _, key := range keys {
+		raw, ok := obj[key]
+		if !ok {
+			continue
+		}
+		var s string
+		if json.Unmarshal(raw, &s) == nil && strings.TrimSpace(s) != "" {
+			return true
+		}
+		var arr []string
+		if json.Unmarshal(raw, &arr) == nil {
+			for _, v := range arr {
+				if strings.TrimSpace(v) != "" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func hasAnyNumber(obj map[string]json.RawMessage, keys ...string) bool {
+	for _, key := range keys {
+		raw, ok := obj[key]
+		if !ok {
+			continue
+		}
+		var n float64
+		if json.Unmarshal(raw, &n) == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeRepeatPolicy(value string, minGapDays int32) (string, error) {
 	repeat := strings.TrimSpace(value)
 	if repeat == "" {
@@ -335,8 +482,13 @@ func normalizeRepeatPolicy(value string, minGapDays int32) (string, error) {
 	switch repeat {
 	case "none":
 		return repeat, nil
-	case "yearly", "every_n_days":
-		return "", fmt.Errorf("%w: forward recurrence %q is not materialized yet", ErrUnsupportedRepeatPolicy, repeat)
+	case "yearly":
+		return repeat, nil
+	case "every_n_days":
+		if minGapDays <= 0 {
+			return "", fmt.Errorf("%w: every_n_days requires min_gap_days", ErrUnsupportedRepeatPolicy)
+		}
+		return repeat, nil
 	default:
 		return "", fmt.Errorf("%w: %q", ErrUnsupportedRepeatPolicy, repeat)
 	}
@@ -410,9 +562,9 @@ func arrayHasNonBlankString(v any) bool {
 	return false
 }
 
-// PublishVersion publishes a draft version only after the source-backed gate passes. The DB also
-// enforces the published-window EXCLUDE non-overlap; capability (CEO/COO protocol.publish.*) is
-// enforced at the API/RBAC boundary (later slice).
+// PublishVersion publishes a draft version after schema and executable-contract checks pass. The DB
+// also enforces the published-window EXCLUDE non-overlap; category capability
+// (CEO/COO protocol.publish.*) is enforced at the API/RBAC boundary.
 func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error {
 	v, err := s.repo.GetVersion(ctx, tenantID, versionID)
 	if err != nil {
@@ -425,9 +577,6 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 		return err
 	}
 	if v.Status == "draft" {
-		if err := ValidatePublishable(v.RuleDsl); err != nil {
-			return err
-		}
 		if err := ValidateExecutionContract(v); err != nil {
 			return err
 		}

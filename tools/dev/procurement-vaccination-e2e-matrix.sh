@@ -31,10 +31,10 @@ PGURL="$DATABASE_URL"
 SOURCE_PARTY="00000000-0000-4000-8000-000000001101"
 PARK="00000000-0000-4000-8000-000000003001"
 SHED="00000000-0000-4000-8000-000000003101"
-VERSION="00000000-0000-4000-8000-00000000b011"
+VERSION="00000000-0000-4000-8000-00000000b051"
 SOP_VERSION="b0000000-0000-4000-8000-000000000002"
 VACCINE_ITEM="00000000-0000-4000-8000-00000000b001"
-RULE="00000000-0000-4000-8000-00000000b012"
+RULE="00000000-0000-4000-8000-00000000b052"
 
 psqlq() { psql "$PGURL" -tAc "$1"; }
 jqp() { python3 -c "import sys,json; d=json.load(sys.stdin); print($1)" 2>/dev/null; }
@@ -71,6 +71,22 @@ print(" ".join(dict.fromkeys(bad)))
 PY
 )"
   [ -z "$relay_bad" ] || fail "$label relay reported non-green counts: $relay_bad output=$(echo "$out" | tail -3 | tr '\n' ' ')"
+}
+
+relay_until_published() {
+  local label="$1"
+  local aggregate="$2"
+  local event_type="$3"
+  local i status
+  for i in $(seq 1 5); do
+    relay_once "$label" 500
+    status="$(psqlq "select status from outbox_messages where tenant_id='$TENANT' and aggregate_id='$aggregate' and event_type='$event_type' order by created_at desc limit 1")"
+    if [ "$status" = "published" ]; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "$label did not publish $event_type for aggregate=$aggregate; last_status=$status"
 }
 
 TOKEN="$(cd "$backend_dir" && go run ./cmd/mint-dev-token -tenant-id "$TENANT" -user-id "$USER" -ttl 2h 2>/dev/null)"
@@ -264,7 +280,7 @@ EXPECTED_STATE="female:$DOB_DAY21:true:K1:healthy:alive:$PARK:$SHED"
 echo "clean_canonical_state=$CANONICAL_STATE"
 
 echo "### relay goat.created and generate vaccination work"
-relay_once "clean goat.created delivery" 100
+relay_until_published "clean goat.created delivery" "$CLEAN" "goat.created"
 (
   cd "$backend_dir"
   GOATOS_TENANT_ID="$TENANT" \

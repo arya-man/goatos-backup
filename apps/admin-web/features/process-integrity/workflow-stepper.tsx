@@ -6,19 +6,35 @@ import type { Tone } from "./process-integrity";
 
 // Heuristic tone for a free-text node state — done/accepted/published → ok, rejected/blocked → dng, etc.
 export function nodeTone(state: string): Tone {
-  const s = state.toLowerCase();
-  if (/(reject|block|miss|fail|overdue)/.test(s)) return "dng";
-  if (/(accept|complete|done|publish|verified|posted|generated)/.test(s)) return "ok";
+  const s = normalizeState(state);
+  if (/(reject|block|fail|overdue)/.test(s)) return "dng";
   if (/(pending|await|progress|submitted|uploaded|open)/.test(s)) return "warn";
+  if (s === "missing" || s.includes("missing")) return "warn";
+  if (isDone(state)) return "ok";
+  if (s === "planned") return "info";
   if (/(not_started|not started|scheduled|n\/a|skipped)/.test(s)) return "mut";
   return "info";
 }
 
 function isDone(state: string): boolean {
-  return /(accept|complete|done|publish|verified|posted|generated)/.test(state.toLowerCase());
+  const s = normalizeState(state);
+  return new Set([
+    "accepted",
+    "complete",
+    "completed",
+    "done",
+    "published",
+    "posted",
+    "verified",
+    "generated",
+  ]).has(s);
 }
 function isBlocked(node: WorkflowNode): boolean {
-  return !!node.blocker || /(reject|block|fail|overdue)/.test(node.state.toLowerCase());
+  return !!node.blocker || /(reject|block|fail|overdue)/.test(normalizeState(node.state));
+}
+
+function normalizeState(state: string): string {
+  return state.trim().toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
 }
 
 // WorkflowStepper renders the canonical obligation chain as the mock's vertical stepper

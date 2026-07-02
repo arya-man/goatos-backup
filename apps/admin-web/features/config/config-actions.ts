@@ -11,13 +11,22 @@ import {
   type ImpactPreviewInput,
   type ImpactPreviewResult,
 } from "@/lib/api/server";
-import { buildProtocolRuleRows, buildProofPolicy, buildRuleDsl, parseScope, type RuleInput } from "./rule-dsl";
+import {
+  buildProtocolRuleRows,
+  buildProofPolicy,
+  buildRuleDsl,
+  parseScope,
+  ruleInputForVaccinationMatrixRow,
+  type RuleInput,
+  type VaccinationMatrixRow,
+} from "./rule-dsl";
 
 export interface ActionResult {
   ok: boolean;
   message: string;
   code?: string;
   versionId?: string;
+  versionIds?: string[];
 }
 
 // runImpactPreview computes the live impact via the backend (real inventory/eligibility math). The
@@ -33,8 +42,8 @@ export async function runImpactPreview(
 
 // saveDraft persists the authored rule as a protocol_definitions row + a DRAFT protocol_versions row
 // whose rule_dsl is the full canonical ruleset (eligibility, defer states, policies, escalation,
-// source/review, and the schedule[] array), then one protocol_rules row per dose/phase. The category
-// is generic — this single action authors any protocol category. Draft never generates live work.
+// and the schedule[] array), then one protocol_rules row per dose/phase. The category is generic —
+// this single action authors any protocol category. Draft never generates live work.
 export async function saveDraft(input: RuleInput): Promise<ActionResult> {
   if (!input.category) return { ok: false, message: "category is required" };
   if (!input.code || !input.name) return { ok: false, message: "code and name are required" };
@@ -52,8 +61,8 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
   const { type: scopeType, id: scopeId } = parseScope(input.scope);
   const effectiveFrom = new Date(`${input.effectiveFrom || new Date().toISOString().slice(0, 10)}T00:00:00Z`).toISOString();
   // Version-level sop_version_id (real published SOP UUID) + non-empty proof_policy are required by the
-  // backend publish gate (publish.go ValidateExecutionContract). Passing them here lets an
-  // approved, source-backed draft actually publish instead of failing the execution-contract check.
+  // backend executable-contract gate (publish.go ValidateExecutionContract). Passing them here lets
+  // a complete draft publish instead of failing the execution-contract check.
   const versionBody = {
     scope_type: scopeType,
     scope_id: scopeId ?? undefined,
@@ -84,7 +93,7 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
       repeat_until_after_age: d.repeatUntilAfterAge,
       catch_up: d.catchUp,
       proof_policy: d.proofPolicy,
-      eligibility_json: {},
+      eligibility_json: typeof ruleDsl.eligibility === "object" && ruleDsl.eligibility !== null ? ruleDsl.eligibility : {},
       sort_order: d.sortOrder,
     };
     const rule = await addProtocolRule(
@@ -99,9 +108,37 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
   return { ok: true, message: `draft saved - ${protocolRows.length} rule rows - no live obligations`, versionId: version.data.protocol_version_id };
 }
 
-// publishVersion attempts to publish through the backend source-backed gate. The form may show a
-// pre-submit disabled reason from backend contract metadata, but this action still treats the
-// protocol API as authoritative for the final not_publishable decision.
+export async function saveDraftBatch(input: RuleInput, matrixRows: VaccinationMatrixRow[]): Promise<ActionResult> {
+  if (input.category !== "vaccination") return saveDraft(input);
+  const validationError = validateVaccinationMatrixRows(input, matrixRows);
+  if (validationError) return { ok: false, message: validationError };
+  const rows = normalizeVaccinationMatrixRows(input, matrixRows);
+
+  const versionIds: string[] = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    const rowInput = ruleInputForVaccinationMatrixRow(input, rows[i], i, rows.length);
+    const result = await saveDraft(rowInput);
+    if (!result.ok || !result.versionId) {
+      return {
+        ok: false,
+        message: `matrix row ${i + 1} (${rows[i].vaccine.code || rows[i].vaccine.name || "unnamed"}) failed: ${result.message}`,
+        code: result.code,
+        versionIds,
+      };
+    }
+    versionIds.push(result.versionId);
+  }
+  revalidatePath("/config");
+  return {
+    ok: true,
+    message: `${versionIds.length} matrix drafts saved - no live obligations`,
+    versionId: versionIds[0],
+    versionIds,
+  };
+}
+
+// publishVersion attempts to publish through the backend executable-contract gate. The protocol API
+// remains authoritative for the final not_publishable decision.
 export async function publishVersion(versionId: string): Promise<ActionResult> {
   if (!versionId) return { ok: false, message: "save the draft first" };
   const res = await publishProtocolVersion(versionId, stableMutationKey("protocol-publish", { versionId }));
@@ -110,7 +147,75 @@ export async function publishVersion(versionId: string): Promise<ActionResult> {
   for (const p of ["/config", "/action-center", "/vaccination", "/protocol-adherence", "/workflows", "/"]) {
     revalidatePath(p);
   }
-  return { ok: true, message: "published — immutable · source-backed; obligations now generate from this version" };
+  return { ok: true, message: "published - immutable; obligations now generate from this version" };
+}
+
+export async function publishVersions(versionIds: string[]): Promise<ActionResult> {
+  const ids = Array.from(new Set(versionIds.map((id) => id.trim()).filter(Boolean)));
+  if (ids.length === 0) return { ok: false, message: "save the draft first" };
+  const published: string[] = [];
+  for (const versionId of ids) {
+    const result = await publishVersion(versionId);
+    if (!result.ok) {
+      return {
+        ok: false,
+        message: `publish failed after ${published.length}/${ids.length} matrix rows: ${result.message}`,
+        code: result.code,
+        versionIds: published,
+      };
+    }
+    published.push(versionId);
+  }
+  return {
+    ok: true,
+    message: `${published.length} matrix rows published - obligations now generate per eligible breed/stage combo`,
+    versionId: published[0],
+    versionIds: published,
+  };
+}
+
+function normalizeVaccinationMatrixRows(input: RuleInput, matrixRows: VaccinationMatrixRow[]): VaccinationMatrixRow[] {
+  if (input.category !== "vaccination") return [];
+  const rows = matrixRows.length > 0
+    ? matrixRows
+    : [{ id: "current", vaccine: input.vaccine, stage: input.eligibility.stage, sex: input.eligibility.sex, breed: input.eligibility.breed }];
+  return rows.map((row, index) => ({
+    id: row.id || `row-${index + 1}`,
+    vaccine: {
+      code: row.vaccine.code.trim(),
+      name: row.vaccine.name.trim(),
+      type: row.vaccine.type,
+      pathogenClass: row.vaccine.pathogenClass,
+      courseType: row.vaccine.courseType,
+      inventoryItemId: row.vaccine.inventoryItemId.trim(),
+      manufacturer: row.vaccine.manufacturer.trim(),
+      disease: row.vaccine.disease.trim(),
+      compatibilityGroup: row.vaccine.compatibilityGroup.trim(),
+    },
+    stage: row.stage || input.eligibility.stage,
+    sex: row.sex || input.eligibility.sex,
+    breed: row.breed || input.eligibility.breed,
+    doses: row.doses !== undefined ? row.doses : input.doses,
+  }));
+}
+
+function validateVaccinationMatrixRows(input: RuleInput, matrixRows: VaccinationMatrixRow[]): string {
+  const rows = matrixRows.length > 0
+    ? matrixRows
+    : [{ id: "current", vaccine: input.vaccine, stage: input.eligibility.stage, sex: input.eligibility.sex, breed: input.eligibility.breed }];
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    const rowLabel = `matrix row ${i + 1}`;
+    const vaccineCode = row.vaccine.code.trim();
+    const vaccineName = row.vaccine.name.trim();
+    if (!vaccineCode) return `${rowLabel}: vaccine code is required`;
+    if (!vaccineName) return `${rowLabel}: vaccine name is required`;
+    const doseRows = row.doses !== undefined ? row.doses : input.doses;
+    if (doseRows.length === 0) {
+      return `${rowLabel} (${vaccineCode || vaccineName || "unnamed"}): add at least one dose row or use Copy selected row`;
+    }
+  }
+  return "";
 }
 
 function stableMutationKey(scope: string, payload: unknown): string {

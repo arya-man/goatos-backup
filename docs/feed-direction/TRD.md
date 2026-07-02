@@ -536,7 +536,7 @@ new proof unless the proof was already captured against that older instruction.
 ## 7. Legacy import, replay, and cutover contract
 
 Feed Direction cutover follows the shared legacy-to-canonical contract in
-`../features/cutover-contract.md` and the PHC/Feed migration policy in
+`../features/cutover-contract.md` and the Preventive Care (PC) / Feed migration policy in
 `../protocol-engine/migration-and-cutover.md`: legacy Sheets/App Script rows are
 archived source evidence and fixture/parity material, not runtime truth.
 
@@ -679,7 +679,7 @@ execution remains disabled until that closeout is complete.
 ## 10. Admin-web and mobile constraints
 
 - `G1` is reopened for Feed Direction build as of 2026-06-30. The old
-  admin-web scope lock tied to PHC/Vaccination review is satisfied for
+  admin-web scope lock tied to Preventive Care (PC) / Vaccination review is satisfied for
   sequencing; Google dev vaccination rollout remains separate Goal 2 and does
   not block Feed Direction.
 - Current Config may keep internal Feed DSL code paths only if the backend page

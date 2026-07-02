@@ -16,7 +16,7 @@ context/frontend/vaccination-process-integrity-frontend-handoff.md
 
 ## Source Evidence Checked
 
-Procurement is a separate source-entry vertical, not a sub-tab inside PHC
+Procurement is a separate source-entry vertical, not a sub-tab inside Preventive Care (PC)
 Vaccination.
 
 Evidence checked through Graphify and source exports:
@@ -37,7 +37,7 @@ Procurement/source-entry:
   purchase/source/holding warmup, source health/tagging, pre-dispatch decision,
   truck loading, transit, arrival gate, discrepancy review, accepted intake.
 
-PHC Vaccination:
+Preventive Care (PC) Vaccination:
   consumes accepted-intake truth only: goat identity, park/shed, entry/intake
   date, defer signal, and trusted historical vaccination evidence.
   
@@ -49,7 +49,7 @@ Vaccination execution context (inside /vaccination):
 
 ## Non-Negotiable Invariant
 
-These goats must never appear as active PHC vaccination or vaccination execution
+These goats must never appear as active Preventive Care (PC) vaccination or vaccination execution
 work:
 
 ```text
@@ -69,7 +69,7 @@ dead / sold / lost
 ownership unresolved
 ```
 
-Only accepted-intake goats may trigger post-arrival PHC vaccination work.
+Only accepted-intake goats may trigger post-arrival Preventive Care (PC) vaccination work.
 
 ## E2E Comes Before CRUD
 
@@ -150,7 +150,7 @@ tenant:
   e2e-proc-vaccination
 
 users/grants:
-  admin/operator/verifier grants for procurement, PHC vaccination, Parks,
+  admin/operator/verifier grants for procurement, Preventive Care (PC) vaccination, Parks,
   SOP/proof, and process-integrity routes.
 
 locations:
@@ -177,16 +177,16 @@ Use four goats so every critical branch is visible.
 
 | Fixture | Procurement path | Expected downstream |
 | --- | --- | --- |
-| `SRC-A-CLEAN` | source warmup -> source health pass -> pre-dispatch accepted -> dispatched with proof -> arrived -> accepted intake | Appears in PHC vaccination, Action Center, vaccination execution context, SOP/proof/verification/completion |
-| `SRC-B-REJECT-BEFORE-TRUCK` | source health fail or pre-dispatch rejected | Procurement history/gap only; never PHC vaccination or vaccination execution work |
-| `SRC-C-OWNER-MISSING` | source health pass but ownership unresolved or owner missing | Procurement Action Center/Control Tower only; no PHC vaccination or vaccination execution work |
+| `SRC-A-CLEAN` | source warmup -> source health pass -> pre-dispatch accepted -> dispatched with proof -> arrived -> accepted intake | Appears in Preventive Care (PC) vaccination, Action Center, vaccination execution context, SOP/proof/verification/completion |
+| `SRC-B-REJECT-BEFORE-TRUCK` | source health fail or pre-dispatch rejected | Procurement history/gap only; never Preventive Care (PC) vaccination or vaccination execution work |
+| `SRC-C-OWNER-MISSING` | source health pass but ownership unresolved or owner missing | Procurement Action Center/Control Tower only; no Preventive Care (PC) vaccination or vaccination execution work |
 | `SRC-D-EXTRA-UNKNOWN` | appears during arrival as extra unknown goat | Arrival Gate/identity review only; no accepted intake until resolved |
 
 Optional fifth goat for a broader pass:
 
 | Fixture | Procurement path | Expected downstream |
 | --- | --- | --- |
-| `SRC-E-DEFERRED-HEALTH` | pre-dispatch or arrival health defer | Procurement deferred row; PHC may only see a defer signal after accepted intake, not an active dose obligation |
+| `SRC-E-DEFERRED-HEALTH` | pre-dispatch or arrival health defer | Procurement deferred row; Preventive Care (PC) may only see a defer signal after accepted intake, not an active dose obligation |
 
 ## Backend E2E Assertions
 
@@ -210,7 +210,7 @@ Run these as API or integration assertions before relying on frontend clicks.
    - clean goat can be arrival_accepted only after loaded/transit/resolved
    - extra unknown goat remains unresolved
 7. Accept intake:
-   - creates PHC handoff for clean goat only
+   - creates Preventive Care (PC) handoff for clean goat only
    - does not auto-convert pending health, identity, or ownership truth
 8. Generate/publish vaccination obligations:
    - clean goat becomes eligible
@@ -286,7 +286,7 @@ buttons in the operational surface where the action naturally happens.
 
 | Action | Correct UI placement | Notes |
 | --- | --- | --- |
-| Create procurement load | `/procurement/source-entry` header as `New load` | Not PHC Vaccination, not Goat Passport |
+| Create procurement load | `/procurement/source-entry` header as `New load` | Not Preventive Care (PC) Vaccination, not Goat Passport |
 | Add source/candidate goat | Load Detail as `Add source goat` | Creates procurement load-goat/source identity, not clean herd truth |
 | Record source health | Load Detail row action or SOP task action | Uses source health SOP/proof path |
 | Accept/reject/defer/block pre-dispatch | Pre-Dispatch section row actions | Rejection before truck stays procurement history |
@@ -298,7 +298,7 @@ buttons in the operational surface where the action naturally happens.
 | Create vaccination work | Not a manual button | Generated from published protocol + accepted intake |
 
 Global `Create Goat` is not part of this flow. A source goat is created through
-procurement source-entry, and a PHC/Parks goat appears only after accepted
+procurement source-entry, and a Preventive Care (PC) / Parks goat appears only after accepted
 intake.
 
 ## Scope Chrome Rule
@@ -389,8 +389,8 @@ This E2E is done only when:
 
 ```text
 source-entry seed creates load and four branch goats
-accepted-intake goat reaches PHC vaccination and vaccination execution context
-rejected/unresolved/extra goats never appear in PHC vaccination or vaccination execution work
+accepted-intake goat reaches Preventive Care (PC) vaccination and vaccination execution context
+rejected/unresolved/extra goats never appear in Preventive Care (PC) vaccination or vaccination execution work
 top-level Control Tower/Action Center/PA/Workflow show procurement gaps only
 when procurement is selected
 vaccination Action Center/PA/CT/Workflow show vaccination gaps only
@@ -413,7 +413,7 @@ context/execution/procurement-vaccination-e2e-plan.md.
 Create the deterministic procurement-source-entry -> accepted-intake ->
 vaccination E2E seed/check path from the plan. Use real backend APIs/generated
 clients where possible, DB fixture only for bootstrap gaps. Prove accepted goats
-reach PHC vaccination/Parks and rejected/unresolved/extra goats do not.
+reach Preventive Care (PC) vaccination/Parks and rejected/unresolved/extra goats do not.
 
 No frontend UI. Regenerate contracts/clients if changed, then run the required
 backend gates from this plan. Leave generated clients in a clean, intentional

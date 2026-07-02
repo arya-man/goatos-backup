@@ -5,7 +5,7 @@ import { actionErrorMessage, actionRedirect } from "@/lib/action-helpers";
 import { requestSopTaskRework, verifySopTask } from "@/lib/api/server";
 
 // A verify/reject ripples across every screen that reads the process-integrity model: the Action Center
-// board + verify queue, PHC Vaccination ops, Protocol Adherence, and the Control Tower summary.
+// board + verify queue, Preventive Care (PC) Vaccination ops, Protocol Adherence, and the Control Tower summary.
 function revalidateVaccinationViews(): void {
   for (const p of ["/action-center", "/vaccination", "/protocol-adherence", "/workflows", "/"]) {
     revalidatePath(p);

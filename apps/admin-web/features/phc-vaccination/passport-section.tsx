@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { Syringe } from "lucide-react";
 import {
   getGoatVaccinationPassport,
   type VaccinationPassport,
+  type VaccinationPassportDue,
   type VaccinationPassportHistoryItem,
 } from "@/lib/api/server";
 import { Tag } from "@/components/ui-primitives";
@@ -20,6 +22,18 @@ function proofLabel(item: VaccinationPassportHistoryItem, pageContract: AdminUiP
   if (item.status === "recorded") return <Tag tone="warn">{copy(pageContract, "vaccination.awaiting_verify")}</Tag>;
   if (item.status === "rejected") return <Tag tone="dng">{copy(pageContract, "vaccination.rework_rejected")}</Tag>;
   return <Tag tone="mut">{item.status}</Tag>;
+}
+function workflowHref(rowId: string): string {
+  return `/workflows/${encodeURIComponent(rowId)}`;
+}
+function actionCenterHref(rowId: string): string {
+  return `/action-center?ac_row=${encodeURIComponent(rowId)}`;
+}
+function dueRowId(item: VaccinationPassportDue): string {
+  return item.workflow_row_id || `obligation:${item.obligation_id}`;
+}
+function historyRowId(item: VaccinationPassportHistoryItem): string {
+  return `obligation:${item.obligation_id}`;
 }
 
 // VaccinationPassportSection renders a goat's vaccination passport: next due, open obligations, last
@@ -101,6 +115,60 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
             letterSpacing: ".4px",
           }}
         >
+          {copy(pageContract, "vaccination.open_due_rows")}
+        </div>
+        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "vaccination.open_due_rows")}>
+          {open.length === 0 ? (
+            <div className="bd">
+              <p className="muted small">{copy(pageContract, "vaccination.empty_open")}</p>
+            </div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  {tableLabels(pageContract, "vaccination-open-obligations").map((label) => (
+                    <th key={label}>{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {open.map((due) => {
+                  const rowId = dueRowId(due);
+                  return (
+                    <tr key={due.obligation_id}>
+                      <td>{fmtDate(due.due_at)}</td>
+                      <td>{due.sequence}</td>
+                      <td>
+                        <Tag tone={statusTone(due.status)}>{due.status}</Tag>
+                      </td>
+                      <td>
+                        <Link href={workflowHref(rowId)} className="lk small">
+                          {copy(pageContract, "action.open_workflow")} →
+                        </Link>
+                      </td>
+                      <td>
+                        <Link href={actionCenterHref(rowId)} className="lk small">
+                          {copy(pageContract, "action.open_action_center")} →
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div
+          className="muted small"
+          style={{
+            padding: "10px 16px",
+            borderTop: "1px solid var(--line2)",
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: ".4px",
+          }}
+        >
           {copy(pageContract, "vaccination.history")}
         </div>
 	        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.vaccination.aria")}>
@@ -131,6 +199,11 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
                     <td>{proofLabel(h, pageContract)}</td>
                     <td>
                       <span className="gid">{h.obligation_id.slice(0, 8)}</span>
+                    </td>
+                    <td>
+                      <Link href={workflowHref(historyRowId(h))} className="lk small">
+                        {copy(pageContract, "action.open_workflow")} →
+                      </Link>
                     </td>
                   </tr>
                 ))}

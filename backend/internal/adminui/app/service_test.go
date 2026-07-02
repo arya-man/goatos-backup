@@ -208,8 +208,9 @@ func TestBootstrapEmptyDBBackedFamiliesDoNotFallBackToStaticValues(t *testing.T)
 		t.Fatalf("empty DB rule_reproductive must expose only the any sentinel, got %#v", repro.Options)
 	}
 	deferStates := optionGroupByID(t, config.OptionGroups, "defer_states")
-	if len(deferStates.Options) != 0 {
-		t.Fatalf("empty DB defer_states must stay empty, got %#v", deferStates.Options)
+	deferKeys := optionKeys(deferStates)
+	if len(deferKeys) != 4 || !deferKeys["sick"] || !deferKeys["under_treatment"] || !deferKeys["quarantine"] || !deferKeys["icu"] {
+		t.Fatalf("empty DB defer_states must expose kernel hold states only, got %#v", deferStates.Options)
 	}
 	sopLabels := optionGroupByID(t, config.OptionGroups, "schedule_sop_labels")
 	if len(sopLabels.Options) != 0 {

@@ -63,7 +63,7 @@ func DecodeHistoryCursor(value string) (HistoryCursor, error) {
 	return cursor, nil
 }
 
-// ValidateEventID accepts source-backed Calendar IDs used by this slice:
+// ValidateEventID accepts generated Calendar IDs used by this slice:
 // obligation:<uuid>, batch:<uuid>:rule:<uuid>:shed:<uuid>, and calendar:<uuid>.
 func ValidateEventID(eventID string) error {
 	eventID = strings.TrimSpace(eventID)

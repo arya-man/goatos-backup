@@ -41,7 +41,7 @@ The remaining work is dev evidence or later backlog:
 | C2 | Missed-dose escalation broken for obligations missed outside projection window. | closed | No | Missed handler refreshes the targeted projection before escalation sweep. |
 | H1 | Forward recurrence `yearly`/`every_n_days` was accepted but not expanded. | closed | No | Unsupported repeat policies are rejected at publish until recurrence is materialized. |
 | H2 | Death/sale cancellation strands missed rows. | closed | No | Exit/cancel cleanup includes missed rows and records stock repair state. |
-| H3 | ICU/quarantine health status unreachable. | bounded | No | Current behavior is fail-closed/defer-safe. Full PHC health workflow is later; dev seed must prove blocked/deferred visibility and recovery behavior. |
+| H3 | ICU/quarantine health status unreachable. | bounded | No | Current behavior is fail-closed/defer-safe. Full Preventive Care (PC) health workflow is later; dev seed must prove blocked/deferred visibility and recovery behavior. |
 | H4 | Deferred/held work wrongly escalated. | closed | No | Reminder/escalation sweeps exclude held/deferred/blocked work. |
 | H5 | Calendar projector source gate diverged from generation. | closed | No | Publish/generation require approved source metadata; calendar reads generated obligations rather than accepting divergent source truth. |
 | H6 | Calendar projection coarsened work-state. | closed | No | Calendar statuses preserve in-progress, proof-pending, verification-pending, rework, deferred, blocked, missed, and completed states. |
@@ -58,7 +58,7 @@ The remaining work is dev evidence or later backlog:
 | M7 | `CancelOpenForGoat` stamps `time.Now` instead of event time. | backlog | No | Not a clean dev blocker; revisit for historical import/backfill accuracy. |
 | M8 | Vaccination execution completion verification sub-state `as_of` issue. | backlog | No | Not blocking clean seed; verify proof/rework/completion views during dev rehearsal. |
 | M9 | Operations audit uses `ILIKE`/free-form metadata heuristic. | backlog | No | Not in the clean-slate vaccination gate. |
-| M10 | Escalation fires only the current highest crossed level. | backlog | No | Accept for dev-safe rehearsal; revisit if PHC wants full escalation waterfall replay semantics. |
+| M10 | Escalation fires only the current highest crossed level. | backlog | No | Accept for dev-safe rehearsal; revisit if Preventive Care (PC) wants full escalation waterfall replay semantics. |
 | M11 | `in_progress` not covered by missed-deadline partial index. | backlog | No | Not a current seed-scale blocker; revisit with explain-plan evidence before staging scale. |
 | M12 | External notification sends at-least-once with no recipient dedup token. | backlog | No | Dev notifications run in dev-safe mode; production delivery dedup belongs before real rollout. |
 | M13 | `MarkProcessed`/`MarkFailed` silently no-op when row is not processing. | closed | No | Finalization now returns explicit lost-finalization errors. |
@@ -117,7 +117,7 @@ gate:
 - **Missing/lost goat parity:** procurement import maps legacy "missing" to
   `lost`; identity APIs need an explicit parity decision before real legacy
   cutover.
-- **Proof/media authorization:** PHC video/proof subject binding is sufficient
+- **Proof/media authorization:** Preventive Care (PC) video/proof subject binding is sufficient
   for the seed rehearsal, but object-level access, verifier routing, retention,
   and operator device/session binding need a pre-production security pass.
 - **Scale/load evidence:** request-time process-integrity and vaccination

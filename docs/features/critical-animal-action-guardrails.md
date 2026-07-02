@@ -137,25 +137,25 @@ policy pack.
 | Process visibility for blocked actions, overdue obligations, missed checks, escalations, and incident next actions | Kernel / shared platform | Process Integrity: Action Center, Control Tower, Calendar, Protocol Adherence, Workflows |
 | Current goat location, source/destination shed truth, shed counts, movement history, and movement proof target | Counts | Shifting / Movement, Census / Shed Count |
 | Location profile, shed capability, capacity, active/review/retired state, `is_quarantine`, `is_icu`, `is_holding`, owner/manager mapping | Shared Locations master data; Counts consumes it for occupancy/current-location truth | Locations / Shed Profiles |
-| Routine movement, high-risk movement, quarantine entry/exit movement, and operational separation such as keeping adult males away from females | Counts primary; Breeding/PHC/Procurement may supply the reason evidence | Shifting / Operational Movement |
+| Routine movement, high-risk movement, quarantine entry/exit movement, and operational separation such as keeping adult males away from females | Counts primary; Breeding/Preventive Care (PC) / Procurement may supply the reason evidence | Shifting / Operational Movement |
 | Feed-count impact from movement timing, especially before/after feed cutoffs | Feed + Counts | Feed Direction with Shifting bridge |
-| Biological/process quarantine for contagious/viral risk such as ORF | PHC | Biosecurity / Quarantine |
-| ICU, sick animal tracking, diagnosis, treatment, follow-up, and release from health restriction | PHC | Health, Treatment, ICU |
-| Quarantine health, weight, and follow-up checks after a PHC quarantine episode starts | PHC | Quarantine Checks / Health Follow-up |
-| Vaccination protocol obligations, missed-dose/proof gaps, defer/reopen on health/quarantine recovery, lab/titer/sample-test confidence evidence | PHC | Vaccination |
-| Deworming, sanitization, water/feed testing, biosecurity checks, SOP-video verification, and PHC inventory anti-misuse checks | PHC | PHC protocol modules |
+| Biological/process quarantine for contagious/viral risk such as ORF | Preventive Care (PC) | Biosecurity / Quarantine |
+| ICU, sick animal tracking, diagnosis, treatment, follow-up, and release from health restriction | Preventive Care (PC) | Health, Treatment, ICU |
+| Quarantine health, weight, and follow-up checks after a Preventive Care (PC) quarantine episode starts | Preventive Care (PC) | Quarantine Checks / Health Follow-up |
+| Vaccination protocol obligations, missed-dose/proof gaps, defer/reopen on health/quarantine recovery, lab/titer/sample-test confidence evidence | Preventive Care (PC) | Vaccination |
+| Deworming, sanitization, water/feed testing, biosecurity checks, SOP-video verification, and Preventive Care (PC) inventory anti-misuse checks | Preventive Care (PC) | Preventive Care (PC) protocol modules |
 | Incoming purchased animals before accepted herd intake, including holding farm, warmup, source records, vendor/load evidence, transit, and intake checks | Procurement | Source Entry, Intake, Holding / Warmup |
-| Procurement health/weight/vaccination source evidence used by PHC or Counts | Procurement owns the source record; PHC/Counts consume it | Procurement Intake Evidence |
-| Accepted-herd intake gate after procurement, health/weight/proof discrepancy resolution, and canonical goat creation/update | Procurement primary with PHC + Counts gates | Procurement Acceptance |
-| Death report, post-mortem, unexpected death, disease cluster, incident investigation, and preventive action | PHC owns medical investigation; Counts consumes canonical death/lifecycle state for active counts; Kernel owns workflow mechanics | Death / Incident |
-| Sale/allocation blockers caused by quarantine, ICU, death, kid stage, or withdrawal rules | Sales consumes; PHC/Counts provide source truth | Sale / Allocation Blockers |
+| Procurement health/weight/vaccination source evidence used by Preventive Care (PC) or Counts | Procurement owns the source record; Preventive Care (PC) / Counts consume it | Procurement Intake Evidence |
+| Accepted-herd intake gate after procurement, health/weight/proof discrepancy resolution, and canonical goat creation/update | Procurement primary with Preventive Care (PC) + Counts gates | Procurement Acceptance |
+| Death report, post-mortem, unexpected death, disease cluster, incident investigation, and preventive action | Preventive Care (PC) owns medical investigation; Counts consumes canonical death/lifecycle state for active counts; Kernel owns workflow mechanics | Death / Incident |
+| Sale/allocation blockers caused by quarantine, ICU, death, kid stage, or withdrawal rules | Sales consumes; Preventive Care (PC) / Counts provide source truth | Sale / Allocation Blockers |
 
 Ownership rule:
 
 ```text
 Locations owns shed/location master data.
 Counts owns where the goat is and the derived count/occupancy truth.
-PHC owns medical/preventive restriction and recovery truth.
+Preventive Care (PC) owns medical/preventive restriction and recovery truth.
 Procurement owns incoming-animal truth before accepted herd.
 Feed owns ration/feed-direction consequences of movement and counts.
 The kernel owns guardrail enforcement, evidence evaluation, audit, obligations,
@@ -172,12 +172,12 @@ For the quarantine incident class specifically:
 
 - Healthy existing males kept away from females -> Counts / Shifting /
   Operational Movement, with breeding reason evidence where needed.
-- ORF, contagious risk, ICU, or medical isolation -> PHC / Biosecurity /
-  Quarantine or PHC / Health.
+- ORF, contagious risk, ICU, or medical isolation -> Preventive Care (PC) / Biosecurity /
+  Quarantine or Preventive Care (PC) / Health.
 - Newly purchased goats under incoming quarantine/warmup -> Procurement /
-  Intake / Holding, with PHC checks before accepted herd.
+  Intake / Holding, with Preventive Care (PC) checks before accepted herd.
 - A shed named "quarantine" but not used as biological/process quarantine ->
-  Locations/Counts label or capability only; do not create a PHC quarantine
+  Locations/Counts label or capability only; do not create a Preventive Care (PC) quarantine
   episode unless evidence-derived classification says so.
 
 ## Source Evidence Reviewed
@@ -201,7 +201,7 @@ Maintainer-local wiki/legacy sources reviewed:
 - `wiki/graphify-out/converted/Feed, Shiftings and Count_27cef16d.md`
 - `wiki/graphify-out/converted/Mesha-dept-directors_3e7ab556.md`
 - `Handbooks/PHC_Director.pdf` graph nodes for 21-day quarantine, daily
-  Park Head coordination, EOD reporting, SOP video verification, and PHC
+  Park Head coordination, EOD reporting, SOP video verification, and Preventive Care (PC)
   daily/weekly execution
 - `Handbooks/Health_Director.pdf` and `Handbooks/Mesha-dept-directors.pdf`
   graph nodes for the 10-minute report response standard
@@ -246,7 +246,7 @@ Current docs also say:
 
 - Quarantine status blocks sale/allocation.
 - Quarantine should have health and weight checks.
-- PHC reporting tracks incoming animals in quarantine and days remaining by
+- Preventive Care (PC) reporting tracks incoming animals in quarantine and days remaining by
   batch.
 - If a goat has no other open health problem, it may shift out of ICU or
   quarantine through a shifting request/direction.
@@ -793,7 +793,7 @@ doing nothing.
 Source trail for timetable/round requirements:
 
 - `Handbooks/PHC_Director.pdf` graph nodes cover daily Park Head coordination,
-  EOD reporting, SOP video verification, and PHC daily/weekly execution.
+  EOD reporting, SOP video verification, and Preventive Care (PC) daily/weekly execution.
 - `Handbooks/Health_Director.pdf` and `Handbooks/Mesha-dept-directors.pdf`
   graph nodes cover the 10-minute report response standard where applicable.
 - `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`
@@ -918,7 +918,7 @@ an incident, quarantine, procurement intake, sale blocker, or health decision
 depends on whether the goat was actually protected.
 
 Accepted evidence types may include administered-dose proof, imported source
-sheet row, supplier/procurement record, PHC/vet attestation, lab result, titer,
+sheet row, supplier/procurement record, Preventive Care (PC) / vet attestation, lab result, titer,
 sample-test, or approved exception. Each evidence type needs source reference,
 actor, timestamp, verifier/reviewer where required, confidence level, and
 recheck/exception state.
@@ -957,13 +957,13 @@ Illustrative default SLA levels, pending final business confirmation:
 
 | Trigger | Immediate owner | Escalation 1 | Escalation 2 | Hard outer limit |
 | --- | --- | --- | --- | --- |
-| Quarantine move missing reason/evidence | requester blocked instantly | Park Head / Health owner within 10 minutes | configured PHC or Health Director role within 30 minutes | leadership before 4 hours |
-| Quarantine check overdue | assigned operator immediately | Park Head within 30 minutes | configured PHC or Health Director role within 2 hours | leadership before 4 hours if critical |
-| Critical shed timetable/round missed | assigned operator immediately | Park Head within 30 minutes | configured PHC or Health Director role within 2 hours | leadership before 4 hours if death/high-value/high-risk |
-| Vaccination coverage/proof confidence gap for high-risk animal | PHC owner immediately | configured PHC or Health Director role within 30 minutes | COO/CEO if linked to death/cluster | before investigation closes |
-| Death in quarantine/ICU/high-risk context | Park Head + Health owner immediately | configured PHC or Health Director role within 10 minutes | COO/CEO within 30 minutes | never later than 4 hours |
-| Biosecurity breach / contagious cluster | Park Head + PHC owner immediately | configured PHC or Health Director role within 10 minutes | COO/CEO within 30 minutes | never later than 4 hours |
-| Missing proof for critical action | assignee immediately | verifier/Park Head within 30 minutes | configured PHC or Health Director role within 2 hours | leadership if still open |
+| Quarantine move missing reason/evidence | requester blocked instantly | Park Head / Health owner within 10 minutes | configured Preventive Care (PC) or Health Director role within 30 minutes | leadership before 4 hours |
+| Quarantine check overdue | assigned operator immediately | Park Head within 30 minutes | configured Preventive Care (PC) or Health Director role within 2 hours | leadership before 4 hours if critical |
+| Critical shed timetable/round missed | assigned operator immediately | Park Head within 30 minutes | configured Preventive Care (PC) or Health Director role within 2 hours | leadership before 4 hours if death/high-value/high-risk |
+| Vaccination coverage/proof confidence gap for high-risk animal | Preventive Care (PC) owner immediately | configured Preventive Care (PC) or Health Director role within 30 minutes | COO/CEO if linked to death/cluster | before investigation closes |
+| Death in quarantine/ICU/high-risk context | Park Head + Health owner immediately | configured Preventive Care (PC) or Health Director role within 10 minutes | COO/CEO within 30 minutes | never later than 4 hours |
+| Biosecurity breach / contagious cluster | Park Head + Preventive Care (PC) owner immediately | configured Preventive Care (PC) or Health Director role within 10 minutes | COO/CEO within 30 minutes | never later than 4 hours |
+| Missing proof for critical action | assignee immediately | verifier/Park Head within 30 minutes | configured Preventive Care (PC) or Health Director role within 2 hours | leadership if still open |
 
 Role names in this table are human-readable labels. Policy packs must resolve
 them to configured role or capability codes for the active deployment; do not

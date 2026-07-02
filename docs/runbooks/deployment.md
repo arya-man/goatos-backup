@@ -276,7 +276,7 @@ canonical redirect is a user-friendly fallback, not the primary exposure model.
 4. **Deploy.** Roll the new image. Keep the previous revision available for
    rollback.
 5. **Smoke.** See "Smoke checks" — must pass before announcing the release.
-6. **Process integrity smoke.** Confirm the current Admin Config + PHC
+6. **Process integrity smoke.** Confirm the current Admin Config + Preventive Care (PC)
    Vaccination + vaccination execution APIs are healthy before announcing
    the release.
 

@@ -126,7 +126,7 @@ function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: Vaccinat
       aria-label={`${copy(pageContract, "action.open_shed_event_for")} ${row.shedName}`}
       title={`${row.shedName} · ${driveLabel} · ${row.nextAction}`}
     >
-      <div className="pexc">
+      <div className="pexc pexc-shed">
         <div className="pexc-h">{labels[0]}</div>
         <span className="lk small" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <Warehouse className="ic" style={{ width: 14 }} aria-hidden="true" />
@@ -138,17 +138,17 @@ function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: Vaccinat
           {row.animalStage}
         </ClipText>
       </div>
-      <div className="pexc">
+      <div className="pexc pexc-drive">
         <div className="pexc-h">{labels[1]}</div>
-        <span className="small" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span className="small pexec-line" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
           <Syringe className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
-          <ClipText title={driveLabel} className="inline">
+          <ClipText title={driveLabel} className="inline pexec-drive-title">
             {driveLabel}
           </ClipText>
         </span>
         <div className="muted small" style={{ marginTop: 2 }}>{copy(pageContract, "label.due_prefix")} {fmtDate(row.dueDate)}</div>
       </div>
-      <div className="pexc">
+      <div className="pexc pexc-work">
         <div className="pexc-h">{labels[2]}</div>
         <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.workState) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", row.workState)}</Tag>
         {row.blockerReason ? (
@@ -165,15 +165,15 @@ function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: Vaccinat
           </div>
         ) : null}
       </div>
-      <div className="pexc">
+      <div className="pexc pexc-owner">
         <div className="pexc-h">{labels[3]}</div>
         <OwnerChain row={row} pageContract={pageContract} />
       </div>
-      <div className="pexc">
+      <div className="pexc pexc-status">
         <div className="pexc-h">{labels[4]}</div>
         <StatusChips row={row} pageContract={pageContract} />
       </div>
-      <div className="pexc">
+      <div className="pexc pexc-action">
         <div className="pexc-h">{labels[5]}</div>
         {/* Backend-suggested next step — a HINT, not a wired button. The row itself opens the drawer; owner
             assignment isn't actionable yet, so this must not masquerade as a CTA button. Plain muted text. */}
@@ -186,7 +186,7 @@ function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: Vaccinat
 }
 
 // Embeddable execution section. Parks does NOT own a vaccination product surface — this renders INSIDE
-// PHC / Vaccination (/vaccination#execution), scoped by the top-bar park dropdown (?park). The
+// Preventive Care (PC) / Vaccination (/vaccination#execution), scoped by the top-bar park dropdown (?park). The
 // `basePath` parameterizes the filter self-links so they stay on the embedding route; shed-drilldown rows
 // deep-link to /vaccination/execution/sheds/{shed_id} (physical execution-context detail).
 export async function VaccinationExecutionBoard({
@@ -441,7 +441,7 @@ function shedEventId(row: VaccinationExecutionRow): string {
 
 function ShedEventDrawer({ row, scope, closeHref, pageContract }: { row: VaccinationExecutionRow; scope: ReturnType<typeof parseScope>; closeHref: string; pageContract: AdminUiPageContract }) {
   const driveLabel = executionDriveLabel(row);
-  const detailHref = `/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`;
+  const detailHref = scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`, scope, { mode: "park", park: row.parkId });
   const actionCenterHref = scopeHref("/action-center", scope, {}, { state: row.workState });
   return (
     <>
@@ -487,14 +487,7 @@ function ShedEventDrawer({ row, scope, closeHref, pageContract }: { row: Vaccina
           </div>
           <VaccinationRecordFormFields cohortShed={`${row.animalStage} · ${row.shedName}`} vaccineName={driveLabel} pageContract={pageContract} />
           <div style={{ marginTop: 16 }}>
-            <ShedEventActions
-              obligationId={row.obligationId}
-              sopTaskId={row.sopTaskId}
-              sopVersionId={row.sopVersionId}
-              sopTaskRowVersion={row.sopTaskRowVersion}
-              completionId={row.completionId}
-              pageContract={pageContract}
-            />
+            <ShedEventActions pageContract={pageContract} />
           </div>
         </div>
         <div className="df">

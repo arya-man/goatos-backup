@@ -336,8 +336,8 @@ export function MeshaShell({
           <b style={{ fontSize: 16, letterSpacing: "-.3px" }}>{contract.top_bar.product_name}</b>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        {/* Topbar owns park/date scope only. The active module (PHC › Vaccination) is shown by the sidebar
-            nav + the page crumb, so no module badge belongs here. Vaccination is a module under PHC, not
+        {/* Topbar owns park/date scope only. The active module (Preventive Care (PC) › Vaccination) is shown by the sidebar
+            nav + the page crumb, so no module badge belongs here. Vaccination is a module under Preventive Care (PC), not
             an app-wide scope. */}
         {/* Scope mode toggle — Company-wide (rollup) vs Park-wise (park/shed breakdown). Bare URLs stay
             company-wide; choosing Park-wise writes the first backend-returned tenant park when available,

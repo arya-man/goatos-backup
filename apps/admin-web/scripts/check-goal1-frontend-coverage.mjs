@@ -28,27 +28,24 @@ function functionBody(source, name) {
 
 const ruleEditor = read("features/config/rule-editor-modal.tsx");
 assert.match(ruleEditor, /export function RuleEditorModal/, "RuleEditorModal must be the exported config authoring surface");
-assert.match(ruleEditor, /const dsl = useMemo\(\(\) => buildRuleDsl\(input\), \[input\]\)/, "RuleEditorModal must preview the shared rule_dsl builder");
-assert.match(ruleEditor, /validatePublish\(input\.source, publishableSourceKeys/, "RuleEditorModal must gate publish on source review metadata");
+assert.match(ruleEditor, /buildVaccinationMatrixPreview\(input, matrixRows\)/, "RuleEditorModal must preview the shared vaccination matrix rule_dsl builder");
+assert.doesNotMatch(ruleEditor, /validatePublish\(input\.source|publishableSourceKeys|sourceSystemOptions|reviewStatusOptions/, "RuleEditorModal must not gate publish on source review metadata");
 assert.match(ruleEditor, /const dirty = versionId !== "" && inputSig !== savedSig/, "RuleEditorModal must block stale publish after form edits");
 assert.match(ruleEditor, /disabled=\{publishDisabled\}/, "RuleEditorModal publish button must use the computed publish gate");
 assert.match(ruleEditor, /stageBlockReason/, "RuleEditorModal must block on failed animal-stage lookup reads");
 assert.match(ruleEditor, /sopBlockReason/, "RuleEditorModal must block on failed SOP-version reads");
+assert.match(ruleEditor, /!sopVersionId/, "RuleEditorModal must gate publish on executable SOP binding");
+assert.match(ruleEditor, /!proofOk/, "RuleEditorModal must gate publish on proof requirements");
 assert.doesNotMatch(ruleEditor, /next_due_basis|NEXT_DUE_BASIS|nextDueBasis/, "RuleEditorModal must not resurrect dead next_due_basis fields");
 
 const ruleDsl = read("features/config/rule-dsl.ts");
-assert.match(ruleDsl, /source:\s*sourceDsl\(input\.source\)/, "rule_dsl must include canonical source metadata");
 assert.match(ruleDsl, /sop_label:\s*d\.sopVersion/, "schedule SOP text remains a display label");
 assert.doesNotMatch(ruleDsl, /sop_version:\s*d\.sopVersion/, "display SOP label must not be emitted as executable schedule[].sop_version");
 assert.match(ruleDsl, /export function hasProofRequirement/, "publish UI must share proof requirement gate");
-assert.match(ruleDsl, /export function validatePublish/, "publish UI must share source-backed approval gate");
-assert.match(ruleDsl, /export function hasSourceEvidenceFields/, "config rows must share source-evidence helper");
-assert.match(ruleDsl, /export function isPublishableSourceFields/, "config rows must share publishable-source helper");
+assert.doesNotMatch(ruleDsl, /source:\s*sourceDsl|export function validatePublish|hasSourceEvidenceFields|isPublishableSourceFields/, "rule_dsl must not resurrect source-review publish gates");
 assert.doesNotMatch(ruleDsl, /next_due_basis|NEXT_DUE_BASIS|nextDueBasis/, "rule_dsl builder must not emit dead next_due_basis fields");
 
 const protocolRulesPage = read("features/config/protocol-rules-page.tsx");
-assert.match(protocolRulesPage, /hasSourceEvidenceFields/, "protocol rows must use the shared source-evidence helper");
-assert.match(protocolRulesPage, /isPublishableSourceFields/, "protocol rows must use the shared publishable-source helper");
 assert.doesNotMatch(protocolRulesPage, /function sourceSystemOption/, "protocol rows must not duplicate source-system lookup logic");
 
 const herdUI = read("features/counts/herd-actions-ui.tsx");
@@ -88,6 +85,6 @@ assert.match(executionBoard, /copy\(pageContract, "action\.open_action_center"\)
 const actionCenter = read("features/process-integrity/action-center.tsx");
 assert.match(actionCenter, /const blocker = row\.blocker_reason/, "Action Center drawer must consume backend blocker reason");
 assert.match(actionCenter, /<span>\{blocker\}<\/span>/, "Action Center drawer must render blocker text visibly");
-assert.match(actionCenter, /<Link href=\{workflowHref\} className="btn p">\s*\{row\.next_action\}/, "Action Center drawer primary action must use backend next_action");
+assert.match(actionCenter, /<div className="v">\{row\.next_action\}<\/div>/, "Action Center drawer must render backend next_action visibly");
 
 console.log("goal1 frontend coverage guard passed.");

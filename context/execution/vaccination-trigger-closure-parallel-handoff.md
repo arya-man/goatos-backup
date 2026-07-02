@@ -62,7 +62,7 @@ generated clients, and `mock/goatos-dashboard-mock.html`.
 
 Business/wiki and source evidence:
 
-- `Handbooks/PHC_Director.pdf` page 2: PHC weekly operations include vaccination
+- `Handbooks/PHC_Director.pdf` page 2: Preventive Care (PC) weekly operations include vaccination
   tracking, stock control, and record management.
 - `Handbooks/PHC_Director.pdf` page 5: vaccination requires storage/cold-chain
   integrity and health data documentation.
@@ -86,10 +86,10 @@ Business/wiki and source evidence:
   purchase/source, source warmup duration is purpose-dependent, breeding warmup
   is realistically 45-70 days today, fattening/non-breeding may be 0 days or
   around 2 weeks, and goats may be rejected before truck loading.
-- `context/execution/procurement-vaccination-e2e-plan.md`: PHC Vaccination
+- `context/execution/procurement-vaccination-e2e-plan.md`: Preventive Care (PC) Vaccination
   consumes accepted-intake truth only: goat identity, park/shed, intake date,
   defer signal, and trusted historical vaccination evidence.
-- `docs/phc-vaccination/V1-FOUNDATION-SPEC.md`: Procurement DB evidence is
+- `docs/preventive-care-vaccination/V1-FOUNDATION-SPEC.md`: Procurement DB evidence is
   arrival/intake/history evidence for vaccination, including historical
   vaccination-at-procurement evidence and intake health/defer signals.
 
@@ -138,7 +138,7 @@ Mock and legacy evidence:
 
 Goat OS source of truth:
 
-- `docs/phc-vaccination/PRD.md`: "Add a goat -> its obligations generate" and
+- `docs/preventive-care-vaccination/PRD.md`: "Add a goat -> its obligations generate" and
   birth/procurement goat entry auto-generates vaccination obligations.
 - `docs/protocol-engine/state-machines.md`: SM-1 schedule generation triggers on
   `goat.created` or `goat.stage_changed`; SM-2 recomputes on `goat.shifted`;
@@ -152,7 +152,7 @@ Goat OS source of truth:
 - `backend/internal/procurement/adapters/postgres/repository_integration_test.go`:
   current backend tests already assert 45-70 day source warmup persistence,
   pre-dispatch rejection blocking active vaccination work, and accepted clean
-  goats creating PHC handoff/read-model state.
+  goats creating Preventive Care (PC) handoff/read-model state.
 
 ## Product Decision
 
@@ -164,7 +164,7 @@ Module: Herd Register
 Operational route: /counts/herd
 ```
 
-It does not belong under PHC -> Vaccination and it is not Goat Passport search.
+It does not belong under Preventive Care (PC) -> Vaccination and it is not Goat Passport search.
 Goat Passport remains a contextual detail route from rows or a known direct URL.
 
 Vaccination consumes the output:
@@ -172,7 +172,7 @@ Vaccination consumes the output:
 ```text
 Counts -> Herd Register create/import goat
   -> goat.created event
-  -> PHC -> Vaccination obligation generation
+  -> Preventive Care (PC) -> Vaccination obligation generation
 ```
 
 Procurement accepted intake remains a second valid trigger:
@@ -180,7 +180,7 @@ Procurement accepted intake remains a second valid trigger:
 ```text
 Procurement -> Source Entry accepted intake
   -> accepted-intake or goat.created event
-  -> PHC -> Vaccination obligation generation
+  -> Preventive Care (PC) -> Vaccination obligation generation
 ```
 
 Both paths must converge on the same generation handler and the same Postgres
@@ -195,7 +195,7 @@ Operational route: /procurement/source-entry
 ```
 
 It does not belong under Counts -> Herd Register because these goats are not
-clean accepted herd yet. It does not belong under PHC -> Vaccination because PHC
+clean accepted herd yet. It does not belong under Preventive Care (PC) -> Vaccination because Preventive Care (PC)
 only consumes accepted-intake truth and trusted source vaccination evidence.
 
 The minimum procurement trigger branch is:
@@ -212,7 +212,7 @@ purchase/source or supplier Holding Farm entry
 
 Rejected-before-truck, source-only, ownership-pending, identity-conflict,
 deferred, missing, extra-unknown, arrival-rejected, dead, sold, or lost goats
-stay procurement history/work. They must not enter active herd count, active PHC
+stay procurement history/work. They must not enter active herd count, active Preventive Care (PC)
 vaccination work, vaccination execution rows, or Goat Passport active-herd
 views.
 
@@ -457,7 +457,7 @@ published source-backed vaccination protocol
   -> admin records source goat rows with source identity/tagging, holding farm,
      warmup start/end/days, health/selection state, ownership state, and HF
      vaccination evidence or proof reference
-  -> backend keeps source-only goats out of active herd count and active PHC work
+  -> backend keeps source-only goats out of active herd count and active Preventive Care (PC) work
   -> pre-dispatch reject path writes procurement history/audit only and never
      creates active vaccination work
   -> pre-dispatch accepted goats move through truck proof, arrival review, and
@@ -479,7 +479,7 @@ Active now:
 
 - Top-level command lenses: `/`, `/action-center`, `/protocol-adherence`,
   `/workflows`.
-- PHC -> Vaccination: `/vaccination`.
+- Preventive Care (PC) -> Vaccination: `/vaccination`.
 - Procurement -> Source Entry: `/procurement/source-entry`.
 - Admin / Data Ops -> Config: `/config`.
 - Admin / Data Ops -> SOP Library: `/sops`.
@@ -601,7 +601,7 @@ Local seed/E2E data strategy:
 - Prefer testing the trigger with a newly created goat from `/counts/herd`; that
   proves the real operator/admin entry point.
 - Existing canonical goats in local DB are useful for list/read/passport smoke,
-  but they must not be replayed as `goat.created`. Use the PHC backfill path for
+  but they must not be replayed as `goat.created`. Use the Preventive Care (PC) backfill path for
   existing canonical goats.
 - Add an idempotent minimal seed command or documented SQL fixture for the
   vaccination trigger pack if it does not already exist. It must seed only:
@@ -632,14 +632,14 @@ Variant B: clean local Docker DB
 
 Variant C: existing canonical goats
   migrations current
-  -> run PHC backfill generator, chunked and idempotent
+  -> run Preventive Care (PC) backfill generator, chunked and idempotent
   -> missing obligations/drives are generated without replaying old rows
 
 Variant D: source-entry supplier warmup trigger
   migrations current
   -> create or seed one supplier Holding Farm breeding load with 45-70 day warmup
   -> optionally include a fattening/non-breeding load with 0-day or ~2-week warmup
-  -> reject-before-truck branch proves no PHC/park/vaccination leakage
+  -> reject-before-truck branch proves no Preventive Care (PC) / park/vaccination leakage
   -> accepted-intake branch proves HF evidence + same vaccination generator
 ```
 
@@ -795,7 +795,7 @@ Countered / downgraded:
   which must pass normally and under a focused `-race` run. Keep broader
   lock-timeout/load behavior as a follow-up, not as a P1 data-corruption claim.
 - The suggested "make AcceptIntake all-or-none" is already the intended shape:
-  accepted goats, PHC handoffs, audit/outbox writes, load status, and idempotency
+  accepted goats, Preventive Care (PC) handoffs, audit/outbox writes, load status, and idempotency
   completion run in one transaction. What is still useful is an explicit
   regression test proving replay after crash/rollback/commit returns a complete
   handoff set and never a partial list.
@@ -1080,7 +1080,7 @@ Minimum API/runtime requirements:
 - Pre-dispatch decision supports accept, reject, defer, and block with reason,
   actor, proof/ref, idempotency key, and immutable audit.
 - Reject-before-truck writes procurement history and supplier-credit/audit
-  metadata if present, but creates no active herd count, PHC handoff, active
+  metadata if present, but creates no active herd count, Preventive Care (PC) handoff, active
   vaccination obligation, drive, SOP task, or Goat Passport active-herd row.
 - Partial load reject is per goat: accepted goats may proceed; rejected/deferred
   goats remain procurement history/work.
@@ -1105,7 +1105,7 @@ Minimum tests/fixtures:
 - Warmup outside the configured purpose-specific range becomes at-risk/overdue
   work, not invalid data loss.
 - Rejected-before-truck cannot create or retain active vaccination work.
-- Accepted clean intake creates the PHC handoff/generation input.
+- Accepted clean intake creates the Preventive Care (PC) handoff/generation input.
 - Trusted HF vaccination evidence suppresses only the matching due dose and does
   not suppress unrelated vaccines, boosters, quarantine, or on-arrival rules.
 - Untrusted, duplicate, conflicting, or mismatched HF evidence stays reviewable
@@ -1234,7 +1234,7 @@ Robustness rules:
 - Use `recorded_at` cursor pagination and partition-prunable filters for read
   APIs. No unbounded audit reads or synchronous large exports.
 - The business Audit Log is cross-module: it can be powered by
-  domain/module/action/scope metadata, but it is not owned by PHC, People,
+  domain/module/action/scope metadata, but it is not owned by Preventive Care (PC), People,
   Counts, SOP, Procurement, or an Operations vertical.
 
 Current implementation status: the read-only audit API on the existing
@@ -1505,9 +1505,9 @@ Load Detail must expose only the actions needed for the vaccination trigger:
 Every action must call generated clients and show backend validation errors. Do
 not fake a completed state by mutating local React arrays.
 
-PHC/Vaccination screens may show read-only source context for accepted-intake
+Preventive Care (PC) / Vaccination screens may show read-only source context for accepted-intake
 goats: origin/source, entry/intake date, trusted HF evidence used for due basis,
-and any defer signal. PHC/Vaccination must not own source warmup, pre-dispatch
+and any defer signal. Preventive Care (PC) / Vaccination must not own source warmup, pre-dispatch
 rejection, supplier credit, or arrival discrepancy review actions.
 
 UI no-leak checks:
@@ -1603,7 +1603,7 @@ path. A visual screenshot without click classification is not enough.
 - Supplier Holding Farm fattening/non-breeding warmup 0 days or around 2 weeks
   -> valid when purpose/classification supports it.
 - Supplier Holding Farm warmup outside the purpose-specific policy window ->
-  at-risk/overdue procurement work, not automatic active PHC vaccination work.
+  at-risk/overdue procurement work, not automatic active Preventive Care (PC) vaccination work.
 - HF vaccination evidence untrusted/conflicting/duplicate/mismatched -> visible
   review state; must not suppress a post-arrival dose until trusted.
 - HF vaccination evidence trusted -> suppress only the matching already-completed
@@ -1612,7 +1612,7 @@ path. A visual screenshot without click classification is not enough.
 - Quarantine, ICU, sick, pregnant/lactating, or blocked animals -> visible
   deferred/explained obligation when rules say defer; no silent skip.
 - Rejected-before-truck, owner-missing, arrival-rejected, unresolved, extra
-  unknown goats -> procurement history only; never active PHC vaccination.
+  unknown goats -> procurement history only; never active Preventive Care (PC) vaccination.
 - Partial source load reject -> accepted goats proceed independently; rejected
   goats remain procurement history and supplier-credit/audit metadata where
   applicable.
@@ -1673,7 +1673,7 @@ Do not run E2E until all of this is true:
   45-70 day warmup, optional fattening/non-breeding 0-day or ~2-week warmup,
   HF evidence state, and load-row statuses from backend APIs.
 - The pre-dispatch reject branch proves rejected/source-only goats do not appear
-  in active herd count, active PHC vaccination work, vaccination execution, or
+  in active herd count, active Preventive Care (PC) vaccination work, vaccination execution, or
   Goat Passport active-herd rows.
 - The accepted-intake branch proves trusted HF vaccination evidence feeds due
   basis and avoids duplicate post-arrival dosing while keeping quarantine/

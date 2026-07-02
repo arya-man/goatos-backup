@@ -633,7 +633,19 @@ grouped AS (
     MAX(jsonb_array_length(COALESCE(located.proof_refs, '[]'::jsonb)))::int AS proof_count,
     MAX(located.submitted_at) AS latest_evidence_at,
     (ARRAY_AGG(located.rejection_reason ORDER BY located.completion_updated_at DESC NULLS LAST) FILTER (WHERE located.rejection_reason IS NOT NULL AND located.rejection_reason <> ''))[1] AS latest_rejection_reason,
-    (ARRAY_AGG(located.conducted_by::text ORDER BY located.due_at DESC NULLS LAST) FILTER (WHERE located.conducted_by IS NOT NULL))[1] AS conducted_by,
+    COALESCE(
+      (ARRAY_AGG(located.conducted_by::text ORDER BY located.due_at DESC NULLS LAST) FILTER (WHERE located.conducted_by IS NOT NULL))[1],
+      (ARRAY_AGG(default_operator.workforce_member_id::text ORDER BY
+        CASE
+          WHEN default_operator.primary_location_id = located.shed_uuid THEN 0
+          WHEN default_operator.primary_location_id = located.park_uuid THEN 1
+          ELSE 2
+        END,
+        located.due_at DESC NULLS LAST,
+        default_operator.updated_at DESC NULLS LAST,
+        default_operator.workforce_member_id DESC
+      ) FILTER (WHERE default_operator.workforce_member_id IS NOT NULL))[1]
+    ) AS conducted_by,
     (ARRAY_AGG(located.assigned_to::text ORDER BY located.due_at DESC NULLS LAST) FILTER (WHERE located.assigned_to IS NOT NULL))[1] AS assigned_to,
     (ARRAY_AGG(located.verified_by::text ORDER BY located.verified_at DESC NULLS LAST) FILTER (WHERE located.verified_by IS NOT NULL))[1] AS verified_by,
     COALESCE(MAX(stage.stage_code), MAX(stage.name), MAX(located.goat_stage), 'Unknown') AS animal_stage,
@@ -661,6 +673,17 @@ grouped AS (
   LEFT JOIN animal_stage_lookup stage
     ON stage.tenant_id = $1::uuid
    AND stage.animal_stage_id = sp.animal_stage_id
+  LEFT JOIN LATERAL (
+    SELECT wm.workforce_member_id, wm.primary_location_id, wm.updated_at
+    FROM workforce_members wm
+    WHERE wm.tenant_id = $1::uuid
+      AND wm.status = 'active'
+      AND wm.primary_role_hint = 'operator'
+      AND wm.primary_location_id IN (located.shed_uuid, located.park_uuid)
+    ORDER BY CASE WHEN wm.primary_location_id = located.shed_uuid THEN 0 WHEN wm.primary_location_id = located.park_uuid THEN 1 ELSE 2 END,
+             wm.updated_at DESC, wm.workforce_member_id DESC
+    LIMIT 1
+  ) default_operator ON true
   WHERE located.park_uuid IS NOT NULL
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
     AND ($3::text = '' OR located.shed_uuid = $3::uuid)
