@@ -375,6 +375,15 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    or from explicit synthetic test scenarios derived from the active matrix; do
    not invent production completions. These fixture assumptions are marked as
    seed/test provenance and are not production truth.
+7. **No old-dashboard or BQ-port runtime leftovers** — V1 is not a legacy
+   dashboard mirror, import-review product, conflict-resolution queue, or
+   spreadsheet/BQ sync runtime. The clean-slate seed creates only valid GoatOS
+   herd animals, parks, sheds, tags, vaccination history, and protocol facts.
+   Bad source rows are fixed at source or blocked from seed; GoatOS must not
+   carry `legacy_import_*`, `legacy_sync_*`, BQ dashboard source contexts,
+   freshness widgets, identity review/dispute states, `source_confidence`, or
+   old tag/sheet/external-system identifier names as product concepts,
+   OpenAPI fields, UI copy, or final schema.
 
 ## 8. Legacy capability parity, proof policy, and import mapping
 

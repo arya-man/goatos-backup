@@ -87,6 +87,11 @@ every clean current animal resolves to one current shed/tag; goats and sheep may
 Raw source identifier column names stay import provenance only; canonical DB/API/UI
 names use animal_identifier_1/animal_identifier_2, with duplicate checks scoped by
 the relevant identifier value plus normalized park where source data requires it.
+old dashboard/BQ-port schema and contract names are not part of Path B:
+no legacy_import_*, legacy_sync_*, BQ snapshot mirrors, sync freshness tables,
+goat identity counters, identity_state review/dispute states, source_confidence,
+origin_type='unknown', old_tag, sheet_row_id, external_system_id, or legacy_bq*
+source contexts in the final schema/OpenAPI/UI.
 tenant isolation + global parties + shared-PK org subtype.
 owner_party / custodian_party / location / task assignment are separate.
 ownership share_bps uses integer bps and deferred invariant.

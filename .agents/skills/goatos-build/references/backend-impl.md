@@ -176,9 +176,14 @@ backend/internal/legacy_sync
 old identity Import Review / conflict queue / candidate / correction use cases
 ```
 
-Postgres migration history may still contain old tables so existing local/dev
-databases can migrate forward safely. Do not treat migration history as active
-runtime design.
+For the clean-slate V1 base correction, do not preserve those old tables or
+public fields in the final schema, SQLC snapshots, OpenAPI, generated clients,
+admin-web copy, or seed data. If a fresh branch still shows old dashboard/BQ
+port names such as `legacy_import_*`, `legacy_sync_*`, BQ snapshot mirrors,
+goat identity counters, `identity_state`, `source_confidence`, `old_tag`,
+`sheet_row_id`, `external_system_id`, `origin_type='unknown'`, or `legacy_bq*`
+source contexts in active contracts, treat that as cleanup work before
+implementation proceeds.
 
 ## Verification
 

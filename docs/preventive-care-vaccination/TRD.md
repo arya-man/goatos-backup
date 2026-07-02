@@ -56,7 +56,7 @@ not remain as the new architecture.
 | `sex text` | Required canonical animal sex: `female` or `male` only. `unknown`, blank, inferred, or conflicting sex is a blocking validation error, not an accepted herd value and not a vaccination selector. |
 | `dob date`, `dob_confidence text` | Date of birth with confidence (`exact`, `estimated`, `unknown`). |
 | `approx_dob date` | Keep only as migrated provenance/compat input until replaced by `dob` + confidence. |
-| `origin_type text`, `entry_date date` | `birth`, `procured`, `imported`, `unknown` plus herd-entry date. |
+| `origin_type text`, `entry_date date` | `birth`, `procured`, or an explicit approved source/import type plus herd-entry date. `unknown` is not allowed in the accepted clean-slate herd; unresolved source rows block from seed/import. |
 | `lifecycle_status`, `health_status`, `reproductive_status`, `lactation_state` | Typed/current animal states used by protocols. |
 | `current_location_id`, `park_id`, `shed_id`, `cohort_id` | Current physical scope. Every clean current animal must resolve to one current shed/tag. |
 | `current_shed_tag_id` / `animal_stage_id` | Current operational cohort tag derived from shed profile unless explicitly reviewed. |
@@ -227,7 +227,7 @@ The data plane evaluates the rule against canonical facts:
 
 | Current fact | Storage/read source |
 |---|---|
-| Herd identity and animal dimensions | `herd_animals`: `animal_id`, `tenant_id`, `species_id`/`species_code`, `breed_id`/`breed`, `sex`, `dob`/`approx_dob`, `lifecycle_status`, `health_status`, `reproductive_status`, `lactation_state`, `source_confidence` |
+| Herd identity and animal dimensions | `herd_animals`: `animal_id`, `tenant_id`, `species_id`/`species_code`, `breed_id`/`breed`, `sex`, `dob`/`approx_dob`, `lifecycle_status`, `health_status`, `reproductive_status`, `lactation_state` |
 | Current physical scope | `herd_animals.current_location_id`, `herd_animals.park_id`, `herd_animals.shed_id`, `herd_animals.cohort_id`, `locations` |
 | Shed tag/stage dimensions | `shed_profiles.animal_stage_id`, `animal_stage_lookup.stage_code`, `shed_profiles.sex_grouping`, `shed_profiles.has_icu_corner`, `location_operational_attributes.is_quarantine/is_icu/is_holding` |
 | Procurement/intake dimensions | `herd_animals.origin_type`, `herd_animals.entry_date`, `procurement_phc_handoffs.entry_date`, warm-up/handoff state, trusted HF evidence |
@@ -583,6 +583,32 @@ source evidence for the reseed; they are not preserved as runtime truth and are
 not patched in place. For production cutover later, the same importer rules
 apply, but unresolved source rows block instead of receiving fixture defaults.
 
+Clean slate also means the final V1 schema, generated SQLC snapshots, OpenAPI
+contracts, generated clients, seed data, and admin-web copy must not carry the
+old dashboard/BQ-port model. Do not recreate or expose:
+
+- `legacy_import_*`, `legacy_sync_*`, import-review queues, sync run conflicts,
+  watermarks, or old dashboard source freshness/status widgets.
+- BQ snapshot mirror tables such as `counts_current_snapshot_rows`,
+  `counts_sync_runs`, and `mortality_sync_runs` for the vaccination/herd base.
+- `goat_identity_counters` and counter projection tables/views from the old
+  dashboard/reporting port.
+- `identity_state` review/dispute/clean states, `source_confidence`, or
+  identifier-policy review/reject machinery on canonical herd animals.
+- `origin_type='unknown'` on accepted/canonical herd animals.
+- Identifier names/types such as `old_tag`, `sheet_row_id`, and
+  `external_system_id` in canonical APIs. Use `animal_identifier_1` and
+  `animal_identifier_2`.
+- Location/source enums such as `legacy_bq_dashboard_shed`,
+  `legacy_bq_counts`, `legacy_bq_mortality`, or `legacy_bq` in active contracts.
+
+The only allowed duplicate/identity handling in the target herd model is hard
+validation before creation/import and an explicit replacement/merge history if a
+human-corrected canonical duplicate must be retired. It must not be modeled as a
+long-lived dirty-data state on the animal row. Fresh procurement/admin create
+flows reject invalid or conflicting input immediately; they do not park bad
+animals in GoatOS for later conflict resolution.
+
 Local/dev/test reseed rules:
 
 - Seed at least goat and sheep. Species is derived from governed species/breed
@@ -613,6 +639,7 @@ Local/dev/test reseed rules:
 | `breed_species` migration | Ensure every breed belongs to one species; seed Anantapur Sheep as sheep and goat breeds under goat; add alias/review path for dirty source labels. |
 | `herd_animals_identity` migration | Create canonical `herd_animals` with `animal_id`, required `animal_identifier_1`, required `animal_identifier_2`; wipe/reseed local/dev/test herd data from verified sources through the clean-slate importer; replace `goats_species_check`; add DOB confidence, origin/entry, lifecycle/exit, current location/shed/tag fields, and merge target `merged_into_animal_id`. Do not copy dirty goat-only state forward as runtime truth. |
 | `animal_identifiers_history` migration | Rename/create `animal_identifiers`, `animal_location_history`, and `animal_identity_events`; migrate FK references from goat names to animal names; map legacy source identifier columns into `animal_identifier_1`/`animal_identifier_2` or provenance aliases through a reviewed importer. Canonical names must not be old/new identity. Tagging state stays derived, not stored. |
+| `old_dashboard_schema_removal` migration | Remove old dashboard/BQ-port schema and contracts from the final V1 database shape: no `legacy_import_*`, `legacy_sync_*`, BQ snapshot mirrors, sync freshness tables, goat identity counters, `identity_state`, `source_confidence`, old tag/sheet/external identifier types, or legacy BQ location source contexts. |
 | `shed_tag_age_policy` migration | Extend/seed `animal_stage_lookup` with source age range label, source day numbers, normalized age days, allowed species, max residence days, purpose, and status. |
 | `vaccination_animal_targets` migration | Change vaccination/obligation/completion FKs and OpenAPI contracts from `goat_id`/`target_type='goat'` to `animal_id`/`target_type='herd_animal'`; add `animal_protocol_facts`. |
 | `protocol_rule_dimensions` migration | Compile matrix selectors such as species, breed, stage/tag, age days, sex, health, reproductive/lactation, and procurement path for indexed impact/generation. |
@@ -628,7 +655,12 @@ Local/dev/test reseed rules:
 - **KEEP (reuse-as-is):** locations + operational_attributes + capacity_records, workforce_*, user_scope_grants, audit_log, outbox_messages, idempotency_keys, sop_*.
 - **REPLACE / RENAME:** `goats`, `goat_identifiers`, `goat_location_history`, `goat_identity_events`, `goat_id`, `target_type='goat'`, `goat.created`, and frontend/domain `Goat*` types become `herd_animals`, `animal_identifiers`, `animal_location_history`, `animal_identity_events`, `animal_id`, `target_type='herd_animal'`, `animal.created`, and Animal/HerdAnimal language.
 - **ENHANCE:** locations (+profiles), `animal_stage_lookup` age/tag policy, feature_coverage_registry (+vaccination).
-- **DITCH from runtime (reference/migration-only):** legacy_import_*, legacy_sync_* as read source, BQ reconcile, dashboard-parity-with-BigQuery thinking. Control Tower reads Postgres/projection only.
+- **DITCH completely from the final V1 shape:** old dashboard/BQ-port schema,
+  `legacy_import_*`, `legacy_sync_*`, BQ snapshot mirrors, sync freshness/status
+  tables, goat identity counters/projection views, `identity_state`
+  review/dispute states, `source_confidence`, old tag/sheet/external-system
+  identifier types, and dashboard-parity-with-BigQuery thinking. Control Tower
+  reads GoatOS Postgres/projection state only.
 
 ## 9. Source-derived local/dev baseline and later inputs
 - Active V1 matrix baseline: use [source-nuances-rules.md](./source-nuances-rules.md)
