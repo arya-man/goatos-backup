@@ -88,8 +88,9 @@ GoatOS implication:
   death, and sales must reference reviewed identifiers.
 - Missing/damaged/unreadable tags create Action Center/process work instead of
   silent fallback to visual descriptions.
-- RFID helps, but old tags and source tags still need scoped review rules from
-  existing identity findings.
+- RFID/source-tag evidence can help imports, but target Animal ID 1/2 values
+  are globally single-use for life. Do not reintroduce park-scoped tag reuse or
+  source-tag review states into accepted GoatOS herd animals.
 
 ## Digestive And Feed-Safety Rules
 

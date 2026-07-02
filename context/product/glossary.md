@@ -136,31 +136,30 @@ not old/new IDs. Product copy, APIs, canonical DB columns, imports after review,
 and vaccination matching must call them Animal ID 1 and Animal ID 2, or the exact
 snake-case field names above.
 
-Some legacy source sheets may contain one identifier value that is only unique
-within a park/historic-park scope. The confirmed uniqueness scope for that source
-identifier pattern is:
+Identifier values are globally single-use for life:
 
 ```text
-identifier_value + normalized_park_code
+identifier_value -> exactly one animal_id ever
 ```
 
-Examples:
-
-```text
-826 CBE and 826 CPT can be two different goats.
-435 CBE and 435 CPT can both be present in Coimbatore after historic movement.
-435 CBE cannot occur twice for two different goats.
-```
+No park, shed, source sheet, species, death, sale, transfer, tag breakage, or tag
+loss releases the value. If a value ever belonged to an animal, it remains tied
+to that animal in history forever and cannot be assigned to another animal.
 
 Build rule:
 
 - Never merge by one external identifier value alone.
 - Every accepted/canonical herd animal must have both `animal_identifier_1` and
-  `animal_identifier_2`.
-- Normalize historic park aliases (`CJB -> CBE`, `BLR -> CPT`) while preserving
-  the original source code as evidence.
-- Duplicate identifier values inside the same normalized park scope go to
-  review.
+  `animal_identifier_2`, and those two current values must be different.
+- Duplicate checks run against all current and historical identifier rows. Any
+  match means the value is already owned by that animal; a new animal using it
+  is invalid source data and must be rejected/fixed, not parked for later.
+- If a physical tag falls off or breaks, mark the old value as broken/retired in
+  identifier history. The animal keeps operating through the surviving
+  identifier while a replacement is pending.
+- Replacement uses a brand-new globally unused identifier value, fills the
+  vacant slot, and writes an audit event with actor, time, reason, old value,
+  and new value. The broken/fallen value is never refitted or reissued.
 - Raw legacy source column names are stored only as import provenance. They must
   not become canonical field names, UI labels, or rule-selector names.
 

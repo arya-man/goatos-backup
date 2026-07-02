@@ -80,13 +80,18 @@ Path B mixed-herd identity supersedes earlier goat-only wording:
 animal_id immutable internal ID; display_id human ID.
 animal_identifier_1 and animal_identifier_2 are required parallel external
 field/business IDs for every accepted herd animal; they are not old/new IDs.
+The two current values on the same animal must be different.
+identifier values are globally single-use for life: exactly one value maps to
+one animal_id ever, never reused after death/sale/transfer or a broken/fallen
+tag. Replacement uses a brand-new globally unused value and keeps the broken
+value in history for the same animal.
 canonical target table = herd_animals, not goats.
 species comes from species_catalog; seed goat and sheep, allow future species without DDL/code branches.
 breeds belong to species; Anantapur Sheep is sheep, not a goat breed.
 every clean current animal resolves to one current shed/tag; goats and sheep may share the same shed/tag.
 Raw source identifier column names stay import provenance only; canonical DB/API/UI
-names use animal_identifier_1/animal_identifier_2, with duplicate checks scoped by
-the relevant identifier value plus normalized park where source data requires it.
+names use animal_identifier_1/animal_identifier_2, with duplicate checks across
+all current and historical identifiers, never park-scoped reuse.
 old dashboard/BQ-port schema and contract names are not part of Path B:
 no legacy_import_*, legacy_sync_*, BQ snapshot mirrors, sync freshness tables,
 goat identity counters, identity_state review/dispute states, source_confidence,

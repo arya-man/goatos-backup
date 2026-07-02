@@ -14,7 +14,7 @@ Preserve only the five approved user grants. Seed a small, representative Preven
 vaccination slice that proves the operational kernel end to end:
 
 ```text
-goat/shed source -> goat.created / shed config
+animal/shed source -> animal.created / shed config
   -> protocol generation
   -> obligation sweeper
   -> SOP task
@@ -41,7 +41,7 @@ Before deployment work starts, close or explicitly bound these items:
 - FEFO reserve must validate lot expiry against the planned drive/admin date.
 - Missed work must remain visible in command surfaces even outside default date
   projection windows.
-- Exited goats must not retain active or missed rows that inflate adherence or
+- Exited animals must not retain active or missed rows that inflate adherence or
   escalation.
 - Consumer replay must be replay-safe after handler success and must not silently
   lose finalization ownership.
@@ -142,7 +142,7 @@ Before enabling the new dev environment, snapshot the old dashboard state:
    Terraform `monitoring_alert_email_addresses` and keep personal addresses out
    of committed files.
 9. Prove `partition-maintainer` once before unattended worker schedules stay on:
-   it must create or confirm monthly partitions for `goat_identity_events`,
+   it must create or confirm monthly partitions for `animal_identity_events`,
    `audit_log`, and `obligation_status_events` through at least 12 months from
    the run date.
 
@@ -199,8 +199,8 @@ Run the validation through both UI creation and sheet import:
 1. Create a shed in `/counts/herd` and confirm the backend row, profile, and
    stage lookup.
 2. Import sheds from a sheet fixture and confirm duplicate replay is idempotent.
-3. Create goats through UI and through sheet import.
-4. Confirm `goat.created` generates obligations only for eligible goats.
+3. Create mixed herd animals through UI and through sheet import.
+4. Confirm `animal.created` generates obligations only for eligible animals.
 5. Run the obligation sweeper and verify rule-aware batch grouping.
 6. Confirm SOP task creation and proof submission.
 7. Verify accept, reject/rework, resubmit, and final accept.

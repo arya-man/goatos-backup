@@ -150,6 +150,11 @@ counts populated.
 
 ## Reviewer Fix Sheet
 
+This legacy live-data refresh runbook is not the clean-slate V1 herd-identity
+path. V1 does not accept reused tags, unknown sex, or park-scoped identifier
+reuse. Any source conflict must be fixed before accepted herd animals are
+seeded.
+
 For reviewer handoff, export a CSV from `identity_conflicts` with both the
 legacy evidence and fillable reviewer columns.
 
@@ -164,7 +169,7 @@ correct_rfid
 correct_old_tag
 correct_park
 correct_shed
-tag_reused_yes_no
+identifier_already_owned_yes_no
 source_reference
 evidence_note
 reviewed_by
@@ -175,8 +180,8 @@ Allowed `reviewer_decision` values:
 
 ```text
 KEEP_GOATOS
-UPDATE_GOATOS
-TAG_REUSED_SPLIT_NEEDED
+UPDATE_GOATOS_SOURCE_FIXTURE_ONLY
+IDENTIFIER_ALREADY_OWNED_REJECT_ROW
 MARK_SOLD
 MARK_DEAD
 MERGE_DUPLICATE
@@ -187,8 +192,9 @@ Instructions for the reviewer:
 
 - Do not delete rows or rename columns.
 - Fill only the reviewer columns.
-- For lifecycle/reused-tag rows, confirm whether the RFID or old tag belongs to
-  the same goat or was reused.
+- For identifier conflicts, confirm whether the RFID or source tag belongs to
+  the same animal. If the value belongs to any other current or historical
+  animal, reject/fix the row before GoatOS seed; never reuse the value.
 - For breed/sex mismatches, provide the corrected value or choose `KEEP_GOATOS`.
 - For legacy self-conflicts, choose the canonical value from source evidence or
   use `CANNOT_DECIDE`.

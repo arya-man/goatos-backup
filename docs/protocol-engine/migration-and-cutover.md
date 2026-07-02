@@ -26,7 +26,11 @@ Keep the raw imported data, but quarantine it from the running system:
 From the frozen source, materialize clean canonical rows in the **target** tables:
 - `species_catalog` and species-owned breed rows/aliases. Seed at least goat and sheep; Anantapur Sheep is sheep.
 - `herd_animals`: `sex`, `dob`/`dob_confidence` plus migrated `approx_dob`, `origin_type`, `entry_date`, `lifecycle_status` (active/dead/sold/missing), `park_id`/`shed_id`/`cohort_id`, and current shed tag/stage.
-- `animal_identifiers` (RFID, old ear-tag, visual tag — identifier types + trust rules).
+- `animal_identifiers` for `animal_identifier_1` and `animal_identifier_2`.
+  Both current values are required, different on the same animal, and globally
+  single-use for life across current plus historical rows. RFID/source labels
+  are provenance/proof only unless the clean importer explicitly maps them into
+  an Animal ID slot.
 - current location/shed (`current_location_id`, `shed_id`) and `animal_location_history` **if trustworthy**.
 - inventory **opening balances** as `inventory_stock` lots + an initial `inventory_stock_movements` `adjust` row, **if trustworthy**.
 - operator/user mapping into `workforce_*` / `user_scope_grants` **if needed**.

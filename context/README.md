@@ -131,7 +131,8 @@ Vaccination kernel closure screen requirements
 Vaccination pre-E2E readiness audit
   context/execution/vaccination-pre-e2e-readiness-audit.md
 
-Vaccination trigger closure parallel handoff
+Vaccination trigger closure parallel handoff (historical; superseded by Path B
+PRD/TRD for herd identity)
   context/execution/vaccination-trigger-closure-parallel-handoff.md
 
 Vaccination kernel closure business backlog

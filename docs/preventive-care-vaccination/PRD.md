@@ -59,7 +59,7 @@ Clean base contract:
 | Herd animal | Canonical target entity for vaccination, feed, counts, procurement, shifting, and passport/history. |
 | Species | Required animal fact from a governed `species_catalog`; seed at least goat and sheep, and allow future species without DDL/code branches. |
 | Breed | Belongs to exactly one species through governed breed/reference data and aliases. |
-| Animal identifiers | Every herd animal has the internal immutable `animal_id` plus two required species-neutral field/business identifiers: `animal_identifier_1` and `animal_identifier_2`. These are parallel identifiers, not old/new IDs. UI/API/config/docs must call them Animal ID 1 and Animal ID 2; raw source column names stay import provenance only. |
+| Animal identifiers | Every herd animal has the internal immutable `animal_id` plus two required species-neutral field/business identifiers: `animal_identifier_1` and `animal_identifier_2`. These are parallel identifiers, not old/new IDs. Both current values are required and must be different on the same animal. Each identifier value is globally single-use for life: one value can belong to exactly one animal ever, and is never reused after death, sale, transfer, tag breakage, or tag loss. UI/API/config/docs must call them Animal ID 1 and Animal ID 2; raw source column names stay import provenance only. |
 | Shed/tag | Shared operational cohort/location state with explicit `allowed_species`. Goat and sheep can share the same kid shed/tag where the source/park data says so, but tags are not automatically universal across species. |
 | Tag age policy | `animal_stage_lookup`/shed-tag policy stores source age range, normalized age days, purpose, allowed species, and max-stay/transition policy where known. |
 | Vaccination rule | Selector over `species + breed/breed group + shed_tag/stage + age days + sex + lifecycle/health/reproductive/procurement state`. |
@@ -361,6 +361,10 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    procurement state, and vaccination history/protocol facts attached to
    `animal_id`. The two external identifiers are required for goats, sheep, and
    future species; they must not be named or modeled as old/new identifiers.
+   The seed/import duplicate check runs against all current and historical
+   identifier values, not only active animals. If an identifier value has ever
+   belonged to any animal, it cannot be assigned to another animal.
+   Death/sale/exit does not release an identifier.
 6. **Dev/test fixture defaults are explicit and non-production** — until the
    production-grade importer is approved, local/dev/test reseed may fill missing
    values only with deterministic, rule-valid fixture values so the system can
@@ -384,6 +388,14 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    freshness widgets, identity review/dispute states, `source_confidence`, or
    old tag/sheet/external-system identifier names as product concepts,
    OpenAPI fields, UI copy, or final schema.
+8. **Tag loss/replacement keeps the animal operational** — the point of two IDs
+   is field resilience. If one physical tag/identifier falls off, breaks, or is
+   replaced, the old value is marked broken/retired in identifier history and is
+   dead forever; it must never be refitted or issued to another animal. The
+   animal continues to operate, scan, and receive vaccination work through the
+   surviving identifier while replacement is pending. The replacement tag must
+   use a brand-new globally unused value and fill the vacant identifier slot in
+   the same audited transaction that records who replaced it and when.
 
 ## 8. Legacy capability parity, proof policy, and import mapping
 

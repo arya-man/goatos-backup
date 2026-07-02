@@ -23,11 +23,13 @@ Location label cutover and blend behavior follows
 
 ## Existing Foundation
 
-Current Phase 1 schema already includes:
+Current Phase 1 schema already includes these location foundations. Path B
+mixed-herd identity replaces goat-only movement naming with
+`animal_location_history` in the target schema.
 
 - `locations`
 - `location_aliases`
-- `goat_location_history`
+- `animal_location_history`
 
 The current `locations` table supports tenant, type, code, name, parent,
 address-ish fields, geo, timezone, and status. The current allowed types are

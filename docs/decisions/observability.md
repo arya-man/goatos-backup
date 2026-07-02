@@ -54,7 +54,8 @@ Logging discipline (enforced by `tools/agent-hooks/check-boundaries.sh`):
 
 ## Data classification (important)
 
-Goat identifiers (RFID, old tag, breed, farm, shed, partition) are operational
+Goat identifiers (Animal ID 1, Animal ID 2, RFID/proof scan values where
+present, breed, farm, shed, partition) are operational
 livestock business data, NOT PII. Log them in diagnostics so a failure is
 traceable to the exact goat/row. The only logging redaction rule is secrets:
 never log credentials, tokens, or service-account JSON. (Not committing raw
