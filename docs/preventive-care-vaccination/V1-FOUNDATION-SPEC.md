@@ -109,7 +109,8 @@ facts are not copied into this JSON; they come from `herd_animals`, `locations`,
    jsonb). The Goats and Parks tag catalog is shared across herd animals, but
    each tag/stage has an enforced species allowlist: K0-K3 may include goat and
    sheep where source/park data allows, `MOTHER` can include goat and sheep for
-   vaccination, and commercial milking stages (`MOTHER_MILKING_WAITING`,
+   vaccination, `BUCK` is the shared adult-male breeder tag for vaccination
+   eligibility, and commercial milking stages (`MOTHER_MILKING_WAITING`,
    `MILKING_WARMUP`, `MILKING`) are goat/doe-only. Creation/import, shed-stage
    movement, rule publish, API selectors, and UI option lists must reject/hide
    disallowed species/tag pairs. Use existing `capacity`. **Gap:** seed

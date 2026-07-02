@@ -99,6 +99,9 @@ Stage/species invariants:
 - `MOTHER` / lactating adult is a biological reproductive state. It can match
   goat and sheep mothers for vaccination and should use the species-appropriate
   adult repeat/catch-up vaccine cells.
+- `BUCK` is treated as the shared adult-male breeder tag for vaccination
+  eligibility across goat and sheep unless operations later creates
+  species-specific male-breeder tags.
 - `MOTHER_MILKING_WAITING`, `MILKING_WARMUP`, and `MILKING` are commercial
   goat/doe milk-production workflow tags. Do not show or match them for sheep
   unless an approved sheep dairy policy adds explicit sheep equivalents.
@@ -124,8 +127,9 @@ Stage/species invariants:
   preview must report invalid existing combinations as blockers.
 - Required tests: API/import rejects sheep + commercial milking stage, UI option
   contract omits commercial milking stages for sheep, rule publish rejects a
-  sheep row containing goat-only stage codes, and generation skips/blocks any
-  legacy invalid row instead of creating vaccination obligations.
+  sheep row containing goat-only commercial milking stage codes, allows sheep +
+  `BUCK`, and generation skips/blocks any legacy invalid row instead of creating
+  vaccination obligations.
 
 Seed baseline from Goats and Parks:
 

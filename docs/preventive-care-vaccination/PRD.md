@@ -325,7 +325,9 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    Commercial milking tags such as `Mother Milking Waiting`, `Milking Warmup`,
    and `Milking` are goat/doe-only because they represent a goat milk-production
    workflow, unless a future approved sheep dairy policy creates sheep
-   equivalents.
+   equivalents. `BUCK` is treated as the shared adult-male breeder tag for
+   vaccination eligibility across goat and sheep unless operations later creates
+   species-specific male-breeder tags.
    GoatOS must enforce this at every entry point: animal creation/import,
    current shed/stage changes, rule authoring, API writes, and UI option lists
    must reject or hide species/tag pairs that are not allowed by the Goats and
