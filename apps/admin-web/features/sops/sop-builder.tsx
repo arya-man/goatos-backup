@@ -398,7 +398,6 @@ export function SopBuilder({
               <h3 style={{ fontSize: 14 }}>{copy(pc, "builder.preview.title")}</h3>
             </div>
             <div className="bd">
-              <div className="muted small" style={{ marginBottom: 10 }}>{copy(pc, "builder.preview.subtitle")}</div>
               <BuilderPreview pc={pc} steps={steps} />
             </div>
           </section>
