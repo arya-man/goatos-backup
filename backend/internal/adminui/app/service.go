@@ -1128,6 +1128,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.source_tag":                  "Source tag",
 			"field.source_rfid":                 "Source RFID",
 			"field.temporary_id":                "Temporary id",
+			"field.sex":                         "Sex",
 			"field.selection_state":             "Selection state",
 			"field.health_state":                "Health state",
 			"field.ownership":                   "Ownership",
@@ -1167,6 +1168,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"placeholder.source_tag":            "supplier tag",
 			"placeholder.source_rfid":           "rfid",
 			"placeholder.temporary_id":          "temp id",
+			"placeholder.sex":                   "select sex",
 			"placeholder.warmup_days":           "e.g. 52",
 			"placeholder.holding_location_id":   "holding location uuid (optional)",
 			"placeholder.dose_code":             "e.g. PPR",
@@ -3088,6 +3090,13 @@ func calendarOptionGroups() []domain.OptionGroup {
 
 func procurementOptionGroups() []domain.OptionGroup {
 	return []domain.OptionGroup{
+		{
+			ID: "proc_sex",
+			Options: []domain.Option{
+				option("female", "Female", "", ""),
+				option("male", "Male", "", ""),
+			},
+		},
 		{
 			ID: "proc_selection_state",
 			Options: []domain.Option{

@@ -360,6 +360,12 @@ func (s *Service) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) (do
 	in.ProofRefs = jsonArray(in.ProofRefs)
 	in.Metadata = jsonObject(in.Metadata)
 	goat, err := s.repo.AddGoatToLoad(ctx, in)
+	if errors.Is(err, ports.ErrSexMismatch) {
+		return domain.LoadGoat{}, BadRequest("sex_mismatch", "sex must match the existing goat sex")
+	}
+	if errors.Is(err, ports.ErrInvalidReference) {
+		return domain.LoadGoat{}, BadRequest("invalid_goat_reference", "goat_id must reference an existing goat for this tenant")
+	}
 	if errors.Is(err, ports.ErrInvalidTransition) {
 		return domain.LoadGoat{}, BadRequest("source_rfid_conflict", "source_rfid already belongs to another goat and requires identity review")
 	}

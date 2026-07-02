@@ -49,14 +49,10 @@ ALTER TABLE mortality_events
   ADD CONSTRAINT mortality_events_sex_check CHECK (sex IS NULL OR sex IN ('female', 'male'));
 
 -- +goose Down
-ALTER TABLE mortality_events DROP CONSTRAINT IF EXISTS mortality_events_sex_check;
-ALTER TABLE mortality_events
-  ADD CONSTRAINT mortality_events_sex_check CHECK (sex IS NULL OR sex IN ('female', 'male'));
-
-ALTER TABLE counts_current_snapshot_rows DROP CONSTRAINT IF EXISTS counts_snapshot_sex_check;
-ALTER TABLE counts_current_snapshot_rows
-  ADD CONSTRAINT counts_snapshot_sex_check CHECK (sex IS NULL OR sex IN ('female', 'male'));
-
-ALTER TABLE goats DROP CONSTRAINT IF EXISTS goats_sex_check;
-ALTER TABLE goats ALTER COLUMN sex DROP NOT NULL;
-ALTER TABLE goats ADD CONSTRAINT goats_sex_check CHECK (sex IS NULL OR sex IN ('female', 'male'));
+-- Intentionally no-op. Unknown/blank canonical animal sex is permanently
+-- forbidden after this migration. Rolling application code back must remain
+-- compatible with the female/male-only schema instead of reopening unknown sex.
+DO $$
+BEGIN
+  RAISE NOTICE '000135 down is intentionally no-op: unknown animal sex remains forbidden';
+END $$;

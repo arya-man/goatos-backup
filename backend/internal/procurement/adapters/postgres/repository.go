@@ -313,6 +313,8 @@ INSERT INTO goats (
 RETURNING goat_id::text`, in.TenantID, identityState, sourcePartyID, in.Sex, stringPtrValue(in.ActorID)).Scan(&goatID); err != nil {
 			return domain.LoadGoat{}, fmt.Errorf("procurement: create source goat: %w", err)
 		}
+	} else if err = ensureExistingGoatSex(ctx, tx, in.TenantID, goatID, in.Sex); err != nil {
+		return domain.LoadGoat{}, err
 	}
 	if rfidConflictOwner != "" {
 		in.IdentityState = "conflict"
@@ -1576,6 +1578,25 @@ SELECT EXISTS (
 		return false, fmt.Errorf("procurement: check load RFID replay: %w", err)
 	}
 	return exists, nil
+}
+
+func ensureExistingGoatSex(ctx context.Context, tx pgx.Tx, tenantID, goatID, requestedSex string) error {
+	var canonicalSex string
+	err := tx.QueryRow(ctx, `
+SELECT sex
+FROM goats
+WHERE tenant_id = $1::uuid
+  AND goat_id = $2::uuid`, tenantID, goatID).Scan(&canonicalSex)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrInvalidReference
+	}
+	if err != nil {
+		return fmt.Errorf("procurement: lookup existing goat sex: %w", err)
+	}
+	if canonicalSex != requestedSex {
+		return fmt.Errorf("%w: goat %s is %s, request was %s", ports.ErrSexMismatch, goatID, canonicalSex, requestedSex)
+	}
+	return nil
 }
 
 func insertRFIDIdentifier(ctx context.Context, tx pgx.Tx, tenantID, goatID string, value *string) error {

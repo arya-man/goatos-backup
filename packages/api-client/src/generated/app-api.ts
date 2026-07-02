@@ -1518,7 +1518,8 @@ export interface components {
             primary_old_tag?: string | null;
             rfid?: string | null;
             breed: string | null;
-            sex: string | null;
+            /** @enum {string} */
+            sex: "female" | "male";
             age_band: string | null;
             lifecycle_status: string;
             reproductive_status: string | null;

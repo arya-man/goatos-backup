@@ -128,6 +128,22 @@ func TestAddGoatToLoadRequiresRealSex(t *testing.T) {
 	}
 }
 
+func TestAddGoatToLoadMapsExistingGoatSexMismatch(t *testing.T) {
+	repo := &fakeRepo{addErr: ports.ErrSexMismatch}
+	svc := NewService(repo)
+	_, err := svc.AddGoatToLoad(context.Background(), ports.AddGoatToLoad{
+		TenantID:       testTenant,
+		LoadID:         testLoad,
+		GoatID:         strPtr(testGoat),
+		Sex:            "male",
+		IdempotencyKey: "add-sex-mismatch",
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "sex_mismatch" {
+		t.Fatalf("AddGoatToLoad() error = %v, want sex_mismatch", err)
+	}
+}
+
 func TestRejectAndFailedSourceHealthCancelOpenVaccination(t *testing.T) {
 	repo := &fakeRepo{}
 	cancel := &fakeCanceler{}
@@ -356,6 +372,7 @@ type fakeRepo struct {
 	lastAdd       ports.AddGoatToLoad
 	lastWorkQuery domain.WorkQuery
 	workRows      []domain.WorkRow
+	addErr        error
 	acceptErr     error
 	goatNotOnLoad bool  // when true, GoatOnLoad reports the goat is not a member of the load
 	recordHFErr   error // when set, RecordHFVaccinationEvidence returns it
@@ -375,6 +392,9 @@ func (f *fakeRepo) GetLoadDetail(context.Context, string, string) (domain.LoadDe
 }
 func (f *fakeRepo) AddGoatToLoad(_ context.Context, in ports.AddGoatToLoad) (domain.LoadGoat, error) {
 	f.lastAdd = in
+	if f.addErr != nil {
+		return domain.LoadGoat{}, f.addErr
+	}
 	return domain.LoadGoat{LoadID: in.LoadID, GoatID: testGoat, CurrentState: in.CurrentState, WarmupDays: in.WarmupDays}, nil
 }
 func (f *fakeRepo) RecordSourceHealth(_ context.Context, in ports.SourceHealth) (domain.SourceHealthCheck, error) {

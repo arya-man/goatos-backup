@@ -24,6 +24,9 @@ var (
 	// ErrInvalidReference is returned when a write references a tenant-scoped entity that does not exist
 	// (protocol version, rule, goat, load, or proof). Surfaced as a 400 instead of a raw FK 500.
 	ErrInvalidReference = errors.New("procurement: referenced entity does not exist")
+	// ErrSexMismatch is returned when source-entry tries to attach an existing canonical goat with a sex
+	// that contradicts the canonical goat record. Sex is a hard female/male invariant, never inferred.
+	ErrSexMismatch = errors.New("procurement: sex does not match existing goat")
 )
 
 type Repository interface {

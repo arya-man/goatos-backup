@@ -183,8 +183,9 @@ export function LoadWriteActions({
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 140 }}>
               <label>{copy(pageContract, "field.sex")}</label>
-              <select name="sex" defaultValue="female" required>
-                <SelectOptions pageContract={pageContract} groupId="herd_sex" />
+              <select name="sex" defaultValue="" required>
+                <option value="" disabled>{copy(pageContract, "placeholder.sex")}</option>
+                <SelectOptions pageContract={pageContract} groupId="proc_sex" />
               </select>
             </div>
           </div>

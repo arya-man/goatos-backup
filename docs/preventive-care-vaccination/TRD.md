@@ -100,6 +100,14 @@ Stage/species invariants:
   source rows with blank, unknown, inferred-only, or conflicting sex are rejected
   before canonical creation/import and cannot generate vaccination obligations.
   Rule authoring must not offer or store `unknown` sex selectors.
+- Migration `000135_hard_reject_unknown_animal_sex` is an intentional deploy
+  gate, not a data backfill. Before running it in dev/stage/prod, Data Ops must
+  find rows where `goats.sex is null or sex not in ('female','male')`,
+  `counts_current_snapshot_rows.sex not in ('female','male')`, or
+  `mortality_events.sex not in ('female','male')` and correct them from
+  verified source evidence. Do not default to female, infer from F2 labels, or
+  write `unknown`; unresolved rows stay blocked outside accepted herd/vaccination
+  matching until the real sex is corrected.
 - `MOTHER` / lactating adult is a biological reproductive state. It can match
   goat and sheep mothers for vaccination and should use the species-appropriate
   adult repeat/catch-up vaccine cells.
