@@ -322,6 +322,10 @@ UI requirements:
   mother vaccination-status. The V1 business policy assumes mothers are kept
   vaccinated; missing evidence becomes catch-up/review work on the normal
   adult/mother tag.
+- Treat `mother`/`lactating` as biological state that can apply to goat and
+  sheep mothers for vaccination. Treat `Mother Milking Waiting`,
+  `Milking Warmup`, and `Milking` as commercial goat-milk workflow tags; do not
+  show them for sheep unless a future approved sheep dairy policy adds them.
 
 Design:
 - Dense operational UI, not marketing.
@@ -425,6 +429,8 @@ snapshots and no `goat_herd_required_fields`.
       "PREGNANT_EARLY",
       "PREGNANT_LATE",
       "MOTHER",
+      "MOTHER_MILKING_WAITING",
+      "MILKING_WARMUP",
       "BREEDING",
       "MILKING",
       "BUCK"
@@ -440,7 +446,9 @@ snapshots and no `goat_herd_required_fields`.
       "PREGNANT_EARLY": ["goat", "sheep"],
       "PREGNANT_LATE": ["goat", "sheep"],
       "BREEDING": ["goat", "sheep"],
-      "MOTHER": ["goat"],
+      "MOTHER": ["goat", "sheep"],
+      "MOTHER_MILKING_WAITING": ["goat"],
+      "MILKING_WARMUP": ["goat"],
       "MILKING": ["goat"],
       "BUCK": ["goat"]
     },
@@ -596,7 +604,7 @@ snapshots and no `goat_herd_required_fields`.
         "species_codes": ["goat", "sheep"],
         "breed_ids": ["*"],
         "sex": ["female", "male", "unknown"],
-        "stage_codes": ["NON_PREGNANT", "BREEDING", "MOTHER", "MILKING", "BUCK", "FATTENING_MALE", "FATTENING_FEMALE"],
+        "stage_codes": ["NON_PREGNANT", "BREEDING", "MOTHER", "MOTHER_MILKING_WAITING", "MILKING_WARMUP", "MILKING", "BUCK", "FATTENING_MALE", "FATTENING_FEMALE"],
         "age_days": {
           "min": 141,
           "max": null

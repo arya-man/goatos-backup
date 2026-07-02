@@ -86,7 +86,7 @@ the animal's species must be allowed by that tag policy.
 | `source_age_range_label` | Human/source display, e.g. `10-77 days`. |
 | `source_age_min_day_number`, `source_age_max_day_number` | Source day numbering where DOB is Day 1. |
 | `min_age_days`, `max_age_days` | Normalized zero-based age days for queries/validation. |
-| `allowed_species_codes` | Species that can use the tag. Kid tags may allow goat + sheep where source/park data says so; doe/milking/mother tags are goat-only unless a future approved sheep policy adds equivalents. |
+| `allowed_species_codes` | Species that can use the tag. Kid tags may allow goat + sheep where source/park data says so. Mother/lactation can be a sheep biological state for K0 and vaccination, but commercial milking workflow tags (`Mother Milking Waiting`, `Milking Warmup`, `Milking`) are goat/doe-only unless a future approved sheep dairy policy adds equivalents. |
 | `max_residence_days` | Optional operational stay limit when source purpose states one, e.g. K1 max seven days. |
 | `purpose` | Source-backed operational meaning. |
 | `status`, `sort_order` | Governance/order. |

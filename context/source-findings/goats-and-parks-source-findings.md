@@ -283,9 +283,11 @@ GoatOS implication:
   shed/tag group, so species is an animal fact and shed tag is a shared
   operational cohort fact.
 - Do not infer that every tag is valid for every species. Kid tags can carry
-  mixed goat/sheep animals where the park data says so, but lactation/milking
-  and mother-management tags are goat/doe operational tags unless a future
-  approved sheep policy adds sheep-specific equivalents.
+  mixed goat/sheep animals where the park data says so. Sheep mothers can have
+  normal mother/lactation biological state for K0 and vaccination, but the
+  commercial milking workflow tags (`Mother Milking Waiting`, `Milking Warmup`,
+  `Milking`) are goat/doe operational tags unless a future approved sheep dairy
+  policy adds sheep-specific equivalents.
 - ICU and quarantine are risk/isolation states that require critical-action
   policy, not generic feed or vaccination default behavior.
 - Warm-up, pregnancy, lactation, flushing, breeding, mother, and fattening are
