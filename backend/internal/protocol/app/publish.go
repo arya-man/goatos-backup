@@ -101,6 +101,7 @@ var (
 		"compatibility_policy": true,
 		"procurement_policy":   true,
 		"pregnancy_policy":     true,
+		"recovery_policy":      true,
 		"parameter_template":   true,
 		"ration":               true,
 		"session_timing":       true,
@@ -159,6 +160,9 @@ var (
 		"skip_from_pregnancy_month":    true,
 		"skip_through_pregnancy_month": true,
 		"post_delivery_catch_up_days":  true,
+	}
+	ruleDSLRecoveryPolicyKeys = map[string]bool{
+		"max_nearby_drive_align_days": true,
 	}
 	ruleDSLSourceKeys = map[string]bool{
 		"source_system": true,
@@ -280,6 +284,11 @@ func ValidateRuleDSL(ruleDSL []byte) error {
 	}
 	if raw, ok := root["pregnancy_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
 		if _, err := decodeRuleDSLObject(raw, "rule_dsl.pregnancy_policy", ruleDSLPregnancyPolicyKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["recovery_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.recovery_policy", ruleDSLRecoveryPolicyKeys); err != nil {
 			return err
 		}
 	}

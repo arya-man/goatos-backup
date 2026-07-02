@@ -127,7 +127,7 @@ func TestSM2ShiftReScopesDeferredThenReopensAtCurrentShed(t *testing.T) {
 	}
 
 	// Goat recovers → reopen flips it to scheduled AT THE NEW shed, not stale CBE.
-	if _, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-deferred", time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC)); err != nil || !changed {
+	if _, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-deferred", time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC), nil); err != nil || !changed {
 		t.Fatalf("reopen deferred: changed=%v err=%v", changed, err)
 	}
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2 AND status='scheduled'`, obDef, cptPark); got != 1 {

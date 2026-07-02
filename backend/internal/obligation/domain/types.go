@@ -23,6 +23,15 @@ type NewObligation struct {
 	Sequence             int32
 }
 
+// RecoveryReschedule replans a health-deferred obligation on recovery: align to a nearby planned
+// drive within the policy window, or due immediately for a micro-drive.
+type RecoveryReschedule struct {
+	DueAt       time.Time
+	WindowStart time.Time
+	WindowEnd   *time.Time
+	AlignReason string
+}
+
 // ObligationRef is a minimal stored-obligation lookup result.
 type ObligationRef struct {
 	ObligationID string

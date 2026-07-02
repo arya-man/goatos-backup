@@ -367,6 +367,60 @@ func (q *Queries) ReopenDeferredObligationForKey(ctx context.Context, arg Reopen
 	return obligation_id, err
 }
 
+const reopenDeferredObligationForKeyWithDue = `-- name: ReopenDeferredObligationForKeyWithDue :one
+UPDATE obligation_instances oi
+SET status = 'scheduled',
+    batch_id = NULL,
+    due_at = $3,
+    window_start = $4,
+    window_end = $5,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE oi.tenant_id = $1
+  AND oi.idempotency_key = $2
+  AND oi.status = 'deferred'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM goats g
+    JOIN protocol_versions pv
+      ON pv.tenant_id = oi.tenant_id
+     AND pv.protocol_version_id = oi.protocol_version_id
+    JOIN protocol_definitions pd
+      ON pd.tenant_id = pv.tenant_id
+     AND pd.protocol_id = pv.protocol_id
+    WHERE oi.target_type = 'goat'
+      AND g.tenant_id = oi.tenant_id
+      AND g.goat_id = oi.target_id
+      AND pd.category = 'vaccination'
+      AND (
+        g.lifecycle_status IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
+        OR g.identity_state IN ('disputed', 'merged', 'inactive')
+      )
+  )
+RETURNING oi.obligation_id::text AS obligation_id
+`
+
+type ReopenDeferredObligationForKeyWithDueParams struct {
+	TenantID               pgtype.UUID
+	IdempotencyKey         string
+	RescheduledDueAt       pgtype.Timestamptz
+	RescheduledWindowStart pgtype.Timestamptz
+	RescheduledWindowEnd   pgtype.Timestamptz
+}
+
+func (q *Queries) ReopenDeferredObligationForKeyWithDue(ctx context.Context, arg ReopenDeferredObligationForKeyWithDueParams) (string, error) {
+	row := q.db.QueryRow(ctx, reopenDeferredObligationForKeyWithDue,
+		arg.TenantID,
+		arg.IdempotencyKey,
+		arg.RescheduledDueAt,
+		arg.RescheduledWindowStart,
+		arg.RescheduledWindowEnd,
+	)
+	var obligation_id string
+	err := row.Scan(&obligation_id)
+	return obligation_id, err
+}
+
 const reserveIdempotencyKey = `-- name: ReserveIdempotencyKey :one
 INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status)
 VALUES ($1, $2, $3, $4, 'started')

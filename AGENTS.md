@@ -52,6 +52,25 @@ Only for what the graph cannot see:
 - Uncommitted/unstaged code
 - Any `callers_of = 0` result that seems wrong — verify with grep
 
+## Business and medical rule changes (maintainer lock)
+
+When the maintainer states a **new working rule, condition, timing, or workflow**
+(in chat, WhatsApp screenshots, PHC sign-off, or ad-hoc instructions) that may
+**contradict or supersede** existing docs, seeded config, implemented kernel
+behavior, or a prior decision in the same thread:
+
+1. **Stop and surface the conflict first** — quote the old rule/source and the new
+   instruction side by side. Do **not** silently pick one, blend them, or change
+   code/docs on assumption.
+2. **Ask explicitly** which rule wins, whether the old rule is retired, or
+   whether both apply in different scopes (species, stage, procurement path, etc.).
+3. **Implement only after confirmation** — then update the canonical source in the
+   same change as the code (`docs/phc-vaccination/source-nuances-rules.md`,
+   published `rule_dsl`, TRD/ADR, or this file when appropriate).
+
+Ambiguity is not approval. Informal agreement in a screenshot or chat applies to
+**that** scenario until it is written into the source contract.
+
 Read first:
 
 - `context/README.md`

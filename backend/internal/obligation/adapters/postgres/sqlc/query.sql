@@ -61,6 +61,23 @@ FROM obligation_instances
 WHERE tenant_id = @tenant_id AND scope_type = @scope_type
   AND scope_id = @scope_id AND status = @status;
 
+-- name: FindNearestPlannedBatchDate :one
+-- Sick-recovery align: earliest planned drive for this rule in shed or park within the align window.
+SELECT b.planned_date
+FROM obligation_batches b
+WHERE b.tenant_id = @tenant_id
+  AND b.protocol_version_id = @protocol_version_id
+  AND b.session = @session
+  AND b.status = 'planned'
+  AND b.planned_date >= @from_date::date
+  AND b.planned_date <= @to_date::date
+  AND (
+    (@shed_id::uuid IS NOT NULL AND b.scope_type = 'shed' AND b.scope_id = @shed_id)
+    OR (@park_id::uuid IS NOT NULL AND b.scope_type = 'park' AND b.scope_id = @park_id)
+  )
+ORDER BY b.planned_date ASC
+LIMIT 1;
+
 -- name: IdempotencyKeyStatus :one
 SELECT status, COALESCE(result_type, '')::text AS result_type, COALESCE(result_id::text, '')::text AS result_id
 FROM idempotency_keys

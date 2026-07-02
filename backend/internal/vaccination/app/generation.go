@@ -36,7 +36,8 @@ type GoatLister interface {
 type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
 	DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, applied bool, err error)
-	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time) (obligationID string, changed bool, err error)
+	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obldomain.RecoveryReschedule) (obligationID string, changed bool, err error)
+	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, shedID, parkID string, from, to time.Time) (*time.Time, error)
 	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
 	CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error)
 	CancelOpenVaccinationObligationsForGoatVersion(ctx context.Context, tenantID, goatID, protocolVersionID, reason string, occurredAt time.Time) (int, error)
@@ -145,6 +146,7 @@ type genDSL struct {
 	CompatibilityPolicy genCompatibilityPolicy `json:"compatibility_policy"`
 	ProcurementPolicy   genProcurementPolicy   `json:"procurement_policy"`
 	PregnancyPolicy     genPregnancyPolicy     `json:"pregnancy_policy"`
+	RecoveryPolicy      genRecoveryPolicy      `json:"recovery_policy"`
 }
 
 func versionPoliciesFromDSL(dsl genDSL) genVersionPolicies {
@@ -152,6 +154,7 @@ func versionPoliciesFromDSL(dsl genDSL) genVersionPolicies {
 		Procurement:   dsl.ProcurementPolicy,
 		Pregnancy:     dsl.PregnancyPolicy,
 		Compatibility: dsl.CompatibilityPolicy,
+		Recovery:      dsl.RecoveryPolicy,
 	}
 }
 
@@ -369,6 +372,9 @@ type generationOptions struct {
 	ManualCampaignID  string
 	RunIDempotencyKey string
 	RunRequestHash    string
+	// healthRecoveryAlign enables sick/ICU/quarantine recovery replanning: align to a nearby planned
+	// drive within recovery_policy.max_nearby_drive_align_days (default 7), else micro-drive now.
+	healthRecoveryAlign bool
 	// heartbeat, when set, is invoked once per cohort page so a long run keeps its generation-run row
 	// fresh and is not reclaimed mid-flight. Best-effort: errors are intentionally swallowed by the
 	// caller closure so a transient heartbeat failure never aborts a multi-minute generation pass.
@@ -667,7 +673,14 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				// Goat is no longer in a defer state: if a held (deferred) obligation exists for this
 				// key, reopen it so the recovered goat's due work becomes schedulable again. A no-op
 				// when the row is already schedulable/terminal (safe recovery-recheck replay).
-				_, changed, err := s.obl.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, key, asOf)
+				var reschedule *obldomain.RecoveryReschedule
+				if opts.healthRecoveryAlign {
+					reschedule, err = s.recoveryRescheduleForRule(ctx, tenantID, versionID, rule, g, asOf, policies.Recovery)
+					if err != nil {
+						return err
+					}
+				}
+				_, changed, err := s.obl.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, key, asOf, reschedule)
 				if err != nil {
 					return err
 				}
@@ -793,6 +806,10 @@ func previousMissingDueDateKey(tenantID, versionID string, rule protodomain.Rule
 // GenerateForGoat generates obligations for ONE goat across all published vaccination versions it
 // is eligible for. Used by the goat.created handler (event-driven SM-1). Idempotent.
 func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatID string, asOf time.Time) (domain.GenerateResult, error) {
+	return s.generateForGoat(ctx, tenantID, goatID, asOf, generationOptions{})
+}
+
+func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatID string, asOf time.Time, opts generationOptions) (domain.GenerateResult, error) {
 	var res domain.GenerateResult
 	if err := s.requireEvidenceReader(); err != nil {
 		return res, err
@@ -836,7 +853,7 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 			rules:       rules,
 			deferState:  dsl.Eligibility.DeferStates,
 			goat:        g,
-			opts:        generationOptions{},
+			opts:        opts,
 			eligibility: dsl.Eligibility,
 			policies:    versionPoliciesFromDSL(dsl),
 		})
@@ -851,6 +868,23 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 		}
 	}
 	return res, nil
+}
+
+func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, recovery genRecoveryPolicy) (*obldomain.RecoveryReschedule, error) {
+	from := dateUTC(asOf)
+	to := from.AddDate(0, 0, int(recovery.alignDays()))
+	nearby, err := s.obl.FindNearestPlannedBatchDate(ctx, tenantID, versionID, rule.RuleID, g.ShedID, g.ParkID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	due, reason := recoveryRescheduleDue(asOf, recovery, nearby)
+	windowStart, windowEnd := recoveryDueWindows(due, rule.DueWindowDays)
+	return &obldomain.RecoveryReschedule{
+		DueAt:       due,
+		WindowStart: windowStart,
+		WindowEnd:   windowEnd,
+		AlignReason: reason,
+	}, nil
 }
 
 func inCare(lifecycle string) bool {

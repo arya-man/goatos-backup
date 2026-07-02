@@ -54,7 +54,7 @@ func TestReopenDeferredObligationOnRecovery(t *testing.T) {
 		t.Fatalf("defer held obligation: changed=%v err=%v", changed, err)
 	}
 
-	id, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC())
+	id, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC(), nil)
 	if err != nil || !changed || id != obA {
 		t.Fatalf("reopen: id=%q changed=%v err=%v", id, changed, err)
 	}
@@ -68,9 +68,9 @@ func TestReopenDeferredObligationOnRecovery(t *testing.T) {
 	}
 
 	// Idempotent replay: already schedulable -> no-op, no second event.
-	if _, changed2, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC()); err != nil {
+	if _, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC(), nil); err != nil {
 		t.Fatalf("reopen replay: %v", err)
-	} else if changed2 {
+	} else if changed {
 		t.Fatalf("reopen replay should be a no-op")
 	}
 }
@@ -140,7 +140,7 @@ func TestReopenDeferredObligationClearsStaleBatch(t *testing.T) {
 		t.Fatalf("precondition: deferred obligation should still carry non-planned batch_id, got %d", got)
 	}
 
-	id, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC())
+	id, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC(), nil)
 	if err != nil || !changed || id != obA {
 		t.Fatalf("reopen: id=%q changed=%v err=%v", id, changed, err)
 	}
@@ -178,7 +178,7 @@ FROM load`, tenantID, meshaParty, testGoatID); err != nil {
 		t.Fatalf("seed temporary procurement state: %v", err)
 	}
 
-	id, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC())
+	id, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC(), nil)
 	if err != nil || !changed || id != obA {
 		t.Fatalf("reopen temporary procurement state: id=%q changed=%v err=%v", id, changed, err)
 	}
@@ -205,7 +205,7 @@ WHERE tenant_id=$1 AND goat_id=$2`, tenantID, testGoatID); err != nil {
 		t.Fatalf("mark excluded goat dead: %v", err)
 	}
 
-	id, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC())
+	id, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC(), nil)
 	if err != nil {
 		t.Fatalf("reopen excluded vaccination obligation: %v", err)
 	}

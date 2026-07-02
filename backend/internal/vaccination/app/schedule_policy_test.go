@@ -35,6 +35,25 @@ func TestSchedulePathForGoat(t *testing.T) {
 	}
 }
 
+func TestRecoveryRescheduleDue(t *testing.T) {
+	policy := genRecoveryPolicy{}
+	asOf := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	nearby := time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)
+	due, reason := recoveryRescheduleDue(asOf, policy, &nearby)
+	if !due.Equal(nearby) || reason != recoveryAlignNearbyDrive {
+		t.Fatalf("nearby align = %v %q, want %v %q", due, reason, nearby, recoveryAlignNearbyDrive)
+	}
+	due, reason = recoveryRescheduleDue(asOf, policy, nil)
+	if !due.Equal(asOf.UTC()) || reason != recoveryMicroDrive {
+		t.Fatalf("micro-drive = %v %q, want %v %q", due, reason, asOf.UTC(), recoveryMicroDrive)
+	}
+	far := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
+	due, reason = recoveryRescheduleDue(asOf, policy, &far)
+	if !due.Equal(asOf.UTC()) || reason != recoveryMicroDrive {
+		t.Fatalf("beyond window = %v %q, want micro-drive now", due, reason)
+	}
+}
+
 func TestWarmingDeferReason(t *testing.T) {
 	entry := time.Date(2026, time.July, 1, 12, 0, 0, 0, time.UTC)
 	proc := genProcurementPolicy{WarmupNoVaccinationDays: 7}

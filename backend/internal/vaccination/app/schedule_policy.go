@@ -14,12 +14,12 @@ const (
 )
 
 type genCompatibilityPolicy struct {
-	LiveToKilledGapDays          int32 `json:"live_to_killed_gap_days"`
-	KilledToKilledGapDays        int32 `json:"killed_to_killed_gap_days"`
-	LiveToLiveGapDays            int32 `json:"live_to_live_gap_days"`
-	KidBoosterMinGapDays         int32 `json:"kid_booster_min_gap_days"`
-	BacterialViralSameDayAllowed   bool  `json:"bacterial_viral_same_day_allowed"`
-	LiveKilledViralSameDayAllowed  bool  `json:"live_killed_viral_same_day_allowed"`
+	LiveToKilledGapDays           int32 `json:"live_to_killed_gap_days"`
+	KilledToKilledGapDays         int32 `json:"killed_to_killed_gap_days"`
+	LiveToLiveGapDays             int32 `json:"live_to_live_gap_days"`
+	KidBoosterMinGapDays          int32 `json:"kid_booster_min_gap_days"`
+	BacterialViralSameDayAllowed  bool  `json:"bacterial_viral_same_day_allowed"`
+	LiveKilledViralSameDayAllowed bool  `json:"live_killed_viral_same_day_allowed"`
 }
 
 type genProcurementPolicy struct {
@@ -46,10 +46,55 @@ func (p genPregnancyPolicy) active() bool {
 		p.PostDeliveryCatchUpDays > 0
 }
 
+type genRecoveryPolicy struct {
+	MaxNearbyDriveAlignDays int32 `json:"max_nearby_drive_align_days"`
+}
+
+func (p genRecoveryPolicy) alignDays() int32 {
+	if p.MaxNearbyDriveAlignDays > 0 {
+		return p.MaxNearbyDriveAlignDays
+	}
+	return 7
+}
+
 type genVersionPolicies struct {
 	Procurement   genProcurementPolicy
 	Pregnancy     genPregnancyPolicy
 	Compatibility genCompatibilityPolicy
+	Recovery      genRecoveryPolicy
+}
+
+const (
+	recoveryAlignNearbyDrive = "recovery_align_nearby_drive"
+	recoveryMicroDrive       = "recovery_micro_drive"
+)
+
+// recoveryRescheduleDue picks the due time after a health defer clears. When a planned drive exists
+// within the align window, join that drive date; otherwise due immediately so the sweeper can run a
+// micro-drive for a single goat.
+func recoveryRescheduleDue(asOf time.Time, policy genRecoveryPolicy, nearbyDriveDate *time.Time) (time.Time, string) {
+	alignEnd := dateUTC(asOf).AddDate(0, 0, int(policy.alignDays()))
+	if nearbyDriveDate != nil {
+		aligned := dateUTC(*nearbyDriveDate)
+		if !aligned.Before(dateUTC(asOf)) && !aligned.After(alignEnd) {
+			return aligned, recoveryAlignNearbyDrive
+		}
+	}
+	return asOf.UTC(), recoveryMicroDrive
+}
+
+func recoveryDueWindows(due time.Time, dueWindowDays int32) (time.Time, *time.Time) {
+	start := due.UTC()
+	if dueWindowDays <= 0 {
+		return start, nil
+	}
+	end := start.Add(time.Duration(dueWindowDays) * 24 * time.Hour)
+	return start, &end
+}
+
+func dateUTC(t time.Time) time.Time {
+	y, m, d := t.UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
 func schedulePathForGoat(g domain.EligibleGoat, proc genProcurementPolicy, asOf time.Time) string {
@@ -128,8 +173,7 @@ func warmingDeferReason(g domain.EligibleGoat, proc genProcurementPolicy, asOf t
 	if anchor == nil {
 		return ""
 	}
-	holdEnd := anchor.AddDate(0, 0, int(proc.WarmupNoVaccinationDays))
-	if asOf.Before(holdEnd) {
+	if wholeDaysBetween(*anchor, asOf) < int(proc.WarmupNoVaccinationDays) {
 		return "warming_hold"
 	}
 	return ""
@@ -155,14 +199,12 @@ func pregnancyDeferReason(g domain.EligibleGoat, preg genPregnancyPolicy, asOf t
 			return "late_pregnancy_hold"
 		}
 	case "lactating", "mother", "milking":
-		if preg.PostDeliveryCatchUpDays <= 0 {
-			return ""
-		}
-		if g.LastDeliveryDate == nil {
+		// Outside the post-delivery catch-up window, normal scheduling resumes.
+		if preg.PostDeliveryCatchUpDays <= 0 || g.LastDeliveryDate == nil {
 			return ""
 		}
 		if wholeDaysBetween(*g.LastDeliveryDate, asOf) > int(preg.PostDeliveryCatchUpDays) {
-			return "post_delivery_catch_up_closed"
+			return ""
 		}
 	}
 	return ""

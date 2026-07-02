@@ -321,10 +321,10 @@ WHERE tenant_id = $1
 
 // ReopenDeferredObligationByIdempotencyKey flips a still-'deferred' obligation back to 'scheduled'
 // when a goat recovers from its defer state (sick/ICU/quarantine), and records a 'scheduled' status
-// event in the same transaction. changed is false (a safe recovery-recheck replay) when no deferred
-// row matches the key — already schedulable, terminal, or absent. The SQL clears batch_id
-// defensively so recovered obligations always return to the unbatched sweeper path.
-func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time) (string, bool, error) {
+// event in the same transaction. When reschedule is set, due_at is moved to align with a nearby
+// planned drive or to recovery time for an immediate micro-drive. changed is false (a safe
+// recovery-recheck replay) when no deferred row matches the key.
+func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *domain.RecoveryReschedule) (string, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -342,10 +342,21 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := r.queries.WithTx(tx)
 
-	obligationID, err := qtx.ReopenDeferredObligationForKey(ctx, obligationdb.ReopenDeferredObligationForKeyParams{
-		TenantID:       tenant,
-		IdempotencyKey: idempotencyKey,
-	})
+	var obligationID string
+	if reschedule != nil {
+		obligationID, err = qtx.ReopenDeferredObligationForKeyWithDue(ctx, obligationdb.ReopenDeferredObligationForKeyWithDueParams{
+			TenantID:               tenant,
+			IdempotencyKey:         idempotencyKey,
+			RescheduledDueAt:       pgconv.Timestamptz(reschedule.DueAt),
+			RescheduledWindowStart: pgconv.Timestamptz(reschedule.WindowStart),
+			RescheduledWindowEnd:   pgconv.NullableTimestamptz(reschedule.WindowEnd),
+		})
+	} else {
+		obligationID, err = qtx.ReopenDeferredObligationForKey(ctx, obligationdb.ReopenDeferredObligationForKeyParams{
+			TenantID:       tenant,
+			IdempotencyKey: idempotencyKey,
+		})
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		if cerr := tx.Commit(ctx); cerr != nil {
 			return "", false, fmt.Errorf("obligation: commit reopen noop: %w", cerr)
@@ -371,7 +382,12 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 		if err != nil {
 			return "", false, fmt.Errorf("obligation: reopened obligation id: %w", err)
 		}
-		payload, _ := json.Marshal(map[string]string{"reason": "recovered_from_defer_state"})
+		payloadFields := map[string]string{"reason": "recovered_from_defer_state"}
+		if reschedule != nil {
+			payloadFields["recovery_align"] = reschedule.AlignReason
+			payloadFields["rescheduled_due_at"] = reschedule.DueAt.UTC().Format(time.RFC3339)
+		}
+		payload, _ := json.Marshal(payloadFields)
 		eventID, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
 			TenantID:       tenant,
 			ObligationID:   oblUUID,
@@ -400,6 +416,55 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 		return "", false, fmt.Errorf("obligation: commit reopen: %w", err)
 	}
 	return obligationID, true, nil
+}
+
+// FindNearestPlannedBatchDate returns the earliest planned drive date for a rule in the goat's shed or
+// park within [from, to], used to align recovered sick goats to a nearby vaccination drive.
+func (r *Repository) FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, shedID, parkID string, from, to time.Time) (*time.Time, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	version, err := pgconv.UUID(versionID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: version id: %w", err)
+	}
+	var shedUUID, parkUUID pgtype.UUID
+	if shedID != "" {
+		shedUUID, err = pgconv.UUID(shedID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: shed id: %w", err)
+		}
+	}
+	if parkID != "" {
+		parkUUID, err = pgconv.UUID(parkID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: park id: %w", err)
+		}
+	}
+	session := pgconv.Text("rule:" + ruleID)
+	planned, err := r.queries.FindNearestPlannedBatchDate(ctx, obligationdb.FindNearestPlannedBatchDateParams{
+		TenantID:          tenant,
+		ProtocolVersionID: version,
+		Session:           session,
+		FromDate:          pgconv.Date(&from),
+		ToDate:            pgconv.Date(&to),
+		ShedID:            shedUUID,
+		ParkID:            parkUUID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("obligation: find nearest planned batch: %w", err)
+	}
+	if !planned.Valid {
+		return nil, nil
+	}
+	t := planned.Time
+	return &t, nil
 }
 
 // CancelOpenObligationByIdempotencyKey closes a single generated/open row when a later source fact

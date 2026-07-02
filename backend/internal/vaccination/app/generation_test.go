@@ -468,6 +468,39 @@ func TestGoatRecheckHandlerReopensOnHealthRecovery(t *testing.T) {
 	if obl.inserted[0].Status != "scheduled" || len(obl.reopenedKeys) != 1 {
 		t.Fatalf("health recovery must reopen the held obligation via the bus, inserted=%#v reopened=%#v", obl.inserted, obl.reopenedKeys)
 	}
+	if !obl.inserted[0].DueAt.Equal(time.Date(2026, time.June, 2, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("micro-drive due=%v, want recovery time", obl.inserted[0].DueAt)
+	}
+}
+
+func TestGoatRecheckHandlerAlignsRecoveredGoatToNearbyDrive(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","defer_states":["sick"]},"recovery_policy":{"max_nearby_drive_align_days":7}}`),
+		rules:   []protodomain.Rule{{RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21, DueWindowDays: 7}},
+	}
+	goats := &generationGoatFake{goat: domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "sick", Stage: "K1", DOB: &dob, ShedID: "shed-1", ParkID: "park-1"}}
+	nearby := time.Date(2026, time.June, 5, 0, 0, 0, 0, time.UTC)
+	obl := &generationObligationFake{seen: map[string]bool{}, nearbyDrive: &nearby}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if _, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("initial generate: %v", err)
+	}
+	goats.goat.HealthStatus = "healthy"
+	bus := eventbus.NewInProcessBus()
+	NewGoatRecheckHandler(gen).Register(bus)
+	if err := bus.Publish(ctx, eventbus.Event{
+		Type: EventGoatHealthChanged, TenantID: "tenant-1", Key: "goat-1",
+		OccurredAt: time.Date(2026, time.June, 2, 8, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("publish goat.health.changed: %v", err)
+	}
+	wantDue := time.Date(2026, time.June, 5, 0, 0, 0, 0, time.UTC)
+	if !obl.inserted[0].DueAt.Equal(wantDue) {
+		t.Fatalf("aligned due=%v, want nearby drive %v", obl.inserted[0].DueAt, wantDue)
+	}
 }
 
 func TestGenerateScopesObligationToShed(t *testing.T) {
@@ -1037,6 +1070,7 @@ type generationObligationFake struct {
 	canceledVersions       []string
 	canceledExceptVersions [][]string
 	cancelReasons          []string
+	nearbyDrive            *time.Time
 	failOnceAfterInserted  int
 	failed                 bool
 }
@@ -1076,7 +1110,7 @@ func (o *generationObligationFake) DeferOpenObligationByIdempotencyKey(_ context
 	return "obligation-1", true, nil
 }
 
-func (o *generationObligationFake) ReopenDeferredObligationByIdempotencyKey(_ context.Context, _, idempotencyKey string, _ time.Time) (string, bool, error) {
+func (o *generationObligationFake) ReopenDeferredObligationByIdempotencyKey(_ context.Context, _, idempotencyKey string, _ time.Time, reschedule *obldomain.RecoveryReschedule) (string, bool, error) {
 	idx, ok := o.keyIndex[idempotencyKey]
 	if !ok {
 		return "", false, nil
@@ -1085,8 +1119,17 @@ func (o *generationObligationFake) ReopenDeferredObligationByIdempotencyKey(_ co
 		return "", false, nil
 	}
 	o.inserted[idx].Status = "scheduled"
+	if reschedule != nil {
+		o.inserted[idx].DueAt = reschedule.DueAt
+		o.inserted[idx].WindowStart = &reschedule.WindowStart
+		o.inserted[idx].WindowEnd = reschedule.WindowEnd
+	}
 	o.reopenedKeys = append(o.reopenedKeys, idempotencyKey)
 	return "obligation-1", true, nil
+}
+
+func (o *generationObligationFake) FindNearestPlannedBatchDate(_ context.Context, _, _, _, _, _ string, _, _ time.Time) (*time.Time, error) {
+	return o.nearbyDrive, nil
 }
 
 func (o *generationObligationFake) CancelOpenObligationByIdempotencyKey(_ context.Context, _, idempotencyKey, _ string, _ time.Time) (string, bool, error) {

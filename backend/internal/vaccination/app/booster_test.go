@@ -253,8 +253,12 @@ func (f *boosterObligationWriterFake) DeferOpenObligationByIdempotencyKey(contex
 	return "", false, nil
 }
 
-func (f *boosterObligationWriterFake) ReopenDeferredObligationByIdempotencyKey(context.Context, string, string, time.Time) (string, bool, error) {
+func (f *boosterObligationWriterFake) ReopenDeferredObligationByIdempotencyKey(context.Context, string, string, time.Time, *obldomain.RecoveryReschedule) (string, bool, error) {
 	return "", false, nil
+}
+
+func (f *boosterObligationWriterFake) FindNearestPlannedBatchDate(context.Context, string, string, string, string, string, time.Time, time.Time) (*time.Time, error) {
+	return nil, nil
 }
 
 func (f *boosterObligationWriterFake) CancelOpenObligationByIdempotencyKey(context.Context, string, string, string, time.Time) (string, bool, error) {
