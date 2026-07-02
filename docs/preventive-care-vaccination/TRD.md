@@ -39,7 +39,7 @@ not remain as the new architecture.
 | `species_catalog` | Tenant/configured species reference. Seed `goat` and `sheep`; support future species without DDL or code branches. |
 | `breeds` | Breed/reference rows belong to exactly one species through `species_id`; aliases map dirty legacy labels to reviewed breed rows. |
 | `herd_animals` | Canonical animal identity and current state. This replaces `goats` as the target entity. |
-| `animal_identifiers` | RFID, old tag, display tag, and source identifiers for any species. |
+| `animal_identifiers` | Current and historical identifier lookup for any species. Every canonical herd animal has two required current field/business identifier slots: `animal_identifier_1` and `animal_identifier_2`. Raw source column names are provenance only and must not leak into canonical DB/API/UI names as old/new identity. |
 | `animal_location_history` | Temporal movement history for any species. |
 | `animal_identity_events` | Identity/audit events for any species. |
 
@@ -49,7 +49,8 @@ not remain as the new architecture.
 |---|---|
 | `animal_id uuid` | Immutable internal ID. Replaces `goat_id`. |
 | `tenant_id uuid` | Mandatory tenant boundary. |
-| `display_id text` | Human-visible ID; prefix must not imply goat-only identity. |
+| `animal_identifier_1 text`, `animal_identifier_2 text` | Required current external field/business IDs for every goat, sheep, and future species. They are parallel IDs, not old/new IDs; UI labels are Animal ID 1 and Animal ID 2. |
+| `display_id text` | Optional read/display label derived from `animal_identifier_1`/`animal_identifier_2`; it is not a third business identifier and must not imply goat-only identity. |
 | `species_id uuid` / `species_code text` | Required FK/reference to `species_catalog`; no goat-only CHECK. |
 | `breed_id uuid` / `breed text` | Breed belongs to the selected species; dirty text is alias/provenance only. |
 | `sex text` | Required canonical animal sex: `female` or `male` only. `unknown`, blank, inferred, or conflicting sex is a blocking validation error, not an accepted herd value and not a vaccination selector. |
@@ -587,6 +588,12 @@ Local/dev/test reseed rules:
 - Seed at least goat and sheep. Species is derived from governed species/breed
   rules, e.g. Anantapur Sheep is sheep; goat breeds stay under goat; ambiguous
   labels go to seed review and must not silently default to goat.
+- Every seeded animal must have `animal_identifier_1` and
+  `animal_identifier_2`. These are two parallel animal IDs for every goat,
+  sheep, and future species, not old/new IDs. Local/dev/test may generate
+  deterministic fixture identifiers only with seed/test provenance; production
+  rows block until both real identifiers are known. Raw legacy source column
+  names stay in import provenance only.
 - Every seeded animal must have `sex in ('female','male')`. If source sex is
   missing in a dev/test fixture row, choose a deterministic fixture value from
   a documented seed rule and mark seed/test provenance. Never store `unknown`,
@@ -604,8 +611,8 @@ Local/dev/test reseed rules:
 |---|---|
 | `species_catalog` migration | Add governed species reference data and seed at least `goat` and `sheep`; no static goat/sheep enum in code. |
 | `breed_species` migration | Ensure every breed belongs to one species; seed Anantapur Sheep as sheep and goat breeds under goat; add alias/review path for dirty source labels. |
-| `herd_animals_identity` migration | Create canonical `herd_animals` with `animal_id`; wipe/reseed local/dev/test herd data from verified sources through the clean-slate importer; replace `goats_species_check`; add DOB confidence, origin/entry, lifecycle/exit, current location/shed/tag fields, and merge target `merged_into_animal_id`. Do not copy dirty goat-only state forward as runtime truth. |
-| `animal_identifiers_history` migration | Rename/create `animal_identifiers`, `animal_location_history`, and `animal_identity_events`; migrate FK references from goat names to animal names. Tagging state stays derived, not stored. |
+| `herd_animals_identity` migration | Create canonical `herd_animals` with `animal_id`, required `animal_identifier_1`, required `animal_identifier_2`; wipe/reseed local/dev/test herd data from verified sources through the clean-slate importer; replace `goats_species_check`; add DOB confidence, origin/entry, lifecycle/exit, current location/shed/tag fields, and merge target `merged_into_animal_id`. Do not copy dirty goat-only state forward as runtime truth. |
+| `animal_identifiers_history` migration | Rename/create `animal_identifiers`, `animal_location_history`, and `animal_identity_events`; migrate FK references from goat names to animal names; map legacy source identifier columns into `animal_identifier_1`/`animal_identifier_2` or provenance aliases through a reviewed importer. Canonical names must not be old/new identity. Tagging state stays derived, not stored. |
 | `shed_tag_age_policy` migration | Extend/seed `animal_stage_lookup` with source age range label, source day numbers, normalized age days, allowed species, max residence days, purpose, and status. |
 | `vaccination_animal_targets` migration | Change vaccination/obligation/completion FKs and OpenAPI contracts from `goat_id`/`target_type='goat'` to `animal_id`/`target_type='herd_animal'`; add `animal_protocol_facts`. |
 | `protocol_rule_dimensions` migration | Compile matrix selectors such as species, breed, stage/tag, age days, sex, health, reproductive/lactation, and procurement path for indexed impact/generation. |
@@ -636,8 +643,9 @@ Local/dev/test reseed rules:
 - Local/dev herd baseline: reseed animals through `herd_animals`, not the old
   goat-only table shape. Unknown source values in test data must be resolved to
   rule-valid fixture values or blocked from the seed. Sex is always female/male;
-  species is always resolved through the governed catalog; vaccination history
-  is linked to `animal_id` and seeded only from source evidence or explicit
-  synthetic matrix scenarios.
+  species is always resolved through the governed catalog; every animal has
+  `animal_identifier_1` and `animal_identifier_2`; vaccination history is linked
+  to `animal_id` and seeded only from source evidence or explicit synthetic
+  matrix scenarios.
 - Later production expansion changes the active matrix by publishing/activating
   a new scoped version. It must not create one top-level protocol per vaccine.

@@ -59,6 +59,7 @@ Clean base contract:
 | Herd animal | Canonical target entity for vaccination, feed, counts, procurement, shifting, and passport/history. |
 | Species | Required animal fact from a governed `species_catalog`; seed at least goat and sheep, and allow future species without DDL/code branches. |
 | Breed | Belongs to exactly one species through governed breed/reference data and aliases. |
+| Animal identifiers | Every herd animal has the internal immutable `animal_id` plus two required species-neutral field/business identifiers: `animal_identifier_1` and `animal_identifier_2`. These are parallel identifiers, not old/new IDs. UI/API/config/docs must call them Animal ID 1 and Animal ID 2; raw source column names stay import provenance only. |
 | Shed/tag | Shared operational cohort/location state with explicit `allowed_species`. Goat and sheep can share the same kid shed/tag where the source/park data says so, but tags are not automatically universal across species. |
 | Tag age policy | `animal_stage_lookup`/shed-tag policy stores source age range, normalized age days, purpose, allowed species, and max-stay/transition policy where known. |
 | Vaccination rule | Selector over `species + breed/breed group + shed_tag/stage + age days + sex + lifecycle/health/reproductive/procurement state`. |
@@ -355,20 +356,25 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    bad goat-only table state or patch existing dirty rows in place. The source
    rows are evidence for the reseed, not the runtime schema. Every seeded animal
    must be a mixed-species herd animal with species, breed, real sex
-   (`female`/`male` only), DOB/age, current park, current shed/tag, health/
-   reproductive/procurement state, and vaccination history/protocol facts
-   attached to `animal_id`.
+   (`female`/`male` only), DOB/age, `animal_identifier_1`,
+   `animal_identifier_2`, current park, current shed/tag, health/reproductive/
+   procurement state, and vaccination history/protocol facts attached to
+   `animal_id`. The two external identifiers are required for goats, sheep, and
+   future species; they must not be named or modeled as old/new identifiers.
 6. **Dev/test fixture defaults are explicit and non-production** — until the
    production-grade importer is approved, local/dev/test reseed may fill missing
    values only with deterministic, rule-valid fixture values so the system can
    be tested end to end. Missing sex must become either `female` or `male` by a
    documented seed rule; it must never become `unknown`. Missing species/breed/
-   tag values must resolve through the governed goat/sheep species catalog,
-   breed aliases, and Goats and Parks tag policy or land in a blocked seed
-   review bucket. Vaccination fixture history is seeded only from known source
-   evidence or from explicit synthetic test scenarios derived from the active
-   matrix; do not invent production completions. These fixture assumptions are
-   marked as seed/test provenance and are not production truth.
+   tag/identifier values must resolve through the governed goat/sheep species
+   catalog, breed aliases, Goats and Parks tag policy, and two-ID animal
+   identity rules or land in a blocked seed review bucket. For local/dev/test
+   only, missing identifier values may be deterministic fixture IDs with
+   seed/test provenance; production rows block until both real identifiers are
+   known. Vaccination fixture history is seeded only from known source evidence
+   or from explicit synthetic test scenarios derived from the active matrix; do
+   not invent production completions. These fixture assumptions are marked as
+   seed/test provenance and are not production truth.
 
 ## 8. Legacy capability parity, proof policy, and import mapping
 

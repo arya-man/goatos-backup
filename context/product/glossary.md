@@ -121,13 +121,27 @@ Build rule:
 - Import-created temporary goats require source-row evidence and stay in review
   until stronger identity is attached.
 
-### Old Tag
+### Animal External Identifiers
 
-Legacy ear tag number used before RFID became the stable identifier. The old tag
-number alone is not unique. The confirmed legacy uniqueness scope is:
+Every canonical herd animal has one internal immutable `animal_id` plus two
+required external field/business identifiers:
 
 ```text
-old_tag_number + park_code
+animal_identifier_1
+animal_identifier_2
+```
+
+These apply to goats, sheep, and future species. They are parallel identifiers,
+not old/new IDs. Product copy, APIs, canonical DB columns, imports after review,
+and vaccination matching must call them Animal ID 1 and Animal ID 2, or the exact
+snake-case field names above.
+
+Some legacy source sheets may contain one identifier value that is only unique
+within a park/historic-park scope. The confirmed uniqueness scope for that source
+identifier pattern is:
+
+```text
+identifier_value + normalized_park_code
 ```
 
 Examples:
@@ -140,10 +154,15 @@ Examples:
 
 Build rule:
 
-- Never merge by old tag number alone.
+- Never merge by one external identifier value alone.
+- Every accepted/canonical herd animal must have both `animal_identifier_1` and
+  `animal_identifier_2`.
 - Normalize historic park aliases (`CJB -> CBE`, `BLR -> CPT`) while preserving
   the original source code as evidence.
-- Duplicate old tag inside the same normalized park scope goes to review.
+- Duplicate identifier values inside the same normalized park scope go to
+  review.
+- Raw legacy source column names are stored only as import provenance. They must
+  not become canonical field names, UI labels, or rule-selector names.
 
 ## Status And Cohort Labels
 

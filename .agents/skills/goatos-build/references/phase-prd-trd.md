@@ -78,11 +78,15 @@ Locked identity foundation:
 ```text
 Path B mixed-herd identity supersedes earlier goat-only wording:
 animal_id immutable internal ID; display_id human ID.
+animal_identifier_1 and animal_identifier_2 are required parallel external
+field/business IDs for every accepted herd animal; they are not old/new IDs.
 canonical target table = herd_animals, not goats.
 species comes from species_catalog; seed goat and sheep, allow future species without DDL/code branches.
 breeds belong to species; Anantapur Sheep is sheep, not a goat breed.
 every clean current animal resolves to one current shed/tag; goats and sheep may share the same shed/tag.
-RFID-first import; old tag scope = number + normalized park.
+Raw source identifier column names stay import provenance only; canonical DB/API/UI
+names use animal_identifier_1/animal_identifier_2, with duplicate checks scoped by
+the relevant identifier value plus normalized park where source data requires it.
 tenant isolation + global parties + shared-PK org subtype.
 owner_party / custodian_party / location / task assignment are separate.
 ownership share_bps uses integer bps and deferred invariant.
