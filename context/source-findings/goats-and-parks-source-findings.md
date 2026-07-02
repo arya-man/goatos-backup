@@ -248,14 +248,14 @@ different from the display age range, such as K1's seven-day milk-training stay.
 | K1 - Milk Training | Kid | 3-9 days | 2-8 | Newborn kids separated from their mother are trained to drink from the milk feeding system, for a maximum of seven days. |
 | K2 - Milk Drinking | Kid | 10-77 days | 9-76 | Kids that completed milk training drink milk freely, generally about 42 days or six weeks. |
 | K3 - Weaning | Kid | 78-84 days | 77-83 | Kids have milk ration cut and are encouraged to eat more grains during weaning. |
-| ICU Milk Kids | Kid | per source tag/policy | per source tag/policy | Milk kids in serious condition such as hypothermia, fever, or other urgent illness. |
-| Quarantine Milk Kids | Kid | per source tag/policy | per source tag/policy | Milk kids with viral disease such as ORF; separated to prevent spread. |
+| ICU Milk Kids | Kid | 3-77 days | 2-76 | Milk kids in serious condition such as hypothermia, fever, or other urgent illness. |
+| Quarantine Milk Kids | Kid | 3-77 days | 2-76 | Milk kids with viral disease such as ORF; separated to prevent spread. |
 | Fattening Male | Kid | 120-240 days | 119-239 | Male kids post-weaning on fattening diet for rapid weight gain. |
 | Fattening Female | Kid | 120-240 days | 119-239 | Female kids post-weaning on fattening diet for rapid weight gain. |
 | Fattening Male Warmup | Kid | 120-240 days | 119-239 | Purchased male kids on warm-up diet before switching to park diet. |
 | Fattening Female Warmup | Kid | 120-240 days | 119-239 | Purchased female kids on warm-up diet before switching to park diet. |
-| ICU Fattening Kids | Kid | per source tag/policy | per source tag/policy | Fattening kids in serious condition. |
-| Quarantine Fattening Kids | Kid | per source tag/policy | per source tag/policy | Fattening kids with viral disease such as ORF; separated to prevent spread. |
+| ICU Fattening Kids | Kid | 120-240 days | 119-239 | Fattening kids in serious condition. |
+| Quarantine Fattening Kids | Kid | 120-240 days | 119-239 | Fattening kids with viral disease such as ORF; separated to prevent spread. |
 | Warmup Non Pregnant | Adult | 300 days + | 299+ | Purchased non-pregnant females on warm-up diet, generally max 14 days before normal Non Pregnant. |
 | Warmup Buck | Adult | 300 days + | 299+ | Purchased adult males on warm-up diet, generally max 14 days before Buck. |
 | Warmup Pregnant | Adult | 300 days + | 299+ | Purchased pregnant females on warm-up diet, generally max 14 days before Pregnant. |
@@ -282,6 +282,10 @@ GoatOS implication:
   count sheets show goat breeds and Anantapur Sheep co-located in the same
   shed/tag group, so species is an animal fact and shed tag is a shared
   operational cohort fact.
+- Do not infer that every tag is valid for every species. Kid tags can carry
+  mixed goat/sheep animals where the park data says so, but lactation/milking
+  and mother-management tags are goat/doe operational tags unless a future
+  approved sheep policy adds sheep-specific equivalents.
 - ICU and quarantine are risk/isolation states that require critical-action
   policy, not generic feed or vaccination default behavior.
 - Warm-up, pregnancy, lactation, flushing, breeding, mother, and fattening are

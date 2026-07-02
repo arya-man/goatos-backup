@@ -104,7 +104,7 @@ facts are not copied into this JSON; they come from `herd_animals`, `locations`,
    are authored from the tracked nuance/source docs and published by CEO/COO.
 2. **Sheds foundation** — active sheds are locations under parent parks; every
    active shed has `animal_stage_id`; include source age range/normalized age
-   days, `sex` grouping + `has_icu` /
+   days, allowed-species policy, `sex` grouping + `has_icu` /
    quarantine / defer metadata (existing `shed_profiles` columns + `context`
    jsonb). Use existing `capacity`. **Gap:** seed `animal_stage_lookup` +
    `shed_lifecycle_status_lookup`; backfill `shed_profiles.animal_stage_id` for

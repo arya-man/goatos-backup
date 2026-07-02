@@ -59,8 +59,8 @@ Clean base contract:
 | Herd animal | Canonical target entity for vaccination, feed, counts, procurement, shifting, and passport/history. |
 | Species | Required animal fact from a governed `species_catalog`; seed at least goat and sheep, and allow future species without DDL/code branches. |
 | Breed | Belongs to exactly one species through governed breed/reference data and aliases. |
-| Shed/tag | Shared operational cohort/location state. It is not species-specific; goats and sheep can sit in the same shed/tag. |
-| Tag age policy | `animal_stage_lookup`/shed-tag policy stores source age range, normalized age days, purpose, and max-stay/transition policy where known. |
+| Shed/tag | Shared operational cohort/location state with explicit `allowed_species`. Goat and sheep can share the same kid shed/tag where the source/park data says so, but tags are not automatically universal across species. |
+| Tag age policy | `animal_stage_lookup`/shed-tag policy stores source age range, normalized age days, purpose, allowed species, and max-stay/transition policy where known. |
 | Vaccination rule | Selector over `species + breed/breed group + shed_tag/stage + age days + sex + lifecycle/health/reproductive/procurement state`. |
 
 Path B is the base direction: implementation must migrate canonical naming to
@@ -311,12 +311,22 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    context only and must not be the active ruleset contract.
 2. **Shed tag age policy** — use the Goats and Parks shed-tag age ranges as
    base reference data: K0 source days 1-2, K1 3-9, K2 10-77, K3 78-84,
-   fattening kid tags 120-240, and adult tags 300+. Store the source display
-   range and a normalized zero-based `min_age_days`/`max_age_days` on
-   `animal_stage_lookup`/tag policy. Keep max-stay/residence policy separate
-   from display age range, e.g. K1 max seven days and K2 about 42 days/six
-   weeks are operational stay notes, not the medical vaccine schedule.
-3. **Source Nuance roster** — [source-nuances-rules.md](./source-nuances-rules.md)
+   ICU milk kid tags 3-77, fattening and ICU/quarantine fattening kid tags
+   120-240, and adult tags 300+. Store the source display range and a normalized
+   zero-based `min_age_days`/`max_age_days` on `animal_stage_lookup`/tag policy.
+   Keep max-stay/residence policy separate from display age range, e.g. K1 max
+   seven days and K2 about 42 days/six weeks are operational stay notes, not the
+   medical vaccine schedule. Store `allowed_species` per tag: K0-K3 can support
+   mixed kid herds when the park data says so, while doe/milking/mother tags are
+   goat-only unless a future approved sheep policy creates sheep equivalents.
+3. **No mother-vaccination-status category** — vaccination V1 must not create
+   or show a shed tag, category tag, matrix dimension, JSON selector, seed row,
+   or UI option based on missing mother vaccination evidence. If a source
+   workbook/DOCX includes a branch that splits mother schedules by vaccination
+   status, GoatOS ignores that branch and uses the standard mother/adult repeat
+   policy. The business policy is that mothers are kept vaccinated; gaps are
+   handled as catch-up/review obligations, not as a permanent category.
+4. **Source Nuance roster** — [source-nuances-rules.md](./source-nuances-rules.md)
    now carries the V1 schedule/dose/vial/revaccination source for ET+TT, PPR,
    Goat Pox, Sheep Pox, Blue Tongue, FMD, and HS rows. Goat-specific vaccines
    apply to goat species rows; sheep-specific vaccines apply to sheep species

@@ -34,11 +34,12 @@ with the codebase because V1 config and kernel behavior depend on it.
 
 ## Source Schedule Table
 
-The **Mother not vaccinated** column is intentionally ignored for V1 because
-Mesha operating policy is to ensure mothers are vaccinated in the first three
-months. V1 uses the **Mother vaccinated** column.
+V1 intentionally ignores any source branch that splits mother schedules by
+vaccination status. Mesha operating policy is that mothers are kept vaccinated;
+missing evidence becomes catch-up/review work, not a separate category/tag/rule
+dimension. The schedule below is the standard mother/adult path used by V1.
 
-| Vaccine | Mother vaccinated schedule used by V1 | Revaccination | Priority |
+| Vaccine | Standard mother/adult schedule used by V1 | Revaccination | Priority |
 |---|---:|---:|---:|
 | ET+TT | 4 weeks and 7 weeks | 6 months | 1 |
 | PPR | 16 weeks | 3 years | 2 |
@@ -116,7 +117,7 @@ The shared V1 policy must author:
 
 The V1 kernel must enforce:
 
-- birth-age schedule rows from the Mother vaccinated column;
+- birth-age schedule rows from the standard mother/adult schedule;
 - trusted prior vaccination evidence suppression so pre-existing ET+TT/PPR/FMD
   records do not duplicate work;
 - generation of the next missing source-schedule row when prior evidence exists;
@@ -164,8 +165,8 @@ reschedules the same adult row after each accepted adult dose so the source
 6-month, 9-month, 1-year, and 3-year adult cycles continue from actual accepted
 completion dates.
 
-The current runtime target type is still named `goat`; sheep rows are retained
-in the V1 tracked matrix so the config evidence is complete. Runtime species-aware
+The runtime target type is `herd_animal`; sheep rows are retained in the V1
+tracked matrix so the config evidence is complete. Runtime species-aware
 targeting must not silently pretend sheep are goats; when species fields are
 present in animal data, sheep rows must use the same V1 kernel rules with a
 species eligibility dimension.

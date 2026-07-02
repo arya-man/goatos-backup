@@ -1,7 +1,7 @@
 # Goats and Parks Source Extract
 
 Source: `wiki/Goats and Parks.docx`
-Extraction date: 2026-07-01
+Extraction date: 2026-07-03
 
 > Tracked Markdown extraction of the source DOCX so goat, park, shed tag, lifecycle, pregnancy, lactation, ICU, quarantine, warm-up, fattening, handling, medicine, and role semantics have a reviewable git artifact. Use `goats-and-parks-source-findings.md` for the curated implementation findings; this file preserves the source text/table structure for review.
 
@@ -291,32 +291,32 @@ We have two feeding sessions only and we mix multiple feeds in each feeding sess
 
 Each Shed in our parks has a shed tag - which is to represent the kind of goats that are present in that shed. Given below are the shed tags and their purpose:
 
-| Shed Tag | Kid or Adult | Purpose |
-| --- | --- | --- |
-| K0 - Newborn | Kid | Newborn kids are kept with their mothers here for a maximum of a day. |
-| K1 - Milk Training | Kid | Newborn kids are transferred here after being separated from their mother and are trained to drink milk from our milk feeding system. They are kept here for a maximum of 7 days. |
-| K2 - Milk Drinking | Kid | Kids that have completed their milk training and transferred here for them to drink milk freely. They are generally kept there for about 42 days or 6 weeks. |
-| K3 - Weaning | Kid | Kids have their milk ration cut here and are encouraged to eat more grains as part of their weaning process. |
-| ICU Milk Kids | Kid | Kids that are in serious conditions like hypothermia, fever or any other illness that needs to be tended to urgently are kept here. |
-| Quarantine Milk Kids | Kid | Kids that have a viral disease like ORF are kept here. This distinction with ICU is that these kids are not on the verge of their death but still need to be separated so that the virus doesn’t spread to other kids. |
-| Fattening Male | Kid | Male kids post weaning are kept here and are put on a fattening diet for rapid weight gain. |
-| Fattening Female | Kid | Female kids post weaning are kept here and are put on a fattening diet for rapid weight gain. |
-| Fattening Male Warmup | Kid | Male kids that have been purchased from outside are kept here and are put on a warmup diet so that they can switch to the diet we have at our parks. |
-| Fattening Female Warmup | Kid | Female kids that have been purchased from outside are kept here and are put on a warmup diet so that they can switch to the diet we have at our parks. |
-| ICU Fattening Kids |  | Fattening kids that are in serious conditions like hypothermia, fever or any other illness that needs to be tended to urgently are kept here. |
-| Quarantine Fattening Kids |  | Fattening kids that have a viral disease like ORF are kept here. This distinction with ICU is that these fattening kids are not on the verge of their death but still need to be separated so that the virus doesn’t spread to other fattening kids. |
-| Warmup Non Pregnant | Adult | Female non pregnant adults that have been purchased from outside are kept here and are put on a warmup diet so that they can switch to the diet we have at our parks. It is generally for a maximum of 14 days as then they can transition to the normal Non Pregnant tag. |
-| Warmup Buck | Adult | Male adults that have been purchased from outside are kept here and are put on a warmup diet so that they can switch to the diet we have at our parks. It is generally for a maximum of 14 days as then they can transition to the normal Buck tag. |
-| Warmup Pregnant | Adult | Female pregnant adults that have been purchased from outside are kept here and are put on a warmup diet so that they can switch to the diet we have at our parks. It is generally for a maximum of 14 days as then they can transition to the normal Pregnant tag. |
-| Non Pregnant | Adult | Non pregnant females are kept here. |
-| Flushing | Adult | Non pregnant females that are being fed extra ration to get them ready for breeding are kept here. |
-| Breeding | Adult | The adult females and males that are to be used in breeding are kept here. |
-| Pregnant Early Gestation | Adult | The adult females that have been confirmed to be pregnant by ultrasound are kept here. They will be kept here till they reach about 3 months gestation. |
-| Pregnant Late Gestation | Adult | Pregnant females that are greater than or equal to 3 months gestation are kept here. |
-| Mother | Adult | Adult females post separation with their kids from K0 are kept here. They are not milking. |
-| Mother Milking Waiting | Adult | Adult females post separation with their kids from K0 are kept here. They are milking and are waiting here to be put on a milking warmup diet. |
-| Milking Warmup | Adult | Adult females that are milking are transferred here from the waiting shed to be put on the milking warmup diet. |
-| Milking | Adult | Adult females that are milking are transferred here after completing their milking warmup. |
-| ICU Adults | Adult | Adults that are in serious conditions like fever or any other illness that needs to be tended to urgently are kept here. |
-| Quarantine Adults | Adult | Adults that have a viral disease like ORF are kept here. This distinction with ICU is that these adults are not on the verge of their death but still need to be separated so that the virus doesn’t spread to other adults. |
-| Buck | Adult | Adult males are kept here. |
+| Shed Tag | Kid or Adult | Age | Purpose |
+| --- | --- | --- | --- |
+| K0 - Newborn | Kid | 1-2 days (Assuming date of birth is Day 1) | Newborn kids are kept with their mothers here for a maximum of a day. |
+| K1 - Milk Training | Kid | 3-9 days | Newborn kids are transferred here after being separated from their mother and are trained to drink milk from our milk feeding system. They are kept here for a maximum of 7 days. |
+| K2 - Milk Drinking | Kid | 10-77 days | Kids that have completed their milk training and transferred here for them to drink milk freely. They are generally kept there for about 42 days or 6 weeks. |
+| K3 - Weaning | Kid | 78-84 days | Kids have their milk ration cut here and are encouraged to eat more grains as part of their weaning process. |
+| ICU Milk Kids | Kid | 3-77 days | Kids that are in serious conditions like hypothermia, fever or any other illness that needs to be tended to urgently are kept here. |
+| Quarantine Milk Kids | Kid | 3-77 days | Kids that have a viral disease like ORF are kept here. This distinction with ICU is that these kids are not on the verge of their death but still need to be separated so that the virus doesn’t spread to other kids. |
+| Fattening Male | Kid | 120-240 days | Male kids post weaning are kept here and are put on a fattening diet for rapid weight gain. |
+| Fattening Female | Kid | 120-240 days | Female kids post weaning are kept here and are put on a fattening diet for rapid weight gain. |
+| Fattening Male Warmup | Kid | 120-240 days | Male kids that have been purchased from outside are kept here and are put on a warmup diet so that they can switch to the diet we have at our parks. |
+| Fattening Female Warmup | Kid | 120-240 days | Female kids that have been purchased from outside are kept here and are put on a warmup diet so that they can switch to the diet we have at our parks. |
+| ICU Fattening Kids | Kid | 120-240 days | Fattening kids that are in serious conditions like hypothermia, fever or any other illness that needs to be tended to urgently are kept here. |
+| Quarantine Fattening Kids | Kid | 120-240 days | Fattening kids that have a viral disease like ORF are kept here. This distinction with ICU is that these fattening kids are not on the verge of their death but still need to be separated so that the virus doesn’t spread to other fattening kids. |
+| Warmup Non Pregnant | Adult | 300 days + | Female non pregnant adults that have been purchased from outside are kept here and are put on a warmup diet so that they can switch to the diet we have at our parks. It is generally for a maximum of 14 days as then they can transition to the normal Non Pregnant tag. |
+| Warmup Buck | Adult | 300 days + | Male adults that have been purchased from outside are kept here and are put on a warmup diet so that they can switch to the diet we have at our parks. It is generally for a maximum of 14 days as then they can transition to the normal Buck tag. |
+| Warmup Pregnant | Adult | 300 days + | Female pregnant adults that have been purchased from outside are kept here and are put on a warmup diet so that they can switch to the diet we have at our parks. It is generally for a maximum of 14 days as then they can transition to the normal Pregnant tag. |
+| Non Pregnant | Adult | 300 days + | Non pregnant females are kept here. |
+| Flushing | Adult | 300 days + | Non pregnant females that are being fed extra ration to get them ready for breeding are kept here. |
+| Breeding | Adult | 300 days + | The adult females and males that are to be used in breeding are kept here. |
+| Pregnant Early Gestation | Adult | 300 days + | The adult females that have been confirmed to be pregnant by ultrasound are kept here. They will be kept here till they reach about 3 months gestation. |
+| Pregnant Late Gestation | Adult | 300 days + | Pregnant females that are greater than or equal to 3 months gestation are kept here. |
+| Mother | Adult | 300 days + | Adult females post separation with their kids from K0 are kept here. They are not milking. |
+| Mother Milking Waiting | Adult | 300 days + | Adult females post separation with their kids from K0 are kept here. They are milking and are waiting here to be put on a milking warmup diet. |
+| Milking Warmup | Adult | 300 days + | Adult females that are milking are transferred here from the waiting shed to be put on the milking warmup diet. |
+| Milking | Adult | 300 days + | Adult females that are milking are transferred here after completing their milking warmup. |
+| ICU Adults | Adult | 300 days + | Adults that are in serious conditions like fever or any other illness that needs to be tended to urgently are kept here. |
+| Quarantine Adults | Adult | 300 days + | Adults that have a viral disease like ORF are kept here. This distinction with ICU is that these adults are not on the verge of their death but still need to be separated so that the virus doesn’t spread to other adults. |
+| Buck | Adult | 300 days + | Adult males are kept here. |

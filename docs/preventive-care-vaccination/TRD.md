@@ -70,9 +70,11 @@ selectors.
 
 ### 2.2 Shed tag age policy and mixed-species placement
 
-Goats and sheep can share the same physical shed and shed tag. Species is an
-animal fact; shed tag is a shared operational cohort fact. Every current
-herd animal must belong to exactly one current shed/tag in the clean read model.
+Goats and sheep can share the same physical shed and shed tag where the
+source/park data allows it. Species is an animal fact; shed tag is a shared
+operational cohort fact with explicit `allowed_species`. Every current herd
+animal must belong to exactly one current shed/tag in the clean read model, and
+the animal's species must be allowed by that tag policy.
 
 `animal_stage_lookup` / shed-tag policy must store:
 
@@ -84,6 +86,7 @@ herd animal must belong to exactly one current shed/tag in the clean read model.
 | `source_age_range_label` | Human/source display, e.g. `10-77 days`. |
 | `source_age_min_day_number`, `source_age_max_day_number` | Source day numbering where DOB is Day 1. |
 | `min_age_days`, `max_age_days` | Normalized zero-based age days for queries/validation. |
+| `allowed_species_codes` | Species that can use the tag. Kid tags may allow goat + sheep where source/park data says so; doe/milking/mother tags are goat-only unless a future approved sheep policy adds equivalents. |
 | `max_residence_days` | Optional operational stay limit when source purpose states one, e.g. K1 max seven days. |
 | `purpose` | Source-backed operational meaning. |
 | `status`, `sort_order` | Governance/order. |
@@ -96,12 +99,20 @@ Seed baseline from Goats and Parks:
 | K1 - Milk Training | 3-9 days | 2-8 | milk training; max seven days stay. |
 | K2 - Milk Drinking | 10-77 days | 9-76 | milk drinking; generally about 42 days/six weeks stay. |
 | K3 - Weaning | 78-84 days | 77-83 | milk ration cut and grain encouragement. |
+| ICU Milk Kids / Quarantine Milk Kids | 3-77 days | 2-76 | milk-kid health/isolation tags. |
 | Fattening Male/Female and warm-up variants | 120-240 days | 119-239 | post-weaning or procured warm-up/fattening. |
+| ICU Fattening Kids / Quarantine Fattening Kids | 120-240 days | 119-239 | fattening-kid health/isolation tags. |
 | Adult warm-up, non-pregnant, flushing, breeding, pregnancy, mother, milking, buck, ICU, quarantine | 300+ days | 299+ | adult operational/reproductive/health tags. |
 
 Vaccination rules can target both `stage_code` and medical `age_days` windows.
 Those are not the same thing: K2 is an operational shed tag; FMD/HS at 12 weeks
 is a medical due rule.
+
+There is no valid stage, category, rule dimension, seed, or UI option based on
+mother vaccination-status. Any source branch that separates mother schedules by
+vaccination status is ignored for V1; the canonical policy assumes mothers are
+kept vaccinated and treats missing evidence as catch-up/review work under the
+normal adult/mother tag, not as a separate cohort.
 
 ### 2.3 Eligibility is multi-factor, not shed-derived alone
 
@@ -133,7 +144,7 @@ obligations with a reason — never silently inherit only the shed value.
 
 **Capacity:** do not add a column — `location_capacity_records` (temporal, no-overlap trigger) is the committed home. **Cohort:** reuse `location_type='cohort'` rows + `herd_animals.cohort_id`; a cohort can also carry an `animal_stage_id` for stage-by-cohort.
 
-Shed-tag age policy lives on `animal_stage_lookup` as **config** — the mock's hardcoded `SHIFT_THRESH` must be removed and read from here. The source display ranges from Goats and Parks are the baseline, with normalized zero-based age days stored for validation/querying. The Config authoring stage picker reads these rows via `GET /protocols/animal-stages` (active rows, `sort_order`), never hardcoded `K0/K1/K2` literals; when the lookup is empty the picker is disabled-with-reason (Data Ops must seed stages) rather than falling back to code-defined bands.
+Shed-tag age policy lives on `animal_stage_lookup` as **config** — the mock's hardcoded `SHIFT_THRESH` must be removed and read from here. The source display ranges from Goats and Parks are the baseline, with normalized zero-based age days and allowed-species policy stored for validation/querying. The Config authoring stage picker reads these rows via `GET /protocols/animal-stages` (active rows, `sort_order`), never hardcoded `K0/K1/K2` literals; when the lookup is empty the picker is disabled-with-reason (Data Ops must seed stages) rather than falling back to code-defined bands.
 
 ---
 
@@ -516,7 +527,7 @@ configured and proven.
 | `breed_species` migration | Ensure every breed belongs to one species; seed Anantapur Sheep as sheep and goat breeds under goat; add alias/review path for dirty source labels. |
 | `herd_animals_identity` migration | Create/rename canonical `herd_animals` with `animal_id`; migrate data from `goats`; replace `goats_species_check`; add DOB confidence, origin/entry, lifecycle/exit, current location/shed/tag fields, and merge target `merged_into_animal_id`. |
 | `animal_identifiers_history` migration | Rename/create `animal_identifiers`, `animal_location_history`, and `animal_identity_events`; migrate FK references from goat names to animal names. Tagging state stays derived, not stored. |
-| `shed_tag_age_policy` migration | Extend/seed `animal_stage_lookup` with source age range label, source day numbers, normalized age days, max residence days, purpose, and status. |
+| `shed_tag_age_policy` migration | Extend/seed `animal_stage_lookup` with source age range label, source day numbers, normalized age days, allowed species, max residence days, purpose, and status. |
 | `vaccination_animal_targets` migration | Change vaccination/obligation/completion FKs and OpenAPI contracts from `goat_id`/`target_type='goat'` to `animal_id`/`target_type='herd_animal'`; add `animal_protocol_facts`. |
 | `protocol_rule_dimensions` migration | Compile matrix selectors such as species, breed, stage/tag, age days, sex, health, reproductive/lactation, and procurement path for indexed impact/generation. |
 | `vaccination_module` migration | Keep `vaccination_completions`, inventory, SOP, and protocol engine concepts, but bind completions to `animal_id` and matrix rows to mixed-species animals. |

@@ -318,6 +318,10 @@ UI requirements:
 - Do not make "Who qualifies" a single category picker or a goat-only tab. It
   must allow all dimensions together so species x breed x shed tag x vaccine x
   reproductive/health state permutations can be represented.
+- Do not create a category, selector, tab, seed row, or UI option based on
+  mother vaccination-status. The V1 business policy assumes mothers are kept
+  vaccinated; missing evidence becomes catch-up/review work on the normal
+  adult/mother tag.
 
 Design:
 - Dense operational UI, not marketing.
@@ -425,6 +429,21 @@ snapshots and no `goat_herd_required_fields`.
       "MILKING",
       "BUCK"
     ],
+    "stage_species_policy": {
+      "K0": ["goat", "sheep"],
+      "K1": ["goat", "sheep"],
+      "K2": ["goat", "sheep"],
+      "K3": ["goat", "sheep"],
+      "FATTENING_MALE": ["goat", "sheep"],
+      "FATTENING_FEMALE": ["goat", "sheep"],
+      "NON_PREGNANT": ["goat", "sheep"],
+      "PREGNANT_EARLY": ["goat", "sheep"],
+      "PREGNANT_LATE": ["goat", "sheep"],
+      "BREEDING": ["goat", "sheep"],
+      "MOTHER": ["goat"],
+      "MILKING": ["goat"],
+      "BUCK": ["goat"]
+    },
     "health_states": ["healthy", "recovering", "sick", "under_treatment", "quarantine", "icu"],
     "reproductive_states": ["non_pregnant", "pregnant", "lactating", "mother", "buck", "unknown"],
     "procurement_paths": ["farm_born", "procured", "imported", "unknown"]
