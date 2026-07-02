@@ -1,0 +1,22 @@
+---
+description: Contracts rules — OpenAPI/JSON Schema source of truth
+globs: contracts/**
+alwaysApply: false
+---
+
+# Contracts (Goat OS)
+
+Read **`contracts/AGENTS.md`** and `context/execution/next-contracts.md` before
+changing schemas or generated clients.
+
+## Non-negotiables
+
+- One source per contract family; regenerate Go/TS clients — never hand-duplicate DTOs.
+- Backend-owned UI presentation (nav, page copy, table/filter semantics) belongs
+  in the app API contract (`contracts/openapi/app-api.yaml`) and bootstrap compile path.
+- Version events, forms, and submissions explicitly; no mega universal Goat schema.
+
+## After contract edits
+
+Regenerate clients and run the narrowest check for touched surfaces (OpenAPI diff,
+generated client check, affected module tests).

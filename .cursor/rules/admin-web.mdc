@@ -1,0 +1,27 @@
+---
+description: Admin-web rules — mock fidelity, backend-owned UI contract
+globs: apps/admin-web/**
+alwaysApply: false
+---
+
+# Admin Web (Goat OS)
+
+Read **`apps/admin-web/AGENTS.md`**, `context/frontend/current-admin-web-scope.md`,
+and **`mock/goatos-dashboard-mock.html`** before UI work.
+
+## Non-negotiables
+
+- **UI source of truth**: `mock/goatos-dashboard-mock.html` (structure/density,
+  not just colors). Never reuse old admin UI primitives or cyan/slate palette.
+- **Backend-owned contract**: nav, labels, filters, chips, drawer copy, empty
+  states, and disabled reasons come from `GET /admin-web/bootstrap` — not React
+  constants. Extend `backend/internal/adminui/app/service.go` + OpenAPI first.
+- **Scope lock**: PHC Vaccination + Admin Config/SOP for current slice. No nested
+  command-room routes under `/vaccination` or `/procurement`.
+- **Gate before push**: `npm --prefix apps/admin-web run check:mock-fidelity`.
+
+## Local dev
+
+- `npm run dev:local` starts **Next.js only** (`:3300`). Backend on `:8080` must
+  run separately or use `make dev-local` from repo root.
+- Agents may restart `:3300`/`:8080` without asking; restore same ports afterward.

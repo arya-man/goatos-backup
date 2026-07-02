@@ -160,6 +160,10 @@ Code navigation (graph-first):
   (`mesha_docs_graph`, `mesha_visual_graph`) are built from sources outside this
   repo and cannot be reproduced here. Use them if already configured; otherwise
   skip and use Grep/Read.
+- **Agent tool choice (human)**: before a non-trivial task, read
+  `docs/ai/agent-tool-routing.md` — Cursor for admin-web UI and small fixes;
+  Claude Code (terminal `claude` in repo root) for contracts, backend engine,
+  migrations, and multi-module work. No second IDE required.
 
 Current repos:
 

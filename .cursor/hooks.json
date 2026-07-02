@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "command": ".cursor/hooks/pre-search-guard.sh",
+        "matcher": "Read|Grep|Glob|Shell"
+      },
+      {
+        "command": ".cursor/hooks/pre-rtk-git-diff.sh",
+        "matcher": "Shell"
+      },
+      {
+        "command": ".cursor/hooks/pre-rtk-noisy-commands.sh",
+        "matcher": "Shell"
+      },
+      {
+        "command": ".cursor/hooks/check-write-scope.sh",
+        "matcher": "Write|StrReplace|EditNotebook"
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": ".cursor/hooks/post-file-edit.sh"
+      }
+    ]
+  }
+}

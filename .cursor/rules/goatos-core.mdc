@@ -1,0 +1,47 @@
+---
+description: Goat OS master agent router — pointers to AGENTS.md and lookup order
+alwaysApply: true
+---
+
+# Goat OS — Agent Router
+
+This is a pointer, not a rule copy. The canonical agent rules and skills already
+live in the repo. Do not duplicate their content here or anywhere else.
+
+## Single sources of truth (read, do not copy)
+
+- **Master always-on rules**: `AGENTS.md` (auto-loaded; `CLAUDE.md`/`CODEX.md`
+  are shims to it). Per-area rules live in nested `AGENTS.md` files that are NOT
+  auto-loaded globally — open the one for the area you touch:
+  `backend/AGENTS.md`, `apps/admin-web/AGENTS.md`,
+  `apps/operator-mobile/AGENTS.md`, `apps/investor-web-shadow/AGENTS.md`,
+  `contracts/AGENTS.md`, `analytics/AGENTS.md`, `infra/AGENTS.md`,
+  `load-tests/AGENTS.md`.
+- **Build skill**: `.agents/skills/goatos-build/SKILL.md` (+ `references/`).
+  Invoke the `goatos-build` skill for product/architecture/contract/frontend/
+  backend work.
+- **Code-graph skill**: `.claude/skills/crg/SKILL.md`. Invoke the `crg` skill
+  for any code-structure question (callers, callees, blast radius) before
+  grepping or reading files.
+- **Skill index**: `SKILLS.md`.
+- **Agent tool routing (human)**: `docs/ai/agent-tool-routing.md` — when to use
+  Cursor vs Claude Code for heavy vs light tasks.
+
+## Required first step on any code task — 4-Layer Lookup
+
+Work the layers in order; stop at the one that answers the question:
+
+1. CRG (code structure) — use the `crg` skill.
+2. Graphify docs graphs (business/technical context).
+3. Skill references under `.agents/skills/goatos-build/references/`.
+4. Grep/Read — only for what the graph cannot see (route strings, config, SQL).
+
+## Editing discipline
+
+- One skill source, no duplicate copies (`SKILLS.md` rule).
+- New permanent rule → edit `AGENTS.md`. New routing/playbook → edit the
+  `goatos-build` skill references. Never fork rules into `.cursor/`.
+- Frontend gate before any push: `npm --prefix apps/admin-web run check:mock-fidelity`.
+- Cursor hooks: `.cursor/hooks.json` reuses `tools/agent-hooks/` (graph-first
+  guard, RTK, write-scope, post-edit contract checks). Restart Cursor after hook
+  edits if they do not load.

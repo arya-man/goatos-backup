@@ -38,5 +38,7 @@ Generated graph artifacts are local-only and must not be committed:
 | Single file/function body | Read the file directly; use graph only for impact |
 | HTTP routes, config, SQL strings, uncommitted code | Native grep/read |
 
-Cursor does not enforce the Claude/Codex hook wall in this repo. Use
-`make ai-doctor` after setup and after AI-tooling edits.
+Cursor project hooks live in `.cursor/hooks.json` and reuse `tools/agent-hooks/`
+(graph-first guard, RTK, write-scope, post-edit contract checks). Restart Cursor
+after hook edits if they do not load. Run `make ai-doctor` after setup and after
+AI-tooling edits.
