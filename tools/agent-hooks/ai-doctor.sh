@@ -36,6 +36,7 @@ EXEC_FILES=(
     .claude/settings.json
     Makefile
     tools/agent-hooks/pre-search-guard.sh
+    tools/agent-hooks/ai-setup-guard.sh
     tools/agent-hooks/rebuild-docs-graph.sh
     tools/agent-hooks/update-docs-graph.sh
     tools/agent-hooks/goatos-docs-corpus.sh

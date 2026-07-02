@@ -151,7 +151,10 @@ Code navigation (graph-first):
 - Graph is the fast first pass for traversal; native Grep/Read is the fallback
   for graph blind spots. One graph query replaces many grep/read cycles when the
   question is graph-shaped.
-- Setup is per-machine and optional. The graph DB (`.code-review-graph/`) and
+- Setup is per-machine and agent-enforced on fresh clones: if `make ai-setup`
+  has never run on this clone, the committed `ai-setup-guard` hook blocks the
+  first real tool call with bootstrap instructions — run `make ai-setup` first,
+  then resume the task (see `docs/ai/README.md`). The graph DB (`.code-review-graph/`) and
   Graphify outputs (`graphify-out/graph.json`, reports, cost files, cache) are
   gitignored and regenerated locally. To enable the portable setup, run
   `make ai-setup`; to rebuild local graphs, run `make ai-rebuild`; to verify the
