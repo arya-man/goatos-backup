@@ -132,6 +132,13 @@ impact preview has been generated. Source documents are committed engineering
 evidence for the seeded/preset values, not UI fields or runtime
 `review_status` gates.
 
+For Preventive Care (PC) Vaccination, schedule expansion must preserve the
+approved matrix mode in
+`docs/preventive-care-vaccination/APPROVED-SCHEDULE-MATRIX.md`: fixed kid-course
+due points are authored as due schedule rows, and adult/fattening steady-state
+repeats are driven from accepted completion dates. Do not turn the kid timeline
+into arbitrary weekly drive slots.
+
 ---
 
 ## 3. Schema — protocol layer (the ruleset, admin-authored)

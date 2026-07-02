@@ -38,7 +38,7 @@ page.on("response", (response) => {
 try {
   const authoredSop = await step("sop builder: create, validate, dry-run, publish, reopen, edit, republish", () => verifySopAuthoring(page));
   if (authoredSop) {
-    await step("config: create source-backed vaccination rule, preview, save, publish, reopen drawer", () => verifyConfigAuthoring(page, authoredSop));
+    await step("config: create vaccination matrix rule, preview, save, publish, reopen drawer", () => verifyConfigAuthoring(page, authoredSop));
   }
 } finally {
   await browser.close();
@@ -145,8 +145,7 @@ async function verifySopAuthoring(page) {
 async function verifyConfigAuthoring(page, authoredSop) {
   const protocolCode = `vacc_e2e_${authoredSop.suffix}`;
   const protocolName = `Vaccination Config ${authoredSop.suffix}`;
-  const approvedAt = "2026-07-01T08:00:00Z";
-  const expectedSourceRows = ["ET+TT", "PPR", "Goat Pox", "FMD", "HS"];
+  const expectedMatrixRows = ["ET+TT", "PPR", "Goat Pox", "FMD", "HS"];
 
   await goto(page, "/config?scope_mode=company&category=vaccination");
   await page.getByRole("link", { name: /New draft rule/i }).first().click();
@@ -170,34 +169,34 @@ async function verifyConfigAuthoring(page, authoredSop) {
   await dialog.locator('input[aria-label="Scope · effective from"]').first().fill("2026-07-01");
   await selectOptionByText(dialog.locator('select[aria-label="Executable SOP version (required to publish)"]').first(), authoredSop.sopName, "executable SOP version");
 
-  await dialog.getByRole("button", { name: /Load Source Vaccine Matrix/i }).click();
-  await expectVisibleTextIn(dialog, /5 rules/i, "loaded source vaccine matrix row count");
-  for (const [index, code] of expectedSourceRows.entries()) {
-    await expectInputValue(dialog.locator(`input[aria-label="Vaccine ${index + 1}"]`), code, `loaded source row ${code}`);
+  await dialog.getByRole("button", { name: /Load vaccine matrix/i }).click();
+  await expectVisibleTextIn(dialog, /5 rules/i, "loaded vaccine matrix row count");
+  for (const [index, code] of expectedMatrixRows.entries()) {
+    await expectInputValue(dialog.locator(`input[aria-label="Vaccine ${index + 1}"]`), code, `loaded matrix row ${code}`);
   }
-  await expectDomTextIn(dialog, /Source schedule/i, "source schedule column");
+  await expectDomTextIn(dialog, /Schedule note/i, "schedule note column");
   await expectDomTextIn(dialog, /Revaccination/i, "revaccination column");
   await expectDomTextIn(dialog, /Vial/i, "vial dose column");
-  await expectDomTextIn(dialog, /kid critical schedule: mother vaccinated 4 and 7 weeks/i, "ET+TT source schedule");
+  await expectDomTextIn(dialog, /kid critical schedule: mother vaccinated 4 and 7 weeks/i, "ET+TT schedule");
   await expectDomTextIn(dialog, /adult revaccination: 6 months after accepted completion/i, "ET+TT adult revaccination schedule");
-  await expectDomTextIn(dialog, /all \(every stage\)/i, "source matrix uses all-stage age-based schedule");
+  await expectDomTextIn(dialog, /all \(every stage\)/i, "matrix uses all-stage age-based schedule");
   await expectDomTextIn(dialog, /V1 live-live spacing effective due 140d/i, "Goat Pox live-live spacing");
-  await expectDomTextIn(dialog, /182/i, "source revaccination interval");
+  await expectDomTextIn(dialog, /182/i, "revaccination interval");
   await expectVisibleTextIn(dialog, /Cross-vaccine spacing policy/i, "compatibility policy controls");
   await expectVisibleTextIn(dialog, /Procurement \/ source policy/i, "procurement policy controls");
   await expectVisibleTextIn(dialog, /Pregnancy \/ delivery policy/i, "pregnancy policy controls");
 
   const matrixTable = dialog.locator("table").first();
-  await expectVisibleTextIn(matrixTable, /derived/i, "matrix source schedule derived badge");
+  await expectVisibleTextIn(matrixTable, /derived/i, "matrix schedule derived badge");
   await matrixTable.locator("tbody tr").first().click();
-  await expectInputValueMatches(dialog.locator('input[aria-label="Source schedule"]').first(), /kid critical schedule: mother vaccinated 4 and 7 weeks/i, "selected ET+TT source schedule detail");
+  await expectVisibleTextIn(matrixTable, /kid critical schedule: mother vaccinated 4 and 7 weeks/i, "selected ET+TT schedule detail");
 
   await dialog.getByRole("button", { name: /^Add matrix row$/i }).click();
   await expectVisibleTextIn(dialog, /6 rules/i, "blank matrix row count");
   await expectInputValue(dialog.locator('input[aria-label="Vaccine 6"]'), "", "blank add row vaccine code");
   await expectInputValue(dialog.locator('input[aria-label="Name 6"]'), "", "blank add row vaccine name");
   const blankRow = matrixTable.locator("tbody tr").nth(5);
-  await expectDomTextIn(blankRow, /No source schedule/i, "blank row source schedule");
+  await expectDomTextIn(blankRow, /No schedule note/i, "blank row schedule note");
   await dialog.getByRole("button", { name: /Save draft/i }).click();
   await expectVisibleTextIn(dialog, /matrix row 6: vaccine code is required/i, "blank row validation");
   await blankRow.getByRole("button", { name: /Remove matrix row 6/i }).click();
@@ -206,19 +205,9 @@ async function verifyConfigAuthoring(page, authoredSop) {
   await matrixTable.locator("tbody tr").first().click();
   await dialog.getByRole("button", { name: /^Copy selected row$/i }).click();
   await expectInputValue(dialog.locator('input[aria-label="Vaccine 6"]'), "ET+TT_COPY", "copy selected row vaccine code");
-  await expectInputValueMatches(dialog.locator('input[aria-label="Source schedule"]').first(), /kid critical schedule: mother vaccinated 4 and 7 weeks/i, "copied row source schedule detail");
+  await expectVisibleTextIn(matrixTable, /kid critical schedule: mother vaccinated 4 and 7 weeks/i, "copied row schedule detail");
   await matrixTable.locator("tbody tr").nth(5).getByRole("button", { name: /Remove matrix row 6/i }).click();
   await expectVisibleTextIn(dialog, /5 rules/i, "copied row removed");
-
-  const sourceSelects = dialog.locator('select[aria-label="Source & review (publish needs a real source + approval)"]');
-  await sourceSelects.nth(0).selectOption("vaccinations_db");
-  await sourceSelects.nth(1).selectOption("approved");
-  const sourceInputs = dialog.locator('input[aria-label="Source & review (publish needs a real source + approval)"]');
-  await sourceInputs.nth(0).fill(`source://${authoredSop.suffix}/vaccination-matrix`);
-  await sourceInputs.nth(1).fill("codex-e2e-reviewer");
-  await sourceInputs.nth(2).fill("codex-e2e-approver");
-  await sourceInputs.nth(3).fill(approvedAt);
-  await expectVisibleTextIn(dialog, /Approved - publishable/i, "source-backed publish badge");
 
   await dialog.getByRole("button", { name: /Preview Impact/i }).click();
   await expectVisibleTextIn(dialog, /Eligible goats/i, "config impact eligible goats");
@@ -226,14 +215,14 @@ async function verifyConfigAuthoring(page, authoredSop) {
 
   await dialog.getByRole("button", { name: /Save draft/i }).click();
   await expectVisibleTextIn(dialog, /draft saved/i, "config draft saved");
-  await expectVisibleTextIn(dialog, /5 matrix drafts saved/i, "config source matrix rows persisted");
+  await expectVisibleTextIn(dialog, /5 matrix drafts saved/i, "config matrix rows persisted");
 
   const publish = dialog.getByRole("button", { name: /^Publish$/i }).last();
   if (await publish.isDisabled()) {
     throw new Error(`Config Publish stayed disabled after valid save: ${(await publish.getAttribute("title")) ?? ""}`);
   }
   await publish.click();
-  await expectVisibleTextIn(dialog, /5 matrix rows published/i, "config source matrix rows published");
+  await expectVisibleTextIn(dialog, /5 matrix rows published/i, "config matrix rows published");
 
   await goto(page, "/config?scope_mode=company&category=vaccination");
   const search = page.locator(".tsearch input").first();
@@ -246,9 +235,9 @@ async function verifyConfigAuthoring(page, authoredSop) {
   const drawer = page.locator(".drawer.on").first();
   await drawer.waitFor({ state: "visible", timeout: 10_000 });
   await expectVisibleTextIn(drawer, new RegExp(escapeRegExp(protocolName), "i"), "config drawer protocol name");
-  await expectVisibleTextIn(drawer, /ET\+TT/i, "config drawer first source vaccine code");
+  await expectVisibleTextIn(drawer, /ET\+TT/i, "config drawer first vaccine code");
   await expectVisibleTextIn(drawer, /required_proofs/i, "config drawer proof policy");
-  await expectVisibleTextIn(drawer, /source_schedule/i, "config drawer source schedule");
+  await expectVisibleTextIn(drawer, /schedule_note/i, "config drawer schedule note");
   await expectVisibleTextIn(drawer, /vial_doses/i, "config drawer vial dose metadata");
   await expectVisibleTextIn(drawer, /revaccination_interval_days/i, "config drawer revaccination metadata");
 

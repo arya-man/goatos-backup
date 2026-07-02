@@ -549,6 +549,10 @@ function ActionCenterRowDrawer({
                 <Tag tone={optionTone(priorityOptions, priority)}>{optionLabel(priorityOptions, priority)}</Tag>
               </div>
             </div>
+            <div>
+              <div className="k">{copy(pageContract, "label.next_action")}</div>
+              <div className="v">{row.next_action}</div>
+            </div>
           </div>
 
           {/* Obligation facts — compact metagrid (mock density), not a flat full-record dump. */}

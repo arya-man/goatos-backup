@@ -42,8 +42,8 @@ export async function runImpactPreview(
 
 // saveDraft persists the authored rule as a protocol_definitions row + a DRAFT protocol_versions row
 // whose rule_dsl is the full canonical ruleset (eligibility, defer states, policies, escalation,
-// source/review, and the schedule[] array), then one protocol_rules row per dose/phase. The category
-// is generic — this single action authors any protocol category. Draft never generates live work.
+// and the schedule[] array), then one protocol_rules row per dose/phase. The category is generic —
+// this single action authors any protocol category. Draft never generates live work.
 export async function saveDraft(input: RuleInput): Promise<ActionResult> {
   if (!input.category) return { ok: false, message: "category is required" };
   if (!input.code || !input.name) return { ok: false, message: "code and name are required" };

@@ -40,10 +40,17 @@
   the active slice.
 
 ### 5. External inputs / evidence-derived follow-ups
-- **Vaccination schedule values** — V1 Config presets now come from the tracked
-  source-nuance matrix: ET+TT, PPR, Goat Pox, FMD, and HS live inside one
-  scoped `vaccination.matrix` version. Broader production changes are new
-  company/park matrix versions, not new one-vaccine protocol rows.
+- **Vaccination schedule values** — current approved schedule rows are in
+  `docs/preventive-care-vaccination/APPROVED-SCHEDULE-MATRIX.md`: ET+TT, PPR,
+  Goat Pox, Sheep Pox, FMD, HS, and Blue Tongue with species split, dose, vial,
+  repeat, procurement, pregnancy, and gap rules. They live inside one scoped
+  `vaccination.matrix` version; broader production changes are new company/park
+  matrix versions, not new one-vaccine protocol rows. BQ and any future override
+  still need timing/dose/booster/route/storage evidence before they can generate
+  obligations. The matrix also controls schedule rendering: fixed kid-course
+  drive days are due points (4w, 7w, 12w, 16w, and applicable 20w
+  follow-through), while adult/fattening steady-state rows are repeat-interval
+  driven from accepted completions.
 - **Feed ration VALUES** + session clock times per park.
 - **CUTOVER_DATE** + vaccination-history-trust decision (migration-and-cutover §6).
 - The **4 superadmin mail IDs** + capability grants (`protocol.publish.<category>`).
@@ -99,8 +106,8 @@ Adherence = **computed**: expected (rule) vs actual (completion + proof + timing
 
 ## G. Order of implementation
 **Phase 0 — foundation deltas (no rule values needed):** `000070`–`000074` + outbox→Pub/Sub adapter + create `protocol`/`obligation`/`inventory` Go domains (schema + repos, no rules yet). Engine stands up empty.
-**Phase 1 — Preventive Care (PC) Vaccination slice:** `000075`; build `vaccination` domain; SM-1/3/4/5/7 handlers; SOP form/proof seed; config-screen API + impact-preview; Control Tower + Action Center + Protocol Adherence reads + coverage projection. Evidence-derived rule values now live in the scoped vaccination matrix path; use `vaccination.matrix` as the company/park active ruleset family. Additional or corrected values arrive later as new inactive versions that CEO/COO activates for company or park scope.
+**Phase 1 — Preventive Care (PC) Vaccination slice:** `000075`; build `vaccination` domain; SM-1/3/4/5/7 handlers; SOP form/proof seed; config-screen API + impact-preview; Control Tower + Action Center + Protocol Adherence reads + coverage projection. Approved rule values now live in the scoped vaccination matrix path; use `vaccination.matrix` as the company/park active ruleset family for ET+TT, PPR, Goat Pox, Sheep Pox, FMD, HS, and Blue Tongue. Additional or corrected values arrive later as new inactive versions that CEO/COO activates for company or park scope.
 **Phase 2 — Feed Direction:** use new migration numbers after the live repo tail; build the generation pipeline and wiring around the committed `000079` generic-kernel design. SM-6 is full direction + cutoff Diff + bridge logging + packing reserve. Feed operational screens remain scope-gated until explicitly reopened.
 **Cutover (one-time, after Phase 1 engine ready):** freeze legacy → canonical → backfill generator per migration-and-cutover.md; `CUTOVER_DATE` policy (no historical-overdue flood).
 
-**Critical-path gate:** Phase 0 + the *engine* of Phase 1/2 can be built **now**. For Preventive Care (PC) vaccination local/dev, the selected evidence-derived ET baseline can generate work; broader production roster expansion remains versioned matrix work based on tracked business/medical evidence.
+**Critical-path gate:** Phase 0 + the *engine* of Phase 1/2 can be built **now**. For Preventive Care (PC) vaccination local/dev, the approved schedule matrix can generate work for its listed vaccine rows; BQ and future overrides remain versioned matrix work based on tracked business/medical evidence.

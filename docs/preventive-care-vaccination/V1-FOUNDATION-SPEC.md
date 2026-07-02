@@ -12,8 +12,10 @@ while Preventive Care (PC) / Vaccination links to it filtered as `category=vacci
 vaccination-specific invariant in this spec is that eligibility must not be
 modelled with a generic `shed_status` text field. Authoritative source hierarchy:
 committed migrations `000071`-`000075`, `wiki/goatOS.docx` (§1 locations, §6
-vaccination, §11 shiftings), voice-note matrix requirements, and the accepted
-source findings in
+vaccination, §11 shiftings), `context/source-findings/goats-and-parks-source-findings.md`
+for stage/tag semantics, voice-note matrix requirements,
+`docs/preventive-care-vaccination/APPROVED-SCHEDULE-MATRIX.md` for vaccine
+timing/dose/vial/repeat/gap rules, and the accepted source findings in
 `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md` plus
 `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`.
 Visual source: `mock/goatos-dashboard-mock.html`.
@@ -54,9 +56,11 @@ Visual source: `mock/goatos-dashboard-mock.html`.
   not rebuild Locations, do not invent a new capacity field (`shed_profiles.capacity`
   already exists).
 - **Do not build full Parks modules now:** no Sanitation, no Preventive Care (PC) & Biosecurity
-  Parks page, no Feed Direction, no Feed Execution, no Ground Team module, no
-  Park Inventory screen. **Feed Direction stays paused** until Preventive Care (PC) / Vaccination UI
-  + the V1 matrix/due engine are reviewed and approved.
+  Parks page, no Feed Execution, no Ground Team module, no Park Inventory
+  screen. **Status update, 2026-06-30:** the old Feed Direction pause is
+  satisfied for sequencing by the local Goal 1 vaccination/kernel closure. Feed
+  Direction may resume as its own build goal; Google dev rollout remains
+  separate Goal 2 and must not be claimed from local evidence.
 
 ## 2. Engine ↔ doc mapping (already committed — reconcile vocab, don't rebuild)
 
@@ -138,10 +142,22 @@ Procurement vertical for v1.
 
 ## 4.1 Legacy parity floor and import/replay mapping
 
-- Preserve tracked SOP labels (`PPR`, `ET`, `FMD`, `HS`, `BQ`) as
-  vocabulary. Labels alone are not V1 completion; every demoed
-  schedule-bearing vaccine needs evidence-derived timing, dose, eligibility,
-  window, repeat/booster, defer, and proof rows.
+- Binding matrix rules (non-negotiable): every v1 obligation/rule generation,
+  seed, test, and rendered board MUST follow the two Binding Rules at the top of
+  `docs/preventive-care-vaccination/APPROVED-SCHEDULE-MATRIX.md`: (a) kid-course rendering
+  (4w/7w/12w/16w/20w due points only; nothing before 4w; steady-state repeats
+  after 20w) and (b) Goat Pox source-conflict (16w raw / 20w derived when PPR is
+  at 16w; keep both truths, label the derivation, never drop 16w raw).
+- Preserve tracked SOP/vocabulary labels (`PPR`, `ET`, `FMD`, `HS`, `BQ`), but
+  labels alone are not V1 completion. Schedule-bearing vaccine rows now come
+  from `docs/preventive-care-vaccination/APPROVED-SCHEDULE-MATRIX.md`: ET+TT, PPR, Goat Pox,
+  Sheep Pox, FMD, HS, and Blue Tongue with species split, dose, vial, repeat,
+  and gap rules. BQ remains label-only until a later reviewed source adds
+  schedule-bearing values.
+- Preserve the matrix interpretation: kid boards show only actual due ages
+  (4w, 7w, 12w, 16w, and applicable 20w follow-through), while adult/fattening
+  steady state follows repeat intervals from accepted completions and adult
+  procurement follows its own first-step/+4w path.
 - Preserve the SOP proof shape: scheduled date, operator, goat scan, vaccine
   name, medicine batch/vial-lot, dose ml, administered date/time, proof media,
   adverse reaction + notes/follow-up, and verifier/park-head review.

@@ -2,6 +2,14 @@
 
 Date: 2026-06-26
 
+> **Historical baseline note, 2026-07-02:** this file records the older local/dev
+> ET-only proof baseline. Current approved vaccine timing, dose, vial,
+> repeat, procurement, pregnancy, and gap rules now live in
+> `docs/preventive-care-vaccination/APPROVED-SCHEDULE-MATRIX.md`. Do not use this file to
+> block the approved schedule rows for ET+TT, PPR, Goat Pox, Sheep Pox, FMD, HS,
+> or Blue Tongue. BQ remains label-only until a later reviewed source adds
+> schedule-bearing values.
+
 ## Purpose
 
 This file records the baseline we are choosing from existing Mesha artifacts so
@@ -32,7 +40,7 @@ ICU/quarantine/holding are operational states/flags, not replacement age bands.
 Do not mix them into `animal_stage_lookup` schedule eligibility unless a later
 source explicitly defines them as stage rows.
 
-## Vaccine and SOP baseline
+## Vaccine and SOP baseline (historical 2026-06-26)
 
 | item | local/dev decision | source |
 | --- | --- | --- |
@@ -77,4 +85,5 @@ math for PPR/FMD/HS/Goat Pox in addition to ET+TT. Closed states:
 
 No new draft should use the old ET/K1/day-21/0.5 ml fixture as the ruleset
 contract. Keep it only as historical context for why the first local proof was
-small.
+small. Current schedule authoring is superseded by
+`docs/preventive-care-vaccination/APPROVED-SCHEDULE-MATRIX.md`.
