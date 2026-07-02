@@ -180,6 +180,13 @@ try {
   await page.getByRole("button", { name: /Reset/ }).click();
   await page.waitForTimeout(150);
   await check("preview: reset re-hides conditional question", async () => (await page.locator(".pvform .pvfield").count()) === pvBefore);
+  // Preview BUTTON opens the fillable form in a focused modal.
+  await page.getByRole("button", { name: /Preview form/ }).click();
+  await page.waitForTimeout(250);
+  await check("Preview button opens modal with the form", async () => (await page.locator(".cfgmodal.on .pvform .pvfield").count()) > 0);
+  await page.locator(".cfgmodal.on .x").click();
+  await page.waitForTimeout(200);
+  await check("Preview modal closes", async () => (await page.locator(".cfgmodal.on").count()) === 0);
 
   // ============ 10. FULL HAPPY PATH: save -> dry-run -> publish -> library card ============
   await gotoBuilder();

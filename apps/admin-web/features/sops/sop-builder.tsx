@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronLeft, NotebookPen, Play, Plus, Video } from "lucide-react";
+import { AlertTriangle, Check, ChevronLeft, Eye, NotebookPen, Play, Plus, Video, X } from "lucide-react";
 import {
   buildFormDsl,
   buildSopCode,
@@ -107,6 +107,7 @@ export function SopBuilder({
   const [notice, setNotice] = useState<{ ok: boolean; message: string } | null>(null);
   const [pending, startTransition] = useTransition();
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const input: SopBuilderInput = useMemo(
     () => ({ name, domain, trigger, steps, proofRequired, proofType, verifyBeforeApply, minCount, subjectScope }),
@@ -209,6 +210,9 @@ export function SopBuilder({
           <div className="sub">{editing ? copy(pc, "builder.subtitle_edit") : copy(pc, "builder.subtitle")}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
+        <button type="button" className="btn p" onClick={() => setPreviewOpen(true)}>
+          <Eye className="ic" /> {copy(pc, "builder.preview.open")}
+        </button>
         <Link className="btn" href="/sops">
           <ChevronLeft className="ic" /> {copy(pc, "builder.back")}
         </Link>
@@ -485,6 +489,30 @@ export function SopBuilder({
           </section>
         </aside>
       </div>
+
+      {previewOpen ? (
+        <>
+          <div className="cfgback on" onClick={() => setPreviewOpen(false)} />
+          <div className="cfgmodal on" style={{ width: "min(620px,96vw)" }} role="dialog" aria-modal="true" aria-label={copy(pc, "builder.preview.title")}>
+            <div className="cmh">
+              <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}>
+                <Eye className="ic" />
+              </span>
+              <div>
+                <div className="mono muted" style={{ fontSize: 11 }}>{copy(pc, "modal.builder.eyebrow")}</div>
+                <div className="b700">{copy(pc, "builder.preview.title")}</div>
+              </div>
+              <div className="sp" style={{ flex: 1 }} />
+              <button type="button" className="x" onClick={() => setPreviewOpen(false)} aria-label={copy(pc, "builder.preview.close")}>
+                <X className="ic" />
+              </button>
+            </div>
+            <div className="cmb" style={{ display: "block" }}>
+              <BuilderPreview pc={pc} steps={steps} />
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
