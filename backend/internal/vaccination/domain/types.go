@@ -129,6 +129,11 @@ type EligibleGoat struct {
 	GoatID               string
 	DOB                  *time.Time
 	EntryDate            *time.Time
+	WarmingEntryAt       *time.Time
+	BreedingDate         *time.Time
+	LastDeliveryDate     *time.Time
+	Species              string
+	OriginType           string
 	LifecycleStatus      string
 	HealthStatus         string
 	ReproductiveStatus   string

@@ -1589,6 +1589,43 @@ func (r *Repository) CountEligibleShedScopes(ctx context.Context, f domain.Impac
 	return n, nil
 }
 
+func timestamptzValue(t pgtype.Timestamptz) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	tt := t.Time.UTC()
+	return &tt
+}
+
+func eligibleGoatFromGenerationRow(
+	goatID string,
+	dob, entryDate pgtype.Date,
+	lifecycle, health, reproductive, species, originType string,
+	warmingEntryAt pgtype.Timestamptz,
+	shedID, parkID, sex, breed, stage, ageBand string,
+	locationIsQuarantine, locationIsICU bool,
+) domain.EligibleGoat {
+	return domain.EligibleGoat{
+		GoatID:               goatID,
+		DOB:                  pgconv.DateValue(dob),
+		EntryDate:            pgconv.DateValue(entryDate),
+		WarmingEntryAt:       timestamptzValue(warmingEntryAt),
+		Species:              species,
+		OriginType:           originType,
+		LifecycleStatus:      lifecycle,
+		HealthStatus:         health,
+		ReproductiveStatus:   reproductive,
+		ShedID:               shedID,
+		ParkID:               parkID,
+		Sex:                  sex,
+		Breed:                breed,
+		Stage:                stage,
+		AgeBand:              ageBand,
+		LocationIsQuarantine: locationIsQuarantine,
+		LocationIsICU:        locationIsICU,
+	}
+}
+
 // ListEligibleGoatsForGeneration returns a chunked page of the in-care cohort for SM-1.
 func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domain.ImpactFilter, afterGoatID string, limit int32) ([]domain.EligibleGoat, error) {
 	ctx, cancel := r.withTimeout(ctx)
@@ -1623,22 +1660,13 @@ func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domai
 	}
 	out := make([]domain.EligibleGoat, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, domain.EligibleGoat{
-			GoatID:               row.GoatID,
-			DOB:                  pgconv.DateValue(row.Dob),
-			EntryDate:            pgconv.DateValue(row.EntryDate),
-			LifecycleStatus:      row.LifecycleStatus,
-			HealthStatus:         row.HealthStatus,
-			ReproductiveStatus:   row.ReproductiveStatus,
-			ShedID:               row.ShedID,
-			ParkID:               row.ParkID,
-			Sex:                  row.Sex,
-			Breed:                row.Breed,
-			Stage:                row.ManagementStage,
-			AgeBand:              row.AgeBand,
-			LocationIsQuarantine: row.LocationIsQuarantine,
-			LocationIsICU:        row.LocationIsIcu,
-		})
+		out = append(out, eligibleGoatFromGenerationRow(
+			row.GoatID, row.Dob, row.EntryDate,
+			row.LifecycleStatus, row.HealthStatus, row.ReproductiveStatus, row.Species, row.OriginType,
+			row.WarmingEntryAt,
+			row.ShedID, row.ParkID, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
+			row.LocationIsQuarantine, row.LocationIsIcu,
+		))
 	}
 	return out, nil
 }
@@ -1662,22 +1690,13 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 	if err != nil {
 		return domain.EligibleGoat{}, false, fmt.Errorf("vaccination: get goat for generation: %w", err)
 	}
-	return domain.EligibleGoat{
-		GoatID:               row.GoatID,
-		DOB:                  pgconv.DateValue(row.Dob),
-		EntryDate:            pgconv.DateValue(row.EntryDate),
-		LifecycleStatus:      row.LifecycleStatus,
-		HealthStatus:         row.HealthStatus,
-		ReproductiveStatus:   row.ReproductiveStatus,
-		ShedID:               row.ShedID,
-		ParkID:               row.ParkID,
-		Sex:                  row.Sex,
-		Breed:                row.Breed,
-		Stage:                row.ManagementStage,
-		AgeBand:              row.AgeBand,
-		LocationIsQuarantine: row.LocationIsQuarantine,
-		LocationIsICU:        row.LocationIsIcu,
-	}, true, nil
+	return eligibleGoatFromGenerationRow(
+		row.GoatID, row.Dob, row.EntryDate,
+		row.LifecycleStatus, row.HealthStatus, row.ReproductiveStatus, row.Species, row.OriginType,
+		row.WarmingEntryAt,
+		row.ShedID, row.ParkID, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
+		row.LocationIsQuarantine, row.LocationIsIcu,
+	), true, nil
 }
 
 // HasTrustedCompletionEvidence returns true when prior trusted evidence already satisfies the

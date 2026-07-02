@@ -125,10 +125,14 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		if err != nil {
 			return false, err
 		}
-		if !found || !inCare(goat.LifecycleStatus) || !goatMatchesEligibility(goat, dsl.Eligibility, due) {
+		policies := versionPoliciesFromDSL(dsl)
+		if !found || !inCare(goat.LifecycleStatus) || !goatMatchesEligibility(goat, dsl.Eligibility, policies.Pregnancy, due) {
 			return false, nil
 		}
 		deferReason = deferredReason(goat, dsl.Eligibility.DeferStates)
+		if deferReason == "" {
+			deferReason = policyDeferReason(goat, policies, due)
+		}
 		if deferReason != "" {
 			status = "deferred"
 		}

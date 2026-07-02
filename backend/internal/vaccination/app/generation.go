@@ -69,6 +69,7 @@ type cachedVersionPlan struct {
 	rules       []protodomain.Rule
 	deferState  []string
 	eligibility genEligibility
+	policies    genVersionPolicies
 }
 
 type goatGenerationPlan struct {
@@ -78,6 +79,7 @@ type goatGenerationPlan struct {
 	goat        domain.EligibleGoat
 	opts        generationOptions
 	eligibility genEligibility
+	policies    genVersionPolicies
 }
 
 type trustedEvidenceLookup map[string]bool
@@ -139,7 +141,18 @@ type genEligibility struct {
 }
 
 type genDSL struct {
-	Eligibility genEligibility `json:"eligibility"`
+	Eligibility         genEligibility         `json:"eligibility"`
+	CompatibilityPolicy genCompatibilityPolicy `json:"compatibility_policy"`
+	ProcurementPolicy   genProcurementPolicy   `json:"procurement_policy"`
+	PregnancyPolicy     genPregnancyPolicy     `json:"pregnancy_policy"`
+}
+
+func versionPoliciesFromDSL(dsl genDSL) genVersionPolicies {
+	return genVersionPolicies{
+		Procurement:   dsl.ProcurementPolicy,
+		Pregnancy:     dsl.PregnancyPolicy,
+		Compatibility: dsl.CompatibilityPolicy,
+	}
 }
 
 type genStringList []string
@@ -242,10 +255,15 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 					if err != nil {
 						return res, err
 					}
-					p = cachedVersionPlan{rules: rules, deferState: dsl.Eligibility.DeferStates, eligibility: dsl.Eligibility}
+					p = cachedVersionPlan{
+						rules:       rules,
+						deferState:  dsl.Eligibility.DeferStates,
+						eligibility: dsl.Eligibility,
+						policies:    versionPoliciesFromDSL(dsl),
+					}
 					plans[versionID] = p
 				}
-				if !goatMatchesEligibility(g, p.eligibility, asOf) {
+				if !goatMatchesEligibility(g, p.eligibility, p.policies.Pregnancy, asOf) {
 					continue
 				}
 				pagePlans = append(pagePlans, goatGenerationPlan{
@@ -255,6 +273,7 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 					goat:        g,
 					opts:        generationOptions{},
 					eligibility: p.eligibility,
+					policies:    p.policies,
 				})
 			}
 		}
@@ -263,7 +282,7 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 			return res, err
 		}
 		for _, p := range pagePlans {
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, trustedByVersion[p.versionID], &res); err != nil {
+			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, p.policies, trustedByVersion[p.versionID], &res); err != nil {
 				return res, err
 			}
 		}
@@ -379,6 +398,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		return res, err
 	}
 	elig := dsl.Eligibility
+	policies := versionPoliciesFromDSL(dsl)
 	stage := eligibilityStage(elig)
 	filter := domain.ImpactFilter{
 		TenantID: tenantID,
@@ -406,7 +426,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			if !inCare(g.LifecycleStatus) {
 				continue
 			}
-			if !goatMatchesEligibility(g, elig, asOf) {
+			if !goatMatchesEligibility(g, elig, policies.Pregnancy, asOf) {
 				continue
 			}
 			if v.ScopeType == "tenant" {
@@ -425,6 +445,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 				goat:        g,
 				opts:        opts,
 				eligibility: elig,
+				policies:    policies,
 			})
 		}
 		trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf)
@@ -432,7 +453,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			return res, err
 		}
 		for _, p := range pagePlans {
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, trustedByVersion[p.versionID], &res); err != nil {
+			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, p.policies, trustedByVersion[p.versionID], &res); err != nil {
 				return res, err
 			}
 		}
@@ -483,7 +504,10 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 			seenByVersion[plan.versionID] = make(map[string]bool)
 		}
 		for _, rule := range plan.rules {
-			due, ok, skip := dueAt(rule, plan.goat, asOf, plan.opts)
+			if !ruleMatchesSchedulePath(rule, schedulePathForGoat(plan.goat, plan.policies.Procurement, asOf)) {
+				continue
+			}
+			due, ok, skip := dueAt(rule, plan.goat, asOf, plan.opts, plan.policies)
 			if skip || !ok {
 				continue
 			}
@@ -548,10 +572,14 @@ func trustedCompletionCandidate(rule protodomain.Rule, g domain.EligibleGoat, du
 
 // genOneGoat applies every applicable rule to one goat: compute due_at, idempotent insert, and a
 // canonical deferred state when the goat is in a defer state. Accumulates counts into res.
-func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, g domain.EligibleGoat, asOf time.Time, opts generationOptions, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
+func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
 	historicalCatchUpMaterialized := false
+	path := schedulePathForGoat(g, policies.Procurement, asOf)
 	for _, rule := range rules {
-		baseDue, ok, skip := dueAt(rule, g, asOf, opts)
+		if !ruleMatchesSchedulePath(rule, path) {
+			continue
+		}
+		baseDue, ok, skip := dueAt(rule, g, asOf, opts, policies)
 		if skip {
 			res.SkippedNoDueDate++
 			if err := s.genMissingDueDateObligation(ctx, tenantID, versionID, rule, g, asOf, res); err != nil {
@@ -594,6 +622,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		missingKey := previousMissingDueDateKey(tenantID, versionID, rule, g)
 		status := "scheduled"
 		deferReason := deferredReason(g, deferStates)
+		if deferReason == "" {
+			deferReason = policyDeferReason(g, policies, asOf)
+		}
 		if deferReason == "" {
 			deferReason = catchUpDeferReason
 		}
@@ -752,7 +783,7 @@ func previousMissingDueDateKey(tenantID, versionID string, rule protodomain.Rule
 			return missingDueDateKey(tenantID, versionID, rule, g, "missing_dob")
 		}
 	case "post_arrival":
-		if g.EntryDate != nil {
+		if warmingEntryAt(g) == nil {
 			return missingDueDateKey(tenantID, versionID, rule, g, "missing_entry_date")
 		}
 	}
@@ -790,7 +821,7 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 		if err != nil {
 			return res, err
 		}
-		if !goatMatchesEligibility(g, dsl.Eligibility, asOf) {
+		if !goatMatchesEligibility(g, dsl.Eligibility, versionPoliciesFromDSL(dsl).Pregnancy, asOf) {
 			if _, err := s.obl.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, goatID, versionID, "ineligible_after_shift", asOf); err != nil {
 				return res, err
 			}
@@ -807,6 +838,7 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 			goat:        g,
 			opts:        generationOptions{},
 			eligibility: dsl.Eligibility,
+			policies:    versionPoliciesFromDSL(dsl),
 		})
 	}
 	trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf)
@@ -814,7 +846,7 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 		return res, err
 	}
 	for _, p := range pagePlans {
-		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, trustedByVersion[p.versionID], &res); err != nil {
+		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, p.policies, trustedByVersion[p.versionID], &res); err != nil {
 			return res, err
 		}
 	}
@@ -848,7 +880,7 @@ func missingDueDateReason(rule protodomain.Rule, g domain.EligibleGoat) string {
 			return "missing_dob"
 		}
 	case "post_arrival":
-		if g.EntryDate == nil {
+		if warmingEntryAt(g) == nil {
 			return "missing_entry_date"
 		}
 	}
@@ -968,7 +1000,7 @@ func eligibilityStage(e genEligibility) string {
 	return e.Stage
 }
 
-func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, asOf time.Time) bool {
+func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, preg genPregnancyPolicy, asOf time.Time) bool {
 	if s := normDim(eligibilityStage(e)); s != "" && !sameDim(s, g.Stage) {
 		return false
 	}
@@ -991,7 +1023,7 @@ func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, asOf time.T
 		return false
 	}
 	for _, excluded := range e.ExcludeReproductiveStates {
-		if normDim(excluded) != "" && sameDim(excluded, g.ReproductiveStatus) {
+		if reproductiveStateExcluded(g, []string{excluded}, preg) {
 			return false
 		}
 	}
@@ -1054,7 +1086,7 @@ func obligationWindowEnd(rule protodomain.Rule, due time.Time) *time.Time {
 	return &end
 }
 
-func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, opts generationOptions) (due time.Time, ok bool, skip bool) {
+func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies) (due time.Time, ok bool, skip bool) {
 	off := time.Duration(rule.OffsetDays) * 24 * time.Hour
 	switch rule.TriggerType {
 	case "birth_age":
@@ -1063,10 +1095,10 @@ func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, opts ge
 		}
 		return g.DOB.Add(off), true, false
 	case "post_arrival":
-		if g.EntryDate == nil {
+		if warmingEntryAt(g) == nil {
 			return time.Time{}, false, true
 		}
-		return g.EntryDate.Add(off), true, false
+		return adjustPostArrivalDue(g, rule, policies.Procurement), true, false
 	case "calendar":
 		return asOf.Add(off), true, false
 	case "manual_campaign":
