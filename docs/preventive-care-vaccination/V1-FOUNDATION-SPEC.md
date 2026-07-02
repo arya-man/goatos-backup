@@ -106,9 +106,15 @@ facts are not copied into this JSON; they come from `herd_animals`, `locations`,
    active shed has `animal_stage_id`; include source age range/normalized age
    days, allowed-species policy, `sex` grouping + `has_icu` /
    quarantine / defer metadata (existing `shed_profiles` columns + `context`
-   jsonb). Use existing `capacity`. **Gap:** seed `animal_stage_lookup` +
-   `shed_lifecycle_status_lookup`; backfill `shed_profiles.animal_stage_id` for
-   active sheds.
+   jsonb). The Goats and Parks tag catalog is shared across herd animals, but
+   each tag/stage has an enforced species allowlist: K0-K3 may include goat and
+   sheep where source/park data allows, `MOTHER` can include goat and sheep for
+   vaccination, and commercial milking stages (`MOTHER_MILKING_WAITING`,
+   `MILKING_WARMUP`, `MILKING`) are goat/doe-only. Creation/import, shed-stage
+   movement, rule publish, API selectors, and UI option lists must reject/hide
+   disallowed species/tag pairs. Use existing `capacity`. **Gap:** seed
+   `animal_stage_lookup` + `shed_lifecycle_status_lookup` + stage/species
+   policy; backfill `shed_profiles.animal_stage_id` for active sheds.
 3. **Current animal location** — every herd animal resolves to a current shed/location;
    `animal_location_history` stays intact. **Gap:** reliable current-shed
    resolution + backfill (verify/derive a current pointer without rewriting history).

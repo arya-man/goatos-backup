@@ -86,23 +86,46 @@ the animal's species must be allowed by that tag policy.
 | `source_age_range_label` | Human/source display, e.g. `10-77 days`. |
 | `source_age_min_day_number`, `source_age_max_day_number` | Source day numbering where DOB is Day 1. |
 | `min_age_days`, `max_age_days` | Normalized zero-based age days for queries/validation. |
-| `allowed_species_codes` | Species that can use the tag. Kid tags may allow goat + sheep where source/park data says so. Mother/lactation can be a sheep biological state for K0 and vaccination, but commercial milking workflow tags (`Mother Milking Waiting`, `Milking Warmup`, `Milking`) are goat/doe-only unless a future approved sheep dairy policy adds equivalents. |
+| `allowed_species_codes` | Read-model/API projection of the species that can use the tag, backed by a governed stage-species policy table or equivalent normalized config. Kid tags may allow goat + sheep where source/park data says so. Mother/lactation can be a sheep biological state for K0 and vaccination, but commercial milking workflow tags (`Mother Milking Waiting`, `Milking Warmup`, `Milking`) are goat/doe-only unless a future approved sheep dairy policy adds equivalents. |
 | `max_residence_days` | Optional operational stay limit when source purpose states one, e.g. K1 max seven days. |
 | `purpose` | Source-backed operational meaning. |
 | `status`, `sort_order` | Governance/order. |
 
 Stage/species invariants:
 
+- Goats and sheep must both use the governed Goats and Parks tag catalog; do
+  not create separate sheep-only shadow tags or a goat-only tab. Species
+  eligibility lives on each tag/stage.
 - `MOTHER` / lactating adult is a biological reproductive state. It can match
   goat and sheep mothers for vaccination and should use the species-appropriate
   adult repeat/catch-up vaccine cells.
 - `MOTHER_MILKING_WAITING`, `MILKING_WARMUP`, and `MILKING` are commercial
   goat/doe milk-production workflow tags. Do not show or match them for sheep
   unless an approved sheep dairy policy adds explicit sheep equivalents.
+- The database/config layer must store stage/species eligibility as governed
+  data, preferably `animal_stage_species_policy(tenant_id, animal_stage_id,
+  species_id/species_code, status, created_at, updated_at)` with unique
+  `(tenant_id, animal_stage_id, species)` and FKs to `animal_stage_lookup` and
+  `species_catalog`. If a JSONB bridge is used temporarily, expose the same
+  shape through the API and replace it with the normalized table before V1
+  production cutover.
+- Animal creation/import, current shed assignment, animal stage changes, and
+  rule publish/activation must validate species against this policy. Invalid
+  combinations should fail with a stable error such as
+  `invalid_species_for_stage`; legacy bad rows, if discovered, become Data Ops
+  exceptions and are not eligible for automatic obligation generation.
 - Rule matching must enforce `allowed_species_codes` / stage-species policy
   before vaccine cells are evaluated. A JSON row that combines sheep with a
   goat-only commercial milking stage is invalid even if the vaccine itself is
   otherwise valid for sheep.
+- Admin UI and API option endpoints must filter stage/tag options by selected
+  species. Sheep users should not see `MOTHER_MILKING_WAITING`,
+  `MILKING_WARMUP`, or `MILKING` as selectable category/tag values; rule impact
+  preview must report invalid existing combinations as blockers.
+- Required tests: API/import rejects sheep + commercial milking stage, UI option
+  contract omits commercial milking stages for sheep, rule publish rejects a
+  sheep row containing goat-only stage codes, and generation skips/blocks any
+  legacy invalid row instead of creating vaccination obligations.
 
 Seed baseline from Goats and Parks:
 

@@ -326,6 +326,11 @@ UI requirements:
   sheep mothers for vaccination. Treat `Mother Milking Waiting`,
   `Milking Warmup`, and `Milking` as commercial goat-milk workflow tags; do not
   show them for sheep unless a future approved sheep dairy policy adds them.
+- Stage/tag options must come from the governed Goats and Parks tag catalog plus
+  stage-species policy. When species is sheep, the UI must not show commercial
+  goat-milking tags as selectable category/stage values. If an existing legacy
+  row violates the species/tag policy, show it as a Data Ops blocker, not as a
+  selectable normal state.
 
 Design:
 - Dense operational UI, not marketing.
@@ -362,6 +367,18 @@ Required:
 - Activation/publish requires CEO/COO/superadmin authority, valid JSON schema,
   published SOP binding where needed, non-overlapping effective dates, active
   cardinality checks, scope override resolution, and impact preview.
+- Add a governed stage/species policy store for `animal_stage_lookup`, exposed to
+  APIs as allowed species per tag/stage. Enforce it on animal creation/import,
+  shed/stage movement, rule authoring, rule publish/activation, and impact
+  preview. Invalid species/tag pairs fail with a stable validation error such as
+  invalid_species_for_stage; legacy violations are Data Ops blockers.
+- Rule matching must validate each row's species x stage cross-product against
+  stage_species_policy before vaccine cells run. Do not allow sheep rows to carry
+  `MOTHER_MILKING_WAITING`, `MILKING_WARMUP`, `MILKING`, or any other goat-only
+  commercial milking tag.
+- Add tests for API/import rejection, UI option filtering, publish-time matrix
+  validation, and generation blocking when a sheep record references a goat-only
+  commercial milking stage.
 - Activating a park override must supersede/recompute open company-version work
   for that park only; completed history keeps its original protocol_version_id;
   in-progress batches require explicit operator choice.
@@ -598,20 +615,38 @@ snapshots and no `goat_herd_required_fields`.
       }
     },
     {
-      "row_key": "adult_revaccination_all_species",
-      "label": "Adult goats and sheep, revaccination cycle, all breeds",
+      "row_key": "adult_shared_revaccination_all_species",
+      "label": "Adult goats and sheep, shared biological adult tags, all breeds",
       "criteria": {
         "species_codes": ["goat", "sheep"],
         "breed_ids": ["*"],
         "sex": ["female", "male", "unknown"],
-        "stage_codes": ["NON_PREGNANT", "BREEDING", "MOTHER", "MOTHER_MILKING_WAITING", "MILKING_WARMUP", "MILKING", "BUCK", "FATTENING_MALE", "FATTENING_FEMALE"],
+        "stage_codes": ["NON_PREGNANT", "BREEDING", "MOTHER", "FATTENING_MALE", "FATTENING_FEMALE"],
         "age_days": {
           "min": 141,
           "max": null
         },
         "lifecycle_status": ["alive"],
         "health_status": ["healthy", "recovering"],
-        "reproductive_status": ["non_pregnant", "lactating", "mother", "buck", "unknown"],
+        "reproductive_status": ["non_pregnant", "lactating", "mother", "unknown"],
+        "procurement_path": ["farm_born", "procured", "imported", "unknown"]
+      }
+    },
+    {
+      "row_key": "adult_goat_commercial_milking_and_buck_revaccination",
+      "label": "Adult goats, commercial milking and buck tags",
+      "criteria": {
+        "species_codes": ["goat"],
+        "breed_ids": ["*"],
+        "sex": ["female", "male"],
+        "stage_codes": ["MOTHER_MILKING_WAITING", "MILKING_WARMUP", "MILKING", "BUCK"],
+        "age_days": {
+          "min": 141,
+          "max": null
+        },
+        "lifecycle_status": ["alive"],
+        "health_status": ["healthy", "recovering"],
+        "reproductive_status": ["lactating", "mother", "buck", "unknown"],
         "procurement_path": ["farm_born", "procured", "imported", "unknown"]
       }
     },
@@ -794,7 +829,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "adult_revaccination_all_species",
+      "row_key": "adult_shared_revaccination_all_species",
       "vaccine_code": "ET_TT",
       "action": "due",
       "dose_schedule": [
@@ -809,7 +844,247 @@ snapshots and no `goat_herd_required_fields`.
           "max_delay_days": 14,
           "repeat": "every_n_days",
           "repeat_interval_days": 182,
-          "catch_up": "next_cycle"
+          "catch_up": "immediate"
+        }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_shared_revaccination_all_species",
+      "vaccine_code": "PPR",
+      "action": "due",
+      "dose_schedule": [
+        {
+          "dose_code": "revaccination",
+          "sequence": 99,
+          "trigger_type": "after_previous_completion",
+          "offset_days": 1095,
+          "earliest_offset_days": 1095,
+          "latest_offset_days": 1109,
+          "min_gap_days": 1095,
+          "max_delay_days": 14,
+          "repeat": "every_n_days",
+          "repeat_interval_days": 1095,
+          "catch_up": "immediate"
+        }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_shared_revaccination_all_species",
+      "vaccine_code": "FMD",
+      "action": "due",
+      "dose_schedule": [
+        {
+          "dose_code": "revaccination",
+          "sequence": 99,
+          "trigger_type": "after_previous_completion",
+          "offset_days": 274,
+          "earliest_offset_days": 274,
+          "latest_offset_days": 288,
+          "min_gap_days": 274,
+          "max_delay_days": 14,
+          "repeat": "every_n_days",
+          "repeat_interval_days": 274,
+          "catch_up": "immediate"
+        }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_shared_revaccination_all_species",
+      "vaccine_code": "HS",
+      "action": "due",
+      "dose_schedule": [
+        {
+          "dose_code": "revaccination",
+          "sequence": 99,
+          "trigger_type": "after_previous_completion",
+          "offset_days": 365,
+          "earliest_offset_days": 365,
+          "latest_offset_days": 379,
+          "min_gap_days": 365,
+          "max_delay_days": 14,
+          "repeat": "every_n_days",
+          "repeat_interval_days": 365,
+          "catch_up": "immediate"
+        }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_goat_commercial_milking_and_buck_revaccination",
+      "vaccine_code": "ET_TT",
+      "action": "due",
+      "dose_schedule": [
+        {
+          "dose_code": "revaccination",
+          "sequence": 99,
+          "trigger_type": "after_previous_completion",
+          "offset_days": 182,
+          "earliest_offset_days": 182,
+          "latest_offset_days": 196,
+          "min_gap_days": 182,
+          "max_delay_days": 14,
+          "repeat": "every_n_days",
+          "repeat_interval_days": 182,
+          "catch_up": "immediate"
+        }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_shared_revaccination_all_species",
+      "vaccine_code": "GOAT_POX",
+      "action": "due",
+      "criteria_override": {
+        "species_codes": ["goat"]
+      },
+      "dose_schedule": [
+        {
+          "dose_code": "revaccination",
+          "sequence": 99,
+          "trigger_type": "after_previous_completion",
+          "offset_days": 365,
+          "earliest_offset_days": 365,
+          "latest_offset_days": 379,
+          "min_gap_days": 365,
+          "max_delay_days": 14,
+          "repeat": "every_n_days",
+          "repeat_interval_days": 365,
+          "catch_up": "immediate"
+        }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_goat_commercial_milking_and_buck_revaccination",
+      "vaccine_code": "PPR",
+      "action": "due",
+      "dose_schedule": [
+        {
+          "dose_code": "revaccination",
+          "sequence": 99,
+          "trigger_type": "after_previous_completion",
+          "offset_days": 1095,
+          "earliest_offset_days": 1095,
+          "latest_offset_days": 1109,
+          "min_gap_days": 1095,
+          "max_delay_days": 14,
+          "repeat": "every_n_days",
+          "repeat_interval_days": 1095,
+          "catch_up": "immediate"
+        }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_goat_commercial_milking_and_buck_revaccination",
+      "vaccine_code": "GOAT_POX",
+      "action": "due",
+      "dose_schedule": [
+        {
+          "dose_code": "revaccination",
+          "sequence": 99,
+          "trigger_type": "after_previous_completion",
+          "offset_days": 365,
+          "earliest_offset_days": 365,
+          "latest_offset_days": 379,
+          "min_gap_days": 365,
+          "max_delay_days": 14,
+          "repeat": "every_n_days",
+          "repeat_interval_days": 365,
+          "catch_up": "immediate"
+        }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_goat_commercial_milking_and_buck_revaccination",
+      "vaccine_code": "FMD",
+      "action": "due",
+      "dose_schedule": [
+        {
+          "dose_code": "revaccination",
+          "sequence": 99,
+          "trigger_type": "after_previous_completion",
+          "offset_days": 274,
+          "earliest_offset_days": 274,
+          "latest_offset_days": 288,
+          "min_gap_days": 274,
+          "max_delay_days": 14,
+          "repeat": "every_n_days",
+          "repeat_interval_days": 274,
+          "catch_up": "immediate"
+        }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_goat_commercial_milking_and_buck_revaccination",
+      "vaccine_code": "HS",
+      "action": "due",
+      "dose_schedule": [
+        {
+          "dose_code": "revaccination",
+          "sequence": 99,
+          "trigger_type": "after_previous_completion",
+          "offset_days": 365,
+          "earliest_offset_days": 365,
+          "latest_offset_days": 379,
+          "min_gap_days": 365,
+          "max_delay_days": 14,
+          "repeat": "every_n_days",
+          "repeat_interval_days": 365,
+          "catch_up": "immediate"
+        }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_shared_revaccination_all_species",
+      "vaccine_code": "SHEEP_POX",
+      "action": "due",
+      "criteria_override": {
+        "species_codes": ["sheep"]
+      },
+      "dose_schedule": [
+        {
+          "dose_code": "revaccination",
+          "sequence": 99,
+          "trigger_type": "after_previous_completion",
+          "offset_days": 365,
+          "earliest_offset_days": 365,
+          "latest_offset_days": 379,
+          "min_gap_days": 365,
+          "max_delay_days": 14,
+          "repeat": "every_n_days",
+          "repeat_interval_days": 365,
+          "catch_up": "immediate"
+        }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_shared_revaccination_all_species",
+      "vaccine_code": "BLUE_TONGUE",
+      "action": "due",
+      "criteria_override": {
+        "species_codes": ["sheep"]
+      },
+      "dose_schedule": [
+        {
+          "dose_code": "revaccination",
+          "sequence": 99,
+          "trigger_type": "after_previous_completion",
+          "offset_days": 365,
+          "earliest_offset_days": 365,
+          "latest_offset_days": 379,
+          "min_gap_days": 365,
+          "max_delay_days": 14,
+          "repeat": "every_n_days",
+          "repeat_interval_days": 365,
+          "catch_up": "immediate"
         }
       ],
       "proof_policy_key": "vaccination_drive_standard"

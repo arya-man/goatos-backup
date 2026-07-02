@@ -326,6 +326,11 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    and `Milking` are goat/doe-only because they represent a goat milk-production
    workflow, unless a future approved sheep dairy policy creates sheep
    equivalents.
+   GoatOS must enforce this at every entry point: animal creation/import,
+   current shed/stage changes, rule authoring, API writes, and UI option lists
+   must reject or hide species/tag pairs that are not allowed by the Goats and
+   Parks tag policy. A sheep cannot be created, moved, selected, or matched
+   into commercial goat-milking tags.
 3. **No mother-vaccination-status category** — vaccination V1 must not create
    or show a shed tag, category tag, matrix dimension, JSON selector, seed row,
    or UI option based on missing mother vaccination evidence. If a source
