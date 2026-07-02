@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Camera, Check, ChevronDown, RotateCcw, ScanLine, Video } from "lucide-react";
+import { Camera, Check, ChevronDown, RotateCcw, ScanLine, Video, X } from "lucide-react";
 import { fieldConfigKind, type BuilderCondition, type BuilderStep } from "./sop-derive";
 import { copy, optionalOptionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -191,10 +191,40 @@ export function BuilderPreview({ pc, steps }: { pc: AdminUiPageContract; steps: 
                 </div>
               ) : null}
               {kind === "scan" ? (
-                <div className="pvscanstub" aria-disabled="true">
-                  <ScanLine className="ic" aria-hidden="true" />
-                  <span>{copy(pc, "builder.scan.note")}</span>
-                </div>
+                step.multiScan ? (
+                  // Multi-scan: operator scans every goat in the shed — a growing multi-select of tags.
+                  <div className="pvscanmulti">
+                    <div className="pvscanchips">
+                      {(Array.isArray(answer) ? answer : []).map((g, gi) => (
+                        <button
+                          key={`${g}-${gi}`}
+                          type="button"
+                          className="pvchip"
+                          onClick={() => setAnswer(step.id, (answer as string[]).filter((_, k) => k !== gi))}
+                        >
+                          {g} <X className="ic" aria-hidden="true" />
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        className="btn sm ghost"
+                        onClick={() => {
+                          const cur = Array.isArray(answer) ? (answer as string[]) : [];
+                          setAnswer(step.id, [...cur, `#${cur.length + 1}`]);
+                        }}
+                      >
+                        <ScanLine className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pc, "builder.preview.scan_add")}
+                      </button>
+                    </div>
+                    <div className="muted small">{copy(pc, "builder.scan.note")}</div>
+                  </div>
+                ) : (
+                  <div className="pvselectstub" aria-disabled="true">
+                    <ScanLine className="ic" aria-hidden="true" style={{ marginLeft: 0 }} />
+                    <span>{copy(pc, "builder.scan.note")}</span>
+                    <ChevronDown className="ic" aria-hidden="true" />
+                  </div>
+                )
               ) : null}
               {kind === "proof" ? (
                 <label className="pvdrop">

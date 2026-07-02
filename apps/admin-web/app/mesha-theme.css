@@ -811,6 +811,10 @@
   .pvselectstub .ic{width:14px;height:14px;margin-left:auto;flex:none}
   .pvscanstub{display:flex;align-items:center;gap:8px;margin-top:7px;border:1px dashed var(--line);background:var(--panel);border-radius:8px;padding:9px 10px;color:var(--muted);font-size:12px}
   .pvscanstub .ic{width:15px;height:15px;color:var(--brand-d);flex:none}
+  .pvscanmulti{margin-top:7px;border:1px dashed var(--line);background:var(--panel);border-radius:8px;padding:9px 10px}
+  .pvscanchips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .pvchip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--brand);background:var(--brand-soft);color:var(--brand-d);border-radius:999px;padding:3px 9px;font-size:11.5px;font-weight:600;cursor:pointer}
+  .pvchip .ic{width:11px;height:11px}
   .pvdrop{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:7px;border:1.5px dashed var(--line);background:var(--panel);border-radius:10px;padding:16px 12px;text-align:center;color:var(--muted);font-size:12px;cursor:pointer}
   .pvdrop:hover{border-color:var(--brand-d);color:var(--ink)}
   .pvdrop .ic{width:22px;height:22px;color:var(--brand-d)}

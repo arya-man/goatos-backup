@@ -1887,6 +1887,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"builder.proof.note":                "Operators capture and upload proof here; verification gates completion.",
 			"builder.picker.note":               "Operators select from the live list at execution time.",
 			"builder.scan.note":                 "Operators scan the goat RFID / tag; unreadable scans are rejected.",
+			"builder.scan.mode_label":           "Scan mode",
+			"builder.scan.single_hint":          "Operator scans / selects one goat.",
+			"builder.scan.multi_hint":           "Operator scans every goat in the shed — one batched session.",
+			"builder.preview.scan_add":          "Scan goat",
+			"builder.gates.subject_hint":        "Batch = one proof for the whole shed session. Per-goat = a proof per animal.",
 			"builder.boolean.note":              "Yes / No answer.",
 			"builder.logic.title":               "Conditional logic",
 			"builder.logic.add":                 "Only show this question when…",
@@ -2722,6 +2727,15 @@ func sopOptionGroups() []domain.OptionGroup {
 			Options: []domain.Option{
 				option("batch", "subject: batch", "", ""),
 				option("goat", "subject: per-goat", "", ""),
+			},
+		},
+		{
+			// Goat scan/RFID capture mode: single goat vs the whole-shed batch (many goats in one
+			// session) — the real vaccination drive is grouped by shed, never random goats.
+			ID: "sop_scan_modes",
+			Options: []domain.Option{
+				option("single", "Single goat", "", ""),
+				option("multi", "Multiple goats (whole shed / batch)", "", ""),
 			},
 		},
 	}

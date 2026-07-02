@@ -258,7 +258,26 @@ export function QuestionCard(props: QuestionCardProps) {
 
         {kind === "proof" ? <div className="note">{copy(pc, "builder.proof.note")}</div> : null}
         {kind === "picker" ? <div className="note">{copy(pc, "builder.picker.note")}</div> : null}
-        {kind === "scan" ? <div className="note">{copy(pc, "builder.scan.note")}</div> : null}
+        {kind === "scan" ? (
+          <div className="qcfg">
+            <div className="qcfg-head">
+              <span className="qcfg-title">{copy(pc, "builder.scan.mode_label")}</span>
+              <span className="muted small">{step.multiScan ? copy(pc, "builder.scan.multi_hint") : copy(pc, "builder.scan.single_hint")}</span>
+            </div>
+            <select
+              aria-label={`${number} · ${copy(pc, "builder.scan.mode_label")}`}
+              value={step.multiScan ? "multi" : "single"}
+              onChange={(e) => onPatch({ multiScan: e.target.value === "multi" })}
+            >
+              {optionGroup(pc, "sop_scan_modes").map((m) => (
+                <option key={m.key} value={m.key}>
+                  {optionLabel(pc, "sop_scan_modes", m.key)}
+                </option>
+              ))}
+            </select>
+            <div className="note">{copy(pc, "builder.scan.note")}</div>
+          </div>
+        ) : null}
         {kind === "boolean" ? <div className="note">{copy(pc, "builder.boolean.note")}</div> : null}
       </div>
 

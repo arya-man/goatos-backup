@@ -372,6 +372,7 @@ export type BuilderStep = {
   unit: string; // number unit (ml, kg…)
   placeholder: string; // text placeholder
   longText: boolean; // text → paragraph
+  multiScan: boolean; // goat scan/RFID: true = scan MANY goats (whole shed/batch); false = one goat
   visibleWhen: BuilderCondition | null; // null = always show
 };
 
@@ -600,6 +601,9 @@ export function buildFormDsl(input: SopBuilderInput): EmittedFormDsl {
       if (step.placeholder.trim()) field.placeholder = step.placeholder.trim();
       if (step.longText) field.long_text = true;
     }
+    // goat scan/RFID: multi-scan captures MANY goats (whole shed / batch) as an array answer; the
+    // backend already validates goat_scan as a UUID list, so this is renderer/validation metadata.
+    if (kind === "scan" && step.multiScan) field.multiple = true;
     if (def.optionSource) field.option_source = def.optionSource;
     if (input.subjectScope === "goat") field.repeat = true;
     return field;
@@ -732,6 +736,7 @@ export function stepsFromFormDsl(formDsl: unknown): BuilderStep[] {
       unit: asString(f["unit"]) ?? "",
       placeholder: asString(f["placeholder"]) ?? "",
       longText: asBool(f["long_text"]),
+      multiScan: asBool(f["multiple"]),
       visibleWhen: null,
     };
     keyToId.set(key, id);

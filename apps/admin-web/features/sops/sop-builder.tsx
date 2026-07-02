@@ -45,6 +45,7 @@ function blankStep(type: StepTypeValue, label = ""): BuilderStep {
     unit: "",
     placeholder: "",
     longText: false,
+    multiScan: type === "goat_scan", // default a goat scan to multi (whole-shed batch is the norm)
     visibleWhen: null,
   };
 }
@@ -385,6 +386,7 @@ export function SopBuilder({
                   ))}
                 </select>
               </div>
+              <div className="muted small" style={{ marginTop: 6 }}>{copy(pc, "builder.gates.subject_hint")}</div>
               {!proofGapOk ? (
                 <div className="alert warn" style={{ marginTop: 8 }}>
                   <AlertTriangle className="ic" />
