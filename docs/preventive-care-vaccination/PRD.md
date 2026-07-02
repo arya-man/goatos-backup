@@ -318,10 +318,14 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    seven days and K2 about 42 days/six weeks are operational stay notes, not the
    medical vaccine schedule. Store `allowed_species` per tag: K0-K3 can support
    mixed kid herds when the park data says so. Mother/lactation is a biological
-   state that can apply to sheep mothers for K0 and vaccination; commercial
-   milking tags such as `Mother Milking Waiting`, `Milking Warmup`, and
-   `Milking` are goat/doe-only unless a future approved sheep dairy policy
-   creates sheep equivalents.
+   state that can apply to goat and sheep mothers for K0 and vaccination:
+   sheep mothers can produce enough milk for the newborn around K0, and their
+   vaccination obligations follow the normal adult/sheep repeat and catch-up
+   policy. Do not convert that biological state into sheep milking tags.
+   Commercial milking tags such as `Mother Milking Waiting`, `Milking Warmup`,
+   and `Milking` are goat/doe-only because they represent a goat milk-production
+   workflow, unless a future approved sheep dairy policy creates sheep
+   equivalents.
 3. **No mother-vaccination-status category** — vaccination V1 must not create
    or show a shed tag, category tag, matrix dimension, JSON selector, seed row,
    or UI option based on missing mother vaccination evidence. If a source

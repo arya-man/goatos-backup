@@ -91,6 +91,19 @@ the animal's species must be allowed by that tag policy.
 | `purpose` | Source-backed operational meaning. |
 | `status`, `sort_order` | Governance/order. |
 
+Stage/species invariants:
+
+- `MOTHER` / lactating adult is a biological reproductive state. It can match
+  goat and sheep mothers for vaccination and should use the species-appropriate
+  adult repeat/catch-up vaccine cells.
+- `MOTHER_MILKING_WAITING`, `MILKING_WARMUP`, and `MILKING` are commercial
+  goat/doe milk-production workflow tags. Do not show or match them for sheep
+  unless an approved sheep dairy policy adds explicit sheep equivalents.
+- Rule matching must enforce `allowed_species_codes` / stage-species policy
+  before vaccine cells are evaluated. A JSON row that combines sheep with a
+  goat-only commercial milking stage is invalid even if the vaccine itself is
+  otherwise valid for sheep.
+
 Seed baseline from Goats and Parks:
 
 | Stage | Source age range | Normalized age days | Notes |
