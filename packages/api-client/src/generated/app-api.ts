@@ -343,7 +343,7 @@ export interface paths {
         };
         /**
          * List active animal-stage reference data (Config authoring stage picker).
-         * @description Tenant-scoped active rows of animal_stage_lookup (e.g. K1 ≈ milk training, K2 ≈ milk drinking), in display order. Drives the Config authoring stage picker so stage bands are backend-driven and never hardcoded frontend literals (PHC vaccination TRD). Read-only; an empty list is honest (no stages seeded) — the UI shows a seed-stages state, not fallback codes.
+         * @description Tenant-scoped active rows of animal_stage_lookup (e.g. K1 ≈ milk training, K2 ≈ milk drinking), in display order. Drives the Config authoring stage picker so stage bands are backend-driven and never hardcoded frontend literals (Preventive Care (PC) vaccination TRD). Read-only; an empty list is honest (no stages seeded) — the UI shows a seed-stages state, not fallback codes.
          */
         get: operations["listAnimalStages"];
         put?: never;
@@ -699,7 +699,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List bounded Calendar events for the PHC vaccination slice. */
+        /** List bounded Calendar events for the Preventive Care (PC) vaccination slice. */
         get: operations["listCalendarVaccinationEvents"];
         put?: never;
         post?: never;

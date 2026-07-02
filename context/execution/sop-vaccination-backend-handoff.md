@@ -3,7 +3,7 @@
 Date: 2026-06-24
 
 Purpose: give the next backend session one source of truth for building the SOP
-backend foundation needed by PHC/Vaccination while Claude builds the SOP Library
+backend foundation needed by Preventive Care (PC) / Vaccination while Claude builds the SOP Library
 frontend from the mock.
 
 ## Read First
@@ -23,9 +23,9 @@ docs/protocol-engine/PHASE-0-CHECKLIST.md
 docs/protocol-engine/IMPLEMENTATION-PLAN.md
 docs/protocol-engine/obligation-engine.md
 docs/protocol-engine/state-machines.md
-docs/phc-vaccination/PRD.md
-docs/phc-vaccination/TRD.md
-docs/phc-vaccination/V1-FOUNDATION-SPEC.md
+docs/preventive-care-vaccination/PRD.md
+docs/preventive-care-vaccination/TRD.md
+docs/preventive-care-vaccination/V1-FOUNDATION-SPEC.md
 mock/goatos-dashboard-mock.html
 ```
 
@@ -112,7 +112,7 @@ Firestore collections/config       -> Postgres sop_* + app/admin APIs
 Firebase Storage direct uploads    -> signed media/proof upload API + GCS
 Slack thread proof/writeback       -> proof artifacts + verification workflow
 BigQuery vaccination_dashboard     -> Postgres projections/read models
-old dashboard vaccination table    -> mock-matching PHC/Parks/Admin surfaces
+old dashboard vaccination table    -> mock-matching Preventive Care (PC), Parks, and Admin surfaces
 ```
 
 ## Current Decision
@@ -221,7 +221,7 @@ Pending backend work must replace/upgrade that seed into a valid canonical
 Doc drift to keep in mind:
 
 ```text
-Some active PHC/protocol docs were written while the repo stopped at 000060 and
+Some active Preventive Care (PC) / protocol docs were written while the repo stopped at 000060 and
 describe 000070-000078 as future work. The repo now contains 000070-000079 and
 matching protocol/obligation/inventory/vaccination/parks/feed packages. Use
 those docs for product intent and state-machine shape, but verify current
@@ -297,7 +297,7 @@ Vaccination needs this for shed/cohort drives.
 Allowed: seed a structural SOP/proof skeleton. Not allowed: seed invented
 vaccine schedule values as approved protocol rules.
 
-Use the mock and PHC docs to seed a `vaccination.session` SOP version roughly
+Use the mock and Preventive Care (PC) docs to seed a `vaccination.session` SOP version roughly
 like this:
 
 ```text
@@ -438,7 +438,7 @@ published protocol_version/rule
   -> vaccination_completions link obligation_id + batch_id + sop_submission_item_id
   -> obligation_status_events + outbox_messages
   -> inventory_stock_movements reserve/consume/release
-  -> Parks/PHC/Action Center status projections
+  -> Parks / Preventive Care (PC) / Action Center status projections
 ```
 
 The batch is the drive/work unit. Do not create a parallel
@@ -446,7 +446,7 @@ The batch is the drive/work unit. Do not create a parallel
 
 ### 7. Keep status model consistent
 
-Action Center/Parks/PHC must continue to use:
+Action Center / Parks / Preventive Care (PC) must continue to use:
 
 ```text
 due
@@ -588,7 +588,7 @@ Execution wiring
       sop_submission_items for repeat-per-goat vaccination drives.
   [ ] Verify proof-required submissions go to needs_review, not accepted.
   [ ] Verify proof accept/reject/rework transitions are reflected in SOP task,
-      obligation, vaccination, Parks, and PHC read models.
+      obligation, vaccination, Parks, and Preventive Care (PC) read models.
   [ ] Wire accepted submission items to vaccination_completions with
       obligation_id, batch_id, goat_id, sop_submission_item_id, lot, dose,
       route/site, cold-chain, adverse reaction, and idempotency.
@@ -599,7 +599,7 @@ Execution wiring
 Read models/status
   [ ] Vaccination execution context must show SOP/proof/verification status from
       real DB rows only.
-  [ ] PHC/adherence must reflect completed, rejected, missed, deferred, blocked,
+  [ ] Preventive Care (PC) / adherence must reflect completed, rejected, missed, deferred, blocked,
       proof_pending, verification_pending, owner_missing.
   [ ] Do not count canceled/dead/sold obligations as actionable.
 
@@ -615,7 +615,7 @@ End-to-end proof
   [ ] Restart local backend so new routes/RBAC are active.
   [ ] Seed or create one valid draft/published SOP and safe dev protocol rule.
   [ ] Run config -> obligation -> batch -> sop_task -> submission -> verify ->
-      vaccination_completion -> Parks/PHC status smoke.
+      vaccination_completion -> Parks / Preventive Care (PC) status smoke.
   [ ] Run live visual smoke when backend/admin-web can run.
 
 Docs closeout
@@ -648,7 +648,7 @@ Docs closeout
 10. Wire batch creation/execution to pinned `sop_task` where missing.
 11. Wire accepted SOP submission items to `vaccination_completions`, inventory
    movements, obligation status events, and outbox messages.
-12. Update Parks/PHC read models only from real DB state, no mocks.
+12. Update Parks / Preventive Care (PC) read models only from real DB state, no mocks.
 13. Run focused backend tests, contract generation/checks, plan checks, and
     admin-web typecheck/build if contracts change.
 
@@ -683,7 +683,7 @@ verifier accepts
 vaccination_completion is written
 stock movement is written
 Parks row changes from proof/verification pending to completed
-PHC/adherence views reflect the completion
+Preventive Care (PC) / adherence views reflect the completion
 ```
 
 ## Do Not Do

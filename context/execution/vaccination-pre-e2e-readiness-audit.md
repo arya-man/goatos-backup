@@ -31,7 +31,7 @@ broad redesign or SOLID cleanup pass.
 
 Business/wiki evidence found through Graphify:
 
-- `Handbooks/PHC_Director.pdf` page 2: PHC weekly operations, daily checklist tasks, stock control and record management.
+- `Handbooks/PHC_Director.pdf` page 2: Preventive Care (PC) weekly operations, daily checklist tasks, stock control and record management.
 - `Handbooks/PHC_Director.pdf` page 5: vaccine storage and cold-chain integrity, plus health data documentation.
 - `Handbooks/PHC_Director.pdf` page 6: shed sanitization context.
 - `Handbooks/PHC_Director.pdf` page 6 text graph: Health Data Recorder enters vaccination, deworming, and health data into software.
@@ -45,8 +45,8 @@ Committed Goat OS source of truth:
 - `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
 - `docs/protocol-engine/obligation-engine.md`
 - `docs/protocol-engine/state-machines.md`
-- `docs/phc-vaccination/PRD.md`
-- `docs/phc-vaccination/TRD.md`
+- `docs/preventive-care-vaccination/PRD.md`
+- `docs/preventive-care-vaccination/TRD.md`
 
 ## Non-Negotiable Business Chain
 
@@ -55,7 +55,7 @@ E2E can start only after this chain works from current source:
 ```text
 source-backed vaccination protocol published
   -> vaccination SOP published with cold-chain, vaccine batch, proof, verification, repeat-per-goat semantics
-  -> accepted-intake goat enters clean PHC scope
+  -> accepted-intake goat enters clean Preventive Care (PC) scope
   -> goat.created or accepted-intake event is delivered to the registered vaccination generation handler
   -> vaccination obligations are generated
   -> sweeper creates shed drive / obligation batch / SOP task
@@ -67,7 +67,7 @@ source-backed vaccination protocol published
   -> Control Tower, Action Center, Protocol Adherence, Workflows, /vaccination, shed drilldown, and Goat Passport read the same Postgres truth
 ```
 
-Rejected-before-truck, source-only, owner-missing, extra-unknown, unresolved, arrival-rejected, dead, sold, lost, and blocked goats must never appear as active PHC vaccination or vaccination execution work.
+Rejected-before-truck, source-only, owner-missing, extra-unknown, unresolved, arrival-rejected, dead, sold, lost, and blocked goats must never appear as active Preventive Care (PC) vaccination or vaccination execution work.
 
 ## Current Green Checks
 
@@ -200,7 +200,7 @@ Done in this pass:
   draft still allowed); **read FAILED (403/500/down)** → a `stagesError` surfaces as
   an error band (page + inside the modal), the picker is disabled, and **Save +
   Publish are blocked** (highest-priority gate reason) since the true stage set is
-  unknown. It never silently falls back to hardcoded bands. Satisfies the PHC
+  unknown. It never silently falls back to hardcoded bands. Satisfies the Preventive Care (PC)
   vaccination TRD rule that stage bands live in `animal_stage_lookup`, not in code,
   and the AGENTS rule that API failures surface as an error state, not empty data.
 - **Reference-read failures are error-vs-empty distinct for BOTH stages AND SOPs
@@ -213,20 +213,20 @@ Done in this pass:
   `protocol-rules-page → config-console → rule-editor-modal`; gate priority is
   stage-read → SOP-read → role → saved → dirty → SOP-selected → proof → source.
 - **TRD schema sketch reconciled to the shipped migration (CLOSED).**
-  `docs/phc-vaccination/TRD.md` `animal_stage_lookup` no longer claims a `stage_id`/
+  `docs/preventive-care-vaccination/TRD.md` `animal_stage_lookup` no longer claims a `stage_id`/
   `label`/weight-band/hardcoded-`stage_code`-CHECK shape; it now matches the committed
   `000071_location_profiles.sql` (`animal_stage_id` UUID PK, `stage_code text` with NO
   static enum, `name`, age bands, `status`, `sort_order`) and names the migration as
   source of truth. Runtime was already correct; only the doc overclaimed exactness.
 - **Docs reconciled (CLOSED).** `docs/protocol-engine/obligation-engine.md`,
-  `docs/phc-vaccination/TRD.md`, and
+  `docs/preventive-care-vaccination/TRD.md`, and
   `context/execution/sop-vaccination-backend-handoff.md` now state that the
   executable SOP binds at `protocol_versions.sop_version_id`, the per-dose
   `schedule[].sop_label` is display-only, and a genuine per-dose executable
   override uses `protocol_rules.sop_version_id` (a real UUID) — the real backend
   capability is preserved, not erased.
-- **PHC roster + K1/K2 (source-derived dev baseline CLOSED).** See
-  `context/source-findings/phc-vaccination-roster-stage-proposal.md`: K2=42 wins
+- **Preventive Care (PC) roster + K1/K2 (source-derived dev baseline CLOSED).** See
+  `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`: K2=42 wins
   over the legacy mock 45 for local/dev; ET/K1/day-21 is the schedule-bearing
   row; the 2026-06-26 roster-expansion follow-up closed PPR/FMD/HS/BQ as
   `label-only closed`.
@@ -249,7 +249,7 @@ Remaining pending items classified:
 | `as_of` residuals (point-in-time obligation status reconstruction) | **Out of current local/code closure.** Current code does not overclaim: `as_of`/`asOf` is a point-in-time read param threaded into the projection reads (`features/control-tower`, `workflows-landing`, `protocol-adherence`); the top-bar as-of selector is point-in-time only and range choices are disabled (Click Matrix → Top bar). The deeper effective-status reconstruction work is tracked in memory `goatos-phase1-asof-correctness` and is NOT a publish/proof-gate blocker. | `apps/admin-web/features/control-tower/index.tsx:55`; `features/process-integrity/workflows-landing.tsx:95`; `context/execution/vaccination-pre-e2e-readiness-audit.md` Click Matrix |
 | Source Entry search / media-capture limits | **Out of current local/code closure.** Visible UI does not overclaim — media upload and advanced search are disabled-with-reason, documented in `context/frontend/supplier-warmup-vaccination-gaps.md`. Disabled-with-reason is acceptable for this slice. | `context/frontend/supplier-warmup-vaccination-gaps.md`; readiness audit B8 (CLOSED) |
 | SOP taxonomy / category-filter API gap | **Out of current local/code closure — future scale/API cleanup.** The Config SOP picker shows only real published SOP versions (`active_sop_version_id`); the `/vaccination` and `/sops` quick-views use `listSops({ limit: 200 })` + client-side vaccination filtering (`apps/admin-web/app/(admin)/sops/page.tsx:14`, `features/phc-vaccination/operations.tsx:19`). It cannot fake SOPs, but a tenant with >200 SOPs could under-show. Tracked as a category/code-filter or named-binding follow-up in the trigger-closure handoff backlog; not a publish-path blocker. | `apps/admin-web/app/(admin)/sops/page.tsx:14`; `features/phc-vaccination/operations.tsx:19`; `context/execution/vaccination-trigger-closure-parallel-handoff.md` (SOP quick-view backlog) |
-| PHC/vaccine roster + K1/K2/stage values | **Source-derived dev baseline CLOSED.** K2=42 is selected from wiki/glossary/legacy seed, ET/K1/day-21 is selected from the PRD, and the 2026-06-26 PPR/FMD/HS/BQ expansion pass closed all four as `label-only closed` with no schedule-backed rows added. Later production expansion is normal source-backed versioning, not a local/code blocker. | `context/source-findings/phc-vaccination-roster-stage-proposal.md`; `context/execution/vaccination-roster-expansion-followup.md`; `docs/phc-vaccination/TRD.md:64,:145` |
+| Preventive Care (PC) / vaccine roster + K1/K2/stage values | **Source-derived dev baseline CLOSED.** K2=42 is selected from wiki/glossary/legacy seed, ET/K1/day-21 is selected from the PRD, and the 2026-06-26 PPR/FMD/HS/BQ expansion pass closed all four as `label-only closed` with no schedule-backed rows added. Later production expansion is normal source-backed versioning, not a local/code blocker. | `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`; `context/execution/vaccination-roster-expansion-followup.md`; `docs/preventive-care-vaccination/TRD.md:64,:145` |
 
 No vague "pending" items remain: each is fixed, classified out-of-scope with a
 path, or moved to later source-backed versioning/provisioning.
@@ -296,7 +296,7 @@ form edits before submit; it must not mutate business truth.
 - `Action Center` -> `/action-center`
 - `Protocol Adherence` -> `/protocol-adherence`
 - `Workflows` -> `/workflows`
-- `PHC / Vaccination` -> `/vaccination`
+- `Preventive Care (PC) / Vaccination` -> `/vaccination`
 - `Procurement / Source Entry` -> `/procurement/source-entry`
 - `Admin / Data Ops / Config` -> `/config`
 - `Admin / Data Ops / Audit Log` -> `/operations/audit`
@@ -618,7 +618,7 @@ Closed in this pass:
 - Tests: `internal/protocol/adapters/http` `TestListConfigsReturnsItemsAndDefaultsCategory`
   (200, default category=vaccination, item shape, category passthrough).
 - Live SSR proof on `127.0.0.1:3300/config?category=vaccination`: real rows
-  rendered — `Demo PHC Vaccination` (Draft · not source-backed) and
+  rendered — `Demo Preventive Care (PC) Vaccination` (Draft · not source-backed) and
   `Enterotoxaemia K1 Primary` (Published, 1 rule, park scope, linked SOP) —
   no error band, no empty state. Screenshots:
   `.codex-goatos-render/admin-web-screenshots/config-b3/{desktop,narrow}-config.png`.
@@ -666,7 +666,7 @@ Build / remaining:
 The deterministic local scenario is captured for the clean goat: seeded
 source-backed (test) protocol `b011` + published SOP `b0..0002` + vaccine
 stock/lot `b002` + cold-chain/proof requirements + CBE park/shed. A clean goat
-created via Herd Register reaches PHC vaccination, execution context, Action
+created via Herd Register reaches Preventive Care (PC) vaccination, execution context, Action
 Center, Workflows, and Passport, and completes through verification. See
 `tools/dev/vaccination-chain-proof.sh` and the runbook.
 
@@ -675,7 +675,7 @@ covered by tests for the exclusion rules):
 
 - Four-goat fixture: clean accepted intake, rejected before truck, owner
   missing/unresolved, extra unknown arrival — asserting only the clean goat
-  reaches PHC work and the rest stay out, in one captured run. The exclusion
+  reaches Preventive Care (PC) work and the rest stay out, in one captured run. The exclusion
   behavior is unit/integration-tested; the assembled negative run is the
   remaining nicety.
 
@@ -712,7 +712,7 @@ captured live, see `docs/runbooks/vaccination-local-business-chain.md`):
 - DONE: verification accept creates the completion (accepted) and completes the obligation.
 - DONE: CT/AC/PA/WF/Vaccination/shed/Passport read the same updated Postgres state.
 - Still required for E2E green: four-goat negative matrix in one run (clean only
-  reaches PHC work), and the full click-matrix coverage below.
+  reaches Preventive Care (PC) work), and the full click-matrix coverage below.
 - Every visible button/link/control in the click matrix is real, local-state only, navigational, or honestly disabled.
 - The click matrix includes menus, nav groups, top-bar controls, pagination,
   sort, filters, clear, toggles, done/status actions, drawer footers, entity

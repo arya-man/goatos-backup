@@ -351,7 +351,7 @@ function ArrivalGateCard({ reviews, pageContract }: { reviews: ProcurementArriva
   );
 }
 
-// ---- Supporting records (transit, holding, source health, PHC handoff) ----
+// ---- Supporting records (transit, holding, source health, Preventive Care (PC) handoff) ----
 function TransitCard({ handoffs, pageContract }: { handoffs: ProcurementTransitHandoff[]; pageContract: AdminUiPageContract }) {
   if (handoffs.length === 0) return null;
   const labels = tableLabels(pageContract, "transit-handoffs");

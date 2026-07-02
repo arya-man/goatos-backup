@@ -1,4 +1,4 @@
-# PHC Vaccination — Source-Derived Dev Baseline
+# Preventive Care (PC) Vaccination — Source-Derived Dev Baseline
 
 Date: 2026-06-26
 
@@ -25,7 +25,7 @@ turn procurement-history clues into schedule math.
 
 Legacy dashboard `SHIFT_THRESH` used K2 = 45, but Goat OS treats that as mock
 legacy drift. The source-backed local/dev decision is 42 days / six weeks. If a
-real PHC override arrives later, it should update `animal_stage_lookup` as data,
+real Preventive Care (PC) override arrives later, it should update `animal_stage_lookup` as data,
 not reintroduce a frontend hardcode.
 
 ICU/quarantine/holding are operational states/flags, not replacement age bands.
@@ -36,11 +36,11 @@ source explicitly defines them as stage rows.
 
 | item | local/dev decision | source |
 | --- | --- | --- |
-| Schedule-bearing protocol | Use **Enterotoxaemia / ET** as the source-derived dev protocol row: goat, all sexes/breeds, stage K1, primary dose, `dose_ml=0.5`, `trigger_type=birth_age`, `offset_days=21`, `due_window_days=7`, booster clue `+14d`. | `docs/phc-vaccination/PRD.md:60` |
+| Schedule-bearing protocol | Use **Enterotoxaemia / ET** as the source-derived dev protocol row: goat, all sexes/breeds, stage K1, primary dose, `dose_ml=0.5`, `trigger_type=birth_age`, `offset_days=21`, `due_window_days=7`, booster clue `+14d`. | `docs/preventive-care-vaccination/PRD.md:60` |
 | SOP execution labels | SOP picker/form labels may include `PPR`, `ET`, `FMD`, `HS`, `BQ`; required execution fields are scheduled date, operator, goat scan, vaccine name, medicine batch, dose ml, administered date, proof photo, adverse reaction, verifier, notes. | `source-material/sop-playground-local/playground.html:1057-1083` |
 | Proof/verification shape | Keep proof + medicine batch + park-head verification gates; missing schedule escalates, adverse reaction requires notes/follow-up, empty medicine batch blocks submission. | `source-material/sop-playground-local/playground.html:1067-1082` |
-| PPR/FMD | Label-only closed in the 2026-06-26 roster expansion pass. PPR/FMD remain SOP/vocabulary labels; the source audit found sheep/procurement-history notes but no goat timing/dose/booster policy or approved PHC/vet metadata, so no protocol rows or obligations were added. | `wiki/graphify-out/converted/Procurement DB [Goats]_dda03a25.md:78,:86`; SOP playground labels above; `context/execution/vaccination-roster-expansion-followup.md` |
-| HS/BQ | Label-only closed in the 2026-06-26 roster expansion pass. HS/BQ remain SOP/vocabulary labels; the source audit found no timing/dose/booster policy or approved PHC/vet metadata, so no protocol rows or obligations were added. | SOP playground labels above; `context/execution/vaccination-roster-expansion-followup.md` |
+| PPR/FMD | Label-only closed in the 2026-06-26 roster expansion pass. PPR/FMD remain SOP/vocabulary labels; the source audit found sheep/procurement-history notes but no goat timing/dose/booster policy or approved Preventive Care (PC) / vet metadata, so no protocol rows or obligations were added. | `wiki/graphify-out/converted/Procurement DB [Goats]_dda03a25.md:78,:86`; SOP playground labels above; `context/execution/vaccination-roster-expansion-followup.md` |
+| HS/BQ | Label-only closed in the 2026-06-26 roster expansion pass. HS/BQ remain SOP/vocabulary labels; the source audit found no timing/dose/booster policy or approved Preventive Care (PC) / vet metadata, so no protocol rows or obligations were added. | SOP playground labels above; `context/execution/vaccination-roster-expansion-followup.md` |
 | Sheep Pox | Exclude from goat dev roster for now; the evidence found is sheep/procurement-history context. | `wiki/graphify-out/converted/Procurement DB [Goats]_dda03a25.md:78,:86,:91` |
 
 ## Seed/runtime decision
@@ -49,13 +49,13 @@ The repeatable local proof pack should use this as its source-derived baseline:
 
 - protocol: `Enterotoxaemia K1 Primary`
 - dose code: `ET-PRIMARY-1`
-- source metadata: `source_system=phc`, `source_ref=docs/phc-vaccination/PRD.md:60; context/source-findings/phc-vaccination-roster-stage-proposal.md`, `review_status=approved`, `approved_by=source-derived-dev-baseline`
+- source metadata: `source_system=phc`, `source_ref=docs/preventive-care-vaccination/PRD.md:60; context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`, `review_status=approved`, `approved_by=source-derived-dev-baseline`
 - stage default: K1 for the proof goat
 - due date: day 21 from DOB, with the proof script creating a day-21 goat so the
   chain is due immediately
 
 This closes the local/dev roster and K1/K2/stage pending item. Remaining
-production work is normal source-backed versioning if real PHC/vet data later
+production work is normal source-backed versioning if real Preventive Care (PC) / vet data later
 changes these values; it is not a local code or E2E blocker. The exact follow-up
 scope and edge-case checklist for PPR/FMD/HS/BQ expansion lives in
 `context/execution/vaccination-roster-expansion-followup.md`.

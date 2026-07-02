@@ -53,7 +53,7 @@ any `callers_of = 0` that seems wrong.
 ## Current Active Build Path
 
 For protocol/config-driven operations work, the active implementation path is
-**Protocol Engine Phase 0**. Use these as the source of truth for PHC
+**Protocol Engine Phase 0**. Use these as the source of truth for Preventive Care (PC)
 vaccination, feed direction, protocol rules, obligations, inventory ledger,
 Action Center, Protocol Adherence, and Phase 0 implementation:
 
@@ -64,7 +64,7 @@ docs/protocol-engine/obligation-engine.md
 docs/protocol-engine/state-machines.md
 docs/protocol-engine/migration-and-cutover.md
 context/architecture/operational-kernel.md
-docs/phc-vaccination/TRD.md
+docs/preventive-care-vaccination/TRD.md
 docs/feed-direction/TRD.md
 docs/decisions/calendar-ownership.md
 context/execution/calendar-vaccination-slice-parallel-handoff.md
@@ -82,7 +82,7 @@ verification -> read-model chain from
 integrity: was the expected process followed, where broken, who owns next action,
 what evidence proves it, and what alert/escalation fired when a deadline crossed.
 
-Calendar is currently reopened only as the PHC Vaccination due-work command lens
+Calendar is currently reopened only as the Preventive Care (PC) Vaccination due-work command lens
 at `/calendar`. It must follow the Calendar ownership ADR and vaccination slice
 handoff: generic `CalendarEvent` contract, vaccination-specific detail blocks,
 bounded date windows, protected route registration, durable nudge/snooze writes,

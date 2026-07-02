@@ -2,8 +2,8 @@
 
 Date: 2026-07-01
 Status: V1 demo blockers closed; route optimization/production-scale programs are outside this demo contract
-Scope: Clean-slate PHC Vaccination V1 setup and demo flow
-Primary surface: Admin/Data Ops -> SOP Library -> PHC / Vaccination SOP builder
+Scope: Clean-slate Preventive Care (PC) Vaccination V1 setup and demo flow
+Primary surface: Admin/Data Ops -> SOP Library -> Preventive Care (PC) / Vaccination SOP builder
 Related surface: Admin/Data Ops -> Config -> Vaccination rule builder
 
 This file captures the bugs found while walking the clean-slate vaccination V1
@@ -170,8 +170,8 @@ The vaccination E2E must cover all three goat entry paths:
    - Purchased goats start in the procurement/source-entry journey.
    - Holding-farm vaccination evidence may suppress duplicate arrival
      vaccination where the rules allow it.
-   - Only accepted-intake goats should enter the normal PHC vaccination engine.
-   - Rejected, canceled, source-only, or pre-intake goats must not create PHC
+   - Only accepted-intake goats should enter the normal Preventive Care (PC) vaccination engine.
+   - Rejected, canceled, source-only, or pre-intake goats must not create Preventive Care (PC)
      vaccination obligations.
 
 Plain operating rule:
@@ -393,7 +393,7 @@ Observed:
 
 Expected:
 
-- Vaccination config must show only published PHC / Vaccination SOP versions.
+- Vaccination config must show only published Preventive Care (PC) / Vaccination SOP versions.
 - Non-vaccination SOPs must be hidden.
 - Labels must be human-readable, for example
   `Vaccination Session - v1 - Published`.
@@ -475,7 +475,7 @@ Fix status on 2026-07-01:
 Observed:
 
 - Escalation policy is shown as free text like
-  `miss -> Asst -> Park Head -> PHC Director; overdue -> escalate`.
+  `miss -> Asst -> Park Head -> Preventive Care (PC) Director; overdue -> escalate`.
 - It is unclear whether this creates Action Center items, Control Tower gaps,
   notifications, or only stores text.
 - It is unclear what happens if users/operators/park heads are not seeded or
@@ -624,7 +624,7 @@ Observed:
   were not treated as first-class demo inputs.
 - It is unclear from UI alone whether a goat came from manual Herd Register,
   CSV/template import, or procurement accepted intake.
-- It is unclear which procurement states should create PHC vaccination work and
+- It is unclear which procurement states should create Preventive Care (PC) vaccination work and
   which should not.
 
 Expected:
@@ -635,9 +635,9 @@ Expected:
   generation for each accepted goat row.
 - E2E must prove procurement accepted intake triggers vaccination generation.
 - E2E must prove rejected/canceled/source-only/pre-intake procurement goats do
-  not create PHC vaccination obligations.
+  not create Preventive Care (PC) vaccination obligations.
 - E2E must prove trusted holding-farm vaccination evidence suppresses duplicate
-  PHC obligations where configured.
+  Preventive Care (PC) obligations where configured.
 - All procurement and Herd Register controls that affect vaccination must either
   work, or be hidden/disabled with a clear reason.
 
@@ -686,7 +686,7 @@ Expected:
 - The policy must support:
   - max age to start a dose/course
   - skip-if-past-age behavior
-  - PHC review-required behavior for unknown history
+  - Preventive Care (PC) review-required behavior for unknown history
   - first-catch-up-dose-only behavior
   - min gap between catch-up doses so multiple doses are not scheduled same day
   - trusted-history suppression when imported/procurement evidence is accepted
@@ -723,7 +723,7 @@ from a clean tenant/state, not isolated page checks.
 ### 1. Users and role setup
 
 - [ ] Seed or create admin/superadmin user.
-- [ ] Seed or create PHC director/author user.
+- [ ] Seed or create Preventive Care (PC) director/author user.
 - [ ] Seed or create vaccination operator user.
 - [ ] Seed or create park head/manager user.
 - [ ] Seed or create verifier user.
@@ -768,8 +768,8 @@ from a clean tenant/state, not isolated page checks.
 - [ ] Procurement accepted-intake goats result in due vaccination work when they
   match the published matrix.
 - [ ] Procurement rejected, canceled, source-only, and pre-intake goats do not
-  create PHC vaccination obligations.
-- [ ] Trusted holding-farm vaccination history suppresses duplicate PHC
+  create Preventive Care (PC) vaccination obligations.
+- [ ] Trusted holding-farm vaccination history suppresses duplicate Preventive Care (PC)
   obligations where configured.
 - [ ] The UI makes the source of each tested goat clear enough for demo:
   manual, template import, or procurement accepted intake.
@@ -786,7 +786,7 @@ from a clean tenant/state, not isolated page checks.
   material: holding farm, warmup, HF vaccination evidence, accepted intake,
   rejected/canceled loads, and mixed age/stage groups.
 - [ ] Cross-check SOP/operator/proof/escalation language against farm handbook
-  and PHC role material.
+  and Preventive Care (PC) role material.
 - [ ] Where docs do not answer a business rule, mark it as review-needed in the
   handover instead of pretending the algorithm knows it.
 
@@ -839,7 +839,7 @@ from a clean tenant/state, not isolated page checks.
 - [ ] CSV/template import is evaluated per accepted goat row but can be committed
   and tested as one bulk operation.
 - [ ] Procurement accepted intake is evaluated only after the goat becomes a
-  canonical GoatOS goat; procurement warmup/source-only rows do not enter PHC
+  canonical GoatOS goat; procurement warmup/source-only rows do not enter Preventive Care (PC)
   generation.
 - [ ] The generated obligation is per goat/per dose; the generated execution
   work is grouped by shed/protocol/due window.
@@ -863,7 +863,7 @@ from a clean tenant/state, not isolated page checks.
 - [ ] Counts -> Herd Register shows created/imported goats that will feed the
   vaccination matrix.
 - [ ] Procurement -> Source Entry shows only purchase/source/warmup/intake
-  state; it must not imply PHC vaccination work before accepted intake.
+  state; it must not imply Preventive Care (PC) vaccination work before accepted intake.
 - [ ] Action Center shows the correct actionable items.
 - [ ] Protocol Adherence shows expected vs actual without raw/internal gap keys.
 - [ ] Workflows show the chain with readable statuses.
@@ -953,7 +953,7 @@ Do not jump randomly between screens after config publish. Verify in this order:
 - [x] Provide the drive-batching algorithm in plain language and the exact UI
   changes needed to support it.
 
-Handover artifact: `docs/phc-vaccination/V1-DEMO-HANDOVER.md`.
+Handover artifact: `docs/preventive-care-vaccination/V1-DEMO-HANDOVER.md`.
 
 ## E2E Checklist After Fixes
 
@@ -1013,7 +1013,7 @@ These checks are in addition to the clean-slate E2E path above.
 - [x] Open SOP Library.
 - [x] Click New SOP.
 - [x] Enter SOP name Vaccination session test.
-- [x] Confirm domain is PHC / Vaccination.
+- [x] Confirm domain is Preventive Care (PC) / Vaccination.
 - [x] Select trigger Form.
 - [x] Add all supported field types without UI overlap.
 - [x] Click Save draft.

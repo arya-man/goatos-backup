@@ -36,7 +36,7 @@ We are currently building the **Vaccination Process Integrity Slice**.
 ```text
 Admin Config + SOP/protocol rules
         ↓
-PHC vaccination operations
+Preventive Care (PC) vaccination operations
         ↓
 Vaccination execution context (park/shed scope inside /vaccination)
         ↓
@@ -74,7 +74,7 @@ Use `docs/ai/README.md` for the full setup and routing guide. In short:
 
 ## Operational Kernel
 
-Goat OS is built around a shared operational kernel. PHC vaccination is the
+Goat OS is built around a shared operational kernel. Preventive Care (PC) vaccination is the
 first reference slice, but the same kernel is the required architecture for feed,
 breeding, procurement, health follow-up, HR/people, farmer network, sales, and
 future modules.
@@ -124,7 +124,7 @@ The local foundation is built and tested against Postgres:
   obligation re-scope/cancel/recheck handlers, manual campaign trigger,
   notification/incident adapters, escalation ack/resolve, kernel health, and
   Operations DLQ list/replay/discard UI with idempotent repair actions.
-- Admin-web current surface: Control Tower shell, PHC/Vaccination, Admin Config,
+- Admin-web current surface: Control Tower shell, Preventive Care (PC) / Vaccination, Admin Config,
   Protocol Adherence, contextual Goat Passport, and mock-fidelity checks.
 - Bootstrap bearer auth plus tenant-scope RBAC from `user_scope_grants`.
 - Generated OpenAPI TypeScript client package and drift gate.
@@ -132,7 +132,7 @@ The local foundation is built and tested against Postgres:
   runtime direction. Historical exports may still be useful as audit/reference
   material, but current product work must not rebuild a BigQuery-backed
   dashboard or import-review loop unless the scope is explicitly reopened.
-- The current active admin-web direction is the connected Admin Config + PHC
+- The current active admin-web direction is the connected Admin Config + Preventive Care (PC)
   Vaccination + vaccination execution context slice, with Control Tower
   summarizing process gaps instead of legacy dashboard parity.
 - Local Docker storage runbook plus read-only report and guarded Goat OS temp
@@ -151,12 +151,12 @@ In short:
 
 ```text
 The identity spine and vaccination engine foundation are built.
-The active build is Admin Config + PHC Vaccination + vaccination execution context.
+The active build is Admin Config + Preventive Care (PC) Vaccination + vaccination execution context.
 ```
 
 ### Built — Protocol & Vaccination Backend Foundation (local, tested)
 
-On top of the identity spine, the protocol/obligation engine and the PHC
+On top of the identity spine, the protocol/obligation engine and the Preventive Care (PC)
 vaccination module are built and green against local Postgres (full
 `go test ./...`, migration, sqlc, and query-plan gates). This is **backend +
 APIs only — not shipped** (see pending list below).
@@ -182,7 +182,7 @@ APIs only — not shipped** (see pending list below).
   (history + next-due + last dose).
 
 No production vaccine schedule values exist yet — the module ships the engine
-and a SOP execution/proof skeleton only; real rules require source-backed PHC
+and a SOP execution/proof skeleton only; real rules require source-backed Preventive Care (PC)
 values before publish.
 
 ### Not Finished Yet
@@ -202,7 +202,7 @@ Still pending for the current vaccination slice:
 - Richer Action Center/Control Tower rendering for kernel health, DLQ links,
   repair exceptions, manual campaign runs, and incident status from backend
   contracts.
-- Real source-backed PHC vaccine rule values before any production publish.
+- Real source-backed Preventive Care (PC) vaccine rule values before any production publish.
 - Applying/dev-verifying Pub/Sub, Cloud Tasks, Scheduler, notification secrets,
   FCM/email/Slack/webhook/incident channels, and continuously running workers in
   the target Google projects.
@@ -218,14 +218,14 @@ Intentionally not active now:
   mortality, legacy sync, and BigQuery-backed dashboard parity.
 - Generic Parks dashboard pages unrelated to vaccination execution.
 - Generic all-domain Action Center or Control Tower products before the
-  operating Admin/PHC/Parks/Procurement module surfaces are real.
+  operating Admin / Preventive Care (PC) / Parks / Procurement module surfaces are real.
 
 Immediate next order:
 
 ```text
 1. Build vaccination execution context (park/shed/stage/defer/blocker/owner)
-   around the PHC vaccination rows, rendered inside /vaccination.
-2. Keep the top-level Action Center work-state lens fed by PHC/vaccination without
+   around the Preventive Care (PC) vaccination rows, rendered inside /vaccination.
+2. Keep the top-level Action Center work-state lens fed by Preventive Care (PC) / vaccination without
    turning it into a generic all-domain product yet.
 3. Provision production auth (IdP/JWKS + secrets), event egress, and cloud
    deploy under vgoats.com without calling the local dev-token demo shippable.
@@ -348,7 +348,7 @@ ordered around the vaccination process-integrity slice:
    Source-backed protocol rules, proof policy, publish/versioning, and impact
    preview.
 
-2. PHC Vaccination Operations
+2. Preventive Care (PC) Vaccination Operations
    Vaccination obligations, drives, proof, verification, missed/deferred
    handling, and goat vaccination passport history.
 
@@ -370,13 +370,13 @@ ordered around the vaccination process-integrity slice:
 
 6. Production Hardening
    Real IdP/JWKS auth, Pub/Sub event egress, Cloud Run deploy, observability,
-   query-plan gates, and source-backed PHC rule values before production
+   query-plan gates, and source-backed Preventive Care (PC) rule values before production
    publish.
 ```
 
 Later verticals such as feed direction, health, breeding, procurement, sales,
 devices, analytics, and AI analyst remain real Goat OS scope, but they should
-not pull the current build away from Admin Config + PHC Vaccination + vaccination
+not pull the current build away from Admin Config + Preventive Care (PC) Vaccination + vaccination
 execution context.
 
 ## What The CEO Should Know Today
@@ -391,7 +391,7 @@ We are building the operating workflow first.
 The current build is focused on the vaccination process-integrity layer:
 
 - Admin Config and source-backed protocol rules.
-- PHC vaccination obligations, drives, proof, and verification.
+- Preventive Care (PC) vaccination obligations, drives, proof, and verification.
 - Vaccination execution context: park, shed, stage, defer state, owner, blocker
   (rendered inside /vaccination; deep shed detail belongs under
   /vaccination/execution/sheds/{shed_id}).
@@ -413,7 +413,7 @@ they should be presented as finished CEO-facing processes.
 Recommended next execution order:
 
 1. Build vaccination execution context (park/shed/stage/defer/blocker/owner)
-   inside /vaccination around the current PHC vaccination rows, with shed detail
+   inside /vaccination around the current Preventive Care (PC) vaccination rows, with shed detail
    at /vaccination/execution/sheds/{shed_id}.
 2. Finish the top-level Action Center work-state backend model without
    introducing a generic all-domain product yet.

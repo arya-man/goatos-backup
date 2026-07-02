@@ -226,7 +226,7 @@ export function LoadWriteActions({
       </Disclosure>
 
       {/* Holding-farm vaccination evidence — this is the mock's supplier-warmup vaccination action surface.
-          It stays in Procurement Source Entry, not PHC / Vaccination. Imported+trusted evidence is later
+          It stays in Procurement Source Entry, not Preventive Care (PC) / Vaccination. Imported+trusted evidence is later
           consumed by the accepted-intake handoff/no-double-dose path. */}
       <Disclosure
         id="hf-evidence"

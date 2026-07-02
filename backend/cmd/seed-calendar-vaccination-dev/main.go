@@ -138,7 +138,7 @@ SET usable_for_vaccination = true,
 
 INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit, status, context)
 VALUES ('` + itemID + `', $1::uuid, 'VAC-CAL-ET', 'Enterotoxaemia Vaccine Calendar Seed', 'vaccine', 'dose', 'active',
-        '{"seed":"calendar-vaccination-dev","source_ref":"docs/phc-vaccination/PRD.md"}'::jsonb)
+        '{"seed":"calendar-vaccination-dev","source_ref":"docs/preventive-care-vaccination/PRD.md"}'::jsonb)
 ON CONFLICT (item_id) DO UPDATE
 SET item_code = EXCLUDED.item_code,
     name = EXCLUDED.name,
@@ -148,7 +148,7 @@ SET item_code = EXCLUDED.item_code,
 
 INSERT INTO vaccines (tenant_id, item_id, disease, manufacturer, doses_per_vial, withdrawal_days, context)
 VALUES ($1::uuid, '` + itemID + `', 'Enterotoxaemia', 'Mesha source-derived dev baseline', 10, 0,
-        '{"seed":"calendar-vaccination-dev","source_ref":"docs/phc-vaccination/PRD.md"}'::jsonb)
+        '{"seed":"calendar-vaccination-dev","source_ref":"docs/preventive-care-vaccination/PRD.md"}'::jsonb)
 ON CONFLICT (tenant_id, item_id) DO UPDATE
 SET disease = EXCLUDED.disease,
     manufacturer = EXCLUDED.manufacturer,
@@ -185,7 +185,7 @@ INSERT INTO protocol_versions (
 ) VALUES
   ('` + versionID + `', $1::uuid, '` + protocolID + `', 'park', '` + cbeParkID + `', 1,
    'Calendar source-backed published seed', 'published', DATE '2026-01-01', DATE '2028-01-01',
-   '{"source":{"review_status":"approved","source_ref":"docs/phc-vaccination/PRD.md","seed":"calendar-vaccination-dev"}}'::jsonb,
+   '{"source":{"review_status":"approved","source_ref":"docs/preventive-care-vaccination/PRD.md","seed":"calendar-vaccination-dev"}}'::jsonb,
    '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,
    'b0000000-0000-4000-8000-000000000002', now()),
   ('` + draftVersionID + `', $1::uuid, '` + draftProtocolID + `', 'park', '` + cbeParkID + `', 1,
@@ -207,7 +207,7 @@ INSERT INTO protocol_rules (
 ) VALUES (
   '` + ruleID + `', $1::uuid, '` + versionID + `', 'ET-K1-PRIMARY', 1, 'birth_age',
   21, 7, 14, 'none', 'immediate',
-  '{"stage":"K1","source_ref":"docs/phc-vaccination/PRD.md","seed":"calendar-vaccination-dev"}'::jsonb,
+  '{"stage":"K1","source_ref":"docs/preventive-care-vaccination/PRD.md","seed":"calendar-vaccination-dev"}'::jsonb,
   'b0000000-0000-4000-8000-000000000002',
   '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb, 10
 )
@@ -221,7 +221,7 @@ WITH rows(event_id, event_type, owner_key, title, subtitle, status, severity, du
           source_target_id, assignee_label, executor_role, verifier_label, reminder_state,
           primary_notification_channel, escalation_state, source_label, links, detail) AS (
   VALUES
-  ('obligation:86000000-0000-4000-8000-000000001001','vaccination_dose_due','phc','ET K1 primary dose due','CBE Calendar Shed 1','due','warning', now() + interval '2 hours', now(), now() + interval '1 day','` + cbeParkID + `','CBE','` + cbeShedID + `','CBE Calendar Shed 1','` + cbeCohortID + `','CBE Kid Cohort','cohort',48,'86000000-0000-4000-8000-000000001001','PHC vaccinator','phc_vaccinator',NULL,'scheduled','local-stub','none','Published source-backed ET rule','{"vaccination":"/vaccination/operations","workflow":"/vaccination/workflows/obligation:86000000-0000-4000-8000-000000001001","action_center":"/vaccination/action-center"}'::jsonb,'{"summary":{"owner":"PHC","target_count":48},"source_and_rule":{"source_backed":true,"source_ref":"docs/phc-vaccination/PRD.md"},"execution":{"obligation_id":"86000000-0000-4000-8000-000000001001","work_state":"due"},"stock":{"lot":"CAL-ET-001","reserved_qty":48,"shortfall":0},"proof":{},"verification":{},"notification_channels":["local-stub","slack"],"notification_policy":{"reminder":"due_minus_1h"},"links":{"history":"/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/history"}}'::jsonb),
+  ('obligation:86000000-0000-4000-8000-000000001001','vaccination_dose_due','phc','ET K1 primary dose due','CBE Calendar Shed 1','due','warning', now() + interval '2 hours', now(), now() + interval '1 day','` + cbeParkID + `','CBE','` + cbeShedID + `','CBE Calendar Shed 1','` + cbeCohortID + `','CBE Kid Cohort','cohort',48,'86000000-0000-4000-8000-000000001001','PHC vaccinator','phc_vaccinator',NULL,'scheduled','local-stub','none','Published source-backed ET rule','{"vaccination":"/vaccination/operations","workflow":"/vaccination/workflows/obligation:86000000-0000-4000-8000-000000001001","action_center":"/vaccination/action-center"}'::jsonb,'{"summary":{"owner":"PHC","target_count":48},"source_and_rule":{"source_backed":true,"source_ref":"docs/preventive-care-vaccination/PRD.md"},"execution":{"obligation_id":"86000000-0000-4000-8000-000000001001","work_state":"due"},"stock":{"lot":"CAL-ET-001","reserved_qty":48,"shortfall":0},"proof":{},"verification":{},"notification_channels":["local-stub","slack"],"notification_policy":{"reminder":"due_minus_1h"},"links":{"history":"/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/history"}}'::jsonb),
   ('batch:86000000-0000-4000-8000-000000001002:rule:` + ruleID + `:shed:` + cbeShedID + `','vaccination_drive','phc','CBE ET vaccination drive','Single-shed drive','in_progress','info', now() + interval '4 hours', now(), now() + interval '8 hours','` + cbeParkID + `','CBE','` + cbeShedID + `','CBE Calendar Shed 1',NULL,NULL,'shed',120,'86000000-0000-4000-8000-000000001002','PHC drive team','phc_vaccinator','PHC verifier','not_scheduled','local-stub','none','Published source-backed drive batch','{"vaccination":"/vaccination/operations","drive":"/vaccination/execution/sheds/` + cbeShedID + `"}'::jsonb,'{"summary":{"owner":"PHC","target_count":120},"source_and_rule":{"protocol_version_id":"` + versionID + `","rule_id":"` + ruleID + `"},"execution":{"batch_id":"86000000-0000-4000-8000-000000001002","sop_task_id":"86000000-0000-4000-8000-000000002002","work_state":"in_progress"},"stock":{"lot":"CAL-ET-001","reserved_qty":120,"shortfall":0},"proof":{"state":"not_submitted"},"verification":{"verifier":"PHC verifier"},"notification_channels":["local-stub"],"notification_policy":{"nudge_allowed":true},"links":{}}'::jsonb),
   ('calendar:86000000-0000-4000-8000-000000001003','vaccination_booster_due','phc','ET booster due from accepted completion','CPT Adult Cohort','scheduled','info', now() + interval '3 days', now() + interval '3 days', now() + interval '4 days','` + cptParkID + `','CPT','` + cptShedID + `','CPT Calendar Shed 1','` + cptCohortID + `','CPT Adult Cohort','cohort',35,'86000000-0000-4000-8000-000000001003','PHC booster owner','phc_vaccinator',NULL,'scheduled','local-stub','none','Accepted completion SM-7 booster basis','{"workflow":"/vaccination/workflows/calendar:86000000-0000-4000-8000-000000001003"}'::jsonb,'{"summary":{"previous_dose":"ET-K1-PRIMARY"},"source_and_rule":{"booster_basis":"accepted administered_at"},"execution":{},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub"],"notification_policy":{},"links":{}}'::jsonb),
   ('calendar:86000000-0000-4000-8000-000000001004','vaccination_proof_verification','phc','Verify CBE drive proof','Shed/vial/admin proof pending','verification_pending','warning', now() - interval '1 hour', now() - interval '2 hours', now() + interval '2 hours','` + cbeParkID + `','CBE','` + cbeShedID + `','CBE Calendar Shed 1',NULL,NULL,'shed',120,'86000000-0000-4000-8000-000000001004','PHC verifier',NULL,'PHC verifier','not_scheduled','local-stub','none','SOP proof verification task','{"workflow":"/vaccination/workflows/calendar:86000000-0000-4000-8000-000000001004"}'::jsonb,'{"summary":{"owner":"PHC verifier"},"source_and_rule":{},"execution":{"sop_task_id":"86000000-0000-4000-8000-000000002004"},"stock":{},"proof":{"shed_video":"pending","vial_video":"pending","administration_video":"pending"},"verification":{"state":"verification_pending"},"notification_channels":["local-stub"],"notification_policy":{},"links":{}}'::jsonb),

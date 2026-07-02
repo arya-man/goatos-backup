@@ -58,7 +58,7 @@ export async function listProcurementLoads(
 }
 
 // Load Detail — full journey: load, per-goat rows, holding stays, source health, pre-dispatch decisions,
-// transit handoffs, arrival reviews (arrival gate), PHC handoffs, and the merged timeline.
+// transit handoffs, arrival reviews (arrival gate), Preventive Care (PC) handoffs, and the merged timeline.
 export async function getProcurementLoad(loadId: string): Promise<ApiResult<ProcurementLoadDetailResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;

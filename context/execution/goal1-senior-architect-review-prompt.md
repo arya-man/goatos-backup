@@ -54,7 +54,7 @@ LOOKUP ORDER (mandatory, token-efficient):
 INTENDED-BEHAVIOR BASELINE (the contract, not a hint):
 - context/architecture/operational-kernel.md and operational-kernel-system-design.md
 - docs/protocol-engine/{state-machines.md,obligation-engine.md}   (SM-1..SM-7)
-- docs/phc-vaccination/{PRD.md,TRD.md,V1-FOUNDATION-SPEC.md}
+- docs/preventive-care-vaccination/{PRD.md,TRD.md,V1-FOUNDATION-SPEC.md}
 - context/execution/vaccination-kernel-closure-business-backlog.md  (team CLAIMS — verify each)
 - context/frontend/{current-admin-web-scope.md,vaccination-kernel-closure-screen-requirements.md,
   final-frontend-mobile-backend-architecture.md}

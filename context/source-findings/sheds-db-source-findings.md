@@ -12,7 +12,7 @@ Sources reviewed:
   birth, breeding, and other goat events, with shiftings performed accordingly.
 
 Status: sanitized source finding for GoatOS Locations/Parks, Counts/Shifting,
-Feed Direction, PHC, Procurement, Breeding, SOP, and command-lens consumers. Do
+Feed Direction, Preventive Care (PC), Procurement, Breeding, SOP, and command-lens consumers. Do
 not commit the raw workbook, Google Sheet URL, screenshots, or private media.
 
 ## Source Shape
@@ -123,7 +123,7 @@ clone. The surface should support:
 - shed profile CRUD with review/publish state and source evidence;
 - effective-dated tags, capacity, potential tags, and fit-for-purpose notes;
 - alias cleanup for legacy tags and spacing variants;
-- impact preview showing Feed, PHC, Procurement, Breeding, SOP, Calendar, Action
+- impact preview showing Feed, Preventive Care (PC), Procurement, Breeding, SOP, Calendar, Action
   Center, Control Tower, and Protocol Adherence effects before publish;
 - exception work when current occupancy, scheduled shifting, or profile changes
   exceed capacity or violate high-risk cohort fit.

@@ -6,7 +6,7 @@ Worktree: local GoatOS checkout
 
 ## Status
 
-V1 vaccination is demo-ready for the local PHC vaccination slice.
+V1 vaccination is demo-ready for the local Preventive Care (PC) vaccination slice.
 
 Fresh evidence:
 
@@ -16,7 +16,7 @@ Fresh evidence:
 - Config page UX follow-up full E2E smoke: `CONFIG-PAGE-V2-20260701`
 - Config page authoring smoke: `AUTHORING-2026-07-01T18-35-03-998Z`
 - Config page click/interlink matrix: `CONFIG-PAGE-V2-20260701-R2`
-- Source nuance rules: `docs/phc-vaccination/source-nuances-rules.md`
+- Source nuance rules: `docs/preventive-care-vaccination/source-nuances-rules.md`
 - Goats and Parks tracked source extract: `context/source-findings/goats-and-parks-source-extract.md`
 - Nuance kernel/config package proof: `go test ./internal/adminui/app ./internal/protocol/app ./internal/vaccination/app -count=1`
 - Older-goat anti-flood tests: `go test ./internal/vaccination/app -run 'TestOlderGoat' -count=1`
@@ -187,7 +187,7 @@ npm --prefix apps/admin-web run check:mock-fidelity
 
 Say:
 
-> V1 is demo-ready for the PHC vaccination workflow. Source-backed SOP policy and multi-row vaccination config capture the nuance rules for breed, stage, sex, vaccine class, course type, dose, vial size, revaccination, source schedule, live/killed spacing, clinical defer, procurement warm-up, and pregnancy policy; the kernel generates safe due work, the sweeper groups it into shed execution, the operator submits proof, verification accepts or rejects it, completion updates the goat passport, and replay does not duplicate work.
+> V1 is demo-ready for the Preventive Care (PC) vaccination workflow. Source-backed SOP policy and multi-row vaccination config capture the nuance rules for breed, stage, sex, vaccine class, course type, dose, vial size, revaccination, source schedule, live/killed spacing, clinical defer, procurement warm-up, and pregnancy policy; the kernel generates safe due work, the sweeper groups it into shed execution, the operator submits proof, verification accepts or rejects it, completion updates the goat passport, and replay does not duplicate work.
 
 Also say:
 
@@ -195,4 +195,4 @@ Also say:
 
 Also say:
 
-> This handover is the V1 PHC vaccination demo contract. V1 captures the Nuance Rules matrix and proves the local rule gates, including source compatibility spacing. Route/resource optimization and million-goat load/permutation work are separate production programs, not hidden claims inside this demo.
+> This handover is the V1 Preventive Care (PC) vaccination demo contract. V1 captures the Nuance Rules matrix and proves the local rule gates, including source compatibility spacing. Route/resource optimization and million-goat load/permutation work are separate production programs, not hidden claims inside this demo.

@@ -1,11 +1,11 @@
-# PHC Vaccination Roster Expansion Follow-up
+# Preventive Care (PC) Vaccination Roster Expansion Follow-up
 
 Date: 2026-06-26
 
 ## Current baseline
 
-Local/dev is not blocked on a vague PHC approval item. The selected baseline is
-recorded in `context/source-findings/phc-vaccination-roster-stage-proposal.md`:
+Local/dev is not blocked on a vague Preventive Care (PC) approval item. The selected baseline is
+recorded in `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`:
 
 - K2 is 42 days / six weeks for local/dev.
 - The schedule-bearing local/dev protocol is ET / Enterotoxaemia, K1, day 21,
@@ -78,16 +78,16 @@ SOP/vocabulary labels; neither creates due work.
 
 This pass queried CRG, Mesha docs Graphify, Mesha visual Graphify, and the
 goatos-docs Graphify graph before raw source reads. The source search found
-general PHC vaccination obligations, cold-chain, software logging, and the Goat
+general Preventive Care (PC) vaccination obligations, cold-chain, software logging, and the Goat
 OS vaccination schema, but no PPR/FMD/HS/BQ goat schedule row with timing, dose,
 booster/repeat policy, proof/SOP binding, and publishable approval metadata.
 
 | Vaccine | Closed state | Source evidence | Engine action |
 | --- | --- | --- | --- |
-| PPR | `label-only closed` | SOP picker label in `source-material/sop-playground-local/playground.html:1057-1083`; sheep/procurement-history note in `wiki/graphify-out/converted/Procurement DB [Goats]_dda03a25.md:86`. No goat schedule math or approved PHC/vet metadata found. | No `inventory_items`, `vaccines`, `protocol_definitions`, `protocol_versions`, or `protocol_rules` row added. No obligations generated. |
-| FMD | `label-only closed` | SOP picker label in `source-material/sop-playground-local/playground.html:1057-1083`; sheep/procurement-history note in `wiki/graphify-out/converted/Procurement DB [Goats]_dda03a25.md:78`. No goat schedule math or approved PHC/vet metadata found. | No `inventory_items`, `vaccines`, `protocol_definitions`, `protocol_versions`, or `protocol_rules` row added. No obligations generated. |
-| HS | `label-only closed` | SOP picker label in `source-material/sop-playground-local/playground.html:1057-1083`. No timing/dose/booster/repeat or approved PHC/vet metadata found. | No `inventory_items`, `vaccines`, `protocol_definitions`, `protocol_versions`, or `protocol_rules` row added. No obligations generated. |
-| BQ | `label-only closed` | SOP picker label in `source-material/sop-playground-local/playground.html:1057-1083`. No timing/dose/booster/repeat or approved PHC/vet metadata found. | No `inventory_items`, `vaccines`, `protocol_definitions`, `protocol_versions`, or `protocol_rules` row added. No obligations generated. |
+| PPR | `label-only closed` | SOP picker label in `source-material/sop-playground-local/playground.html:1057-1083`; sheep/procurement-history note in `wiki/graphify-out/converted/Procurement DB [Goats]_dda03a25.md:86`. No goat schedule math or approved Preventive Care (PC) / vet metadata found. | No `inventory_items`, `vaccines`, `protocol_definitions`, `protocol_versions`, or `protocol_rules` row added. No obligations generated. |
+| FMD | `label-only closed` | SOP picker label in `source-material/sop-playground-local/playground.html:1057-1083`; sheep/procurement-history note in `wiki/graphify-out/converted/Procurement DB [Goats]_dda03a25.md:78`. No goat schedule math or approved Preventive Care (PC) / vet metadata found. | No `inventory_items`, `vaccines`, `protocol_definitions`, `protocol_versions`, or `protocol_rules` row added. No obligations generated. |
+| HS | `label-only closed` | SOP picker label in `source-material/sop-playground-local/playground.html:1057-1083`. No timing/dose/booster/repeat or approved Preventive Care (PC) / vet metadata found. | No `inventory_items`, `vaccines`, `protocol_definitions`, `protocol_versions`, or `protocol_rules` row added. No obligations generated. |
+| BQ | `label-only closed` | SOP picker label in `source-material/sop-playground-local/playground.html:1057-1083`. No timing/dose/booster/repeat or approved Preventive Care (PC) / vet metadata found. | No `inventory_items`, `vaccines`, `protocol_definitions`, `protocol_versions`, or `protocol_rules` row added. No obligations generated. |
 
 No `draft/reviewed publish-rejected` candidates were created because the sources
 did not provide timing/dose evidence for these four vaccines. The existing
@@ -292,11 +292,11 @@ Minimum checks for a roster expansion session:
 ## Small next-session prompt
 
 ```text
-In /Users/ravi/mesha/goatos, close the optional PHC vaccination roster expansion
+In /Users/ravi/mesha/goatos, close the optional Preventive Care (PC) vaccination roster expansion
 for PPR/FMD/HS/BQ. Follow AGENTS.md graph-first lookup before raw reads: CRG,
 Mesha docs/visual Graphify, and goatos-docs Graphify. Then read AGENTS.md,
 SKILLS.md, context/README.md, docs/phases/README.md,
-context/source-findings/phc-vaccination-roster-stage-proposal.md, and
+context/source-findings/preventive-care-vaccination-roster-stage-proposal.md, and
 context/execution/vaccination-roster-expansion-followup.md. Use Graphify/wiki/
 SOP/legacy sources first; cite exact source paths. For each vaccine, end in one
 closed state: schedule-backed only if source evidence gives real timing/dose/

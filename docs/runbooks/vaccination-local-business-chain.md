@@ -131,7 +131,7 @@ It completed:
 
 - vaccination chain proof: `CLOSED`, with Workflows, Passport, shed drilldown,
   Control Tower, Adherence, and Operations surfaces hit.
-- procurement four-goat matrix: accepted clean goat generated PHC vaccination
+- procurement four-goat matrix: accepted clean goat generated Preventive Care (PC) vaccination
   work; rejected, owner-missing, and extra/unmatched paths did not create
   vaccination work.
 - browser visual/click smoke: `/login`, `/`, `/action-center`, `/calendar`,
@@ -187,9 +187,9 @@ re-run — obligation count stayed `1`, completion count stayed `1`, sweeper rep
 
 ## Remaining (external, NOT a local-code or data-plane blocker)
 
-- **Production roster expansion.** Local/dev no longer waits on a vague PHC
+- **Production roster expansion.** Local/dev no longer waits on a vague Preventive Care (PC)
   roster approval: the source-derived baseline is ET/K1/day-21 with K2=42, backed
-  by `context/source-findings/phc-vaccination-roster-stage-proposal.md`. The
+  by `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`. The
   2026-06-26 PPR/FMD/HS/BQ expansion pass found labels only, so all four are
   `label-only closed`; no additional protocol rows or obligations were added.
 - **Google/prod provisioning** — see Infra / Prod Readiness below; external.

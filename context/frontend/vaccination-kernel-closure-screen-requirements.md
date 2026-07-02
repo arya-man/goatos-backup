@@ -40,7 +40,7 @@ Do:
   behavior, disabled reasons, action labels, and drawer/detail fields.
 - Keep top-level command screens top-level: Control Tower, Action Center,
   Calendar, Protocol Adherence, Workflows, Config, SOP Library, Audit.
-- Keep `/vaccination` as PHC Vaccination operations, not a catch-all nested
+- Keep `/vaccination` as Preventive Care (PC) Vaccination operations, not a catch-all nested
   command room.
 
 Do not:
@@ -247,7 +247,7 @@ Routes:
 
 Product surface:
 
-- PHC/Parks sees why vaccination is held, who owns review, and when recovery
+- Preventive Care (PC) / Parks sees why vaccination is held, who owns review, and when recovery
   re-check created or reopened due work.
 
 UI pattern:
@@ -269,7 +269,7 @@ Backend contract needed:
 Acceptance:
 
 - Sick/ICU/quarantine goats show visible hold reason and recovery path across
-  PHC/Vaccination, Action Center, Calendar, and Goat Passport.
+  Preventive Care (PC) / Vaccination, Action Center, Calendar, and Goat Passport.
 
 ### 5. Hard Stock-Blocked Execution
 

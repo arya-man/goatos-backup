@@ -1,6 +1,6 @@
 # Vaccination v1 — Matrix + Due Engine Spec (locked)
 
-**Date:** 2026-06-24 · **Status:** locked for build · **Owner surface:** PHC vertical → Vaccination module.
+**Date:** 2026-06-24 · **Status:** locked for build · **Owner surface:** Preventive Care (PC) vertical → Vaccination module.
 
 This spec locks the architecture + scope for Vaccination v1. V1 is not just an
 engine foundation or a booster toggle; it must prove a reviewable
@@ -8,19 +8,19 @@ vaccine-goat matrix that can generate per-goat due work for new goats,
 purchased/intake goats, existing-goat backfill, stage changes, shed changes,
 health/defer changes, and accepted-completion next doses. Config IA is settled
 separately: Protocol Rules lives under generic Admin / Data Ops at `/config`,
-while PHC/Vaccination links to it filtered as `category=vaccination`. The
+while Preventive Care (PC) / Vaccination links to it filtered as `category=vaccination`. The
 vaccination-specific invariant in this spec is that eligibility must not be
 modelled with a generic `shed_status` text field. Authoritative source hierarchy:
 committed migrations `000071`-`000075`, `wiki/goatOS.docx` (§1 locations, §6
 vaccination, §11 shiftings), voice-note matrix requirements, and the accepted
 source findings in
-`context/source-findings/phc-vaccination-roster-stage-proposal.md` plus
+`context/source-findings/preventive-care-vaccination-roster-stage-proposal.md` plus
 `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`.
 Visual source: `mock/goatos-dashboard-mock.html`.
 
 ## 1. Locked decisions
 
-- **PHC is the vertical. Vaccination is a module under PHC.** Vaccination never
+- **Preventive Care (PC) is the vertical. Vaccination is a module under Preventive Care (PC).** Vaccination never
   moves under Parks.
 - **One generic protocol/obligation engine internally** (already committed:
   `protocol_definitions/versions/rules`, `obligation_instances/batches`,
@@ -28,7 +28,7 @@ Visual source: `mock/goatos-dashboard-mock.html`.
   later. Do not fork a vaccination-only schema; do not build a parallel system.
 - **Config UX is generic Admin / Data Ops authority.** The visible Config screen
   is `/config` (`Admin / Data Ops -> Config — Protocol Rules`), CEO/COO/
-  superadmin only. PHC/Vaccination may link to `/config?category=vaccination`,
+  superadmin only. Preventive Care (PC) / Vaccination may link to `/config?category=vaccination`,
   but Config is not a Vaccination-owned screen.
 - **Eligibility stage comes from the goat's current shed**, never a free-text
   field:
@@ -46,9 +46,9 @@ Visual source: `mock/goatos-dashboard-mock.html`.
   child location. Add only missing shed-profile/backfill/recompute pieces; do
   not rebuild Locations, do not invent a new capacity field (`shed_profiles.capacity`
   already exists).
-- **Do not build full Parks modules now:** no Sanitation, no PHC & Biosecurity
+- **Do not build full Parks modules now:** no Sanitation, no Preventive Care (PC) & Biosecurity
   Parks page, no Feed Direction, no Feed Execution, no Ground Team module, no
-  Park Inventory screen. **Feed Direction stays paused** until PHC/Vaccination UI
+  Park Inventory screen. **Feed Direction stays paused** until Preventive Care (PC) / Vaccination UI
   + the V1 matrix/due engine are reviewed and approved.
 
 ## 2. Engine ↔ doc mapping (already committed — reconcile vocab, don't rebuild)
@@ -110,7 +110,7 @@ jsonb for matrix-specific eligibility and source metadata).
 
 ## 4. Procurement DB [Goats].xlsx — evidence only, not completion truth
 
-Include in PHC/Vaccination source review as **arrival/intake/history evidence**:
+Include in Preventive Care (PC) / Vaccination source review as **arrival/intake/history evidence**:
 load/vendor/breed/gender/weight/moved-to location/tag update, selection health
 fields, unloading/transit records, and any source-row vaccination mention.
 
@@ -143,7 +143,7 @@ Procurement vertical for v1.
   matching obligations, and schedule boosters from actual `administered_at`.
   Missing or untrusted history must not create completions; older goats whose
   historical windows are already past get one safe catch-up/review action first,
-  not every old dose as same-day work. After PHC approval it becomes
+  not every old dose as same-day work. After Preventive Care (PC) approval it becomes
   baseline/catch-up shed drives per
   `docs/protocol-engine/migration-and-cutover.md`.
 
@@ -168,7 +168,7 @@ schema fields so the protocol engine is not hardcoded to vaccination.
 
 Routes in scope: `/login · / · /action-center · /protocol-adherence ·
 /workflows · /vaccination · /config · /goats/{goat_id}`. Mesha green/black ·
-compact sidebar · PHC vertical with Vaccination as an operational module ·
+compact sidebar · Preventive Care (PC) vertical with Vaccination as an operational module ·
 Admin/Data Ops with Config · Parks/Sheds as foundation only · no
 Operations/Legacy/SOP/cyan nav · no huge fonts · no horizontal clipping · clean
 theme toggle · Goat Passport contextual/detail only (no global goat search).

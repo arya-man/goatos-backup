@@ -6,7 +6,7 @@ through the current tail (`000117` at this correction). The first draft was
 written when the repo stopped near `000060`; current work must check the live
 migration tail before adding tables or treating protocol/obligation/inventory as
 absent.
-**Why this doc:** PHC (vaccination, deworming, biosecurity, feed/water testing, panel cleaning, sanitization, fire-safety, SOP-video, stock checks, director reporting) **and** Feed Direction all need the same thing: admin-set rules → due obligations → tasks → proof → completion → projections. Build it **once**. Module-specific tables (e.g. `vaccination_completions`) link into this engine; they do not re-implement it.
+**Why this doc:** Preventive Care (PC) (vaccination, deworming, biosecurity, feed/water testing, panel cleaning, sanitization, fire-safety, SOP-video, stock checks, director reporting) **and** Feed Direction all need the same thing: admin-set rules → due obligations → tasks → proof → completion → projections. Build it **once**. Module-specific tables (e.g. `vaccination_completions`) link into this engine; they do not re-implement it.
 
 ---
 
@@ -47,17 +47,17 @@ admin rule (protocol_version, published)  →  trigger fires (goat born / cron /
 
 ## 2. Authority model (corrected)
 
-PHC/Feed Director **drafts**; COO/CEO **publishes**. Authority is **capability-based**, not role-name-based, so "any admin/tech user" cannot publish rules.
+Preventive Care (PC) / Feed Director **drafts**; COO/CEO **publishes**. Authority is **capability-based**, not role-name-based, so "any admin/tech user" cannot publish rules.
 
-**Category-specific capabilities (required — scope alone cannot separate verticals).** `workforce_member_capabilities` scopes only by tenant/park/shed/cohort — it has **no category dimension**. A generic `protocol.draft` would therefore let a Feed Director draft PHC rules and vice-versa. So the capability code itself carries the category:
+**Category-specific capabilities (required — scope alone cannot separate verticals).** `workforce_member_capabilities` scopes only by tenant/park/shed/cohort — it has **no category dimension**. A generic `protocol.draft` would therefore let a Feed Director draft Preventive Care (PC) rules and vice-versa. So the capability code itself carries the category:
 - `protocol.draft.vaccination`, `protocol.draft.feed_direction`, `protocol.draft.deworming`, … (and `protocol.publish.<category>`).
-- These fit the committed `capability_code` regex (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`). The PHC Director holds `protocol.draft.vaccination` (+ other PHC categories); the Feed Director holds `protocol.draft.feed_direction`.
+- These fit the committed `capability_code` regex (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`). The Preventive Care (PC) Director holds `protocol.draft.vaccination` (+ other Preventive Care (PC) categories); the Feed Director holds `protocol.draft.feed_direction`.
 - The API resolves the target `protocol_definitions.category` and requires the matching `protocol.{draft|publish}.{category}` capability at the relevant tenant/park scope.
 - *(Acceptable fallback if you must keep generic codes: a generic `protocol.draft`/`protocol.publish` **plus** an explicit API authorization check that the actor's allowed categories include the target category. Per-category codes are preferred — the boundary is then enforceable from the capability model alone.)*
 
 | Action | Required capability (category-specific, scoped tenant or park) | Effect |
 |---|---|---|
-| Draft / edit a `protocol_version` (status=`draft`) | `protocol.draft.<category>` (e.g. `…vaccination` for PHC Director) | mutable |
+| Draft / edit a `protocol_version` (status=`draft`) | `protocol.draft.<category>` (e.g. `…vaccination` for Preventive Care (PC) Director) | mutable |
 | **Publish** (`draft→published`, set `effective_from`) | **`protocol.publish.<category>`** (COO/CEO) | immutable; new effective window opens |
 | Retire | `protocol.publish.<category>` | `effective_to` set (closes the window) |
 
@@ -88,7 +88,7 @@ Capability is checked via `workforce_member_capabilities` (same mechanism as `va
 | Field worker | **no config** — Action Center + SOP execution only |
 | Verifier | **no config** — proof queue only |
 
-**Publish gate + dev policy (source-backed):** a version publishes **only when `review_status='approved'`** and source-backed. Values that come from a **real source (Vaccinations DB / PHC / vet-approved / committed PHC PRD source finding)** and are marked `approved` are **real config in `goatos-dev` and publishable there** — the **dev-real path**. **Unsourced / `manual_admin` / `extracted`** rows stay `status='draft'` and carry a **`not source-backed`** warning — they cannot be published and generate no production work. **Never hand-invent** PPR/FMD/ET schedule values; the local/dev ET row is source-derived from `docs/phc-vaccination/PRD.md:60` and future values arrive via this config UI or a reviewed source extract.
+**Publish gate + dev policy (source-backed):** a version publishes **only when `review_status='approved'`** and source-backed. Values that come from a **real source (Vaccinations DB / Preventive Care (PC) / vet-approved / committed Preventive Care (PC) PRD source finding)** and are marked `approved` are **real config in `goatos-dev` and publishable there** — the **dev-real path**. **Unsourced / `manual_admin` / `extracted`** rows stay `status='draft'` and carry a **`not source-backed`** warning — they cannot be published and generate no production work. **Never hand-invent** PPR/FMD/ET schedule values; the local/dev ET row is source-derived from `docs/preventive-care-vaccination/PRD.md:60` and future values arrive via this config UI or a reviewed source extract.
 
 ---
 
@@ -158,7 +158,7 @@ A `sop_task` alone can't hold drive-level fields. Group per-target obligations e
 
 ## 5. Execution — reuse the committed SOP engine
 
-The unit of execution is the **batch**, not the individual obligation: **many due obligations → grouped into one `obligation_batch` → one `sop_task`.** Phase 0 catch-up uses PHC-approved manual campaign obligations/batches; standalone per-goat individual override generation is not exposed.
+The unit of execution is the **batch**, not the individual obligation: **many due obligations → grouped into one `obligation_batch` → one `sop_task`.** Phase 0 catch-up uses Preventive Care approved manual campaign obligations/batches; standalone per-goat individual override generation is not exposed.
 
 ```
 sweeper: collect due obligation_instances for a (scope, protocol, window)
@@ -172,7 +172,7 @@ sweeper: collect due obligation_instances for a (scope, protocol, window)
    → at batch close: stock consume/release (§6); batch → completed
 ```
 
-Assignment uses `workforce_member_capabilities` (e.g. `vaccination.execute` scoped to the shed's park). Verification uses `proof.verify`. PHC-approved catch-up uses the same canonical obligation/batch path as other campaign work. No new task engine.
+Assignment uses `workforce_member_capabilities` (e.g. `vaccination.execute` scoped to the shed's park). Verification uses `proof.verify`. Preventive Care approved catch-up uses the same canonical obligation/batch path as other campaign work. No new task engine.
 
 ---
 
@@ -222,12 +222,12 @@ Cascade is **application code via the transactional outbox**, not Postgres trigg
 
 | Vertical | Modules → each = a `protocol_definitions` category |
 |---|---|
-| **PHC** | vaccination · deworming · biosecurity · feed/water testing · panel cleaning · sanitization · fire/safety · SOP-video verification · stock anti-misuse · director reporting |
+| **Preventive Care (PC)** | vaccination · deworming · biosecurity · feed/water testing · panel cleaning · sanitization · fire/safety · SOP-video verification · stock anti-misuse · director reporting |
 | **Feed** (vertical) | feed-direction (config/ration -> next-day full direction -> cutoff Diff -> packing/staging -> execution -> wastage -> stock); later modules: feed-stock/loads, wastage/variance, ration-library |
 
 Module-specific tables (`vaccination_completions`, `feed_direction_completions`, and optional generation/bridge/projection rows where the generic kernel has no natural home) link via `obligation_id` or run/proof identifiers. New modules add a category + protocol rules + an SOP form + (optionally) a completion/projection table — **no new engine.**
 
-See: [PHC Vaccination TRD](../phc-vaccination/TRD.md) · [Feed Direction TRD](../feed-direction/TRD.md) · [State machines](./state-machines.md) · [Migration & cutover](./migration-and-cutover.md).
+See: [Preventive Care (PC) Vaccination TRD](../preventive-care-vaccination/TRD.md) · [Feed Direction TRD](../feed-direction/TRD.md) · [State machines](./state-machines.md) · [Migration & cutover](./migration-and-cutover.md).
 
 ---
 
@@ -235,7 +235,7 @@ See: [PHC Vaccination TRD](../phc-vaccination/TRD.md) · [Feed Direction TRD](..
 
 Non-negotiable invariants. A PR that violates any of these is rejected, not merged.
 
-1. **No per-goat `sop_task` for group work.** Group execution = ONE `sop_task` per `obligation_batch` (shed drive / feed session). Catch-up is still canonical obligation/batch work in Phase 0; standalone per-goat tasks wait for an explicit PHC catch-up action contract. 1M goats must never become ~1M human tasks.
+1. **No per-goat `sop_task` for group work.** Group execution = ONE `sop_task` per `obligation_batch` (shed drive / feed session). Catch-up is still canonical obligation/batch work in Phase 0; standalone per-goat tasks wait for an explicit Preventive Care (PC) catch-up action contract. 1M goats must never become ~1M human tasks.
 2. **No far-future work in Cloud Tasks.** Future due state lives only in `obligation_instances` (Postgres). Cloud Scheduler + sweeper enqueue Cloud Tasks for the near-term window only; a lost task is re-derived from Postgres. Cloud Tasks/Pub-Sub are never the source of truth.
 3. **Due scans use the `(tenant_id, status, due_at)` index** and touch only the current partition/window — never a full-table or full-herd scan. Sweeper pages through results, bounded batch size, resumable.
 4. **Archive/partition policy for growth.** `obligation_instances`, `obligation_batches`, `vaccination_completions`, and `obligation_status_events` are RANGE-partitioned by date (there is **no** `vaccination_schedule` table — per-goat due state lives in `obligation_instances`); `completed`/`canceled`/`superseded` rows roll off hot partitions to cold/archive on a retention policy so the hot set stays bounded (~current + near-future). Control Tower never aggregates over cold history live.

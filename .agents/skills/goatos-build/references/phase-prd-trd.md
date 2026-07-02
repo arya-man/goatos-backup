@@ -4,7 +4,7 @@ Load this before implementing, reviewing, or changing any delivery phase.
 
 ## Active Override — Protocol Engine Phase 0
 
-For current PHC vaccination, vaccination execution context, protocol config,
+For current Preventive Care (PC) vaccination, vaccination execution context, protocol config,
 obligation, and inventory-ledger work, the active build spec is:
 
 ```text
@@ -14,8 +14,8 @@ docs/protocol-engine/obligation-engine.md
 docs/protocol-engine/state-machines.md
 docs/protocol-engine/migration-and-cutover.md
 context/architecture/operational-kernel.md
-docs/phc-vaccination/PRD.md
-docs/phc-vaccination/TRD.md
+docs/preventive-care-vaccination/PRD.md
+docs/preventive-care-vaccination/TRD.md
 ```
 
 Use those files as the source of truth for migrations `000070-074`, protocol
@@ -32,7 +32,7 @@ Canonical docs:
 
 Rules:
 
-- For Protocol Engine / PHC Vaccination work, read the active docs above before
+- For Protocol Engine / Preventive Care (PC) Vaccination work, read the active docs above before
   code. Do not rely on deleted old phase docs for the protocol/obligation
   schema or frontend direction.
 - Write and review the detailed PRD/TRD for the selected phase before code.

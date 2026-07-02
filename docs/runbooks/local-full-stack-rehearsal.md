@@ -1,6 +1,6 @@
 # Local Full-Stack Rehearsal
 
-Status: replaced for the current Admin Config + PHC Vaccination + Parks
+Status: replaced for the current Admin Config + Preventive Care (PC) Vaccination + Parks
 vaccination execution slice, including Calendar due-work and Operations DLQ
 repair visibility.
 

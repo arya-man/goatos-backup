@@ -188,9 +188,9 @@ These are the active admin-web routes covered by the first backend contract:
 | `/protocol-adherence` | `protocol-adherence` | Protocol Adherence | `/vaccination/adherence` | Ledger rows open record drawers. |
 | `/workflows` | `workflows` | Workflow catalog | `/vaccination/action-center` | Catalog/drilldown split remains. |
 | `/workflows/{row_id}` | `workflow-record` | Workflow drilldown | `/vaccination/workflows/{row_id}` | Full chain record. |
-| `/vaccination` | `vaccination` | PHC Vaccination | `/vaccination/operations`, `/vaccination/execution` | Status matrix, cohort detail, shed execution, supplier warmup context. |
+| `/vaccination` | `vaccination` | Preventive Care (PC) Vaccination | `/vaccination/operations`, `/vaccination/execution` | Status matrix, cohort detail, shed execution, supplier warmup context. |
 | `/vaccination/execution/sheds/[shedId]` | `shed-execution` | Shed execution detail | `/vaccination/execution/sheds/{shed_id}` | UI route uses the Next.js `[shedId]` segment; backend API uses `{shed_id}`. |
-| `/procurement/source-entry` | `source-entry` | Source Entry Board | `/procurement/source-entry/loads` | Procurement bridge into PHC vaccination. |
+| `/procurement/source-entry` | `source-entry` | Source Entry Board | `/procurement/source-entry/loads` | Procurement bridge into Preventive Care (PC) vaccination. |
 | `/procurement/source-entry/loads/{load_id}` | `source-load` | Source load detail | `/procurement/source-entry/loads/{load_id}` | Full source-entry journey. |
 | `/counts/herd` | `herd-register` | Herd Register | `/goats/search`, admin goat APIs | Vaccination trigger-closure entry point. |
 | `/operations/audit` | `audit-log` | Audit Log | `/operations/audit`, `/operations/audit/summary` | Business audit projection. |
@@ -220,7 +220,7 @@ Done in this pass:
   Missing copy/table/option keys throw rather than silently falling back to
   React-local labels.
 - Migrated high-risk page bodies include Control Tower, Action Center,
-  Calendar, Protocol Adherence, Workflows, PHC Vaccination, shed execution,
+  Calendar, Protocol Adherence, Workflows, Preventive Care (PC) Vaccination, shed execution,
   Source Entry, Source Load, Herd Register, Audit Log, Config, SOP Library, and
   Goat Passport.
 - Config rule-editor vocabularies are backend-owned: categories, scopes,
@@ -267,7 +267,7 @@ page contracts evolve. E2E should assert the title/columns/chips come from
 | `/vaccination` | Status matrix, cohort detail, shed events, supplier warmup, record/verify and guidance drawers. | Contract route `vaccination` owns section titles, filter labels, table columns, supplier/warmup labels, drawer labels, and action availability. |
 | `/vaccination/execution/sheds/[shedId]` | Shed work-state, drives, owner chain, blocked/deferred, drive rows, action drawer. | Contract route `shed-execution` owns summary/detail labels and disabled reasons; frontend may compact the same backend object for layout. |
 | `/procurement/source-entry` | Source Entry Board, journey chips, source load rows, selected load drawer. | Contract route `source-entry` owns journey order, load table columns, status chip order/labels/tones, warmup/HF/health labels, drawer fields, and action links. |
-| `/procurement/source-entry/loads/{load_id}` | Full source-load detail: timeline, goats, pre-dispatch, arrival, transit, holding, source health, PHC handoff. | Contract route `source-load` owns the full-detail page for the same object summarized on `/procurement/source-entry`. |
+| `/procurement/source-entry/loads/{load_id}` | Full source-load detail: timeline, goats, pre-dispatch, arrival, transit, holding, source health, Preventive Care (PC) handoff. | Contract route `source-load` owns the full-detail page for the same object summarized on `/procurement/source-entry`. |
 | `/counts/herd` | Herd Register summary cards, filter modal, herd table, selected Goat Passport drawer. | Contract route `herd-register` owns title/subtitle, summary/table/filter labels, import/register copy, and passport drawer labels. |
 | `/operations/audit` | Audit summary, role/status chips, activity trail, advanced filters, business drawer. | Contract route `audit-log` owns role-lens chips, filter labels, page-size/cursor text, columns, drawer labels, and raw metadata placement. |
 | `/config` | Protocol Rules, search/page-size controls, draft/publish modal, process map. | Contract route `config` owns rule columns, status chips, editor vocabularies, publish gates, preview copy, and linked-SOP labels. |

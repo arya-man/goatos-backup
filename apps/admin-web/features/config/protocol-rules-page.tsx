@@ -92,8 +92,8 @@ function toRuleRow(item: ProtocolConfigItem, pageContract: AdminUiPageContract):
   };
 }
 
-// Shown at Admin / Data Ops / Config. This is the generic protocol authority surface: PHC/
-// Vaccination links here with category=vaccination, but no module owns the screen. Rules are read
+// Shown at Admin / Data Ops / Config. This is the generic protocol authority surface:
+// Preventive Care (PC) / Vaccination links here with category=vaccination, but no module owns the screen. Rules are read
 // from the real backend protocol list (B3, GET /protocols?category=…) through the generated client —
 // never fabricated. A failed read surfaces an error band, not a silent empty table.
 export async function ConfigProtocolRulesPage({

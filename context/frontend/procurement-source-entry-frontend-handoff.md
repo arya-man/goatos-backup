@@ -5,7 +5,7 @@ Date: 2026-06-24
 Purpose: define the frontend slice for source-side goat entry, holding farm
 warmup, pre-dispatch rejection, truck/transit, and arrival intake.
 
-This is **not part of the current PHC Vaccination UI repair**. Procurement is a
+This is **not part of the current Preventive Care (PC) Vaccination UI repair**. Procurement is a
 separate source-entry vertical. Do not add procurement cards to the active
 vaccination Control Tower/Action Center unless the view is explicitly using a
 procurement lens such as `?domain=procurement`.
@@ -131,7 +131,7 @@ Do not misrepresent current product:
 
 ```text
 built / visible today in the vaccination review slice:
-  PHC Vaccination process-integrity screens
+  Preventive Care (PC) Vaccination process-integrity screens
   Vaccination execution context
   Admin Config
   vaccination-only SOP Library
@@ -167,7 +167,7 @@ entry out of the visible product except as explanatory copy where needed.
 Rejected-before-truck, arrival-rejected, dead/sold/lost, ownership-blocked,
 identity-conflict, source-only/candidate, rejected-before-purchase/load, and
 unknown/extra-unresolved goats must remain procurement history/work. They must
-not be rendered as PHC vaccination work or vaccination execution rows.
+not be rendered as Preventive Care (PC) vaccination work or vaccination execution rows.
 
 ## UI/UX Source Of Truth
 
@@ -212,7 +212,7 @@ of repeating the same "Scope", "All parks", source, or date chips inline.
 
 After verifying backend contracts and generated types in the local tree, preserve
 procurement as its own vertical surface and finish the existing source-entry
-routes. Do not bury it under PHC Vaccination and do not add a duplicate
+routes. Do not bury it under Preventive Care (PC) Vaccination and do not add a duplicate
 procurement nav tree.
 
 Expected admin-web routes:
@@ -261,12 +261,12 @@ mock rows.
 | Screen | Must cover | Must not do |
 | --- | --- | --- |
 | Source Entry Board | Loads by source/holding farm; warmup age; health/tag SOP state; pre-dispatch pending/accepted/rejected/deferred; owner; proof state; next action | Do not show accepted park vaccination work here |
-| Candidate/source intake | Source-only tagged goats; warmup age; purchase/ownership pending; selection state; reject/defer/block reason | Do not create PHC/Parks rows before accepted intake |
+| Candidate/source intake | Source-only tagged goats; warmup age; purchase/ownership pending; selection state; reject/defer/block reason | Do not create Preventive Care (PC) / Parks rows before accepted intake |
 | Load Detail | Full journey timeline: purchase -> holding -> source SOP -> pre-dispatch -> truck loading -> transit -> arrival gate -> accepted intake | Do not flatten the whole journey into one status pill |
 | Pre-Dispatch Decision | Accept for truck, reject before truck, defer/block, reason, proof, audited actor/time | Do not treat rejection as a vaccination rejection |
 | Arrival Gate | Expected vs loaded vs arrived counts; matched/missing/extra goats; identity/health/weight flags; media proof; accept-intake action | Do not let goats become clean herd rows before reconciliation |
 | SOP Library procurement slice | Future source health, pre-dispatch, truck loading, transit handoff, arrival gate SOPs | Out of current E2E unless explicitly reopened; do not expose all-domain SOP catalog |
-| PHC Vaccination screens | Read only accepted intake outputs: origin, entry/intake date, historical vaccination evidence, defer signal | Do not own source warmup, pre-dispatch rejection, or arrival discrepancy review |
+| Preventive Care (PC) Vaccination screens | Read only accepted intake outputs: origin, entry/intake date, historical vaccination evidence, defer signal | Do not own source warmup, pre-dispatch rejection, or arrival discrepancy review |
 | Parks screens | Show only goats accepted into park/shed context | Do not show rejected-before-truck goats as park work |
 
 ## Top-Level Command Lens Behavior
@@ -330,7 +330,7 @@ truck loading
 transit/handoff proof
 arrival review
 accepted intake
-links to created canonical goats and downstream PHC obligations
+links to created canonical goats and downstream Preventive Care (PC) obligations
 ```
 
 Must include per-goat rows, not only load totals:
@@ -345,7 +345,7 @@ loaded?
 arrived?
 arrival review state
 accepted intake?
-downstream PHC/vaccination status link when accepted
+downstream Preventive Care (PC) / vaccination status link when accepted
 ```
 
 ### Pre-Dispatch Decision
@@ -363,7 +363,7 @@ audited actor/time
 ```
 
 Rejected-before-truck goats must stay visible in procurement history but must
-not look like park goats needing PHC vaccination work.
+not look like park goats needing Preventive Care (PC) vaccination work.
 
 Decision outcomes:
 
@@ -516,12 +516,12 @@ Do not call frontend done until:
 visible IA makes clear goat journey starts at purchase/source
 purpose-specific source warmup does not look anomalous or invalid:
   breeding 45-70 days, fattening/non-breeding 0 days or around 2 weeks
-pre-dispatch rejected goats are visible as procurement history, not PHC work
+pre-dispatch rejected goats are visible as procurement history, not Preventive Care (PC) work
 arrival gate is a distinct checkpoint before accepted herd intake
 all data comes from generated backend contracts
 mock visual density/spacing/tables/cards are ported
 desktop and narrow screenshots are visually inspected against the mock
-seeded E2E proves accepted goats reach PHC/Parks and rejected/unresolved goats
+seeded E2E proves accepted goats reach Preventive Care (PC) / Parks and rejected/unresolved goats
 stay out
 typecheck, lint, check:mock-fidelity, build, git diff --check, and untracked-file
 whitespace checks pass

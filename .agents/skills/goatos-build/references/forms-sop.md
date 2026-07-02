@@ -8,8 +8,8 @@ Canonical docs:
 - `context/forms/final-forms-sop-engine.md`
 - `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
 - `docs/protocol-engine/state-machines.md`
-- `docs/phc-vaccination/PRD.md`
-- `docs/phc-vaccination/TRD.md`
+- `docs/preventive-care-vaccination/PRD.md`
+- `docs/preventive-care-vaccination/TRD.md`
 - `context/source-findings/drive-docs-findings.md`
 - `context/execution/next-contracts.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
@@ -30,7 +30,7 @@ Rules:
   abortion, health diagnosis/follow-up, not-eating, proof policy, correction
   and rectification behavior.
 - Old operator-management feature specs were deleted from the active tree. Use
-  backend workforce/RBAC modules and current protocol/PHC docs for the active
+  backend workforce/RBAC modules and current protocol/Preventive Care (PC) docs for the active
   execution model.
 - Health symptom field groups/options are captured in the forms doc and source
   findings. Do not rebuild them from memory.
@@ -39,7 +39,7 @@ Rules:
 - Dynamic pickers come from backend reference data/offline caches, not hardcoded
   Slack dropdowns.
 - The current walking slice is vaccination: SOP/proof policy is configured by
-  source-backed protocol versions and executed through PHC/vaccination work.
+  source-backed protocol versions and executed through Preventive Care (PC) / vaccination work.
   Vaccination execution context (park/shed/stage/defer/blocker/owner context)
   renders inside /vaccination, not as a separate Parks module.
   `/sops` is reopened only as the Admin/Data Ops SOP Library for the vaccination

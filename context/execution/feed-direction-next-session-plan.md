@@ -19,7 +19,7 @@ Date: 2026-06-29
 ## P0 gates
 
 1. Scope reopen: Feed Direction operational UI is still blocked until the owner
-   explicitly reopens it after PHC/Vaccination and generic Config review.
+   explicitly reopens it after Preventive Care (PC) / Vaccination and generic Config review.
 2. Security: legacy Slack/App Script contains committed token/shared-secret
    material. Do not copy it. Rotation ownership must be assigned before any
    Slack bridge is reused.

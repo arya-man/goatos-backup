@@ -1510,7 +1510,7 @@ INSERT INTO protocol_versions (
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, 'tenant', NULL, 1,
   'Projection source-backed published test', 'draft', DATE '2026-01-01', DATE '2028-01-01',
-  '{"source":{"review_status":"approved","source_ref":"docs/phc-vaccination/PRD.md","source_system":"phc","approved_by":"test","approved_at":"2026-06-27T00:00:00Z"}}'::jsonb,
+  '{"source":{"review_status":"approved","source_ref":"docs/preventive-care-vaccination/PRD.md","source_system":"phc","approved_by":"test","approved_at":"2026-06-27T00:00:00Z"}}'::jsonb,
   '{"required_proofs":["administration"]}'::jsonb, NULL
 )
 ON CONFLICT (protocol_version_id) DO UPDATE

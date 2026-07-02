@@ -186,7 +186,7 @@ function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: Vaccinat
 }
 
 // Embeddable execution section. Parks does NOT own a vaccination product surface — this renders INSIDE
-// PHC / Vaccination (/vaccination#execution), scoped by the top-bar park dropdown (?park). The
+// Preventive Care (PC) / Vaccination (/vaccination#execution), scoped by the top-bar park dropdown (?park). The
 // `basePath` parameterizes the filter self-links so they stay on the embedding route; shed-drilldown rows
 // deep-link to /vaccination/execution/sheds/{shed_id} (physical execution-context detail).
 export async function VaccinationExecutionBoard({

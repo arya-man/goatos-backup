@@ -5,7 +5,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 export const dynamic = "force-dynamic";
 
 // Admin / Data Ops / Config — the primary generic protocol-rule authority screen.
-// PHC/Vaccination links here with category=vaccination, but Config is not owned by Vaccination.
+// Preventive Care (PC) / Vaccination links here with category=vaccination, but Config is not owned by Vaccination.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   const params = await searchParams;
   const category = one(params, "category") ?? "vaccination";

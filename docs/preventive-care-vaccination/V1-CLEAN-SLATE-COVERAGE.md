@@ -2,13 +2,13 @@
 
 Date: 2026-07-01
 Branch: `vaccination-v1-close`
-Checklist source: `docs/phc-vaccination/V1-SOP-BUILDER-BUGS-E2E-CHECKLIST.md`
+Checklist source: `docs/preventive-care-vaccination/V1-SOP-BUILDER-BUGS-E2E-CHECKLIST.md`
 
 ## Summary
 
 The V1 demo blockers are closed for local-dev proof.
 
-The proof is scoped to the V1 PHC vaccination demo contract. V1 now captures the
+The proof is scoped to the V1 Preventive Care (PC) vaccination demo contract. V1 now captures the
 source nuance policy in config and enforces the local kernel gates, including
 source compatibility spacing for the V1 matrix. Route/resource optimization,
 business admin setup, and million-goat permutation testing are separate
@@ -19,7 +19,7 @@ Current evidence:
 - Full E2E smoke: `NUANCE-RULES-20260701-V1-MATRIX-R2`
 - SOP/Config authoring: `NUANCE-RULES-20260701-V1-MATRIX-R2`
 - Click matrix: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-- Source nuance rules: `docs/phc-vaccination/source-nuances-rules.md`
+- Source nuance rules: `docs/preventive-care-vaccination/source-nuances-rules.md`
 - Nuance kernel/config package proof: `go test ./internal/adminui/app ./internal/protocol/app ./internal/vaccination/app -count=1`
 - Older-goat anti-flood: `go test ./internal/vaccination/app -run 'TestOlderGoat' -count=1`
 - Calendar drive collapse: `go test ./internal/calendar/adapters/postgres -run 'TestCalendarVaccinationProjectionCollapsesBatchedGoatDosesToDrive' -count=1`
@@ -57,7 +57,7 @@ Current evidence:
 
 Safe:
 
-> V1 PHC vaccination is demo-ready locally: SOP authoring, multi-row
+> V1 Preventive Care (PC) vaccination is demo-ready locally: SOP authoring, multi-row
 > breed/stage/sex/class-aware config authoring, source nuance policy capture,
 > source schedule/dose/vial/revaccination rows, V1 compatibility spacing,
 > local defer/procurement/pregnancy kernel gates, due generation,

@@ -12,7 +12,7 @@ INSERT INTO inventory_items (
   'vaccine',
   'dose',
   'active',
-  '{"seed":"google-dev-clean-slate-vaccination","source_ref":"docs/phc-vaccination/PRD.md"}'::jsonb
+  '{"seed":"google-dev-clean-slate-vaccination","source_ref":"docs/preventive-care-vaccination/PRD.md"}'::jsonb
 )
 ON CONFLICT (tenant_id, item_code) DO UPDATE
 SET name = EXCLUDED.name,
@@ -28,7 +28,7 @@ SELECT
   'Mesha source-derived dev baseline',
   10,
   0,
-  '{"seed":"google-dev-clean-slate-vaccination","source_ref":"docs/phc-vaccination/PRD.md"}'::jsonb
+  '{"seed":"google-dev-clean-slate-vaccination","source_ref":"docs/preventive-care-vaccination/PRD.md"}'::jsonb
 FROM inventory_items i
 WHERE i.tenant_id = :'tenant_id'::uuid
   AND i.item_code = 'VAC-ET-PHC'

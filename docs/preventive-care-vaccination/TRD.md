@@ -1,8 +1,8 @@
-# PHC → Vaccination — Technical Requirements / Design (TRD)
+# Preventive Care (PC) → Vaccination — Technical Requirements / Design (TRD)
 
 **Status:** Draft v2 (corrected against committed schema) · **Repo-state note:** 2026-06-29
 **Companion:** [PRD.md](./PRD.md) · **Foundation:** [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md)
-**Grounded in:** this TRD was originally grounded in `backend/migrations/postgres/000001…000060`; the repo now contains later protocol/obligation/inventory/vaccination migrations through `000117` at the Feed Direction correction. Use the live migrations and [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md) for current repo state. The wiki goatOS handbook §6, accepted source findings (`context/source-findings/phc-vaccination-roster-stage-proposal.md`, `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`), and the tracked nuance source [source-nuances-rules.md](./source-nuances-rules.md) are design/source references, **not** a replacement for committed schema — where they differ, committed wins.
+**Grounded in:** this TRD was originally grounded in `backend/migrations/postgres/000001…000060`; the repo now contains later protocol/obligation/inventory/vaccination migrations through `000117` at the Feed Direction correction. Use the live migrations and [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md) for current repo state. The wiki goatOS handbook §6, accepted source findings (`context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`, `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`), and the tracked nuance source [source-nuances-rules.md](./source-nuances-rules.md) are design/source references, **not** a replacement for committed schema — where they differ, committed wins.
 
 > **v2 correction note.** v1 assessed the wiki DDL as if committed and was wrong: it assumed `parks`/`sheds`/`vaccine_stock` tables and `goats.dob`/`goats.gender` columns that **do not exist**. v2 separates **committed → target**, builds on the generic obligation engine, and drops the unverified cost figure.
 
@@ -10,7 +10,7 @@
 
 ## 1. Scope of this TRD
 
-Vaccination is the **first module of the PHC vertical** (PHC also covers deworming, biosecurity, feed/water testing, panel cleaning, sanitization, fire-safety, SOP-video, stock checks — all on the **same** engine). Daily/weekly **director reporting is cross-cutting** (an org-wide reporting cadence), **not a PHC/Vaccination module**, and is out of scope here. This TRD covers:
+Vaccination is the **first module of the Preventive Care (PC) vertical** (Preventive Care (PC) also covers deworming, biosecurity, feed/water testing, panel cleaning, sanitization, fire-safety, SOP-video, stock checks — all on the **same** engine). Daily/weekly **director reporting is cross-cutting** (an org-wide reporting cadence), **not a Preventive Care (PC) / Vaccination module**, and is out of scope here. This TRD covers:
 1. The **goats current→target delta** (identity data the cascade reads).
 2. The **shed/location profile delta** (the dosing anchor).
 3. **Vaccination-specific tables** that link into the generic engine.
@@ -42,7 +42,7 @@ Committed `goats` (`000001` 227-283, reuse-as-is) already has: `goat_id, tenant_
 | `current_weight_kg`, `sale_status`, `gender`, `current_shed_id` | NO | — | do **not** add — weight = scale-capture event; sale_status = lifecycle-derived; use `sex`/`shed_id` |
 
 ### 2.1 Eligibility is multi-factor, not shed-derived alone
-Shed/cohort `animal_stage` is the **default** anchor, but eligibility combines **age + sex + lifecycle_status + health_status + shed/cohort animal_stage**. Exceptions the engine must honor: ICU / quarantine (defer, don't fire), pregnant / lactating (different rule or skip), and sick / under_treatment (defer). Phase 0 does **not** expose per-goat individual override generation; PHC-approved catch-up uses the manual campaign path so it still creates canonical obligations/batches. Encode the predicate in `protocol_rules.eligibility_json`; tracked exceptions become `deferred` obligations with a reason — never silently inherit only the shed value.
+Shed/cohort `animal_stage` is the **default** anchor, but eligibility combines **age + sex + lifecycle_status + health_status + shed/cohort animal_stage**. Exceptions the engine must honor: ICU / quarantine (defer, don't fire), pregnant / lactating (different rule or skip), and sick / under_treatment (defer). Phase 0 does **not** expose per-goat individual override generation; Preventive Care approved catch-up uses the manual campaign path so it still creates canonical obligations/batches. Encode the predicate in `protocol_rules.eligibility_json`; tracked exceptions become `deferred` obligations with a reason — never silently inherit only the shed value.
 
 ---
 
@@ -55,13 +55,13 @@ Shed/cohort `animal_stage` is the **default** anchor, but eligibility combines *
 - **`shed_profiles`** (location_type='shed'): `location_id PK→locations, tenant_id, sex_grouping CHECK('male','female','mixed'), animal_stage_id NULL→animal_stage_lookup, shed_lifecycle_status_id NULL→shed_lifecycle_status_lookup, row_layout CHECK('L_C_R','single','custom'), has_icu_corner bool, is_feed_prep_at_end bool, transport_group text, ordinal_in_park int, row_version`. ← aeroplane L/C/R rows, ICU corner, feed-prep end here.
 
 **Two separate lookups (fix — don't mix stage with operational status):**
-- **`animal_stage_lookup`** (drives vaccination eligibility; **committed schema = `backend/migrations/postgres/000071_location_profiles.sql`**): `animal_stage_id uuid PK, tenant_id, stage_code text (NO static enum — stage codes are tenant config data, not a DDL CHECK), name, min_age_days, max_age_days, status CHECK('active','inactive','retired'), sort_order`, UNIQUE `(tenant_id, stage_code)`. **Eligibility uses THIS.** _(An earlier TRD draft sketched `stage_id`/`label`/`min_weight_kg`/`max_weight_kg` + a hardcoded `stage_code` CHECK enum; the shipped migration is the data-driven shape above — no static stage-code enum, `name` not `label`, age bands only, no weight columns. The migration is source of truth; add weight bands later only via a new migration if PHC needs them.)_
+- **`animal_stage_lookup`** (drives vaccination eligibility; **committed schema = `backend/migrations/postgres/000071_location_profiles.sql`**): `animal_stage_id uuid PK, tenant_id, stage_code text (NO static enum — stage codes are tenant config data, not a DDL CHECK), name, min_age_days, max_age_days, status CHECK('active','inactive','retired'), sort_order`, UNIQUE `(tenant_id, stage_code)`. **Eligibility uses THIS.** _(An earlier TRD draft sketched `stage_id`/`label`/`min_weight_kg`/`max_weight_kg` + a hardcoded `stage_code` CHECK enum; the shipped migration is the data-driven shape above — no static stage-code enum, `name` not `label`, age bands only, no weight columns. The migration is source of truth; add weight bands later only via a new migration if Preventive Care (PC) needs them.)_
 - **`shed_lifecycle_status_lookup`** (operational state of the shed, NOT the animals): `status_id PK, tenant_id, status_code CHECK('commissioning','active','cleaning','decommissioned'), label, is_operational, sort_order`. Does **not** drive dosing.
 - ICU/quarantine/holding booleans already live on committed `location_operational_attributes` (reuse).
 
 **Capacity:** do not add a column — `location_capacity_records` (temporal, no-overlap trigger) is the committed home. **Cohort:** reuse `location_type='cohort'` rows + `goats.cohort_id`; a cohort can also carry an `animal_stage_id` for stage-by-cohort.
 
-Age/weight bands that decide stage live on `animal_stage_lookup` as **config** — the mock's hardcoded `SHIFT_THRESH` (K1=7/K2=45) must be removed and read from here. For local/dev, **K2 = 42 days / six weeks** is the selected source-derived baseline; the old 45 is treated as legacy mock drift unless a later PHC source-backed config version overrides it. The Config authoring stage picker reads these rows via `GET /protocols/animal-stages` (active rows, `sort_order`), never hardcoded `K0/K1/K2` literals; when the lookup is empty the picker is disabled-with-reason (Data Ops must seed stages) rather than falling back to code-defined bands.
+Age/weight bands that decide stage live on `animal_stage_lookup` as **config** — the mock's hardcoded `SHIFT_THRESH` (K1=7/K2=45) must be removed and read from here. For local/dev, **K2 = 42 days / six weeks** is the selected source-derived baseline; the old 45 is treated as legacy mock drift unless a later Preventive Care (PC) source-backed config version overrides it. The Config authoring stage picker reads these rows via `GET /protocols/animal-stages` (active rows, `sort_order`), never hardcoded `K0/K1/K2` literals; when the lookup is empty the picker is disabled-with-reason (Data Ops must seed stages) rather than falling back to code-defined bands.
 
 ---
 
@@ -117,7 +117,7 @@ authoring applies safe-date offsets for conflicts such as live-live spacing; the
 later drive optimizer uses the same stored policy fields only for operational
 partitioning.
 
-**Source / review metadata (nested `source` object on `rule_dsl` — canonical shape):** every rule carries provenance + an approval gate under `source:{ … }` — `source_system` (vaccinations_db / phc / vet / manual_admin), `source_ref`, `imported_at`, `reviewed_by`, `review_status` (extracted → reviewed → approved), `approved_by`, `approved_at`. **Publish gate:** a version may be published **only when `review_status='approved'`** and source-backed. **Dev policy:** values that come from a real source (Vaccinations DB / PHC / vet-approved) and are marked `approved` are **real config in `goatos-dev` and publishable there** — the **dev-real path**. Unsourced / `extracted` rows stay `status='draft'` with a **`not source-backed`** warning and cannot be published. Never hand-invent vaccine schedule values.
+**Source / review metadata (nested `source` object on `rule_dsl` — canonical shape):** every rule carries provenance + an approval gate under `source:{ … }` — `source_system` (vaccinations_db / phc / vet / manual_admin), `source_ref`, `imported_at`, `reviewed_by`, `review_status` (extracted → reviewed → approved), `approved_by`, `approved_at`. **Publish gate:** a version may be published **only when `review_status='approved'`** and source-backed. **Dev policy:** values that come from a real source (Vaccinations DB / Preventive Care (PC) / vet-approved) and are marked `approved` are **real config in `goatos-dev` and publishable there** — the **dev-real path**. Unsourced / `extracted` rows stay `status='draft'` with a **`not source-backed`** warning and cannot be published. Never hand-invent vaccine schedule values.
 
 ### 4.1 Legacy parity, proof policy, and import replay
 
@@ -146,7 +146,7 @@ without durable notes/follow-up, and review confidence not being first-class.
   obligations, and schedule boosters from actual `administered_at`. Missing or
   untrusted history first creates one safe catch-up/review action for older goats
   whose historical windows are already past, not every old dose as same-day
-  work; after PHC approval it becomes catch-up shed drives via
+  work; after Preventive Care (PC) approval it becomes catch-up shed drives via
   [migration-and-cutover.md](../protocol-engine/migration-and-cutover.md), never
   fabricated completions.
 - `PPR`, `FMD`, `HS`, and `BQ` are source-backed SOP/vocabulary labels only
@@ -169,7 +169,7 @@ without durable notes/follow-up, and review confidence not being first-class.
 ## 5. Vaccine stock = generic inventory (FEFO), not an island
 
 Inventory is **committed as the shared generic kernel** (starting with `000072`);
-PHC vaccination must reuse/enhance it, not rebuild a vaccination-only island (per
+Preventive Care (PC) vaccination must reuse/enhance it, not rebuild a vaccination-only island (per
 [engine §6](../protocol-engine/obligation-engine.md)):
 - `inventory_items` `category` includes `'vaccine'`, `base_unit` = `dose`/`ml`; `vaccines` detail table (`manufacturer, default_dose_ml, requires_booster, booster_interval_days, storage_temp_min/max, withdrawal_period_days`) FK→`inventory_items`.
 - `inventory_stock` lots (running balances, **`numeric` + `quantity_unit`**, never int — engine is shared with feed which is kg/litre): `lot_number, expiry_date, quantity_in_stock numeric, quantity_reserved numeric, quantity_consumed numeric, quantity_unit`, park scope via `location_id`, **`CHECK(quantity_in_stock >= 0)`**.
@@ -177,7 +177,7 @@ PHC vaccination must reuse/enhance it, not rebuild a vaccination-only island (pe
 
 **Consumption mode (resolves the v1 contradiction — pick by path, never both):**
 - **Group shed drive:** at **batch start** record one `reserve` movement for `planned_quantity` against the FEFO lot (`reserved_quantity += n`). At **drive close / verification** record `consume` for actual used + `release` for the remainder. **No per-goat decrement.**
-- **Manual campaign / catch-up**: PHC-approved catch-up creates canonical obligations/batches before execution; ad hoc per-goat individual override generation is not exposed in Phase 0.
+- **Manual campaign / catch-up**: Preventive Care approved catch-up creates canonical obligations/batches before execution; ad hoc per-goat individual override generation is not exposed in Phase 0.
 
 - `[P2]` `inventory_stock.is_quarantined` + a cold-chain excursion table for the breach→quarantine cascade.
 
@@ -308,7 +308,7 @@ configured and proven.
 
 **Reuse exemplars:** `000001` (RANGE partition + outbox + idempotency), `000030` (projection contract + `COALESCE` unique precedent), `000050` (RBAC + capabilities), `000060` (SOP engine, task state machine).
 
-**Spec the 7 state machines before coding** — see [state-machines.md](../protocol-engine/state-machines.md). **PHC/Vaccination uses SM-1/2/3/4/5/7**; **Feed adds SM-6**: SM-1 schedule generation, SM-2 shift recompute, SM-3 death/sale cancel, SM-4 batch lifecycle, SM-5 stock reserve/consume/release, SM-6 feed generation, SM-7 booster generation. Agree these before SQL.
+**Spec the 7 state machines before coding** — see [state-machines.md](../protocol-engine/state-machines.md). **Preventive Care (PC) / Vaccination uses SM-1/2/3/4/5/7**; **Feed adds SM-6**: SM-1 schedule generation, SM-2 shift recompute, SM-3 death/sale cancel, SM-4 batch lifecycle, SM-5 stock reserve/consume/release, SM-6 feed generation, SM-7 booster generation. Agree these before SQL.
 
 ---
 
@@ -320,7 +320,7 @@ configured and proven.
 ## 9. Source-derived local/dev baseline and later inputs
 - Local/dev schedule baseline: `Enterotoxaemia` / ET, K1, day 21, 0.5 ml, 7d
   window, +14d booster clue, sourced from the PRD example and recorded in
-  `context/source-findings/phc-vaccination-roster-stage-proposal.md`.
+  `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`.
 - Local/dev stage baseline: K0 max 1d, K1 max 7d, K2 max 42d, K3 from day 43;
   seed/read this from `animal_stage_lookup`.
 - Later production expansion: add PPR/FMD/HS/BQ schedule-bearing rows only when

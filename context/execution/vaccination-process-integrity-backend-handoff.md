@@ -82,7 +82,7 @@ accepted intake
   -> durable procurement handoff row/event
   -> outbox/consumer or synchronous app service path reaches the vaccination
      obligation generator
-  -> generated PHC vaccination obligations/SOP tasks
+  -> generated Preventive Care (PC) vaccination obligations/SOP tasks
   -> CT / AC / PA / WF / Vaccination read models reflect the same state
 ```
 
@@ -105,9 +105,9 @@ context/forms/final-forms-sop-engine.md
 docs/protocol-engine/IMPLEMENTATION-PLAN.md
 docs/protocol-engine/obligation-engine.md
 docs/protocol-engine/state-machines.md
-docs/phc-vaccination/PRD.md
-docs/phc-vaccination/TRD.md
-docs/phc-vaccination/V1-FOUNDATION-SPEC.md
+docs/preventive-care-vaccination/PRD.md
+docs/preventive-care-vaccination/TRD.md
+docs/preventive-care-vaccination/V1-FOUNDATION-SPEC.md
 mock/goatos-dashboard-mock.html
 ```
 
@@ -139,7 +139,7 @@ Key docs:
 ```text
 docs/protocol-engine/obligation-engine.md
 docs/protocol-engine/state-machines.md
-docs/phc-vaccination/TRD.md
+docs/preventive-care-vaccination/TRD.md
 context/execution/sop-vaccination-backend-handoff.md
 ```
 
@@ -150,7 +150,7 @@ built / in progress:
   protocol, obligation, vaccination, parks, SOP, proof, inventory, workforce,
   locations modules exist.
   /action-center/obligations exists as a bounded compatibility obligation API.
-  execution read APIs are owned by PHC / Vaccination at /vaccination/execution and
+  execution read APIs are owned by Preventive Care (PC) / Vaccination at /vaccination/execution and
   /vaccination/execution/sheds/{shed_id}. The old Parks-owned execution paths are
   removed (now route_not_registered); do not reintroduce them.
   execution WorkState already includes due, overdue, scheduled, in_progress,
@@ -619,7 +619,7 @@ For procured goats, also run the accepted-intake boundary plan:
 context/execution/procurement-vaccination-e2e-plan.md
 ```
 
-That plan proves rejected/unresolved source goats stay out of PHC/Parks while
+That plan proves rejected/unresolved source goats stay out of Preventive Care (PC) / Parks while
 accepted-intake goats become eligible for post-arrival vaccination.
 
 Minimum seed shape:

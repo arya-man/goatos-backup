@@ -275,7 +275,7 @@ GoatOS implication:
   policy, not generic feed or vaccination default behavior.
 - Warm-up, pregnancy, lactation, flushing, breeding, mother, and fattening are
   nutrition and workflow-critical states.
-- Feed, Counts/Shifting, Procurement, PHC, Breeding, and command-lens read
+- Feed, Counts/Shifting, Procurement, Preventive Care (PC), Breeding, and command-lens read
   models must preserve the distinction between physical shed placement and the
   nutrition/health/reproductive cohort implied by the shed tag.
 
@@ -290,7 +290,7 @@ GoatOS implication:
   surface missing tags, overdue stage transitions, under/overfeeding risk,
   missed weight capture, unsafe feed leftovers, quarantine/ICU state, and
   unreviewed movement/feed conflicts as process gaps, not hidden local UI state.
-- PHC/Vaccination: tag/RFID identity, K0/K1/K2/K3 stage facts, trained medical
+- Preventive Care (PC) / Vaccination: tag/RFID identity, K0/K1/K2/K3 stage facts, trained medical
   administration, park/shed scope, and calm handling remain mandatory context.
 - Feed Direction: session slots are governed config; the two-source-session
   default and panel-cleaning fact are evidence, while detailed Feed Direction

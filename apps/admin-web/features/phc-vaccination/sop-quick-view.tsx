@@ -21,7 +21,7 @@ export interface VaccinationSopQuickViewProps {
 // done/current from the real computed states instead.
 const DRIVE_PREVIEW_DONE = 1;
 
-// PHC · Vaccination header "SOP" CTA. Opens a compact, mock-faithful Vaccination Drive SOP quick-view in a
+// Preventive Care (PC) · Vaccination header "SOP" CTA. Opens a compact, mock-faithful Vaccination Drive SOP quick-view in a
 // modal WITHOUT leaving /vaccination (local state, no navigation). The full library / versioning / authoring
 // lives at /sops, reached via the secondary "Open in SOP Library" link — this is the in-context preview.
 export function VaccinationSopButton({ view, error, authRequired, pageContract }: VaccinationSopQuickViewProps) {

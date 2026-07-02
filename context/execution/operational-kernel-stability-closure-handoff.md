@@ -36,7 +36,7 @@ Before edits:
 - Use graph-first lookup:
   - code-review graph for callers, impact, and test coverage when available.
   - goatos Graphify docs graph for architecture/TRD/handoff context.
-  - Mesha wiki/source Graphify graph for farm SOP, PHC, quarantine, health, and
+  - Mesha wiki/source Graphify graph for farm SOP, Preventive Care (PC), quarantine, health, and
     proof expectations.
 - Reconstruct current state before replaying any risky action:
   `git status --short --branch`, `git log -1 --oneline`, `git diff --stat`,
@@ -88,7 +88,7 @@ Repo docs already state the kernel shape:
 
 Wiki/source docs confirm the business requirements, not GoatOS internals:
 
-- PHC vaccination must preserve schedule discipline, cold-chain integrity, and
+- Preventive Care (PC) vaccination must preserve schedule discipline, cold-chain integrity, and
   farm-management logging by date, park, person, and batch.
 - Execution evidence and verification matter; video/proof review is part of the
   operating model.
@@ -209,7 +209,7 @@ Reopened-fix update on 2026-06-29:
 | OCK-038 | low | fixed | fixed | Failed-row export now uses shared `parseCSVRecords` without trimming by default, preserving source cell text for export in `apps/admin-web/features/counts/herd-import-utils.ts:23` and `herd-actions-ui.tsx:90`; preview/server parsing opts into trim via `herd-actions.ts:540`. Focused guard asserts raw `"  keep  "` and quoted `" spaced,cell "` preservation; `node --experimental-strip-types apps/admin-web/scripts/check-herd-import-security.mjs` PASS. | none |
 | OCK-039 | medium | fixed | implemented | Herd and shed bulk import now accept XLSX and convert the first worksheet to CSV via `apps/admin-web/features/counts/herd-import-utils.ts:7`, `:14`; drawers use it at `apps/admin-web/features/counts/herd-actions-ui.tsx:582`, `:823`; backend-owned copy keys live in `backend/internal/adminui/app/service.go:1255`; `npm --prefix apps/admin-web run check:herd-import-security` PASS. | none |
 | OCK-040 | low | fixed | guarded | Named frontend surfaces are covered by repeatable local guards: `apps/admin-web/scripts/check-goal1-frontend-coverage.mjs:34` checks `RuleEditorModal`, `:48` checks `downloadFailedRows`, and `:54` checks `BulkImportDrawer`/`ShedImportDrawer`; package script at `apps/admin-web/package.json:19`; `npm --prefix apps/admin-web run check:goal1-frontend` PASS. | none |
-| OCK-041 | medium | countered | source-backed local scope | Production roster expansion is an external source-data/publish task, not an active local kernel bug: the local/dev source-derived ET baseline is documented and seeded in `docs/runbooks/vaccination-local-business-chain.md:48`; PRD/TRD explicitly limit production expansion until source extracts provide timings in `docs/phc-vaccination/PRD.md:92`, `docs/phc-vaccination/TRD.md:142`. | none |
+| OCK-041 | medium | countered | source-backed local scope | Production roster expansion is an external source-data/publish task, not an active local kernel bug: the local/dev source-derived ET baseline is documented and seeded in `docs/runbooks/vaccination-local-business-chain.md:48`; PRD/TRD explicitly limit production expansion until source extracts provide timings in `docs/preventive-care-vaccination/PRD.md:92`, `docs/preventive-care-vaccination/TRD.md:142`. | none |
 | OCK-042 | medium | fixed | fixed | Local operator/admin acceptance path exercised real UI routes and API contracts in `tools/dev/admin-web-e2e-smoke.sh:203`; run `GOAL1-E2E-FINAL-20260629-022731` captured Workflows, Passport, shed drilldown, Control Tower, Adherence, Operations, and Procurement pages. Cloud production UX hardening is an external deployment-readiness gate, not an active local bug. | none |
 | OCK-043 | medium | fixed | fixed | Proof/verification/completion now flows through SOP task review with row-version locking; admin-web proof upload now carries `sopVersionId`, creates task-scoped proof uploads, PUTs files with correct local-vs-signed-url headers, completes proof upload, and submits SOP task payload with `sop_version_id`/stable idempotency key in `apps/admin-web/lib/api/vaccination-actions.ts` and `apps/admin-web/lib/api/server.ts`; backend execution rows expose `sopVersionId`; E2E `GOAL1-LOCAL-20260629` passed. Production media-storage provisioning is an external deployment-readiness gate. | none |
 | OCK-044 | medium | countered | local workers valid, cloud deploy external | Worker entrypoints are built/documented in `docs/runbooks/containers.md:20`; local E2E exercises `cmd/outbox-relay` and `cmd/obligation-sweeper` in `docs/runbooks/vaccination-local-business-chain.md:51`; cloud deployment/health needs verified `vgoats.com` provisioning and is not a local-code defect. | none |
@@ -334,7 +334,7 @@ not part of the C/H/M/L table.
 | R9 | fixed | OCK-022: SOP-drive fanout stores `withdrawal_until_date` from SOP answers or protocol `withdrawal_days`; `TestRecordCompletionsFromVaccinationSessionTask` asserts the derived date. |
 | R10 | countered | OCK-027/OCK-028: current Goal 1 runtime is Mesha/VGoats India-tenant scoped; location rows and contracts use `Asia/Kolkata` as an explicit business default while vaccination generation/calendar logic reads location/as-of data instead of silently changing vaccine due semantics. Multi-timezone expansion is not a Goal 1 kernel bug. |
 | N6 | countered | Reject replay is already covered: same-key retry resumes a recorded completion and rejects it, while accepted/rejected terminal replays no-op without side effects in `completion_test.go` and Postgres completion integration tests. |
-| Production PHC schedules / Google dev-prod E2E / owner-facing stock UI | countered | OCK-041/OCK-042 and Lane C classify these as source-data/cloud/product-readiness gates, not unresolved local kernel/vaccination code bugs. The local Goal 1 acceptance and E2E path is green. |
+| Production Preventive Care (PC) schedules / Google dev-prod E2E / owner-facing stock UI | countered | OCK-041/OCK-042 and Lane C classify these as source-data/cloud/product-readiness gates, not unresolved local kernel/vaccination code bugs. The local Goal 1 acceptance and E2E path is green. |
 
 Rules:
 
@@ -506,7 +506,7 @@ instruction to defer those bugs to Goal 2.
 | OCK-038 | P3 | Failed-row export trims cells and is not byte-faithful to original raw CSV cells. |
 | OCK-039 | PRODUCT GAP | XLSX/Excel upload is still not implemented; herd/shed bulk import remains CSV-only unless explicitly scoped. |
 | OCK-040 | COVERAGE DEBT | Untested frontend surfaces remain: `RuleEditorModal`, `parseCSVRecords`, `downloadFailedRows`, `BulkImportDrawer`, `ShedImportDrawer`. |
-| OCK-041 | PRODUCT GAP | Production source-backed PHC vaccination schedules/rules/data are not fully loaded and published. |
+| OCK-041 | PRODUCT GAP | Production source-backed Preventive Care (PC) vaccination schedules/rules/data are not fully loaded and published. |
 | OCK-042 | PRODUCT GAP | Operator/admin execution UI for start SOP, upload proof/video, submit, and recover from validation errors must be modern, mock-aligned, backend-contract-owned, target-reviewer usable, and E2E-tested when part of the vaccination acceptance path; otherwise mark the flow unavailable. |
 | OCK-043 | PRODUCT GAP | End-to-end proof upload flow must run create upload, PUT file, complete upload, submit, verify through real UI/contracts. |
 | OCK-044 | PROD GAP | Workers/schedulers for generation, consumers, sweepers, overdue marking, reminders, escalations, notifications, and projections must be deployed and healthy. |
@@ -866,7 +866,7 @@ full production readiness.
 
 | Item | Required closure question |
 | --- | --- |
-| Production vaccination rules/data | Are real source-backed, PHC-approved vaccination schedules loaded, published, versioned, and protected from fake/default production values? If not, document the exact remaining data/publish task and do not call production vaccination rules complete. |
+| Production vaccination rules/data | Are real source-backed, Preventive Care approved vaccination schedules loaded, published, versioned, and protected from fake/default production values? If not, document the exact remaining data/publish task and do not call production vaccination rules complete. |
 | Operator execution UI | Can an operator/admin start SOP work, see the correct work context, upload required proof, submit execution data, and recover from validation errors through a modern, mock-aligned, backend-contract-owned, target-reviewer usable, E2E-tested product UI? If not, is the flow explicitly marked unavailable rather than hidden behind a basic placeholder? |
 | End-to-end proof upload flow | Does the product path actually run `createProofUpload -> PUT upload_url -> completeProofUpload -> submit/verify`, with file upload on admin-web and the correct operator-mobile expectation, instead of proof state existing only in backend rows? |
 | Worker/scheduler deployment | Are generation, domain-event consumers, obligation sweepers, overdue/missed marking, reminders, escalations, notification dispatch, and read-model refresh workers running in the tested environment with leases/retry/DLQ/health visibility? |
@@ -1003,7 +1003,7 @@ Docs:
 
 - Update implementation ledgers only with truth verified against code.
 - Update `context/README.md` if a new canonical context doc is added.
-- Update protocol/PHC/guardrail docs if implementation changes the contract.
+- Update protocol / Preventive Care (PC) guardrail docs if implementation changes the contract.
 - Keep wiki/source facts as evidence; do not claim wiki-specific internals.
 
 ## CI/CD Post-Push Gate

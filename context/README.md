@@ -171,7 +171,7 @@ These files supersede older root-level planning docs where they disagree. In par
 
 Old planning archives and old phase ladders are intentionally absent from the
 active repo. They are superseded by the current context, protocol-engine, and
-PHC vaccination docs. Use git history only for explicit historical comparison.
+Preventive Care (PC) vaccination docs. Use git history only for explicit historical comparison.
 
 ## Ownership Targets
 
@@ -220,9 +220,9 @@ slack:
 
 frontend:
   Product taxonomy is fixed: a vertical is a business operating domain
-  (PHC, Parks, Procurement, Admin/Data Ops, Counts, Breeding, Inventory,
+  (Preventive Care (PC), Parks, Procurement, Admin/Data Ops, Counts, Breeding, Inventory,
   HR/People, Farmer Network); a module is a workflow/product inside a vertical
-  (PHC -> Vaccination, Procurement -> Source Entry, or future Parks-owned
+  (Preventive Care (PC) -> Vaccination, Procurement -> Source Entry, or future Parks-owned
   modules). Parks is only scope/context for vaccination execution; it is not the
   owner of a vaccination module. Control Tower, Action Center, Protocol
   Adherence, and Workflows are
@@ -230,7 +230,7 @@ frontend:
   top-level Admin/Data Ops authority screens.
   Current admin-web review scope supersedes the old dashboard/admin product
   surface. Follow context/frontend/current-admin-web-scope.md: build only the
-  current Control Tower shell, PHC/Vaccination, Admin Config, vaccination
+  current Control Tower shell, Preventive Care (PC) / Vaccination, Admin Config, vaccination
   execution context (rendered inside /vaccination), Admin/Data Ops
   SOP Library for vaccination SOP policy, and contextual Goat Passport detail
   surfaces. Parks is a vertical, but it is NOT a vaccination product route,
@@ -256,7 +256,7 @@ frontend:
   vaccination-only UI unless scope is explicitly reopened.
   Command-room/authority surfaces are top-level only: Control Tower, Action
   Center, Protocol Adherence, Workflows, Config, and SOP Library must not be
-  duplicated under procurement, PHC, Parks, or any future vertical as routes,
+  duplicated under procurement, Preventive Care (PC), Parks, or any future vertical as routes,
   compatibility redirects, tabs, or nav items. A vertical can feed those screens
   through a selected domain/category/filter/lens such as `?domain=procurement`
   or `?category=vaccination`, but agents must not create nested routes like
@@ -265,7 +265,7 @@ frontend:
   or `/parks/vaccination/{anything}` as a product path.
 
   There is no `/parks/vaccination` exception. Vaccination execution belongs under
-  PHC/Vaccination: use `/vaccination` and
+  Preventive Care (PC) / Vaccination: use `/vaccination` and
   `/vaccination/execution/sheds/[shedId]` directly. Scope chrome rule: keep
   park/date/source scope in the top bar or behind Filters. Do not repeat
   "Scope", "All parks", source, or date chips inside page bodies.

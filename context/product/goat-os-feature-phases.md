@@ -1,7 +1,7 @@
 # Goat OS Product Feature Map
 
 This is the long-range product coverage map in plain Goat OS language. It is
-not the active build order. The active execution order is the Admin Config + PHC
+not the active build order. The active execution order is the Admin Config + Preventive Care (PC)
 Vaccination + vaccination execution context slice described in `README.md`,
 `docs/phases/README.md`, and `context/frontend/current-admin-web-scope.md`.
 

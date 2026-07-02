@@ -2,7 +2,7 @@
 
 **Source file:** `/Users/ravi/mesha/wiki/Nuances_Rules.docx`
 **Extracted into repo:** 2026-07-01 18:18 local source revision
-**Scope:** V1 PHC Vaccination config, generation, Calendar, Action Center,
+**Scope:** V1 Preventive Care (PC) Vaccination config, generation, Calendar, Action Center,
 Protocol Adherence, Workflows, and Goat Passport behavior.
 
 This markdown is the tracked engineering source for the vaccination rule

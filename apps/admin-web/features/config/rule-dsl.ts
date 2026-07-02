@@ -160,8 +160,8 @@ export interface ProtocolRuleDraft {
 }
 
 // Stage bands (K0/K1/K2…) are NOT hardcoded here. They are backend reference data from
-// animal_stage_lookup, loaded via listAnimalStages and passed in as AnimalStageOption[] (PHC
-// vaccination TRD: stage bands live in the lookup). The only stage literal the UI owns is the
+// animal_stage_lookup, loaded via listAnimalStages and passed in as AnimalStageOption[]
+// (Preventive Care (PC) vaccination TRD: stage bands live in the lookup). The only stage literal the UI owns is the
 // ALL_STAGES filter below, which is a UI scope ("every stage"), not an animal_stage_lookup row.
 export const ALL_STAGES_VALUE = "all";
 
