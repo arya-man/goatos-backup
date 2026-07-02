@@ -801,7 +801,18 @@
   .pvopt{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--ink)}
   .pvopt-btn{width:100%;text-align:left;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:7px 9px;cursor:pointer}
   .pvopt-btn.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-d)}
-  .pvopt-btn.on .optbox,.pvopt-btn.on .optdot{border-color:var(--brand-d);background:var(--brand-d)}
+  .pvcheck{width:16px;height:16px;border-radius:4px;border:2px solid var(--faint);display:grid;place-items:center;flex:none;color:#08130B}
+  .pvcheck.on{border-color:var(--brand-d);background:var(--brand-d)}
+  .pvcheck .ic{width:12px;height:12px;stroke-width:3}
+  .pvradio{width:16px;height:16px;border-radius:50%;border:2px solid var(--faint);display:grid;place-items:center;flex:none}
+  .pvradio.on{border-color:var(--brand-d)}
+  .pvradio.on::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--brand-d)}
+  .pvselectstub{display:flex;align-items:center;gap:8px;margin-top:7px;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 10px;color:var(--muted);font-size:12px}
+  .pvselectstub .ic{width:14px;height:14px;margin-left:auto;flex:none}
+  .pvscanstub{display:flex;align-items:center;gap:8px;margin-top:7px;border:1px dashed var(--line);background:var(--panel);border-radius:8px;padding:9px 10px;color:var(--muted);font-size:12px}
+  .pvscanstub .ic{width:15px;height:15px;color:var(--brand-d);flex:none}
+  .pvdrop{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:7px;border:1.5px dashed var(--line);background:var(--panel);border-radius:10px;padding:16px 12px;text-align:center;color:var(--muted);font-size:12px}
+  .pvdrop .ic{width:22px;height:22px;color:var(--brand-d)}
   .pvpick,.pvproof{margin-top:7px;background:var(--panel);border:1px dashed var(--line);border-radius:7px;padding:6px 9px}
   .builderactions{display:flex;gap:8px;flex-wrap:wrap}
   .builderactions .btn{flex:1;min-width:96px;justify-content:center;white-space:nowrap}

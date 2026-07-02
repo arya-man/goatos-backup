@@ -30,12 +30,12 @@ const TYPES = [
   { key: "yesno", cfg: async (i) => /Yes \/ No/.test(await q(i).innerText()), pv: ".chip" },
   { key: "select", cfg: async (i) => (await q(i).locator(".optrow").count()) >= 2, pv: ".pvopt-btn", opt: true },
   { key: "multiselect", cfg: async (i) => (await q(i).locator(".optrow").count()) >= 2, pv: ".pvopt-btn", opt: true },
-  { key: "goat_scan", cfg: async (i) => /scan the goat RFID/i.test(await q(i).innerText()), pv: ".pvpick" },
-  { key: "shed_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: ".pvpick" },
-  { key: "vaccine_batch_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: ".pvpick" },
-  { key: "medicine_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: ".pvpick" },
-  { key: "photo_proof", cfg: async (i) => /capture and upload proof/i.test(await q(i).innerText()), pv: ".pvproof" },
-  { key: "video_proof", cfg: async (i) => /capture and upload proof/i.test(await q(i).innerText()), pv: ".pvproof" },
+  { key: "goat_scan", cfg: async (i) => /scan the goat RFID/i.test(await q(i).innerText()), pv: ".pvscanstub" },
+  { key: "shed_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: ".pvselectstub" },
+  { key: "vaccine_batch_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: ".pvselectstub" },
+  { key: "medicine_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: ".pvselectstub" },
+  { key: "photo_proof", cfg: async (i) => /capture and upload proof/i.test(await q(i).innerText()), pv: ".pvdrop" },
+  { key: "video_proof", cfg: async (i) => /capture and upload proof/i.test(await q(i).innerText()), pv: ".pvdrop" },
 ];
 
 const browser = await chromium.launch();
@@ -57,6 +57,33 @@ try {
     }
     await check(`type[${t.key}] preview control`, async () => (await page.locator(".pvform .pvfield").first().locator(t.pv).count()) > 0);
   }
+
+  // ============ 1b. CONTROL FIDELITY: checkbox / radio / upload widget ============
+  await gotoBuilder();
+  await typeSel(0).selectOption("multiselect");
+  await q(0).locator(".optrow input").first().fill("Alpha");
+  await page.waitForTimeout(200);
+  const pf0 = () => page.locator(".pvform .pvfield").first();
+  await check("multiselect preview renders a CHECKBOX", async () => (await pf0().locator(".pvcheck").count()) > 0);
+  await pf0().locator(".pvopt-btn").first().click();
+  await page.waitForTimeout(150);
+  await check("multiselect checkbox shows a TICK when selected", async () => (await pf0().locator(".pvcheck.on .ic").count()) > 0);
+  await typeSel(0).selectOption("select");
+  await q(0).locator(".optrow input").first().fill("Beta");
+  await page.waitForTimeout(200);
+  await check("select preview renders a RADIO", async () => (await pf0().locator(".pvradio").count()) > 0);
+  await typeSel(0).selectOption("video_proof");
+  await page.waitForTimeout(200);
+  await check("video proof preview renders an UPLOAD DROPZONE (icon)", async () => (await pf0().locator(".pvdrop .ic").count()) > 0);
+  await typeSel(0).selectOption("photo_proof");
+  await page.waitForTimeout(200);
+  await check("photo proof preview renders an UPLOAD DROPZONE (icon)", async () => (await pf0().locator(".pvdrop .ic").count()) > 0);
+  await typeSel(0).selectOption("shed_picker");
+  await page.waitForTimeout(200);
+  await check("picker preview renders a DROPDOWN control", async () => (await pf0().locator(".pvselectstub .ic").count()) > 0);
+  await typeSel(0).selectOption("goat_scan");
+  await page.waitForTimeout(200);
+  await check("goat scan preview renders a SCAN control (icon)", async () => (await pf0().locator(".pvscanstub .ic").count()) > 0);
 
   // ============ 2. TRIGGER CHIPS ============
   await gotoBuilder();

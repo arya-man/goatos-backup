@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { RotateCcw } from "lucide-react";
+import { Camera, Check, ChevronDown, RotateCcw, ScanLine, Video } from "lucide-react";
 import { fieldConfigKind, type BuilderCondition, type BuilderStep } from "./sop-derive";
 import { copy, optionalOptionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -159,7 +159,11 @@ export function BuilderPreview({ pc, steps }: { pc: AdminUiPageContract; steps: 
                           : setAnswer(step.id, answer === o.label ? undefined : o.label);
                       return (
                         <button key={o.id} type="button" className={`pvopt pvopt-btn${checked ? " on" : ""}`} aria-pressed={checked} onClick={onClick}>
-                          <span className={step.type === "multiselect" ? "optbox" : "optdot"} aria-hidden="true" />
+                          {step.type === "multiselect" ? (
+                            <span className={`pvcheck${checked ? " on" : ""}`} aria-hidden="true">{checked ? <Check className="ic" /> : null}</span>
+                          ) : (
+                            <span className={`pvradio${checked ? " on" : ""}`} aria-hidden="true" />
+                          )}
                           {o.label}
                         </button>
                       );
@@ -168,9 +172,26 @@ export function BuilderPreview({ pc, steps }: { pc: AdminUiPageContract; steps: 
                 )
               ) : null}
 
-              {kind === "picker" ? <div className="pvpick muted small">{copy(pc, "builder.picker.note")}</div> : null}
-              {kind === "scan" ? <div className="pvpick muted small">{copy(pc, "builder.scan.note")}</div> : null}
-              {kind === "proof" ? <div className="pvproof muted small">{copy(pc, "builder.proof.note")}</div> : null}
+              {/* Pickers render as a live-list dropdown stub, scan as a scan control, proof as an upload
+                  dropzone — the real operator control's look (inert in preview; the operator does it live). */}
+              {kind === "picker" ? (
+                <div className="pvselectstub" aria-disabled="true">
+                  <span>{copy(pc, "builder.picker.note")}</span>
+                  <ChevronDown className="ic" aria-hidden="true" />
+                </div>
+              ) : null}
+              {kind === "scan" ? (
+                <div className="pvscanstub" aria-disabled="true">
+                  <ScanLine className="ic" aria-hidden="true" />
+                  <span>{copy(pc, "builder.scan.note")}</span>
+                </div>
+              ) : null}
+              {kind === "proof" ? (
+                <div className="pvdrop" aria-disabled="true">
+                  {step.type === "photo_proof" ? <Camera className="ic" aria-hidden="true" /> : <Video className="ic" aria-hidden="true" />}
+                  <span>{copy(pc, "builder.proof.note")}</span>
+                </div>
+              ) : null}
             </div>
           );
         })}
