@@ -349,6 +349,26 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    Goat Pox, Sheep Pox, Blue Tongue, FMD, and HS rows. Goat-specific vaccines
    apply to goat species rows; sheep-specific vaccines apply to sheep species
    rows; shared vaccines apply to both only when the active matrix says so.
+5. **Clean-slate V1 seed, not dirty-row repair** — V1 implementation starts
+   from the governed model `parks -> sheds -> shed/tag policy -> herd_animals`,
+   then reseeds local/dev/test data through that model. Do not try to preserve
+   bad goat-only table state or patch existing dirty rows in place. The source
+   rows are evidence for the reseed, not the runtime schema. Every seeded animal
+   must be a mixed-species herd animal with species, breed, real sex
+   (`female`/`male` only), DOB/age, current park, current shed/tag, health/
+   reproductive/procurement state, and vaccination history/protocol facts
+   attached to `animal_id`.
+6. **Dev/test fixture defaults are explicit and non-production** — until the
+   production-grade importer is approved, local/dev/test reseed may fill missing
+   values only with deterministic, rule-valid fixture values so the system can
+   be tested end to end. Missing sex must become either `female` or `male` by a
+   documented seed rule; it must never become `unknown`. Missing species/breed/
+   tag values must resolve through the governed goat/sheep species catalog,
+   breed aliases, and Goats and Parks tag policy or land in a blocked seed
+   review bucket. Vaccination fixture history is seeded only from known source
+   evidence or from explicit synthetic test scenarios derived from the active
+   matrix; do not invent production completions. These fixture assumptions are
+   marked as seed/test provenance and are not production truth.
 
 ## 8. Legacy capability parity, proof policy, and import mapping
 

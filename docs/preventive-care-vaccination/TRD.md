@@ -573,11 +573,38 @@ configured and proven.
 
 ## 7. Migration plan (Path B base correction)
 
+V1 dev/test cutover is **clean slate**. Build the target model first, then wipe
+and reseed local/dev/test operational data through the new model. The order is:
+`parks -> sheds -> animal_stage_lookup/shed-tag species policy -> species_catalog
+-> breeds -> herd_animals -> vaccination history/protocol facts -> active
+vaccination matrix -> obligations`. Existing goat-only rows are treated as
+source evidence for the reseed; they are not preserved as runtime truth and are
+not patched in place. For production cutover later, the same importer rules
+apply, but unresolved source rows block instead of receiving fixture defaults.
+
+Local/dev/test reseed rules:
+
+- Seed at least goat and sheep. Species is derived from governed species/breed
+  rules, e.g. Anantapur Sheep is sheep; goat breeds stay under goat; ambiguous
+  labels go to seed review and must not silently default to goat.
+- Every seeded animal must have `sex in ('female','male')`. If source sex is
+  missing in a dev/test fixture row, choose a deterministic fixture value from
+  a documented seed rule and mark seed/test provenance. Never store `unknown`,
+  never infer from F2 labels for production truth, and never create vaccination
+  obligations for unresolved production rows.
+- Every seeded animal must resolve to one current park, shed, and governed
+  shed/tag whose allowed-species and stage-sex policy accepts that animal.
+  Invalid species/tag or sex/tag combinations are rejected during seed.
+- Vaccination history belongs to `animal_id` for both goats and sheep. Dev/test
+  fixture history may be generated only from verified source evidence or
+  explicit synthetic scenarios derived from the active matrix; production
+  completions are never fabricated.
+
 | Migration | Contents |
 |---|---|
 | `species_catalog` migration | Add governed species reference data and seed at least `goat` and `sheep`; no static goat/sheep enum in code. |
 | `breed_species` migration | Ensure every breed belongs to one species; seed Anantapur Sheep as sheep and goat breeds under goat; add alias/review path for dirty source labels. |
-| `herd_animals_identity` migration | Create/rename canonical `herd_animals` with `animal_id`; migrate data from `goats`; replace `goats_species_check`; add DOB confidence, origin/entry, lifecycle/exit, current location/shed/tag fields, and merge target `merged_into_animal_id`. |
+| `herd_animals_identity` migration | Create canonical `herd_animals` with `animal_id`; wipe/reseed local/dev/test herd data from verified sources through the clean-slate importer; replace `goats_species_check`; add DOB confidence, origin/entry, lifecycle/exit, current location/shed/tag fields, and merge target `merged_into_animal_id`. Do not copy dirty goat-only state forward as runtime truth. |
 | `animal_identifiers_history` migration | Rename/create `animal_identifiers`, `animal_location_history`, and `animal_identity_events`; migrate FK references from goat names to animal names. Tagging state stays derived, not stored. |
 | `shed_tag_age_policy` migration | Extend/seed `animal_stage_lookup` with source age range label, source day numbers, normalized age days, allowed species, max residence days, purpose, and status. |
 | `vaccination_animal_targets` migration | Change vaccination/obligation/completion FKs and OpenAPI contracts from `goat_id`/`target_type='goat'` to `animal_id`/`target_type='herd_animal'`; add `animal_protocol_facts`. |
@@ -606,5 +633,11 @@ configured and proven.
   `animal_stage_lookup`/tag policy: K0 1-2 source days, K1 3-9, K2 10-77,
   K3 78-84, fattening kid tags 120-240, and adult tags 300+. Store normalized
   zero-based age days for query predicates and keep max-stay notes separate.
+- Local/dev herd baseline: reseed animals through `herd_animals`, not the old
+  goat-only table shape. Unknown source values in test data must be resolved to
+  rule-valid fixture values or blocked from the seed. Sex is always female/male;
+  species is always resolved through the governed catalog; vaccination history
+  is linked to `animal_id` and seeded only from source evidence or explicit
+  synthetic matrix scenarios.
 - Later production expansion changes the active matrix by publishing/activating
   a new scoped version. It must not create one top-level protocol per vaccine.
