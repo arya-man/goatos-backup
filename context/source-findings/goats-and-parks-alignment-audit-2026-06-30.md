@@ -15,9 +15,9 @@ audit, not a claim that every referenced feature is complete end to end.
 - Kernel: `context/architecture/operational-kernel.md`.
 - Product phases/glossary: `context/product/goat-os-feature-phases.md`,
   `context/product/glossary.md`, `docs/phases/README.md`.
-- PHC/Vaccination: `docs/phc-vaccination/PRD.md`,
-  `docs/phc-vaccination/TRD.md`,
-  `context/source-findings/phc-vaccination-roster-stage-proposal.md`.
+- Preventive Care (PC) / Vaccination: `docs/preventive-care-vaccination/PRD.md`,
+  `docs/preventive-care-vaccination/TRD.md`,
+  `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`.
 - Feed Direction and Counts/Shifting:
   `docs/feed-direction/PRD.md`, `docs/feed-direction/TRD.md`,
   `docs/feed-direction/BUILD-TO-DONE-GOAL.md`,
@@ -43,10 +43,10 @@ audit, not a claim that every referenced feature is complete end to end.
 | Area | Current alignment | Gap / action |
 | --- | --- | --- |
 | Repo-wide source rule | Previously partial. Existing docs mentioned `Goats and Parks`, but no committed full base-source finding existed. | Closed in this pass by adding `goats-and-parks-source-findings.md` and routing docs to it. |
-| Kernel | Aligned. The operational kernel already applies to PHC, feed, procurement, parks, and future modules, and requires obligations/proof/read models for process breaks. | Future implementation must turn missing tag, stage, feed-safety, ICU/quarantine, and warm-up exceptions into kernel work instead of UI-only flags. |
+| Kernel | Aligned. The operational kernel already applies to Preventive Care (PC), feed, procurement, parks, and future modules, and requires obligations/proof/read models for process breaks. | Future implementation must turn missing tag, stage, feed-safety, ICU/quarantine, and warm-up exceptions into kernel work instead of UI-only flags. |
 | Admin-web IA | Aligned. Vertical/module/command-lens taxonomy keeps Parks as a scope/context dimension and command lenses as top-level surfaces. | Future Parks-owned modules can be added only as real modules, not nested command-room routes. |
-| Control Tower / Action Center / Calendar / Protocol Adherence / Workflows | Aligned as top-level command lenses fed by module projections. | Feed, Counts, Procurement, PHC, and Parks/Sheds projections still need to emit the Goats-and-Parks exception fields before these screens can claim those slices. |
-| PHC/Vaccination | Mostly aligned. K0/K1/K2/K3 and K2=42 already come from Goats and Parks/glossary evidence. Vaccination uses tag/RFID and trained execution/proof concepts. | References are updated to the new committed source finding. Production roster expansion remains separate source-backed work. |
+| Control Tower / Action Center / Calendar / Protocol Adherence / Workflows | Aligned as top-level command lenses fed by module projections. | Feed, Counts, Procurement, Preventive Care (PC), and Parks/Sheds projections still need to emit the Goats-and-Parks exception fields before these screens can claim those slices. |
+| Preventive Care (PC) / Vaccination | Mostly aligned. K0/K1/K2/K3 and K2=42 already come from Goats and Parks/glossary evidence. Vaccination uses tag/RFID and trained execution/proof concepts. | References are updated to the new committed source finding. Production roster expansion remains separate source-backed work. |
 | Feed Direction | Mostly aligned. Current docs already cover source priority, configurable sessions, breed/tag/stage ration keys, pregnancy/warm-up risk, underfeed/overfeed/moist-feed safety, and count/projection separation. | Patched the docs to make Goats and Parks the base stage/shed/feed-role source and to prevent KT/workbook examples from replacing source-backed runtime templates. |
 | Counts/Shifting | Aligned directionally. Aggregate shed + breed counts stay separate from nutrition cohort resolution, and RFID-to-shed is future scope. | The resolver must use reviewed shed-tag/cohort reference data from Goats and Parks before Feed generation can be safe. |
 | Procurement/source entry | Aligned directionally. Source-only identity, purpose-specific warm-up, accepted intake, and arrival proof are modeled separately from clean park truth. | Add destination shed tag/cohort review as part of accepted-intake-to-park truth when procurement/feed work resumes. |
@@ -60,7 +60,7 @@ audit, not a claim that every referenced feature is complete end to end.
 - The base identity rule is tag/RFID-first. Visual descriptors are never goat
   identity.
 - Park and shed are physical scope. Shed tag is operational cohort semantics and
-  can affect feed, PHC, breeding, birth, procurement, and exception workflows.
+  can affect feed, Preventive Care (PC), breeding, birth, procurement, and exception workflows.
 - Warm-up, pregnancy, lactation, mother, milking, flushing, breeding, fattening,
   ICU, and quarantine are not labels for display only; they change risk,
   eligibility, feed, proof, and escalation.
@@ -88,6 +88,6 @@ block rows explicitly.
 
 Future slices should add governed reference data for the full shed-tag/capacity
 table and its effective dates, then wire those references into Locations/Parks,
-Counts, Feed, PHC, Procurement, Breeding, SOP, and command-lens projections.
+Counts, Feed, Preventive Care (PC), Procurement, Breeding, SOP, and command-lens projections.
 The Sheds DB manual matrix is evidence for that profile data, not a spreadsheet
 runtime dependency.

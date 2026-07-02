@@ -21,7 +21,7 @@ vaccination process-integrity slice:
 
 ```text
 Admin Config
-PHC Vaccination
+Preventive Care (PC) Vaccination
 Vaccination execution context scoped by park/shed
 Control Tower process-gap summary
 ```

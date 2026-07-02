@@ -13,8 +13,8 @@ Canonical docs:
 - `context/architecture/operational-kernel.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `context/execution/target-repo-structure.md`
-- `docs/phc-vaccination/PRD.md`
-- `docs/phc-vaccination/TRD.md`
+- `docs/preventive-care-vaccination/PRD.md`
+- `docs/preventive-care-vaccination/TRD.md`
 - `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
 - `docs/protocol-engine/obligation-engine.md`
 - `docs/protocol-engine/state-machines.md`
@@ -25,7 +25,7 @@ The current admin-web slice is:
 
 ```text
 Admin / Data Ops config + SOP policy
-PHC Vaccination operations
+Preventive Care (PC) Vaccination operations
 Calendar vaccination due-work command lens
 Vaccination execution context scoped by park/shed
 Control Tower process-gap summary
@@ -76,7 +76,7 @@ Current implemented admin-web product routes:
 /calendar
 ```
 
-`/calendar` is reopened only for the PHC Vaccination due-work slice. It must use
+`/calendar` is reopened only for the Preventive Care (PC) Vaccination due-work slice. It must use
 the generic `CalendarEvent` summary contract, vaccination-specific detail drawer,
 generated backend clients, active owner pills `all`, `phc`, `inventory`, and
 `admin_data_ops`, and the mock Calendar/drawer UI treatment. Keep primary nav,
@@ -98,10 +98,10 @@ not as a separate Parks route or sidebar entry. Do not rebuild old Locations or 
 generic Parks vertical.
 
 Do not confuse "not generic Action Center" with "no Action Center." Action
-Center is the top-level `/action-center` command lens. `/vaccination` is the PHC
+Center is the top-level `/action-center` command lens. `/vaccination` is the Preventive Care (PC)
 Vaccination operations module only; it must not contain Action Center,
 Protocol Adherence, Workflows, Config, or SOP Library as tabs, nested pages, or
-large shortcut cards. The shared status model must power PHC/Parks/Control
+large shortcut cards. The shared status model must power Preventive Care (PC), Parks, and Control
 Tower: due, overdue, blocked, proof-pending, verification-pending, rejected,
 deferred, owner-missing, and completed. These are read-model/UI statuses; do not
 ask backend to mutate canonical `obligation_instances.status` just to match a

@@ -2,7 +2,7 @@
 
 **Source file:** `/Users/ravi/mesha/wiki/Nuances_Rules.docx`
 **Extracted into repo:** 2026-07-01 18:18 local source revision
-**Scope:** V1 PHC Vaccination config, generation, Calendar, Action Center,
+**Scope:** V1 Preventive Care (PC) Vaccination config, generation, Calendar, Action Center,
 Protocol Adherence, Workflows, and Goat Passport behavior.
 
 This markdown is the tracked engineering source for the vaccination rule
@@ -85,7 +85,7 @@ months. V1 uses the **Mother vaccinated** column.
 
 ## V1 Implementation Contract
 
-V1 must support the source matrix in the Config modal and in the kernel.
+V1 must support this tracked matrix in the Config modal and in the kernel.
 
 The Config modal must author these values per matrix row:
 
@@ -94,12 +94,13 @@ The Config modal must author these values per matrix row:
 - pathogen class: bacterial, viral, mixed, or reviewed unknown;
 - source course type: single or booster;
 - stage, sex, and breed eligibility;
-- source schedule text from the table;
+- schedule text from the tracked rules table;
 - dose amount and unit;
 - vial dose count;
 - revaccination interval in days;
 - priority where the source provides one;
-- source review and approval metadata.
+- protocol version/audit metadata. Source-review fields are not part of the
+  CEO/COO Config UI; this file is engineering evidence for the preset values.
 
 The shared V1 policy must author:
 
@@ -107,7 +108,7 @@ The shared V1 policy must author:
 - reproductive exclusions, including pregnancy skip policy;
 - procurement warm-up hold of 7 days;
 - kid normal-schedule cutoff at 16 weeks;
-- adult source-vaccination allowed;
+- adult prior-vaccination allowed;
 - same-day compatibility allowed flags;
 - live/killed spacing days;
 - kid booster minimum gap of 21 days;
@@ -115,7 +116,7 @@ The shared V1 policy must author:
 
 The V1 kernel must enforce:
 
-- birth-age source schedule rows from the Mother vaccinated column;
+- birth-age schedule rows from the Mother vaccinated column;
 - trusted prior vaccination evidence suppression so pre-existing ET+TT/PPR/FMD
   records do not duplicate work;
 - generation of the next missing source-schedule row when prior evidence exists;
@@ -132,11 +133,11 @@ The V1 kernel must enforce:
 ## V1 Source Matrix Presets
 
 These are the V1 authoring presets loaded by the Config modal's
-**Load Source Vaccine Matrix** action. Rows target all stages by default because
+**Load Vaccine Matrix Preset** action. Rows target all stages by default because
 the medical timing is DOB/completion based; stage, sex, and breed can still be
 narrowed by an admin after loading when the source rule needs a specific combo.
 
-| Species/source row | Vaccine | Type | Pathogen | Course | Source schedule days from DOB | V1 effective days | Revaccination days | Dose | Vial |
+| Species/rules row | Vaccine | Type | Pathogen | Course | Rules table days from DOB | V1 effective days | Revaccination days | Dose | Vial |
 |---|---|---|---|---|---:|---:|---:|---:|---:|
 | goat | ET+TT | toxoid | bacterial | booster | 28, 49 | 28, 49 | 182 | 2 ml | 100 |
 | goat | PPR | live | viral | single | 112 | 112 | 1095 | 1 ml | 100 |
@@ -150,7 +151,7 @@ narrowed by an admin after loading when the source rule needs a specific combo.
 | sheep source | FMD | killed | viral | single | 84 | 84 | 274 | 1 ml | 30 |
 | sheep source | HS | killed | bacterial | single | 84 | 84 | 365 | 2 ml | 100 |
 
-Goat Pox has a source schedule of 16 weeks, but PPR is also a live viral row at
+Goat Pox has a rules-table schedule of 16 weeks, but PPR is also a live viral row at
 16 weeks and priority 2. V1 therefore preserves PPR at 112 days and moves Goat
 Pox to 140 days when the source vaccine matrix is loaded, honoring the source
 live-live 4-week spacing rule.
@@ -164,7 +165,7 @@ reschedules the same adult row after each accepted adult dose so the source
 completion dates.
 
 The current runtime target type is still named `goat`; sheep rows are retained
-in the V1 source matrix so the config source is complete. Runtime species-aware
+in the V1 tracked matrix so the config evidence is complete. Runtime species-aware
 targeting must not silently pretend sheep are goats; when species fields are
 present in animal data, sheep rows must use the same V1 kernel rules with a
 species eligibility dimension.

@@ -1,14 +1,12 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { AlertTriangle, CalendarDays, Pencil, Plus, X } from "lucide-react";
+import { AlertTriangle, CalendarDays, Copy, Pencil, Plus, X } from "lucide-react";
 import { publishVersions, runImpactPreview, saveDraftBatch, type ActionResult } from "./config-actions";
 import {
   buildVaccinationMatrixPreview,
   buildRuleDsl,
   hasProofRequirement,
-  sourceBadge,
-  validatePublish,
   ALL_STAGES_VALUE,
   newCompatibilityPolicy,
   newFeedFields,
@@ -47,6 +45,7 @@ type SourceVaccinePreset = {
 
 export function RuleEditorModal({
   open,
+  presentation = "modal",
   onClose,
   initialCategory,
   sopVersions = [],
@@ -58,6 +57,7 @@ export function RuleEditorModal({
   pageContract,
 }: {
   open: boolean;
+  presentation?: "modal" | "page";
   onClose: () => void;
   initialCategory: string;
   sopVersions?: SopVersionOption[];
@@ -88,8 +88,6 @@ export function RuleEditorModal({
   const doseUnitOptions = optionGroup(pageContract, "dose_units");
   const routeSiteOptions = optionGroup(pageContract, "route_sites");
   const courseLapseOptions = optionGroup(pageContract, "course_lapse_policies");
-  const sourceSystemOptions = optionGroup(pageContract, "source_systems");
-  const reviewStatusOptions = optionGroup(pageContract, "review_statuses");
   const triggerOptions = optionGroup(pageContract, "trigger_types");
   const repeatOptions = optionGroup(pageContract, "repeat_policies");
   const catchUpOptions = optionGroup(pageContract, "catch_up_policies");
@@ -145,12 +143,6 @@ export function RuleEditorModal({
       ? (optionalCopy(pageContract, "modal.rule_editor.default_feed_escalation") ?? copy(pageContract, "modal.rule_editor.default_vaccination_escalation"))
       : copy(pageContract, "modal.rule_editor.default_vaccination_escalation");
   }
-  function defaultSourceSystem(categoryKey: string): string {
-    if (categoryKey === "feed_direction" && sourceSystemOptions.some((option) => option.key === "feed_direction_config_pack")) {
-      return "feed_direction_config_pack";
-    }
-    return firstKey(sourceSystemOptions, "source_systems");
-  }
   function protocolPlaceholder(categoryKey: string, field: "code" | "name"): string {
     const key = `${categoryKey}.${field}`;
     const value = protocolPlaceholders.find((option) => option.key === key)?.label;
@@ -162,19 +154,19 @@ export function RuleEditorModal({
     return {
       doseCode: isPrimary ? copy(pageContract, "modal.rule_editor.default_dose_primary") : `${copy(pageContract, "modal.rule_editor.default_dose_prefix")}${seq}`,
       trigger: isPrimary ? requireKey(triggerOptions, "birth_age", "trigger_types") : requireKey(triggerOptions, "after_previous_completion", "trigger_types"),
-      offsetDays: isPrimary ? 21 : 30,
+      offsetDays: isPrimary ? 28 : 49,
       dueWindowDays: 7,
-      doseAmount: 0.5,
+      doseAmount: 2,
       doseUnit: requireKey(doseUnitOptions, "ml", "dose_units"),
       vialDoses: 0,
       revaccinationIntervalDays: 0,
-      sourceSchedule: "",
+      scheduleNote: "",
       routeSite: requireKey(routeSiteOptions, "subcutaneous", "route_sites"),
       maxDelayDays: 7,
       courseLapsePolicy: requireKey(courseLapseOptions, "phc_review", "course_lapse_policies"),
       repeat: firstKey(repeatOptions, "repeat_policies"),
       repeatUntilAfterAge: copy(pageContract, "modal.rule_editor.default_repeat_until"),
-      minGapDays: isPrimary ? 0 : 14,
+      minGapDays: isPrimary ? 0 : 21,
       catchUp: requireKey(catchUpOptions, "phc_approval", "catch_up_policies"),
       sopVersion: firstKeyOrEmpty(scheduleSopOptions),
       proofCsv: copy(pageContract, "modal.rule_editor.default_proof_policy"),
@@ -283,13 +275,6 @@ export function RuleEditorModal({
   const [missedDosePolicy, setMissedDosePolicy] = useState(requireKey(missedDoseOptions, "phc_approval", "missed_dose_policies"));
   const [escalation, setEscalation] = useState(() => defaultEscalation(defaultCategory));
 
-  const [sourceSystem, setSourceSystem] = useState(() => defaultSourceSystem(defaultCategory));
-  const [sourceRef, setSourceRef] = useState("");
-  const [reviewStatus, setReviewStatus] = useState(firstKey(reviewStatusOptions, "review_statuses"));
-  const [reviewedBy, setReviewedBy] = useState("");
-  const [approvedBy, setApprovedBy] = useState("");
-  const [approvedAt, setApprovedAt] = useState("");
-
   const [compatibilityPolicy, setCompatibilityPolicy] = useState<CompatibilityPolicy>(() => newCompatibilityPolicy());
   const [procurementPolicy, setProcurementPolicy] = useState<ProcurementPolicy>(() => newProcurementPolicy());
   const [pregnancyPolicy, setPregnancyPolicy] = useState<PregnancyPolicy>(() => newPregnancyPolicy());
@@ -300,7 +285,7 @@ export function RuleEditorModal({
   const [versionIds, setVersionIds] = useState<string[]>([]);
   // savedSig is the input signature persisted by the last successful Save. The saved DRAFT version
   // carries sop_version_id + proof_policy as they were AT SAVE TIME; Publish acts on that stored
-  // version, not the live form. So editing SOP/proof/source/schedule after saving makes the form
+  // version, not the live form. So editing SOP/proof/schedule after saving makes the form
   // "dirty" — Publish must be re-gated until a fresh Save persists the new values, else the backend
   // rejects (e.g. missing sop_version_id) on a version that no longer matches the form.
   const [savedSig, setSavedSig] = useState("");
@@ -328,19 +313,31 @@ export function RuleEditorModal({
   }
   function addMatrixRow() {
     const next = newMatrixRow(matrixRows.length + 1, {
-      vaccine: {
-        ...selectedMatrixRow.vaccine,
-        code: "",
-        name: "",
-        disease: selectedMatrixRow.vaccine.disease,
-        compatibilityGroup: selectedMatrixRow.vaccine.compatibilityGroup,
-      },
-      sex: selectedMatrixRow.sex,
-      breed: selectedMatrixRow.breed,
-      doses: selectedMatrixRow.doses ?? doses,
+      doses: [],
     });
     setMatrixRows((rows) => [...rows, next]);
     setSelectedMatrixRowId(next.id);
+  }
+  function copySelectedMatrixRow() {
+    const baseCode = selectedMatrixRow.vaccine.code.trim();
+    const baseName = selectedMatrixRow.vaccine.name.trim();
+    const sourceDoses = selectedMatrixRow.doses !== undefined ? selectedMatrixRow.doses : doses;
+    const next = newMatrixRow(matrixRows.length + 1, {
+      vaccine: {
+        ...selectedMatrixRow.vaccine,
+        code: baseCode ? `${baseCode}_COPY` : "",
+        name: baseName ? `${baseName} copy` : "",
+      },
+      sex: selectedMatrixRow.sex,
+      breed: selectedMatrixRow.breed,
+      stage: selectedMatrixRow.stage,
+      doses: cloneDoseRows(sourceDoses),
+    });
+    setMatrixRows((rows) => [...rows, next]);
+    setSelectedMatrixRowId(next.id);
+  }
+  function cloneDoseRows(rows: DoseRow[]): DoseRow[] {
+    return rows.map((row) => ({ ...row }));
   }
   function applySourcePresetToSelectedRow() {
     const preset = findSourcePreset(selectedMatrixRow.vaccine.code || selectedMatrixRow.vaccine.name);
@@ -382,7 +379,7 @@ export function RuleEditorModal({
                 ...dose,
                 offsetDays: effectiveOffset,
                 doseCode: `${slugSource(row.vaccine.code)}_${Math.round(effectiveOffset / 7)}w`,
-                sourceSchedule: `${dose.sourceSchedule}; V1 live-live spacing effective due ${effectiveOffset}d`,
+                scheduleNote: `${dose.scheduleNote}; V1 live-live spacing effective due ${effectiveOffset}d`,
               }
             : dose,
         ),
@@ -399,7 +396,7 @@ export function RuleEditorModal({
         pathogenClass: optionKeyOrFallback(pathogenClassOptions, preset.pathogenClass),
         courseType: optionKeyOrFallback(courseTypeOptions, preset.courseType),
         inventoryItemId: "",
-        manufacturer: "source-derived",
+        manufacturer: "tracked-matrix",
         disease: preset.disease,
         compatibilityGroup: preset.compatibilityGroup,
       },
@@ -423,7 +420,7 @@ export function RuleEditorModal({
         doseUnit: requireKey(doseUnitOptions, "ml", "dose_units"),
         vialDoses: preset.vialDoses,
         revaccinationIntervalDays: preset.revaccinationDays,
-        sourceSchedule: sourceScheduleSummary(preset),
+        scheduleNote: scheduleNoteSummary(preset),
         minGapDays: index === 0 ? 0 : Math.max(gapDays, compatibilityPolicy.kidBoosterMinGapDays),
         repeat: "none",
         repeatUntilAfterAge: "-",
@@ -444,14 +441,14 @@ export function RuleEditorModal({
       doseUnit: requireKey(doseUnitOptions, "ml", "dose_units"),
       vialDoses: preset.vialDoses,
       revaccinationIntervalDays: preset.revaccinationDays,
-      sourceSchedule: `adult revaccination: ${formatRevaccination(preset.revaccinationDays)} after accepted completion; source table revaccination ${formatRevaccination(preset.revaccinationDays)}`,
+      scheduleNote: `adult revaccination: ${formatRevaccination(preset.revaccinationDays)} after accepted completion; matrix revaccination ${formatRevaccination(preset.revaccinationDays)}`,
       minGapDays: preset.revaccinationDays,
       repeat: requireKey(repeatOptions, "every_n_days", "repeat_policies"),
       repeatUntilAfterAge: "lifetime",
       catchUp: requireKey(catchUpOptions, "next_cycle", "catch_up_policies"),
     };
   }
-  function sourceScheduleSummary(preset: SourceVaccinePreset): string {
+  function scheduleNoteSummary(preset: SourceVaccinePreset): string {
     return `kid critical schedule: mother vaccinated ${formatWeeks(preset.motherVaccinatedWeeks)} (${preset.motherVaccinatedWeeks.map((week) => `${week * 7}d`).join(", ")} from DOB); adult revaccination: ${formatRevaccination(preset.revaccinationDays)} after accepted completion; mother-not-vaccinated ignored by V1 policy`;
   }
   function formatWeeks(weeks: number[]): string {
@@ -570,7 +567,6 @@ export function RuleEditorModal({
       vaccineLotPolicy,
       missedDosePolicy,
       escalation,
-      source: { sourceSystem, sourceRef, reviewStatus, reviewedBy, approvedBy, approvedAt },
       compatibilityPolicy,
       procurementPolicy,
       pregnancyPolicy,
@@ -580,8 +576,8 @@ export function RuleEditorModal({
     [
       category, code, name, scope, effectiveFrom, sopVersionId, vaccineCode, vaccineName, vaccineType,
       vaccinePathogenClass, vaccineCourseType, vaccineInventoryItemId, vaccineManufacturer, vaccineDisease, vaccineCompatibilityGroup, stage, sex, breed,
-      lifecycle, health, reproductive, excludeReproductiveStates, deferStates, vaccineLotPolicy, missedDosePolicy, escalation, sourceSystem, sourceRef,
-      reviewStatus, reviewedBy, approvedBy, approvedAt, compatibilityPolicy, procurementPolicy, pregnancyPolicy, doses, feed,
+      lifecycle, health, reproductive, excludeReproductiveStates, deferStates, vaccineLotPolicy, missedDosePolicy, escalation,
+      compatibilityPolicy, procurementPolicy, pregnancyPolicy, doses, feed,
     ],
   );
 
@@ -589,22 +585,6 @@ export function RuleEditorModal({
     () => (category === "vaccination" ? buildVaccinationMatrixPreview(input, matrixRows) : buildRuleDsl(input)),
     [category, input, matrixRows],
   );
-  const publishableSourceKeys = new Set(sourceSystemOptions.filter((option) => option.tone === "ok").map((option) => option.key));
-  const badge = sourceBadge(input.source, sourceSystemOptions, {
-    notSourceBacked: copy(pageContract, "modal.rule_editor.source_badge.not_source_backed"),
-    notPublishable: copy(pageContract, "modal.rule_editor.source_badge.not_publishable"),
-    approved: copy(pageContract, "modal.rule_editor.source_badge.approved"),
-    pending: copy(pageContract, "modal.rule_editor.source_badge.pending"),
-    sourceRefNeeded: copy(pageContract, "modal.rule_editor.source_badge.source_ref_needed"),
-  });
-  const publishGate = validatePublish(input.source, publishableSourceKeys, {
-    sourceSystem: copy(pageContract, "modal.rule_editor.publish_block.source_system"),
-    sourceRef: copy(pageContract, "modal.rule_editor.publish_block.source_ref"),
-    reviewStatus: copy(pageContract, "modal.rule_editor.publish_block.review_status"),
-    approvedBy: copy(pageContract, "modal.rule_editor.publish_block.approved_by"),
-    approvedAt: copy(pageContract, "modal.rule_editor.publish_block.approved_at"),
-    approvedAtRFC3339: copy(pageContract, "modal.rule_editor.publish_block.approved_at_rfc"),
-  });
   const inputSig = useMemo(() => JSON.stringify({ input, matrixRows }), [input, matrixRows]);
   // dirty = saved once, but the form has changed since — the stored version is stale for publish.
   const dirty = versionId !== "" && inputSig !== savedSig;
@@ -627,13 +607,15 @@ export function RuleEditorModal({
           ? copy(pageContract, "modal.rule_editor.select_sop_publish")
           : !proofOk
             ? copy(pageContract, "modal.rule_editor.proof_publish")
-            : !publishGate.ok
-              ? publishGate.message
-              : "";
+            : "";
   const publishDisabled = pending || publishBlock !== "";
 
   function selectedDoses(): DoseRow[] {
-    return selectedMatrixRow.doses && selectedMatrixRow.doses.length > 0 ? selectedMatrixRow.doses : doses;
+    return selectedMatrixRow.doses !== undefined ? selectedMatrixRow.doses : doses;
+  }
+  function scheduleNoteDisplay(row: VaccinationMatrixRow): string {
+    const scheduleNote = row.doses?.find((dose) => dose.scheduleNote.trim())?.scheduleNote.trim();
+    return scheduleNote || copy(pageContract, "modal.rule_editor.table.no_schedule_note");
   }
   function setSelectedDose(i: number, patch: Partial<DoseRow>) {
     const rows = selectedDoses().map((r, idx) => (idx === i ? { ...r, ...patch } : r));
@@ -657,7 +639,6 @@ export function RuleEditorModal({
   function changeCategory(nextCategory: string) {
     setCategory(nextCategory);
     setEscalation(defaultEscalation(nextCategory));
-    setSourceSystem(defaultSourceSystem(nextCategory));
   }
   function setFeedField(patch: Partial<FeedFields>) {
     setFeed((prev) => ({ ...prev, ...patch }));
@@ -723,8 +704,15 @@ export function RuleEditorModal({
 
   return (
     <>
-      <div className="cfgback on" onClick={onClose} />
-      <div className="cfgmodal on" style={{ width: "min(1180px,96vw)" }} role="dialog" aria-modal="true" aria-label={copy(pageContract, "modal.rule_editor.aria")}>
+      {presentation === "modal" ? <div className="cfgback on" onClick={onClose} /> : null}
+      <div
+        className={presentation === "page" ? "cfgpage cfgpage-rule on" : "cfgmodal on"}
+        data-testid="rule-editor"
+        style={presentation === "modal" ? { width: "min(1180px,96vw)" } : undefined}
+        role={presentation === "modal" ? "dialog" : "region"}
+        aria-modal={presentation === "modal" ? true : undefined}
+        aria-label={copy(pageContract, "modal.rule_editor.aria")}
+      >
         <div className="cmh">
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}>
             <Pencil className="ic" />
@@ -977,7 +965,7 @@ export function RuleEditorModal({
               </>
             ) : (
               <>
-                <div className="cmh" style={{ border: "1px solid var(--line2)", borderRadius: 8, marginTop: 10, position: "static" }}>
+                <div className="cmh cfgmatrix-head">
                   <CalendarDays className="ic" />
                   <h4 style={{ margin: 0 }}>{copy(pageContract, "modal.rule_editor.matrix_grid_title")}</h4>
                   <span className="tag t-info">{matrixRows.length} {copy(pageContract, matrixRows.length === 1 ? "modal.rule_editor.label.rule_singular" : "modal.rule_editor.label.rule_plural")}</span>
@@ -985,19 +973,22 @@ export function RuleEditorModal({
                   <button type="button" className="btn sm" onClick={loadGoatSourceMatrix}>
                     <CalendarDays className="ic" /> {copy(pageContract, "modal.rule_editor.action.load_source_vaccine_matrix")}
                   </button>
-                  <button type="button" className="btn sm" onClick={addMatrixRow}>
+                  <button type="button" className="btn sm" onClick={addMatrixRow} title={copy(pageContract, "modal.rule_editor.title.add_blank_matrix_row")}>
                     <Plus className="ic" /> {copy(pageContract, "modal.rule_editor.action.add_matrix_row")}
                   </button>
+                  <button type="button" className="btn sm" onClick={copySelectedMatrixRow} title={copy(pageContract, "modal.rule_editor.title.copy_selected_matrix_row")}>
+                    <Copy className="ic" /> {copy(pageContract, "modal.rule_editor.action.copy_selected_matrix_row")}
+                  </button>
                 </div>
-                <div style={{ overflowX: "auto", border: "1px solid var(--line2)", borderTop: 0, borderRadius: "0 0 8px 8px", marginBottom: 8 }}>
-                  <table>
+                <div className="cfgtablewrap cfgmatrix-table" tabIndex={0} role="group" aria-label={copy(pageContract, "modal.rule_editor.matrix_grid_title")}>
+                  <table className="cfgmatrix-grid">
                     <thead>
                       <tr>
                         <th>{copy(pageContract, "modal.rule_editor.table.row")}</th>
                         <th>{copy(pageContract, "modal.rule_editor.table.vaccine_code")}</th>
                         <th>{copy(pageContract, "modal.rule_editor.table.vaccine_name")}</th>
                         <th>{copy(pageContract, "modal.rule_editor.table.course_type")}</th>
-                        <th>{copy(pageContract, "modal.rule_editor.table.source_schedule")}</th>
+                        <th>{copy(pageContract, "modal.rule_editor.table.schedule_note")}</th>
                         <th>{copy(pageContract, "modal.rule_editor.table.dose_amount")}</th>
                         <th>{copy(pageContract, "modal.rule_editor.table.vial_doses")}</th>
                         <th>{copy(pageContract, "modal.rule_editor.table.revaccination")}</th>
@@ -1056,7 +1047,12 @@ export function RuleEditorModal({
                               ))}
                             </select>
                           </td>
-                          <td className="muted small" style={{ minWidth: 180 }}>{row.doses?.[0]?.sourceSchedule || "-"}</td>
+                          <td style={{ minWidth: 220 }}>
+                            <div className="muted small" title={copy(pageContract, "modal.rule_editor.table.schedule_note_derived_title")}>
+                              <span className="tag t-mut">{copy(pageContract, "modal.rule_editor.table.schedule_note_derived_badge")}</span>
+                              <div style={{ marginTop: 4, whiteSpace: "normal", lineHeight: 1.35 }}>{scheduleNoteDisplay(row)}</div>
+                            </div>
+                          </td>
                           <td className="mono" style={{ minWidth: 90 }}>{row.doses?.[0]?.doseAmount ?? "-"}</td>
                           <td className="mono" style={{ minWidth: 80 }}>{row.doses?.[0]?.vialDoses || "-"}</td>
                           <td className="mono" style={{ minWidth: 110 }}>{row.doses?.[0]?.revaccinationIntervalDays || "-"}</td>
@@ -1149,7 +1145,7 @@ export function RuleEditorModal({
                     ))}
                   </select>
                   <button type="button" className="btn sm" onClick={applySourcePresetToSelectedRow}>
-                    {copy(pageContract, "modal.rule_editor.action.apply_source_schedule")}
+                    {copy(pageContract, "modal.rule_editor.action.apply_matrix_schedule")}
                   </button>
                 </div>
                 <div className="rowf" style={{ marginTop: 6 }}>
@@ -1249,7 +1245,7 @@ export function RuleEditorModal({
                 />
                 <div className="cfgchk" style={{ marginTop: 7 }}>
                   <label>
-                    <input type="checkbox" checked={procurementPolicy.adultSourceVaccinationAllowed} onChange={() => setProcurementField({ adultSourceVaccinationAllowed: !procurementPolicy.adultSourceVaccinationAllowed })} /> {copy(pageContract, "modal.rule_editor.field.adult_source_vaccination_allowed")}
+                    <input type="checkbox" checked={procurementPolicy.adultPriorVaccinationAllowed} onChange={() => setProcurementField({ adultPriorVaccinationAllowed: !procurementPolicy.adultPriorVaccinationAllowed })} /> {copy(pageContract, "modal.rule_editor.field.adult_prior_vaccination_allowed")}
                   </label>
                 </div>
 
@@ -1271,44 +1267,11 @@ export function RuleEditorModal({
               </>
             )}
 
-            <label>{copy(pageContract, "modal.rule_editor.field.source_review")}</label>
-            <div className="rowf">
-              <select aria-label={copy(pageContract, "modal.rule_editor.field.source_review")} value={sourceSystem} onChange={(e) => setSourceSystem(e.target.value)}>
-                {sourceSystemOptions.map((s) => (
-                  <option key={s.key} value={s.key}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-              <input aria-label={copy(pageContract, "modal.rule_editor.field.source_review")} value={sourceRef} onChange={(e) => setSourceRef(e.target.value)} placeholder={copy(pageContract, "modal.rule_editor.placeholder.source_ref")} />
-            </div>
-            <div className="rowf" style={{ marginTop: 6 }}>
-              <select aria-label={copy(pageContract, "modal.rule_editor.field.source_review")} value={reviewStatus} onChange={(e) => setReviewStatus(e.target.value)}>
-                {reviewStatusOptions.map((s) => (
-                  <option key={s.key} value={s.key}>{s.label}</option>
-                ))}
-              </select>
-              <input aria-label={copy(pageContract, "modal.rule_editor.field.source_review")} value={reviewedBy} onChange={(e) => setReviewedBy(e.target.value)} placeholder={copy(pageContract, "modal.rule_editor.placeholder.reviewed_by")} />
-            </div>
-            <input
-              aria-label={copy(pageContract, "modal.rule_editor.field.source_review")}
-              value={approvedBy}
-              onChange={(e) => setApprovedBy(e.target.value)}
-              placeholder={copy(pageContract, "modal.rule_editor.placeholder.approved_by")}
-              style={{ marginTop: 6, width: "100%", border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", borderRadius: 8, padding: "8px 10px", font: "inherit", fontSize: 13 }}
-            />
-            <input
-              aria-label={copy(pageContract, "modal.rule_editor.field.source_review")}
-              value={approvedAt}
-              onChange={(e) => setApprovedAt(e.target.value)}
-              placeholder={copy(pageContract, "modal.rule_editor.placeholder.approved_at")}
-              style={{ marginTop: 6, width: "100%", border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", borderRadius: 8, padding: "8px 10px", font: "inherit", fontSize: 13 }}
-            />
           </div>
 
           {/* Live rule_dsl JSONB preview */}
-          <div>
-            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".4px", marginBottom: 5 }}>
+          <div className="cfgdsl-panel">
+            <label className="cfgdsl-label">
               {copy(pageContract, "modal.rule_editor.label.rule_dsl")}
             </label>
             <div className="cfgjson" aria-label={copy(pageContract, "modal.rule_editor.rule_dsl_aria")}>
@@ -1322,12 +1285,11 @@ export function RuleEditorModal({
 
         {isFeedDirection ? (
           <>
-            <div className="cmh" style={{ borderTop: "1px solid var(--line2)", borderBottom: "1px solid var(--line2)", position: "static" }}>
+            <div className="cmh cfgsection-head">
               <CalendarDays className="ic" />
               <h4 style={{ margin: 0 }}>{copy(pageContract, "modal.rule_editor.table.feed_title")}</h4>
-              <span className={`tag ${TONE_CLASS[badge.tone]}`}>{badge.text}</span>
             </div>
-            <div style={{ overflowX: "auto", padding: "0 18px 6px" }}>
+            <div className="cfgtablewrap cfgschedule-table">
               <table>
                 <thead>
                   <tr>
@@ -1365,16 +1327,15 @@ export function RuleEditorModal({
           </>
         ) : (
           <>
-            <div className="cmh" style={{ borderTop: "1px solid var(--line2)", borderBottom: "1px solid var(--line2)", position: "static" }}>
+            <div className="cmh cfgsection-head">
               <CalendarDays className="ic" />
               <h4 style={{ margin: 0 }}>{copy(pageContract, "modal.rule_editor.table.schedule_title")}</h4>
-              <span className={`tag ${TONE_CLASS[badge.tone]}`}>{badge.text}</span>
               <div className="sp" style={{ flex: 1 }} />
               <button type="button" className="btn sm" onClick={addSelectedDose}>
                 <Plus className="ic" /> {copy(pageContract, "modal.rule_editor.action.add_dose")}
               </button>
             </div>
-            <div style={{ overflowX: "auto", padding: "0 18px 6px" }}>
+            <div className="cfgtablewrap cfgschedule-table">
               <table>
                 <thead>
                   <tr>
@@ -1386,7 +1347,7 @@ export function RuleEditorModal({
                     <th>{copy(pageContract, "modal.rule_editor.table.dose_unit")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.vial_doses")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.revaccination")}</th>
-                    <th>{copy(pageContract, "modal.rule_editor.table.source_schedule")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.schedule_note")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.route_site")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.max_delay")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.course_lapse")}</th>
@@ -1435,7 +1396,7 @@ export function RuleEditorModal({
                         <input aria-label={copy(pageContract, "modal.rule_editor.table.revaccination")} type="number" min="0" value={d.revaccinationIntervalDays} onChange={(e) => setSelectedDose(i, { revaccinationIntervalDays: Number(e.target.value) })} />
                       </td>
                       <td style={{ minWidth: 210 }}>
-                        <input aria-label={copy(pageContract, "modal.rule_editor.table.source_schedule")} value={d.sourceSchedule} onChange={(e) => setSelectedDose(i, { sourceSchedule: e.target.value })} />
+                        <input aria-label={copy(pageContract, "modal.rule_editor.table.schedule_note")} value={d.scheduleNote} onChange={(e) => setSelectedDose(i, { scheduleNote: e.target.value })} />
                       </td>
                       <td style={{ minWidth: 150 }}>
                         <select aria-label={copy(pageContract, "modal.rule_editor.table.route_site")} value={d.routeSite} onChange={(e) => setSelectedDose(i, { routeSite: e.target.value })}>
@@ -1512,7 +1473,7 @@ export function RuleEditorModal({
         )}
 
         {/* Impact preview */}
-        <div className="cmh" style={{ borderTop: "1px solid var(--line2)", position: "static" }}>
+        <div className="cmh cfgsection-head cfgimpact-head">
           <h4 style={{ margin: 0 }}>
             {copy(pageContract, isFeedDirection ? "modal.rule_editor.impact_title_feed" : "modal.rule_editor.impact_title_vaccination")}
           </h4>
@@ -1525,7 +1486,7 @@ export function RuleEditorModal({
             <span className="muted small">{copy(pageContract, "modal.rule_editor.preview_feed_pending")}</span>
           )}
         </div>
-        <div style={{ padding: "0 18px 12px" }}>
+        <div className="cfgimpact-body">
           {impact ? (
             <>
               <div className="grid g4">

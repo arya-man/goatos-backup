@@ -2,8 +2,8 @@
 
 Date: 2026-07-01
 Status: V1 demo blockers closed; route optimization/production-scale programs are outside this demo contract
-Scope: Clean-slate PHC Vaccination V1 setup and demo flow
-Primary surface: Admin/Data Ops -> SOP Library -> PHC / Vaccination SOP builder
+Scope: Clean-slate Preventive Care (PC) Vaccination V1 setup and demo flow
+Primary surface: Admin/Data Ops -> SOP Library -> Preventive Care (PC) / Vaccination SOP builder
 Related surface: Admin/Data Ops -> Config -> Vaccination rule builder
 
 This file captures the bugs found while walking the clean-slate vaccination V1
@@ -32,8 +32,21 @@ Validated V1 demo closure evidence:
   - `.codex-goatos-render/admin-web-screenshots/2026-07-01T14-12-57-572Z`
   - Rework Passport: `.codex-goatos-render/admin-web-screenshots/2026-07-01T09-04-55-269Z/desktop-goat-passport-rework-proof.png`
 
+Additional Config page UX follow-up after converting New draft rule from modal
+to normal page:
+
+- Full E2E smoke: `CONFIG-PAGE-V2-20260701`
+  - Report: `.codex-goatos-render/e2e-smoke/CONFIG-PAGE-V2-20260701`
+- SOP/Config authoring smoke: `AUTHORING-2026-07-01T18-35-03-998Z`
+  - Report: `.codex-goatos-render/vaccination-authoring/AUTHORING-2026-07-01T18-35-03-998Z/authoring.md`
+- Click/interlink matrix: `CONFIG-PAGE-V2-20260701-R2`
+  - Report: `.codex-goatos-render/vaccination-click-matrix/CONFIG-PAGE-V2-20260701-R2/matrix.md`
+- Config authoring page screenshots:
+  - `.codex-goatos-render/config-page/config-authoring-desktop.png`
+  - `.codex-goatos-render/config-page/config-authoring-mobile-after.png`
+
 Closed for V1 demo: SOP builder lifecycle, all supported SOP question types,
-multi-row Config matrix authoring/publish, source schedule/dose/vial/revaccination
+multi-row Config matrix authoring/publish, schedule/dose/vial/revaccination
 rows, V1 compatibility spacing, generated work, accepted proof, rejected/rework
 proof in the data plane, Goat Passport vaccination history/open due rows, and
 current visible click/interlink paths.
@@ -157,8 +170,8 @@ The vaccination E2E must cover all three goat entry paths:
    - Purchased goats start in the procurement/source-entry journey.
    - Holding-farm vaccination evidence may suppress duplicate arrival
      vaccination where the rules allow it.
-   - Only accepted-intake goats should enter the normal PHC vaccination engine.
-   - Rejected, canceled, source-only, or pre-intake goats must not create PHC
+   - Only accepted-intake goats should enter the normal Preventive Care (PC) vaccination engine.
+   - Rejected, canceled, source-only, or pre-intake goats must not create Preventive Care (PC)
      vaccination obligations.
 
 Plain operating rule:
@@ -193,7 +206,7 @@ The E2E must prove the kernel for these event families:
 - goat stage changed
 - goat shed/location changed
 - goat health/defer state changed
-- goat reproductive state changed
+- goat reproductive facts evaluated during generation/backfill
 - goat death/sale/exit cancels open work
 - trusted external vaccination history suppresses duplicate work
 - vaccination due work generated
@@ -204,6 +217,13 @@ The E2E must prove the kernel for these event families:
 - proof accepted records vaccination history
 - proof rejected creates rework
 - completion schedules next dose/booster where configured
+
+V1 honesty boundary: `goat.created`, `goat.stage_changed`,
+`goat.location.changed`, and `goat.health.changed` re-run the per-goat
+vaccination check. Pregnant/lactating exclusions are enforced from current goat
+facts during preview, generation, and explicit backfill, but a standalone
+`goat.reproductive_status.changed` producer/consumer path is not proven in V1.
+If that event is added, this checklist must gain its own defer/reopen proof.
 
 Scale rule:
 
@@ -328,7 +348,7 @@ Expected:
 Observed:
 
 - Dry-run and Publish can appear disabled without a clear reason.
-- It is not clear whether the blocker is missing source, missing required
+- It is not clear whether the blocker is missing version/audit readiness, missing required
   fields, missing options, missing proof policy, or backend failure.
 - A fully filled-looking form can still leave Publish disabled with no visible
   error location.
@@ -337,7 +357,7 @@ Expected:
 
 - Disabled buttons must show exact missing requirements.
 - Dry-run should validate the draft and show what would be created.
-- Publish should require a valid draft, source/review requirements, and any
+- Publish should require a valid draft, CEO/COO authority, version/audit readiness, and any
   mandatory proof policy.
 - Publish must never be disabled silently. The UI must point to the exact field,
   section, or backend validation error blocking publish.
@@ -373,7 +393,7 @@ Observed:
 
 Expected:
 
-- Vaccination config must show only published PHC / Vaccination SOP versions.
+- Vaccination config must show only published Preventive Care (PC) / Vaccination SOP versions.
 - Non-vaccination SOPs must be hidden.
 - Labels must be human-readable, for example
   `Vaccination Session - v1 - Published`.
@@ -393,7 +413,7 @@ Observed:
 Expected:
 
 - The UI should support a matrix/grid entry mode for vaccination rows.
-- Shared header fields such as scope, source, approval, and SOP can be entered
+- Shared header fields such as scope, effective date, version/audit, and SOP can be entered
   once.
 - Repeated matrix rows should be editable in a table: vaccine, stage, sex,
   breed, reproductive rule, defer rule, dose sequence, trigger, offset, window,
@@ -402,34 +422,34 @@ Expected:
   admin UX should not force repeated full-form entry for every simple
   vaccine/stage combination.
 
-### 8a. Matrix source schedule editability and Add-row defaulting bugs
+### 8a. Matrix schedule editability and Add-row defaulting bugs
 
-Observed on 2026-07-01 after the source-matrix preset work:
+Observed on 2026-07-01 after the matrix preset work:
 
-- The `Source schedule` column is visible after **Load Source Vaccine Matrix**,
-  but it is not directly editable in the grid and the modal does not clearly
-  explain whether it is a locked source label or derived from the dose rows
+- The schedule summary column is visible after loading the matrix preset,
+  but it is not directly editable in the grid and the authoring page does not
+  clearly explain whether it is a locked source label or derived from the dose rows
   below.
-- After loading the source matrix, **Add matrix row** creates a new row with
-  source/preset-like schedule data already present instead of an obviously blank
+- After loading the matrix preset, **Add matrix row** creates a new row with
+  preset-like schedule data already present instead of an obviously blank
   row. That can make admins accidentally save a copied source row when they
   meant to create a fresh vaccine/stage/breed combo.
 
 Expected:
 
-- `Source schedule` must have one clear behavior:
+- The schedule summary must have one clear behavior:
   - either read-only, explicitly labeled as derived from the selected row's dose
-    rows/source preset; or
+    rows/preset; or
   - editable through a clear selected-row detail control that updates the row's
     schedule/dose rows and JSON preview.
 - The column must not look like a normal form field if it cannot be edited.
 - **Add matrix row** must either create a truly blank row, or expose an explicit
-  command such as `Copy selected row` / `Add from source preset`. It must not
-  silently inherit source schedule, dose, vial, revaccination, or source metadata
-  from the previously selected/source-loaded row.
+  command such as `Copy selected row` / `Add from preset`. It must not
+  silently inherit schedule, dose, vial, revaccination, or preset metadata
+  from the previously selected/loaded row.
 - E2E must cover:
-  - load source matrix;
-  - select each source row and confirm selected-row details/dose rows match that
+  - load matrix preset;
+  - select each row and confirm selected-row details/dose rows match that
     row;
   - edit the schedule through the intended control or verify the read-only label
     and disabled reason;
@@ -438,12 +458,24 @@ Expected:
   - save/publish rejects any incomplete newly added blank row with row-indexed
     errors.
 
+Fix status on 2026-07-01:
+
+- The matrix grid now renders schedule as a derived, read-only summary
+  and points admins to the selected-row schedule builder for edits.
+- **Add matrix row** creates an intentionally blank row with no copied source
+  schedule or dose rows.
+- **Copy selected row** is the explicit copy command when an admin wants to
+  duplicate the selected preset row.
+- `smoke-vaccination-authoring-live.mjs` now asserts the derived label, the
+  blank-row default, row-indexed blank-row validation, and explicit copy
+  behavior.
+
 ### 9. Escalation policy is free-text and over-claims behavior
 
 Observed:
 
 - Escalation policy is shown as free text like
-  `miss -> Asst -> Park Head -> PHC Director; overdue -> escalate`.
+  `miss -> Asst -> Park Head -> Preventive Care (PC) Director; overdue -> escalate`.
 - It is unclear whether this creates Action Center items, Control Tower gaps,
   notifications, or only stores text.
 - It is unclear what happens if users/operators/park heads are not seeded or
@@ -491,19 +523,20 @@ Observed:
 Expected:
 
 - Each checkbox must be tested as a real rule, not only as saved UI state.
-- Pregnant/lactating exclusions must affect Preview Impact and generated work.
+- Pregnant/lactating exclusions must affect Preview Impact and generated work
+  when generation/backfill reads current goat facts.
 - Sick/Treatment/ICU/Quarantine rules must mark affected obligations deferred,
   not hide or silently drop them.
 - Each dose/phase row must affect Preview Impact and generated obligations.
 - E2E must include one goat included by the matrix, one goat excluded by the
   matrix, and one goat deferred by the matrix.
 
-### 12. Every vaccination modal needs save/publish/click E2E
+### 12. Every vaccination authoring surface needs save/publish/click E2E
 
 Observed:
 
-- Bugs were found only after manually clicking modals, dropdowns, side drawers,
-  pagination, and row actions.
+- Bugs were found only after manually clicking modals, authoring pages,
+  dropdowns, side drawers, pagination, and row actions.
 - Current tests were not strong enough to catch broken clicks, silent disabled
   buttons, missing success states, raw IDs, text overlap, or wrong redirects.
 - Some controls looked like real actions but only opened explanatory drawers or
@@ -513,8 +546,9 @@ Observed:
 
 Expected:
 
-- Every modal in the vaccination slice must have the same save/draft/publish,
-  validation, success, failure, reopen, close, and screenshot checks.
+- Every modal or authoring page in the vaccination slice must have the same
+  save/draft/publish, validation, success, failure, reopen, close/back, and
+  screenshot checks.
 - Every row action and drawer action must either perform a real backed action or
   show a clear disabled/unavailable reason.
 - Every control must be tested both before and after refresh so the test proves
@@ -590,7 +624,7 @@ Observed:
   were not treated as first-class demo inputs.
 - It is unclear from UI alone whether a goat came from manual Herd Register,
   CSV/template import, or procurement accepted intake.
-- It is unclear which procurement states should create PHC vaccination work and
+- It is unclear which procurement states should create Preventive Care (PC) vaccination work and
   which should not.
 
 Expected:
@@ -601,9 +635,9 @@ Expected:
   generation for each accepted goat row.
 - E2E must prove procurement accepted intake triggers vaccination generation.
 - E2E must prove rejected/canceled/source-only/pre-intake procurement goats do
-  not create PHC vaccination obligations.
+  not create Preventive Care (PC) vaccination obligations.
 - E2E must prove trusted holding-farm vaccination evidence suppresses duplicate
-  PHC obligations where configured.
+  Preventive Care (PC) obligations where configured.
 - All procurement and Herd Register controls that affect vaccination must either
   work, or be hidden/disabled with a clear reason.
 
@@ -652,12 +686,12 @@ Expected:
 - The policy must support:
   - max age to start a dose/course
   - skip-if-past-age behavior
-  - PHC review-required behavior for unknown history
+  - Preventive Care (PC) review-required behavior for unknown history
   - first-catch-up-dose-only behavior
   - min gap between catch-up doses so multiple doses are not scheduled same day
   - trusted-history suppression when imported/procurement evidence is accepted
 - E2E must prove that older goats with missing history do not create multiple
-  same-day historical obligations unless the source-approved policy explicitly
+  same-day historical obligations unless the published policy explicitly
   allows it.
 
 Implementation status, 2026-07-01:
@@ -689,7 +723,7 @@ from a clean tenant/state, not isolated page checks.
 ### 1. Users and role setup
 
 - [ ] Seed or create admin/superadmin user.
-- [ ] Seed or create PHC director/author user.
+- [ ] Seed or create Preventive Care (PC) director/author user.
 - [ ] Seed or create vaccination operator user.
 - [ ] Seed or create park head/manager user.
 - [ ] Seed or create verifier user.
@@ -734,8 +768,8 @@ from a clean tenant/state, not isolated page checks.
 - [ ] Procurement accepted-intake goats result in due vaccination work when they
   match the published matrix.
 - [ ] Procurement rejected, canceled, source-only, and pre-intake goats do not
-  create PHC vaccination obligations.
-- [ ] Trusted holding-farm vaccination history suppresses duplicate PHC
+  create Preventive Care (PC) vaccination obligations.
+- [ ] Trusted holding-farm vaccination history suppresses duplicate Preventive Care (PC)
   obligations where configured.
 - [ ] The UI makes the source of each tested goat clear enough for demo:
   manual, template import, or procurement accepted intake.
@@ -747,12 +781,12 @@ from a clean tenant/state, not isolated page checks.
 - [ ] Cross-check vaccination matrix fields against the vaccination source notes
   and leadership note: vaccine, stage/age, sex, breed, lifecycle, reproductive
   state, health/defer state, dose timing, window, route, amount, proof, and
-  source approval.
+  medical/business evidence.
 - [ ] Cross-check purchased-goat intake assumptions against procurement/source
   material: holding farm, warmup, HF vaccination evidence, accepted intake,
   rejected/canceled loads, and mixed age/stage groups.
 - [ ] Cross-check SOP/operator/proof/escalation language against farm handbook
-  and PHC role material.
+  and Preventive Care (PC) role material.
 - [ ] Where docs do not answer a business rule, mark it as review-needed in the
   handover instead of pretending the algorithm knows it.
 
@@ -776,14 +810,16 @@ from a clean tenant/state, not isolated page checks.
 ### 5. Vaccination config/matrix setup
 
 - [ ] Open Config -> Vaccination.
-- [ ] Create matrix rows for the source-approved vaccine/stage combinations.
+- [ ] Create matrix rows for the evidence-derived vaccine/stage combinations.
 - [x] Use matrix/grid entry where possible so shared fields are not repeated.
 - [ ] Attach the published Vaccination Session SOP.
-- [ ] Fill source/review/approval fields.
+- [ ] Confirm version/audit fields and effective dates.
 - [ ] Fill schedule rows: dose, trigger, offset, window, amount, unit,
   route/site.
 - [ ] Toggle pregnant, lactating, Sick, Treatment, ICU, and Quarantine rules and
-  prove they change preview/generation behavior where expected.
+  prove they change preview/generation behavior where expected. For V1,
+  pregnant/lactating proof is current-fact preview/generation/backfill proof,
+  not a standalone reproductive-state-change event proof.
 - [ ] Preview impact and verify eligible goats, obligations, shed tasks, doses,
   and stock warnings.
 - [ ] Publish config only after every validation passes.
@@ -803,7 +839,7 @@ from a clean tenant/state, not isolated page checks.
 - [ ] CSV/template import is evaluated per accepted goat row but can be committed
   and tested as one bulk operation.
 - [ ] Procurement accepted intake is evaluated only after the goat becomes a
-  canonical GoatOS goat; procurement warmup/source-only rows do not enter PHC
+  canonical GoatOS goat; procurement warmup/source-only rows do not enter Preventive Care (PC)
   generation.
 - [ ] The generated obligation is per goat/per dose; the generated execution
   work is grouped by shed/protocol/due window.
@@ -827,7 +863,7 @@ from a clean tenant/state, not isolated page checks.
 - [ ] Counts -> Herd Register shows created/imported goats that will feed the
   vaccination matrix.
 - [ ] Procurement -> Source Entry shows only purchase/source/warmup/intake
-  state; it must not imply PHC vaccination work before accepted intake.
+  state; it must not imply Preventive Care (PC) vaccination work before accepted intake.
 - [ ] Action Center shows the correct actionable items.
 - [ ] Protocol Adherence shows expected vs actual without raw/internal gap keys.
 - [ ] Workflows show the chain with readable statuses.
@@ -917,7 +953,7 @@ Do not jump randomly between screens after config publish. Verify in this order:
 - [x] Provide the drive-batching algorithm in plain language and the exact UI
   changes needed to support it.
 
-Handover artifact: `docs/phc-vaccination/V1-DEMO-HANDOVER.md`.
+Handover artifact: `docs/preventive-care-vaccination/V1-DEMO-HANDOVER.md`.
 
 ## E2E Checklist After Fixes
 
@@ -977,7 +1013,7 @@ These checks are in addition to the clean-slate E2E path above.
 - [x] Open SOP Library.
 - [x] Click New SOP.
 - [x] Enter SOP name Vaccination session test.
-- [x] Confirm domain is PHC / Vaccination.
+- [x] Confirm domain is Preventive Care (PC) / Vaccination.
 - [x] Select trigger Form.
 - [x] Add all supported field types without UI overlap.
 - [x] Click Save draft.
@@ -1014,12 +1050,13 @@ These checks are in addition to the clean-slate E2E path above.
 - [x] Photo proof field can be saved, reopened, and binds to proof policy.
 - [x] Video proof field can be saved, reopened, and binds to proof policy.
 
-### Vaccination modal coverage
+### Vaccination authoring surface coverage
 
 - [x] SOP builder modal supports save draft, reopen, dry-run, publish, close,
   validation errors, success states, and failure states.
-- [x] Vaccination config modal supports save draft, reopen, preview impact,
-  publish, close, validation errors, success states, and failure states.
+- [x] Vaccination config authoring page supports save draft, reopen, preview
+  impact, publish, close/back, validation errors, success states, and failure
+  states.
 - [x] Vaccination row/detail drawer supports open, close, drilldown, disabled
   action explanation, and no fake working controls.
 - [x] Action Center drawer supports open, close, drilldown, disabled action
@@ -1032,8 +1069,8 @@ These checks are in addition to the clean-slate E2E path above.
   open the wrong row/drawer.
 - [ ] Search/filter controls on every vaccination slice list either work or show
   a clear unavailable reason.
-- [x] Every V1 demo modal/drawer is checked at desktop and narrow viewport with
-  screenshots.
+- [x] Every V1 demo modal/drawer/page authoring surface is checked at desktop
+  and narrow viewport with screenshots.
 
 ### Conditional rule validation
 
@@ -1060,12 +1097,12 @@ These checks are in addition to the clean-slate E2E path above.
 
 ### Visual and click QA
 
-- [x] No modal text overlaps at desktop viewport in the V1 demo smoke.
-- [x] No modal text overlaps at narrow viewport in the V1 demo smoke.
+- [x] No modal/authoring-page text overlaps at desktop viewport in the V1 demo smoke.
+- [x] No modal/authoring-page text overlaps at narrow viewport in the V1 demo smoke.
 - [x] Error text does not overlap controls in the V1 demo smoke.
 - [x] Success/error toasts do not cover sticky footer actions in the V1 demo smoke.
 - [x] Sticky footer does not cover fields in the V1 demo smoke.
-- [x] Dropdowns do not overflow outside the modal in the V1 demo smoke.
+- [x] Dropdowns do not overflow outside the authoring surface in the V1 demo smoke.
 - [x] Close/cancel behavior is consistent and does not lose saved drafts in the V1 demo smoke.
 - [x] Every visible V1 demo clickable control either works or shows a clear disabled
   reason.
@@ -1074,7 +1111,7 @@ These checks are in addition to the clean-slate E2E path above.
 
 - [x] Open Config -> Vaccination.
 - [x] Click New draft rule.
-- [ ] Capture screenshot of the empty New draft rule modal.
+- [x] Capture screenshot of the empty New draft rule page.
 - [ ] Capture screenshot after filling a valid vaccination matrix row.
 - [x] Every visible V1 demo field can be focused without layout shift or overlap.
 - [ ] Protocol code validates required/format/duplicate cases.
@@ -1123,9 +1160,7 @@ These checks are in addition to the clean-slate E2E path above.
 - [ ] Booster/catch-up/missed-dose policy saves and reloads.
 - [ ] Stock/lot requirement saves and reloads.
 - [ ] Escalation policy saves and reloads.
-- [ ] Source type validates publishability.
-- [ ] Source reference validates required when source-backed publish is needed.
-- [ ] Reviewed-by and approved-by validation is visible.
+- [ ] CEO/COO authority, SOP binding, JSON-schema validation, impact preview, and effective dates validate publishability.
 - [ ] Schedule builder can add a dose row.
 - [ ] Schedule builder can edit dose/sequence.
 - [ ] Schedule builder can edit trigger.
@@ -1180,12 +1215,12 @@ These checks are in addition to the clean-slate E2E path above.
   failures are returned by the batch save/publish action.
 - [x] Matrix/grid entry mode persists all rows as separate protocol versions and
   reloads them in the Config list/drawer.
-- [x] Matrix/grid entry mode shows row-level controls/errors in the modal without
-  text overlap in the tested desktop viewport.
-- [ ] BUG: `Source schedule` is visible but not directly editable and does not
+- [x] Matrix/grid entry mode shows row-level controls/errors in the authoring
+  page without text overlap in the tested desktop viewport.
+- [x] BUG: schedule summary is visible but not directly editable and does not
   clearly say whether it is derived/read-only or where the admin edits it.
-- [ ] BUG: After **Load Source Vaccine Matrix**, **Add matrix row** must not
-  silently prefill the new row with source/preset schedule data; blank-vs-copy
+- [x] BUG: After loading the vaccine matrix preset, **Add matrix row** must not
+  silently prefill the new row with preset schedule data; blank-vs-copy
   behavior needs explicit UX and E2E proof.
 - [ ] Escalation policy is configured with structured role/action fields, not
   free text.
@@ -1205,14 +1240,14 @@ You can demo the V1 vaccination SOP builder and Config authoring flow covered by
 
 Do not demo or claim route/resource optimization, business-facing user/shed
 admin setup UI, full browser-negative coverage, or million-goat permutation
-proof. Do demo the V1 source-backed rule matrix, including compatibility
+proof. Do demo the V1 Nuance Rules matrix, including compatibility
 spacing, only when the Nuance smoke evidence below is fresh.
 
 ## Handover: V1 Batching Boundary And Later Planner
 
 The handover must clearly separate V1 due generation plus basic shed-drive
 batching from the later route/resource optimizer. Basic Calendar de-duplication
-and source compatibility spacing are V1.
+and compatibility spacing are V1.
 
 ### V1 due generation + basic shed-drive batching
 
@@ -1249,6 +1284,13 @@ and source compatibility spacing are V1.
 - Add batching thresholds:
   minimum goats per shed drive, max safe wait days, force micro-drive rule, and
   small-shed fairness rule.
+- Add an explicit medical-window vs batching-window proof case:
+  if one shed has a small due count now and a compatible same-park shed/tag
+  cohort becomes due within the allowed batching hold, combine them only when
+  every goat remains inside its medical safe window. Example: 5 eligible K1
+  goats in one shed plus 15 compatible K1 goats in another shed may become one
+  20-goat drive with a +1 week operations hold only when the medical clock is
+  still safe; otherwise the smaller shed becomes a micro-drive now.
 - Add route/resource controls:
   operator capacity, cold-chain duration, stock lot/expiry, and verifier
   availability.

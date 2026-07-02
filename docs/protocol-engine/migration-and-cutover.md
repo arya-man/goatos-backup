@@ -1,8 +1,8 @@
-# Goat OS — Legacy → Canonical Migration & PHC Cutover
+# Goat OS — Legacy → Canonical Migration & Preventive Care (PC) Cutover
 
 **Status:** Draft v1 · **Date:** 2026-06-23
-**Companion:** [obligation-engine.md](./obligation-engine.md) · [state-machines.md](./state-machines.md) · [PHC TRD](../phc-vaccination/TRD.md)
-**Context:** legacy BQ/Sheets data was already ported into `goatos-dev` (snapshot-based). This doc says how to turn that into clean canonical state that PHC/Feed run on — **without** the new system depending on legacy forever, and **without** flooding Control Tower with fake historical breaches.
+**Companion:** [obligation-engine.md](./obligation-engine.md) · [state-machines.md](./state-machines.md) · [Preventive Care (PC) TRD](../preventive-care-vaccination/TRD.md)
+**Context:** legacy BQ/Sheets data was already ported into `goatos-dev` (snapshot-based). This doc says how to turn that into clean canonical state that Preventive Care (PC) / Feed run on — **without** the new system depending on legacy forever, and **without** flooding Control Tower with fake historical breaches.
 
 > **Prime rule:** Legacy data **seeds** canonical state; it does **not** drive the runtime. Once canonical goats are clean enough, vaccination/feed rules run from Goat OS Postgres only.
 
@@ -15,7 +15,7 @@ Keep the raw imported data, but quarantine it from the running system:
 - **Runtime (api/consumer/sweeper/Control Tower) must not read legacy/BQ/Sheets or the import ledger.** Enforced by the engine's read rules + `feature_coverage_registry`.
 - BigQuery/Sheets parity thinking, dashboard-specific derived tables, and the old import-review UI are **scrapped from runtime** (kept only for audit during cutover, then frozen).
 
-## 2. Build canonical Goat OS tables fresh (only what PHC/Feed need for v1)
+## 2. Build canonical Goat OS tables fresh (only what Preventive Care (PC) / Feed need for v1)
 
 From the frozen source, materialize clean canonical rows in the **committed** tables:
 - `goats` (+ the `000070` provenance/lifecycle columns): `sex`, `approx_dob` (+`dob_estimated`), `origin_type`, `entry_date`, `lifecycle_status` (active/dead/sold/missing), `park_id`/`shed_id`/`cohort_id`.
@@ -24,24 +24,24 @@ From the frozen source, materialize clean canonical rows in the **committed** ta
 - inventory **opening balances** as `inventory_stock` lots + an initial `inventory_stock_movements` `adjust` row, **if trustworthy**.
 - operator/user mapping into `workforce_*` / `user_scope_grants` **if needed**.
 
-Anything not needed for PHC/Feed v1 (genetics depth, commerce, etc.) is **ignored for v1** — not migrated yet.
+Anything not needed for Preventive Care (PC) / Feed v1 (genetics depth, commerce, etc.) is **ignored for v1** — not migrated yet.
 
 ## 3. Migration quality gate (CLI/report/admin — NOT product UI)
 
-No Import-Review product screen, **no review workflow, no review queue.** This is a one-time **migration audit report only** — a CLI/admin artifact (counts + a downloadable row list), not a product surface and not an interactive triage queue. The migration **must classify** every legacy row so PHC knows what it can act on:
+No Import-Review product screen, **no review workflow, no review queue.** This is a one-time **migration audit report only** — a CLI/admin artifact (counts + a downloadable row list), not a product surface and not an interactive triage queue. The migration **must classify** every legacy row so Preventive Care (PC) knows what it can act on:
 
-| Class | Meaning | PHC effect |
+| Class | Meaning | Preventive Care (PC) effect |
 |---|---|---|
 | `accepted` | enough data to create a canonical goat | full obligation generation |
 | `accepted_with_estimate` | usable, but DOB/stage/etc. estimated (`dob_estimated=true`) | generate with estimated anchors; flag |
 | `blocked_for_phc` | goat exists but a key field (sex/stage/shed/DOB) is missing → vaccination can't trigger | no obligations until resolved; listed in report |
 | `discarded_legacy_noise` | BQ/dashboard-only junk, not a real animal | dropped (archived, not canonical) |
 
-The report is the cutover artifact PHC reviews — counts per class, blocked-field breakdown, per-park.
+The report is the cutover artifact Preventive Care (PC) reviews — counts per class, blocked-field breakdown, per-park.
 
 ## 4. Vaccination triggers from canonical state — NOT legacy import events
 
-Do **not** replay old rows as `goat.created`. Run a **one-time PHC backfill generator** (a bounded, resumable Cloud Run Job, chunked by park/date — same scale rules as the sweeper):
+Do **not** replay old rows as `goat.created`. Run a **one-time Preventive Care (PC) backfill generator** (a bounded, resumable Cloud Run Job, chunked by park/date — same scale rules as the sweeper):
 
 ```
 for each canonical ACTIVE goat (paged, chunked by park):
@@ -63,7 +63,7 @@ Idempotent: re-running the backfill creates zero duplicates (same `idempotency_k
 
 **If history is missing or untrusted:**
 - **do NOT invent completions.**
-- after PHC approval, create **baseline / catch-up drives** by shed/cohort (a deliberate "establish current coverage" pass), not fabricated history.
+- after Preventive Care (PC) approval, create **baseline / catch-up drives** by shed/cohort (a deliberate "establish current coverage" pass), not fabricated history.
 
 ## 6. Cutover policy — no years of overdue noise
 
@@ -78,7 +78,7 @@ for a goat's computed past-due dose:
 NEVER: emit one historical 'overdue' obligation per missed past dose per goat
 ```
 
-Otherwise Control Tower explodes with fake historical overdue — the single worst cutover failure mode. `CUTOVER_DATE` is a config knob PHC sets.
+Otherwise Control Tower explodes with fake historical overdue — the single worst cutover failure mode. `CUTOVER_DATE` is a config knob Preventive Care (PC) sets.
 
 ## 7. Keep / scrap
 
@@ -93,7 +93,7 @@ legacy BQ/Sheets
   → frozen source archive (legacy_import_*, checksummed)
   → canonical Goat OS goats/locations/operators (committed tables + 000070 cols)
   → migration quality report (accepted / accepted_with_estimate / blocked_for_phc / discarded_noise)
-  → one-time PHC backfill generator (canonical → missing obligations → shed drives)
+  → one-time Preventive Care (PC) backfill generator (canonical → missing obligations → shed drives)
   → cutover policy (catch-up/baseline, NOT historical overdue)
   → current/future vaccination + feed obligations run from Goat OS only
 ```

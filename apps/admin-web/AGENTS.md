@@ -65,15 +65,15 @@ every route returns its expected status before reporting done.
 
 These words have fixed meanings in Goat OS:
 
-- **Vertical** = business operating domain/department. Examples: PHC, Parks,
+- **Vertical** = business operating domain/department. Examples: Preventive Care (PC), Parks,
   Procurement, Admin/Data Ops, Counts, Breeding, Inventory, HR/People, Farmer
   Network.
 - **Module** = a concrete workflow/product inside a vertical. Examples:
-  PHC -> Vaccination, PHC -> future Treatment/Deworming, Procurement -> Source
+  Preventive Care (PC) -> Vaccination, Preventive Care (PC) -> future Treatment/Deworming, Procurement -> Source
   Entry, or future Parks-owned modules. Parks is a scope/context dimension for
   vaccination execution, not the owner of a vaccination module.
 - **Operational module screen** = the page where that module's work happens.
-  Examples: `/vaccination` for PHC -> Vaccination, including operations, status
+  Examples: `/vaccination` for Preventive Care (PC) -> Vaccination, including operations, status
   matrix, cohort detail, and park/shed execution context, and
   `/procurement/source-entry` for Procurement -> Source Entry. Parks is NOT a
   vaccination product route, module, sidebar entry, or nested command screen:
@@ -85,23 +85,23 @@ These words have fixed meanings in Goat OS:
 - **Authority screen** = top-level Admin/Data Ops authoring surface. Config
   (`/config`) and SOP Library (`/sops`) are authority screens.
 
-Do not say "module/vertical" as if they are interchangeable. PHC is the
-vertical. Vaccination is the module under PHC. Procurement is the vertical.
+Do not say "module/vertical" as if they are interchangeable. Preventive Care (PC) is the
+vertical. Vaccination is the module under Preventive Care (PC). Procurement is the vertical.
 Source Entry is the module under Procurement.
 
 ## Platform Model (READ FIRST — this is NOT a vaccination app)
 
 Goat OS is a **generic, multi-vertical OS**. Generic engine (protocol rules,
 obligations, SOP tasks, proof/media, verification, process-integrity) →
-**verticals** (e.g. PHC) → **modules** (Vaccination today; Feed Direction,
+**verticals** (e.g. Preventive Care (PC)) → **modules** (Vaccination today; Feed Direction,
 deworming, and others next, on the **same generic engine**).
 
-**Vaccination is one module under PHC — the current visible build slice, not the
+**Vaccination is one module under Preventive Care (PC) — the current visible build slice, not the
 app's identity.** "Vaccination-only" always means the current visible *content
 slice*, never that the app/engine/shell/Config/SOP layer is vaccination-specific.
 Keep those layers generic and category/schema-driven. Never treat vaccination as a
 global/app-wide scope (no app-wide "Vaccination" badge/label); the active module is
-shown by the sidebar nav + page crumb (`PHC › Vaccination`). Do not bake vaccination
+shown by the sidebar nav + page crumb (`Preventive Care (PC) › Vaccination`). Do not bake vaccination
 into generic layers; do not show unbuilt modules as live.
 
 ## Non-Negotiable IA Rule
@@ -112,13 +112,13 @@ Control Tower, Action Center, Calendar, Protocol Adherence, and Workflows are
 **top-level command-room screens** (`/`, `/action-center`, `/calendar`,
 `/protocol-adherence`, `/workflows`), exactly as the mock places them. Config
 and SOP Library are also top-level Admin / Data Ops authority screens
-(`/config`, `/sops`). They are NOT tabs or redirects nested inside PHC /
-Vaccination, Procurement/source-entry, Parks, or any future vertical. The
+(`/config`, `/sops`). They are NOT tabs or redirects nested inside the
+Preventive Care (PC) Vaccination module, Procurement/source-entry, Parks, or any future vertical. The
 selected module/domain filters their *content*; it does not move them under a
 vertical. Do not reintroduce an Action Center / Calendar / Adherence /
 Verification tab strip inside `/vaccination`.
 
-This is a global IA rule, not just a PHC rule. Any module under PHC, Parks,
+This is a global IA rule, not just a Preventive Care (PC) rule. Any module under Preventive Care (PC), Parks,
 Procurement, or a future vertical may feed these top-level command/authority
 screens through a selected domain/filter/lens, but must not duplicate them as
 nested routes, redirects, tabs, or nav items. Do not create
@@ -140,7 +140,7 @@ Admin-web is built around the vaccination process-integrity slice:
   vaccination data. Calendar is implemented as the top-level vaccination
   due-work slice with its page, primary nav, mock-fidelity scan coverage, and
   live-smoke script coverage path wired.
-- **PHC / Vaccination**: the module surface at `/vaccination` only. It must be
+- **Preventive Care (PC) / Vaccination**: the module surface at `/vaccination` only. It must be
   mock-faithful: SOP / Import sheet / New drive actions, Target -> Group -> Route
   -> Execute chain, vaccination status matrix, per-cohort detail, drive/shed-event
   execution, proof/verification/rework states, and honest empty states when data
@@ -149,7 +149,7 @@ Admin-web is built around the vaccination process-integrity slice:
   business Audit Log at `/operations/audit`, and the reopened vaccination-only
   SOP Library / form-builder at `/sops`.
 - **Vaccination execution context**: park/shed/stage/defer/blocker/owner context
-  renders INSIDE PHC / Vaccination at `/vaccination`, scoped by
+  renders INSIDE Preventive Care (PC) / Vaccination at `/vaccination`, scoped by
   the top-bar park dropdown. It is powered by the execution read-model endpoints
   (`/vaccination/execution`, `/vaccination/execution/sheds/{shed_id}`), not by Parks
   routes. Parks is NOT a separate visible vaccination module, sidebar entry, or
@@ -340,7 +340,7 @@ PROCEDURE steps. The mock's drawer checklist is the SOP's operator steps (e.g.
 "Consume posted", "Coverage + booster") — what the operator does, with per-step
 proof gates — NOT the system lifecycle. The lifecycle chain belongs to the
 Workflow record (`/workflows/{row_id}`), not the drawer. Drawer SOP steps come
-from `features/phc-vaccination/vaccination-sop-steps.ts` (shared with the PHC
+from `features/phc-vaccination/vaccination-sop-steps.ts` (shared with the Preventive Care (PC)
 SOP quick-view) rendered by `features/process-integrity/sop-checklist.tsx` with
 done/current derived read-only from the computed obligation states. Matching the
 component shell + class is not enough — the checklist must show the SOP's steps,
@@ -450,7 +450,7 @@ Page bodies may show only page-specific controls:
 - Protocol Adherence: KPI cards, severity filters, and the expected/actual/gap
   table.
 - Workflows: workflow search, filters, catalog, and chain map.
-- PHC / Vaccination park/shed execution section (`#execution`): execution
+- Preventive Care (PC) / Vaccination park/shed execution section (`#execution`): execution
   filters, the per-park execution table, and the shed drilldown. It carries no
   separate park scope chip — the top bar owns park scope.
 
@@ -468,7 +468,7 @@ Only these routes are current implemented product routes:
 /protocol-adherence        Protocol Adherence (top-level command)
 /workflows                 Workflows          (top-level command)
 /workflows/{row_id}        Workflow drilldown
-/vaccination               PHC Vaccination module surface (NOT Action Center);
+/vaccination               Preventive Care (PC) Vaccination module surface (NOT Action Center);
                            includes status matrix, cohort detail, and execution
 /vaccination/execution/sheds/[shedId]
 /procurement/source-entry    Source Entry Board for supplier warmup / accepted intake
@@ -486,7 +486,7 @@ Implemented top-level command route:
 /calendar                  Calendar           (top-level command, vaccination due-work slice only)
 ```
 
-Keep `/calendar` tied to the PHC Vaccination due-work slice: route, primary nav,
+Keep `/calendar` tied to the Preventive Care (PC) Vaccination due-work slice: route, primary nav,
 mock-fidelity scan coverage, and `smoke:visual:live` coverage must move
 together if the Calendar surface changes.
 
@@ -501,12 +501,12 @@ allowed product route or redirect.
 - Control Tower / Action Center / Protocol Adherence / Workflows are top-level
   command screens. Config and SOP Library are top-level Admin / Data Ops
   authority screens. Never nest them as tabs or compatibility redirects under
-  PHC / Vaccination, Procurement/source-entry, Parks, or any future vertical.
-  `/vaccination` is the PHC operations surface and links out to them.
+  Preventive Care (PC) / Vaccination, Procurement/source-entry, Parks, or any future vertical.
+  `/vaccination` is the Preventive Care (PC) operations surface and links out to them.
 - Never duplicate top-level command screens under procurement/source-entry or any
   other vertical. Use `?domain=procurement` or equivalent top-level filters
   instead of nested command-room routes.
-- PHC is a vertical and must not use the syringe/injection icon.
+- Preventive Care (PC) is a vertical and must not use the syringe/injection icon.
 - Vaccination may use the syringe/injection icon.
 - Parks is a vertical, but it does NOT own the Vaccination product route/module.
   Vaccination execution context

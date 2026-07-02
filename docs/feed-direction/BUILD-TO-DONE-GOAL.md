@@ -4,7 +4,7 @@
 session
 **Date:** 2026-06-30
 **G1 status update:** Reopened for Feed Direction build as of 2026-06-30. The
-older pause tied to PHC/Vaccination UI and foundation review is satisfied by
+older pause tied to Preventive Care (PC) / Vaccination UI and foundation review is satisfied by
 the local Goal 1 vaccination/kernel closure documented in
 `context/execution/operational-kernel-stability-closure-handoff.md`. Google dev
 rollout, clean-slate seeding, and Google E2E remain a separate Goal 2 gate; they
@@ -336,7 +336,7 @@ Diff.
 ## 5. Frontend And UI/UX Gates
 
 Any frontend work that unblocks or exposes Feed Direction must follow the same
-admin-web UI law as the current PHC/Vaccination work:
+admin-web UI law as the current Preventive Care (PC) / Vaccination work:
 
 - `mock/goatos-dashboard-mock.html` is the only admin-web UI/UX source of truth.
 - If the current mock does not contain enough Feed Direction detail, update the

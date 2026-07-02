@@ -62,7 +62,7 @@ CREATE TABLE calendar_event_projections (
     'vaccine_cold_chain_check',
     'vaccine_reorder_expiry_grn',
     'phc_stock_anti_misuse',
-    'vaccination_config_source_approval'
+    'vaccination_config_activation_review'
   )),
   CONSTRAINT calendar_event_owner_check CHECK (owner_key IN ('phc', 'inventory', 'admin_data_ops')),
   CONSTRAINT calendar_event_status_check CHECK (status IN (

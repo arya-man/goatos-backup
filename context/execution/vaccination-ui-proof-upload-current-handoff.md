@@ -41,9 +41,9 @@ Read first:
 - `context/execution/vaccination-pre-e2e-readiness-audit.md`
 - `context/frontend/vaccination-process-integrity-frontend-handoff.md`
 - `context/execution/sop-vaccination-backend-handoff.md`
-- `docs/phc-vaccination/PRD.md`
-- `docs/phc-vaccination/TRD.md`
-- `docs/phc-vaccination/V1-FOUNDATION-SPEC.md`
+- `docs/preventive-care-vaccination/PRD.md`
+- `docs/preventive-care-vaccination/TRD.md`
+- `docs/preventive-care-vaccination/V1-FOUNDATION-SPEC.md`
 - `contracts/openapi/app-api.yaml`
 - `mock/goatos-dashboard-mock.html`
 
@@ -58,17 +58,17 @@ changes and generated/local artifacts.
 
 Use these as the product/business boundary for the next session:
 
-- Mesha wiki/source graph confirms PHC vaccination requires cold-chain integrity
+- Mesha wiki/source graph confirms Preventive Care (PC) vaccination requires cold-chain integrity
   through vaccine storage/transport (`Handbooks/PHC_Director.pdf`, p2). It also
   contains a diagnosis video-upload UI pattern, but that is not itself a
   vaccination admin-web camera requirement.
-- `docs/phc-vaccination/PRD.md` says field workers execute vaccination SOPs by
+- `docs/preventive-care-vaccination/PRD.md` says field workers execute vaccination SOPs by
   scan -> administer -> record dose -> upload shed + vial video -> verify
   quantity, and verifier reviews proof submissions.
-- `docs/phc-vaccination/TRD.md` makes the shed drive an `obligation_batches`
+- `docs/preventive-care-vaccination/TRD.md` makes the shed drive an `obligation_batches`
   work unit, links it to one `sop_task`, and defines `vaccination_completions`
   with lot, dose, route/site, cold-chain, adverse reaction, and idempotency.
-- `docs/phc-vaccination/V1-FOUNDATION-SPEC.md` maps SOP proof to shed video,
+- `docs/preventive-care-vaccination/V1-FOUNDATION-SPEC.md` maps SOP proof to shed video,
   vial video, dose/qty/lot; no fake vaccine values or fake schedules should be
   invented to make the UI look dense.
 - `contracts/openapi/app-api.yaml` already exposes proof upload
@@ -133,7 +133,7 @@ Still pending after the P0 render bug is fixed:
    - Do not confuse sample-data density with UI closure. Missing PPR/FMD/
      Enterotox/Deworm/CCPP columns, rich sample cohorts, and historical dose
      dates are roster/source-data gaps unless backed by the source-derived
-     baseline or later PHC/vet source config. Toolbar/filter/pager/density/action-label gaps are UI work and must
+     baseline or later Preventive Care (PC) / vet source config. Toolbar/filter/pager/density/action-label gaps are UI work and must
      be fixed.
 
 3. Action labels and drawer context
@@ -207,7 +207,7 @@ Still pending after the P0 render bug is fixed:
 - Do not build browser camera capture for admin-web.
 - Do not introduce nested command routes like `/vaccination/action-center`,
   `/vaccination/protocol-adherence`, or `/vaccination/config`.
-- Do not mutate Cloud SQL, Google/prod resources, or source-backed PHC/vet
+- Do not mutate Cloud SQL, Google/prod resources, or source-backed Preventive Care (PC) / vet
   vaccine schedules in this UI session.
 - Do not call browser/Playwright E2E closed from screenshots or mock-fidelity
   checks; E2E remains a later gate.

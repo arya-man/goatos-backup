@@ -25,7 +25,7 @@
 #     linked published SOP b0..0002, FEFO vaccine lot b002.
 #
 # This uses the source-derived local/dev baseline in
-# context/source-findings/phc-vaccination-roster-stage-proposal.md. Production can replace it
+# context/source-findings/preventive-care-vaccination-roster-stage-proposal.md. Production can replace it
 # with a later source-backed version if PHC/vet data changes.
 set -euo pipefail
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"

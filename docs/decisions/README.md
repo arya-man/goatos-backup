@@ -13,7 +13,7 @@ Active ADRs:
 - `docs/decisions/calendar-ownership.md` - Calendar owner taxonomy and event
   admission rules: only dated human actions become Calendar events; stable
   owner keys, including the `all` filter and reserved `sales_commerce` key;
-  vaccination Calendar scope for the current PHC slice; system crons excluded
+  vaccination Calendar scope for the current Preventive Care (PC) slice; system crons excluded
   unless they raise human work.
 - `docs/decisions/observability.md` - Observability and logging: single
   `platform/observability` logger seam, env-selected sink

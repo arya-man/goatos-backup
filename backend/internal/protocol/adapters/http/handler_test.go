@@ -153,8 +153,8 @@ func TestCreateVersionSurfacesInvalidRuleDSL(t *testing.T) {
 	}
 }
 
-func TestPublishSurfacesSourceGate(t *testing.T) {
-	// Not source-backed → 422 not_publishable.
+func TestPublishSurfacesExecutableContractGate(t *testing.T) {
+	// Not executable → 422 not_publishable.
 	rec := serve(NewHandler(&fakeConfig{publishErr: app.ErrNotPublishable}), http.MethodPost, "/protocols/versions/v1/publish", "")
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("publish gate: want 422, got %d", rec.Code)
@@ -164,7 +164,7 @@ func TestPublishSurfacesSourceGate(t *testing.T) {
 		t.Fatalf("publish gate envelope: %+v err=%v", env, err)
 	}
 
-	// Source-backed → 204.
+	// Executable version → 204.
 	rec = serve(NewHandler(&fakeConfig{}), http.MethodPost, "/protocols/versions/v1/publish", "")
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("publish ok: want 204, got %d", rec.Code)
@@ -261,8 +261,7 @@ func TestGetVersionNotFound(t *testing.T) {
 func TestListConfigsReturnsItemsAndDefaultsCategory(t *testing.T) {
 	fake := &fakeConfig{listItems: []domain.ConfigListItem{
 		{ProtocolID: "p1", Code: "vaccination.enterotox", Name: "Enterotoxaemia", Category: "vaccination",
-			ProtocolVersionID: "v1", Version: 1, Status: "draft", SourceSystem: "manual_admin",
-			ReviewStatus: "draft", ApprovedAt: "2026-06-26T00:00:00Z", RuleCount: 2},
+			ProtocolVersionID: "v1", Version: 1, Status: "draft", RuleCount: 2},
 	}}
 	// No category param → defaults to vaccination.
 	rec := serve(NewHandler(fake), http.MethodGet, "/protocols", "")
@@ -279,11 +278,8 @@ func TestListConfigsReturnsItemsAndDefaultsCategory(t *testing.T) {
 	if len(resp.Items) != 1 || resp.Items[0].ProtocolVersionID != "v1" || resp.Items[0].RuleCount != 2 {
 		t.Fatalf("unexpected items: %+v", resp.Items)
 	}
-	if resp.Items[0].Status != "draft" || resp.Items[0].SourceSystem != "manual_admin" {
-		t.Fatalf("source-review state not surfaced: %+v", resp.Items[0])
-	}
-	if resp.Items[0].ApprovedAt != "2026-06-26T00:00:00Z" {
-		t.Fatalf("approved_at not surfaced: %+v", resp.Items[0])
+	if resp.Items[0].Status != "draft" {
+		t.Fatalf("status not surfaced: %+v", resp.Items[0])
 	}
 
 	// Explicit category param is passed through.

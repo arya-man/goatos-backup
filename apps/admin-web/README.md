@@ -29,7 +29,7 @@ Build and verify these implemented surfaces only:
 The working product model is:
 
 - **Admin / Data Ops** owns generic protocol config and SOP policy.
-- **PHC / Vaccination** owns vaccination operations, proof, and verification.
+- **Preventive Care (PC) / Vaccination** owns vaccination operations, proof, and verification.
   Vaccination execution context (park, shed, stage, defer/blocker, owner, SOP/proof
   status) renders INSIDE /vaccination#execution, not as a separate Parks route.
 - **Command lenses** are top-level screens over the same backend truth: Control

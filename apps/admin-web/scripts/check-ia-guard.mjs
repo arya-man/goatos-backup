@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Static IA guard: command-room/authority screens are top-level lenses, not vertical pages.
-// This is intentionally generic. It blocks the same drift for Procurement, PHC,
+// This is intentionally generic. It blocks the same drift for Procurement, Preventive Care (PC),
 // Parks, Feed Direction, or any future vertical/module.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
@@ -248,40 +248,40 @@ for (const file of sourceFiles) {
     }
   }
 
-  // The PHC / Vaccination surface must not render command-lens shortcut chrome (.lensbar / .lenslink bands
+  // The Preventive Care (PC) / Vaccination surface must not render command-lens shortcut chrome (.lensbar / .lenslink bands
   // for Control Tower / Action Center / Calendar / Protocol Adherence / Workflows). /vaccination LINKS OUT to those
   // top-level lenses; it is not a shortcut hub. Applies to the whole features/phc-vaccination feature.
   if (rel.startsWith("features/phc-vaccination/") && /\blensbar\b|\blenslink\b/.test(text)) {
     findings.push(
-      `${file} renders command-lens shortcut chrome inside the PHC / Vaccination module. ` +
+      `${file} renders command-lens shortcut chrome inside the Preventive Care (PC) / Vaccination module. ` +
         "/vaccination is an operational module surface; Action Center, Protocol Adherence, and Workflows stay top-level.",
     );
   }
 
   // Command-lens ownership: nothing may import the retired "@/features/vaccination" barrel. Command lenses are
-  // owned by features/process-integrity; the PHC module is features/phc-vaccination.
+  // owned by features/process-integrity; the Preventive Care (PC) module is features/phc-vaccination.
   if (/from\s+["'`]@\/features\/vaccination(["'`]|\/)/.test(text)) {
     findings.push(
       `${file} imports from @/features/vaccination (retired). ` +
-        "Import command lenses from @/features/process-integrity and the PHC module from @/features/phc-vaccination.",
+        "Import command lenses from @/features/process-integrity and the Preventive Care (PC) module from @/features/phc-vaccination.",
     );
   }
 }
 
 // ---- features/vaccination must not return as a command-lens home ----
 // Command lenses (Action Center / Calendar / Protocol Adherence / Workflows / their shared model) live in
-// features/process-integrity; the PHC operations surface is features/phc-vaccination. A reappearing
+// features/process-integrity; the Preventive Care (PC) operations surface is features/phc-vaccination. A reappearing
 // features/vaccination directory is the exact ownership drift this guard exists to block.
 if (existsSync("features/vaccination")) {
   findings.push(
-    "features/vaccination/ exists again. Command lenses live in features/process-integrity and the PHC " +
+    "features/vaccination/ exists again. Command lenses live in features/process-integrity and the Preventive Care (PC) " +
       "operations surface is features/phc-vaccination. Do not recreate a features/vaccination home for " +
       "command-lens code.",
   );
 }
 
 // ---- Parks owns NO vaccination route/folder/API path/literal (anywhere) ----
-// PHC / Vaccination owns vaccination operations AND execution context. Park/shed is only a top-bar scope,
+// Preventive Care (PC) / Vaccination owns vaccination operations AND execution context. Park/shed is only a top-bar scope,
 // rendered INSIDE /vaccination (#execution); shed detail lives at /vaccination/execution/sheds/{id}.
 // There is NO /parks/vaccination frontend route, redirect, feature folder, lib helper, backend path, or
 // OpenAPI path — not even for backward compatibility. Command lenses are top-level for EVERY vertical, so

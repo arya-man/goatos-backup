@@ -99,8 +99,8 @@ type Rule struct {
 }
 
 // ConfigListItem is one row of the Config authority list (B3): a protocol version (any status)
-// joined to its definition, with the rule-row count, source-review state lifted out of rule_dsl,
-// linked SOP, effective window, and publisher/updated metadata. Read-only projection for /config.
+// joined to its definition, with the rule-row count, linked SOP, effective window, scope, and
+// publisher/updated metadata. Read-only projection for /config.
 type ConfigListItem struct {
 	ProtocolID        string
 	Code              string
@@ -119,7 +119,7 @@ type ConfigListItem struct {
 	PublishedBy       string
 	PublishedAt       *time.Time
 	UpdatedAt         *time.Time
-	SourceSystem      string // from rule_dsl.source — drives the publishable gate display
+	SourceSystem      string // legacy rule_dsl.source metadata; not a publish gate
 	SourceRef         string
 	ReviewStatus      string
 	ApprovedBy        string

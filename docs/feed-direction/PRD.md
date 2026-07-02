@@ -6,7 +6,7 @@
 dimension, not the owning vertical.
 
 **Scope gate:** `G1` is reopened for Feed Direction build as of 2026-06-30
-because local PHC/Vaccination UI and foundation closure is accepted for
+because local Preventive Care (PC) / Vaccination UI and foundation closure is accepted for
 sequencing. Google dev rollout remains a separate Goal 2 gate and must not be
 claimed as done, but it does not block Feed Direction. Active Feed UI, SOP
 cards, and Config categories still require the Feed-owned gates, backend

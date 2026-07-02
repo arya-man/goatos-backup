@@ -99,13 +99,13 @@ Current active path:
   docs/protocol-engine/IMPLEMENTATION-PLAN.md
   docs/protocol-engine/obligation-engine.md
   docs/protocol-engine/state-machines.md
-  docs/phc-vaccination/PRD.md
-  docs/phc-vaccination/TRD.md
-  docs/phc-vaccination/V1-FOUNDATION-SPEC.md
+  docs/preventive-care-vaccination/PRD.md
+  docs/preventive-care-vaccination/TRD.md
+  docs/preventive-care-vaccination/V1-FOUNDATION-SPEC.md
 
 Old Goat Passport and generic SOP task-engine phase folders were deleted
 because they described the old import-review, identity-review, generic SOP/admin,
 counts, mortality, and legacy-sync track. Use the active docs above plus
-`context/frontend/current-admin-web-scope.md` for the current Admin Config + PHC
+`context/frontend/current-admin-web-scope.md` for the current Admin Config + Preventive Care (PC)
 Vaccination + vaccination execution context slice.
 ```

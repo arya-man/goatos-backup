@@ -305,8 +305,8 @@ type ListProtocolConfigsForCategoryRow struct {
 }
 
 // Config authority list (B3): every version (draft/published/retired) of every protocol definition
-// in a category for a tenant, with the rule-row count, source-review state lifted out of rule_dsl,
-// linked SOP, effective window, and publisher/updated metadata. Scoped by tenant+category and
+// in a category for a tenant, with the rule-row count, linked SOP, effective window, scope, and
+// publisher/updated metadata. Scoped by tenant+category and
 // bounded by @row_limit; protocol versions per tenant/category are inherently small, so no cursor.
 func (q *Queries) ListProtocolConfigsForCategory(ctx context.Context, arg ListProtocolConfigsForCategoryParams) ([]ListProtocolConfigsForCategoryRow, error) {
 	rows, err := q.db.Query(ctx, listProtocolConfigsForCategory, arg.TenantID, arg.Category, arg.RowLimit)

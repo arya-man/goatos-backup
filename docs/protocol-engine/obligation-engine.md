@@ -6,7 +6,7 @@ through the current tail (`000117` at this correction). The first draft was
 written when the repo stopped near `000060`; current work must check the live
 migration tail before adding tables or treating protocol/obligation/inventory as
 absent.
-**Why this doc:** PHC (vaccination, deworming, biosecurity, feed/water testing, panel cleaning, sanitization, fire-safety, SOP-video, stock checks, director reporting) **and** Feed Direction all need the same thing: admin-set rules → due obligations → tasks → proof → completion → projections. Build it **once**. Module-specific tables (e.g. `vaccination_completions`) link into this engine; they do not re-implement it.
+**Why this doc:** Preventive Care (PC) (vaccination, deworming, biosecurity, feed/water testing, panel cleaning, sanitization, fire-safety, SOP-video, stock checks, director reporting) **and** Feed Direction all need the same thing: admin-set rules → due obligations → tasks → proof → completion → projections. Build it **once**. Module-specific tables (e.g. `vaccination_completions`) link into this engine; they do not re-implement it.
 
 ---
 
@@ -45,50 +45,92 @@ admin rule (protocol_version, published)  →  trigger fires (goat born / cron /
 
 ---
 
-## 2. Authority model (corrected)
+## 2. Authority model (CEO/COO-only Config in V1)
 
-PHC/Feed Director **drafts**; COO/CEO **publishes**. Authority is **capability-based**, not role-name-based, so "any admin/tech user" cannot publish rules.
+Protocol rules are business-critical operational policy. In V1, the raw Config
+screen is visible only to CEO/COO/superadmin users. Directors, park users,
+field workers, and verifiers see generated instructions, obligations, tasks,
+proof requirements, escalations, and dashboards; they do not see or edit raw
+rule JSON.
 
-**Category-specific capabilities (required — scope alone cannot separate verticals).** `workforce_member_capabilities` scopes only by tenant/park/shed/cohort — it has **no category dimension**. A generic `protocol.draft` would therefore let a Feed Director draft PHC rules and vice-versa. So the capability code itself carries the category:
-- `protocol.draft.vaccination`, `protocol.draft.feed_direction`, `protocol.draft.deworming`, … (and `protocol.publish.<category>`).
-- These fit the committed `capability_code` regex (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`). The PHC Director holds `protocol.draft.vaccination` (+ other PHC categories); the Feed Director holds `protocol.draft.feed_direction`.
-- The API resolves the target `protocol_definitions.category` and requires the matching `protocol.{draft|publish}.{category}` capability at the relevant tenant/park scope.
-- *(Acceptable fallback if you must keep generic codes: a generic `protocol.draft`/`protocol.publish` **plus** an explicit API authorization check that the actor's allowed categories include the target category. Per-category codes are preferred — the boundary is then enforceable from the capability model alone.)*
+**Category-specific capabilities (required — scope alone cannot separate verticals).** `workforce_member_capabilities` scopes only by tenant/park/shed/cohort — it has **no category dimension**. A generic protocol capability would therefore let one vertical's admin change another vertical's rules. So the capability code itself carries the category:
+- `protocol.publish.vaccination`, `protocol.publish.feed_direction`, `protocol.publish.deworming`, ...
+- Future proposer workflows can add explicit `protocol.propose.<category>` or
+  `protocol.draft.<category>` capabilities, but V1 vaccination does not expose
+  them in the UI.
+- These fit the committed `capability_code` regex (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`).
+- The API resolves the target `protocol_definitions.category` and requires the matching `protocol.publish.<category>` capability at the relevant tenant/park scope for V1 config changes.
+- Until an author/publish split is deliberately reopened, vaccination edit,
+  preview, publish, and retire all require the CEO/COO/superadmin publish
+  capability and top-level Config route access.
+- *(Acceptable fallback if you must keep generic codes: a generic `protocol.publish` **plus** an explicit API authorization check that the actor's allowed categories include the target category. Per-category codes are preferred — the boundary is then enforceable from the capability model alone.)*
 
 | Action | Required capability (category-specific, scoped tenant or park) | Effect |
 |---|---|---|
-| Draft / edit a `protocol_version` (status=`draft`) | `protocol.draft.<category>` (e.g. `…vaccination` for PHC Director) | mutable |
-| **Publish** (`draft→published`, set `effective_from`) | **`protocol.publish.<category>`** (COO/CEO) | immutable; new effective window opens |
+| Draft / edit a `protocol_version` (status=`draft`) | `protocol.publish.<category>` in V1 vaccination | mutable draft visible only inside Config |
+| **Publish** (`draft→published`, set `effective_from`) | **`protocol.publish.<category>`** (COO/CEO/superadmin) | immutable; new effective window opens |
 | Retire | `protocol.publish.<category>` | `effective_to` set (closes the window) |
 
 Capability is checked via `workforce_member_capabilities` (same mechanism as `vaccination.execute`); `user_scope_grants.role` still gates the surface. Every transition writes `audit_log`. A rule change = a **new version**, never an in-place edit of a published one.
 
-**Seeding rule (no wildcard):** there is no `protocol.publish.*` wildcard capability. The seed migration must grant COO/CEO an **explicit publish capability for every v1 category** — `protocol.publish.vaccination` AND `protocol.publish.feed_direction`. **Every new `protocol_definitions.category` added later MUST ship a matching `protocol.draft.<category>` + `protocol.publish.<category>` capability seed**, or no one can author/publish it. (Revisit a wildcard only if category count grows unwieldy.)
+**Seeding rule (no wildcard):** there is no `protocol.publish.*` wildcard capability. The seed migration must grant COO/CEO an **explicit publish capability for every V1 category** — `protocol.publish.vaccination` and any later category such as `protocol.publish.feed_direction`. **Every new `protocol_definitions.category` added later MUST ship an explicit publish capability seed** or no one can author/publish it. A future proposer workflow may also add `protocol.propose.<category>`/`protocol.draft.<category>`, but that is not part of V1 vaccination.
 
-**Versioning is effective-window-based, not "one published ever":** multiple published versions coexist across time; their `[effective_from, effective_to)` windows **must not overlap** per `(tenant_id, protocol_id, scope)`. The active version for a moment is `effective_from <= now < effective_to`. Schedules already generated keep the version they were generated under.
+**Versioning is scope-policy-based, not "one row per vaccine":** a
+`protocol_definition` is a stable ruleset family such as
+`vaccination.matrix`, not a copied ET/PPR/FMD row. Immutable versions coexist
+across time for audit. The active version for a moment is resolved by category
+scope policy plus effective dates. Schedules already generated keep the version
+they were generated under.
+
+For vaccination V1 the policy is:
+
+```text
+scope_resolution_mode = tenant_default_with_park_overrides
+active_cardinality = single_active_ruleset_per_scope
+override_semantics = park_replaces_tenant_for_that_park
+```
+
+That means one active company vaccination matrix and at most one active
+vaccination matrix per park. A park active version excludes that park from the
+company version, but it does not deactivate the company version for other
+parks. Future protocol categories may choose different policies, such as
+multiple additive active templates per scope or merge semantics; do not bake
+vaccination's single-active rule into the generic engine.
 
 ### 2.1 Config UI contract (CEO/COO authoring surface)
 
-`protocol_rules` are **real business/medical/operations config — not public, not user-editable.** Only approved superadmins (CEO/COO/admin-style grants) create and **publish** real rules; Directors may **draft/propose** only if explicitly granted `protocol.draft.<category>`. Field/verifier/park users **never see or edit raw config** — they see generated obligations, SOP tasks, proof requirements, and their Action Center work.
+`protocol_rules` are **real business/medical/operations config — not public, not user-editable.** Only approved CEO/COO/superadmin users create, edit, preview, and publish real rules in V1. Field/verifier/park users **never see or edit raw config** — they see generated obligations, SOP tasks, proof requirements, and their Action Center work.
 
-**Config screen (CEO/COO):** create/edit a *draft* rule → link an `sop_version_id` → define proof policy → define escalation policy → **impact preview** → publish version.
+**Config screen (CEO/COO):** choose category/family → choose company or park
+scope → create/edit a *draft* ruleset version → link an `sop_version_id` →
+define proof policy → define escalation policy → **impact preview** →
+activate/publish version.
 
-**Rule fields:** module/`category` (vaccination, feed_direction, deworming, sanitation, …) · multi-factor eligibility (age, animal_stage, sex, breed, lifecycle, health_status, shed/cohort/park, reproductive[exclude pregnant/lactating], defer_states[ICU/quarantine/sick]) · **`schedule[]` — the Schedule Builder: an array of dose/phase rows** (dose_code · trigger_type[birth_age/post_arrival/calendar/after_previous_completion/manual_campaign] · offset_days · due_window_days · min_gap_days · repeat[none/every_n_days/yearly; age-window repeats rejected until generator support lands] · repeat_until_after_age · catch_up · per-dose sop_label[display only — executable SOP binds at version sop_version_id] + proof_policy) — NOT a single trigger-day + booster flag · `missed_dose_policy` (immediate/next_cycle/phc_approval/defer) · park override (scope_type/scope_id) · `effective_from`/`effective_to`. Next due is derived by trigger/repeat/catch-up logic plus trusted accepted completion evidence; there is no separate next-due-basis DSL field. **Source/review metadata — nested `source` object on `rule_dsl`** (canonical shape; matches Config screen JSON): `source:{ source_system` (vaccinations_db/phc/vet/manual_admin) `· source_ref · imported_at · reviewed_by · review_status` (extracted→reviewed→approved) `· approved_by · approved_at }`.
+**Rule fields:** module/`category` (vaccination, feed_direction, deworming, sanitation, ...) · multi-factor eligibility (age, animal_stage, sex, breed, lifecycle, health_status, shed/cohort/park, reproductive[exclude pregnant/lactating], defer_states[ICU/quarantine/sick]) · **`schedule[]` — the Schedule Builder: an array of dose/phase rows** (dose_code · trigger_type[birth_age/post_arrival/calendar/after_previous_completion/manual_campaign] · offset_days · due_window_days · min_gap_days · repeat[none/every_n_days/yearly; age-window repeats rejected until generator support lands] · repeat_until_after_age · catch_up · per-dose sop_label[display only — executable SOP binds at version sop_version_id] + proof_policy) — NOT a single trigger-day + booster flag · `missed_dose_policy` (immediate/next_cycle/phc_approval/defer) · park override (scope_type/scope_id) · `effective_from`/`effective_to`. Next due is derived by trigger/repeat/catch-up logic plus trusted accepted completion evidence; there is no separate next-due-basis DSL field. Rule JSON must not embed goat/herd row snapshots; it references stable dimension keys and is evaluated against canonical goat/location/procurement/completion facts.
 
-**Publish behavior:** production obligations generate **only** from `status='published'` rules; drafts generate **no** live work; published versions are **immutable** (a change = a new version); old versions stay auditable; **only CEO/COO/superadmin publish** (`protocol.publish.<category>`).
+**Activation behavior:** production obligations generate **only** from active
+versions resolved by the category scope policy. Drafts and inactive historical
+versions generate **no** new work. Active versions are **immutable** (a change =
+a new version); old versions stay auditable. Only CEO/COO/superadmin users can
+activate/publish (`protocol.publish.<category>` in V1 wording).
 
-**Impact preview (required before publish — computed from `schedule[]`):** affected goats/sheds/cohorts (from eligibility); **obligations per cycle** (= affected × non-recurring doses); **annual-repeat count** (rows with `repeat:yearly`); **catch-up count** and **existing-history count** (goats with prior accepted completions → next-due from last completion, not DOB); expected stock required; expected SOP tasks/batches; and **risks** — missing stock, no assigned operator, missing executable `sop_version_id` (a free-text `sop_label` does not count), conflicting rule, effective-date overlap. Publish is gated on the operator reviewing this.
+**Impact preview (required before activation — computed from the scoped ruleset):** affected goats/sheds/cohorts (from eligibility); **obligations per cycle** (= affected × non-recurring doses); **annual-repeat count** (rows with `repeat:yearly`); **catch-up count** and **existing-history count** (goats with prior accepted completions → next-due from last completion, not DOB); expected stock required; expected SOP tasks/batches; and **risks** — missing stock, no assigned operator, missing executable `sop_version_id` (a free-text `sop_label` does not count), conflicting rule, effective-date overlap, open obligations to supersede, and in-progress batches that need explicit operator choice. Activation is gated on the operator reviewing this.
 
 **Config visibility matrix:**
 | Role | Config access |
 |---|---|
 | CEO/COO/superadmin | full config + **publish** |
-| Director | draft/propose/view — only with `protocol.draft.<category>` |
+| Director | no raw Config visibility in V1; sees effective instructions, exceptions, and dashboards |
 | Park Head / Manager | view *effective instructions/tasks*, not raw config (unless explicitly granted) |
 | Field worker | **no config** — Action Center + SOP execution only |
 | Verifier | **no config** — proof queue only |
 
-**Publish gate + dev policy (source-backed):** a version publishes **only when `review_status='approved'`** and source-backed. Values that come from a **real source (Vaccinations DB / PHC / vet-approved / committed PHC PRD source finding)** and are marked `approved` are **real config in `goatos-dev` and publishable there** — the **dev-real path**. **Unsourced / `manual_admin` / `extracted`** rows stay `status='draft'` and carry a **`not source-backed`** warning — they cannot be published and generate no production work. **Never hand-invent** PPR/FMD/ET schedule values; the local/dev ET row is source-derived from `docs/phc-vaccination/PRD.md:60` and future values arrive via this config UI or a reviewed source extract.
+**Activation/publish gate:** a version activates only when the actor has CEO/COO/superadmin
+Config authority, JSON-schema validation passes, a real published SOP version
+is bound where execution needs it, effective dates do not overlap, and the
+impact preview has been generated. Source documents are committed engineering
+evidence for the seeded/preset values, not UI fields or runtime
+`review_status` gates.
 
 ---
 
@@ -98,11 +140,44 @@ Capability is checked via `workforce_member_capabilities` (same mechanism as `va
 `protocol_id PK · tenant_id · code text CHECK (~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$') · name · category text CHECK · status text CHECK(draft/active/retired) · created_by · created_at · updated_at · row_version` — UNIQUE `(tenant_id, code)`.
 `category CHECK IN ('vaccination','deworming','biosecurity','feed_water_testing','panel_cleaning','sanitization','fire_safety','sop_video','stock_check','director_reporting','feed_direction')`.
 
+For vaccination, `protocol_definitions.code` is the stable ruleset family
+(`vaccination.matrix`). ET+TT, PPR, FMD, HS, and Goat Pox are matrix cells or
+expanded `protocol_rules`, not separate protocol definitions.
+
 ### `protocol_versions` (immutable, effective-dated — mirror of `sop_versions`)
 `protocol_version_id PK · tenant_id · protocol_id→protocol_definitions · scope_type text CHECK(tenant/park) DEFAULT 'tenant' · scope_id uuid NULL (park for a per-park calendar; NULL ⇔ scope_type='tenant' = tenant-wide default) · version int(>0) · version_label · status text CHECK(draft/published/retired) · effective_from date NOT NULL · effective_to date NULL · rule_dsl jsonb · proof_policy jsonb · sop_version_id uuid NULL→sop_versions · drafted_by · published_by NULL · published_at NULL · retired_at · row_version`. CHECK: `scope_type='park' ⇒ scope_id NOT NULL` and `scope_type='tenant' ⇒ scope_id IS NULL`.
 - **Non-overlap, not one-published-ever:** an **`EXCLUDE` constraint (GiST)** over `daterange(effective_from, effective_to)` keyed on `(tenant_id, protocol_id, scope_type, COALESCE(scope_id, '00000000-…-0'::uuid))` where `status='published'` — published windows cannot overlap **within the same scope** (a park calendar and the tenant default coexist), but past/present/future published versions all coexist. (`btree_gist` for the equality columns; the COALESCE sentinel collapses the nullable scope_id.) App-layer validation if GiST is undesirable.
 - CHECK `effective_to IS NULL OR effective_to > effective_from`. Open-ended (`effective_to NULL`) = the current version; publishing the next one closes the prior's window.
 - `sop_version_id` = the execution form to instantiate on dispatch.
+
+If the implementation keeps `status='published'` for immutable published
+history, expose `activation_state` separately in API/UI:
+`draft | scheduled | active | inactive | retired`. Vaccination's partial
+unique active constraint is keyed by `(tenant_id, protocol_id, scope_type,
+COALESCE(scope_id, sentinel)) WHERE activation_state='active'`.
+
+### `protocol_category_scope_policies` (generic category behavior)
+Recommended generic table:
+`policy_id PK · tenant_id · category · protocol_code NULL · target_type text · allowed_scope_levels jsonb · scope_resolution_mode text · active_cardinality text · override_semantics text · activation_cutover_policy text · status · updated_at`.
+
+Vaccination seed:
+`category='vaccination' · protocol_code='vaccination.matrix' · target_type='goat' · allowed_scope_levels=['tenant','park'] · scope_resolution_mode='tenant_default_with_park_overrides' · active_cardinality='single_active_ruleset_per_scope' · override_semantics='park_replaces_tenant_for_that_park'`.
+
+Feed Direction or future modules may use `multiple_active_per_scope`,
+`additive`, or `merge` semantics. The engine reads this policy; it does not
+assume vaccination behavior for all modules.
+
+### `protocol_scope_resolutions` (derived read model for fast lookup)
+Recommended derived table/materialized view:
+`tenant_id · category · protocol_id · target_scope_type='park' · target_scope_id · active_protocol_version_id · source_scope_type(tenant/park) · source_scope_id NULL · overridden_protocol_version_id NULL · resolution_reason · computed_at`.
+
+For vaccination generation, resolve by goat park:
+1. active park version for the goat's park, if present;
+2. otherwise active company version;
+3. otherwise no ruleset gap.
+
+This read model also powers Config list summaries:
+"Company-wide v3 applies to 12 parks; excluded by 2 park overrides."
 
 ### `protocol_rules` (cadence / eligibility expansion — **one row per dose/phase**)
 `rule_id PK · tenant_id · protocol_version_id→protocol_versions · dose_code text (primary/booster_1/booster_2/annual/catch_up/…) · sequence int · trigger_type text CHECK(birth_age/post_arrival/calendar/after_previous_completion/manual_campaign) · offset_days int · due_window_days int · min_gap_days int · repeat text CHECK(none/every_n_days/yearly) · repeat_until_after_age text · catch_up text CHECK(immediate/next_cycle/phc_approval/defer) · eligibility_json jsonb · sop_version_id uuid NULL (per-dose override) · proof_policy jsonb · withdrawal_days int NULL · sort_order int`.
@@ -118,11 +193,9 @@ A rule is **not** a single trigger+booster. The editor authors and stores in `pr
   schedule: [                                 // ARRAY — multi-dose / lifecycle phases
     { dose_code, sequence, trigger_type, offset_days, due_window_days, min_gap_days,
       repeat, repeat_until_after_age, catch_up, sop_label, proof_policy:[…] }, … ],
-  escalation,
-  source:{ source_system, source_ref, imported_at, reviewed_by,        // provenance + approval gate
-           review_status, approved_by, approved_at } }
+  escalation }
 ```
-**Lifecycle phases** (e.g. 0–12mo primary+booster, >12mo `repeat:yearly` on a separately eligible annual row) are expressed as multiple `schedule` rows, not one booster flag. The whole `rule_dsl` is one immutable published `protocol_version`; a schedule change = a new version.
+**Lifecycle phases** (e.g. 0–12mo primary+booster, >12mo `repeat:yearly` on a separately eligible annual row) are expressed as multiple `schedule` rows, not one booster flag. For vaccination, the whole `rule_dsl` is one immutable scoped matrix version; a schedule change = a new inactive draft/version, then activation makes it the only active version for that same company/park scope.
 
 **Executable SOP binding vs. display label (publish gate truth).** The **executable** SOP for a version is `protocol_versions.sop_version_id` — a **real published SOP-version UUID** the Config UI selects from the SOP Library. The publish execution-contract gate (`protocol/app/publish.go` `ValidateExecutionContract`) requires that UUID plus an object-shaped `proof_policy`. The per-dose `schedule[].sop_label` is a **display label only** — the current Config UI emits it as `sop_label` (never as an executable `sop_version`), so a free-text label like `"vacc-sop v2"` can never satisfy the gate. A **genuine per-dose executable override** is still supported by the schema (`protocol_rules.sop_version_id`, a real UUID): use that column when a real per-dose SOP version exists; do not resurrect a text label as an executable field.
 
@@ -158,7 +231,7 @@ A `sop_task` alone can't hold drive-level fields. Group per-target obligations e
 
 ## 5. Execution — reuse the committed SOP engine
 
-The unit of execution is the **batch**, not the individual obligation: **many due obligations → grouped into one `obligation_batch` → one `sop_task`.** Phase 0 catch-up uses PHC-approved manual campaign obligations/batches; standalone per-goat individual override generation is not exposed.
+The unit of execution is the **batch**, not the individual obligation: **many due obligations → grouped into one `obligation_batch` → one `sop_task`.** Phase 0 catch-up uses Preventive Care approved manual campaign obligations/batches; standalone per-goat individual override generation is not exposed.
 
 ```
 sweeper: collect due obligation_instances for a (scope, protocol, window)
@@ -172,7 +245,7 @@ sweeper: collect due obligation_instances for a (scope, protocol, window)
    → at batch close: stock consume/release (§6); batch → completed
 ```
 
-Assignment uses `workforce_member_capabilities` (e.g. `vaccination.execute` scoped to the shed's park). Verification uses `proof.verify`. PHC-approved catch-up uses the same canonical obligation/batch path as other campaign work. No new task engine.
+Assignment uses `workforce_member_capabilities` (e.g. `vaccination.execute` scoped to the shed's park). Verification uses `proof.verify`. Preventive Care approved catch-up uses the same canonical obligation/batch path as other campaign work. No new task engine.
 
 ---
 
@@ -222,12 +295,12 @@ Cascade is **application code via the transactional outbox**, not Postgres trigg
 
 | Vertical | Modules → each = a `protocol_definitions` category |
 |---|---|
-| **PHC** | vaccination · deworming · biosecurity · feed/water testing · panel cleaning · sanitization · fire/safety · SOP-video verification · stock anti-misuse · director reporting |
+| **Preventive Care (PC)** | vaccination · deworming · biosecurity · feed/water testing · panel cleaning · sanitization · fire/safety · SOP-video verification · stock anti-misuse · director reporting |
 | **Feed** (vertical) | feed-direction (config/ration -> next-day full direction -> cutoff Diff -> packing/staging -> execution -> wastage -> stock); later modules: feed-stock/loads, wastage/variance, ration-library |
 
 Module-specific tables (`vaccination_completions`, `feed_direction_completions`, and optional generation/bridge/projection rows where the generic kernel has no natural home) link via `obligation_id` or run/proof identifiers. New modules add a category + protocol rules + an SOP form + (optionally) a completion/projection table — **no new engine.**
 
-See: [PHC Vaccination TRD](../phc-vaccination/TRD.md) · [Feed Direction TRD](../feed-direction/TRD.md) · [State machines](./state-machines.md) · [Migration & cutover](./migration-and-cutover.md).
+See: [Preventive Care (PC) Vaccination TRD](../preventive-care-vaccination/TRD.md) · [Feed Direction TRD](../feed-direction/TRD.md) · [State machines](./state-machines.md) · [Migration & cutover](./migration-and-cutover.md).
 
 ---
 
@@ -235,7 +308,7 @@ See: [PHC Vaccination TRD](../phc-vaccination/TRD.md) · [Feed Direction TRD](..
 
 Non-negotiable invariants. A PR that violates any of these is rejected, not merged.
 
-1. **No per-goat `sop_task` for group work.** Group execution = ONE `sop_task` per `obligation_batch` (shed drive / feed session). Catch-up is still canonical obligation/batch work in Phase 0; standalone per-goat tasks wait for an explicit PHC catch-up action contract. 1M goats must never become ~1M human tasks.
+1. **No per-goat `sop_task` for group work.** Group execution = ONE `sop_task` per `obligation_batch` (shed drive / feed session). Catch-up is still canonical obligation/batch work in Phase 0; standalone per-goat tasks wait for an explicit Preventive Care (PC) catch-up action contract. 1M goats must never become ~1M human tasks.
 2. **No far-future work in Cloud Tasks.** Future due state lives only in `obligation_instances` (Postgres). Cloud Scheduler + sweeper enqueue Cloud Tasks for the near-term window only; a lost task is re-derived from Postgres. Cloud Tasks/Pub-Sub are never the source of truth.
 3. **Due scans use the `(tenant_id, status, due_at)` index** and touch only the current partition/window — never a full-table or full-herd scan. Sweeper pages through results, bounded batch size, resumable.
 4. **Archive/partition policy for growth.** `obligation_instances`, `obligation_batches`, `vaccination_completions`, and `obligation_status_events` are RANGE-partitioned by date (there is **no** `vaccination_schedule` table — per-goat due state lives in `obligation_instances`); `completed`/`canceled`/`superseded` rows roll off hot partitions to cold/archive on a retention policy so the hot set stays bounded (~current + near-future). Control Tower never aggregates over cold history live.

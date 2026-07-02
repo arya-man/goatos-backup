@@ -87,9 +87,9 @@ Read:
 - `context/execution/vaccination-trigger-closure-parallel-handoff.md`
 - `context/frontend/vaccination-process-integrity-frontend-handoff.md`
 - `context/execution/sop-vaccination-backend-handoff.md`
-- `docs/phc-vaccination/PRD.md`
-- `docs/phc-vaccination/TRD.md`
-- `docs/phc-vaccination/V1-FOUNDATION-SPEC.md`
+- `docs/preventive-care-vaccination/PRD.md`
+- `docs/preventive-care-vaccination/TRD.md`
+- `docs/preventive-care-vaccination/V1-FOUNDATION-SPEC.md`
 - `docs/runbooks/vaccination-local-business-chain.md`
 - `context/frontend/herd-register-ui-fidelity-ledger.md`
 - `contracts/openapi/app-api.yaml`
@@ -99,7 +99,7 @@ Read:
 Use code-review-graph for dirty-tree review if available. Use Graphify before
 business/UX decisions:
 
-- `mesha_docs_graph` for PHC/vaccination/SOP/cold-chain/source facts.
+- `mesha_docs_graph` for Preventive Care (PC) / vaccination/SOP/cold-chain/source facts.
 - `mesha_visual_graph` for screenshots/diagrams/UI flow.
 - goatos docs graph for committed GoatOS docs.
 
@@ -159,7 +159,7 @@ Do not stop just because the current local API returns only one protocol.
 Instead:
 
 - Use the source-derived local/dev baseline recorded in
-  `context/source-findings/phc-vaccination-roster-stage-proposal.md`: ET/K1/day
+  `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`: ET/K1/day
   21 as the schedule-bearing row, K2=42, and PPR/FMD/HS/BQ as SOP/roster labels
   until schedule evidence exists.
 - Do not create cosmetic UI-only vaccine columns; protocol/config rows must drive
@@ -235,7 +235,7 @@ as a data blocker. Do not fabricate goats or manually patch business rows.
 Matrix assertions:
 
 - Clean accepted goat enters vaccination work.
-- Rejected/source-only goat does not enter active PHC vaccination work.
+- Rejected/source-only goat does not enter active Preventive Care (PC) vaccination work.
 - Owner-missing/unresolved goat is excluded or shown only as blocker/review.
 - Extra unknown arrival is excluded or review-only.
 
@@ -246,7 +246,7 @@ Use API/CLI/Go harness/SQL assertions. Record concrete IDs and assertions in:
 
 This must become closed or have an exact blocker.
 
-## Phase 4 - Close PHC/Vet Roster Item If Possible
+## Phase 4 - Close Preventive Care (PC) / Vet Roster Item If Possible
 
 Use Graphify/wiki/source docs first. Cite `source_file`/page/image.
 

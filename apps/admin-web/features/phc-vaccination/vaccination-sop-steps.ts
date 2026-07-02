@@ -1,6 +1,6 @@
 // Canonical vaccination drive SOP step flow (mock SOPS.vacc) — the operator-facing process a drive runs
 // end to end. Authoring/versioning of the real per-tenant SOP lives in the SOP Library (/sops); this is
-// the standard drive flow shown when no authored SOP overrides it, shared by the PHC Vaccination SOP
+// the standard drive flow shown when no authored SOP overrides it, shared by the Preventive Care (PC) Vaccination SOP
 // quick-view and the Action Center obligation drawer so both render the SAME checklist anatomy.
 export interface SopStep {
   title: string;

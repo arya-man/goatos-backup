@@ -53,6 +53,7 @@ const routes = [
   { name: "procurement-source-entry", path: "/procurement/source-entry?scope_mode=company" },
   { name: "config", path: "/config?scope_mode=company&category=vaccination" },
   { name: "sops", path: "/sops?scope_mode=company" },
+  { name: "sops-builder", path: "/sops?compose=1&scope_mode=company" },
   { name: "counts-herd", path: "/counts/herd?scope_mode=company" },
   { name: "operations-audit", path: "/operations/audit?scope_mode=company" },
   { name: "operations-dlq", path: "/operations/dlq?scope_mode=company" },

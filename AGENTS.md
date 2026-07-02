@@ -31,7 +31,7 @@ CLI: uvx --from 'graphifyy[mcp]==0.8.44' graphify query "QUESTION" \
 CLI: uvx --from 'graphifyy[mcp]==0.8.44' graphify query "QUESTION" \
        --graph ./graphify-out/graph.json
 ```
-When built, it covers protocol engine, PHC vaccination, feed direction,
+When built, it covers protocol engine, Preventive Care (PC) vaccination, feed direction,
 frontend scope, analytics infra, execution plans, observability, auth, SOP
 cutover, and skill references.
 
@@ -102,12 +102,12 @@ Purpose:
   that the shared platform could theoretically support. Generic foundations are
   allowed only when they serve the approved slice; visible routes, nav, seeded
   cards, mock data, screenshots, and handoff language must not imply another
-  vertical is built. For the current admin-web review, the visible slice is PHC
+  vertical is built. For the current admin-web review, the visible slice is Preventive Care (PC)
   Vaccination plus Admin/Data Ops config and vaccination SOP policy.
 - Current admin-web frontend scope supersedes the old dashboard/admin product
   surface. For admin-web UI work, read
   `context/frontend/current-admin-web-scope.md`: build the connected Admin
-  Config + PHC Vaccination + vaccination execution context slice (rendered inside
+  Config + Preventive Care (PC) Vaccination + vaccination execution context slice (rendered inside
   /vaccination, with shed detail under /vaccination/execution/sheds/{shed_id}),
   with Control Tower summarizing only process
   gaps. Old Operations/Legacy/SOP/counts/import routes are removed from active
@@ -122,16 +122,16 @@ Purpose:
   `git mesha-push`: `npm --prefix apps/admin-web run check:mock-fidelity` must
   pass + visual compare to the mock.
 - Frontend product taxonomy is non-negotiable:
-  - **Vertical** = business operating domain/department, such as PHC, Parks,
+  - **Vertical** = business operating domain/department, such as Preventive Care (PC), Parks,
     Procurement, Admin/Data Ops, Counts, Breeding, Inventory, HR/People, Farmer
     Network. A vertical owns operational context.
   - **Module** = a concrete workflow/product inside a vertical, such as
-    PHC -> Vaccination, PHC -> future Treatment/Deworming, Procurement -> Source
+    Preventive Care (PC) -> Vaccination, Preventive Care (PC) -> future Treatment/Deworming, Procurement -> Source
     Entry, or future Parks-owned modules. Parks is a scope/context dimension for
     vaccination execution, not the owner of a vaccination module.
   - **Command lens** = top-level cross-module screen, not a vertical or module:
     Control Tower, Action Center, Calendar, Protocol Adherence, and Workflows.
-  PHC is a vertical and must not use the syringe/injection icon; the syringe/
+  Preventive Care (PC) is a vertical and must not use the syringe/injection icon; the syringe/
   injection icon belongs to the Vaccination module. Counts is a separate
   vertical, so Control Tower must not show raw goat census totals as its own
   KPI. Control Tower is for gaps, adherence, exceptions, escalations, and next
@@ -139,7 +139,7 @@ Purpose:
 - Frontend command-room/authority guardrail: Control Tower, Action Center,
   Calendar, Protocol Adherence, and Workflows are top-level screens only. Config
   and SOP Library are top-level Admin / Data Ops authority screens only. Do not
-  duplicate them under procurement/source-entry, PHC, Parks, or any future
+  duplicate them under procurement/source-entry, Preventive Care (PC), Parks, or any future
   vertical as routes, redirects, tabs, or nav items. A vertical can feed those
   top-level screens through a selected domain/filter/lens such as
   `?domain=procurement` or `?category=vaccination`, but it must not create
@@ -149,8 +149,8 @@ Purpose:
   or any `/parks/vaccination` nested command paths. Vaccination execution
   renders INSIDE /vaccination, never as a separate Parks route.
 - Config / Protocol Rules is a generic Admin / Data Ops authority screen
-  (`/config`) for CEO/COO/superadmin users. It is not owned by PHC/Vaccination.
-  PHC/Vaccination may link to `/config?category=vaccination`, but the Config UI
+  (`/config`) for CEO/COO/superadmin users. It is not owned by Preventive Care (PC) / Vaccination.
+  Preventive Care (PC) / Vaccination may link to `/config?category=vaccination`, but the Config UI
   must stay category/schema-driven: changing category changes the form fields and
   `rule_dsl`; do not show vaccination fields for `feed_direction`.
 

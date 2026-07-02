@@ -6,15 +6,15 @@ This is the active rule for the Mesha admin-web rebuild.
 
 These words are not interchangeable:
 
-- **Vertical** = business operating domain/department. Examples: PHC, Parks,
+- **Vertical** = business operating domain/department. Examples: Preventive Care (PC), Parks,
   Procurement, Admin/Data Ops, Counts, Breeding, Inventory, HR/People, Farmer
   Network.
 - **Module** = a concrete workflow/product inside a vertical. Examples:
-  PHC -> Vaccination, PHC -> future Treatment/Deworming, Procurement -> Source
+  Preventive Care (PC) -> Vaccination, Preventive Care (PC) -> future Treatment/Deworming, Procurement -> Source
   Entry, or future Parks-owned modules. Parks is only a scope/context dimension
   for Vaccination, not the owner of Vaccination execution.
 - **Operational module screen** = where module work happens. Examples:
-  `/vaccination` for PHC -> Vaccination, including operations, status matrix,
+  `/vaccination` for Preventive Care (PC) -> Vaccination, including operations, status matrix,
   cohort detail, and park/shed execution context scoped by the top-bar park
   dropdown, and `/procurement/source-entry` for Procurement -> Source Entry. Parks
   does NOT own a vaccination product screen; do not create `/parks/vaccination`
@@ -29,7 +29,7 @@ These words are not interchangeable:
 Correct example:
 
 ```text
-Vertical: PHC
+Vertical: Preventive Care (PC)
   Module: Vaccination
     Operational screen: /vaccination
 
@@ -47,7 +47,7 @@ a build target until the app route, nav, and live smoke coverage land together.
 Wrong example:
 
 ```text
-PHC
+Preventive Care (PC)
   Vaccination
     Action Center          forbidden
     Protocol Adherence     forbidden
@@ -62,11 +62,11 @@ app.
 ```text
 Platform (generic engine: protocol rules, obligations, SOP tasks, proof/media,
           verification/rework, process-integrity row shape — all module-agnostic)
-  └── Verticals (e.g. PHC, and more)
+  └── Verticals (e.g. Preventive Care (PC), and more)
         └── Modules (e.g. Vaccination today; Feed Direction, deworming, and others next)
 ```
 
-- **Vaccination is one module under the PHC vertical** — it is *today's* visible
+- **Vaccination is one module under the Preventive Care (PC) vertical** — it is *today's* visible
   build slice, not the app's identity. Feed Direction and other modules are coming
   and use the **same generic engine**.
 - Anywhere a rule says "vaccination-only," it means the **current visible content
@@ -74,7 +74,7 @@ Platform (generic engine: protocol rules, obligations, SOP tasks, proof/media,
   vaccination-specific. Those layers stay generic and category/schema-driven.
 - Do NOT stamp "Vaccination" as a global/app-wide scope (no app-wide vaccination
   badge, label, or assumption). The active module is shown by the sidebar nav and
-  the page crumb (`PHC › Vaccination`), nothing more.
+  the page crumb (`Preventive Care (PC) › Vaccination`), nothing more.
 - Do NOT bake vaccination into generic layers; do NOT show unbuilt modules as live.
 
 ## Goat/Park Base Source Rule
@@ -93,12 +93,12 @@ invent semantics that conflict with the Goats and Parks finding.
 
 Control Tower, Action Center, Calendar, Protocol Adherence, and Workflows are
 **top-level command-room screens** — exactly where the mock puts them — not tabs
-inside PHC / Vaccination. Config and SOP Library are top-level Admin / Data Ops
+inside Preventive Care (PC) / Vaccination. Config and SOP Library are top-level Admin / Data Ops
 authority screens. The selected module/domain filters their content; it never
-relocates them under a vertical. `/vaccination` is the PHC vaccination operations
+relocates them under a vertical. `/vaccination` is the Preventive Care (PC) vaccination operations
 surface only.
 
-This same rule applies to every vertical. Modules under Procurement, PHC, or
+This same rule applies to every vertical. Modules under Procurement, Preventive Care (PC), or
 any future vertical may feed these command-room screens via a selected
 domain/filter/lens, but must not duplicate them as nested page routes,
 compatibility redirects, tabs, nav items, or big in-page shortcut panels. Do not
@@ -171,7 +171,7 @@ page bodies.
 
 The top bar is the single visible owner for the current park and as-of date
 scope across Control Tower, Action Center, Calendar, Protocol Adherence,
-Workflows, PHC Vaccination, Vaccination execution context, Config, and SOP
+Workflows, Preventive Care (PC) Vaccination, Vaccination execution context, Config, and SOP
 Library. If a route or query selects a park such as CBE, the top bar must show
 that selected park; it must not still say "All parks".
 
@@ -203,7 +203,7 @@ Build one connected vaccination process-integrity slice:
 
 ```text
 Admin / Data Ops config + SOP policy
-  -> PHC Vaccination operations
+  -> Preventive Care (PC) Vaccination operations
   -> Vaccination execution context scoped by park/shed
   -> Calendar vaccination due-work time lens
   -> Control Tower gap summary
@@ -227,7 +227,7 @@ Reusable engine underneath:
   verification/rework, and process-integrity row shape.
 
 Visible product slice now:
-  PHC / Vaccination only.
+  Preventive Care (PC) / Vaccination only.
 ```
 
 Do not make future modules impossible by baking vaccination into the generic
@@ -262,10 +262,10 @@ This means:
 
 - **Admin / Data Ops** owns generic protocol config at `/config` and the
   reopened generic SOP Library / form-builder surface at `/sops`.
-- **PHC / Vaccination** owns obligations, drives, execution, proof upload,
+- **Preventive Care (PC) / Vaccination** owns obligations, drives, execution, proof upload,
   verification, missed/deferred handling, status matrix, cohort detail, and
   adherence links.
-- **Vaccination execution context** renders INSIDE PHC / Vaccination at
+- **Vaccination execution context** renders INSIDE Preventive Care (PC) / Vaccination at
   `/vaccination`, scoped by the top-bar park dropdown. It is
   powered by the vaccination execution read-model endpoints (`/vaccination/execution`,
   `/vaccination/execution/sheds/{shed_id}`) but is NOT a separate visible Parks
@@ -275,8 +275,8 @@ This means:
   is NOT a vaccination product route.
 - **Action Center** is the top-level work board at `/action-center` (mock board
   density/shape, vaccination rows only): due, overdue, blocked, proof-pending,
-  verification-pending, rejected, deferred, owner-missing. It is not a PHC tab.
-- **PHC / Vaccination** (`/vaccination`) is the module surface: SOP / Import
+  verification-pending, rejected, deferred, owner-missing. It is not a Preventive Care (PC) tab.
+- **Preventive Care (PC) / Vaccination** (`/vaccination`) is the module surface: SOP / Import
   sheet / New drive actions, Target -> Group -> Route -> Execute chain,
   vaccination status matrix, per-cohort detail, drive/shed-event execution, and
   proof/verification/rework states. It is not the Action Center.
@@ -302,7 +302,7 @@ domains.
 Current visible slice:
 
 ```text
-PHC / Vaccination process integrity
+Preventive Care (PC) / Vaccination process integrity
 Admin / Data Ops config
 Admin / Data Ops SOP Library for vaccination SOP policy
 Vaccination execution context scoped by park/shed
@@ -348,14 +348,14 @@ Passport search, all-domain Calendar, Insights, HR, generic Parks, generic
 Inventory, or generic dashboard rebuilds.
 
 Calendar is reopened only as a top-level command lens at `/calendar` for the
-PHC Vaccination due-work slice. Use
+Preventive Care (PC) Vaccination due-work slice. Use
 `docs/decisions/calendar-ownership.md` and
 `context/execution/calendar-vaccination-slice-parallel-handoff.md` before
-implementation. The current allowed Calendar slice is PHC Vaccination due work
+implementation. The current allowed Calendar slice is Preventive Care (PC) Vaccination due work
 only: source-backed published vaccination obligations, shed/cohort drives,
-booster/catch-up work, PHC defer or evidence-review actions, dated proof
+booster/catch-up work, Preventive Care (PC) defer or evidence-review actions, dated proof
 verification/rework, and directly supporting dated human actions such as vaccine
-stock readiness, cold-chain, reorder/expiry, PHC anti-misuse review, or
+stock readiness, cold-chain, reorder/expiry, Preventive Care (PC) anti-misuse review, or
 source-review tasks under their proper `owner_key` values (`phc`, `inventory`,
 or `admin_data_ops`). Label-only vaccines, status-matrix cells, coverage KPIs,
 Goat Passport history, owner-missing gaps, reminder pings, and pure system
@@ -400,7 +400,7 @@ These are the only current implemented admin-web product routes:
 /protocol-adherence        Protocol Adherence (top-level command)
 /workflows                 Workflows          (top-level command)
 /workflows/{row_id}        Workflow drilldown
-/vaccination               PHC Vaccination module surface
+/vaccination               Preventive Care (PC) Vaccination module surface
 /vaccination/execution/sheds/[shedId]
 /procurement/source-entry  Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
@@ -417,7 +417,7 @@ Implemented top-level command route:
 /calendar                  Calendar           (top-level command, vaccination due-work slice only)
 ```
 
-Keep `/calendar` limited to the PHC Vaccination due-work slice. Its app route,
+Keep `/calendar` limited to the Preventive Care (PC) Vaccination due-work slice. Its app route,
 shell primary nav, mock-fidelity scan coverage, and live visual smoke coverage
 must move together when the Calendar surface changes.
 
@@ -434,7 +434,7 @@ revive `/locations` or old Parks navigation.
 ### Reopened: Procurement source-entry vertical (2026-06-24)
 
 The procurement/source-entry slice was explicitly reopened as its own vertical
-(NOT nested under PHC). It reads/writes its own generated backend contracts
+(NOT nested under Preventive Care (PC)). It reads/writes its own generated backend contracts
 (`/procurement/source-entry/*` in admin-api). Only procurement operational pages
 belong under the procurement route tree. Command-room screens stay top-level.
 These are current procurement product routes:
@@ -475,14 +475,14 @@ backend action or be honestly disabled with a reason.
 
 Boundary rules: procurement data is separate from the default vaccination
 command-screen content; rejected/source-only/unresolved goats stay procurement
-history and must not appear as PHC vaccination or vaccination execution work;
-only accepted-intake goats flow to PHC. The supplier Holding Farm warmup use
+history and must not appear as Preventive Care (PC) vaccination or vaccination execution work;
+only accepted-intake goats flow to Preventive Care (PC). The supplier Holding Farm warmup use
 case lives here under Procurement -> Source Entry: purchase/source,
 purpose-specific source warmup (breeding 45-70 days today; fattening/
 non-breeding can be 0 days or around 2 weeks), source tagging, HF vaccination
 evidence, pre-dispatch reject/accept/defer/block, dispatch, arrival review, and
-accepted intake. It must not be re-created as a Counts route or PHC/Vaccination
-action surface. PHC may show read-only accepted-intake origin/source and trusted
+accepted intake. It must not be re-created as a Counts route or Preventive Care (PC) / Vaccination
+action surface. Preventive Care (PC) may show read-only accepted-intake origin/source and trusted
 imported vaccination evidence used for due-basis decisions. Until a backend
 built from current source is running (procurement in the permission registry +
 migration `000083` + seed), these routes render honest `route_not_registered` /
@@ -496,7 +496,7 @@ Action Center
 Calendar
 Protocol Adherence
 Workflows
-PHC
+Preventive Care (PC)
   Vaccination            (module surface including execution context)
 Procurement              (reopened vertical)
   Source Entry
@@ -528,7 +528,7 @@ is rendered inside /vaccination, not as a separate Parks nav item.
   `Viewing as` control must mirror these lenses instead of maintaining a
   separate hard-coded role list.
 - Config publish/raw edit remains backend-gated by protocol capabilities.
-- PHC is a vertical and must not use the syringe/injection icon.
+- Preventive Care (PC) is a vertical and must not use the syringe/injection icon.
 - Vaccination may use the syringe/injection icon.
 - Counts is a separate future vertical. Control Tower must not show raw goat
   census/count totals.
@@ -653,7 +653,7 @@ Before asking for approval:
   structure and density, is included in primary nav plus live visual smoke, and
   shows only vaccination due work linked back into the same backend-owned
   obligation/workflow/proof truth.
-- PHC/Vaccination, Admin Config, and vaccination execution context are connected by
+- Preventive Care (PC) / Vaccination, Admin Config, and vaccination execution context are connected by
   real backend status/proof/verification data.
 - Control Tower summarizes only broken or at-risk process.
 - Config is generic and category/schema-driven.
@@ -662,5 +662,5 @@ Before asking for approval:
 - No direct frontend access to BigQuery, Sheets, GCS, Firestore, or databases.
 - No horizontal clipping or text overflow on desktop/narrow screenshots.
 
-Do not resume full Feed Direction operational screens until PHC/Vaccination and
+Do not resume full Feed Direction operational screens until Preventive Care (PC) / Vaccination and
 the generic Config foundation are reviewed and approved.

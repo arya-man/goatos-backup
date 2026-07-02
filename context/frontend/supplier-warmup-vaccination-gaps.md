@@ -5,7 +5,7 @@ Status: **covered for the current vaccination trigger slice**
 
 This file previously recorded the supplier warmup / Holding-Farm vaccination
 gap. The gap is now closed for the approved scope: Procurement Source Entry owns
-the write actions, and PHC Vaccination reads the source-entry/HF evidence context
+the write actions, and Preventive Care (PC) Vaccination reads the source-entry/HF evidence context
 so operators can see why accepted-intake goats should not be double-dosed.
 
 ## What Is Built
@@ -40,7 +40,7 @@ Write actions stay in:
 Procurement -> Source Entry
 ```
 
-PHC / Vaccination consumes the evidence and displays read-only context. It does
+Preventive Care (PC) / Vaccination consumes the evidence and displays read-only context. It does
 not create a second supplier-warmup action surface.
 
 ## Honest Remaining Limits

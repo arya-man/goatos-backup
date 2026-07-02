@@ -63,7 +63,7 @@ func DecodeHistoryCursor(value string) (HistoryCursor, error) {
 	return cursor, nil
 }
 
-// ValidateEventID accepts vaccination drive IDs and legacy calendar projection IDs during cutover.
+// ValidateEventID accepts vaccination drive IDs, catch-up IDs, and legacy calendar projection IDs during cutover.
 func ValidateEventID(eventID string) error {
 	if _, err := ParseDriveEventID(eventID); err == nil {
 		return nil

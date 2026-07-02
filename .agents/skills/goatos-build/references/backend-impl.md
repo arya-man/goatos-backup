@@ -10,8 +10,8 @@ Canonical docs:
 - `docs/protocol-engine/obligation-engine.md`
 - `docs/protocol-engine/state-machines.md`
 - `context/architecture/operational-kernel.md`
-- `docs/phc-vaccination/TRD.md`
-- `docs/phc-vaccination/V1-FOUNDATION-SPEC.md`
+- `docs/preventive-care-vaccination/TRD.md`
+- `docs/preventive-care-vaccination/V1-FOUNDATION-SPEC.md`
 - `context/execution/vaccination-process-integrity-backend-handoff.md`
 - `context/execution/calendar-vaccination-slice-parallel-handoff.md`
 - `docs/decisions/calendar-ownership.md`

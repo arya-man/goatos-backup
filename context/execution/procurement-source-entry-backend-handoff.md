@@ -5,7 +5,7 @@ Date: 2026-06-24
 Purpose: define the backend slice for goats whose journey starts at purchase or
 source-side holding, not only when they arrive at CBE/CPT parks.
 
-This is a **separate procurement/source-entry slice**, not a sub-tab of PHC
+This is a **separate procurement/source-entry slice**, not a sub-tab of Preventive Care (PC)
 Vaccination. The current vaccination slice may read accepted-intake outputs
 such as `origin_type`, `entry_date`, and trusted intake/vaccination history, but
 it must not own the procurement journey.
@@ -13,7 +13,7 @@ it must not own the procurement journey.
 ## Implementation Gate
 
 The procurement/source-entry backend slice has been explicitly opened. Keep the
-backend contracts procurement-scoped and do not broaden PHC Vaccination or Parks
+backend contracts procurement-scoped and do not broaden Preventive Care (PC) Vaccination or Parks
 execution behavior.
 
 For any further backend work, keep this source-of-truth order:
@@ -43,7 +43,7 @@ context/product/glossary.md
 context/source-findings/goats-and-parks-source-findings.md
 context/source-findings/drive-docs-findings.md
 context/product/goat-os-feature-phases.md
-docs/phc-vaccination/V1-FOUNDATION-SPEC.md
+docs/preventive-care-vaccination/V1-FOUNDATION-SPEC.md
 docs/protocol-engine/migration-and-cutover.md
 context/execution/vaccination-process-integrity-backend-handoff.md
 ```
@@ -90,7 +90,7 @@ context/product/goat-os-feature-phases.md
   holding farms, advance-paid/shared-pending ownership, transit/handoff proof,
   arrival gate, discrepancy review, intake health SOP, and landing cost.
 
-docs/phc-vaccination/V1-FOUNDATION-SPEC.md
+docs/preventive-care-vaccination/V1-FOUNDATION-SPEC.md
   procurement DB evidence is arrival/intake/history evidence for vaccination,
   including load/vendor/tag/update/selection health/unloading/transit and
   historical vaccination-at-procurement evidence.
@@ -160,7 +160,7 @@ accepted intake
   -> procurement_phc_handoffs row/event with idempotent event_status
   -> relay/consumer or synchronous service path runs
   -> vaccination obligation generation sees only accepted-intake goats
-  -> rejected/source-only/unresolved goats generate no PHC vaccination work
+  -> rejected/source-only/unresolved goats generate no Preventive Care (PC) vaccination work
   -> CT / AC / PA / WF / Vaccination read models update from that same state
 ```
 
@@ -198,7 +198,7 @@ purchase/load created
   -> arrival gate at main park
   -> count/identity/health/weight/media reconciliation
   -> accepted herd intake
-  -> goat canonical state becomes usable for PHC/post-arrival vaccination rules
+  -> goat canonical state becomes usable for Preventive Care (PC) / post-arrival vaccination rules
 ```
 
 ## Required Case Coverage
@@ -209,35 +209,35 @@ generic notes or free-text status.
 | Case | Backend truth required | Downstream effect |
 | --- | --- | --- |
 | Purchased goat enters supplier/holding farm | Load, source, holding stay, temporary/source identity, ownership state | Not yet clean park herd truth |
-| Candidate/source goat tagged before final acceptance | Source-only identity, source tag/RFID, holding stay, selection/ownership state | Visible in procurement only; not a PHC/Parks goat yet |
-| Candidate/source goat rejected before purchase/load/truck | Durable source rejection decision, reason, actor, time, proof | Procurement history only; no active park work, no active PHC vaccination obligation |
+| Candidate/source goat tagged before final acceptance | Source-only identity, source tag/RFID, holding stay, selection/ownership state | Visible in procurement only; not a Preventive Care (PC) / Parks goat yet |
+| Candidate/source goat rejected before purchase/load/truck | Durable source rejection decision, reason, actor, time, proof | Procurement history only; no active park work, no active Preventive Care (PC) vaccination obligation |
 | Source warmup duration varies by purpose | Warmup start/end/days, purpose/classification, state, reason if outside purpose-specific window | Breeding 45-70 days is valid today; fattening/non-breeding can be 0 days or around 2 weeks; do not hard-cap from the old 2-8 week note |
 | Tagging done at supplier | Identifier evidence and source tag/RFID mapping | Goes through identity module/review, not blind duplicate goat creation |
 | Source health SOP passes | SOP task/submission/proof/reviewer state | Goat can move to pre-dispatch decision |
 | Source health SOP fails | Failed/rejected/deferred health state, reason, proof | Blocks truck loading; may become rejected/deferred |
-| Goat rejected before truck loading | Durable pre-dispatch rejected decision, reason, actor, time, proof | No active park work, no active PHC vaccination obligation |
+| Goat rejected before truck loading | Durable pre-dispatch rejected decision, reason, actor, time, proof | No active park work, no active Preventive Care (PC) vaccination obligation |
 | Goat deferred before truck loading | Deferred decision, reason, resume condition, owner | Stays in Action Center as source-entry work |
 | Missing proof before dispatch | Proof requirement gap, owner, due window | Action Center gap, Control Tower if severe/aged |
 | Identity/tag conflict before dispatch | Identity review reference and blocker | Cannot become accepted herd intake until resolved |
 | Partial load accepted | Per-goat decisions under one load | Accepted goats proceed; rejected/deferred goats remain separate history |
 | Accepted goat not loaded | Loading discrepancy state | Stays open for resolution; no arrival acceptance |
 | Truck loading proof submitted | Proof record linked to load/goats/SOP task | Dispatch can progress if verification policy passes |
-| Goat dies/sold/lost during holding/transit | Exit/cancel event with reason and proof | Cancels/rescopes active procurement/PHC obligations |
+| Goat dies/sold/lost during holding/transit | Exit/cancel event with reason and proof | Cancels/rescopes active procurement/Preventive Care (PC) obligations |
 | Arrival count mismatch | Expected, loaded, arrived, missing, extra counts | Arrival gate blocks accepted intake until reconciled |
 | Unknown/extra goat arrives | Temporary record and identity review | Cannot silently enter canonical herd |
-| Health/weight issue at arrival | Arrival review flags and optional quarantine/defer | Accepted intake may be blocked/deferred; PHC may see defer signal |
-| Arrival accepted | Accepted intake event, park/shed assignment, entry date | Goat becomes usable for post-arrival PHC/vaccination rules |
-| Historical vaccination at procurement exists | Evidence/completion candidate linked to source proof | PHC backfill/review decides whether it counts; avoid duplicate due work |
+| Health/weight issue at arrival | Arrival review flags and optional quarantine/defer | Accepted intake may be blocked/deferred; Preventive Care (PC) may see defer signal |
+| Arrival accepted | Accepted intake event, park/shed assignment, entry date | Goat becomes usable for post-arrival Preventive Care (PC) / vaccination rules |
+| Historical vaccination at procurement exists | Evidence/completion candidate linked to source proof | Preventive Care (PC) backfill/review decides whether it counts; avoid duplicate due work |
 | Arrival rejected | Arrival rejection reason/proof | Goat does not become active park/vaccination work |
 | Ownership still shared/pending | Ownership/settlement state | Visible in procurement; do not claim clean Mesha ownership |
-| Accepted intake -> vaccination handoff | Accepted intake event, canonical goat/location state, vaccination handoff marker/event | Post-arrival PHC obligations may be generated only from accepted-intake truth |
+| Accepted intake -> vaccination handoff | Accepted intake event, canonical goat/location state, vaccination handoff marker/event | Post-arrival Preventive Care (PC) obligations may be generated only from accepted-intake truth |
 
 Required invariant:
 
 ```text
 No pre-accepted, rejected-before-truck, arrival-rejected, dead, sold, lost,
 candidate/source-only, rejected-before-purchase/load, unknown/extra-unresolved,
-ownership-blocked, or identity-conflict goat may appear as active PHC
+ownership-blocked, or identity-conflict goat may appear as active Preventive Care (PC)
 vaccination work or vaccination execution work.
 ```
 
@@ -257,7 +257,7 @@ screen without frontend guessing.
 | Top-level Control Tower lens | Exception-only procurement gaps: aged warmup, high rejection, missing proof, unresolved arrival mismatch, owner missing |
 | Top-level Workflows lens | Chain nodes from load creation to accepted intake with current/blocked/completed state |
 | SOP Library | Source health, pre-dispatch, truck loading, transit handoff, arrival gate SOP definitions/versions |
-| PHC Vaccination | Only accepted-intake outputs: origin, entry/intake date, defer signal, trusted vaccination history |
+| Preventive Care (PC) Vaccination | Only accepted-intake outputs: origin, entry/intake date, defer signal, trusted vaccination history |
 
 ## Backend Design Shape
 
@@ -344,7 +344,7 @@ accepted_herd_intake
 ```
 
 Rejection before truck loading is a first-class terminal/branch state for the
-procurement slice. It must not silently create PHC vaccination due work.
+procurement slice. It must not silently create Preventive Care (PC) vaccination due work.
 
 ## Vaccination Boundary
 
@@ -373,11 +373,11 @@ active obligation. If obligations were already created from a provisional row,
 the procurement decision must cancel/rescope them through the obligation engine.
 
 Historical vaccination-at-procurement is evidence until reviewed. Do not create
-an accepted vaccination completion from source-side history unless the PHC
+an accepted vaccination completion from source-side history unless the Preventive Care (PC)
 backfill/review path accepts it under the vaccination contract.
 
 Accepted intake is the only handoff that can make a procured goat eligible for
-post-arrival PHC vaccination generation. That handoff should be idempotent and
+post-arrival Preventive Care (PC) vaccination generation. That handoff should be idempotent and
 auditable so retries cannot duplicate obligations.
 
 ## APIs
@@ -420,8 +420,8 @@ arrival:
   arrival accepted, and arrival rejected branches are covered.
 
 handoff:
-  accepted intake creates the PHC/vaccination handoff once.
-  rejected-before-truck and unresolved arrival rows create no active PHC/Parks
+  accepted intake creates the Preventive Care (PC) / vaccination handoff once.
+  rejected-before-truck and unresolved arrival rows create no active Preventive Care (PC) / Parks
   vaccination work.
 ```
 
@@ -451,7 +451,7 @@ context/execution/procurement-vaccination-e2e-plan.md
 
 That plan intentionally starts with a small deterministic fixture before any
 broad CRUD. It proves the important business rule: the journey starts at
-purchase/source, but PHC vaccination work starts from accepted herd/intake
+purchase/source, but Preventive Care (PC) vaccination work starts from accepted herd/intake
 truth.
 
 ## Acceptance

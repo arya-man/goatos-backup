@@ -149,8 +149,8 @@ async function verifyConfigAuthoring(page, authoredSop) {
   const expectedSourceRows = ["ET+TT", "PPR", "Goat Pox", "FMD", "HS"];
 
   await goto(page, "/config?scope_mode=company&category=vaccination");
-  await page.getByRole("button", { name: /New draft rule/i }).first().click();
-  const dialog = page.getByRole("dialog", { name: /Protocol rule editor/i }).first();
+  await page.getByRole("link", { name: /New draft rule/i }).first().click();
+  const dialog = page.getByTestId("rule-editor").first();
   await dialog.waitFor({ state: "visible", timeout: 10_000 });
 
   const publishBeforeSave = dialog.getByRole("button", { name: /Publish/i }).first();
@@ -186,6 +186,29 @@ async function verifyConfigAuthoring(page, authoredSop) {
   await expectVisibleTextIn(dialog, /Cross-vaccine spacing policy/i, "compatibility policy controls");
   await expectVisibleTextIn(dialog, /Procurement \/ source policy/i, "procurement policy controls");
   await expectVisibleTextIn(dialog, /Pregnancy \/ delivery policy/i, "pregnancy policy controls");
+
+  const matrixTable = dialog.locator("table").first();
+  await expectVisibleTextIn(matrixTable, /derived/i, "matrix source schedule derived badge");
+  await matrixTable.locator("tbody tr").first().click();
+  await expectInputValueMatches(dialog.locator('input[aria-label="Source schedule"]').first(), /kid critical schedule: mother vaccinated 4 and 7 weeks/i, "selected ET+TT source schedule detail");
+
+  await dialog.getByRole("button", { name: /^Add matrix row$/i }).click();
+  await expectVisibleTextIn(dialog, /6 rules/i, "blank matrix row count");
+  await expectInputValue(dialog.locator('input[aria-label="Vaccine 6"]'), "", "blank add row vaccine code");
+  await expectInputValue(dialog.locator('input[aria-label="Name 6"]'), "", "blank add row vaccine name");
+  const blankRow = matrixTable.locator("tbody tr").nth(5);
+  await expectDomTextIn(blankRow, /No source schedule/i, "blank row source schedule");
+  await dialog.getByRole("button", { name: /Save draft/i }).click();
+  await expectVisibleTextIn(dialog, /matrix row 6: vaccine code is required/i, "blank row validation");
+  await blankRow.getByRole("button", { name: /Remove matrix row 6/i }).click();
+  await expectVisibleTextIn(dialog, /5 rules/i, "blank row removed");
+
+  await matrixTable.locator("tbody tr").first().click();
+  await dialog.getByRole("button", { name: /^Copy selected row$/i }).click();
+  await expectInputValue(dialog.locator('input[aria-label="Vaccine 6"]'), "ET+TT_COPY", "copy selected row vaccine code");
+  await expectInputValueMatches(dialog.locator('input[aria-label="Source schedule"]').first(), /kid critical schedule: mother vaccinated 4 and 7 weeks/i, "copied row source schedule detail");
+  await matrixTable.locator("tbody tr").nth(5).getByRole("button", { name: /Remove matrix row 6/i }).click();
+  await expectVisibleTextIn(dialog, /5 rules/i, "copied row removed");
 
   const sourceSelects = dialog.locator('select[aria-label="Source & review (publish needs a real source + approval)"]');
   await sourceSelects.nth(0).selectOption("vaccinations_db");
@@ -351,6 +374,12 @@ async function expectInputValue(locator, expected, label) {
   await expectAtLeastOne(label, locator);
   const actual = await locator.first().inputValue();
   if (actual !== expected) throw new Error(`${label} expected value ${expected}, got ${actual}`);
+}
+
+async function expectInputValueMatches(locator, pattern, label) {
+  await expectAtLeastOne(label, locator);
+  const actual = await locator.first().inputValue();
+  if (!pattern.test(actual)) throw new Error(`${label} expected value matching ${pattern}, got ${actual}`);
 }
 
 async function selectOptionByText(select, text, label) {

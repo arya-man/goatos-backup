@@ -196,7 +196,7 @@ type PublishProtocolVersionParams struct {
 	ProtocolVersionID pgtype.UUID
 }
 
-// Status flip only; the source-backed approval gate is enforced in the app layer.
+// Status flip only; executable-contract checks are enforced in the app layer.
 func (q *Queries) PublishProtocolVersion(ctx context.Context, arg PublishProtocolVersionParams) (int64, error) {
 	result, err := q.db.Exec(ctx, publishProtocolVersion, arg.PublishedBy, arg.TenantID, arg.ProtocolVersionID)
 	if err != nil {

@@ -34,7 +34,7 @@ What evidence proves the answer?
 What alert/escalation fired when the deadline was crossed?
 ```
 
-This rule applies to PHC vaccination now and to future feed, breeding,
+This rule applies to Preventive Care (PC) vaccination now and to future feed, breeding,
 procurement, parks, HR/people, farmer network, sales/commerce, and finance
 modules later.
 
@@ -251,7 +251,7 @@ model refresh, and UI action paths.
 
 ## Current Vaccination Application
 
-PHC vaccination is the first visible proof of the kernel:
+Preventive Care (PC) vaccination is the first visible proof of the kernel:
 
 ```text
 goat created / accepted intake / source-backed protocol publish

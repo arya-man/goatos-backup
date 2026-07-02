@@ -11,7 +11,7 @@ Canonical docs:
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `docs/runbooks/google-cloud-environments.md`
 - `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
-- `docs/phc-vaccination/TRD.md`
+- `docs/preventive-care-vaccination/TRD.md`
 
 Rules:
 
@@ -20,7 +20,7 @@ Rules:
   database grants, capabilities, device/session state, and app bootstrap; token
   claims or Slack membership are not permission authority.
 - Old operator-management PRD/TRD docs were deleted from the active tree. Use
-  the workforce/RBAC modules and current protocol/PHC docs for active execution
+  the workforce/RBAC modules and current protocol/Preventive Care (PC) docs for active execution
   scope.
 - Rotate leaked Slack/Redis tokens before removing code references.
 - Store secrets in Secret Manager or env-specific secret stores, never source.
