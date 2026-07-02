@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -421,6 +422,21 @@ func TestPublishVersionRejectsInvalidScheduleRowBeforePublish(t *testing.T) {
 	}
 	if repo.createRuleCalled || repo.publishCalled {
 		t.Fatalf("invalid schedule should not create rules or publish")
+	}
+}
+
+func TestPublishVersionRejectsProcurementComboOverTwoVaccines(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	dsl := validVaccinationMatrixRuleDSL()
+	dsl = strings.Replace(dsl, `"first_wave":["ET+TT","PPR"]`, `"first_wave":["ET+TT","PPR","FMD"]`, 1)
+	repo.version.RuleDsl = []byte(dsl)
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("publish 3-vaccine combo err=%v, want ErrNotPublishable", err)
 	}
 }
 

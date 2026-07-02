@@ -66,21 +66,28 @@ type BatchCompletionEvidenceReader interface {
 	HasTrustedCompletionEvidenceBatch(ctx context.Context, tenantID, protocolVersionID string, candidates []domain.TrustedCompletionCandidate, generationAt time.Time) (map[string]bool, error)
 }
 
+// CrossVaccineGapReader resolves the latest accepted dose per goat for cross-vaccine gap floors.
+type CrossVaccineGapReader interface {
+	LastRecentVaccineAdministrationsForGoats(ctx context.Context, tenantID string, goatIDs []string, before time.Time) (map[string]domain.RecentVaccineAdministration, error)
+}
+
 type cachedVersionPlan struct {
-	rules       []protodomain.Rule
-	deferState  []string
-	eligibility genEligibility
-	policies    genVersionPolicies
+	rules          []protodomain.Rule
+	deferState     []string
+	eligibility    genEligibility
+	policies       genVersionPolicies
+	vaccineProfile vaccineProfile
 }
 
 type goatGenerationPlan struct {
-	versionID   string
-	rules       []protodomain.Rule
-	deferState  []string
-	goat        domain.EligibleGoat
-	opts        generationOptions
-	eligibility genEligibility
-	policies    genVersionPolicies
+	versionID      string
+	rules          []protodomain.Rule
+	deferState     []string
+	goat           domain.EligibleGoat
+	opts           generationOptions
+	eligibility    genEligibility
+	policies       genVersionPolicies
+	vaccineProfile vaccineProfile
 }
 
 type trustedEvidenceLookup map[string]bool
@@ -88,12 +95,13 @@ type trustedEvidenceLookup map[string]bool
 // GenerationService implements SM-1: expand a published protocol version's rules into per-goat
 // obligations over the in-care cohort, idempotently, deferring (visibly) ICU/quarantine/sick goats.
 type GenerationService struct {
-	proto    ProtocolReader
-	goats    GoatLister
-	obl      ObligationWriter
-	evidence CompletionEvidenceReader
-	runs     GenerationRunRecorder
-	page     int32
+	proto           ProtocolReader
+	goats           GoatLister
+	obl             ObligationWriter
+	evidence        CompletionEvidenceReader
+	crossVaccineGap CrossVaccineGapReader
+	runs            GenerationRunRecorder
+	page            int32
 }
 
 // NewGenerationService wires the three repos. The completion-evidence reader is auto-wired when the
@@ -103,6 +111,9 @@ func NewGenerationService(proto ProtocolReader, goats GoatLister, obl Obligation
 	s := &GenerationService{proto: proto, goats: goats, obl: obl, page: 500}
 	if reader, ok := goats.(CompletionEvidenceReader); ok {
 		s.evidence = reader
+	}
+	if gapReader, ok := goats.(CrossVaccineGapReader); ok {
+		s.crossVaccineGap = gapReader
 	}
 	if recorder, ok := goats.(GenerationRunRecorder); ok {
 		s.runs = recorder
@@ -129,6 +140,7 @@ func (s *GenerationService) requireEvidenceReader() error {
 type genEligibility struct {
 	AnimalStage               string        `json:"animal_stage"`
 	Stage                     string        `json:"stage"`
+	Species                   string        `json:"species"`
 	Sex                       string        `json:"sex"`
 	Breed                     string        `json:"breed"`
 	Lifecycle                 genStringList `json:"lifecycle"`
@@ -139,9 +151,11 @@ type genEligibility struct {
 	MinAgeDays                *int32        `json:"min_age_days"`
 	MaxAgeDays                *int32        `json:"max_age_days"`
 	AgeBand                   string        `json:"age_band"`
+	MotherVaccinatedBranch    *bool         `json:"mother_vaccinated_branch"`
 }
 
 type genDSL struct {
+	Vaccine             genVaccineMeta         `json:"vaccine"`
 	Eligibility         genEligibility         `json:"eligibility"`
 	CompatibilityPolicy genCompatibilityPolicy `json:"compatibility_policy"`
 	ProcurementPolicy   genProcurementPolicy   `json:"procurement_policy"`
@@ -259,24 +273,29 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 						return res, err
 					}
 					p = cachedVersionPlan{
-						rules:       rules,
-						deferState:  dsl.Eligibility.DeferStates,
-						eligibility: dsl.Eligibility,
-						policies:    versionPoliciesFromDSL(dsl),
+						rules:          rules,
+						deferState:     dsl.Eligibility.DeferStates,
+						eligibility:    dsl.Eligibility,
+						policies:       versionPoliciesFromDSL(dsl),
+						vaccineProfile: vaccineProfileFromDSL(dsl),
 					}
 					plans[versionID] = p
 				}
 				if !goatMatchesEligibility(g, p.eligibility, p.policies.Pregnancy, asOf) {
 					continue
 				}
+				if !motherBranchMatchesGoat(g, p.eligibility.MotherVaccinatedBranch, p.policies.Procurement, asOf) {
+					continue
+				}
 				pagePlans = append(pagePlans, goatGenerationPlan{
-					versionID:   versionID,
-					rules:       p.rules,
-					deferState:  p.deferState,
-					goat:        g,
-					opts:        generationOptions{},
-					eligibility: p.eligibility,
-					policies:    p.policies,
+					versionID:      versionID,
+					rules:          p.rules,
+					deferState:     p.deferState,
+					goat:           g,
+					opts:           generationOptions{},
+					eligibility:    p.eligibility,
+					policies:       p.policies,
+					vaccineProfile: p.vaccineProfile,
 				})
 			}
 		}
@@ -284,8 +303,13 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 		if err != nil {
 			return res, err
 		}
+		lastVaccineByGoat, err := s.lastVaccineAdminsForPlans(ctx, tenantID, pagePlans, asOf)
+		if err != nil {
+			return res, err
+		}
 		for _, p := range pagePlans {
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, p.policies, trustedByVersion[p.versionID], &res); err != nil {
+			lastAdmin := lastVaccineByGoat[p.goat.GoatID]
+			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, lastAdminPtr(lastAdmin), trustedByVersion[p.versionID], &res); err != nil {
 				return res, err
 			}
 		}
@@ -405,6 +429,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 	}
 	elig := dsl.Eligibility
 	policies := versionPoliciesFromDSL(dsl)
+	vaccineProf := vaccineProfileFromDSL(dsl)
 	stage := eligibilityStage(elig)
 	filter := domain.ImpactFilter{
 		TenantID: tenantID,
@@ -435,6 +460,9 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			if !goatMatchesEligibility(g, elig, policies.Pregnancy, asOf) {
 				continue
 			}
+			if !motherBranchMatchesGoat(g, elig.MotherVaccinatedBranch, policies.Procurement, asOf) {
+				continue
+			}
 			if v.ScopeType == "tenant" {
 				effective, err := s.versionEffectiveForGoat(ctx, tenantID, g.ParkID, versionID, asOf, effectiveCache)
 				if err != nil {
@@ -445,21 +473,27 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 				}
 			}
 			pagePlans = append(pagePlans, goatGenerationPlan{
-				versionID:   versionID,
-				rules:       rules,
-				deferState:  elig.DeferStates,
-				goat:        g,
-				opts:        opts,
-				eligibility: elig,
-				policies:    policies,
+				versionID:      versionID,
+				rules:          rules,
+				deferState:     elig.DeferStates,
+				goat:           g,
+				opts:           opts,
+				eligibility:    elig,
+				policies:       policies,
+				vaccineProfile: vaccineProf,
 			})
 		}
 		trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf)
 		if err != nil {
 			return res, err
 		}
+		lastVaccineByGoat, err := s.lastVaccineAdminsForPlans(ctx, tenantID, pagePlans, asOf)
+		if err != nil {
+			return res, err
+		}
 		for _, p := range pagePlans {
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, p.policies, trustedByVersion[p.versionID], &res); err != nil {
+			lastAdmin := lastVaccineByGoat[p.goat.GoatID]
+			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, lastAdminPtr(lastAdmin), trustedByVersion[p.versionID], &res); err != nil {
 				return res, err
 			}
 		}
@@ -576,9 +610,33 @@ func trustedCompletionCandidate(rule protodomain.Rule, g domain.EligibleGoat, du
 	}
 }
 
+func (s *GenerationService) lastVaccineAdminsForPlans(ctx context.Context, tenantID string, plans []goatGenerationPlan, before time.Time) (map[string]domain.RecentVaccineAdministration, error) {
+	out := make(map[string]domain.RecentVaccineAdministration)
+	if s.crossVaccineGap == nil || len(plans) == 0 {
+		return out, nil
+	}
+	goatIDs := make([]string, 0, len(plans))
+	seen := make(map[string]bool, len(plans))
+	for _, plan := range plans {
+		if seen[plan.goat.GoatID] {
+			continue
+		}
+		seen[plan.goat.GoatID] = true
+		goatIDs = append(goatIDs, plan.goat.GoatID)
+	}
+	return s.crossVaccineGap.LastRecentVaccineAdministrationsForGoats(ctx, tenantID, goatIDs, before)
+}
+
+func lastAdminPtr(admin domain.RecentVaccineAdministration) *domain.RecentVaccineAdministration {
+	if admin.AdministeredAt.IsZero() {
+		return nil
+	}
+	return &admin
+}
+
 // genOneGoat applies every applicable rule to one goat: compute due_at, idempotent insert, and a
 // canonical deferred state when the goat is in a defer state. Accumulates counts into res.
-func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
+func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, vaccineProf vaccineProfile, lastAdmin *domain.RecentVaccineAdministration, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
 	historicalCatchUpMaterialized := false
 	path := schedulePathForGoat(g, policies.Procurement, asOf)
 	for _, rule := range rules {
@@ -611,6 +669,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		due, catchUpDeferReason, skip := applyMissedDosePolicy(rule, baseDue, asOf)
 		if skip {
 			continue
+		}
+		if s.crossVaccineGap != nil && lastAdmin != nil {
+			due = applyCrossVaccineGapFloor(due, lastAdmin, vaccineProf, policies.Compatibility)
 		}
 		if limitsHistoricalCatchUp(rule, baseDue, due, asOf, opts) {
 			if historicalCatchUpMaterialized {
@@ -844,26 +905,39 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 			}
 			continue
 		}
+		policies := versionPoliciesFromDSL(dsl)
+		if !motherBranchMatchesGoat(g, dsl.Eligibility.MotherVaccinatedBranch, policies.Procurement, asOf) {
+			if _, err := s.obl.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, goatID, versionID, "ineligible_after_shift", asOf); err != nil {
+				return res, err
+			}
+			continue
+		}
 		rules, err := s.proto.ListRules(ctx, tenantID, versionID)
 		if err != nil {
 			return res, err
 		}
 		pagePlans = append(pagePlans, goatGenerationPlan{
-			versionID:   versionID,
-			rules:       rules,
-			deferState:  dsl.Eligibility.DeferStates,
-			goat:        g,
-			opts:        opts,
-			eligibility: dsl.Eligibility,
-			policies:    versionPoliciesFromDSL(dsl),
+			versionID:      versionID,
+			rules:          rules,
+			deferState:     dsl.Eligibility.DeferStates,
+			goat:           g,
+			opts:           opts,
+			eligibility:    dsl.Eligibility,
+			policies:       policies,
+			vaccineProfile: vaccineProfileFromDSL(dsl),
 		})
 	}
 	trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf)
 	if err != nil {
 		return res, err
 	}
+	lastVaccineByGoat, err := s.lastVaccineAdminsForPlans(ctx, tenantID, pagePlans, asOf)
+	if err != nil {
+		return res, err
+	}
 	for _, p := range pagePlans {
-		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, p.policies, trustedByVersion[p.versionID], &res); err != nil {
+		lastAdmin := lastVaccineByGoat[p.goat.GoatID]
+		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, lastAdminPtr(lastAdmin), trustedByVersion[p.versionID], &res); err != nil {
 			return res, err
 		}
 	}
@@ -1035,6 +1109,9 @@ func eligibilityStage(e genEligibility) string {
 }
 
 func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, preg genPregnancyPolicy, asOf time.Time) bool {
+	if s := normDim(e.Species); s != "" && !sameDim(s, g.Species) {
+		return false
+	}
 	if s := normDim(eligibilityStage(e)); s != "" && !sameDim(s, g.Stage) {
 		return false
 	}

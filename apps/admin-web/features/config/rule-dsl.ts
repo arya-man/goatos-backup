@@ -81,12 +81,14 @@ export interface CompatibilityPolicy {
   kidBoosterMinGapDays: number;
   bacterialViralSameDayAllowed: boolean;
   liveKilledViralSameDayAllowed: boolean;
+  maxVaccinesPerComboSession: number;
 }
 
 export interface ProcurementPolicy {
   warmupNoVaccinationDays: number;
   kidsNormalScheduleUntilWeeks: number;
   adultPriorVaccinationAllowed: boolean;
+  assumeMotherVaccinatedWhenUnknown: boolean;
   firstWave: string;
   secondWaveAfterDays: number;
   goatSecondWave: string;
@@ -209,6 +211,7 @@ export function newCompatibilityPolicy(): CompatibilityPolicy {
     kidBoosterMinGapDays: 21,
     bacterialViralSameDayAllowed: true,
     liveKilledViralSameDayAllowed: true,
+    maxVaccinesPerComboSession: 2,
   };
 }
 
@@ -217,6 +220,7 @@ export function newProcurementPolicy(): ProcurementPolicy {
     warmupNoVaccinationDays: 7,
     kidsNormalScheduleUntilWeeks: 16,
     adultPriorVaccinationAllowed: true,
+    assumeMotherVaccinatedWhenUnknown: true,
     firstWave: "ET+TT,PPR",
     secondWaveAfterDays: 28,
     goatSecondWave: "Goat Pox,ET+TT booster",
@@ -284,14 +288,16 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       kid_booster_min_gap_days: Number(input.compatibilityPolicy.kidBoosterMinGapDays) || 0,
       bacterial_viral_same_day_allowed: input.compatibilityPolicy.bacterialViralSameDayAllowed,
       live_killed_viral_same_day_allowed: input.compatibilityPolicy.liveKilledViralSameDayAllowed,
+      max_vaccines_per_combo_session: Math.min(2, Number(input.compatibilityPolicy.maxVaccinesPerComboSession) || 2),
     },
     procurement_policy: {
       warmup_no_vaccination_days: Number(input.procurementPolicy.warmupNoVaccinationDays) || 0,
       kids_normal_schedule_until_weeks: Number(input.procurementPolicy.kidsNormalScheduleUntilWeeks) || 0,
       adult_prior_vaccination_allowed: input.procurementPolicy.adultPriorVaccinationAllowed,
-      first_wave: csvToArr(input.procurementPolicy.firstWave),
+      assume_mother_vaccinated_when_unknown: input.procurementPolicy.assumeMotherVaccinatedWhenUnknown,
+      first_wave: csvToArr(input.procurementPolicy.firstWave).slice(0, 2),
       second_wave_after_days: Number(input.procurementPolicy.secondWaveAfterDays) || 0,
-      goat_second_wave: csvToArr(input.procurementPolicy.goatSecondWave),
+      goat_second_wave: csvToArr(input.procurementPolicy.goatSecondWave).slice(0, 2),
     },
     pregnancy_policy: {
       allow_until_pregnancy_month: Number(input.pregnancyPolicy.allowUntilPregnancyMonth) || 0,

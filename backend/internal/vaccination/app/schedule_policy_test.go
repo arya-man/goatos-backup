@@ -54,6 +54,23 @@ func TestRecoveryRescheduleDue(t *testing.T) {
 	}
 }
 
+func TestMotherBranchAssumesVaccinatedWhenUnknown(t *testing.T) {
+	proc := genProcurementPolicy{}
+	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	kid := domain.EligibleGoat{OriginType: "birth", DOB: &dob, Stage: "K1"}
+	if !kidMotherVaccinatedBranch(proc) {
+		t.Fatal("expected mother-vaccinated branch by default")
+	}
+	vaccinated := true
+	notVaccinated := false
+	if !motherBranchMatchesGoat(kid, &vaccinated, proc, dob.AddDate(0, 0, 30)) {
+		t.Fatal("mother-vaccinated row should match default branch")
+	}
+	if motherBranchMatchesGoat(kid, &notVaccinated, proc, dob.AddDate(0, 0, 30)) {
+		t.Fatal("mother-not-vaccinated row should not match when unknown dam is assumed vaccinated")
+	}
+}
+
 func TestWarmingDeferReason(t *testing.T) {
 	entry := time.Date(2026, time.July, 1, 12, 0, 0, 0, time.UTC)
 	proc := genProcurementPolicy{WarmupNoVaccinationDays: 7}

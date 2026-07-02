@@ -33,7 +33,8 @@ func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, ve
 			break
 		}
 		for _, row := range rows {
-			groups[row.ParkID] = append(groups[row.ParkID], row)
+			key := row.ParkID + "|" + row.TargetSpecies
+			groups[key] = append(groups[key], row)
 		}
 		if int32(len(rows)) < s.page {
 			break
@@ -41,7 +42,11 @@ func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, ve
 	}
 
 	now := dueBefore.UTC()
-	for parkID, rows := range groups {
+	for _, rows := range groups {
+		if len(rows) == 0 {
+			continue
+		}
+		parkID := rows[0].ParkID
 		remaining := append([]domain.ParkConsolidationCandidate(nil), rows...)
 		for len(remaining) >= int(minMergeTargets) && uniqueShedCount(remaining) >= int(minMergeSheds) {
 			plannedDate, selected := pickBestParkDriveDate(now, remaining)
@@ -242,9 +247,4 @@ func parkDriveWindow(rows []domain.ParkConsolidationCandidate, selected []string
 		}
 	}
 	return windowStart, windowEnd
-}
-
-func utcDate(t time.Time) time.Time {
-	y, m, d := t.UTC().Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }

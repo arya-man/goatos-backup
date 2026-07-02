@@ -114,6 +114,13 @@ func run(args []string) error {
 			fmt.Printf("swept version=%s batches=%d obligations=%d park_batches=%d park_obligations=%d\n",
 				versionID, result.Batches, result.Obligations, result.ParkBatches, result.ParkObligations)
 		}
+		aligned, err := sweeper.AlignComboDrives(ctx, cfg.TenantID, obligationdomain.DefaultDrivePlannerSettings().ComboAlignWindowDays, cfg.DueBefore)
+		if err != nil {
+			return fmt.Errorf("align combo drives: %w", err)
+		}
+		if aligned > 0 {
+			fmt.Printf("combo drive dates aligned=%d\n", aligned)
+		}
 	}
 	if cfg.MarkMissed {
 		missed, err := sweeper.MarkMissed(ctx, cfg.TenantID, cfg.MissedBefore)
@@ -181,11 +188,14 @@ func buildSweepConfig(ctx context.Context, protocolRepo *protocolpg.Repository, 
 	if vaccineItemID == "" {
 		vaccineItemID = stockItemIDFromRuleDSL(version.RuleDsl)
 	}
+	vaccineCode, drivePlanner := obligationapp.DrivePlannerFromRuleDSL(version.RuleDsl)
 	out := obligationapp.SweepConfig{
 		SOPVersionID:      versionSOP,
 		VaccineItemID:     vaccineItemID,
+		VaccineCode:       vaccineCode,
 		DosesPerGoat:      int32(cfg.DosesPerGoat),
 		ParkConsolidation: obligationdomain.DefaultParkConsolidationSettings(),
+		DrivePlanner:      drivePlanner,
 	}
 	rules, err := protocolRepo.ListRules(ctx, cfg.TenantID, versionID)
 	if err != nil {

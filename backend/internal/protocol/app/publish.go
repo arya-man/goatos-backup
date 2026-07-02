@@ -32,11 +32,13 @@ var executableTriggerTypes = map[string]bool{
 }
 
 type ruleDSLEnvelope struct {
-	Category         string          `json:"category"`
-	Vaccine          vaccineMeta     `json:"vaccine"`
-	Eligibility      json.RawMessage `json:"eligibility"`
-	MissedDosePolicy string          `json:"missed_dose_policy"`
-	Schedule         []scheduleRow   `json:"schedule"`
+	Category            string          `json:"category"`
+	Vaccine             vaccineMeta     `json:"vaccine"`
+	Eligibility         json.RawMessage `json:"eligibility"`
+	MissedDosePolicy    string          `json:"missed_dose_policy"`
+	ProcurementPolicy   json.RawMessage `json:"procurement_policy"`
+	CompatibilityPolicy json.RawMessage `json:"compatibility_policy"`
+	Schedule            []scheduleRow   `json:"schedule"`
 }
 
 type vaccineMeta struct {
@@ -101,6 +103,7 @@ var (
 		"animal_stage":                true,
 		"animal_stage_source":         true,
 		"stage":                       true,
+		"species":                     true,
 		"sex":                         true,
 		"breed":                       true,
 		"breed_class":                 true,
@@ -112,6 +115,7 @@ var (
 		"min_age_days":                true,
 		"max_age_days":                true,
 		"age_band":                    true,
+		"mother_vaccinated_branch":    true,
 	}
 	ruleDSLVaccineKeys = map[string]bool{
 		"code":                true,
@@ -131,14 +135,17 @@ var (
 		"kid_booster_min_gap_days":           true,
 		"bacterial_viral_same_day_allowed":   true,
 		"live_killed_viral_same_day_allowed": true,
+		"max_vaccines_per_combo_session":     true,
 	}
 	ruleDSLProcurementPolicyKeys = map[string]bool{
-		"warmup_no_vaccination_days":       true,
-		"kids_normal_schedule_until_weeks": true,
-		"adult_prior_vaccination_allowed":  true,
-		"first_wave":                       true,
-		"second_wave_after_days":           true,
-		"goat_second_wave":                 true,
+		"warmup_no_vaccination_days":            true,
+		"kids_normal_schedule_until_weeks":      true,
+		"adult_prior_vaccination_allowed":       true,
+		"assume_mother_vaccinated_when_unknown": true,
+		"first_wave":                            true,
+		"second_wave_after_days":                true,
+		"goat_second_wave":                      true,
+		"sheep_second_wave":                     true,
 	}
 	ruleDSLPregnancyPolicyKeys = map[string]bool{
 		"allow_until_pregnancy_month":  true,
@@ -453,7 +460,61 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 			return fmt.Errorf("%w: schedule[%d] course_lapse_policy required for vaccination matrix", ErrNotPublishable, idx)
 		}
 	}
+	if err := validateVaccinationComboLimits(env); err != nil {
+		return err
+	}
 	return nil
+}
+
+const maxVaccinesPerComboSession = 2
+
+func validateVaccinationComboLimits(env ruleDSLEnvelope) error {
+	if len(env.CompatibilityPolicy) > 0 && string(env.CompatibilityPolicy) != "null" {
+		compat, err := decodeRuleDSLObject(env.CompatibilityPolicy, "rule_dsl.compatibility_policy", ruleDSLCompatibilityPolicyKeys)
+		if err != nil {
+			return err
+		}
+		if raw, ok := compat["max_vaccines_per_combo_session"]; ok {
+			var max int32
+			if err := json.Unmarshal(raw, &max); err != nil {
+				return fmt.Errorf("%w: compatibility_policy.max_vaccines_per_combo_session must be a number", ErrNotPublishable)
+			}
+			if max > maxVaccinesPerComboSession {
+				return fmt.Errorf("%w: compatibility_policy.max_vaccines_per_combo_session cannot exceed %d", ErrNotPublishable, maxVaccinesPerComboSession)
+			}
+		}
+	}
+	if len(env.ProcurementPolicy) == 0 || string(env.ProcurementPolicy) == "null" {
+		return nil
+	}
+	proc, err := decodeRuleDSLObject(env.ProcurementPolicy, "rule_dsl.procurement_policy", ruleDSLProcurementPolicyKeys)
+	if err != nil {
+		return err
+	}
+	for _, key := range []string{"first_wave", "goat_second_wave", "sheep_second_wave"} {
+		raw, ok := proc[key]
+		if !ok {
+			continue
+		}
+		var wave []string
+		if err := json.Unmarshal(raw, &wave); err != nil {
+			return fmt.Errorf("%w: procurement_policy.%s must be a string array", ErrNotPublishable, key)
+		}
+		if countNonBlankStrings(wave) > maxVaccinesPerComboSession {
+			return fmt.Errorf("%w: procurement_policy.%s allows at most %d vaccines per combo visit", ErrNotPublishable, key, maxVaccinesPerComboSession)
+		}
+	}
+	return nil
+}
+
+func countNonBlankStrings(values []string) int {
+	n := 0
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			n++
+		}
+	}
+	return n
 }
 
 func hasAnyNonBlank(obj map[string]json.RawMessage, keys ...string) bool {

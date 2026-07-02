@@ -26,9 +26,11 @@ type StockReserver interface {
 type SweepConfig struct {
 	SOPVersionID      string
 	VaccineItemID     string
+	VaccineCode       string
 	DosesPerGoat      int32
 	RuleConfigs       map[string]SweepRuleConfig
 	ParkConsolidation domain.ParkConsolidationSettings
+	DrivePlanner      domain.DrivePlannerSettings
 }
 
 // SweepRuleConfig overrides version-level execution bindings for one protocol rule.
@@ -73,57 +75,70 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 			scopeType   string
 			scopeID     string
 			ruleID      string
-			plannedDate *time.Time
 			windowStart *time.Time
 			windowEnd   *time.Time
+			rows        []domain.UnbatchedDue
 			ids         []string
 		}
 		order := make([]string, 0)
 		groups := make(map[string]*group)
 		for _, r := range rows {
-			plannedDate := batchPlannedDate(r.DueAt)
-			k := sweepGroupKey(r, plannedDate)
+			k := sweepWindowGroupKey(r)
 			g := groups[k]
 			if g == nil {
-				g = &group{scopeType: r.ScopeType, scopeID: r.ScopeID, ruleID: r.RuleID, plannedDate: plannedDate, windowStart: r.WindowStart, windowEnd: r.WindowEnd}
+				g = &group{scopeType: r.ScopeType, scopeID: r.ScopeID, ruleID: r.RuleID, windowStart: r.WindowStart, windowEnd: r.WindowEnd}
 				groups[k] = g
 				order = append(order, k)
 			}
+			g.rows = append(g.rows, r)
 			g.ids = append(g.ids, r.ObligationID)
 		}
 
+		planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
 		var progressed int64
 		for _, k := range order {
 			g := groups[k]
 			if deferShedGroupToPark(cfg, g.scopeType, len(g.ids)) {
 				continue
 			}
-			_, n, err := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
-				TenantID:          tenantID,
-				ProtocolVersionID: versionID,
-				ScopeType:         g.scopeType,
-				ScopeID:           g.scopeID,
-				Session:           batchSession(g.ruleID),
-				PlannedDate:       g.plannedDate,
-				WindowStart:       g.windowStart,
-				WindowEnd:         g.windowEnd,
-				Status:            "planned",
-				EstimatedTargets:  int32(len(g.ids)),
-				PlannedQuantity:   strconv.FormatInt(int64(len(g.ids))*int64(normalizedDosesPerGoat(cfg.forRule(g.ruleID).DosesPerGoat)), 10),
-				QuantityUnit:      "dose",
-			}, g.ids)
-			if err != nil {
-				return res, err
+			plannedDate := batchPlannedDate(g.rows[0].DueAt)
+			if planner.Enabled {
+				if picked := pickBestDriveDate(dueBefore, driveCandidatesFromUnbatched(g.rows), planner.VaccinePriority); picked != nil {
+					plannedDate = picked
+				}
 			}
-			if n == 0 {
-				continue
+			idChunks := splitObligationIDs(g.ids, planner.MaxGoatsPerDrive)
+			for _, chunk := range idChunks {
+				if len(chunk) == 0 {
+					continue
+				}
+				_, n, err := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+					TenantID:          tenantID,
+					ProtocolVersionID: versionID,
+					ScopeType:         g.scopeType,
+					ScopeID:           g.scopeID,
+					Session:           batchSession(g.ruleID, cfg.VaccineCode),
+					PlannedDate:       plannedDate,
+					WindowStart:       g.windowStart,
+					WindowEnd:         g.windowEnd,
+					Status:            "planned",
+					EstimatedTargets:  int32(len(chunk)),
+					PlannedQuantity:   strconv.FormatInt(int64(len(chunk))*int64(normalizedDosesPerGoat(cfg.forRule(g.ruleID).DosesPerGoat)), 10),
+					QuantityUnit:      "dose",
+				}, chunk)
+				if err != nil {
+					return res, err
+				}
+				if n == 0 {
+					continue
+				}
+				if !touchedScopes[k] {
+					res.Batches++
+					touchedScopes[k] = true
+				}
+				res.Obligations += int(n)
+				progressed += n
 			}
-			if !touchedScopes[k] {
-				res.Batches++
-				touchedScopes[k] = true
-			}
-			res.Obligations += int(n)
-			progressed += n
 		}
 		if progressed == 0 || int32(len(rows)) < s.page {
 			break
@@ -194,9 +209,9 @@ func (s *SweeperService) batchRemainingShedObligations(ctx context.Context, tena
 			scopeType   string
 			scopeID     string
 			ruleID      string
-			plannedDate *time.Time
 			windowStart *time.Time
 			windowEnd   *time.Time
+			rows        []domain.UnbatchedDue
 			ids         []string
 		}
 		order := make([]string, 0)
@@ -205,45 +220,58 @@ func (s *SweeperService) batchRemainingShedObligations(ctx context.Context, tena
 			if r.ScopeType != "shed" {
 				continue
 			}
-			plannedDate := batchPlannedDate(r.DueAt)
-			k := sweepGroupKey(r, plannedDate)
+			k := sweepWindowGroupKey(r)
 			g := groups[k]
 			if g == nil {
-				g = &group{scopeType: r.ScopeType, scopeID: r.ScopeID, ruleID: r.RuleID, plannedDate: plannedDate, windowStart: r.WindowStart, windowEnd: r.WindowEnd}
+				g = &group{scopeType: r.ScopeType, scopeID: r.ScopeID, ruleID: r.RuleID, windowStart: r.WindowStart, windowEnd: r.WindowEnd}
 				groups[k] = g
 				order = append(order, k)
 			}
+			g.rows = append(g.rows, r)
 			g.ids = append(g.ids, r.ObligationID)
 		}
+		planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
 		var progressed int64
 		for _, k := range order {
 			g := groups[k]
-			_, n, err := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
-				TenantID:          tenantID,
-				ProtocolVersionID: versionID,
-				ScopeType:         g.scopeType,
-				ScopeID:           g.scopeID,
-				Session:           batchSession(g.ruleID),
-				PlannedDate:       g.plannedDate,
-				WindowStart:       g.windowStart,
-				WindowEnd:         g.windowEnd,
-				Status:            "planned",
-				EstimatedTargets:  int32(len(g.ids)),
-				PlannedQuantity:   strconv.FormatInt(int64(len(g.ids))*int64(normalizedDosesPerGoat(cfg.forRule(g.ruleID).DosesPerGoat)), 10),
-				QuantityUnit:      "dose",
-			}, g.ids)
-			if err != nil {
-				return res, err
+			plannedDate := batchPlannedDate(g.rows[0].DueAt)
+			if planner.Enabled {
+				if picked := pickBestDriveDate(dueBefore, driveCandidatesFromUnbatched(g.rows), planner.VaccinePriority); picked != nil {
+					plannedDate = picked
+				}
 			}
-			if n == 0 {
-				continue
+			idChunks := splitObligationIDs(g.ids, planner.MaxGoatsPerDrive)
+			for _, chunk := range idChunks {
+				if len(chunk) == 0 {
+					continue
+				}
+				_, n, err := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+					TenantID:          tenantID,
+					ProtocolVersionID: versionID,
+					ScopeType:         g.scopeType,
+					ScopeID:           g.scopeID,
+					Session:           batchSession(g.ruleID, cfg.VaccineCode),
+					PlannedDate:       plannedDate,
+					WindowStart:       g.windowStart,
+					WindowEnd:         g.windowEnd,
+					Status:            "planned",
+					EstimatedTargets:  int32(len(chunk)),
+					PlannedQuantity:   strconv.FormatInt(int64(len(chunk))*int64(normalizedDosesPerGoat(cfg.forRule(g.ruleID).DosesPerGoat)), 10),
+					QuantityUnit:      "dose",
+				}, chunk)
+				if err != nil {
+					return res, err
+				}
+				if n == 0 {
+					continue
+				}
+				if !touchedScopes[k] {
+					res.Batches++
+					touchedScopes[k] = true
+				}
+				res.Obligations += int(n)
+				progressed += n
 			}
-			if !touchedScopes[k] {
-				res.Batches++
-				touchedScopes[k] = true
-			}
-			res.Obligations += int(n)
-			progressed += n
 		}
 		if progressed == 0 || int32(len(rows)) < s.page {
 			break
@@ -336,17 +364,6 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 			return nil
 		}
 	}
-}
-
-func sweepGroupKey(r domain.UnbatchedDue, plannedDate *time.Time) string {
-	return r.ScopeType + "|" + r.ScopeID + "|" + r.RuleID + "|" + timeKey(plannedDate) + "|" + timeKey(r.WindowStart) + "|" + timeKey(r.WindowEnd)
-}
-
-func batchSession(ruleID string) string {
-	if ruleID == "" {
-		return ""
-	}
-	return "rule:" + ruleID
 }
 
 func batchPlannedDate(dueAt time.Time) *time.Time {

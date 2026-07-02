@@ -20,16 +20,44 @@ type genCompatibilityPolicy struct {
 	KidBoosterMinGapDays          int32 `json:"kid_booster_min_gap_days"`
 	BacterialViralSameDayAllowed  bool  `json:"bacterial_viral_same_day_allowed"`
 	LiveKilledViralSameDayAllowed bool  `json:"live_killed_viral_same_day_allowed"`
+	MaxVaccinesPerComboSession    int32 `json:"max_vaccines_per_combo_session"`
 }
 
 type genProcurementPolicy struct {
-	WarmupNoVaccinationDays       int32 `json:"warmup_no_vaccination_days"`
-	KidsNormalScheduleUntilWeeks  int32 `json:"kids_normal_schedule_until_weeks"`
-	AdultSourceVaccinationAllowed bool  `json:"adult_source_vaccination_allowed"`
+	WarmupNoVaccinationDays           int32 `json:"warmup_no_vaccination_days"`
+	KidsNormalScheduleUntilWeeks      int32 `json:"kids_normal_schedule_until_weeks"`
+	AdultSourceVaccinationAllowed     bool  `json:"adult_source_vaccination_allowed"`
+	AssumeMotherVaccinatedWhenUnknown *bool `json:"assume_mother_vaccinated_when_unknown"`
 }
 
 func (p genProcurementPolicy) active() bool {
-	return p.WarmupNoVaccinationDays > 0 || p.KidsNormalScheduleUntilWeeks > 0 || p.AdultSourceVaccinationAllowed
+	return p.WarmupNoVaccinationDays > 0 || p.KidsNormalScheduleUntilWeeks > 0 || p.AdultSourceVaccinationAllowed ||
+		p.AssumeMotherVaccinatedWhenUnknown != nil
+}
+
+// assumeMotherVaccinatedWhenUnknown defaults true: missing dam/mother history uses the mother-vaccinated kid schedule.
+func (p genProcurementPolicy) assumeMotherVaccinatedWhenUnknown() bool {
+	if p.AssumeMotherVaccinatedWhenUnknown == nil {
+		return true
+	}
+	return *p.AssumeMotherVaccinatedWhenUnknown
+}
+
+// kidMotherVaccinatedBranch selects the kid schedule branch. V1 uses only the mother-vaccinated timings;
+// when mother details are missing we treat the dam as vaccinated per procurement policy.
+func kidMotherVaccinatedBranch(proc genProcurementPolicy) bool {
+	return proc.assumeMotherVaccinatedWhenUnknown()
+}
+
+// motherBranchMatchesGoat gates matrix rows tagged with eligibility.mother_vaccinated_branch (kids only).
+func motherBranchMatchesGoat(g domain.EligibleGoat, branch *bool, proc genProcurementPolicy, asOf time.Time) bool {
+	if branch == nil {
+		return true
+	}
+	if schedulePathForGoat(g, proc, asOf) != schedulePathKid {
+		return true
+	}
+	return kidMotherVaccinatedBranch(proc) == *branch
 }
 
 type genPregnancyPolicy struct {

@@ -12,6 +12,46 @@ import (
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
+func TestGenerateForVersionAppliesCrossVaccineGap(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	pprAt := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		rules: []protodomain.Rule{{
+			RuleID: "rule-gpox", DoseCode: "gpox-dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 98,
+		}},
+		ruleDSL: []byte(`{"vaccine":{"code":"Goat Pox","type":"live","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},"compatibility_policy":{"live_to_live_gap_days":28}}`),
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{GoatID: "goat-1", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"}},
+		lastVaccine: map[string]domain.RecentVaccineAdministration{
+			"goat-1": {
+				AdministeredAt: pprAt,
+				VaccineCode:    "PPR",
+				VaccineType:    "live",
+				PathogenClass:  "viral",
+			},
+		},
+	}
+	obl := &generationObligationFake{}
+	gen := NewGenerationService(proto, goats, obl)
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 1 {
+		t.Fatalf("generated=%d want 1", result.Generated)
+	}
+	if len(obl.inserted) != 1 {
+		t.Fatalf("inserted=%d want 1", len(obl.inserted))
+	}
+	wantDue := time.Date(2026, 6, 29, 0, 0, 0, 0, time.UTC)
+	if !obl.inserted[0].DueAt.Equal(wantDue) {
+		t.Fatalf("due=%s want %s (4-week live→live gap after PPR)", obl.inserted[0].DueAt, wantDue)
+	}
+}
+
 func TestManualCampaignHTTPRunReplaysByIdempotencyKey(t *testing.T) {
 	ctx := context.Background()
 	proto := &generationProtoFake{}
@@ -1034,6 +1074,7 @@ type generationGoatFake struct {
 	filters      []domain.ImpactFilter
 	trustedByDue map[string]bool
 	trustedCalls []time.Time
+	lastVaccine  map[string]domain.RecentVaccineAdministration
 }
 
 func (g *generationGoatFake) ListEligibleGoatsForGeneration(_ context.Context, f domain.ImpactFilter, _ string, _ int32) ([]domain.EligibleGoat, error) {
@@ -1057,6 +1098,16 @@ func (g *generationGoatFake) HasTrustedCompletionEvidence(_ context.Context, _, 
 		return false, nil
 	}
 	return g.trustedByDue[dueAt.UTC().Format(time.RFC3339Nano)], nil
+}
+
+func (g *generationGoatFake) LastRecentVaccineAdministrationsForGoats(_ context.Context, _ string, goatIDs []string, _ time.Time) (map[string]domain.RecentVaccineAdministration, error) {
+	out := make(map[string]domain.RecentVaccineAdministration, len(goatIDs))
+	for _, id := range goatIDs {
+		if admin, ok := g.lastVaccine[id]; ok {
+			out[id] = admin
+		}
+	}
+	return out, nil
 }
 
 type generationObligationFake struct {

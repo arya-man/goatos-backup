@@ -938,13 +938,14 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 	out := make([]domain.UnbatchedDue, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, domain.UnbatchedDue{
-			ObligationID: row.ObligationID,
-			RuleID:       row.RuleID,
-			ScopeType:    row.ScopeType,
-			ScopeID:      row.ScopeID,
-			DueAt:        row.DueAt.Time,
-			WindowStart:  timestamptzValue(row.WindowStart),
-			WindowEnd:    timestamptzValue(row.WindowEnd),
+			ObligationID:  row.ObligationID,
+			RuleID:        row.RuleID,
+			ScopeType:     row.ScopeType,
+			ScopeID:       row.ScopeID,
+			TargetSpecies: row.TargetSpecies,
+			DueAt:         row.DueAt.Time,
+			WindowStart:   timestamptzValue(row.WindowStart),
+			WindowEnd:     timestamptzValue(row.WindowEnd),
 		})
 	}
 	return out, nil
@@ -973,7 +974,11 @@ SELECT o.obligation_id::text,
        o.due_at,
        o.window_start,
        COALESCE(o.window_end, o.due_at + make_interval(days => GREATEST(pr.due_window_days, 0))) AS effective_window_end,
-       park.location_id::text AS park_id
+       park.location_id::text AS park_id,
+       CASE
+         WHEN o.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text
+         ELSE ''
+       END AS target_species
 FROM obligation_instances o
 JOIN protocol_rules pr
   ON pr.tenant_id = o.tenant_id
@@ -986,6 +991,10 @@ JOIN locations park
   ON park.tenant_id = o.tenant_id
  AND park.location_id = shed.parent_location_id
  AND park.location_type = 'park'
+LEFT JOIN goats g
+  ON g.tenant_id = o.tenant_id
+ AND g.goat_id = o.target_id
+ AND o.target_type = 'goat'
 WHERE o.tenant_id = $1
   AND o.protocol_version_id = $2
   AND o.status IN ('scheduled', 'due', 'missed')
@@ -1010,6 +1019,7 @@ LIMIT $4`, tenant, version, pgconv.Timestamptz(dueBefore), limit)
 			&windowStart,
 			&windowEnd,
 			&row.ParkID,
+			&row.TargetSpecies,
 		); err != nil {
 			return nil, fmt.Errorf("obligation: scan park consolidation candidate: %w", err)
 		}
@@ -1058,6 +1068,85 @@ ORDER BY oi.rule_id`, tenant, batch)
 		return nil, fmt.Errorf("obligation: count attached by rule: %w", err)
 	}
 	return out, nil
+}
+
+// ListPlannedComboBatches lists unfinalized planned batches that use combo sessions for cross-version alignment.
+func (r *Repository) ListPlannedComboBatches(ctx context.Context, tenantID string, dueBefore time.Time, limit int32) ([]domain.ComboDriveBatch, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	dueDay := dueBefore.UTC()
+	rows, err := r.pool.Query(ctx, `
+SELECT b.batch_id::text,
+       b.protocol_version_id::text,
+       b.scope_type,
+       COALESCE(b.scope_id::text, '')::text AS scope_id,
+       COALESCE(b.session, '')::text AS session,
+       b.planned_date
+FROM obligation_batches b
+WHERE b.tenant_id = $1
+  AND b.status = 'planned'
+  AND b.session LIKE 'combo:%'
+  AND b.sop_task_id IS NULL
+  AND NOT (b.context ? 'stock_reservation')
+  AND (b.planned_date IS NULL OR b.planned_date <= $2::date)
+ORDER BY b.scope_type, b.scope_id, b.session, b.planned_date, b.batch_id
+LIMIT $3`, tenant, pgconv.Date(&dueDay), limit)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: list planned combo batches: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.ComboDriveBatch, 0)
+	for rows.Next() {
+		var row domain.ComboDriveBatch
+		var planned pgtype.Date
+		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.Session, &planned); err != nil {
+			return nil, fmt.Errorf("obligation: scan planned combo batch: %w", err)
+		}
+		if planned.Valid {
+			row.PlannedDate = pgconv.DateValue(planned)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: list planned combo batches: %w", err)
+	}
+	return out, nil
+}
+
+// UpdateBatchPlannedDate moves a planned batch to a harmonized combo drive date.
+func (r *Repository) UpdateBatchPlannedDate(ctx context.Context, tenantID, batchID string, plannedDate time.Time) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	batch, err := pgconv.UUID(batchID)
+	if err != nil {
+		return fmt.Errorf("obligation: batch id: %w", err)
+	}
+	tag, err := r.pool.Exec(ctx, `
+UPDATE obligation_batches
+SET planned_date = $3::date,
+    updated_at = now()
+WHERE tenant_id = $1
+  AND batch_id = $2
+  AND status = 'planned'
+  AND sop_task_id IS NULL`, tenant, batch, pgconv.Date(&plannedDate))
+	if err != nil {
+		return fmt.Errorf("obligation: update batch planned date: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
 }
 
 // AttachObligationsToBatch attaches still-unbatched obligations to a batch (returns count attached).

@@ -38,20 +38,28 @@ LIMIT @row_limit;
 -- SM-4 sweeper: unbatched scheduled/due obligations for a version within the window, grouped by
 -- scope + rule + due/window downstream. batch_id IS NULL makes re-sweeps idempotent.
 -- Uses obligation due-window index.
-SELECT obligation_id::text AS obligation_id,
-       rule_id::text AS rule_id,
-       scope_type,
-       COALESCE(scope_id::text, '')::text AS scope_id,
-       due_at,
-       window_start,
-       window_end
-FROM obligation_instances
-WHERE tenant_id = @tenant_id
-  AND protocol_version_id = @protocol_version_id
-  AND status IN ('scheduled', 'due', 'missed')
-  AND batch_id IS NULL
-  AND due_at <= @due_before
-ORDER BY scope_type, scope_id, rule_id, due_at, obligation_id
+SELECT oi.obligation_id::text AS obligation_id,
+       oi.rule_id::text AS rule_id,
+       oi.scope_type,
+       COALESCE(oi.scope_id::text, '')::text AS scope_id,
+       CASE
+         WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text
+         ELSE ''
+       END AS target_species,
+       oi.due_at,
+       oi.window_start,
+       oi.window_end
+FROM obligation_instances oi
+LEFT JOIN goats g
+  ON g.tenant_id = oi.tenant_id
+ AND g.goat_id = oi.target_id
+ AND oi.target_type = 'goat'
+WHERE oi.tenant_id = @tenant_id
+  AND oi.protocol_version_id = @protocol_version_id
+  AND oi.status IN ('scheduled', 'due', 'missed')
+  AND oi.batch_id IS NULL
+  AND oi.due_at <= @due_before
+ORDER BY oi.scope_type, oi.scope_id, oi.rule_id, target_species, oi.due_at, oi.obligation_id
 LIMIT @row_limit;
 
 -- name: CountObligationsByScope :one
