@@ -17,7 +17,7 @@ where they do not conflict.
 
 Goat OS is a **config/ruleset-driven operations system**. Leadership sets the rules; the system turns every field event into the right downstream work automatically.
 
-> **The promise:** Admin publishes a rule once → every goat CRUD fires the cascade. Add a goat → its obligations generate. A due date arrives → a shed-drive task appears for the right worker. A dose is recorded → stock is consumed via the inventory ledger (FEFO), coverage updates, the booster is scheduled, anomalies surface. Nobody maintains a spreadsheet of who-needs-what-when.
+> **The promise:** Admin publishes a rule once → every herd-animal CRUD fires the cascade. Add a goat or sheep → its obligations generate from the same ruleset. A due date arrives → a shed-drive task appears for the right worker. A dose is recorded → stock is consumed via the inventory ledger (FEFO), coverage updates, the booster is scheduled, anomalies surface. Nobody maintains a spreadsheet of who-needs-what-when.
 
 ## 2. Preventive Care (PC) is a vertical — vaccination is module #1
 
@@ -37,12 +37,36 @@ Preventive Care (PC) is **not** just vaccination. The config engine must serve a
 
 | In scope (v1) | Fast-follow (P2) | Out of scope |
 |---|---|---|
-| Goats-config delta (identity the cascade reads) | Deworming + FAMACHA-driven dosing | Breeding / milking / growth verticals |
-| Full vaccine-goat matrix as one governed `vaccination` ruleset per scope, with company default + park overrides | Vaccination coverage projection | Procurement intake saga |
+| Herd-animal identity delta (animal facts the cascade reads) | Deworming + FAMACHA-driven dosing | Breeding / milking / growth verticals |
+| Full vaccine-animal matrix as one governed `vaccination` ruleset per scope, with company default + park overrides | Vaccination coverage projection | Procurement intake saga |
 | Auto obligation generation on birth/procurement | Cold-chain excursion + quarantine | Full analytics warehouse / Cube |
 | Per-shed drives + SOP execution + proof video | Booster-chain interrupt policy | Other Preventive Care (PC) modules (engine-ready, not built) |
 | Generic inventory + FEFO ledger movements | Withdrawal-period sale-block automation | |
 | Lifecycle cleanup (shift/death/sale) | | |
+
+### 2.1 Mixed-species herd foundation is in scope
+
+V1 must not carry forward a goat-only storage model. GoatOS must model the
+operational herd as mixed-species animals that can share the same park, shed,
+partition, and shed tag. Legacy count data and the Goats and Parks source show
+goat breeds and `Anantapur Sheep` co-located in the same shed/tag groups. The
+rule matrix must therefore target **animal facts**, not a goat-only table.
+
+Clean base contract:
+
+| Concept | Product rule |
+|---|---|
+| Herd animal | Canonical target entity for vaccination, feed, counts, procurement, shifting, and passport/history. |
+| Species | Required animal fact from a governed `species_catalog`; seed at least goat and sheep, and allow future species without DDL/code branches. |
+| Breed | Belongs to exactly one species through governed breed/reference data and aliases. |
+| Shed/tag | Shared operational cohort/location state. It is not species-specific; goats and sheep can sit in the same shed/tag. |
+| Tag age policy | `animal_stage_lookup`/shed-tag policy stores source age range, normalized age days, purpose, and max-stay/transition policy where known. |
+| Vaccination rule | Selector over `species + breed/breed group + shed_tag/stage + age days + sex + lifecycle/health/reproductive/procurement state`. |
+
+Path B is the base direction: implementation must migrate canonical naming to
+`herd_animals` / `animal_id` and API/domain language to Animal/HerdAnimal. The
+old physical `goats` / `goat_id` names are legacy model debt and must not be
+the target for this base correction.
 
 ## 3. Actors & authority (CEO/COO-only config)
 
@@ -70,9 +94,9 @@ in-place edit of a published one.
 
 Config is not a list of separate vaccine rules. Vaccination has one logical
 ruleset family, for example `vaccination.matrix`, and each active version holds
-the whole vaccine-goat matrix for one scope. The matrix includes ET+TT, PPR,
-Goat Pox, FMD, HS, future rows, timing, compatibility, proof policy, and
-exceptions together.
+the whole vaccine-animal matrix for one scope. The matrix includes ET+TT, PPR,
+Goat Pox, Sheep Pox, Blue Tongue, FMD, HS, future rows, timing,
+compatibility, proof policy, and exceptions together.
 
 CEO/COO creates a draft protocol version (`protocol_versions.rule_dsl`,
 expanded to `protocol_rules` under the `vaccination` ruleset family). Publishing
@@ -81,14 +105,14 @@ change creates a new version and makes the previous active version inactive for
 that same scope. No code ships for a rule change.
 
 V1 is not complete with a generic "booster yes/no" form. It needs a practical
-vaccine-goat matrix: for each vaccine and dose, the approved config must say
-which goat types it applies to, at what age/stage, with what pregnancy/lactation
+vaccine-animal matrix: for each vaccine and dose, the approved config must say
+which animal cohorts it applies to, at what species/breed/shed-tag/age/stage, with what pregnancy/lactation
 or health restrictions, what due window is safe, what repeat/booster rule
 applies, what proof/SOP is required, and which version/audit entry owns the
 row. Source docs remain engineering evidence for the preset values; they are
 not product UI columns or runtime approval fields.
-Purchased/intake goats and existing goats already in the database must be run
-through the same matrix as farm-born goats.
+Purchased/intake animals and existing animals already in the database must be
+run through the same matrix as farm-born animals.
 
 The matrix must also carry the vaccination nuance rules from
 [source-nuances-rules.md](./source-nuances-rules.md): vaccine class and
@@ -102,22 +126,22 @@ does not own the medical rule matrix.
 
 #### 4.1.1 Rule JSON is policy, herd facts are database facts
 
-Do **not** store goat/herd required fields inside the rule JSON. The rule JSON
+Do **not** store herd-animal required fields inside the rule JSON. The rule JSON
 stores only authored policy: dimensions, matrix rows, vaccine cells, schedule
 rows, compatibility/gap rules, and defer rules. Version/audit data lives on the
-protocol version row, not inside goat/herd JSON. Goat
-and herd properties stay in canonical tables or read models:
+protocol version row, not inside herd-animal JSON. Herd-animal properties stay
+in canonical tables or read models:
 
 | Rule needs this dimension | Canonical/current fact source |
 |---|---|
-| Species, breed, sex, DOB/age, lifecycle, health, reproductive state | `goats` plus future typed lifecycle/reproductive deltas where the current columns are not precise enough |
-| Current park/shed/cohort and canonical shed tag/stage | `goats.current_location_id` / `goats.shed_id`, `locations`, `shed_profiles.animal_stage_id`, `animal_stage_lookup.stage_code` |
-| Procurement path, herd-entry date, warm-up, trusted source vaccination history | `procurement_phc_handoffs`, `procurement_hf_vaccination_evidence`, goat `origin_type`/`entry_date` |
+| Species, breed, sex, DOB/age, lifecycle, health, reproductive state | `herd_animals` plus typed lifecycle/reproductive deltas where current columns are not precise enough |
+| Current park/shed/cohort and canonical shed tag/stage | `herd_animals.current_location_id` / `herd_animals.shed_id`, `locations`, `shed_profiles.animal_stage_id`, `animal_stage_lookup.stage_code` |
+| Procurement path, herd-entry date, warm-up, trusted source vaccination history | `procurement_phc_handoffs`, `procurement_hf_vaccination_evidence`, animal `origin_type`/`entry_date` |
 | Accepted vaccination history and booster anchor | `vaccination_completions` joined to `obligation_instances.rule_id` |
-| UI impact preview at scale | indexed goat/protocol fact read models, not full-herd scans |
+| UI impact preview at scale | indexed animal/protocol fact read models, not full-herd scans |
 
 The common join key is always `tenant_id` plus the target identity
-(`goat_id` for vaccination, `shed_id`/`cohort_id` for feed-style protocols) and
+(`animal_id` for vaccination, `shed_id`/`cohort_id` for feed-style protocols) and
 stable lookup IDs/codes (`breed_id`, `animal_stage_id`/`stage_code`,
 `location_id`, `rule_id`, `protocol_version_id`). See
 [Rule Matrix Authoring Handoff](./RULE-MATRIX-AUTHORING-HANDOFF.md) for the UI
@@ -165,7 +189,7 @@ When a park override is activated, the impact preview must show:
 - which in-progress batches are left to finish unless the operator explicitly
   cancels/reissues them;
 - whether completed history stays attached to the version that produced it;
-- how many goats/sheds now resolve to the park version instead of the company
+- how many animals/sheds now resolve to the park version instead of the company
   version.
 
 This is the one point where I would counter a literal "auto-disable" wording:
@@ -174,17 +198,17 @@ non-applicable only for the park with an active override. Completed obligations
 and accepted vaccination history should never be rewritten just because a new
 scope override was activated.
 
-### 4.2 Goat enters → obligations auto-generate
-Birth report (`origin_type=birth`) or procurement (`origin_type=procured`) creates the goat. The engine reads published vaccination rules matching the goat's `sex × shed-stage × dose sequence` and **materializes `obligation_instances`** (one per due dose), `scheduled_date` computed from the trigger.
+### 4.2 Herd animal enters → obligations auto-generate
+Birth report (`origin_type=birth`) or procurement (`origin_type=procured`) creates the herd animal. The engine reads published vaccination rules matching the animal's `species × breed × sex × shed-tag/stage × age × dose sequence` and **materializes `obligation_instances`** (one per due dose), `scheduled_date` computed from the trigger.
 
 ### 4.3 Due → shed drive appears (the work unit)
-The sweeper batches due per-goat obligations into a **per-shed drive** (`sop_task`) and assigns it via `vaccination.execute` capability. Workers act on drives (hundreds of goats), not per-goat tickets — the scale lever.
+The sweeper batches due per-animal obligations into a **per-shed drive** (`sop_task`) and assigns it via `vaccination.execute` capability. Workers act on drives (hundreds of mixed-species animals), not per-animal tickets — the scale lever.
 
 ### 4.4 Field worker executes (SOP + proof)
-Worker runs the vaccination SOP: goat scan, administer, record vaccine, medicine
+Worker runs the vaccination SOP: animal scan, administer, record vaccine, medicine
 batch or vial/lot, dose, administered date/time, cold-chain/quantity checks
 where required, proof media, adverse-reaction fields, and park-head/verifier
-review. Per-goat completion recorded; verifier reviews.
+review. Per-animal completion recorded; verifier reviews.
 
 ### 4.5 Completion → cascade
 Per `vaccination_completion`: obligation → `completed`; **FEFO inventory** consumed by writing `consume`/`release` rows to `inventory_stock_movements` (balance updates from the ledger in the same txn — no direct decrement); booster scheduled from *actual* administration date; coverage/overdue refresh.
@@ -193,27 +217,27 @@ Per `vaccination_completion`: obligation → `completed`; **FEFO inventory** con
 Shift (re-target + re-eval same vaccine), death/sale (cancel pending in same txn), missed vs blocked (distinct), double-submit (idempotent), stock-out (reserve-at-start, no negative). Detail in [TRD §6](./TRD.md).
 
 ### 4.7 Later drive-planning optimizer
-V1 must already answer: for every goat, what vaccine is due, by what date, in
-which shed, and under which approved vaccine-goat matrix row. The later
+V1 must already answer: for every herd animal, what vaccine is due, by what date, in
+which shed, and under which approved vaccine-animal matrix row. The later
 optimizer starts after that. It answers the operations question: when should
-the farm run a practical drive, which goats go into it, and how to allocate
+the farm run a practical drive, which animals go into it, and how to allocate
 route/resources around the V1-approved vaccine groups.
 
-Basic Calendar aggregation is V1. Once the sweeper attaches goat due
+Basic Calendar aggregation is V1. Once the sweeper attaches animal due
 rows to a shed-drive batch, Calendar must show the drive as the active item and
-must not duplicate every batched per-goat `dose_due` row as a separate active
-Calendar event. Goat-level due status remains visible in Passport, Protocol
+must not duplicate every batched per-animal `dose_due` row as a separate active
+Calendar event. Animal-level due status remains visible in Passport, Protocol
 Adherence, Vaccination detail, and audit surfaces.
 
 The planner works like this:
 
-1. Start from V1 due work generated from the completed vaccine-goat matrix. This
-   includes new goat creation, purchased/intake goats, existing-goat backfill
+1. Start from V1 due work generated from the completed vaccine-animal matrix. This
+   includes new animal creation, purchased/intake animals, existing-animal backfill
    after a published rule, stage changes, shed shifts, trusted history
    suppression, and next-dose generation from accepted completions.
-2. Convert one-goat rows into buckets such as:
+2. Convert one-animal rows into buckets such as:
    `park + shed + vaccine + dose + due-window + eligibility state`.
-   This keeps one million goats manageable because the planner works on buckets
+   This keeps one million herd animals manageable because the planner works on buckets
    and affected cohorts, not a full-herd recalculation every time.
 3. Apply hard safety gates before scoring anything: lifecycle active, not
    dead/sold/transferred/lost/culled, health/defer state, pregnancy/lactation
@@ -226,37 +250,37 @@ The planner works like this:
 5. Search candidate dates only inside the approved medical window
    (`earliest_safe_date`, `ideal_date`, `last_safe_date`). A date outside the
    safe window is rejected, not merely given a bad score.
-6. Score the remaining safe plans by operational value: goats covered, urgency,
+6. Score the remaining safe plans by operational value: animals covered, urgency,
    disease priority, stock expiry, route/resource efficiency, and fairness to
-   small sheds. A one-goat shed can be held if waiting is medically safe, but it
+   small sheds. A one-animal shed can be held if waiting is medically safe, but it
    becomes a micro-drive if waiting would break the window.
-   Example: if CBE has 5 K1-compatible goats due in one shed today and 15
-   compatible goats in another shed whose safe medical window overlaps the next
-   week, the planner may hold the smaller shed and create one 20-goat park drive
-   only if every goat remains inside its medical `last_safe_date`. If the
+   Example: if CBE has 5 K1-compatible animals due in one shed today and 15
+   compatible animals in another shed whose safe medical window overlaps the next
+   week, the planner may hold the smaller shed and create one 20-animal park drive
+   only if every animal remains inside its medical `last_safe_date`. If the
    smaller shed's medical window ends before the batching hold date, it must run
    as a micro-drive now. The batching window is an operations hold, never a
    medical override.
-7. Create the drive with its goat list, vaccine list, lot/stock reservation,
+7. Create the drive with its animal list, vaccine list, lot/stock reservation,
    SOP/proof requirements, worker, verifier, and route. A route may contain
-   multiple sheds, but each shed keeps its own goat list, proof, and
+   multiple sheds, but each shed keeps its own animal list, proof, and
    reconciliation.
-8. On execution day, reconcile the scan against the plan: missing goats,
-   shifted-in goats, shifted-out goats, newly sick/pregnant/quarantined goats,
+8. On execution day, reconcile the scan against the plan: missing animals,
+   shifted-in animals, shifted-out animals, newly sick/pregnant/quarantined animals,
    unreadable tags, deaths, sales, proof rejection, and cold-chain failure all
    create explicit cancel/defer/rework/replan actions. Nothing silently
    disappears from the process.
-9. Replan incrementally. If one goat dies, moves shed, becomes sick, gets sold,
-   or a proof fails, only that goat and its affected shed/vaccine bucket are
-   invalidated. The system does not recompute the full million-goat herd.
+9. Replan incrementally. If one animal dies, moves shed, becomes sick, gets sold,
+   or a proof fails, only that animal and its affected shed/vaccine bucket are
+   invalidated. The system does not recompute the full million-animal herd.
 
 The later optimizer is therefore a constraint-based shed-drive planner:
-per-goat due generation plus cohort bucketing, V1-safe vaccine grouping,
+per-animal due generation plus cohort bucketing, V1-safe vaccine grouping,
 bounded date search,
 deterministic scoring, resource assignment, execution reconciliation, and
 incremental replanning.
 
-The split is deliberate: V1 owns the complete vaccine-goat matrix and per-goat
+The split is deliberate: V1 owns the complete vaccine-animal matrix and per-animal
 due generation plus basic shed-drive batching and Calendar drive-first
 projection. The later optimizer consumes those due rows, batches, and
 V1-authored compatibility fields to optimize routes, resources, timing, and
@@ -269,14 +293,14 @@ V1 matrix or V1 Calendar de-duplication.
 |---|---|---|
 | **Control Tower** | Live coverage %, drives due today, overdue, stock-low/expiring, breaches — per-park | top |
 | **Action Center** | Worker queue: drives, catch-ups, verifications | top |
-| **Vaccination** (module detail) | Link to generic Config filtered by `category=vaccination`, schedule calendar, drive list, passport history, stock by lot | **under Preventive Care (PC)** (moved from Health) |
+| **Vaccination** (module detail) | Link to generic Config filtered by `category=vaccination`, schedule calendar, drive list, animal passport history, stock by lot | **under Preventive Care (PC)** (moved from Health) |
 | **Config — Protocol Rules** | Company default + park override active rulesets, version history, impact preview, and activation audit | **Admin / Data Ops** |
-| **Goat Passport** | One goat's full vaccination record + next due | per-goat |
+| **Animal Passport** | One herd animal's full vaccination record + next due | per-animal |
 
 **Mock nav correction:** Vaccination lives under **Preventive Care (PC)**, not Health.
 
 ## 6. Success metrics
-Coverage % within window (per vaccine/park) · on-time drive rate · stock integrity (zero negative, zero expired-lot use) · **zero ghost-overdue** (dead/sold never overdue) · engine latency (obligation generated promptly after goat CRUD).
+Coverage % within window (per vaccine/park/species/shed tag) · on-time drive rate · stock integrity (zero negative, zero expired-lot use) · **zero ghost-overdue** (dead/sold never overdue) · engine latency (obligation generated promptly after herd-animal CRUD).
 
 ## 7. Source-derived baseline and remaining production inputs
 1. **Source-nuance matrix selected** — use the tracked matrix in
@@ -285,13 +309,18 @@ Coverage % within window (per vaccine/park) · on-time drive rate · stock integ
    Pox shifted to 20 weeks for live-live spacing, plus adult revaccination
    intervals. Older ET/K1/day-21/0.5 ml fixture language is legacy local proof
    context only and must not be the active ruleset contract.
-2. **K2 age band** — use 42 days / six weeks for local/dev because the wiki,
-   glossary, and legacy identity seed agree; the legacy dashboard's 45 is mock
-   drift. Keep it data-driven on `animal_stage_lookup`.
+2. **Shed tag age policy** — use the Goats and Parks shed-tag age ranges as
+   base reference data: K0 source days 1-2, K1 3-9, K2 10-77, K3 78-84,
+   fattening kid tags 120-240, and adult tags 300+. Store the source display
+   range and a normalized zero-based `min_age_days`/`max_age_days` on
+   `animal_stage_lookup`/tag policy. Keep max-stay/residence policy separate
+   from display age range, e.g. K1 max seven days and K2 about 42 days/six
+   weeks are operational stay notes, not the medical vaccine schedule.
 3. **Source Nuance roster** — [source-nuances-rules.md](./source-nuances-rules.md)
    now carries the V1 schedule/dose/vial/revaccination source for ET+TT, PPR,
-   Goat Pox, FMD, and HS goat rows, with Blue Tongue and Sheep Pox retained as
-   evidence rows for species-aware expansion.
+   Goat Pox, Sheep Pox, Blue Tongue, FMD, and HS rows. Goat-specific vaccines
+   apply to goat species rows; sheep-specific vaccines apply to sheep species
+   rows; shared vaccines apply to both only when the active matrix says so.
 
 ## 8. Legacy capability parity, proof policy, and import mapping
 
@@ -305,8 +334,8 @@ reactions need notes/follow-up, and verifier/park-head review must be durable.
 | Legacy/source signal | GoatOS contract |
 | --- | --- |
 | SOP playground labels `PPR`, `ET`, `FMD`, `HS`, `BQ` | Keep as tracked SOP/vocabulary labels. Schedule-bearing obligations come from the active vaccination matrix version, not labels or one-vaccine protocol rows. |
-| SOP proof fields: scheduled date, operator, goat scan, vaccine name, medicine batch, dose ml, administered date, proof photo/media, adverse reaction, verifier, notes | Normalize into `protocol_versions.rule_dsl.proof_policy`, `sop_versions.form_dsl`, `sop_submissions`, and `vaccination_completions`. Required first-slice fields are goat scan, vaccine, medicine batch/vial-lot, dose, administered date/time, proof media, adverse-reaction flag/notes, and verifier/park-head review. |
+| SOP proof fields: scheduled date, operator, animal scan, vaccine name, medicine batch, dose ml, administered date, proof photo/media, adverse reaction, verifier, notes | Normalize into `protocol_versions.rule_dsl.proof_policy`, `sop_versions.form_dsl`, `sop_submissions`, and `vaccination_completions`. Required first-slice fields are animal scan, vaccine, medicine batch/vial-lot, dose, administered date/time, proof media, adverse-reaction flag/notes, and verifier/park-head review. |
 | Committed `000075` draft SOP skeleton (`shed_video`, `vial_lot`, `cold_chain`, `dose`, `route_site`, `administered_at`, `adverse_reaction`, `est_vs_used`, `verifier_review`) | Treat as the committed starting skeleton, not the final source contract. Upgrade the SOP version/proof policy to the source-normalized shape before calling vaccination SOP parity closed. |
 | Procurement/legacy rows that mention vaccination | Treat as source evidence with confidence/proof semantics only. The live legacy guardrail found no reliable first-class vaccination evidence field in cleaned BigQuery tables, so a procurement row/header alone is not an administered dose. |
 | Reliable historical vaccination record, if later proven | Import to staging, reconcile into `vaccination_completions`, mark matching obligations completed, and schedule boosters from the actual administered date. |
-| Missing or untrusted history | Do not invent completions. For older goats whose old dose windows are already past, create one safe catch-up/review action first, not every missed historical dose as same-day work. After Preventive Care (PC) approval, generate baseline/catch-up shed drives per `docs/protocol-engine/migration-and-cutover.md` instead of fabricating administered history. |
+| Missing or untrusted history | Do not invent completions. For older animals whose old dose windows are already past, create one safe catch-up/review action first, not every missed historical dose as same-day work. After Preventive Care (PC) approval, generate baseline/catch-up shed drives per `docs/protocol-engine/migration-and-cutover.md` instead of fabricating administered history. |

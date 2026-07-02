@@ -1,5 +1,14 @@
 # Vaccination V1 Bug Bash + E2E Checklist
 
+**Path B target correction (2026-07-03):** this checklist preserves historical
+local-demo evidence and old implementation wording. Target architecture is now
+the mixed-species `herd_animals` / `animal_id` model in
+[PRD.md](./PRD.md), [TRD.md](./TRD.md), and
+[V1-FOUNDATION-SPEC.md](./V1-FOUNDATION-SPEC.md). Historical proof artifact
+names may still include old goat-only labels; product wording below should be
+read as Animal Passport / per-animal / `animal.*` unless a line explicitly says
+otherwise.
+
 Date: 2026-07-01
 Status: V1 demo blockers closed; route optimization/production-scale programs are outside this demo contract
 Scope: Clean-slate Preventive Care (PC) Vaccination V1 setup and demo flow
@@ -48,10 +57,10 @@ to normal page:
 Closed for V1 demo: SOP builder lifecycle, all supported SOP question types,
 multi-row Config matrix authoring/publish, schedule/dose/vial/revaccination
 rows, V1 compatibility spacing, generated work, accepted proof, rejected/rework
-proof in the data plane, Goat Passport vaccination history/open due rows, and
+proof in the data plane, Animal Passport vaccination history/open due rows, and
 current visible click/interlink paths.
 
-Outside the V1 demo contract: route/resource optimizer, million-goat
+Outside the V1 demo contract: route/resource optimizer, million-animal
 scale/permutation testing, business-facing user/shed admin setup UI, and full
 browser-negative coverage for every invalid input.
 
@@ -77,7 +86,7 @@ This includes:
 - search
 - filters
 - links between Config, SOP Library, Vaccination, Action Center, Protocol
-  Adherence, Workflows, Control Tower, Goat Passport, and shed execution detail
+  Adherence, Workflows, Control Tower, Animal Passport, and shed execution detail
 
 For every one of these controls, E2E must prove one of two things:
 
@@ -99,9 +108,9 @@ The clean proof chain is:
 
 1. Published vaccination SOP exists.
 2. Published vaccination config/protocol exists.
-3. Goats exist in valid sheds with usable stage, sex, breed, lifecycle, health,
-   and reproductive facts.
-4. Vaccination generation creates per-goat due obligations.
+3. Herd animals exist in valid sheds with usable species, stage, sex, breed,
+   lifecycle, health, and reproductive facts.
+4. Vaccination generation creates per-animal due obligations.
 5. Sweeper groups due obligations into shed execution work.
 6. SOP/proof workflow is attached to the generated work.
 7. Calendar, Action Center, Protocol Adherence, Workflows, Control Tower, and
@@ -114,18 +123,18 @@ Required local processes for proof:
 - admin-web
 - outbox relay or in-process event dispatcher
 - domain event consumer or equivalent local event handler path
-- obligation generation/backfill for goats already in the database
+- obligation generation/backfill for herd animals already in the database
 - obligation sweeper/projector for batching, missed-dose, reminder, and calendar
   projection rows
 
 Important clean-slate rule:
 
-- New goat creation/import should flow through `goat.created` -> event consumer
+- New animal creation/import should flow through `animal.created` -> event consumer
   -> vaccination obligation generation.
-- Existing goats already present before a config is published need explicit
+- Existing herd animals already present before a config is published need explicit
   generation/backfill after publish.
 - The sweeper batches obligations that already exist; it does not create the
-  first per-goat due rows by itself.
+  first per-animal due rows by itself.
 - Calendar, Protocol Adherence, Workflows, Action Center, and Control Tower
   should be verified only after obligation generation and sweeper/projector
   steps have run.
@@ -143,43 +152,43 @@ Time-accelerated demo fixtures must cover:
 - reopened after recovery/exit
 - death/sale/exit cancellation
 - shed shift
-- existing goat backfill
+- existing animal backfill
 - duplicate-run idempotency
 
-## Goat Entry Paths That Feed Vaccination
+## Animal Entry Paths That Feed Vaccination
 
-Vaccination should not invent goats. It should react when a goat becomes a
-canonical GoatOS goat with enough facts to evaluate the vaccination matrix.
+Vaccination should not invent herd animals. It should react when an animal becomes a
+canonical GoatOS animal with enough facts to evaluate the vaccination matrix.
 
-The vaccination E2E must cover all three goat entry paths:
+The vaccination E2E must cover all three animal entry paths:
 
-1. Counts -> Herd Register -> Register goat
-   - One goat is created directly in GoatOS.
-   - The create action emits a `goat.created` domain event.
-   - Vaccination generation evaluates that one goat against the published
+1. Counts -> Herd Register -> Register animal
+   - One animal is created directly in GoatOS.
+   - The create action emits an `animal.created` domain event.
+   - Vaccination generation evaluates that one animal against the published
      matrix/config.
 
 2. Counts -> Herd Register -> Import sheet / bulk commit
-   - Many goats are uploaded from the template.
-   - Each accepted row becomes a canonical goat.
-   - Each accepted goat must be eligible for the same event/generation path as
-     a manually registered goat.
+   - Many herd animals are uploaded from the template.
+   - Each accepted row becomes a canonical animal.
+   - Each accepted animal must be eligible for the same event/generation path as
+     a manually registered animal.
    - Invalid rows must not generate vaccination work.
 
 3. Procurement -> Source Entry -> Accepted intake
-   - Purchased goats start in the procurement/source-entry journey.
+   - Purchased herd animals start in the procurement/source-entry journey.
    - Holding-farm vaccination evidence may suppress duplicate arrival
      vaccination where the rules allow it.
-   - Only accepted-intake goats should enter the normal Preventive Care (PC) vaccination engine.
-   - Rejected, canceled, source-only, or pre-intake goats must not create Preventive Care (PC)
+   - Only accepted-intake herd animals should enter the normal Preventive Care (PC) vaccination engine.
+   - Rejected, canceled, source-only, or pre-intake herd animals must not create Preventive Care (PC)
      vaccination obligations.
 
 Plain operating rule:
 
-- The matrix is checked per goat.
-- Due obligations are created per goat and dose.
+- The matrix is checked per animal.
+- Due obligations are created per animal and dose.
 - Execution work is batched later by shed/protocol/due window so operators do
-  not handle one goat at a time unless the rule says to force a micro-drive.
+  not handle one animal at a time unless the rule says to force a micro-drive.
 
 ## Kernel And Event Contract
 
@@ -200,14 +209,14 @@ The E2E must prove the kernel for these event families:
 - config published
 - SOP draft saved
 - SOP published
-- goat created manually
-- goat imported from template/CSV
-- procurement accepted intake creates canonical goats
-- goat stage changed
-- goat shed/location changed
-- goat health/defer state changed
-- goat reproductive facts evaluated during generation/backfill
-- goat death/sale/exit cancels open work
+- animal created manually
+- animal imported from template/CSV
+- procurement accepted intake creates canonical herd animals
+- animal stage changed
+- animal shed/location changed
+- animal health/defer state changed
+- animal reproductive facts evaluated during generation/backfill
+- animal death/sale/exit cancels open work
 - trusted external vaccination history suppresses duplicate work
 - vaccination due work generated
 - due work grouped into shed/cohort execution rows
@@ -218,26 +227,26 @@ The E2E must prove the kernel for these event families:
 - proof rejected creates rework
 - completion schedules next dose/booster where configured
 
-V1 honesty boundary: `goat.created`, `goat.stage_changed`,
-`goat.location.changed`, and `goat.health.changed` re-run the per-goat
-vaccination check. Pregnant/lactating exclusions are enforced from current goat
+V1 honesty boundary: `animal.created`, `animal.stage_changed`,
+`animal.location.changed`, and `animal.health.changed` re-run the per-animal
+vaccination check. Pregnant/lactating exclusions are enforced from current animal
 facts during preview, generation, and explicit backfill, but a standalone
-`goat.reproductive_status.changed` producer/consumer path is not proven in V1.
+`animal.reproductive_status.changed` producer/consumer path is not proven in V1.
 If that event is added, this checklist must gain its own defer/reopen proof.
 
 Scale rule:
 
-- The kernel must be tested as per-goat generation, but read models and
+- The kernel must be tested as per-animal generation, but read models and
   execution views must group by shed/protocol/dose/window so the design can
-  scale toward 1 million goats.
+  scale toward 1 million herd animals.
 - Re-running generators/sweepers must be idempotent: no duplicate obligations,
-  no duplicate SOP tasks, and no duplicated workflow rows for the same goat,
+  no duplicate SOP tasks, and no duplicated workflow rows for the same animal,
   protocol, dose, and due window.
 
 ## Interlinked Navigation Contract
 
 Cross-screen navigation is valid only when it preserves the same business
-record. A click must carry the same goat, shed, protocol, dose, obligation,
+record. A click must carry the same animal, shed, protocol, dose, obligation,
 batch, workflow, or source-load context into the next screen.
 
 Expected behavior:
@@ -250,14 +259,14 @@ Expected behavior:
 - Protocol Adherence -> Workflow record is allowed only if it opens the same
   workflow chain.
 - Action Center -> Workflow record must open the same workflow chain.
-- Action Center -> Goat Passport must open the exact goat when the action is
-  goat-scoped. If the action is only batch/shed-scoped, the button must be
+- Action Center -> Animal Passport must open the exact animal when the action is
+  animal-scoped. If the action is only batch/shed-scoped, the button must be
   hidden or disabled with a clear reason.
 - Vaccination row/drawer -> shed execution detail must open the same shed event
   or cohort.
 - Procurement source-load drawer -> load actions/HF evidence must open the same
   source load.
-- Herd Register row actions that affect vaccination must preserve the same goat
+- Herd Register row actions that affect vaccination must preserve the same animal
   and shed context.
 
 If the target record does not exist or is outside the V1 vaccination slice, the
@@ -324,7 +333,7 @@ Expected:
 
 Observed:
 
-- The builder exposes text, number, yes/no, select, multiselect, goat scan/RFID,
+- The builder exposes text, number, yes/no, select, multiselect, animal scan/RFID,
   shed picker, vaccine batch picker, medicine picker, photo proof, and video
   proof as field types.
 - The UI does not clearly show the required configuration for each type.
@@ -336,7 +345,7 @@ Expected:
 - Yes/no: label, required rule, pass/fail behavior when needed.
 - Select: label, required rule, options.
 - Multiselect: label, required rule, options, min/max selected when needed.
-- Goat scan/RFID: label, required rule, expected source of eligible goats.
+- Animal scan/RFID: label, required rule, expected source of eligible herd animals.
 - Shed picker: label, required rule, scope source.
 - Vaccine batch picker: label, required rule, FEFO/lot source.
 - Medicine picker: label, required rule, inventory source.
@@ -507,7 +516,7 @@ Expected:
 - Title should be user-facing, for example `Preview impact` or
   `Before you publish`.
 - Subtitle should explain the result, for example:
-  `Shows how many goats, tasks, and doses this rule will create before publishing.`
+  `Shows how many herd animals, tasks, and doses this rule will create before publishing.`
 - E2E screenshots must prove the developer wording is gone.
 
 ### 11. Schedule builder and checkbox rules must prove business behavior
@@ -524,12 +533,12 @@ Expected:
 
 - Each checkbox must be tested as a real rule, not only as saved UI state.
 - Pregnant/lactating exclusions must affect Preview Impact and generated work
-  when generation/backfill reads current goat facts.
+  when generation/backfill reads current animal facts.
 - Sick/Treatment/ICU/Quarantine rules must mark affected obligations deferred,
   not hide or silently drop them.
 - Each dose/phase row must affect Preview Impact and generated obligations.
-- E2E must include one goat included by the matrix, one goat excluded by the
-  matrix, and one goat deferred by the matrix.
+- E2E must include one animal included by the matrix, one animal excluded by the
+  matrix, and one animal deferred by the matrix.
 
 ### 12. Every vaccination authoring surface needs save/publish/click E2E
 
@@ -567,14 +576,14 @@ Observed:
 
 - Some screens can show seeded/demo rows without proving the full backend
   event chain.
-- UI-only proof does not prove that config publish, goat events, generation,
+- UI-only proof does not prove that config publish, animal events, generation,
   sweeper batching, SOP workflow, calendar projection, and read models are tied
   together.
 
 Expected:
 
 - Clean-slate E2E must prove:
-  `SOP + config publish -> goat created/imported or existing-goat backfill -> obligation generation -> sweeper batching -> SOP/proof workflow -> Calendar/PA/WF/AC/CT/Vaccination read models`.
+  `SOP + config publish -> animal created/imported or existing-animal backfill -> obligation generation -> sweeper batching -> SOP/proof workflow -> Calendar/PA/WF/AC/CT/Vaccination read models`.
 - The test must show database or API evidence for each transition, then show
   the matching UI surface.
 - The same E2E run must verify repeated generation/sweeper runs are idempotent.
@@ -622,19 +631,19 @@ Observed:
 - The vaccination flow discussion covered config, SOP, generated work, and
   execution screens, but procurement/source-entry and Herd Register entry paths
   were not treated as first-class demo inputs.
-- It is unclear from UI alone whether a goat came from manual Herd Register,
+- It is unclear from UI alone whether an animal came from manual Herd Register,
   CSV/template import, or procurement accepted intake.
 - It is unclear which procurement states should create Preventive Care (PC) vaccination work and
   which should not.
 
 Expected:
 
-- E2E must prove manual Herd Register goat creation triggers vaccination
+- E2E must prove manual Herd Register animal creation triggers vaccination
   generation.
 - E2E must prove Herd Register CSV/template import triggers vaccination
-  generation for each accepted goat row.
+  generation for each accepted animal row.
 - E2E must prove procurement accepted intake triggers vaccination generation.
-- E2E must prove rejected/canceled/source-only/pre-intake procurement goats do
+- E2E must prove rejected/canceled/source-only/pre-intake procurement herd animals do
   not create Preventive Care (PC) vaccination obligations.
 - E2E must prove trusted holding-farm vaccination evidence suppresses duplicate
   Preventive Care (PC) obligations where configured.
@@ -651,13 +660,13 @@ Observed:
   obligation/action. Otherwise it feels random and is not demo-safe.
 - Similar risks exist for Action Center -> Workflow, Protocol Adherence ->
   Workflow, Vaccination -> shed execution detail, Procurement -> load actions,
-  and Herd Register -> goat/vaccination context.
+  and Herd Register -> animal/vaccination context.
 
 Expected:
 
 - Every cross-screen button preserves the same business context and visible
   identifiers.
-- The destination screen must show the same protocol, dose, goat/cohort, shed,
+- The destination screen must show the same protocol, dose, animal/cohort, shed,
   due date, workflow/action id, and status where applicable.
 - Back/close returns to the previous screen without losing filters, page, or
   selected row.
@@ -666,13 +675,13 @@ Expected:
 - E2E must click every vaccination-relevant row, drawer action, and cross-link
   and assert the destination context, not just that a page opened.
 
-### 18. Older goats with unknown history can flood due work
+### 18. Older herd animals with unknown history can flood due work
 
 Observed:
 
 - A vaccine can have multiple age-based doses, for example dose 1 at 6 months
   and dose 2 at 10 months.
-- If a 1-year-old or 2-year-old goat is created/imported with missing
+- If a 1-year-old or 2-year-old animal is created/imported with missing
   vaccination history, the generator may be tempted to create all missed
   historical doses as due today.
 - At scale, that would flood Calendar, Action Center, Protocol Adherence, and
@@ -681,7 +690,7 @@ Observed:
 Expected:
 
 - Config must support an explicit catch-up policy for late/unknown-history
-  goats.
+  herd animals.
 - Catch-up policy must be per vaccine/dose/course, not a global guess.
 - The policy must support:
   - max age to start a dose/course
@@ -690,14 +699,14 @@ Expected:
   - first-catch-up-dose-only behavior
   - min gap between catch-up doses so multiple doses are not scheduled same day
   - trusted-history suppression when imported/procurement evidence is accepted
-- E2E must prove that older goats with missing history do not create multiple
+- E2E must prove that older herd animals with missing history do not create multiple
   same-day historical obligations unless the published policy explicitly
   allows it.
 
 Implementation status, 2026-07-01:
 
 - Kernel guard added in `backend/internal/vaccination/app/generation.go`: for a
-  single goat/protocol run, old non-`next_cycle` catch-up rows materialize one
+  single animal/protocol run, old non-`next_cycle` catch-up rows materialize one
   safe catch-up/review action after trusted-history checks, rather than every
   historical dose row.
 - Focused tests added in
@@ -707,7 +716,7 @@ Implementation status, 2026-07-01:
   `TestOlderGoatTrustedFirstDoseAllowsNextMissingDose`.
 - Live trusted-history proof added in
   `tools/dev/vaccination-trusted-history-proof.sh`. Latest passing run:
-  `vaccination-trusted-history-proof stamp=1782917268`, which seeded a goat
+  `vaccination-trusted-history-proof stamp=1782917268`, which seeded an animal
   with accepted/verified ET+TT 4-week history, suppressed the old 4-week row,
   generated the next ET+TT 7-week obligation, batched it into a shed drive/SOP
   task, and verified Calendar drive aggregation plus Action Center, Workflow,
@@ -737,52 +746,52 @@ from a clean tenant/state, not isolated page checks.
 - [ ] Create or seed shed under park.
 - [ ] Shed has required stage metadata, for example K1/K2.
 - [ ] Shed creation/import success is visible.
-- [ ] E2E screenshot proves the shed is visible before goat entry.
+- [ ] E2E screenshot proves the shed is visible before animal entry.
 
-### 3. Goat setup
+### 3. Animal setup
 
-- [ ] Create or import goats into the shed.
-- [ ] Goat has required facts: id/tag, sex, breed, date of birth/age, lifecycle,
+- [ ] Create or import herd animals into the shed.
+- [ ] Animal has required facts: id/tag, sex, breed, date of birth/age, lifecycle,
   current shed, health/defer state, and reproductive state when applicable.
-- [ ] Existing goats already in the database are included in backfill after rule
+- [ ] Existing herd animals already in the database are included in backfill after rule
   publish.
-- [ ] E2E screenshot proves goats exist before vaccination config is published.
+- [ ] E2E screenshot proves herd animals exist before vaccination config is published.
 
-### 3A. Goat entry paths that must be tested
+### 3A. Animal entry paths that must be tested
 
-- [ ] Herd Register single-goat create creates one canonical goat.
-- [ ] Herd Register single-goat create emits or queues the goat creation event
+- [ ] Herd Register single-animal create creates one canonical animal.
+- [ ] Herd Register single-animal create emits or queues the animal creation event
   needed by vaccination generation.
-- [ ] Herd Register single-goat create results in due vaccination work when the
-  goat matches the published matrix.
+- [ ] Herd Register single-animal create results in due vaccination work when the
+  animal matches the published matrix.
 - [ ] Herd Register CSV/template import previews valid and invalid rows.
 - [ ] Herd Register CSV/template import commits only valid accepted rows.
-- [ ] Each accepted imported goat is evaluated by vaccination generation.
-- [ ] Invalid imported rows do not create goats or vaccination work.
+- [ ] Each accepted imported animal is evaluated by vaccination generation.
+- [ ] Invalid imported rows do not create herd animals or vaccination work.
 - [ ] Procurement Source Entry can create a purchased load.
 - [ ] Procurement holding-farm vaccination evidence can be recorded or marked
   missing with a clear state.
-- [ ] Procurement accepted intake creates canonical goats.
-- [ ] Procurement accepted intake emits or queues the goat creation event needed
+- [ ] Procurement accepted intake creates canonical herd animals.
+- [ ] Procurement accepted intake emits or queues the animal creation event needed
   by vaccination generation.
-- [ ] Procurement accepted-intake goats result in due vaccination work when they
+- [ ] Procurement accepted-intake herd animals result in due vaccination work when they
   match the published matrix.
-- [ ] Procurement rejected, canceled, source-only, and pre-intake goats do not
+- [ ] Procurement rejected, canceled, source-only, and pre-intake herd animals do not
   create Preventive Care (PC) vaccination obligations.
 - [ ] Trusted holding-farm vaccination history suppresses duplicate Preventive Care (PC)
   obligations where configured.
-- [ ] The UI makes the source of each tested goat clear enough for demo:
+- [ ] The UI makes the source of each tested animal clear enough for demo:
   manual, template import, or procurement accepted intake.
 
 ### 3B. Business source cross-check
 
-- [ ] Cross-check goat identity, park, shed, stage, and lifecycle assumptions
+- [ ] Cross-check animal identity, park, shed, stage, and lifecycle assumptions
   against Goats and Parks source material.
 - [ ] Cross-check vaccination matrix fields against the vaccination source notes
   and leadership note: vaccine, stage/age, sex, breed, lifecycle, reproductive
   state, health/defer state, dose timing, window, route, amount, proof, and
   medical/business evidence.
-- [ ] Cross-check purchased-goat intake assumptions against procurement/source
+- [ ] Cross-check purchased-animal intake assumptions against procurement/source
   material: holding farm, warmup, HF vaccination evidence, accepted intake,
   rejected/canceled loads, and mixed age/stage groups.
 - [ ] Cross-check SOP/operator/proof/escalation language against farm handbook
@@ -820,7 +829,7 @@ from a clean tenant/state, not isolated page checks.
   prove they change preview/generation behavior where expected. For V1,
   pregnant/lactating proof is current-fact preview/generation/backfill proof,
   not a standalone reproductive-state-change event proof.
-- [ ] Preview impact and verify eligible goats, obligations, shed tasks, doses,
+- [ ] Preview impact and verify eligible herd animals, obligations, shed tasks, doses,
   and stock warnings.
 - [ ] Publish config only after every validation passes.
 - [ ] Verify the expected config draft/publish events or audit records are
@@ -830,25 +839,25 @@ from a clean tenant/state, not isolated page checks.
 
 ### 6. Generation and backfill
 
-- [ ] After publish, existing eligible goats receive due vaccination work.
+- [ ] After publish, existing eligible herd animals receive due vaccination work.
 - [ ] After publish, the first place to check is generated due work in the
-  Vaccination page for the matching shed/goat cohort.
-- [ ] New goat creation/import triggers vaccination due generation.
-- [ ] Manual Herd Register goat creation triggers the same generation path as
-  imported goats and procurement accepted-intake goats.
-- [ ] CSV/template import is evaluated per accepted goat row but can be committed
+  Vaccination page for the matching shed/animal cohort.
+- [ ] New animal creation/import triggers vaccination due generation.
+- [ ] Manual Herd Register animal creation triggers the same generation path as
+  imported herd animals and procurement accepted-intake herd animals.
+- [ ] CSV/template import is evaluated per accepted animal row but can be committed
   and tested as one bulk operation.
-- [ ] Procurement accepted intake is evaluated only after the goat becomes a
-  canonical GoatOS goat; procurement warmup/source-only rows do not enter Preventive Care (PC)
+- [ ] Procurement accepted intake is evaluated only after the animal becomes a
+  canonical GoatOS animal; procurement warmup/source-only rows do not enter Preventive Care (PC)
   generation.
-- [ ] The generated obligation is per goat/per dose; the generated execution
+- [ ] The generated obligation is per animal/per dose; the generated execution
   work is grouped by shed/protocol/due window.
-- [ ] Stage/shed/health/defer changes recheck affected goats.
-- [ ] No duplicate obligations are created for the same goat/vaccine/dose.
-- [ ] Dead/sold/transferred goats do not remain overdue.
-- [ ] New-goat flow proves `goat.created` or equivalent domain event reaches
+- [ ] Stage/shed/health/defer changes recheck affected herd animals.
+- [ ] No duplicate obligations are created for the same animal/vaccine/dose.
+- [ ] Dead/sold/transferred herd animals do not remain overdue.
+- [ ] New-animal flow proves `animal.created` or equivalent domain event reaches
   vaccination generation.
-- [ ] Existing-goat flow proves explicit generation/backfill runs after config
+- [ ] Existing-animal flow proves explicit generation/backfill runs after config
   publish.
 - [ ] Sweeper/projector runs after generation and creates shed execution work,
   missed-dose state, reminders, and calendar projection rows where applicable.
@@ -860,7 +869,7 @@ from a clean tenant/state, not isolated page checks.
 ### 7. Operational surfaces
 
 - [ ] Vaccination page shows due work clearly.
-- [ ] Counts -> Herd Register shows created/imported goats that will feed the
+- [ ] Counts -> Herd Register shows created/imported herd animals that will feed the
   vaccination matrix.
 - [ ] Procurement -> Source Entry shows only purchase/source/warmup/intake
   state; it must not imply Preventive Care (PC) vaccination work before accepted intake.
@@ -874,8 +883,8 @@ from a clean tenant/state, not isolated page checks.
 
 Surface data conditions:
 
-- [ ] Herd Register is the direct GoatOS goat-entry source for manual and CSV
-  goats.
+- [ ] Herd Register is the direct GoatOS animal-entry source for manual and CSV
+  herd animals.
 - [ ] Procurement Source Entry feeds vaccination only after accepted intake.
 - [ ] Vaccination page is checked first after generation/sweeper because it
   shows due work, matrix/cohort state, and shed execution rows.
@@ -886,8 +895,8 @@ Surface data conditions:
 - [ ] Workflows shows the lifecycle chain for one generated work record; it is
   not the first proof that generation happened.
 - [x] Calendar shows due/missed/reminder projections only after calendar
-  projection/refresh runs; after the V1 sweeper attaches goat due rows to a
-  shed drive batch, active Calendar suppresses the batched per-goat
+  projection/refresh runs; after the V1 sweeper attaches animal due rows to a
+  shed drive batch, active Calendar suppresses the batched per-animal
   `vaccination_dose_due` rows and shows one `vaccination_drive` row instead.
 - [ ] Control Tower shows aggregate breach/health signals only after read models
   refresh.
@@ -902,9 +911,9 @@ Do not jump randomly between screens after config publish. Verify in this order:
 
 2. Vaccination page
    - This is the first operational screen after config publish.
-   - It should show generated due work for the eligible goats/sheds.
-   - It should not show non-eligible goats as due.
-   - Deferred goats should appear as deferred/recheck-needed, not as missing.
+   - It should show generated due work for the eligible herd animals/sheds.
+   - It should not show non-eligible herd animals as due.
+   - Deferred herd animals should appear as deferred/recheck-needed, not as missing.
 
 3. Action Center
    - Shows only actionable work that needs a human next step.
@@ -917,7 +926,7 @@ Do not jump randomly between screens after config publish. Verify in this order:
 5. Workflows
    - Shows the chain for the same generated vaccination work:
      config -> obligation -> drive/SOP -> proof -> verification -> close.
-   - Every link must point back to the same goat/shed/protocol version.
+   - Every link must point back to the same animal/shed/protocol version.
 
 6. Control Tower
    - Shows process breaches only when real:
@@ -931,7 +940,7 @@ Do not jump randomly between screens after config publish. Verify in this order:
 ### 8. Execution and proof path
 
 - [x] Open a generated vaccination task/drive.
-- [x] SOP context shows goat/shed/vaccine/dose from published config.
+- [x] SOP context shows animal/shed/vaccine/dose from published config.
 - [x] Operator records dose/proof only through a backed working path.
 - [x] Proof required state, proof submitted state, verification pending state,
   accepted state, rejected/rework state, and missed/overdue state are covered.
@@ -941,7 +950,7 @@ Do not jump randomly between screens after config publish. Verify in this order:
 ### 9. Demo handover output
 
 - [x] Provide final demo runbook: where to start, which login/user, which URL,
-  which seeded park/shed/goats, what to click, what should appear, and what not
+  which seeded park/shed/herd animals, what to click, what should appear, and what not
   to demo.
 - [x] Provide the exact screen order after config publish: Config -> Vaccination
   page -> Action Center -> Protocol Adherence -> Workflows -> Control Tower ->
@@ -994,11 +1003,11 @@ These checks are in addition to the clean-slate E2E path above.
 - [ ] Every search, filter, and pagination control preserves the selected scope,
   page, row, drawer state, and URL.
 - [x] Every V1 demo link between Config, SOP Library, Vaccination, Action Center,
-  Protocol Adherence, Workflows, Control Tower, Goat Passport, and shed
+  Protocol Adherence, Workflows, Control Tower, Animal Passport, and shed
   execution detail lands on the intended record and keeps the same
-  goat/shed/protocol context.
+  animal/shed/protocol context.
 - [x] Every V1 demo deep link from Herd Register and Procurement Source Entry into
-  vaccination-related context lands on the intended goat/load/work record, not
+  vaccination-related context lands on the intended animal/load/work record, not
   only the sidebar route.
 - [ ] Every list has an empty state, loaded state, error state, and no-results
   state that is readable and non-overlapping.
@@ -1040,8 +1049,8 @@ These checks are in addition to the clean-slate E2E path above.
 - [x] Multiselect field can save/publish after options are added.
 - [x] Multiselect options can be added, edited, removed, reordered, saved, and
   reopened.
-- [x] Goat scan/RFID field can be saved, reopened, and shows how the eligible
-  goat list is sourced.
+- [x] Animal scan/RFID field can be saved, reopened, and shows how the eligible
+  animal list is sourced.
 - [x] Shed picker field can be saved, reopened, and shows how shed scope is
   sourced.
 - [x] Vaccine batch picker field can be saved, reopened, and shows FEFO/lot
@@ -1145,18 +1154,18 @@ These checks are in addition to the clean-slate E2E path above.
 - [ ] Treatment defer checkbox saves and reloads.
 - [ ] ICU defer checkbox saves and reloads.
 - [ ] Quarantine defer checkbox saves and reloads.
-- [ ] Pregnant exclusion changes Preview Impact when a matching pregnant goat is
+- [ ] Pregnant exclusion changes Preview Impact when a matching pregnant animal is
   in the test data.
-- [ ] Lactating exclusion changes Preview Impact when a matching lactating goat
+- [ ] Lactating exclusion changes Preview Impact when a matching lactating animal
   is in the test data.
-- [ ] Sick defer changes generated work to deferred when a matching sick goat is
+- [ ] Sick defer changes generated work to deferred when a matching sick animal is
   in the test data.
 - [ ] Treatment defer changes generated work to deferred when a matching
-  treatment goat is in the test data.
-- [ ] ICU defer changes generated work to deferred when a matching ICU goat is in
+  treatment animal is in the test data.
+- [ ] ICU defer changes generated work to deferred when a matching ICU animal is in
   the test data.
 - [ ] Quarantine defer changes generated work to deferred when a matching
-  quarantined goat is in the test data.
+  quarantined animal is in the test data.
 - [ ] Booster/catch-up/missed-dose policy saves and reloads.
 - [ ] Stock/lot requirement saves and reloads.
 - [ ] Escalation policy saves and reloads.
@@ -1186,7 +1195,7 @@ These checks are in addition to the clean-slate E2E path above.
 - [x] Save draft persists every field above.
 - [x] Reopen draft shows every field above unchanged.
 - [x] Preview impact reports clear success or exact validation errors.
-- [x] Preview impact shows eligible goats count.
+- [x] Preview impact shows eligible herd animals count.
 - [x] Preview impact shows obligations/cycle count.
 - [x] Preview impact shows batches/SOP task count.
 - [x] Preview impact shows doses required.
@@ -1200,9 +1209,9 @@ These checks are in addition to the clean-slate E2E path above.
 - [x] Published config appears in the Config list with correct status/version.
 - [x] Generated rule JSON preview matches the visible form values.
 - [x] After publish, generated due work appears on the Vaccination page for
-  eligible goats.
-- [x] After publish, non-eligible goats do not get due work.
-- [x] After publish, deferred goats appear as deferred/recheck-needed rather than
+  eligible herd animals.
+- [x] After publish, non-eligible herd animals do not get due work.
+- [x] After publish, deferred herd animals appear as deferred/recheck-needed rather than
   due or missing.
 - [x] After publish, workflow rows and adherence rows point back to the same
   protocol/config version.
@@ -1239,7 +1248,7 @@ You can demo the V1 vaccination SOP builder and Config authoring flow covered by
 `NUANCE-RULES-20260701-V1-MATRIX-R2`.
 
 Do not demo or claim route/resource optimization, business-facing user/shed
-admin setup UI, full browser-negative coverage, or million-goat permutation
+admin setup UI, full browser-negative coverage, or million-animal permutation
 proof. Do demo the V1 Nuance Rules matrix, including compatibility
 spacing, only when the Nuance smoke evidence below is fresh.
 
@@ -1251,15 +1260,15 @@ and compatibility spacing are V1.
 
 ### V1 due generation + basic shed-drive batching
 
-- Matrix/config decides which goats are eligible.
+- Matrix/config decides which herd animals are eligible.
 - Schedule rows decide due date, latest date, dose amount, unit, and route/site.
-- Goat creation/import/backfill/stage/health/location changes trigger due-work
+- Animal creation/import/backfill/stage/health/location changes trigger due-work
   generation or recheck.
-- This creates per-goat due vaccination work.
+- This creates per-animal due vaccination work.
 - The V1 sweeper groups compatible same-rule due work by shed/cohort into
   `obligation_batches` for execution.
 - Calendar uses the batch as the active operations item: one shed-drive row with
-  target count. Batched per-goat due rows remain available to Passport,
+  target count. Batched per-animal due rows remain available to Passport,
   Protocol Adherence, Vaccination detail, and audit, but must not flood Calendar
   as separate active events.
 
@@ -1271,31 +1280,31 @@ and compatibility spacing are V1.
   compatibility rules.
 - Use batching rules to decide whether to run now, wait, split, defer, or
   escalate.
-- Score safe candidate plans using urgency, latest-safe date, goat count, shed
+- Score safe candidate plans using urgency, latest-safe date, animal count, shed
   route, stock/cold-chain, worker capacity, and small-shed fairness.
 - Assign operator, verifier, stock/lot, route, and proof policy.
-- Replan only the affected goat/shed/vaccine cohort when a goat dies, is sold,
+- Replan only the affected animal/shed/vaccine cohort when an animal dies, is sold,
   shifts shed, becomes sick, becomes pregnant/lactating, enters/exits
   quarantine/ICU, proof fails, stock fails, or cold-chain fails.
 
 ### UI changes needed for later route/resource optimizer
 
-- Add a drive-planning rule section separate from per-goat vaccine config.
+- Add a drive-planning rule section separate from per-animal vaccine config.
 - Add batching thresholds:
-  minimum goats per shed drive, max safe wait days, force micro-drive rule, and
+  minimum herd animals per shed drive, max safe wait days, force micro-drive rule, and
   small-shed fairness rule.
 - Add an explicit medical-window vs batching-window proof case:
   if one shed has a small due count now and a compatible same-park shed/tag
   cohort becomes due within the allowed batching hold, combine them only when
-  every goat remains inside its medical safe window. Example: 5 eligible K1
-  goats in one shed plus 15 compatible K1 goats in another shed may become one
-  20-goat drive with a +1 week operations hold only when the medical clock is
+  every animal remains inside its medical safe window. Example: 5 eligible K1
+  herd animals in one shed plus 15 compatible K1 herd animals in another shed may become one
+  20-animal drive with a +1 week operations hold only when the medical clock is
   still safe; otherwise the smaller shed becomes a micro-drive now.
 - Add route/resource controls:
   operator capacity, cold-chain duration, stock lot/expiry, and verifier
   availability.
 - Add execution-day reconciliation:
-  expected goats, missing goats, extra goats, shifted goats, sick/deferred goats,
+  expected herd animals, missing herd animals, extra herd animals, shifted herd animals, sick/deferred herd animals,
   proof pending, verification reject, rework, and cancellation.
 - Add clear generated-plan preview before creating drive work.
 

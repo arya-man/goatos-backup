@@ -29,7 +29,7 @@ Preventive Care (PC) Vaccination operations
 Calendar vaccination due-work command lens
 Vaccination execution context scoped by park/shed
 Control Tower process-gap summary
-Goat Passport contextual drilldown
+Animal Passport contextual drilldown
 ```
 
 The current admin-web dashboard is a process-integrity product, not decorative
@@ -72,7 +72,7 @@ Current implemented admin-web product routes:
 /operations/audit
 /config
 /sops
-/goats/{goat_id}
+/animals/{animal_id}
 /calendar
 ```
 

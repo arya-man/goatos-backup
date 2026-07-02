@@ -2,6 +2,12 @@
 
 **Date:** 2026-06-23 · **Correction:** updated 2026-06-29 for Feed Direction. This file is a historical Phase 0/1 execution plan; the repo now contains migrations through `000117` at this correction. For Feed Direction, use [../feed-direction/TRD.md](../feed-direction/TRD.md) as the current design source. The old `000076-078` typed feed table plan below is superseded by the committed `000079` generic-kernel design.
 
+**Path B target correction (2026-07-03):** current implementation references to
+`goats`, `goat_id`, and `goat.*` events are not the target architecture. The
+clean base model is `herd_animals` / `animal_id`, catalog-driven species, and
+mixed goat/sheep placement in shared sheds/tags. Use the Preventive Care
+Vaccination PRD/TRD for the current target before implementing from this plan.
+
 ---
 
 ## A. Status separation (what's real vs not)
@@ -9,7 +15,7 @@
 ### 1. Already implemented in backend (REUSE as-is)
 | Area | Tables (migration) | Go code |
 |---|---|---|
-| Identity | `goats`, `goat_identifiers`, `goat_location_history`, `goat_identity_events`(partitioned) (`000001-22`) | `internal/identity` |
+| Identity | Current implementation: `goats`, `goat_identifiers`, `goat_location_history`, `goat_identity_events`(partitioned) (`000001-22`). Target: Path B `herd_animals` / `animal_id` model. | `internal/identity` |
 | Locations | `locations` + `location_operational_attributes` + `location_capacity_records` (`000024-26`) | `internal/locations` |
 | Workforce / RBAC | `workforce_*`, `user_scope_grants`, `auth_pending_email_grants` (`000050`, `000023`) | `internal/workforce`, `internal/permissions` |
 | **SOP engine** | `sop_definitions/versions/tasks/submissions/submission_items` (`000060`) | **`internal/sop`** — `app/service.go` (`ValidateFormDSL`, `Evaluate`), http handler, postgres repo ✅ |
@@ -63,8 +69,8 @@
 ## B. Migrations needed
 | # | Contents |
 |---|---|
-| `000070_goats_provenance_lifecycle.sql` | ALTER `goats`: `dob`, `dob_estimated`, `origin_type`, `entry_date`, `exited_at`, `exit_reason`; CHECKs on lifecycle/health/stage. (tagging = derived view, no column) |
-| `000071_location_profiles.sql` | `farm_profiles`, `park_profiles`, `shed_profiles`, `animal_stage_lookup`, `shed_lifecycle_status_lookup` + location_type guard triggers |
+| `000070_herd_animals_identity.sql` | Create/rename the clean `herd_animals` identity model with `animal_id`, `species_id`/`species_code`, breed reference, DOB confidence, origin/entry, lifecycle/exit, current location/shed/cohort, and merge support. Remove goat-only species checks. |
+| `000071_location_profiles.sql` | `farm_profiles`, `park_profiles`, `shed_profiles`, `animal_stage_lookup`, `shed_lifecycle_status_lookup` + location_type guard triggers. Seed Goats and Parks shed/tag age ranges as data, not hardcoded code bands. |
 | `000072_inventory_foundation.sql` | `inventory_items`, `vaccines`, `inventory_stock` (numeric + `CHECK≥0`), `inventory_stock_movements` ledger |
 | `000073_protocol_engine.sql` | `protocol_definitions/versions/rules/triggers`; GiST non-overlap on published windows; `protocol.draft.<cat>`/`protocol.publish.<cat>` capability seeds (explicit, no wildcard) |
 | `000074_obligation_engine.sql` | `obligation_instances` (rule_id in guard, NULLS NOT DISTINCT, deterministic idempotency_key), `obligation_batches`, `obligation_status_events` (RANGE-partitioned), `obligation_escalations` |
@@ -77,7 +83,7 @@ Reuse exemplars: `000001` (partition+outbox+idempotency), `000030` (projection +
 
 ## C. Backend services / handlers (Cloud Run, by runtime role)
 - **`api`** — config CRUD (protocol draft/publish + impact-preview), completion submit, SOP submission. New Go domains: `protocol/`, `obligation/`, `inventory/`, build out `vaccination/`, `feed/` (hexagonal: domain/app/ports/adapters, like `sop`/`outbox`).
-- **`consumer`** (Pub/Sub push) — **SM-1** schedule-gen (`goat.created`), **SM-2** shift-recompute (`goat.shifted`), **SM-3** death/sale cancel (`goat.exited`), **SM-7** booster-gen (`vaccination.completed`). Idempotent.
+- **`consumer`** (Pub/Sub push) — **SM-1** schedule-gen (`animal.created`), **SM-2** shift-recompute (`animal.shifted`), **SM-3** death/sale cancel (`animal.exited`), **SM-7** booster-gen (`vaccination.completed`). Idempotent.
 - **`sweeper`** (Cloud Run Job ← Cloud Scheduler) — **SM-4** batch create + due-flip; **SM-6** feed generation (full direction + cutoff Diff + bridge logging). Chunked by tenant/park/date.
 - **`outbox-relay`** — exists; swap logging publisher → **Pub/Sub adapter** (only net-new piece here).
 - Execution reuses committed `internal/sop`.
@@ -85,7 +91,7 @@ Reuse exemplars: `000001` (partition+outbox+idempotency), `000030` (projection +
 ## D. How the tables connect (the chain)
 ```
 protocol_definitions → protocol_versions (PUBLISHED, effective-dated) → protocol_rules + protocol_triggers
-   └─SM-1/SM-7→ obligation_instances (per goat/shed · rule_id · due_at)        [Postgres = due truth]
+   └─SM-1/SM-7→ obligation_instances (per animal/shed · rule_id · due_at)      [Postgres = due truth]
         └─SM-4 sweeper→ obligation_batches (drive) → spawns ONE sop_task (from protocol_version.sop_version_id)
              └─ operator → sop_submission + sop_submission_items (+ GCS proof)
                   └─ verification → vaccination_completions (links obligation_id + batch_id + sop_submission_item_id + inventory lot)
@@ -95,7 +101,7 @@ protocol_definitions → protocol_versions (PUBLISHED, effective-dated) → prot
 Adherence = **computed**: expected (rule) vs actual (completion + proof + timing). `sop_versions` = the *how*; obligations = the *what's due*; protocol = the *what should happen*.
 
 ## E. Frontend: current slice vs later
-- **Build now:** Admin Config / Protocol Rules (`/config`), Preventive Care (PC) Vaccination module surface, vaccination execution context scoped by park/shed, contextual Goat Passport vaccination history, and the work-state data needed by those screens.
+- **Build now:** Admin Config / Protocol Rules (`/config`), Preventive Care (PC) Vaccination module surface, vaccination execution context scoped by park/shed, contextual Animal Passport vaccination history, and the work-state data needed by those screens.
 - **Design now, full UI later:** standalone Action Center and Control Tower. Their status model must exist underneath Preventive Care (PC) / Parks, but their full command-room surfaces should summarize real gaps only after the operating workflows are wired.
 - **Later verticals:** feed direction, procurement, breeding, HR, analytics, and the other non-vaccination modules remain valid Goat OS scope, but must not pull this slice back into the old generic dashboard/admin phase ladder.
 

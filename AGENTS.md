@@ -69,13 +69,13 @@ normal build docs.
 
 Purpose:
 
-- Goat OS is the operating system for goat identity, health, vaccination, genetics, breeding, workforce, SOP tasks, media proof, verification, devices, commerce interfaces, and analytics.
+- Goat OS is the operating system for mixed-species herd-animal identity, health, vaccination, genetics, breeding, workforce, SOP tasks, media proof, verification, devices, commerce interfaces, and analytics.
 - Canonical backend/data model/app APIs are built fresh.
-- `Goats and Parks.docx` is the base source for goat and park semantics across
-  every slice. Any feature touching goat identity, park/shed scope, shed tags,
-  lifecycle/stage, breed labels, pregnancy/lactation/warm-up/fattening, feed
-  safety, weighing, handling, medicine administration, park roles, or feed
-  sessions must start from
+- `Goats and Parks.docx` is the base source for herd-animal and park semantics
+  across every slice. Any feature touching herd-animal identity, species/breed
+  labels, park/shed scope, shed tags, lifecycle/stage, pregnancy/lactation/
+  warm-up/fattening, feed safety, weighing, handling, medicine administration,
+  park roles, or feed sessions must start from
   `context/source-findings/goats-and-parks-source-findings.md` and must not
   invent conflicting semantics. Feature-specific docs may add stricter
   source-backed rules, but conflicts require an explicit source/owner decision.
@@ -251,7 +251,7 @@ Do:
   review result in the handoff before pushing. Build passing means only that the
   code compiles; it does not mean the UI ships.
 - Read wide, write narrow: agents may inspect the whole tree, but edits must stay within declared task scope.
-- Treat million-goat scale as a hard requirement on every design, prompt, and
+- Treat million-animal scale as a hard requirement on every design, prompt, and
   code change. Before accepting any new query, worker, import path, reporting
   path, or UI data flow, check the scale shape: tenant/run scoped, indexed,
   chunked or paginated, bounded in memory/goroutines, idempotent for retries,

@@ -10,8 +10,8 @@ Feed Direction and later protocol categories.
 
 ## 1. Senior architect correction
 
-The rule JSON is **not** the place to list goat/herd required fields. Rule JSON
-is authored policy. Goat/herd/shed/procurement/vaccination-history properties
+The rule JSON is **not** the place to list herd-animal required fields. Rule JSON
+is authored policy. Herd-animal/shed/procurement/vaccination-history properties
 are canonical database facts and derived read-model facts.
 
 Wrong direction:
@@ -30,7 +30,7 @@ Wrong direction:
 ```
 
 That mixes policy storage with target data. It also cannot scale because every
-rule publish, goat edit, or shed change would tempt the engine to re-interpret
+rule publish, animal edit, or shed change would tempt the engine to re-interpret
 raw JSON against live tables in an unbounded way.
 
 Correct direction:
@@ -41,22 +41,23 @@ Correct direction:
 3. Expand/compile the matrix into `protocol_rules` and optional predicate rows.
 4. Resolve the active version by category + scope before generation.
 5. Maintain indexed target facts from canonical data, for example
-   `goat_protocol_facts` for animal-targeted protocols.
-6. Evaluate only affected goats/cohorts/sheds when a fact changes.
-7. Group human execution through `obligation_batches`, never one task per goat.
+   `animal_protocol_facts` for animal-targeted protocols.
+6. Evaluate only affected animals/cohorts/sheds when a fact changes.
+7. Group human execution through `obligation_batches`, never one task per animal.
 
 ## 2. Existing schema anchors
 
-The current repo already has the important foundations:
+The current repo has important foundations, but the target model is Path B:
+canonical `herd_animals` / `animal_id`, not goat-only physical storage.
 
 | Need | Current home |
 |---|---|
-| Goat species, breed, sex, DOB/age, lifecycle, health, reproductive state | `goats` from `000001` plus provenance/lifecycle deltas in `000070` |
-| Current park/shed/cohort | `goats.current_location_id`, `goats.park_id`, `goats.shed_id`, `goats.cohort_id`, `locations` |
+| Herd animal species, breed, sex, DOB/age, lifecycle, health, reproductive state | `herd_animals` target model, migrated from current `goats` implementation |
+| Current park/shed/cohort | `herd_animals.current_location_id`, `herd_animals.park_id`, `herd_animals.shed_id`, `herd_animals.cohort_id`, `locations` |
 | Shed tag/stage | `shed_profiles.animal_stage_id`, `animal_stage_lookup.stage_code` from `000071` |
 | Protocol version and authored rule JSON | `protocol_versions.rule_dsl` from `000073` |
 | Expanded dose/rule rows | `protocol_rules` from `000073` |
-| Per-goat due state | `obligation_instances` from `000074` |
+| Per-animal due state | `obligation_instances` from `000074` |
 | Shed drive / grouped work | `obligation_batches` from `000074` |
 | Accepted vaccination history | `vaccination_completions` from `000075` |
 | Procurement accepted intake and warm-up/history evidence | `procurement_phc_handoffs`, `procurement_hf_vaccination_evidence` |
@@ -72,11 +73,11 @@ herd facts. The stable joins are:
 |---|---|
 | `tenant_id` | mandatory tenant boundary |
 | `protocol_version_id`, `rule_id` | rule identity and completion/history anchor |
-| `goat_id` | animal-targeted protocols such as vaccination |
+| `animal_id` | animal-targeted protocols such as vaccination |
 | `location_id` / `shed_id` / `cohort_id` | shed/cohort-targeted protocols such as feed direction |
 | `breed_id` plus alias display | breed dimension |
 | `animal_stage_id` plus `stage_code` | shed tag/stage dimension |
-| `species`, `sex`, lifecycle, health, reproductive state | rule predicate dimensions |
+| `species_code`, `sex`, lifecycle, health, reproductive state | rule predicate dimensions |
 | `entry_date`, `origin_type`, procurement handoff/evidence | procurement and warm-up dimensions |
 
 ### 3.2 Add target-facts read models for scale
@@ -84,10 +85,11 @@ herd facts. The stable joins are:
 For vaccination, add or maintain a derived table/view like:
 
 ```text
-goat_protocol_facts
+animal_protocol_facts
   tenant_id
-  goat_id
-  species
+  animal_id
+  species_id
+  species_code
   breed_id
   breed_key
   sex
@@ -112,17 +114,17 @@ goat_protocol_facts
   computed_at
 ```
 
-This is a read model, not canonical truth. It is invalidated by goat CRUD,
+This is a read model, not canonical truth. It is invalidated by animal CRUD,
 current-shed/stage change, health/reproductive change, procurement accepted
 intake, warm-up expiry, and accepted vaccination completion. Index it for the
 dimensions used by active protocol categories:
 
 ```text
-(tenant_id, species, stage_code, lifecycle_status, health_status)
+(tenant_id, species_code, stage_code, lifecycle_status, health_status)
 (tenant_id, shed_id, stage_code, lifecycle_status)
 (tenant_id, breed_id, sex, lifecycle_status)
 (tenant_id, warmup_until)
-(tenant_id, goat_id)
+(tenant_id, animal_id)
 ```
 
 Feed Direction should use the same idea with a shed/cohort target-facts read
@@ -130,7 +132,7 @@ model, not vaccination-specific columns.
 
 ### 3.3 Compile rule predicates when needed
 
-`rule_dsl` is the authored payload. For impact preview and million-goat
+`rule_dsl` is the authored payload. For impact preview and million-animal
 generation, compile matrix rows into SQL-selectable predicates when JSON
 evaluation becomes too slow:
 
@@ -149,7 +151,7 @@ protocol_rule_dimension_values
   sort_order
 ```
 
-Example dimension keys: `species`, `breed_id`, `stage_code`, `animal_stage_id`,
+Example dimension keys: `species_code`, `breed_id`, `stage_code`, `animal_stage_id`,
 `sex`, `lifecycle_status`, `health_status`, `reproductive_status`,
 `pregnancy_month`, `lactation_state`, `procurement_path`, `age_days`.
 
@@ -243,16 +245,16 @@ matrix cells inside the selected active version.
    history.
 3. Matrix tab: rows are target cohorts; columns are vaccines/doses; cells open
    a drawer.
-4. Cohort builder rail: species, breed, sex, shed tag/stage, lifecycle, health,
+4. Cohort builder rail: species, breed, sex, shared shed tag/stage, lifecycle, health,
    reproductive, procurement/warm-up, age bounds.
 5. Vaccine catalog rail: code, label, class, pathogen, dose amount, vial size,
    revaccination interval, inventory item binding.
 6. Compatibility tab: live/killed gaps, same-day allowed combinations,
    same-vaccine minimum gaps, kid booster minimum gap.
-7. Impact preview: affected goats, deferred goats, excluded goats, due rows,
+7. Impact preview: affected animals, deferred animals, excluded animals, due rows,
    catch-up rows, stock estimate, batch estimate, missing data blockers, open
    obligations to supersede, and in-progress batches requiring review.
-8. JSON rail: shows `rule_dsl` only. It must not show goat rows or a
+8. JSON rail: shows `rule_dsl` only. It must not show animal rows or a
    `goat_herd_required_fields` list.
 
 ### Matrix behavior
@@ -263,7 +265,7 @@ matrix cells inside the selected active version.
   `review`.
 - The cell drawer sets timing: trigger, offset, earliest/ideal/latest window,
   min gap, max delay, repeat/revaccination.
-- Breed and shed tag must be first-class dimensions in the same row, so the UI
+- Species, breed, and shed tag must be first-class dimensions in the same row, so the UI
   can express combinations like "Jamunapari female, K2, healthy, not pregnant"
   differently from "all breeds, quarantine shed tag".
 - Pregnancy, lactation, ICU, quarantine, under-treatment, warm-up, and
@@ -286,8 +288,10 @@ Context:
 - Company-wide has at most one active version.
 - Each park has at most one active park override.
 - A park override excludes only that park from the company version.
-- Rule JSON stores policy only. Goat/herd fields come from DB facts and must
+- Rule JSON stores policy only. Herd-animal fields come from DB facts and must
   not appear as goat_herd_required_fields in the JSON.
+- Herd animals are mixed-species. Goat and sheep can share the same shed/tag;
+  species is a selector inside the matrix, not a separate product tab.
 
 UI requirements:
 - First screen is the scoped ruleset list.
@@ -299,20 +303,21 @@ UI requirements:
 - Rows are target cohorts built from dimensions: species, breed, sex, shed
   tag/stage, lifecycle, health, reproductive state, procurement/warm-up,
   age bounds.
-- Columns are vaccines/dose families: ET+TT, PPR, Goat Pox, FMD, HS, and future
+- Columns are vaccines/dose families: ET+TT, PPR, Goat Pox, Sheep Pox, Blue
+  Tongue, FMD, HS, and future
   rows from the catalog.
 - Each cell opens a drawer to set action, trigger, offset, earliest/ideal/latest
   window, min gap, max delay, repeat/revaccination, proof/SOP, and defer/block
   states.
 - Add a separate Compatibility tab for live/killed gaps and same-day allowance.
-- Add Impact Preview that counts affected goats, deferred goats, excluded goats,
+- Add Impact Preview that counts affected animals, deferred animals, excluded animals,
   due rows, catch-up rows, stock estimate, batch estimate, and missing-data
   blockers. When activating a park override, include company-version open
   obligations to supersede and in-progress batches requiring explicit choice.
 - Add JSON rail showing rule_dsl only.
-- Do not make "Who qualifies" a single category picker. It must allow all
-  dimensions together so breed x shed tag x vaccine x reproductive/health state
-  permutations can be represented.
+- Do not make "Who qualifies" a single category picker or a goat-only tab. It
+  must allow all dimensions together so species x breed x shed tag x vaccine x
+  reproductive/health state permutations can be represented.
 
 Design:
 - Dense operational UI, not marketing.
@@ -334,16 +339,16 @@ Required:
   vaccination.matrix, not one protocol per vaccine/stage/breed copy.
 - Persist authored policy in protocol_versions.rule_dsl.
 - Expand schedule/cell rows to protocol_rules.
-- Keep goat/herd/shed/procurement/completion data in canonical tables.
+- Keep herd-animal/shed/procurement/completion data in canonical tables.
 - Add category scope policy and active-version resolution for tenant default
   plus park overrides.
 - For vaccination enforce one active company version and one active version per
   park. Park overrides replace the company version for that park only.
-- Add/maintain goat_protocol_facts as an indexed read model for vaccination
+- Add/maintain animal_protocol_facts as an indexed read model for vaccination
   evaluation.
 - Add protocol_rule_dimension_values if impact preview/generation needs
   SQL-selectable predicates at 1M-goat scale.
-- Recompute only affected targets on goat CRUD, shed/stage change,
+- Recompute only affected targets on animal CRUD, shed/stage change,
   health/reproductive change, procurement accepted-intake, warm-up expiry, and
   accepted vaccination completion.
 - Activation/publish requires CEO/COO/superadmin authority, valid JSON schema,
@@ -389,20 +394,20 @@ This audit/version data is table metadata, not rule-policy JSON:
 
 ### 7.2 `rule_dsl` policy JSON
 
-This is the JSON policy stored in `protocol_versions.rule_dsl`. It has no goat
+This is the JSON policy stored in `protocol_versions.rule_dsl`. It has no animal
 snapshots and no `goat_herd_required_fields`.
 
 ```json
 {
   "schema_version": "protocol.rule_matrix.v1",
   "category": "vaccination",
-  "target_type": "goat",
+  "target_type": "herd_animal",
   "scope": {
     "type": "tenant",
     "id": null
   },
   "dimensions": {
-    "species": ["goat"],
+    "species_codes": ["goat", "sheep"],
     "breed_ids": ["*"],
     "sex": ["female", "male", "unknown"],
     "stage_codes": [
@@ -462,6 +467,30 @@ snapshots and no `goat_herd_required_fields`.
       "priority": 3
     },
     {
+      "vaccine_code": "SHEEP_POX",
+      "label": "Sheep Pox",
+      "class": "live",
+      "pathogen_class": "viral",
+      "inventory_item_code": "vaccine.sheep_pox",
+      "dose_amount": 1,
+      "dose_unit": "ml",
+      "vial_doses": 100,
+      "revaccination_days": 365,
+      "priority": 3
+    },
+    {
+      "vaccine_code": "BLUE_TONGUE",
+      "label": "Blue Tongue",
+      "class": "killed",
+      "pathogen_class": "viral",
+      "inventory_item_code": "vaccine.blue_tongue",
+      "dose_amount": 2,
+      "dose_unit": "ml",
+      "vial_doses": 100,
+      "revaccination_days": 365,
+      "priority": 4
+    },
+    {
       "vaccine_code": "FMD",
       "label": "FMD",
       "class": "killed",
@@ -471,7 +500,7 @@ snapshots and no `goat_herd_required_fields`.
       "dose_unit": "ml",
       "vial_doses": 30,
       "revaccination_days": 274,
-      "priority": 4
+      "priority": 5
     },
     {
       "vaccine_code": "HS",
@@ -483,15 +512,15 @@ snapshots and no `goat_herd_required_fields`.
       "dose_unit": "ml",
       "vial_doses": 100,
       "revaccination_days": 365,
-      "priority": 5
+      "priority": 6
     }
   ],
   "matrix_rows": [
     {
-      "row_key": "goat_kid_normal_course_all_breeds",
-      "label": "Goat kids, normal course, all breeds",
+      "row_key": "kid_shared_course_all_species",
+      "label": "Goat and sheep kids, shared course, all breeds",
       "criteria": {
-        "species": ["goat"],
+        "species_codes": ["goat", "sheep"],
         "breed_ids": ["*"],
         "sex": ["female", "male", "unknown"],
         "stage_codes": ["K1", "K2", "K3"],
@@ -506,10 +535,46 @@ snapshots and no `goat_herd_required_fields`.
       }
     },
     {
-      "row_key": "goat_adult_revaccination_all_breeds",
-      "label": "Adult goats, revaccination cycle, all breeds",
+      "row_key": "goat_kid_pox_course_all_breeds",
+      "label": "Goat kids, Goat Pox course, all breeds",
       "criteria": {
-        "species": ["goat"],
+        "species_codes": ["goat"],
+        "breed_ids": ["*"],
+        "sex": ["female", "male", "unknown"],
+        "stage_codes": ["K1", "K2", "K3"],
+        "age_days": {
+          "min": 0,
+          "max": 140
+        },
+        "lifecycle_status": ["alive"],
+        "health_status": ["healthy", "recovering"],
+        "reproductive_status": ["non_pregnant", "unknown"],
+        "procurement_path": ["farm_born", "procured", "imported", "unknown"]
+      }
+    },
+    {
+      "row_key": "sheep_kid_pox_blue_tongue_all_breeds",
+      "label": "Sheep kids, Sheep Pox and Blue Tongue course, all breeds",
+      "criteria": {
+        "species_codes": ["sheep"],
+        "breed_ids": ["*"],
+        "sex": ["female", "male", "unknown"],
+        "stage_codes": ["K1", "K2", "K3"],
+        "age_days": {
+          "min": 0,
+          "max": 140
+        },
+        "lifecycle_status": ["alive"],
+        "health_status": ["healthy", "recovering"],
+        "reproductive_status": ["non_pregnant", "unknown"],
+        "procurement_path": ["farm_born", "procured", "imported", "unknown"]
+      }
+    },
+    {
+      "row_key": "adult_revaccination_all_species",
+      "label": "Adult goats and sheep, revaccination cycle, all breeds",
+      "criteria": {
+        "species_codes": ["goat", "sheep"],
         "breed_ids": ["*"],
         "sex": ["female", "male", "unknown"],
         "stage_codes": ["NON_PREGNANT", "BREEDING", "MOTHER", "MILKING", "BUCK", "FATTENING_MALE", "FATTENING_FEMALE"],
@@ -524,10 +589,10 @@ snapshots and no `goat_herd_required_fields`.
       }
     },
     {
-      "row_key": "goat_defer_clinical_hold",
-      "label": "Clinical hold goats",
+      "row_key": "clinical_hold_all_species",
+      "label": "Clinical hold animals",
       "criteria": {
-        "species": ["goat"],
+        "species_codes": ["goat", "sheep"],
         "breed_ids": ["*"],
         "sex": ["female", "male", "unknown"],
         "stage_codes": ["*"],
@@ -538,7 +603,7 @@ snapshots and no `goat_herd_required_fields`.
   ],
   "cells": [
     {
-      "row_key": "goat_kid_normal_course_all_breeds",
+      "row_key": "kid_shared_course_all_species",
       "vaccine_code": "ET_TT",
       "action": "due",
       "dose_schedule": [
@@ -570,7 +635,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "goat_kid_normal_course_all_breeds",
+      "row_key": "kid_shared_course_all_species",
       "vaccine_code": "FMD",
       "action": "due",
       "dose_schedule": [
@@ -590,7 +655,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "goat_kid_normal_course_all_breeds",
+      "row_key": "kid_shared_course_all_species",
       "vaccine_code": "HS",
       "action": "due",
       "dose_schedule": [
@@ -610,7 +675,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "goat_kid_normal_course_all_breeds",
+      "row_key": "kid_shared_course_all_species",
       "vaccine_code": "PPR",
       "action": "due",
       "dose_schedule": [
@@ -630,7 +695,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "goat_kid_normal_course_all_breeds",
+      "row_key": "goat_kid_pox_course_all_breeds",
       "vaccine_code": "GOAT_POX",
       "action": "due",
       "dose_schedule": [
@@ -650,7 +715,59 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "goat_adult_revaccination_all_breeds",
+      "row_key": "sheep_kid_pox_blue_tongue_all_breeds",
+      "vaccine_code": "SHEEP_POX",
+      "action": "due",
+      "dose_schedule": [
+        {
+          "dose_code": "single",
+          "sequence": 1,
+          "trigger_type": "birth_age",
+          "offset_days": 84,
+          "earliest_offset_days": 84,
+          "latest_offset_days": 91,
+          "min_gap_days": 0,
+          "max_delay_days": 7,
+          "repeat": "none",
+          "catch_up": "immediate"
+        }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "sheep_kid_pox_blue_tongue_all_breeds",
+      "vaccine_code": "BLUE_TONGUE",
+      "action": "due",
+      "dose_schedule": [
+        {
+          "dose_code": "dose_1",
+          "sequence": 1,
+          "trigger_type": "birth_age",
+          "offset_days": 112,
+          "earliest_offset_days": 112,
+          "latest_offset_days": 119,
+          "min_gap_days": 0,
+          "max_delay_days": 7,
+          "repeat": "none",
+          "catch_up": "immediate"
+        },
+        {
+          "dose_code": "booster_1",
+          "sequence": 2,
+          "trigger_type": "after_previous_completion",
+          "offset_days": 28,
+          "earliest_offset_days": 28,
+          "latest_offset_days": 35,
+          "min_gap_days": 28,
+          "max_delay_days": 7,
+          "repeat": "none",
+          "catch_up": "immediate"
+        }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_revaccination_all_species",
       "vaccine_code": "ET_TT",
       "action": "due",
       "dose_schedule": [
@@ -671,7 +788,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "goat_defer_clinical_hold",
+      "row_key": "clinical_hold_all_species",
       "vaccine_code": "*",
       "action": "defer",
       "defer_reason": "clinical_hold",
@@ -688,7 +805,8 @@ snapshots and no `goat_herd_required_fields`.
       "first_wave_vaccines": ["ET_TT", "PPR"],
       "second_wave_after_days": 28,
       "second_wave_vaccines_by_species": {
-        "goat": ["GOAT_POX", "ET_TT"]
+        "goat": ["GOAT_POX", "ET_TT"],
+        "sheep": ["SHEEP_POX", "BLUE_TONGUE"]
       }
     },
     "reproductive": {
@@ -726,14 +844,14 @@ snapshots and no `goat_herd_required_fields`.
     "history": {
       "trusted_completion_suppresses_matching_due": true,
       "unknown_history_policy": "single_safe_catchup_review",
-      "older_goat_anti_flood": true
+      "older_animal_anti_flood": true
     }
   },
   "proof_policies": {
     "vaccination_drive_standard": {
       "sop_version_binding": "protocol_versions.sop_version_id",
       "required_fields": [
-        "goat_scan",
+        "animal_scan",
         "vaccine",
         "vial_lot",
         "dose",
@@ -758,6 +876,6 @@ vaccine-first form as the final contract. Before merging UI/config changes:
 - replace the current one-vaccine-per-protocol Config list with a scoped
   ruleset list: company default plus park overrides;
 - make Calendar/Passport detail link to `protocol_version_id`, `rule_id`,
-  `goat_id`, `shed_id`, and `batch_id`;
+  `animal_id`, `shed_id`, and `batch_id`;
 - ensure any vaccine due row can explain which matrix row/cell matched it;
 - avoid recomputing full-herd eligibility from the UI or Calendar layer.

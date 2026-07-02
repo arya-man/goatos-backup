@@ -20,7 +20,7 @@ docs/preventive-care-vaccination/TRD.md
 
 Use those files as the source of truth for migrations `000070-074`, scoped
 protocol rulesets, obligations, inventory ledger, Config activation policy, and
-million-goat query shape.
+million-animal query shape.
 
 Canonical docs:
 
@@ -45,7 +45,7 @@ Rules:
   `context/architecture/operational-kernel.md`: trigger, canonical transaction,
   obligation/work item, sweeper, reminder/deadline alert, notification/
   escalation, proof/verification, read-model process-integrity view, local/cloud
-  parity, and million-goat scale proof.
+  parity, and million-animal scale proof.
 - If the phase adds a permanent module/tool/workflow/rule, update the relevant
   skill reference in `.agents/skills/goatos-build/references/` before coding.
 - Before asking humans to answer business decisions from memory, inspect
@@ -76,7 +76,12 @@ Rules:
 Locked identity foundation:
 
 ```text
-goat_id immutable internal ID; display_id human ID.
+Path B mixed-herd identity supersedes earlier goat-only wording:
+animal_id immutable internal ID; display_id human ID.
+canonical target table = herd_animals, not goats.
+species comes from species_catalog; seed goat and sheep, allow future species without DDL/code branches.
+breeds belong to species; Anantapur Sheep is sheep, not a goat breed.
+every clean current animal resolves to one current shed/tag; goats and sheep may share the same shed/tag.
 RFID-first import; old tag scope = number + normalized park.
 tenant isolation + global parties + shared-PK org subtype.
 owner_party / custodian_party / location / task assignment are separate.
@@ -85,7 +90,7 @@ custody has temporal history; operator task assignment is not custody.
 status is decomposed into lifecycle/reproductive/growth/management/health + sex.
 F2-Male/F2-Female maps to growth_cohort=F2 only; sex comes from Gender source.
 breed strings normalize to breed_id reference rows/aliases before counters.
-merges set `merged_into_goat_id`; lookups redirect to the survivor; P8 booking,
+merges set `merged_into_animal_id`; lookups redirect to the survivor; P8 booking,
 allocation, and replacement resolve to the survivor before availability and
 no-double-promise checks.
 events/audit/history are partition-aware; idempotency is explicit.

@@ -36,17 +36,18 @@ Rules:
 - Ownership, custody, task assignment, and location are four different things:
   owner_party_id owns value, custodian_party_id is responsible/holding party,
   workforce assignment says who does today's work, and current_location_id says
-  where the goat physically is.
+  where the herd animal physically is.
 - Status is decomposed into lifecycle, reproductive, growth_cohort,
   management_stage, health, plus sex. Legacy compound labels are raw evidence,
   not the canonical model.
-- Identity merge is redirect-based: merged goats keep `merged_into_goat_id`
-  pointing at the live survivor goat. Lookup APIs may return redirect warnings;
-  normal writes to merged goats fail except admin correction/unmerge. Later
-  booking, allocation, and replacement flows must resolve the supplied goat
-  through `merged_into_goat_id` before availability/uniqueness checks and enforce
-  no-double-promise against the survivor `goat_id`.
-- Million-goat scale is a hard design rule: chunk by park/shed/cohort/date,
+- Identity merge is redirect-based: merged herd animals keep
+  `merged_into_animal_id` pointing at the live survivor animal. Lookup APIs may
+  return redirect warnings; normal writes to merged animals fail except admin
+  correction/unmerge. Later booking, allocation, and replacement flows must
+  resolve the supplied animal through `merged_into_animal_id` before
+  availability/uniqueness checks and enforce no-double-promise against the
+  survivor `animal_id`.
+- Million-animal scale is a hard design rule: chunk by park/shed/cohort/date,
   never full-herd scan in an API, use idempotency, bounded workers/goroutines,
   and indexed/partition-aware tables.
 - Google equivalents stay behind ports/adapters: Pub/Sub for event bus, Cloud

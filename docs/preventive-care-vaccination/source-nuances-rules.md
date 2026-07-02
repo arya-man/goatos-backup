@@ -3,7 +3,7 @@
 **Source file:** `/Users/ravi/mesha/wiki/Nuances_Rules.docx`
 **Extracted into repo:** 2026-07-01 18:18 local source revision
 **Scope:** V1 Preventive Care (PC) Vaccination config, generation, Calendar, Action Center,
-Protocol Adherence, Workflows, and Goat Passport behavior.
+Protocol Adherence, Workflows, and Animal Passport behavior.
 
 This markdown is the tracked engineering source for the vaccination rule
 matrix. The local DOCX remains private/source material; this file must travel
@@ -127,7 +127,7 @@ The V1 kernel must enforce:
 - pregnancy exclusion where the animal state says pregnant/lactating; month-4
   and month-5 precision must use pregnancy month fields when present in the
   animal data model;
-- Calendar drive aggregation after sweeper batching, with goat-level due rows
+- Calendar drive aggregation after sweeper batching, with animal-level due rows
   remaining in Passport, Protocol Adherence, and Vaccination detail.
 
 ## V1 Source Matrix Presets

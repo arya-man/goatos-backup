@@ -29,7 +29,7 @@ backend/cmd/mint-dev-token         local bearer token helper
 
 backend/internal/bootstrap         explicit constructor wiring
 backend/internal/platform          auth, middleware, observability, pg helpers
-backend/internal/identity          Goat Passport read/write identifier surface
+backend/internal/identity          Animal Passport read/write identifier surface
 backend/internal/protocol          config/rule/version authority
 backend/internal/obligation        obligation/status engine foundation
 backend/internal/vaccination       vaccination execution/proof/verification

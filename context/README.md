@@ -183,10 +183,11 @@ context/product/
 context/source-findings/
   derived findings from private/source docs; never raw PII or contacts
 
-  `goats-and-parks-source-findings.md` is the base source for goat and park
-  semantics across slices: identity, park/shed scope, shed tags, lifecycle,
-  breed labels, pregnancy/lactation/warm-up/fattening, feed safety, weighing,
-  handling, medicine administration, park roles, and feed session execution.
+  `goats-and-parks-source-findings.md` is the base source for herd-animal and
+  park semantics across slices: identity, species/breed labels, park/shed
+  scope, shed tags, lifecycle, pregnancy/lactation/warm-up/fattening, feed
+  safety, weighing, handling, medicine administration, park roles, and feed
+  session execution.
 
   `sheds-db-source-findings.md` captures the manual shed profile matrix and the
   rule that Sheds DB becomes governed Location/Park profile data, not a raw
@@ -232,7 +233,7 @@ frontend:
   surface. Follow context/frontend/current-admin-web-scope.md: build only the
   current Control Tower shell, Preventive Care (PC) / Vaccination, Admin Config, vaccination
   execution context (rendered inside /vaccination), Admin/Data Ops
-  SOP Library for vaccination SOP policy, and contextual Goat Passport detail
+  SOP Library for vaccination SOP policy, and contextual Animal Passport detail
   surfaces. Parks is a vertical, but it is NOT a vaccination product route,
   module, or sidebar entry. Old
   Operations/Legacy/counts/import routes and old generic SOP/task pages are removed

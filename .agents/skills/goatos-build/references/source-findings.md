@@ -25,10 +25,10 @@ Rules:
 - If a source fact affects build behavior, it must land in an authoritative
   context doc, not only in analysis or archive.
 - `Goats and Parks.docx` is the base source for goat and park semantics across
-  GoatOS. Any slice touching goat identity, park/shed scope, shed tags,
-  lifecycle/stage, breed labels, pregnancy/lactation/warm-up/fattening, feed
-  safety, weighing, handling, medicine administration, park roles, or feed
-  sessions must start from
+  GoatOS. Any slice touching herd-animal identity, species/breed labels,
+  park/shed scope, shed tags, lifecycle/stage, pregnancy/lactation/warm-up/
+  fattening, feed safety, weighing, handling, medicine administration, park
+  roles, or feed sessions must start from
   `context/source-findings/goats-and-parks-source-findings.md`. Feature-specific
   docs can add stricter rules, but they must not silently redefine those base
   semantics.
