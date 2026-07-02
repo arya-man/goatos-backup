@@ -322,6 +322,10 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    sheep mothers can produce enough milk for the newborn around K0, and their
    vaccination obligations follow the normal adult/sheep repeat and catch-up
    policy. Do not convert that biological state into sheep milking tags.
+   Accepted herd animals must always carry real sex (`female` or `male`).
+   Blank/unknown/inferred-only/conflicting legacy sex is rejected before
+   canonical creation/import and must never become a vaccination rule selector
+   or obligation target.
    Commercial milking tags such as `Mother Milking Waiting`, `Milking Warmup`,
    and `Milking` are goat/doe-only because they represent a goat milk-production
    workflow, unless a future approved sheep dairy policy creates sheep

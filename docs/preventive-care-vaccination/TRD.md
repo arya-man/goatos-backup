@@ -52,7 +52,7 @@ not remain as the new architecture.
 | `display_id text` | Human-visible ID; prefix must not imply goat-only identity. |
 | `species_id uuid` / `species_code text` | Required FK/reference to `species_catalog`; no goat-only CHECK. |
 | `breed_id uuid` / `breed text` | Breed belongs to the selected species; dirty text is alias/provenance only. |
-| `sex text` | Keep sex semantics (`female`, `male`, `unknown`) across species. |
+| `sex text` | Required canonical animal sex: `female` or `male` only. `unknown`, blank, inferred, or conflicting sex is a blocking validation error, not an accepted herd value and not a vaccination selector. |
 | `dob date`, `dob_confidence text` | Date of birth with confidence (`exact`, `estimated`, `unknown`). |
 | `approx_dob date` | Keep only as migrated provenance/compat input until replaced by `dob` + confidence. |
 | `origin_type text`, `entry_date date` | `birth`, `procured`, `imported`, `unknown` plus herd-entry date. |
@@ -96,6 +96,10 @@ Stage/species invariants:
 - Goats and sheep must both use the governed Goats and Parks tag catalog; do
   not create separate sheep-only shadow tags or a goat-only tab. Species
   eligibility lives on each tag/stage.
+- Accepted herd animals must always have real sex (`female` or `male`). Legacy
+  source rows with blank, unknown, inferred-only, or conflicting sex are rejected
+  before canonical creation/import and cannot generate vaccination obligations.
+  Rule authoring must not offer or store `unknown` sex selectors.
 - `MOTHER` / lactating adult is a biological reproductive state. It can match
   goat and sheep mothers for vaccination and should use the species-appropriate
   adult repeat/catch-up vaccine cells.

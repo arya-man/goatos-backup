@@ -181,6 +181,12 @@ export function LoadWriteActions({
               <label>{copy(pageContract, "field.temporary_id")}</label>
               <input name="temporary_id" placeholder={copy(pageContract, "placeholder.temporary_id")} />
             </div>
+            <div className="fld" style={{ flex: 1, minWidth: 140 }}>
+              <label>{copy(pageContract, "field.sex")}</label>
+              <select name="sex" defaultValue="female" required>
+                <SelectOptions pageContract={pageContract} groupId="herd_sex" />
+              </select>
+            </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ flex: 1, minWidth: 150 }}>

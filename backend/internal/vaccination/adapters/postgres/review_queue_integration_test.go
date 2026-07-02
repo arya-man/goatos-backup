@@ -226,9 +226,9 @@ func TestListRecordedCompletionsParkScope(t *testing.T) {
 		t.Fatalf("park B: %v", err)
 	}
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id,
-		   current_location_id, park_id, management_stage, dob)
-		 VALUES ($1, $2, 'alive', 'clean', $3, $4, $4, 'K1', DATE '2026-05-01')`, gB, impTenant, impParty, parkB); err != nil {
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
+			   current_location_id, park_id, management_stage, dob)
+			 VALUES ($1, $2, 'alive', 'clean', $3, 'female', $4, $4, 'K1', DATE '2026-05-01')`, gB, impTenant, impParty, parkB); err != nil {
 		t.Fatalf("gB: %v", err)
 	}
 

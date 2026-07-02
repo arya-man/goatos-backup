@@ -313,6 +313,13 @@ func (s *Service) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) (do
 	if in.GoatID == nil && blankPtr(in.SourceTag) && blankPtr(in.SourceRFID) && blankPtr(in.TemporaryID) {
 		return domain.LoadGoat{}, BadRequest("missing_source_identity", "source_tag, source_rfid, temporary_id, or goat_id is required")
 	}
+	in.Sex = strings.TrimSpace(in.Sex)
+	if in.Sex == "" {
+		return domain.LoadGoat{}, BadRequest("missing_sex", "sex is required and must be female or male")
+	}
+	if !oneOf(in.Sex, "female", "male") {
+		return domain.LoadGoat{}, BadRequest("invalid_sex", "sex must be female or male")
+	}
 	if err := validateOptionalUUID("holding_location_id", in.HoldingLocationID); err != nil {
 		return domain.LoadGoat{}, err
 	}

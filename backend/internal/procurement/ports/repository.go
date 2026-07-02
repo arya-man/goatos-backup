@@ -64,6 +64,7 @@ type AddGoatToLoad struct {
 	SourceTag         *string
 	SourceRFID        *string
 	TemporaryID       *string
+	Sex               string
 	SelectionState    string
 	SelectionReason   string
 	Purpose           string

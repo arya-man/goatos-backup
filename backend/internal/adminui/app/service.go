@@ -2769,7 +2769,6 @@ func herdRegisterOptionGroups() []domain.OptionGroup {
 			Options: []domain.Option{
 				option("female", "Female", "", ""),
 				option("male", "Male", "", ""),
-				option("unknown", "Unknown", "", ""),
 			},
 		},
 		{

@@ -714,9 +714,9 @@ func seedProcessIntegrityProjection(t *testing.T, ctx context.Context, pool *pgx
 		 VALUES ($1, $2, 'VER-PI', 'Verifier PI', 'active', 'verifier', $3)`,
 		piVerifier, piTenant, piPark)
 	execPI(t, ctx, pool, "goat",
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id,
-		   current_location_id, park_id, shed_id, management_stage, health_status)
-		 VALUES ($1, $2, 'alive', 'clean', $3, $4, $5, $4, 'K1', 'healthy')`,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
+			   current_location_id, park_id, shed_id, management_stage, health_status)
+			 VALUES ($1, $2, 'alive', 'clean', $3, 'female', $4, $5, $4, 'K1', 'healthy')`,
 		piGoat, piTenant, piParty, piShed, piPark)
 	execPI(t, ctx, pool, "sop definition",
 		`INSERT INTO sop_definitions (sop_id, tenant_id, code, name, description, status)

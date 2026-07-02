@@ -373,6 +373,45 @@ func TestCreateAdminGoatRejectsMissingDOB(t *testing.T) {
 	}
 }
 
+func TestCreateAdminGoatRejectsMissingOrUnknownSex(t *testing.T) {
+	tests := []struct {
+		name    string
+		rawBody string
+		wantMsg string
+	}{
+		{
+			name:    "missing sex",
+			rawBody: fmt.Sprintf(`{"rfid":"RFID-MISSING-SEX","park_id":%q,"shed_id":%q,"dob":"2026-05-20","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, testPark, testShed),
+			wantMsg: "sex is required and must be female or male",
+		},
+		{
+			name:    "unknown sex",
+			rawBody: fmt.Sprintf(`{"rfid":"RFID-UNKNOWN-SEX","park_id":%q,"shed_id":%q,"sex":"unknown","dob":"2026-05-20","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, testPark, testShed),
+			wantMsg: "sex must be female or male",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			svc := NewService(repo)
+			_, err := svc.CreateAdminGoat(context.Background(), CreateAdminGoatInput{
+				TenantID:       testTenant,
+				ActorID:        testActor,
+				IdempotencyKey: "idem-" + strings.ReplaceAll(tt.name, " ", "-"),
+				TraceID:        testTrace,
+				RawBody:        []byte(tt.rawBody),
+			})
+			var appErr *Error
+			if !errors.As(err, &appErr) || appErr.Code != "invalid_goat_create" || appErr.Message != tt.wantMsg {
+				t.Fatalf("err = %v, want invalid_goat_create with %q", err, tt.wantMsg)
+			}
+			if len(repo.validateAdminGoatCreateCmds) != 0 || len(repo.createAdminGoatCmds) != 0 {
+				t.Fatalf("invalid sex must fail before repo calls, validate=%d create=%d", len(repo.validateAdminGoatCreateCmds), len(repo.createAdminGoatCmds))
+			}
+		})
+	}
+}
+
 func TestCommitAdminGoatBulkUsesStableRowIdempotencyKey(t *testing.T) {
 	seenHashByKey := map[string]string{}
 	repo := &fakeRepo{

@@ -238,6 +238,7 @@ type addGoatRequest struct {
 	SourceTag         *string         `json:"source_tag"`
 	SourceRFID        *string         `json:"source_rfid"`
 	TemporaryID       *string         `json:"temporary_id"`
+	Sex               string          `json:"sex"`
 	SelectionState    string          `json:"selection_state"`
 	SelectionReason   string          `json:"selection_reason"`
 	Purpose           string          `json:"purpose"`
@@ -266,6 +267,7 @@ func (h *Handler) AddGoat(w http.ResponseWriter, r *http.Request) {
 		SourceTag:         req.SourceTag,
 		SourceRFID:        req.SourceRFID,
 		TemporaryID:       req.TemporaryID,
+		Sex:               req.Sex,
 		SelectionState:    req.SelectionState,
 		SelectionReason:   req.SelectionReason,
 		Purpose:           req.Purpose,

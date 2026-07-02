@@ -409,7 +409,7 @@ type sqlcGoatRow struct {
 	PrimaryOldTag      pgtype.Text
 	RFID               pgtype.Text
 	Breed              pgtype.Text
-	Sex                pgtype.Text
+	Sex                string
 	AgeBand            pgtype.Text
 	LifecycleStatus    string
 	ReproductiveStatus pgtype.Text
@@ -495,7 +495,7 @@ func goatSummaryFromSQLC(row sqlcGoatRow) (domain.GoatSummary, string, *string, 
 		PrimaryOldTag:      pgTextPtr(row.PrimaryOldTag),
 		RFID:               pgTextPtr(row.RFID),
 		Breed:              pgTextPtr(row.Breed),
-		Sex:                pgTextPtr(row.Sex),
+		Sex:                nonEmptyStringPtr(row.Sex),
 		AgeBand:            pgTextPtr(row.AgeBand),
 		LifecycleStatus:    row.LifecycleStatus,
 		ReproductiveStatus: pgTextPtr(row.ReproductiveStatus),

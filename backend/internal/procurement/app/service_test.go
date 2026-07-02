@@ -82,6 +82,7 @@ func TestSourceWarmupFortyFiveToSeventyDaysRemainsValid(t *testing.T) {
 		TenantID:        testTenant,
 		LoadID:          testLoad,
 		SourceTag:       strPtr("SRC-70"),
+		Sex:             "female",
 		WarmupStartedAt: &start,
 		WarmupEndedAt:   &end,
 		IdempotencyKey:  "add-70-day-warmup",
@@ -94,6 +95,36 @@ func TestSourceWarmupFortyFiveToSeventyDaysRemainsValid(t *testing.T) {
 	}
 	if repo.lastAdd.CurrentState != domain.GoatStateSourceWarmup {
 		t.Fatalf("current state = %q", repo.lastAdd.CurrentState)
+	}
+}
+
+func TestAddGoatToLoadRequiresRealSex(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	for _, tc := range []struct {
+		name string
+		sex  string
+		code string
+	}{
+		{name: "missing", sex: "", code: "missing_sex"},
+		{name: "unknown", sex: "unknown", code: "invalid_sex"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := svc.AddGoatToLoad(context.Background(), ports.AddGoatToLoad{
+				TenantID:       testTenant,
+				LoadID:         testLoad,
+				SourceTag:      strPtr("SRC-" + tc.name),
+				Sex:            tc.sex,
+				IdempotencyKey: "add-sex-" + tc.name,
+			})
+			var appErr *Error
+			if !errors.As(err, &appErr) || appErr.Code != tc.code {
+				t.Fatalf("AddGoatToLoad() error = %v, want %s", err, tc.code)
+			}
+			if repo.lastAdd.LoadID != "" {
+				t.Fatalf("invalid sex reached repository: %#v", repo.lastAdd)
+			}
+		})
 	}
 }
 

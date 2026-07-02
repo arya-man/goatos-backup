@@ -324,9 +324,6 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	normalized.Sex = strings.TrimSpace(normalized.Sex)
 	normalized.OriginType = strings.TrimSpace(normalized.OriginType)
 	normalized.EntryDate = strings.TrimSpace(normalized.EntryDate)
-	if normalized.Sex == "" {
-		normalized.Sex = "unknown"
-	}
 	if normalized.OriginType == "" {
 		normalized.OriginType = "unknown"
 	}
@@ -352,8 +349,10 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	if normalized.FarmID != nil && !uuidPattern.MatchString(*normalized.FarmID) {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "farm_id", Code: "invalid", Message: "farm_id must be a UUID"})
 	}
-	if !allowedSex[normalized.Sex] {
-		errorsOut = append(errorsOut, domain.FieldError{Field: "sex", Code: "invalid", Message: "sex must be female, male, or unknown"})
+	if normalized.Sex == "" {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "sex", Code: "required", Message: "sex is required and must be female or male"})
+	} else if !allowedSex[normalized.Sex] {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "sex", Code: "invalid", Message: "sex must be female or male"})
 	}
 	if !allowedOriginType[normalized.OriginType] {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "origin_type", Code: "invalid", Message: "origin_type must be birth, procured, imported, or unknown"})
@@ -879,9 +878,8 @@ func rowIdempotencyKey(clientKey string, rowNumber int) string {
 }
 
 var allowedSex = map[string]bool{
-	"female":  true,
-	"male":    true,
-	"unknown": true,
+	"female": true,
+	"male":   true,
 }
 
 var allowedOriginType = map[string]bool{

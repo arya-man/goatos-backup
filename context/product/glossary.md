@@ -162,11 +162,12 @@ genetics category and must not set sex by itself. It maps to
 `ICU-Non-Pregnant` maps to `health_status=icu` and
 `reproductive_status=non_pregnant`.
 
-Legacy code sometimes defaulted unknown gender into an F2 sex label, so
+Legacy code sometimes defaulted unclear gender into an F2 sex label, so
 `F2-Male`/`F2-Female` is a contaminated sex signal. If a compound F2 label
 disagrees with the source `Gender` column, preserve both pieces of evidence and
-route the row to review. If `Gender` is blank and only an F2 label implies sex,
-keep sex as needs-review instead of inferring it from the label.
+reject/block the row before canonical creation. If `Gender` is blank and only an
+F2 label implies sex, do not infer sex from the label; reject/block the row until
+the real sex is corrected.
 
 ## Animal And Breed Terms
 
@@ -247,9 +248,9 @@ post-delivery management stage for a mother.
 
 Fattening groups after K3/weaning. `F2` is the growth/fattening stage; the
 `Male`/`Female` suffix is a legacy grouping label and is not authoritative sex
-evidence. Goat OS uses the source `Gender` column for sex and treats missing or
-conflicting sex evidence as reviewable. The goal is strong feed performance and
-average daily gain.
+evidence. Goat OS requires canonical animal sex to be real `female` or `male`;
+missing, unclear, or conflicting sex evidence blocks import/creation until
+corrected. The goal is strong feed performance and average daily gain.
 
 `F0` is not currently used.
 

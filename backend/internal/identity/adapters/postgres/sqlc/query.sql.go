@@ -90,7 +90,7 @@ type GetGoatByDisplayIDRow struct {
 	PrimaryOldTag      pgtype.Text
 	Rfid               pgtype.Text
 	Breed              pgtype.Text
-	Sex                pgtype.Text
+	Sex                string
 	AgeBand            pgtype.Text
 	LifecycleStatus    string
 	ReproductiveStatus pgtype.Text
@@ -185,7 +185,7 @@ type GetGoatByIDRow struct {
 	PrimaryOldTag      pgtype.Text
 	Rfid               pgtype.Text
 	Breed              pgtype.Text
-	Sex                pgtype.Text
+	Sex                string
 	AgeBand            pgtype.Text
 	LifecycleStatus    string
 	ReproductiveStatus pgtype.Text

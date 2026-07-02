@@ -25,9 +25,9 @@ func seedGenGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, life
 func seedGenGoatWithStage(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, lifecycle, stage string) {
 	t.Helper()
 	_, err := pool.Exec(ctx,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id,
-		   current_location_id, park_id, management_stage, dob)
-		 VALUES ($1, $2, $3, 'clean', $4, $5, $5, $6, DATE '2026-05-01')`,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
+			   current_location_id, park_id, management_stage, dob)
+			 VALUES ($1, $2, $3, 'clean', $4, 'female', $5, $5, $6, DATE '2026-05-01')`,
 		id, impTenant, lifecycle, impParty, impCbe, stage)
 	if err != nil {
 		t.Fatalf("seed gen goat %s: %v", id, err)

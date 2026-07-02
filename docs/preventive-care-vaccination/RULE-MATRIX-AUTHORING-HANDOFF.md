@@ -426,6 +426,15 @@ This audit/version data is table metadata, not rule-policy JSON:
 This is the JSON policy stored in `protocol_versions.rule_dsl`. It has no animal
 snapshots and no `goat_herd_required_fields`.
 
+Hard validation rules for this sample and the production schema:
+
+- `sex` is only `female` or `male`; `unknown`, blank, or inferred sex is rejected
+  before canonical animal creation/import and must never be offered in UI rule
+  authoring or used during vaccination matching.
+- `stage_species_policy` and `stage_sex_policy` are enforced before row matching.
+  They are not display hints. A row/cell that would create an impossible
+  species/tag or sex/tag combination fails validation and cannot publish.
+
 ```json
 {
   "schema_version": "protocol.rule_matrix.v1",
@@ -438,7 +447,7 @@ snapshots and no `goat_herd_required_fields`.
   "dimensions": {
     "species_codes": ["goat", "sheep"],
     "breed_ids": ["*"],
-    "sex": ["female", "male", "unknown"],
+    "sex": ["female", "male"],
     "stage_codes": [
       "K0",
       "K1",
@@ -472,6 +481,23 @@ snapshots and no `goat_herd_required_fields`.
       "MILKING_WARMUP": ["goat"],
       "MILKING": ["goat"],
       "BUCK": ["goat", "sheep"]
+    },
+    "stage_sex_policy": {
+      "K0": ["female", "male"],
+      "K1": ["female", "male"],
+      "K2": ["female", "male"],
+      "K3": ["female", "male"],
+      "FATTENING_MALE": ["male"],
+      "FATTENING_FEMALE": ["female"],
+      "NON_PREGNANT": ["female"],
+      "PREGNANT_EARLY": ["female"],
+      "PREGNANT_LATE": ["female"],
+      "BREEDING": ["female"],
+      "MOTHER": ["female"],
+      "MOTHER_MILKING_WAITING": ["female"],
+      "MILKING_WARMUP": ["female"],
+      "MILKING": ["female"],
+      "BUCK": ["male"]
     },
     "health_states": ["healthy", "recovering", "sick", "under_treatment", "quarantine", "icu"],
     "reproductive_states": ["non_pregnant", "pregnant", "lactating", "mother", "buck", "unknown"],
@@ -570,7 +596,7 @@ snapshots and no `goat_herd_required_fields`.
       "criteria": {
         "species_codes": ["goat", "sheep"],
         "breed_ids": ["*"],
-        "sex": ["female", "male", "unknown"],
+        "sex": ["female", "male"],
         "stage_codes": ["K1", "K2", "K3"],
         "age_days": {
           "min": 0,
@@ -588,7 +614,7 @@ snapshots and no `goat_herd_required_fields`.
       "criteria": {
         "species_codes": ["goat"],
         "breed_ids": ["*"],
-        "sex": ["female", "male", "unknown"],
+        "sex": ["female", "male"],
         "stage_codes": ["K1", "K2", "K3"],
         "age_days": {
           "min": 0,
@@ -606,7 +632,7 @@ snapshots and no `goat_herd_required_fields`.
       "criteria": {
         "species_codes": ["sheep"],
         "breed_ids": ["*"],
-        "sex": ["female", "male", "unknown"],
+        "sex": ["female", "male"],
         "stage_codes": ["K1", "K2", "K3"],
         "age_days": {
           "min": 0,
@@ -619,38 +645,74 @@ snapshots and no `goat_herd_required_fields`.
       }
     },
     {
-      "row_key": "adult_goat_shared_revaccination",
-      "label": "Adult goats, shared non-commercial adult tags, all breeds",
+      "row_key": "adult_goat_female_revaccination",
+      "label": "Adult goat females, shared non-commercial adult tags, all breeds",
       "criteria": {
         "species_codes": ["goat"],
         "breed_ids": ["*"],
-        "sex": ["female", "male", "unknown"],
-        "stage_codes": ["NON_PREGNANT", "BREEDING", "MOTHER", "BUCK", "FATTENING_MALE", "FATTENING_FEMALE"],
+        "sex": ["female"],
+        "stage_codes": ["FATTENING_FEMALE", "NON_PREGNANT", "PREGNANT_EARLY", "PREGNANT_LATE", "BREEDING", "MOTHER"],
         "age_days": {
           "min": 141,
           "max": null
         },
         "lifecycle_status": ["alive"],
         "health_status": ["healthy", "recovering"],
-        "reproductive_status": ["non_pregnant", "lactating", "mother", "buck", "unknown"],
+        "reproductive_status": ["non_pregnant", "pregnant", "lactating", "mother", "unknown"],
         "procurement_path": ["farm_born", "procured", "imported", "unknown"]
       }
     },
     {
-      "row_key": "adult_sheep_shared_revaccination",
-      "label": "Adult sheep, shared non-commercial adult tags, all breeds",
+      "row_key": "adult_goat_male_breeder_revaccination",
+      "label": "Adult goat males, buck and fattening-male tags, all breeds",
       "criteria": {
-        "species_codes": ["sheep"],
+        "species_codes": ["goat"],
         "breed_ids": ["*"],
-        "sex": ["female", "male", "unknown"],
-        "stage_codes": ["NON_PREGNANT", "BREEDING", "MOTHER", "BUCK", "FATTENING_MALE", "FATTENING_FEMALE"],
+        "sex": ["male"],
+        "stage_codes": ["FATTENING_MALE", "BUCK"],
         "age_days": {
           "min": 141,
           "max": null
         },
         "lifecycle_status": ["alive"],
         "health_status": ["healthy", "recovering"],
-        "reproductive_status": ["non_pregnant", "lactating", "mother", "buck", "unknown"],
+        "reproductive_status": ["buck", "unknown"],
+        "procurement_path": ["farm_born", "procured", "imported", "unknown"]
+      }
+    },
+    {
+      "row_key": "adult_sheep_female_revaccination",
+      "label": "Adult sheep females, shared non-commercial adult tags, all breeds",
+      "criteria": {
+        "species_codes": ["sheep"],
+        "breed_ids": ["*"],
+        "sex": ["female"],
+        "stage_codes": ["FATTENING_FEMALE", "NON_PREGNANT", "PREGNANT_EARLY", "PREGNANT_LATE", "BREEDING", "MOTHER"],
+        "age_days": {
+          "min": 141,
+          "max": null
+        },
+        "lifecycle_status": ["alive"],
+        "health_status": ["healthy", "recovering"],
+        "reproductive_status": ["non_pregnant", "pregnant", "lactating", "mother", "unknown"],
+        "procurement_path": ["farm_born", "procured", "imported", "unknown"]
+      }
+    },
+    {
+      "row_key": "adult_sheep_male_breeder_revaccination",
+      "label": "Adult sheep males, buck and fattening-male tags, all breeds",
+      "criteria": {
+        "species_codes": ["sheep"],
+        "breed_ids": ["*"],
+        "sex": ["male"],
+        "stage_codes": ["FATTENING_MALE", "BUCK"],
+        "age_days": {
+          "min": 141,
+          "max": null
+        },
+        "lifecycle_status": ["alive"],
+        "health_status": ["healthy", "recovering"],
+        "reproductive_status": ["buck", "unknown"],
         "procurement_path": ["farm_born", "procured", "imported", "unknown"]
       }
     },
@@ -673,13 +735,37 @@ snapshots and no `goat_herd_required_fields`.
       }
     },
     {
-      "row_key": "clinical_hold_shared_stages",
-      "label": "Clinical hold animals, shared stages",
+      "row_key": "clinical_hold_shared_kid_stages",
+      "label": "Clinical hold animals, shared kid stages",
       "criteria": {
         "species_codes": ["goat", "sheep"],
         "breed_ids": ["*"],
-        "sex": ["female", "male", "unknown"],
-        "stage_codes": ["K0", "K1", "K2", "K3", "FATTENING_MALE", "FATTENING_FEMALE", "NON_PREGNANT", "PREGNANT_EARLY", "PREGNANT_LATE", "BREEDING", "MOTHER", "BUCK"],
+        "sex": ["female", "male"],
+        "stage_codes": ["K0", "K1", "K2", "K3"],
+        "health_status": ["sick", "under_treatment", "quarantine", "icu"],
+        "lifecycle_status": ["alive"]
+      }
+    },
+    {
+      "row_key": "clinical_hold_shared_female_adult_stages",
+      "label": "Clinical hold animals, shared female adult stages",
+      "criteria": {
+        "species_codes": ["goat", "sheep"],
+        "breed_ids": ["*"],
+        "sex": ["female"],
+        "stage_codes": ["FATTENING_FEMALE", "NON_PREGNANT", "PREGNANT_EARLY", "PREGNANT_LATE", "BREEDING", "MOTHER"],
+        "health_status": ["sick", "under_treatment", "quarantine", "icu"],
+        "lifecycle_status": ["alive"]
+      }
+    },
+    {
+      "row_key": "clinical_hold_shared_male_adult_stages",
+      "label": "Clinical hold animals, shared male adult stages",
+      "criteria": {
+        "species_codes": ["goat", "sheep"],
+        "breed_ids": ["*"],
+        "sex": ["male"],
+        "stage_codes": ["FATTENING_MALE", "BUCK"],
         "health_status": ["sick", "under_treatment", "quarantine", "icu"],
         "lifecycle_status": ["alive"]
       }
@@ -863,7 +949,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "adult_goat_shared_revaccination",
+      "row_key": "adult_goat_female_revaccination",
       "vaccine_code": "ET_TT",
       "action": "due",
       "dose_schedule": [
@@ -872,7 +958,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "adult_goat_shared_revaccination",
+      "row_key": "adult_goat_female_revaccination",
       "vaccine_code": "PPR",
       "action": "due",
       "dose_schedule": [
@@ -881,7 +967,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "adult_goat_shared_revaccination",
+      "row_key": "adult_goat_female_revaccination",
       "vaccine_code": "GOAT_POX",
       "action": "due",
       "dose_schedule": [
@@ -890,7 +976,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "adult_goat_shared_revaccination",
+      "row_key": "adult_goat_female_revaccination",
       "vaccine_code": "FMD",
       "action": "due",
       "dose_schedule": [
@@ -899,7 +985,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "adult_goat_shared_revaccination",
+      "row_key": "adult_goat_female_revaccination",
       "vaccine_code": "HS",
       "action": "due",
       "dose_schedule": [
@@ -908,7 +994,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "adult_sheep_shared_revaccination",
+      "row_key": "adult_goat_male_breeder_revaccination",
       "vaccine_code": "ET_TT",
       "action": "due",
       "dose_schedule": [
@@ -917,7 +1003,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "adult_sheep_shared_revaccination",
+      "row_key": "adult_goat_male_breeder_revaccination",
       "vaccine_code": "PPR",
       "action": "due",
       "dose_schedule": [
@@ -926,7 +1012,52 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "adult_sheep_shared_revaccination",
+      "row_key": "adult_goat_male_breeder_revaccination",
+      "vaccine_code": "GOAT_POX",
+      "action": "due",
+      "dose_schedule": [
+        { "dose_code": "revaccination", "sequence": 99, "trigger_type": "after_previous_completion", "offset_days": 365, "earliest_offset_days": 365, "latest_offset_days": 379, "min_gap_days": 365, "max_delay_days": 14, "repeat": "every_n_days", "repeat_interval_days": 365, "catch_up": "immediate" }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_goat_male_breeder_revaccination",
+      "vaccine_code": "FMD",
+      "action": "due",
+      "dose_schedule": [
+        { "dose_code": "revaccination", "sequence": 99, "trigger_type": "after_previous_completion", "offset_days": 274, "earliest_offset_days": 274, "latest_offset_days": 288, "min_gap_days": 274, "max_delay_days": 14, "repeat": "every_n_days", "repeat_interval_days": 274, "catch_up": "immediate" }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_goat_male_breeder_revaccination",
+      "vaccine_code": "HS",
+      "action": "due",
+      "dose_schedule": [
+        { "dose_code": "revaccination", "sequence": 99, "trigger_type": "after_previous_completion", "offset_days": 365, "earliest_offset_days": 365, "latest_offset_days": 379, "min_gap_days": 365, "max_delay_days": 14, "repeat": "every_n_days", "repeat_interval_days": 365, "catch_up": "immediate" }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_sheep_female_revaccination",
+      "vaccine_code": "ET_TT",
+      "action": "due",
+      "dose_schedule": [
+        { "dose_code": "revaccination", "sequence": 99, "trigger_type": "after_previous_completion", "offset_days": 182, "earliest_offset_days": 182, "latest_offset_days": 196, "min_gap_days": 182, "max_delay_days": 14, "repeat": "every_n_days", "repeat_interval_days": 182, "catch_up": "immediate" }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_sheep_female_revaccination",
+      "vaccine_code": "PPR",
+      "action": "due",
+      "dose_schedule": [
+        { "dose_code": "revaccination", "sequence": 99, "trigger_type": "after_previous_completion", "offset_days": 1095, "earliest_offset_days": 1095, "latest_offset_days": 1109, "min_gap_days": 1095, "max_delay_days": 14, "repeat": "every_n_days", "repeat_interval_days": 1095, "catch_up": "immediate" }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_sheep_female_revaccination",
       "vaccine_code": "SHEEP_POX",
       "action": "due",
       "dose_schedule": [
@@ -935,7 +1066,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "adult_sheep_shared_revaccination",
+      "row_key": "adult_sheep_female_revaccination",
       "vaccine_code": "BLUE_TONGUE",
       "action": "due",
       "dose_schedule": [
@@ -944,7 +1075,7 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "adult_sheep_shared_revaccination",
+      "row_key": "adult_sheep_female_revaccination",
       "vaccine_code": "FMD",
       "action": "due",
       "dose_schedule": [
@@ -953,7 +1084,61 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "adult_sheep_shared_revaccination",
+      "row_key": "adult_sheep_female_revaccination",
+      "vaccine_code": "HS",
+      "action": "due",
+      "dose_schedule": [
+        { "dose_code": "revaccination", "sequence": 99, "trigger_type": "after_previous_completion", "offset_days": 365, "earliest_offset_days": 365, "latest_offset_days": 379, "min_gap_days": 365, "max_delay_days": 14, "repeat": "every_n_days", "repeat_interval_days": 365, "catch_up": "immediate" }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_sheep_male_breeder_revaccination",
+      "vaccine_code": "ET_TT",
+      "action": "due",
+      "dose_schedule": [
+        { "dose_code": "revaccination", "sequence": 99, "trigger_type": "after_previous_completion", "offset_days": 182, "earliest_offset_days": 182, "latest_offset_days": 196, "min_gap_days": 182, "max_delay_days": 14, "repeat": "every_n_days", "repeat_interval_days": 182, "catch_up": "immediate" }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_sheep_male_breeder_revaccination",
+      "vaccine_code": "PPR",
+      "action": "due",
+      "dose_schedule": [
+        { "dose_code": "revaccination", "sequence": 99, "trigger_type": "after_previous_completion", "offset_days": 1095, "earliest_offset_days": 1095, "latest_offset_days": 1109, "min_gap_days": 1095, "max_delay_days": 14, "repeat": "every_n_days", "repeat_interval_days": 1095, "catch_up": "immediate" }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_sheep_male_breeder_revaccination",
+      "vaccine_code": "SHEEP_POX",
+      "action": "due",
+      "dose_schedule": [
+        { "dose_code": "revaccination", "sequence": 99, "trigger_type": "after_previous_completion", "offset_days": 365, "earliest_offset_days": 365, "latest_offset_days": 379, "min_gap_days": 365, "max_delay_days": 14, "repeat": "every_n_days", "repeat_interval_days": 365, "catch_up": "immediate" }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_sheep_male_breeder_revaccination",
+      "vaccine_code": "BLUE_TONGUE",
+      "action": "due",
+      "dose_schedule": [
+        { "dose_code": "revaccination", "sequence": 99, "trigger_type": "after_previous_completion", "offset_days": 365, "earliest_offset_days": 365, "latest_offset_days": 379, "min_gap_days": 365, "max_delay_days": 14, "repeat": "every_n_days", "repeat_interval_days": 365, "catch_up": "immediate" }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_sheep_male_breeder_revaccination",
+      "vaccine_code": "FMD",
+      "action": "due",
+      "dose_schedule": [
+        { "dose_code": "revaccination", "sequence": 99, "trigger_type": "after_previous_completion", "offset_days": 274, "earliest_offset_days": 274, "latest_offset_days": 288, "min_gap_days": 274, "max_delay_days": 14, "repeat": "every_n_days", "repeat_interval_days": 274, "catch_up": "immediate" }
+      ],
+      "proof_policy_key": "vaccination_drive_standard"
+    },
+    {
+      "row_key": "adult_sheep_male_breeder_revaccination",
       "vaccine_code": "HS",
       "action": "due",
       "dose_schedule": [
@@ -1007,7 +1192,21 @@ snapshots and no `goat_herd_required_fields`.
       "proof_policy_key": "vaccination_drive_standard"
     },
     {
-      "row_key": "clinical_hold_shared_stages",
+      "row_key": "clinical_hold_shared_kid_stages",
+      "vaccine_code": "*",
+      "action": "defer",
+      "defer_reason": "clinical_hold",
+      "resume_when": { "health_status": ["healthy", "recovering"] }
+    },
+    {
+      "row_key": "clinical_hold_shared_female_adult_stages",
+      "vaccine_code": "*",
+      "action": "defer",
+      "defer_reason": "clinical_hold",
+      "resume_when": { "health_status": ["healthy", "recovering"] }
+    },
+    {
+      "row_key": "clinical_hold_shared_male_adult_stages",
       "vaccine_code": "*",
       "action": "defer",
       "defer_reason": "clinical_hold",
