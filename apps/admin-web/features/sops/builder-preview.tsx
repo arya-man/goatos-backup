@@ -48,6 +48,8 @@ function conditionMet(cond: BuilderCondition, steps: BuilderStep[], answers: Rec
 export function BuilderPreview({ pc, steps }: { pc: AdminUiPageContract; steps: BuilderStep[] }) {
   const yesNo = optionalOptionGroup(pc, "yes_no");
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
+  const [files, setFiles] = useState<Record<string, string>>({});
+  const setFile = (id: string, name: string | undefined) => setFiles((prev) => ({ ...prev, [id]: name ?? "" }));
 
   const setAnswer = (id: string, value: Answer) => setAnswers((prev) => ({ ...prev, [id]: value }));
   const toggleMulti = (id: string, value: string) =>
@@ -79,7 +81,15 @@ export function BuilderPreview({ pc, steps }: { pc: AdminUiPageContract; steps: 
       <div className="pvbar">
         <span className="muted small">{copy(pc, "builder.preview.subtitle")}</span>
         <span className="sp" style={{ flex: 1 }} />
-        <button type="button" className="btn sm ghost" onClick={() => setAnswers({})} disabled={Object.keys(answers).length === 0}>
+        <button
+          type="button"
+          className="btn sm ghost"
+          onClick={() => {
+            setAnswers({});
+            setFiles({});
+          }}
+          disabled={Object.keys(answers).length === 0 && Object.keys(files).length === 0}
+        >
           <RotateCcw className="ic" style={{ width: 12 }} /> {copy(pc, "builder.preview.reset")}
         </button>
       </div>
@@ -187,10 +197,19 @@ export function BuilderPreview({ pc, steps }: { pc: AdminUiPageContract; steps: 
                 </div>
               ) : null}
               {kind === "proof" ? (
-                <div className="pvdrop" aria-disabled="true">
+                <label className="pvdrop">
+                  {/* Real native file picker so the author can verify the upload affordance. Preview only
+                      captures the chosen filename — no backend upload / proof record is created here. */}
+                  <input
+                    type="file"
+                    className="pvfileinput"
+                    accept={step.type === "photo_proof" ? "image/*" : "video/*"}
+                    onChange={(e) => setFile(step.id, e.target.files?.[0]?.name)}
+                  />
                   {step.type === "photo_proof" ? <Camera className="ic" aria-hidden="true" /> : <Video className="ic" aria-hidden="true" />}
                   <span>{copy(pc, "builder.proof.note")}</span>
-                </div>
+                  {files[step.id] ? <span className="pvfile">{files[step.id]}</span> : null}
+                </label>
               ) : null}
             </div>
           );

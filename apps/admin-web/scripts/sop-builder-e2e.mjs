@@ -78,6 +78,16 @@ try {
   await typeSel(0).selectOption("photo_proof");
   await page.waitForTimeout(200);
   await check("photo proof preview renders an UPLOAD DROPZONE (icon)", async () => (await pf0().locator(".pvdrop .ic").count()) > 0);
+  // proof dropzone wires a real native file picker; selecting a file shows the filename (no upload).
+  await typeSel(0).selectOption("video_proof");
+  await page.waitForTimeout(200);
+  await check("proof dropzone has a real file input (accept=video)", async () => {
+    const inp = pf0().locator('input[type=file]');
+    return (await inp.count()) === 1 && ((await inp.getAttribute("accept")) || "").includes("video");
+  });
+  await pf0().locator('input[type=file]').setInputFiles({ name: "drive-proof.mp4", mimeType: "video/mp4", buffer: Buffer.from("x") });
+  await page.waitForTimeout(200);
+  await check("proof file picker: selecting a file shows the filename", async () => /drive-proof\.mp4/.test(await pf0().innerText()));
   await typeSel(0).selectOption("shed_picker");
   await page.waitForTimeout(200);
   await check("picker preview renders a DROPDOWN control", async () => (await pf0().locator(".pvselectstub .ic").count()) > 0);

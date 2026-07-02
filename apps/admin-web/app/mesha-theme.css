@@ -811,8 +811,11 @@
   .pvselectstub .ic{width:14px;height:14px;margin-left:auto;flex:none}
   .pvscanstub{display:flex;align-items:center;gap:8px;margin-top:7px;border:1px dashed var(--line);background:var(--panel);border-radius:8px;padding:9px 10px;color:var(--muted);font-size:12px}
   .pvscanstub .ic{width:15px;height:15px;color:var(--brand-d);flex:none}
-  .pvdrop{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:7px;border:1.5px dashed var(--line);background:var(--panel);border-radius:10px;padding:16px 12px;text-align:center;color:var(--muted);font-size:12px}
+  .pvdrop{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:7px;border:1.5px dashed var(--line);background:var(--panel);border-radius:10px;padding:16px 12px;text-align:center;color:var(--muted);font-size:12px;cursor:pointer}
+  .pvdrop:hover{border-color:var(--brand-d);color:var(--ink)}
   .pvdrop .ic{width:22px;height:22px;color:var(--brand-d)}
+  .pvfileinput{display:none}
+  .pvfile{margin-top:2px;font-size:11.5px;font-weight:600;color:var(--brand-d);background:var(--brand-soft);border-radius:6px;padding:2px 9px;word-break:break-all}
   .pvpick,.pvproof{margin-top:7px;background:var(--panel);border:1px dashed var(--line);border-radius:7px;padding:6px 9px}
   .builderactions{display:flex;gap:8px;flex-wrap:wrap}
   .builderactions .btn{flex:1;min-width:96px;justify-content:center;white-space:nowrap}
