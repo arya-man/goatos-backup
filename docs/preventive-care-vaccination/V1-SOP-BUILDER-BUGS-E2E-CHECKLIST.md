@@ -46,7 +46,7 @@ to normal page:
   - `.codex-goatos-render/config-page/config-authoring-mobile-after.png`
 
 Closed for V1 demo: SOP builder lifecycle, all supported SOP question types,
-multi-row Config matrix authoring/publish, source schedule/dose/vial/revaccination
+multi-row Config matrix authoring/publish, schedule/dose/vial/revaccination
 rows, V1 compatibility spacing, generated work, accepted proof, rejected/rework
 proof in the data plane, Goat Passport vaccination history/open due rows, and
 current visible click/interlink paths.
@@ -348,7 +348,7 @@ Expected:
 Observed:
 
 - Dry-run and Publish can appear disabled without a clear reason.
-- It is not clear whether the blocker is missing source, missing required
+- It is not clear whether the blocker is missing version/audit readiness, missing required
   fields, missing options, missing proof policy, or backend failure.
 - A fully filled-looking form can still leave Publish disabled with no visible
   error location.
@@ -357,7 +357,7 @@ Expected:
 
 - Disabled buttons must show exact missing requirements.
 - Dry-run should validate the draft and show what would be created.
-- Publish should require a valid draft, source/review requirements, and any
+- Publish should require a valid draft, CEO/COO authority, version/audit readiness, and any
   mandatory proof policy.
 - Publish must never be disabled silently. The UI must point to the exact field,
   section, or backend validation error blocking publish.
@@ -413,7 +413,7 @@ Observed:
 Expected:
 
 - The UI should support a matrix/grid entry mode for vaccination rows.
-- Shared header fields such as scope, source, approval, and SOP can be entered
+- Shared header fields such as scope, effective date, version/audit, and SOP can be entered
   once.
 - Repeated matrix rows should be editable in a table: vaccine, stage, sex,
   breed, reproductive rule, defer rule, dose sequence, trigger, offset, window,
@@ -422,34 +422,34 @@ Expected:
   admin UX should not force repeated full-form entry for every simple
   vaccine/stage combination.
 
-### 8a. Matrix source schedule editability and Add-row defaulting bugs
+### 8a. Matrix schedule editability and Add-row defaulting bugs
 
-Observed on 2026-07-01 after the source-matrix preset work:
+Observed on 2026-07-01 after the matrix preset work:
 
-- The `Source schedule` column is visible after **Load Source Vaccine Matrix**,
+- The schedule summary column is visible after loading the matrix preset,
   but it is not directly editable in the grid and the authoring page does not
   clearly explain whether it is a locked source label or derived from the dose rows
   below.
-- After loading the source matrix, **Add matrix row** creates a new row with
-  source/preset-like schedule data already present instead of an obviously blank
+- After loading the matrix preset, **Add matrix row** creates a new row with
+  preset-like schedule data already present instead of an obviously blank
   row. That can make admins accidentally save a copied source row when they
   meant to create a fresh vaccine/stage/breed combo.
 
 Expected:
 
-- `Source schedule` must have one clear behavior:
+- The schedule summary must have one clear behavior:
   - either read-only, explicitly labeled as derived from the selected row's dose
-    rows/source preset; or
+    rows/preset; or
   - editable through a clear selected-row detail control that updates the row's
     schedule/dose rows and JSON preview.
 - The column must not look like a normal form field if it cannot be edited.
 - **Add matrix row** must either create a truly blank row, or expose an explicit
-  command such as `Copy selected row` / `Add from source preset`. It must not
-  silently inherit source schedule, dose, vial, revaccination, or source metadata
-  from the previously selected/source-loaded row.
+  command such as `Copy selected row` / `Add from preset`. It must not
+  silently inherit schedule, dose, vial, revaccination, or preset metadata
+  from the previously selected/loaded row.
 - E2E must cover:
-  - load source matrix;
-  - select each source row and confirm selected-row details/dose rows match that
+  - load matrix preset;
+  - select each row and confirm selected-row details/dose rows match that
     row;
   - edit the schedule through the intended control or verify the read-only label
     and disabled reason;
@@ -460,12 +460,12 @@ Expected:
 
 Fix status on 2026-07-01:
 
-- The matrix grid now renders `Source schedule` as a derived, read-only summary
+- The matrix grid now renders schedule as a derived, read-only summary
   and points admins to the selected-row schedule builder for edits.
 - **Add matrix row** creates an intentionally blank row with no copied source
   schedule or dose rows.
 - **Copy selected row** is the explicit copy command when an admin wants to
-  duplicate the selected source/preset row.
+  duplicate the selected preset row.
 - `smoke-vaccination-authoring-live.mjs` now asserts the derived label, the
   blank-row default, row-indexed blank-row validation, and explicit copy
   behavior.
@@ -691,7 +691,7 @@ Expected:
   - min gap between catch-up doses so multiple doses are not scheduled same day
   - trusted-history suppression when imported/procurement evidence is accepted
 - E2E must prove that older goats with missing history do not create multiple
-  same-day historical obligations unless the source-approved policy explicitly
+  same-day historical obligations unless the published policy explicitly
   allows it.
 
 Implementation status, 2026-07-01:
@@ -781,7 +781,7 @@ from a clean tenant/state, not isolated page checks.
 - [ ] Cross-check vaccination matrix fields against the vaccination source notes
   and leadership note: vaccine, stage/age, sex, breed, lifecycle, reproductive
   state, health/defer state, dose timing, window, route, amount, proof, and
-  source approval.
+  medical/business evidence.
 - [ ] Cross-check purchased-goat intake assumptions against procurement/source
   material: holding farm, warmup, HF vaccination evidence, accepted intake,
   rejected/canceled loads, and mixed age/stage groups.
@@ -810,10 +810,10 @@ from a clean tenant/state, not isolated page checks.
 ### 5. Vaccination config/matrix setup
 
 - [ ] Open Config -> Vaccination.
-- [ ] Create matrix rows for the source-approved vaccine/stage combinations.
+- [ ] Create matrix rows for the evidence-derived vaccine/stage combinations.
 - [x] Use matrix/grid entry where possible so shared fields are not repeated.
 - [ ] Attach the published Vaccination Session SOP.
-- [ ] Fill source/review/approval fields.
+- [ ] Confirm version/audit fields and effective dates.
 - [ ] Fill schedule rows: dose, trigger, offset, window, amount, unit,
   route/site.
 - [ ] Toggle pregnant, lactating, Sick, Treatment, ICU, and Quarantine rules and
@@ -1160,9 +1160,7 @@ These checks are in addition to the clean-slate E2E path above.
 - [ ] Booster/catch-up/missed-dose policy saves and reloads.
 - [ ] Stock/lot requirement saves and reloads.
 - [ ] Escalation policy saves and reloads.
-- [ ] Source type validates publishability.
-- [ ] Source reference validates required when source-backed publish is needed.
-- [ ] Reviewed-by and approved-by validation is visible.
+- [ ] CEO/COO authority, SOP binding, JSON-schema validation, impact preview, and effective dates validate publishability.
 - [ ] Schedule builder can add a dose row.
 - [ ] Schedule builder can edit dose/sequence.
 - [ ] Schedule builder can edit trigger.
@@ -1219,10 +1217,10 @@ These checks are in addition to the clean-slate E2E path above.
   reloads them in the Config list/drawer.
 - [x] Matrix/grid entry mode shows row-level controls/errors in the authoring
   page without text overlap in the tested desktop viewport.
-- [x] BUG: `Source schedule` is visible but not directly editable and does not
+- [x] BUG: schedule summary is visible but not directly editable and does not
   clearly say whether it is derived/read-only or where the admin edits it.
-- [x] BUG: After **Load Source Vaccine Matrix**, **Add matrix row** must not
-  silently prefill the new row with source/preset schedule data; blank-vs-copy
+- [x] BUG: After loading the vaccine matrix preset, **Add matrix row** must not
+  silently prefill the new row with preset schedule data; blank-vs-copy
   behavior needs explicit UX and E2E proof.
 - [ ] Escalation policy is configured with structured role/action fields, not
   free text.
@@ -1242,14 +1240,14 @@ You can demo the V1 vaccination SOP builder and Config authoring flow covered by
 
 Do not demo or claim route/resource optimization, business-facing user/shed
 admin setup UI, full browser-negative coverage, or million-goat permutation
-proof. Do demo the V1 source-backed rule matrix, including compatibility
+proof. Do demo the V1 Nuance Rules matrix, including compatibility
 spacing, only when the Nuance smoke evidence below is fresh.
 
 ## Handover: V1 Batching Boundary And Later Planner
 
 The handover must clearly separate V1 due generation plus basic shed-drive
 batching from the later route/resource optimizer. Basic Calendar de-duplication
-and source compatibility spacing are V1.
+and compatibility spacing are V1.
 
 ### V1 due generation + basic shed-drive batching
 

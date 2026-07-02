@@ -61,7 +61,7 @@ Shed/cohort `animal_stage` is the **default** anchor, but eligibility combines *
 
 **Capacity:** do not add a column — `location_capacity_records` (temporal, no-overlap trigger) is the committed home. **Cohort:** reuse `location_type='cohort'` rows + `goats.cohort_id`; a cohort can also carry an `animal_stage_id` for stage-by-cohort.
 
-Age/weight bands that decide stage live on `animal_stage_lookup` as **config** — the mock's hardcoded `SHIFT_THRESH` (K1=7/K2=45) must be removed and read from here. For local/dev, **K2 = 42 days / six weeks** is the selected source-derived baseline; the old 45 is treated as legacy mock drift unless a later Preventive Care (PC) source-backed config version overrides it. The Config authoring stage picker reads these rows via `GET /protocols/animal-stages` (active rows, `sort_order`), never hardcoded `K0/K1/K2` literals; when the lookup is empty the picker is disabled-with-reason (Data Ops must seed stages) rather than falling back to code-defined bands.
+Age/weight bands that decide stage live on `animal_stage_lookup` as **config** — the mock's hardcoded `SHIFT_THRESH` (K1=7/K2=45) must be removed and read from here. For local/dev, **K2 = 42 days / six weeks** is the selected evidence-derived baseline; the old 45 is treated as legacy mock drift unless a later Preventive Care (PC) config version overrides it. The Config authoring stage picker reads these rows via `GET /protocols/animal-stages` (active rows, `sort_order`), never hardcoded `K0/K1/K2` literals; when the lookup is empty the picker is disabled-with-reason (Data Ops must seed stages) rather than falling back to code-defined bands.
 
 ---
 
@@ -70,6 +70,53 @@ Age/weight bands that decide stage live on `animal_stage_lookup` as **config** �
 The protocol/obligation/SOP/escalation tables are the [engine](../protocol-engine/obligation-engine.md). Vaccination adds:
 
 **Config (multi-dose / multi-phase — NOT trigger-day + booster-offset):** a `protocol_definitions` row `category='vaccination'`; the schedule is authored in `protocol_versions.rule_dsl` as a **`schedule[]` array — one entry per dose/phase** (`primary`, `booster_1`, `booster_2`, `annual`, `catch_up`, …), each with `trigger_type` (birth_age/post_arrival/calendar/after_previous_completion/manual_campaign) · `offset_days` · `due_window_days` · `min_gap_days` · `repeat` (none/every_n_days/yearly; age-window repeat authoring is rejected until generator support lands) · `repeat_until_after_age` · `catch_up` · per-dose `sop_label` (display only — the executable SOP binds at `protocol_versions.sop_version_id`; a genuine per-dose executable override uses `protocol_rules.sop_version_id`, never a free-text label) + `proof_policy`. The engine **expands each `schedule[]` row into one `protocol_rules` row**. Rule-level: multi-factor `eligibility_json` (age_band + animal_stage + sex + breed + lifecycle + health + reproductive[exclude pregnant/lactating] + defer_states[ICU/quarantine/sick]), `missed_dose_policy` (immediate/next_cycle/phc_approval/defer), `withdrawal_days`. Per-park override = a park-scoped `protocol_version` (no `park_id` column on a vaccine table — scope is the obligation's `scope_id`). **No `vaccine_config` table** — it *is* `protocol_rules`. _Lifecycle example:_ `0–12mo` → `primary` (birth_age) + `booster_1` (after_previous_completion) + repeat every N months; `>12mo` → `annual` (`repeat:yearly`, modeled as its own eligible lifecycle row); next due is derived from trigger/repeat/catch-up logic and trusted accepted completions, not a separate DSL field.
+
+### 4.0A Rule JSON vs. herd facts boundary
+
+`protocol_versions.rule_dsl` is the persisted authoring payload. It stores
+policy, not animal rows. It must not contain a list like
+`goat_herd_required_fields`, current goat snapshots, or copied shed rows. The
+rule JSON stores:
+
+- matrix dimensions and allowed selectors;
+- row criteria expressed by stable lookup IDs/codes such as `species`,
+  `breed_id`, `animal_stage_id`/`stage_code`, `sex`, lifecycle, health,
+  reproductive state, procurement path, and age bounds;
+- vaccine/dose cells, schedule rows, repeat policy, proof/SOP binding,
+  compatibility/gap rules, defer/blocked rules, and catch-up policy;
+- protocol version/audit metadata exposed from `protocol_versions`, not a
+  source-review workflow embedded in the UI.
+
+The data plane evaluates the rule against canonical facts:
+
+| Current fact | Storage/read source |
+|---|---|
+| Goat identity and animal dimensions | `goats`: `goat_id`, `tenant_id`, `species`, `breed_id`/`breed`, `sex`, `dob`/`approx_dob`, `lifecycle_status`, `health_status`, `reproductive_status`, `management_stage`, `source_confidence` |
+| Current physical scope | `goats.current_location_id`, `goats.park_id`, `goats.shed_id`, `goats.cohort_id`, `locations` |
+| Shed tag/stage dimensions | `shed_profiles.animal_stage_id`, `animal_stage_lookup.stage_code`, `shed_profiles.sex`, `shed_profiles.has_icu`, `location_operational_attributes.is_quarantine/is_icu/is_holding` |
+| Procurement/intake dimensions | `goats.origin_type`, `goats.entry_date`, `procurement_phc_handoffs.entry_date`, warm-up/handoff state, trusted HF evidence |
+| Vaccination history | `vaccination_completions` plus `obligation_instances.rule_id`, not a JSON list in the rule config |
+
+For million-goat scale, V1 should add or maintain an indexed target-facts read
+model for animal-targeted protocols, for example `goat_protocol_facts`
+(`tenant_id`, `goat_id`, species, `breed_id`, sex, DOB/age bucket, lifecycle,
+health, reproductive state, pregnancy month when available, lactation state
+when available, origin/procurement path, warmup_until, park/shed/cohort IDs,
+`animal_stage_id`, `stage_code`, and `facts_hash`). That table is a derived
+read model: it is rebuilt from canonical goat/location/procurement/completion
+facts and invalidated by goat CRUD, shed changes, health/reproductive changes,
+procurement accepted-intake, and accepted vaccination completion events. Feed
+Direction can use the same pattern with shed/cohort target-facts instead of
+goat facts.
+
+If impact preview or generation needs SQL-selectable predicates instead of
+JSON parsing, compile each published matrix cell into a generic
+`protocol_rule_dimension_values` table:
+`tenant_id`, `protocol_version_id`, `rule_id`, `dimension_key`,
+`include_exclude`, `value_kind`, `uuid_value`, `text_value`, `int_min`,
+`int_max`, `sort_order`. That table is derived from `rule_dsl`; it is not the
+authoring source. This keeps the engine generic for vaccination today and Feed
+Direction tomorrow.
 
 ### 4.0 V1 vaccine-goat matrix acceptance
 
@@ -80,7 +127,7 @@ for goat creation, purchased/intake goats, existing-goat backfill, stage change,
 location/shed change, health change, and accepted-completion next-dose
 generation.
 
-Each source-approved vaccine matrix row must carry:
+Each evidence-derived, CEO/COO-published vaccine matrix row must carry:
 
 | Matrix field | V1 requirement |
 |---|---|
@@ -94,15 +141,15 @@ Each source-approved vaccine matrix row must carry:
 | Reproductive state | allowed/blocked/review-needed for pregnant, lactating, mother, buck, flushing, breeding, warm-up |
 | Health/defer state | allowed/deferred/blocked for sick, under treatment, ICU, quarantine, recovery, adverse-event review |
 | History handling | trusted accepted history suppresses or advances the row; untrusted/unknown history produces catch-up/review, with older-goat anti-flood behavior that creates one safe next catch-up/review action before any further historical dose rows |
-| Source approval | source system/ref, reviewer, approval status, approved_at, effective dates |
-| Nuance policy | procurement warm-up days, kid normal-schedule cutoff weeks, adult source vaccination flag, live/killed/live spacing days, same-day allowance metadata, pregnancy skip/catch-up windows |
+| Version audit | version number, created_by/created_at, published_by/published_at, effective dates, retired_by/retired_at where applicable |
+| Nuance policy | procurement warm-up days, kid normal-schedule cutoff weeks, adult prior-vaccination flag, live/killed/live spacing days, same-day allowance metadata, pregnancy skip/catch-up windows |
 
 Without those rows, GoatOS can only prove reusable engine plumbing; it cannot
 honestly claim the full practical vaccine matrix is complete. `PPR`, `FMD`,
 `HS`, `BQ`, Goat Pox, and ET+TT-style combinations must not become live
-schedule-bearing rules from labels alone; each needs source-approved matrix
+schedule-bearing rules from labels alone; each needs matrix
 rows before V1 can demo it as real config. Cross-vaccine same-day/gap
-compatibility from the source is part of the V1 matrix contract. Later drive
+compatibility from the tracked rules is part of the V1 matrix contract. Later drive
 optimization may use those fields for route/resource grouping, but it must not
 invent or postpone the medical rules.
 
@@ -111,13 +158,21 @@ The V1 `rule_dsl` stores the nuance policy in first-class JSONB objects:
 `procurement_policy`, and `pregnancy_policy`. Generation enforces the pieces
 that are local to one published version today: eligibility, defer states,
 post-arrival offsets, missed-dose/catch-up policy, trusted-history suppression,
-older-goat anti-flood, schedule min gaps, and source compatibility spacing for
-the V1-authored matrix. When multiple source rows are loaded together, V1
+older-goat anti-flood, schedule min gaps, and compatibility spacing for
+the V1-authored matrix. When multiple matrix rows are loaded together, V1
 authoring applies safe-date offsets for conflicts such as live-live spacing; the
 later drive optimizer uses the same stored policy fields only for operational
 partitioning.
 
-**Source / review metadata (nested `source` object on `rule_dsl` — canonical shape):** every rule carries provenance + an approval gate under `source:{ … }` — `source_system` (vaccinations_db / phc / vet / manual_admin), `source_ref`, `imported_at`, `reviewed_by`, `review_status` (extracted → reviewed → approved), `approved_by`, `approved_at`. **Publish gate:** a version may be published **only when `review_status='approved'`** and source-backed. **Dev policy:** values that come from a real source (Vaccinations DB / Preventive Care (PC) / vet-approved) and are marked `approved` are **real config in `goatos-dev` and publishable there** — the **dev-real path**. Unsourced / `extracted` rows stay `status='draft'` with a **`not source-backed`** warning and cannot be published. Never hand-invent vaccine schedule values.
+**Audit metadata, not a source-review UI:** the Config UI is visible only to
+CEO/COO/superadmin in V1. Do not add source-system/reviewer/approved-by fields
+to the authoring surface or persisted rule JSON. The rule version is audited by
+the protocol tables: `version`, `created_at`, `drafted_by`/creator,
+`published_by`, `published_at`, `effective_from`, `effective_to`, `retired_at`,
+plus the immutable `rule_dsl` that was published. Source documents and extracted
+nuance tables remain engineering evidence in this repo; they are not runtime
+approval columns, and publish is gated by CEO/COO authority, JSON-schema
+validation, SOP binding, impact preview, and non-overlapping effective dates.
 
 ### 4.1 Legacy parity, proof policy, and import replay
 
@@ -149,7 +204,7 @@ without durable notes/follow-up, and review confidence not being first-class.
   work; after Preventive Care (PC) approval it becomes catch-up shed drives via
   [migration-and-cutover.md](../protocol-engine/migration-and-cutover.md), never
   fabricated completions.
-- `PPR`, `FMD`, `HS`, and `BQ` are source-backed SOP/vocabulary labels only
+- `PPR`, `FMD`, `HS`, and `BQ` are tracked SOP/vocabulary labels only
   until source extracts provide timing/dose/booster policy plus approval
   metadata. Only ET/K1/day-21 is schedule-bearing today.
 
@@ -200,7 +255,7 @@ Preventive Care (PC) vaccination must reuse/enhance it, not rebuild a vaccinatio
 ## 6A. Later drive planner algorithm
 
 V1 generation remains the source of truth for due work: the complete
-source-approved vaccine-goat matrix plus goat facts creates or updates
+CEO/COO-published vaccine-goat matrix plus goat facts creates or updates
 `obligation_instances` for each goat. The later planner consumes those rows and
 produces optimized execution-ready `obligation_batches` without recomputing the
 whole herd.
@@ -220,7 +275,7 @@ available to detail and audit surfaces.
   sex, current park/shed/cohort, identity/tag state, and source confidence.
 - Rule config: schedule rows, eligibility JSON, defer states, min gaps,
   due-window policy, missed-dose policy, proof policy, SOP binding, withdrawal
-  days, and the V1 source vaccine compatibility policy.
+  days, and the V1 vaccine compatibility policy.
 - Operational facts: available stock/lot/cold-chain, trained worker/verifier,
   route capacity, proof requirements, and active drive locks.
 
@@ -286,11 +341,11 @@ available to detail and audit surfaces.
 
 **Boundary**
 The later optimizer requires the V1-authored vaccine compatibility fields plus
-policy-approved drive thresholds. V1 owns per-goat due work, source matrix
+policy-approved drive thresholds. V1 owns per-goat due work, the authored matrix
 rules, compatibility spacing, basic shed batching, and Calendar drive-first
 projection. The later optimizer owns route/resource scoring, multi-shed
 planning, and large-scale incremental replanning. Separately, V1 itself must
-not be called complete until the source-approved vaccine-goat matrix in §4.0 is
+not be called complete until the evidence-derived vaccine-goat matrix in §4.0 is
 configured and proven.
 
 ---
@@ -302,7 +357,7 @@ configured and proven.
 | `000070_goats_provenance_lifecycle.sql` | ALTER `goats`: add `dob`, `dob_estimated`, `origin_type`, `entry_date`, `exited_at`, `exit_reason`; add CHECKs to lifecycle/health/stage. **Tagging state is a derived view over `goat_identifiers`, NOT a stored column.** |
 | `000071_location_profiles.sql` | `farm_profiles`, `park_profiles`, `shed_profiles`, **`animal_stage_lookup`** + **`shed_lifecycle_status_lookup`** (split — not one mixed table), (+ location_type guard triggers). |
 | `000072_inventory_foundation.sql` | `inventory_items`, `vaccines`, `inventory_stock` (+ `CHECK(quantity_in_stock>=0)`), **`inventory_stock_movements`** ledger. |
-| `000073_protocol_engine.sql` | `protocol_definitions/versions/rules/triggers`; **`EXCLUDE` (GiST) non-overlap** on published effective windows (needs `btree_gist`); **category-specific capability seeds — explicit, no wildcard:** grant COO/CEO `protocol.publish.vaccination` (+ Director `protocol.draft.vaccination`). Every new category later adds its own draft/publish seeds. |
+| `000073_protocol_engine.sql` | `protocol_definitions/versions/rules/triggers`; **`EXCLUDE` (GiST) non-overlap** on published effective windows (needs `btree_gist`); **category-specific capability seeds — explicit, no wildcard:** grant COO/CEO `protocol.publish.vaccination` for V1 config. Every new category later adds its own explicit author/publish capability and route visibility. |
 | `000074_obligation_engine.sql` | `obligation_instances` (guard incl. `rule_id` + `NULLS NOT DISTINCT`, deterministic idempotency_key, scope-validate trigger), **`obligation_batches`**, `obligation_status_events` (RANGE-partitioned), `obligation_escalations`. |
 | `000075_vaccination_module.sql` | `vaccination_completions` (+ UNIQUE, batch + inventory FK); ALTER `feature_coverage_registry` CHECK to add `'vaccination'`; vaccination SOP definition/version seed. |
 

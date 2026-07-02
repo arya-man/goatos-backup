@@ -10,7 +10,7 @@ The V1 demo blockers are closed for local-dev proof.
 
 The proof is scoped to the V1 Preventive Care (PC) vaccination demo contract. V1 now captures the
 source nuance policy in config and enforces the local kernel gates, including
-source compatibility spacing for the V1 matrix. Route/resource optimization,
+compatibility spacing for the V1 matrix. Route/resource optimization,
 business admin setup, and million-goat permutation testing are separate
 production programs outside this V1 closure.
 
@@ -40,8 +40,8 @@ Current evidence:
 | SOP builder lifecycle | Closed for V1 demo | `NUANCE-RULES-20260701-V1-MATRIX-R2` creates, validates, dry-runs, publishes, reopens, edits, and republishes. | Broader multi-domain SOP rollout is outside vaccination V1. |
 | SOP field types | Closed for V1 demo | Authoring smoke covers text, number, yes/no, select, multiselect, goat scan, shed picker, vaccine batch, medicine picker, photo proof, video proof. | Additional usability polish can continue after demo. |
 | Conditional rules | Closed for V1 demo | Authoring smoke saves `require_if`, `require_proof`, and `block_if_empty` rules and republishes. | Complex cross-step rule authoring beyond V1 smoke remains hardening. |
-| Config/matrix setup | Closed for V1 demo | `NUANCE-RULES-20260701-V1-MATRIX-R2` loads the Nuance Rules matrix, previews impact, saves drafts, publishes ET+TT, PPR, Goat Pox, FMD, and HS as separate protocol versions, and reopens the drawer with source metadata. `AUTHORING-2026-07-01T18-35-03-998Z` proves the updated `/config?new_rule=1` authoring page with breadcrumb, page region, preview, save, publish, and reopen drawer. The authoring flow now labels `Source schedule` as a derived read-only summary, keeps **Add matrix row** blank, exposes **Copy selected row** for intentional copies, and asserts those paths in the live authoring smoke. | Additional source rows are data entry, not a V1 code blocker. Larger roster-completion, route/resource optimization, and broader negative browser permutations remain outside the V1 demo closeout. |
-| Nuance Rules source dependency | Closed for V1 demo | `source-nuances-rules.md` preserves the DOCX source; Config captures vaccine type/pathogen class, source schedule, dose, vial, revaccination, same-day/gap policy, procurement warm-up, adult/source-vaccination policy, pregnancy policy, and defer states. `go test ./internal/adminui/app ./internal/protocol/app ./internal/vaccination/app -count=1` passes. | Route/resource optimization is separate scope. |
+| Config/matrix setup | Closed for V1 demo | `NUANCE-RULES-20260701-V1-MATRIX-R2` loads the Nuance Rules matrix, previews impact, saves drafts, publishes ET+TT, PPR, Goat Pox, FMD, and HS as separate protocol versions, and reopens the drawer with version/audit metadata. `AUTHORING-2026-07-01T18-35-03-998Z` proves the updated `/config?new_rule=1` authoring page with breadcrumb, page region, preview, save, publish, and reopen drawer. The authoring flow keeps **Add matrix row** blank, exposes **Copy selected row** for intentional copies, and asserts those paths in the live authoring smoke. | Additional matrix rows are data entry, not a V1 code blocker. Larger roster-completion, route/resource optimization, and broader negative browser permutations remain outside the V1 demo closeout. |
+| Nuance Rules dependency | Closed for V1 demo | `source-nuances-rules.md` preserves the DOCX evidence; Config captures vaccine type/pathogen class, schedule, dose, vial, revaccination, same-day/gap policy, procurement warm-up, adult prior-vaccination policy, pregnancy policy, and defer states. `go test ./internal/adminui/app ./internal/protocol/app ./internal/vaccination/app -count=1` passes. | Route/resource optimization is separate scope. |
 | Goats and Parks source dependency | Closed for V1 demo docs | `context/source-findings/goats-and-parks-source-extract.md` is the tracked Markdown extract of `wiki/Goats and Parks.docx`; `context/source-findings/goats-and-parks-source-findings.md` remains the source-findings summary. | Whenever the DOCX changes, refresh the Markdown extract in git before changing shed/tag/cohort logic. |
 | Generation and backfill | Closed for V1 demo | `vaccination-chain-proof stamp=1782915162` proves existing-goat backfill, `goat.created`, generation, sweeper, proof, booster, and replay idempotency. `vaccination-trusted-history-proof stamp=1782917268` proves a goat seeded with accepted/verified existing ET+TT 4-week history suppresses that old dose and creates the next ET+TT 7-week obligation. | Large mixed-state permutation testing is separate production scope. |
 | Older-goat unknown-history anti-flood | Closed for V1 demo | `TestOlderGoatUnknownHistoryCreatesOnlyOneHistoricalCatchUp`, `TestOlderGoatUnknownHistoryCreatesOnlyOnePHCReviewCatchUp`, `TestOlderGoatTrustedFirstDoseAllowsNextMissingDose`, and `vaccination-trusted-history-proof stamp=1782917268` pass. | Large mixed-state permutation testing remains production hardening. |
@@ -59,7 +59,7 @@ Safe:
 
 > V1 Preventive Care (PC) vaccination is demo-ready locally: SOP authoring, multi-row
 > breed/stage/sex/class-aware config authoring, source nuance policy capture,
-> source schedule/dose/vial/revaccination rows, V1 compatibility spacing,
+> schedule/dose/vial/revaccination rows, V1 compatibility spacing,
 > local defer/procurement/pregnancy kernel gates, due generation,
 > older-goat unknown-history anti-flood, shed drive grouping, Calendar
 > drive-first aggregation after batching, proof,

@@ -44,33 +44,42 @@ Preventive Care (PC) is **not** just vaccination. The config engine must serve a
 | Generic inventory + FEFO ledger movements | Withdrawal-period sale-block automation | |
 | Lifecycle cleanup (shift/death/sale) | | |
 
-## 3. Actors & authority (corrected)
+## 3. Actors & authority (CEO/COO-only config)
 
 Role = **Vertical × Tier**, park-scoped (committed `user_scope_grants`: roles `admin/park_head/operator/verifier/ceo_internal`).
 
 | Actor | Does | Authority |
 |---|---|---|
-| **Preventive Care (PC) Director** | **Drafts / proposes** the vaccine ruleset (`protocol_version` status=`draft`) | `protocol.draft.vaccination` capability (category-specific, scoped tenant/park) |
-| **COO / CEO** | **Approves & publishes** the rule — published version is **immutable + effective-dated** | `protocol.publish.vaccination` capability (category-specific) |
+| **COO / CEO / superadmin** | Creates, edits, previews, and publishes the vaccine ruleset. Published version is immutable + effective-dated. | `protocol.publish.vaccination` capability (category-specific) plus top-level Config route access |
+| **Preventive Care (PC) Director** | Sees effective operational instructions, coverage, exceptions, and escalations only. | No raw Config visibility in V1 unless the product owner later grants a separate read-only config capability |
 | **Park Head / Manager** | Sees their park's drives & overdue; assigns/approves | scoped |
 | **Health worker (field)** | Executes the drive via SOP: scan, administer, record dose, upload proof | `vaccination.execute` |
 | **Verifier** | Reviews proof submissions | `proof.verify` |
 | **System (engine)** | Generates obligations, batches drives, fires reminders, moves stock via the inventory ledger, surfaces anomalies — **never invents rules** | — |
 
-**Correction from v1:** it is **not** "Preventive Care (PC) Director sets config." Preventive Care (PC) Director **drafts**, COO/CEO **publishes**. A rule change = a new version, never an in-place edit of a published one.
+**Correction:** it is **not** "Preventive Care (PC) Director drafts and CEO/COO reviews."
+For V1, the Config screen is visible only to CEO/COO/superadmin. The durable
+audit is normal protocol version audit: `version`, `created_by`/`created_at`,
+`published_by`/`published_at`, `retired_by`/`retired_at`, and the generated
+impact preview reviewed before publish. A rule change = a new version, never an
+in-place edit of a published one.
 
 ## 4. Core user flows
 
-### 4.1 Admin authors the rule → leadership publishes
-Preventive Care (PC) Director drafts a protocol rule (`protocol_rules` under a `vaccination` protocol):
+### 4.1 CEO/COO authors the rule matrix → publishes
+CEO/COO creates a draft protocol version (`protocol_versions.rule_dsl`, expanded
+to `protocol_rules` under a `vaccination` protocol):
 > *Enterotoxaemia · goat · all sexes · shed-stage K1 · primary dose 1 · 0.5 ml · trigger birth_age day 21 · window 7d · booster +14d.*
-COO/CEO reviews and **publishes** → version becomes immutable with an `effective_from`. The engine reads the published version at generation time. No code ships.
+Publish sets `effective_from`; the version becomes immutable. The engine reads
+the published version at generation time. No code ships.
 
 V1 is not complete with a generic "booster yes/no" form. It needs a practical
 vaccine-goat matrix: for each vaccine and dose, the approved config must say
 which goat types it applies to, at what age/stage, with what pregnancy/lactation
 or health restrictions, what due window is safe, what repeat/booster rule
-applies, what proof/SOP is required, and what source approval backs the row.
+applies, what proof/SOP is required, and which version/audit entry owns the
+row. Source docs remain engineering evidence for the preset values; they are
+not product UI columns or runtime approval fields.
 Purchased/intake goats and existing goats already in the database must be run
 through the same matrix as farm-born goats.
 
@@ -78,11 +87,34 @@ The matrix must also carry the vaccination nuance rules from
 [source-nuances-rules.md](./source-nuances-rules.md): vaccine class and
 pathogen class, post-procurement warm-up hold, live/killed spacing metadata,
 same-day allowance metadata, quarantine/ICU/sick defer states, pregnancy and
-post-delivery policy, and adult-source-vaccination policy. V1 enforces the
-eligibility, defer, schedule, trusted-history, catch-up, source compatibility
+post-delivery policy, and adult prior-vaccination policy. V1 enforces the
+eligibility, defer, schedule, trusted-history, catch-up, compatibility
 spacing, and Calendar drive-first parts. A later operations optimizer may use
 the same V1-authored compatibility fields for route/resource planning, but it
 does not own the medical rule matrix.
+
+#### 4.1.1 Rule JSON is policy, herd facts are database facts
+
+Do **not** store goat/herd required fields inside the rule JSON. The rule JSON
+stores only authored policy: dimensions, matrix rows, vaccine cells, schedule
+rows, compatibility/gap rules, and defer rules. Version/audit data lives on the
+protocol version row, not inside goat/herd JSON. Goat
+and herd properties stay in canonical tables or read models:
+
+| Rule needs this dimension | Canonical/current fact source |
+|---|---|
+| Species, breed, sex, DOB/age, lifecycle, health, reproductive state | `goats` plus future typed lifecycle/reproductive deltas where the current columns are not precise enough |
+| Current park/shed/cohort and canonical shed tag/stage | `goats.current_location_id` / `goats.shed_id`, `locations`, `shed_profiles.animal_stage_id`, `animal_stage_lookup.stage_code` |
+| Procurement path, herd-entry date, warm-up, trusted source vaccination history | `procurement_phc_handoffs`, `procurement_hf_vaccination_evidence`, goat `origin_type`/`entry_date` |
+| Accepted vaccination history and booster anchor | `vaccination_completions` joined to `obligation_instances.rule_id` |
+| UI impact preview at scale | indexed goat/protocol fact read models, not full-herd scans |
+
+The common join key is always `tenant_id` plus the target identity
+(`goat_id` for vaccination, `shed_id`/`cohort_id` for feed-style protocols) and
+stable lookup IDs/codes (`breed_id`, `animal_stage_id`/`stage_code`,
+`location_id`, `rule_id`, `protocol_version_id`). See
+[Rule Matrix Authoring Handoff](./RULE-MATRIX-AUTHORING-HANDOFF.md) for the UI
+prompt, persisted JSON sample, and target-facts/read-model contract.
 
 ### 4.2 Goat enters → obligations auto-generate
 Birth report (`origin_type=birth`) or procurement (`origin_type=procured`) creates the goat. The engine reads published vaccination rules matching the goat's `sex × shed-stage × dose sequence` and **materializes `obligation_instances`** (one per due dose), `scheduled_date` computed from the trigger.
@@ -179,7 +211,7 @@ V1 matrix or V1 Calendar de-duplication.
 |---|---|---|
 | **Control Tower** | Live coverage %, drives due today, overdue, stock-low/expiring, breaches — per-park | top |
 | **Action Center** | Worker queue: drives, catch-ups, verifications | top |
-| **Vaccination** (module detail) | Config editor (draft/publish), schedule calendar, drive list, passport history, stock by lot | **under Preventive Care (PC)** (moved from Health) |
+| **Vaccination** (module detail) | Link to generic Config filtered by `category=vaccination`, schedule calendar, drive list, passport history, stock by lot | **under Preventive Care (PC)** (moved from Health) |
 | **Goat Passport** | One goat's full vaccination record + next due | per-goat |
 
 **Mock nav correction:** Vaccination lives under **Preventive Care (PC)**, not Health.
@@ -198,7 +230,7 @@ Coverage % within window (per vaccine/park) · on-time drive rate · stock integ
 3. **Source Nuance roster** — [source-nuances-rules.md](./source-nuances-rules.md)
    now carries the V1 schedule/dose/vial/revaccination source for ET+TT, PPR,
    Goat Pox, FMD, and HS goat rows, with Blue Tongue and Sheep Pox retained as
-   source rows for species-aware expansion.
+   evidence rows for species-aware expansion.
 
 ## 8. Legacy capability parity, proof policy, and import mapping
 
@@ -211,7 +243,7 @@ reactions need notes/follow-up, and verifier/park-head review must be durable.
 
 | Legacy/source signal | GoatOS contract |
 | --- | --- |
-| SOP playground labels `PPR`, `ET`, `FMD`, `HS`, `BQ` | Keep as source-backed SOP/vocabulary labels. Only ET currently has schedule-bearing protocol evidence; labels alone do not generate obligations. |
+| SOP playground labels `PPR`, `ET`, `FMD`, `HS`, `BQ` | Keep as tracked SOP/vocabulary labels. Only ET currently has schedule-bearing protocol evidence; labels alone do not generate obligations. |
 | SOP proof fields: scheduled date, operator, goat scan, vaccine name, medicine batch, dose ml, administered date, proof photo/media, adverse reaction, verifier, notes | Normalize into `protocol_versions.rule_dsl.proof_policy`, `sop_versions.form_dsl`, `sop_submissions`, and `vaccination_completions`. Required first-slice fields are goat scan, vaccine, medicine batch/vial-lot, dose, administered date/time, proof media, adverse-reaction flag/notes, and verifier/park-head review. |
 | Committed `000075` draft SOP skeleton (`shed_video`, `vial_lot`, `cold_chain`, `dose`, `route_site`, `administered_at`, `adverse_reaction`, `est_vs_used`, `verifier_review`) | Treat as the committed starting skeleton, not the final source contract. Upgrade the SOP version/proof policy to the source-normalized shape before calling vaccination SOP parity closed. |
 | Procurement/legacy rows that mention vaccination | Treat as source evidence with confidence/proof semantics only. The live legacy guardrail found no reliable first-class vaccination evidence field in cleaned BigQuery tables, so a procurement row/header alone is not an administered dose. |

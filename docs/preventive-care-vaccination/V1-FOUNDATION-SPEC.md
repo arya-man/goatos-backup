@@ -55,7 +55,7 @@ Visual source: `mock/goatos-dashboard-mock.html`.
 
 | goatOS.docx §6 | Committed table | Notes |
 | --- | --- | --- |
-| `vaccine_config` (rule) | `protocol_rules` + `protocol_versions.rule_dsl` | rule_dsl carries category + eligibility + schedule[] + source |
+| `vaccine_config` (rule) | `protocol_rules` + `protocol_versions.rule_dsl` | rule_dsl carries category + eligibility + schedule[] + compatibility/defer policy; version audit lives on `protocol_versions` |
 | `vaccination_schedule` (per-goat) | `obligation_instances` (target=goat) | due/window/status |
 | `vaccination_shed_events` (drive) | `obligation_batches` (scope=shed) | planned date/window, reserved/used qty, lot |
 | `vaccination_completion` | `vaccination_completions` (000075) | dose_ml_given, lot, FEFO, cold chain, adverse |
@@ -70,19 +70,22 @@ type/class (live/killed/toxoid/combo/unknown-review-needed) · dose row ·
 route/site where required · trigger
 (`birth_age`/`post_arrival`/`calendar`/`manual_campaign`/`after_previous_completion`)
 + earliest/ideal/latest window · min gap · max delay · repeat/lifetime policy ·
-missed-dose/course-lapse policy · proof/SOP binding · source approval metadata.
+missed-dose/course-lapse policy · proof/SOP binding · protocol version/audit.
 Stored in `rule_dsl` (structured columns for stable selectors where present;
-jsonb for matrix-specific eligibility and source metadata).
+jsonb for matrix-specific eligibility and compatibility metadata). Goat/herd
+facts are not copied into this JSON; they come from `goats`, `locations`,
+`shed_profiles`, `animal_stage_lookup`, procurement handoffs/evidence, and
+`vaccination_completions`.
 
 ## 3. v1 acceptance scope
 
-1. **Source-approved vaccine-goat matrix** — each schedule-bearing vaccine row
+1. **CEO/COO-approved vaccine-goat matrix** — each schedule-bearing vaccine row
    must say which goat category receives which dose, at what age/stage, under
    what pregnancy/lactation/health restrictions, inside what safe window, with
-   what booster/repeat/course-lapse policy, and with what SOP/proof/source
-   approval. `PPR`, `FMD`, `HS`, `BQ`, Goat Pox, and ET+TT-style labels are not
+   what booster/repeat/course-lapse policy, and with what SOP/proof/version
+   audit. `PPR`, `FMD`, `HS`, `BQ`, Goat Pox, and ET+TT-style labels are not
    enough by themselves; they become real V1 config only when their matrix rows
-   are source-approved.
+   are authored from the tracked nuance/source docs and published by CEO/COO.
 2. **Sheds foundation** — active sheds are locations under parent parks; every
    active shed has `animal_stage_id`; include `sex` grouping + `has_icu` /
    quarantine / defer metadata (existing `shed_profiles` columns + `context`
@@ -110,7 +113,7 @@ jsonb for matrix-specific eligibility and source metadata).
 
 ## 4. Procurement DB [Goats].xlsx — evidence only, not completion truth
 
-Include in Preventive Care (PC) / Vaccination source review as **arrival/intake/history evidence**:
+Include in Preventive Care (PC) / Vaccination evidence review as **arrival/intake/history evidence**:
 load/vendor/breed/gender/weight/moved-to location/tag update, selection health
 fields, unloading/transit records, and any source-row vaccination mention.
 
@@ -128,9 +131,9 @@ Procurement vertical for v1.
 
 ## 4.1 Legacy parity floor and import/replay mapping
 
-- Preserve source-backed SOP labels (`PPR`, `ET`, `FMD`, `HS`, `BQ`) as
+- Preserve tracked SOP labels (`PPR`, `ET`, `FMD`, `HS`, `BQ`) as
   vocabulary. Labels alone are not V1 completion; every demoed
-  schedule-bearing vaccine needs source-approved timing, dose, eligibility,
+  schedule-bearing vaccine needs evidence-derived timing, dose, eligibility,
   window, repeat/booster, defer, and proof rows.
 - Preserve the SOP proof shape: scheduled date, operator, goat scan, vaccine
   name, medicine batch/vial-lot, dose ml, administered date/time, proof media,
@@ -151,7 +154,7 @@ Procurement vertical for v1.
 
 1. Seed/backfill `animal_stage_lookup` + active sheds' `animal_stage_id` (+ shed_lifecycle_status_lookup).
 2. Current goat location resolution + backfill (history preserved).
-3. Configure the source-approved vaccine-goat matrix rows, not just vaccine labels.
+3. Configure the vaccine-goat matrix rows from the tracked nuance/source docs, not just vaccine labels.
 4. Config UI fields aligned to the `animal_stage` model (screen at `/config?category=vaccination`, mock-faithful).
 5. Vaccination generation engine using current goat facts and the matrix (birth / post_arrival / calendar / after_previous_completion).
 6. Existing-goat backfill and changed-fact recheck for the same matrix.
@@ -177,3 +180,6 @@ authoring anatomy. `New draft rule` opens a normal `/config?new_rule=1`
 authoring page with breadcrumb, left form, right `rule_dsl` JSON rail, and
 sticky footer instead of an oversized modal. "mock" is a visual reference only
 — never a name in product code/UI.
+
+For the corrected matrix UI/JSON handoff, use
+[Rule Matrix Authoring Handoff](./RULE-MATRIX-AUTHORING-HANDOFF.md).
