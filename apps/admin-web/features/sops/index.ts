@@ -1,4 +1,5 @@
 export { SopLibrary } from "./sop-library";
 export type { SopLibraryProps } from "./sop-library";
-export { toSopView, isVaccinationSop } from "./sop-derive";
-export type { SopCardView } from "./sop-derive";
+export { SopBuilder } from "./sop-builder";
+export { toSopView, isVaccinationSop, builderInitialFromVersion, isVersionFaithfullyEditable } from "./sop-derive";
+export type { SopCardView, BuilderInitial } from "./sop-derive";
