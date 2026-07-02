@@ -2035,7 +2035,7 @@ CREATE TABLE public.calendar_event_projections (
     CONSTRAINT calendar_event_slice_check CHECK ((slice_key = 'vaccination'::text)),
     CONSTRAINT calendar_event_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'overdue'::text, 'missed'::text, 'in_progress'::text, 'proof_pending'::text, 'verification_pending'::text, 'rejected'::text, 'rework_due'::text, 'deferred'::text, 'blocked'::text, 'completed'::text, 'canceled'::text]))),
     CONSTRAINT calendar_event_target_count_check CHECK ((target_count >= 0)),
-    CONSTRAINT calendar_event_type_check CHECK ((event_type = ANY (ARRAY['vaccination_dose_due'::text, 'vaccination_drive'::text, 'vaccination_campaign'::text, 'vaccination_booster_due'::text, 'vaccination_defer_review'::text, 'vaccination_evidence_review'::text, 'vaccination_proof_verification'::text, 'vaccination_rework_due'::text, 'vaccine_stock_readiness'::text, 'vaccine_cold_chain_check'::text, 'vaccine_reorder_expiry_grn'::text, 'phc_stock_anti_misuse'::text, 'vaccination_config_source_approval'::text]))),
+    CONSTRAINT calendar_event_type_check CHECK ((event_type = ANY (ARRAY['vaccination_dose_due'::text, 'vaccination_drive'::text, 'vaccination_campaign'::text, 'vaccination_booster_due'::text, 'vaccination_defer_review'::text, 'vaccination_evidence_review'::text, 'vaccination_proof_verification'::text, 'vaccination_rework_due'::text, 'vaccine_stock_readiness'::text, 'vaccine_cold_chain_check'::text, 'vaccine_reorder_expiry_grn'::text, 'phc_stock_anti_misuse'::text, 'vaccination_config_activation_review'::text]))),
     CONSTRAINT calendar_event_window_check CHECK (((window_end IS NULL) OR (window_start IS NULL) OR (window_end >= window_start)))
 );
 

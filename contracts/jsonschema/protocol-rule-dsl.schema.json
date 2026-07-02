@@ -56,6 +56,14 @@
           "trigger_type": { "type": "string" },
           "offset_days": { "type": "integer" },
           "due_window_days": { "type": "integer" },
+          "dose_amount": { "type": "number" },
+          "dose_unit": { "type": "string" },
+          "vial_doses": { "type": "integer" },
+          "revaccination_interval_days": { "type": "integer" },
+          "schedule_note": { "type": ["string", "null"] },
+          "route_site": { "type": "string" },
+          "max_delay_days": { "type": "integer" },
+          "course_lapse_policy": { "type": "string" },
           "min_gap_days": { "type": "integer" },
           "repeat": { "type": "string" },
           "repeat_until_after_age": { "type": "string" },
@@ -72,19 +80,6 @@
       }
     },
     "escalation": { "type": "string" },
-    "source": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "source_system": { "type": "string" },
-        "source_ref": { "type": "string" },
-        "imported_at": { "type": ["string", "null"] },
-        "reviewed_by": { "type": "string" },
-        "review_status": { "type": "string" },
-        "approved_by": { "type": "string" },
-        "approved_at": { "type": ["string", "null"] }
-      }
-    },
     "ration": {
       "type": "object",
       "additionalProperties": false,

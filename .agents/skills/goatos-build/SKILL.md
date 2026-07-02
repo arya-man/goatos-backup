@@ -161,9 +161,11 @@ one product; this skill is the navigation layer.
 - Keep Slack/Sheets/App Script as legacy reference/migration only.
 - When source artifacts add lasting facts, sync the relevant `context/` doc and
   this skill's reference map in the same closeout.
-- For protocol/config work, keep workflow status separate from source/review
-  trust: `protocol_versions.status` is `draft`/`published`/`retired`;
-  source-backed approval lives under `rule_dsl.source`.
+- For protocol/config work, keep workflow status, activation state, version
+  audit, and source evidence separate. Source docs are engineering evidence for
+  preset values, not runtime source/review UI fields. Vaccination config uses a
+  scoped active ruleset model: one active company `vaccination.matrix` version,
+  plus at most one active park override per park.
 
 ## Must Not
 
@@ -175,6 +177,7 @@ one product; this skill is the navigation layer.
   intentional exception and should be snapshot/cloned into `goatos/apps/` for
   safe rewiring while live repos stay untouched.
 - Do not treat the public website as Goat OS core.
-- Do not use demo/sandbox as protocol rule concepts. Unsourced or unapproved
-  rules remain `draft` with a `not source-backed` warning; only source-backed,
-  approved rules may publish.
+- Do not use demo/sandbox as protocol rule concepts. Draft or inactive versions
+  generate no new obligations. Activation requires the category/scope policy,
+  CEO/COO/superadmin authority, JSON-schema validation, SOP binding where
+  needed, impact preview, and non-overlapping active windows.

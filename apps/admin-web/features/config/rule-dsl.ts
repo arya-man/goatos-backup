@@ -11,7 +11,7 @@ export interface DoseRow {
   doseUnit: string;
   vialDoses: number;
   revaccinationIntervalDays: number;
-  sourceSchedule: string;
+  scheduleNote: string;
   routeSite: string;
   maxDelayDays: number;
   courseLapsePolicy: string;
@@ -74,15 +74,6 @@ export interface FeedFields {
   calculationOutputs: string[];
 }
 
-export interface SourceMeta {
-  sourceSystem: string;
-  sourceRef: string;
-  reviewStatus: string;
-  reviewedBy: string;
-  approvedBy: string;
-  approvedAt: string;
-}
-
 export interface CompatibilityPolicy {
   liveToKilledGapDays: number;
   killedToKilledGapDays: number;
@@ -95,7 +86,7 @@ export interface CompatibilityPolicy {
 export interface ProcurementPolicy {
   warmupNoVaccinationDays: number;
   kidsNormalScheduleUntilWeeks: number;
-  adultSourceVaccinationAllowed: boolean;
+  adultPriorVaccinationAllowed: boolean;
   firstWave: string;
   secondWaveAfterDays: number;
   goatSecondWave: string;
@@ -123,7 +114,6 @@ export interface RuleInput {
   vaccineLotPolicy: string;
   missedDosePolicy: string;
   escalation: string;
-  source: SourceMeta;
   compatibilityPolicy: CompatibilityPolicy;
   procurementPolicy: ProcurementPolicy;
   pregnancyPolicy: PregnancyPolicy;
@@ -167,47 +157,23 @@ export const ALL_STAGES_VALUE = "all";
 
 export const STAGE_SOURCE = "shed_profiles.animal_stage_id -> animal_stage_lookup";
 
-export function isRfc3339Timestamp(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/.exec(trimmed);
-  if (!match) return false;
-
-  const [, yearRaw, monthRaw, dayRaw, hourRaw, minuteRaw, secondRaw, offsetRaw] = match;
-  const year = Number(yearRaw);
-  const month = Number(monthRaw);
-  const day = Number(dayRaw);
-  const hour = Number(hourRaw);
-  const minute = Number(minuteRaw);
-  const second = Number(secondRaw);
-  if (hour > 23 || minute > 59 || second > 59) return false;
-  if (offsetRaw !== "Z") {
-    const offsetHour = Number(offsetRaw.slice(1, 3));
-    const offsetMinute = Number(offsetRaw.slice(4, 6));
-    if (offsetHour > 23 || offsetMinute > 59) return false;
-  }
-
-  const candidate = new Date(Date.UTC(year, month - 1, day));
-  return candidate.getUTCFullYear() === year && candidate.getUTCMonth() === month - 1 && candidate.getUTCDate() === day;
-}
-
 export function newDose(seq: number): DoseRow {
   return {
     doseCode: seq === 1 ? "primary" : `dose_${seq}`,
     trigger: seq === 1 ? "birth_age" : "after_previous_completion",
-    offsetDays: seq === 1 ? 21 : 30,
+    offsetDays: seq === 1 ? 28 : 49,
     dueWindowDays: 7,
-    doseAmount: 0.5,
+    doseAmount: 2,
     doseUnit: "ml",
     vialDoses: 0,
     revaccinationIntervalDays: 0,
-    sourceSchedule: "",
+    scheduleNote: "",
     routeSite: "subcutaneous",
     maxDelayDays: 7,
     courseLapsePolicy: "phc_review",
     repeat: "none",
     repeatUntilAfterAge: "-",
-    minGapDays: seq === 1 ? 0 : 14,
+    minGapDays: seq === 1 ? 0 : 21,
     catchUp: "phc_approval",
     sopVersion: "",
     proofCsv: "shed,vial,dose,lot,qty",
@@ -250,7 +216,7 @@ export function newProcurementPolicy(): ProcurementPolicy {
   return {
     warmupNoVaccinationDays: 7,
     kidsNormalScheduleUntilWeeks: 16,
-    adultSourceVaccinationAllowed: true,
+    adultPriorVaccinationAllowed: true,
     firstWave: "ET+TT,PPR",
     secondWaveAfterDays: 28,
     goatSecondWave: "Goat Pox,ET+TT booster",
@@ -276,24 +242,6 @@ function csvToArr(csv: string): string[] {
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
-}
-
-function sourceDsl(source: SourceMeta): Record<string, unknown> {
-  const sourceSystem = source.sourceSystem.trim();
-  const reviewStatus = source.reviewStatus.trim();
-  const sourceRef = source.sourceRef.trim();
-  const reviewedBy = source.reviewedBy.trim();
-  const approvedBy = source.approvedBy.trim();
-  const approvedAt = source.approvedAt.trim();
-  return {
-    source_system: sourceSystem,
-    source_ref: sourceRef,
-    imported_at: sourceSystem !== "manual_admin" ? "(on import)" : null,
-    reviewed_by: reviewedBy,
-    review_status: reviewStatus,
-    approved_by: approvedBy,
-    approved_at: reviewStatus === "approved" && approvedAt ? approvedAt : null,
-  };
 }
 
 function vaccinationDsl(input: RuleInput): Record<string, unknown> {
@@ -340,7 +288,7 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
     procurement_policy: {
       warmup_no_vaccination_days: Number(input.procurementPolicy.warmupNoVaccinationDays) || 0,
       kids_normal_schedule_until_weeks: Number(input.procurementPolicy.kidsNormalScheduleUntilWeeks) || 0,
-      adult_source_vaccination_allowed: input.procurementPolicy.adultSourceVaccinationAllowed,
+      adult_prior_vaccination_allowed: input.procurementPolicy.adultPriorVaccinationAllowed,
       first_wave: csvToArr(input.procurementPolicy.firstWave),
       second_wave_after_days: Number(input.procurementPolicy.secondWaveAfterDays) || 0,
       goat_second_wave: csvToArr(input.procurementPolicy.goatSecondWave),
@@ -361,7 +309,7 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       dose_unit: d.doseUnit,
       vial_doses: Number(d.vialDoses) || 0,
       revaccination_interval_days: Number(d.revaccinationIntervalDays) || 0,
-      source_schedule: d.sourceSchedule.trim() || null,
+      schedule_note: d.scheduleNote.trim() || null,
       route_site: d.routeSite,
       max_delay_days: Number(d.maxDelayDays) || Number(d.dueWindowDays) || 0,
       course_lapse_policy: d.courseLapsePolicy,
@@ -377,7 +325,6 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       proof_policy: csvToArr(d.proofCsv),
     })),
     escalation: input.escalation,
-    source: sourceDsl(input.source),
   };
 }
 
@@ -434,7 +381,6 @@ function feedDsl(input: RuleInput): Record<string, unknown> {
       fail_closed: true,
       preview_required: true,
     },
-    source: sourceDsl(input.source),
   };
 }
 
@@ -469,7 +415,6 @@ export function buildVaccinationMatrixPreview(input: RuleInput, rows: Vaccinatio
     category: input.category,
     scope: parseScope(input.scope),
     matrix_rows: rows.map((row, index) => buildRuleDsl(ruleInputForVaccinationMatrixRow(input, row, index, rows.length))),
-    source: sourceDsl(input.source),
   };
 }
 
@@ -543,86 +488,4 @@ export function buildProtocolRuleRows(input: RuleInput): ProtocolRuleDraft[] {
     proofPolicy: csvToArr(d.proofCsv),
     sortOrder: i + 1,
   }));
-}
-
-export interface SourceBadge {
-  text: string;
-  tone: "warn" | "info" | "ok";
-}
-
-export type SourceSystemContractOption = { key: string; label: string; tone: string };
-
-export type SourceBadgeCopy = {
-  notSourceBacked: string;
-  notPublishable: string;
-  approved: string;
-  pending: string;
-  sourceRefNeeded: string;
-};
-
-export type PublishGateCopy = {
-  sourceSystem: string;
-  sourceRef: string;
-  reviewStatus: string;
-  approvedBy: string;
-  approvedAt: string;
-  approvedAtRFC3339: string;
-};
-
-function sourceOption(sourceSystem: string, options: SourceSystemContractOption[]): SourceSystemContractOption | undefined {
-  return options.find((option) => option.key === sourceSystem.trim());
-}
-
-export type PublishSourceFields = {
-  sourceSystem: string;
-  sourceRef: string;
-  reviewStatus: string;
-  approvedBy: string;
-  approvedAt: string;
-};
-
-export function hasSourceEvidenceFields(source: Pick<PublishSourceFields, "sourceSystem" | "sourceRef">, options: SourceSystemContractOption[]): boolean {
-  const option = sourceOption(source.sourceSystem, options);
-  return !!option && option.tone !== "warn" && source.sourceRef.trim() !== "";
-}
-
-export function isPublishableSourceFields(source: PublishSourceFields, options: SourceSystemContractOption[]): boolean {
-  const option = sourceOption(source.sourceSystem, options);
-  return (
-    option?.tone === "ok" &&
-    source.sourceRef.trim() !== "" &&
-    source.reviewStatus.trim() === "approved" &&
-    source.approvedBy.trim() !== "" &&
-    isRfc3339Timestamp(source.approvedAt)
-  );
-}
-
-export function sourceBadge(source: SourceMeta, options: SourceSystemContractOption[], labels: SourceBadgeCopy): SourceBadge {
-  const sourceSystem = source.sourceSystem.trim();
-  const reviewStatus = source.reviewStatus.trim();
-  const option = sourceOption(sourceSystem, options);
-  const sourceLabel = option?.label ?? sourceSystem;
-  if (!option || option.tone === "warn") return { text: labels.notSourceBacked, tone: "warn" };
-  if (option.tone !== "ok") {
-    return { text: `${labels.notPublishable} - ${sourceLabel}`, tone: "warn" };
-  }
-  if (isPublishableSourceFields({ ...source, reviewStatus }, options)) {
-    return { text: `${labels.approved} - ${sourceLabel}`, tone: "ok" };
-  }
-  return { text: `${labels.pending}${source.sourceRef.trim() ? "" : ` - ${labels.sourceRefNeeded}`}`, tone: "info" };
-}
-
-// validatePublish uses backend-owned source_systems metadata for the pre-submit disabled reason.
-// The backend publish endpoint remains authoritative on submit.
-export function validatePublish(source: SourceMeta, publishableSourceKeys: Set<string>, labels: PublishGateCopy): { ok: boolean; message?: string } {
-  const sourceSystem = source.sourceSystem.trim();
-  if (!publishableSourceKeys.has(sourceSystem)) {
-    return { ok: false, message: labels.sourceSystem };
-  }
-  if (!source.sourceRef.trim()) return { ok: false, message: labels.sourceRef };
-  if (source.reviewStatus.trim() !== "approved") return { ok: false, message: labels.reviewStatus };
-  if (!source.approvedBy.trim()) return { ok: false, message: labels.approvedBy };
-  if (!source.approvedAt.trim()) return { ok: false, message: labels.approvedAt };
-  if (!isRfc3339Timestamp(source.approvedAt)) return { ok: false, message: labels.approvedAtRFC3339 };
-  return { ok: true };
 }

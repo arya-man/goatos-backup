@@ -1,34 +1,19 @@
 import Link from "next/link";
 import { Workflow } from "lucide-react";
 import { ConfigConsole, type ConfigRuleRow } from "./config-console";
-import {
-  hasSourceEvidenceFields,
-  isPublishableSourceFields,
-  type AnimalStageOption,
-  type SopVersionOption,
-} from "./rule-dsl";
+import { type AnimalStageOption, type SopVersionOption } from "./rule-dsl";
 import { getProtocolVersion, listAnimalStages, listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
 import { control, copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 
 // The generic CEO/COO authoring surface (obligation-engine §2.1 config-UI contract). One Config screen
 // authors every protocol category; the engine, obligations, SOP tasks, and adherence all flow from
-// PUBLISHED, source-backed rules. Field / verifier / park users never reach this screen — they only
-// see generated obligations + SOP tasks.
+// published rules. Field / verifier / park users never reach this screen — they only see generated
+// obligations + SOP tasks.
 
 function resolveCategory(category: string, pageContract: AdminUiPageContract): string {
   const categories = optionGroup(pageContract, "rule_categories");
   return categories.some((option) => option.key === category) ? category : categories[0]?.key ?? category;
-}
-
-function isPublishableSource(item: ProtocolConfigItem, pageContract: AdminUiPageContract): boolean {
-  return isPublishableSourceFields({
-    sourceSystem: item.source_system,
-    sourceRef: item.source_ref,
-    reviewStatus: item.review_status,
-    approvedBy: item.approved_by,
-    approvedAt: item.approved_at,
-  }, optionGroup(pageContract, "source_systems"));
 }
 
 function fmtDate(iso: string | null | undefined, pageContract: AdminUiPageContract): string {
@@ -50,23 +35,12 @@ function scopeLabel(item: ProtocolConfigItem, pageContract: AdminUiPageContract)
   return `${item.scope_type}: ${shortId(item.scope_id, pageContract)}`;
 }
 
-function hasSourceEvidence(item: ProtocolConfigItem, pageContract: AdminUiPageContract): boolean {
-  return hasSourceEvidenceFields({
-    sourceSystem: item.source_system,
-    sourceRef: item.source_ref,
-  }, optionGroup(pageContract, "source_systems"));
-}
-
 function statusOf(item: ProtocolConfigItem, pageContract: AdminUiPageContract): { text: string; tone: ConfigRuleRow["statusTone"] } {
   const key = item.status === "published"
     ? "published"
     : item.status === "retired"
       ? "retired"
-      : isPublishableSource(item, pageContract)
-        ? "draft_publishable"
-        : hasSourceEvidence(item, pageContract)
-          ? "draft_pending_approval"
-          : "draft_not_publishable";
+      : "draft";
   return {
     text: optionLabel(pageContract, "protocol_rule_status", key),
     tone: optionTone(pageContract, "protocol_rule_status", key) as ConfigRuleRow["statusTone"],

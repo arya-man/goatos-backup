@@ -16,54 +16,19 @@ func TestValidatePublishable(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "source-backed approved is publishable",
-			dsl:     `{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"}}`,
-			wantErr: false,
-		},
-		{
-			name:    "phc source approved is publishable",
-			dsl:     `{"source":{"source_system":"phc","source_ref":"PHC §6","review_status":"approved","approved_by":"Reviewer","approved_at":"2026-06-26T00:00:00Z"}}`,
-			wantErr: false,
-		},
-		{
-			name:    "manual_admin is not publishable",
-			dsl:     `{"source":{"source_system":"manual_admin","source_ref":"x","review_status":"approved","approved_by":"x","approved_at":"2026-06-26T00:00:00Z"}}`,
-			wantErr: true,
-		},
-		{
-			name:    "missing source_ref is not publishable",
-			dsl:     `{"source":{"source_system":"vet","source_ref":"","review_status":"approved","approved_by":"x","approved_at":"2026-06-26T00:00:00Z"}}`,
-			wantErr: true,
-		},
-		{
-			name:    "not approved is not publishable",
-			dsl:     `{"source":{"source_system":"vet","source_ref":"ref","review_status":"reviewed","approved_by":"x","approved_at":"2026-06-26T00:00:00Z"}}`,
-			wantErr: true,
-		},
-		{
-			name:    "missing approved_by is not publishable",
-			dsl:     `{"source":{"source_system":"vet","source_ref":"ref","review_status":"approved","approved_by":"","approved_at":"2026-06-26T00:00:00Z"}}`,
-			wantErr: true,
-		},
-		{
-			name:    "missing approved_at is not publishable",
-			dsl:     `{"source":{"source_system":"vet","source_ref":"ref","review_status":"approved","approved_by":"x","approved_at":""}}`,
-			wantErr: true,
-		},
-		{
-			name:    "invalid approved_at is not publishable",
-			dsl:     `{"source":{"source_system":"vet","source_ref":"ref","review_status":"approved","approved_by":"x","approved_at":"on approve"}}`,
-			wantErr: true,
-		},
-		{
-			name:    "empty dsl is not publishable",
+			name:    "empty dsl can proceed to executable checks",
 			dsl:     ``,
-			wantErr: true,
+			wantErr: false,
 		},
 		{
-			name:    "no source object is not publishable",
+			name:    "source-less dsl can proceed to executable checks",
 			dsl:     `{"category":"vaccination"}`,
-			wantErr: true,
+			wantErr: false,
+		},
+		{
+			name:    "legacy source metadata is tolerated but ignored by publishability",
+			dsl:     `{"source":{"source_system":"manual_admin","source_ref":"x","review_status":"approved","approved_by":"x","approved_at":"2026-06-26T00:00:00Z"}}`,
+			wantErr: false,
 		},
 		{
 			name:    "invalid json is not publishable",
@@ -215,39 +180,39 @@ func TestValidateExecutionContract(t *testing.T) {
 
 	missingMatrix := valid
 	missingMatrix.Category = "vaccination"
-	missingMatrix.RuleDsl = []byte(`{"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},"schedule":[{"dose_code":"primary","trigger_type":"birth_age","dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","due_window_days":7,"max_delay_days":7,"course_lapse_policy":"phc_review"}]}`)
+	missingMatrix.RuleDsl = []byte(`{"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},"schedule":[{"dose_code":"primary","trigger_type":"birth_age","dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","due_window_days":7,"max_delay_days":7,"course_lapse_policy":"phc_review"}]}`)
 	if err := ValidateExecutionContract(missingMatrix); !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("vaccination without vaccine matrix object should be not publishable, got %v", err)
 	}
 
 	missingDoseAmount := valid
 	missingDoseAmount.Category = "vaccination"
-	missingDoseAmount.RuleDsl = []byte(`{"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},"schedule":[{"dose_code":"primary","trigger_type":"birth_age","dose_unit":"ml","route_site":"subcutaneous","due_window_days":7,"max_delay_days":7,"course_lapse_policy":"phc_review"}]}`)
+	missingDoseAmount.RuleDsl = []byte(`{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"toxoid"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},"schedule":[{"dose_code":"primary","trigger_type":"birth_age","dose_unit":"ml","route_site":"subcutaneous","due_window_days":7,"max_delay_days":7,"course_lapse_policy":"phc_review"}]}`)
 	if err := ValidateExecutionContract(missingDoseAmount); !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("vaccination without dose amount should be not publishable, got %v", err)
 	}
 
 	missingReproductiveExclusions := valid
 	missingReproductiveExclusions.Category = "vaccination"
-	missingReproductiveExclusions.RuleDsl = []byte(`{"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},"schedule":[{"dose_code":"primary","trigger_type":"birth_age","dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","due_window_days":7,"max_delay_days":7,"course_lapse_policy":"phc_review"}]}`)
+	missingReproductiveExclusions.RuleDsl = []byte(`{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"toxoid"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},"schedule":[{"dose_code":"primary","trigger_type":"birth_age","dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","due_window_days":7,"max_delay_days":7,"course_lapse_policy":"phc_review"}]}`)
 	if err := ValidateExecutionContract(missingReproductiveExclusions); !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("vaccination without reproductive exclusions should be not publishable, got %v", err)
 	}
 
 	missingMaxDelay := valid
 	missingMaxDelay.Category = "vaccination"
-	missingMaxDelay.RuleDsl = []byte(`{"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":[]},"schedule":[{"dose_code":"primary","trigger_type":"birth_age","dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","course_lapse_policy":"phc_review"}]}`)
+	missingMaxDelay.RuleDsl = []byte(`{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"toxoid"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":[]},"schedule":[{"dose_code":"primary","trigger_type":"birth_age","dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","course_lapse_policy":"phc_review"}]}`)
 	if err := ValidateExecutionContract(missingMaxDelay); !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("vaccination without max delay should be not publishable, got %v", err)
 	}
 }
 
 func TestValidateRuleDSLRejectsUnknownKeys(t *testing.T) {
-	valid := []byte(`{"category":"vaccination","scope":{"type":"tenant","id":null},"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid"},"eligibility":{"animal_stage":"K1","defer_states":["icu"]},"schedule":[{"dose_code":"primary","sop_label":"display","dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review"}],"source":{"source_system":"phc","source_ref":"ref","review_status":"reviewed"}}`)
+	valid := []byte(`{"category":"vaccination","scope":{"type":"tenant","id":null},"vaccine":{"code":"ET+TT","name":"ET+TT","type":"toxoid"},"eligibility":{"animal_stage":"K1","defer_states":["icu"]},"schedule":[{"dose_code":"primary","sop_label":"display","dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review"}]}`)
 	if err := ValidateRuleDSL(valid); err != nil {
 		t.Fatalf("valid rule_dsl rejected: %v", err)
 	}
-	validFeed := []byte(`{"category":"feed_direction","scope":{"type":"tenant","id":null},"eligibility":{"animal_stage":"all","animal_stage_source":"shed_profiles.animal_stage_id -> animal_stage_lookup","breed_class":"all_reviewed_cohorts"},"parameter_template":{"source_tables":["feed_validation_tables"],"parameter_families":["feed_vectors"],"dimension_keys":["park_shed_breed_horizon"],"ratio_policy":"source_row_variable"},"ration":{"mode":"reviewed_template_rows","feed_item":"reviewed_template_rows","quantity":0,"unit":"kg_as_fed","quantity_semantics":"source-row variable by approved dimensions; examples are not global defaults"},"session_timing":[{"session_order":1,"session_time":"09:00","split_weight":"50","packing_proof_policy":["pack_qty"],"execution_proof_policy":["distribution_video"]}],"inventory_policy":{"mode":"reserve_consume_release","reserve":"reserve stock before packing","consume":"consume verified quantity","release":"release unused reserved quantity"},"validation_policy":{"checks":["resolver_coverage"],"calculation_outputs":["session_split_quantities"],"fail_closed":true,"preview_required":true},"source":{"source_system":"feed_direction_config_pack","source_ref":"ref","review_status":"reviewed"}}`)
+	validFeed := []byte(`{"category":"feed_direction","scope":{"type":"tenant","id":null},"eligibility":{"animal_stage":"all","animal_stage_source":"shed_profiles.animal_stage_id -> animal_stage_lookup","breed_class":"all_reviewed_cohorts"},"parameter_template":{"source_tables":["feed_validation_tables"],"parameter_families":["feed_vectors"],"dimension_keys":["park_shed_breed_horizon"],"ratio_policy":"source_row_variable"},"ration":{"mode":"reviewed_template_rows","feed_item":"reviewed_template_rows","quantity":0,"unit":"kg_as_fed","quantity_semantics":"source-row variable by approved dimensions; examples are not global defaults"},"session_timing":[{"session_order":1,"session_time":"09:00","split_weight":"50","packing_proof_policy":["pack_qty"],"execution_proof_policy":["distribution_video"]}],"inventory_policy":{"mode":"reserve_consume_release","reserve":"reserve stock before packing","consume":"consume verified quantity","release":"release unused reserved quantity"},"validation_policy":{"checks":["resolver_coverage"],"calculation_outputs":["session_split_quantities"],"fail_closed":true,"preview_required":true}}`)
 	if err := ValidateRuleDSL(validFeed); err != nil {
 		t.Fatalf("valid feed rule_dsl rejected: %v", err)
 	}
@@ -430,7 +395,8 @@ func TestPublishVersionRejectsDraftWithNoExecutableRows(t *testing.T) {
 	repo := &fakeProtocolRepo{
 		version: validPublishVersion("draft"),
 	}
-	repo.version.RuleDsl = []byte(`{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"}}`)
+	repo.version.Category = "deworming"
+	repo.version.RuleDsl = []byte(`{"category":"deworming"}`)
 	service := NewService(repo)
 
 	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
@@ -446,7 +412,7 @@ func TestPublishVersionRejectsInvalidScheduleRowBeforePublish(t *testing.T) {
 	repo := &fakeProtocolRepo{
 		version: validPublishVersion("draft"),
 	}
-	repo.version.RuleDsl = []byte(`{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"},"vaccine":{"code":"ET","name":"Enterotoxaemia","type":"toxoid"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},"schedule":[{"dose_code":"primary","dose_amount":0.5,"dose_unit":"ml","route_site":"subcutaneous","due_window_days":7,"max_delay_days":7,"course_lapse_policy":"phc_review"}]}`)
+	repo.version.RuleDsl = []byte(`{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"toxoid"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":[]},"schedule":[{"dose_code":"primary","dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","due_window_days":7,"max_delay_days":7,"course_lapse_policy":"phc_review"}]}`)
 	service := NewService(repo)
 
 	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
@@ -471,7 +437,7 @@ func validPublishVersion(status string) domain.Version {
 }
 
 func validVaccinationMatrixRuleDSL() string {
-	return `{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"},"vaccine":{"code":"ET+TT","name":"ET+TT","type":"toxoid","pathogen_class":"bacterial","course_type":"booster","inventory_item_id":"item-et","manufacturer":"source-derived","disease":"Enterotoxaemia + Tetanus","compatibility_group":"ET+TT"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["icu","quarantine"]},"missed_dose_policy":"phc_approval","compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21,"bacterial_viral_same_day_allowed":true,"live_killed_viral_same_day_allowed":true},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_source_vaccination_allowed":true,"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox","ET+TT booster"]},"pregnancy_policy":{"allow_until_pregnancy_month":3,"skip_from_pregnancy_month":4,"skip_through_pregnancy_month":5,"post_delivery_catch_up_days":14},"schedule":[{"dose_code":"et_tt_4w","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","vial_doses":100,"revaccination_interval_days":182,"source_schedule":"mother vaccinated: 4 weeks and 7 weeks; mother-not-vaccinated column intentionally ignored","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review","repeat":"none","catch_up":"phc_approval"},{"dose_code":"et_tt_7w","sequence":2,"trigger_type":"birth_age","offset_days":49,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","vial_doses":100,"revaccination_interval_days":182,"source_schedule":"mother vaccinated: 4 weeks and 7 weeks; booster gap 3 weeks","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review","min_gap_days":21,"repeat":"none","repeat_until_after_age":"-","catch_up":"phc_approval"}]}`
+	return `{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"toxoid","pathogen_class":"bacterial","course_type":"booster","inventory_item_id":"item-et","manufacturer":"tracked-matrix","disease":"Enterotoxaemia + Tetanus","compatibility_group":"ET+TT"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["icu","quarantine"]},"missed_dose_policy":"phc_approval","compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21,"bacterial_viral_same_day_allowed":true,"live_killed_viral_same_day_allowed":true},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_prior_vaccination_allowed":true,"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox","ET+TT booster"]},"pregnancy_policy":{"allow_until_pregnancy_month":3,"skip_from_pregnancy_month":4,"skip_through_pregnancy_month":5,"post_delivery_catch_up_days":14},"schedule":[{"dose_code":"et_tt_4w","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","vial_doses":100,"revaccination_interval_days":182,"schedule_note":"mother vaccinated: 4 weeks and 7 weeks; mother-not-vaccinated column intentionally ignored","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review","repeat":"none","catch_up":"phc_approval"},{"dose_code":"et_tt_7w","sequence":2,"trigger_type":"birth_age","offset_days":49,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","vial_doses":100,"revaccination_interval_days":182,"schedule_note":"mother vaccinated: 4 weeks and 7 weeks; booster gap 3 weeks","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"phc_review","min_gap_days":21,"repeat":"none","repeat_until_after_age":"-","catch_up":"phc_approval"}]}`
 }
 
 type fakeProtocolRepo struct {

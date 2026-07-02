@@ -18,9 +18,9 @@ docs/preventive-care-vaccination/PRD.md
 docs/preventive-care-vaccination/TRD.md
 ```
 
-Use those files as the source of truth for migrations `000070-074`, protocol
-rules, obligations, inventory ledger, source-backed config, and million-goat
-query shape.
+Use those files as the source of truth for migrations `000070-074`, scoped
+protocol rulesets, obligations, inventory ledger, Config activation policy, and
+million-goat query shape.
 
 Canonical docs:
 
@@ -69,8 +69,9 @@ Rules:
 - Use phase docs for "what to build"; use skill references for "what context to
   load and which rules must not be forgotten."
 - For protocol/config work, never treat "demo" or "sandbox" as a rule state.
-  `protocol_versions.status` remains `draft`/`published`/`retired`; source and
-  approval are separate metadata.
+  Separate draft/published immutability from active/inactive selection. For
+  vaccination, one company `vaccination.matrix` version is active and a park
+  override replaces it only for that park.
 
 Locked identity foundation:
 

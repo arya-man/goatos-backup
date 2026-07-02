@@ -35,12 +35,15 @@ raw JSON against live tables in an unbounded way.
 
 Correct direction:
 
-1. Store the **rule matrix policy** in `protocol_versions.rule_dsl`.
-2. Expand/compile it into `protocol_rules` and optional predicate rows.
-3. Maintain indexed target facts from canonical data, for example
+1. Store the **scoped rule matrix policy** in `protocol_versions.rule_dsl`.
+2. Keep one logical vaccination ruleset family, for example
+   `vaccination.matrix`; do not create one top-level protocol per vaccine.
+3. Expand/compile the matrix into `protocol_rules` and optional predicate rows.
+4. Resolve the active version by category + scope before generation.
+5. Maintain indexed target facts from canonical data, for example
    `goat_protocol_facts` for animal-targeted protocols.
-4. Evaluate only affected goats/cohorts/sheds when a fact changes.
-5. Group human execution through `obligation_batches`, never one task per goat.
+6. Evaluate only affected goats/cohorts/sheds when a fact changes.
+7. Group human execution through `obligation_batches`, never one task per goat.
 
 ## 2. Existing schema anchors
 
@@ -153,29 +156,103 @@ Example dimension keys: `species`, `breed_id`, `stage_code`, `animal_stage_id`,
 This table is derived from the rule JSON and regenerated on version publish. It
 is not another hand-edited source of truth.
 
+### 3.4 Add scoped active-version resolution
+
+Vaccination must be configured as one active ruleset per scope, not many active
+vaccine rows. The generic engine should support multiple policies, but
+vaccination uses:
+
+```text
+category = vaccination
+protocol_code = vaccination.matrix
+scope_resolution_mode = tenant_default_with_park_overrides
+active_cardinality = single_active_ruleset_per_scope
+override_semantics = park_replaces_tenant_for_that_park
+```
+
+Recommended additions or contract surfaces:
+
+```text
+protocol_category_scope_policies
+  tenant_id
+  category
+  protocol_code
+  target_type
+  allowed_scope_levels
+  scope_resolution_mode
+  active_cardinality
+  override_semantics
+  activation_cutover_policy
+  status
+
+protocol_scope_resolutions
+  tenant_id
+  category
+  protocol_id
+  target_scope_type
+  target_scope_id
+  active_protocol_version_id
+  source_scope_type
+  source_scope_id
+  overridden_protocol_version_id
+  resolution_reason
+  computed_at
+```
+
+For vaccination:
+
+- only one company-wide active version can exist;
+- only one active park version can exist for a given park;
+- an active park version excludes only that park from the company version;
+- the company version continues to apply to every park without an active park
+  override;
+- draft/inactive/retired versions stay in history and never generate new work.
+
+If the current schema keeps `status='published'`, expose a separate
+`activation_state` in API/UI (`draft`, `scheduled`, `active`, `inactive`,
+`retired`). The user-facing Config list should say active/inactive because the
+business action is selecting the currently active ruleset for a scope.
+
 ## 4. Correct UI model
 
 The Config page is a generic Admin/Data Ops screen at `/config`, filtered by
 `category=vaccination` for this module. V1 visibility is CEO/COO/superadmin
 only. Remove source/review authoring sections from the UI. Show normal version
-audit only: version, created by, created time, published by, published time,
-effective from/to, retired time where applicable.
+audit only: version, created by, created time, activated/published by,
+activated/published time, effective from/to, inactive/retired time where
+applicable.
+
+The first Config screen is the scoped ruleset list, not a vaccine-row list.
+For vaccination it should show:
+
+| Row | Meaning |
+|---|---|
+| Company-wide default | The active `vaccination.matrix` version for all parks without active park overrides |
+| Park override rows | The active `vaccination.matrix` version for a specific park |
+| History drawer | Draft, scheduled, inactive, and retired versions for the selected scope |
+
+Top-level list rows must not be ET+TT, PPR, Goat Pox, FMD, or HS. Those are
+matrix cells inside the selected active version.
 
 ### Layout
 
-1. Header: category selector, version selector, effective date, publish status,
-   audit summary.
-2. Matrix tab: rows are target cohorts; columns are vaccines/doses; cells open
+1. Header: category selector, scope mode (Company-wide / Park-wise), active
+   version, effective date, activation state, audit summary.
+2. Ruleset list: company default row plus active park override rows, with
+   applies-to summary, excluded park count, override count, last activator, and
+   history.
+3. Matrix tab: rows are target cohorts; columns are vaccines/doses; cells open
    a drawer.
-3. Cohort builder rail: species, breed, sex, shed tag/stage, lifecycle, health,
+4. Cohort builder rail: species, breed, sex, shed tag/stage, lifecycle, health,
    reproductive, procurement/warm-up, age bounds.
-4. Vaccine catalog rail: code, label, class, pathogen, dose amount, vial size,
+5. Vaccine catalog rail: code, label, class, pathogen, dose amount, vial size,
    revaccination interval, inventory item binding.
-5. Compatibility tab: live/killed gaps, same-day allowed combinations,
+6. Compatibility tab: live/killed gaps, same-day allowed combinations,
    same-vaccine minimum gaps, kid booster minimum gap.
-6. Impact preview: affected goats, deferred goats, excluded goats, due rows,
-   catch-up rows, stock estimate, batch estimate, missing data blockers.
-7. JSON rail: shows `rule_dsl` only. It must not show goat rows or a
+7. Impact preview: affected goats, deferred goats, excluded goats, due rows,
+   catch-up rows, stock estimate, batch estimate, missing data blockers, open
+   obligations to supersede, and in-progress batches requiring review.
+8. JSON rail: shows `rule_dsl` only. It must not show goat rows or a
    `goat_herd_required_fields` list.
 
 ### Matrix behavior
@@ -197,19 +274,28 @@ effective from/to, retired time where applicable.
 Use this prompt:
 
 ```text
-Rebuild the vaccination rule editor as a matrix authoring tool, not a
-vaccine-first flat form.
+Rebuild the vaccination Config surface as a scoped ruleset manager plus matrix
+authoring tool, not a vaccine-first flat form and not one protocol per vaccine.
 
 Context:
 - The page is /config filtered by category=vaccination.
 - It is visible only to CEO/COO/superadmin.
 - Remove all source/review UI fields. Keep only version/audit fields:
-  version, created by/time, published by/time, effective from/to.
+- version, created by/time, activated by/time, effective from/to, inactive time.
+- Vaccination has one logical ruleset family: vaccination.matrix.
+- Company-wide has at most one active version.
+- Each park has at most one active park override.
+- A park override excludes only that park from the company version.
 - Rule JSON stores policy only. Goat/herd fields come from DB facts and must
   not appear as goat_herd_required_fields in the JSON.
 
 UI requirements:
-- First screen is the matrix, not a landing page.
+- First screen is the scoped ruleset list.
+- Show one Company-wide row with applies-to summary like "All parks except 2
+  park overrides".
+- Show active Park override rows with scope label, active version, last
+  activator, effective date, and history.
+- Opening a row shows the matrix.
 - Rows are target cohorts built from dimensions: species, breed, sex, shed
   tag/stage, lifecycle, health, reproductive state, procurement/warm-up,
   age bounds.
@@ -221,7 +307,8 @@ UI requirements:
 - Add a separate Compatibility tab for live/killed gaps and same-day allowance.
 - Add Impact Preview that counts affected goats, deferred goats, excluded goats,
   due rows, catch-up rows, stock estimate, batch estimate, and missing-data
-  blockers.
+  blockers. When activating a park override, include company-version open
+  obligations to supersede and in-progress batches requiring explicit choice.
 - Add JSON rail showing rule_dsl only.
 - Do not make "Who qualifies" a single category picker. It must allow all
   dimensions together so breed x shed tag x vaccine x reproductive/health state
@@ -243,9 +330,15 @@ Implement the protocol rule-matrix contract without mixing rule JSON and herd
 facts.
 
 Required:
+- Treat protocol_definitions as stable ruleset families. For vaccination use
+  vaccination.matrix, not one protocol per vaccine/stage/breed copy.
 - Persist authored policy in protocol_versions.rule_dsl.
 - Expand schedule/cell rows to protocol_rules.
 - Keep goat/herd/shed/procurement/completion data in canonical tables.
+- Add category scope policy and active-version resolution for tenant default
+  plus park overrides.
+- For vaccination enforce one active company version and one active version per
+  park. Park overrides replace the company version for that park only.
 - Add/maintain goat_protocol_facts as an indexed read model for vaccination
   evaluation.
 - Add protocol_rule_dimension_values if impact preview/generation needs
@@ -253,8 +346,12 @@ Required:
 - Recompute only affected targets on goat CRUD, shed/stage change,
   health/reproductive change, procurement accepted-intake, warm-up expiry, and
   accepted vaccination completion.
-- Publish requires CEO/COO/superadmin authority, valid JSON schema, published
-  SOP binding where needed, non-overlapping effective dates, and impact preview.
+- Activation/publish requires CEO/COO/superadmin authority, valid JSON schema,
+  published SOP binding where needed, non-overlapping effective dates, active
+  cardinality checks, scope override resolution, and impact preview.
+- Activating a park override must supersede/recompute open company-version work
+  for that park only; completed history keeps its original protocol_version_id;
+  in-progress batches require explicit operator choice.
 - Remove source/review UI and runtime publish gates from config authoring.
   Source docs stay engineering reference only.
 - Generation must page through indexed facts and write idempotent
@@ -271,17 +368,22 @@ This audit/version data is table metadata, not rule-policy JSON:
 ```json
 {
   "protocol_version_id": "pv_vaccination_2026_07_02_v1",
+  "protocol_code": "vaccination.matrix",
+  "protocol_name": "Vaccination Rule Matrix",
   "category": "vaccination",
   "scope_type": "tenant",
   "scope_id": null,
+  "scope_label": "Company-wide",
   "version": 1,
-  "status": "draft",
+  "activation_state": "active",
   "effective_from": "2026-07-02",
   "effective_to": null,
   "created_by": "ceo_user_id",
   "created_at": "2026-07-02T09:30:00Z",
-  "published_by": null,
-  "published_at": null
+  "activated_by": "ceo_user_id",
+  "activated_at": "2026-07-02T10:00:00Z",
+  "applies_to_summary": "All parks except active park overrides",
+  "excluded_scope_count": 0
 }
 ```
 
@@ -314,6 +416,7 @@ snapshots and no `goat_herd_required_fields`.
       "PREGNANT_EARLY",
       "PREGNANT_LATE",
       "MOTHER",
+      "BREEDING",
       "MILKING",
       "BUCK"
     ],
@@ -585,8 +688,7 @@ snapshots and no `goat_herd_required_fields`.
       "first_wave_vaccines": ["ET_TT", "PPR"],
       "second_wave_after_days": 28,
       "second_wave_vaccines_by_species": {
-        "goat": ["GOAT_POX", "ET_TT"],
-        "sheep": ["SHEEP_POX", "ET_TT"]
+        "goat": ["GOAT_POX", "ET_TT"]
       }
     },
     "reproductive": {
@@ -653,6 +755,8 @@ vaccine-first form as the final contract. Before merging UI/config changes:
 
 - rebase onto the renamed `docs/preventive-care-vaccination` path;
 - remove source/review UI dependency from Config authoring;
+- replace the current one-vaccine-per-protocol Config list with a scoped
+  ruleset list: company default plus park overrides;
 - make Calendar/Passport detail link to `protocol_version_id`, `rule_id`,
   `goat_id`, `shed_id`, and `batch_id`;
 - ensure any vaccine due row can explain which matrix row/cell matched it;

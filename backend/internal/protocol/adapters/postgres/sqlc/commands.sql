@@ -38,7 +38,7 @@ WHERE pv.tenant_id = @tenant_id
 RETURNING trigger_id::text AS trigger_id;
 
 -- name: PublishProtocolVersion :execrows
--- Status flip only; the source-backed approval gate is enforced in the app layer.
+-- Status flip only; executable-contract checks are enforced in the app layer.
 UPDATE protocol_versions
 SET status = 'published',
     published_by = @published_by,

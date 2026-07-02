@@ -229,7 +229,7 @@ export const EVENT_TYPE_ICON: Record<CalendarEventType, LucideIcon> = {
   vaccine_cold_chain_check: Snowflake,
   vaccine_reorder_expiry_grn: Boxes,
   phc_stock_anti_misuse: ShieldAlert,
-  vaccination_config_source_approval: FileCheck2,
+  vaccination_config_activation_review: FileCheck2,
 };
 
 export function eventTypeMeta(eventType: string, presentation?: CalendarPresentation): { label: string; icon: LucideIcon } {

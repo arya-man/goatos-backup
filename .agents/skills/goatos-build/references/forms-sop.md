@@ -39,7 +39,8 @@ Rules:
 - Dynamic pickers come from backend reference data/offline caches, not hardcoded
   Slack dropdowns.
 - The current walking slice is vaccination: SOP/proof policy is configured by
-  source-backed protocol versions and executed through Preventive Care (PC) / vaccination work.
+  the active scoped `vaccination.matrix` version and executed through
+  Preventive Care (PC) / vaccination work.
   Vaccination execution context (park/shed/stage/defer/blocker/owner context)
   renders inside /vaccination, not as a separate Parks module.
   `/sops` is reopened only as the Admin/Data Ops SOP Library for the vaccination

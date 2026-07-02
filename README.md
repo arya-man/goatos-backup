@@ -113,7 +113,7 @@ The local foundation is built and tested against Postgres:
 - Audit log and decision records.
 - Domain events and outbox foundation.
 - Local outbox relay foundation.
-- Protocol definitions, protocol versions, source-backed publish gate, and SOP
+- Protocol definitions, protocol versions, scoped Config activation, and SOP
   proof-policy skeletons.
 - Vaccination publish/backfill generation with durable run rows, due-window
   Action Center rows, verification queue, accept/reject verification, hard
@@ -161,9 +161,8 @@ vaccination module are built and green against local Postgres (full
 `go test ./...`, migration, sqlc, and query-plan gates). This is **backend +
 APIs only — not shipped** (see pending list below).
 
-- Generic obligation engine: protocol definitions/versions/rules, a
-  source-backed publish gate plus DB immutability for published versions (only `vaccinations_db`/`phc`/`vet`
-  approved values can be published — manual/unsourced values stay draft), and
+- Generic obligation engine: protocol definitions/versions/rules, scoped active
+  ruleset selection plus DB immutability for published/active versions, and
   per-goat obligation generation (SM-1), cancel-on-exit (SM-3), shed-shift
   re-scope/repair for open and planned work (SM-2), drive sweep → batch → SOP
   task → hard FEFO stock reserve/block (SM-4), completion + verification +
@@ -181,9 +180,10 @@ APIs only — not shipped** (see pending list below).
   Verification queue, DLQ operations, kernel health, and the Goat Passport read
   (history + next-due + last dose).
 
-No production vaccine schedule values exist yet — the module ships the engine
-and a SOP execution/proof skeleton only; real rules require source-backed Preventive Care (PC)
-values before publish.
+Vaccination Config must now treat the full matrix as one scoped ruleset:
+company-wide active version by default, optional active park override per park,
+and history for inactive/retired versions. Individual vaccines are matrix cells,
+not top-level protocol rows.
 
 ### Not Finished Yet
 
@@ -202,7 +202,7 @@ Still pending for the current vaccination slice:
 - Richer Action Center/Control Tower rendering for kernel health, DLQ links,
   repair exceptions, manual campaign runs, and incident status from backend
   contracts.
-- Real source-backed Preventive Care (PC) vaccine rule values before any production publish.
+- Reviewed Preventive Care (PC) vaccination matrix values before any production activation.
 - Applying/dev-verifying Pub/Sub, Cloud Tasks, Scheduler, notification secrets,
   FCM/email/Slack/webhook/incident channels, and continuously running workers in
   the target Google projects.
@@ -345,8 +345,8 @@ ordered around the vaccination process-integrity slice:
 
 ```text
 1. Admin Config / SOP Policy
-   Source-backed protocol rules, proof policy, publish/versioning, and impact
-   preview.
+   Scoped protocol rulesets, proof policy, version activation, park override
+   resolution, and impact preview.
 
 2. Preventive Care (PC) Vaccination Operations
    Vaccination obligations, drives, proof, verification, missed/deferred
@@ -370,8 +370,8 @@ ordered around the vaccination process-integrity slice:
 
 6. Production Hardening
    Real IdP/JWKS auth, Pub/Sub event egress, Cloud Run deploy, observability,
-   query-plan gates, and source-backed Preventive Care (PC) rule values before production
-   publish.
+   query-plan gates, and reviewed Preventive Care (PC) rule matrix values before
+   production activation.
 ```
 
 Later verticals such as feed direction, health, breeding, procurement, sales,
@@ -390,7 +390,7 @@ We are building the operating workflow first.
 
 The current build is focused on the vaccination process-integrity layer:
 
-- Admin Config and source-backed protocol rules.
+- Admin Config and scoped vaccination rulesets.
 - Preventive Care (PC) vaccination obligations, drives, proof, and verification.
 - Vaccination execution context: park, shed, stage, defer state, owner, blocker
   (rendered inside /vaccination; deep shed detail belongs under
@@ -418,7 +418,7 @@ Recommended next execution order:
 2. Finish the top-level Action Center work-state backend model without
    introducing a generic all-domain product yet.
 3. Keep Admin Config category-driven while wiring vaccination SOP/proof policy
-   from source-backed protocol versions.
+   from the active scoped vaccination matrix version.
 4. Add production identity-provider integration later: JWKS/asymmetric token
    verification, login/session handling, key rotation, revocation, and secret
    management.

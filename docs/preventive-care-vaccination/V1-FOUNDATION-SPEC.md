@@ -26,6 +26,13 @@ Visual source: `mock/goatos-dashboard-mock.html`.
   `protocol_definitions/versions/rules`, `obligation_instances/batches`,
   `vaccination_completions`). Vaccination is category 1; feed/deworming reuse it
   later. Do not fork a vaccination-only schema; do not build a parallel system.
+- **One vaccination ruleset family, scoped by company or park.** The stable
+  Config family is `vaccination.matrix`; ET+TT, PPR, Goat Pox, FMD, and HS are
+  cells/rules inside that matrix, not separate top-level protocol definitions.
+  For vaccination V1, only one company version can be active and only one park
+  override can be active per park. A park override excludes that park from the
+  company version, while the company version continues applying to every park
+  without an active override.
 - **Config UX is generic Admin / Data Ops authority.** The visible Config screen
   is `/config` (`Admin / Data Ops -> Config — Protocol Rules`), CEO/COO/
   superadmin only. Preventive Care (PC) / Vaccination may link to `/config?category=vaccination`,
@@ -176,10 +183,12 @@ Admin/Data Ops with Config · Parks/Sheds as foundation only · no
 Operations/Legacy/SOP/cyan nav · no huge fonts · no horizontal clipping · clean
 theme toggle · Goat Passport contextual/detail only (no global goat search).
 Config screen matches `mock/goatos-dashboard-mock.html` for the table and
-authoring anatomy. `New draft rule` opens a normal `/config?new_rule=1`
-authoring page with breadcrumb, left form, right `rule_dsl` JSON rail, and
-sticky footer instead of an oversized modal. "mock" is a visual reference only
-— never a name in product code/UI.
+authoring anatomy, but the table contract changes from one-vaccine rows to
+scoped ruleset rows: Company-wide default first, then active park overrides,
+then history inside each row's drawer. `New draft rule` opens a normal
+`/config?new_rule=1` authoring page with breadcrumb, left form, right `rule_dsl`
+JSON rail, and sticky footer instead of an oversized modal. "mock" is a visual
+reference only — never a name in product code/UI.
 
 For the corrected matrix UI/JSON handoff, use
 [Rule Matrix Authoring Handoff](./RULE-MATRIX-AUTHORING-HANDOFF.md).

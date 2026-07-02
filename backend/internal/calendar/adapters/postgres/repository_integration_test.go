@@ -1379,7 +1379,7 @@ FROM notification_requests
 WHERE tenant_id=$1::uuid AND calendar_event_id=$2`, 1, testTenantID, oldEventID)
 }
 
-func TestCalendarConfigSourceApprovalNudgeIsActionable(t *testing.T) {
+func TestCalendarConfigActivationReviewNudgeIsActionable(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -1394,8 +1394,8 @@ INSERT INTO calendar_event_projections (
   executor_role, reminder_state, primary_notification_channel, escalation_state,
   system, cross_cutting, links, detail
 ) VALUES (
-  $1::uuid, $2, 'vaccination', 'vaccination_config_source_approval', 'admin_data_ops',
-  'Approve source review', 'Protocol source review due', 'due', 'warning',
+  $1::uuid, $2, 'vaccination', 'vaccination_config_activation_review', 'admin_data_ops',
+  'Review activation', 'Protocol activation review due', 'due', 'warning',
   now() + interval '2 hours', now() + interval '2 hours', now() + interval '1 day',
   'Asia/Kolkata', 'fallback', 'protocol_version', 1, false, 'draft protocol',
   'protocol_version', '86000000-0000-4000-8000-000000000902',
@@ -1403,7 +1403,7 @@ INSERT INTO calendar_event_projections (
   'none', false, false, '{}'::jsonb,
   '{"summary":{"owner":"Admin / Data Ops"},"source_and_rule":{"review_state":"approval_due"},"execution":{},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub"],"notification_policy":{"nudge_allowed":true},"links":{}}'::jsonb
 )`, testTenantID, eventID); err != nil {
-		t.Fatalf("seed config approval event: %v", err)
+		t.Fatalf("seed config activation event: %v", err)
 	}
 	if _, err := repo.SendNudge(ctx, ports.SendNudge{
 		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
@@ -1427,7 +1427,7 @@ INSERT INTO calendar_event_projections (
   $1::uuid, $2, 'vaccination', 'vaccination_dose_due', 'phc', 'ET primary dose due',
   'Calendar integration test', 'due', 'warning', $3::timestamptz, $3::timestamptz,
   $3::timestamptz + interval '1 day', 'Asia/Kolkata', 'fallback', 'cohort', 20,
-  true, 'integration source-backed rule', 'cohort', '86000000-0000-4000-8000-00000000f001',
+  true, 'integration active matrix rule', 'cohort', '86000000-0000-4000-8000-00000000f001',
   'PHC test owner', 'phc_vaccinator', $4, 'local-stub', 'none', false, false,
   '{"workflow":"/vaccination/workflows/test"}'::jsonb,
   '{"summary":{"owner":"PHC"},"source_and_rule":{"source_backed":true},"execution":{"work_state":"due"},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub","slack"],"notification_policy":{"nudge_allowed":true},"links":{}}'::jsonb
@@ -1455,7 +1455,7 @@ INSERT INTO calendar_event_projections (
   $5::uuid, $3, 'vaccination', 'vaccination_dose_due', 'phc', 'Scoped dose due',
   'Scoped integration test', 'due', 'warning', now() + interval '2 hours', now(), now() + interval '1 day',
   'Asia/Kolkata', 'location', $1::uuid, 'TST', $2::uuid, 'Scoped Shed',
-  'shed', 1, true, 'source-backed test', 'shed', $4::uuid,
+  'shed', 1, true, 'active matrix test', 'shed', $4::uuid,
   'PHC test owner', 'phc_vaccinator', 'not_scheduled', 'local-stub', 'none',
   $6, false, '{}'::jsonb,
   '{"summary":{"owner":"PHC"},"source_and_rule":{"source_backed":true},"execution":{"work_state":"due"},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub"],"notification_policy":{"nudge_allowed":true},"links":{}}'::jsonb
@@ -1509,7 +1509,7 @@ INSERT INTO protocol_versions (
   version_label, status, effective_from, effective_to, rule_dsl, proof_policy, published_at
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, 'tenant', NULL, 1,
-  'Projection source-backed published test', 'draft', DATE '2026-01-01', DATE '2028-01-01',
+  'Projection active matrix published test', 'draft', DATE '2026-01-01', DATE '2028-01-01',
   '{"source":{"review_status":"approved","source_ref":"docs/preventive-care-vaccination/PRD.md","source_system":"phc","approved_by":"test","approved_at":"2026-06-27T00:00:00Z"}}'::jsonb,
   '{"required_proofs":["administration"]}'::jsonb, NULL
 )

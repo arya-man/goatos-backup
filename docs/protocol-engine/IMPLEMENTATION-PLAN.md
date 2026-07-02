@@ -40,13 +40,10 @@
   the active slice.
 
 ### 5. External inputs / evidence-derived follow-ups
-- **Vaccination schedule values** — local/dev is unblocked by the source-derived
-  ET/K1/day-21 baseline and K2=42 decision recorded in
-  `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`. Broader
-  production roster expansion (PPR/FMD/HS/BQ or any replacement ET values) still
-  needs timing/dose/booster/route/storage evidence from Preventive Care (PC) / vet sign-off or a
-  reviewed extract of the live "Vaccination DB" sheet (Slack `F0AK7S3NR4K`/
-  `F0AKC6EBD9U`).
+- **Vaccination schedule values** — V1 Config presets now come from the tracked
+  source-nuance matrix: ET+TT, PPR, Goat Pox, FMD, and HS live inside one
+  scoped `vaccination.matrix` version. Broader production changes are new
+  company/park matrix versions, not new one-vaccine protocol rows.
 - **Feed ration VALUES** + session clock times per park.
 - **CUTOVER_DATE** + vaccination-history-trust decision (migration-and-cutover §6).
 - The **4 superadmin mail IDs** + capability grants (`protocol.publish.<category>`).
@@ -102,7 +99,7 @@ Adherence = **computed**: expected (rule) vs actual (completion + proof + timing
 
 ## G. Order of implementation
 **Phase 0 — foundation deltas (no rule values needed):** `000070`–`000074` + outbox→Pub/Sub adapter + create `protocol`/`obligation`/`inventory` Go domains (schema + repos, no rules yet). Engine stands up empty.
-**Phase 1 — Preventive Care (PC) Vaccination slice:** `000075`; build `vaccination` domain; SM-1/3/4/5/7 handlers; SOP form/proof seed; config-screen API + impact-preview; Control Tower + Action Center + Protocol Adherence reads + coverage projection. Evidence-derived local/dev rule values now exist for the ET/K1/day-21 proof path with K2=42; use them as CEO/COO-published dev config. Additional PPR/FMD/HS/BQ schedule rows arrive later through the same versioned matrix path when timing/dose/booster extracts exist.
+**Phase 1 — Preventive Care (PC) Vaccination slice:** `000075`; build `vaccination` domain; SM-1/3/4/5/7 handlers; SOP form/proof seed; config-screen API + impact-preview; Control Tower + Action Center + Protocol Adherence reads + coverage projection. Evidence-derived rule values now live in the scoped vaccination matrix path; use `vaccination.matrix` as the company/park active ruleset family. Additional or corrected values arrive later as new inactive versions that CEO/COO activates for company or park scope.
 **Phase 2 — Feed Direction:** use new migration numbers after the live repo tail; build the generation pipeline and wiring around the committed `000079` generic-kernel design. SM-6 is full direction + cutoff Diff + bridge logging + packing reserve. Feed operational screens remain scope-gated until explicitly reopened.
 **Cutover (one-time, after Phase 1 engine ready):** freeze legacy → canonical → backfill generator per migration-and-cutover.md; `CUTOVER_DATE` policy (no historical-overdue flood).
 

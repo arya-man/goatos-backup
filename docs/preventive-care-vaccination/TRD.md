@@ -69,7 +69,7 @@ Age/weight bands that decide stage live on `animal_stage_lookup` as **config** �
 
 The protocol/obligation/SOP/escalation tables are the [engine](../protocol-engine/obligation-engine.md). Vaccination adds:
 
-**Config (multi-dose / multi-phase — NOT trigger-day + booster-offset):** a `protocol_definitions` row `category='vaccination'`; the schedule is authored in `protocol_versions.rule_dsl` as a **`schedule[]` array — one entry per dose/phase** (`primary`, `booster_1`, `booster_2`, `annual`, `catch_up`, …), each with `trigger_type` (birth_age/post_arrival/calendar/after_previous_completion/manual_campaign) · `offset_days` · `due_window_days` · `min_gap_days` · `repeat` (none/every_n_days/yearly; age-window repeat authoring is rejected until generator support lands) · `repeat_until_after_age` · `catch_up` · per-dose `sop_label` (display only — the executable SOP binds at `protocol_versions.sop_version_id`; a genuine per-dose executable override uses `protocol_rules.sop_version_id`, never a free-text label) + `proof_policy`. The engine **expands each `schedule[]` row into one `protocol_rules` row**. Rule-level: multi-factor `eligibility_json` (age_band + animal_stage + sex + breed + lifecycle + health + reproductive[exclude pregnant/lactating] + defer_states[ICU/quarantine/sick]), `missed_dose_policy` (immediate/next_cycle/phc_approval/defer), `withdrawal_days`. Per-park override = a park-scoped `protocol_version` (no `park_id` column on a vaccine table — scope is the obligation's `scope_id`). **No `vaccine_config` table** — it *is* `protocol_rules`. _Lifecycle example:_ `0–12mo` → `primary` (birth_age) + `booster_1` (after_previous_completion) + repeat every N months; `>12mo` → `annual` (`repeat:yearly`, modeled as its own eligible lifecycle row); next due is derived from trigger/repeat/catch-up logic and trusted accepted completions, not a separate DSL field.
+**Config (scoped ruleset, multi-dose / multi-phase — NOT one vaccine per protocol):** a stable `protocol_definitions` row represents the logical vaccination ruleset family, for example `code='vaccination.matrix'`, `category='vaccination'`. Do not create one top-level protocol definition per vaccine, stage, or copied row. The schedule is authored in `protocol_versions.rule_dsl` as the whole matrix for one scope. It contains **`schedule[]` / cell rows — one entry per dose/phase** (`primary`, `booster_1`, `booster_2`, `annual`, `catch_up`, …), each with `trigger_type` (birth_age/post_arrival/calendar/after_previous_completion/manual_campaign) · `offset_days` · `due_window_days` · `min_gap_days` · `repeat` (none/every_n_days/yearly; age-window repeat authoring is rejected until generator support lands) · `repeat_until_after_age` · `catch_up` · per-dose `sop_label` (display only — the executable SOP binds at `protocol_versions.sop_version_id`; a genuine per-dose executable override uses `protocol_rules.sop_version_id`, never a free-text label) + `proof_policy`. The engine **expands each matrix cell / `schedule[]` row into `protocol_rules` rows**. Rule-level: multi-factor `eligibility_json` (age_band + animal_stage + sex + breed + lifecycle + health + reproductive[exclude pregnant/lactating] + defer_states[ICU/quarantine/sick]), `missed_dose_policy` (immediate/next_cycle/phc_approval/defer), `withdrawal_days`. Per-park override = a park-scoped active `protocol_version` for the same `protocol_id` (no `park_id` column on a vaccine table — scope is `protocol_versions.scope_id` and the obligation's `scope_id`). **No `vaccine_config` table** — the matrix lives in `protocol_versions.rule_dsl` and expands to `protocol_rules`. _Lifecycle example:_ `0–12mo` → `primary` (birth_age) + `booster_1` (after_previous_completion) + repeat every N months; `>12mo` → `annual` (`repeat:yearly`, modeled as its own eligible lifecycle row); next due is derived from trigger/repeat/catch-up logic and trusted accepted completions, not a separate DSL field.
 
 ### 4.0A Rule JSON vs. herd facts boundary
 
@@ -117,6 +117,91 @@ JSON parsing, compile each published matrix cell into a generic
 `int_max`, `sort_order`. That table is derived from `rule_dsl`; it is not the
 authoring source. This keeps the engine generic for vaccination today and Feed
 Direction tomorrow.
+
+### 4.0B Scoped activation and override resolution
+
+Vaccination has a module-specific active-cardinality policy:
+
+```text
+category = vaccination
+ruleset_family = vaccination.matrix
+scope_resolution_mode = tenant_default_with_park_overrides
+active_cardinality = single_active_ruleset_per_scope
+override_semantics = park_replaces_tenant_for_that_park
+```
+
+This policy is generic metadata, not hardcoded into the vaccination generator.
+Future categories can choose different policies, for example additive multiple
+active templates per scope or merge semantics. Vaccination does **not**: one
+company active version and one active version per park are the only active
+rulesets that can generate new vaccination obligations.
+
+Recommended schema/contract direction:
+
+| Object | Purpose |
+|---|---|
+| `protocol_definitions` | Stable ruleset family: `vaccination.matrix`, one row per category/family, not one row per vaccine. |
+| `protocol_versions` | Immutable draft/active/inactive/retired versions of that family for either company scope (`scope_type='tenant', scope_id NULL`) or park scope (`scope_type='park', scope_id=<park location_id>`). |
+| `protocol_category_scope_policies` | Category/family policy: resolution mode, active cardinality, override semantics, allowed scope levels, and whether activation supersedes open obligations. |
+| `protocol_scope_resolutions` (table or materialized read model) | Fast resolution by tenant/category/park: which active version applies to this park now, whether it comes from company or park, and which company version is excluded by the park override. |
+
+For vaccination, enforce:
+
+- partial unique active row per `(tenant_id, protocol_id, scope_type,
+  coalesce(scope_id, sentinel))`;
+- no more than one active company version for `vaccination.matrix`;
+- no more than one active park version for the same park;
+- company version applies only where no active park override exists;
+- draft and inactive versions never generate obligations.
+
+If the DB keeps `status='published'` for historical immutability, expose a
+separate `activation_state` (`draft`, `active`, `inactive`, `retired`,
+`scheduled`) in API contracts. Product/UI wording should be "active/inactive",
+because the user action is choosing the active ruleset for a scope. The old
+`published` boolean is not enough for the Config list.
+
+Resolution algorithm for a goat in park `P`:
+
+1. Look for active `vaccination.matrix` where `scope_type='park'` and
+   `scope_id=P`.
+2. If found, use that park version only.
+3. Otherwise use active company version where `scope_type='tenant'`.
+4. If neither exists, no vaccination obligations generate and Config/Control
+   Tower surfaces a missing-ruleset gap.
+
+Activation side effects:
+
+- Activating a new company version deactivates the prior company active version
+  for future generation, but does not overwrite active park overrides.
+- Activating a park version deactivates the prior active version for that park
+  and excludes that park from the company version.
+- Retiring a park version makes that park inherit the active company version on
+  the next generation/recompute run.
+- Completed obligations and accepted vaccination history keep their original
+  `protocol_version_id`.
+- Open scheduled/due company-version obligations for a newly overridden park are
+  shown in impact preview and then superseded/recomputed under the park version
+  if the operator activates with the default cutover behavior.
+- In-progress batches are not silently rewritten. The impact preview must ask
+  whether to let them finish, cancel/reissue, or create follow-up work.
+
+Frontend/API contract for Config list:
+
+| Field | Meaning |
+|---|---|
+| `category`, `protocol_code`, `protocol_name` | Stable family, e.g. `vaccination`, `vaccination.matrix`, `Vaccination Rule Matrix` |
+| `scope_type`, `scope_id`, `scope_label` | `tenant`/Company-wide or `park`/specific park |
+| `active_version_id`, `active_version_label`, `activation_state` | Current active/scheduled/inactive version state |
+| `effective_from`, `effective_to`, `activated_by`, `activated_at` | Who set what, when, and which version |
+| `applies_to_summary` | "All parks except 2 overrides" or "CBE only" |
+| `excluded_scope_count`, `excluded_scopes` | Company row exclusions caused by active park overrides |
+| `overrides_version_id` | Park row points to the company version it replaces for that park |
+| `open_obligations_to_supersede`, `in_progress_batches_to_review` | Activation impact counts |
+| `history_count` | Inactive/retired/scheduled versions available in the scope drawer |
+
+The UI table should show one company row plus active park override rows. It
+must not show ET+TT, PPR, FMD, HS, or Goat Pox as separate top-level protocol
+rows. Those belong inside the matrix detail for the active version.
 
 ### 4.0 V1 vaccine-goat matrix acceptance
 
@@ -204,9 +289,10 @@ without durable notes/follow-up, and review confidence not being first-class.
   work; after Preventive Care (PC) approval it becomes catch-up shed drives via
   [migration-and-cutover.md](../protocol-engine/migration-and-cutover.md), never
   fabricated completions.
-- `PPR`, `FMD`, `HS`, and `BQ` are tracked SOP/vocabulary labels only
-  until source extracts provide timing/dose/booster policy plus approval
-  metadata. Only ET/K1/day-21 is schedule-bearing today.
+- `PPR`, `FMD`, `HS`, Goat Pox, and ET+TT schedule-bearing behavior now comes
+  from the active scoped vaccination matrix version. `BQ` remains a tracked
+  SOP/vocabulary label until evidence-derived timing/dose/booster policy is
+  added to a future matrix version.
 
 **Due state:** per-goat doses = `obligation_instances` rows (`target_type='goat'`, `scope_type='shed'`, `rule_id` set so two vaccines/doses due the same day on one goat don't collide). `after_previous_completion` / booster doses generate on the prior dose's **actual `administered_at`** (`trigger_type='after_previous_completion'`, respecting `min_gap_days`) — see SM-7.
 
@@ -248,8 +334,8 @@ Preventive Care (PC) vaccination must reuse/enhance it, not rebuild a vaccinatio
 | Double-submit completion | `UNIQUE(tenant_id,obligation_id,goat_id)` + `idempotency_key` → no-op |
 | Stock-out mid-drive | reserve-at-start surfaces shortfall; `CHECK(>=0)` blocks negative |
 | Expired lot | FEFO pick gated by `expiry_date` |
-| Config change in flight | new `protocol_version` (immutable) + `effective_from`; live obligations keep their version |
-| Multi-park, different rule | park-scoped `protocol_version`, not a per-table `park_id` |
+| Config change in flight | new inactive/draft version until activated; activation supersedes only open future work per preview; completed history keeps its version |
+| Multi-park, different rule | park-scoped active `protocol_version` overrides company for that park only; company remains active for non-overridden parks |
 | Far-future booster | `obligation_instances` row in Postgres (queryable), enqueued to Cloud Tasks only near due |
 
 ## 6A. Later drive planner algorithm
@@ -357,7 +443,7 @@ configured and proven.
 | `000070_goats_provenance_lifecycle.sql` | ALTER `goats`: add `dob`, `dob_estimated`, `origin_type`, `entry_date`, `exited_at`, `exit_reason`; add CHECKs to lifecycle/health/stage. **Tagging state is a derived view over `goat_identifiers`, NOT a stored column.** |
 | `000071_location_profiles.sql` | `farm_profiles`, `park_profiles`, `shed_profiles`, **`animal_stage_lookup`** + **`shed_lifecycle_status_lookup`** (split — not one mixed table), (+ location_type guard triggers). |
 | `000072_inventory_foundation.sql` | `inventory_items`, `vaccines`, `inventory_stock` (+ `CHECK(quantity_in_stock>=0)`), **`inventory_stock_movements`** ledger. |
-| `000073_protocol_engine.sql` | `protocol_definitions/versions/rules/triggers`; **`EXCLUDE` (GiST) non-overlap** on published effective windows (needs `btree_gist`); **category-specific capability seeds — explicit, no wildcard:** grant COO/CEO `protocol.publish.vaccination` for V1 config. Every new category later adds its own explicit author/publish capability and route visibility. |
+| `000073_protocol_engine.sql` | `protocol_definitions/versions/rules/triggers`; **`EXCLUDE` (GiST) non-overlap** on published/effective windows (needs `btree_gist`); add/extend active-state enforcement for scoped rulesets (`vaccination.matrix`: one active company version, one active park version per park); category-specific capability seeds — explicit, no wildcard. |
 | `000074_obligation_engine.sql` | `obligation_instances` (guard incl. `rule_id` + `NULLS NOT DISTINCT`, deterministic idempotency_key, scope-validate trigger), **`obligation_batches`**, `obligation_status_events` (RANGE-partitioned), `obligation_escalations`. |
 | `000075_vaccination_module.sql` | `vaccination_completions` (+ UNIQUE, batch + inventory FK); ALTER `feature_coverage_registry` CHECK to add `'vaccination'`; vaccination SOP definition/version seed. |
 
@@ -373,11 +459,12 @@ configured and proven.
 - **DITCH from runtime (reference/migration-only):** legacy_import_*, legacy_sync_* as read source, BQ reconcile, dashboard-parity-with-BigQuery thinking. Control Tower reads Postgres/projection only.
 
 ## 9. Source-derived local/dev baseline and later inputs
-- Local/dev schedule baseline: `Enterotoxaemia` / ET, K1, day 21, 0.5 ml, 7d
-  window, +14d booster clue, sourced from the PRD example and recorded in
-  `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`.
+- Active V1 matrix baseline: use [source-nuances-rules.md](./source-nuances-rules.md)
+  for the Config preset and generation contract: ET+TT at 28 and 49 days with
+  2 ml, PPR at 112 days, FMD/HS at 84 days, Goat Pox at 140 days to honor
+  live-live spacing, plus adult revaccination intervals. The older
+  ET/K1/day-21/0.5 ml proof fixture is historical local proof context only.
 - Local/dev stage baseline: K0 max 1d, K1 max 7d, K2 max 42d, K3 from day 43;
   seed/read this from `animal_stage_lookup`.
-- Later production expansion: add PPR/FMD/HS/BQ schedule-bearing rows only when
-  source extracts provide timing/dose/booster values. These are roster/SOP labels
-  today, not blockers for local/dev or E2E.
+- Later production expansion changes the active matrix by publishing/activating
+  a new scoped version. It must not create one top-level protocol per vaccine.

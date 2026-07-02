@@ -6,13 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/protocol/ports"
 )
 
-// ErrNotPublishable is returned when a protocol version fails the source-backed approval gate.
+// ErrNotPublishable is returned when a protocol version cannot safely generate executable work.
 // The wrapped message carries the specific reason for the UI/API.
 var ErrNotPublishable = errors.New("protocol: version not publishable")
 
@@ -24,9 +23,6 @@ var ErrInvalidRuleDSL = errors.New("protocol: invalid rule_dsl")
 // policy that the generator cannot execute safely.
 var ErrUnsupportedRepeatPolicy = errors.New("protocol: unsupported repeat policy")
 
-// publishableSources are the real source systems whose approved values may be published. Anything
-// else (manual_admin, extracted, empty) stays draft / not source-backed.
-var publishableSources = map[string]bool{"vaccinations_db": true, "phc": true, "vet": true, "feed_direction_config_pack": true}
 var executableTriggerTypes = map[string]bool{
 	"birth_age":                 true,
 	"post_arrival":              true,
@@ -35,20 +31,11 @@ var executableTriggerTypes = map[string]bool{
 	"after_previous_completion": true,
 }
 
-type sourceMeta struct {
-	SourceSystem string `json:"source_system"`
-	SourceRef    string `json:"source_ref"`
-	ReviewStatus string `json:"review_status"`
-	ApprovedBy   string `json:"approved_by"`
-	ApprovedAt   string `json:"approved_at"`
-}
-
 type ruleDSLEnvelope struct {
 	Category         string          `json:"category"`
 	Vaccine          vaccineMeta     `json:"vaccine"`
 	Eligibility      json.RawMessage `json:"eligibility"`
 	MissedDosePolicy string          `json:"missed_dose_policy"`
-	Source           sourceMeta      `json:"source"`
 	Schedule         []scheduleRow   `json:"schedule"`
 }
 
@@ -74,7 +61,6 @@ type scheduleRow struct {
 	DoseUnit          string          `json:"dose_unit"`
 	VialDoses         int32           `json:"vial_doses"`
 	RevaccinationDays int32           `json:"revaccination_interval_days"`
-	SourceSchedule    string          `json:"source_schedule"`
 	RouteSite         string          `json:"route_site"`
 	MaxDelayDays      int32           `json:"max_delay_days"`
 	CourseLapsePolicy string          `json:"course_lapse_policy"`
@@ -97,7 +83,6 @@ var (
 		"stock_policy":         true,
 		"schedule":             true,
 		"escalation":           true,
-		"source":               true,
 		"compatibility_policy": true,
 		"procurement_policy":   true,
 		"pregnancy_policy":     true,
@@ -149,7 +134,7 @@ var (
 	ruleDSLProcurementPolicyKeys = map[string]bool{
 		"warmup_no_vaccination_days":       true,
 		"kids_normal_schedule_until_weeks": true,
-		"adult_source_vaccination_allowed": true,
+		"adult_prior_vaccination_allowed":  true,
 		"first_wave":                       true,
 		"second_wave_after_days":           true,
 		"goat_second_wave":                 true,
@@ -159,15 +144,6 @@ var (
 		"skip_from_pregnancy_month":    true,
 		"skip_through_pregnancy_month": true,
 		"post_delivery_catch_up_days":  true,
-	}
-	ruleDSLSourceKeys = map[string]bool{
-		"source_system": true,
-		"source_ref":    true,
-		"imported_at":   true,
-		"reviewed_by":   true,
-		"review_status": true,
-		"approved_by":   true,
-		"approved_at":   true,
 	}
 	ruleDSLScheduleKeys = map[string]bool{
 		"dose_code":                   true,
@@ -179,7 +155,7 @@ var (
 		"dose_unit":                   true,
 		"vial_doses":                  true,
 		"revaccination_interval_days": true,
-		"source_schedule":             true,
+		"schedule_note":               true,
 		"route_site":                  true,
 		"max_delay_days":              true,
 		"course_lapse_policy":         true,
@@ -255,11 +231,6 @@ func ValidateRuleDSL(ruleDSL []byte) error {
 	}
 	if raw, ok := root["vaccine"]; ok && len(raw) > 0 && string(raw) != "null" {
 		if _, err := decodeRuleDSLObject(raw, "rule_dsl.vaccine", ruleDSLVaccineKeys); err != nil {
-			return err
-		}
-	}
-	if raw, ok := root["source"]; ok && len(raw) > 0 && string(raw) != "null" {
-		if _, err := decodeRuleDSLObject(raw, "rule_dsl.source", ruleDSLSourceKeys); err != nil {
 			return err
 		}
 	}
@@ -345,33 +316,18 @@ func validateRuleDSLArray(raw []byte, path string, allowed map[string]bool) erro
 	return nil
 }
 
-// ValidatePublishable enforces the source-backed approval gate on a version's rule_dsl: the nested
-// source object must be a real source (vaccinations_db/phc/vet), carry a source_ref, be
-// review_status='approved', and name approved_by + approved_at. Pure logic — no DB. Mirrors the
-// config-mock gate; this is the backend source of truth. Never publishes manual/extracted/unsourced
-// values.
+// ValidatePublishable is retained for old callers/tests that used this helper as a publish precheck.
+// The former source/review gate is retired for Protocol Engine Phase 0: publishability is now driven
+// by RBAC at the API boundary plus ValidateRuleDSL and ValidateExecutionContract. This helper only
+// reports malformed JSON as not-publishable; empty or source-less DSL is allowed to proceed to the
+// executable-contract checks.
 func ValidatePublishable(ruleDSL []byte) error {
-	var env ruleDSLEnvelope
-	if len(ruleDSL) > 0 {
-		if err := json.Unmarshal(ruleDSL, &env); err != nil {
-			return fmt.Errorf("%w: invalid rule_dsl: %v", ErrNotPublishable, err)
-		}
+	if strings.TrimSpace(string(ruleDSL)) == "" {
+		return nil
 	}
-	s := env.Source
-	switch {
-	case !publishableSources[strings.TrimSpace(s.SourceSystem)]:
-		return fmt.Errorf("%w: source_system must be vaccinations_db/phc/vet/feed_direction_config_pack (got %q)", ErrNotPublishable, s.SourceSystem)
-	case strings.TrimSpace(s.SourceRef) == "":
-		return fmt.Errorf("%w: source_ref required", ErrNotPublishable)
-	case strings.TrimSpace(s.ReviewStatus) != "approved":
-		return fmt.Errorf("%w: review_status must be approved (got %q)", ErrNotPublishable, s.ReviewStatus)
-	case strings.TrimSpace(s.ApprovedBy) == "":
-		return fmt.Errorf("%w: approved_by required", ErrNotPublishable)
-	case strings.TrimSpace(s.ApprovedAt) == "":
-		return fmt.Errorf("%w: approved_at required", ErrNotPublishable)
-	}
-	if _, err := time.Parse(time.RFC3339, strings.TrimSpace(s.ApprovedAt)); err != nil {
-		return fmt.Errorf("%w: approved_at must be RFC3339 (got %q)", ErrNotPublishable, s.ApprovedAt)
+	var env any
+	if err := json.Unmarshal(ruleDSL, &env); err != nil {
+		return fmt.Errorf("%w: invalid rule_dsl: %v", ErrNotPublishable, err)
 	}
 	return nil
 }
@@ -606,9 +562,9 @@ func arrayHasNonBlankString(v any) bool {
 	return false
 }
 
-// PublishVersion publishes a draft version only after the source-backed gate passes. The DB also
-// enforces the published-window EXCLUDE non-overlap; capability (CEO/COO protocol.publish.*) is
-// enforced at the API/RBAC boundary (later slice).
+// PublishVersion publishes a draft version after schema and executable-contract checks pass. The DB
+// also enforces the published-window EXCLUDE non-overlap; category capability
+// (CEO/COO protocol.publish.*) is enforced at the API/RBAC boundary.
 func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error {
 	v, err := s.repo.GetVersion(ctx, tenantID, versionID)
 	if err != nil {
@@ -621,9 +577,6 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 		return err
 	}
 	if v.Status == "draft" {
-		if err := ValidatePublishable(v.RuleDsl); err != nil {
-			return err
-		}
 		if err := ValidateExecutionContract(v); err != nil {
 			return err
 		}

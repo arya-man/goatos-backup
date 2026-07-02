@@ -7,8 +7,8 @@ Date: 2026-06-26
 This file records the baseline we are choosing from existing Mesha artifacts so
 local/dev work does not stay blocked on a vague "business approval" placeholder.
 It is source-derived config for Goat OS local/dev, E2E, and demos. If production
-medical operations later changes a value, create a new source-backed protocol
-version through the normal Config source/review gate.
+medical operations later changes a value, create a new governed protocol version
+through the normal CEO/COO Config authoring flow.
 
 The baseline is deliberately conservative: use exact values where the wiki/PRD
 gives them, use source labels where the SOP artifact gives labels, and do not
@@ -24,7 +24,7 @@ turn procurement-history clues into schedule math.
 | K3 | Weaning | 43 | NULL | Use as the next age band when a seed needs K3. | `context/source-findings/goats-and-parks-source-findings.md`; `context/product/glossary.md:218` |
 
 Legacy dashboard `SHIFT_THRESH` used K2 = 45, but Goat OS treats that as mock
-legacy drift. The source-backed local/dev decision is 42 days / six weeks. If a
+legacy drift. The source-derived local/dev decision is 42 days / six weeks. If a
 real Preventive Care (PC) override arrives later, it should update `animal_stage_lookup` as data,
 not reintroduce a frontend hardcode.
 
@@ -36,45 +36,45 @@ source explicitly defines them as stage rows.
 
 | item | local/dev decision | source |
 | --- | --- | --- |
-| Schedule-bearing protocol | Use **Enterotoxaemia / ET** as the source-derived dev protocol row: goat, all sexes/breeds, stage K1, primary dose, `dose_ml=0.5`, `trigger_type=birth_age`, `offset_days=21`, `due_window_days=7`, booster clue `+14d`. | `docs/preventive-care-vaccination/PRD.md:60` |
+| Schedule-bearing protocol | Use the source-nuance vaccination matrix as the dev/config preset: ET+TT (`2 ml`, `28d` + `49d`, revaccination 6mo), PPR (`1 ml`, `112d`, revaccination 3y), FMD (`1 ml`, `84d`, revaccination 9mo), HS (`2 ml`, `84d`, revaccination 1y), and Goat Pox (`1 ml`, source 112d but V1 shifted to 140d for live-live spacing with PPR, revaccination 1y). | `docs/preventive-care-vaccination/source-nuances-rules.md`; `Nuances_Rules.docx` graph extraction |
 | SOP execution labels | SOP picker/form labels may include `PPR`, `ET`, `FMD`, `HS`, `BQ`; required execution fields are scheduled date, operator, goat scan, vaccine name, medicine batch, dose ml, administered date, proof photo, adverse reaction, verifier, notes. | `source-material/sop-playground-local/playground.html:1057-1083` |
 | Proof/verification shape | Keep proof + medicine batch + park-head verification gates; missing schedule escalates, adverse reaction requires notes/follow-up, empty medicine batch blocks submission. | `source-material/sop-playground-local/playground.html:1067-1082` |
-| PPR/FMD | Label-only closed in the 2026-06-26 roster expansion pass. PPR/FMD remain SOP/vocabulary labels; the source audit found sheep/procurement-history notes but no goat timing/dose/booster policy or approved Preventive Care (PC) / vet metadata, so no protocol rows or obligations were added. | `wiki/graphify-out/converted/Procurement DB [Goats]_dda03a25.md:78,:86`; SOP playground labels above; `context/execution/vaccination-roster-expansion-followup.md` |
-| HS/BQ | Label-only closed in the 2026-06-26 roster expansion pass. HS/BQ remain SOP/vocabulary labels; the source audit found no timing/dose/booster policy or approved Preventive Care (PC) / vet metadata, so no protocol rows or obligations were added. | SOP playground labels above; `context/execution/vaccination-roster-expansion-followup.md` |
+| PPR/FMD/HS/Goat Pox | Schedule-bearing V1 matrix rows. They generate only when present in the active scoped vaccination ruleset, not because a SOP label exists. | `docs/preventive-care-vaccination/source-nuances-rules.md`; `docs/preventive-care-vaccination/RULE-MATRIX-AUTHORING-HANDOFF.md` |
+| BQ | Label-only until a reviewed goat schedule/dose/revaccination row is added to the governed matrix. | SOP playground labels above |
 | Sheep Pox | Exclude from goat dev roster for now; the evidence found is sheep/procurement-history context. | `wiki/graphify-out/converted/Procurement DB [Goats]_dda03a25.md:78,:86,:91` |
 
 ## Seed/runtime decision
 
-The repeatable local proof pack should use this as its source-derived baseline:
+The repeatable local proof pack should use this as its governed matrix baseline:
 
-- protocol: `Enterotoxaemia K1 Primary`
-- dose code: `ET-PRIMARY-1`
-- source metadata: `source_system=phc`, `source_ref=docs/preventive-care-vaccination/PRD.md:60; context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`, `review_status=approved`, `approved_by=source-derived-dev-baseline`
-- stage default: K1 for the proof goat
-- due date: day 21 from DOB, with the proof script creating a day-21 goat so the
-  chain is due immediately
+- protocol/ruleset family: `vaccination.matrix`
+- rows: ET+TT, PPR, FMD, HS, Goat Pox with the timing/dose/revaccination values above
+- no `rule_dsl.source` publish gate; durable audit is protocol version metadata
+  (`created_by`, `created_at`, `published_by`, `published_at`, version)
+- stage default: K1/K2 from `animal_stage_lookup`, not frontend literals
+- due dates: computed from row `offset_days` and accepted vaccination history
 
 This closes the local/dev roster and K1/K2/stage pending item. Remaining
-production work is normal source-backed versioning if real Preventive Care (PC) / vet data later
+production work is normal governed versioning if real Preventive Care (PC) / vet data later
 changes these values; it is not a local code or E2E blocker. The exact follow-up
 scope and edge-case checklist for PPR/FMD/HS/BQ expansion lives in
 `context/execution/vaccination-roster-expansion-followup.md`.
 
-## 2026-06-26 roster expansion follow-up result
+## 2026-07-02 matrix alignment
 
-The optional PPR/FMD/HS/BQ expansion pass queried the Mesha docs/visual graphs,
-goatos-docs graph, SOP playground, converted wiki docs, and legacy/procurement
-source snippets. None of the four labels had goat-applicable schedule math plus
-publishable source metadata. Closed states:
+The earlier 2026-06-26 ET-only local proof baseline is superseded for new V1
+Config work. The source-nuance matrix now supplies goat-applicable schedule
+math for PPR/FMD/HS/Goat Pox in addition to ET+TT. Closed states:
 
 | Vaccine | Closed state |
 | --- | --- |
-| PPR | `label-only closed` |
-| FMD | `label-only closed` |
-| HS | `label-only closed` |
-| BQ | `label-only closed` |
+| ET+TT | `schedule-bearing matrix row` |
+| PPR | `schedule-bearing matrix row` |
+| FMD | `schedule-bearing matrix row` |
+| HS | `schedule-bearing matrix row` |
+| Goat Pox | `schedule-bearing matrix row` |
+| BQ | `label-only until matrix row exists` |
 
-No draft/reviewed candidates were created, because the audit did not find
-timing/dose evidence without approval metadata. No additional vaccination
-protocol rows were seeded/imported. Only the ET/K1/day-21 source-derived dev
-baseline is schedule-backed and allowed to generate obligations.
+No new draft should use the old ET/K1/day-21/0.5 ml fixture as the ruleset
+contract. Keep it only as historical context for why the first local proof was
+small.

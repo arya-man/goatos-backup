@@ -1507,7 +1507,7 @@ FOR UPDATE`, tenantID, eventID, tenantWide, parkIDs, shedIDs).Scan(
 	case verifier.String != "":
 		out.RecipientRef = verifier.String
 	}
-	if system || (!sourceBacked && out.EventType != domain.EventVaccinationConfigSourceApproval) || out.RecipientRef == "" {
+	if system || (!sourceBacked && out.EventType != domain.EventVaccinationConfigActivationReview) || out.RecipientRef == "" {
 		return actionTarget{}, ports.ErrEventNotActionable
 	}
 	return out, nil
@@ -1902,8 +1902,6 @@ WITH obligation_events AS (
     )
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND oi.status NOT IN ('waived', 'canceled', 'superseded')
     AND (oi.status <> 'completed' OR oi.due_at >= now() - interval '90 days')
 ),
@@ -1991,8 +1989,6 @@ batch_events AS (
     AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < $3::timestamptz
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND ob.status NOT IN ('superseded', 'canceled')
     AND (ob.status <> 'completed' OR COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= now() - interval '90 days')
   ORDER BY ob.batch_id, pr.rule_id, COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end)
@@ -2111,8 +2107,6 @@ sop_events AS (
     AND st.due_at < $3::timestamptz
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND st.state IN ('assigned', 'in_progress', 'submitted', 'needs_review', 'rework_requested', 'rejected')
   ORDER BY st.task_id, st.due_at
 ),
@@ -2120,7 +2114,7 @@ config_due AS (
   SELECT
     pv.*,
     pd.name AS protocol_name,
-    NULLIF(pv.rule_dsl -> 'source' ->> 'review_due_at', '') AS raw_due_at
+    NULLIF(pv.rule_dsl ->> 'activation_due_at', '') AS raw_due_at
   FROM protocol_versions pv
   JOIN protocol_definitions pd
     ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
@@ -2131,10 +2125,10 @@ config_due AS (
 config_events AS (
   SELECT
     'calendar:' || protocol_version_id::text AS event_id,
-    'vaccination_config_source_approval'::text AS event_type,
+    'vaccination_config_activation_review'::text AS event_type,
     'admin_data_ops'::text AS owner_key,
-    'Approve ' || protocol_name || ' source review' AS title,
-    'Protocol source review due'::text AS subtitle,
+    'Review ' || protocol_name || ' activation' AS title,
+    'Protocol activation review due'::text AS subtitle,
     'due'::text AS status,
     CASE WHEN raw_due_at::timestamptz < now() THEN 'critical' ELSE 'warning' END AS severity,
     raw_due_at::timestamptz AS due_at,
@@ -2156,7 +2150,7 @@ config_events AS (
     protocol_name AS vaccine_name,
     NULL::text AS dose_code,
     false AS source_backed,
-    COALESCE(NULLIF(rule_dsl -> 'source' ->> 'source_ref', ''), protocol_name) AS source_label,
+    protocol_name AS source_label,
     'protocol_version'::text AS source_target_type,
     protocol_version_id AS source_target_id,
     'Admin Data Ops reviewer'::text AS assignee_label,
@@ -2170,7 +2164,7 @@ config_events AS (
     jsonb_build_object('protocol', '/protocols/versions/' || protocol_version_id::text) AS links,
     jsonb_build_object(
       'summary', jsonb_build_object('owner', 'Admin / Data Ops'),
-      'source_and_rule', jsonb_build_object('protocol_version_id', protocol_version_id, 'review_state', 'approval_due'),
+      'source_and_rule', jsonb_build_object('protocol_version_id', protocol_version_id, 'review_state', 'activation_due'),
       'execution', jsonb_build_object(),
       'stock', jsonb_build_object(),
       'proof', jsonb_build_object(),
@@ -2296,8 +2290,6 @@ WITH source_event_ids AS (
     )
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND oi.status NOT IN ('waived', 'canceled', 'superseded')
     AND (oi.status <> 'completed' OR oi.due_at >= now() - interval '90 days')
 
@@ -2317,8 +2309,6 @@ WITH source_event_ids AS (
     AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < $3::timestamptz
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND ob.status NOT IN ('superseded', 'canceled')
     AND (ob.status <> 'completed' OR COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= now() - interval '90 days')
 
@@ -2337,8 +2327,6 @@ WITH source_event_ids AS (
     AND st.due_at < $3::timestamptz
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND st.state IN ('assigned', 'in_progress', 'submitted', 'needs_review', 'rework_requested', 'rejected')
 
   UNION ALL
@@ -2347,7 +2335,7 @@ WITH source_event_ids AS (
   FROM (
     SELECT
       pv.protocol_version_id,
-      NULLIF(pv.rule_dsl -> 'source' ->> 'review_due_at', '') AS raw_due_at
+      NULLIF(pv.rule_dsl ->> 'activation_due_at', '') AS raw_due_at
     FROM protocol_versions pv
     JOIN protocol_definitions pd
       ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id

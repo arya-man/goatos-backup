@@ -253,8 +253,8 @@ type configListResponse struct {
 }
 
 // ListConfigs serves GET /protocols?category=… — the generic Config authority list. Defaults to the
-// vaccination category (the only visible content slice today). Read-only; the source-backed publish
-// gate is enforced by PublishVersion, this list simply surfaces each version's source-review state.
+// vaccination category (the only visible content slice today). Read-only; publish readiness is
+// enforced by PublishVersion.
 func (h *Handler) ListConfigs(w http.ResponseWriter, r *http.Request) {
 	category := r.URL.Query().Get("category")
 	if category == "" {
@@ -354,7 +354,7 @@ func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---- publish (source-backed gate) ----
+// ---- publish ----
 
 func (h *Handler) PublishVersion(w http.ResponseWriter, r *http.Request) {
 	idempotencyKey, ok := h.idempotencyKey(w, r)

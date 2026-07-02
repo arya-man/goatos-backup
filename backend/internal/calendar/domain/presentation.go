@@ -29,15 +29,15 @@ func CalendarPresentationForQuery(ownerKey string) CalendarPresentation {
 
 	return CalendarPresentation{
 		PageTitle:              "Calendar",
-		PageSubtitle:           "Vaccination due work by time - source-backed obligations, drives, boosters, proof/rework, defer reviews, and the stock / config tasks that gate them. Click an event for its rich detail and deep links.",
+		PageSubtitle:           "Vaccination due work by time - configured obligations, drives, boosters, proof/rework, defer reviews, and the stock / config tasks that gate them. Click an event for its rich detail and deep links.",
 		ViewTabs:               calendarViewTabs(),
 		OwnerTabs:              calendarOwnerTabs(ownerKey),
 		WorkstreamTabs:         active.workstreams,
 		Rhythm:                 CalendarRhythmPresentation{Title: active.rhythmTitle, Note: active.rhythmNote, Days: active.rhythmDays},
 		Week:                   calendarWeekPresentation(active),
 		Month:                  calendarMonthPresentation(active),
-		NewEvent:               CalendarActionPresentation{Label: "New event", Enabled: false, DisabledReason: "Calendar events are generated from source-backed obligations. Create a campaign/catch-up via Config or the Preventive Care (PC) catch-up path - not a free-form Calendar entry."},
-		EmptyState:             CalendarEmptyStatePresentation{OkMessage: "No vaccination due work for this scope and date window. Events appear once source-backed obligations, drives, boosters, proof/rework, or the stock/config tasks that gate them are due.", ErrorMessage: "Calendar is unavailable - resolve the error above, then reload.", PrimaryLabel: "Config", SecondaryLabel: "Vaccination"},
+		NewEvent:               CalendarActionPresentation{Label: "New event", Enabled: false, DisabledReason: "Calendar events are generated from configured obligations. Create a campaign/catch-up via Config or the Preventive Care (PC) catch-up path - not a free-form Calendar entry."},
+		EmptyState:             CalendarEmptyStatePresentation{OkMessage: "No vaccination due work for this scope and date window. Events appear once configured obligations, drives, boosters, proof/rework, or the stock/config tasks that gate them are due.", ErrorMessage: "Calendar is unavailable - resolve the error above, then reload.", PrimaryLabel: "Config", SecondaryLabel: "Vaccination"},
 		EventTypes:             calendarEventTypeLabels(),
 		ActiveOwnerKey:         ownerKey,
 		ActiveOwnerLabel:       active.label,
@@ -95,7 +95,7 @@ func calendarMonthPresentation(active ownerPresentationConfig) CalendarViewPrese
 	return CalendarViewPresentation{
 		ScopeLabel: active.monthScope,
 		AsOfHint:   "month follows the top-bar as-of date",
-		CellNote:   "Each cell shows that day's source-backed vaccination due work. Tap an event for its rich detail.",
+		CellNote:   "Each cell shows that day's configured vaccination due work. Tap an event for its rich detail.",
 	}
 }
 
@@ -138,7 +138,7 @@ func calendarEventTypeLabels() []CalendarKeyLabel {
 		{Key: EventVaccineColdChainCheck, Label: "Cold-chain check"},
 		{Key: EventVaccineReorderExpiryGRN, Label: "Reorder / expiry / GRN"},
 		{Key: EventPHCStockAntiMisuse, Label: "Stock anti-misuse"},
-		{Key: EventVaccinationConfigSourceApproval, Label: "Config / source approval"},
+		{Key: EventVaccinationConfigActivationReview, Label: "Config activation review"},
 	}
 }
 

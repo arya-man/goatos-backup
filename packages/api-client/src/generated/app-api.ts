@@ -322,7 +322,7 @@ export interface paths {
         };
         /**
          * List protocol config versions for a category (Config authority screen).
-         * @description Tenant- and category-scoped list of every protocol version (draft, published, retired) with rule-row count, source-review state, linked SOP, effective window, and publisher metadata. Read-only; the source-backed approval gate is enforced on publish, not here.
+         * @description Tenant- and category-scoped list of every protocol version (draft, published, retired) with rule-row count, linked SOP, effective window, scope, and publisher metadata. Read-only; executable readiness is enforced on publish.
          */
         get: operations["listProtocolConfigs"];
         put?: never;
@@ -414,7 +414,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Publish a source-backed protocol version. */
+        /** Publish a protocol version. */
         post: operations["publishProtocolVersion"];
         delete?: never;
         options?: never;
@@ -548,7 +548,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Source-backed vaccination operations — cohort × protocol matrix + per-cohort detail. */
+        /** Configured vaccination operations — cohort × protocol matrix + per-cohort detail. */
         get: operations["getVaccinationOperations"];
         put?: never;
         post?: never;
@@ -1619,7 +1619,7 @@ export interface components {
         /** @enum {string} */
         CalendarSeverity: "info" | "warning" | "critical";
         /** @enum {string} */
-        CalendarEventType: "vaccination_dose_due" | "vaccination_drive" | "vaccination_campaign" | "vaccination_booster_due" | "vaccination_defer_review" | "vaccination_evidence_review" | "vaccination_proof_verification" | "vaccination_rework_due" | "vaccine_stock_readiness" | "vaccine_cold_chain_check" | "vaccine_reorder_expiry_grn" | "phc_stock_anti_misuse" | "vaccination_config_source_approval";
+        CalendarEventType: "vaccination_dose_due" | "vaccination_drive" | "vaccination_campaign" | "vaccination_booster_due" | "vaccination_defer_review" | "vaccination_evidence_review" | "vaccination_proof_verification" | "vaccination_rework_due" | "vaccine_stock_readiness" | "vaccine_cold_chain_check" | "vaccine_reorder_expiry_grn" | "phc_stock_anti_misuse" | "vaccination_config_activation_review";
         CalendarJSONBlock: {
             [key: string]: unknown;
         };
@@ -2288,12 +2288,19 @@ export interface components {
             published_at?: string | null;
             /** Format: date-time */
             updated_at?: string | null;
-            /** @description From rule_dsl.source — must be vaccinations_db/phc/vet (with source_ref, approved review, approved_by, approved_at) for the version to be publishable. */
-            source_system: string;
-            source_ref: string;
-            review_status: string;
-            approved_by: string;
-            approved_at: string;
+            /**
+             * @deprecated
+             * @description Legacy rule_dsl.source metadata retained only for old rows. Not a publish gate and not shown in the V1 Config UI.
+             */
+            source_system?: string;
+            /** @deprecated */
+            source_ref?: string;
+            /** @deprecated */
+            review_status?: string;
+            /** @deprecated */
+            approved_by?: string;
+            /** @deprecated */
+            approved_at?: string;
             rule_count: number;
         };
         AnimalStageListResponse: {
@@ -2610,7 +2617,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description Request is syntactically valid but cannot pass the current source-backed gate. */
+        /** @description Request is syntactically valid but cannot pass the current executable-contract gate. */
         UnprocessableEntity: {
             headers: {
                 [name: string]: unknown;

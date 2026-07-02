@@ -1131,7 +1131,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Accept arrived goats into canonical herd truth and create PHC handoff markers. */
+        /** Accept arrived goats into canonical herd truth and create Preventive Care (PC) handoff markers. */
         post: operations["acceptProcurementIntake"];
         delete?: never;
         options?: never;
@@ -5322,7 +5322,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Accepted intake PHC handoff markers. */
+            /** @description Accepted intake Preventive Care (PC) handoff markers. */
             200: {
                 headers: {
                     [name: string]: unknown;

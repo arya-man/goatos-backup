@@ -43,19 +43,19 @@ const (
 )
 
 const (
-	EventVaccinationDoseDue              = "vaccination_dose_due"
-	EventVaccinationDrive                = "vaccination_drive"
-	EventVaccinationCampaign             = "vaccination_campaign"
-	EventVaccinationBoosterDue           = "vaccination_booster_due"
-	EventVaccinationDeferReview          = "vaccination_defer_review"
-	EventVaccinationEvidenceReview       = "vaccination_evidence_review"
-	EventVaccinationProofVerification    = "vaccination_proof_verification"
-	EventVaccinationReworkDue            = "vaccination_rework_due"
-	EventVaccineStockReadiness           = "vaccine_stock_readiness"
-	EventVaccineColdChainCheck           = "vaccine_cold_chain_check"
-	EventVaccineReorderExpiryGRN         = "vaccine_reorder_expiry_grn"
-	EventPHCStockAntiMisuse              = "phc_stock_anti_misuse"
-	EventVaccinationConfigSourceApproval = "vaccination_config_source_approval"
+	EventVaccinationDoseDue                = "vaccination_dose_due"
+	EventVaccinationDrive                  = "vaccination_drive"
+	EventVaccinationCampaign               = "vaccination_campaign"
+	EventVaccinationBoosterDue             = "vaccination_booster_due"
+	EventVaccinationDeferReview            = "vaccination_defer_review"
+	EventVaccinationEvidenceReview         = "vaccination_evidence_review"
+	EventVaccinationProofVerification      = "vaccination_proof_verification"
+	EventVaccinationReworkDue              = "vaccination_rework_due"
+	EventVaccineStockReadiness             = "vaccine_stock_readiness"
+	EventVaccineColdChainCheck             = "vaccine_cold_chain_check"
+	EventVaccineReorderExpiryGRN           = "vaccine_reorder_expiry_grn"
+	EventPHCStockAntiMisuse                = "phc_stock_anti_misuse"
+	EventVaccinationConfigActivationReview = "vaccination_config_activation_review"
 )
 
 // CalendarEvent is the generic hot-list/month payload. It intentionally stays source-agnostic.
