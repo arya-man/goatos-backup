@@ -2,8 +2,8 @@
 SELECT
   g.goat_id::text AS goat_id,
   g.display_id,
-  old_tag.identifier_value AS primary_old_tag,
-  rfid.identifier_value AS rfid,
+  animal_id_1.identifier_value AS animal_identifier_1,
+  animal_id_2.identifier_value AS animal_identifier_2,
   g.breed,
   g.sex,
   g.age_band,
@@ -12,7 +12,6 @@ SELECT
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  g.identity_state,
   COALESCE(loc.name, 'Unknown location') AS location_display,
   COALESCE(g.farm_id::text, '')::text AS farm_id,
   COALESCE(g.park_id::text, '')::text AS park_id,
@@ -23,23 +22,22 @@ SELECT
   g.row_version
 FROM goats g
 LEFT JOIN locations loc ON loc.tenant_id = g.tenant_id AND loc.location_id = g.current_location_id
-LEFT JOIN goat_identifiers old_tag ON old_tag.tenant_id = g.tenant_id
-  AND old_tag.goat_id = g.goat_id
-  AND old_tag.identifier_type = 'old_tag'
-  AND old_tag.status = 'active'
-  AND old_tag.is_primary_for_goat
-LEFT JOIN goat_identifiers rfid ON rfid.tenant_id = g.tenant_id
-  AND rfid.goat_id = g.goat_id
-  AND rfid.identifier_type = 'rfid'
-  AND rfid.status = 'active'
+LEFT JOIN goat_identifiers animal_id_1 ON animal_id_1.tenant_id = g.tenant_id
+  AND animal_id_1.goat_id = g.goat_id
+  AND animal_id_1.identifier_type = 'animal_identifier_1'
+  AND animal_id_1.status = 'active'
+LEFT JOIN goat_identifiers animal_id_2 ON animal_id_2.tenant_id = g.tenant_id
+  AND animal_id_2.goat_id = g.goat_id
+  AND animal_id_2.identifier_type = 'animal_identifier_2'
+  AND animal_id_2.status = 'active'
 WHERE g.tenant_id = @tenant_id AND g.goat_id = @goat_id;
 
 -- name: GetGoatByDisplayID :one
 SELECT
   g.goat_id::text AS goat_id,
   g.display_id,
-  old_tag.identifier_value AS primary_old_tag,
-  rfid.identifier_value AS rfid,
+  animal_id_1.identifier_value AS animal_identifier_1,
+  animal_id_2.identifier_value AS animal_identifier_2,
   g.breed,
   g.sex,
   g.age_band,
@@ -48,7 +46,6 @@ SELECT
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  g.identity_state,
   COALESCE(loc.name, 'Unknown location') AS location_display,
   COALESCE(g.farm_id::text, '')::text AS farm_id,
   COALESCE(g.park_id::text, '')::text AS park_id,
@@ -59,15 +56,14 @@ SELECT
   g.row_version
 FROM goats g
 LEFT JOIN locations loc ON loc.tenant_id = g.tenant_id AND loc.location_id = g.current_location_id
-LEFT JOIN goat_identifiers old_tag ON old_tag.tenant_id = g.tenant_id
-  AND old_tag.goat_id = g.goat_id
-  AND old_tag.identifier_type = 'old_tag'
-  AND old_tag.status = 'active'
-  AND old_tag.is_primary_for_goat
-LEFT JOIN goat_identifiers rfid ON rfid.tenant_id = g.tenant_id
-  AND rfid.goat_id = g.goat_id
-  AND rfid.identifier_type = 'rfid'
-  AND rfid.status = 'active'
+LEFT JOIN goat_identifiers animal_id_1 ON animal_id_1.tenant_id = g.tenant_id
+  AND animal_id_1.goat_id = g.goat_id
+  AND animal_id_1.identifier_type = 'animal_identifier_1'
+  AND animal_id_1.status = 'active'
+LEFT JOIN goat_identifiers animal_id_2 ON animal_id_2.tenant_id = g.tenant_id
+  AND animal_id_2.goat_id = g.goat_id
+  AND animal_id_2.identifier_type = 'animal_identifier_2'
+  AND animal_id_2.status = 'active'
 WHERE g.tenant_id = @tenant_id AND g.display_id = @display_id;
 
 -- name: ListIdentifiersForGoat :many

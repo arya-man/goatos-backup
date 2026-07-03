@@ -526,7 +526,7 @@ func goatMutationConflict(ctx context.Context, qtx *identitydb.Queries, tenantUU
 	if err != nil {
 		return err
 	}
-	if row.IdentityState == "merged" {
+	if row.MergedIntoGoatID != "" {
 		return ports.ErrWriteConflict
 	}
 	return ports.ErrWriteConflict

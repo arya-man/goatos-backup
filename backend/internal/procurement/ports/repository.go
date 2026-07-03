@@ -64,16 +64,16 @@ type AddGoatToLoad struct {
 	TenantID          string
 	LoadID            string
 	GoatID            *string
-	SourceTag         *string
-	SourceRFID        *string
-	TemporaryID       *string
+	AnimalIdentifier1 *string
+	AnimalIdentifier2 *string
+	Species           string
 	Sex               string
 	SelectionState    string
 	SelectionReason   string
 	Purpose           string
 	CurrentState      string
-	IdentityState     string
-	IdentityReviewRef *string
+	SourceEntryState  string
+	SourceEntryRef    *string
 	OwnershipState    string
 	HealthState       string
 	WarmupStartedAt   *time.Time
@@ -184,14 +184,14 @@ type ArrivalReview struct {
 }
 
 type ArrivalGoat struct {
-	GoatID       *string
-	TemporaryID  *string
-	SourceTag    *string
-	ArrivalState string
-	HealthFlag   *string
-	WeightFlag   *string
-	ProofRefID   *string
-	Notes        string
+	GoatID            *string
+	AnimalIdentifier1 *string
+	AnimalIdentifier2 *string
+	ArrivalState      string
+	HealthFlag        *string
+	WeightFlag        *string
+	ProofRefID        *string
+	Notes             string
 }
 
 type AcceptIntake struct {

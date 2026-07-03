@@ -33,7 +33,7 @@ func (q *Queries) CompleteIdempotencyKey(ctx context.Context, arg CompleteIdempo
 }
 
 const getGoatMutationState = `-- name: GetGoatMutationState :one
-SELECT identity_state, row_version
+SELECT COALESCE(merged_into_goat_id::text, '')::text AS merged_into_goat_id, row_version
 FROM goats
 WHERE tenant_id = $1 AND goat_id = $2
 `
@@ -44,14 +44,14 @@ type GetGoatMutationStateParams struct {
 }
 
 type GetGoatMutationStateRow struct {
-	IdentityState string
-	RowVersion    int32
+	MergedIntoGoatID string
+	RowVersion       int32
 }
 
 func (q *Queries) GetGoatMutationState(ctx context.Context, arg GetGoatMutationStateParams) (GetGoatMutationStateRow, error) {
 	row := q.db.QueryRow(ctx, getGoatMutationState, arg.TenantID, arg.GoatID)
 	var i GetGoatMutationStateRow
-	err := row.Scan(&i.IdentityState, &i.RowVersion)
+	err := row.Scan(&i.MergedIntoGoatID, &i.RowVersion)
 	return i, err
 }
 
@@ -254,7 +254,7 @@ SET
 WHERE goat_id = $2
   AND tenant_id = $3
   AND row_version = $4
-  AND identity_state <> 'merged'
+  AND merged_into_goat_id IS NULL
 RETURNING goat_id::text AS goat_id, row_version
 `
 

@@ -79,13 +79,15 @@ func TestSourceWarmupFortyFiveToSeventyDaysRemainsValid(t *testing.T) {
 	start := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	end := start.Add(70 * 24 * time.Hour)
 	goat, err := svc.AddGoatToLoad(context.Background(), ports.AddGoatToLoad{
-		TenantID:        testTenant,
-		LoadID:          testLoad,
-		SourceTag:       strPtr("SRC-70"),
-		Sex:             "female",
-		WarmupStartedAt: &start,
-		WarmupEndedAt:   &end,
-		IdempotencyKey:  "add-70-day-warmup",
+		TenantID:          testTenant,
+		LoadID:            testLoad,
+		AnimalIdentifier1: strPtr("SRC-70-A"),
+		AnimalIdentifier2: strPtr("SRC-70-B"),
+		Species:           "goat",
+		Sex:               "female",
+		WarmupStartedAt:   &start,
+		WarmupEndedAt:     &end,
+		IdempotencyKey:    "add-70-day-warmup",
 	})
 	if err != nil {
 		t.Fatalf("AddGoatToLoad() error = %v", err)
@@ -111,11 +113,13 @@ func TestAddGoatToLoadRequiresRealSex(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := svc.AddGoatToLoad(context.Background(), ports.AddGoatToLoad{
-				TenantID:       testTenant,
-				LoadID:         testLoad,
-				SourceTag:      strPtr("SRC-" + tc.name),
-				Sex:            tc.sex,
-				IdempotencyKey: "add-sex-" + tc.name,
+				TenantID:          testTenant,
+				LoadID:            testLoad,
+				AnimalIdentifier1: strPtr("SRC-" + tc.name + "-A"),
+				AnimalIdentifier2: strPtr("SRC-" + tc.name + "-B"),
+				Species:           "goat",
+				Sex:               tc.sex,
+				IdempotencyKey:    "add-sex-" + tc.name,
 			})
 			var appErr *Error
 			if !errors.As(err, &appErr) || appErr.Code != tc.code {
@@ -132,11 +136,14 @@ func TestAddGoatToLoadMapsExistingGoatSexMismatch(t *testing.T) {
 	repo := &fakeRepo{addErr: ports.ErrSexMismatch}
 	svc := NewService(repo)
 	_, err := svc.AddGoatToLoad(context.Background(), ports.AddGoatToLoad{
-		TenantID:       testTenant,
-		LoadID:         testLoad,
-		GoatID:         strPtr(testGoat),
-		Sex:            "male",
-		IdempotencyKey: "add-sex-mismatch",
+		TenantID:          testTenant,
+		LoadID:            testLoad,
+		GoatID:            strPtr(testGoat),
+		AnimalIdentifier1: strPtr("SEX-MISMATCH-A"),
+		AnimalIdentifier2: strPtr("SEX-MISMATCH-B"),
+		Species:           "goat",
+		Sex:               "male",
+		IdempotencyKey:    "add-sex-mismatch",
 	})
 	var appErr *Error
 	if !errors.As(err, &appErr) || appErr.Code != "sex_mismatch" {
@@ -237,7 +244,7 @@ func TestArrivalRejectedAndUnknownExtraStayOutOfVaccination(t *testing.T) {
 		IdempotencyKey: "arrival-mismatch",
 		Goats: []ports.ArrivalGoat{
 			{GoatID: strPtr(testGoat), ArrivalState: "rejected"},
-			{TemporaryID: strPtr("UNKNOWN-1"), ArrivalState: "extra_unresolved"},
+			{AnimalIdentifier1: strPtr("UNMATCHED-1-A"), AnimalIdentifier2: strPtr("UNMATCHED-1-B"), ArrivalState: "extra_unresolved"},
 		},
 	})
 	if err != nil {

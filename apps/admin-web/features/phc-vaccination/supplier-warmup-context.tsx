@@ -30,7 +30,7 @@ function purposeLabel(pageContract: AdminUiPageContract, detail: ProcurementLoad
 
 function taggingLabel(detail: ProcurementLoadDetail | undefined, expectedCount: number): string {
   const goats = detail?.goats ?? [];
-  const tagged = goats.filter((g) => Boolean(g.source_tag || g.source_rfid || g.temporary_id)).length;
+  const tagged = goats.filter((g) => Boolean(g.animal_identifier_1 && g.animal_identifier_2)).length;
   return `${tagged}/${expectedCount}`;
 }
 

@@ -235,16 +235,16 @@ func (h *Handler) GetLoad(w http.ResponseWriter, r *http.Request) {
 
 type addGoatRequest struct {
 	GoatID            *string         `json:"goat_id"`
-	SourceTag         *string         `json:"source_tag"`
-	SourceRFID        *string         `json:"source_rfid"`
-	TemporaryID       *string         `json:"temporary_id"`
+	AnimalIdentifier1 *string         `json:"animal_identifier_1"`
+	AnimalIdentifier2 *string         `json:"animal_identifier_2"`
+	Species           string          `json:"species"`
 	Sex               string          `json:"sex"`
 	SelectionState    string          `json:"selection_state"`
 	SelectionReason   string          `json:"selection_reason"`
 	Purpose           string          `json:"purpose"`
 	CurrentState      string          `json:"current_state"`
-	IdentityState     string          `json:"identity_review_state"`
-	IdentityReviewRef *string         `json:"identity_review_ref"`
+	SourceEntryState  string          `json:"source_entry_state"`
+	SourceEntryRef    *string         `json:"source_entry_ref"`
 	OwnershipState    string          `json:"ownership_state"`
 	HealthState       string          `json:"health_state"`
 	WarmupStartedAt   *time.Time      `json:"warmup_started_at"`
@@ -264,16 +264,16 @@ func (h *Handler) AddGoat(w http.ResponseWriter, r *http.Request) {
 		TenantID:          tenantID(r),
 		LoadID:            r.PathValue("load_id"),
 		GoatID:            req.GoatID,
-		SourceTag:         req.SourceTag,
-		SourceRFID:        req.SourceRFID,
-		TemporaryID:       req.TemporaryID,
+		AnimalIdentifier1: req.AnimalIdentifier1,
+		AnimalIdentifier2: req.AnimalIdentifier2,
+		Species:           req.Species,
 		Sex:               req.Sex,
 		SelectionState:    req.SelectionState,
 		SelectionReason:   req.SelectionReason,
 		Purpose:           req.Purpose,
 		CurrentState:      req.CurrentState,
-		IdentityState:     req.IdentityState,
-		IdentityReviewRef: req.IdentityReviewRef,
+		SourceEntryState:  req.SourceEntryState,
+		SourceEntryRef:    req.SourceEntryRef,
 		OwnershipState:    req.OwnershipState,
 		HealthState:       req.HealthState,
 		WarmupStartedAt:   req.WarmupStartedAt,
@@ -481,14 +481,14 @@ type arrivalReviewRequest struct {
 }
 
 type arrivalGoatRequest struct {
-	GoatID       *string `json:"goat_id"`
-	TemporaryID  *string `json:"temporary_id"`
-	SourceTag    *string `json:"source_tag"`
-	ArrivalState string  `json:"arrival_state"`
-	HealthFlag   *string `json:"health_flag"`
-	WeightFlag   *string `json:"weight_flag"`
-	ProofRefID   *string `json:"proof_ref_id"`
-	Notes        string  `json:"notes"`
+	GoatID            *string `json:"goat_id"`
+	AnimalIdentifier1 *string `json:"animal_identifier_1"`
+	AnimalIdentifier2 *string `json:"animal_identifier_2"`
+	ArrivalState      string  `json:"arrival_state"`
+	HealthFlag        *string `json:"health_flag"`
+	WeightFlag        *string `json:"weight_flag"`
+	ProofRefID        *string `json:"proof_ref_id"`
+	Notes             string  `json:"notes"`
 }
 
 func (h *Handler) ArrivalReview(w http.ResponseWriter, r *http.Request) {
@@ -503,14 +503,14 @@ func (h *Handler) ArrivalReview(w http.ResponseWriter, r *http.Request) {
 	items := make([]ports.ArrivalGoat, 0, len(req.Goats))
 	for _, goat := range req.Goats {
 		items = append(items, ports.ArrivalGoat{
-			GoatID:       goat.GoatID,
-			TemporaryID:  goat.TemporaryID,
-			SourceTag:    goat.SourceTag,
-			ArrivalState: goat.ArrivalState,
-			HealthFlag:   goat.HealthFlag,
-			WeightFlag:   goat.WeightFlag,
-			ProofRefID:   goat.ProofRefID,
-			Notes:        goat.Notes,
+			GoatID:            goat.GoatID,
+			AnimalIdentifier1: goat.AnimalIdentifier1,
+			AnimalIdentifier2: goat.AnimalIdentifier2,
+			ArrivalState:      goat.ArrivalState,
+			HealthFlag:        goat.HealthFlag,
+			WeightFlag:        goat.WeightFlag,
+			ProofRefID:        goat.ProofRefID,
+			Notes:             goat.Notes,
 		})
 	}
 	review, err := h.service.RecordArrivalReview(r.Context(), ports.ArrivalReview{

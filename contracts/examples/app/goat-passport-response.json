@@ -3,12 +3,11 @@
     "goat_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
     "display_id": "G-900001",
     "species": "goat",
-    "identity_state": "clean",
     "summary": {
       "goat_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
       "display_id": "G-900001",
-      "primary_old_tag": "1900",
-      "rfid": "RFID_EXAMPLE_000001",
+      "animal_identifier_1": "AID-000001-A",
+      "animal_identifier_2": "AID-000001-B",
       "breed": "Synthetic Jamunapari",
       "sex": "female",
       "age_band": "adult",
@@ -17,7 +16,6 @@
       "growth_cohort_tag": null,
       "management_stage": "warmup",
       "health_status": "healthy",
-      "identity_state": "clean",
       "location_path": {
         "display": "Synthetic CBE / Park A / Shed 01",
         "farm_id": "33333333-3333-4333-8333-333333333333",
@@ -30,36 +28,36 @@
     "identifiers": [
       {
         "identifier_id": "44444444-4444-4444-8444-444444444444",
-        "identifier_type": "rfid",
-        "identifier_value": "RFID_EXAMPLE_000001",
+        "identifier_type": "animal_identifier_1",
+        "identifier_value": "AID-000001-A",
         "scope_key": "global",
         "status": "active",
         "is_primary_for_goat": true,
         "valid_from": "2026-01-15T09:30:00Z",
         "valid_to": null,
-        "source_system": "synthetic_phase1_fixture",
-        "source_record_id": "synthetic-rfid-db-row-0001",
-        "confidence": 0.99
+        "source_system": "synthetic_goatos_fixture",
+        "source_record_id": "synthetic-herd-row-0001",
+        "confidence": 1
       },
       {
         "identifier_id": "44444444-4444-4444-8444-444444444446",
-        "identifier_type": "old_tag",
-        "identifier_value": "1900",
-        "scope_key": "park:CBE",
+        "identifier_type": "animal_identifier_2",
+        "identifier_value": "AID-000001-B",
+        "scope_key": "global",
         "status": "active",
         "is_primary_for_goat": false,
         "valid_from": "2026-01-15T09:30:00Z",
         "valid_to": null,
-        "source_system": "synthetic_phase1_fixture",
-        "source_record_id": "synthetic-rfid-db-row-0001",
-        "confidence": 0.9
+        "source_system": "synthetic_goatos_fixture",
+        "source_record_id": "synthetic-herd-row-0001",
+        "confidence": 1
       }
     ],
     "evidence_refs": [
       {
         "evidence_type": "source_record",
-        "evidence_id": "synthetic-rfid-db-row-0001",
-        "source_system": "synthetic_phase1_fixture",
+        "evidence_id": "synthetic-herd-row-0001",
+        "source_system": "synthetic_goatos_fixture",
         "description": "Fake source row used only for contract validation."
       }
     ],

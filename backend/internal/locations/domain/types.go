@@ -178,7 +178,6 @@ type LocationUsageResponse struct {
 	ActiveRBACGrants        int64  `json:"active_rbac_grants"`
 	ActiveSOPDependencies   int64  `json:"active_sop_dependencies"`
 	ImportOrSourceRows      int64  `json:"import_or_source_rows"`
-	DashboardProjectionRows int64  `json:"dashboard_projection_rows"`
 	HasBlockingUsage        bool   `json:"has_blocking_usage"`
 	TraceID                 string `json:"trace_id"`
 }

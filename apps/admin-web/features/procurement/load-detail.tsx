@@ -38,7 +38,7 @@ import {
 } from "./work-state";
 
 function goatLabel(goat: ProcurementLoadGoat): string {
-  return goat.source_tag || goat.source_rfid || goat.temporary_id || shortId(goat.goat_id);
+	return goat.animal_identifier_1 || goat.animal_identifier_2 || shortId(goat.goat_id);
 }
 
 function contractTone(pageContract: AdminUiPageContract, groupId: string, key: string): Tone {
@@ -200,7 +200,7 @@ function GoatRows({ goats, pageContract }: { goats: ProcurementLoadGoat[]; pageC
                       <ContractTag pageContract={pageContract} groupId="proc_goat_state" value={goat.current_state} />
                     </td>
                     <td>
-                      <ContractTag pageContract={pageContract} groupId="proc_identity_review_state" value={goat.identity_review_state} />
+                      <ContractTag pageContract={pageContract} groupId="proc_source_entry_state" value={goat.source_entry_state} />
                     </td>
                     <td>
                       <ContractTag pageContract={pageContract} groupId="proc_ownership_state" value={goat.ownership_state} />

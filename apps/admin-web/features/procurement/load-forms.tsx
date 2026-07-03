@@ -24,7 +24,7 @@ import { OptionalLocationSelect, ParkLocationSelect, ParkShedLocationSelects, ty
 // is optional on these contracts, so the actions still run without it.
 
 function goatLabel(goat: ProcurementLoadGoat): string {
-  return goat.source_tag || goat.source_rfid || goat.temporary_id || (goat.goat_id ? goat.goat_id.slice(0, 8) : "—");
+	return goat.animal_identifier_1 || goat.animal_identifier_2 || (goat.goat_id ? goat.goat_id.slice(0, 8) : "—");
 }
 
 function SelectOptions({ pageContract, groupId }: { pageContract: AdminUiPageContract; groupId: string }) {
@@ -79,7 +79,7 @@ function DisabledMediaProof({ pageContract }: { pageContract: AdminUiPageContrac
 
 // A stable idempotency key, minted once when the form is server-rendered and submitted as a hidden field.
 // A double-submit/retry of the same rendered form replays the same key, so the backend returns the original
-// result instead of writing twice (e.g. no duplicate source goat); a fresh render = a new key = a new
+// result instead of writing twice (e.g. no duplicate source animal); a fresh render = a new key = a new
 // logical request. The server action reads this via formIdempotencyKey rather than minting per call.
 function IdempotencyKeyField() {
   return <input type="hidden" name="idempotency_key" value={randomUUID()} />;
@@ -168,19 +168,22 @@ export function LoadWriteActions({
           <IdempotencyKeyField />
           <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="load_id" value={loadId} />
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>{copy(pageContract, "field.source_tag")}</label>
-              <input name="source_tag" placeholder={copy(pageContract, "placeholder.source_tag")} />
-            </div>
-            <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>{copy(pageContract, "field.source_rfid")}</label>
-              <input name="source_rfid" placeholder={copy(pageContract, "placeholder.source_rfid")} />
-            </div>
-            <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>{copy(pageContract, "field.temporary_id")}</label>
-              <input name="temporary_id" placeholder={copy(pageContract, "placeholder.temporary_id")} />
-            </div>
+	      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+	        <div className="fld" style={{ flex: 1, minWidth: 150 }}>
+	          <label>{copy(pageContract, "field.animal_identifier_1")}</label>
+	          <input name="animal_identifier_1" placeholder={copy(pageContract, "placeholder.animal_identifier_1")} required />
+	        </div>
+	        <div className="fld" style={{ flex: 1, minWidth: 150 }}>
+	          <label>{copy(pageContract, "field.animal_identifier_2")}</label>
+	          <input name="animal_identifier_2" placeholder={copy(pageContract, "placeholder.animal_identifier_2")} required />
+	        </div>
+	        <div className="fld" style={{ flex: 1, minWidth: 140 }}>
+	          <label>{copy(pageContract, "field.species")}</label>
+	          <select name="species" defaultValue="" required>
+	            <option value="" disabled>{copy(pageContract, "placeholder.species")}</option>
+	            <SelectOptions pageContract={pageContract} groupId="proc_species" />
+	          </select>
+	        </div>
             <div className="fld" style={{ flex: 1, minWidth: 140 }}>
               <label>{copy(pageContract, "field.sex")}</label>
               <select name="sex" defaultValue="" required>

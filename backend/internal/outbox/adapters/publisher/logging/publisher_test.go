@@ -15,7 +15,7 @@ func TestPublisherLogsOnlySafeMetadata(t *testing.T) {
 	var buf bytes.Buffer
 	publisher := NewPublisher(slog.New(slog.NewTextHandler(&buf, nil)))
 	traceID := "trace-outbox-test"
-	payload := json.RawMessage(`{"rfid":"9900000000000000000000000000001","old_tag":"SYNTHETIC_PRIVATE_TAG"}`)
+	payload := json.RawMessage(`{"animal_identifier_1":"AID-SYNTHETIC-001","animal_identifier_2":"AID-SYNTHETIC-002"}`)
 
 	if err := publisher.Publish(context.Background(), ports.PublishMessage{
 		OutboxID:  "10000000-0000-4000-8000-000000000001",

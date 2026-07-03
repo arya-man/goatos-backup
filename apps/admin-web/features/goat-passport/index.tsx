@@ -155,13 +155,12 @@ export async function GoatPassportPage({
             <BadgeCheck className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
 	            <h3>{copy(pageContract, "section.summary.title")}</h3>
             <div className="sp" />
-            <Tag tone={goat.identity_state === "clean" ? "ok" : "warn"}>{goat.identity_state}</Tag>
           </div>
           <div className="bd">
             <div className="metagrid" style={{ gridTemplateColumns: "repeat(3,minmax(0,1fr))" }}>
               <MiniMetric label={copy(pageContract, "label.goat_id")} value={<span className="gid">{shortId(goat.goat_id)}</span>} />
-              <MiniMetric label={copy(pageContract, "label.rfid")} value={dash(goat.summary.rfid)} />
-              <MiniMetric label={copy(pageContract, "label.primary_old_tag")} value={dash(goat.summary.primary_old_tag)} />
+              <MiniMetric label={copy(pageContract, "label.animal_identifier_1")} value={dash(goat.summary.animal_identifier_1)} />
+              <MiniMetric label={copy(pageContract, "label.animal_identifier_2")} value={dash(goat.summary.animal_identifier_2)} />
               <MiniMetric label={copy(pageContract, "label.breed_sex")} value={joinParts([goat.summary.breed, goat.summary.sex])} />
               <MiniMetric label={copy(pageContract, "label.lifecycle")} value={goat.summary.lifecycle_status} />
               <MiniMetric label={copy(pageContract, "label.health")} value={dash(goat.summary.health_status)} />

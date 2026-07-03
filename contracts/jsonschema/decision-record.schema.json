@@ -290,13 +290,8 @@
             "null"
           ],
           "enum": [
-            "old_tag",
-            "rfid",
-            "visual_tag",
-            "sheet_row_id",
-            "purchase_load_id",
-            "temp_field_id",
-            "external_system_id",
+            "animal_identifier_1",
+            "animal_identifier_2",
             null
           ]
         },

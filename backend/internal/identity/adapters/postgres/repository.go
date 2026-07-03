@@ -96,7 +96,6 @@ func (r *Repository) getGoatFromSQLC(ctx context.Context, tenantID string, row s
 		GoatID:           summary.GoatID,
 		DisplayID:        summary.DisplayID,
 		Species:          species,
-		IdentityState:    summary.IdentityState,
 		Summary:          summary,
 		Identifiers:      identifiers,
 		EvidenceRefs:     []domain.EvidenceRef{},
@@ -111,7 +110,7 @@ func (r *Repository) SearchGoats(ctx context.Context, params ports.SearchGoatsPa
 	defer cancel()
 
 	args := []any{params.TenantID, params.Limit + 1}
-	where := []string{"g.tenant_id = $1::uuid", "g.identity_state <> 'merged'"}
+	where := []string{"g.tenant_id = $1::uuid", "g.merged_into_goat_id IS NULL"}
 
 	if params.Cursor != nil && strings.TrimSpace(*params.Cursor) != "" {
 		args = append(args, *params.Cursor)
@@ -259,15 +258,14 @@ LEFT JOIN LATERAL (
   ORDER BY gie.occurred_at DESC, gie.recorded_at DESC, gie.identity_event_id DESC
   LIMIT 1
 ) latest_weight ON true
-LEFT JOIN goat_identifiers old_tag ON old_tag.tenant_id = g.tenant_id
-  AND old_tag.goat_id = g.goat_id
-  AND old_tag.identifier_type = 'old_tag'
-  AND old_tag.status = 'active'
-  AND old_tag.is_primary_for_goat
-LEFT JOIN goat_identifiers rfid ON rfid.tenant_id = g.tenant_id
-  AND rfid.goat_id = g.goat_id
-  AND rfid.identifier_type = 'rfid'
-  AND rfid.status = 'active'
+LEFT JOIN goat_identifiers animal_id_1 ON animal_id_1.tenant_id = g.tenant_id
+  AND animal_id_1.goat_id = g.goat_id
+  AND animal_id_1.identifier_type = 'animal_identifier_1'
+  AND animal_id_1.status = 'active'
+LEFT JOIN goat_identifiers animal_id_2 ON animal_id_2.tenant_id = g.tenant_id
+  AND animal_id_2.goat_id = g.goat_id
+  AND animal_id_2.identifier_type = 'animal_identifier_2'
+  AND animal_id_2.status = 'active'
 WHERE ` + strings.Join(where, " AND ") + `
 ORDER BY CASE gi.status WHEN 'active' THEN 0 WHEN 'disputed' THEN 1 ELSE 2 END, gi.valid_from DESC`
 
@@ -354,23 +352,22 @@ LEFT JOIN LATERAL (
   ORDER BY gie.occurred_at DESC, gie.recorded_at DESC, gie.identity_event_id DESC
   LIMIT 1
 ) latest_weight ON true
-LEFT JOIN goat_identifiers old_tag ON old_tag.tenant_id = g.tenant_id
-  AND old_tag.goat_id = g.goat_id
-  AND old_tag.identifier_type = 'old_tag'
-  AND old_tag.status = 'active'
-  AND old_tag.is_primary_for_goat
-LEFT JOIN goat_identifiers rfid ON rfid.tenant_id = g.tenant_id
-  AND rfid.goat_id = g.goat_id
-  AND rfid.identifier_type = 'rfid'
-  AND rfid.status = 'active'`
+LEFT JOIN goat_identifiers animal_id_1 ON animal_id_1.tenant_id = g.tenant_id
+  AND animal_id_1.goat_id = g.goat_id
+  AND animal_id_1.identifier_type = 'animal_identifier_1'
+  AND animal_id_1.status = 'active'
+LEFT JOIN goat_identifiers animal_id_2 ON animal_id_2.tenant_id = g.tenant_id
+  AND animal_id_2.goat_id = g.goat_id
+  AND animal_id_2.identifier_type = 'animal_identifier_2'
+  AND animal_id_2.status = 'active'`
 }
 
 func goatSummaryColumns() string {
 	return `
   g.goat_id::text,
   g.display_id,
-  old_tag.identifier_value,
-  rfid.identifier_value,
+  animal_id_1.identifier_value,
+  animal_id_2.identifier_value,
   g.breed,
   g.sex,
   g.age_band,
@@ -379,7 +376,6 @@ func goatSummaryColumns() string {
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  g.identity_state,
   COALESCE(loc.name, 'Unknown location'),
   g.farm_id::text,
   farm.location_code,
@@ -406,8 +402,8 @@ type scanner interface {
 type sqlcGoatRow struct {
 	GoatID             string
 	DisplayID          string
-	PrimaryOldTag      pgtype.Text
-	RFID               pgtype.Text
+	AnimalIdentifier1  pgtype.Text
+	AnimalIdentifier2  pgtype.Text
 	Breed              pgtype.Text
 	Sex                string
 	AgeBand            pgtype.Text
@@ -416,7 +412,6 @@ type sqlcGoatRow struct {
 	GrowthCohortTag    pgtype.Text
 	ManagementStage    pgtype.Text
 	HealthStatus       pgtype.Text
-	IdentityState      string
 	LocationDisplay    string
 	FarmID             string
 	FarmCode           string
@@ -440,8 +435,8 @@ func sqlcGoatRowFromID(row identitydb.GetGoatByIDRow) sqlcGoatRow {
 	return sqlcGoatRow{
 		GoatID:             row.GoatID,
 		DisplayID:          row.DisplayID,
-		PrimaryOldTag:      row.PrimaryOldTag,
-		RFID:               row.Rfid,
+		AnimalIdentifier1:  row.AnimalIdentifier1,
+		AnimalIdentifier2:  row.AnimalIdentifier2,
 		Breed:              row.Breed,
 		Sex:                row.Sex,
 		AgeBand:            row.AgeBand,
@@ -450,7 +445,6 @@ func sqlcGoatRowFromID(row identitydb.GetGoatByIDRow) sqlcGoatRow {
 		GrowthCohortTag:    row.GrowthCohortTag,
 		ManagementStage:    row.ManagementStage,
 		HealthStatus:       row.HealthStatus,
-		IdentityState:      row.IdentityState,
 		LocationDisplay:    row.LocationDisplay,
 		FarmID:             row.FarmID,
 		ParkID:             row.ParkID,
@@ -466,8 +460,8 @@ func sqlcGoatRowFromDisplayID(row identitydb.GetGoatByDisplayIDRow) sqlcGoatRow 
 	return sqlcGoatRow{
 		GoatID:             row.GoatID,
 		DisplayID:          row.DisplayID,
-		PrimaryOldTag:      row.PrimaryOldTag,
-		RFID:               row.Rfid,
+		AnimalIdentifier1:  row.AnimalIdentifier1,
+		AnimalIdentifier2:  row.AnimalIdentifier2,
 		Breed:              row.Breed,
 		Sex:                row.Sex,
 		AgeBand:            row.AgeBand,
@@ -476,7 +470,6 @@ func sqlcGoatRowFromDisplayID(row identitydb.GetGoatByDisplayIDRow) sqlcGoatRow 
 		GrowthCohortTag:    row.GrowthCohortTag,
 		ManagementStage:    row.ManagementStage,
 		HealthStatus:       row.HealthStatus,
-		IdentityState:      row.IdentityState,
 		LocationDisplay:    row.LocationDisplay,
 		FarmID:             row.FarmID,
 		ParkID:             row.ParkID,
@@ -492,8 +485,8 @@ func goatSummaryFromSQLC(row sqlcGoatRow) (domain.GoatSummary, string, *string, 
 	summary := domain.GoatSummary{
 		GoatID:             row.GoatID,
 		DisplayID:          row.DisplayID,
-		PrimaryOldTag:      pgTextPtr(row.PrimaryOldTag),
-		RFID:               pgTextPtr(row.RFID),
+		AnimalIdentifier1:  pgTextPtr(row.AnimalIdentifier1),
+		AnimalIdentifier2:  pgTextPtr(row.AnimalIdentifier2),
 		Breed:              pgTextPtr(row.Breed),
 		Sex:                nonEmptyStringPtr(row.Sex),
 		AgeBand:            pgTextPtr(row.AgeBand),
@@ -502,7 +495,6 @@ func goatSummaryFromSQLC(row sqlcGoatRow) (domain.GoatSummary, string, *string, 
 		GrowthCohortTag:    pgTextPtr(row.GrowthCohortTag),
 		ManagementStage:    pgTextPtr(row.ManagementStage),
 		HealthStatus:       pgTextPtr(row.HealthStatus),
-		IdentityState:      row.IdentityState,
 		LocationPath: domain.LocationPath{
 			Display:    row.LocationDisplay,
 			FarmID:     nonEmptyStringPtr(row.FarmID),
@@ -518,8 +510,9 @@ func goatSummaryFromSQLC(row sqlcGoatRow) (domain.GoatSummary, string, *string, 
 			CohortCode: nonEmptyStringPtr(row.CohortCode),
 			CohortName: nonEmptyStringPtr(row.CohortName),
 		},
-		WeightKg: row.WeightKg,
-		Warnings: []domain.Warning{},
+		WeightKg:         row.WeightKg,
+		Warnings:         []domain.Warning{},
+		MergedIntoGoatID: nonEmptyStringPtr(row.MergedIntoGoatID),
 	}
 	return summary, row.Species, nonEmptyStringPtr(row.MergedIntoGoatID), int(row.RowVersion)
 }
@@ -547,38 +540,38 @@ func identifierFromSQLC(row identitydb.ListIdentifiersForGoatRow) domain.GoatIde
 
 func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) {
 	var (
-		summary       domain.GoatSummary
-		primaryOldTag sql.NullString
-		rfid          sql.NullString
-		breed         sql.NullString
-		sex           sql.NullString
-		ageBand       sql.NullString
-		repro         sql.NullString
-		growth        sql.NullString
-		management    sql.NullString
-		health        sql.NullString
-		farmID        sql.NullString
-		farmCode      sql.NullString
-		farmName      sql.NullString
-		parkID        sql.NullString
-		parkCode      sql.NullString
-		parkName      sql.NullString
-		shedID        sql.NullString
-		shedCode      sql.NullString
-		shedName      sql.NullString
-		cohortID      sql.NullString
-		cohortCode    sql.NullString
-		cohortName    sql.NullString
-		weightKg      sql.NullFloat64
-		species       string
-		mergedInto    sql.NullString
-		rowVersion    int
+		summary           domain.GoatSummary
+		animalIdentifier1 sql.NullString
+		animalIdentifier2 sql.NullString
+		breed             sql.NullString
+		sex               sql.NullString
+		ageBand           sql.NullString
+		repro             sql.NullString
+		growth            sql.NullString
+		management        sql.NullString
+		health            sql.NullString
+		farmID            sql.NullString
+		farmCode          sql.NullString
+		farmName          sql.NullString
+		parkID            sql.NullString
+		parkCode          sql.NullString
+		parkName          sql.NullString
+		shedID            sql.NullString
+		shedCode          sql.NullString
+		shedName          sql.NullString
+		cohortID          sql.NullString
+		cohortCode        sql.NullString
+		cohortName        sql.NullString
+		weightKg          sql.NullFloat64
+		species           string
+		mergedInto        sql.NullString
+		rowVersion        int
 	)
 	err := row.Scan(
 		&summary.GoatID,
 		&summary.DisplayID,
-		&primaryOldTag,
-		&rfid,
+		&animalIdentifier1,
+		&animalIdentifier2,
 		&breed,
 		&sex,
 		&ageBand,
@@ -587,7 +580,6 @@ func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) 
 		&growth,
 		&management,
 		&health,
-		&summary.IdentityState,
 		&summary.LocationPath.Display,
 		&farmID,
 		&farmCode,
@@ -612,8 +604,8 @@ func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) 
 	if err != nil {
 		return domain.GoatSummary{}, "", nil, 0, err
 	}
-	summary.PrimaryOldTag = stringPtr(primaryOldTag)
-	summary.RFID = stringPtr(rfid)
+	summary.AnimalIdentifier1 = stringPtr(animalIdentifier1)
+	summary.AnimalIdentifier2 = stringPtr(animalIdentifier2)
 	summary.Breed = stringPtr(breed)
 	summary.Sex = stringPtr(sex)
 	summary.AgeBand = stringPtr(ageBand)
@@ -670,37 +662,37 @@ func scanIdentifier(row scanner) (domain.GoatIdentifier, error) {
 
 func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary, error) {
 	var (
-		identifier     domain.GoatIdentifier
-		validTo        sql.NullTime
-		sourceSystem   sql.NullString
-		sourceRecordID sql.NullString
-		confidence     sql.NullFloat64
-		summary        domain.GoatSummary
-		primaryOldTag  sql.NullString
-		rfid           sql.NullString
-		breed          sql.NullString
-		sex            sql.NullString
-		ageBand        sql.NullString
-		repro          sql.NullString
-		growth         sql.NullString
-		management     sql.NullString
-		health         sql.NullString
-		farmID         sql.NullString
-		farmCode       sql.NullString
-		farmName       sql.NullString
-		parkID         sql.NullString
-		parkCode       sql.NullString
-		parkName       sql.NullString
-		shedID         sql.NullString
-		shedCode       sql.NullString
-		shedName       sql.NullString
-		cohortID       sql.NullString
-		cohortCode     sql.NullString
-		cohortName     sql.NullString
-		weightKg       sql.NullFloat64
-		species        string
-		mergedInto     sql.NullString
-		rowVersion     int
+		identifier        domain.GoatIdentifier
+		validTo           sql.NullTime
+		sourceSystem      sql.NullString
+		sourceRecordID    sql.NullString
+		confidence        sql.NullFloat64
+		summary           domain.GoatSummary
+		animalIdentifier1 sql.NullString
+		animalIdentifier2 sql.NullString
+		breed             sql.NullString
+		sex               sql.NullString
+		ageBand           sql.NullString
+		repro             sql.NullString
+		growth            sql.NullString
+		management        sql.NullString
+		health            sql.NullString
+		farmID            sql.NullString
+		farmCode          sql.NullString
+		farmName          sql.NullString
+		parkID            sql.NullString
+		parkCode          sql.NullString
+		parkName          sql.NullString
+		shedID            sql.NullString
+		shedCode          sql.NullString
+		shedName          sql.NullString
+		cohortID          sql.NullString
+		cohortCode        sql.NullString
+		cohortName        sql.NullString
+		weightKg          sql.NullFloat64
+		species           string
+		mergedInto        sql.NullString
+		rowVersion        int
 	)
 	if err := row.Scan(
 		&identifier.IdentifierID,
@@ -716,8 +708,8 @@ func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary
 		&confidence,
 		&summary.GoatID,
 		&summary.DisplayID,
-		&primaryOldTag,
-		&rfid,
+		&animalIdentifier1,
+		&animalIdentifier2,
 		&breed,
 		&sex,
 		&ageBand,
@@ -726,7 +718,6 @@ func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary
 		&growth,
 		&management,
 		&health,
-		&summary.IdentityState,
 		&summary.LocationPath.Display,
 		&farmID,
 		&farmCode,
@@ -748,14 +739,13 @@ func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary
 		return domain.GoatIdentifier{}, domain.GoatSummary{}, err
 	}
 	_ = species
-	_ = mergedInto
 	_ = rowVersion
 	identifier.ValidTo = timePtr(validTo)
 	identifier.SourceSystem = stringPtr(sourceSystem)
 	identifier.SourceRecordID = stringPtr(sourceRecordID)
 	identifier.Confidence = floatPtr(confidence)
-	summary.PrimaryOldTag = stringPtr(primaryOldTag)
-	summary.RFID = stringPtr(rfid)
+	summary.AnimalIdentifier1 = stringPtr(animalIdentifier1)
+	summary.AnimalIdentifier2 = stringPtr(animalIdentifier2)
 	summary.Breed = stringPtr(breed)
 	summary.Sex = stringPtr(sex)
 	summary.AgeBand = stringPtr(ageBand)
@@ -777,6 +767,7 @@ func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary
 	summary.LocationPath.CohortName = stringPtr(cohortName)
 	summary.WeightKg = floatPtr(weightKg)
 	summary.Warnings = []domain.Warning{}
+	summary.MergedIntoGoatID = stringPtr(mergedInto)
 	return identifier, summary, nil
 }
 

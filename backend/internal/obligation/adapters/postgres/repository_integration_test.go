@@ -29,8 +29,8 @@ func seed(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (obligationID s
 
 	// Goat target (raw insert; goats are owned by the identity module).
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex, current_location_id, park_id)
-			 VALUES ($1, $2, 'alive', 'clean', $3, 'female', $4, $4)`,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4)`,
 		testGoatID, tenantID, meshaParty, cbePark); err != nil {
 		t.Fatalf("seed goat: %v", err)
 	}
@@ -189,8 +189,8 @@ INSERT INTO inventory_stock_movements (
 
 	const secondGoatID = "10000000-0000-4000-8000-0000000000cc"
 	if _, err := pool.Exec(ctx, `
-	INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex, current_location_id, park_id)
-	VALUES ($1, $2, 'alive', 'clean', $3, 'female', $4, $4)`, secondGoatID, tenantID, meshaParty, cbePark); err != nil {
+	INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
+	VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4)`, secondGoatID, tenantID, meshaParty, cbePark); err != nil {
 		t.Fatalf("seed second goat: %v", err)
 	}
 	secondObligationID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{

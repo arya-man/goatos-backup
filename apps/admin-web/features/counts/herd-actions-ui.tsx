@@ -266,6 +266,7 @@ function RegisterGoatDrawer({
   const scopedSheds = sheds.filter((s) => s.parentId === parkId);
   const shedOptions = scopedSheds.length > 0 ? scopedSheds : sheds;
   const sexOptions = optionGroup(pageContract, "herd_sex");
+  const speciesOptions = optionGroup(pageContract, "herd_species");
   const originOptions = optionGroup(pageContract, "herd_origin");
 
   const hasLocations = locationsAvailable && parks.length > 0 && shedOptions.length > 0;
@@ -310,23 +311,26 @@ function RegisterGoatDrawer({
 
         <Row>
           <div className="fld" style={{ flex: 1, minWidth: 200 }}>
-            <label htmlFor="rg_rfid">{copy(pageContract, "field.rfid")}</label>
-            <input id="rg_rfid" name="rfid" placeholder={copy(pageContract, "placeholder.rfid")} />
+            <label htmlFor="rg_animal_id_1">{copy(pageContract, "field.animal_identifier_1")}</label>
+            <input id="rg_animal_id_1" name="animal_identifier_1" required placeholder={copy(pageContract, "placeholder.animal_identifier_1")} />
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 200 }}>
-            <label htmlFor="rg_oldtag">{copy(pageContract, "field.old_tag")}</label>
-            <input id="rg_oldtag" name="old_tag" placeholder={copy(pageContract, "placeholder.old_tag")} />
-          </div>
-        </Row>
-        <Row>
-          <div className="fld" style={{ flex: 1, minWidth: 200 }}>
-            <label htmlFor="rg_temp">{copy(pageContract, "field.temp_field_id")}</label>
-            <input id="rg_temp" name="temp_field_id" placeholder={copy(pageContract, "placeholder.temp_field_id")} />
+            <label htmlFor="rg_animal_id_2">{copy(pageContract, "field.animal_identifier_2")}</label>
+            <input id="rg_animal_id_2" name="animal_identifier_2" required placeholder={copy(pageContract, "placeholder.animal_identifier_2")} />
           </div>
         </Row>
         <div className="note" style={{ marginBottom: 12 }}>{copy(pageContract, "note.identifier_required")}</div>
 
         <Row>
+          <div className="fld" style={{ flex: 1, minWidth: 160 }}>
+            <label htmlFor="rg_species">{copy(pageContract, "field.species")}</label>
+            <select id="rg_species" name="species" required defaultValue="">
+              <option value="" disabled>{copy(pageContract, "option.select_species")}</option>
+              {speciesOptions.map((o) => (
+                <option key={o.key} value={o.key}>{o.label}</option>
+              ))}
+            </select>
+          </div>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
             <label htmlFor="rg_park">{copy(pageContract, "field.park_required")}</label>
             <select id="rg_park" name="park_id" value={parkId} onChange={(e) => setParkId(e.target.value)} required disabled={!canCreate}>
@@ -374,7 +378,8 @@ function RegisterGoatDrawer({
         <Row>
           <div className="fld" style={{ flex: 1, minWidth: 140 }}>
             <label htmlFor="rg_sex">{copy(pageContract, "field.sex")}</label>
-            <select id="rg_sex" name="sex" defaultValue="female">
+            <select id="rg_sex" name="sex" required defaultValue="">
+              <option value="" disabled>{copy(pageContract, "option.select_sex")}</option>
               {sexOptions.map((o) => (
                 <option key={o.key} value={o.key}>{o.label}</option>
               ))}
@@ -382,7 +387,8 @@ function RegisterGoatDrawer({
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
             <label htmlFor="rg_origin">{copy(pageContract, "field.origin")}</label>
-            <select id="rg_origin" name="origin_type" defaultValue="birth">
+            <select id="rg_origin" name="origin_type" required defaultValue="">
+              <option value="" disabled>{copy(pageContract, "option.select_origin")}</option>
               {originOptions.map((o) => (
                 <option key={o.key} value={o.key}>{o.label}</option>
               ))}
@@ -720,7 +726,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
                 </thead>
                 <tbody>
                   {view.rows.map((r) => {
-                    const ident = r.normalized?.rfid || r.normalized?.old_tag || r.normalized?.temp_field_id || copy(pageContract, "label.placeholder");
+                    const ident = r.normalized?.animal_identifier_1 || r.normalized?.animal_identifier_2 || copy(pageContract, "label.placeholder");
                     const notes = [
                       ...r.errors.map((e) => `${e.field}: ${e.message}`),
                       ...r.warnings.map((w) => w.message),

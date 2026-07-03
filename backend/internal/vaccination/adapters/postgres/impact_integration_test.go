@@ -29,9 +29,9 @@ func seedGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, lifecyc
 		shedExpr = "$5"
 	}
 	_, err := pool.Exec(ctx,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
 			   current_location_id, park_id, shed_id, management_stage)
-			 VALUES ($1, $2, $3, 'clean', $4, 'female', $5, $5, `+shedExpr+`, $6)`, args...)
+			 VALUES ($1, $2, $3, 'goat', $4, 'female', $5, $5, `+shedExpr+`, $6)`, args...)
 	if err != nil {
 		t.Fatalf("seed goat %s: %v", id, err)
 	}
@@ -160,9 +160,9 @@ func TestEligibleGoatListingUsesShedProfileAnimalStage(t *testing.T) {
 	}
 	dob := time.Date(2026, time.May, 20, 0, 0, 0, 0, time.UTC)
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
 			   current_location_id, park_id, shed_id, management_stage, age_band, dob)
-			 VALUES ($1, $2, 'alive', 'clean', $3, 'female', $4, $5, $4, 'K2', 'kid', $6::date)`,
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, 'K2', 'kid', $6::date)`,
 		goatID, impTenant, impParty, shedID, impCbe, dob); err != nil {
 		t.Fatalf("seed goat: %v", err)
 	}

@@ -1608,12 +1608,11 @@ SET due_at = EXCLUDED.due_at,
 func seedCalendarGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID string) {
 	t.Helper()
 	_, err := pool.Exec(ctx, `
-	INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex)
-	VALUES ($1::uuid, $2::uuid, 'alive', 'clean', $3::uuid, 'female')
+	INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex)
+	VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'female')
 ON CONFLICT (goat_id) DO UPDATE
 SET lifecycle_status = 'alive',
-    identity_state = 'clean',
-    updated_at = now()`, goatID, testTenantID, testCustodianID)
+        updated_at = now()`, goatID, testTenantID, testCustodianID)
 	if err != nil {
 		t.Fatalf("seed calendar goat: %v", err)
 	}

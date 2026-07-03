@@ -91,13 +91,8 @@ func trimAndValidateOptionalString(field string, value *string, max int, require
 }
 
 var allowedIdentifierTypes = map[string]bool{
-	"old_tag":            true,
-	"rfid":               true,
-	"visual_tag":         true,
-	"sheet_row_id":       true,
-	"purchase_load_id":   true,
-	"temp_field_id":      true,
-	"external_system_id": true,
+	"animal_identifier_1": true,
+	"animal_identifier_2": true,
 }
 
 var allowedEvidenceTypes = map[string]bool{

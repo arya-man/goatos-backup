@@ -47,7 +47,7 @@ const FIELD_ICON: Record<string, React.ElementType> = {
   select: List,
   multiselect: ListChecks,
   goat_lookup: ScanLine,
-  rfid_scan: ScanLine,
+  animal_id_scan: ScanLine,
   location_picker: MapPin,
   photo_proof: Camera,
   video_proof: Video,

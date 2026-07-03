@@ -310,7 +310,7 @@ raw AS (
     ON oi.target_type = 'goat'
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
-   AND g.identity_state <> 'merged'
+   AND g.merged_into_goat_id IS NULL
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
@@ -702,7 +702,7 @@ raw AS (
     ON oi.target_type = 'goat'
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
-   AND g.identity_state <> 'merged'
+   AND g.merged_into_goat_id IS NULL
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
   LEFT JOIN asof_terminal te

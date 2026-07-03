@@ -248,7 +248,7 @@ SELECT
     FROM goats g
     WHERE g.tenant_id = $1::uuid
       AND (g.current_location_id = $2::uuid OR g.farm_id = $2::uuid OR g.park_id = $2::uuid OR g.shed_id = $2::uuid OR g.cohort_id = $2::uuid)
-      AND g.identity_state <> 'merged'
+      AND g.merged_into_goat_id IS NULL
   ) AS goats_currently_assigned,
   (
     SELECT count(*)
@@ -278,28 +278,7 @@ SELECT
       AND (usg.valid_to IS NULL OR usg.valid_to > now())
   ) AS active_rbac_grants,
   0::bigint AS active_sop_dependencies,
-  (
-    SELECT count(*)
-    FROM counts_current_snapshot_rows csr
-    WHERE csr.tenant_id = $1::uuid
-      AND (csr.farm_id = $2::uuid OR csr.park_id = $2::uuid OR csr.shed_id = $2::uuid OR csr.resolved_location_id = $2::uuid)
-  ) + (
-    SELECT count(*)
-    FROM mortality_events me
-    WHERE me.tenant_id = $1::uuid
-      AND (me.canonical_farm_location_id = $2::uuid OR me.canonical_park_location_id = $2::uuid OR me.canonical_shed_location_id = $2::uuid OR me.canonical_housing_location_id = $2::uuid)
-  ) AS import_or_source_rows,
-  (
-    SELECT count(*)
-    FROM counts_projection_rows cpr
-    WHERE cpr.tenant_id = $1::uuid
-      AND cpr.dimension_key = $2::text
-  ) + (
-    SELECT count(*)
-    FROM mortality_projection_rows mpr
-    WHERE mpr.tenant_id = $1::uuid
-      AND mpr.dimension_key = $2::text
-  ) AS dashboard_projection_rows`, tenantID, locationID).Scan(
+  0::bigint AS import_or_source_rows`, tenantID, locationID).Scan(
 		&usage.GoatsCurrentlyAssigned,
 		&usage.GoatLocationHistoryRows,
 		&usage.ChildLocations,
@@ -307,7 +286,6 @@ SELECT
 		&usage.ActiveRBACGrants,
 		&usage.ActiveSOPDependencies,
 		&usage.ImportOrSourceRows,
-		&usage.DashboardProjectionRows,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

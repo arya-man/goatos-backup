@@ -3885,13 +3885,8 @@ components:
     IdentifierType:
       type: string
       enum:
-        - old_tag
-        - rfid
-        - visual_tag
-        - sheet_row_id
-        - purchase_load_id
-        - temp_field_id
-        - external_system_id
+        - animal_identifier_1
+        - animal_identifier_2
     IdentifierStatus:
       type: string
       enum:
@@ -3900,14 +3895,6 @@ components:
         - disputed
         - duplicate
         - invalid
-    IdentityState:
-      type: string
-      enum:
-        - clean
-        - needs_review
-        - disputed
-        - merged
-        - inactive
     ResolutionState:
       type: string
       enum:
@@ -4060,7 +4047,8 @@ components:
         - growth_cohort_tag
         - management_stage
         - health_status
-        - identity_state
+        - animal_identifier_1
+        - animal_identifier_2
         - location_path
         - warnings
       properties:
@@ -4070,15 +4058,11 @@ components:
         display_id:
           type: string
           pattern: ^G-[0-9]{6,}$
-        primary_old_tag:
-          type:
-            - string
-            - "null"
-          maxLength: 120
-        rfid:
-          type:
-            - string
-            - "null"
+        animal_identifier_1:
+          type: string
+          maxLength: 200
+        animal_identifier_2:
+          type: string
           maxLength: 200
         breed:
           type:
@@ -4119,8 +4103,6 @@ components:
             - string
             - "null"
           maxLength: 80
-        identity_state:
-          $ref: "#/components/schemas/IdentityState"
         location_path:
           $ref: "#/components/schemas/LocationPath"
         weight_kg:
@@ -4192,7 +4174,6 @@ components:
         - goat_id
         - display_id
         - species
-        - identity_state
         - summary
         - identifiers
         - evidence_refs
@@ -4206,9 +4187,9 @@ components:
           pattern: ^G-[0-9]{6,}$
         species:
           type: string
-          const: goat
-        identity_state:
-          $ref: "#/components/schemas/IdentityState"
+          enum:
+            - goat
+            - sheep
         summary:
           $ref: "#/components/schemas/GoatSummary"
         identifiers:

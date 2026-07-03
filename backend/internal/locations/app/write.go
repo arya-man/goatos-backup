@@ -34,7 +34,7 @@ const (
 )
 
 var allowedLocationTypes = map[string]bool{
-	"farm": true, "park": true, "shed": true, "cohort": true, "pen": true, "unknown": true,
+	"farm": true, "park": true, "shed": true, "cohort": true, "pen": true,
 }
 
 var allowedLocationStatuses = map[string]bool{
@@ -42,15 +42,9 @@ var allowedLocationStatuses = map[string]bool{
 }
 
 var allowedAliasSourceContexts = map[string]bool{
-	"legacy_location_code":     true,
-	"legacy_bq_dashboard_shed": true,
-	"legacy_bq_counts":         true,
-	"legacy_bq_mortality":      true,
-	"counts_source":            true,
-	"mortality_source":         true,
-	"sheds_db":                 true,
-	"manual":                   true,
-	"import":                   true,
+	"manual":   true,
+	"import":   true,
+	"sheds_db": true,
 }
 
 var allowedCapacityKinds = map[string]bool{
@@ -58,7 +52,7 @@ var allowedCapacityKinds = map[string]bool{
 }
 
 var allowedCapacitySources = map[string]bool{
-	"manual": true, "legacy_bq": true, "android_sop": true, "import": true, "sheds_db": true,
+	"manual": true, "android_sop": true, "import": true, "sheds_db": true,
 }
 
 var allowedReviewTypes = map[string]bool{

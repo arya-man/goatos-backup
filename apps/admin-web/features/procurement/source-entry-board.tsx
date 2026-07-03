@@ -116,9 +116,9 @@ function purposeLabel(detail: ProcurementLoadDetail | undefined, pageContract: A
 }
 
 function taggingLabel(detail: ProcurementLoadDetail | undefined, expectedCount: number): string {
-  const goats = detail?.goats ?? [];
-  const tagged = goats.filter((g) => Boolean(g.source_tag || g.source_rfid || g.temporary_id)).length;
-  return `${tagged}/${expectedCount}`;
+	const goats = detail?.goats ?? [];
+	const tagged = goats.filter((g) => Boolean(g.animal_identifier_1 && g.animal_identifier_2)).length;
+	return `${tagged}/${expectedCount}`;
 }
 
 function hfVaccinationLabel(detail: ProcurementLoadDetail | undefined, pageContract: AdminUiPageContract): { label: string; tone: Tone } {

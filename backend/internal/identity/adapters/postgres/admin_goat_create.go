@@ -83,19 +83,15 @@ func (r *Repository) ValidateAdminGoatCreate(ctx context.Context, cmd ports.Vali
 		return out, nil
 	}
 	for _, identifier := range cmd.Identifiers {
-		scopeKey := identifier.ScopeKey
-		if identifier.IdentifierType == "old_tag" {
-			scopeKey = "park:" + out.ParkID
-		}
-		conflictGoatID, err := r.activeIdentifierConflict(ctx, cmd.TenantID, identifier.IdentifierType, identifier.NormalizedValue, scopeKey)
+		conflictGoatID, err := r.identifierLifetimeConflict(ctx, cmd.TenantID, identifier.NormalizedValue)
 		if err != nil {
 			return out, err
 		}
 		if conflictGoatID != "" {
 			out.Conflicts = append(out.Conflicts, domain.FieldError{
 				Field:   identifier.IdentifierType,
-				Code:    "active_identifier_conflict",
-				Message: fmt.Sprintf("%s is already active on goat %s", identifier.IdentifierType, conflictGoatID),
+				Code:    "identifier_already_owned",
+				Message: fmt.Sprintf("%s already belongs to animal %s", identifier.IdentifierType, conflictGoatID),
 			})
 		}
 	}
@@ -189,19 +185,20 @@ func (r *Repository) CreateAdminGoat(ctx context.Context, cmd ports.CreateAdminG
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `
-INSERT INTO goats (
-  goat_id, tenant_id, species, breed, sex, approx_dob, lifecycle_status,
-  management_stage, health_status, identity_state, custodian_party_id,
-  current_location_id, farm_id, park_id, shed_id, source_confidence,
-  created_by, dob, dob_estimated, origin_type, entry_date
-) VALUES (
-  $1::uuid, $2::uuid, 'goat', nullif($3::text, ''), $4::text, $5::date, 'alive',
-  nullif($6::text, ''), nullif($7::text, ''), 'clean', $8::uuid,
-  $9::uuid, $10::uuid, $11::uuid, $9::uuid, 1,
-  $12::uuid, $5::date, $13::boolean, $14::text, $15::date
-)`,
+	INSERT INTO goats (
+	  goat_id, tenant_id, species, breed, sex, approx_dob, lifecycle_status,
+	  management_stage, health_status, custodian_party_id,
+	  current_location_id, farm_id, park_id, shed_id,
+	  created_by, dob, dob_estimated, origin_type, entry_date
+	) VALUES (
+	  $1::uuid, $2::uuid, $3::text, nullif($4::text, ''), $5::text, $6::date, 'alive',
+	  nullif($7::text, ''), nullif($8::text, ''), $9::uuid,
+	  $10::uuid, $11::uuid, $12::uuid, $10::uuid,
+	  $13::uuid, $6::date, $14::boolean, $15::text, $16::date
+	)`,
 		goatID,
 		cmd.TenantID,
+		cmd.Species,
 		stringValue(cmd.Breed),
 		cmd.Sex,
 		dateValue(cmd.DOB),
@@ -648,6 +645,7 @@ func adminGoatEventPayload(cmd ports.CreateAdminGoatCommand, goatID, decisionID,
 		"goat_id":           goatID,
 		"decision_id":       decisionID,
 		"identifiers":       cmd.Identifiers,
+		"species":           cmd.Species,
 		"origin_type":       cmd.OriginType,
 		"entry_date":        cmd.EntryDate.UTC().Format("2006-01-02"),
 		"farm_id":           stringValue(cmd.FarmID),
@@ -680,6 +678,7 @@ func adminGoatDomainEventEnvelope(cmd ports.CreateAdminGoatCommand, goat domain.
 			"goat_id":           goat.GoatID,
 			"decision_id":       decision.DecisionID,
 			"identifiers":       cmd.Identifiers,
+			"species":           cmd.Species,
 			"origin_type":       cmd.OriginType,
 			"entry_date":        cmd.EntryDate.UTC().Format("2006-01-02"),
 			"farm_id":           stringValue(cmd.FarmID),
@@ -776,20 +775,14 @@ SELECT EXISTS (
 	return nil
 }
 
-func (r *Repository) activeIdentifierConflict(ctx context.Context, tenantID, identifierType, normalizedValue, scopeKey string) (string, error) {
+func (r *Repository) identifierLifetimeConflict(ctx context.Context, tenantID, normalizedValue string) (string, error) {
 	var goatID string
 	err := r.pool.QueryRow(ctx, `
 SELECT goat_id::text
 FROM goat_identifiers
 WHERE tenant_id = $1::uuid
-  AND identifier_type = $2
-  AND normalized_value = $3
-  AND status = 'active'
-  AND (
-    $2 = 'rfid'
-    OR scope_key = $4
-  )
-LIMIT 1`, tenantID, identifierType, normalizedValue, scopeKey).Scan(&goatID)
+  AND normalized_value = $2
+LIMIT 1`, tenantID, normalizedValue).Scan(&goatID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}

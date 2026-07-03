@@ -55,21 +55,6 @@ function hrefWithDrawerParam(pathname: string, params: RouteSearchParams, key: s
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
-function identityTone(state: GoatRow["identity_state"]): "ok" | "warn" | "dng" | "mut" {
-  switch (state) {
-    case "clean":
-      return "ok";
-    case "needs_review":
-    case "disputed":
-      return "warn";
-    case "merged":
-    case "inactive":
-      return "dng";
-    default:
-      return "mut";
-  }
-}
-
 function statusTone(value: string | null | undefined, kind: "lifecycle" | "health" | "breeding"): "ok" | "warn" | "dng" | "info" | "mut" {
   const v = String(value ?? "").toLowerCase();
   if (!v) return "mut";
@@ -118,8 +103,7 @@ function isKidGoat(g: GoatRow): boolean {
 }
 
 function isUntagged(g: GoatRow): boolean {
-  const display = String(g.display_id ?? "");
-  return !display || display.startsWith("TMP-") || g.identity_state !== "clean";
+  return !g.animal_identifier_1 || !g.animal_identifier_2;
 }
 
 function buildHerdSummary(pageContract: AdminUiPageContract, rows: GoatRow[], capped: boolean) {
@@ -135,7 +119,7 @@ function buildHerdSummary(pageContract: AdminUiPageContract, rows: GoatRow[], ca
     { label: copy(pageContract, "label.active"), value: `${activeRows.length}${suffix}`, sub },
     { label: copy(pageContract, "label.adults"), value: `${adultRows.length}${suffix}`, sub: copy(pageContract, "label.live_scoped_register") },
     { label: copy(pageContract, "label.kids"), value: `${kidRows.length}${suffix}`, sub: copy(pageContract, "label.stage_shed_inferred") },
-    { label: copy(pageContract, "label.untagged_kids"), value: `${untaggedKids}${suffix}`, sub: copy(pageContract, "label.identity_review_rows") },
+    { label: copy(pageContract, "label.untagged_kids"), value: `${untaggedKids}${suffix}`, sub: copy(pageContract, "label.invalid_id_rows") },
   ];
 }
 
@@ -306,11 +290,11 @@ export async function HerdRegisterPage({
                       <td>
                         <Link href={href} className="celllink" scroll={false}>
                           <span className="gid">{g.display_id}</span>
-                          {g.identity_state !== "clean" ? (
+                          {isUntagged(g) ? (
                             <>
                               {" "}
-                              <Tag tone={identityTone(g.identity_state)} title={copy(pageContract, "tag.identity_title")}>
-                                {g.identity_state.replace("_", " ")}
+                              <Tag tone="warn" title={copy(pageContract, "tag.identity_title")}>
+                                missing ID
                               </Tag>
                             </>
                           ) : null}
@@ -452,7 +436,7 @@ async function HerdPassportDrawer({
             {copy(pageContract, "label.identifiers")}
           </div>
           <div className="note" style={{ marginTop: 8 }}>
-            {copy(pageContract, "label.goat_id")}: {goat.goat_id} · {copy(pageContract, "label.display_id")}: {goat.display_id} · {copy(pageContract, "label.identity")}: {goat.identity_state.replace("_", " ")}
+            {copy(pageContract, "label.goat_id")}: {goat.goat_id} · {copy(pageContract, "label.display_id")}: {goat.display_id} · {copy(pageContract, "label.animal_identifier_1")}: {dash(goat.animal_identifier_1)} · {copy(pageContract, "label.animal_identifier_2")}: {dash(goat.animal_identifier_2)}
           </div>
           <HerdPassportVaccinationBlock goatId={goat.goat_id} />
         </div>

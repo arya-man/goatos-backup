@@ -29,7 +29,8 @@ import {
 import { parseCSVRecords } from "./herd-import-utils";
 
 const SEXES = ["female", "male"] as const;
-const ORIGIN_TYPES = ["birth", "procured", "imported", "unknown"] as const;
+const SPECIES = ["goat", "sheep"] as const;
+const ORIGIN_TYPES = ["birth", "procured", "imported"] as const;
 const EVIDENCE_TYPES = ["source_record", "identifier", "goat", "event", "media", "decision", "import_run", "conflict", "location", "actor"] as const;
 
 const HERD_PATH = "/counts/herd";
@@ -146,17 +147,16 @@ export async function createGoatAction(formData: FormData): Promise<void> {
   try {
     const idempotencyKey = optionalString(formData, "idempotency_key") ?? randomUUID();
 
-    const rfid = optionalString(formData, "rfid");
-    const oldTag = optionalString(formData, "old_tag");
-    const tempFieldId = optionalString(formData, "temp_field_id");
-    if (!rfid && !oldTag && !tempFieldId) {
-      throw new Error("At least one identifier is required: RFID, old tag, or a temporary field id.");
+    const animalIdentifier1 = requiredString(formData, "animal_identifier_1");
+    const animalIdentifier2 = requiredString(formData, "animal_identifier_2");
+    if (animalIdentifier1.trim().toUpperCase() === animalIdentifier2.trim().toUpperCase()) {
+      throw new Error("Animal ID 1 and Animal ID 2 must be different.");
     }
 
     const body: CreateAdminGoatRequest = {
-      rfid,
-      old_tag: oldTag,
-      temp_field_id: tempFieldId,
+      animal_identifier_1: animalIdentifier1,
+      animal_identifier_2: animalIdentifier2,
+      species: inEnum(optionalString(formData, "species"), SPECIES, "species"),
       park_id: requiredString(formData, "park_id"),
       shed_id: requiredString(formData, "shed_id"),
       farm_id: optionalString(formData, "farm_id"),
@@ -165,7 +165,7 @@ export async function createGoatAction(formData: FormData): Promise<void> {
       sex: inEnum(optionalString(formData, "sex"), SEXES, "sex"),
       dob: requiredString(formData, "dob"),
       dob_estimated: formData.get("dob_estimated") === "on",
-      origin_type: inEnum(optionalString(formData, "origin_type") ?? "unknown", ORIGIN_TYPES, "origin_type"),
+      origin_type: inEnum(optionalString(formData, "origin_type"), ORIGIN_TYPES, "origin_type"),
       entry_date: requiredString(formData, "entry_date"),
       weight_kg: optFloat(formData, "weight_kg"),
       dam_id: optionalString(formData, "dam_id"),
@@ -182,7 +182,7 @@ export async function createGoatAction(formData: FormData): Promise<void> {
         result.data.generation_status === "queued"
           ? "action.goat_registered_generation_queued"
           : result.data.generation_status === "skipped_needs_review"
-            ? "action.goat_registered_identity_review"
+            ? "action.goat_registered_rejected"
             : result.data.generation_status === "skipped_ineligible"
               ? "action.goat_registered_ineligible"
               : "action.goat_registered_no_generation";

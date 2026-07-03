@@ -650,7 +650,7 @@ var stableUIConfigOptionGroups = map[string]map[string]struct{}{
 	"proc_handoff_status":                     presentationOptionFields,
 	"proc_health_state":                       presentationOptionFields,
 	"proc_hf_review_status":                   presentationOptionFields,
-	"proc_identity_review_state":              presentationOptionFields,
+	"proc_source_entry_state":                 presentationOptionFields,
 	"proc_intake_signal":                      presentationOptionFields,
 	"proc_ownership_state":                    presentationOptionFields,
 	"proc_purpose":                            presentationOptionFields,

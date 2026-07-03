@@ -142,7 +142,7 @@ func TestValidateProofPolicyRetentionPolicy(t *testing.T) {
 	}
 }
 
-func TestCreateVersionRejectsLegacyProofPolicyShape(t *testing.T) {
+func TestCreateVersionRejectsOldProofPolicyShape(t *testing.T) {
 	repo := newFakeRepo()
 	service := NewService(repo)
 	_, err := service.CreateVersion(context.Background(), ports.CreateVersionCommand{
@@ -150,7 +150,7 @@ func TestCreateVersionRejectsLegacyProofPolicyShape(t *testing.T) {
 		ActorID:  testActorID,
 		SOPID:    testSOPID,
 		Body: domain.CreateSOPVersionRequest{
-			VersionLabel: "legacy",
+			VersionLabel: "old-shape",
 			FormDSL:      shiftingDSL(),
 			ProofPolicy: map[string]any{
 				"required":      true,

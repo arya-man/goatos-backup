@@ -46,8 +46,8 @@ const getGoatByDisplayID = `-- name: GetGoatByDisplayID :one
 SELECT
   g.goat_id::text AS goat_id,
   g.display_id,
-  old_tag.identifier_value AS primary_old_tag,
-  rfid.identifier_value AS rfid,
+  animal_id_1.identifier_value AS animal_identifier_1,
+  animal_id_2.identifier_value AS animal_identifier_2,
   g.breed,
   g.sex,
   g.age_band,
@@ -56,7 +56,6 @@ SELECT
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  g.identity_state,
   COALESCE(loc.name, 'Unknown location') AS location_display,
   COALESCE(g.farm_id::text, '')::text AS farm_id,
   COALESCE(g.park_id::text, '')::text AS park_id,
@@ -67,15 +66,14 @@ SELECT
   g.row_version
 FROM goats g
 LEFT JOIN locations loc ON loc.tenant_id = g.tenant_id AND loc.location_id = g.current_location_id
-LEFT JOIN goat_identifiers old_tag ON old_tag.tenant_id = g.tenant_id
-  AND old_tag.goat_id = g.goat_id
-  AND old_tag.identifier_type = 'old_tag'
-  AND old_tag.status = 'active'
-  AND old_tag.is_primary_for_goat
-LEFT JOIN goat_identifiers rfid ON rfid.tenant_id = g.tenant_id
-  AND rfid.goat_id = g.goat_id
-  AND rfid.identifier_type = 'rfid'
-  AND rfid.status = 'active'
+LEFT JOIN goat_identifiers animal_id_1 ON animal_id_1.tenant_id = g.tenant_id
+  AND animal_id_1.goat_id = g.goat_id
+  AND animal_id_1.identifier_type = 'animal_identifier_1'
+  AND animal_id_1.status = 'active'
+LEFT JOIN goat_identifiers animal_id_2 ON animal_id_2.tenant_id = g.tenant_id
+  AND animal_id_2.goat_id = g.goat_id
+  AND animal_id_2.identifier_type = 'animal_identifier_2'
+  AND animal_id_2.status = 'active'
 WHERE g.tenant_id = $1 AND g.display_id = $2
 `
 
@@ -87,8 +85,8 @@ type GetGoatByDisplayIDParams struct {
 type GetGoatByDisplayIDRow struct {
 	GoatID             string
 	DisplayID          string
-	PrimaryOldTag      pgtype.Text
-	Rfid               pgtype.Text
+	AnimalIdentifier1  pgtype.Text
+	AnimalIdentifier2  pgtype.Text
 	Breed              pgtype.Text
 	Sex                string
 	AgeBand            pgtype.Text
@@ -97,7 +95,6 @@ type GetGoatByDisplayIDRow struct {
 	GrowthCohortTag    pgtype.Text
 	ManagementStage    pgtype.Text
 	HealthStatus       pgtype.Text
-	IdentityState      string
 	LocationDisplay    string
 	FarmID             string
 	ParkID             string
@@ -114,8 +111,8 @@ func (q *Queries) GetGoatByDisplayID(ctx context.Context, arg GetGoatByDisplayID
 	err := row.Scan(
 		&i.GoatID,
 		&i.DisplayID,
-		&i.PrimaryOldTag,
-		&i.Rfid,
+		&i.AnimalIdentifier1,
+		&i.AnimalIdentifier2,
 		&i.Breed,
 		&i.Sex,
 		&i.AgeBand,
@@ -124,7 +121,6 @@ func (q *Queries) GetGoatByDisplayID(ctx context.Context, arg GetGoatByDisplayID
 		&i.GrowthCohortTag,
 		&i.ManagementStage,
 		&i.HealthStatus,
-		&i.IdentityState,
 		&i.LocationDisplay,
 		&i.FarmID,
 		&i.ParkID,
@@ -141,8 +137,8 @@ const getGoatByID = `-- name: GetGoatByID :one
 SELECT
   g.goat_id::text AS goat_id,
   g.display_id,
-  old_tag.identifier_value AS primary_old_tag,
-  rfid.identifier_value AS rfid,
+  animal_id_1.identifier_value AS animal_identifier_1,
+  animal_id_2.identifier_value AS animal_identifier_2,
   g.breed,
   g.sex,
   g.age_band,
@@ -151,7 +147,6 @@ SELECT
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  g.identity_state,
   COALESCE(loc.name, 'Unknown location') AS location_display,
   COALESCE(g.farm_id::text, '')::text AS farm_id,
   COALESCE(g.park_id::text, '')::text AS park_id,
@@ -162,15 +157,14 @@ SELECT
   g.row_version
 FROM goats g
 LEFT JOIN locations loc ON loc.tenant_id = g.tenant_id AND loc.location_id = g.current_location_id
-LEFT JOIN goat_identifiers old_tag ON old_tag.tenant_id = g.tenant_id
-  AND old_tag.goat_id = g.goat_id
-  AND old_tag.identifier_type = 'old_tag'
-  AND old_tag.status = 'active'
-  AND old_tag.is_primary_for_goat
-LEFT JOIN goat_identifiers rfid ON rfid.tenant_id = g.tenant_id
-  AND rfid.goat_id = g.goat_id
-  AND rfid.identifier_type = 'rfid'
-  AND rfid.status = 'active'
+LEFT JOIN goat_identifiers animal_id_1 ON animal_id_1.tenant_id = g.tenant_id
+  AND animal_id_1.goat_id = g.goat_id
+  AND animal_id_1.identifier_type = 'animal_identifier_1'
+  AND animal_id_1.status = 'active'
+LEFT JOIN goat_identifiers animal_id_2 ON animal_id_2.tenant_id = g.tenant_id
+  AND animal_id_2.goat_id = g.goat_id
+  AND animal_id_2.identifier_type = 'animal_identifier_2'
+  AND animal_id_2.status = 'active'
 WHERE g.tenant_id = $1 AND g.goat_id = $2
 `
 
@@ -182,8 +176,8 @@ type GetGoatByIDParams struct {
 type GetGoatByIDRow struct {
 	GoatID             string
 	DisplayID          string
-	PrimaryOldTag      pgtype.Text
-	Rfid               pgtype.Text
+	AnimalIdentifier1  pgtype.Text
+	AnimalIdentifier2  pgtype.Text
 	Breed              pgtype.Text
 	Sex                string
 	AgeBand            pgtype.Text
@@ -192,7 +186,6 @@ type GetGoatByIDRow struct {
 	GrowthCohortTag    pgtype.Text
 	ManagementStage    pgtype.Text
 	HealthStatus       pgtype.Text
-	IdentityState      string
 	LocationDisplay    string
 	FarmID             string
 	ParkID             string
@@ -209,8 +202,8 @@ func (q *Queries) GetGoatByID(ctx context.Context, arg GetGoatByIDParams) (GetGo
 	err := row.Scan(
 		&i.GoatID,
 		&i.DisplayID,
-		&i.PrimaryOldTag,
-		&i.Rfid,
+		&i.AnimalIdentifier1,
+		&i.AnimalIdentifier2,
 		&i.Breed,
 		&i.Sex,
 		&i.AgeBand,
@@ -219,7 +212,6 @@ func (q *Queries) GetGoatByID(ctx context.Context, arg GetGoatByIDParams) (GetGo
 		&i.GrowthCohortTag,
 		&i.ManagementStage,
 		&i.HealthStatus,
-		&i.IdentityState,
 		&i.LocationDisplay,
 		&i.FarmID,
 		&i.ParkID,

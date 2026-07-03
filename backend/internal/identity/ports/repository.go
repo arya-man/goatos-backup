@@ -199,6 +199,7 @@ type CreateAdminGoatCommand struct {
 	FarmID               *string
 	ParkID               string
 	ShedID               string
+	Species              string
 	Breed                *string
 	Sex                  string
 	DOB                  *time.Time

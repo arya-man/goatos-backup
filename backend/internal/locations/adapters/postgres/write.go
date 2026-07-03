@@ -1167,19 +1167,16 @@ func usageTx(ctx context.Context, tx pgx.Tx, tenantID, locationID string) (domai
 	usage.LocationID = locationID
 	err := tx.QueryRow(ctx, `
 SELECT
-  (SELECT count(*) FROM goats g WHERE g.tenant_id = $1::uuid AND (g.current_location_id = $2::uuid OR g.farm_id = $2::uuid OR g.park_id = $2::uuid OR g.shed_id = $2::uuid OR g.cohort_id = $2::uuid) AND g.identity_state <> 'merged'),
+  (SELECT count(*) FROM goats g WHERE g.tenant_id = $1::uuid AND (g.current_location_id = $2::uuid OR g.farm_id = $2::uuid OR g.park_id = $2::uuid OR g.shed_id = $2::uuid OR g.cohort_id = $2::uuid) AND g.merged_into_goat_id IS NULL),
   (SELECT count(*) FROM goat_location_history glh WHERE glh.tenant_id = $1::uuid AND (glh.from_location_id = $2::uuid OR glh.to_location_id = $2::uuid)),
   (SELECT count(*) FROM locations child WHERE child.tenant_id = $1::uuid AND child.parent_location_id = $2::uuid AND child.status = 'active'),
   (SELECT count(*) FROM location_aliases la WHERE la.tenant_id = $1::uuid AND la.canonical_location_id = $2::uuid AND la.status = 'active'),
   (SELECT count(*) FROM user_scope_grants usg WHERE usg.tenant_id = $1::uuid AND usg.scope_id = $2::uuid AND (usg.valid_to IS NULL OR usg.valid_to > now())),
   0::bigint,
-  (SELECT count(*) FROM counts_current_snapshot_rows csr WHERE csr.tenant_id = $1::uuid AND (csr.farm_id = $2::uuid OR csr.park_id = $2::uuid OR csr.shed_id = $2::uuid OR csr.resolved_location_id = $2::uuid))
-    + (SELECT count(*) FROM mortality_events me WHERE me.tenant_id = $1::uuid AND (me.canonical_farm_location_id = $2::uuid OR me.canonical_park_location_id = $2::uuid OR me.canonical_shed_location_id = $2::uuid OR me.canonical_housing_location_id = $2::uuid)),
-  (SELECT count(*) FROM counts_projection_rows cpr WHERE cpr.tenant_id = $1::uuid AND cpr.dimension_key = $2::text)
-    + (SELECT count(*) FROM mortality_projection_rows mpr WHERE mpr.tenant_id = $1::uuid AND mpr.dimension_key = $2::text)`,
+  0::bigint`,
 		tenantID, locationID).Scan(
 		&usage.GoatsCurrentlyAssigned, &usage.GoatLocationHistoryRows, &usage.ChildLocations, &usage.ActiveAliases,
-		&usage.ActiveRBACGrants, &usage.ActiveSOPDependencies, &usage.ImportOrSourceRows, &usage.DashboardProjectionRows,
+		&usage.ActiveRBACGrants, &usage.ActiveSOPDependencies, &usage.ImportOrSourceRows,
 	)
 	if err != nil {
 		return domain.LocationUsageResponse{}, err
@@ -1192,17 +1189,14 @@ func hardDeleteLocationBlockedTx(ctx context.Context, tx pgx.Tx, tenantID, locat
 	var blocked bool
 	err := tx.QueryRow(ctx, `
 SELECT
-  EXISTS (SELECT 1 FROM goats g WHERE g.tenant_id = $1::uuid AND (g.current_location_id = $2::uuid OR g.farm_id = $2::uuid OR g.park_id = $2::uuid OR g.shed_id = $2::uuid OR g.cohort_id = $2::uuid) AND g.identity_state <> 'merged')
+  EXISTS (SELECT 1 FROM goats g WHERE g.tenant_id = $1::uuid AND (g.current_location_id = $2::uuid OR g.farm_id = $2::uuid OR g.park_id = $2::uuid OR g.shed_id = $2::uuid OR g.cohort_id = $2::uuid) AND g.merged_into_goat_id IS NULL)
   OR EXISTS (SELECT 1 FROM goat_location_history glh WHERE glh.tenant_id = $1::uuid AND (glh.from_location_id = $2::uuid OR glh.to_location_id = $2::uuid))
   OR EXISTS (SELECT 1 FROM locations child WHERE child.tenant_id = $1::uuid AND child.parent_location_id = $2::uuid)
   OR EXISTS (SELECT 1 FROM location_aliases la WHERE la.tenant_id = $1::uuid AND la.canonical_location_id = $2::uuid)
   OR EXISTS (SELECT 1 FROM location_capacity_records lcr WHERE lcr.tenant_id = $1::uuid AND lcr.location_id = $2::uuid)
   OR EXISTS (SELECT 1 FROM location_review_items lri WHERE lri.tenant_id = $1::uuid AND lri.canonical_location_id = $2::uuid AND lri.status = 'open')
   OR EXISTS (SELECT 1 FROM user_scope_grants usg WHERE usg.tenant_id = $1::uuid AND usg.scope_id = $2::uuid AND (usg.valid_to IS NULL OR usg.valid_to > now()))
-  OR EXISTS (SELECT 1 FROM counts_current_snapshot_rows csr WHERE csr.tenant_id = $1::uuid AND (csr.farm_id = $2::uuid OR csr.park_id = $2::uuid OR csr.shed_id = $2::uuid OR csr.resolved_location_id = $2::uuid))
-  OR EXISTS (SELECT 1 FROM mortality_events me WHERE me.tenant_id = $1::uuid AND (me.canonical_farm_location_id = $2::uuid OR me.canonical_park_location_id = $2::uuid OR me.canonical_shed_location_id = $2::uuid OR me.canonical_housing_location_id = $2::uuid))
-  OR EXISTS (SELECT 1 FROM counts_projection_rows cpr WHERE cpr.tenant_id = $1::uuid AND cpr.dimension_key = $2::text)
-  OR EXISTS (SELECT 1 FROM mortality_projection_rows mpr WHERE mpr.tenant_id = $1::uuid AND mpr.dimension_key = $2::text)`, tenantID, locationID).Scan(&blocked)
+`, tenantID, locationID).Scan(&blocked)
 	if err != nil {
 		return false, err
 	}

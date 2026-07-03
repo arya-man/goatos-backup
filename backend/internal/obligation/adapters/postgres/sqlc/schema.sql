@@ -586,7 +586,6 @@ CREATE FUNCTION public.block_merged_goat_child_write() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 DECLARE
-  target_state text;
   target_redirect uuid;
 BEGIN
   IF COALESCE(current_setting('goatos.allow_merged_goat_child_write', true), 'off') = 'on' THEN
@@ -597,13 +596,13 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  SELECT identity_state, merged_into_goat_id
-    INTO target_state, target_redirect
+  SELECT merged_into_goat_id
+    INTO target_redirect
     FROM goats
     WHERE tenant_id = NEW.tenant_id
       AND goat_id = NEW.goat_id;
 
-  IF target_state = 'merged' THEN
+  IF target_redirect IS NOT NULL THEN
     RAISE EXCEPTION 'merged_goat_child_write_blocked: goat % redirects to %', NEW.goat_id, target_redirect
       USING ERRCODE = '23514';
   END IF;
@@ -1035,11 +1034,6 @@ BEGIN
         ) THEN
         RAISE EXCEPTION 'seeded CBE/CPT/HF location scope requires approved migration plan';
       END IF;
-    ELSIF TG_TABLE_NAME = 'location_aliases' THEN
-      IF OLD.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-        AND OLD.source_context IN ('legacy_location_code', 'legacy_bq_dashboard_shed') THEN
-        RAISE EXCEPTION 'seeded location alias scope requires approved migration plan';
-      END IF;
     END IF;
   END IF;
   IF TG_OP = 'DELETE' THEN
@@ -1110,7 +1104,7 @@ CREATE FUNCTION public.prevent_merged_goat_normal_update() RETURNS trigger
     AS $$
 BEGIN
   IF TG_OP = 'UPDATE'
-    AND OLD.identity_state = 'merged'
+    AND OLD.merged_into_goat_id IS NOT NULL
     AND COALESCE(current_setting('goatos.allow_merged_goat_update', true), 'off') <> 'on'
   THEN
     RAISE EXCEPTION 'merged_goat_write_blocked: goat % redirects to %', OLD.goat_id, OLD.merged_into_goat_id
@@ -1196,37 +1190,35 @@ CREATE FUNCTION public.validate_goat_merge_link() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 DECLARE
-  survivor_state text;
   survivor_redirect uuid;
-  merged_state text;
   merged_redirect uuid;
 BEGIN
-  SELECT identity_state, merged_into_goat_id
-    INTO survivor_state, survivor_redirect
+  SELECT merged_into_goat_id
+    INTO survivor_redirect
     FROM goats
     WHERE goat_id = NEW.survivor_goat_id;
 
-  IF survivor_state IS NULL THEN
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'survivor goat % does not exist', NEW.survivor_goat_id
       USING ERRCODE = '23503';
   END IF;
 
-  IF survivor_state = 'merged' OR survivor_redirect IS NOT NULL THEN
+  IF survivor_redirect IS NOT NULL THEN
     RAISE EXCEPTION 'survivor goat % must be live, not merged', NEW.survivor_goat_id
       USING ERRCODE = '23514';
   END IF;
 
-  SELECT identity_state, merged_into_goat_id
-    INTO merged_state, merged_redirect
+  SELECT merged_into_goat_id
+    INTO merged_redirect
     FROM goats
     WHERE goat_id = NEW.merged_goat_id;
 
-  IF merged_state IS NULL THEN
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'merged goat % does not exist', NEW.merged_goat_id
       USING ERRCODE = '23503';
   END IF;
 
-  IF merged_state <> 'merged' OR merged_redirect IS DISTINCT FROM NEW.survivor_goat_id THEN
+  IF merged_redirect IS DISTINCT FROM NEW.survivor_goat_id THEN
     RAISE EXCEPTION 'merged goat % must redirect to survivor % before link insert', NEW.merged_goat_id, NEW.survivor_goat_id
       USING ERRCODE = '23514';
   END IF;
@@ -1707,8 +1699,8 @@ CREATE TABLE public.arrival_intake_review_goats (
     review_id uuid NOT NULL,
     load_id uuid NOT NULL,
     goat_id uuid,
-    temporary_id text,
-    source_tag text,
+    animal_identifier_2 text,
+    animal_identifier_1 text,
     item_key text NOT NULL,
     arrival_state text NOT NULL,
     health_flag text,
@@ -2361,123 +2353,9 @@ CREATE TABLE public.count_source_import_runs (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT count_source_import_runs_counts_check CHECK (((source_rows_read >= 0) AND (base_anchor_rows >= 0) AND (shifting_event_rows >= 0) AND (replay_count >= 0) AND (failed_row_count >= 0))),
     CONSTRAINT count_source_import_runs_mode_check CHECK ((mode = ANY (ARRAY['dry_run'::text, 'execute'::text]))),
-    CONSTRAINT count_source_import_runs_source_system_check CHECK ((source_system = ANY (ARRAY['physical_base_count'::text, 'manual_review'::text, 'import'::text, 'feed_shiftings_docx'::text, 'legacy_slack'::text, 'goatos_canonical'::text]))),
+    CONSTRAINT count_source_import_runs_source_system_check CHECK ((source_system = ANY (ARRAY['physical_base_count'::text, 'manual_review'::text, 'import'::text, 'feed_shiftings_docx'::text, 'goatos_canonical'::text]))),
     CONSTRAINT count_source_import_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text]))),
     CONSTRAINT count_source_import_runs_status_completion_check CHECK ((((status = 'running'::text) AND (completed_at IS NULL)) OR ((status = ANY (ARRAY['completed'::text, 'failed'::text])) AND (completed_at IS NOT NULL))))
-);
-
-
---
--- Name: counts_current_snapshot_rows; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.counts_current_snapshot_rows (
-    counts_snapshot_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    snapshot_date date NOT NULL,
-    source_mode text NOT NULL,
-    row_kind text NOT NULL,
-    tab_scope text,
-    farm_key text,
-    farm_label text,
-    farm_id uuid,
-    park_id uuid,
-    shed_key text,
-    shed_label text,
-    shed_id uuid,
-    resolved_location_id uuid,
-    resolved_location_type text,
-    status_key text,
-    status_label text,
-    breed_key text,
-    breed_label text,
-    breed_id uuid,
-    age_class text,
-    source_age_label text,
-    sex text,
-    metric_name text NOT NULL,
-    count_value bigint,
-    weight_kg numeric,
-    value_inr numeric,
-    source_row_id uuid,
-    logical_fact_key text NOT NULL,
-    projection_input_hash text NOT NULL,
-    sync_run_id uuid,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT counts_snapshot_age_class_check CHECK (((age_class IS NULL) OR (age_class = ANY (ARRAY['adult'::text, 'kid'::text, 'unknown'::text])))),
-    CONSTRAINT counts_snapshot_nonnegative_count_check CHECK (((count_value IS NULL) OR (count_value >= 0))),
-    CONSTRAINT counts_snapshot_row_kind_check CHECK ((row_kind = ANY (ARRAY['detail_count'::text, 'summary_kpi'::text, 'age_gender_kpi'::text, 'core_gender_breed'::text]))),
-    CONSTRAINT counts_snapshot_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text])))),
-    CONSTRAINT counts_snapshot_source_mode_check CHECK ((source_mode = ANY (ARRAY['legacy_bq'::text, 'goatos_canonical'::text])))
-);
-
-
---
--- Name: counts_projection_rows; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.counts_projection_rows (
-    counts_projection_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    view_id text NOT NULL,
-    snapshot_date date NOT NULL,
-    summary_source_date date,
-    section text NOT NULL,
-    grain text NOT NULL,
-    dimension_key text NOT NULL,
-    dimension_label text NOT NULL,
-    secondary_dimension_key text,
-    secondary_dimension_label text,
-    metric_key text NOT NULL,
-    count_value bigint,
-    numeric_value numeric,
-    unit text NOT NULL,
-    denominator numeric,
-    sort_order integer DEFAULT 0 NOT NULL,
-    projection_version bigint NOT NULL,
-    sync_run_id uuid,
-    source_hash text NOT NULL,
-    source_composition text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT counts_projection_grain_check CHECK ((grain = ANY (ARRAY['metric'::text, 'status'::text, 'breed'::text, 'status_breed'::text, 'farm'::text, 'age_class'::text, 'sex'::text, 'breed_sex'::text]))),
-    CONSTRAINT counts_projection_nonnegative_count_check CHECK (((count_value IS NULL) OR (count_value >= 0))),
-    CONSTRAINT counts_projection_section_check CHECK ((section = ANY (ARRAY['summary'::text, 'status'::text, 'breed'::text, 'status_breed'::text, 'farm'::text, 'farm_distribution'::text, 'age'::text, 'adults_gender'::text, 'kids_gender'::text, 'kids_stage_gender'::text, 'fattening_gender'::text, 'core_farm_gender_breed'::text]))),
-    CONSTRAINT counts_projection_source_composition_check CHECK ((source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text]))),
-    CONSTRAINT counts_projection_unit_check CHECK ((unit = ANY (ARRAY['count'::text, 'kg'::text, 'inr'::text, 'kg_per_goat'::text, 'percent'::text]))),
-    CONSTRAINT counts_projection_view_check CHECK ((view_id = ANY (ARRAY['overall'::text, 'core-farms'::text, 'cbe'::text, 'cpt'::text, 'holdings'::text])))
-);
-
-
---
--- Name: counts_projection_state; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.counts_projection_state (
-    counts_projection_state_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    view_id text,
-    last_successful_run_id uuid,
-    last_success_at timestamp with time zone,
-    snapshot_date date,
-    summary_source_date date,
-    source_watermark text,
-    projection_version bigint DEFAULT 0 NOT NULL,
-    freshness_status text DEFAULT 'unknown'::text NOT NULL,
-    serving_state text DEFAULT 'never_synced'::text NOT NULL,
-    row_count integer DEFAULT 0 NOT NULL,
-    conflict_count integer DEFAULT 0 NOT NULL,
-    unavailable_sources jsonb DEFAULT '[]'::jsonb NOT NULL,
-    source_composition text DEFAULT 'legacy_only'::text NOT NULL,
-    rebuild_required boolean DEFAULT false NOT NULL,
-    last_error text,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT counts_projection_state_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
-    CONSTRAINT counts_projection_state_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text, 'source_unavailable'::text]))),
-    CONSTRAINT counts_projection_state_source_composition_check CHECK ((source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text]))),
-    CONSTRAINT counts_projection_state_unavailable_array_check CHECK ((jsonb_typeof(unavailable_sources) = 'array'::text)),
-    CONSTRAINT counts_projection_state_view_check CHECK (((view_id IS NULL) OR (view_id = ANY (ARRAY['overall'::text, 'core-farms'::text, 'cbe'::text, 'cpt'::text, 'holdings'::text]))))
 );
 
 
@@ -2524,63 +2402,6 @@ CREATE TABLE public.counts_shifting_readiness_subgates (
 
 
 --
--- Name: counts_source_rows; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.counts_source_rows (
-    counts_source_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    source_system text NOT NULL,
-    source_id text NOT NULL,
-    source_table text NOT NULL,
-    source_row_key text NOT NULL,
-    source_observed_at timestamp with time zone,
-    source_watermark_date date,
-    payload_json jsonb NOT NULL,
-    payload_hash text NOT NULL,
-    row_status text DEFAULT 'current'::text NOT NULL,
-    sync_run_id uuid,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    superseded_at timestamp with time zone,
-    CONSTRAINT counts_source_rows_payload_object_check CHECK ((jsonb_typeof(payload_json) = 'object'::text)),
-    CONSTRAINT counts_source_rows_status_check CHECK ((row_status = ANY (ARRAY['current'::text, 'superseded'::text, 'invalid'::text, 'ignored'::text])))
-);
-
-
---
--- Name: counts_sync_runs; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.counts_sync_runs (
-    sync_run_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    requested_by uuid NOT NULL,
-    mode text NOT NULL,
-    status text NOT NULL,
-    snapshot_date date,
-    source_rows_read integer DEFAULT 0 NOT NULL,
-    projection_rows_written integer DEFAULT 0 NOT NULL,
-    rows_skipped integer DEFAULT 0 NOT NULL,
-    unresolved_location_labels integer DEFAULT 0 NOT NULL,
-    freshness_status text DEFAULT 'unknown'::text NOT NULL,
-    serving_state text DEFAULT 'never_synced'::text NOT NULL,
-    source_watermark text,
-    unavailable_sources jsonb DEFAULT '[]'::jsonb NOT NULL,
-    trace_id text,
-    last_error text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    completed_at timestamp with time zone,
-    CONSTRAINT counts_sync_runs_counts_check CHECK (((source_rows_read >= 0) AND (projection_rows_written >= 0) AND (rows_skipped >= 0) AND (unresolved_location_labels >= 0))),
-    CONSTRAINT counts_sync_runs_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
-    CONSTRAINT counts_sync_runs_mode_check CHECK ((mode = ANY (ARRAY['dry_run'::text, 'execute'::text]))),
-    CONSTRAINT counts_sync_runs_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text, 'source_unavailable'::text]))),
-    CONSTRAINT counts_sync_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text, 'source_unavailable'::text]))),
-    CONSTRAINT counts_sync_runs_unavailable_array_check CHECK ((jsonb_typeof(unavailable_sources) = 'array'::text))
-);
-
-
---
 -- Name: domain_event_processed_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2621,37 +2442,6 @@ CREATE TABLE public.farm_profiles (
     CONSTRAINT farm_profiles_capacity_check CHECK (((capacity IS NULL) OR (capacity >= 0))),
     CONSTRAINT farm_profiles_kind_check CHECK (((farm_kind IS NULL) OR (farm_kind = ANY (ARRAY['core'::text, 'holding'::text, 'contract'::text])))),
     CONSTRAINT farm_profiles_row_version_check CHECK ((row_version >= 1))
-);
-
-
---
--- Name: feature_coverage_registry; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.feature_coverage_registry (
-    coverage_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    feature_module text NOT NULL,
-    section text NOT NULL,
-    metric_key text NOT NULL,
-    grain_key text NOT NULL,
-    covered_window text NOT NULL,
-    source_mode text NOT NULL,
-    coverage_status text NOT NULL,
-    canonical_source_version text,
-    legacy_source_version text,
-    shadow_parity_artifact_path text,
-    approving_actor uuid,
-    approved_at timestamp with time zone,
-    audit_id uuid,
-    rollback_policy text,
-    expires_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT feature_coverage_registry_module_check CHECK ((feature_module = ANY (ARRAY['counts'::text, 'mortality'::text, 'locations'::text, 'vaccination'::text, 'feed'::text]))),
-    CONSTRAINT feature_coverage_registry_source_mode_check CHECK ((source_mode = ANY (ARRAY['legacy_bq'::text, 'legacy_sheet'::text, 'goatos_canonical'::text, 'manual_review'::text]))),
-    CONSTRAINT feature_coverage_registry_status_check CHECK ((coverage_status = ANY (ARRAY['proposed'::text, 'shadow_passed'::text, 'complete'::text, 'blocked'::text])))
 );
 
 
@@ -2747,316 +2537,8 @@ CREATE TABLE public.goat_identifiers (
     CONSTRAINT goat_identifiers_confidence_check CHECK (((confidence IS NULL) OR ((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))),
     CONSTRAINT goat_identifiers_scope_key_check CHECK ((length(scope_key) > 0)),
     CONSTRAINT goat_identifiers_status_check CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text, 'disputed'::text, 'duplicate'::text, 'invalid'::text]))),
-    CONSTRAINT goat_identifiers_type_check CHECK ((identifier_type = ANY (ARRAY['old_tag'::text, 'rfid'::text, 'visual_tag'::text, 'sheet_row_id'::text, 'purchase_load_id'::text, 'temp_field_id'::text, 'external_system_id'::text]))),
+    CONSTRAINT goat_identifiers_type_check CHECK ((identifier_type = ANY (ARRAY['animal_identifier_1'::text, 'animal_identifier_2'::text]))),
     CONSTRAINT goat_identifiers_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
-);
-
-
---
--- Name: goats; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.goats (
-    goat_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    display_id text DEFAULT public.next_goat_display_id() NOT NULL,
-    species text DEFAULT 'goat'::text NOT NULL,
-    breed text,
-    breed_id uuid,
-    sex text NOT NULL,
-    approx_dob date,
-    age_band text,
-    lifecycle_status text NOT NULL,
-    reproductive_status text,
-    growth_cohort_tag text,
-    management_stage text,
-    health_status text,
-    identity_state text NOT NULL,
-    custodian_party_id uuid NOT NULL,
-    current_location_id uuid,
-    farm_id uuid,
-    park_id uuid,
-    shed_id uuid,
-    cohort_id uuid,
-    merged_into_goat_id uuid,
-    source_confidence numeric,
-    row_version integer DEFAULT 1 NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    created_by uuid,
-    dob date,
-    dob_estimated boolean DEFAULT true NOT NULL,
-    origin_type text,
-    entry_date date,
-    exited_at timestamp with time zone,
-    exit_reason text,
-    CONSTRAINT goats_display_id_format_check CHECK ((display_id ~ '^G-[0-9]{6,}$'::text)),
-    CONSTRAINT goats_exit_reason_check CHECK (((exit_reason IS NULL) OR (exit_reason = ANY (ARRAY['sold'::text, 'died'::text, 'culled'::text, 'transferred'::text, 'lost'::text])))),
-    CONSTRAINT goats_exited_lifecycle_check CHECK (((exited_at IS NULL) OR (lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])))),
-    CONSTRAINT goats_identity_state_check CHECK ((identity_state = ANY (ARRAY['clean'::text, 'needs_review'::text, 'disputed'::text, 'merged'::text, 'inactive'::text]))),
-    CONSTRAINT goats_merge_redirect_shape_check CHECK ((((identity_state = 'merged'::text) AND (merged_into_goat_id IS NOT NULL) AND (merged_into_goat_id <> goat_id)) OR ((identity_state <> 'merged'::text) AND (merged_into_goat_id IS NULL)))),
-    CONSTRAINT goats_origin_type_check CHECK (((origin_type IS NULL) OR (origin_type = ANY (ARRAY['birth'::text, 'procured'::text, 'imported'::text, 'unknown'::text])))),
-    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT goats_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text]))),
-    CONSTRAINT goats_source_confidence_check CHECK (((source_confidence IS NULL) OR ((source_confidence >= (0)::numeric) AND (source_confidence <= (1)::numeric)))),
-    CONSTRAINT goats_species_check CHECK ((species = 'goat'::text))
-);
-
-
---
--- Name: goat_identity_counter_memberships; Type: VIEW; Schema: public; Owner: -
---
-
-CREATE VIEW public.goat_identity_counter_memberships AS
- SELECT 'tenant_lifecycle'::text AS counter_grain,
-    g.tenant_id,
-    g.goat_id,
-    NULL::uuid AS custodian_party_id,
-    NULL::uuid AS farm_id,
-    NULL::uuid AS park_id,
-    NULL::uuid AS shed_id,
-    NULL::uuid AS cohort_id,
-    g.lifecycle_status,
-    NULL::text AS reproductive_status,
-    NULL::text AS growth_cohort_tag,
-    NULL::text AS management_stage,
-    NULL::text AS health_status,
-    NULL::text AS identity_state,
-    NULL::uuid AS breed_id,
-    NULL::text AS sex
-   FROM public.goats g
-  WHERE (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text]))
-UNION ALL
- SELECT 'custodian_lifecycle'::text AS counter_grain,
-    g.tenant_id,
-    g.goat_id,
-    g.custodian_party_id,
-    NULL::uuid AS farm_id,
-    NULL::uuid AS park_id,
-    NULL::uuid AS shed_id,
-    NULL::uuid AS cohort_id,
-    g.lifecycle_status,
-    NULL::text AS reproductive_status,
-    NULL::text AS growth_cohort_tag,
-    NULL::text AS management_stage,
-    NULL::text AS health_status,
-    NULL::text AS identity_state,
-    NULL::uuid AS breed_id,
-    NULL::text AS sex
-   FROM public.goats g
-  WHERE (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text]))
-UNION ALL
- SELECT 'custodian_identity'::text AS counter_grain,
-    g.tenant_id,
-    g.goat_id,
-    g.custodian_party_id,
-    NULL::uuid AS farm_id,
-    NULL::uuid AS park_id,
-    NULL::uuid AS shed_id,
-    NULL::uuid AS cohort_id,
-    NULL::text AS lifecycle_status,
-    NULL::text AS reproductive_status,
-    NULL::text AS growth_cohort_tag,
-    NULL::text AS management_stage,
-    NULL::text AS health_status,
-    g.identity_state,
-    NULL::uuid AS breed_id,
-    NULL::text AS sex
-   FROM public.goats g
-  WHERE ((g.lifecycle_status = 'alive'::text) AND (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text])))
-UNION ALL
- SELECT 'park_lifecycle'::text AS counter_grain,
-    g.tenant_id,
-    g.goat_id,
-    NULL::uuid AS custodian_party_id,
-    NULL::uuid AS farm_id,
-    g.park_id,
-    NULL::uuid AS shed_id,
-    NULL::uuid AS cohort_id,
-    g.lifecycle_status,
-    NULL::text AS reproductive_status,
-    NULL::text AS growth_cohort_tag,
-    NULL::text AS management_stage,
-    NULL::text AS health_status,
-    NULL::text AS identity_state,
-    NULL::uuid AS breed_id,
-    NULL::text AS sex
-   FROM public.goats g
-  WHERE (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text]))
-UNION ALL
- SELECT 'shed_lifecycle'::text AS counter_grain,
-    g.tenant_id,
-    g.goat_id,
-    NULL::uuid AS custodian_party_id,
-    NULL::uuid AS farm_id,
-    g.park_id,
-    g.shed_id,
-    NULL::uuid AS cohort_id,
-    g.lifecycle_status,
-    NULL::text AS reproductive_status,
-    NULL::text AS growth_cohort_tag,
-    NULL::text AS management_stage,
-    NULL::text AS health_status,
-    NULL::text AS identity_state,
-    NULL::uuid AS breed_id,
-    NULL::text AS sex
-   FROM public.goats g
-  WHERE (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text]))
-UNION ALL
- SELECT 'breed_sex_lifecycle'::text AS counter_grain,
-    g.tenant_id,
-    g.goat_id,
-    NULL::uuid AS custodian_party_id,
-    NULL::uuid AS farm_id,
-    NULL::uuid AS park_id,
-    NULL::uuid AS shed_id,
-    NULL::uuid AS cohort_id,
-    g.lifecycle_status,
-    NULL::text AS reproductive_status,
-    NULL::text AS growth_cohort_tag,
-    NULL::text AS management_stage,
-    NULL::text AS health_status,
-    NULL::text AS identity_state,
-    g.breed_id,
-    g.sex
-   FROM public.goats g
-  WHERE (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text]))
-UNION ALL
- SELECT 'health_status'::text AS counter_grain,
-    g.tenant_id,
-    g.goat_id,
-    NULL::uuid AS custodian_party_id,
-    NULL::uuid AS farm_id,
-    NULL::uuid AS park_id,
-    NULL::uuid AS shed_id,
-    NULL::uuid AS cohort_id,
-    NULL::text AS lifecycle_status,
-    NULL::text AS reproductive_status,
-    NULL::text AS growth_cohort_tag,
-    NULL::text AS management_stage,
-    g.health_status,
-    NULL::text AS identity_state,
-    NULL::uuid AS breed_id,
-    NULL::text AS sex
-   FROM public.goats g
-  WHERE ((g.lifecycle_status = 'alive'::text) AND (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text])))
-UNION ALL
- SELECT 'growth_cohort'::text AS counter_grain,
-    g.tenant_id,
-    g.goat_id,
-    NULL::uuid AS custodian_party_id,
-    NULL::uuid AS farm_id,
-    NULL::uuid AS park_id,
-    NULL::uuid AS shed_id,
-    NULL::uuid AS cohort_id,
-    NULL::text AS lifecycle_status,
-    NULL::text AS reproductive_status,
-    g.growth_cohort_tag,
-    NULL::text AS management_stage,
-    NULL::text AS health_status,
-    NULL::text AS identity_state,
-    NULL::uuid AS breed_id,
-    NULL::text AS sex
-   FROM public.goats g
-  WHERE ((g.lifecycle_status = 'alive'::text) AND (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text])))
-UNION ALL
- SELECT 'management_stage'::text AS counter_grain,
-    g.tenant_id,
-    g.goat_id,
-    NULL::uuid AS custodian_party_id,
-    NULL::uuid AS farm_id,
-    NULL::uuid AS park_id,
-    NULL::uuid AS shed_id,
-    NULL::uuid AS cohort_id,
-    NULL::text AS lifecycle_status,
-    NULL::text AS reproductive_status,
-    NULL::text AS growth_cohort_tag,
-    g.management_stage,
-    NULL::text AS health_status,
-    NULL::text AS identity_state,
-    NULL::uuid AS breed_id,
-    NULL::text AS sex
-   FROM public.goats g
-  WHERE ((g.lifecycle_status = 'alive'::text) AND (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text])))
-UNION ALL
- SELECT 'reproductive_status'::text AS counter_grain,
-    g.tenant_id,
-    g.goat_id,
-    NULL::uuid AS custodian_party_id,
-    NULL::uuid AS farm_id,
-    NULL::uuid AS park_id,
-    NULL::uuid AS shed_id,
-    NULL::uuid AS cohort_id,
-    NULL::text AS lifecycle_status,
-    g.reproductive_status,
-    NULL::text AS growth_cohort_tag,
-    NULL::text AS management_stage,
-    NULL::text AS health_status,
-    NULL::text AS identity_state,
-    NULL::uuid AS breed_id,
-    NULL::text AS sex
-   FROM public.goats g
-  WHERE ((g.lifecycle_status = 'alive'::text) AND (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text])));
-
-
---
--- Name: goat_identity_counter_processed_events; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.goat_identity_counter_processed_events (
-    tenant_id uuid NOT NULL,
-    event_id uuid NOT NULL,
-    event_recorded_at timestamp with time zone NOT NULL,
-    event_type text NOT NULL,
-    outcome text NOT NULL,
-    processed_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT goat_identity_counter_processed_events_outcome_check CHECK ((outcome = ANY (ARRAY['applied'::text, 'noop'::text])))
-);
-
-
---
--- Name: goat_identity_counter_projection_state; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.goat_identity_counter_projection_state (
-    tenant_id uuid NOT NULL,
-    last_processed_recorded_at timestamp with time zone,
-    last_processed_event_id uuid,
-    rebuild_required boolean DEFAULT false NOT NULL,
-    rebuild_reason text,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: goat_identity_counters; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.goat_identity_counters (
-    counter_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    counter_grain text NOT NULL,
-    tenant_id uuid NOT NULL,
-    custodian_party_id uuid,
-    farm_id uuid,
-    park_id uuid,
-    shed_id uuid,
-    cohort_id uuid,
-    lifecycle_status text,
-    reproductive_status text,
-    growth_cohort_tag text,
-    management_stage text,
-    health_status text,
-    identity_state text,
-    breed_id uuid,
-    sex text,
-    count_value bigint NOT NULL,
-    as_of_recorded_at timestamp with time zone,
-    source_import_run_id uuid,
-    is_rebuilding boolean DEFAULT false NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT goat_identity_counters_count_value_check CHECK ((count_value >= 0)),
-    CONSTRAINT goat_identity_counters_grain_check CHECK ((counter_grain = ANY (ARRAY['tenant_lifecycle'::text, 'custodian_lifecycle'::text, 'custodian_identity'::text, 'park_lifecycle'::text, 'shed_lifecycle'::text, 'breed_sex_lifecycle'::text, 'health_status'::text, 'growth_cohort'::text, 'management_stage'::text, 'reproductive_status'::text]))),
-    CONSTRAINT goat_identity_counters_identity_state_check CHECK (((identity_state IS NULL) OR (identity_state = ANY (ARRAY['clean'::text, 'needs_review'::text, 'disputed'::text, 'merged'::text, 'inactive'::text]))))
 );
 
 
@@ -3251,6 +2733,53 @@ CREATE TABLE public.goat_ownership (
 
 
 --
+-- Name: goats; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.goats (
+    goat_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    display_id text DEFAULT public.next_goat_display_id() NOT NULL,
+    species text DEFAULT 'goat'::text NOT NULL,
+    breed text,
+    breed_id uuid,
+    sex text NOT NULL,
+    approx_dob date,
+    age_band text,
+    lifecycle_status text NOT NULL,
+    reproductive_status text,
+    growth_cohort_tag text,
+    management_stage text,
+    health_status text,
+    custodian_party_id uuid NOT NULL,
+    current_location_id uuid,
+    farm_id uuid,
+    park_id uuid,
+    shed_id uuid,
+    cohort_id uuid,
+    merged_into_goat_id uuid,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    dob date,
+    dob_estimated boolean DEFAULT true NOT NULL,
+    origin_type text,
+    entry_date date,
+    exited_at timestamp with time zone,
+    exit_reason text,
+    CONSTRAINT goats_display_id_format_check CHECK ((display_id ~ '^G-[0-9]{6,}$'::text)),
+    CONSTRAINT goats_exit_reason_check CHECK (((exit_reason IS NULL) OR (exit_reason = ANY (ARRAY['sold'::text, 'died'::text, 'culled'::text, 'transferred'::text, 'lost'::text])))),
+    CONSTRAINT goats_exited_lifecycle_check CHECK (((exited_at IS NULL) OR (lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])))),
+    CONSTRAINT goats_merge_redirect_shape_check CHECK (((merged_into_goat_id IS NULL) OR (merged_into_goat_id <> goat_id))),
+    CONSTRAINT goats_origin_type_check CHECK (((origin_type IS NULL) OR (origin_type = ANY (ARRAY['birth'::text, 'procured'::text, 'imported'::text])))),
+    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT goats_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text]))),
+    CONSTRAINT goats_species_check CHECK ((species = ANY (ARRAY['goat'::text, 'sheep'::text])))
+);
+
+
+--
 -- Name: idempotency_keys; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3290,7 +2819,7 @@ CREATE TABLE public.identifier_policies (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     approved_by uuid,
     CONSTRAINT identifier_policies_active_uniqueness_check CHECK ((active_uniqueness = ANY (ARRAY['global'::text, 'scoped'::text, 'non_unique'::text]))),
-    CONSTRAINT identifier_policies_identifier_type_check CHECK ((identifier_type = ANY (ARRAY['old_tag'::text, 'rfid'::text, 'visual_tag'::text, 'sheet_row_id'::text, 'purchase_load_id'::text, 'temp_field_id'::text, 'external_system_id'::text]))),
+    CONSTRAINT identifier_policies_identifier_type_check CHECK ((identifier_type = ANY (ARRAY['animal_identifier_1'::text, 'animal_identifier_2'::text]))),
     CONSTRAINT identifier_policies_invalid_value_action_check CHECK ((invalid_value_action = ANY (ARRAY['review'::text, 'reject'::text]))),
     CONSTRAINT identifier_policies_missing_scope_action_check CHECK ((missing_or_conflicting_scope_action = ANY (ARRAY['review'::text, 'reject'::text]))),
     CONSTRAINT identifier_policies_unknown_scope_action_check CHECK ((unknown_scope_action = ANY (ARRAY['review'::text, 'reject'::text])))
@@ -3360,7 +2889,7 @@ CREATE TABLE public.identity_conflicts (
     CONSTRAINT identity_conflicts_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT identity_conflicts_severity_check CHECK ((severity = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'critical'::text]))),
     CONSTRAINT identity_conflicts_state_check CHECK ((state = ANY (ARRAY['open'::text, 'needs_field_check'::text, 'resolved'::text, 'rejected'::text, 'closed'::text]))),
-    CONSTRAINT identity_conflicts_type_check CHECK ((conflict_type = ANY (ARRAY['duplicate_active_identifier'::text, 'missing_required_identifier'::text, 'tagless_goat_review'::text, 'rfid_already_linked'::text, 'old_tag_reused'::text, 'possible_duplicate_goat'::text, 'location_mismatch'::text, 'status_mismatch'::text])))
+    CONSTRAINT identity_conflicts_type_check CHECK ((conflict_type = ANY (ARRAY['duplicate_active_identifier'::text, 'duplicate_animal_identifier'::text, 'missing_required_identifier'::text, 'possible_duplicate_animal'::text, 'location_mismatch'::text, 'status_mismatch'::text])))
 );
 
 
@@ -3390,7 +2919,7 @@ CREATE TABLE public.identity_correction_requests (
     row_version integer DEFAULT 1 NOT NULL,
     CONSTRAINT identity_correction_requests_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT identity_correction_requests_state_check CHECK ((state = ANY (ARRAY['open'::text, 'assigned'::text, 'needs_field_check'::text, 'approved'::text, 'rejected'::text, 'closed'::text]))),
-    CONSTRAINT identity_correction_requests_type_check CHECK ((request_type = ANY (ARRAY['missing_tag'::text, 'tag_reused'::text, 'rfid_conflict'::text, 'possible_duplicate'::text, 'wrong_location'::text, 'wrong_status'::text, 'field_verification_result'::text, 'identifier_seen_but_not_attached'::text])))
+    CONSTRAINT identity_correction_requests_type_check CHECK ((request_type = ANY (ARRAY['missing_animal_identifier'::text, 'animal_identifier_reused'::text, 'animal_identifier_conflict'::text, 'possible_duplicate'::text, 'wrong_location'::text, 'wrong_status'::text, 'field_verification_result'::text, 'identifier_seen_but_not_attached'::text])))
 );
 
 
@@ -3483,32 +3012,6 @@ CREATE TABLE public.identity_decisions (
 
 
 --
--- Name: identity_match_candidates; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.identity_match_candidates (
-    candidate_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    legacy_row_id uuid,
-    proposed_goat_id uuid,
-    candidate_goat_id uuid,
-    match_score numeric NOT NULL,
-    match_reasons jsonb NOT NULL,
-    state text NOT NULL,
-    created_by text NOT NULL,
-    reviewed_by uuid,
-    reviewed_at timestamp with time zone,
-    decision_id uuid,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT identity_match_candidates_created_by_check CHECK ((created_by = ANY (ARRAY['system_rule'::text, 'human'::text, 'ai_proposal'::text, 'import_policy'::text]))),
-    CONSTRAINT identity_match_candidates_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT identity_match_candidates_score_check CHECK (((match_score >= (0)::numeric) AND (match_score <= (1)::numeric))),
-    CONSTRAINT identity_match_candidates_state_check CHECK ((state = ANY (ARRAY['proposed'::text, 'approved'::text, 'rejected'::text, 'needs_review'::text, 'expired'::text])))
-);
-
-
---
 -- Name: inventory_items; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3582,275 +3085,6 @@ CREATE TABLE public.inventory_stock_movements (
 
 
 --
--- Name: legacy_import_policies; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.legacy_import_policies (
-    policy_version text NOT NULL,
-    source_system text NOT NULL,
-    source_dataset text NOT NULL,
-    identifier_policy_version text NOT NULL,
-    source_key_recipe jsonb NOT NULL,
-    source_key_recipe_version text NOT NULL,
-    hash_recipe jsonb NOT NULL,
-    hash_recipe_version text NOT NULL,
-    field_diff_policy jsonb NOT NULL,
-    auto_link_policy jsonb NOT NULL,
-    normalizer_version text NOT NULL,
-    status text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    approved_at timestamp with time zone,
-    approved_by uuid,
-    CONSTRAINT legacy_import_policies_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'approved'::text, 'retired'::text])))
-);
-
-
---
--- Name: legacy_import_rows; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.legacy_import_rows (
-    legacy_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    import_run_id uuid NOT NULL,
-    row_number integer NOT NULL,
-    source_system text NOT NULL,
-    source_dataset text NOT NULL,
-    source_record_id text,
-    source_row_key text NOT NULL,
-    source_key_recipe_version text NOT NULL,
-    source_row_version_hash text NOT NULL,
-    hash_recipe_version text NOT NULL,
-    raw_payload jsonb NOT NULL,
-    normalized_payload jsonb NOT NULL,
-    processing_state text NOT NULL,
-    matched_goat_id uuid,
-    error_reason text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT legacy_import_rows_processing_state_check CHECK ((processing_state = ANY (ARRAY['pending'::text, 'auto_linked'::text, 'created_goat'::text, 'needs_review'::text, 'rejected'::text, 'error'::text]))),
-    CONSTRAINT legacy_import_rows_row_number_check CHECK ((row_number > 0))
-);
-
-
---
--- Name: legacy_import_runs; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.legacy_import_runs (
-    import_run_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    source_name text NOT NULL,
-    source_system text NOT NULL,
-    source_dataset text NOT NULL,
-    source_file_ref text,
-    source_file_hash text,
-    policy_version text NOT NULL,
-    dry_run boolean DEFAULT false NOT NULL,
-    started_at timestamp with time zone DEFAULT now() NOT NULL,
-    completed_at timestamp with time zone,
-    status text NOT NULL,
-    row_count integer DEFAULT 0 NOT NULL,
-    created_goat_count integer DEFAULT 0 NOT NULL,
-    updated_goat_count integer DEFAULT 0 NOT NULL,
-    conflict_count integer DEFAULT 0 NOT NULL,
-    error_count integer DEFAULT 0 NOT NULL,
-    started_by uuid,
-    CONSTRAINT legacy_import_runs_counts_check CHECK (((row_count >= 0) AND (created_goat_count >= 0) AND (updated_goat_count >= 0) AND (conflict_count >= 0) AND (error_count >= 0))),
-    CONSTRAINT legacy_import_runs_status_check CHECK ((status = ANY (ARRAY['staged'::text, 'running'::text, 'completed'::text, 'failed'::text, 'canceled'::text])))
-);
-
-
---
--- Name: legacy_status_mappings; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.legacy_status_mappings (
-    mapping_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    source_system text NOT NULL,
-    raw_label text NOT NULL,
-    normalized_raw_label text NOT NULL,
-    lifecycle_status text,
-    reproductive_status text,
-    growth_cohort_tag text,
-    management_stage text,
-    health_status text,
-    sex_override text,
-    display_status_code text,
-    confidence text NOT NULL,
-    review_required boolean DEFAULT false NOT NULL,
-    notes text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT legacy_status_mappings_confidence_check CHECK ((confidence = ANY (ARRAY['high'::text, 'medium'::text, 'low'::text])))
-);
-
-
---
--- Name: legacy_sync_run_conflicts; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.legacy_sync_run_conflicts (
-    sync_run_conflict_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    sync_run_id uuid NOT NULL,
-    source_id text NOT NULL,
-    source_record_id text NOT NULL,
-    source_conflict_key text NOT NULL,
-    conflict_id uuid,
-    goat_id uuid,
-    evidence_reason text NOT NULL,
-    result text NOT NULL,
-    old_goatos_value text,
-    new_legacy_value text,
-    previous_decision_id uuid,
-    previous_decision_at timestamp with time zone,
-    audit_id uuid,
-    evidence jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT legacy_sync_run_conflicts_reason_check CHECK ((evidence_reason = ANY (ARRAY['bq_gender_self_conflict'::text, 'bq_breed_self_conflict'::text, 'legacy_changed_after_human_review'::text, 'status_mismatch'::text, 'unregistered_source'::text]))),
-    CONSTRAINT legacy_sync_run_conflicts_result_check CHECK ((result = ANY (ARRAY['applied'::text, 'skipped'::text, 'blocked'::text, 'conflict_opened'::text, 'conflict_refreshed'::text, 'preserved_human_decision'::text, 'reconciled'::text])))
-);
-
-
---
--- Name: legacy_sync_run_steps; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.legacy_sync_run_steps (
-    sync_step_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    sync_run_id uuid NOT NULL,
-    source_id text,
-    step_name text NOT NULL,
-    status text NOT NULL,
-    rows_read integer DEFAULT 0 NOT NULL,
-    rows_planned integer DEFAULT 0 NOT NULL,
-    rows_applied integer DEFAULT 0 NOT NULL,
-    rows_skipped integer DEFAULT 0 NOT NULL,
-    details jsonb DEFAULT '{}'::jsonb NOT NULL,
-    started_at timestamp with time zone DEFAULT now() NOT NULL,
-    completed_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT legacy_sync_run_steps_counts_check CHECK (((rows_read >= 0) AND (rows_planned >= 0) AND (rows_applied >= 0) AND (rows_skipped >= 0))),
-    CONSTRAINT legacy_sync_run_steps_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text, 'canceled'::text, 'blocked'::text])))
-);
-
-
---
--- Name: legacy_sync_runs; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.legacy_sync_runs (
-    sync_run_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    requested_by uuid NOT NULL,
-    mode text NOT NULL,
-    domain text NOT NULL,
-    status text NOT NULL,
-    cold_start boolean DEFAULT false NOT NULL,
-    source_window_start timestamp with time zone,
-    source_window_end timestamp with time zone,
-    eta_seconds integer,
-    rows_read integer DEFAULT 0 NOT NULL,
-    rows_planned integer DEFAULT 0 NOT NULL,
-    rows_applied integer DEFAULT 0 NOT NULL,
-    rows_skipped integer DEFAULT 0 NOT NULL,
-    goats_created integer DEFAULT 0 NOT NULL,
-    goats_updated integer DEFAULT 0 NOT NULL,
-    conflicts_opened integer DEFAULT 0 NOT NULL,
-    conflicts_refreshed integer DEFAULT 0 NOT NULL,
-    counters_rebuilt boolean DEFAULT false NOT NULL,
-    counter_check_status text DEFAULT 'pending'::text NOT NULL,
-    freshness_status text DEFAULT 'unknown'::text NOT NULL,
-    blocked_reason text,
-    cancel_requested_at timestamp with time zone,
-    started_at timestamp with time zone DEFAULT now() NOT NULL,
-    completed_at timestamp with time zone,
-    trace_id text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT legacy_sync_runs_counter_check CHECK ((counter_check_status = ANY (ARRAY['pending'::text, 'succeeded'::text, 'failed'::text, 'skipped'::text]))),
-    CONSTRAINT legacy_sync_runs_counts_check CHECK (((rows_read >= 0) AND (rows_planned >= 0) AND (rows_applied >= 0) AND (rows_skipped >= 0) AND (goats_created >= 0) AND (goats_updated >= 0) AND (conflicts_opened >= 0) AND (conflicts_refreshed >= 0))),
-    CONSTRAINT legacy_sync_runs_domain_check CHECK ((domain = ANY (ARRAY['all'::text, 'identity'::text, 'lifecycle'::text, 'current_location'::text, 'active_count'::text]))),
-    CONSTRAINT legacy_sync_runs_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
-    CONSTRAINT legacy_sync_runs_mode_check CHECK ((mode = ANY (ARRAY['dry_run'::text, 'execute'::text, 'nightly_deep_reconcile'::text]))),
-    CONSTRAINT legacy_sync_runs_status_check CHECK ((status = ANY (ARRAY['planning'::text, 'running'::text, 'completed'::text, 'failed'::text, 'canceled'::text, 'blocked'::text])))
-);
-
-
---
--- Name: legacy_sync_source_status; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.legacy_sync_source_status (
-    tenant_id uuid NOT NULL,
-    source_id text NOT NULL,
-    freshness_status text NOT NULL,
-    status_reason text NOT NULL,
-    source_watermark_at timestamp with time zone,
-    observed_at timestamp with time zone DEFAULT now() NOT NULL,
-    last_success_sync_run_id uuid,
-    latest_error text,
-    rows_seen integer DEFAULT 0 NOT NULL,
-    is_unknown_source boolean DEFAULT false NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT legacy_sync_source_status_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
-    CONSTRAINT legacy_sync_source_status_rows_check CHECK ((rows_seen >= 0))
-);
-
-
---
--- Name: legacy_sync_source_watermarks; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.legacy_sync_source_watermarks (
-    tenant_id uuid NOT NULL,
-    source_id text NOT NULL,
-    last_success_window_start timestamp with time zone,
-    last_success_window_end timestamp with time zone,
-    last_success_at timestamp with time zone,
-    last_success_sync_run_id uuid,
-    checkpoint jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: legacy_sync_sources; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.legacy_sync_sources (
-    source_id text NOT NULL,
-    source_name text NOT NULL,
-    domain text NOT NULL,
-    source_kind text NOT NULL,
-    bq_project text,
-    bq_dataset text,
-    bq_table_or_config text,
-    cadence_seconds integer NOT NULL,
-    green_within_seconds integer NOT NULL,
-    yellow_within_seconds integer NOT NULL,
-    criticality text NOT NULL,
-    enabled boolean DEFAULT true NOT NULL,
-    known_degraded boolean DEFAULT false NOT NULL,
-    notes text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT legacy_sync_sources_cadence_check CHECK ((cadence_seconds > 0)),
-    CONSTRAINT legacy_sync_sources_criticality_check CHECK ((criticality = ANY (ARRAY['critical'::text, 'noncritical'::text]))),
-    CONSTRAINT legacy_sync_sources_domain_check CHECK ((domain = ANY (ARRAY['identity'::text, 'lifecycle'::text, 'current_location'::text, 'active_count'::text, 'feed'::text, 'unknown'::text]))),
-    CONSTRAINT legacy_sync_sources_green_check CHECK ((green_within_seconds >= cadence_seconds)),
-    CONSTRAINT legacy_sync_sources_kind_check CHECK ((source_kind = ANY (ARRAY['scheduled_query'::text, 'table'::text, 'view'::text, 'export'::text]))),
-    CONSTRAINT legacy_sync_sources_source_id_check CHECK ((source_id ~ '^[a-z0-9][a-z0-9_:-]{1,119}$'::text)),
-    CONSTRAINT legacy_sync_sources_yellow_check CHECK ((yellow_within_seconds >= green_within_seconds))
-);
-
-
---
 -- Name: location_aliases; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3891,7 +3125,7 @@ CREATE TABLE public.location_capacity_records (
     row_version integer DEFAULT 1 NOT NULL,
     CONSTRAINT location_capacity_records_kind_check CHECK ((capacity_kind = ANY (ARRAY['goat_occupancy'::text, 'quarantine'::text, 'feed_trial'::text, 'other'::text]))),
     CONSTRAINT location_capacity_records_positive_check CHECK ((capacity_value > 0)),
-    CONSTRAINT location_capacity_records_source_check CHECK ((source = ANY (ARRAY['manual'::text, 'legacy_bq'::text, 'android_sop'::text, 'import'::text, 'sheds_db'::text]))),
+    CONSTRAINT location_capacity_records_source_check CHECK ((source = ANY (ARRAY['manual'::text, 'android_sop'::text, 'import'::text, 'sheds_db'::text]))),
     CONSTRAINT location_capacity_records_window_check CHECK (((effective_to IS NULL) OR (effective_to > effective_from)))
 );
 
@@ -3952,7 +3186,6 @@ CREATE TABLE public.location_review_items (
     candidate_location_ids jsonb DEFAULT '[]'::jsonb NOT NULL,
     evidence_json jsonb DEFAULT '{}'::jsonb NOT NULL,
     evidence_hash text NOT NULL,
-    sync_run_id uuid,
     created_by uuid,
     resolved_by uuid,
     resolution_notes text,
@@ -3997,207 +3230,6 @@ CREATE TABLE public.locations (
     CONSTRAINT locations_lng_check CHECK (((lng IS NULL) OR ((lng >= ('-180'::integer)::numeric) AND (lng <= (180)::numeric)))),
     CONSTRAINT locations_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'staging'::text, 'review'::text]))),
     CONSTRAINT locations_type_check CHECK ((location_type = ANY (ARRAY['farm'::text, 'park'::text, 'shed'::text, 'cohort'::text, 'pen'::text, 'unknown'::text])))
-);
-
-
---
--- Name: mortality_events; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.mortality_events (
-    mortality_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    logical_event_key text,
-    dedup_candidate_key text,
-    unresolved_event_ordinal integer,
-    dedup_confidence text NOT NULL,
-    event_type text NOT NULL,
-    event_date date NOT NULL,
-    goat_id uuid,
-    source_goat_identifier text,
-    source_identifier_kind text,
-    age_class text DEFAULT 'unknown'::text NOT NULL,
-    breed_key text,
-    breed_label text,
-    farm_key text,
-    farm_label text,
-    canonical_farm_location_id uuid,
-    canonical_park_location_id uuid,
-    canonical_shed_location_id uuid,
-    canonical_housing_location_id uuid,
-    load_key text,
-    load_label text,
-    delivery_key text,
-    delivery_label text,
-    sex text,
-    source_row_id uuid,
-    event_hash text NOT NULL,
-    review_status text DEFAULT 'needs_review'::text NOT NULL,
-    idempotency_key text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT mortality_events_age_class_check CHECK ((age_class = ANY (ARRAY['kid'::text, 'adult'::text, 'unknown'::text]))),
-    CONSTRAINT mortality_events_candidate_key_check CHECK (((logical_event_key IS NOT NULL) OR (dedup_candidate_key IS NOT NULL))),
-    CONSTRAINT mortality_events_dedup_confidence_check CHECK ((dedup_confidence = ANY (ARRAY['resolved_identity'::text, 'stable_source_identifier'::text, 'candidate_review'::text]))),
-    CONSTRAINT mortality_events_event_type_check CHECK ((event_type = ANY (ARRAY['death'::text, 'abortion'::text]))),
-    CONSTRAINT mortality_events_review_status_check CHECK ((review_status = ANY (ARRAY['accepted'::text, 'needs_review'::text, 'rejected'::text, 'superseded'::text]))),
-    CONSTRAINT mortality_events_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text]))))
-);
-
-
---
--- Name: mortality_projection_rows; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.mortality_projection_rows (
-    mortality_projection_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    period text NOT NULL,
-    period_start date,
-    period_end date,
-    section text NOT NULL,
-    grain text NOT NULL,
-    dimension_key text NOT NULL,
-    dimension_label text NOT NULL,
-    metric_key text NOT NULL,
-    numerator numeric,
-    denominator numeric,
-    denominator_source_module text,
-    denominator_projection_version bigint,
-    denominator_source_watermark text,
-    numerator_source_composition text,
-    denominator_source_composition text,
-    mixed_composition_exception_id uuid,
-    value numeric NOT NULL,
-    unit text NOT NULL,
-    sort_order integer DEFAULT 0 NOT NULL,
-    projection_version bigint NOT NULL,
-    sync_run_id uuid,
-    source_hash text NOT NULL,
-    source_composition text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT mortality_projection_denominator_composition_check CHECK (((denominator_source_composition IS NULL) OR (denominator_source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text])))),
-    CONSTRAINT mortality_projection_grain_check CHECK ((grain = ANY (ARRAY['total'::text, 'breed'::text, 'farm'::text, 'load'::text, 'delivery'::text, 'month'::text, 'age_class'::text, 'sex'::text, 'status'::text, 'housing'::text]))),
-    CONSTRAINT mortality_projection_numerator_composition_check CHECK (((numerator_source_composition IS NULL) OR (numerator_source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text])))),
-    CONSTRAINT mortality_projection_period_check CHECK ((period = ANY (ARRAY['overall'::text, 'this-month'::text, 'month-wise'::text]))),
-    CONSTRAINT mortality_projection_section_check CHECK ((section = ANY (ARRAY['summary'::text, 'breed'::text, 'farm'::text, 'load'::text, 'delivery'::text, 'trends'::text, 'gender'::text, 'status'::text, 'housing'::text]))),
-    CONSTRAINT mortality_projection_source_composition_check CHECK ((source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text]))),
-    CONSTRAINT mortality_projection_unit_check CHECK ((unit = ANY (ARRAY['count'::text, 'percent'::text, 'ratio'::text])))
-);
-
-
---
--- Name: mortality_projection_state; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.mortality_projection_state (
-    mortality_projection_state_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    period text,
-    last_successful_run_id uuid,
-    last_success_at timestamp with time zone,
-    source_watermark text,
-    projection_version bigint DEFAULT 0 NOT NULL,
-    freshness_status text DEFAULT 'unknown'::text NOT NULL,
-    serving_state text DEFAULT 'never_synced'::text NOT NULL,
-    source_composition text DEFAULT 'legacy_only'::text NOT NULL,
-    row_count integer DEFAULT 0 NOT NULL,
-    conflict_count integer DEFAULT 0 NOT NULL,
-    unavailable_sources jsonb DEFAULT '[]'::jsonb NOT NULL,
-    rebuild_required boolean DEFAULT false NOT NULL,
-    last_error text,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT mortality_projection_state_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
-    CONSTRAINT mortality_projection_state_period_check CHECK (((period IS NULL) OR (period = ANY (ARRAY['overall'::text, 'this-month'::text, 'month-wise'::text])))),
-    CONSTRAINT mortality_projection_state_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text, 'source_unavailable'::text]))),
-    CONSTRAINT mortality_projection_state_source_composition_check CHECK ((source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text]))),
-    CONSTRAINT mortality_projection_state_unavailable_array_check CHECK ((jsonb_typeof(unavailable_sources) = 'array'::text))
-);
-
-
---
--- Name: mortality_review_items; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.mortality_review_items (
-    review_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    mortality_event_id uuid,
-    review_type text NOT NULL,
-    status text DEFAULT 'open'::text NOT NULL,
-    source_context text,
-    source_label text,
-    evidence_json jsonb DEFAULT '{}'::jsonb NOT NULL,
-    evidence_hash text NOT NULL,
-    sync_run_id uuid,
-    created_by uuid,
-    resolved_by uuid,
-    resolution_notes text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    resolved_at timestamp with time zone,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT mortality_review_items_evidence_object_check CHECK ((jsonb_typeof(evidence_json) = 'object'::text)),
-    CONSTRAINT mortality_review_items_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text, 'dismissed'::text]))),
-    CONSTRAINT mortality_review_items_type_check CHECK ((review_type = ANY (ARRAY['unresolved_identity'::text, 'dimension_conflict'::text, 'denominator_missing'::text, 'source_changed'::text, 'dedup_conflict'::text])))
-);
-
-
---
--- Name: mortality_source_rows; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.mortality_source_rows (
-    mortality_source_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    source_system text NOT NULL,
-    source_table text NOT NULL,
-    source_row_key text NOT NULL,
-    source_observed_at timestamp with time zone,
-    source_watermark text,
-    payload_json jsonb NOT NULL,
-    payload_hash text NOT NULL,
-    row_status text DEFAULT 'current'::text NOT NULL,
-    sync_run_id uuid,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    superseded_at timestamp with time zone,
-    CONSTRAINT mortality_source_rows_payload_object_check CHECK ((jsonb_typeof(payload_json) = 'object'::text)),
-    CONSTRAINT mortality_source_rows_status_check CHECK ((row_status = ANY (ARRAY['current'::text, 'superseded'::text, 'invalid'::text, 'ignored'::text])))
-);
-
-
---
--- Name: mortality_sync_runs; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.mortality_sync_runs (
-    sync_run_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    requested_by uuid NOT NULL,
-    mode text NOT NULL,
-    status text NOT NULL,
-    source_rows_read integer DEFAULT 0 NOT NULL,
-    events_upserted integer DEFAULT 0 NOT NULL,
-    projection_rows_written integer DEFAULT 0 NOT NULL,
-    rows_skipped integer DEFAULT 0 NOT NULL,
-    dedup_candidate_events integer DEFAULT 0 NOT NULL,
-    unresolved_location_labels integer DEFAULT 0 NOT NULL,
-    freshness_status text DEFAULT 'unknown'::text NOT NULL,
-    serving_state text DEFAULT 'never_synced'::text NOT NULL,
-    source_watermark text,
-    unavailable_sources jsonb DEFAULT '[]'::jsonb NOT NULL,
-    trace_id text,
-    last_error text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    completed_at timestamp with time zone,
-    CONSTRAINT mortality_sync_runs_counts_check CHECK (((source_rows_read >= 0) AND (events_upserted >= 0) AND (projection_rows_written >= 0) AND (rows_skipped >= 0) AND (dedup_candidate_events >= 0) AND (unresolved_location_labels >= 0))),
-    CONSTRAINT mortality_sync_runs_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
-    CONSTRAINT mortality_sync_runs_mode_check CHECK ((mode = ANY (ARRAY['dry_run'::text, 'execute'::text]))),
-    CONSTRAINT mortality_sync_runs_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text, 'source_unavailable'::text]))),
-    CONSTRAINT mortality_sync_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text, 'source_unavailable'::text]))),
-    CONSTRAINT mortality_sync_runs_unavailable_array_check CHECK ((jsonb_typeof(unavailable_sources) = 'array'::text))
 );
 
 
@@ -4682,14 +3714,13 @@ CREATE TABLE public.procurement_load_goats (
     tenant_id uuid NOT NULL,
     load_id uuid NOT NULL,
     goat_id uuid NOT NULL,
-    source_tag text,
-    source_rfid text,
-    temporary_id text,
+    animal_identifier_1 text,
+    animal_identifier_2 text,
     selection_state text DEFAULT 'candidate'::text NOT NULL,
     selection_reason text DEFAULT ''::text NOT NULL,
     current_state text DEFAULT 'source_candidate'::text NOT NULL,
-    identity_review_state text DEFAULT 'pending'::text NOT NULL,
-    identity_review_ref text,
+    source_entry_state text DEFAULT 'pending'::text NOT NULL,
+    source_entry_ref text,
     ownership_state text DEFAULT 'pending'::text NOT NULL,
     health_state text DEFAULT 'pending'::text NOT NULL,
     warmup_started_at timestamp with time zone,
@@ -4709,13 +3740,13 @@ CREATE TABLE public.procurement_load_goats (
     CONSTRAINT procurement_load_goats_current_state_check CHECK ((current_state = ANY (ARRAY['source_holding'::text, 'source_warmup'::text, 'source_candidate'::text, 'source_health_pending'::text, 'source_health_passed'::text, 'source_health_failed'::text, 'source_rejected'::text, 'pre_dispatch_pending'::text, 'pre_dispatch_accepted'::text, 'pre_dispatch_rejected'::text, 'pre_dispatch_deferred'::text, 'pre_dispatch_blocked'::text, 'dispatch_ready'::text, 'loading_pending'::text, 'loaded'::text, 'in_transit'::text, 'arrival_review_pending'::text, 'arrival_accepted'::text, 'arrival_rejected'::text, 'accepted_herd_intake'::text, 'dead'::text, 'sold'::text, 'lost'::text, 'canceled'::text]))),
     CONSTRAINT procurement_load_goats_exit_reason_check CHECK (((exit_reason IS NULL) OR (exit_reason = ANY (ARRAY['died'::text, 'sold'::text, 'lost'::text, 'canceled'::text])))),
     CONSTRAINT procurement_load_goats_health_state_check CHECK ((health_state = ANY (ARRAY['pending'::text, 'passed'::text, 'failed'::text, 'deferred'::text]))),
-    CONSTRAINT procurement_load_goats_identity_state_check CHECK ((identity_review_state = ANY (ARRAY['pending'::text, 'clean'::text, 'conflict'::text, 'unknown_extra'::text]))),
     CONSTRAINT procurement_load_goats_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
     CONSTRAINT procurement_load_goats_ownership_state_check CHECK ((ownership_state = ANY (ARRAY['pending'::text, 'shared_pending'::text, 'mesha_owned'::text, 'blocked'::text, 'not_owned'::text, 'settled'::text]))),
     CONSTRAINT procurement_load_goats_proof_refs_array_check CHECK ((jsonb_typeof(proof_refs) = 'array'::text)),
     CONSTRAINT procurement_load_goats_purpose_check CHECK ((purpose = ANY (ARRAY['breeding'::text, 'fattening'::text, 'non_breeding'::text, 'unspecified'::text]))),
     CONSTRAINT procurement_load_goats_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT procurement_load_goats_selection_state_check CHECK ((selection_state = ANY (ARRAY['source_only'::text, 'candidate'::text, 'purchased'::text, 'accepted'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text, 'loaded'::text, 'arrival_accepted'::text, 'arrival_rejected'::text, 'accepted_herd_intake'::text, 'dead'::text, 'sold'::text, 'lost'::text]))),
+    CONSTRAINT procurement_load_goats_source_entry_state_check CHECK ((source_entry_state = ANY (ARRAY['pending'::text, 'accepted'::text, 'blocked'::text]))),
     CONSTRAINT procurement_load_goats_warmup_days_check CHECK (((warmup_days IS NULL) OR (warmup_days >= 0))),
     CONSTRAINT procurement_load_goats_warmup_window_check CHECK (((warmup_ended_at IS NULL) OR (warmup_started_at IS NULL) OR (warmup_ended_at >= warmup_started_at)))
 );
@@ -5045,7 +4076,7 @@ CREATE TABLE public.shifting_events (
     CONSTRAINT shifting_events_key_check CHECK ((btrim(logical_shifting_event_key) <> ''::text)),
     CONSTRAINT shifting_events_payload_hash_check CHECK ((btrim(payload_hash) <> ''::text)),
     CONSTRAINT shifting_events_priority_check CHECK ((priority = ANY (ARRAY['normal'::text, 'high'::text, 'emergency'::text]))),
-    CONSTRAINT shifting_events_source_check CHECK ((source_system = ANY (ARRAY['feed_shiftings_docx'::text, 'manual_review'::text, 'legacy_slack'::text, 'import'::text, 'goatos_canonical'::text]))),
+    CONSTRAINT shifting_events_source_check CHECK ((source_system = ANY (ARRAY['feed_shiftings_docx'::text, 'manual_review'::text, 'import'::text, 'goatos_canonical'::text]))),
     CONSTRAINT shifting_events_source_ref_check CHECK ((btrim(source_ref) <> ''::text)),
     CONSTRAINT shifting_events_status_check CHECK ((event_status = ANY (ARRAY['pending'::text, 'authorized'::text, 'applied'::text, 'rejected'::text, 'canceled'::text, 'unresolved'::text]))),
     CONSTRAINT shifting_events_verification_state_check CHECK ((verification_state = ANY (ARRAY['unverified'::text, 'verified'::text, 'rejected'::text])))
@@ -5303,7 +4334,6 @@ CREATE TABLE public.status_definitions (
     display_name text NOT NULL,
     short_label text NOT NULL,
     description text,
-    legacy_label text,
     sort_order integer DEFAULT 0 NOT NULL,
     active boolean DEFAULT true NOT NULL,
     expected_duration_days integer,
@@ -5496,15 +4526,16 @@ CREATE VIEW public.vw_procurement_vaccination_excluded_goats AS
     g.goat_id,
         CASE
             WHEN (g.lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'lost'::text, 'culled'::text, 'transferred'::text, 'merged'::text, 'inactive'::text])) THEN g.lifecycle_status
-            WHEN (g.identity_state = ANY (ARRAY['disputed'::text, 'merged'::text, 'inactive'::text])) THEN 'identity_conflict'::text
-            WHEN (plg.selection_state = ANY (ARRAY['rejected'::text, 'arrival_rejected'::text, 'dead'::text, 'sold'::text, 'lost'::text])) THEN plg.selection_state
-            WHEN (plg.current_state = ANY (ARRAY['source_rejected'::text, 'pre_dispatch_rejected'::text, 'arrival_rejected'::text, 'dead'::text, 'sold'::text, 'lost'::text, 'canceled'::text])) THEN plg.current_state
-            WHEN (plg.ownership_state = 'not_owned'::text) THEN 'ownership_not_owned'::text
+            WHEN (g.merged_into_goat_id IS NOT NULL) THEN 'merged'::text
+            WHEN (plg.source_entry_state <> 'accepted'::text) THEN ('source_entry_'::text || plg.source_entry_state)
+            WHEN (plg.ownership_state <> ALL (ARRAY['mesha_owned'::text, 'settled'::text])) THEN ('ownership_'::text || plg.ownership_state)
+            WHEN (plg.health_state <> 'passed'::text) THEN ('health_'::text || plg.health_state)
+            WHEN (plg.current_state <> 'accepted_herd_intake'::text) THEN plg.current_state
             ELSE 'not_excluded'::text
         END AS exclusion_reason
    FROM (public.goats g
      LEFT JOIN public.procurement_load_goats plg ON (((plg.tenant_id = g.tenant_id) AND (plg.goat_id = g.goat_id))))
-  WHERE ((g.lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'lost'::text, 'culled'::text, 'transferred'::text, 'merged'::text, 'inactive'::text])) OR (g.identity_state = ANY (ARRAY['disputed'::text, 'merged'::text, 'inactive'::text])) OR ((plg.goat_id IS NOT NULL) AND ((plg.selection_state = ANY (ARRAY['rejected'::text, 'arrival_rejected'::text, 'dead'::text, 'sold'::text, 'lost'::text])) OR (plg.current_state = ANY (ARRAY['source_rejected'::text, 'pre_dispatch_rejected'::text, 'arrival_rejected'::text, 'dead'::text, 'sold'::text, 'lost'::text, 'canceled'::text])) OR (plg.ownership_state = 'not_owned'::text))));
+  WHERE ((g.lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'lost'::text, 'culled'::text, 'transferred'::text, 'merged'::text, 'inactive'::text])) OR (g.merged_into_goat_id IS NOT NULL) OR ((plg.goat_id IS NOT NULL) AND ((plg.current_state <> 'accepted_herd_intake'::text) OR (plg.selection_state = ANY (ARRAY['source_only'::text, 'candidate'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text, 'arrival_rejected'::text, 'dead'::text, 'sold'::text, 'lost'::text])) OR (plg.source_entry_state <> 'accepted'::text) OR (plg.ownership_state <> ALL (ARRAY['mesha_owned'::text, 'settled'::text])) OR (plg.health_state <> 'passed'::text))));
 
 
 --
@@ -5578,10 +4609,10 @@ CREATE TABLE public.workforce_external_identities (
     row_version integer DEFAULT 1 NOT NULL,
     CONSTRAINT workforce_external_identities_confidence_check CHECK (((confidence >= (0)::numeric) AND (confidence <= (1)::numeric))),
     CONSTRAINT workforce_external_identities_observation_check CHECK ((observation_count > 0)),
-    CONSTRAINT workforce_external_identities_ref_type_check CHECK ((external_ref_type = ANY (ARRAY['slack_user_id'::text, 'email'::text, 'phone'::text, 'staff_label'::text, 'sheet_user'::text, 'firebase_uid'::text, 'other'::text]))),
+    CONSTRAINT workforce_external_identities_ref_type_check CHECK ((external_ref_type = ANY (ARRAY['slack_user_id'::text, 'email'::text, 'phone'::text, 'staff_label'::text, 'firebase_uid'::text]))),
     CONSTRAINT workforce_external_identities_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT workforce_external_identities_seen_window_check CHECK ((last_seen_at >= first_seen_at)),
-    CONSTRAINT workforce_external_identities_source_system_check CHECK ((source_system = ANY (ARRAY['slack'::text, 'app_script'::text, 'sheet'::text, 'bq'::text, 'firebase'::text, 'manual'::text, 'other'::text]))),
+    CONSTRAINT workforce_external_identities_source_system_check CHECK ((source_system = ANY (ARRAY['slack'::text, 'firebase'::text, 'manual'::text]))),
     CONSTRAINT workforce_external_identities_status_check CHECK ((status = ANY (ARRAY['candidate'::text, 'mapped'::text, 'rejected'::text, 'conflict'::text, 'retired'::text])))
 );
 
@@ -6122,30 +5153,6 @@ ALTER TABLE ONLY public.count_source_import_runs
 
 
 --
--- Name: counts_current_snapshot_rows counts_current_snapshot_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_current_snapshot_rows
-    ADD CONSTRAINT counts_current_snapshot_rows_pkey PRIMARY KEY (counts_snapshot_row_id);
-
-
---
--- Name: counts_projection_rows counts_projection_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_projection_rows
-    ADD CONSTRAINT counts_projection_rows_pkey PRIMARY KEY (counts_projection_row_id);
-
-
---
--- Name: counts_projection_state counts_projection_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_projection_state
-    ADD CONSTRAINT counts_projection_state_pkey PRIMARY KEY (counts_projection_state_id);
-
-
---
 -- Name: counts_shifting_readiness_evidence counts_shifting_readiness_evidence_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6162,22 +5169,6 @@ ALTER TABLE ONLY public.counts_shifting_readiness_subgates
 
 
 --
--- Name: counts_source_rows counts_source_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_source_rows
-    ADD CONSTRAINT counts_source_rows_pkey PRIMARY KEY (counts_source_row_id);
-
-
---
--- Name: counts_sync_runs counts_sync_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_sync_runs
-    ADD CONSTRAINT counts_sync_runs_pkey PRIMARY KEY (sync_run_id);
-
-
---
 -- Name: domain_event_processed_events domain_event_processed_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6191,14 +5182,6 @@ ALTER TABLE ONLY public.domain_event_processed_events
 
 ALTER TABLE ONLY public.farm_profiles
     ADD CONSTRAINT farm_profiles_pkey PRIMARY KEY (location_id);
-
-
---
--- Name: feature_coverage_registry feature_coverage_registry_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.feature_coverage_registry
-    ADD CONSTRAINT feature_coverage_registry_pkey PRIMARY KEY (coverage_id);
 
 
 --
@@ -6247,30 +5230,6 @@ ALTER TABLE ONLY public.goat_identifiers
 
 ALTER TABLE ONLY public.goat_identifiers
     ADD CONSTRAINT goat_identifiers_tenant_identifier_unique UNIQUE (tenant_id, identifier_id);
-
-
---
--- Name: goat_identity_counter_processed_events goat_identity_counter_processed_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counter_processed_events
-    ADD CONSTRAINT goat_identity_counter_processed_events_pkey PRIMARY KEY (tenant_id, event_id, event_recorded_at);
-
-
---
--- Name: goat_identity_counter_projection_state goat_identity_counter_projection_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counter_projection_state
-    ADD CONSTRAINT goat_identity_counter_projection_state_pkey PRIMARY KEY (tenant_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_pkey PRIMARY KEY (counter_id);
 
 
 --
@@ -6554,14 +5513,6 @@ ALTER TABLE ONLY public.identity_decisions
 
 
 --
--- Name: identity_match_candidates identity_match_candidates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.identity_match_candidates
-    ADD CONSTRAINT identity_match_candidates_pkey PRIMARY KEY (candidate_id);
-
-
---
 -- Name: inventory_items inventory_items_code_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6626,118 +5577,6 @@ ALTER TABLE ONLY public.inventory_stock
 
 
 --
--- Name: legacy_import_policies legacy_import_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_policies
-    ADD CONSTRAINT legacy_import_policies_pkey PRIMARY KEY (policy_version);
-
-
---
--- Name: legacy_import_rows legacy_import_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_rows
-    ADD CONSTRAINT legacy_import_rows_pkey PRIMARY KEY (legacy_row_id);
-
-
---
--- Name: legacy_import_rows legacy_import_rows_source_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_rows
-    ADD CONSTRAINT legacy_import_rows_source_version_unique UNIQUE (tenant_id, source_system, source_dataset, source_row_key, source_row_version_hash);
-
-
---
--- Name: legacy_import_rows legacy_import_rows_tenant_row_unique; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_rows
-    ADD CONSTRAINT legacy_import_rows_tenant_row_unique UNIQUE (tenant_id, legacy_row_id);
-
-
---
--- Name: legacy_import_runs legacy_import_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_runs
-    ADD CONSTRAINT legacy_import_runs_pkey PRIMARY KEY (import_run_id);
-
-
---
--- Name: legacy_import_runs legacy_import_runs_tenant_run_unique; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_runs
-    ADD CONSTRAINT legacy_import_runs_tenant_run_unique UNIQUE (tenant_id, import_run_id);
-
-
---
--- Name: legacy_status_mappings legacy_status_mappings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_status_mappings
-    ADD CONSTRAINT legacy_status_mappings_pkey PRIMARY KEY (mapping_id);
-
-
---
--- Name: legacy_status_mappings legacy_status_mappings_unique_label; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_status_mappings
-    ADD CONSTRAINT legacy_status_mappings_unique_label UNIQUE (source_system, normalized_raw_label);
-
-
---
--- Name: legacy_sync_run_conflicts legacy_sync_run_conflicts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_run_conflicts
-    ADD CONSTRAINT legacy_sync_run_conflicts_pkey PRIMARY KEY (sync_run_conflict_id);
-
-
---
--- Name: legacy_sync_run_steps legacy_sync_run_steps_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_run_steps
-    ADD CONSTRAINT legacy_sync_run_steps_pkey PRIMARY KEY (sync_step_id);
-
-
---
--- Name: legacy_sync_runs legacy_sync_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_runs
-    ADD CONSTRAINT legacy_sync_runs_pkey PRIMARY KEY (sync_run_id);
-
-
---
--- Name: legacy_sync_source_status legacy_sync_source_status_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_source_status
-    ADD CONSTRAINT legacy_sync_source_status_pkey PRIMARY KEY (tenant_id, source_id);
-
-
---
--- Name: legacy_sync_source_watermarks legacy_sync_source_watermarks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_source_watermarks
-    ADD CONSTRAINT legacy_sync_source_watermarks_pkey PRIMARY KEY (tenant_id, source_id);
-
-
---
--- Name: legacy_sync_sources legacy_sync_sources_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_sources
-    ADD CONSTRAINT legacy_sync_sources_pkey PRIMARY KEY (source_id);
-
-
---
 -- Name: location_aliases location_aliases_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6799,54 +5638,6 @@ ALTER TABLE ONLY public.locations
 
 ALTER TABLE ONLY public.locations
     ADD CONSTRAINT locations_unique_code UNIQUE (tenant_id, location_code);
-
-
---
--- Name: mortality_events mortality_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_events
-    ADD CONSTRAINT mortality_events_pkey PRIMARY KEY (mortality_event_id);
-
-
---
--- Name: mortality_projection_rows mortality_projection_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_projection_rows
-    ADD CONSTRAINT mortality_projection_rows_pkey PRIMARY KEY (mortality_projection_row_id);
-
-
---
--- Name: mortality_projection_state mortality_projection_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_projection_state
-    ADD CONSTRAINT mortality_projection_state_pkey PRIMARY KEY (mortality_projection_state_id);
-
-
---
--- Name: mortality_review_items mortality_review_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_review_items
-    ADD CONSTRAINT mortality_review_items_pkey PRIMARY KEY (review_id);
-
-
---
--- Name: mortality_source_rows mortality_source_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_source_rows
-    ADD CONSTRAINT mortality_source_rows_pkey PRIMARY KEY (mortality_source_row_id);
-
-
---
--- Name: mortality_sync_runs mortality_sync_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_sync_runs
-    ADD CONSTRAINT mortality_sync_runs_pkey PRIMARY KEY (sync_run_id);
 
 
 --
@@ -8427,55 +7218,6 @@ CREATE INDEX count_source_import_runs_tenant_started_idx ON public.count_source_
 
 
 --
--- Name: counts_projection_hot_read_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_projection_hot_read_idx ON public.counts_projection_rows USING btree (tenant_id, view_id, snapshot_date, section, sort_order, counts_projection_row_id);
-
-
---
--- Name: counts_projection_metric_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_projection_metric_idx ON public.counts_projection_rows USING btree (tenant_id, view_id, snapshot_date, metric_key);
-
-
---
--- Name: counts_projection_state_tenant_view_updated_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_projection_state_tenant_view_updated_idx ON public.counts_projection_state USING btree (tenant_id, view_id, updated_at DESC);
-
-
---
--- Name: counts_projection_state_unique_view; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX counts_projection_state_unique_view ON public.counts_projection_state USING btree (tenant_id, COALESCE(view_id, '__all__'::text));
-
-
---
--- Name: counts_projection_state_updated_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_projection_state_updated_idx ON public.counts_projection_state USING btree (tenant_id, updated_at DESC);
-
-
---
--- Name: counts_projection_sync_run_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_projection_sync_run_idx ON public.counts_projection_rows USING btree (tenant_id, sync_run_id);
-
-
---
--- Name: counts_projection_version_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_projection_version_idx ON public.counts_projection_rows USING btree (tenant_id, projection_version);
-
-
---
 -- Name: counts_shifting_readiness_evidence_prefix_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8497,76 +7239,6 @@ CREATE INDEX counts_shifting_readiness_status_idx ON public.counts_shifting_read
 
 
 --
--- Name: counts_snapshot_farm_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_snapshot_farm_idx ON public.counts_current_snapshot_rows USING btree (tenant_id, snapshot_date, farm_key);
-
-
---
--- Name: counts_snapshot_kind_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_snapshot_kind_idx ON public.counts_current_snapshot_rows USING btree (tenant_id, snapshot_date, row_kind, metric_name);
-
-
---
--- Name: counts_snapshot_location_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_snapshot_location_idx ON public.counts_current_snapshot_rows USING btree (tenant_id, snapshot_date, resolved_location_id);
-
-
---
--- Name: counts_snapshot_logical_fact_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX counts_snapshot_logical_fact_unique ON public.counts_current_snapshot_rows USING btree (tenant_id, snapshot_date, source_mode, logical_fact_key);
-
-
---
--- Name: counts_snapshot_sync_run_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_snapshot_sync_run_idx ON public.counts_current_snapshot_rows USING btree (tenant_id, sync_run_id);
-
-
---
--- Name: counts_source_rows_current_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX counts_source_rows_current_unique ON public.counts_source_rows USING btree (tenant_id, source_system, source_id, source_row_key) WHERE (row_status = 'current'::text);
-
-
---
--- Name: counts_source_rows_current_watermark_order_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_source_rows_current_watermark_order_idx ON public.counts_source_rows USING btree (tenant_id, source_watermark_date, source_id, source_row_key, counts_source_row_id) WHERE (row_status = 'current'::text);
-
-
---
--- Name: counts_source_rows_sync_run_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_source_rows_sync_run_idx ON public.counts_source_rows USING btree (tenant_id, sync_run_id);
-
-
---
--- Name: counts_source_rows_watermark_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_source_rows_watermark_idx ON public.counts_source_rows USING btree (tenant_id, source_id, source_watermark_date, counts_source_row_id);
-
-
---
--- Name: counts_sync_runs_tenant_created_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX counts_sync_runs_tenant_created_idx ON public.counts_sync_runs USING btree (tenant_id, created_at DESC, sync_run_id DESC);
-
-
---
 -- Name: domain_event_processed_events_retention_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8578,20 +7250,6 @@ CREATE INDEX domain_event_processed_events_retention_idx ON public.domain_event_
 --
 
 CREATE INDEX domain_event_processed_events_status_idx ON public.domain_event_processed_events USING btree (tenant_id, subscription_id, status, updated_at);
-
-
---
--- Name: feature_coverage_registry_status_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX feature_coverage_registry_status_idx ON public.feature_coverage_registry USING btree (tenant_id, feature_module, coverage_status, updated_at DESC);
-
-
---
--- Name: feature_coverage_registry_unique_grain; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX feature_coverage_registry_unique_grain ON public.feature_coverage_registry USING btree (tenant_id, feature_module, section, metric_key, grain_key, covered_window, source_mode);
 
 
 --
@@ -8637,24 +7295,17 @@ CREATE INDEX goat_custody_history_goat_current_idx ON public.goat_custody_histor
 
 
 --
--- Name: goat_identifiers_active_rfid_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX goat_identifiers_active_rfid_unique ON public.goat_identifiers USING btree (normalized_value) WHERE ((identifier_type = 'rfid'::text) AND (status = 'active'::text));
-
-
---
--- Name: goat_identifiers_active_scoped_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX goat_identifiers_active_scoped_unique ON public.goat_identifiers USING btree (tenant_id, identifier_type, normalized_value, scope_key) WHERE ((identifier_type = ANY (ARRAY['old_tag'::text, 'sheet_row_id'::text, 'purchase_load_id'::text, 'temp_field_id'::text, 'external_system_id'::text])) AND (status = 'active'::text));
-
-
---
 -- Name: goat_identifiers_goat_status_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX goat_identifiers_goat_status_idx ON public.goat_identifiers USING btree (goat_id, status);
+
+
+--
+-- Name: goat_identifiers_lifetime_value_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX goat_identifiers_lifetime_value_unique ON public.goat_identifiers USING btree (tenant_id, normalized_value);
 
 
 --
@@ -8676,41 +7327,6 @@ CREATE UNIQUE INDEX goat_identifiers_primary_per_goat_unique ON public.goat_iden
 --
 
 CREATE INDEX goat_identifiers_source_idx ON public.goat_identifiers USING btree (source_system, source_record_id);
-
-
---
--- Name: goat_identity_counter_processed_events_prune_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_counter_processed_events_prune_idx ON public.goat_identity_counter_processed_events USING btree (tenant_id, processed_at, event_recorded_at);
-
-
---
--- Name: goat_identity_counters_grain_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX goat_identity_counters_grain_unique ON public.goat_identity_counters USING btree (counter_grain, tenant_id, custodian_party_id, farm_id, park_id, shed_id, cohort_id, lifecycle_status, reproductive_status, growth_cohort_tag, management_stage, health_status, identity_state, breed_id, sex) NULLS NOT DISTINCT;
-
-
---
--- Name: goat_identity_counters_lookup_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_counters_lookup_idx ON public.goat_identity_counters USING btree (counter_grain, tenant_id, updated_at DESC);
-
-
---
--- Name: goat_identity_counters_page_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_counters_page_idx ON public.goat_identity_counters USING btree (counter_grain, tenant_id, count_value DESC, counter_id);
-
-
---
--- Name: goat_identity_counters_rebuild_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_counters_rebuild_idx ON public.goat_identity_counters USING btree (is_rebuilding, updated_at DESC);
 
 
 --
@@ -9067,14 +7683,14 @@ CREATE INDEX goats_shed_lifecycle_idx ON public.goats USING btree (shed_id, life
 -- Name: goats_tenant_breed_display_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX goats_tenant_breed_display_idx ON public.goats USING btree (tenant_id, breed, display_id) WHERE (identity_state <> 'merged'::text);
+CREATE INDEX goats_tenant_breed_display_idx ON public.goats USING btree (tenant_id, breed, display_id) WHERE (merged_into_goat_id IS NULL);
 
 
 --
 -- Name: goats_tenant_breed_sex_display_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX goats_tenant_breed_sex_display_idx ON public.goats USING btree (tenant_id, breed, sex, display_id) WHERE (identity_state <> 'merged'::text);
+CREATE INDEX goats_tenant_breed_sex_display_idx ON public.goats USING btree (tenant_id, breed, sex, display_id) WHERE (merged_into_goat_id IS NULL);
 
 
 --
@@ -9109,7 +7725,7 @@ CREATE INDEX goats_tenant_health_idx ON public.goats USING btree (tenant_id, hea
 -- Name: goats_tenant_lifecycle_display_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX goats_tenant_lifecycle_display_idx ON public.goats USING btree (tenant_id, lifecycle_status, display_id) WHERE (identity_state <> 'merged'::text);
+CREATE INDEX goats_tenant_lifecycle_display_idx ON public.goats USING btree (tenant_id, lifecycle_status, display_id) WHERE (merged_into_goat_id IS NULL);
 
 
 --
@@ -9137,7 +7753,7 @@ CREATE INDEX goats_tenant_reproductive_idx ON public.goats USING btree (tenant_i
 -- Name: goats_tenant_sex_display_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX goats_tenant_sex_display_idx ON public.goats USING btree (tenant_id, sex, display_id) WHERE (identity_state <> 'merged'::text);
+CREATE INDEX goats_tenant_sex_display_idx ON public.goats USING btree (tenant_id, sex, display_id) WHERE (merged_into_goat_id IS NULL);
 
 
 --
@@ -9253,27 +7869,6 @@ CREATE INDEX identity_decisions_tenant_type_state_idx ON public.identity_decisio
 
 
 --
--- Name: identity_match_candidates_actionable_queue_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX identity_match_candidates_actionable_queue_idx ON public.identity_match_candidates USING btree (tenant_id, created_at DESC, candidate_id DESC) WHERE (state = ANY (ARRAY['proposed'::text, 'needs_review'::text]));
-
-
---
--- Name: identity_match_candidates_goats_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX identity_match_candidates_goats_idx ON public.identity_match_candidates USING btree (proposed_goat_id, candidate_goat_id);
-
-
---
--- Name: identity_match_candidates_queue_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX identity_match_candidates_queue_idx ON public.identity_match_candidates USING btree (tenant_id, state, created_at DESC);
-
-
---
 -- Name: inventory_stock_fefo_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9292,118 +7887,6 @@ CREATE INDEX inventory_stock_movements_batch_idx ON public.inventory_stock_movem
 --
 
 CREATE INDEX inventory_stock_movements_lot_idx ON public.inventory_stock_movements USING btree (tenant_id, lot_id, occurred_at);
-
-
---
--- Name: legacy_import_rows_matched_goat_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_import_rows_matched_goat_idx ON public.legacy_import_rows USING btree (matched_goat_id);
-
-
---
--- Name: legacy_import_rows_processing_reasons_gin_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_import_rows_processing_reasons_gin_idx ON public.legacy_import_rows USING gin (((normalized_payload -> 'processing_reasons'::text)));
-
-
---
--- Name: legacy_import_rows_rfid_apply_candidates_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_import_rows_rfid_apply_candidates_idx ON public.legacy_import_rows USING btree (import_run_id, row_number, legacy_row_id) WHERE ((processing_state = 'pending'::text) OR ((processing_state = 'needs_review'::text) AND (normalized_payload @> '{"processing_reasons": ["blank_old_tag_suffix"]}'::jsonb)));
-
-
---
--- Name: legacy_import_rows_run_keyset_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_import_rows_run_keyset_idx ON public.legacy_import_rows USING btree (tenant_id, import_run_id, row_number, legacy_row_id);
-
-
---
--- Name: legacy_import_rows_run_state_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_import_rows_run_state_idx ON public.legacy_import_rows USING btree (import_run_id, processing_state, row_number);
-
-
---
--- Name: legacy_import_rows_run_state_keyset_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_import_rows_run_state_keyset_idx ON public.legacy_import_rows USING btree (tenant_id, import_run_id, processing_state, row_number, legacy_row_id);
-
-
---
--- Name: legacy_import_rows_source_key_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_import_rows_source_key_idx ON public.legacy_import_rows USING btree (source_row_key);
-
-
---
--- Name: legacy_import_runs_policy_status_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_import_runs_policy_status_idx ON public.legacy_import_runs USING btree (policy_version, status, started_at DESC);
-
-
---
--- Name: legacy_import_runs_tenant_started_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_import_runs_tenant_started_idx ON public.legacy_import_runs USING btree (tenant_id, started_at DESC, import_run_id DESC);
-
-
---
--- Name: legacy_status_mappings_lookup_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_status_mappings_lookup_idx ON public.legacy_status_mappings USING btree (source_system, normalized_raw_label);
-
-
---
--- Name: legacy_sync_run_conflicts_run_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_sync_run_conflicts_run_idx ON public.legacy_sync_run_conflicts USING btree (sync_run_id, created_at DESC);
-
-
---
--- Name: legacy_sync_run_conflicts_unique_run_source_key; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX legacy_sync_run_conflicts_unique_run_source_key ON public.legacy_sync_run_conflicts USING btree (tenant_id, sync_run_id, source_conflict_key);
-
-
---
--- Name: legacy_sync_run_steps_run_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_sync_run_steps_run_idx ON public.legacy_sync_run_steps USING btree (sync_run_id, started_at, sync_step_id);
-
-
---
--- Name: legacy_sync_runs_one_active_tenant_domain_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX legacy_sync_runs_one_active_tenant_domain_idx ON public.legacy_sync_runs USING btree (tenant_id, domain) WHERE (status = ANY (ARRAY['planning'::text, 'running'::text]));
-
-
---
--- Name: legacy_sync_runs_tenant_started_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_sync_runs_tenant_started_idx ON public.legacy_sync_runs USING btree (tenant_id, started_at DESC, sync_run_id DESC);
-
-
---
--- Name: legacy_sync_source_status_tenant_freshness_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX legacy_sync_source_status_tenant_freshness_idx ON public.legacy_sync_source_status USING btree (tenant_id, freshness_status, source_id);
 
 
 --
@@ -9523,146 +8006,6 @@ CREATE INDEX locations_tenant_type_idx ON public.locations USING btree (tenant_i
 --
 
 CREATE INDEX locations_tenant_type_status_order_idx ON public.locations USING btree (tenant_id, location_type, status, display_order, name, location_id);
-
-
---
--- Name: mortality_events_candidate_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_events_candidate_idx ON public.mortality_events USING btree (tenant_id, dedup_candidate_key, event_date) WHERE (dedup_candidate_key IS NOT NULL);
-
-
---
--- Name: mortality_events_event_date_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_events_event_date_idx ON public.mortality_events USING btree (tenant_id, event_date, mortality_event_id);
-
-
---
--- Name: mortality_events_goat_date_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_events_goat_date_idx ON public.mortality_events USING btree (tenant_id, goat_id, event_date) WHERE (goat_id IS NOT NULL);
-
-
---
--- Name: mortality_events_idempotency_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX mortality_events_idempotency_unique ON public.mortality_events USING btree (tenant_id, idempotency_key);
-
-
---
--- Name: mortality_events_logical_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX mortality_events_logical_unique ON public.mortality_events USING btree (tenant_id, logical_event_key) WHERE ((logical_event_key IS NOT NULL) AND (dedup_confidence = ANY (ARRAY['resolved_identity'::text, 'stable_source_identifier'::text])) AND (review_status = ANY (ARRAY['accepted'::text, 'needs_review'::text])));
-
-
---
--- Name: mortality_events_review_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_events_review_idx ON public.mortality_events USING btree (tenant_id, review_status, event_date DESC);
-
-
---
--- Name: mortality_events_type_date_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_events_type_date_idx ON public.mortality_events USING btree (tenant_id, event_type, event_date);
-
-
---
--- Name: mortality_projection_hot_read_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_projection_hot_read_idx ON public.mortality_projection_rows USING btree (tenant_id, period, section, grain, sort_order, mortality_projection_row_id);
-
-
---
--- Name: mortality_projection_metric_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_projection_metric_idx ON public.mortality_projection_rows USING btree (tenant_id, period, section, metric_key);
-
-
---
--- Name: mortality_projection_state_tenant_period_updated_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_projection_state_tenant_period_updated_idx ON public.mortality_projection_state USING btree (tenant_id, period, updated_at DESC);
-
-
---
--- Name: mortality_projection_state_unique_period; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX mortality_projection_state_unique_period ON public.mortality_projection_state USING btree (tenant_id, COALESCE(period, '__all__'::text));
-
-
---
--- Name: mortality_projection_state_updated_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_projection_state_updated_idx ON public.mortality_projection_state USING btree (tenant_id, updated_at DESC);
-
-
---
--- Name: mortality_projection_version_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_projection_version_idx ON public.mortality_projection_rows USING btree (tenant_id, projection_version);
-
-
---
--- Name: mortality_review_items_queue_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_review_items_queue_idx ON public.mortality_review_items USING btree (tenant_id, status, review_type, updated_at DESC);
-
-
---
--- Name: mortality_review_items_unique_open_evidence; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX mortality_review_items_unique_open_evidence ON public.mortality_review_items USING btree (tenant_id, review_type, evidence_hash) WHERE (status = 'open'::text);
-
-
---
--- Name: mortality_source_rows_current_observed_order_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_source_rows_current_observed_order_idx ON public.mortality_source_rows USING btree (tenant_id, source_observed_at, source_table, source_row_key, mortality_source_row_id) WHERE (row_status = 'current'::text);
-
-
---
--- Name: mortality_source_rows_current_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX mortality_source_rows_current_unique ON public.mortality_source_rows USING btree (tenant_id, source_system, source_table, source_row_key) WHERE (row_status = 'current'::text);
-
-
---
--- Name: mortality_source_rows_hash_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_source_rows_hash_idx ON public.mortality_source_rows USING btree (tenant_id, payload_hash);
-
-
---
--- Name: mortality_source_rows_observed_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_source_rows_observed_idx ON public.mortality_source_rows USING btree (tenant_id, source_table, source_observed_at, mortality_source_row_id);
-
-
---
--- Name: mortality_sync_runs_tenant_created_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX mortality_sync_runs_tenant_created_idx ON public.mortality_sync_runs USING btree (tenant_id, created_at DESC, sync_run_id DESC);
 
 
 --
@@ -10131,7 +8474,21 @@ CREATE INDEX procurement_hf_vaccination_evidence_trusted_rule_idx ON public.proc
 -- Name: procurement_load_goats_action_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX procurement_load_goats_action_idx ON public.procurement_load_goats USING btree (tenant_id, current_state, ownership_state, identity_review_state, updated_at DESC, goat_id);
+CREATE INDEX procurement_load_goats_action_idx ON public.procurement_load_goats USING btree (tenant_id, current_state, ownership_state, source_entry_state, updated_at DESC, goat_id);
+
+
+--
+-- Name: procurement_load_goats_animal_identifier_1_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_load_goats_animal_identifier_1_idx ON public.procurement_load_goats USING btree (tenant_id, lower(animal_identifier_1), load_id) WHERE (animal_identifier_1 IS NOT NULL);
+
+
+--
+-- Name: procurement_load_goats_animal_identifier_2_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_load_goats_animal_identifier_2_idx ON public.procurement_load_goats USING btree (tenant_id, animal_identifier_2, load_id) WHERE (animal_identifier_2 IS NOT NULL);
 
 
 --
@@ -10145,7 +8502,7 @@ CREATE INDEX procurement_load_goats_goat_state_idx ON public.procurement_load_go
 -- Name: procurement_load_goats_intake_eligibility_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX procurement_load_goats_intake_eligibility_idx ON public.procurement_load_goats USING btree (tenant_id, load_id, current_state, health_state, identity_review_state, ownership_state, goat_id) WHERE ((loaded_at IS NOT NULL) AND (arrived_at IS NOT NULL));
+CREATE INDEX procurement_load_goats_intake_eligibility_idx ON public.procurement_load_goats USING btree (tenant_id, load_id, current_state, health_state, source_entry_state, ownership_state, goat_id) WHERE ((loaded_at IS NOT NULL) AND (arrived_at IS NOT NULL));
 
 
 --
@@ -10167,20 +8524,6 @@ CREATE INDEX procurement_load_goats_load_state_idx ON public.procurement_load_go
 --
 
 CREATE INDEX procurement_load_goats_purpose_warmup_idx ON public.procurement_load_goats USING btree (tenant_id, purpose, warmup_days, current_state, updated_at DESC);
-
-
---
--- Name: procurement_load_goats_source_rfid_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX procurement_load_goats_source_rfid_idx ON public.procurement_load_goats USING btree (tenant_id, source_rfid, load_id) WHERE (source_rfid IS NOT NULL);
-
-
---
--- Name: procurement_load_goats_source_tag_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX procurement_load_goats_source_tag_idx ON public.procurement_load_goats USING btree (tenant_id, lower(source_tag), load_id) WHERE (source_tag IS NOT NULL);
 
 
 --
@@ -12560,102 +10903,6 @@ ALTER TABLE ONLY public.count_source_import_runs
 
 
 --
--- Name: counts_current_snapshot_rows counts_current_snapshot_rows_breed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_current_snapshot_rows
-    ADD CONSTRAINT counts_current_snapshot_rows_breed_id_fkey FOREIGN KEY (breed_id) REFERENCES public.breeds(breed_id);
-
-
---
--- Name: counts_current_snapshot_rows counts_current_snapshot_rows_farm_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_current_snapshot_rows
-    ADD CONSTRAINT counts_current_snapshot_rows_farm_id_fkey FOREIGN KEY (farm_id) REFERENCES public.locations(location_id);
-
-
---
--- Name: counts_current_snapshot_rows counts_current_snapshot_rows_park_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_current_snapshot_rows
-    ADD CONSTRAINT counts_current_snapshot_rows_park_id_fkey FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
-
-
---
--- Name: counts_current_snapshot_rows counts_current_snapshot_rows_resolved_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_current_snapshot_rows
-    ADD CONSTRAINT counts_current_snapshot_rows_resolved_location_id_fkey FOREIGN KEY (resolved_location_id) REFERENCES public.locations(location_id);
-
-
---
--- Name: counts_current_snapshot_rows counts_current_snapshot_rows_shed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_current_snapshot_rows
-    ADD CONSTRAINT counts_current_snapshot_rows_shed_id_fkey FOREIGN KEY (shed_id) REFERENCES public.locations(location_id);
-
-
---
--- Name: counts_current_snapshot_rows counts_current_snapshot_rows_source_row_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_current_snapshot_rows
-    ADD CONSTRAINT counts_current_snapshot_rows_source_row_id_fkey FOREIGN KEY (source_row_id) REFERENCES public.counts_source_rows(counts_source_row_id) ON DELETE SET NULL;
-
-
---
--- Name: counts_current_snapshot_rows counts_current_snapshot_rows_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_current_snapshot_rows
-    ADD CONSTRAINT counts_current_snapshot_rows_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
-
-
---
--- Name: counts_current_snapshot_rows counts_current_snapshot_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_current_snapshot_rows
-    ADD CONSTRAINT counts_current_snapshot_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: counts_projection_rows counts_projection_rows_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_projection_rows
-    ADD CONSTRAINT counts_projection_rows_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
-
-
---
--- Name: counts_projection_rows counts_projection_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_projection_rows
-    ADD CONSTRAINT counts_projection_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: counts_projection_state counts_projection_state_last_successful_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_projection_state
-    ADD CONSTRAINT counts_projection_state_last_successful_run_id_fkey FOREIGN KEY (last_successful_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
-
-
---
--- Name: counts_projection_state counts_projection_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_projection_state
-    ADD CONSTRAINT counts_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
 -- Name: counts_shifting_readiness_evidence counts_shifting_readiness_evidence_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -12669,30 +10916,6 @@ ALTER TABLE ONLY public.counts_shifting_readiness_evidence
 
 ALTER TABLE ONLY public.counts_shifting_readiness_subgates
     ADD CONSTRAINT counts_shifting_readiness_subgates_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: counts_source_rows counts_source_rows_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_source_rows
-    ADD CONSTRAINT counts_source_rows_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
-
-
---
--- Name: counts_source_rows counts_source_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_source_rows
-    ADD CONSTRAINT counts_source_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: counts_sync_runs counts_sync_runs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_sync_runs
-    ADD CONSTRAINT counts_sync_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -12725,14 +10948,6 @@ ALTER TABLE ONLY public.farm_profiles
 
 ALTER TABLE ONLY public.farm_profiles
     ADD CONSTRAINT farm_profiles_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: feature_coverage_registry feature_coverage_registry_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.feature_coverage_registry
-    ADD CONSTRAINT feature_coverage_registry_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -12885,126 +11100,6 @@ ALTER TABLE ONLY public.goat_identifiers
 
 ALTER TABLE ONLY public.goat_identifiers
     ADD CONSTRAINT goat_identifiers_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: goat_identity_counter_processed_events goat_identity_counter_processed_events_event_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counter_processed_events
-    ADD CONSTRAINT goat_identity_counter_processed_events_event_fk FOREIGN KEY (tenant_id, event_id, event_recorded_at) REFERENCES public.goat_identity_events(tenant_id, identity_event_id, recorded_at);
-
-
---
--- Name: goat_identity_counter_projection_state goat_identity_counter_projection_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counter_projection_state
-    ADD CONSTRAINT goat_identity_counter_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_breed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_breed_id_fkey FOREIGN KEY (breed_id) REFERENCES public.breeds(breed_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_cohort_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_cohort_id_fkey FOREIGN KEY (cohort_id) REFERENCES public.locations(location_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_cohort_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_cohort_tenant_fk FOREIGN KEY (tenant_id, cohort_id) REFERENCES public.locations(tenant_id, location_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_custodian_party_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_custodian_party_id_fkey FOREIGN KEY (custodian_party_id) REFERENCES public.parties(party_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_farm_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_farm_id_fkey FOREIGN KEY (farm_id) REFERENCES public.locations(location_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_farm_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_farm_tenant_fk FOREIGN KEY (tenant_id, farm_id) REFERENCES public.locations(tenant_id, location_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_import_run_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_import_run_tenant_fk FOREIGN KEY (tenant_id, source_import_run_id) REFERENCES public.legacy_import_runs(tenant_id, import_run_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_park_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_park_id_fkey FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_park_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_park_tenant_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_shed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_shed_id_fkey FOREIGN KEY (shed_id) REFERENCES public.locations(location_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_shed_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_shed_tenant_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_source_import_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_source_import_run_id_fkey FOREIGN KEY (source_import_run_id) REFERENCES public.legacy_import_runs(import_run_id);
-
-
---
--- Name: goat_identity_counters goat_identity_counters_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_counters
-    ADD CONSTRAINT goat_identity_counters_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -13688,78 +11783,6 @@ ALTER TABLE ONLY public.identity_decisions
 
 
 --
--- Name: identity_match_candidates identity_match_candidates_candidate_goat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.identity_match_candidates
-    ADD CONSTRAINT identity_match_candidates_candidate_goat_id_fkey FOREIGN KEY (candidate_goat_id) REFERENCES public.goats(goat_id);
-
-
---
--- Name: identity_match_candidates identity_match_candidates_candidate_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.identity_match_candidates
-    ADD CONSTRAINT identity_match_candidates_candidate_goat_tenant_fk FOREIGN KEY (tenant_id, candidate_goat_id) REFERENCES public.goats(tenant_id, goat_id);
-
-
---
--- Name: identity_match_candidates identity_match_candidates_decision_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.identity_match_candidates
-    ADD CONSTRAINT identity_match_candidates_decision_id_fkey FOREIGN KEY (decision_id) REFERENCES public.identity_decisions(decision_id);
-
-
---
--- Name: identity_match_candidates identity_match_candidates_decision_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.identity_match_candidates
-    ADD CONSTRAINT identity_match_candidates_decision_tenant_fk FOREIGN KEY (tenant_id, decision_id) REFERENCES public.identity_decisions(tenant_id, decision_id);
-
-
---
--- Name: identity_match_candidates identity_match_candidates_legacy_row_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.identity_match_candidates
-    ADD CONSTRAINT identity_match_candidates_legacy_row_id_fkey FOREIGN KEY (legacy_row_id) REFERENCES public.legacy_import_rows(legacy_row_id);
-
-
---
--- Name: identity_match_candidates identity_match_candidates_legacy_row_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.identity_match_candidates
-    ADD CONSTRAINT identity_match_candidates_legacy_row_tenant_fk FOREIGN KEY (tenant_id, legacy_row_id) REFERENCES public.legacy_import_rows(tenant_id, legacy_row_id);
-
-
---
--- Name: identity_match_candidates identity_match_candidates_proposed_goat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.identity_match_candidates
-    ADD CONSTRAINT identity_match_candidates_proposed_goat_id_fkey FOREIGN KEY (proposed_goat_id) REFERENCES public.goats(goat_id);
-
-
---
--- Name: identity_match_candidates identity_match_candidates_proposed_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.identity_match_candidates
-    ADD CONSTRAINT identity_match_candidates_proposed_goat_tenant_fk FOREIGN KEY (tenant_id, proposed_goat_id) REFERENCES public.goats(tenant_id, goat_id);
-
-
---
--- Name: identity_match_candidates identity_match_candidates_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.identity_match_candidates
-    ADD CONSTRAINT identity_match_candidates_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
 -- Name: inventory_items inventory_items_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -13813,142 +11836,6 @@ ALTER TABLE ONLY public.inventory_stock_movements
 
 ALTER TABLE ONLY public.inventory_stock
     ADD CONSTRAINT inventory_stock_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: legacy_import_policies legacy_import_policies_identifier_policy_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_policies
-    ADD CONSTRAINT legacy_import_policies_identifier_policy_fk FOREIGN KEY (identifier_policy_version) REFERENCES public.identifier_policy_versions(policy_version);
-
-
---
--- Name: legacy_import_rows legacy_import_rows_import_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_rows
-    ADD CONSTRAINT legacy_import_rows_import_run_id_fkey FOREIGN KEY (import_run_id) REFERENCES public.legacy_import_runs(import_run_id);
-
-
---
--- Name: legacy_import_rows legacy_import_rows_matched_goat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_rows
-    ADD CONSTRAINT legacy_import_rows_matched_goat_id_fkey FOREIGN KEY (matched_goat_id) REFERENCES public.goats(goat_id);
-
-
---
--- Name: legacy_import_rows legacy_import_rows_matched_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_rows
-    ADD CONSTRAINT legacy_import_rows_matched_goat_tenant_fk FOREIGN KEY (tenant_id, matched_goat_id) REFERENCES public.goats(tenant_id, goat_id);
-
-
---
--- Name: legacy_import_rows legacy_import_rows_run_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_rows
-    ADD CONSTRAINT legacy_import_rows_run_tenant_fk FOREIGN KEY (tenant_id, import_run_id) REFERENCES public.legacy_import_runs(tenant_id, import_run_id);
-
-
---
--- Name: legacy_import_rows legacy_import_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_rows
-    ADD CONSTRAINT legacy_import_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: legacy_import_runs legacy_import_runs_policy_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_runs
-    ADD CONSTRAINT legacy_import_runs_policy_version_fkey FOREIGN KEY (policy_version) REFERENCES public.legacy_import_policies(policy_version);
-
-
---
--- Name: legacy_import_runs legacy_import_runs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_import_runs
-    ADD CONSTRAINT legacy_import_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: legacy_status_mappings legacy_status_mappings_display_status_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_status_mappings
-    ADD CONSTRAINT legacy_status_mappings_display_status_code_fkey FOREIGN KEY (display_status_code) REFERENCES public.status_definitions(status_code);
-
-
---
--- Name: legacy_sync_run_conflicts legacy_sync_run_conflicts_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_run_conflicts
-    ADD CONSTRAINT legacy_sync_run_conflicts_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE CASCADE;
-
-
---
--- Name: legacy_sync_run_conflicts legacy_sync_run_conflicts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_run_conflicts
-    ADD CONSTRAINT legacy_sync_run_conflicts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: legacy_sync_run_steps legacy_sync_run_steps_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_run_steps
-    ADD CONSTRAINT legacy_sync_run_steps_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE CASCADE;
-
-
---
--- Name: legacy_sync_runs legacy_sync_runs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_runs
-    ADD CONSTRAINT legacy_sync_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: legacy_sync_source_status legacy_sync_source_status_last_success_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_source_status
-    ADD CONSTRAINT legacy_sync_source_status_last_success_sync_run_id_fkey FOREIGN KEY (last_success_sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
-
-
---
--- Name: legacy_sync_source_status legacy_sync_source_status_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_source_status
-    ADD CONSTRAINT legacy_sync_source_status_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: legacy_sync_source_watermarks legacy_sync_source_watermarks_last_success_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_source_watermarks
-    ADD CONSTRAINT legacy_sync_source_watermarks_last_success_sync_run_id_fkey FOREIGN KEY (last_success_sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
-
-
---
--- Name: legacy_sync_source_watermarks legacy_sync_source_watermarks_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.legacy_sync_source_watermarks
-    ADD CONSTRAINT legacy_sync_source_watermarks_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -14048,14 +11935,6 @@ ALTER TABLE ONLY public.location_review_items
 
 
 --
--- Name: location_review_items location_review_items_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.location_review_items
-    ADD CONSTRAINT location_review_items_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
-
-
---
 -- Name: location_review_items location_review_items_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -14085,142 +11964,6 @@ ALTER TABLE ONLY public.locations
 
 ALTER TABLE ONLY public.locations
     ADD CONSTRAINT locations_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: mortality_events mortality_events_canonical_farm_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_events
-    ADD CONSTRAINT mortality_events_canonical_farm_location_id_fkey FOREIGN KEY (canonical_farm_location_id) REFERENCES public.locations(location_id);
-
-
---
--- Name: mortality_events mortality_events_canonical_housing_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_events
-    ADD CONSTRAINT mortality_events_canonical_housing_location_id_fkey FOREIGN KEY (canonical_housing_location_id) REFERENCES public.locations(location_id);
-
-
---
--- Name: mortality_events mortality_events_canonical_park_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_events
-    ADD CONSTRAINT mortality_events_canonical_park_location_id_fkey FOREIGN KEY (canonical_park_location_id) REFERENCES public.locations(location_id);
-
-
---
--- Name: mortality_events mortality_events_canonical_shed_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_events
-    ADD CONSTRAINT mortality_events_canonical_shed_location_id_fkey FOREIGN KEY (canonical_shed_location_id) REFERENCES public.locations(location_id);
-
-
---
--- Name: mortality_events mortality_events_goat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_events
-    ADD CONSTRAINT mortality_events_goat_id_fkey FOREIGN KEY (goat_id) REFERENCES public.goats(goat_id);
-
-
---
--- Name: mortality_events mortality_events_source_row_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_events
-    ADD CONSTRAINT mortality_events_source_row_id_fkey FOREIGN KEY (source_row_id) REFERENCES public.mortality_source_rows(mortality_source_row_id) ON DELETE SET NULL;
-
-
---
--- Name: mortality_events mortality_events_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_events
-    ADD CONSTRAINT mortality_events_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: mortality_projection_rows mortality_projection_rows_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_projection_rows
-    ADD CONSTRAINT mortality_projection_rows_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
-
-
---
--- Name: mortality_projection_rows mortality_projection_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_projection_rows
-    ADD CONSTRAINT mortality_projection_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: mortality_projection_state mortality_projection_state_last_successful_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_projection_state
-    ADD CONSTRAINT mortality_projection_state_last_successful_run_id_fkey FOREIGN KEY (last_successful_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
-
-
---
--- Name: mortality_projection_state mortality_projection_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_projection_state
-    ADD CONSTRAINT mortality_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: mortality_review_items mortality_review_items_mortality_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_review_items
-    ADD CONSTRAINT mortality_review_items_mortality_event_id_fkey FOREIGN KEY (mortality_event_id) REFERENCES public.mortality_events(mortality_event_id) ON DELETE SET NULL;
-
-
---
--- Name: mortality_review_items mortality_review_items_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_review_items
-    ADD CONSTRAINT mortality_review_items_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
-
-
---
--- Name: mortality_review_items mortality_review_items_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_review_items
-    ADD CONSTRAINT mortality_review_items_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: mortality_source_rows mortality_source_rows_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_source_rows
-    ADD CONSTRAINT mortality_source_rows_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
-
-
---
--- Name: mortality_source_rows mortality_source_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_source_rows
-    ADD CONSTRAINT mortality_source_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: mortality_sync_runs mortality_sync_runs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mortality_sync_runs
-    ADD CONSTRAINT mortality_sync_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

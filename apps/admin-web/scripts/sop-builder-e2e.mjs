@@ -30,7 +30,7 @@ const TYPES = [
   { key: "yesno", cfg: async (i) => /Yes \/ No/.test(await q(i).innerText()), pv: ".chip" },
   { key: "select", cfg: async (i) => (await q(i).locator(".optrow").count()) >= 2, pv: ".pvopt-btn", opt: true },
   { key: "multiselect", cfg: async (i) => (await q(i).locator(".optrow").count()) >= 2, pv: ".pvopt-btn", opt: true },
-  { key: "goat_scan", cfg: async (i) => /scan the goat RFID/i.test(await q(i).innerText()), pv: ".pvscanmulti" },
+  { key: "goat_scan", cfg: async (i) => /scan Animal ID/i.test(await q(i).innerText()), pv: ".pvscanmulti" },
   { key: "shed_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: ".pvselectstub" },
   { key: "vaccine_batch_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: ".pvselectstub" },
   { key: "medicine_picker", cfg: async (i) => /live list/i.test(await q(i).innerText()), pv: ".pvselectstub" },
@@ -93,9 +93,9 @@ try {
   await check("picker preview renders a DROPDOWN control", async () => (await pf0().locator(".pvselectstub .ic").count()) > 0);
   await typeSel(0).selectOption("goat_scan");
   await page.waitForTimeout(200);
-  await check("goat scan (multi default) previews a MULTI-SCAN control", async () => (await pf0().locator(".pvscanmulti").count()) > 0);
-  await check("goat scan builder has a Scan mode select", async () => (await q(0).locator('select[aria-label*="Scan mode"]').count()) > 0);
-  await pf0().locator(".pvscanmulti .btn.ghost").first().click(); // Scan goat -> add a tag
+  await check("Animal ID scan (multi default) previews a MULTI-SCAN control", async () => (await pf0().locator(".pvscanmulti").count()) > 0);
+  await check("Animal ID scan builder has a Scan mode select", async () => (await q(0).locator('select[aria-label*="Scan mode"]').count()) > 0);
+  await pf0().locator(".pvscanmulti .btn.ghost").first().click(); // Scan Animal ID -> add a tag
   await page.waitForTimeout(150);
   await check("multi-scan: adding a scan shows a tag chip", async () => (await pf0().locator(".pvchip").count()) > 0);
   await q(0).locator('select[aria-label*="Scan mode"]').selectOption("single");

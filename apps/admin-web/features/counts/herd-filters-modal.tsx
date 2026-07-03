@@ -12,7 +12,7 @@ import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-cont
 // theme classes (.modal / .chip / .fld / .btn) and CSS variables ONLY — no hardcoded hex, so the light/dark
 // theme toggle and the Mesha palette stay correct.
 //
-// Backed facets wire to /goats/search (Gender→sex, Breed→breed, Search→q). Park scope is owned by the top
+// Backed facets wire to /goats/search (Sex→sex, Breed→breed, Search→q). Park scope is owned by the top
 // bar (Scope Chrome Rule), shown read-only here. Additional facets preserve their chosen values in the URL
 // and become active automatically when the goat-search contract starts consuming them.
 
@@ -41,7 +41,7 @@ export function HerdFiltersModal({ open, pageContract, searchParams = {}, onClos
   const breed = one(searchParams, "breed");
   const sex = one(searchParams, "sex");
   const breeds = optionGroup(pageContract, "herd_filter_breeds");
-  const genders = optionGroup(pageContract, "herd_filter_genders");
+  const sexOptions = optionGroup(pageContract, "herd_filter_sexes");
   const extraFacets = optionGroup(pageContract, "herd_filter_extra_facets");
 
   useEffect(() => {
@@ -137,9 +137,9 @@ export function HerdFiltersModal({ open, pageContract, searchParams = {}, onClos
           </div>
 
           <div>
-            <span style={groupLabelStyle}>{copy(pageContract, "filter.gender_label")}</span>
+            <span style={groupLabelStyle}>{copy(pageContract, "filter.sex_label")}</span>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {genders.map((g) => (
+              {sexOptions.map((g) => (
                 <ChipButton key={g.key} label={g.label} value={g.key} facet="sex" selected={sex === g.key} />
               ))}
             </div>

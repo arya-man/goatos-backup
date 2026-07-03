@@ -1029,7 +1029,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Import supplier / Holding-Farm vaccination dose evidence for a source goat. */
+        /** Import supplier / Holding-Farm vaccination dose evidence for a source animal. */
         post: operations["recordProcurementHFVaccinationEvidence"];
         delete?: never;
         options?: never;
@@ -1234,12 +1234,6 @@ export interface components {
             required: boolean;
             /** @enum {string} */
             subject_scope: "batch" | "goat" | "shed" | "task";
-            /**
-             * @deprecated
-             * @description Deprecated legacy alias. Use subject_scope.
-             * @enum {string}
-             */
-            scope?: "batch" | "goat" | "shed" | "task";
             types: ("photo" | "video")[];
             minimum_count: number;
             verify_before_apply?: boolean;
@@ -1647,11 +1641,9 @@ export interface components {
             cohort_id?: string | null;
         };
         /** @enum {string} */
-        IdentifierType: "old_tag" | "rfid" | "visual_tag" | "sheet_row_id" | "purchase_load_id" | "temp_field_id" | "external_system_id";
+        IdentifierType: "animal_identifier_1" | "animal_identifier_2";
         /** @enum {string} */
         IdentifierStatus: "active" | "retired" | "disputed" | "duplicate" | "invalid";
-        /** @enum {string} */
-        IdentityState: "clean" | "needs_review" | "disputed" | "merged" | "inactive";
         LocationPath: {
             display: string;
             /** Format: uuid */
@@ -1667,8 +1659,8 @@ export interface components {
             /** Format: uuid */
             goat_id: string;
             display_id: string;
-            primary_old_tag?: string | null;
-            rfid?: string | null;
+            animal_identifier_1: string;
+            animal_identifier_2: string;
             breed: string | null;
             /** @enum {string} */
             sex: "female" | "male";
@@ -1678,7 +1670,6 @@ export interface components {
             growth_cohort_tag: string | null;
             management_stage: string | null;
             health_status: string | null;
-            identity_state: components["schemas"]["IdentityState"];
             location_path: components["schemas"]["LocationPath"];
             warnings: {
                 code: string;
@@ -1717,9 +1708,10 @@ export interface components {
         /** @enum {string} */
         GenerationStatus: "queued" | "skipped_needs_review" | "skipped_ineligible" | "not_applicable";
         CreateAdminGoatRequest: {
-            rfid?: string;
-            old_tag?: string;
-            temp_field_id?: string;
+            animal_identifier_1: string;
+            animal_identifier_2: string;
+            /** @enum {string} */
+            species: "goat" | "sheep";
             /** Format: uuid */
             farm_id?: string;
             farm_code?: string;
@@ -1736,7 +1728,7 @@ export interface components {
             dob: string;
             dob_estimated?: boolean;
             /** @enum {string} */
-            origin_type: "birth" | "procured" | "imported" | "unknown";
+            origin_type: "birth" | "procured" | "imported";
             /** Format: date */
             entry_date: string;
             management_stage?: string;
@@ -2056,7 +2048,7 @@ export interface components {
         };
         CreateLocationRequest: {
             /** @enum {string} */
-            location_type: "farm" | "park" | "shed" | "cohort" | "pen" | "unknown";
+            location_type: "farm" | "park" | "shed" | "cohort" | "pen";
             location_code?: string | null;
             name: string;
             /** Format: uuid */
@@ -2079,7 +2071,7 @@ export interface components {
         };
         UpdateLocationRequest: {
             /** @enum {string} */
-            location_type?: "farm" | "park" | "shed" | "cohort" | "pen" | "unknown";
+            location_type?: "farm" | "park" | "shed" | "cohort" | "pen";
             location_code?: string | null;
             name?: string;
             /** Format: uuid */
@@ -2108,13 +2100,13 @@ export interface components {
         CreateLocationAliasRequest: {
             alias_code: string;
             /** @enum {string} */
-            source_context: "legacy_location_code" | "legacy_bq_dashboard_shed" | "legacy_bq_counts" | "legacy_bq_mortality" | "counts_source" | "mortality_source" | "manual" | "import";
+            source_context: "manual" | "import" | "sheds_db";
             notes?: string | null;
         };
         UpdateLocationAliasRequest: {
             alias_code: string;
             /** @enum {string} */
-            source_context: "legacy_location_code" | "legacy_bq_dashboard_shed" | "legacy_bq_counts" | "legacy_bq_mortality" | "counts_source" | "mortality_source" | "manual" | "import";
+            source_context: "manual" | "import" | "sheds_db";
             notes?: string | null;
             row_version: number;
         };
@@ -2135,7 +2127,7 @@ export interface components {
             /** Format: date */
             effective_to?: string | null;
             /** @enum {string} */
-            source: "manual" | "legacy_bq" | "android_sop" | "import";
+            source: "manual" | "android_sop" | "import" | "sheds_db";
             source_ref?: string | null;
             notes?: string | null;
         };
@@ -2148,7 +2140,7 @@ export interface components {
             /** Format: date */
             effective_to?: string | null;
             /** @enum {string} */
-            source: "manual" | "legacy_bq" | "android_sop" | "import";
+            source: "manual" | "android_sop" | "import" | "sheds_db";
             source_ref?: string | null;
             notes?: string | null;
             row_version: number;
@@ -2323,7 +2315,6 @@ export interface components {
             active_rbac_grants: number;
             active_sop_dependencies: number;
             import_or_source_rows: number;
-            dashboard_projection_rows: number;
             has_blocking_usage: boolean;
             trace_id: string;
         };
@@ -2345,9 +2336,10 @@ export interface components {
         AddProcurementLoadGoatRequest: {
             /** Format: uuid */
             goat_id?: string | null;
-            source_tag?: string | null;
-            source_rfid?: string | null;
-            temporary_id?: string | null;
+            animal_identifier_1: string | null;
+            animal_identifier_2: string | null;
+            /** @enum {string} */
+            species: "goat" | "sheep";
             /** @enum {string} */
             sex: "female" | "male";
             selection_state?: components["schemas"]["ProcurementSelectionState"];
@@ -2355,8 +2347,8 @@ export interface components {
             purpose?: components["schemas"]["ProcurementPurpose"];
             current_state?: components["schemas"]["ProcurementGoatState"];
             /** @enum {unknown} */
-            identity_review_state?: "pending" | "clean" | "conflict" | "unknown_extra";
-            identity_review_ref?: string | null;
+            source_entry_state?: "pending" | "accepted" | "blocked";
+            source_entry_ref?: string | null;
             ownership_state?: components["schemas"]["ProcurementOwnershipState"];
             health_state?: components["schemas"]["ProcurementHealthState"];
             /** Format: date-time */
@@ -2445,8 +2437,8 @@ export interface components {
         ProcurementArrivalGoatRequest: {
             /** Format: uuid */
             goat_id?: string | null;
-            temporary_id?: string | null;
-            source_tag?: string | null;
+            animal_identifier_1?: string | null;
+            animal_identifier_2?: string | null;
             arrival_state: components["schemas"]["ProcurementArrivalState"];
             health_flag?: string | null;
             weight_flag?: string | null;
@@ -2513,7 +2505,7 @@ export interface components {
             /** Format: uuid */
             source_party_id: string;
             /** @enum {string} */
-            work_type: "accepted_intake" | "arrival_gate" | "arrival_mismatch" | "dispatch_proof" | "identity" | "load_setup" | "ownership" | "pre_dispatch" | "rejected_review" | "source_entry" | "source_health";
+            work_type: "accepted_intake" | "arrival_gate" | "arrival_mismatch" | "dispatch_proof" | "load_setup" | "ownership" | "pre_dispatch" | "rejected_review" | "source_entry" | "source_health";
             work_state: components["schemas"]["ProcurementWorkState"];
             severity: components["schemas"]["ProcurementSeverity"];
             title: string;
@@ -2564,7 +2556,7 @@ export interface components {
             missing_proof_count: number;
             arrival_mismatch_count: number;
             owner_missing_count: number;
-            identity_conflict_count: number;
+            source_entry_blocked_count: number;
         };
         ProcurementControlTowerAlert: {
             row_id: string;
@@ -2742,13 +2734,12 @@ export interface components {
             load_id: string;
             /** Format: uuid */
             goat_id: string;
-            source_tag?: string | null;
-            source_rfid?: string | null;
-            temporary_id?: string | null;
+            animal_identifier_1?: string | null;
+            animal_identifier_2?: string | null;
             selection_state: components["schemas"]["ProcurementSelectionState"];
             current_state: components["schemas"]["ProcurementGoatState"];
             /** @enum {unknown} */
-            identity_review_state: "pending" | "clean" | "conflict" | "unknown_extra";
+            source_entry_state: "pending" | "accepted" | "blocked";
             ownership_state: components["schemas"]["ProcurementOwnershipState"];
             health_state: components["schemas"]["ProcurementHealthState"];
             purpose: components["schemas"]["ProcurementPurpose"];

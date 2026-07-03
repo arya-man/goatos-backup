@@ -139,8 +139,8 @@ func (s *Service) ControlTower(ctx context.Context, q domain.WorkQuery) (domain.
 			summary.ArrivalMismatchCount++
 		case "ownership":
 			summary.OwnerMissingCount++
-		case "identity":
-			summary.IdentityConflictCount++
+		case "source_entry":
+			summary.SourceEntryBlockedCount++
 		}
 		alerts = append(alerts, domain.ControlTowerAlert{
 			RowID:      row.RowID,
@@ -310,8 +310,18 @@ func (s *Service) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) (do
 	if err := validateOptionalUUID("goat_id", in.GoatID); err != nil {
 		return domain.LoadGoat{}, err
 	}
-	if in.GoatID == nil && blankPtr(in.SourceTag) && blankPtr(in.SourceRFID) && blankPtr(in.TemporaryID) {
-		return domain.LoadGoat{}, BadRequest("missing_source_identity", "source_tag, source_rfid, temporary_id, or goat_id is required")
+	if in.GoatID == nil && (blankPtr(in.AnimalIdentifier1) || blankPtr(in.AnimalIdentifier2)) {
+		return domain.LoadGoat{}, BadRequest("missing_animal_identifiers", "animal identifier 1 and animal identifier 2 are required")
+	}
+	if !blankPtr(in.AnimalIdentifier1) && !blankPtr(in.AnimalIdentifier2) && normalizeAnimalIdentifier(*in.AnimalIdentifier1) == normalizeAnimalIdentifier(*in.AnimalIdentifier2) {
+		return domain.LoadGoat{}, BadRequest("duplicate_animal_identifiers", "animal identifier 1 and animal identifier 2 must be different")
+	}
+	in.Species = strings.TrimSpace(in.Species)
+	if in.Species == "" {
+		return domain.LoadGoat{}, BadRequest("missing_species", "species is required and must be goat or sheep")
+	}
+	if !oneOf(in.Species, "goat", "sheep") {
+		return domain.LoadGoat{}, BadRequest("invalid_species", "species must be goat or sheep")
 	}
 	in.Sex = strings.TrimSpace(in.Sex)
 	if in.Sex == "" {
@@ -341,8 +351,11 @@ func (s *Service) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) (do
 			in.CurrentState = domain.GoatStateSourceWarmup
 		}
 	}
-	if in.IdentityState == "" {
-		in.IdentityState = "pending"
+	if in.SourceEntryState == "" {
+		in.SourceEntryState = "pending"
+	}
+	if !oneOf(in.SourceEntryState, "pending", "accepted", "blocked") {
+		return domain.LoadGoat{}, BadRequest("invalid_source_entry_state", "source_entry_state must be pending, accepted, or blocked")
 	}
 	if in.OwnershipState == "" {
 		in.OwnershipState = "pending"
@@ -367,7 +380,7 @@ func (s *Service) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) (do
 		return domain.LoadGoat{}, BadRequest("invalid_goat_reference", "goat_id must reference an existing goat for this tenant")
 	}
 	if errors.Is(err, ports.ErrInvalidTransition) {
-		return domain.LoadGoat{}, BadRequest("source_rfid_conflict", "source_rfid already belongs to another goat and requires identity review")
+		return domain.LoadGoat{}, BadRequest("animal_identifier_conflict", "animal identifier already belongs to another animal")
 	}
 	return goat, err
 }
@@ -510,7 +523,7 @@ func (s *Service) PreDispatchDecision(ctx context.Context, in ports.Decision) (d
 	decision, err := s.recordDecision(ctx, in)
 	if err != nil {
 		if errors.Is(err, ports.ErrInvalidTransition) {
-			return domain.Decision{}, BadRequest("invalid_pre_dispatch_transition", "pre-dispatch acceptance requires passed health, clean identity, and resolved ownership")
+			return domain.Decision{}, BadRequest("invalid_pre_dispatch_transition", "pre-dispatch acceptance requires accepted source entry, passed health, and resolved ownership")
 		}
 		return domain.Decision{}, err
 	}
@@ -549,7 +562,7 @@ func (s *Service) DispatchLoad(ctx context.Context, in ports.DispatchLoad) (doma
 	}
 	handoff, err := s.repo.DispatchLoad(ctx, in)
 	if errors.Is(err, ports.ErrInvalidTransition) {
-		return domain.TransitHandoff{}, BadRequest("invalid_dispatch_transition", "dispatch requires pre-dispatch accepted goats with passed health, clean identity, and resolved ownership")
+		return domain.TransitHandoff{}, BadRequest("invalid_dispatch_transition", "dispatch requires pre-dispatch accepted animals with accepted source entry, passed health, and resolved ownership")
 	}
 	return handoff, err
 }
@@ -598,7 +611,7 @@ func (s *Service) RecordArrivalReview(ctx context.Context, in ports.ArrivalRevie
 	review, err := s.repo.RecordArrivalReview(ctx, in)
 	if err != nil {
 		if errors.Is(err, ports.ErrInvalidTransition) {
-			return domain.ArrivalReview{}, BadRequest("invalid_arrival_transition", "arrival acceptance requires a loaded goat with passed health, clean identity, and resolved ownership")
+			return domain.ArrivalReview{}, BadRequest("invalid_arrival_transition", "arrival acceptance requires a loaded animal with accepted source entry, passed health, and resolved ownership")
 		}
 		return domain.ArrivalReview{}, err
 	}
@@ -648,7 +661,7 @@ func (s *Service) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([]do
 	in.TrustedVaccinationHistory = jsonArray(in.TrustedVaccinationHistory)
 	handoffs, err := s.repo.AcceptIntake(ctx, in)
 	if errors.Is(err, ports.ErrInvalidTransition) {
-		return nil, BadRequest("invalid_intake_transition", "accepted intake requires arrival-accepted goats with truck proof, passed health, clean identity, and resolved ownership")
+		return nil, BadRequest("invalid_intake_transition", "accepted intake requires arrival-accepted animals with truck proof, accepted source entry, passed health, and resolved ownership")
 	}
 	return handoffs, err
 }
@@ -764,6 +777,10 @@ func sanitizeField(field string) string {
 
 func blankPtr(value *string) bool {
 	return value == nil || strings.TrimSpace(*value) == ""
+}
+
+func normalizeAnimalIdentifier(value string) string {
+	return strings.ToUpper(strings.TrimSpace(value))
 }
 
 func oneOf(value string, allowed ...string) bool {

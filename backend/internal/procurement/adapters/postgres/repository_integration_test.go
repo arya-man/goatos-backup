@@ -41,7 +41,7 @@ func TestProcurementSourceEntryPostgresPaths(t *testing.T) {
 			goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
 				TenantID:          testTenant,
 				LoadID:            load.LoadID,
-				SourceTag:         strPtr("WARMUP-" + itoa(days)),
+				AnimalIdentifier1: strPtr("WARMUP-" + itoa(days)),
 				WarmupStartedAt:   &start,
 				WarmupEndedAt:     &end,
 				HoldingLocationID: strPtr(testSourceLocation),
@@ -68,7 +68,7 @@ func TestProcurementSourceEntryPostgresPaths(t *testing.T) {
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
 			TenantID:          testTenant,
 			LoadID:            load.LoadID,
-			SourceTag:         strPtr("FATTENING-WARMUP"),
+			AnimalIdentifier1: strPtr("FATTENING-WARMUP"),
 			Purpose:           domain.PurposeFattening,
 			WarmupStartedAt:   &start,
 			WarmupEndedAt:     &end,
@@ -93,11 +93,11 @@ WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, 
 	t.Run("HF vaccination evidence import and review are idempotent and audited", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "hf-evidence-load", 1)
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID:       testTenant,
-			LoadID:         load.LoadID,
-			SourceTag:      strPtr("HF-EVIDENCE"),
-			Purpose:        domain.PurposeBreeding,
-			IdempotencyKey: "hf-evidence-goat",
+			TenantID:          testTenant,
+			LoadID:            load.LoadID,
+			AnimalIdentifier1: strPtr("HF-EVIDENCE"),
+			Purpose:           domain.PurposeBreeding,
+			IdempotencyKey:    "hf-evidence-goat",
 		})
 		versionID, ruleID := seedProcurementHFProtocol(t, ctx, pool)
 		proofID := insertProof(t, ctx, pool, "71000000-0000-4000-8000-000000000500", "hf-evidence-proof")
@@ -228,42 +228,53 @@ WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, 
 		}
 	})
 
-	t.Run("source RFID conflict blocks identity without duplicate goat", func(t *testing.T) {
-		seedExistingRFIDGoat(t, ctx, pool, testOtherGoat, "RFID-CONFLICT-1")
+	t.Run("duplicate animal identifier is rejected without duplicate animal", func(t *testing.T) {
+		seedExistingAnimalIdentifierGoat(t, ctx, pool, testOtherGoat, "ANIMAL-CONFLICT-1")
 		before := countRows(t, ctx, pool, `SELECT count(*) FROM goats WHERE tenant_id=$1`, testTenant)
-		load := createProcurementLoad(t, ctx, repo, "rfid-conflict-load", 1)
-		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID:       testTenant,
-			LoadID:         load.LoadID,
-			SourceRFID:     strPtr("RFID-CONFLICT-1"),
-			TemporaryID:    strPtr("TEMP-RFID-CONFLICT"),
-			IdempotencyKey: "rfid-conflict-goat",
+		load := createProcurementLoad(t, ctx, repo, "animal-identifier-conflict-load", 1)
+		_, err := repo.AddGoatToLoad(ctx, ports.AddGoatToLoad{
+			TenantID:          testTenant,
+			LoadID:            load.LoadID,
+			AnimalIdentifier1: strPtr("ANIMAL-CONFLICT-NEW"),
+			AnimalIdentifier2: strPtr("ANIMAL-CONFLICT-1"),
+			Species:           "goat",
+			Sex:               "female",
+			SelectionState:    "candidate",
+			CurrentState:      domain.GoatStateSourceCandidate,
+			SourceEntryState:  "pending",
+			OwnershipState:    "pending",
+			HealthState:       "pending",
+			ProofRefs:         []byte("[]"),
+			Metadata:          []byte("{}"),
+			IdempotencyKey:    "animal-identifier-conflict-goat",
 		})
+		if !errors.Is(err, ports.ErrInvalidTransition) {
+			t.Fatalf("AddGoatToLoad duplicate identifier error = %v, want ErrInvalidTransition", err)
+		}
 		after := countRows(t, ctx, pool, `SELECT count(*) FROM goats WHERE tenant_id=$1`, testTenant)
 		if after != before {
-			t.Fatalf("goat count changed from %d to %d; duplicate RFID goat was created", before, after)
-		}
-		if goat.GoatID != testOtherGoat || goat.IdentityReview != "conflict" || goat.CurrentState != domain.GoatStatePreDispatchBlocked {
-			t.Fatalf("rfid conflict row = %#v, want existing goat blocked with identity conflict", goat)
+			t.Fatalf("goat count changed from %d to %d; duplicate animal was created", before, after)
 		}
 	})
 
 	t.Run("existing goat sex mismatch is rejected", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "existing-goat-sex-mismatch-load", 1)
 		_, err := repo.AddGoatToLoad(ctx, ports.AddGoatToLoad{
-			TenantID:       testTenant,
-			LoadID:         load.LoadID,
-			GoatID:         strPtr(testOtherGoat),
-			SourceTag:      strPtr("SEX-MISMATCH"),
-			Sex:            "male",
-			SelectionState: "candidate",
-			CurrentState:   domain.GoatStateSourceCandidate,
-			IdentityState:  "pending",
-			OwnershipState: "pending",
-			HealthState:    "pending",
-			ProofRefs:      []byte("[]"),
-			Metadata:       []byte("{}"),
-			IdempotencyKey: "existing-goat-sex-mismatch",
+			TenantID:          testTenant,
+			LoadID:            load.LoadID,
+			GoatID:            strPtr(testOtherGoat),
+			AnimalIdentifier1: strPtr("SEX-MISMATCH-A"),
+			AnimalIdentifier2: strPtr("SEX-MISMATCH-B"),
+			Species:           "goat",
+			Sex:               "male",
+			SelectionState:    "candidate",
+			CurrentState:      domain.GoatStateSourceCandidate,
+			SourceEntryState:  "pending",
+			OwnershipState:    "pending",
+			HealthState:       "pending",
+			ProofRefs:         []byte("[]"),
+			Metadata:          []byte("{}"),
+			IdempotencyKey:    "existing-goat-sex-mismatch",
 		})
 		if !errors.Is(err, ports.ErrSexMismatch) {
 			t.Fatalf("AddGoatToLoad sex mismatch error = %v, want ErrSexMismatch", err)
@@ -273,13 +284,13 @@ WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, 
 		}
 	})
 
-	t.Run("pending identity ownership health cannot accepted intake", func(t *testing.T) {
+	t.Run("pending source-entry ownership health cannot accepted intake", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "pending-intake-load", 1)
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID:       testTenant,
-			LoadID:         load.LoadID,
-			SourceTag:      strPtr("PENDING-INTAKE"),
-			IdempotencyKey: "pending-intake-goat",
+			TenantID:          testTenant,
+			LoadID:            load.LoadID,
+			AnimalIdentifier1: strPtr("PENDING-INTAKE"),
+			IdempotencyKey:    "pending-intake-goat",
 		})
 		proofID := insertProof(t, ctx, pool, "71000000-0000-4000-8000-000000000101", "pending-intake-proof")
 		seedTransitProof(t, ctx, pool, load.LoadID, proofID)
@@ -290,7 +301,7 @@ SET current_state='arrival_accepted',
     loaded_at=TIMESTAMPTZ '2026-02-01 10:00:00+00',
     arrived_at=TIMESTAMPTZ '2026-02-01 16:00:00+00',
     health_state='pending',
-    identity_review_state='pending',
+    source_entry_state='pending',
     ownership_state='shared_pending'
 WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat.GoatID)
 		if err != nil {
@@ -326,7 +337,7 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 			ReviewedAt:     time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC),
 			IdempotencyKey: "arrival-extra-review",
 			Goats: []ports.ArrivalGoat{
-				{TemporaryID: strPtr("UNKNOWN-EXTRA-1"), ArrivalState: "extra_unresolved"},
+				{AnimalIdentifier2: strPtr("UNKNOWN-EXTRA-1"), ArrivalState: "extra_unresolved"},
 			},
 		})
 		if err != nil {
@@ -349,12 +360,12 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 	t.Run("dispatch with proof but zero eligible goats fails closed", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "dispatch-zero-eligible-load", 1)
 		_ = addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID:       testTenant,
-			LoadID:         load.LoadID,
-			SourceTag:      strPtr("ZERO-ELIGIBLE"),
-			IdentityState:  "clean",
-			OwnershipState: "mesha_owned",
-			IdempotencyKey: "dispatch-zero-eligible-goat",
+			TenantID:          testTenant,
+			LoadID:            load.LoadID,
+			AnimalIdentifier1: strPtr("ZERO-ELIGIBLE"),
+			SourceEntryState:  "accepted",
+			OwnershipState:    "mesha_owned",
+			IdempotencyKey:    "dispatch-zero-eligible-goat",
 		})
 		proofID := insertProof(t, ctx, pool, "71000000-0000-4000-8000-000000000180", "dispatch-zero-eligible-proof")
 		_, err := repo.DispatchLoad(ctx, ports.DispatchLoad{
@@ -384,22 +395,22 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 	t.Run("exception-only work rows include owner missing and exclude normal due", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "exception-only-work-load", 2)
 		dueGoat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID:       testTenant,
-			LoadID:         load.LoadID,
-			SourceTag:      strPtr("WORK-DUE"),
-			IdentityState:  "clean",
-			OwnershipState: "mesha_owned",
-			HealthState:    domain.HealthPassed,
-			IdempotencyKey: "work-due-goat",
+			TenantID:          testTenant,
+			LoadID:            load.LoadID,
+			AnimalIdentifier1: strPtr("WORK-DUE"),
+			SourceEntryState:  "accepted",
+			OwnershipState:    "mesha_owned",
+			HealthState:       domain.HealthPassed,
+			IdempotencyKey:    "work-due-goat",
 		})
 		ownerMissingGoat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID:       testTenant,
-			LoadID:         load.LoadID,
-			SourceTag:      strPtr("WORK-OWNER-MISSING"),
-			IdentityState:  "clean",
-			OwnershipState: "shared_pending",
-			HealthState:    domain.HealthPassed,
-			IdempotencyKey: "work-owner-missing-goat",
+			TenantID:          testTenant,
+			LoadID:            load.LoadID,
+			AnimalIdentifier1: strPtr("WORK-OWNER-MISSING"),
+			SourceEntryState:  "accepted",
+			OwnershipState:    "shared_pending",
+			HealthState:       domain.HealthPassed,
+			IdempotencyKey:    "work-owner-missing-goat",
 		})
 		result, err := repo.ListWorkRows(ctx, domain.WorkQuery{
 			TenantID:      testTenant,
@@ -434,12 +445,12 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 	t.Run("pre-dispatch reject blocks active vaccination work", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "reject-before-truck-load", 1)
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID:       testTenant,
-			LoadID:         load.LoadID,
-			SourceTag:      strPtr("REJECT-BEFORE-TRUCK"),
-			IdentityState:  "clean",
-			OwnershipState: "mesha_owned",
-			IdempotencyKey: "reject-before-truck-goat",
+			TenantID:          testTenant,
+			LoadID:            load.LoadID,
+			AnimalIdentifier1: strPtr("REJECT-BEFORE-TRUCK"),
+			SourceEntryState:  "accepted",
+			OwnershipState:    "mesha_owned",
+			IdempotencyKey:    "reject-before-truck-goat",
 		})
 		_, err := repo.RecordSourceHealth(ctx, ports.SourceHealth{
 			TenantID:       testTenant,
@@ -473,16 +484,16 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 		}
 	})
 
-	t.Run("accepted clean goat creates PHC handoff and workflow read model", func(t *testing.T) {
-		load := createProcurementLoad(t, ctx, repo, "accepted-clean-load", 1)
+	t.Run("accepted source-entry goat creates PHC handoff and workflow read model", func(t *testing.T) {
+		load := createProcurementLoad(t, ctx, repo, "accepted-source-entry-load", 1)
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID:       testTenant,
-			LoadID:         load.LoadID,
-			SourceTag:      strPtr("ACCEPTED-CLEAN"),
-			IdentityState:  "clean",
-			OwnershipState: "mesha_owned",
-			Metadata:       []byte(`{"sex":"female","dob":"2026-04-10","dob_estimated":true,"management_stage":"K1"}`),
-			IdempotencyKey: "accepted-clean-goat",
+			TenantID:          testTenant,
+			LoadID:            load.LoadID,
+			AnimalIdentifier1: strPtr("ACCEPTED-CLEAN"),
+			SourceEntryState:  "accepted",
+			OwnershipState:    "mesha_owned",
+			Metadata:          []byte(`{"sex":"female","dob":"2026-04-10","dob_estimated":true,"management_stage":"K1"}`),
+			IdempotencyKey:    "accepted-source-entry-goat",
 		})
 		if _, err := repo.RecordSourceHealth(ctx, ports.SourceHealth{
 			TenantID:       testTenant,
@@ -490,7 +501,7 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 			GoatID:         goat.GoatID,
 			HealthState:    domain.HealthPassed,
 			CheckedAt:      time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC),
-			IdempotencyKey: "accepted-clean-health",
+			IdempotencyKey: "accepted-source-entry-health",
 		}); err != nil {
 			t.Fatalf("health pass: %v", err)
 		}
@@ -501,18 +512,18 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 			DecisionStage:  "pre_dispatch",
 			DecisionType:   domain.DecisionAccepted,
 			DecidedAt:      time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC),
-			IdempotencyKey: "accepted-clean-decision",
+			IdempotencyKey: "accepted-source-entry-decision",
 		}); err != nil {
 			t.Fatalf("pre-dispatch accept: %v", err)
 		}
-		proofID := insertProof(t, ctx, pool, "71000000-0000-4000-8000-000000000201", "accepted-clean-dispatch-proof")
+		proofID := insertProof(t, ctx, pool, "71000000-0000-4000-8000-000000000201", "accepted-source-entry-dispatch-proof")
 		if _, err := repo.DispatchLoad(ctx, ports.DispatchLoad{
 			TenantID:       testTenant,
 			LoadID:         load.LoadID,
 			ToLocationID:   testPark,
 			ProofRefID:     &proofID,
 			DispatchedAt:   time.Date(2026, 5, 1, 11, 0, 0, 0, time.UTC),
-			IdempotencyKey: "accepted-clean-dispatch",
+			IdempotencyKey: "accepted-source-entry-dispatch",
 		}); err != nil {
 			t.Fatalf("dispatch: %v", err)
 		}
@@ -526,7 +537,7 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 			MatchedCount:   1,
 			Status:         domain.DecisionAccepted,
 			ReviewedAt:     time.Date(2026, 5, 1, 16, 0, 0, 0, time.UTC),
-			IdempotencyKey: "accepted-clean-arrival",
+			IdempotencyKey: "accepted-source-entry-arrival",
 			Goats:          []ports.ArrivalGoat{{GoatID: &goat.GoatID, ArrivalState: "accepted"}},
 		}); err != nil {
 			t.Fatalf("arrival accepted: %v", err)
@@ -539,7 +550,7 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 			ShedLocationID: testShed,
 			AcceptedAt:     time.Date(2026, 5, 1, 17, 0, 0, 0, time.UTC),
 			EntryDate:      time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
-			IdempotencyKey: "accepted-clean-intake",
+			IdempotencyKey: "accepted-source-entry-intake",
 		})
 		if err != nil {
 			t.Fatalf("AcceptIntake clean: %v", err)
@@ -719,8 +730,8 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 	t.Run("RecordSourceHealth", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "idem-health-load", 1)
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID: testTenant, LoadID: load.LoadID, SourceTag: strPtr("IDEM-HEALTH"),
-			IdentityState: "clean", OwnershipState: "mesha_owned", IdempotencyKey: "idem-health-goat",
+			TenantID: testTenant, LoadID: load.LoadID, AnimalIdentifier1: strPtr("IDEM-HEALTH"),
+			SourceEntryState: "accepted", OwnershipState: "mesha_owned", IdempotencyKey: "idem-health-goat",
 		})
 		in := ports.SourceHealth{
 			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID,
@@ -758,8 +769,8 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 	t.Run("RecordDecision", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "idem-decision-load", 1)
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID: testTenant, LoadID: load.LoadID, SourceTag: strPtr("IDEM-DECISION"),
-			IdentityState: "clean", OwnershipState: "mesha_owned", IdempotencyKey: "idem-decision-goat",
+			TenantID: testTenant, LoadID: load.LoadID, AnimalIdentifier1: strPtr("IDEM-DECISION"),
+			SourceEntryState: "accepted", OwnershipState: "mesha_owned", IdempotencyKey: "idem-decision-goat",
 		})
 		if _, err := repo.RecordSourceHealth(ctx, ports.SourceHealth{
 			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID, HealthState: domain.HealthPassed,
@@ -805,8 +816,8 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 	t.Run("RecordArrivalReview and AcceptIntake", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "idem-arrival-load", 1)
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID: testTenant, LoadID: load.LoadID, SourceTag: strPtr("IDEM-ARRIVAL"),
-			IdentityState: "clean", OwnershipState: "mesha_owned", IdempotencyKey: "idem-arrival-goat",
+			TenantID: testTenant, LoadID: load.LoadID, AnimalIdentifier1: strPtr("IDEM-ARRIVAL"),
+			SourceEntryState: "accepted", OwnershipState: "mesha_owned", IdempotencyKey: "idem-arrival-goat",
 		})
 		if _, err := repo.RecordSourceHealth(ctx, ports.SourceHealth{
 			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID, HealthState: domain.HealthPassed,
@@ -947,9 +958,9 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "idem-addgoat-load", 1)
 		in := ports.AddGoatToLoad{
 			TenantID: testTenant, LoadID: load.LoadID,
-			SourceTag: strPtr("IDEM-ADDGOAT"), TemporaryID: strPtr("TMP-ADDGOAT"), Sex: "female",
+			AnimalIdentifier1: strPtr("IDEM-ADDGOAT-A"), AnimalIdentifier2: strPtr("IDEM-ADDGOAT-B"), Species: "goat", Sex: "female",
 			SelectionState: "candidate", CurrentState: domain.GoatStateSourceCandidate,
-			IdentityState: "pending", OwnershipState: "pending", HealthState: "pending",
+			SourceEntryState: "pending", OwnershipState: "pending", HealthState: "pending",
 			ProofRefs: []byte("[]"), Metadata: []byte("{}"), IdempotencyKey: "idem-addgoat",
 		}
 		goatsBefore := countGoats()
@@ -980,11 +991,11 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 			t.Fatalf("replay mutated state: row_version %d -> %d", v1, v2)
 		}
 		if got := countRows(t, ctx, pool, `SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_type='procurement_load_goat' AND resource_id=$2`, testTenant, first.LoadGoatID); got != 1 {
-			t.Fatalf("source goat audit rows = %d, want 1", got)
+			t.Fatalf("source animal audit rows = %d, want 1", got)
 		}
 
 		bad := in
-		bad.SourceTag = strPtr("IDEM-ADDGOAT-DIFFERENT")
+		bad.AnimalIdentifier1 = strPtr("IDEM-ADDGOAT-DIFFERENT")
 		if _, err := repo.AddGoatToLoad(ctx, bad); !errors.Is(err, ports.ErrIdempotencyConflict) {
 			t.Fatalf("same-key different-payload: err = %v, want ErrIdempotencyConflict", err)
 		}
@@ -999,8 +1010,8 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 		// so the replay must return the original result rather than falsely conflicting.
 		load := createProcurementLoad(t, ctx, repo, "idem-ts-load", 1)
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID: testTenant, LoadID: load.LoadID, SourceTag: strPtr("IDEM-TS"),
-			IdentityState: "clean", OwnershipState: "mesha_owned", IdempotencyKey: "idem-ts-goat",
+			TenantID: testTenant, LoadID: load.LoadID, AnimalIdentifier1: strPtr("IDEM-TS"),
+			SourceEntryState: "accepted", OwnershipState: "mesha_owned", IdempotencyKey: "idem-ts-goat",
 		})
 		base := ports.SourceHealth{
 			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID,
@@ -1028,8 +1039,8 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 	t.Run("DispatchLoad", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "idem-dispatch-load", 1)
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID: testTenant, LoadID: load.LoadID, SourceTag: strPtr("IDEM-DISPATCH"),
-			IdentityState: "clean", OwnershipState: "mesha_owned", IdempotencyKey: "idem-dispatch-goat",
+			TenantID: testTenant, LoadID: load.LoadID, AnimalIdentifier1: strPtr("IDEM-DISPATCH"),
+			SourceEntryState: "accepted", OwnershipState: "mesha_owned", IdempotencyKey: "idem-dispatch-goat",
 		})
 		if _, err := repo.RecordSourceHealth(ctx, ports.SourceHealth{
 			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID, HealthState: domain.HealthPassed,
@@ -1086,8 +1097,8 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 		// of the payload — same value replays, a different value conflicts.
 		load := createProcurementLoad(t, ctx, repo, "idem-explicit-ts-load", 1)
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
-			TenantID: testTenant, LoadID: load.LoadID, SourceTag: strPtr("IDEM-EXPLICIT-TS"),
-			IdentityState: "clean", OwnershipState: "mesha_owned", IdempotencyKey: "idem-explicit-ts-goat",
+			TenantID: testTenant, LoadID: load.LoadID, AnimalIdentifier1: strPtr("IDEM-EXPLICIT-TS"),
+			SourceEntryState: "accepted", OwnershipState: "mesha_owned", IdempotencyKey: "idem-explicit-ts-goat",
 		})
 		base := ports.SourceHealth{
 			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID, HealthState: domain.HealthPassed,
@@ -1152,8 +1163,8 @@ func addProcurementGoat(t *testing.T, ctx context.Context, repo *Repository, loa
 			in.CurrentState = domain.GoatStateSourceWarmup
 		}
 	}
-	if in.IdentityState == "" {
-		in.IdentityState = "pending"
+	if in.SourceEntryState == "" {
+		in.SourceEntryState = "pending"
 	}
 	if in.OwnershipState == "" {
 		in.OwnershipState = "pending"
@@ -1163,6 +1174,15 @@ func addProcurementGoat(t *testing.T, ctx context.Context, repo *Repository, loa
 	}
 	if in.Sex == "" {
 		in.Sex = "female"
+	}
+	if in.Species == "" {
+		in.Species = "goat"
+	}
+	if in.AnimalIdentifier1 == nil {
+		in.AnimalIdentifier1 = strPtr("A1-" + in.IdempotencyKey)
+	}
+	if in.AnimalIdentifier2 == nil {
+		in.AnimalIdentifier2 = strPtr("A2-" + in.IdempotencyKey)
 	}
 	if in.WarmupDays == nil && in.WarmupStartedAt != nil && in.WarmupEndedAt != nil {
 		days := int(in.WarmupEndedAt.Sub(*in.WarmupStartedAt).Hours() / 24)
@@ -1181,25 +1201,25 @@ func addProcurementGoat(t *testing.T, ctx context.Context, repo *Repository, loa
 	return goat
 }
 
-func seedExistingRFIDGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, rfid string) {
+func seedExistingAnimalIdentifierGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, animalIdentifier string) {
 	t.Helper()
 	_, err := pool.Exec(ctx, `
-	INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex, current_location_id, park_id)
-	VALUES ($1, $2, 'alive', 'clean', '00000000-0000-4000-8000-000000001001', 'female', $3, $3)
+		INSERT INTO goats (goat_id, tenant_id, lifecycle_status, custodian_party_id, species, sex, current_location_id, park_id)
+		VALUES ($1, $2, 'alive', '00000000-0000-4000-8000-000000001001', 'goat', 'female', $3, $3)
 ON CONFLICT (goat_id) DO NOTHING`, goatID, testTenant, testPark)
 	if err != nil {
 		t.Fatalf("seed existing goat: %v", err)
 	}
 	_, err = pool.Exec(ctx, `
 INSERT INTO goat_identifiers (
-  tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key,
-  is_primary_for_goat, status, valid_from, source_system, source_record_id, normalizer_version, confidence
+ tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key,
+  is_primary_for_goat, status, valid_from, source_system, source_record_id, normalizer_version
 ) VALUES (
-  $1, $2, 'rfid', $3, $4, 'global', true, 'active', now(), 'test', $5, 'test', 1
+  $1, $2, 'animal_identifier_2', $3, $4, 'global', false, 'active', now(), 'test', $5, 'test'
 )
-ON CONFLICT DO NOTHING`, testTenant, goatID, rfid, normalizeIdentifier(rfid), "goat:"+goatID)
+ON CONFLICT DO NOTHING`, testTenant, goatID, animalIdentifier, normalizeIdentifier(animalIdentifier), "animal:"+goatID)
 	if err != nil {
-		t.Fatalf("seed existing RFID: %v", err)
+		t.Fatalf("seed existing animal identifier: %v", err)
 	}
 }
 
