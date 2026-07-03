@@ -534,16 +534,23 @@ Build:
   runtime shapes, old import-review, unrelated Counts dashboard/module code, or
   disabled sidebar placeholders for future Counts modules.
 
-### B8. Supplier Warmup / HF Evidence — CLOSED (current scope)
+### B8. Supplier Warmup / Procurement Holding-Park Evidence — CLOSED (current scope)
+
+Current trust rule: the old `HF` label means our supervised procurement holding
+park only. Evidence is trusted only when our team administered or validated the
+dose under SOP/video/physical validation in our park or procurement holding
+park. Third-party/vendor/source claims outside that lifecycle remain notes and
+must not suppress Preventive Care (PC) obligations.
 
 Current observation:
 
-- Purpose-specific warmup classification (breeding 45-70d, fattening/non_breeding
-  0-14d, unspecified fallback) is in the contract and the Source Entry UI.
-- HF vaccination evidence import/review endpoints exist
+- V1 procurement holding classification is supervised 4-5 week holding near the
+  buying region. Older purpose-specific warmup duration notes are superseded;
+  source purpose remains context, not a separate trust clock.
+- Procurement holding-park vaccination evidence import/review endpoints exist
   (`POST /procurement/source-entry/goats/{goat_id}/hf-vaccination-evidence`,
-  `.../hf-vaccination-evidence/{evidence_id}/review`), and trusted HF evidence
-  feeds the generation suppression path
+  `.../hf-vaccination-evidence/{evidence_id}/review`), and trusted procurement
+  holding-park evidence feeds the generation suppression path
   (`CompletionEvidenceReader.HasTrustedCompletionEvidence`, test
   `TestGoatCreatedTrustedHFEvidenceSuppressesMatchingObligation`).
 - `/vaccination` shows a read-only Supplier warmup / Holding-Farm panel linking

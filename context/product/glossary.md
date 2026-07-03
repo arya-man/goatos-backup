@@ -61,10 +61,9 @@ Known meaning:
 - Legacy label found as `Holding Farm` and `HF - <name>` in current source data.
 - Holding farms are facilities at the source where goats are kept after
   procurement and before dispatch to main parks.
-- Source documents said the intended/optimistic holding period is roughly 2 to 8
-  weeks post procurement, but the 2026-06-25 operator clarification supersedes
-  using that as a hard cap: breeding source warmup is realistically 45-70 days
-  today, while fattening/non-breeding cases may be 0 days or around 2 weeks.
+- Current V1 procurement holding period is 4-5 weeks near the buying region.
+  Older purpose-specific duration notes are superseded and must not be used as
+  validation rules.
 - They are used for initial selection, tagging, health SOP, and source-side
   holding before a long journey.
 - Examples such as `HF - Rajasthan Farms`, `HF - Gokul Agronomics`,
@@ -281,10 +280,10 @@ Ops mentioned a target around 200g+ daily gain for strong fattening performance.
 
 Adaptation period before the goat enters normal farm flow.
 
-- Source warm-up: goats are held at the source/holding farm after purchase. The
-  actual duration is purpose-dependent: breeding is currently expected around
-  45-70 days; fattening/non-breeding may be immediate/0 days or around 2 weeks;
-  2 to 8 weeks remains an optimistic/target planning range, not a validation cap.
+- Source warm-up: goats are held at the source/holding farm after purchase. V1
+  governed procurement holding is 4-5 weeks near the buying region. Source
+  purpose remains context and does not create separate trusted-vaccination
+  clocks.
 - Destination warm-up: goats adapt again after arriving at CBE/CPT or another
   destination farm, especially to local climate and feed. Park warmup is
   typically about 14 days.

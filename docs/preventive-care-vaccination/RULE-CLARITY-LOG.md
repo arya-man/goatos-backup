@@ -67,24 +67,90 @@ Implementation note: persist explicit hold state (`original_due_at`,
 `first_batching_hold_until`, `batching_hold_count`,
 `last_batching_decision_at`) rather than recomputing from current due dates.
 
+### 4. Procurement holding-park source trust
+
+Decision: trusted vaccination evidence is limited to our supervised lifecycle:
+our parks and our procurement holding parks. Procurement holding parks are
+places where our team starts the vaccination course while animals are held for
+4–5 weeks near the buying region before they enter regular sheds.
+
+Rules:
+- Trust only `source_context = our_park` or `procurement_holding_park`.
+- A procurement holding-park dose must have governed location/holding-period
+  context, SOP/video/physical validation, verifier/validator, and accepted proof.
+- These trusted doses suppress duplicate work and advance the schedule after the
+  animal enters our regular shed.
+- Any vaccination claim outside our parks or procurement holding parks is
+  untrusted. It does not suppress work. The animal starts/restarts the GoatOS
+  schedule after accepted shed intake and warm-up/health gates.
+
+### 5. Deferred animal recovery and re-entry
+
+Decision: predefined defer states postpone vaccination but do not let animals
+disappear from the process. Sick, under-treatment, ICU, quarantine, pregnancy
+month 4–5, and post-breeding hold are safety blocks. When the animal becomes
+eligible again, the kernel reopens the missed obligation from the
+`ready_again_at` date.
+
+Rules:
+- If the nearest compatible same-park drive is within 7 calendar days of
+  `ready_again_at`, add the animal to that drive.
+- If the nearest compatible drive is more than 7 calendar days away, schedule a
+  micro-drive inside the 7-day buffer, even for one animal.
+- Multiple recovered animals whose 7-day buffers overlap may be batched together.
+- Example: a July 10 drive can take animals recovered on July 4 and July 5 when
+  safe. A July 12 drive is too late for those recovered animals; they need a
+  smaller drive inside their own recovery buffer.
+
+Implementation note: recovery/re-entry is event and bucket driven. Health,
+quarantine/ICU exit, pregnancy-month transition, post-delivery, and
+post-breeding-hold completion events enqueue affected animal/bucket work. Do not
+scan the full million-animal herd.
+
+### 6. Backend-owned config and command pagination
+
+Decision: backend/database is the source of truth for protocol draft versions,
+activation state, publish sequencing, and command-screen filtering/pagination.
+Frontend may cache responses and hold unsaved form edits only.
+
+Rules:
+- Backend allocates vaccination matrix draft/version numbers and retries
+  collisions.
+- Publish of one scoped `vaccination.matrix` version is atomic; partial row
+  activation is invalid.
+- Company and park active-version selection lives in backend DB/audit state.
+- Control Tower and Protocol Adherence use backend filters/sort/pagination,
+  default page size 25, supported page sizes 10/25/50. Do not client-filter a
+  hidden 200-row dump.
+- Filtered-empty state must say no rows match the current filters; it must not
+  show the global "healthy/no risk" copy.
+
+## Implementation Sweep Targets
+
+Before the implementation is called complete, remove/replace the old runtime
+behavior still visible in code:
+
+- Procurement holding classification in admin contracts and frontend work-state
+  must use the governed 4-5 week procurement holding window, not old
+  purpose-specific duration buckets.
+- Procurement/vaccination evidence copy, errors, and tests should say
+  `trusted procurement holding-park evidence` unless the identifier is a legacy
+  table/type name.
+- Control Tower, Protocol Adherence, Action Center, and verification queues must
+  replace hidden `limit: 200` fetches with backend filters, sort, total count,
+  page number, and page size.
+- Config publish/draft version allocation must be backend-owned and atomic for
+  the whole scoped `vaccination.matrix` version.
+
 ## Pending Clarification
 
 The items below are not final until the owner confirms the exact rule.
 
-1. Trusted source vaccination validation: trust only our parks or procurement
-   holding parks under SOP/video/physical validation; decide exact DB/API proof
-   fields and rejection behavior.
-2. Procurement holding duration and geography: source mentions Punjab/Rajasthan
-   and screenshots mention 4-5 weeks while repo docs mention 3-4 weeks; choose
-   the governed duration and seed/source-holding model.
-3. Breeding and milking constraints: enforce one-month hold after breeding date,
+1. Breeding and milking constraints: enforce one-month hold after breeding date,
    breeding-ready prioritization, and milking-time avoidance with exact animal
    fields and scheduling behavior.
-4. Pregnancy precision: derive months 4-5 skip and post-delivery catch-up from
+2. Pregnancy precision: derive months 4-5 skip and post-delivery catch-up from
    breeding date / pregnancy month fields, not a vague pregnant flag.
-5. Manohar operating story rewrite: align story language to Preventive Care
+3. Manohar operating story rewrite: align story language to Preventive Care
    (PC), mother-status ignore rule, trusted-source wording, and park-level drive
    grouping.
-6. Control Tower / Protocol Adherence filtered-empty and backend-filter issues.
-7. Config draft version allocation: backend should own version allocation/retry,
-   not frontend process memory.

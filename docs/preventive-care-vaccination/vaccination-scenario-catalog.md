@@ -16,7 +16,7 @@ Includes **planned vs built** so you can see what we aimed for and what the repo
 | Warming / sick / ICU / pregnancy defer | **Yes** | `schedule_policy.go`, `deferredReason` |
 | Health recovery reopen + align to drive | **Yes** | `ReopenDeferredObligationByIdempotencyKey`, `recoveryRescheduleDue` |
 | Cross-vaccine gap floors | **Yes** | `compatibility.go` (SM-1 + SM-7) |
-| Trusted HF / completion suppression | **Yes** | `hasTrustedCompletionEvidence` |
+| Trusted procurement holding-park / completion suppression | **Yes** | `hasTrustedCompletionEvidence`; trust means our park or our procurement holding park under SOP/video/physical validation, not outside-source claims |
 | Booster / adult revacc chain | **Yes** | `booster.go` (SM-7) |
 | Obligation scoped to **shed** | **Yes** | `generationScope` |
 | **SM-4 shed batching** (rule + window + species) | **Yes** | `sweeper.go` → `sweepWindowGroupKey` |
@@ -275,7 +275,7 @@ These are **only about SM-4** — assume the goat already has an open obligation
 
 | Ch | Stage A | Stage B |
 |----|---------|---------|
-| 1 | Trusted HF suppresses day-0 | no duplicate batch |
+| 1 | Trusted procurement holding-park evidence suppresses day-0 | no duplicate batch |
 | 2 | Week-4 wave due | **A** |
 
 ---

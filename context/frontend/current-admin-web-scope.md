@@ -476,14 +476,15 @@ backend action or be honestly disabled with a reason.
 Boundary rules: procurement data is separate from the default vaccination
 command-screen content; rejected/source-only/unresolved goats stay procurement
 history and must not appear as Preventive Care (PC) vaccination or vaccination execution work;
-only accepted-intake goats flow to Preventive Care (PC). The supplier Holding Farm warmup use
-case lives here under Procurement -> Source Entry: purchase/source,
-purpose-specific source warmup (breeding 45-70 days today; fattening/
-non-breeding can be 0 days or around 2 weeks), source tagging, HF vaccination
-evidence, pre-dispatch reject/accept/defer/block, dispatch, arrival review, and
-accepted intake. It must not be re-created as a Counts route or Preventive Care (PC) / Vaccination
-action surface. Preventive Care (PC) may show read-only accepted-intake origin/source and trusted
-imported vaccination evidence used for due-basis decisions. Until a backend
+only accepted-intake goats flow to Preventive Care (PC). The procurement
+holding-park warmup use case lives here under Procurement -> Source Entry:
+purchase/source, 4-5 week supervised holding near the buying region, source
+tagging, procurement holding-park vaccination evidence, pre-dispatch
+reject/accept/defer/block, dispatch, arrival review, and accepted intake. It
+must not be re-created as a Counts route or Preventive Care (PC) / Vaccination
+action surface. Preventive Care (PC) may show read-only accepted-intake
+origin/source and trusted imported vaccination evidence used for due-basis
+decisions. Until a backend
 built from current source is running (procurement in the permission registry +
 migration `000083` + seed), these routes render honest `route_not_registered` /
 empty states — never fake rows.

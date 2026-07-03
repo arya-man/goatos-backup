@@ -137,7 +137,7 @@ in canonical tables or read models:
 |---|---|
 | Species, breed, sex, DOB/age, lifecycle, health, reproductive state | `herd_animals` plus typed lifecycle/reproductive deltas where current columns are not precise enough |
 | Current park/shed/cohort and canonical shed tag/stage | `herd_animals.current_location_id` / `herd_animals.shed_id`, `locations`, `shed_profiles.animal_stage_id`, `animal_stage_lookup.stage_code` |
-| Procurement path, herd-entry date, warm-up, trusted source vaccination history | `procurement_pc_handoffs`, `procurement_hf_vaccination_evidence`, animal `origin_type`/`entry_date` |
+| Procurement path, herd-entry date, warm-up, trusted procurement holding-park vaccination history | `procurement_pc_handoffs`, `procurement_hf_vaccination_evidence` (legacy table name; semantic trust is our supervised procurement holding park only), animal `origin_type`/`entry_date` |
 | Accepted vaccination history and booster anchor | `vaccination_completions` joined to `obligation_instances.rule_id` |
 | UI impact preview at scale | indexed animal/protocol fact read models, not full-herd scans |
 
@@ -257,6 +257,14 @@ If holding would cross the medical `last_safe_date`, if the group was already
 held once, or if compatibility/stock/proof/worker gates fail, it becomes a
 micro-drive or explicit exception now.
 
+Recovery after a predefined defer state uses the same bounded operations clock.
+If a sick, under-treatment, ICU, quarantine, late-pregnancy, or post-breeding
+animal becomes eligible again after missing its drive, GoatOS must find the
+nearest compatible same-park drive within 7 calendar days of the recovery/ready
+date. If no compatible drive exists inside that buffer, it schedules a
+micro-drive inside the buffer, even for one animal. The planner must never wait
+10+ days just because a larger drive exists later.
+
 The planner works like this:
 
 1. Start from V1 due work generated from the completed vaccine-animal matrix. This
@@ -314,6 +322,15 @@ The planner works like this:
    or a proof fails, only that animal and its affected shed/vaccine bucket are
    invalidated. The system does not recompute the full million-animal herd.
 
+Trusted procurement holding-park vaccination is part of the normal course, not
+a loose "source record." Animals may be held 4–5 weeks in our procurement
+holding parks near the buying region; our team administers/validates vaccines
+there under SOP/video/physical proof. Those doses are trusted and the regular
+shed schedule continues from them. Any vaccination claim outside our parks or
+our supervised procurement holding parks is untrusted; after accepted intake
+into a normal shed, the animal starts/restarts through GoatOS rules after the
+warm-up and health gates.
+
 The later optimizer is therefore a constraint-based shed-drive planner:
 per-animal due generation plus cohort bucketing, V1-safe vaccine grouping,
 bounded date search,
@@ -336,6 +353,12 @@ V1 matrix or V1 Calendar de-duplication.
 | **Vaccination** (module detail) | Link to generic Config filtered by `category=vaccination`, schedule calendar, drive list, animal passport history, stock by lot | **under Preventive Care (PC)** (moved from Health) |
 | **Config — Protocol Rules** | Company default + park override active rulesets, version history, impact preview, and activation audit | **Admin / Data Ops** |
 | **Animal Passport** | One herd animal's full vaccination record + next due | per-animal |
+
+Control Tower and Protocol Adherence are command surfaces, not 200-row client
+dumps. They must use backend-owned filters, sort, and pagination (default page
+size 25; supported sizes 10/25/50) for severity, state, park, date window,
+owner, and search. A filtered-empty page must say that no rows match the current
+filters; it must not show the global healthy/no-risk message.
 
 **Mock nav correction:** Vaccination lives under **Preventive Care (PC)**, not Health.
 

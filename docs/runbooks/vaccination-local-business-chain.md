@@ -98,7 +98,7 @@ Per-segment behavior is covered by passing integration tests against local PG:
 
 - goat.created delivered to generation handler: `TestGoatCreatedHandlerGeneratesViaBus`.
 - generation idempotent + defer visible: `TestSM1GenerationIdempotentAndDeferVisible`.
-- trusted HF evidence suppresses matching dose (no double-dose):
+- trusted procurement holding-park evidence suppresses matching dose (no double-dose):
   `TestGoatCreatedTrustedHFEvidenceSuppressesMatchingObligation`.
 - shift/cancel re-scope and cancel open obligations: `TestSM2ShiftReScopesOpenObligations`,
   `TestSM3CancelOpenForGoat`.

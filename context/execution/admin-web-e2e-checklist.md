@@ -203,7 +203,7 @@ Create through `/counts/herd` or `POST /admin/goats`:
 | --- | --- | --- | --- |
 | `E2E-HERD-CLEAN-A` | A | K1 day-21, eligible, no trusted prior evidence | vaccination obligation generated |
 | `E2E-HERD-CLEAN-B` | B | K1 day-21, eligible | separate shed grouping generated |
-| `E2E-HERD-HF-TRUSTED` | A | matching trusted HF vaccination evidence | matching obligation suppressed |
+| `E2E-HERD-HOLDING-PARK-TRUSTED` | A | matching vaccination evidence from our supervised procurement holding park | matching obligation suppressed |
 | `E2E-HERD-NOT-DUE` | B | outside rule window | no active due work |
 
 ### Procurement Load Goats
@@ -510,7 +510,9 @@ Do not claim these edge cases are green until the suite has explicit backend and
 frontend assertions:
 
 - Draft/not-approved rule creates no work.
-- Trusted holding-farm/history evidence suppresses duplicate work.
+- Trusted procurement holding-park evidence suppresses duplicate work only when
+  it is from our supervised SOP/video/physical validation flow; outside-source
+  claims do not suppress work.
 - Sick/ICU/quarantine/deferred goats remain visible with reason.
 - Shed shift moves open pending vaccination work to the new shed.
 - Dead/sold/exited goats cancel pending work without changing completed history.

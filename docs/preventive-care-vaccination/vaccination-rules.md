@@ -80,7 +80,7 @@ the rule source and must stay aligned with Config presets and kernel behavior.
 | Vaccinated at source then warm-up: 7 days from warm-up entry or source dose? | Seven days from warm-up entry. | Warm-up hold anchors to farm-entry date. |
 | After delivery: all missed doses in 2 weeks or by priority? | By priority and whatever is due; ideally mothers are fully vaccinated before delivery. | Post-delivery catch-up uses vaccine priority and should be rare because breeding/pregnancy vaccination is planned earlier. |
 | Sheep adults: Blue Tongue booster timing vs pox step? | Any booster can be given after 3 weeks. | Booster rows keep a 21-day minimum gap. |
-| Untrusted procurement vaccine notes: full catch-up or trust with review? | Never trust vaccine outside our supervision; trust only our parks or procurement holding parks. | Third-party/vendor claims do not suppress scheduled work. |
+| Untrusted procurement vaccine notes: full catch-up or trust with review? | Never trust vaccine outside our supervision; trust only our parks or procurement holding parks. | Procurement holding-park vaccination starts the GoatOS schedule there; third-party/vendor claims do not suppress scheduled work. |
 | Pregnancy month 1-5: what date starts the clock? | Rough known breeding date. | Pregnancy month calculation starts from breeding date when available. |
 | Mother vaccinated: how is it recorded? | Mother ID is known and mother vaccines are ensured before gestation month 4. | Dam link may be stored for lineage/audit, but kid scheduling must not branch on dam vaccination status. |
 | Warm-up entry: which date counts? | Date the animal enters our farm; deworming-type work may start from day 3. | Vaccination waits 7 days from farm entry; adjacent non-vaccination interventions can have shorter holds. |
@@ -149,13 +149,16 @@ the rule source and must stay aligned with Config presets and kernel behavior.
   and fattening animals can also be vaccinated at source.
 - **Trusted source = our supervised lifecycle only.** Vaccinations performed by
   our team in our parks OR in our procurement holding parks (where animals are
-  held 3–4 weeks near the buying region under our procurement SOP, with
-  video/physical validation) are trusted and suppress duplicate work in the
-  kernel.
+  held 4–5 weeks near the buying region under our procurement SOP, with
+  video/physical validation) are trusted. These vaccinations start the GoatOS
+  vaccination course while the animal is still in the procurement holding park;
+  after accepted intake into our regular sheds, the kernel continues from that
+  trusted history instead of duplicating those doses.
 - **Untrusted source = unverified third-party/vendor claims** given outside our
   SOP and supervision. These are never trusted and must not suppress scheduled
-  work; the animal follows the normal schedule (catch-up/review), not evidence
-  suppression.
+  work. If the source is not one of our procurement holding parks or our own
+  parks, the vaccination course starts after the animal reaches/enters our shed
+  and clears the warm-up/health gates.
 - For kids up to 16 weeks, the normal schedule must be followed regardless of
   source claims.
 
@@ -172,6 +175,23 @@ the rule source and must stay aligned with Config presets and kernel behavior.
   7-day cool-off.
 - Related non-vaccination interventions (e.g. deworming) may start from Day 3
   rather than waiting the full week.
+
+### Deferred animals returning to eligibility
+
+- Sick, under-treatment, ICU, quarantine, pregnancy month 4–5, and post-breeding
+  hold are predefined postponement rules. They are safety blocks, not optional
+  planner choices.
+- When an animal recovers/exits the defer state and is back in its valid shed/tag,
+  GoatOS reopens the missed vaccination obligation from that recovery/ready date.
+- The planner may place the recovered animal into the nearest compatible
+  same-park drive only if that drive is within 7 calendar days of the recovery
+  ready date and all medical/vaccine rules remain safe.
+- If the nearest compatible drive is more than 7 calendar days away, GoatOS must
+  create a micro-drive within the 7-day buffer, even for a single animal.
+- Example: if a drive is on July 10, animals recovered on July 4 and July 5 may
+  both join it if compatibility and medical windows are safe. If the next drive
+  is July 12, the recovered animals cannot wait for it; they are grouped into a
+  smaller drive within their 7-day recovery buffer.
 
 ### Breeding, milking, and prioritization
 

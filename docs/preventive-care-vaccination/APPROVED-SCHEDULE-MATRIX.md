@@ -36,7 +36,7 @@ sections below; this block makes them binding law, not commentary.
    7-day warmup hold, then +4w). See "Kid Course Rendering Rule".
 
 2. **Goat Pox source-conflict rule (16w raw / 20w derived).** The Vaccination Rules
-   source records both PPR and Goat Pox at 16w; both are live and the same source
+   document records both PPR and Goat Pox at 16w; both are live and the same document
    mandates a 4-week live→live gap. Therefore PPR holds 16w and Goat Pox is
    **derived** to 20w whenever PPR is administered at 16w. Preserve BOTH truths:
    raw source (16w) and effective safe schedule (20w). This is an intentional,

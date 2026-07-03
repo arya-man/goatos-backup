@@ -176,7 +176,7 @@ For newly procured goats/sheep (breeding, fattening, general adult):
 3. Blue Tongue + Blue Tongue booster
 4. FMD + HS
 
-**Important:** Adults do **not** replay the full kid age matrix. They enter via `post_arrival` triggers off `entry_date` (or trusted source vaccination date if recorded at procurement).
+**Important:** Adults do **not** replay the full kid age matrix. They enter via `post_arrival` triggers off `entry_date`. A prior dose can shift/suppress that work only when it was administered in our park or our supervised procurement holding park under SOP/video/physical validation; third-party/vendor claims outside that lifecycle do not count.
 
 ---
 

@@ -162,7 +162,7 @@ Current Calendar-eligible vaccination events:
 | Manual campaign / catch-up drive | `pc` | Published/manual-campaign protocol rule or explicit Preventive Care approved catch-up batch | Must be source-backed or explicitly approved; no fabricated history. |
 | Booster due after accepted completion | `pc` | SM-7 generation from accepted `vaccination_completions.administered_at` | Due date is based on actual administration time, not planned date. |
 | Vaccination defer / waiver review due | `pc` | Dated Preventive Care (PC) review task derived from a blocked/deferred obligation | Applies to medical defer states such as sick, ICU, quarantine, adverse reaction review, or Preventive Care approved waiver. No event if the state is only a passive flag. |
-| Historical or holding-farm vaccination evidence review due | `pc` | Procurement/intake evidence plus Preventive Care (PC) backfill/review workflow | Source-side vaccination history is evidence only. It becomes Calendar work only when a Preventive Care (PC) reviewer has a due action to accept/reject it under the vaccination contract. |
+| Historical or procurement holding-park vaccination evidence review due | `pc` | Procurement/intake evidence plus Preventive Care (PC) backfill/review workflow | Source-side vaccination history is evidence only. It becomes Calendar work only when a Preventive Care (PC) reviewer has a due action to accept/reject it under the vaccination contract. |
 | Vaccination proof verification due | `pc` | SOP task/submission verification due work, when it has `due_at` and verifier owner | Only appears if it is a dated human verifier action. Otherwise it stays in Action Center / Protocol Adherence. |
 | Vaccination rework due | `pc` | Rejected proof/rework task with owner and due date | Only the dated rework action appears. The rejected proof record itself is not a Calendar event. |
 | Vaccine cold-chain check | `inventory` | Inventory/cold-chain task or obligation | Supporting vaccination readiness, but owned by inventory keeper. |
@@ -181,8 +181,10 @@ Vaccination data that must not create Calendar events:
 - owner-missing gaps; these stay in Action Center / Control Tower until an owner
   exists.
 - background sweepers/replays/generation jobs with no human owner.
-- trusted holding-farm vaccination evidence by itself; it affects generation and
-  suppression, but only creates Calendar work if it becomes a dated human action.
+- trusted procurement holding-park vaccination evidence by itself; it affects
+  generation and suppression only when it is our supervised SOP/video/physical
+  validation evidence, and only creates Calendar work if it becomes a dated
+  human action.
 - notification/reminder pings that point at an existing due work item.
 
 ## Future Calendar Scope

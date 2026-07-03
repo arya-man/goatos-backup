@@ -77,8 +77,9 @@ Use Preventive Care (PC) -> Vaccination as the operating floor.
 Expected review:
 
 - The top band shows how a vaccination drive runs.
-- Supplier warmup shows purchased or holding-farm vaccination evidence when it
-  exists, so accepted goats are not double-dosed on arrival.
+- Supplier warmup shows purchased-animal vaccination evidence only when it comes
+  from our supervised procurement holding park, so accepted animals are not
+  double-dosed on arrival.
 - The status matrix shows cohorts against vaccination rules.
 - Per-cohort detail shows animals, age band, last dose, next due, and status.
 - Drive rows show park, shed/tag breakdowns, owner, stock, proof,
@@ -173,8 +174,9 @@ Use Config and SOP Library to confirm what creates vaccination work.
 Expected review:
 
 - Draft rules do not create work.
-- Only a published rule backed by approved source records creates vaccination
-  work.
+- Only a published Preventive Care (PC) matrix version creates vaccination work;
+  procurement evidence can suppress duplicate work only when it is our supervised
+  procurement holding-park proof.
 - A published version is not edited in place.
 - The full guided flow for changing an existing published rule is still a
   follow-up. Until then, use the current New draft rule path only for new draft
@@ -245,9 +247,12 @@ Stock problem:
 - The item is blocked with the stock reason.
 - It should not disappear or be silently marked complete.
 
-Supplier or holding-farm vaccination evidence:
+Procurement holding-park vaccination evidence:
 
-- Accepted evidence is used to avoid double-dosing after intake.
+- Accepted evidence from our supervised procurement holding park is used to
+  avoid double-dosing after intake.
+- Third-party/vendor/source claims outside our park or procurement holding park
+  are untrusted notes only and do not suppress Preventive Care (PC) work.
 - Goats rejected before truck or intake remain procurement history and do not
   become active Preventive Care (PC) vaccination work.
 
@@ -280,8 +285,8 @@ For a short CEO review, test these:
   available.
 - Stock reservation and blocking are enforced by Goat OS.
 - Booster scheduling works after accepted completion.
-- Procurement holding-farm vaccination evidence can prevent double-dosing after
-  intake.
+- Procurement holding-park vaccination evidence can prevent double-dosing after
+  intake only when it is from our supervised SOP/video/physical validation flow.
 - Critical direct ICU/quarantine/death shortcuts are blocked unless the approved
   guarded death path is used.
 

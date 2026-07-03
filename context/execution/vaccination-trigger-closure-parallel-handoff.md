@@ -14,6 +14,12 @@ Date: 2026-06-25
 > never reused after death, sale, transfer, tag loss, or tag breakage. Clean
 > V1 local/dev/test data is wiped and reseeded through the new importer instead
 > of preserving stale goat-only or old-dashboard rows.
+> Procurement trust correction: old `HF` / Holding Farm wording in this handoff
+> now means our supervised procurement holding park only. Vaccination evidence
+> suppresses PC work only when our team administered or validated it in our park
+> or procurement holding park under SOP/video/physical validation. Third-party
+> supplier/vendor/source claims outside that lifecycle are untrusted notes and
+> start PC scheduling after accepted shed entry plus warm-up/health gates.
 
 Purpose: close the remaining build plan before vaccination E2E by documenting the
 minimum trigger points, sidebar/IA changes, audit-log needs, backend work, and
@@ -96,9 +102,9 @@ Business/wiki and source evidence:
   context after procurement and before dispatch, not final ownership truth.
 - `context/execution/procurement-source-entry-backend-handoff.md` plus the
   2026-06-25 operator clarification: the goat journey can start at
-  purchase/source, source warmup duration is purpose-dependent, breeding warmup
-  is realistically 45-70 days today, fattening/non-breeding may be 0 days or
-  around 2 weeks, and goats may be rejected before truck loading.
+  purchase/source, governed procurement holding is 4-5 weeks near the buying
+  region, source purpose remains context, and goats may be rejected before truck
+  loading.
 - `context/execution/procurement-vaccination-e2e-plan.md`: Preventive Care (PC) Vaccination
   consumes accepted-intake truth only: goat identity, park/shed, intake date,
   defer signal, and trusted historical vaccination evidence.
@@ -138,11 +144,10 @@ Mock and legacy evidence:
   row click, page controls, and disabled first/last states. For every table in
   the approved slice, backend and frontend must implement or explicitly block
   those controls together.
-- The 2026-06-25 operator clarification screenshot confirms the same business
-  rule: goats can be tagged and warmed up at the supplier place, breeding
-  warmup is realistically 45-70 days today, fattening/non-breeding can be 0 days
-  or around 2 weeks, goats may be rejected before loading onto the truck, and
-  their journey starts at place of purchase when purchased.
+- The current operator clarification confirms the same business rule: goats can
+  be tagged and held at the procurement holding park for 4-5 weeks near the
+  buying region, goats may be rejected before loading onto the truck, and their
+  journey starts at place of purchase when purchased.
 - The 2026-06-25 operator clarification also says the legacy Counting DB is not
   used for vaccination. GoatOS should maintain canonical goat-to-shed
   association truth instead: which `goat_id` is in which shed/location.
@@ -163,9 +168,9 @@ Goat OS source of truth:
   until accepted intake / goat creation triggers real generation, sweeper, proof,
   verification, and Postgres-backed read models.
 - `backend/internal/procurement/adapters/postgres/repository_integration_test.go`:
-  current backend tests already assert 45-70 day source warmup persistence,
-  pre-dispatch rejection blocking active vaccination work, and accepted clean
-  goats creating Preventive Care (PC) handoff/read-model state.
+  procurement source-entry tests must be updated to the 4-5 week governed
+  holding window, pre-dispatch rejection blocking active vaccination work, and
+  accepted clean goats creating Preventive Care (PC) handoff/read-model state.
 
 ## Product Decision
 
@@ -427,13 +432,13 @@ business E2E.
 
 | route | element | user action | classification | backend contract/client | state model | idempotency/audit | edge cases tested | screenshot/test proof |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `/procurement/source-entry` | Supplier warmup / Holding Farm board source rows | View purpose-aware source warmup work | real-read | `listProcurementSourceEntryLoads`; `ProcurementLoadGoat.purpose`; `ProcurementHoldingStay.purpose`; generated `packages/api-client/src/generated/admin-api.ts` | `purpose`: `breeding`, `fattening`, `non_breeding`, `unspecified`; fattening/non-breeding short warmup uses purpose-specific work-state classification | read-only; no mutation audit | fattening 15-day row becomes `outside_normal_window`; breeding 45-70 day rows remain valid | `go test ./internal/procurement/...`; `make validate-sqlc-plans` |
+| `/procurement/source-entry` | Procurement holding-park board source rows | View source holding work | real-read | `listProcurementSourceEntryLoads`; `ProcurementLoadGoat.purpose`; `ProcurementHoldingStay.purpose`; generated `packages/api-client/src/generated/admin-api.ts` | V1 governed holding is 4-5 weeks near the buying region; source purpose remains context | read-only; no mutation audit | outside-window rows become at-risk/overdue work, not trusted evidence | `go test ./internal/procurement/...`; `make validate-sqlc-plans` |
 | `/procurement/source-entry/loads/{load_id}` | Load detail HF evidence panel data | Open load detail / inspect HF dose evidence | real-read | `getProcurementSourceEntryLoad`; required `hf_vaccination_evidence: ProcurementHFVaccinationEvidence[]`; generated admin client | evidence states: `imported`, `trusted`, `rejected`, `conflicting`, `duplicate`; empty loads serialize an empty evidence array | read-only; no mutation audit | load detail returns imported/reviewed HF evidence with source goat and warmup rows | `go test ./internal/procurement/...` |
 | `/procurement/source-entry/loads/{load_id}/goats` | Source goat purpose/classification | Add or update a source goat with explicit purpose | real-action | `addProcurementSourceEntryLoadGoat`; `AddProcurementLoadGoatRequest.purpose`; generated admin client | purpose stored on `procurement_load_goats` and `source_holding_stays`; idempotency fingerprint includes `purpose`, `selection_reason`, and `warmup_days` | required `Idempotency-Key`; source-goat audit row through `platform/audit`; replay returns original row; same-key/different-payload conflicts | retry does not duplicate goats or audit; different payload conflicts; source RFID conflict still blocks | `go test ./internal/procurement/...`; focused idempotency integration test |
 | `/procurement/source-entry/goats/{goat_id}/source-health` | Source health result | Record passed/failed/deferred source health | real-action | `recordProcurementSourceHealth`; generated admin client | health states update source goat and load status; replay flag suppresses replay-unsafe cancellation hooks | required `Idempotency-Key`; source-health audit row through `platform/audit`; replay returns original check without extra audit | server-defaulted timestamp replay succeeds; explicit changed timestamp conflicts; retry does not duplicate audit | `go test ./internal/procurement/...` |
 | `/procurement/source-entry/goats/{goat_id}/hf-vaccination-evidence` | HF vaccination evidence import | Import supplier/HF dose evidence for review | real-action | `recordProcurementHFVaccinationEvidence`; `RecordProcurementHFVaccinationEvidenceRequest`; `ProcurementHFVaccinationEvidenceResponse`; generated admin client | imported evidence is procurement-owned and starts `imported`; requires load/goat/protocol/rule/dose/proof contract | required `Idempotency-Key`; audit action `procurement.hf_vaccination_evidence.imported`; replay returns original evidence; same-key/different-payload conflicts | goat must belong to load; replay/conflict covered; audit row covered | `go test ./internal/procurement/...` |
 | `/procurement/source-entry/hf-vaccination-evidence/{evidence_id}/review` | HF evidence review gate | Trust/reject/conflict/mark duplicate evidence | real-action | `reviewProcurementHFVaccinationEvidence`; `ReviewProcurementHFVaccinationEvidenceRequest.expected_row_version`; generated admin client | only `trusted` evidence can satisfy due-basis reconciliation; `trusted` is terminal for this endpoint and correction needs a separate reconciliation workflow | required `Idempotency-Key`; required `expected_row_version`; audit action `procurement.hf_vaccination_evidence.reviewed`; replay returns original review; stale row returns 409; missing row returns 404 | trusted review, replay, idempotency conflict, stale row version, trusted-to-rejected block, missing row, and duplicate audit prevention covered | `go test ./internal/procurement/...`; `go test ./...` |
-| goat-created vaccination generation | Trusted HF evidence reconciliation | Generate post-arrival obligations from source-backed protocols | real-backend-trigger | `GenerationService` reads trusted completion evidence from Postgres as of the generation time; result exposes `suppressed_by_trusted_history` internally | trusted evidence suppresses only matching `protocol_version_id` + `rule_id` + `dose_code` with `administered_at <= due_at`, `administered_at <= generation_as_of`, `reviewed_at <= generation_as_of`, and source evidence not after intake/entry; imported-only and future evidence do not suppress | event replay still relies on existing generation idempotency key; read-only evidence check has no audit | past trusted HF evidence generates zero matching obligations; imported-only and future trusted evidence each generate one obligation | `go test ./internal/vaccination/...`; `go test ./...` |
+| goat-created vaccination generation | Trusted procurement holding-park evidence reconciliation | Generate post-arrival obligations from published matrix protocols | real-backend-trigger | `GenerationService` reads trusted completion evidence from Postgres as of the generation time; result exposes `suppressed_by_trusted_history` internally | trusted evidence suppresses only matching `protocol_version_id` + `rule_id` + `dose_code` with `administered_at <= due_at`, `administered_at <= generation_as_of`, `reviewed_at <= generation_as_of`, source context in our park/procurement holding park, and accepted SOP/video/physical validation; imported-only, outside-source, and future evidence do not suppress | event replay still relies on existing generation idempotency key; read-only evidence check has no audit | past trusted procurement holding-park evidence generates zero matching obligations; imported-only and future evidence each generate one obligation | `go test ./internal/vaccination/...`; `go test ./...` |
 | `contracts/openapi/admin-api.yaml` / generated client | Contract publication | Frontend wires against generated HF evidence and purpose types | real-contract | OpenAPI paths and schemas for purpose, HF evidence import, HF evidence review with `expected_row_version`, load-detail evidence array; `packages/api-client/src/generated/admin-api.ts` regenerated | client-visible DTOs match backend JSON fields | n/a | `npm --prefix packages/api-client run generate` succeeds; contract validator succeeds; drift checks stop only on expected generated-client diff against `HEAD` | `npm --prefix tools/contract-validation run validate`; `bash tools/agent-hooks/check-contract-drift.sh`; `make api-client-check` |
 | `/protocols?category=…` (B3, 2026-06-26) | Config authority protocol-rules table | List every protocol version (draft/published/retired) for a category | real-read | `listProtocolConfigs` (app-api); `ProtocolConfigListResponse`/`ProtocolConfigItem`; generated `packages/api-client/src/generated/app-api.ts`; wired in `lib/api/server.listProtocolConfigs` + `features/config/protocol-rules-page.tsx` | read-only; returns rule-row count, status (draft/published/retired), scope, effective window, linked SOP, source-review state (`rule_dsl.source`), publisher/updated metadata; `protocol.read` permission; bounded `configListLimit` (no cursor — versions/category are small) | read-only; no mutation audit; publish stays gated by `protocol/app/publish.go ValidatePublishable` (the list only surfaces the source-review state, never bypasses the gate) | default category=vaccination; explicit category passthrough; empty list → honest empty state; failed read → error band not silent empty; status reflects source-backed vs not | `go test ./internal/protocol/... ./internal/permissions/...` (`TestListConfigsReturnsItemsAndDefaultsCategory`); `npm --prefix packages/api-client run generate`; live SSR `/config` render (2 real rows, screenshots under `.codex-goatos-render/admin-web-screenshots/config-b3/`) |
 
@@ -476,7 +481,7 @@ published source-backed vaccination protocol
   -> pre-dispatch accepted goats move through truck proof, arrival review, and
      accepted intake
   -> accepted intake emits the same generation path as clean Herd Register create
-  -> trusted HF vaccination evidence is used as imported completion/history basis
+  -> trusted procurement holding-park vaccination evidence is used as imported completion/history basis
      so post-arrival obligations do not double-dose
   -> park-side quarantine and on-arrival rules remain separate post-arrival work
   -> Admin / Data Ops Audit Log shows source entry, HF evidence import/review, reject or
@@ -606,7 +611,7 @@ Important schema rules:
   `procurement_pc_handoffs`, proof/audit/outbox tables). Do not create a
   separate holding-farm goat schema and do not mark source-only goats as clean
   active herd.
-- Trusted HF vaccination evidence becomes vaccination history/imported
+- Trusted procurement holding-park vaccination evidence becomes vaccination history/imported
   completion evidence only through the review/trust gate. Untrusted or
   conflicting source evidence must not suppress a post-arrival dose.
 
@@ -649,12 +654,11 @@ Variant C: existing canonical goats
   -> run Preventive Care (PC) backfill generator, chunked and idempotent
   -> missing obligations/drives are generated without replaying old rows
 
-Variant D: source-entry supplier warmup trigger
+Variant D: source-entry procurement holding-park trigger
   migrations current
-  -> create or seed one supplier Holding Farm breeding load with 45-70 day warmup
-  -> optionally include a fattening/non-breeding load with 0-day or ~2-week warmup
+  -> create or seed one procurement holding-park load with 4-5 week holding
   -> reject-before-truck branch proves no Preventive Care (PC) / park/vaccination leakage
-  -> accepted-intake branch proves HF evidence + same vaccination generator
+  -> accepted-intake branch proves trusted procurement holding-park evidence + same vaccination generator
 ```
 
 For E2E, Variant A or B is the preferred proof because it validates the actual
@@ -1103,26 +1107,27 @@ Minimum API/runtime requirements:
 - Accepted intake emits the same downstream generation path as Herd Register
   create. If the event payload does not carry trusted source evidence, the
   handler must load it from Postgres before deciding next due.
-- HF vaccination evidence is stored as trusted vaccination history/imported
+- Procurement holding-park vaccination evidence is stored as trusted vaccination history/imported
   completion evidence only after review/trust. Until trusted, it is visible as a
   pending/conflicting evidence item and must not suppress post-arrival due work.
 - Generation uses trusted accepted completion evidence plus trigger/repeat/
-  catch-up logic so a trusted HF dose avoids double-dosing; park quarantine and
-  on-arrival rules are separate post-arrival obligations.
+  catch-up logic so a trusted procurement holding-park dose avoids
+  double-dosing; park quarantine and on-arrival rules are separate post-arrival
+  obligations.
 
 Minimum tests/fixtures:
 
-- Breeding 45-day and 70-day warmup rows are valid and persisted in
+- 4-5 week procurement holding rows are valid and persisted in
   `source_holding_stays`.
-- Fattening/non-breeding 0-day and around-2-week warmup rows are valid when the
-  backend purpose/classification says that is the correct source-entry path.
-- Warmup outside the configured purpose-specific range becomes at-risk/overdue
-  work, not invalid data loss.
+- Source purpose remains context and does not create a separate trusted-vaccine
+  clock.
+- Warmup outside the configured governed range becomes at-risk/overdue work,
+  not invalid data loss.
 - Rejected-before-truck cannot create or retain active vaccination work.
 - Accepted clean intake creates the Preventive Care (PC) handoff/generation input.
-- Trusted HF vaccination evidence suppresses only the matching due dose and does
+- Trusted procurement holding-park vaccination evidence suppresses only the matching due dose and does
   not suppress unrelated vaccines, boosters, quarantine, or on-arrival rules.
-- Untrusted, duplicate, conflicting, or mismatched HF evidence stays reviewable
+- Untrusted, duplicate, conflicting, or mismatched holding-park evidence stays reviewable
   and does not change due basis.
 - Replayed pre-dispatch, dispatch, arrival, and accepted-intake operations are
   idempotent and do not duplicate handoffs, audit rows, obligations, or
@@ -1143,7 +1148,7 @@ Build requirements:
   `tenant + protocol_version + rule + goat + due_at + sequence`.
 - A replayed `goat.created` event must create zero duplicates.
 - Mark procurement handoff/event status from real downstream success/failure.
-- For accepted-intake goats, load trusted HF vaccination evidence before
+- For accepted-intake goats, load trusted procurement holding-park vaccination evidence before
   generating due work, then generate only missing obligations from published
   rules.
 
@@ -1520,7 +1525,7 @@ Every action must call generated clients and show backend validation errors. Do
 not fake a completed state by mutating local React arrays.
 
 Preventive Care (PC) / Vaccination screens may show read-only source context for accepted-intake
-goats: origin/source, entry/intake date, trusted HF evidence used for due basis,
+goats: origin/source, entry/intake date, trusted procurement holding-park evidence used for due basis,
 and any defer signal. Preventive Care (PC) / Vaccination must not own source warmup, pre-dispatch
 rejection, supplier credit, or arrival discrepancy review actions.
 
@@ -1574,9 +1579,9 @@ Existing vaccination screens should not gain fake buttons. They should show:
   generation/sweeper.
 - Needs-review or duplicate goats do not appear as active vaccination work.
 - Deferred goats show an explained deferred row, not a missing row.
-- Trusted HF vaccination evidence appears as imported completion/history context
+- Trusted procurement holding-park vaccination evidence appears as imported completion/history context
   and adjusts next due only for matching rules.
-- Untrusted/conflicting HF evidence stays reviewable and does not suppress due
+- Untrusted/conflicting holding-park evidence stays reviewable and does not suppress due
   work.
 - Verification queue only shows real proof submissions.
 
@@ -1613,11 +1618,10 @@ path. A visual screenshot without click classification is not enough.
   age/stage; otherwise no immediate active vaccination work.
 - Procured adult with trusted prior vaccination history -> next due from last
   accepted completion/import, not DOB.
-- Supplier Holding Farm breeding warmup 45-70 days -> valid source warmup for
-  today's business reality, not a hard error just because source docs said 2-8
-  weeks as an optimistic/future planning range.
-- Supplier Holding Farm fattening/non-breeding warmup 0 days or around 2 weeks
-  -> valid when purpose/classification supports it.
+- Procurement holding-park warmup 4-5 weeks near the buying region -> valid
+  governed source warmup.
+- Source purpose remains context and does not create separate 0-day/two-week/
+  breeding clocks for trusted vaccination suppression.
 - Supplier Holding Farm warmup outside the purpose-specific policy window ->
   at-risk/overdue procurement work, not automatic active Preventive Care (PC) vaccination work.
 - HF vaccination evidence untrusted/conflicting/duplicate/mismatched -> visible
@@ -1685,13 +1689,12 @@ Do not run E2E until all of this is true:
   backend-backed location/reference selectors, identifier conflict/review states,
   active/review/inactive row states, bounded count summaries if shown, Passport
   links, bulk preview errors, and audit/history links.
-- Source Entry can create or read one supplier Holding Farm breeding load with
-  45-70 day warmup, optional fattening/non-breeding 0-day or ~2-week warmup,
-  HF evidence state, and load-row statuses from backend APIs.
+- Source Entry can create or read one procurement holding-park load with 4-5
+  week holding, evidence state, and load-row statuses from backend APIs.
 - The pre-dispatch reject branch proves rejected/source-only goats do not appear
   in active herd count, active Preventive Care (PC) vaccination work, vaccination execution, or
   Goat Passport active-herd rows.
-- The accepted-intake branch proves trusted HF vaccination evidence feeds due
+- The accepted-intake branch proves trusted procurement holding-park vaccination evidence feeds due
   basis and avoids duplicate post-arrival dosing while keeping quarantine/
   on-arrival work separate.
 - The create writes goat identity/location/audit/outbox/idempotency in one

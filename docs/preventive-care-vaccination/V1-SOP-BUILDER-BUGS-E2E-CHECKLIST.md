@@ -181,8 +181,11 @@ The vaccination E2E must cover all three animal entry paths:
 
 3. Procurement -> Source Entry -> Accepted intake
    - Purchased herd animals start in the procurement/source-entry journey.
-   - Holding-farm vaccination evidence may suppress duplicate arrival
-     vaccination where the rules allow it.
+   - Procurement holding-park vaccination evidence may suppress duplicate
+     arrival vaccination only when it comes from our supervised holding-park
+     flow with SOP/video/physical validation.
+   - Third-party/vendor/source claims outside our park or procurement holding
+     park are untrusted notes only; they must not suppress obligations.
    - Only accepted-intake herd animals should enter the normal Preventive Care (PC) vaccination engine.
    - Rejected, canceled, source-only, or pre-intake herd animals must not create Preventive Care (PC)
      vaccination obligations.
@@ -651,8 +654,9 @@ Expected:
 - E2E must prove procurement accepted intake triggers vaccination generation.
 - E2E must prove rejected/canceled/source-only/pre-intake procurement herd animals do
   not create Preventive Care (PC) vaccination obligations.
-- E2E must prove trusted holding-farm vaccination evidence suppresses duplicate
-  Preventive Care (PC) obligations where configured.
+- E2E must prove trusted procurement holding-park vaccination evidence suppresses
+  duplicate Preventive Care (PC) obligations where configured, and untrusted
+  outside-source claims do not.
 - All procurement and Herd Register controls that affect vaccination must either
   work, or be hidden/disabled with a clear reason.
 
@@ -775,8 +779,12 @@ from a clean tenant/state, not isolated page checks.
 - [ ] Each accepted imported animal is evaluated by vaccination generation.
 - [ ] Invalid imported rows do not create herd animals or vaccination work.
 - [ ] Procurement Source Entry can create a purchased load.
-- [ ] Procurement holding-farm vaccination evidence can be recorded or marked
-  missing with a clear state.
+- [ ] Procurement holding-park vaccination evidence can be recorded only when
+  the source context is our supervised procurement holding park, with holding
+  location, 4–5 week holding window, SOP/video/physical proof, validator, and
+  accepted proof status.
+- [ ] Third-party/vendor/outside-source vaccination claims are recorded as
+  untrusted notes only; they do not create completions or suppress due work.
 - [ ] Procurement accepted intake creates canonical herd animals.
 - [ ] Procurement accepted intake emits or queues the animal creation event needed
   by vaccination generation.
@@ -784,8 +792,10 @@ from a clean tenant/state, not isolated page checks.
   match the published matrix.
 - [ ] Procurement rejected, canceled, source-only, and pre-intake herd animals do not
   create Preventive Care (PC) vaccination obligations.
-- [ ] Trusted holding-farm vaccination history suppresses duplicate Preventive Care (PC)
-  obligations where configured.
+- [ ] Trusted procurement holding-park vaccination history suppresses duplicate
+  Preventive Care (PC) obligations and advances the next due row where configured.
+- [ ] If no trusted procurement holding-park/our-park evidence exists,
+  vaccination starts after accepted shed intake plus warm-up/health gates.
 - [ ] The UI makes the source of each tested animal clear enough for demo:
   manual, template import, or procurement accepted intake.
 
@@ -1010,8 +1020,13 @@ These checks are in addition to the clean-slate E2E path above.
   business effect where it claims to change generation/preview behavior.
 - [ ] Every search, filter, and pagination control preserves the selected scope,
   page, row, drawer state, and URL.
+- [ ] Control Tower and Protocol Adherence use backend-owned filters, sort, and
+  pagination; default page size is 25, supported page sizes are 10/25/50, and
+  there is no hidden client-side 200-row dump.
+- [ ] CT/PA filtered-empty states say no rows match the selected filters; they
+  do not show the global healthy/no-risk copy.
 - [x] Every V1 demo link between Config, SOP Library, Vaccination, Action Center,
-  Protocol Adherence, Workflows, Control Tower, Animal Passport, and shed
+  Protocol Adherence, Workflows, Control Tower, Animal Passport, and vaccination
   execution detail lands on the intended record and keeps the same
   animal/shed/protocol context.
 - [x] Every V1 demo deep link from Herd Register and Procurement Source Entry into
@@ -1344,6 +1359,13 @@ and compatibility spacing are V1.
 | Next live after a live dose | Planned date is at least 4 weeks after the prior live vaccine |
 | More than 2 vaccines due | Highest-priority compatible pair is selected; overflow vaccines are scheduled on the next safe date |
 | Warm-up / ICU / quarantine / sick / late pregnancy / post-breeding blocker | Safety blocker beats batching and creates defer/block/exception, not a drive |
+| Recovered animal, compatible drive within 7 days | Animal joins that nearest compatible same-park drive if all medical/vaccine rules stay safe |
+| Recovered animal, nearest compatible drive more than 7 days away | Micro-drive is scheduled inside the 7-day recovery buffer, even for one animal |
+| Multiple recovered animals with overlapping buffers | Animals recovered on nearby dates are batched together when their 7-day buffers, species/vaccine rules, and medical windows overlap |
+| Procurement holding-park trusted evidence | Our supervised holding-park dose with SOP/video/physical proof suppresses duplicate work and advances next due |
+| Unknown/outside-source vaccination claim | Claim does not suppress work; schedule starts/restarts after accepted shed intake and warm-up/health gates |
+| Backend-owned config versioning | Backend allocates draft/version, publish is atomic, active matrix state survives failed publish, frontend cache cannot become source of truth |
+| CT/PA backend pagination and filters | Backend filters by severity/state/park/date/owner/search and paginates 10/25/50 with default 25; filtered-empty copy is accurate |
 | Stock / cold-chain / worker / verifier / proof missing | Drive is blocked or escalated with owner/reason, not silently dropped |
 | Execution reconciliation | Missing, shifted, extra, sick, proof-rejected, and cold-chain-failed animals produce explicit follow-up states |
 

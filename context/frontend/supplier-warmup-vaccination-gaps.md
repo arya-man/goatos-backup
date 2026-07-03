@@ -1,27 +1,30 @@
-# Supplier Warmup + Holding-Farm Vaccination — Closure Status
+# Supplier Warmup + Procurement Holding-Park Vaccination — Closure Status
 
 Date: 2026-06-25
 Status: **covered for the current vaccination trigger slice**
 
 This file previously recorded the supplier warmup / Holding-Farm vaccination
 gap. The gap is now closed for the approved scope: Procurement Source Entry owns
-the write actions, and Preventive Care (PC) Vaccination reads the source-entry/HF evidence context
-so operators can see why accepted-intake goats should not be double-dosed.
+the write actions, and Preventive Care (PC) Vaccination reads procurement
+holding-park evidence so operators can see why accepted-intake animals should
+not be double-dosed. Any old `HF` wording in code/table names means our
+supervised procurement holding park only; third-party/vendor claims outside our
+park or procurement holding park are untrusted notes and do not suppress PC
+work.
 
 ## What Is Built
 
 - Procurement Source Entry captures source goats with `purpose`
   (`breeding`, `fattening`, `non_breeding`, `unspecified`) and `warmup_days`.
-- Warmup classification is purpose-specific:
-  - breeding: `45-70d`
-  - fattening / non-breeding: `0-14d`
-  - unspecified: visible fallback asking for purpose.
-- Holding-Farm vaccination evidence can be imported and reviewed through real
-  backend endpoints:
+- V1 procurement holding classification is supervised 4-5 week holding near the
+  buying region, with source purpose retained as context but not as a separate
+  trusted-vaccination clock.
+- Procurement holding-park vaccination evidence can be imported and reviewed
+  through real backend endpoints:
   - `POST /procurement/source-entry/goats/{goat_id}/hf-vaccination-evidence`
   - `POST /procurement/source-entry/hf-vaccination-evidence/{evidence_id}/review`
-- Trusted HF evidence is part of the procurement handoff and vaccination
-  generation suppression path.
+- Trusted procurement holding-park evidence is part of the procurement handoff
+  and vaccination generation suppression path.
 - `/procurement/source-entry` renders the mock supplier-warmup table shape:
   Load, Holding farm / supplier, Purpose, Animals, Warmup, Tagging,
   Vaccination at HF, Health / Selection, Status.
