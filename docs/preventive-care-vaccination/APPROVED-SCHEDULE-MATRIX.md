@@ -45,10 +45,11 @@ sections below; this block makes them binding law, not commentary.
    To Preserve".
 
 3. **No mother-vaccination-status category.** Do not create a tag, matrix row,
-   selector, JSON dimension, seed, test fixture, or UI option based on missing
-   mother vaccination evidence. Mothers use the standard adult/mother schedule
-   because the operating policy is to keep them vaccinated. Missing evidence
-   creates catch-up/review obligations; it is not a permanent cohort.
+   selector, JSON dimension, API field, import prompt, seed, test fixture, UI
+   option, or fallback schedule based on missing/unknown/not-vaccinated mother
+   evidence. GoatOS ignores that source branch and always uses the approved
+   standard kid schedule. Mothers use the standard adult/mother schedule because
+   the operating policy is to keep them vaccinated.
 
 ## Operating Rules
 
@@ -100,7 +101,7 @@ eligible day after the warmup hold, then 4w later.
 | Adult Warmup | 300+ days | Purchased adult on warmup diet, generally maximum 14 days. | species-specific adult tag policy | first eligible day after 7-day hold | ET+TT + PPR | ET+TT + PPR | ET+TT: 2 ml / vial 100; PPR: 1 ml / vial 100 | Pregnant month 4-5 skip overrides this procurement step. |
 | Adult procured step 2 | 300+ days | Adult procured animal after first eligible procurement step. | species-specific adult tag policy | 4w after first adult step | ET+TT booster + Goat Pox | ET+TT booster + Sheep Pox | ET+TT: 2 ml / vial 100; Goat Pox: 1 ml / vial 25; Sheep Pox: 1 ml / vial 100 | Exact adult procurement rule from the Vaccination Rules source finding. ET+TT repeats every 6 months after course; pox vaccines repeat every 1 year. |
 | Non Pregnant / Flushing / Breeding / Buck | 300+ days | Adult steady-state tags; Buck is treated as the shared adult-male breeder tag for vaccination eligibility. | goat + sheep for these steady-state adult tags unless a future species-specific tag replaces them | repeat due | ET+TT 2 ml / vial 100 every 6 months; PPR 1 ml / vial 100 every 3 years; Goat Pox 1 ml / vial 25 every 1 year; FMD 1 ml / vial 30 every 9 months; HS 2 ml / vial 100 every 1 year | ET+TT 2 ml / vial 100 every 6 months; PPR 1 ml / vial 100 every 3 years; Blue Tongue 2 ml / vial 100 every 1 year; Sheep Pox 1 ml / vial 100 every 1 year; FMD 1 ml / vial 30 every 9 months; HS 2 ml / vial 100 every 1 year | ET+TT 2 ml / vial 100; PPR 1 ml / vial 100; Goat Pox 1 ml / vial 25; Sheep Pox 1 ml / vial 100; FMD 1 ml / vial 30; HS 2 ml / vial 100; Blue Tongue 2 ml / vial 100 | Repeat from last accepted vaccination or accepted course completion. |
-| Mother / lactating adult | 300+ days | Biological mother/lactation state after birth; sheep may produce enough milk for the kid around K0, not a commercial milking workflow. | goat + sheep biological state | repeat due | Standard adult goat repeat schedule | Standard adult sheep repeat schedule | Species-specific adult vaccines | Do not split mother rows by vaccination-status; missing evidence becomes catch-up/review work. |
+| Mother / lactating adult | 300+ days | Biological mother/lactation state after birth; sheep may produce enough milk for the kid around K0, not a commercial milking workflow. | goat + sheep biological state | repeat due | Standard adult goat repeat schedule | Standard adult sheep repeat schedule | Species-specific adult vaccines | Do not split mother rows by vaccination status; missing/unknown/not-vaccinated mother evidence is ignored for scheduling. |
 | Mother Milking Waiting / Milking Warmup / Milking | 300+ days | Commercial goat-milk workflow tags. | goat/doe only unless future approved sheep dairy policy adds equivalents | repeat due | Standard adult goat repeat schedule | Not applicable | ET+TT 2 ml / vial 100; PPR 1 ml / vial 100; Goat Pox 1 ml / vial 25; FMD 1 ml / vial 30; HS 2 ml / vial 100 | These tags are not sheep mother tags. |
 | Pregnant Early Gestation | 300+ days | Ultrasound-confirmed pregnant females until about three months gestation. | species-specific female pregnancy tags | if due | Allowed if due | Allowed if due | ET+TT 2 ml / vial 100; PPR 1 ml / vial 100; Goat Pox 1 ml / vial 25; Sheep Pox 1 ml / vial 100; FMD 1 ml / vial 30; HS 2 ml / vial 100; Blue Tongue 2 ml / vial 100 | Still obey same-day and gap rules. |
 | Pregnant Late Gestation | 300+ days | Goats & Parks tag starts around three months; Vaccination Rules skip applies during months 4 and 5. | species-specific female pregnancy tags | month 4-5 | Skip | Skip | - | Missed vaccines catch up within two weeks after delivery. If exactly around month 3, Preventive Care must evaluate gestation month rather than skipping only from tag text. |

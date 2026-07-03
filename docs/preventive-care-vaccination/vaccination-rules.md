@@ -32,27 +32,24 @@ with the codebase because V1 config and kernel behavior depend on it.
 | FMD | virus killed |
 | HS | bacteria killed |
 
-## Source Schedule Table
+## Approved GoatOS Schedule Table
 
-The source doc gives two schedule tracks per vaccine: **mother vaccinated** and
-**mother not vaccinated**. V1 intentionally uses only the standard
-mother/adult (mother-vaccinated) track: Mesha operating policy is that mothers
-are kept vaccinated (breeding-ready and pregnant animals are prioritized so the
-kid inherits passive immunity), and missing evidence becomes catch-up/review
-work, not a separate category/tag/rule dimension. The mother-not-vaccinated
-early track (below, kept for source completeness) is only the fallback when the
-mother's status is genuinely unknown — per source Q1 the early schedule is used
-in that case.
+The source DOCX contains a mother-not-vaccinated / unknown-mother branch. GoatOS
+does not implement that branch. The final product rule is: **mother vaccination
+status is never a vaccination scheduling input**. Do not model it as a shed tag,
+category, rule selector, JSON field, UI prompt, import question, seed fixture,
+or fallback schedule. Operations keeps breeding and mother animals vaccinated;
+every kid uses the approved standard schedule below.
 
-| Vaccine | Mother vaccinated (V1 standard) | Mother not vaccinated (early fallback) | Revaccination | Priority |
-|---|---:|---:|---:|---:|
-| ET+TT | 4 weeks and 7 weeks | 1 week and 5 weeks | 6 months | 1 |
-| PPR | 16 weeks | 4 weeks | 3 years | 2 |
-| Blue Tongue | 16 weeks and 20 weeks | 4 weeks and 7 weeks | 1 year | 4 |
-| Goat Pox | 16 weeks | 4 weeks | 1 year | 3 |
-| Sheep Pox | 12 weeks | 4 weeks | 1 year | 3 |
-| FMD | 12 weeks | 4 weeks | 9 months | 5 |
-| HS | 12 weeks | 4 weeks | 1 year | 5 |
+| Vaccine | Approved GoatOS timing | Revaccination | Priority |
+|---|---:|---:|---:|
+| ET+TT | 4 weeks and 7 weeks | 6 months | 1 |
+| PPR | 16 weeks | 3 years | 2 |
+| Blue Tongue | 16 weeks and 20 weeks | 1 year | 4 |
+| Goat Pox | 16 weeks | 1 year | 3 |
+| Sheep Pox | 12 weeks | 1 year | 3 |
+| FMD | 12 weeks | 9 months | 5 |
+| HS | 12 weeks | 1 year | 5 |
 
 Priority order (1 = highest): ET+TT → PPR → Goat Pox / Sheep Pox → Blue Tongue →
 FMD / HS. The source now specifies every priority (earlier revisions left the
@@ -77,7 +74,7 @@ the rule source and must stay aligned with Config presets and kernel behavior.
 
 | Question | Source answer | V1 implication |
 |---|---|---|
-| Mother vaccinated unknown: use early schedule or hold for Preventive Care review? | Use early schedule. | The mother-not-vaccinated track is the fallback only when dam status is genuinely unknown. |
+| Mother not vaccinated / unknown mother status | Source DOCX contains an early branch. | **Ignore it in GoatOS.** Never ask this as a rule/config/import question. Always use the approved standard schedule. |
 | Kid strict schedule: till 16 weeks only? | Yes, while still obeying live/killed constraints. | Kid schedule applies through the 16-week cutoff; compatibility rules still control final due dates. |
 | Live-to-live gap: 4 weeks? | Yes. | Live vaccine spacing is a hard 28-day floor. |
 | Vaccinated at source then warm-up: 7 days from warm-up entry or source dose? | Seven days from warm-up entry. | Warm-up hold anchors to farm-entry date. |
@@ -85,7 +82,7 @@ the rule source and must stay aligned with Config presets and kernel behavior.
 | Sheep adults: Blue Tongue booster timing vs pox step? | Any booster can be given after 3 weeks. | Booster rows keep a 21-day minimum gap. |
 | Untrusted procurement vaccine notes: full catch-up or trust with review? | Never trust vaccine outside our supervision; trust only our parks or procurement holding parks. | Third-party/vendor claims do not suppress scheduled work. |
 | Pregnancy month 1-5: what date starts the clock? | Rough known breeding date. | Pregnancy month calculation starts from breeding date when available. |
-| Mother vaccinated: how is it recorded? | Mother ID is known and mother vaccines are ensured before gestation month 4. | Dam link and dam vaccination history drive the standard kid path. |
+| Mother vaccinated: how is it recorded? | Mother ID is known and mother vaccines are ensured before gestation month 4. | Dam link may be stored for lineage/audit, but kid scheduling must not branch on dam vaccination status. |
 | Warm-up entry: which date counts? | Date the animal enters our farm; deworming-type work may start from day 3. | Vaccination waits 7 days from farm entry; adjacent non-vaccination interventions can have shorter holds. |
 | Kid vs adult: age only, stage only, or both? | Once kids are at least 16 weeks, no minimum-age constraints remain for giving a vaccine. | Age is the cutoff for the kid schedule; adult catch-up/repeat logic applies after it. |
 | Missed / late doses: catch up now, skip to next cycle, or Preventive Care approval? | Depends on next drive distance: immediate if trailing the next cycle; wait if same-cycle drive is within 2 weeks; immediate if more than 2 weeks away. | Missed-dose handling is cycle-relative. |
@@ -117,8 +114,9 @@ the rule source and must stay aligned with Config presets and kernel behavior.
   vaccinated before delivery (only vaccinated animals are used for breeding, and
   pregnant-animal drives are prioritized) so the kid inherits immunity.
 - The pregnancy month clock starts from the rough known **breeding date**.
-- Mother-vaccinated status is derived from the dam link: the mother ID is known,
-  and all mother doses are ensured before gestation month 4 begins.
+- Do not derive kid vaccination timing from dam/mother vaccination status. Dam
+  links may exist for lineage and audit, but the vaccination kernel always uses
+  the approved standard kid schedule.
 
 ### Procurement and source trust (scope-split)
 

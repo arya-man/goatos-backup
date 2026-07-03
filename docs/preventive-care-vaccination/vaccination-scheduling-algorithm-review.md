@@ -114,10 +114,10 @@ Without `vaccine_class` and `combo_group_id`, gap rules and same-day combining c
 
 ### 5A. Farm-born / procured kid (≤16 weeks) — strict schedule
 
-V1 uses the standard mother-vaccinated kid timing path because vaccination
-operations ensure mothers stay vaccinated. The early source path is only a
-fallback when the mother's vaccination status is genuinely unknown; it must not
-become a broad category branch for normal rule authoring.
+V1 uses the approved standard kid timing path because vaccination operations
+ensure mothers stay vaccinated. The source/wiki mother-not-vaccinated or
+unknown-mother branch is non-executable in GoatOS: do not expose, seed, ask,
+import, or match on mother vaccination status.
 
 | Vaccine | Approved kid schedule | Revaccination |
 | --- | --- | --- |
@@ -299,10 +299,11 @@ These apply **between any two administered vaccines**, not only within one serie
 
 ## 10. Mother vaccination assumption
 
-V1 exposes the standard approved kid schedule by default. Mothers are
-assumed/kept vaccinated for the vaccination slice; source/wiki evidence for the
-early branch is reserved for genuinely unknown mother status instead of becoming
-a separate selector for normal rule authoring.
+V1 exposes exactly one approved kid schedule. Mothers are kept vaccinated for
+the vaccination slice. Any source/wiki evidence for mother-not-vaccinated or
+unknown-mother timing is ignored for GoatOS scheduling and must not become a
+selector, fallback, API field, config field, import prompt, seed row, or UI
+option.
 
 ---
 
@@ -333,7 +334,7 @@ Algorithm: when primary series complete → spawn `calendar` or `every_n_days` r
 | Source-approved vaccine matrix in config | **Gap** — labels exist; full matrix rows not all approved/published |
 | Cross-vaccine live/killed gap enforcement | **Gap** — needs vaccine_class metadata + cross-series gap checker |
 | Combo same-day grouping | **Gap** — needs `combo_group_id` + drive conflict graph |
-| Approved kid schedule | **Built** — standard mother-vaccinated path; early fallback only for genuinely unknown mother status |
+| Approved kid schedule | **Built** — standard path only; mother-not-vaccinated / unknown-mother branch ignored |
 | Warming 7-day hold | **Gap** — needs warming entry date + defer rule |
 | Pregnancy month 4–5 block + post-delivery catch-up | **Gap** — needs reproductive phase rules beyond generic defer |
 | Procurement intake path (ET+TT+PPR → 4wk → Pox) | **Gap** — needs adult `post_arrival` protocol version |

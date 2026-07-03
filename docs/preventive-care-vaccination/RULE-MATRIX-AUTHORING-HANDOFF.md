@@ -318,10 +318,11 @@ UI requirements:
 - Do not make "Who qualifies" a single category picker or a goat-only tab. It
   must allow all dimensions together so species x breed x shed tag x vaccine x
   reproductive/health state permutations can be represented.
-- Do not create a category, selector, tab, seed row, or UI option based on
-  mother vaccination-status. The V1 business policy assumes mothers are kept
-  vaccinated; missing evidence becomes catch-up/review work on the normal
-  adult/mother tag.
+- Do not create a category, selector, tab, seed row, API field, import prompt,
+  fallback schedule, or UI option based on mother vaccination status. The V1
+  business policy assumes mothers are kept vaccinated; missing, unknown, or
+  not-vaccinated mother evidence is ignored for scheduling and the approved
+  standard kid schedule is always used.
 - Treat `mother`/`lactating` as biological state that can apply to goat and
   sheep mothers for vaccination. Treat `Mother Milking Waiting`,
   `Milking Warmup`, and `Milking` as commercial goat-milk workflow tags; do not

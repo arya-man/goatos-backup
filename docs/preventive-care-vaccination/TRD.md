@@ -161,11 +161,13 @@ Vaccination rules can target both `stage_code` and medical `age_days` windows.
 Those are not the same thing: K2 is an operational shed tag; FMD/HS at 12 weeks
 is a medical due rule.
 
-There is no valid stage, category, rule dimension, seed, or UI option based on
-mother vaccination-status. Any source branch that separates mother schedules by
-vaccination status is ignored for V1; the canonical policy assumes mothers are
-kept vaccinated and treats missing evidence as catch-up/review work under the
-normal adult/mother tag, not as a separate cohort.
+There is no valid stage, category, rule dimension, seed, API field, import
+prompt, UI option, kernel branch, or fallback schedule based on mother
+vaccination status. Any source branch that separates mother schedules by
+not-vaccinated or unknown mother evidence is ignored for V1. The canonical
+policy assumes mothers are kept vaccinated and the kid schedule is always the
+approved standard schedule; dam/mother vaccination status must not participate
+in rule matching.
 
 ### 2.3 Eligibility is multi-factor, not shed-derived alone
 

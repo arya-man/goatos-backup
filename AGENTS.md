@@ -71,6 +71,12 @@ behavior, or a prior decision in the same thread:
 Ambiguity is not approval. Informal agreement in a screenshot or chat applies to
 **that** scenario until it is written into the source contract.
 
+Confirmed Preventive Care (PC) vaccination override: never ask about, model, seed,
+import, expose, or schedule from mother-not-vaccinated / unknown-mother status.
+The private source/wiki may contain that branch, but GoatOS ignores it. Mothers
+are kept vaccinated operationally, and every kid uses the approved standard
+schedule in `docs/preventive-care-vaccination/vaccination-rules.md`.
+
 Read first:
 
 - `context/README.md`

@@ -341,13 +341,14 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    must reject or hide species/tag pairs that are not allowed by the Goats and
    Parks tag policy. A sheep cannot be created, moved, selected, or matched
    into commercial goat-milking tags.
-3. **No mother-vaccination-status category** — vaccination V1 must not create
-   or show a shed tag, category tag, matrix dimension, JSON selector, seed row,
-   or UI option based on missing mother vaccination evidence. If a source
-   workbook/DOCX includes a branch that splits mother schedules by vaccination
-   status, GoatOS ignores that branch and uses the standard mother/adult repeat
-   policy. The business policy is that mothers are kept vaccinated; gaps are
-   handled as catch-up/review obligations, not as a permanent category.
+3. **No mother-vaccination-status category** — vaccination V1 must not create,
+   store, ask, import, seed, show, or match a shed tag, category tag, matrix
+   dimension, JSON selector, API field, rule row, fallback schedule, or UI
+   option based on missing/unknown/not-vaccinated mother evidence. If a source
+   workbook/DOCX includes that branch, GoatOS ignores it and always uses the
+   approved standard kid schedule. The business policy is that mothers are kept
+   vaccinated before/through the breeding and pregnancy workflow; scheduling
+   never branches on dam vaccination status.
 4. **Vaccination Rules roster** — [vaccination-rules.md](./vaccination-rules.md)
    now carries the V1 schedule/dose/vial/revaccination source for ET+TT, PPR,
    Goat Pox, Sheep Pox, Blue Tongue, FMD, and HS rows. Goat-specific vaccines

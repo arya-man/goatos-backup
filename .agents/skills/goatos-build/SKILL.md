@@ -166,6 +166,10 @@ one product; this skill is the navigation layer.
   preset values, not runtime source/review UI fields. Vaccination config uses a
   scoped active ruleset model: one active company `vaccination.matrix` version,
   plus at most one active park override per park.
+- For Preventive Care (PC) vaccination, never ask about, model, seed, import,
+  expose, or schedule from mother-not-vaccinated / unknown-mother status. The
+  source/wiki branch is ignored in GoatOS; mothers are kept vaccinated
+  operationally and every kid uses the approved standard schedule.
 
 ## Must Not
 
