@@ -39,7 +39,7 @@ func TestResolveIdentifierStateMachine(t *testing.T) {
 		{
 			name: "single_match",
 			matches: []domain.IdentifierMatch{{
-				Identifier: identifier("old_tag", "1900", "park:CBE", "active", now),
+				Identifier: identifier("animal_identifier_1", "A1-1900", "global", "active", now),
 				Goat:       summary(goatA, "G-000001", "clean"),
 			}},
 			wantState: domain.ResolutionSingleMatch,
@@ -48,17 +48,17 @@ func TestResolveIdentifierStateMachine(t *testing.T) {
 		{
 			name: "multiple_matches_with_conflict",
 			matches: []domain.IdentifierMatch{
-				{Identifier: identifier("old_tag", "1900", "park:CBE", "active", now), Goat: summary(goatA, "G-000001", "clean")},
-				{Identifier: identifier("old_tag", "1900", "park:CBE", "active", now), Goat: summary(goatB, "G-000002", "clean")},
+				{Identifier: identifier("animal_identifier_1", "A1-1900", "global", "active", now), Goat: summary(goatA, "G-000001", "clean")},
+				{Identifier: identifier("animal_identifier_1", "A1-1900", "global", "active", now), Goat: summary(goatB, "G-000002", "clean")},
 			},
 			wantState:    domain.ResolutionMultipleMatch,
 			wantConflict: true,
 		},
 		{
-			name: "cross_scope_multiple_matches_without_conflict",
+			name: "multiple_matches_without_open_conflict",
 			matches: []domain.IdentifierMatch{
-				{Identifier: identifier("old_tag", "1900", "park:CBE", "active", now), Goat: summary(goatA, "G-000001", "clean")},
-				{Identifier: identifier("old_tag", "1900", "park:CPT", "active", now), Goat: summary(goatB, "G-000002", "clean")},
+				{Identifier: identifier("animal_identifier_1", "A1-1900", "global", "active", now), Goat: summary(goatA, "G-000001", "clean")},
+				{Identifier: identifier("animal_identifier_1", "A1-1900", "global", "active", now), Goat: summary(goatB, "G-000002", "clean")},
 			},
 			wantState: domain.ResolutionMultipleMatch,
 		},
@@ -70,7 +70,7 @@ func TestResolveIdentifierStateMachine(t *testing.T) {
 		{
 			name: "needs_review_for_history_only",
 			matches: []domain.IdentifierMatch{{
-				Identifier: identifier("old_tag", "1900", "park:CBE", "retired", now),
+				Identifier: identifier("animal_identifier_1", "A1-1900", "global", "retired", now),
 				Goat:       summary(goatA, "G-000001", "clean"),
 			}},
 			wantState: domain.ResolutionNeedsReview,
@@ -78,8 +78,8 @@ func TestResolveIdentifierStateMachine(t *testing.T) {
 		{
 			name: "merged_redirect",
 			matches: []domain.IdentifierMatch{{
-				Identifier: identifier("old_tag", "1900", "park:CBE", "active", now),
-				Goat:       summary(mergedGoat, "G-000003", "merged"),
+				Identifier: identifier("animal_identifier_1", "A1-1900", "global", "active", now),
+				Goat:       summaryWithMerge(mergedGoat, "G-000003", survivorGoat),
 			}},
 			wantState: domain.ResolutionMergedRedirect,
 			wantGoat:  true,
@@ -99,9 +99,9 @@ func TestResolveIdentifierStateMachine(t *testing.T) {
 			svc := NewService(repo)
 			result, err := svc.ResolveIdentifier(context.Background(), ports.ResolveIdentifierParams{
 				TenantID:        testTenant,
-				IdentifierType:  "old_tag",
-				NormalizedValue: "1900",
-				ScopeKey:        strPtr("park:CBE"),
+				IdentifierType:  "animal_identifier_1",
+				NormalizedValue: "A1-1900",
+				ScopeKey:        strPtr("global"),
 			}, testTrace)
 			if err != nil {
 				t.Fatalf("ResolveIdentifier error = %v", err)
@@ -154,7 +154,7 @@ func TestGetGoatPassportFollowsMergeRedirectChain(t *testing.T) {
 	if result.Goat.GoatID != survivorGoat {
 		t.Fatalf("goat id = %s, want final survivor %s", result.Goat.GoatID, survivorGoat)
 	}
-	if result.Goat.IdentityState == "merged" {
+	if result.Goat.MergedIntoGoatID != nil {
 		t.Fatalf("returned merged goat: %#v", result.Goat)
 	}
 	if len(result.Warnings) != 2 {
@@ -175,8 +175,8 @@ func TestGetGoatPassportDetectsMergeRedirectCycle(t *testing.T) {
 }
 
 func TestCanonicalRequestHashIsStableAndScoped(t *testing.T) {
-	bodyA := []byte(`{"identifier_type":"rfid","identifier_value":"RFID-SYNTHETIC-001","scope_key":"global:rfid","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"row_version":1}`)
-	bodyB := []byte(`{"row_version":1,"evidence_refs":[{"evidence_id":"synthetic-row-1","evidence_type":"source_record"}],"scope_key":"global:rfid","identifier_value":"RFID-SYNTHETIC-001","identifier_type":"rfid"}`)
+	bodyA := []byte(`{"identifier_type":"animal_identifier_1","identifier_value":"A1-SYNTHETIC-001","scope_key":"global","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"row_version":1}`)
+	bodyB := []byte(`{"row_version":1,"evidence_refs":[{"evidence_id":"synthetic-row-1","evidence_type":"source_record"}],"scope_key":"global","identifier_value":"A1-SYNTHETIC-001","identifier_type":"animal_identifier_1"}`)
 	route := "/admin/goats/" + goatA + "/identifiers"
 	hashA, err := CanonicalRequestHashWithSubject(testTenant, addGoatIdentifierCommand, route, goatA, bodyA)
 	if err != nil {
@@ -221,7 +221,7 @@ func TestAddGoatIdentifierValidationAndCommand(t *testing.T) {
 	repo := &fakeRepo{
 		addIdentifierResult: &ports.AdminGoatMutationResult{
 			Goat:        summary(goatA, "G-000001", "clean"),
-			Identifiers: []domain.GoatIdentifier{identifier("rfid", " rfid-synthetic-001 ", "global:rfid", "active", time.Now().UTC())},
+			Identifiers: []domain.GoatIdentifier{identifier("animal_identifier_1", " A1-synthetic-001 ", "global", "active", time.Now().UTC())},
 			Decision: domain.DecisionRecordSummary{
 				DecisionID:     "50000000-0000-4000-8000-000000000101",
 				DecisionType:   "attach_identifier",
@@ -243,14 +243,14 @@ func TestAddGoatIdentifierValidationAndCommand(t *testing.T) {
 	if response.Decision.DecisionType != "attach_identifier" || len(response.Events) != 1 || response.Events[0].EventType != "goat.identifier.added" {
 		t.Fatalf("unexpected response: %#v", response)
 	}
-	if repo.lastAddIdentifierCmd.NormalizedValue != "RFID-SYNTHETIC-001" {
+	if repo.lastAddIdentifierCmd.NormalizedValue != "A1-SYNTHETIC-001" {
 		t.Fatalf("normalized value = %q", repo.lastAddIdentifierCmd.NormalizedValue)
 	}
 	wantKey := testTenant + ":" + addGoatIdentifierCommand + ":" + goatA + ":idem-add-0001"
 	if repo.lastAddIdentifierCmd.StoredIdempotencyKey != wantKey {
 		t.Fatalf("stored idempotency key = %q, want %q", repo.lastAddIdentifierCmd.StoredIdempotencyKey, wantKey)
 	}
-	if repo.lastAddIdentifierCmd.RequestHash == "" || repo.lastAddIdentifierCmd.RowVersion != 1 || repo.lastAddIdentifierCmd.ScopeKey != "global:rfid" {
+	if repo.lastAddIdentifierCmd.RequestHash == "" || repo.lastAddIdentifierCmd.RowVersion != 1 || repo.lastAddIdentifierCmd.ScopeKey != "global" {
 		t.Fatalf("command not normalized: %#v", repo.lastAddIdentifierCmd)
 	}
 	if repo.lastAddIdentifierCmd.IsPrimaryForGoat {
@@ -264,7 +264,7 @@ func TestAddGoatIdentifierValidationAndCommand(t *testing.T) {
 func TestAddGoatIdentifierRejectsOldEvidenceIDsAndMissingScope(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	input := validAddIdentifierInput()
-	input.RawBody = []byte(`{"identifier_type":"rfid","identifier_value":"RFID-SYNTHETIC-001","scope_key":"global:rfid","evidence_ids":["synthetic-row-1"],"row_version":1}`)
+	input.RawBody = []byte(`{"identifier_type":"animal_identifier_1","identifier_value":"A1-SYNTHETIC-001","scope_key":"global","evidence_ids":["synthetic-row-1"],"row_version":1}`)
 	_, err := svc.AddGoatIdentifier(context.Background(), input)
 	var appErr *Error
 	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_json" {
@@ -272,7 +272,7 @@ func TestAddGoatIdentifierRejectsOldEvidenceIDsAndMissingScope(t *testing.T) {
 	}
 
 	input = validAddIdentifierInput()
-	input.RawBody = []byte(`{"identifier_type":"rfid","identifier_value":"RFID-SYNTHETIC-001","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"row_version":1}`)
+	input.RawBody = []byte(`{"identifier_type":"animal_identifier_1","identifier_value":"A1-SYNTHETIC-001","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"row_version":1}`)
 	_, err = svc.AddGoatIdentifier(context.Background(), input)
 	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_scope_key" {
 		t.Fatalf("expected invalid_scope_key, got %v", err)
@@ -284,7 +284,7 @@ func TestRetireGoatIdentifierValidationAndCommand(t *testing.T) {
 	repo := &fakeRepo{
 		retireIdentifierResult: &ports.AdminGoatMutationResult{
 			Goat:        summary(goatA, "G-000001", "clean"),
-			Identifiers: []domain.GoatIdentifier{identifier("old_tag", "1900", "park:CBE", "retired", time.Now().UTC())},
+			Identifiers: []domain.GoatIdentifier{identifier("animal_identifier_1", "A1-1900", "global", "retired", time.Now().UTC())},
 			Decision: domain.DecisionRecordSummary{
 				DecisionID:     "50000000-0000-4000-8000-000000000102",
 				DecisionType:   "retire_identifier",
@@ -333,7 +333,7 @@ func TestCreateAdminGoatPassesIdempotencyIntoValidation(t *testing.T) {
 		ActorID:        testActor,
 		IdempotencyKey: "idem-create-0001",
 		TraceID:        testTrace,
-		RawBody:        validAdminGoatCreateRaw("RFID-CREATE-001"),
+		RawBody:        validAdminGoatCreateRaw("CREATE-001"),
 	})
 	if err != nil {
 		t.Fatalf("CreateAdminGoat: %v", err)
@@ -362,7 +362,7 @@ func TestCreateAdminGoatRejectsMissingDOB(t *testing.T) {
 		ActorID:        testActor,
 		IdempotencyKey: "idem-missing-dob",
 		TraceID:        testTrace,
-		RawBody:        []byte(fmt.Sprintf(`{"rfid":"RFID-MISSING-DOB","park_id":%q,"shed_id":%q,"sex":"female","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, testPark, testShed)),
+		RawBody:        []byte(fmt.Sprintf(`{"animal_identifier_1":"A1-MISSING-DOB","animal_identifier_2":"A2-MISSING-DOB","species":"goat","park_id":%q,"shed_id":%q,"sex":"female","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, testPark, testShed)),
 	})
 	var appErr *Error
 	if !errors.As(err, &appErr) || appErr.Code != "invalid_goat_create" {
@@ -381,12 +381,12 @@ func TestCreateAdminGoatRejectsMissingOrUnknownSex(t *testing.T) {
 	}{
 		{
 			name:    "missing sex",
-			rawBody: fmt.Sprintf(`{"rfid":"RFID-MISSING-SEX","park_id":%q,"shed_id":%q,"dob":"2026-05-20","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, testPark, testShed),
+			rawBody: fmt.Sprintf(`{"animal_identifier_1":"A1-MISSING-SEX","animal_identifier_2":"A2-MISSING-SEX","species":"goat","park_id":%q,"shed_id":%q,"dob":"2026-05-20","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, testPark, testShed),
 			wantMsg: "sex is required and must be female or male",
 		},
 		{
-			name:    "unknown sex",
-			rawBody: fmt.Sprintf(`{"rfid":"RFID-UNKNOWN-SEX","park_id":%q,"shed_id":%q,"sex":"unknown","dob":"2026-05-20","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, testPark, testShed),
+			name:    "invalid sex value",
+			rawBody: fmt.Sprintf(`{"animal_identifier_1":"A1-BAD-SEX","animal_identifier_2":"A2-BAD-SEX","species":"goat","park_id":%q,"shed_id":%q,"sex":"invalid","dob":"2026-05-20","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, testPark, testShed),
 			wantMsg: "sex must be female or male",
 		},
 	}
@@ -429,7 +429,7 @@ func TestCommitAdminGoatBulkUsesStableRowIdempotencyKey(t *testing.T) {
 		ActorID:        testActor,
 		IdempotencyKey: "bulk-idem-0001",
 		TraceID:        testTrace,
-		RawBody:        validAdminGoatBulkCommitRaw("RFID-BULK-001"),
+		RawBody:        validAdminGoatBulkCommitRaw("BULK-001"),
 	}
 	first, err := svc.CommitAdminGoatBulkImport(context.Background(), input)
 	if err != nil {
@@ -443,7 +443,7 @@ func TestCommitAdminGoatBulkUsesStableRowIdempotencyKey(t *testing.T) {
 		t.Fatalf("row key = %q, want %q", repo.createAdminGoatCmds[0].ClientIdempotencyKey, wantRowKey)
 	}
 
-	input.RawBody = validAdminGoatBulkCommitRaw("RFID-BULK-CHANGED")
+	input.RawBody = validAdminGoatBulkCommitRaw("BULK-CHANGED")
 	second, err := svc.CommitAdminGoatBulkImport(context.Background(), input)
 	if err != nil {
 		t.Fatalf("second commit: %v", err)
@@ -467,7 +467,7 @@ func TestCommitAdminGoatBulkPreservesPreviewRowNumber(t *testing.T) {
 		ActorID:        testActor,
 		IdempotencyKey: "bulk-idem-0002",
 		TraceID:        testTrace,
-		RawBody:        validAdminGoatBulkCommitRowRaw(5, "RFID-BULK-ROW-005"),
+		RawBody:        validAdminGoatBulkCommitRowRaw(5, "BULK-ROW-005"),
 	}
 	resp, err := svc.CommitAdminGoatBulkImport(context.Background(), input)
 	if err != nil {
@@ -490,7 +490,7 @@ func TestCommitAdminGoatBulkRejectsMissingPreviewToken(t *testing.T) {
 		ActorID:        testActor,
 		IdempotencyKey: "bulk-no-preview-token",
 		TraceID:        testTrace,
-		RawBody:        []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q}`, validAdminGoatCreateRaw("RFID-NO-TOKEN"), testBulkHash)),
+		RawBody:        []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q}`, validAdminGoatCreateRaw("NO-TOKEN"), testBulkHash)),
 	})
 	var appErr *Error
 	if !errors.As(err, &appErr) || appErr.Code != "invalid_preview_token" {
@@ -504,13 +504,13 @@ func TestCommitAdminGoatBulkRejectsMissingPreviewToken(t *testing.T) {
 func TestCommitAdminGoatBulkRejectsRowsAlteredAfterPreview(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	token := validAdminGoatBulkPreviewToken("RFID-PREVIEWED")
+	token := validAdminGoatBulkPreviewToken("PREVIEWED")
 	_, err := svc.CommitAdminGoatBulkImport(context.Background(), CommitAdminGoatBulkInput{
 		TenantID:       testTenant,
 		ActorID:        testActor,
 		IdempotencyKey: "bulk-altered-preview",
 		TraceID:        testTrace,
-		RawBody:        []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q,"preview_token":%q}`, validAdminGoatCreateRaw("RFID-ALTERED"), testBulkHash, token)),
+		RawBody:        []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q,"preview_token":%q}`, validAdminGoatCreateRaw("ALTERED"), testBulkHash, token)),
 	})
 	var appErr *Error
 	if !errors.As(err, &appErr) || appErr.Code != "invalid_preview_token" {
@@ -524,13 +524,13 @@ func TestCommitAdminGoatBulkRejectsRowsAlteredAfterPreview(t *testing.T) {
 func TestCommitAdminGoatBulkRejectsUnrelatedValidFileHash(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	token := validAdminGoatBulkPreviewToken("RFID-FILE-HASH")
+	token := validAdminGoatBulkPreviewToken("FILE-HASH")
 	_, err := svc.CommitAdminGoatBulkImport(context.Background(), CommitAdminGoatBulkInput{
 		TenantID:       testTenant,
 		ActorID:        testActor,
 		IdempotencyKey: "bulk-wrong-file-hash",
 		TraceID:        testTrace,
-		RawBody:        []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q,"preview_token":%q}`, validAdminGoatCreateRaw("RFID-FILE-HASH"), testOtherBulkHash, token)),
+		RawBody:        []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q,"preview_token":%q}`, validAdminGoatCreateRaw("FILE-HASH"), testOtherBulkHash, token)),
 	})
 	var appErr *Error
 	if !errors.As(err, &appErr) || appErr.Code != "invalid_preview_token" {
@@ -544,13 +544,13 @@ func TestCommitAdminGoatBulkRejectsUnrelatedValidFileHash(t *testing.T) {
 func TestCommitAdminGoatBulkRejectsExpiredPreviewToken(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	token := validAdminGoatBulkPreviewTokenForRowAt(1, "RFID-EXPIRED-TOKEN", time.Now().Add(-adminGoatBulkPreviewTokenMaxAge-time.Minute), strings.Repeat("a", adminGoatBulkPreviewTokenNonceBytes*2))
+	token := validAdminGoatBulkPreviewTokenForRowAt(1, "EXPIRED-TOKEN", time.Now().Add(-adminGoatBulkPreviewTokenMaxAge-time.Minute), strings.Repeat("a", adminGoatBulkPreviewTokenNonceBytes*2))
 	_, err := svc.CommitAdminGoatBulkImport(context.Background(), CommitAdminGoatBulkInput{
 		TenantID:       testTenant,
 		ActorID:        testActor,
 		IdempotencyKey: "bulk-expired-preview",
 		TraceID:        testTrace,
-		RawBody:        []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q,"preview_token":%q}`, validAdminGoatCreateRaw("RFID-EXPIRED-TOKEN"), testBulkHash, token)),
+		RawBody:        []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q,"preview_token":%q}`, validAdminGoatCreateRaw("EXPIRED-TOKEN"), testBulkHash, token)),
 	})
 	var appErr *Error
 	if !errors.As(err, &appErr) || appErr.Code != "invalid_preview_token" {
@@ -561,10 +561,10 @@ func TestCommitAdminGoatBulkRejectsExpiredPreviewToken(t *testing.T) {
 	}
 }
 
-func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
+func TestPreviewAdminGoatBulkParsesAnimalIDsAndEntryDate(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	csv := "Farm,Temp field ID,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nMain Farm,TMP-KID-001,CBE,K1,female,2026-06-01,birth,K1,2026-06-15\n"
+	csv := "Farm,Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nMain Farm,A1-KID-001,A2-KID-001,goat,CBE,K1,female,2026-06-01,birth,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
@@ -584,8 +584,8 @@ func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
 		t.Fatalf("summary=%#v rows=%d", resp.Summary, len(resp.Rows))
 	}
 	row := resp.Rows[0]
-	if row.Normalized == nil || row.Normalized.TempFieldID == nil || *row.Normalized.TempFieldID != "TMP-KID-001" {
-		t.Fatalf("normalized temp_field_id = %#v", row.Normalized)
+	if row.Normalized == nil || row.Normalized.AnimalIdentifier1 == nil || *row.Normalized.AnimalIdentifier1 != "A1-KID-001" || row.Normalized.AnimalIdentifier2 == nil || *row.Normalized.AnimalIdentifier2 != "A2-KID-001" {
+		t.Fatalf("normalized animal identifiers = %#v", row.Normalized)
 	}
 	if row.Normalized.EntryDate != "2026-06-15" {
 		t.Fatalf("entry_date = %q", row.Normalized.EntryDate)
@@ -604,7 +604,7 @@ func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
 func TestPreviewAdminGoatBulkFlagsMissingDOB(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	csv := "RFID,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nRFID-NO-DOB,CBE,K1,female,,birth,K1,2026-06-15\n"
+	csv := "Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nA1-NO-DOB,A2-NO-DOB,goat,CBE,K1,female,,birth,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
@@ -624,7 +624,7 @@ func TestPreviewAdminGoatBulkFlagsMissingDOB(t *testing.T) {
 func TestPreviewAdminGoatBulkFlagsDuplicateRowsWithoutFailingFile(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	csv := "RFID,Park,Shed,Sex,DOB,Origin,Management stage,Entry date,Weight(kg)\nDUP-RFID-001,CBE,K1,female,2026-06-01,birth,K1,2026-06-15,22.5\n\nDUP-RFID-001,CBE,K1,female,2026-06-01,birth,K1,2026-06-15\n"
+	csv := "Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date,Weight(kg)\nDUP-A1-001,DUP-A2-001,goat,CBE,K1,female,2026-06-01,birth,K1,2026-06-15,22.5\n\nDUP-A1-001,DUP-A2-002,goat,CBE,K1,female,2026-06-01,birth,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
@@ -934,7 +934,7 @@ func validAddIdentifierInput() AddGoatIdentifierInput {
 		IdempotencyKey: "idem-add-0001",
 		TraceID:        testTrace,
 		GoatID:         goatA,
-		RawBody:        []byte(`{"identifier_type":"rfid","identifier_value":" rfid-synthetic-001 ","scope_key":"global:rfid","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":1}`),
+		RawBody:        []byte(`{"identifier_type":"animal_identifier_1","identifier_value":" A1-synthetic-001 ","scope_key":"global","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":1}`),
 	}
 }
 
@@ -950,26 +950,26 @@ func validRetireIdentifierInput() RetireGoatIdentifierInput {
 	}
 }
 
-func validAdminGoatCreateRaw(rfid string) []byte {
-	return []byte(fmt.Sprintf(`{"rfid":%q,"park_id":%q,"shed_id":%q,"sex":"female","dob":"2026-05-20","dob_estimated":false,"origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, rfid, testPark, testShed))
+func validAdminGoatCreateRaw(animalID string) []byte {
+	return []byte(fmt.Sprintf(`{"animal_identifier_1":%q,"animal_identifier_2":%q,"species":"goat","park_id":%q,"shed_id":%q,"sex":"female","dob":"2026-05-20","dob_estimated":false,"origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, "A1-"+animalID, "A2-"+animalID, testPark, testShed))
 }
 
-func validAdminGoatBulkCommitRaw(rfid string) []byte {
-	return []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q,"preview_token":%q}`, validAdminGoatCreateRaw(rfid), testBulkHash, validAdminGoatBulkPreviewToken(rfid)))
+func validAdminGoatBulkCommitRaw(animalID string) []byte {
+	return []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q,"preview_token":%q}`, validAdminGoatCreateRaw(animalID), testBulkHash, validAdminGoatBulkPreviewToken(animalID)))
 }
 
-func validAdminGoatBulkCommitRowRaw(rowNumber int, rfid string) []byte {
-	return []byte(fmt.Sprintf(`{"rows":[{"row_number":%d,"normalized":%s}],"file_hash":%q,"preview_token":%q}`, rowNumber, validAdminGoatCreateRaw(rfid), testBulkHash, validAdminGoatBulkPreviewTokenForRow(rowNumber, rfid)))
+func validAdminGoatBulkCommitRowRaw(rowNumber int, animalID string) []byte {
+	return []byte(fmt.Sprintf(`{"rows":[{"row_number":%d,"normalized":%s}],"file_hash":%q,"preview_token":%q}`, rowNumber, validAdminGoatCreateRaw(animalID), testBulkHash, validAdminGoatBulkPreviewTokenForRow(rowNumber, animalID)))
 }
 
-func validAdminGoatBulkPreviewToken(rfid string) string {
-	return validAdminGoatBulkPreviewTokenForRow(1, rfid)
+func validAdminGoatBulkPreviewToken(animalID string) string {
+	return validAdminGoatBulkPreviewTokenForRow(1, animalID)
 }
 
-func validAdminGoatBulkPreviewTokenForRow(rowNumber int, rfid string) string {
+func validAdminGoatBulkPreviewTokenForRow(rowNumber int, animalID string) string {
 	token, err := signAdminGoatBulkPreviewWithKey(testTenant, testBulkHash, []domain.AdminGoatBulkCommitRow{{
 		RowNumber:  rowNumber,
-		Normalized: validAdminGoatCreateRequest(rfid),
+		Normalized: validAdminGoatCreateRequest(animalID),
 	}}, defaultAdminGoatBulkPreviewSigningKey)
 	if err != nil {
 		panic(err)
@@ -977,10 +977,10 @@ func validAdminGoatBulkPreviewTokenForRow(rowNumber int, rfid string) string {
 	return token
 }
 
-func validAdminGoatBulkPreviewTokenForRowAt(rowNumber int, rfid string, issuedAt time.Time, nonce string) string {
+func validAdminGoatBulkPreviewTokenForRowAt(rowNumber int, animalID string, issuedAt time.Time, nonce string) string {
 	token, err := signAdminGoatBulkPreviewWithKeyAt(testTenant, testBulkHash, []domain.AdminGoatBulkCommitRow{{
 		RowNumber:  rowNumber,
-		Normalized: validAdminGoatCreateRequest(rfid),
+		Normalized: validAdminGoatCreateRequest(animalID),
 	}}, defaultAdminGoatBulkPreviewSigningKey, issuedAt, nonce)
 	if err != nil {
 		panic(err)
@@ -988,20 +988,24 @@ func validAdminGoatBulkPreviewTokenForRowAt(rowNumber int, rfid string, issuedAt
 	return token
 }
 
-func validAdminGoatCreateRequest(rfid string) *domain.AdminGoatCreateRequest {
+func validAdminGoatCreateRequest(animalID string) *domain.AdminGoatCreateRequest {
 	parkID := testPark
 	shedID := testShed
 	dob := "2026-05-20"
 	estimated := false
+	animalID1 := "A1-" + animalID
+	animalID2 := "A2-" + animalID
 	return &domain.AdminGoatCreateRequest{
-		RFID:         &rfid,
-		ParkID:       &parkID,
-		ShedID:       &shedID,
-		Sex:          "female",
-		DOB:          &dob,
-		OriginType:   "procured",
-		EntryDate:    "2026-06-01",
-		DOBEstimated: &estimated,
+		AnimalIdentifier1: &animalID1,
+		AnimalIdentifier2: &animalID2,
+		Species:           "goat",
+		ParkID:            &parkID,
+		ShedID:            &shedID,
+		Sex:               "female",
+		DOB:               &dob,
+		OriginType:        "procured",
+		EntryDate:         "2026-06-01",
+		DOBEstimated:      &estimated,
 		EvidenceRefs: []domain.EvidenceRef{{
 			EvidenceType: "source_record",
 			EvidenceID:   "synthetic-row-1",
@@ -1110,9 +1114,9 @@ func (f *fakeRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoatI
 		Goat: summary(cmd.GoatID, "G-000001", "clean"),
 		Identifiers: []domain.GoatIdentifier{{
 			IdentifierID:     cmd.IdentifierID,
-			IdentifierType:   "old_tag",
-			IdentifierValue:  "1900",
-			ScopeKey:         "park:CBE",
+			IdentifierType:   "animal_identifier_1",
+			IdentifierValue:  "A1-1900",
+			ScopeKey:         "global",
 			Status:           "retired",
 			IsPrimaryForGoat: true,
 			ValidFrom:        validTo.Add(-time.Hour),
@@ -1261,7 +1265,6 @@ func passport(goatID, displayID, identityState string, mergedInto *string) *doma
 		GoatID:           goatID,
 		DisplayID:        displayID,
 		Species:          "goat",
-		IdentityState:    identityState,
 		Summary:          s,
 		Identifiers:      []domain.GoatIdentifier{},
 		EvidenceRefs:     []domain.EvidenceRef{},
@@ -1273,13 +1276,20 @@ func passport(goatID, displayID, identityState string, mergedInto *string) *doma
 
 func summary(goatID, displayID, identityState string) domain.GoatSummary {
 	return domain.GoatSummary{
-		GoatID:          goatID,
-		DisplayID:       displayID,
-		LifecycleStatus: "alive",
-		IdentityState:   identityState,
-		LocationPath:    domain.LocationPath{Display: "Synthetic CBE"},
-		Warnings:        []domain.Warning{},
+		GoatID:            goatID,
+		DisplayID:         displayID,
+		LifecycleStatus:   "alive",
+		AnimalIdentifier1: strPtr("A1-" + displayID),
+		AnimalIdentifier2: strPtr("A2-" + displayID),
+		LocationPath:      domain.LocationPath{Display: "Synthetic CBE"},
+		Warnings:          []domain.Warning{},
 	}
+}
+
+func summaryWithMerge(goatID, displayID, mergedInto string) domain.GoatSummary {
+	out := summary(goatID, displayID, "merged")
+	out.MergedIntoGoatID = &mergedInto
+	return out
 }
 
 func identifier(identifierType, value, scope, status string, validFrom time.Time) domain.GoatIdentifier {

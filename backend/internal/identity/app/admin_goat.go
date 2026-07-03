@@ -305,9 +305,8 @@ func (s *Service) CommitAdminGoatBulkImport(ctx context.Context, input CommitAdm
 func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID, clientKey, traceID string, body *domain.AdminGoatCreateRequest) (*domain.AdminGoatCreateRequest, ports.CreateAdminGoatCommand, []domain.FieldError, error) {
 	normalized := *body
 	errorsOut := make([]domain.FieldError, 0)
-	trimOptionalString(&normalized.RFID)
-	trimOptionalString(&normalized.OldTag)
-	trimOptionalString(&normalized.TempFieldID)
+	trimOptionalString(&normalized.AnimalIdentifier1)
+	trimOptionalString(&normalized.AnimalIdentifier2)
 	trimOptionalString(&normalized.FarmID)
 	trimOptionalString(&normalized.FarmCode)
 	trimOptionalString(&normalized.ParkID)
@@ -321,18 +320,23 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	trimOptionalString(&normalized.SireOrLot)
 	trimOptionalString(&normalized.PhotoURL)
 	trimOptionalString(&normalized.SourceRecordID)
+	normalized.Species = strings.TrimSpace(normalized.Species)
 	normalized.Sex = strings.TrimSpace(normalized.Sex)
 	normalized.OriginType = strings.TrimSpace(normalized.OriginType)
 	normalized.EntryDate = strings.TrimSpace(normalized.EntryDate)
-	if normalized.OriginType == "" {
-		normalized.OriginType = "unknown"
-	}
 	if normalized.DOBEstimated == nil {
 		estimated := false
 		normalized.DOBEstimated = &estimated
 	}
-	if normalized.RFID == nil && normalized.OldTag == nil && normalized.TempFieldID == nil {
-		errorsOut = append(errorsOut, domain.FieldError{Field: "identifiers", Code: "required", Message: "at least one of rfid, old_tag, or temp_field_id is required"})
+	if normalized.AnimalIdentifier1 == nil {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "animal_identifier_1", Code: "required", Message: "Animal ID 1 is required"})
+	}
+	if normalized.AnimalIdentifier2 == nil {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "animal_identifier_2", Code: "required", Message: "Animal ID 2 is required"})
+	}
+	if normalized.AnimalIdentifier1 != nil && normalized.AnimalIdentifier2 != nil &&
+		normalizeIdentifier("animal_identifier_1", *normalized.AnimalIdentifier1) == normalizeIdentifier("animal_identifier_2", *normalized.AnimalIdentifier2) {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "animal_identifier_2", Code: "duplicate", Message: "Animal ID 1 and Animal ID 2 must be different"})
 	}
 	if normalized.ParkID == nil && normalized.ParkCode == nil {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "park_id", Code: "required", Message: "park_id or park_code is required"})
@@ -354,8 +358,13 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	} else if !allowedSex[normalized.Sex] {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "sex", Code: "invalid", Message: "sex must be female or male"})
 	}
+	if normalized.Species == "" {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "species", Code: "required", Message: "species is required and must be goat or sheep"})
+	} else if !allowedSpecies[normalized.Species] {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "species", Code: "invalid", Message: "species must be goat or sheep"})
+	}
 	if !allowedOriginType[normalized.OriginType] {
-		errorsOut = append(errorsOut, domain.FieldError{Field: "origin_type", Code: "invalid", Message: "origin_type must be birth, procured, imported, or unknown"})
+		errorsOut = append(errorsOut, domain.FieldError{Field: "origin_type", Code: "invalid", Message: "origin_type must be birth, procured, or imported"})
 	}
 	entryDate, err := parseDateField("entry_date", normalized.EntryDate)
 	if err != nil {
@@ -381,21 +390,12 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	if err := validateEvidenceRefs(normalized.EvidenceRefs, true); err != nil {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "evidence_refs", Code: "invalid", Message: err.Error()})
 	}
-	identifiers := make([]ports.AdminGoatCreateIdentifier, 0, 3)
-	if normalized.RFID != nil {
-		identifiers = append(identifiers, ports.AdminGoatCreateIdentifier{IdentifierType: "rfid", IdentifierValue: *normalized.RFID, NormalizedValue: normalizeIdentifier("rfid", *normalized.RFID), ScopeKey: "global", IsPrimary: true})
+	identifiers := make([]ports.AdminGoatCreateIdentifier, 0, 2)
+	if normalized.AnimalIdentifier1 != nil {
+		identifiers = append(identifiers, ports.AdminGoatCreateIdentifier{IdentifierType: "animal_identifier_1", IdentifierValue: *normalized.AnimalIdentifier1, NormalizedValue: normalizeIdentifier("animal_identifier_1", *normalized.AnimalIdentifier1), ScopeKey: "global", IsPrimary: true})
 	}
-	oldTagScope := ""
-	if normalized.ParkID != nil {
-		oldTagScope = "park:" + *normalized.ParkID
-	} else if normalized.ParkCode != nil {
-		oldTagScope = "park_code:" + *normalized.ParkCode
-	}
-	if normalized.OldTag != nil {
-		identifiers = append(identifiers, ports.AdminGoatCreateIdentifier{IdentifierType: "old_tag", IdentifierValue: *normalized.OldTag, NormalizedValue: normalizeIdentifier("old_tag", *normalized.OldTag), ScopeKey: oldTagScope, IsPrimary: true})
-	}
-	if normalized.TempFieldID != nil {
-		identifiers = append(identifiers, ports.AdminGoatCreateIdentifier{IdentifierType: "temp_field_id", IdentifierValue: *normalized.TempFieldID, NormalizedValue: normalizeIdentifier("temp_field_id", *normalized.TempFieldID), ScopeKey: "global", IsPrimary: true})
+	if normalized.AnimalIdentifier2 != nil {
+		identifiers = append(identifiers, ports.AdminGoatCreateIdentifier{IdentifierType: "animal_identifier_2", IdentifierValue: *normalized.AnimalIdentifier2, NormalizedValue: normalizeIdentifier("animal_identifier_2", *normalized.AnimalIdentifier2), ScopeKey: "global", IsPrimary: false})
 	}
 	cmd := ports.CreateAdminGoatCommand{
 		TenantID:             tenantID,
@@ -404,6 +404,7 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 		TraceID:              traceID,
 		Identifiers:          identifiers,
 		FarmID:               normalized.FarmID,
+		Species:              normalized.Species,
 		Breed:                normalized.Breed,
 		Sex:                  normalized.Sex,
 		DOB:                  dob,
@@ -449,11 +450,6 @@ func validateAdminGoatCreate(ctx context.Context, repo adminGoatRepository, norm
 	cmd.FarmID = validation.FarmID
 	cmd.ParkID = validation.ParkID
 	cmd.ShedID = validation.ShedID
-	for i := range cmd.Identifiers {
-		if cmd.Identifiers[i].IdentifierType == "old_tag" {
-			cmd.Identifiers[i].ScopeKey = "park:" + validation.ParkID
-		}
-	}
 	return nil, validation.Warnings, nil
 }
 
@@ -586,21 +582,21 @@ func parseAdminGoatCSV(raw string) ([]parsedAdminGoatCSVRow, error) {
 		rowNumber, _ := reader.FieldPos(0)
 		sourceID := fmt.Sprintf("bulk-csv-row:%d", rowNumber)
 		req := domain.AdminGoatCreateRequest{
-			RFID:            optionalCSV(rec, headers, "rfid"),
-			OldTag:          optionalCSV(rec, headers, "old_tag"),
-			TempFieldID:     optionalCSV(rec, headers, "temp_field_id"),
-			FarmCode:        optionalCSV(rec, headers, "farm"),
-			ParkID:          optionalCSV(rec, headers, "park_id"),
-			ParkCode:        optionalCSV(rec, headers, "park"),
-			ShedID:          optionalCSV(rec, headers, "shed_id"),
-			ShedCode:        optionalCSV(rec, headers, "shed"),
-			Breed:           optionalCSV(rec, headers, "breed"),
-			ManagementStage: optionalCSV(rec, headers, "management_stage"),
-			Sex:             valueCSV(rec, headers, "sex"),
-			DOB:             optionalCSV(rec, headers, "dob"),
-			OriginType:      valueCSV(rec, headers, "origin"),
-			PhotoURL:        optionalCSV(rec, headers, "photo_url"),
-			SourceRecordID:  &sourceID,
+			AnimalIdentifier1: optionalCSV(rec, headers, "animal_identifier_1"),
+			AnimalIdentifier2: optionalCSV(rec, headers, "animal_identifier_2"),
+			FarmCode:          optionalCSV(rec, headers, "farm"),
+			Species:           valueCSV(rec, headers, "species"),
+			ParkID:            optionalCSV(rec, headers, "park_id"),
+			ParkCode:          optionalCSV(rec, headers, "park"),
+			ShedID:            optionalCSV(rec, headers, "shed_id"),
+			ShedCode:          optionalCSV(rec, headers, "shed"),
+			Breed:             optionalCSV(rec, headers, "breed"),
+			ManagementStage:   optionalCSV(rec, headers, "management_stage"),
+			Sex:               valueCSV(rec, headers, "sex"),
+			DOB:               optionalCSV(rec, headers, "dob"),
+			OriginType:        valueCSV(rec, headers, "origin"),
+			PhotoURL:          optionalCSV(rec, headers, "photo_url"),
+			SourceRecordID:    &sourceID,
 			EvidenceRefs: []domain.EvidenceRef{{
 				EvidenceType: "source_record",
 				EvidenceID:   sourceID,
@@ -786,21 +782,12 @@ func duplicateAdminGoatImportErrors(normalized *domain.AdminGoatCreateRequest, r
 }
 
 func adminGoatImportDuplicateKeys(row *domain.AdminGoatCreateRequest) []string {
-	keys := make([]string, 0, 3)
-	if row.RFID != nil {
-		keys = append(keys, "rfid:"+normalizeIdentifier("rfid", *row.RFID))
+	keys := make([]string, 0, 2)
+	if row.AnimalIdentifier1 != nil {
+		keys = append(keys, "animal_identifier_1:"+normalizeIdentifier("animal_identifier_1", *row.AnimalIdentifier1))
 	}
-	if row.TempFieldID != nil {
-		keys = append(keys, "temp_field_id:"+normalizeIdentifier("temp_field_id", *row.TempFieldID))
-	}
-	if row.OldTag != nil {
-		scope := ""
-		if row.ParkID != nil {
-			scope = "park:" + strings.ToLower(*row.ParkID)
-		} else if row.ParkCode != nil {
-			scope = "park_code:" + strings.ToLower(*row.ParkCode)
-		}
-		keys = append(keys, "old_tag:"+scope+":"+normalizeIdentifier("old_tag", *row.OldTag))
+	if row.AnimalIdentifier2 != nil {
+		keys = append(keys, "animal_identifier_2:"+normalizeIdentifier("animal_identifier_2", *row.AnimalIdentifier2))
 	}
 	return keys
 }
@@ -810,10 +797,10 @@ func normalizeHeader(value string) string {
 	replacer := strings.NewReplacer(" ", "_", "-", "_", "/", "_", "(", "", ")", "", ".", "")
 	v = replacer.Replace(v)
 	switch v {
-	case "old_tag", "oldtag":
-		return "old_tag"
-	case "temp_field_id", "temporary_field_id", "tempfieldid":
-		return "temp_field_id"
+	case "animal_id_1", "animalid1", "animal_identifier_1", "animalidentifier1", "id1":
+		return "animal_identifier_1"
+	case "animal_id_2", "animalid2", "animal_identifier_2", "animalidentifier2", "id2":
+		return "animal_identifier_2"
 	case "management_stage", "managementstage", "animal_stage", "animalstage", "stage":
 		return "management_stage"
 	case "weightkg", "weight_kg":
@@ -882,9 +869,13 @@ var allowedSex = map[string]bool{
 	"male":   true,
 }
 
+var allowedSpecies = map[string]bool{
+	"goat":  true,
+	"sheep": true,
+}
+
 var allowedOriginType = map[string]bool{
 	"birth":    true,
 	"procured": true,
 	"imported": true,
-	"unknown":  true,
 }

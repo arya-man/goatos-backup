@@ -226,9 +226,9 @@ func TestListRecordedCompletionsParkScope(t *testing.T) {
 		t.Fatalf("park B: %v", err)
 	}
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
 			   current_location_id, park_id, management_stage, dob)
-			 VALUES ($1, $2, 'alive', 'clean', $3, 'female', $4, $4, 'K1', DATE '2026-05-01')`, gB, impTenant, impParty, parkB); err != nil {
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4, 'K1', DATE '2026-05-01')`, gB, impTenant, impParty, parkB); err != nil {
 		t.Fatalf("gB: %v", err)
 	}
 
@@ -273,11 +273,11 @@ func TestListRecordedCompletionsParkScope(t *testing.T) {
 	}
 
 	// Scoped to park B: only park B's completion.
-	bq, err := vacc.ListRecordedCompletions(ctx, impTenant, parkB, 100)
+	parkBRows, err := vacc.ListRecordedCompletions(ctx, impTenant, parkB, 100)
 	if err != nil {
 		t.Fatalf("list parkB: %v", err)
 	}
-	if len(bq) != 1 || bq[0].CompletionID != cidParkB {
-		t.Fatalf("park=B: want only %s, got %#v", cidParkB, bq)
+	if len(parkBRows) != 1 || parkBRows[0].CompletionID != cidParkB {
+		t.Fatalf("park=B: want only %s, got %#v", cidParkB, parkBRows)
 	}
 }

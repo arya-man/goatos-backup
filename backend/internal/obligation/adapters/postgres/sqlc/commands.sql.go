@@ -344,7 +344,7 @@ WHERE oi.tenant_id = $1
       AND pd.category = 'vaccination'
       AND (
         g.lifecycle_status IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
-        OR g.identity_state IN ('disputed', 'merged', 'inactive')
+        OR g.merged_into_goat_id IS NOT NULL
       )
   )
 RETURNING oi.obligation_id::text AS obligation_id

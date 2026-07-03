@@ -17,7 +17,7 @@ import {
   type RetireIdentifierRequestBody,
 } from "@/lib/api/server";
 
-const identifierTypes: IdentifierType[] = ["old_tag", "rfid", "visual_tag", "sheet_row_id", "purchase_load_id", "temp_field_id", "external_system_id"];
+const identifierTypes: IdentifierType[] = ["animal_identifier_1", "animal_identifier_2"];
 
 export async function addIdentifierAction(formData: FormData) {
   let status: "success" | "error" = "success";

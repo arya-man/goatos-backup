@@ -83,20 +83,20 @@ type ArrivalIntakeReview struct {
 }
 
 type ArrivalIntakeReviewGoat struct {
-	ReviewGoatID pgtype.UUID
-	TenantID     pgtype.UUID
-	ReviewID     pgtype.UUID
-	LoadID       pgtype.UUID
-	GoatID       pgtype.UUID
-	TemporaryID  pgtype.Text
-	SourceTag    pgtype.Text
-	ItemKey      string
-	ArrivalState string
-	HealthFlag   pgtype.Text
-	WeightFlag   pgtype.Text
-	ProofRefID   pgtype.UUID
-	Notes        string
-	CreatedAt    pgtype.Timestamptz
+	ReviewGoatID      pgtype.UUID
+	TenantID          pgtype.UUID
+	ReviewID          pgtype.UUID
+	LoadID            pgtype.UUID
+	GoatID            pgtype.UUID
+	AnimalIdentifier2 pgtype.Text
+	AnimalIdentifier1 pgtype.Text
+	ItemKey           string
+	ArrivalState      string
+	HealthFlag        pgtype.Text
+	WeightFlag        pgtype.Text
+	ProofRefID        pgtype.UUID
+	Notes             string
+	CreatedAt         pgtype.Timestamptz
 }
 
 type AuditLog struct {
@@ -527,89 +527,6 @@ type CountSourceImportRun struct {
 	UpdatedAt              pgtype.Timestamptz
 }
 
-type CountsCurrentSnapshotRow struct {
-	CountsSnapshotRowID  pgtype.UUID
-	TenantID             pgtype.UUID
-	SnapshotDate         pgtype.Date
-	SourceMode           string
-	RowKind              string
-	TabScope             pgtype.Text
-	FarmKey              pgtype.Text
-	FarmLabel            pgtype.Text
-	FarmID               pgtype.UUID
-	ParkID               pgtype.UUID
-	ShedKey              pgtype.Text
-	ShedLabel            pgtype.Text
-	ShedID               pgtype.UUID
-	ResolvedLocationID   pgtype.UUID
-	ResolvedLocationType pgtype.Text
-	StatusKey            pgtype.Text
-	StatusLabel          pgtype.Text
-	BreedKey             pgtype.Text
-	BreedLabel           pgtype.Text
-	BreedID              pgtype.UUID
-	AgeClass             pgtype.Text
-	SourceAgeLabel       pgtype.Text
-	Sex                  pgtype.Text
-	MetricName           string
-	CountValue           pgtype.Int8
-	WeightKg             pgtype.Numeric
-	ValueInr             pgtype.Numeric
-	SourceRowID          pgtype.UUID
-	LogicalFactKey       string
-	ProjectionInputHash  string
-	SyncRunID            pgtype.UUID
-	CreatedAt            pgtype.Timestamptz
-	UpdatedAt            pgtype.Timestamptz
-}
-
-type CountsProjectionRow struct {
-	CountsProjectionRowID   pgtype.UUID
-	TenantID                pgtype.UUID
-	ViewID                  string
-	SnapshotDate            pgtype.Date
-	SummarySourceDate       pgtype.Date
-	Section                 string
-	Grain                   string
-	DimensionKey            string
-	DimensionLabel          string
-	SecondaryDimensionKey   pgtype.Text
-	SecondaryDimensionLabel pgtype.Text
-	MetricKey               string
-	CountValue              pgtype.Int8
-	NumericValue            pgtype.Numeric
-	Unit                    string
-	Denominator             pgtype.Numeric
-	SortOrder               int32
-	ProjectionVersion       int64
-	SyncRunID               pgtype.UUID
-	SourceHash              string
-	SourceComposition       string
-	CreatedAt               pgtype.Timestamptz
-	UpdatedAt               pgtype.Timestamptz
-}
-
-type CountsProjectionState struct {
-	CountsProjectionStateID pgtype.UUID
-	TenantID                pgtype.UUID
-	ViewID                  pgtype.Text
-	LastSuccessfulRunID     pgtype.UUID
-	LastSuccessAt           pgtype.Timestamptz
-	SnapshotDate            pgtype.Date
-	SummarySourceDate       pgtype.Date
-	SourceWatermark         pgtype.Text
-	ProjectionVersion       int64
-	FreshnessStatus         string
-	ServingState            string
-	RowCount                int32
-	ConflictCount           int32
-	UnavailableSources      []byte
-	SourceComposition       string
-	RebuildRequired         bool
-	LastError               pgtype.Text
-	UpdatedAt               pgtype.Timestamptz
-}
-
 type CountsShiftingReadinessEvidence struct {
 	CountsShiftingReadinessEvidenceID pgtype.UUID
 	TenantID                          pgtype.UUID
@@ -631,45 +548,6 @@ type CountsShiftingReadinessSubgate struct {
 	ImplementationRef pgtype.Text
 	LastCheckedAt     pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
-}
-
-type CountsSourceRow struct {
-	CountsSourceRowID   pgtype.UUID
-	TenantID            pgtype.UUID
-	SourceSystem        string
-	SourceID            string
-	SourceTable         string
-	SourceRowKey        string
-	SourceObservedAt    pgtype.Timestamptz
-	SourceWatermarkDate pgtype.Date
-	PayloadJson         []byte
-	PayloadHash         string
-	RowStatus           string
-	SyncRunID           pgtype.UUID
-	CreatedAt           pgtype.Timestamptz
-	SupersededAt        pgtype.Timestamptz
-}
-
-type CountsSyncRun struct {
-	SyncRunID                pgtype.UUID
-	TenantID                 pgtype.UUID
-	RequestedBy              pgtype.UUID
-	Mode                     string
-	Status                   string
-	SnapshotDate             pgtype.Date
-	SourceRowsRead           int32
-	ProjectionRowsWritten    int32
-	RowsSkipped              int32
-	UnresolvedLocationLabels int32
-	FreshnessStatus          string
-	ServingState             string
-	SourceWatermark          pgtype.Text
-	UnavailableSources       []byte
-	TraceID                  pgtype.Text
-	LastError                pgtype.Text
-	CreatedAt                pgtype.Timestamptz
-	UpdatedAt                pgtype.Timestamptz
-	CompletedAt              pgtype.Timestamptz
 }
 
 type DomainEventProcessedEvent struct {
@@ -698,29 +576,6 @@ type FarmProfile struct {
 	RowVersion int32
 	CreatedAt  pgtype.Timestamptz
 	UpdatedAt  pgtype.Timestamptz
-}
-
-type FeatureCoverageRegistry struct {
-	CoverageID               pgtype.UUID
-	TenantID                 pgtype.UUID
-	FeatureModule            string
-	Section                  string
-	MetricKey                string
-	GrainKey                 string
-	CoveredWindow            string
-	SourceMode               string
-	CoverageStatus           string
-	CanonicalSourceVersion   pgtype.Text
-	LegacySourceVersion      pgtype.Text
-	ShadowParityArtifactPath pgtype.Text
-	ApprovingActor           pgtype.UUID
-	ApprovedAt               pgtype.Timestamptz
-	AuditID                  pgtype.UUID
-	RollbackPolicy           pgtype.Text
-	ExpiresAt                pgtype.Timestamptz
-	CreatedAt                pgtype.Timestamptz
-	UpdatedAt                pgtype.Timestamptz
-	RowVersion               int32
 }
 
 type FeedDirectionCompletion struct {
@@ -762,7 +617,6 @@ type Goat struct {
 	GrowthCohortTag    pgtype.Text
 	ManagementStage    pgtype.Text
 	HealthStatus       pgtype.Text
-	IdentityState      string
 	CustodianPartyID   pgtype.UUID
 	CurrentLocationID  pgtype.UUID
 	FarmID             pgtype.UUID
@@ -770,7 +624,6 @@ type Goat struct {
 	ShedID             pgtype.UUID
 	CohortID           pgtype.UUID
 	MergedIntoGoatID   pgtype.UUID
-	SourceConfidence   pgtype.Numeric
 	RowVersion         int32
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
@@ -817,67 +670,6 @@ type GoatIdentifier struct {
 	ApprovedBy        pgtype.UUID
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
-}
-
-type GoatIdentityCounter struct {
-	CounterID          pgtype.UUID
-	CounterGrain       string
-	TenantID           pgtype.UUID
-	CustodianPartyID   pgtype.UUID
-	FarmID             pgtype.UUID
-	ParkID             pgtype.UUID
-	ShedID             pgtype.UUID
-	CohortID           pgtype.UUID
-	LifecycleStatus    pgtype.Text
-	ReproductiveStatus pgtype.Text
-	GrowthCohortTag    pgtype.Text
-	ManagementStage    pgtype.Text
-	HealthStatus       pgtype.Text
-	IdentityState      pgtype.Text
-	BreedID            pgtype.UUID
-	Sex                pgtype.Text
-	CountValue         int64
-	AsOfRecordedAt     pgtype.Timestamptz
-	SourceImportRunID  pgtype.UUID
-	IsRebuilding       bool
-	UpdatedAt          pgtype.Timestamptz
-}
-
-type GoatIdentityCounterMembership struct {
-	CounterGrain       string
-	TenantID           pgtype.UUID
-	GoatID             pgtype.UUID
-	CustodianPartyID   pgtype.UUID
-	FarmID             pgtype.UUID
-	ParkID             pgtype.UUID
-	ShedID             pgtype.UUID
-	CohortID           pgtype.UUID
-	LifecycleStatus    string
-	ReproductiveStatus pgtype.Text
-	GrowthCohortTag    pgtype.Text
-	ManagementStage    pgtype.Text
-	HealthStatus       pgtype.Text
-	IdentityState      pgtype.Text
-	BreedID            pgtype.UUID
-	Sex                pgtype.Text
-}
-
-type GoatIdentityCounterProcessedEvent struct {
-	TenantID        pgtype.UUID
-	EventID         pgtype.UUID
-	EventRecordedAt pgtype.Timestamptz
-	EventType       string
-	Outcome         string
-	ProcessedAt     pgtype.Timestamptz
-}
-
-type GoatIdentityCounterProjectionState struct {
-	TenantID                pgtype.UUID
-	LastProcessedRecordedAt pgtype.Timestamptz
-	LastProcessedEventID    pgtype.UUID
-	RebuildRequired         bool
-	RebuildReason           pgtype.Text
-	UpdatedAt               pgtype.Timestamptz
 }
 
 type GoatIdentityEvent struct {
@@ -1165,23 +957,6 @@ type IdentityDecisionMedium struct {
 	CreatedAt  pgtype.Timestamptz
 }
 
-type IdentityMatchCandidate struct {
-	CandidateID     pgtype.UUID
-	TenantID        pgtype.UUID
-	LegacyRowID     pgtype.UUID
-	ProposedGoatID  pgtype.UUID
-	CandidateGoatID pgtype.UUID
-	MatchScore      pgtype.Numeric
-	MatchReasons    []byte
-	State           string
-	CreatedBy       string
-	ReviewedBy      pgtype.UUID
-	ReviewedAt      pgtype.Timestamptz
-	DecisionID      pgtype.UUID
-	CreatedAt       pgtype.Timestamptz
-	RowVersion      int32
-}
-
 type InventoryItem struct {
 	ItemID     pgtype.UUID
 	TenantID   pgtype.UUID
@@ -1228,200 +1003,6 @@ type InventoryStockMovement struct {
 	Reason         pgtype.Text
 	IdempotencyKey string
 	Context        []byte
-}
-
-type LegacyImportPolicy struct {
-	PolicyVersion           string
-	SourceSystem            string
-	SourceDataset           string
-	IdentifierPolicyVersion string
-	SourceKeyRecipe         []byte
-	SourceKeyRecipeVersion  string
-	HashRecipe              []byte
-	HashRecipeVersion       string
-	FieldDiffPolicy         []byte
-	AutoLinkPolicy          []byte
-	NormalizerVersion       string
-	Status                  string
-	CreatedAt               pgtype.Timestamptz
-	ApprovedAt              pgtype.Timestamptz
-	ApprovedBy              pgtype.UUID
-}
-
-type LegacyImportRow struct {
-	LegacyRowID            pgtype.UUID
-	TenantID               pgtype.UUID
-	ImportRunID            pgtype.UUID
-	RowNumber              int32
-	SourceSystem           string
-	SourceDataset          string
-	SourceRecordID         pgtype.Text
-	SourceRowKey           string
-	SourceKeyRecipeVersion string
-	SourceRowVersionHash   string
-	HashRecipeVersion      string
-	RawPayload             []byte
-	NormalizedPayload      []byte
-	ProcessingState        string
-	MatchedGoatID          pgtype.UUID
-	ErrorReason            pgtype.Text
-	CreatedAt              pgtype.Timestamptz
-	RowVersion             int32
-}
-
-type LegacyImportRun struct {
-	ImportRunID      pgtype.UUID
-	TenantID         pgtype.UUID
-	SourceName       string
-	SourceSystem     string
-	SourceDataset    string
-	SourceFileRef    pgtype.Text
-	SourceFileHash   pgtype.Text
-	PolicyVersion    string
-	DryRun           bool
-	StartedAt        pgtype.Timestamptz
-	CompletedAt      pgtype.Timestamptz
-	Status           string
-	RowCount         int32
-	CreatedGoatCount int32
-	UpdatedGoatCount int32
-	ConflictCount    int32
-	ErrorCount       int32
-	StartedBy        pgtype.UUID
-}
-
-type LegacyStatusMapping struct {
-	MappingID          pgtype.UUID
-	SourceSystem       string
-	RawLabel           string
-	NormalizedRawLabel string
-	LifecycleStatus    pgtype.Text
-	ReproductiveStatus pgtype.Text
-	GrowthCohortTag    pgtype.Text
-	ManagementStage    pgtype.Text
-	HealthStatus       pgtype.Text
-	SexOverride        pgtype.Text
-	DisplayStatusCode  pgtype.Text
-	Confidence         string
-	ReviewRequired     bool
-	Notes              pgtype.Text
-	CreatedAt          pgtype.Timestamptz
-	UpdatedAt          pgtype.Timestamptz
-}
-
-type LegacySyncRun struct {
-	SyncRunID          pgtype.UUID
-	TenantID           pgtype.UUID
-	RequestedBy        pgtype.UUID
-	Mode               string
-	Domain             string
-	Status             string
-	ColdStart          bool
-	SourceWindowStart  pgtype.Timestamptz
-	SourceWindowEnd    pgtype.Timestamptz
-	EtaSeconds         pgtype.Int4
-	RowsRead           int32
-	RowsPlanned        int32
-	RowsApplied        int32
-	RowsSkipped        int32
-	GoatsCreated       int32
-	GoatsUpdated       int32
-	ConflictsOpened    int32
-	ConflictsRefreshed int32
-	CountersRebuilt    bool
-	CounterCheckStatus string
-	FreshnessStatus    string
-	BlockedReason      pgtype.Text
-	CancelRequestedAt  pgtype.Timestamptz
-	StartedAt          pgtype.Timestamptz
-	CompletedAt        pgtype.Timestamptz
-	TraceID            pgtype.Text
-	CreatedAt          pgtype.Timestamptz
-	UpdatedAt          pgtype.Timestamptz
-}
-
-type LegacySyncRunConflict struct {
-	SyncRunConflictID  pgtype.UUID
-	TenantID           pgtype.UUID
-	SyncRunID          pgtype.UUID
-	SourceID           string
-	SourceRecordID     string
-	SourceConflictKey  string
-	ConflictID         pgtype.UUID
-	GoatID             pgtype.UUID
-	EvidenceReason     string
-	Result             string
-	OldGoatosValue     pgtype.Text
-	NewLegacyValue     pgtype.Text
-	PreviousDecisionID pgtype.UUID
-	PreviousDecisionAt pgtype.Timestamptz
-	AuditID            pgtype.UUID
-	Evidence           []byte
-	CreatedAt          pgtype.Timestamptz
-	UpdatedAt          pgtype.Timestamptz
-}
-
-type LegacySyncRunStep struct {
-	SyncStepID  pgtype.UUID
-	SyncRunID   pgtype.UUID
-	SourceID    pgtype.Text
-	StepName    string
-	Status      string
-	RowsRead    int32
-	RowsPlanned int32
-	RowsApplied int32
-	RowsSkipped int32
-	Details     []byte
-	StartedAt   pgtype.Timestamptz
-	CompletedAt pgtype.Timestamptz
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
-}
-
-type LegacySyncSource struct {
-	SourceID            string
-	SourceName          string
-	Domain              string
-	SourceKind          string
-	BqProject           pgtype.Text
-	BqDataset           pgtype.Text
-	BqTableOrConfig     pgtype.Text
-	CadenceSeconds      int32
-	GreenWithinSeconds  int32
-	YellowWithinSeconds int32
-	Criticality         string
-	Enabled             bool
-	KnownDegraded       bool
-	Notes               pgtype.Text
-	CreatedAt           pgtype.Timestamptz
-	UpdatedAt           pgtype.Timestamptz
-}
-
-type LegacySyncSourceStatus struct {
-	TenantID             pgtype.UUID
-	SourceID             string
-	FreshnessStatus      string
-	StatusReason         string
-	SourceWatermarkAt    pgtype.Timestamptz
-	ObservedAt           pgtype.Timestamptz
-	LastSuccessSyncRunID pgtype.UUID
-	LatestError          pgtype.Text
-	RowsSeen             int32
-	IsUnknownSource      bool
-	CreatedAt            pgtype.Timestamptz
-	UpdatedAt            pgtype.Timestamptz
-}
-
-type LegacySyncSourceWatermark struct {
-	TenantID               pgtype.UUID
-	SourceID               string
-	LastSuccessWindowStart pgtype.Timestamptz
-	LastSuccessWindowEnd   pgtype.Timestamptz
-	LastSuccessAt          pgtype.Timestamptz
-	LastSuccessSyncRunID   pgtype.UUID
-	Checkpoint             []byte
-	CreatedAt              pgtype.Timestamptz
-	UpdatedAt              pgtype.Timestamptz
 }
 
 type Location struct {
@@ -1519,7 +1100,6 @@ type LocationReviewItem struct {
 	CandidateLocationIds  []byte
 	EvidenceJson          []byte
 	EvidenceHash          string
-	SyncRunID             pgtype.UUID
 	CreatedBy             pgtype.UUID
 	ResolvedBy            pgtype.UUID
 	ResolutionNotes       pgtype.Text
@@ -1527,148 +1107,6 @@ type LocationReviewItem struct {
 	UpdatedAt             pgtype.Timestamptz
 	ResolvedAt            pgtype.Timestamptz
 	RowVersion            int32
-}
-
-type MortalityEvent struct {
-	MortalityEventID           pgtype.UUID
-	TenantID                   pgtype.UUID
-	LogicalEventKey            pgtype.Text
-	DedupCandidateKey          pgtype.Text
-	UnresolvedEventOrdinal     pgtype.Int4
-	DedupConfidence            string
-	EventType                  string
-	EventDate                  pgtype.Date
-	GoatID                     pgtype.UUID
-	SourceGoatIdentifier       pgtype.Text
-	SourceIdentifierKind       pgtype.Text
-	AgeClass                   string
-	BreedKey                   pgtype.Text
-	BreedLabel                 pgtype.Text
-	FarmKey                    pgtype.Text
-	FarmLabel                  pgtype.Text
-	CanonicalFarmLocationID    pgtype.UUID
-	CanonicalParkLocationID    pgtype.UUID
-	CanonicalShedLocationID    pgtype.UUID
-	CanonicalHousingLocationID pgtype.UUID
-	LoadKey                    pgtype.Text
-	LoadLabel                  pgtype.Text
-	DeliveryKey                pgtype.Text
-	DeliveryLabel              pgtype.Text
-	Sex                        pgtype.Text
-	SourceRowID                pgtype.UUID
-	EventHash                  string
-	ReviewStatus               string
-	IdempotencyKey             string
-	CreatedAt                  pgtype.Timestamptz
-	UpdatedAt                  pgtype.Timestamptz
-}
-
-type MortalityProjectionRow struct {
-	MortalityProjectionRowID     pgtype.UUID
-	TenantID                     pgtype.UUID
-	Period                       string
-	PeriodStart                  pgtype.Date
-	PeriodEnd                    pgtype.Date
-	Section                      string
-	Grain                        string
-	DimensionKey                 string
-	DimensionLabel               string
-	MetricKey                    string
-	Numerator                    pgtype.Numeric
-	Denominator                  pgtype.Numeric
-	DenominatorSourceModule      pgtype.Text
-	DenominatorProjectionVersion pgtype.Int8
-	DenominatorSourceWatermark   pgtype.Text
-	NumeratorSourceComposition   pgtype.Text
-	DenominatorSourceComposition pgtype.Text
-	MixedCompositionExceptionID  pgtype.UUID
-	Value                        pgtype.Numeric
-	Unit                         string
-	SortOrder                    int32
-	ProjectionVersion            int64
-	SyncRunID                    pgtype.UUID
-	SourceHash                   string
-	SourceComposition            string
-	CreatedAt                    pgtype.Timestamptz
-	UpdatedAt                    pgtype.Timestamptz
-}
-
-type MortalityProjectionState struct {
-	MortalityProjectionStateID pgtype.UUID
-	TenantID                   pgtype.UUID
-	Period                     pgtype.Text
-	LastSuccessfulRunID        pgtype.UUID
-	LastSuccessAt              pgtype.Timestamptz
-	SourceWatermark            pgtype.Text
-	ProjectionVersion          int64
-	FreshnessStatus            string
-	ServingState               string
-	SourceComposition          string
-	RowCount                   int32
-	ConflictCount              int32
-	UnavailableSources         []byte
-	RebuildRequired            bool
-	LastError                  pgtype.Text
-	UpdatedAt                  pgtype.Timestamptz
-}
-
-type MortalityReviewItem struct {
-	ReviewID         pgtype.UUID
-	TenantID         pgtype.UUID
-	MortalityEventID pgtype.UUID
-	ReviewType       string
-	Status           string
-	SourceContext    pgtype.Text
-	SourceLabel      pgtype.Text
-	EvidenceJson     []byte
-	EvidenceHash     string
-	SyncRunID        pgtype.UUID
-	CreatedBy        pgtype.UUID
-	ResolvedBy       pgtype.UUID
-	ResolutionNotes  pgtype.Text
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
-	ResolvedAt       pgtype.Timestamptz
-	RowVersion       int32
-}
-
-type MortalitySourceRow struct {
-	MortalitySourceRowID pgtype.UUID
-	TenantID             pgtype.UUID
-	SourceSystem         string
-	SourceTable          string
-	SourceRowKey         string
-	SourceObservedAt     pgtype.Timestamptz
-	SourceWatermark      pgtype.Text
-	PayloadJson          []byte
-	PayloadHash          string
-	RowStatus            string
-	SyncRunID            pgtype.UUID
-	CreatedAt            pgtype.Timestamptz
-	SupersededAt         pgtype.Timestamptz
-}
-
-type MortalitySyncRun struct {
-	SyncRunID                pgtype.UUID
-	TenantID                 pgtype.UUID
-	RequestedBy              pgtype.UUID
-	Mode                     string
-	Status                   string
-	SourceRowsRead           int32
-	EventsUpserted           int32
-	ProjectionRowsWritten    int32
-	RowsSkipped              int32
-	DedupCandidateEvents     int32
-	UnresolvedLocationLabels int32
-	FreshnessStatus          string
-	ServingState             string
-	SourceWatermark          pgtype.Text
-	UnavailableSources       []byte
-	TraceID                  pgtype.Text
-	LastError                pgtype.Text
-	CreatedAt                pgtype.Timestamptz
-	UpdatedAt                pgtype.Timestamptz
-	CompletedAt              pgtype.Timestamptz
 }
 
 type MovementCommand struct {
@@ -2011,34 +1449,33 @@ type ProcurementLoad struct {
 }
 
 type ProcurementLoadGoat struct {
-	LoadGoatID          pgtype.UUID
-	TenantID            pgtype.UUID
-	LoadID              pgtype.UUID
-	GoatID              pgtype.UUID
-	SourceTag           pgtype.Text
-	SourceRfid          pgtype.Text
-	TemporaryID         pgtype.Text
-	SelectionState      string
-	SelectionReason     string
-	CurrentState        string
-	IdentityReviewState string
-	IdentityReviewRef   pgtype.Text
-	OwnershipState      string
-	HealthState         string
-	WarmupStartedAt     pgtype.Timestamptz
-	WarmupEndedAt       pgtype.Timestamptz
-	WarmupDays          pgtype.Int4
-	HoldingLocationID   pgtype.UUID
-	LoadedAt            pgtype.Timestamptz
-	ArrivedAt           pgtype.Timestamptz
-	IntakeAcceptedAt    pgtype.Timestamptz
-	ExitReason          pgtype.Text
-	ProofRefs           []byte
-	Metadata            []byte
-	CreatedAt           pgtype.Timestamptz
-	UpdatedAt           pgtype.Timestamptz
-	RowVersion          int32
-	Purpose             string
+	LoadGoatID        pgtype.UUID
+	TenantID          pgtype.UUID
+	LoadID            pgtype.UUID
+	GoatID            pgtype.UUID
+	AnimalIdentifier1 pgtype.Text
+	AnimalIdentifier2 pgtype.Text
+	SelectionState    string
+	SelectionReason   string
+	CurrentState      string
+	SourceEntryState  string
+	SourceEntryRef    pgtype.Text
+	OwnershipState    string
+	HealthState       string
+	WarmupStartedAt   pgtype.Timestamptz
+	WarmupEndedAt     pgtype.Timestamptz
+	WarmupDays        pgtype.Int4
+	HoldingLocationID pgtype.UUID
+	LoadedAt          pgtype.Timestamptz
+	ArrivedAt         pgtype.Timestamptz
+	IntakeAcceptedAt  pgtype.Timestamptz
+	ExitReason        pgtype.Text
+	ProofRefs         []byte
+	Metadata          []byte
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	RowVersion        int32
+	Purpose           string
 }
 
 type ProcurementPhcHandoff struct {
@@ -2398,7 +1835,6 @@ type StatusDefinition struct {
 	DisplayName          string
 	ShortLabel           string
 	Description          pgtype.Text
-	LegacyLabel          pgtype.Text
 	SortOrder            int32
 	Active               bool
 	ExpectedDurationDays pgtype.Int4

@@ -10,7 +10,7 @@ export type RunnerFieldModel = {
     | "Select"
     | "MultiSelect"
     | "GoatLookup"
-    | "RFIDScan"
+    | "AnimalIDScan"
     | "LocationPicker"
     | "PhotoProof"
     | "VideoProof";
@@ -70,8 +70,8 @@ function componentFor(type: SOPFormDSL["fields"][number]["type"]): RunnerFieldMo
       return "MultiSelect";
     case "goat_lookup":
       return "GoatLookup";
-    case "rfid_scan":
-      return "RFIDScan";
+    case "animal_id_scan":
+      return "AnimalIDScan";
     case "location_picker":
       return "LocationPicker";
     case "photo_proof":

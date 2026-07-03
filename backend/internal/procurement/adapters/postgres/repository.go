@@ -245,11 +245,11 @@ func (r *Repository) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) 
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	const scope = "procurement.load_goat"
-	// Fingerprint the ORIGINAL request before any in-flight mutation of in.* below (rfid-conflict path).
+	// Fingerprint the ORIGINAL request before any in-flight mutation of in.* below.
 	fingerprint := requestFingerprint(
-		in.TenantID, in.LoadID, stringPtrValue(in.GoatID), stringPtrValue(in.SourceTag),
-		stringPtrValue(in.SourceRFID), stringPtrValue(in.TemporaryID), in.Sex, in.SelectionState,
-		in.SelectionReason, in.Purpose, in.CurrentState, in.IdentityState, in.OwnershipState, in.HealthState,
+		in.TenantID, in.LoadID, stringPtrValue(in.GoatID), stringPtrValue(in.AnimalIdentifier1),
+		stringPtrValue(in.AnimalIdentifier2), in.Species, in.Sex, in.SelectionState,
+		in.SelectionReason, in.Purpose, in.CurrentState, in.SourceEntryState, in.OwnershipState, in.HealthState,
 		stringPtrValue(in.HoldingLocationID), fpTime(in.WarmupStartedAt), fpTime(in.WarmupEndedAt),
 		intPtrFingerprint(in.WarmupDays), canonicalJSON(in.ProofRefs), canonicalJSON(in.Metadata),
 	)
@@ -275,87 +275,57 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`, in.TenantID, in.LoadID).Scan
 	}
 
 	goatID := stringPtrValue(in.GoatID)
-	rfidConflictOwner := ""
-	if ownerID, lookupErr := lookupActiveRFIDOwner(ctx, tx, in.TenantID, in.SourceRFID); lookupErr != nil {
+	if ownerID, lookupErr := lookupAnimalIdentifierOwner(ctx, tx, in.TenantID, in.AnimalIdentifier1); lookupErr != nil {
 		return domain.LoadGoat{}, lookupErr
-	} else if ownerID != nil {
-		switch {
-		case goatID == "":
-			if exists, existsErr := procurementGoatExists(ctx, tx, in.TenantID, in.LoadID, *ownerID); existsErr != nil {
-				return domain.LoadGoat{}, existsErr
-			} else if exists {
-				goatID = *ownerID
-			} else {
-				goatID = *ownerID
-				rfidConflictOwner = *ownerID
-			}
-		case goatID == *ownerID:
-			// Idempotent link to the same goat; keep the existing active RFID truth.
-		default:
-			rfidConflictOwner = *ownerID
-		}
+	} else if ownerID != nil && (goatID == "" || goatID != *ownerID) {
+		return domain.LoadGoat{}, fmt.Errorf("%w: animal identifier 1 already belongs to animal %s", ports.ErrInvalidTransition, *ownerID)
+	}
+	if ownerID, lookupErr := lookupAnimalIdentifierOwner(ctx, tx, in.TenantID, in.AnimalIdentifier2); lookupErr != nil {
+		return domain.LoadGoat{}, lookupErr
+	} else if ownerID != nil && (goatID == "" || goatID != *ownerID) {
+		return domain.LoadGoat{}, fmt.Errorf("%w: animal identifier 2 already belongs to animal %s", ports.ErrInvalidTransition, *ownerID)
 	}
 	if goatID == "" {
-		identityState := "needs_review"
-		if in.IdentityState == "clean" {
-			identityState = "clean"
-		}
-		if in.IdentityState == "conflict" {
-			identityState = "disputed"
-		}
 		if err = tx.QueryRow(ctx, `
-INSERT INTO goats (
-  tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
-  origin_type, source_confidence, created_by
-) VALUES (
-  $1::uuid, 'inactive', $2, $3::uuid, $4, 'procured', 0.50, nullif($5::text, '')::uuid
-)
-RETURNING goat_id::text`, in.TenantID, identityState, sourcePartyID, in.Sex, stringPtrValue(in.ActorID)).Scan(&goatID); err != nil {
-			return domain.LoadGoat{}, fmt.Errorf("procurement: create source goat: %w", err)
+	INSERT INTO goats (
+	  tenant_id, lifecycle_status, custodian_party_id, species, sex,
+	  origin_type, created_by
+	) VALUES (
+	  $1::uuid, 'inactive', $2::uuid, $3, $4, 'procured', nullif($5::text, '')::uuid
+	)
+	RETURNING goat_id::text`, in.TenantID, sourcePartyID, in.Species, in.Sex, stringPtrValue(in.ActorID)).Scan(&goatID); err != nil {
+			return domain.LoadGoat{}, fmt.Errorf("procurement: create source animal: %w", err)
 		}
-	} else if err = ensureExistingGoatSex(ctx, tx, in.TenantID, goatID, in.Sex); err != nil {
+	} else if err = ensureExistingGoatSpeciesAndSex(ctx, tx, in.TenantID, goatID, in.Species, in.Sex); err != nil {
 		return domain.LoadGoat{}, err
 	}
-	if rfidConflictOwner != "" {
-		in.IdentityState = "conflict"
-		in.IdentityReviewRef = stringPtr("rfid_conflict:" + rfidConflictOwner)
-		in.CurrentState = domain.GoatStatePreDispatchBlocked
-		in.SelectionState = "blocked"
-		in.SelectionReason = strings.TrimSpace(in.SelectionReason)
-		if in.SelectionReason == "" {
-			in.SelectionReason = "source_rfid already belongs to another goat"
-		}
-	} else if err = insertRFIDIdentifier(ctx, tx, in.TenantID, goatID, in.SourceRFID); err != nil {
+	if err = insertAnimalIdentifier(ctx, tx, in.TenantID, goatID, "animal_identifier_1", in.AnimalIdentifier1, true); err != nil {
 		return domain.LoadGoat{}, err
 	}
-	if err = insertIdentifier(ctx, tx, in.TenantID, goatID, "visual_tag", in.SourceTag, "source:"+in.LoadID); err != nil {
-		return domain.LoadGoat{}, err
-	}
-	if err = insertIdentifier(ctx, tx, in.TenantID, goatID, "temp_field_id", in.TemporaryID, "source:"+in.LoadID); err != nil {
+	if err = insertAnimalIdentifier(ctx, tx, in.TenantID, goatID, "animal_identifier_2", in.AnimalIdentifier2, false); err != nil {
 		return domain.LoadGoat{}, err
 	}
 
 	row := tx.QueryRow(ctx, `
-INSERT INTO procurement_load_goats (
-  tenant_id, load_id, goat_id, source_tag, source_rfid, temporary_id,
-  selection_state, selection_reason, purpose, current_state, identity_review_state,
-  identity_review_ref, ownership_state, health_state, warmup_started_at,
-  warmup_ended_at, warmup_days, holding_location_id, proof_refs, metadata
-) VALUES (
-  $1::uuid, $2::uuid, $3::uuid, nullif($4::text, ''), nullif($5::text, ''), nullif($6::text, ''),
-  $7, $8, $9, $10, $11, nullif($12::text, ''), $13, $14, $15::timestamptz,
-  $16::timestamptz, $17, nullif($18::text, '')::uuid, $19::jsonb, $20::jsonb
-)
-ON CONFLICT (tenant_id, load_id, goat_id) DO UPDATE
-SET source_tag = COALESCE(EXCLUDED.source_tag, procurement_load_goats.source_tag),
-    source_rfid = COALESCE(EXCLUDED.source_rfid, procurement_load_goats.source_rfid),
-    temporary_id = COALESCE(EXCLUDED.temporary_id, procurement_load_goats.temporary_id),
-    selection_state = EXCLUDED.selection_state,
-    selection_reason = EXCLUDED.selection_reason,
+	INSERT INTO procurement_load_goats (
+	  tenant_id, load_id, goat_id, animal_identifier_1, animal_identifier_2,
+	  selection_state, selection_reason, purpose, current_state, source_entry_state,
+	  source_entry_ref, ownership_state, health_state, warmup_started_at,
+	  warmup_ended_at, warmup_days, holding_location_id, proof_refs, metadata
+	) VALUES (
+	  $1::uuid, $2::uuid, $3::uuid, nullif($4::text, ''), nullif($5::text, ''),
+	  $6, $7, $8, $9, $10, nullif($11::text, ''), $12, $13, $14::timestamptz,
+	  $15::timestamptz, $16, nullif($17::text, '')::uuid, $18::jsonb, $19::jsonb
+	)
+	ON CONFLICT (tenant_id, load_id, goat_id) DO UPDATE
+	SET animal_identifier_1 = COALESCE(EXCLUDED.animal_identifier_1, procurement_load_goats.animal_identifier_1),
+	    animal_identifier_2 = COALESCE(EXCLUDED.animal_identifier_2, procurement_load_goats.animal_identifier_2),
+	    selection_state = EXCLUDED.selection_state,
+	    selection_reason = EXCLUDED.selection_reason,
     purpose = EXCLUDED.purpose,
     current_state = EXCLUDED.current_state,
-    identity_review_state = EXCLUDED.identity_review_state,
-    identity_review_ref = COALESCE(EXCLUDED.identity_review_ref, procurement_load_goats.identity_review_ref),
+    source_entry_state = EXCLUDED.source_entry_state,
+    source_entry_ref = COALESCE(EXCLUDED.source_entry_ref, procurement_load_goats.source_entry_ref),
     ownership_state = EXCLUDED.ownership_state,
     health_state = EXCLUDED.health_state,
     warmup_started_at = COALESCE(EXCLUDED.warmup_started_at, procurement_load_goats.warmup_started_at),
@@ -364,28 +334,28 @@ SET source_tag = COALESCE(EXCLUDED.source_tag, procurement_load_goats.source_tag
     holding_location_id = COALESCE(EXCLUDED.holding_location_id, procurement_load_goats.holding_location_id),
     proof_refs = EXCLUDED.proof_refs,
     metadata = EXCLUDED.metadata,
-    updated_at = now(),
-    row_version = procurement_load_goats.row_version + 1
-RETURNING load_goat_id::text, tenant_id::text, load_id::text, goat_id::text,
-          source_tag, source_rfid, temporary_id, selection_state, selection_reason, purpose,
-          current_state, identity_review_state, identity_review_ref, ownership_state,
-          health_state, warmup_started_at, warmup_ended_at, warmup_days,
-          holding_location_id::text, loaded_at, arrived_at, intake_accepted_at,
-          exit_reason, proof_refs, metadata, created_at, updated_at, row_version`,
-		in.TenantID, in.LoadID, goatID, stringPtrValue(in.SourceTag), stringPtrValue(in.SourceRFID),
-		stringPtrValue(in.TemporaryID), in.SelectionState, in.SelectionReason, in.Purpose,
-		in.CurrentState, in.IdentityState, stringPtrValue(in.IdentityReviewRef), in.OwnershipState, in.HealthState,
+	    updated_at = now(),
+	    row_version = procurement_load_goats.row_version + 1
+		RETURNING load_goat_id::text, tenant_id::text, load_id::text, goat_id::text,
+	          animal_identifier_1, animal_identifier_2, selection_state, selection_reason, purpose,
+	          current_state, source_entry_state, source_entry_ref, ownership_state,
+	          health_state, warmup_started_at, warmup_ended_at, warmup_days,
+	          holding_location_id::text, loaded_at, arrived_at, intake_accepted_at,
+	          exit_reason, proof_refs, metadata, created_at, updated_at, row_version`,
+		in.TenantID, in.LoadID, goatID, stringPtrValue(in.AnimalIdentifier1), stringPtrValue(in.AnimalIdentifier2),
+		in.SelectionState, in.SelectionReason, in.Purpose,
+		in.CurrentState, in.SourceEntryState, stringPtrValue(in.SourceEntryRef), in.OwnershipState, in.HealthState,
 		timeArg(in.WarmupStartedAt), timeArg(in.WarmupEndedAt), intPtrArg(in.WarmupDays),
 		stringPtrValue(in.HoldingLocationID), jsonArrayArg(in.ProofRefs), jsonObjectArg(in.Metadata))
 	loadGoat, err := scanLoadGoat(row)
 	if err != nil {
-		return domain.LoadGoat{}, fmt.Errorf("procurement: add goat to load: %w", err)
+		return domain.LoadGoat{}, fmt.Errorf("procurement: add animal to load: %w", err)
 	}
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
 		TenantID:     in.TenantID,
 		ActorID:      stringPtrValue(in.ActorID),
 		ActorType:    "human",
-		Action:       "procurement.source_goat.added",
+		Action:       "procurement.source_animal.added",
 		ResourceType: "procurement_load_goat",
 		ResourceID:   loadGoat.LoadGoatID,
 		ScopeType:    "load",
@@ -394,7 +364,7 @@ RETURNING load_goat_id::text, tenant_id::text, load_id::text, goat_id::text,
 		Metadata: map[string]any{
 			"domain":          "procurement",
 			"module":          "source_entry",
-			"category":        "source_goat",
+			"category":        "source_animal",
 			"result":          loadGoat.CurrentState,
 			"status":          loadGoat.CurrentState,
 			"idempotency_key": in.IdempotencyKey,
@@ -404,7 +374,7 @@ RETURNING load_goat_id::text, tenant_id::text, load_id::text, goat_id::text,
 			"purpose":         loadGoat.Purpose,
 		},
 	}); err != nil {
-		return domain.LoadGoat{}, fmt.Errorf("procurement: audit source goat add: %w", err)
+		return domain.LoadGoat{}, fmt.Errorf("procurement: audit source animal add: %w", err)
 	}
 	if in.HoldingLocationID != nil && in.WarmupStartedAt != nil {
 		_, err = tx.Exec(ctx, `
@@ -840,11 +810,11 @@ RETURNING decision_id::text, tenant_id::text, goat_id::text, load_id::text,
 		return domain.Decision{}, fmt.Errorf("procurement: record decision: %w", err)
 	}
 	goatState, selectionState, loadStatus := decisionState(in.DecisionType)
-	identityState := ""
+	sourceEntryState := ""
 	ownershipState := ""
 	reason := strings.ToLower(in.Reason)
-	if in.DecisionType == domain.DecisionBlocked && strings.Contains(reason, "identity") {
-		identityState = "conflict"
+	if in.DecisionType == domain.DecisionBlocked && (strings.Contains(reason, "source") || strings.Contains(reason, "identifier")) {
+		sourceEntryState = "blocked"
 	}
 	if in.DecisionType == domain.DecisionBlocked && strings.Contains(reason, "ownership") {
 		ownershipState = "blocked"
@@ -853,7 +823,7 @@ RETURNING decision_id::text, tenant_id::text, goat_id::text, load_id::text,
 UPDATE procurement_load_goats
 SET current_state = $4,
     selection_state = $5,
-    identity_review_state = CASE WHEN $6::text = '' THEN identity_review_state ELSE $6 END,
+    source_entry_state = CASE WHEN $6::text = '' THEN source_entry_state ELSE $6 END,
     ownership_state = CASE WHEN $7::text = '' THEN ownership_state ELSE $7 END,
     updated_at = now(),
     row_version = row_version + 1
@@ -865,11 +835,11 @@ WHERE tenant_id = $1::uuid
     OR (
       current_state IN ('source_health_passed', 'pre_dispatch_pending')
       AND health_state = 'passed'
-      AND identity_review_state = 'clean'
+      AND source_entry_state = 'accepted'
       AND ownership_state IN ('mesha_owned', 'settled')
     )
   )`,
-		in.TenantID, in.LoadID, in.GoatID, goatState, selectionState, identityState, ownershipState)
+		in.TenantID, in.LoadID, in.GoatID, goatState, selectionState, sourceEntryState, ownershipState)
 	if err != nil {
 		return domain.Decision{}, fmt.Errorf("procurement: update decision state: %w", err)
 	}
@@ -981,7 +951,7 @@ WHERE tenant_id = $1::uuid
   AND load_id = $2::uuid
   AND current_state = 'pre_dispatch_accepted'
   AND health_state = 'passed'
-  AND identity_review_state = 'clean'
+  AND source_entry_state = 'accepted'
   AND ownership_state IN ('mesha_owned', 'settled')`,
 				in.TenantID, in.LoadID, in.DispatchedAt)
 			if execErr != nil {
@@ -1004,7 +974,7 @@ WHERE tenant_id = $1::uuid
   AND goat_id = ANY($3::uuid[])
   AND current_state = 'pre_dispatch_accepted'
   AND health_state = 'passed'
-  AND identity_review_state = 'clean'
+  AND source_entry_state = 'accepted'
   AND ownership_state IN ('mesha_owned', 'settled')
 RETURNING goat_id::text`,
 				in.TenantID, in.LoadID, in.GoatIDs, in.DispatchedAt)
@@ -1146,9 +1116,9 @@ RETURNING review_id::text, tenant_id::text, load_id::text, park_location_id::tex
 	for _, item := range in.Goats {
 		itemKey := arrivalItemKey(item)
 		arrivalItem, itemErr := scanArrivalGoat(tx.QueryRow(ctx, `
-INSERT INTO arrival_intake_review_goats (
-  tenant_id, review_id, load_id, goat_id, temporary_id, source_tag,
-  item_key, arrival_state, health_flag, weight_flag, proof_ref_id, notes
+	INSERT INTO arrival_intake_review_goats (
+	  tenant_id, review_id, load_id, goat_id, animal_identifier_2, animal_identifier_1,
+	  item_key, arrival_state, health_flag, weight_flag, proof_ref_id, notes
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, nullif($4::text, '')::uuid, nullif($5::text, ''),
   nullif($6::text, ''), $7, $8, nullif($9::text, ''), nullif($10::text, ''),
@@ -1160,11 +1130,11 @@ SET arrival_state = EXCLUDED.arrival_state,
     weight_flag = EXCLUDED.weight_flag,
     proof_ref_id = EXCLUDED.proof_ref_id,
     notes = EXCLUDED.notes
-RETURNING review_goat_id::text, tenant_id::text, review_id::text, load_id::text,
-          goat_id::text, temporary_id, source_tag, arrival_state, health_flag,
+	RETURNING review_goat_id::text, tenant_id::text, review_id::text, load_id::text,
+	          goat_id::text, animal_identifier_2, animal_identifier_1, arrival_state, health_flag,
           weight_flag, proof_ref_id::text, notes, created_at`,
 			in.TenantID, review.ReviewID, in.LoadID, stringPtrValue(item.GoatID),
-			stringPtrValue(item.TemporaryID), stringPtrValue(item.SourceTag), itemKey, item.ArrivalState,
+			stringPtrValue(item.AnimalIdentifier2), stringPtrValue(item.AnimalIdentifier1), itemKey, item.ArrivalState,
 			stringPtrValue(item.HealthFlag), stringPtrValue(item.WeightFlag), stringPtrValue(item.ProofRefID), item.Notes))
 		if itemErr != nil {
 			return domain.ArrivalReview{}, fmt.Errorf("procurement: record arrival review goat: %w", itemErr)
@@ -1188,7 +1158,7 @@ WHERE tenant_id = $1::uuid
       current_state IN ('loaded', 'in_transit', 'arrival_review_pending')
       AND loaded_at IS NOT NULL
       AND health_state = 'passed'
-      AND identity_review_state = 'clean'
+      AND source_entry_state = 'accepted'
       AND ownership_state IN ('mesha_owned', 'settled')
     )
   )`,
@@ -1289,7 +1259,7 @@ WHERE tenant_id = $1::uuid
   AND loaded_at IS NOT NULL
   AND arrived_at IS NOT NULL
   AND health_state = 'passed'
-  AND identity_review_state = 'clean'
+  AND source_entry_state = 'accepted'
   AND ownership_state IN ('mesha_owned', 'settled')
   AND EXISTS (
     SELECT 1
@@ -1337,7 +1307,7 @@ WHERE tenant_id = $1::uuid
   AND loaded_at IS NOT NULL
   AND arrived_at IS NOT NULL
   AND health_state = 'passed'
-  AND identity_review_state = 'clean'
+  AND source_entry_state = 'accepted'
   AND ownership_state IN ('mesha_owned', 'settled')
   AND EXISTS (
     SELECT 1
@@ -1355,10 +1325,9 @@ RETURNING goat_id::text`,
 			return nil, fmt.Errorf("procurement: mark accepted intake goat: %w", err)
 		}
 		if _, err = tx.Exec(ctx, `
-	UPDATE goats
-	SET lifecycle_status = 'alive',
-	    identity_state = 'clean',
-	    origin_type = 'procured',
+		UPDATE goats
+		SET lifecycle_status = 'alive',
+		    origin_type = 'procured',
 	    entry_date = $5::date,
 	    current_location_id = $4::uuid,
 	    park_id = $3::uuid,
@@ -1542,7 +1511,7 @@ func (r *Repository) withTimeout(ctx context.Context) (context.Context, context.
 	return context.WithTimeout(ctx, r.timeout)
 }
 
-func lookupActiveRFIDOwner(ctx context.Context, tx pgx.Tx, tenantID string, value *string) (*string, error) {
+func lookupAnimalIdentifierOwner(ctx context.Context, tx pgx.Tx, tenantID string, value *string) (*string, error) {
 	if value == nil || strings.TrimSpace(*value) == "" {
 		return nil, nil
 	}
@@ -1551,47 +1520,32 @@ func lookupActiveRFIDOwner(ctx context.Context, tx pgx.Tx, tenantID string, valu
 SELECT goat_id::text
 FROM goat_identifiers
 WHERE tenant_id = $1::uuid
-  AND identifier_type = 'rfid'
   AND normalized_value = $2
-  AND status = 'active'
 LIMIT 1`, tenantID, normalizeIdentifier(*value)).Scan(&goatID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("procurement: lookup source RFID: %w", err)
+		return nil, fmt.Errorf("procurement: lookup animal identifier: %w", err)
 	}
 	return &goatID, nil
 }
 
-func procurementGoatExists(ctx context.Context, tx pgx.Tx, tenantID, loadID, goatID string) (bool, error) {
-	var exists bool
+func ensureExistingGoatSpeciesAndSex(ctx context.Context, tx pgx.Tx, tenantID, goatID, requestedSpecies, requestedSex string) error {
+	var canonicalSpecies, canonicalSex string
 	err := tx.QueryRow(ctx, `
-SELECT EXISTS (
-  SELECT 1
-  FROM procurement_load_goats
-  WHERE tenant_id = $1::uuid
-    AND load_id = $2::uuid
-    AND goat_id = $3::uuid
-)`, tenantID, loadID, goatID).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("procurement: check load RFID replay: %w", err)
-	}
-	return exists, nil
-}
-
-func ensureExistingGoatSex(ctx context.Context, tx pgx.Tx, tenantID, goatID, requestedSex string) error {
-	var canonicalSex string
-	err := tx.QueryRow(ctx, `
-SELECT sex
+SELECT species, sex
 FROM goats
 WHERE tenant_id = $1::uuid
-  AND goat_id = $2::uuid`, tenantID, goatID).Scan(&canonicalSex)
+  AND goat_id = $2::uuid`, tenantID, goatID).Scan(&canonicalSpecies, &canonicalSex)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.ErrInvalidReference
 	}
 	if err != nil {
-		return fmt.Errorf("procurement: lookup existing goat sex: %w", err)
+		return fmt.Errorf("procurement: lookup existing goat species/sex: %w", err)
+	}
+	if canonicalSpecies != requestedSpecies {
+		return fmt.Errorf("%w: goat %s species is %s, request was %s", ports.ErrInvalidReference, goatID, canonicalSpecies, requestedSpecies)
 	}
 	if canonicalSex != requestedSex {
 		return fmt.Errorf("%w: goat %s is %s, request was %s", ports.ErrSexMismatch, goatID, canonicalSex, requestedSex)
@@ -1599,50 +1553,29 @@ WHERE tenant_id = $1::uuid
 	return nil
 }
 
-func insertRFIDIdentifier(ctx context.Context, tx pgx.Tx, tenantID, goatID string, value *string) error {
+func insertAnimalIdentifier(ctx context.Context, tx pgx.Tx, tenantID, goatID, identifierType string, value *string, primary bool) error {
 	if value == nil || strings.TrimSpace(*value) == "" {
 		return nil
 	}
-	if ownerID, err := lookupActiveRFIDOwner(ctx, tx, tenantID, value); err != nil {
+	if ownerID, err := lookupAnimalIdentifierOwner(ctx, tx, tenantID, value); err != nil {
 		return err
 	} else if ownerID != nil {
 		if *ownerID == goatID {
 			return nil
 		}
-		return fmt.Errorf("%w: source RFID already belongs to goat %s", ports.ErrInvalidTransition, *ownerID)
+		return fmt.Errorf("%w: animal identifier already belongs to animal %s", ports.ErrInvalidTransition, *ownerID)
 	}
 	_, err := tx.Exec(ctx, `
 INSERT INTO goat_identifiers (
   tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
   scope_key, is_primary_for_goat, status, valid_from, source_system,
-  source_record_id, normalizer_version, confidence
+  source_record_id, normalizer_version
 ) VALUES (
-  $1::uuid, $2::uuid, 'rfid', $3, $4, 'global', false, 'active', now(),
-  'procurement_source_entry', $5, 'procurement-v1', 0.75
-)`, tenantID, goatID, strings.TrimSpace(*value), normalizeIdentifier(*value), "goat:"+goatID)
+  $1::uuid, $2::uuid, $3, $4, $5, 'global', $6, 'active', now(),
+  'procurement_source_entry', $7, 'procurement-v1'
+)`, tenantID, goatID, identifierType, strings.TrimSpace(*value), normalizeIdentifier(*value), primary, "animal:"+goatID)
 	if err != nil {
-		return fmt.Errorf("procurement: insert RFID identifier: %w", err)
-	}
-	return nil
-}
-
-func insertIdentifier(ctx context.Context, tx pgx.Tx, tenantID, goatID, identifierType string, value *string, scopeKey string) error {
-	if value == nil || strings.TrimSpace(*value) == "" {
-		return nil
-	}
-	normalized := normalizeIdentifier(*value)
-	_, err := tx.Exec(ctx, `
-INSERT INTO goat_identifiers (
-  tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
-  scope_key, is_primary_for_goat, status, valid_from, source_system,
-  source_record_id, normalizer_version, confidence
-) VALUES (
-  $1::uuid, $2::uuid, $3, $4, $5, $6, false, 'active', now(),
-  'procurement_source_entry', $7, 'procurement-v1', 0.75
-)
-ON CONFLICT DO NOTHING`, tenantID, goatID, identifierType, strings.TrimSpace(*value), normalized, scopeKey, "goat:"+goatID)
-	if err != nil {
-		return fmt.Errorf("procurement: insert identifier %s: %w", identifierType, err)
+		return fmt.Errorf("procurement: insert animal identifier: %w", err)
 	}
 	return nil
 }
@@ -1656,7 +1589,7 @@ WHERE tenant_id = $1::uuid
   AND load_id = $2::uuid
   AND current_state = 'pre_dispatch_accepted'
   AND health_state = 'passed'
-  AND identity_review_state = 'clean'
+  AND source_entry_state = 'accepted'
   AND ownership_state IN ('mesha_owned', 'settled')`,
 		tenantID, loadID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("procurement: count pre-dispatch accepted goats: %w", err)
@@ -1699,22 +1632,21 @@ func scanLoad(row scanner) (domain.Load, error) {
 
 func scanLoadGoat(row scanner) (domain.LoadGoat, error) {
 	var out domain.LoadGoat
-	var sourceTag, sourceRFID, tempID, identityRef, holdingID, exitReason pgtype.Text
+	var animalIdentifier1, animalIdentifier2, sourceEntryRef, holdingID, exitReason pgtype.Text
 	var warmupStart, warmupEnd, loadedAt, arrivedAt, intakeAt pgtype.Timestamptz
 	var warmupDays pgtype.Int4
 	var proofRefs, metadata []byte
 	if err := row.Scan(&out.LoadGoatID, &out.TenantID, &out.LoadID, &out.GoatID,
-		&sourceTag, &sourceRFID, &tempID, &out.SelectionState, &out.SelectionReason,
-		&out.Purpose, &out.CurrentState, &out.IdentityReview, &identityRef, &out.OwnershipState,
+		&animalIdentifier1, &animalIdentifier2, &out.SelectionState, &out.SelectionReason,
+		&out.Purpose, &out.CurrentState, &out.SourceEntryState, &sourceEntryRef, &out.OwnershipState,
 		&out.HealthState, &warmupStart, &warmupEnd, &warmupDays, &holdingID, &loadedAt,
 		&arrivedAt, &intakeAt, &exitReason, &proofRefs, &metadata, &out.CreatedAt,
 		&out.UpdatedAt, &out.RowVersion); err != nil {
 		return domain.LoadGoat{}, err
 	}
-	out.SourceTag = textPtr(sourceTag)
-	out.SourceRFID = textPtr(sourceRFID)
-	out.TemporaryID = textPtr(tempID)
-	out.IdentityReviewRef = textPtr(identityRef)
+	out.AnimalIdentifier1 = textPtr(animalIdentifier1)
+	out.AnimalIdentifier2 = textPtr(animalIdentifier2)
+	out.SourceEntryRef = textPtr(sourceEntryRef)
 	out.WarmupStartedAt = timePtr(warmupStart)
 	out.WarmupEndedAt = timePtr(warmupEnd)
 	out.WarmupDays = intPtr(warmupDays)
@@ -1874,8 +1806,8 @@ func scanArrivalGoat(row scanner) (domain.ArrivalGoat, error) {
 		return domain.ArrivalGoat{}, err
 	}
 	out.GoatID = textPtr(goatID)
-	out.TemporaryID = textPtr(tempID)
-	out.SourceTag = textPtr(sourceTag)
+	out.AnimalIdentifier1 = textPtr(sourceTag)
+	out.AnimalIdentifier2 = textPtr(tempID)
 	out.HealthFlag = textPtr(healthFlag)
 	out.WeightFlag = textPtr(weightFlag)
 	out.ProofRefID = textPtr(proofRef)
@@ -1954,7 +1886,7 @@ WITH goat_rows AS (
     1 AS expected_count,
     CASE
       WHEN plg.current_state = 'accepted_herd_intake' THEN 'accepted_intake'
-      WHEN plg.identity_review_state = 'conflict' OR plg.identity_review_state = 'unknown_extra' THEN 'identity'
+      WHEN plg.source_entry_state = 'blocked' THEN 'source_entry'
       WHEN plg.ownership_state IN ('pending', 'shared_pending', 'blocked', 'not_owned') THEN 'ownership'
       WHEN plg.health_state IN ('pending', 'failed', 'deferred') THEN 'source_health'
       WHEN plg.current_state IN ('pre_dispatch_rejected', 'arrival_rejected', 'source_rejected', 'dead', 'sold', 'lost') THEN 'rejected_review'
@@ -1969,7 +1901,7 @@ WITH goat_rows AS (
     CASE
       WHEN plg.current_state = 'accepted_herd_intake' THEN 'completed'
       WHEN plg.current_state IN ('pre_dispatch_rejected', 'arrival_rejected', 'source_rejected', 'dead', 'sold', 'lost') OR plg.health_state = 'failed' THEN 'rejected'
-      WHEN plg.identity_review_state IN ('conflict', 'unknown_extra') OR plg.ownership_state IN ('blocked', 'not_owned') OR plg.current_state IN ('pre_dispatch_blocked', 'arrival_review_pending') THEN 'blocked'
+      WHEN plg.source_entry_state = 'blocked' OR plg.ownership_state IN ('blocked', 'not_owned') OR plg.current_state IN ('pre_dispatch_blocked', 'arrival_review_pending') THEN 'blocked'
       WHEN plg.ownership_state IN ('pending', 'shared_pending') THEN 'owner_missing'
       WHEN plg.current_state IN ('pre_dispatch_deferred') OR plg.health_state = 'deferred' THEN 'deferred'
       WHEN plg.current_state = 'pre_dispatch_accepted' THEN 'proof_pending'
@@ -1979,7 +1911,7 @@ WITH goat_rows AS (
       ELSE 'due'
     END AS work_state,
     CASE
-      WHEN plg.identity_review_state IN ('conflict', 'unknown_extra') OR plg.ownership_state IN ('blocked', 'not_owned') THEN 'critical'
+      WHEN plg.source_entry_state = 'blocked' OR plg.ownership_state IN ('blocked', 'not_owned') THEN 'critical'
       WHEN plg.current_state IN ('pre_dispatch_rejected', 'arrival_rejected', 'source_rejected', 'dead', 'sold', 'lost') OR plg.health_state = 'failed' THEN 'critical'
       WHEN plg.current_state = 'arrival_review_pending' THEN 'at_risk'
       WHEN plg.warmup_started_at IS NOT NULL
@@ -1990,7 +1922,7 @@ WITH goat_rows AS (
     END AS severity,
     CASE
       WHEN plg.current_state = 'accepted_herd_intake' THEN 'Accepted intake complete'
-      WHEN plg.identity_review_state IN ('conflict', 'unknown_extra') THEN 'Resolve source identity conflict'
+      WHEN plg.source_entry_state = 'blocked' THEN 'Fix source-entry block'
       WHEN plg.ownership_state IN ('pending', 'shared_pending', 'blocked', 'not_owned') THEN 'Resolve source ownership'
       WHEN plg.health_state IN ('pending', 'failed', 'deferred') THEN 'Complete source health SOP'
       WHEN plg.current_state = 'pre_dispatch_accepted' THEN 'Capture truck loading proof'
@@ -1999,10 +1931,10 @@ WITH goat_rows AS (
       WHEN plg.current_state = 'arrival_accepted' THEN 'Accept herd intake'
       ELSE 'Review source-entry state'
     END AS title,
-    concat_ws(' / ', plg.current_state, 'purpose=' || plg.purpose, 'health=' || plg.health_state, 'identity=' || plg.identity_review_state, 'ownership=' || plg.ownership_state) AS detail,
+    concat_ws(' / ', plg.current_state, 'purpose=' || plg.purpose, 'health=' || plg.health_state, 'source_entry=' || plg.source_entry_state, 'ownership=' || plg.ownership_state) AS detail,
     CASE
       WHEN plg.current_state = 'accepted_herd_intake' THEN 'No action'
-      WHEN plg.identity_review_state IN ('conflict', 'unknown_extra') THEN 'Open identity review before dispatch'
+      WHEN plg.source_entry_state = 'blocked' THEN 'Fix source-entry block before dispatch'
       WHEN plg.ownership_state IN ('pending', 'shared_pending', 'blocked', 'not_owned') THEN 'Resolve ownership before dispatch'
       WHEN plg.health_state IN ('pending', 'deferred') THEN 'Run or review source health SOP'
       WHEN plg.health_state = 'failed' THEN 'Reject or quarantine from procurement'
@@ -2013,7 +1945,7 @@ WITH goat_rows AS (
       ELSE 'Review procurement source-entry row'
     END AS next_action,
     CASE
-      WHEN plg.identity_review_state <> 'clean' THEN plg.identity_review_state
+      WHEN plg.source_entry_state <> 'accepted' THEN plg.source_entry_state
       WHEN plg.ownership_state NOT IN ('mesha_owned', 'settled') THEN plg.ownership_state
       WHEN plg.health_state <> 'passed' THEN plg.health_state
       WHEN plg.current_state = 'arrival_review_pending' THEN 'arrival_mismatch'
@@ -2042,10 +1974,10 @@ WITH goat_rows AS (
     'load_setup' AS work_type,
     CASE WHEN pl.expected_count = 0 THEN 'due' ELSE 'blocked' END AS work_state,
     CASE WHEN pl.expected_count = 0 THEN 'watch' ELSE 'at_risk' END AS severity,
-    'Add source goats to load' AS title,
-    'load has no goat rows' AS detail,
-    'Tag source-only or candidate goats for this procurement load' AS next_action,
-    'missing_source_goats' AS blocker_reason,
+    'Add source animals to load' AS title,
+    'load has no animal rows' AS detail,
+    'Tag source-only or candidate animals for this procurement load' AS next_action,
+    'missing_source_animals' AS blocker_reason,
     NULL::text AS owner_id,
     COALESCE(pl.planned_dispatch_at, pl.updated_at + interval '1 day') AS due_at,
     0 AS completed_count
@@ -2103,8 +2035,8 @@ ORDER BY work_state`
 func (r *Repository) listLoadGoats(ctx context.Context, tenantID, loadID string) ([]domain.LoadGoat, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT load_goat_id::text, tenant_id::text, load_id::text, goat_id::text,
-       source_tag, source_rfid, temporary_id, selection_state, selection_reason, purpose,
-       current_state, identity_review_state, identity_review_ref, ownership_state,
+       animal_identifier_1, animal_identifier_2, selection_state, selection_reason, purpose,
+       current_state, source_entry_state, source_entry_ref, ownership_state,
        health_state, warmup_started_at, warmup_ended_at, warmup_days,
        holding_location_id::text, loaded_at, arrived_at, intake_accepted_at,
        exit_reason, proof_refs, metadata, created_at, updated_at, row_version
@@ -2265,8 +2197,8 @@ WHERE pl.tenant_id = $1::uuid AND pl.load_id = nullif($2::text, '')::uuid`, tena
 func (r *Repository) getLoadGoatByID(ctx context.Context, tenantID, loadGoatID string) (domain.LoadGoat, error) {
 	return scanLoadGoat(r.pool.QueryRow(ctx, `
 SELECT load_goat_id::text, tenant_id::text, load_id::text, goat_id::text,
-       source_tag, source_rfid, temporary_id, selection_state, selection_reason, purpose,
-       current_state, identity_review_state, identity_review_ref, ownership_state,
+       animal_identifier_1, animal_identifier_2, selection_state, selection_reason, purpose,
+       current_state, source_entry_state, source_entry_ref, ownership_state,
        health_state, warmup_started_at, warmup_ended_at, warmup_days,
        holding_location_id::text, loaded_at, arrived_at, intake_accepted_at,
        exit_reason, proof_refs, metadata, created_at, updated_at, row_version
@@ -2370,7 +2302,7 @@ ORDER BY reviewed_at ASC, review_id ASC`, tenantID, loadID)
 func (r *Repository) listArrivalGoats(ctx context.Context, tenantID, reviewID string) ([]domain.ArrivalGoat, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT review_goat_id::text, tenant_id::text, review_id::text, load_id::text,
-       goat_id::text, temporary_id, source_tag, arrival_state, health_flag,
+       goat_id::text, animal_identifier_2, animal_identifier_1, arrival_state, health_flag,
        weight_flag, proof_ref_id::text, notes, created_at
 FROM arrival_intake_review_goats
 WHERE tenant_id = $1::uuid AND review_id = $2::uuid
@@ -2514,10 +2446,10 @@ func arrivalItemKey(item ports.ArrivalGoat) string {
 	switch {
 	case item.GoatID != nil && strings.TrimSpace(*item.GoatID) != "":
 		return "goat:" + strings.TrimSpace(*item.GoatID)
-	case item.TemporaryID != nil && strings.TrimSpace(*item.TemporaryID) != "":
-		return "temporary:" + normalizeIdentifier(*item.TemporaryID)
-	case item.SourceTag != nil && strings.TrimSpace(*item.SourceTag) != "":
-		return "source_tag:" + normalizeIdentifier(*item.SourceTag)
+	case item.AnimalIdentifier1 != nil && strings.TrimSpace(*item.AnimalIdentifier1) != "":
+		return "animal_identifier_1:" + normalizeIdentifier(*item.AnimalIdentifier1)
+	case item.AnimalIdentifier2 != nil && strings.TrimSpace(*item.AnimalIdentifier2) != "":
+		return "animal_identifier_2:" + normalizeIdentifier(*item.AnimalIdentifier2)
 	default:
 		return "state:" + item.ArrivalState
 	}

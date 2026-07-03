@@ -14,7 +14,7 @@
     "module": "identity",
     "version": "goatos-contract-v1"
   },
-  "idempotency_key": "synthetic-import-rfid-db-row-0001-v1",
+  "idempotency_key": "synthetic-animal-id-row-0001-v1",
   "actor": {
     "actor_type": "import_job",
     "actor_id": null,
@@ -31,22 +31,22 @@
   "evidence_refs": [
     {
       "evidence_type": "source_record",
-      "evidence_id": "synthetic-rfid-db-row-0001",
-      "source_system": "synthetic_phase1_fixture",
-      "description": "Fake RFID DB row used only for contract validation."
+      "evidence_id": "synthetic-animal-id-row-0001",
+      "source_system": "synthetic_goatos_fixture",
+      "description": "Fake Animal ID row used only for contract validation."
     },
     {
       "evidence_type": "identifier",
       "evidence_id": "44444444-4444-4444-8444-444444444444",
       "source_system": null,
-      "description": "Synthetic active RFID identifier."
+      "description": "Synthetic active Animal ID identifier."
     }
   ],
   "payload": {
     "goat_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
     "identifier_id": "44444444-4444-4444-8444-444444444444",
-    "identifier_type": "rfid",
-    "identifier_value": "RFID_EXAMPLE_000001",
+    "identifier_type": "animal_identifier_1",
+    "identifier_value": "AID_EXAMPLE_000001",
     "scope_key": "global",
     "status": "active"
   },

@@ -213,7 +213,7 @@ func TestLocationWritePathWithDockerPostgres(t *testing.T) {
 			t.Fatalf("expected capacity overlap conflict, got %v", err)
 		}
 
-		sourceContext := "counts_source"
+		sourceContext := "sheds_db"
 		sourceLabel := "UNKNOWN-GOVERNANCE-SHED"
 		review, err := repo.CreateLocationReviewItem(ctx, ports.CreateLocationReviewItemCommand{
 			TenantID: testTenantID, ActorID: testActorID, ClientIdempotencyKey: "idem-location-review-0001",
@@ -224,7 +224,7 @@ func TestLocationWritePathWithDockerPostgres(t *testing.T) {
 			ReviewType:           "unknown_alias",
 			SourceContext:        &sourceContext,
 			SourceLabel:          &sourceLabel,
-			EvidenceJSON:         []byte(`{"source":"counts","label":"UNKNOWN-GOVERNANCE-SHED"}`),
+			EvidenceJSON:         []byte(`{"source":"sheds_db","label":"UNKNOWN-GOVERNANCE-SHED"}`),
 			EvidenceHash:         "review-evidence-0001",
 		})
 		if err != nil {
@@ -466,8 +466,8 @@ func TestLocationWritePathWithDockerPostgres(t *testing.T) {
 			RequestHash:          "sha256:create-resolver-alias-0001",
 			TraceID:              "trace-location-resolver-alias-0001",
 			LocationID:           created.Location.LocationID,
-			AliasCode:            "Counts Shed A",
-			SourceContext:        "legacy_bq_counts",
+			AliasCode:            "Sheds DB Shed A",
+			SourceContext:        "sheds_db",
 		}); err != nil {
 			t.Fatalf("CreateLocationAlias resolver setup: %v", err)
 		}
@@ -476,24 +476,24 @@ func TestLocationWritePathWithDockerPostgres(t *testing.T) {
 		resolved, err := service.ResolveSourceLabel(ctx, locationsapp.ResolveSourceLabelInput{
 			TenantID:      testTenantID,
 			ActorID:       testActorID,
-			TraceID:       "trace-resolve-counts-label",
-			SourceContext: "legacy_bq_counts",
-			SourceLabel:   "  COUNTS SHED A  ",
+			TraceID:       "trace-resolve-sheds-label",
+			SourceContext: "sheds_db",
+			SourceLabel:   "  SHEDS DB SHED A  ",
 		})
 		if err != nil {
 			t.Fatalf("ResolveSourceLabel resolved: %v", err)
 		}
-		if resolved.Status != "resolved" || resolved.Location == nil || resolved.Location.LocationID != created.Location.LocationID || resolved.NormalizedSourceLabel != "counts shed a" {
+		if resolved.Status != "resolved" || resolved.Location == nil || resolved.Location.LocationID != created.Location.LocationID || resolved.NormalizedSourceLabel != "sheds db shed a" {
 			t.Fatalf("unexpected resolved source label: %#v", resolved)
 		}
 
 		unknown, err := service.ResolveSourceLabel(ctx, locationsapp.ResolveSourceLabelInput{
 			TenantID:      testTenantID,
 			TraceID:       "trace-resolve-mortality-label",
-			SourceContext: "legacy_bq_mortality",
+			SourceContext: "import",
 			SourceLabel:   "Unmapped Housing 9",
-			EvidenceJSON:  []byte(`{"source":"mortality","column":"housing","label":"Unmapped Housing 9"}`),
-			EvidenceHash:  "mortality-unmapped-housing-9",
+			EvidenceJSON:  []byte(`{"source":"import","column":"housing","label":"Unmapped Housing 9"}`),
+			EvidenceHash:  "import-unmapped-housing-9",
 		})
 		if err != nil {
 			t.Fatalf("ResolveSourceLabel unknown: %v", err)
@@ -508,10 +508,10 @@ func TestLocationWritePathWithDockerPostgres(t *testing.T) {
 		reused, err := service.ResolveSourceLabel(ctx, locationsapp.ResolveSourceLabelInput{
 			TenantID:      testTenantID,
 			TraceID:       "trace-resolve-mortality-label-reuse",
-			SourceContext: "legacy_bq_mortality",
+			SourceContext: "import",
 			SourceLabel:   "Unmapped Housing 9",
-			EvidenceJSON:  []byte(`{"source":"mortality","column":"housing","label":"Unmapped Housing 9"}`),
-			EvidenceHash:  "mortality-unmapped-housing-9",
+			EvidenceJSON:  []byte(`{"source":"import","column":"housing","label":"Unmapped Housing 9"}`),
+			EvidenceHash:  "import-unmapped-housing-9",
 		})
 		if err != nil {
 			t.Fatalf("ResolveSourceLabel unknown reuse: %v", err)
@@ -519,7 +519,7 @@ func TestLocationWritePathWithDockerPostgres(t *testing.T) {
 		if reused.ReviewItem == nil || reused.ReviewItem.ReviewID != unknown.ReviewItem.ReviewID {
 			t.Fatalf("expected review item reuse, got first=%#v reused=%#v", unknown.ReviewItem, reused.ReviewItem)
 		}
-		if got := countRows(t, pool, `SELECT count(*) FROM location_review_items WHERE tenant_id = $1::uuid AND source_context = 'legacy_bq_mortality' AND normalized_source_label = 'unmapped housing 9' AND status = 'open'`, testTenantID); got != 1 {
+		if got := countRows(t, pool, `SELECT count(*) FROM location_review_items WHERE tenant_id = $1::uuid AND source_context = 'import' AND normalized_source_label = 'unmapped housing 9' AND status = 'open'`, testTenantID); got != 1 {
 			t.Fatalf("open review rows = %d", got)
 		}
 		if got := countRows(t, pool, `SELECT count(*) FROM audit_log WHERE resource_type = 'location_review_item' AND resource_id = $1::uuid AND actor_type = 'system'`, unknown.ReviewItem.ReviewID); got != 1 {
@@ -532,8 +532,8 @@ func TestLocationWritePathWithDockerPostgres(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateLocation setup: %v", err)
 		}
-		sourceContext := "legacy_bq_counts"
-		sourceLabel := "  Counts   Shed   Normalized  "
+		sourceContext := "sheds_db"
+		sourceLabel := "  Sheds   DB   Shed   Normalized  "
 		normalized := locationsapp.NormalizeSourceLabel(sourceLabel)
 		review, err := repo.CreateLocationReviewItem(ctx, ports.CreateLocationReviewItemCommand{
 			TenantID: testTenantID, ActorID: testActorID, ClientIdempotencyKey: "idem-location-normalized-review-create",
@@ -545,7 +545,7 @@ func TestLocationWritePathWithDockerPostgres(t *testing.T) {
 			SourceContext:         &sourceContext,
 			SourceLabel:           &sourceLabel,
 			NormalizedSourceLabel: &normalized,
-			EvidenceJSON:          []byte(`{"source":"counts","label":"Counts Shed Normalized"}`),
+			EvidenceJSON:          []byte(`{"source":"sheds_db","label":"Sheds DB Shed Normalized"}`),
 			EvidenceHash:          "normalized-review-evidence",
 		})
 		if err != nil {

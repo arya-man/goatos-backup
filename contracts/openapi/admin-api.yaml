@@ -2065,7 +2065,7 @@ paths:
       tags:
         - Procurement Source Entry
       operationId: recordProcurementHFVaccinationEvidence
-      summary: Import supplier / Holding-Farm vaccination dose evidence for a source goat.
+      summary: Import supplier / Holding-Farm vaccination dose evidence for a source animal.
       parameters:
         - $ref: "#/components/parameters/GoatId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -2866,15 +2866,6 @@ components:
           type: boolean
         subject_scope:
           type: string
-          enum:
-            - batch
-            - goat
-            - shed
-            - task
-        scope:
-          type: string
-          deprecated: true
-          description: Deprecated legacy alias. Use subject_scope.
           enum:
             - batch
             - goat
@@ -4073,13 +4064,8 @@ components:
     IdentifierType:
       type: string
       enum:
-        - old_tag
-        - rfid
-        - visual_tag
-        - sheet_row_id
-        - purchase_load_id
-        - temp_field_id
-        - external_system_id
+        - animal_identifier_1
+        - animal_identifier_2
     IdentifierStatus:
       type: string
       enum:
@@ -4088,14 +4074,6 @@ components:
         - disputed
         - duplicate
         - invalid
-    IdentityState:
-      type: string
-      enum:
-        - clean
-        - needs_review
-        - disputed
-        - merged
-        - inactive
     LocationPath:
       type: object
       additionalProperties: false
@@ -4140,7 +4118,8 @@ components:
         - growth_cohort_tag
         - management_stage
         - health_status
-        - identity_state
+        - animal_identifier_1
+        - animal_identifier_2
         - location_path
         - warnings
       properties:
@@ -4150,15 +4129,11 @@ components:
         display_id:
           type: string
           pattern: ^G-[0-9]{6,}$
-        primary_old_tag:
-          type:
-            - string
-            - "null"
+        animal_identifier_1:
+          type: string
           maxLength: 120
-        rfid:
-          type:
-            - string
-            - "null"
+        animal_identifier_2:
+          type: string
           maxLength: 200
         breed:
           type:
@@ -4199,8 +4174,6 @@ components:
             - string
             - "null"
           maxLength: 80
-        identity_state:
-          $ref: "#/components/schemas/IdentityState"
         location_path:
           $ref: "#/components/schemas/LocationPath"
         warnings:
@@ -4318,24 +4291,28 @@ components:
       type: object
       additionalProperties: false
       required:
+        - animal_identifier_1
+        - animal_identifier_2
+        - species
         - sex
         - dob
         - origin_type
         - entry_date
         - evidence_refs
       properties:
-        rfid:
+        animal_identifier_1:
           type: string
           minLength: 1
           maxLength: 200
-        old_tag:
+        animal_identifier_2:
           type: string
           minLength: 1
-          maxLength: 120
-        temp_field_id:
+          maxLength: 200
+        species:
           type: string
-          minLength: 1
-          maxLength: 120
+          enum:
+            - goat
+            - sheep
         farm_id:
           type: string
           format: uuid
@@ -4376,7 +4353,6 @@ components:
             - birth
             - procured
             - imported
-            - unknown
         entry_date:
           type: string
           format: date
@@ -5360,7 +5336,6 @@ components:
             - shed
             - cohort
             - pen
-            - unknown
         location_code:
           type:
             - string
@@ -5436,7 +5411,6 @@ components:
             - shed
             - cohort
             - pen
-            - unknown
         location_code:
           type:
             - string
@@ -5542,14 +5516,9 @@ components:
         source_context:
           type: string
           enum:
-            - legacy_location_code
-            - legacy_bq_dashboard_shed
-            - legacy_bq_counts
-            - legacy_bq_mortality
-            - counts_source
-            - mortality_source
             - manual
             - import
+            - sheds_db
         notes:
           type:
             - string
@@ -5570,14 +5539,9 @@ components:
         source_context:
           type: string
           enum:
-            - legacy_location_code
-            - legacy_bq_dashboard_shed
-            - legacy_bq_counts
-            - legacy_bq_mortality
-            - counts_source
-            - mortality_source
             - manual
             - import
+            - sheds_db
         notes:
           type:
             - string
@@ -5645,9 +5609,9 @@ components:
           type: string
           enum:
             - manual
-            - legacy_bq
             - android_sop
             - import
+            - sheds_db
         source_ref:
           type:
             - string
@@ -5690,9 +5654,9 @@ components:
           type: string
           enum:
             - manual
-            - legacy_bq
             - android_sop
             - import
+            - sheds_db
         source_ref:
           type:
             - string
@@ -6273,7 +6237,6 @@ components:
         - active_rbac_grants
         - active_sop_dependencies
         - import_or_source_rows
-        - dashboard_projection_rows
         - has_blocking_usage
         - trace_id
       properties:
@@ -6299,9 +6262,6 @@ components:
           type: integer
           minimum: 0
         import_or_source_rows:
-          type: integer
-          minimum: 0
-        dashboard_projection_rows:
           type: integer
           minimum: 0
         has_blocking_usage:
@@ -6347,6 +6307,9 @@ components:
       type: object
       additionalProperties: false
       required:
+        - animal_identifier_1
+        - animal_identifier_2
+        - species
         - sex
       properties:
         goat_id:
@@ -6354,21 +6317,21 @@ components:
             - string
             - "null"
           format: uuid
-        source_tag:
+        animal_identifier_1:
           type:
             - string
             - "null"
           maxLength: 120
-        source_rfid:
+        animal_identifier_2:
           type:
             - string
             - "null"
           maxLength: 160
-        temporary_id:
-          type:
-            - string
-            - "null"
-          maxLength: 160
+        species:
+          type: string
+          enum:
+            - goat
+            - sheep
         sex:
           type: string
           enum:
@@ -6383,13 +6346,12 @@ components:
           $ref: "#/components/schemas/ProcurementPurpose"
         current_state:
           $ref: "#/components/schemas/ProcurementGoatState"
-        identity_review_state:
+        source_entry_state:
           enum:
             - pending
-            - clean
-            - conflict
-            - unknown_extra
-        identity_review_ref:
+            - accepted
+            - blocked
+        source_entry_ref:
           type:
             - string
             - "null"
@@ -6618,16 +6580,16 @@ components:
             - string
             - "null"
           format: uuid
-        temporary_id:
-          type:
-            - string
-            - "null"
-          maxLength: 160
-        source_tag:
+        animal_identifier_1:
           type:
             - string
             - "null"
           maxLength: 120
+        animal_identifier_2:
+          type:
+            - string
+            - "null"
+          maxLength: 160
         arrival_state:
           $ref: "#/components/schemas/ProcurementArrivalState"
         health_flag:
@@ -6846,7 +6808,6 @@ components:
             - arrival_gate
             - arrival_mismatch
             - dispatch_proof
-            - identity
             - load_setup
             - ownership
             - pre_dispatch
@@ -6981,7 +6942,7 @@ components:
         - missing_proof_count
         - arrival_mismatch_count
         - owner_missing_count
-        - identity_conflict_count
+        - source_entry_blocked_count
       properties:
         process_intact:
           type: boolean
@@ -7003,7 +6964,7 @@ components:
         owner_missing_count:
           type: integer
           minimum: 0
-        identity_conflict_count:
+        source_entry_blocked_count:
           type: integer
           minimum: 0
     ProcurementControlTowerAlert:
@@ -7472,7 +7433,7 @@ components:
         - goat_id
         - selection_state
         - current_state
-        - identity_review_state
+        - source_entry_state
         - ownership_state
         - health_state
         - purpose
@@ -7486,15 +7447,11 @@ components:
         goat_id:
           type: string
           format: uuid
-        source_tag:
+        animal_identifier_1:
           type:
             - string
             - "null"
-        source_rfid:
-          type:
-            - string
-            - "null"
-        temporary_id:
+        animal_identifier_2:
           type:
             - string
             - "null"
@@ -7502,12 +7459,11 @@ components:
           $ref: "#/components/schemas/ProcurementSelectionState"
         current_state:
           $ref: "#/components/schemas/ProcurementGoatState"
-        identity_review_state:
+        source_entry_state:
           enum:
             - pending
-            - clean
-            - conflict
-            - unknown_extra
+            - accepted
+            - blocked
         ownership_state:
           $ref: "#/components/schemas/ProcurementOwnershipState"
         health_state:

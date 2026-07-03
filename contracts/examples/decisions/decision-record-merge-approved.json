@@ -6,10 +6,10 @@
   "decided_by_type": "human",
   "decided_by": "77777777-7777-4777-8777-777777777777",
   "policy_version": "phase1-synthetic-policy-v1",
-  "reason": "Synthetic review evidence shows the duplicate scoped old tag belongs to the same fake goat.",
+  "reason": "Synthetic review evidence shows duplicate lifetime Animal ID values belong to the same fake animal.",
   "source_record_ids": [
-    "synthetic-rfid-db-row-0001",
-    "synthetic-rfid-db-row-0002"
+    "synthetic-herd-row-0001",
+    "synthetic-herd-row-0002"
   ],
   "source_identifier_ids": [
     "44444444-4444-4444-8444-444444444444",
@@ -36,14 +36,14 @@
   "identifier_actions": [
     {
       "identifier_id": "44444444-4444-4444-8444-444444444444",
-      "identifier_type": "old_tag",
-      "identifier_value": "1900",
+      "identifier_type": "animal_identifier_1",
+      "identifier_value": "AID-000001-A",
       "action": "preserve"
     },
     {
       "identifier_id": "44444444-4444-4444-8444-444444444445",
-      "identifier_type": "old_tag",
-      "identifier_value": "1900",
+      "identifier_type": "animal_identifier_1",
+      "identifier_value": "AID-000001-A",
       "action": "retire"
     }
   ],
@@ -56,27 +56,27 @@
         "evidence_type": "conflict",
         "evidence_id": "30000000-0000-4000-8000-000000000001",
         "source_system": null,
-        "description": "Synthetic duplicate old tag conflict."
+        "description": "Synthetic duplicate Animal ID conflict."
       },
       {
         "evidence_type": "source_record",
-        "evidence_id": "synthetic-rfid-db-row-0001",
-        "source_system": "synthetic_phase1_fixture",
+        "evidence_id": "synthetic-herd-row-0001",
+        "source_system": "synthetic_goatos_fixture",
         "description": "Fake source row, not private data."
       }
     ],
     "matching_reasons": [
-      "Same synthetic RFID value.",
-      "Same normalized old tag scope.",
+      "Same synthetic Animal ID value.",
+      "Same normalized global identifier.",
       "No conflicting fake status evidence."
     ],
     "before": {
-      "survivor_identity_state": "needs_review",
-      "merged_identity_state": "needs_review"
+      "survivor_merged_into_goat_id": null,
+      "duplicate_merged_into_goat_id": null
     },
     "after": {
-      "survivor_identity_state": "clean",
-      "merged_identity_state": "merged"
+      "survivor_merged_into_goat_id": null,
+      "duplicate_merged_into_goat_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"
     }
   },
   "idempotency_key": "synthetic-resolve-conflict-merge-0001",

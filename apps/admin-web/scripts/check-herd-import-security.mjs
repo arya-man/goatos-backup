@@ -16,10 +16,10 @@ const {
   stableCSVContentHash,
 } = await import("../features/counts/herd-import-utils.ts");
 
-const digest = await stableCSVContentHash("Farm,RFID\nCBE,RF-1\n");
+const digest = await stableCSVContentHash("Farm,Animal ID 1\nCBE,AID-1\n");
 assert.match(digest, /^[a-f0-9]{64}$/);
-assert.equal(digest, await stableCSVContentHash("Farm,RFID\nCBE,RF-1\n"));
-assert.notEqual(digest, await stableCSVContentHash("Farm,RFID\nCBE,RF-2\n"));
+assert.equal(digest, await stableCSVContentHash("Farm,Animal ID 1\nCBE,AID-1\n"));
+assert.notEqual(digest, await stableCSVContentHash("Farm,Animal ID 1\nCBE,AID-2\n"));
 
 for (const dangerous of ["=1+1", "+SUM(A1:A2)", "-10+20", "@cmd", " =1+1", "\t=1+1", "\r=1+1", "\n=1+1"]) {
   const encoded = csvCell(dangerous);
@@ -42,8 +42,8 @@ const sampleWorkbookBase64 =
 const workbookBytes = Buffer.from(sampleWorkbookBase64, "base64");
 const workbookArray = workbookBytes.buffer.slice(workbookBytes.byteOffset, workbookBytes.byteOffset + workbookBytes.byteLength);
 const workbookCSV = await spreadsheetArrayBufferToCSV(workbookArray, "empty workbook", "parse failed");
-assert.match(workbookCSV, /Farm,RFID/);
-assert.match(workbookCSV, /CBE,RF-1/);
+assert.match(workbookCSV, /Farm,Animal ID 1/);
+assert.match(workbookCSV, /CBE,AID-1/);
 await assert.rejects(
   () => spreadsheetArrayBufferToCSV(new TextEncoder().encode("not an xlsx").buffer, "empty workbook", "parse failed"),
   /parse failed/,

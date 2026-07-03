@@ -67,7 +67,7 @@ func run(args []string) error {
 SELECT tenant_id::text, goat_id::text, farm_id::text, park_id::text, shed_id::text, entry_date, created_at
 FROM goats g
 WHERE tenant_id = $1::uuid
-  AND identity_state = 'clean'
+  AND merged_into_goat_id IS NULL
   AND lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND (NULLIF($3::text, '') IS NULL OR goat_id = NULLIF($3::text, '')::uuid)
   AND NOT EXISTS (

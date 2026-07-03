@@ -53,7 +53,7 @@ func (s *Service) GetGoatPassport(ctx context.Context, tenantID, lookup string, 
 	originalID := goat.GoatID
 	warnings := ensureWarnings(goat.Summary.Warnings)
 	visited := map[string]struct{}{}
-	for hop := 0; goat.IdentityState == "merged"; hop++ {
+	for hop := 0; goat.MergedIntoGoatID != nil; hop++ {
 		if hop >= maxMergeRedirectHops {
 			return nil, Internal("merge redirect chain exceeded maximum depth")
 		}
@@ -180,7 +180,7 @@ func (s *Service) ResolveIdentifier(ctx context.Context, params ports.ResolveIde
 		})
 	}
 
-	if match.Goat.IdentityState == "merged" {
+	if match.Goat.MergedIntoGoatID != nil {
 		passport, err := s.GetGoatPassport(ctx, params.TenantID, match.Goat.GoatID, traceID)
 		if err != nil {
 			return nil, err
@@ -233,13 +233,7 @@ func requireTenant(tenantID string) error {
 }
 
 func normalizeIdentifier(identifierType, value string) string {
-	value = strings.TrimSpace(value)
-	switch identifierType {
-	case "rfid":
-		return strings.ToUpper(value)
-	default:
-		return value
-	}
+	return strings.ToUpper(strings.TrimSpace(value))
 }
 
 func summariesFromMatches(matches []domain.IdentifierMatch) []domain.GoatSummary {

@@ -107,7 +107,7 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/goats/search"},
 		{"GET", "/goats/10000000-0000-4000-8000-000000000001"},
 		{"GET", "/goats/10000000-0000-4000-8000-000000000001/timeline"},
-		{"GET", "/identifiers/rfid/RFID-SYNTHETIC-001/resolve"},
+		{"GET", "/identifiers/animal_identifier_1/AID-SYNTHETIC-001/resolve"},
 		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers"},
 		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers/30000000-0000-4000-8000-000000000001/retire"},
 		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/move"},

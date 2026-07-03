@@ -38,7 +38,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 	seedAdminCreateLocations(t, pool)
 
 	t.Run("admin goat create writes goat identifiers decision event audit outbox and schema-valid payloads", func(t *testing.T) {
-		cmd := adminGoatCreateCommand(t, "idem-create-goat-0001", "rfid-admin-create-0001", "admin-create-oldtag-0001")
+		cmd := adminGoatCreateCommand(t, "idem-create-goat-0001", "aid1-admin-create-0001", "admin-create-aid2-0001")
 		result, err := repo.CreateAdminGoat(ctx, cmd)
 		if err != nil {
 			t.Fatalf("CreateAdminGoat: %v", err)
@@ -50,7 +50,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 			t.Fatalf("unexpected goat park scope: %#v", result.Goat.LocationPath)
 		}
 		if len(result.Identifiers) != 2 {
-			t.Fatalf("expected rfid and old_tag identifiers, got %#v", result.Identifiers)
+			t.Fatalf("expected Animal ID 1 and Animal ID 2 identifiers, got %#v", result.Identifiers)
 		}
 		assertAdminGoatCreateRows(t, pool, cmd, result)
 	})
@@ -65,7 +65,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		}
 		for i, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
-				cmd := adminGoatCreateCommand(t, "idem-create-goat-parent-"+string(rune('a'+i)), "rfid-admin-create-parent-"+string(rune('a'+i)), "admin-create-oldtag-parent-"+string(rune('a'+i)))
+				cmd := adminGoatCreateCommand(t, "idem-create-goat-parent-"+string(rune('a'+i)), "aid1-admin-create-parent-"+string(rune('a'+i)), "admin-create-aid2-parent-"+string(rune('a'+i)))
 				validation, err := repo.ValidateAdminGoatCreate(ctx, ports.ValidateAdminGoatCreateCommand{
 					TenantID:             cmd.TenantID,
 					StoredIdempotencyKey: cmd.StoredIdempotencyKey,
@@ -86,7 +86,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 	})
 
 	t.Run("admin goat create validation rejects unsupported management stage", func(t *testing.T) {
-		cmd := adminGoatCreateCommand(t, "idem-create-goat-stage-invalid", "rfid-admin-create-stage-invalid", "admin-create-oldtag-stage-invalid")
+		cmd := adminGoatCreateCommand(t, "idem-create-goat-stage-invalid", "aid1-admin-create-stage-invalid", "admin-create-aid2-stage-invalid")
 		invalidStage := "unsupported_stage"
 		validation, err := repo.ValidateAdminGoatCreate(ctx, ports.ValidateAdminGoatCreateCommand{
 			TenantID:             cmd.TenantID,
@@ -107,7 +107,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 	})
 
 	t.Run("admin goat create exact replay rebuilds response and changed body conflicts", func(t *testing.T) {
-		cmd := adminGoatCreateCommand(t, "idem-create-goat-0002", "rfid-admin-create-0002", "admin-create-oldtag-0002")
+		cmd := adminGoatCreateCommand(t, "idem-create-goat-0002", "aid1-admin-create-0002", "admin-create-aid2-0002")
 		first, err := repo.CreateAdminGoat(ctx, cmd)
 		if err != nil {
 			t.Fatalf("first create: %v", err)
@@ -122,7 +122,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		if replay.Decision.DecisionID != first.Decision.DecisionID || replay.Events[0].EventID != first.Events[0].EventID {
 			t.Fatalf("replay did not refetch original decision/event: first=%#v replay=%#v", first, replay)
 		}
-		changed := adminGoatCreateCommand(t, "idem-create-goat-0002", "rfid-admin-create-0002", "admin-create-oldtag-0002")
+		changed := adminGoatCreateCommand(t, "idem-create-goat-0002", "aid1-admin-create-0002", "admin-create-aid2-0002")
 		changed.RequestHash = "changed-admin-goat-create-request-hash"
 		if _, err := repo.CreateAdminGoat(ctx, changed); !errors.Is(err, ports.ErrIdempotencyConflict) {
 			t.Fatalf("expected idempotency conflict, got %v", err)
@@ -130,7 +130,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 	})
 
 	t.Run("admin goat move writes goat.location.changed outbox for obligation re-scope", func(t *testing.T) {
-		create := adminGoatCreateCommand(t, "idem-create-goat-move-0001", "rfid-admin-move-0001", "admin-move-oldtag-0001")
+		create := adminGoatCreateCommand(t, "idem-create-goat-move-0001", "aid1-admin-move-0001", "admin-move-aid2-0001")
 		created, err := repo.CreateAdminGoat(ctx, create)
 		if err != nil {
 			t.Fatalf("CreateAdminGoat for move: %v", err)
@@ -147,7 +147,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 	})
 
 	t.Run("admin goat exit writes goat.exited outbox for obligation cancellation", func(t *testing.T) {
-		create := adminGoatCreateCommand(t, "idem-create-goat-exit-0001", "rfid-admin-exit-0001", "admin-exit-oldtag-0001")
+		create := adminGoatCreateCommand(t, "idem-create-goat-exit-0001", "aid1-admin-exit-0001", "admin-exit-aid2-0001")
 		created, err := repo.CreateAdminGoat(ctx, create)
 		if err != nil {
 			t.Fatalf("CreateAdminGoat for exit: %v", err)
@@ -164,7 +164,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 	})
 
 	t.Run("admin goat exit blocks death guardrail transitions", func(t *testing.T) {
-		create := adminGoatCreateCommand(t, "idem-create-goat-death-0001", "rfid-admin-death-0001", "admin-death-oldtag-0001")
+		create := adminGoatCreateCommand(t, "idem-create-goat-death-0001", "aid1-admin-death-0001", "admin-death-aid2-0001")
 		created, err := repo.CreateAdminGoat(ctx, create)
 		if err != nil {
 			t.Fatalf("CreateAdminGoat for death guardrail: %v", err)
@@ -222,7 +222,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 	})
 
 	t.Run("admin goat stage writes goat.stage_changed outbox for rule recheck", func(t *testing.T) {
-		create := adminGoatCreateCommand(t, "idem-create-goat-stage-0001", "rfid-admin-stage-0001", "admin-stage-oldtag-0001")
+		create := adminGoatCreateCommand(t, "idem-create-goat-stage-0001", "aid1-admin-stage-0001", "admin-stage-aid2-0001")
 		created, err := repo.CreateAdminGoat(ctx, create)
 		if err != nil {
 			t.Fatalf("CreateAdminGoat for stage: %v", err)
@@ -239,7 +239,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 	})
 
 	t.Run("admin goat health writes goat.health.changed outbox for noncritical recovery recheck", func(t *testing.T) {
-		create := adminGoatCreateCommand(t, "idem-create-goat-health-0001", "rfid-admin-health-0001", "admin-health-oldtag-0001")
+		create := adminGoatCreateCommand(t, "idem-create-goat-health-0001", "aid1-admin-health-0001", "admin-health-aid2-0001")
 		created, err := repo.CreateAdminGoat(ctx, create)
 		if err != nil {
 			t.Fatalf("CreateAdminGoat for health: %v", err)
@@ -263,7 +263,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 	})
 
 	t.Run("admin goat health blocks critical guardrail transitions", func(t *testing.T) {
-		create := adminGoatCreateCommand(t, "idem-create-goat-critical-health-0001", "rfid-admin-critical-health-0001", "admin-critical-health-oldtag-0001")
+		create := adminGoatCreateCommand(t, "idem-create-goat-critical-health-0001", "aid1-admin-critical-health-0001", "admin-critical-health-aid2-0001")
 		created, err := repo.CreateAdminGoat(ctx, create)
 		if err != nil {
 			t.Fatalf("CreateAdminGoat for critical health: %v", err)
@@ -285,7 +285,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 	})
 
 	t.Run("admin goat health blocks critical guardrail exits", func(t *testing.T) {
-		create := adminGoatCreateCommand(t, "idem-create-goat-critical-exit-0001", "rfid-admin-critical-exit-0001", "admin-critical-exit-oldtag-0001")
+		create := adminGoatCreateCommand(t, "idem-create-goat-critical-exit-0001", "aid1-admin-critical-exit-0001", "admin-critical-exit-aid2-0001")
 		created, err := repo.CreateAdminGoat(ctx, create)
 		if err != nil {
 			t.Fatalf("CreateAdminGoat for critical exit: %v", err)
@@ -312,26 +312,26 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		assertNoRows(t, pool, "outbox after blocked critical exit", "SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
 	})
 
-	t.Run("admin goat create duplicate rfid rolls back goat idempotency audit and outbox", func(t *testing.T) {
-		first := adminGoatCreateCommand(t, "idem-create-goat-dupe-0001", "rfid-admin-create-dupe", "admin-create-oldtag-dupe-0001")
+	t.Run("admin goat create duplicate Animal ID 1 rolls back goat idempotency audit and outbox", func(t *testing.T) {
+		first := adminGoatCreateCommand(t, "idem-create-goat-dupe-0001", "aid1-admin-create-dupe", "admin-create-aid2-dupe-0001")
 		if _, err := repo.CreateAdminGoat(ctx, first); err != nil {
 			t.Fatalf("first create: %v", err)
 		}
-		dupe := adminGoatCreateCommand(t, "idem-create-goat-dupe-0002", " RFID-ADMIN-CREATE-DUPE ", "admin-create-oldtag-dupe-0002")
+		dupe := adminGoatCreateCommand(t, "idem-create-goat-dupe-0002", " AID1-ADMIN-CREATE-DUPE ", "admin-create-aid2-dupe-0002")
 		if _, err := repo.CreateAdminGoat(ctx, dupe); !errors.Is(err, ports.ErrWriteConflict) {
-			t.Fatalf("expected duplicate RFID write conflict, got %v", err)
+			t.Fatalf("expected duplicate Animal ID 1 write conflict, got %v", err)
 		}
-		assertNoRows(t, pool, "idempotency after duplicate create RFID", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", dupe.StoredIdempotencyKey)
-		assertNoRows(t, pool, "old_tag identifier after duplicate create RFID", "SELECT count(*) FROM goat_identifiers WHERE tenant_id = $1 AND normalized_value = $2 AND scope_key = $3", meshaTenant, "admin-create-oldtag-dupe-0002", "park:"+cbeLocation)
-		assertNoRows(t, pool, "location history after duplicate create RFID", "SELECT count(*) FROM goat_location_history WHERE tenant_id = $1 AND source_record_id = $2", meshaTenant, *dupe.SourceRecordID)
-		assertNoRows(t, pool, "decision after duplicate create RFID", "SELECT count(*) FROM identity_decisions WHERE evidence->'decision_record'->>'trace_id' = $1", dupe.TraceID)
-		assertNoRows(t, pool, "event after duplicate create RFID", "SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1", dupe.StoredIdempotencyKey)
-		assertNoRows(t, pool, "audit after duplicate create RFID", "SELECT count(*) FROM audit_log WHERE trace_id = $1", dupe.TraceID)
-		assertNoRows(t, pool, "outbox after duplicate create RFID", "SELECT count(*) FROM outbox_messages WHERE trace_id = $1", dupe.TraceID)
+		assertNoRows(t, pool, "idempotency after duplicate create Animal ID 1", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", dupe.StoredIdempotencyKey)
+		assertNoRows(t, pool, "Animal ID 2 identifier after duplicate create Animal ID 1", "SELECT count(*) FROM goat_identifiers WHERE tenant_id = $1 AND normalized_value = $2 AND scope_key = $3", meshaTenant, "ADMIN-CREATE-AID2-DUPE-0002", "global")
+		assertNoRows(t, pool, "location history after duplicate create Animal ID 1", "SELECT count(*) FROM goat_location_history WHERE tenant_id = $1 AND source_record_id = $2", meshaTenant, *dupe.SourceRecordID)
+		assertNoRows(t, pool, "decision after duplicate create Animal ID 1", "SELECT count(*) FROM identity_decisions WHERE evidence->'decision_record'->>'trace_id' = $1", dupe.TraceID)
+		assertNoRows(t, pool, "event after duplicate create Animal ID 1", "SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1", dupe.StoredIdempotencyKey)
+		assertNoRows(t, pool, "audit after duplicate create Animal ID 1", "SELECT count(*) FROM audit_log WHERE trace_id = $1", dupe.TraceID)
+		assertNoRows(t, pool, "outbox after duplicate create Animal ID 1", "SELECT count(*) FROM outbox_messages WHERE trace_id = $1", dupe.TraceID)
 	})
 
 	t.Run("admin goat create forced failure rolls back goat identifiers decision event audit outbox and idempotency", func(t *testing.T) {
-		cmd := adminGoatCreateCommand(t, "idem-create-goat-rollback-0001", "rfid-admin-create-rollback", "admin-create-oldtag-rollback")
+		cmd := adminGoatCreateCommand(t, "idem-create-goat-rollback-0001", "aid1-admin-create-rollback", "admin-create-aid2-rollback")
 		cmd.TraceID = "trace-admin-create-forced-rollback"
 		repo.afterAuditHook = func(context.Context) error { return errors.New("forced admin create rollback") }
 		_, err := repo.CreateAdminGoat(ctx, cmd)
@@ -340,8 +340,8 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 			t.Fatal("expected forced admin create rollback error")
 		}
 		assertNoRows(t, pool, "idempotency after admin create rollback", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
-		assertNoRows(t, pool, "rfid identifier after admin create rollback", "SELECT count(*) FROM goat_identifiers WHERE tenant_id = $1 AND normalized_value = $2", meshaTenant, "RFID-ADMIN-CREATE-ROLLBACK")
-		assertNoRows(t, pool, "old_tag identifier after admin create rollback", "SELECT count(*) FROM goat_identifiers WHERE tenant_id = $1 AND normalized_value = $2 AND scope_key = $3", meshaTenant, "admin-create-oldtag-rollback", "park:"+cbeLocation)
+		assertNoRows(t, pool, "Animal ID 1 identifier after admin create rollback", "SELECT count(*) FROM goat_identifiers WHERE tenant_id = $1 AND normalized_value = $2", meshaTenant, "AID1-ADMIN-CREATE-ROLLBACK")
+		assertNoRows(t, pool, "Animal ID 2 identifier after admin create rollback", "SELECT count(*) FROM goat_identifiers WHERE tenant_id = $1 AND normalized_value = $2 AND scope_key = $3", meshaTenant, "ADMIN-CREATE-AID2-ROLLBACK", "global")
 		assertNoRows(t, pool, "location history after admin create rollback", "SELECT count(*) FROM goat_location_history WHERE tenant_id = $1 AND source_record_id = $2", meshaTenant, *cmd.SourceRecordID)
 		assertNoRows(t, pool, "decision after admin create rollback", "SELECT count(*) FROM identity_decisions WHERE evidence->'decision_record'->>'trace_id' = $1", cmd.TraceID)
 		assertNoRows(t, pool, "event after admin create rollback", "SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
@@ -351,7 +351,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 
 	t.Run("add success writes identifier decision event audit outbox and schema-valid payloads", func(t *testing.T) {
 		goatID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
-		cmd := addIdentifierCommand(t, meshaTenant, "idem-add-write-0001", goatID, "rfid", " rfid-synthetic-0001 ", "global:rfid", false, goatRowVersion(t, pool, goatID))
+		cmd := addIdentifierCommand(t, meshaTenant, "idem-add-write-0001", goatID, "animal_identifier_1", " aid1-synthetic-0001 ", "global", false, goatRowVersion(t, pool, goatID))
 		result, err := repo.AddGoatIdentifier(ctx, cmd)
 		if err != nil {
 			t.Fatalf("AddGoatIdentifier: %v", err)
@@ -359,7 +359,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		if result.Replayed || result.Goat.GoatID != goatID || result.Decision.DecisionType != "attach_identifier" {
 			t.Fatalf("unexpected add result: %#v", result)
 		}
-		if len(result.Identifiers) != 1 || result.Identifiers[0].IdentifierType != "rfid" || result.Identifiers[0].Status != "active" {
+		if len(result.Identifiers) != 1 || result.Identifiers[0].IdentifierType != "animal_identifier_1" || result.Identifiers[0].Status != "active" {
 			t.Fatalf("unexpected identifiers: %#v", result.Identifiers)
 		}
 		identifierID := result.Identifiers[0].IdentifierID
@@ -370,7 +370,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		if err := pool.QueryRow(ctx, `SELECT normalized_value, status FROM goat_identifiers WHERE identifier_id = $1`, identifierID).Scan(&normalized, &status); err != nil {
 			t.Fatal(err)
 		}
-		if normalized != "RFID-SYNTHETIC-0001" || status != "active" {
+		if normalized != "AID1-SYNTHETIC-0001" || status != "active" {
 			t.Fatalf("identifier normalized/status = %s/%s", normalized, status)
 		}
 		assertIdentifierMutationRows(t, pool, cmd.StoredIdempotencyKey, goatID, identifierID, result.Decision.DecisionID, "attach", "goat.identifier.added")
@@ -379,7 +379,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 
 	t.Run("add exact replay rebuilds response and changed body conflicts", func(t *testing.T) {
 		goatID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
-		cmd := addIdentifierCommand(t, meshaTenant, "idem-add-write-0002", goatID, "rfid", "rfid-synthetic-0002", "global:rfid", false, 1)
+		cmd := addIdentifierCommand(t, meshaTenant, "idem-add-write-0002", goatID, "animal_identifier_1", "aid1-synthetic-0002", "global", false, 1)
 		first, err := repo.AddGoatIdentifier(ctx, cmd)
 		if err != nil {
 			t.Fatalf("first add: %v", err)
@@ -394,58 +394,58 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		if replay.Decision.DecisionID != first.Decision.DecisionID || replay.Events[0].EventID != first.Events[0].EventID {
 			t.Fatalf("replay did not refetch original decision/event: first=%#v replay=%#v", first, replay)
 		}
-		changed := addIdentifierCommand(t, meshaTenant, "idem-add-write-0002", goatID, "rfid", "rfid-synthetic-0002-changed", "global:rfid", false, 1)
+		changed := addIdentifierCommand(t, meshaTenant, "idem-add-write-0002", goatID, "animal_identifier_1", "aid1-synthetic-0002-changed", "global", false, 1)
 		if _, err := repo.AddGoatIdentifier(ctx, changed); !errors.Is(err, ports.ErrIdempotencyConflict) {
 			t.Fatalf("expected idempotency conflict, got %v", err)
 		}
 	})
 
-	t.Run("duplicate active rfid rolls back goat guard and idempotency", func(t *testing.T) {
+	t.Run("duplicate active Animal ID 1 rolls back goat guard and idempotency", func(t *testing.T) {
 		goatA := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
 		goatB := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
-		first := addIdentifierCommand(t, meshaTenant, "idem-add-rfid-0001", goatA, "rfid", "rfid-synthetic-dupe", "global:rfid", false, 1)
+		first := addIdentifierCommand(t, meshaTenant, "idem-add-aid1-0001", goatA, "animal_identifier_1", "aid1-synthetic-dupe", "global", false, 1)
 		if _, err := repo.AddGoatIdentifier(ctx, first); err != nil {
-			t.Fatalf("first rfid add: %v", err)
+			t.Fatalf("first Animal ID 1 add: %v", err)
 		}
-		dupe := addIdentifierCommand(t, meshaTenant, "idem-add-rfid-0002", goatB, "rfid", " RFID-SYNTHETIC-DUPE ", "global:rfid", false, 1)
+		dupe := addIdentifierCommand(t, meshaTenant, "idem-add-aid1-0002", goatB, "animal_identifier_1", " AID1-SYNTHETIC-DUPE ", "global", false, 1)
 		if _, err := repo.AddGoatIdentifier(ctx, dupe); !errors.Is(err, ports.ErrWriteConflict) {
-			t.Fatalf("expected duplicate RFID write conflict, got %v", err)
+			t.Fatalf("expected duplicate Animal ID 1 write conflict, got %v", err)
 		}
 		if got := goatRowVersion(t, pool, goatB); got != 1 {
-			t.Fatalf("duplicate RFID guard was not rolled back, row_version=%d", got)
+			t.Fatalf("duplicate Animal ID 1 guard was not rolled back, row_version=%d", got)
 		}
-		assertNoRows(t, pool, "idempotency after duplicate RFID", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", dupe.StoredIdempotencyKey)
-		assertNoRows(t, pool, "identifier after duplicate RFID", "SELECT count(*) FROM goat_identifiers WHERE goat_id = $1 AND normalized_value = $2", goatB, "RFID-SYNTHETIC-DUPE")
+		assertNoRows(t, pool, "idempotency after duplicate Animal ID 1", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", dupe.StoredIdempotencyKey)
+		assertNoRows(t, pool, "identifier after duplicate Animal ID 1", "SELECT count(*) FROM goat_identifiers WHERE goat_id = $1 AND normalized_value = $2", goatB, "AID1-SYNTHETIC-DUPE")
 	})
 
-	t.Run("duplicate old tag same scope fails while different scope succeeds", func(t *testing.T) {
+	t.Run("duplicate Animal ID 2 is rejected for lifetime even with another scope", func(t *testing.T) {
 		goatA := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
 		goatB := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
-		first := addIdentifierCommand(t, meshaTenant, "idem-add-oldtag-0001", goatA, "old_tag", "synthetic-oldtag-dupe", "park:CBE", false, 1)
+		first := addIdentifierCommand(t, meshaTenant, "idem-add-aid2-0001", goatA, "animal_identifier_2", "synthetic-aid2-dupe", "global", false, 1)
 		if _, err := repo.AddGoatIdentifier(ctx, first); err != nil {
-			t.Fatalf("first old_tag add: %v", err)
+			t.Fatalf("first animal_identifier_2 add: %v", err)
 		}
-		sameScope := addIdentifierCommand(t, meshaTenant, "idem-add-oldtag-0002", goatB, "old_tag", "synthetic-oldtag-dupe", "park:CBE", false, 1)
+		sameScope := addIdentifierCommand(t, meshaTenant, "idem-add-aid2-0002", goatB, "animal_identifier_2", "synthetic-aid2-dupe", "global", false, 1)
 		if _, err := repo.AddGoatIdentifier(ctx, sameScope); !errors.Is(err, ports.ErrWriteConflict) {
-			t.Fatalf("expected duplicate old_tag write conflict, got %v", err)
+			t.Fatalf("expected duplicate animal_identifier_2 write conflict, got %v", err)
 		}
 		if got := goatRowVersion(t, pool, goatB); got != 1 {
 			t.Fatalf("same-scope duplicate was not rolled back, row_version=%d", got)
 		}
-		differentScope := addIdentifierCommand(t, meshaTenant, "idem-add-oldtag-0003", goatB, "old_tag", "synthetic-oldtag-dupe", "park:CPT", false, 1)
-		if _, err := repo.AddGoatIdentifier(ctx, differentScope); err != nil {
-			t.Fatalf("different-scope old_tag should succeed: %v", err)
+		differentScope := addIdentifierCommand(t, meshaTenant, "idem-add-aid2-0003", goatB, "animal_identifier_2", "synthetic-aid2-dupe", "another-scope", false, 1)
+		if _, err := repo.AddGoatIdentifier(ctx, differentScope); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected duplicate Animal ID 2 lifetime conflict in another scope, got %v", err)
 		}
 	})
 
 	t.Run("primary identifier conflict rolls back row version", func(t *testing.T) {
 		goatID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
-		first := addIdentifierCommand(t, meshaTenant, "idem-add-primary-0001", goatID, "old_tag", "synthetic-primary-1", "park:CBE", true, 1)
+		first := addIdentifierCommand(t, meshaTenant, "idem-add-primary-0001", goatID, "animal_identifier_1", "synthetic-primary-1", "global", true, 1)
 		if _, err := repo.AddGoatIdentifier(ctx, first); err != nil {
 			t.Fatalf("first primary add: %v", err)
 		}
 		rowVersion := goatRowVersion(t, pool, goatID)
-		conflict := addIdentifierCommand(t, meshaTenant, "idem-add-primary-0002", goatID, "old_tag", "synthetic-primary-2", "park:CPT", true, rowVersion)
+		conflict := addIdentifierCommand(t, meshaTenant, "idem-add-primary-0002", goatID, "animal_identifier_1", "synthetic-primary-2", "global", true, rowVersion)
 		if _, err := repo.AddGoatIdentifier(ctx, conflict); !errors.Is(err, ports.ErrWriteConflict) {
 			t.Fatalf("expected primary write conflict, got %v", err)
 		}
@@ -456,35 +456,35 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 
 	t.Run("primary disallowed by identifier policy rolls back row version", func(t *testing.T) {
 		goatID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
-		cmd := addIdentifierCommand(t, meshaTenant, "idem-add-policy-primary-0001", goatID, "sheet_row_id", "synthetic-sheet-row-primary", "source:synthetic", true, 1)
+		cmd := addIdentifierCommand(t, meshaTenant, "idem-add-policy-primary-0001", goatID, "animal_identifier_2", "synthetic-aid2-primary", "global", true, 1)
 		if _, err := repo.AddGoatIdentifier(ctx, cmd); !errors.Is(err, ports.ErrWriteConflict) {
 			t.Fatalf("expected primary_allowed policy write conflict, got %v", err)
 		}
 		if got := goatRowVersion(t, pool, goatID); got != 1 {
 			t.Fatalf("policy conflict did not roll back goat row_version: got %d", got)
 		}
-		assertNoRows(t, pool, "identifier after primary policy conflict", "SELECT count(*) FROM goat_identifiers WHERE goat_id = $1 AND normalized_value = $2", goatID, "synthetic-sheet-row-primary")
+		assertNoRows(t, pool, "identifier after primary policy conflict", "SELECT count(*) FROM goat_identifiers WHERE goat_id = $1 AND normalized_value = $2", goatID, "synthetic-aid2-primary")
 		assertNoRows(t, pool, "idempotency after primary policy conflict", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
 	})
 
 	t.Run("add rejects merged stale and wrong tenant goats", func(t *testing.T) {
 		survivorID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
 		mergedID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
-		if _, err := pool.Exec(ctx, `UPDATE goats SET identity_state = 'merged', merged_into_goat_id = $1 WHERE goat_id = $2`, survivorID, mergedID); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE goats SET merged_into_goat_id = $1 WHERE goat_id = $2`, survivorID, mergedID); err != nil {
 			t.Fatal(err)
 		}
-		merged := addIdentifierCommand(t, meshaTenant, "idem-add-merged-0001", mergedID, "rfid", "rfid-synthetic-merged", "global:rfid", false, goatRowVersion(t, pool, mergedID))
+		merged := addIdentifierCommand(t, meshaTenant, "idem-add-merged-0001", mergedID, "animal_identifier_1", "aid1-synthetic-merged", "global", false, goatRowVersion(t, pool, mergedID))
 		if _, err := repo.AddGoatIdentifier(ctx, merged); !errors.Is(err, ports.ErrWriteConflict) {
 			t.Fatalf("expected merged goat write conflict, got %v", err)
 		}
 
 		staleGoat := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
-		stale := addIdentifierCommand(t, meshaTenant, "idem-add-stale-0001", staleGoat, "rfid", "rfid-synthetic-stale", "global:rfid", false, 2)
+		stale := addIdentifierCommand(t, meshaTenant, "idem-add-stale-0001", staleGoat, "animal_identifier_1", "aid1-synthetic-stale", "global", false, 2)
 		if _, err := repo.AddGoatIdentifier(ctx, stale); !errors.Is(err, ports.ErrWriteConflict) {
 			t.Fatalf("expected stale row_version conflict, got %v", err)
 		}
 
-		wrongTenant := addIdentifierCommand(t, secondTenant, "idem-add-wrongtenant-0001", staleGoat, "rfid", "rfid-synthetic-wrongtenant", "global:rfid", false, 1)
+		wrongTenant := addIdentifierCommand(t, secondTenant, "idem-add-wrongtenant-0001", staleGoat, "animal_identifier_1", "aid1-synthetic-wrongtenant", "global", false, 1)
 		if _, err := repo.AddGoatIdentifier(ctx, wrongTenant); !errors.Is(err, ports.ErrNotFound) {
 			t.Fatalf("expected wrong tenant not found, got %v", err)
 		}
@@ -492,7 +492,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 
 	t.Run("add forced failure rolls back identifier decision event audit outbox and idempotency", func(t *testing.T) {
 		goatID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
-		cmd := addIdentifierCommand(t, meshaTenant, "idem-add-rollback-0001", goatID, "rfid", "rfid-synthetic-rollback", "global:rfid", false, 1)
+		cmd := addIdentifierCommand(t, meshaTenant, "idem-add-rollback-0001", goatID, "animal_identifier_1", "aid1-synthetic-rollback", "global", false, 1)
 		cmd.TraceID = "trace-add-forced-rollback"
 		repo.afterAuditHook = func(context.Context) error { return errors.New("forced add rollback") }
 		_, err := repo.AddGoatIdentifier(ctx, cmd)
@@ -503,7 +503,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		if got := goatRowVersion(t, pool, goatID); got != 1 {
 			t.Fatalf("goat row_version after add rollback = %d", got)
 		}
-		assertNoRows(t, pool, "identifier after add rollback", "SELECT count(*) FROM goat_identifiers WHERE goat_id = $1 AND normalized_value = $2", goatID, "RFID-SYNTHETIC-ROLLBACK")
+		assertNoRows(t, pool, "identifier after add rollback", "SELECT count(*) FROM goat_identifiers WHERE goat_id = $1 AND normalized_value = $2", goatID, "AID1-SYNTHETIC-ROLLBACK")
 		assertNoRows(t, pool, "idempotency after add rollback", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
 		assertNoRows(t, pool, "decision after add rollback", "SELECT count(*) FROM identity_decisions WHERE evidence->'decision_record'->>'trace_id' = $1", cmd.TraceID)
 		assertNoRows(t, pool, "event after add rollback", "SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
@@ -513,7 +513,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 
 	t.Run("retire success replay and changed body conflict", func(t *testing.T) {
 		goatID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
-		added, err := repo.AddGoatIdentifier(ctx, addIdentifierCommand(t, meshaTenant, "idem-retire-add-0001", goatID, "old_tag", "synthetic-retire-1", "park:CBE", false, 1))
+		added, err := repo.AddGoatIdentifier(ctx, addIdentifierCommand(t, meshaTenant, "idem-retire-add-0001", goatID, "animal_identifier_2", "synthetic-retire-1", "global", false, 1))
 		if err != nil {
 			t.Fatalf("add for retire: %v", err)
 		}
@@ -547,7 +547,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 
 	t.Run("retire rejects already retired stale wrong goat and wrong tenant", func(t *testing.T) {
 		goatA := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
-		added, err := repo.AddGoatIdentifier(ctx, addIdentifierCommand(t, meshaTenant, "idem-retire-add-0002", goatA, "old_tag", "synthetic-retire-2", "park:CBE", false, 1))
+		added, err := repo.AddGoatIdentifier(ctx, addIdentifierCommand(t, meshaTenant, "idem-retire-add-0002", goatA, "animal_identifier_2", "synthetic-retire-2", "global", false, 1))
 		if err != nil {
 			t.Fatalf("add for retire variants: %v", err)
 		}
@@ -562,7 +562,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		}
 
 		activeGoat := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
-		active, err := repo.AddGoatIdentifier(ctx, addIdentifierCommand(t, meshaTenant, "idem-retire-add-0003", activeGoat, "old_tag", "synthetic-retire-3", "park:CBE", false, 1))
+		active, err := repo.AddGoatIdentifier(ctx, addIdentifierCommand(t, meshaTenant, "idem-retire-add-0003", activeGoat, "animal_identifier_2", "synthetic-retire-3", "global", false, 1))
 		if err != nil {
 			t.Fatalf("add active for stale/wrong goat: %v", err)
 		}
@@ -586,7 +586,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 
 	t.Run("retire forced failure rolls back identifier goat event audit outbox and idempotency", func(t *testing.T) {
 		goatID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
-		added, err := repo.AddGoatIdentifier(ctx, addIdentifierCommand(t, meshaTenant, "idem-retire-add-rollback-0001", goatID, "old_tag", "synthetic-retire-rollback", "park:CBE", false, 1))
+		added, err := repo.AddGoatIdentifier(ctx, addIdentifierCommand(t, meshaTenant, "idem-retire-add-rollback-0001", goatID, "animal_identifier_2", "synthetic-retire-rollback", "global", false, 1))
 		if err != nil {
 			t.Fatalf("add for retire rollback: %v", err)
 		}
@@ -661,7 +661,7 @@ func insertSyntheticGoat(t *testing.T, pool *pgxpool.Pool, tenantID, parkID stri
 INSERT INTO goats (
   tenant_id,
   lifecycle_status,
-  identity_state,
+  species,
   custodian_party_id,
   current_location_id,
   park_id,
@@ -670,7 +670,7 @@ INSERT INTO goats (
 ) VALUES (
   $1,
   'alive',
-  'clean',
+  'goat',
   $2,
   $3,
   $3,
@@ -810,7 +810,7 @@ WHERE tenant_id = $1
 	}
 }
 
-func adminGoatCreateCommand(t *testing.T, key, rfid, oldTag string) ports.CreateAdminGoatCommand {
+func adminGoatCreateCommand(t *testing.T, key, animalID1, animalID2 string) ports.CreateAdminGoatCommand {
 	t.Helper()
 	entryDate := time.Date(2026, time.June, 25, 0, 0, 0, 0, time.UTC)
 	dob := time.Date(2025, time.December, 15, 0, 0, 0, 0, time.UTC)
@@ -828,21 +828,22 @@ func adminGoatCreateCommand(t *testing.T, key, rfid, oldTag string) ports.Create
 	}}
 	farmID := adminCreateFarmLocation
 	body := map[string]any{
-		"rfid":             strings.TrimSpace(rfid),
-		"old_tag":          strings.TrimSpace(oldTag),
-		"farm_id":          farmID,
-		"park_id":          cbeLocation,
-		"shed_id":          adminCreateShedLocation,
-		"breed":            breed,
-		"sex":              "female",
-		"dob":              "2025-12-15",
-		"dob_estimated":    true,
-		"origin_type":      "procured",
-		"entry_date":       "2026-06-25",
-		"management_stage": managementStage,
-		"health_status":    healthStatus,
-		"source_record_id": sourceRecordID,
-		"evidence_refs":    evidenceRefs,
+		"animal_identifier_1": strings.TrimSpace(animalID1),
+		"animal_identifier_2": strings.TrimSpace(animalID2),
+		"species":             "goat",
+		"farm_id":             farmID,
+		"park_id":             cbeLocation,
+		"shed_id":             adminCreateShedLocation,
+		"breed":               breed,
+		"sex":                 "female",
+		"dob":                 "2025-12-15",
+		"dob_estimated":       true,
+		"origin_type":         "procured",
+		"entry_date":          "2026-06-25",
+		"management_stage":    managementStage,
+		"health_status":       healthStatus,
+		"source_record_id":    sourceRecordID,
+		"evidence_refs":       evidenceRefs,
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -862,21 +863,22 @@ func adminGoatCreateCommand(t *testing.T, key, rfid, oldTag string) ports.Create
 		TraceID:              "trace-" + key,
 		Identifiers: []ports.AdminGoatCreateIdentifier{
 			{
-				IdentifierType:  "rfid",
-				IdentifierValue: strings.TrimSpace(rfid),
-				NormalizedValue: strings.ToUpper(strings.TrimSpace(rfid)),
+				IdentifierType:  "animal_identifier_1",
+				IdentifierValue: strings.TrimSpace(animalID1),
+				NormalizedValue: strings.ToUpper(strings.TrimSpace(animalID1)),
 				ScopeKey:        "global",
 				IsPrimary:       true,
 			},
 			{
-				IdentifierType:  "old_tag",
-				IdentifierValue: strings.TrimSpace(oldTag),
-				NormalizedValue: strings.TrimSpace(oldTag),
-				ScopeKey:        "park:" + cbeLocation,
-				IsPrimary:       true,
+				IdentifierType:  "animal_identifier_2",
+				IdentifierValue: strings.TrimSpace(animalID2),
+				NormalizedValue: strings.ToUpper(strings.TrimSpace(animalID2)),
+				ScopeKey:        "global",
+				IsPrimary:       false,
 			},
 		},
 		CustodianPartyID: meshaParty,
+		Species:          "goat",
 		FarmID:           &farmID,
 		ParkID:           cbeLocation,
 		ShedID:           adminCreateShedLocation,
@@ -1059,7 +1061,7 @@ func healthGoatCommand(t *testing.T, key, goatID string, rowVersion int) ports.H
 
 func identifierEvidenceRef() domain.EvidenceRef {
 	description := "Synthetic source row for identifier mutation."
-	sourceSystem := "synthetic_import"
+	sourceSystem := "synthetic_goatos_fixture"
 	return domain.EvidenceRef{
 		EvidenceType: "source_record",
 		EvidenceID:   "synthetic-identifier-row-1",
@@ -1069,11 +1071,7 @@ func identifierEvidenceRef() domain.EvidenceRef {
 }
 
 func normalizeIdentifierForTest(identifierType, value string) string {
-	value = strings.TrimSpace(value)
-	if identifierType == "rfid" {
-		return strings.ToUpper(value)
-	}
-	return value
+	return strings.ToUpper(strings.TrimSpace(value))
 }
 
 func assertAdminGoatCreateRows(t *testing.T, pool *pgxpool.Pool, cmd ports.CreateAdminGoatCommand, result *ports.AdminGoatMutationResult) {

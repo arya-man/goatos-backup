@@ -100,15 +100,14 @@ type LoadGoat struct {
 	TenantID          string          `json:"tenant_id"`
 	LoadID            string          `json:"load_id"`
 	GoatID            string          `json:"goat_id"`
-	SourceTag         *string         `json:"source_tag,omitempty"`
-	SourceRFID        *string         `json:"source_rfid,omitempty"`
-	TemporaryID       *string         `json:"temporary_id,omitempty"`
+	AnimalIdentifier1 *string         `json:"animal_identifier_1,omitempty"`
+	AnimalIdentifier2 *string         `json:"animal_identifier_2,omitempty"`
 	SelectionState    string          `json:"selection_state"`
 	SelectionReason   string          `json:"selection_reason"`
 	Purpose           string          `json:"purpose"`
 	CurrentState      string          `json:"current_state"`
-	IdentityReview    string          `json:"identity_review_state"`
-	IdentityReviewRef *string         `json:"identity_review_ref,omitempty"`
+	SourceEntryState  string          `json:"source_entry_state"`
+	SourceEntryRef    *string         `json:"source_entry_ref,omitempty"`
 	OwnershipState    string          `json:"ownership_state"`
 	HealthState       string          `json:"health_state"`
 	WarmupStartedAt   *time.Time      `json:"warmup_started_at,omitempty"`
@@ -231,19 +230,19 @@ type ArrivalReview struct {
 }
 
 type ArrivalGoat struct {
-	ReviewGoatID string    `json:"review_goat_id"`
-	TenantID     string    `json:"tenant_id"`
-	ReviewID     string    `json:"review_id"`
-	LoadID       string    `json:"load_id"`
-	GoatID       *string   `json:"goat_id,omitempty"`
-	TemporaryID  *string   `json:"temporary_id,omitempty"`
-	SourceTag    *string   `json:"source_tag,omitempty"`
-	ArrivalState string    `json:"arrival_state"`
-	HealthFlag   *string   `json:"health_flag,omitempty"`
-	WeightFlag   *string   `json:"weight_flag,omitempty"`
-	ProofRefID   *string   `json:"proof_ref_id,omitempty"`
-	Notes        string    `json:"notes"`
-	CreatedAt    time.Time `json:"created_at"`
+	ReviewGoatID      string    `json:"review_goat_id"`
+	TenantID          string    `json:"tenant_id"`
+	ReviewID          string    `json:"review_id"`
+	LoadID            string    `json:"load_id"`
+	GoatID            *string   `json:"goat_id,omitempty"`
+	AnimalIdentifier1 *string   `json:"animal_identifier_1,omitempty"`
+	AnimalIdentifier2 *string   `json:"animal_identifier_2,omitempty"`
+	ArrivalState      string    `json:"arrival_state"`
+	HealthFlag        *string   `json:"health_flag,omitempty"`
+	WeightFlag        *string   `json:"weight_flag,omitempty"`
+	ProofRefID        *string   `json:"proof_ref_id,omitempty"`
+	Notes             string    `json:"notes"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 type PHCHandoff struct {
@@ -399,14 +398,14 @@ type ProtocolAdherenceResponse struct {
 }
 
 type ControlTowerSummary struct {
-	ProcessIntact         bool `json:"process_intact"`
-	CriticalCount         int  `json:"critical_count"`
-	WarningCount          int  `json:"warning_count"`
-	OpenGapCount          int  `json:"open_gap_count"`
-	MissingProofCount     int  `json:"missing_proof_count"`
-	ArrivalMismatchCount  int  `json:"arrival_mismatch_count"`
-	OwnerMissingCount     int  `json:"owner_missing_count"`
-	IdentityConflictCount int  `json:"identity_conflict_count"`
+	ProcessIntact           bool `json:"process_intact"`
+	CriticalCount           int  `json:"critical_count"`
+	WarningCount            int  `json:"warning_count"`
+	OpenGapCount            int  `json:"open_gap_count"`
+	MissingProofCount       int  `json:"missing_proof_count"`
+	ArrivalMismatchCount    int  `json:"arrival_mismatch_count"`
+	OwnerMissingCount       int  `json:"owner_missing_count"`
+	SourceEntryBlockedCount int  `json:"source_entry_blocked_count"`
 }
 
 type ControlTowerAlert struct {

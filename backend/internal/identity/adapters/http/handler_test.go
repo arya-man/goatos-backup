@@ -47,7 +47,7 @@ func TestSearchGoatsForwardsTableFilters(t *testing.T) {
 	Register(mux, NewHandler(app.NewService(repo)))
 	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=25&q=G-000001&goat_id=10000000-0000-4000-8000-000000000001&identifier_type=rfid&scope_key=global%3Arfid&breed=Sojat&sex=male&farm_id=20000000-0000-4000-8000-000000000001&park_id=30000000-0000-4000-8000-000000000001&location_id=40000000-0000-4000-8000-000000000001&status=alive", nil)
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=25&q=G-000001&goat_id=10000000-0000-4000-8000-000000000001&identifier_type=animal_identifier_1&scope_key=global&breed=Sojat&sex=male&farm_id=20000000-0000-4000-8000-000000000001&park_id=30000000-0000-4000-8000-000000000001&location_id=40000000-0000-4000-8000-000000000001&status=alive", nil)
 	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
 	req.Header.Set("X-Request-ID", "req-search")
 	rec := httptest.NewRecorder()
@@ -71,8 +71,8 @@ func TestSearchGoatsForwardsTableFilters(t *testing.T) {
 	}
 	assertPtr("q", repo.searchParams.Query, "G-000001")
 	assertPtr("goat_id", repo.searchParams.GoatID, "10000000-0000-4000-8000-000000000001")
-	assertPtr("identifier_type", repo.searchParams.IdentifierType, "rfid")
-	assertPtr("scope_key", repo.searchParams.ScopeKey, "global:rfid")
+	assertPtr("identifier_type", repo.searchParams.IdentifierType, "animal_identifier_1")
+	assertPtr("scope_key", repo.searchParams.ScopeKey, "global")
 	assertPtr("breed", repo.searchParams.Breed, "Sojat")
 	assertPtr("sex", repo.searchParams.Sex, "male")
 	assertPtr("farm_id", repo.searchParams.FarmID, "20000000-0000-4000-8000-000000000001")
@@ -246,7 +246,7 @@ func TestAddGoatIdentifierRejectsInvalidActorAndUnknownFields(t *testing.T) {
 		t.Fatalf("unexpected envelope: %#v", envelope)
 	}
 
-	body := `{"identifier_type":"rfid","identifier_value":"RFID-SYNTHETIC-001","scope_key":"global:rfid","evidence_ids":["synthetic-row-1"],"row_version":1}`
+	body := `{"identifier_type":"animal_identifier_1","identifier_value":"A1-SYNTHETIC-001","scope_key":"global","evidence_ids":["synthetic-row-1"],"row_version":1}`
 	rec = postAddGoatIdentifier(t, "90000000-0000-4000-8000-000000000001", "idem-add-handler-0002", body)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
@@ -264,7 +264,7 @@ func TestAddGoatIdentifierReplayReturnsAdminResponse(t *testing.T) {
 	rec := postAddGoatIdentifierWithRepo(t, &handlerRepo{
 		addIdentifierResult: &ports.AdminGoatMutationResult{
 			Goat:          handlerPassport().Summary,
-			Identifiers:   []domain.GoatIdentifier{identifierResponseFixture(resultID, "rfid", "RFID-SYNTHETIC-001", "active")},
+			Identifiers:   []domain.GoatIdentifier{identifierResponseFixture(resultID, "animal_identifier_1", "A1-SYNTHETIC-001", "active")},
 			Decision:      identifierDecisionFixture("50000000-0000-4000-8000-000000000101", "attach_identifier", "identifier_attached"),
 			Events:        []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000101", EventType: "goat.identifier.added"}},
 			Replayed:      true,
@@ -327,7 +327,7 @@ func TestRetireGoatIdentifierReplayReturnsAdminResponse(t *testing.T) {
 	rec := postRetireGoatIdentifierWithRepo(t, &handlerRepo{
 		retireIdentifierResult: &ports.AdminGoatMutationResult{
 			Goat:          handlerPassport().Summary,
-			Identifiers:   []domain.GoatIdentifier{identifierResponseFixture(resultID, "old_tag", "1900", "retired")},
+			Identifiers:   []domain.GoatIdentifier{identifierResponseFixture(resultID, "animal_identifier_1", "A1-1900", "retired")},
 			Decision:      identifierDecisionFixture("50000000-0000-4000-8000-000000000102", "retire_identifier", "identifier_retired"),
 			Events:        []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
 			Replayed:      true,
@@ -393,7 +393,7 @@ func postRetireGoatIdentifierWithRepo(t *testing.T, repo ports.Repository, actor
 }
 
 func validAddIdentifierBody() string {
-	return `{"identifier_type":"rfid","identifier_value":"RFID-SYNTHETIC-001","scope_key":"global:rfid","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":1}`
+	return `{"identifier_type":"animal_identifier_1","identifier_value":"A1-SYNTHETIC-001","scope_key":"global","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":1}`
 }
 
 func validRetireIdentifierBody() string {
@@ -457,7 +457,7 @@ func (h handlerRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoa
 	}
 	return &ports.AdminGoatMutationResult{
 		Goat:        handlerPassport().Summary,
-		Identifiers: []domain.GoatIdentifier{identifierResponseFixture(cmd.IdentifierID, "old_tag", "1900", "retired")},
+		Identifiers: []domain.GoatIdentifier{identifierResponseFixture(cmd.IdentifierID, "animal_identifier_1", "A1-1900", "retired")},
 		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000102", "retire_identifier", "identifier_retired"),
 		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
 	}, nil
@@ -528,7 +528,7 @@ func identifierResponseFixture(id, identifierType, value, status string) domain.
 		IdentifierID:     id,
 		IdentifierType:   identifierType,
 		IdentifierValue:  value,
-		ScopeKey:         "global:rfid",
+		ScopeKey:         "global",
 		Status:           status,
 		IsPrimaryForGoat: false,
 		ValidFrom:        validFrom,
@@ -542,17 +542,17 @@ func identifierResponseFixture(id, identifierType, value, status string) domain.
 
 func handlerPassport() *domain.GoatPassport {
 	return &domain.GoatPassport{
-		GoatID:        "10000000-0000-4000-8000-000000000001",
-		DisplayID:     "G-000001",
-		Species:       "goat",
-		IdentityState: "clean",
+		GoatID:    "10000000-0000-4000-8000-000000000001",
+		DisplayID: "G-000001",
+		Species:   "goat",
 		Summary: domain.GoatSummary{
-			GoatID:          "10000000-0000-4000-8000-000000000001",
-			DisplayID:       "G-000001",
-			LifecycleStatus: "alive",
-			IdentityState:   "clean",
-			LocationPath:    domain.LocationPath{Display: "Synthetic CBE"},
-			Warnings:        []domain.Warning{},
+			GoatID:            "10000000-0000-4000-8000-000000000001",
+			DisplayID:         "G-000001",
+			AnimalIdentifier1: strPtr("A1-G-000001"),
+			AnimalIdentifier2: strPtr("A2-G-000001"),
+			LifecycleStatus:   "alive",
+			LocationPath:      domain.LocationPath{Display: "Synthetic CBE"},
+			Warnings:          []domain.Warning{},
 		},
 		Identifiers:  []domain.GoatIdentifier{},
 		EvidenceRefs: []domain.EvidenceRef{},

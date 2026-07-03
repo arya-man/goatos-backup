@@ -64,8 +64,8 @@ type LocationScope struct {
 type GoatSummary struct {
 	GoatID             string       `json:"goat_id"`
 	DisplayID          string       `json:"display_id"`
-	PrimaryOldTag      *string      `json:"primary_old_tag"`
-	RFID               *string      `json:"rfid"`
+	AnimalIdentifier1  *string      `json:"animal_identifier_1"`
+	AnimalIdentifier2  *string      `json:"animal_identifier_2"`
 	Breed              *string      `json:"breed"`
 	Sex                *string      `json:"sex"`
 	AgeBand            *string      `json:"age_band"`
@@ -74,10 +74,10 @@ type GoatSummary struct {
 	GrowthCohortTag    *string      `json:"growth_cohort_tag"`
 	ManagementStage    *string      `json:"management_stage"`
 	HealthStatus       *string      `json:"health_status"`
-	IdentityState      string       `json:"identity_state"`
 	LocationPath       LocationPath `json:"location_path"`
 	WeightKg           *float64     `json:"weight_kg,omitempty"`
 	Warnings           []Warning    `json:"warnings"`
+	MergedIntoGoatID   *string      `json:"-"`
 }
 
 type GoatIdentifier struct {
@@ -98,7 +98,6 @@ type GoatPassport struct {
 	GoatID           string           `json:"goat_id"`
 	DisplayID        string           `json:"display_id"`
 	Species          string           `json:"species"`
-	IdentityState    string           `json:"identity_state"`
 	Summary          GoatSummary      `json:"summary"`
 	Identifiers      []GoatIdentifier `json:"identifiers"`
 	EvidenceRefs     []EvidenceRef    `json:"evidence_refs"`
@@ -160,9 +159,9 @@ type IdempotencyMeta struct {
 }
 
 type AdminGoatCreateRequest struct {
-	RFID               *string       `json:"rfid,omitempty"`
-	OldTag             *string       `json:"old_tag,omitempty"`
-	TempFieldID        *string       `json:"temp_field_id,omitempty"`
+	AnimalIdentifier1  *string       `json:"animal_identifier_1,omitempty"`
+	AnimalIdentifier2  *string       `json:"animal_identifier_2,omitempty"`
+	Species            string        `json:"species"`
 	FarmID             *string       `json:"farm_id,omitempty"`
 	FarmCode           *string       `json:"farm_code,omitempty"`
 	ParkID             *string       `json:"park_id,omitempty"`

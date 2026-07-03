@@ -67,10 +67,10 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetGoatByID: %v", err)
 	}
-	if passport.DisplayID == "" || passport.Summary.PrimaryOldTag == nil || *passport.Summary.PrimaryOldTag != "1900" {
+	if passport.DisplayID == "" || passport.Summary.AnimalIdentifier1 == nil || *passport.Summary.AnimalIdentifier1 != "A1-1900-CBE" {
 		t.Fatalf("unexpected passport: %#v", passport)
 	}
-	if len(passport.Identifiers) != 1 || passport.Identifiers[0].IdentifierValue != "1900" {
+	if len(passport.Identifiers) != 2 || passport.Identifiers[0].IdentifierValue != "A1-1900-CBE" {
 		t.Fatalf("unexpected passport identifiers: %#v", passport.Identifiers)
 	}
 
@@ -81,7 +81,7 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 	if displayPassport.GoatID != passport.GoatID || displayPassport.DisplayID != passport.DisplayID {
 		t.Fatalf("display lookup returned wrong goat: %#v", displayPassport)
 	}
-	if len(displayPassport.Identifiers) != 1 || displayPassport.Identifiers[0].ScopeKey != "park:CBE" {
+	if len(displayPassport.Identifiers) != 2 || displayPassport.Identifiers[0].ScopeKey != "global" {
 		t.Fatalf("display lookup identifiers wrong: %#v", displayPassport.Identifiers)
 	}
 
@@ -94,9 +94,9 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 
 	matches, err := repo.FindIdentifierMatches(ctx, ports.ResolveIdentifierParams{
 		TenantID:        meshaTenant,
-		IdentifierType:  "old_tag",
-		NormalizedValue: "1900",
-		ScopeKey:        strPtr("park:CBE"),
+		IdentifierType:  "animal_identifier_1",
+		NormalizedValue: "A1-1900-CBE",
+		ScopeKey:        strPtr("global"),
 	})
 	if err != nil {
 		t.Fatalf("FindIdentifierMatches scoped: %v", err)
@@ -107,29 +107,29 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 
 	matches, err = repo.FindIdentifierMatches(ctx, ports.ResolveIdentifierParams{
 		TenantID:        meshaTenant,
-		IdentifierType:  "old_tag",
-		NormalizedValue: "1900",
+		IdentifierType:  "animal_identifier_1",
+		NormalizedValue: "A1-1900-CBE",
 	})
 	if err != nil {
 		t.Fatalf("FindIdentifierMatches all scopes: %v", err)
 	}
-	if len(matches) != 2 {
-		t.Fatalf("same old tag across scopes should return 2 visible matches, got %d", len(matches))
+	if len(matches) != 1 {
+		t.Fatalf("Animal ID is lifetime-unique and should return 1 visible match, got %d", len(matches))
 	}
 
-	conflict, err := repo.FindOpenConflictForIdentifier(ctx, meshaTenant, "old_tag", "1900", "park:CBE")
+	conflict, err := repo.FindOpenConflictForIdentifier(ctx, meshaTenant, "animal_identifier_1", "A1-1900-CBE", "global")
 	if err != nil {
 		t.Fatalf("FindOpenConflictForIdentifier: %v", err)
 	}
 	if conflict == nil || *conflict != "20000000-0000-4000-8000-000000000001" {
 		t.Fatalf("unexpected conflict id: %v", conflict)
 	}
-	conflict, err = repo.FindOpenConflictForIdentifier(ctx, meshaTenant, "old_tag", "1900", "park:CPT")
+	conflict, err = repo.FindOpenConflictForIdentifier(ctx, meshaTenant, "animal_identifier_1", "A1-NOT-RECORDED", "global")
 	if err != nil {
-		t.Fatalf("FindOpenConflictForIdentifier wrong scope: %v", err)
+		t.Fatalf("FindOpenConflictForIdentifier absent id: %v", err)
 	}
 	if conflict != nil {
-		t.Fatalf("unexpected cross-scope conflict id: %v", *conflict)
+		t.Fatalf("unexpected conflict id for absent Animal ID: %v", *conflict)
 	}
 
 	timeline, nextTimeline, err := repo.GetGoatTimeline(ctx, ports.GetGoatTimelineParams{TenantID: meshaTenant, GoatID: "10000000-0000-4000-8000-000000000001", Limit: 1})
@@ -188,46 +188,49 @@ VALUES ('`+secondTenant+`', 'Synthetic second tenant', 'active');
 INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
 VALUES ('`+t2Location+`', '`+secondTenant+`', 'park', 'CBE', 'Synthetic tenant 2 CBE', 'active');
 
-INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id, breed, sex)
+INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, current_location_id, park_id, breed, sex)
 VALUES
-  ('10000000-0000-4000-8000-000000000001', '`+meshaTenant+`', 'alive', 'clean', '`+meshaParty+`', '`+cbeLocation+`', '`+cbeLocation+`', 'Synthetic Boer', 'female'),
-  ('10000000-0000-4000-8000-000000000002', '`+meshaTenant+`', 'alive', 'clean', '`+meshaParty+`', '`+cptLocation+`', '`+cptLocation+`', 'Synthetic Boer', 'male'),
-  ('10000000-0000-4000-8000-000000000101', '`+secondTenant+`', 'alive', 'clean', '`+meshaParty+`', '`+t2Location+`', '`+t2Location+`', 'Synthetic Boer', 'female');
+  ('10000000-0000-4000-8000-000000000001', '`+meshaTenant+`', 'alive', 'goat', '`+meshaParty+`', '`+cbeLocation+`', '`+cbeLocation+`', 'Synthetic Boer', 'female'),
+  ('10000000-0000-4000-8000-000000000002', '`+meshaTenant+`', 'alive', 'goat', '`+meshaParty+`', '`+cptLocation+`', '`+cptLocation+`', 'Synthetic Boer', 'male'),
+  ('10000000-0000-4000-8000-000000000101', '`+secondTenant+`', 'alive', 'goat', '`+meshaParty+`', '`+t2Location+`', '`+t2Location+`', 'Synthetic Boer', 'female');
 
-INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
-VALUES
-  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000001', 'old_tag', '1900', '1900', 'park:CBE', true, 'active', now(), 'test_v1'),
-  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000002', 'old_tag', '1900', '1900', 'park:CPT', true, 'active', now(), 'test_v1'),
-  ('`+secondTenant+`', '10000000-0000-4000-8000-000000000101', 'old_tag', '1900', '1900', 'park:CBE', true, 'active', now(), 'test_v1');
+	INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+	VALUES
+	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000001', 'animal_identifier_1', 'A1-1900-CBE', 'A1-1900-CBE', 'global', true, 'active', now(), 'test_v1'),
+	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000001', 'animal_identifier_2', 'A2-1900-CBE', 'A2-1900-CBE', 'global', false, 'active', now(), 'test_v1'),
+	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000002', 'animal_identifier_1', 'A1-1900-CPT', 'A1-1900-CPT', 'global', true, 'active', now(), 'test_v1'),
+	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000002', 'animal_identifier_2', 'A2-1900-CPT', 'A2-1900-CPT', 'global', false, 'active', now(), 'test_v1'),
+	  ('`+secondTenant+`', '10000000-0000-4000-8000-000000000101', 'animal_identifier_1', 'A1-1900-T2', 'A1-1900-T2', 'global', true, 'active', now(), 'test_v1'),
+	  ('`+secondTenant+`', '10000000-0000-4000-8000-000000000101', 'animal_identifier_2', 'A2-1900-T2', 'A2-1900-T2', 'global', false, 'active', now(), 'test_v1');
 
 INSERT INTO identity_conflicts (conflict_id, tenant_id, conflict_type, severity, state, identifier_type, identifier_value, goat_ids, source_record_ids, evidence)
 VALUES (
   '20000000-0000-4000-8000-000000000001',
   '`+meshaTenant+`',
-  'old_tag_reused',
+	  'status_mismatch',
   'medium',
   'open',
-  'old_tag',
-  '1900',
+	  'animal_identifier_1',
+	  'A1-1900-CBE',
   ARRAY['10000000-0000-4000-8000-000000000001'::uuid, '10000000-0000-4000-8000-000000000002'::uuid],
   ARRAY['synthetic-source-record-1'],
   '{
-    "scope_key":"park:CBE",
-    "source_system":"legacy_bigquery",
-    "source_context":"bq_reconcile_attribute_conflict",
-    "review_note":"Synthetic legacy evidence for reviewer UI.",
+	    "scope_key":"global",
+	    "source_system":"goatos_seed",
+	    "source_context":"clean_slate_fixture",
+	    "review_note":"Synthetic clean-slate evidence for repository UI.",
     "latest_event_date":"2026-06-01",
     "latest_farm_code":"CBE",
-    "matched_keys":["old_tag:park:cbe:1900"],
+	    "matched_keys":["animal_identifier_1:global:A1-1900-CBE"],
     "conflicts":[{
       "Attribute":"sex",
-      "Reason":"bq_gender_self_conflict",
+	      "Reason":"source_fixture_conflict",
       "LocalValue":"female",
-      "BQValue":"female|male",
-      "IdentifierKind":"old_tag",
-      "IdentifierKey":"old_tag:park:cbe:1900",
+      "ConflictingValue":"female|male",
+	      "IdentifierKind":"animal_identifier_1",
+	      "IdentifierKey":"animal_identifier_1:global:A1-1900-CBE",
       "LatestEventDate":"2026-06-01",
-      "RecommendedState":"Legacy gender has multiple values for this identifier; review source rows before changing canonical sex."
+	      "RecommendedState":"Clean-slate fixture conflict for repository coverage."
     }]
   }'::jsonb
 );
@@ -247,12 +250,12 @@ VALUES (
   'status_mismatch',
   'low',
   'open',
-  'old_tag',
-  '1901',
-  ARRAY['10000000-0000-4000-8000-000000000002'::uuid],
-  ARRAY['old_tag:park:cpt:1901'],
-  '{"scope_key":"park:CPT","source_system":"legacy_bigquery"}'::jsonb
-);
+	  'animal_identifier_1',
+	  'A1-1900-CPT',
+	  ARRAY['10000000-0000-4000-8000-000000000002'::uuid],
+	  ARRAY['animal_identifier_1:global:A1-1900-CPT'],
+	  '{"scope_key":"global","source_system":"goatos_seed"}'::jsonb
+	);
 
 UPDATE identity_conflicts
 SET created_at = '2026-06-10 00:00:00+00'

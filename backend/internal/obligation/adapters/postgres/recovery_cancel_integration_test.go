@@ -170,10 +170,10 @@ WITH load AS (
 )
 INSERT INTO procurement_load_goats (
   tenant_id, load_id, goat_id, selection_state, current_state,
-  identity_review_state, ownership_state, health_state
+  source_entry_state, ownership_state, health_state
 )
 SELECT $1::uuid, load_id, $3::uuid, 'candidate', 'source_health_failed',
-       'clean', 'mesha_owned', 'failed'
+       'accepted', 'mesha_owned', 'failed'
 FROM load`, tenantID, meshaParty, testGoatID); err != nil {
 		t.Fatalf("seed temporary procurement state: %v", err)
 	}

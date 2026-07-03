@@ -168,12 +168,11 @@ export const PROC_ARRIVAL_META: Record<ProcurementArrivalState, Meta> = {
   blocked: { label: "Blocked", tone: "dng" },
 };
 
-export type IdentityReviewState = "pending" | "clean" | "conflict" | "unknown_extra";
-export const PROC_IDENTITY_META: Record<IdentityReviewState, Meta> = {
-  pending: { label: "Identity: pending", tone: "warn" },
-  clean: { label: "Identity: clean", tone: "ok" },
-  conflict: { label: "Identity: conflict", tone: "dng" },
-  unknown_extra: { label: "Identity: unknown/extra", tone: "dng" },
+export type SourceEntryState = "pending" | "accepted" | "blocked";
+export const PROC_SOURCE_ENTRY_META: Record<SourceEntryState, Meta> = {
+  pending: { label: "Source entry: pending", tone: "warn" },
+  accepted: { label: "Source entry: accepted", tone: "ok" },
+  blocked: { label: "Source entry: blocked", tone: "dng" },
 };
 
 // Column swatch color per tone — mirrors the mock's per-status swatch.

@@ -186,7 +186,7 @@ func TestOutboxRelayWithDockerPostgres(t *testing.T) {
 	})
 
 	t.Run("invalid envelope fails terminal without publish and sanitizes error", func(t *testing.T) {
-		rawPayload := json.RawMessage(`{"rfid":"9900000000000000000000000000001","old_tag":"SYNTHETIC_PRIVATE_TAG"}`)
+		rawPayload := json.RawMessage(`{"animal_identifier_1":"AID-SYNTHETIC-001","animal_identifier_2":"AID-SYNTHETIC-002"}`)
 		row := insertOutboxMessage(t, pool, outboxRow{Suffix: 70, Status: domain.StatusPending, Payload: rawPayload})
 		publisher := &fakePublisher{}
 		service := newRelayService(t, pool, publisher, outboxapp.Config{Limit: 10, MaxAttempts: 5, Now: fixedNow})
@@ -621,10 +621,9 @@ func seedOutboxGoat(t *testing.T, pool *pgxpool.Pool) {
 	if _, err := pool.Exec(context.Background(), `
 INSERT INTO goats (
   goat_id, tenant_id, species, breed, sex, lifecycle_status,
-  identity_state, custodian_party_id
+  species, custodian_party_id
 ) VALUES (
-  $1, $2, 'goat', 'Boer', 'female', 'alive',
-  'clean', $3
+  $1, $2, 'goat', 'Boer', 'female', 'alive', 'goat', $3
 ) ON CONFLICT DO NOTHING`, outboxGoatID, meshaTenant, meshaParty); err != nil {
 		t.Fatal(err)
 	}

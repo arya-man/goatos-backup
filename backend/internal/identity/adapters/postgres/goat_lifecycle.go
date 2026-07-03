@@ -37,7 +37,7 @@ const (
 
 type goatMutationState struct {
 	LifecycleStatus string
-	IdentityState   string
+	MergedIntoGoatID *string
 	ManagementStage string
 	HealthStatus    string
 	RowVersion      int
@@ -99,7 +99,7 @@ func (r *Repository) MoveGoat(ctx context.Context, cmd ports.MoveGoatCommand) (*
 	if err != nil {
 		return nil, err
 	}
-	if state.RowVersion != cmd.RowVersion || state.IdentityState == "merged" || exitedLifecycleStatus(state.LifecycleStatus) {
+		if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
 		return nil, ports.ErrWriteConflict
 	}
 	if state.ShedID != nil && *state.ShedID == cmd.ToShedID && state.ParkID != nil && *state.ParkID == cmd.ToParkID {
@@ -203,7 +203,7 @@ func (r *Repository) ExitGoat(ctx context.Context, cmd ports.ExitGoatCommand) (*
 	if err != nil {
 		return nil, err
 	}
-	if state.RowVersion != cmd.RowVersion || state.IdentityState == "merged" || exitedLifecycleStatus(state.LifecycleStatus) {
+		if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
 		return nil, ports.ErrWriteConflict
 	}
 	if criticalDeathExit(cmd.LifecycleStatus, cmd.ExitReason) && !cmd.GuardrailApproved {
@@ -306,7 +306,7 @@ func (r *Repository) StageGoat(ctx context.Context, cmd ports.StageGoatCommand) 
 	if !stageOK {
 		return nil, ports.ErrInvalidReference
 	}
-	if state.RowVersion != cmd.RowVersion || state.IdentityState == "merged" || exitedLifecycleStatus(state.LifecycleStatus) {
+		if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
 		return nil, ports.ErrWriteConflict
 	}
 	if state.ManagementStage == cmd.ManagementStage {
@@ -399,7 +399,7 @@ func (r *Repository) HealthGoat(ctx context.Context, cmd ports.HealthGoatCommand
 	if err != nil {
 		return nil, err
 	}
-	if state.RowVersion != cmd.RowVersion || state.IdentityState == "merged" || exitedLifecycleStatus(state.LifecycleStatus) {
+		if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
 		return nil, ports.ErrWriteConflict
 	}
 	if state.HealthStatus == cmd.HealthStatus {
@@ -719,15 +719,15 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'affected')`,
 
 func lockGoatForLifecycleMutation(ctx context.Context, tx pgx.Tx, tenantID, goatID string) (goatMutationState, error) {
 	var state goatMutationState
-	var currentLocation, farmID, parkID, shedID pgtype.UUID
+	var mergedInto, currentLocation, farmID, parkID, shedID pgtype.UUID
 	err := tx.QueryRow(ctx, `
-SELECT lifecycle_status, identity_state, COALESCE(management_stage, ''), COALESCE(health_status, ''), row_version,
-       current_location_id, farm_id, park_id, shed_id
-FROM goats
-WHERE tenant_id = $1::uuid AND goat_id = $2::uuid
-FOR UPDATE`, tenantID, goatID).Scan(
+	SELECT lifecycle_status, merged_into_goat_id, COALESCE(management_stage, ''), COALESCE(health_status, ''), row_version,
+	       current_location_id, farm_id, park_id, shed_id
+	FROM goats
+	WHERE tenant_id = $1::uuid AND goat_id = $2::uuid
+	FOR UPDATE`, tenantID, goatID).Scan(
 		&state.LifecycleStatus,
-		&state.IdentityState,
+		&mergedInto,
 		&state.ManagementStage,
 		&state.HealthStatus,
 		&state.RowVersion,
@@ -742,6 +742,7 @@ FOR UPDATE`, tenantID, goatID).Scan(
 	if err != nil {
 		return state, err
 	}
+	state.MergedIntoGoatID = uuidStringPtr(mergedInto)
 	state.CurrentLocation = uuidStringPtr(currentLocation)
 	state.FarmID = uuidStringPtr(farmID)
 	state.ParkID = uuidStringPtr(parkID)

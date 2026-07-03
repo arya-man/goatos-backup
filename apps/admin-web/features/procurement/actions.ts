@@ -51,6 +51,7 @@ const HEALTH_FULL: ProcurementHealthState[] = ["pending", "passed", "failed", "d
 const OWNERSHIP_STATES: ProcurementOwnershipState[] = ["pending", "shared_pending", "mesha_owned", "blocked", "not_owned", "settled"];
 const PURPOSES: ProcurementPurpose[] = ["breeding", "fattening", "non_breeding", "unspecified"];
 const SEXES = ["female", "male"] as const;
+const SPECIES = ["goat", "sheep"] as const;
 type HFReviewRequestStatus = ReviewProcurementHFVaccinationEvidenceRequest["review_status"];
 const HF_REVIEW_STATUSES: HFReviewRequestStatus[] = ["trusted", "rejected", "conflicting", "duplicate"];
 
@@ -157,12 +158,12 @@ export async function addSourceGoatAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
   let actionKey = "action.source_goat_added";
   const loadId = requiredString(formData, "load_id");
-  try {
-    const body: AddProcurementLoadGoatRequest = {
-      source_tag: optionalString(formData, "source_tag") ?? null,
-      source_rfid: optionalString(formData, "source_rfid") ?? null,
-      temporary_id: optionalString(formData, "temporary_id") ?? null,
-      sex: inEnum(optionalString(formData, "sex"), SEXES, "sex"),
+	try {
+		const body: AddProcurementLoadGoatRequest = {
+			animal_identifier_1: optionalString(formData, "animal_identifier_1") ?? null,
+			animal_identifier_2: optionalString(formData, "animal_identifier_2") ?? null,
+			species: inEnum(optionalString(formData, "species"), SPECIES, "species"),
+			sex: inEnum(optionalString(formData, "sex"), SEXES, "sex"),
       selection_state: optionalString(formData, "selection_state")
         ? inEnum<ProcurementSelectionState>(optionalString(formData, "selection_state"), SELECTION_STATES, "selection_state")
         : undefined,
@@ -179,9 +180,9 @@ export async function addSourceGoatAction(formData: FormData): Promise<void> {
       warmup_days: optInt(formData, "warmup_days"),
       holding_location_id: optionalString(formData, "holding_location_id") ?? null,
     };
-    if (!body.source_tag && !body.source_rfid && !body.temporary_id) {
-      throw new Error("Provide at least one source identifier (source tag, RFID, or temporary id).");
-    }
+		if (!body.animal_identifier_1 || !body.animal_identifier_2) {
+			throw new Error("Provide Animal ID 1 and Animal ID 2.");
+		}
     const result = await addProcurementLoadGoat(loadId, body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";

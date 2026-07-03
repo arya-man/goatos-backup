@@ -7,7 +7,7 @@
 //
 // Backend authority for field types is `supportedFieldType` in
 // backend/internal/sop/app/service.go:493 — text|number|date_time|select|multiselect|goat_lookup|
-// rfid_scan|location_picker|photo_proof|video_proof. The builder offers the mock's richer type
+// animal_id_scan|location_picker|photo_proof|video_proof. The builder offers the mock's richer type
 // vocabulary and maps each to a backend-supported type so the emitted form_dsl always validates;
 // types with no native backend equivalent are mapped + flagged as gaps (see STEP_TYPES / DSL_GAPS).
 
@@ -150,8 +150,7 @@ export function deriveGates(formDsl: unknown, proofPolicy: unknown): string[] {
   const gates: string[] = [];
   const policy = asObject(proofPolicy);
   if (policy && asBool(policy["required"])) {
-    // Canonical proof_policy keys (backend evaluator + 000081 seed): types[], minimum_count.
-    // Old SOP Library drafts used proof_type/min_count; keep read fallback only for existing rows.
+    // Canonical proof_policy keys only: types[], minimum_count, subject_scope.
     const types = proofPolicyTypes(policy);
     gates.push(types.length > 0 ? `${types.join("/")} proof` : "Proof required");
     if (asBool(policy["verify_before_apply"])) gates.push("Verify before apply");
@@ -176,16 +175,15 @@ function proofPolicyTypes(policy: Json): string[] {
     const canonical = (policy["types"] as unknown[]).filter((t): t is string => typeof t === "string" && t.trim() !== "");
     if (canonical.length > 0) return canonical;
   }
-  const legacyType = asString(policy["proof_type"]);
-  return legacyType ? [legacyType] : [];
+  return [];
 }
 
 function proofPolicyMinimumCount(policy: Json): number | null {
-  return asNumber(policy["minimum_count"]) ?? asNumber(policy["min_count"]);
+  return asNumber(policy["minimum_count"]);
 }
 
 function proofPolicySubjectScope(policy: Json): string | null {
-  return asString(policy["subject_scope"]) ?? asString(policy["scope"]);
+  return asString(policy["subject_scope"]);
 }
 
 // =====================================================================================
@@ -280,7 +278,7 @@ type BackendFieldType =
   | "select"
   | "multiselect"
   | "goat_scan"
-  | "rfid_scan"
+  | "animal_id_scan"
   | "goat_lookup"
   | "shed_picker"
   | "cohort_picker"
@@ -308,7 +306,7 @@ export const STEP_TYPES: StepTypeDef[] = [
   { value: "yesno", label: "yes/no", backend: "boolean" },
   { value: "select", label: "select", backend: "select" },
   { value: "multiselect", label: "multiselect", backend: "multiselect" },
-  { value: "goat_scan", label: "goat scan/RFID", backend: "goat_scan" },
+  { value: "goat_scan", label: "Animal ID scan", backend: "goat_scan" },
   { value: "shed_picker", label: "shed picker", backend: "shed_picker" },
   { value: "vaccine_batch_picker", label: "vaccine batch picker", backend: "vaccine_batch_picker", optionSource: "vaccine_batches" },
   { value: "medicine_picker", label: "medicine picker", backend: "medicine_picker", optionSource: "medicines" },
@@ -372,7 +370,7 @@ export type BuilderStep = {
   unit: string; // number unit (ml, kg…)
   placeholder: string; // text placeholder
   longText: boolean; // text → paragraph
-  multiScan: boolean; // goat scan/RFID: true = scan MANY goats (whole shed/batch); false = one goat
+  multiScan: boolean; // Animal ID scan: true = scan MANY animals (whole shed/batch); false = one animal
   visibleWhen: BuilderCondition | null; // null = always show
 };
 
@@ -490,9 +488,7 @@ export type EmittedFormDsl = {
   rules?: EmittedRule[];
 };
 
-// Canonical proof_policy shape — keys match the backend evaluator (service.go proofTypes /
-// proofMinimumCount / proofRequiresReview) and the committed vaccination seed (000081): types[] +
-// minimum_count, NOT proof_type/min_count.
+// Canonical proof_policy shape — keys match the backend evaluator.
 export type EmittedProofPolicy = {
   required: boolean;
   types: ProofType[];
@@ -601,7 +597,7 @@ export function buildFormDsl(input: SopBuilderInput): EmittedFormDsl {
       if (step.placeholder.trim()) field.placeholder = step.placeholder.trim();
       if (step.longText) field.long_text = true;
     }
-    // goat scan/RFID: multi-scan captures MANY goats (whole shed / batch) as an array answer; the
+    // Animal ID scan: multi-scan captures MANY animals (whole shed / batch) as an array answer; the
     // backend already validates goat_scan as a UUID list, so this is renderer/validation metadata.
     if (kind === "scan" && step.multiScan) field.multiple = true;
     if (def.optionSource) field.option_source = def.optionSource;
@@ -669,7 +665,7 @@ const BACKEND_TO_STEP: Record<string, StepTypeValue> = {
   select: "select",
   multiselect: "multiselect",
   goat_scan: "goat_scan",
-  rfid_scan: "goat_scan",
+  animal_id_scan: "goat_scan",
   goat_lookup: "goat_scan",
   shed_picker: "shed_picker",
   cohort_picker: "shed_picker",
@@ -808,7 +804,7 @@ export function builderInitialFromVersion(code: string, name: string, formDsl: u
 }
 
 // Field types this builder round-trips WITHOUT loss (BACKEND_TO_STEP is identity for these). The others
-// (date_time, rfid_scan, goat_lookup, cohort_picker, location_picker, session_picker) get remapped, so a
+// (date_time, animal_id_scan, goat_lookup, cohort_picker, location_picker, session_picker) get remapped, so a
 // re-save would mutate the operator form.
 const FAITHFUL_BACKEND_TYPES = new Set<string>([
   "text",

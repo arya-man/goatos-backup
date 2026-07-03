@@ -858,7 +858,7 @@ func repeatSourceField(formDSL map[string]any) string {
 		}
 		fieldType, _ := normalizeFieldType(stringValue(field, "type"))
 		switch fieldType {
-		case "goat_scan", "goat_lookup", "rfid_scan":
+		case "goat_scan", "goat_lookup", "animal_id_scan":
 			return stringValue(field, "key")
 		}
 	}
@@ -1050,7 +1050,7 @@ func sanitizeFanoutError(err error) string {
 func supportedFieldType(v string) bool {
 	switch v {
 	case "text", "number", "date_time", "boolean", "select", "multiselect",
-		"goat_scan", "rfid_scan", "goat_lookup",
+		"goat_scan", "animal_id_scan", "goat_lookup",
 		"shed_picker", "cohort_picker", "location_picker",
 		"vaccine_batch_picker", "medicine_picker", "session_picker",
 		"photo_proof", "video_proof":
@@ -1069,8 +1069,8 @@ func normalizeFieldType(v string) (string, bool) {
 		return "boolean", true
 	case "datetime", "date_time_picker":
 		return "date_time", true
-	case "rfid", "rfid_reader":
-		return "rfid_scan", true
+	case "animal_id", "animal_id_reader":
+		return "animal_id_scan", true
 	case "shed", "shed_location_picker":
 		return "shed_picker", true
 	case "cohort", "cohort_location_picker":
@@ -1227,7 +1227,7 @@ func validateProofPolicy(report *domain.ValidationReport, policy map[string]any,
 		return
 	}
 	if _, ok := policy["scope"]; ok {
-		addWarning(report, "proof_policy.scope", "deprecated", "scope is deprecated; use subject_scope")
+		addError(report, "proof_policy.scope", "unsupported", "scope is not supported; use subject_scope")
 	}
 	subjectScope := stringValue(policy, "subject_scope")
 	if !validProofSubjectScope(subjectScope) {
@@ -1369,7 +1369,7 @@ func validateAnswerValue(errors *[]domain.ValidationIssue, field map[string]any,
 		if !stringListAnswer(value) {
 			addErrorToList(errors, key, "invalid_answer_type", "answer must be an array of strings")
 		}
-	case "text", "select", "rfid_scan", "photo_proof", "video_proof":
+	case "text", "select", "animal_id_scan", "photo_proof", "video_proof":
 		if !stringAnswer(value) {
 			addErrorToList(errors, key, "invalid_answer_type", "answer must be a string")
 		}

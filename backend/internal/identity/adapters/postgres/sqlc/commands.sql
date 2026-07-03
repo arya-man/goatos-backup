@@ -138,11 +138,11 @@ SET
 WHERE goat_id = @goat_id
   AND tenant_id = @tenant_id
   AND row_version = @row_version
-  AND identity_state <> 'merged'
+  AND merged_into_goat_id IS NULL
 RETURNING goat_id::text AS goat_id, row_version;
 
 -- name: GetGoatMutationState :one
-SELECT identity_state, row_version
+SELECT COALESCE(merged_into_goat_id::text, '')::text AS merged_into_goat_id, row_version
 FROM goats
 WHERE tenant_id = @tenant_id AND goat_id = @goat_id;
 

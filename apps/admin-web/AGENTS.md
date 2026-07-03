@@ -268,7 +268,7 @@ ship a lazier/plainer screen. Porting a mock element as a bare/simpler substitut
 of oversight is a defect — e.g. shipping a bare `All parks` / `As of <date>` pill where
 the mock has a `Company-wide | Park-wise` toggle + `CBE · all sheds` selector +
 `Date range … · data <date> · ⚠ Nd old` freshness chip; or a thin Filters button where
-the mock's Counts/Herd filter modal has Park/Gender/Breed/Age Cohort/Shed/Pregnancy-
+the mock's Counts/Herd filter modal has Park/Sex/Breed/Age Cohort/Shed/Pregnancy-
 Lactation/Status/Identity Review/Origin Farm/Days-in-Stage/Weight/ADG + Clear all/Apply.
 But this is NOT blind 1:1 pixel-copying: not every mock element must match. The app
 diverges on purpose for **business reasons documented in the wiki**

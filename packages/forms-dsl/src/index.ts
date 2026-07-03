@@ -5,7 +5,7 @@ export type SOPFieldType =
   | "select"
   | "multiselect"
   | "goat_lookup"
-  | "rfid_scan"
+  | "animal_id_scan"
   | "location_picker"
   | "photo_proof"
   | "video_proof";

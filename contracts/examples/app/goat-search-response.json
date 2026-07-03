@@ -3,8 +3,8 @@
     {
       "goat_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
       "display_id": "G-900001",
-      "primary_old_tag": "1900",
-      "rfid": "RFID_EXAMPLE_000001",
+      "animal_identifier_1": "AID-000001-A",
+      "animal_identifier_2": "AID-000001-B",
       "breed": "Synthetic Jamunapari",
       "sex": "female",
       "age_band": "adult",
@@ -13,7 +13,6 @@
       "growth_cohort_tag": null,
       "management_stage": "warmup",
       "health_status": "healthy",
-      "identity_state": "clean",
       "location_path": {
         "display": "Synthetic CBE / Park A / Shed 01",
         "farm_id": "33333333-3333-4333-8333-333333333333",

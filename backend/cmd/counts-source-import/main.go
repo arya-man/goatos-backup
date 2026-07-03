@@ -370,7 +370,7 @@ func parseShiftingEvent(raw []byte, cfg config) (countsdomain.ShiftingEvent, imp
 		return countsdomain.ShiftingEvent{}, importRow{}, errors.New("authorization_state and event_status are required for shifting imports")
 	}
 	sourceSystem := strings.ToLower(defaultString(strings.TrimSpace(in.SourceSystem), defaultString(cfg.SourceSystem, defaultSourceSystem)))
-	if !oneOf(sourceSystem, "feed_shiftings_docx", "manual_review", "legacy_slack", "import", "goatos_canonical") {
+	if !oneOf(sourceSystem, "feed_shiftings_docx", "manual_review", "import", "goatos_canonical") {
 		return countsdomain.ShiftingEvent{}, importRow{}, fmt.Errorf("source_system %q is not valid for shifting_event", sourceSystem)
 	}
 	payloadHash := strings.TrimSpace(in.PayloadHash)
@@ -605,7 +605,7 @@ WHERE tenant_id = $1::uuid
 
 func upsertCSG10ImportReadiness(ctx context.Context, db sourceImportRunDB, tenantID, runID string, importErr error) error {
 	status := "pending"
-	blocker := "Typed Counts source import run evidence exists; source parity, full observability, and seeded local E2E evidence remain before CSG10 can turn ready."
+	blocker := "Typed counts source import evidence exists; observability and seeded local E2E evidence remain before CSG10 can turn ready."
 	if importErr != nil {
 		status = "blocked"
 		blocker = "Counts source import failed; repair typed import rows before CSG10 can progress: " + importErr.Error()
@@ -640,7 +640,7 @@ INSERT INTO counts_shifting_readiness_subgates (
 ) VALUES (
   $1::uuid, 'CSG8', 'pending', 'Counts/Shifting + Feed Direction',
   $2,
-  'Source import replay evidence exists; full source workbook parity and seeded local E2E remain before CSG8 can turn ready.',
+  'Source import replay evidence exists; idempotent source replay and seeded local E2E remain before CSG8 can turn ready.',
   'backend/cmd/counts-source-import;backend/internal/counts/adapters/postgres/repository.go;docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md',
   now(), now()
 )

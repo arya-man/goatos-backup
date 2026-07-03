@@ -1470,11 +1470,9 @@ export interface components {
             max_retry_backoff_seconds: number;
         };
         /** @enum {string} */
-        IdentifierType: "old_tag" | "rfid" | "visual_tag" | "sheet_row_id" | "purchase_load_id" | "temp_field_id" | "external_system_id";
+        IdentifierType: "animal_identifier_1" | "animal_identifier_2";
         /** @enum {string} */
         IdentifierStatus: "active" | "retired" | "disputed" | "duplicate" | "invalid";
-        /** @enum {string} */
-        IdentityState: "clean" | "needs_review" | "disputed" | "merged" | "inactive";
         /** @enum {string} */
         ResolutionState: "single_match" | "multiple_matches" | "no_match" | "needs_review" | "merged_redirect";
         Warning: {
@@ -1515,8 +1513,8 @@ export interface components {
             /** Format: uuid */
             goat_id: string;
             display_id: string;
-            primary_old_tag?: string | null;
-            rfid?: string | null;
+            animal_identifier_1: string;
+            animal_identifier_2: string;
             breed: string | null;
             /** @enum {string} */
             sex: "female" | "male";
@@ -1526,7 +1524,6 @@ export interface components {
             growth_cohort_tag: string | null;
             management_stage: string | null;
             health_status: string | null;
-            identity_state: components["schemas"]["IdentityState"];
             location_path: components["schemas"]["LocationPath"];
             weight_kg?: number | null;
             warnings: components["schemas"]["Warning"][];
@@ -1551,9 +1548,8 @@ export interface components {
             /** Format: uuid */
             goat_id: string;
             display_id: string;
-            /** @constant */
-            species: "goat";
-            identity_state: components["schemas"]["IdentityState"];
+            /** @enum {string} */
+            species: "goat" | "sheep";
             summary: components["schemas"]["GoatSummary"];
             identifiers: components["schemas"]["GoatIdentifier"][];
             evidence_refs: components["schemas"]["EvidenceRef"][];

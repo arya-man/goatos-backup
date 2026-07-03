@@ -25,9 +25,9 @@ func seedGenGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, life
 func seedGenGoatWithStage(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, lifecycle, stage string) {
 	t.Helper()
 	_, err := pool.Exec(ctx,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
 			   current_location_id, park_id, management_stage, dob)
-			 VALUES ($1, $2, $3, 'clean', $4, 'female', $5, $5, $6, DATE '2026-05-01')`,
+			 VALUES ($1, $2, $3, 'goat', $4, 'female', $5, $5, $6, DATE '2026-05-01')`,
 		id, impTenant, lifecycle, impParty, impCbe, stage)
 	if err != nil {
 		t.Fatalf("seed gen goat %s: %v", id, err)
@@ -627,10 +627,10 @@ ON CONFLICT (tenant_id, load_id) DO NOTHING`, loadID, impTenant, impParty, "gen-
 	if _, err := pool.Exec(ctx, `
 INSERT INTO procurement_load_goats (
   tenant_id, load_id, goat_id, purpose, current_state, selection_state,
-  identity_review_state, ownership_state, health_state
+  source_entry_state, ownership_state, health_state
 ) VALUES (
   $1, $2, $3, 'breeding', 'accepted_herd_intake', 'accepted_herd_intake',
-  'clean', 'mesha_owned', 'passed'
+  'accepted', 'mesha_owned', 'passed'
 )
 ON CONFLICT (tenant_id, load_id, goat_id) DO NOTHING`, impTenant, loadID, goatID); err != nil {
 		t.Fatalf("seed procurement load goat: %v", err)
