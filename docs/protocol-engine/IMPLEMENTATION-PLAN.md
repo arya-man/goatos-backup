@@ -107,7 +107,7 @@ Adherence = **computed**: expected (rule) vs actual (completion + proof + timing
 
 ## F. Seed / draft test data
 - **Allowed:** structural seeds — `animal_stage_lookup` bands, park/shed profiles from **real `locations`**, vaccination SOP `form_dsl`/`proof_policy` (from wiki §6 + Preventive Care (PC) handbook), capability seeds, and draft test `protocol_rules` that are never published and generate no obligations.
-- **Evidence-derived real config (dev):** rule values taken from tracked source/nuance docs may be loaded in `goatos-dev` and published there by CEO/COO/superadmin authority after JSON-schema validation, SOP binding, impact preview, and effective-date checks. The UI must not ask for source-system/reviewer/approval fields.
+- **Evidence-derived real config (dev):** rule values taken from tracked vaccination rules source docs may be loaded in `goatos-dev` and published there by CEO/COO/superadmin authority after JSON-schema validation, SOP binding, impact preview, and effective-date checks. The UI must not ask for source-system/reviewer/approval fields.
 - **NOT allowed:** **hand-invented** vaccine/feed schedule values as production logic. Experimental local drafts never generate production obligations and cannot be treated as approved business policy.
 
 ## G. Order of implementation

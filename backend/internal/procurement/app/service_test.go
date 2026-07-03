@@ -273,7 +273,7 @@ func TestArrivalRejectedAndUnknownExtraStayOutOfVaccination(t *testing.T) {
 	}
 }
 
-func TestAcceptedIntakeCreatesPHCHandoffWithoutCancel(t *testing.T) {
+func TestAcceptedIntakeCreatesPCHandoffWithoutCancel(t *testing.T) {
 	repo := &fakeRepo{}
 	cancel := &fakeCanceler{}
 	svc := NewService(repo).WithVaccinationCanceler(cancel)
@@ -449,11 +449,11 @@ func (f *fakeRepo) DispatchLoad(_ context.Context, in ports.DispatchLoad) (domai
 func (f *fakeRepo) RecordArrivalReview(_ context.Context, in ports.ArrivalReview) (domain.ArrivalReview, error) {
 	return domain.ArrivalReview{LoadID: in.LoadID, Status: in.Status, Replayed: f.replay}, nil
 }
-func (f *fakeRepo) AcceptIntake(_ context.Context, in ports.AcceptIntake) ([]domain.PHCHandoff, error) {
+func (f *fakeRepo) AcceptIntake(_ context.Context, in ports.AcceptIntake) ([]domain.PCHandoff, error) {
 	if f.acceptErr != nil {
 		return nil, f.acceptErr
 	}
-	return []domain.PHCHandoff{{LoadID: in.LoadID, GoatID: in.GoatIDs[0], ParkLocationID: in.ParkLocationID, ShedLocationID: in.ShedLocationID}}, nil
+	return []domain.PCHandoff{{LoadID: in.LoadID, GoatID: in.GoatIDs[0], ParkLocationID: in.ParkLocationID, ShedLocationID: in.ShedLocationID}}, nil
 }
 func (f *fakeRepo) ListWorkRows(_ context.Context, q domain.WorkQuery) (domain.WorkListResult, error) {
 	f.lastWorkQuery = q

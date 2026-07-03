@@ -7,7 +7,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "./process-integrity";
 import { ClipText, Tag } from "@/components/ui-primitives";
-import { VaccinationFilterButton, VisibleTableSearch, paginateRows, VaccinationTablePager, type VaccinationPageSize } from "@/features/phc-vaccination";
+import { VaccinationFilterButton, VisibleTableSearch, paginateRows, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 
 type Tone4 = "ok" | "warn" | "dng" | "info" | "mut";
 const accentVar: Record<Tone4, string> = {

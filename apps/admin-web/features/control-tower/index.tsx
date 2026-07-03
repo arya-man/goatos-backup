@@ -8,7 +8,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { Tag } from "@/components/ui-primitives";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { VaccinationFilterButton, VisibleTableSearch, paginateRows, VaccinationTablePager, type VaccinationPageSize } from "@/features/phc-vaccination";
+import { VaccinationFilterButton, VisibleTableSearch, paginateRows, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "@/features/process-integrity/process-integrity";
 
 // Severity tint for the alert-band icon chip.

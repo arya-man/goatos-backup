@@ -49,7 +49,7 @@ func (s *Service) ListEvents(ctx context.Context, q domain.Query) (domain.Calend
 	}
 	q.OwnerKey = normalizeOwnerKey(q.OwnerKey)
 	if !allowedOwnerKey(q.OwnerKey) {
-		return domain.CalendarEventListResponse{}, BadRequest("invalid_owner_key", "owner_key must be all, phc, inventory, or admin_data_ops")
+		return domain.CalendarEventListResponse{}, BadRequest("invalid_owner_key", "owner_key must be all, pc, inventory, or admin_data_ops")
 	}
 	if q.Status != nil {
 		status := strings.TrimSpace(*q.Status)
@@ -365,7 +365,7 @@ func normalizeOwnerKey(ownerKey string) string {
 
 func allowedOwnerKey(ownerKey string) bool {
 	switch ownerKey {
-	case domain.OwnerAll, domain.OwnerPHC, domain.OwnerInventory, domain.OwnerAdminDataOps:
+	case domain.OwnerAll, domain.OwnerPC, domain.OwnerInventory, domain.OwnerAdminDataOps:
 		return true
 	default:
 		return false

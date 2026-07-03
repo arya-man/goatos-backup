@@ -27,13 +27,13 @@ scope.
 
 Validated V1 demo closure evidence:
 
-- Full E2E smoke: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-  - Report: `.codex-goatos-render/e2e-smoke/NUANCE-RULES-20260701-V1-MATRIX-R2`
-- SOP/Config authoring smoke: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-  - Report: `.codex-goatos-render/vaccination-authoring/NUANCE-RULES-20260701-V1-MATRIX-R2/authoring.md`
-  - Proves the Nuance Rules matrix loads, saves, and publishes ET+TT, PPR, Goat Pox, FMD, and HS as separate protocol versions from one grid flow.
-- Click/interlink matrix: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-  - Report: `.codex-goatos-render/vaccination-click-matrix/NUANCE-RULES-20260701-V1-MATRIX-R2/matrix.md`
+- Full E2E smoke: `VACCINATION-RULES-20260703-V1-MATRIX`
+  - Report: `.codex-goatos-render/e2e-smoke/VACCINATION-RULES-20260703-V1-MATRIX`
+- SOP/Config authoring smoke: `VACCINATION-RULES-20260703-V1-MATRIX`
+  - Report: `.codex-goatos-render/vaccination-authoring/VACCINATION-RULES-20260703-V1-MATRIX/authoring.md`
+  - Proves the Vaccination Rules matrix loads, saves, and publishes ET+TT, PPR, Goat Pox, FMD, and HS as separate protocol versions from one grid flow.
+- Click/interlink matrix: `VACCINATION-RULES-20260703-V1-MATRIX`
+  - Report: `.codex-goatos-render/vaccination-click-matrix/VACCINATION-RULES-20260703-V1-MATRIX/matrix.md`
 - Chain proof: `vaccination-chain-proof stamp=1782915162`
 - Rework proof: `vaccination-rework-proof stamp=1782899439`
   - Proves reject -> rework -> resubmit -> accept, accepted/rejected Passport history, and real Passport workflow row linkage.
@@ -276,8 +276,8 @@ reason.
 ## Historical Blocking Bugs Now Covered For V1 Demo
 
 The observations below are retained as the bug-bash ledger. The V1 demo
-regression coverage for them is `NUANCE-RULES-20260701-V1-MATRIX-R2`,
-`NUANCE-RULES-20260701-V1-MATRIX-R2`,
+regression coverage for them is `VACCINATION-RULES-20260703-V1-MATRIX`,
+`VACCINATION-RULES-20260703-V1-MATRIX`,
 `vaccination-chain-proof stamp=1782915162`, and
 `vaccination-rework-proof stamp=1782899439`.
 
@@ -712,7 +712,7 @@ Implementation status, 2026-07-01:
 - Focused tests added in
   `backend/internal/vaccination/app/generation_test.go`:
   `TestOlderGoatUnknownHistoryCreatesOnlyOneHistoricalCatchUp`,
-  `TestOlderGoatUnknownHistoryCreatesOnlyOnePHCReviewCatchUp`, and
+  `TestOlderGoatUnknownHistoryCreatesOnlyOnePCReviewCatchUp`, and
   `TestOlderGoatTrustedFirstDoseAllowsNextMissingDose`.
 - Live trusted-history proof added in
   `tools/dev/vaccination-trusted-history-proof.sh`. Latest passing run:
@@ -1216,7 +1216,7 @@ These checks are in addition to the clean-slate E2E path above.
 - [x] After publish, workflow rows and adherence rows point back to the same
   protocol/config version.
 - [x] Creating multiple matrix rows for different vaccine/stage combinations is
-  covered by E2E (`NUANCE-RULES-20260701-V1-MATRIX-R2` loads ET+TT, PPR, Goat Pox,
+  covered by E2E (`VACCINATION-RULES-20260703-V1-MATRIX` loads ET+TT, PPR, Goat Pox,
   FMD, and HS as separate published config rows).
 - [x] Matrix/grid entry mode allows adding ET/K1 and PPR/K2-style rows without
   repeating shared header/source/SOP/schedule fields.
@@ -1245,12 +1245,12 @@ These checks are in addition to the clean-slate E2E path above.
 ## Demo Rule
 
 You can demo the V1 vaccination SOP builder and Config authoring flow covered by
-`NUANCE-RULES-20260701-V1-MATRIX-R2`.
+`VACCINATION-RULES-20260703-V1-MATRIX`.
 
 Do not demo or claim route/resource optimization, business-facing user/shed
 admin setup UI, full browser-negative coverage, or million-animal permutation
-proof. Do demo the V1 Nuance Rules matrix, including compatibility
-spacing, only when the Nuance smoke evidence below is fresh.
+proof. Do demo the V1 Vaccination Rules matrix, including compatibility
+spacing, only when the Vaccination Rules smoke evidence below is fresh.
 
 ## Handover: V1 Batching Boundary And Later Planner
 

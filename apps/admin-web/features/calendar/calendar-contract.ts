@@ -59,8 +59,8 @@ const FALLBACK_OWNER_CONFIG: Record<CalendarOwnerFilter, FallbackOwnerConfig> = 
     key: "all",
     color: "var(--brand)",
   },
-  phc: {
-    key: "phc",
+  pc: {
+    key: "pc",
     color: "var(--brand)",
   },
   inventory: {
@@ -230,7 +230,7 @@ export const EVENT_TYPE_ICON: Record<CalendarEventType, LucideIcon> = {
   vaccine_stock_readiness: PackageCheck,
   vaccine_cold_chain_check: Snowflake,
   vaccine_reorder_expiry_grn: Boxes,
-  phc_stock_anti_misuse: ShieldAlert,
+  pc_stock_anti_misuse: ShieldAlert,
   vaccination_config_activation_review: FileCheck2,
 };
 

@@ -1,7 +1,7 @@
 -- +goose Up
 -- Procurement/source-entry truth for goats whose journey starts at purchase/source holding.
 -- The accepted herd intake transition is the only path that makes a procured/source goat
--- available for post-arrival PHC vaccination generation.
+-- available for post-arrival PC vaccination generation.
 
 CREATE TABLE procurement_loads (
   load_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -312,7 +312,7 @@ CREATE INDEX arrival_intake_review_goats_review_idx
 CREATE INDEX arrival_intake_review_goats_load_idx
   ON arrival_intake_review_goats(tenant_id, load_id, arrival_state, goat_id);
 
-CREATE TABLE procurement_phc_handoffs (
+CREATE TABLE procurement_pc_handoffs (
   handoff_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL REFERENCES tenants(tenant_id),
   load_id uuid NOT NULL,
@@ -327,21 +327,21 @@ CREATE TABLE procurement_phc_handoffs (
   idempotency_key text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT procurement_phc_handoffs_history_array_check CHECK (jsonb_typeof(trusted_vaccination_history) = 'array'),
-  CONSTRAINT procurement_phc_handoffs_status_check CHECK (event_status IN ('pending', 'emitted', 'canceled')),
-  CONSTRAINT procurement_phc_handoffs_signal_check CHECK (intake_health_signal IS NULL OR intake_health_signal IN ('clear', 'defer', 'quarantine', 'review')),
-  CONSTRAINT procurement_phc_handoffs_load_tenant_fk FOREIGN KEY (tenant_id, load_id) REFERENCES procurement_loads(tenant_id, load_id),
-  CONSTRAINT procurement_phc_handoffs_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES goats(tenant_id, goat_id),
-  CONSTRAINT procurement_phc_handoffs_park_tenant_fk FOREIGN KEY (tenant_id, park_location_id) REFERENCES locations(tenant_id, location_id),
-  CONSTRAINT procurement_phc_handoffs_shed_tenant_fk FOREIGN KEY (tenant_id, shed_location_id) REFERENCES locations(tenant_id, location_id),
-  CONSTRAINT procurement_phc_handoffs_idempotency_unique UNIQUE (tenant_id, idempotency_key),
-  CONSTRAINT procurement_phc_handoffs_one_per_goat UNIQUE (tenant_id, load_id, goat_id)
+  CONSTRAINT procurement_pc_handoffs_history_array_check CHECK (jsonb_typeof(trusted_vaccination_history) = 'array'),
+  CONSTRAINT procurement_pc_handoffs_status_check CHECK (event_status IN ('pending', 'emitted', 'canceled')),
+  CONSTRAINT procurement_pc_handoffs_signal_check CHECK (intake_health_signal IS NULL OR intake_health_signal IN ('clear', 'defer', 'quarantine', 'review')),
+  CONSTRAINT procurement_pc_handoffs_load_tenant_fk FOREIGN KEY (tenant_id, load_id) REFERENCES procurement_loads(tenant_id, load_id),
+  CONSTRAINT procurement_pc_handoffs_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES goats(tenant_id, goat_id),
+  CONSTRAINT procurement_pc_handoffs_park_tenant_fk FOREIGN KEY (tenant_id, park_location_id) REFERENCES locations(tenant_id, location_id),
+  CONSTRAINT procurement_pc_handoffs_shed_tenant_fk FOREIGN KEY (tenant_id, shed_location_id) REFERENCES locations(tenant_id, location_id),
+  CONSTRAINT procurement_pc_handoffs_idempotency_unique UNIQUE (tenant_id, idempotency_key),
+  CONSTRAINT procurement_pc_handoffs_one_per_goat UNIQUE (tenant_id, load_id, goat_id)
 );
 
-CREATE INDEX procurement_phc_handoffs_pending_idx
-  ON procurement_phc_handoffs(tenant_id, event_status, accepted_at, handoff_id);
-CREATE INDEX procurement_phc_handoffs_goat_idx
-  ON procurement_phc_handoffs(tenant_id, goat_id, accepted_at DESC);
+CREATE INDEX procurement_pc_handoffs_pending_idx
+  ON procurement_pc_handoffs(tenant_id, event_status, accepted_at, handoff_id);
+CREATE INDEX procurement_pc_handoffs_goat_idx
+  ON procurement_pc_handoffs(tenant_id, goat_id, accepted_at DESC);
 
 CREATE VIEW vw_procurement_vaccination_excluded_goats AS
 SELECT DISTINCT
@@ -449,7 +449,7 @@ WHERE oi.target_type = 'goat'
 DROP TRIGGER IF EXISTS obligation_instances_procurement_vaccination_guard_trg ON obligation_instances;
 DROP FUNCTION IF EXISTS block_active_vaccination_for_procurement_excluded_goat();
 DROP VIEW IF EXISTS vw_procurement_vaccination_excluded_goats;
-DROP TABLE IF EXISTS procurement_phc_handoffs;
+DROP TABLE IF EXISTS procurement_pc_handoffs;
 DROP TABLE IF EXISTS arrival_intake_review_goats;
 DROP TABLE IF EXISTS arrival_intake_reviews;
 DROP TABLE IF EXISTS transit_handoffs;

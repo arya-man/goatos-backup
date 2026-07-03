@@ -1,4 +1,4 @@
-# PHC Vaccination Scheduling Algorithm — Review Draft
+# Preventive Care Vaccination Scheduling Algorithm — Review Draft
 
 **Purpose:** Vaccination drives cannot be created by “everyone in the shed is due something.” Each goat/sheep must follow species-specific schedules, intake path, approved age windows, cross-vaccine gaps, pregnancy blocks, and defer states. Drives are a **second layer** that groups only **medically compatible, window-valid** obligations.
 
@@ -114,9 +114,10 @@ Without `vaccine_class` and `combo_group_id`, gap rules and same-day combining c
 
 ### 5A. Farm-born / procured kid (≤16 weeks) — strict schedule
 
-V1 uses one approved kid timing path because vaccination operations ensure
-mothers stay vaccinated; source/wiki rows that mention an alternate early path
-are ignored for this slice.
+V1 uses the standard mother-vaccinated kid timing path because vaccination
+operations ensure mothers stay vaccinated. The early source path is only a
+fallback when the mother's vaccination status is genuinely unknown; it must not
+become a broad category branch for normal rule authoring.
 
 | Vaccine | Approved kid schedule | Revaccination |
 | --- | --- | --- |
@@ -298,10 +299,10 @@ These apply **between any two administered vaccines**, not only within one serie
 
 ## 10. Mother vaccination assumption
 
-V1 exposes one approved kid schedule. Mothers are assumed/kept vaccinated for
-the vaccination slice, so source/wiki evidence for any alternate early branch
-must be ignored by importers and rule-authoring UI instead of becoming a
-separate selector or rule row.
+V1 exposes the standard approved kid schedule by default. Mothers are
+assumed/kept vaccinated for the vaccination slice; source/wiki evidence for the
+early branch is reserved for genuinely unknown mother status instead of becoming
+a separate selector for normal rule authoring.
 
 ---
 
@@ -332,7 +333,7 @@ Algorithm: when primary series complete → spawn `calendar` or `every_n_days` r
 | Source-approved vaccine matrix in config | **Gap** — labels exist; full matrix rows not all approved/published |
 | Cross-vaccine live/killed gap enforcement | **Gap** — needs vaccine_class metadata + cross-series gap checker |
 | Combo same-day grouping | **Gap** — needs `combo_group_id` + drive conflict graph |
-| Approved kid schedule | **Built** — no mother-vaccination category or branch |
+| Approved kid schedule | **Built** — standard mother-vaccinated path; early fallback only for genuinely unknown mother status |
 | Warming 7-day hold | **Gap** — needs warming entry date + defer rule |
 | Pregnancy month 4–5 block + post-delivery catch-up | **Gap** — needs reproductive phase rules beyond generic defer |
 | Procurement intake path (ET+TT+PPR → 4wk → Pox) | **Gap** — needs adult `post_arrival` protocol version |

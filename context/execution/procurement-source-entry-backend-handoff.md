@@ -157,7 +157,7 @@ end-to-end at backend level:
 
 ```text
 accepted intake
-  -> procurement_phc_handoffs row/event with idempotent event_status
+  -> procurement_pc_handoffs row/event with idempotent event_status
   -> relay/consumer or synchronous service path runs
   -> vaccination obligation generation sees only accepted-intake goats
   -> rejected/source-only/unresolved goats generate no Preventive Care (PC) vaccination work

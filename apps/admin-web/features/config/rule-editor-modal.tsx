@@ -260,7 +260,7 @@ export function RuleEditorModal({
       maxDelayDays: 7,
       courseLapsePolicy: requireKey(
         courseLapseOptions,
-        "phc_review",
+        "pc_review",
         "course_lapse_policies",
       ),
       repeat: firstKey(repeatOptions, "repeat_policies"),
@@ -269,7 +269,7 @@ export function RuleEditorModal({
         "modal.rule_editor.default_repeat_until",
       ),
       minGapDays: isPrimary ? 0 : 21,
-      catchUp: requireKey(catchUpOptions, "phc_approval", "catch_up_policies"),
+      catchUp: requireKey(catchUpOptions, "pc_approval", "catch_up_policies"),
       sopVersion: firstKeyOrEmpty(scheduleSopOptions),
       proofCsv: copy(pageContract, "modal.rule_editor.default_proof_policy"),
     };
@@ -443,7 +443,7 @@ export function RuleEditorModal({
   );
 
   const [missedDosePolicy, setMissedDosePolicy] = useState(
-    requireKey(missedDoseOptions, "phc_approval", "missed_dose_policies"),
+    requireKey(missedDoseOptions, "pc_approval", "missed_dose_policies"),
   );
   const [escalation, setEscalation] = useState(() =>
     defaultEscalation(defaultCategory),
@@ -658,7 +658,7 @@ export function RuleEditorModal({
         repeatUntilAfterAge: "-",
         catchUp: requireKey(
           catchUpOptions,
-          "phc_approval",
+          "pc_approval",
           "catch_up_policies",
         ),
       };

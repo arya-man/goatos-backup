@@ -256,7 +256,7 @@ func workflowNodes(detail domain.LoadDetail) []domain.WorkflowNode {
 		nodes[4].Timestamp = &review.ReviewedAt
 		nodes[4].RefID = &ref
 	}
-	for _, handoff := range detail.PHCHandoffs {
+	for _, handoff := range detail.PCHandoffs {
 		ref := handoff.HandoffID
 		nodes[5].State = handoff.EventStatus
 		nodes[5].Timestamp = &handoff.AcceptedAt
@@ -634,7 +634,7 @@ func (s *Service) RecordArrivalReview(ctx context.Context, in ports.ArrivalRevie
 	return review, nil
 }
 
-func (s *Service) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([]domain.PHCHandoff, error) {
+func (s *Service) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([]domain.PCHandoff, error) {
 	if err := validateTenant(in.TenantID); err != nil {
 		return nil, err
 	}

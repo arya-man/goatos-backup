@@ -40,7 +40,7 @@ For this follow-up, `schedule-backed` requires these mandatory fields:
 - booster/repeat/catch-up/missed-dose policy, or an explicit source-backed
   statement that there is no booster/repeat path
 - proof requirements and executable SOP binding
-- publishable source metadata: `source_system` in `vaccinations_db`, `phc`, or
+- publishable source metadata: `source_system` in `vaccinations_db`, `pc`, or
   `vet`; `source_ref`; `review_status=approved`; `approved_by`; `approved_at`
 
 Other useful source fields to capture when present:

@@ -2,10 +2,10 @@
 # Local procurement -> vaccination matrix proof.
 #
 # Drives the real local API for the four non-negotiable source-entry cases:
-#   1. clean accepted goat reaches PHC handoff and vaccination obligation generation
-#   2. pre-truck rejected goat never reaches PHC/vaccination
-#   3. owner-missing goat cannot be accepted and never reaches PHC/vaccination
-#   4. extra unknown arrival row is recorded but never reaches PHC/vaccination
+#   1. clean accepted goat reaches PC handoff and vaccination obligation generation
+#   2. pre-truck rejected goat never reaches PC/vaccination
+#   3. owner-missing goat cannot be accepted and never reaches PC/vaccination
+#   4. extra unknown arrival row is recorded but never reaches PC/vaccination
 set -euo pipefail
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
 
@@ -266,9 +266,9 @@ JSON
 )" >/dev/null
 
 echo "### assertions: procurement boundary"
-expect_count "clean_phc_handoff" "select count(*) from procurement_phc_handoffs where tenant_id='$TENANT' and load_id='$LOAD' and goat_id='$CLEAN'" "1"
-expect_count "rejected_phc_handoff" "select count(*) from procurement_phc_handoffs where tenant_id='$TENANT' and load_id='$LOAD' and goat_id='$REJECTED'" "0"
-expect_count "owner_missing_phc_handoff" "select count(*) from procurement_phc_handoffs where tenant_id='$TENANT' and load_id='$LOAD' and goat_id='$OWNER_MISSING'" "0"
+expect_count "clean_pc_handoff" "select count(*) from procurement_pc_handoffs where tenant_id='$TENANT' and load_id='$LOAD' and goat_id='$CLEAN'" "1"
+expect_count "rejected_pc_handoff" "select count(*) from procurement_pc_handoffs where tenant_id='$TENANT' and load_id='$LOAD' and goat_id='$REJECTED'" "0"
+expect_count "owner_missing_pc_handoff" "select count(*) from procurement_pc_handoffs where tenant_id='$TENANT' and load_id='$LOAD' and goat_id='$OWNER_MISSING'" "0"
 expect_count "extra_unknown_arrival_row" "select count(*) from arrival_intake_review_goats where tenant_id='$TENANT' and load_id='$LOAD' and animal_identifier_2='$EXTRA_ANIMAL_ID_2' and goat_id is null and arrival_state='extra_unresolved'" "1"
 expect_count "clean_goat_created_outbox" "select count(*) from outbox_messages where tenant_id='$TENANT' and event_type='goat.created' and aggregate_id='$CLEAN'" "1"
 expect_count "rejected_goat_created_outbox" "select count(*) from outbox_messages where tenant_id='$TENANT' and event_type='goat.created' and aggregate_id='$REJECTED'" "0"

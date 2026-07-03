@@ -55,7 +55,7 @@ Only for what the graph cannot see:
 ## Business and medical rule changes (maintainer lock)
 
 When the maintainer states a **new working rule, condition, timing, or workflow**
-(in chat, WhatsApp screenshots, PHC sign-off, or ad-hoc instructions) that may
+(in chat, WhatsApp screenshots, Preventive Care sign-off, or ad-hoc instructions) that may
 **contradict or supersede** existing docs, seeded config, implemented kernel
 behavior, or a prior decision in the same thread:
 
@@ -65,7 +65,7 @@ behavior, or a prior decision in the same thread:
 2. **Ask explicitly** which rule wins, whether the old rule is retired, or
    whether both apply in different scopes (species, stage, procurement path, etc.).
 3. **Implement only after confirmation** — then update the canonical source in the
-   same change as the code (`docs/phc-vaccination/source-nuances-rules.md`,
+   same change as the code (`docs/preventive-care-vaccination/vaccination-rules.md`,
    published `rule_dsl`, TRD/ADR, or this file when appropriate).
 
 Ambiguity is not approval. Informal agreement in a screenshot or chat applies to

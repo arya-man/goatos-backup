@@ -787,8 +787,8 @@ derived AS (
     END AS sort_priority,
     CASE
       WHEN NOT stateful.usable_for_vaccination THEN 'Shed is not marked usable for vaccination'
-      WHEN stateful.is_icu THEN 'Shed is ICU; PHC defer/approval required'
-      WHEN stateful.is_quarantine THEN 'Shed is quarantine; PHC defer/approval required'
+      WHEN stateful.is_icu THEN 'Shed is ICU; PC defer/approval required'
+      WHEN stateful.is_quarantine THEN 'Shed is quarantine; PC defer/approval required'
       WHEN stateful.health_deferred_count > 0 THEN 'Some goats are sick, under treatment, quarantined, or in ICU'
       WHEN stateful.missed_count > 0 THEN 'Missed dose escalation required'
       WHEN stateful.conducted_by IS NULL AND stateful.assigned_to IS NULL AND stateful.completed_count < stateful.expected_count THEN 'Owner chain awaiting assignment'
@@ -797,8 +797,8 @@ derived AS (
     CASE stateful.work_state
       WHEN 'completed' THEN 'No action - drive verified'
       WHEN 'rejected' THEN 'Review rejection and request rework'
-      WHEN 'blocked' THEN CASE WHEN stateful.missed_count > 0 THEN 'Escalate missed dose to PHC' ELSE 'Resolve blocker before execution' END
-      WHEN 'deferred' THEN 'Confirm defer reason with PHC'
+      WHEN 'blocked' THEN CASE WHEN stateful.missed_count > 0 THEN 'Escalate missed dose to PC' ELSE 'Resolve blocker before execution' END
+      WHEN 'deferred' THEN 'Confirm defer reason with PC'
       WHEN 'owner_missing' THEN 'Assign operator / owner chain'
       WHEN 'verification_pending' THEN 'Verifier to accept or reject proof'
       WHEN 'proof_pending' THEN 'Upload required SOP proof'

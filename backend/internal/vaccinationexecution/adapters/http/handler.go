@@ -1,5 +1,5 @@
 // Package http exposes vaccination execution read APIs. Park/shed is the physical execution context of
-// PHC Vaccination work; Parks does not own these routes.
+// PC Vaccination work; Parks does not own these routes.
 package http
 
 import (
@@ -22,7 +22,7 @@ type Reader interface {
 	VaccinationOperations(ctx context.Context, q domain.OperationsQuery) (domain.OperationsResponse, error)
 }
 
-// Handler serves vaccination execution endpoints (park/shed execution context for PHC Vaccination).
+// Handler serves vaccination execution endpoints (park/shed execution context for PC Vaccination).
 type Handler struct {
 	reader Reader
 	log    *slog.Logger
@@ -37,7 +37,7 @@ func NewHandler(reader Reader, log ...*slog.Logger) *Handler {
 	return &Handler{reader: reader, log: l}
 }
 
-// Register mounts the vaccination execution routes (owned by PHC Vaccination, park/shed scope).
+// Register mounts the vaccination execution routes (owned by PC Vaccination, park/shed scope).
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)

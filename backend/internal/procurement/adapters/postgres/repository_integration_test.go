@@ -320,7 +320,7 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 		if !errors.Is(err, ports.ErrInvalidTransition) {
 			t.Fatalf("AcceptIntake pending row error = %v, want ErrInvalidTransition", err)
 		}
-		assertNoPHCHandoff(t, ctx, pool, goat.GoatID)
+		assertNoPCHandoff(t, ctx, pool, goat.GoatID)
 	})
 
 	t.Run("arrival extra unknown cannot accepted intake", func(t *testing.T) {
@@ -476,7 +476,7 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 		if err != nil {
 			t.Fatalf("pre-dispatch reject: %v", err)
 		}
-		assertNoPHCHandoff(t, ctx, pool, goat.GoatID)
+		assertNoPCHandoff(t, ctx, pool, goat.GoatID)
 		protocolVersionID, ruleID := seedVaccinationProtocol(t, ctx, pool, "reject-before-truck")
 		err = insertActiveVaccinationObligation(ctx, pool, protocolVersionID, ruleID, goat.GoatID, "reject-before-truck-obligation")
 		if err == nil || !strings.Contains(err.Error(), "vaccination_obligation_blocked_for_procurement_excluded_goat") {
@@ -484,7 +484,7 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 		}
 	})
 
-	t.Run("accepted source-entry goat creates PHC handoff and workflow read model", func(t *testing.T) {
+	t.Run("accepted source-entry goat creates PC handoff and workflow read model", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "accepted-source-entry-load", 1)
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
 			TenantID:          testTenant,
@@ -1276,7 +1276,7 @@ SET status = 'draft',
 	}
 	_, err = pool.Exec(ctx, `
 INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, repeat, catch_up, eligibility_json, proof_policy)
-VALUES ($1, $2, $3, 'primary', 1, 'post_arrival', 'none', 'phc_approval', '{}'::jsonb, '{}'::jsonb)
+VALUES ($1, $2, $3, 'primary', 1, 'post_arrival', 'none', 'pc_approval', '{}'::jsonb, '{}'::jsonb)
 ON CONFLICT (tenant_id, rule_id) DO NOTHING`, ruleID, testTenant, versionID)
 	if err != nil {
 		t.Fatalf("seed protocol rule: %v", err)
@@ -1317,7 +1317,7 @@ SET status = 'draft',
 	}
 	_, err = pool.Exec(ctx, `
 INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, repeat, catch_up, eligibility_json, proof_policy)
-VALUES ($1, $2, $3, 'primary', 1, 'post_arrival', 'none', 'phc_approval', '{}'::jsonb, '{}'::jsonb)
+VALUES ($1, $2, $3, 'primary', 1, 'post_arrival', 'none', 'pc_approval', '{}'::jsonb, '{}'::jsonb)
 ON CONFLICT (tenant_id, rule_id) DO NOTHING`, ruleID, testTenant, versionID)
 	if err != nil {
 		t.Fatalf("seed HF protocol rule: %v", err)
@@ -1345,10 +1345,10 @@ INSERT INTO obligation_instances (
 	return err
 }
 
-func assertNoPHCHandoff(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID string) {
+func assertNoPCHandoff(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID string) {
 	t.Helper()
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM procurement_phc_handoffs WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goatID); got != 0 {
-		t.Fatalf("PHC handoffs for goat %s = %d, want 0", goatID, got)
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM procurement_pc_handoffs WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goatID); got != 0 {
+		t.Fatalf("PC handoffs for goat %s = %d, want 0", goatID, got)
 	}
 }
 

@@ -15,7 +15,7 @@ const SCAN_PATHS = [
   "features/control-tower",
   "features/calendar",
   "features/process-integrity",
-  "features/phc-vaccination",
+  "features/preventive-care-vaccination",
   "features/vaccination-execution",
   "features/procurement",
   "features/config",

@@ -15,7 +15,7 @@ const (
 
 const (
 	OwnerAll          = "all"
-	OwnerPHC          = "phc"
+	OwnerPC           = "pc"
 	OwnerInventory    = "inventory"
 	OwnerAdminDataOps = "admin_data_ops"
 )
@@ -54,7 +54,7 @@ const (
 	EventVaccineStockReadiness             = "vaccine_stock_readiness"
 	EventVaccineColdChainCheck             = "vaccine_cold_chain_check"
 	EventVaccineReorderExpiryGRN           = "vaccine_reorder_expiry_grn"
-	EventPHCStockAntiMisuse                = "phc_stock_anti_misuse"
+	EventPCStockAntiMisuse                 = "pc_stock_anti_misuse"
 	EventVaccinationConfigActivationReview = "vaccination_config_activation_review"
 )
 

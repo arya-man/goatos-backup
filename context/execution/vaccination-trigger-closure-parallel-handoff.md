@@ -75,11 +75,11 @@ generated clients, and `mock/goatos-dashboard-mock.html`.
 
 Business/wiki and source evidence:
 
-- `Handbooks/PHC_Director.pdf` page 2: Preventive Care (PC) weekly operations include vaccination
+- `Preventive Care Director handbook source` page 2: Preventive Care (PC) weekly operations include vaccination
   tracking, stock control, and record management.
-- `Handbooks/PHC_Director.pdf` page 5: vaccination requires storage/cold-chain
+- `Preventive Care Director handbook source` page 5: vaccination requires storage/cold-chain
   integrity and health data documentation.
-- `Handbooks/PHC_Director.pdf` page 6: Health Data Recorder enters vaccination,
+- `Preventive Care Director handbook source` page 6: Health Data Recorder enters vaccination,
   deworming, and health data into software.
 - `wiki/graphify-out/converted/RFID source of truth_9d32525c.md`: existing herd
   identity source uses Farm, Old ID, RFID, Age, Gender, Breed, Tag, Shed, and
@@ -603,7 +603,7 @@ Important schema rules:
   rows.
 - Supplier/HF warmup uses the existing procurement/source-entry schema
   (`procurement_loads`, `procurement_load_goats`, `source_holding_stays`,
-  `procurement_phc_handoffs`, proof/audit/outbox tables). Do not create a
+  `procurement_pc_handoffs`, proof/audit/outbox tables). Do not create a
   separate holding-farm goat schema and do not mark source-only goats as clean
   active herd.
 - Trusted HF vaccination evidence becomes vaccination history/imported
@@ -773,7 +773,7 @@ Status before E2E (most data-plane items CLOSED 2026-06-26):
 - `seed-vaccination-trigger` creates the protocol/inventory/SOP/lot trigger pack
   (published version `b011`, rule `b012`, SOP `b0..0002`, FEFO lot `b002`); the
   captured command sequence now exists (the script above).
-- `procurement_phc_handoffs.event_status = emitted` still means outbox enqueued,
+- `procurement_pc_handoffs.event_status = emitted` still means outbox enqueued,
   not downstream success — treat downstream assertions as the proof (unchanged).
 - ~~Config still needs a tenant/category protocol list/read endpoint.~~ DONE
   2026-06-26: `GET /protocols?category=…` (`listProtocolConfigs`, `protocol.read`)
@@ -821,7 +821,7 @@ Accepted as prompt backlog:
   `selection_reason` and explicit `warmup_days`, so same-key/different-payload
   replays cannot be silently accepted.
 - `AcceptIntake` stores result identity as the load, then replays through
-  `listPHCHandoffs(load_id)`. That is functionally aligned today, but the
+  `listPCHandoffs(load_id)`. That is functionally aligned today, but the
   backend closeout should either use the stored result identity deliberately or
   document that `result_id = load_id` is the replay contract for the aggregate
   handoff result.

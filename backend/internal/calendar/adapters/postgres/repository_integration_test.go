@@ -1176,7 +1176,7 @@ FROM calendar_event_projections
 WHERE tenant_id=$1::uuid AND event_id=$2 AND escalation_state='level_2_open'`, 1, testTenantID, eventID)
 }
 
-func TestCalendarEscalationSweepRoutesLevel3ToPHCDirector(t *testing.T) {
+func TestCalendarEscalationSweepRoutesLevel3ToPCDirector(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -1212,28 +1212,28 @@ func TestCalendarEscalationSweepRoutesLevel3ToPHCDirector(t *testing.T) {
 		t.Fatalf("queued escalations = %d, want 1", queued)
 	}
 	eventID := "obligation:" + obligationID
-	assertCount(t, ctx, pool, "phc director escalation notification", `
+	assertCount(t, ctx, pool, "pc director escalation notification", `
 SELECT count(*)
 FROM notification_requests
 WHERE tenant_id=$1::uuid
   AND calendar_event_id=$2
-  AND recipient_ref='phc_director'
+  AND recipient_ref='pc_director'
   AND notification_type='escalation'
   AND status='queued'`, 1, testTenantID, eventID)
-	assertCount(t, ctx, pool, "phc director obligation escalation", `
+	assertCount(t, ctx, pool, "pc director obligation escalation", `
 SELECT count(*)
 FROM obligation_escalations
 WHERE tenant_id=$1::uuid
   AND obligation_id=$2::uuid
   AND level=3
-  AND escalated_to_role='phc_director'
+  AND escalated_to_role='pc_director'
   AND status='open'`, 1, testTenantID, obligationID)
 	if _, err := repo.ResolveEscalation(ctx, ports.ResolveEscalation{
 		TenantID:       testTenantID,
 		EventID:        eventID,
 		ActorID:        testActorID,
 		IdempotencyKey: "calendar-escalation-unauthorized-resolve",
-		Reason:         "park head cannot resolve PHC director escalation",
+		Reason:         "park head cannot resolve PC director escalation",
 		Scope:          domain.ScopeFilter{TenantWide: true},
 		ActorGrants:    []ports.ActorGrant{{Role: permissions.RoleParkHead, ScopeType: "tenant", ScopeID: testTenantID}},
 	}); !errors.Is(err, ports.ErrForbidden) {
@@ -1247,7 +1247,7 @@ func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
-	dueAt := time.Now().UTC().Add(4 * time.Hour)
+	dueAt := stableSameLocalDayDueAt(time.Now().UTC())
 	protocolID := "86000000-0000-4000-8000-000000000810"
 	versionID := "86000000-0000-4000-8000-000000000820"
 	sharedRuleID := "86000000-0000-4000-8000-000000000830"
@@ -1429,6 +1429,19 @@ func catchupEventID(tenantID, ruleID string, dueAt time.Time) string {
 	return fmt.Sprintf("catchup:tenant:%s:rule:%s:due:%s", tenantID, ruleID, day)
 }
 
+func stableSameLocalDayDueAt(now time.Time) time.Time {
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		loc = time.FixedZone("IST", 5*60*60+30*60)
+	}
+	localNow := now.In(loc)
+	localDue := localNow.Add(2 * time.Hour).Truncate(time.Hour)
+	if localDue.Hour() > 20 || localDue.Day() != localNow.Day() {
+		localDue = time.Date(localNow.Year(), localNow.Month(), localNow.Day()+1, 1, 0, 0, 0, loc)
+	}
+	return localDue.UTC()
+}
+
 func seedCalendarProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID string, dueAt time.Time, reminderState string) {
 	t.Helper()
 	_, err := pool.Exec(ctx, `
@@ -1439,13 +1452,13 @@ INSERT INTO calendar_event_projections (
   executor_role, reminder_state, primary_notification_channel, escalation_state,
   system, cross_cutting, links, detail
 ) VALUES (
-	  $1::uuid, $2, 'vaccination', 'vaccination_drive', 'phc', 'ET primary drive',
+	  $1::uuid, $2, 'vaccination', 'vaccination_drive', 'pc', 'ET primary drive',
 	  'Calendar integration test', 'due', 'warning', $3::timestamptz, $3::timestamptz,
 	  $3::timestamptz + interval '1 day', 'Asia/Kolkata', 'fallback', 'shed', 20,
 	  true, 'integration source-backed rule', 'batch', '86000000-0000-4000-8000-000000001001',
-	  'PHC test owner', 'phc_vaccinator', $4, 'local-stub', 'none', false, false,
+	  'PC test owner', 'pc_vaccinator', $4, 'local-stub', 'none', false, false,
   '{"workflow":"/vaccination/workflows/test"}'::jsonb,
-  '{"summary":{"owner":"PHC"},"source_and_rule":{"source_backed":true},"execution":{"work_state":"due"},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub","slack"],"notification_policy":{"nudge_allowed":true},"links":{}}'::jsonb
+  '{"summary":{"owner":"PC"},"source_and_rule":{"source_backed":true},"execution":{"work_state":"due"},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub","slack"],"notification_policy":{"nudge_allowed":true},"links":{}}'::jsonb
 )
 ON CONFLICT (tenant_id, event_id) DO UPDATE
 SET due_at = EXCLUDED.due_at,
@@ -1467,13 +1480,13 @@ INSERT INTO calendar_event_projections (
   assignee_label, executor_role, reminder_state, primary_notification_channel, escalation_state,
   system, cross_cutting, links, detail
 ) VALUES (
-  $5::uuid, $3, 'vaccination', 'vaccination_drive', 'phc', 'Scoped drive',
+  $5::uuid, $3, 'vaccination', 'vaccination_drive', 'pc', 'Scoped drive',
   'Scoped integration test', 'due', 'warning', now() + interval '2 hours', now(), now() + interval '1 day',
   'Asia/Kolkata', 'location', $1::uuid, 'TST', $2::uuid, 'Scoped Shed',
   'shed', 1, true, 'active matrix test', 'shed', $4::uuid,
-  'PHC test owner', 'phc_vaccinator', 'not_scheduled', 'local-stub', 'none',
+  'PC test owner', 'pc_vaccinator', 'not_scheduled', 'local-stub', 'none',
   $6, false, '{}'::jsonb,
-  '{"summary":{"owner":"PHC"},"source_and_rule":{"source_backed":true},"execution":{"work_state":"due"},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub"],"notification_policy":{"nudge_allowed":true},"links":{}}'::jsonb
+  '{"summary":{"owner":"PC"},"source_and_rule":{"source_backed":true},"execution":{"work_state":"due"},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub"],"notification_policy":{"nudge_allowed":true},"links":{}}'::jsonb
 )
 ON CONFLICT (tenant_id, event_id) DO UPDATE
 SET park_id = EXCLUDED.park_id,
@@ -1525,7 +1538,7 @@ INSERT INTO protocol_versions (
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, 'tenant', NULL, 1,
   'Projection active matrix published test', 'draft', DATE '2026-01-01', DATE '2028-01-01',
-  '{"source":{"review_status":"approved","source_ref":"docs/preventive-care-vaccination/PRD.md","source_system":"phc","approved_by":"test","approved_at":"2026-06-27T00:00:00Z"}}'::jsonb,
+  '{"source":{"review_status":"approved","source_ref":"docs/preventive-care-vaccination/PRD.md","source_system":"pc","approved_by":"test","approved_at":"2026-06-27T00:00:00Z"}}'::jsonb,
   '{"required_proofs":["administration"]}'::jsonb, NULL
 	)
 	ON CONFLICT (protocol_version_id) DO NOTHING`,

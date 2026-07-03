@@ -1478,7 +1478,7 @@ type ProcurementLoadGoat struct {
 	Purpose           string
 }
 
-type ProcurementPhcHandoff struct {
+type ProcurementPcHandoff struct {
 	HandoffID                 pgtype.UUID
 	TenantID                  pgtype.UUID
 	LoadID                    pgtype.UUID

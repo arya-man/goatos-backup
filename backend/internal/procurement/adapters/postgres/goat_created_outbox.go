@@ -21,7 +21,7 @@ const (
 	procurementGoatCreatedTopic         = "identity.events"
 )
 
-func (r *Repository) emitAcceptedIntakeGoatCreated(ctx context.Context, tx pgx.Tx, in ports.AcceptIntake, handoff domain.PHCHandoff) error {
+func (r *Repository) emitAcceptedIntakeGoatCreated(ctx context.Context, tx pgx.Tx, in ports.AcceptIntake, handoff domain.PCHandoff) error {
 	eventID, err := newUUID(ctx, tx)
 	if err != nil {
 		return fmt.Errorf("procurement: goat.created event id: %w", err)
@@ -141,18 +141,18 @@ INSERT INTO outbox_messages (
 		return fmt.Errorf("procurement: outbox goat.created handoff: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-UPDATE procurement_phc_handoffs
+UPDATE procurement_pc_handoffs
 SET event_status = 'emitted', updated_at = now()
 WHERE tenant_id = $1::uuid
   AND handoff_id = $2::uuid`,
 		in.TenantID, handoff.HandoffID); err != nil {
-		return fmt.Errorf("procurement: mark PHC handoff emitted: %w", err)
+		return fmt.Errorf("procurement: mark PC handoff emitted: %w", err)
 	}
 	_ = recordedAt
 	return nil
 }
 
-func procurementGoatCreatedEnvelope(in ports.AcceptIntake, handoff domain.PHCHandoff, eventID string, occurredAt, recordedAt time.Time, eventPayload []byte, idempotencyKey string) ([]byte, error) {
+func procurementGoatCreatedEnvelope(in ports.AcceptIntake, handoff domain.PCHandoff, eventID string, occurredAt, recordedAt time.Time, eventPayload []byte, idempotencyKey string) ([]byte, error) {
 	payload := map[string]any{}
 	if err := json.Unmarshal(eventPayload, &payload); err != nil {
 		return nil, err

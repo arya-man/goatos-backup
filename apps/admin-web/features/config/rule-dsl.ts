@@ -176,11 +176,11 @@ export function newDose(seq: number): DoseRow {
     scheduleNote: "",
     routeSite: "subcutaneous",
     maxDelayDays: 7,
-    courseLapsePolicy: "phc_review",
+    courseLapsePolicy: "pc_review",
     repeat: "none",
     repeatUntilAfterAge: "-",
     minGapDays: seq === 1 ? 0 : 21,
-    catchUp: "phc_approval",
+    catchUp: "pc_approval",
     sopVersion: "",
     proofCsv: "shed,vial,dose,lot,qty",
   };

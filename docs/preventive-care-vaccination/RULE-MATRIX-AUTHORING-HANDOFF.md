@@ -60,7 +60,7 @@ canonical `herd_animals` / `animal_id`, not goat-only physical storage.
 | Per-animal due state | `obligation_instances` from `000074` |
 | Shed drive / grouped work | `obligation_batches` from `000074` |
 | Accepted vaccination history | `vaccination_completions` from `000075` |
-| Procurement accepted intake and warm-up/history evidence | `procurement_phc_handoffs`, `procurement_hf_vaccination_evidence` |
+| Procurement accepted intake and warm-up/history evidence | `procurement_pc_handoffs`, `procurement_hf_vaccination_evidence` |
 
 ## 3. Required DB direction
 

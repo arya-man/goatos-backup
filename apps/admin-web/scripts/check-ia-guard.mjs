@@ -250,8 +250,8 @@ for (const file of sourceFiles) {
 
   // The Preventive Care (PC) / Vaccination surface must not render command-lens shortcut chrome (.lensbar / .lenslink bands
   // for Control Tower / Action Center / Calendar / Protocol Adherence / Workflows). /vaccination LINKS OUT to those
-  // top-level lenses; it is not a shortcut hub. Applies to the whole features/phc-vaccination feature.
-  if (rel.startsWith("features/phc-vaccination/") && /\blensbar\b|\blenslink\b/.test(text)) {
+  // top-level lenses; it is not a shortcut hub. Applies to the whole features/preventive-care-vaccination feature.
+  if (rel.startsWith("features/preventive-care-vaccination/") && /\blensbar\b|\blenslink\b/.test(text)) {
     findings.push(
       `${file} renders command-lens shortcut chrome inside the Preventive Care (PC) / Vaccination module. ` +
         "/vaccination is an operational module surface; Action Center, Protocol Adherence, and Workflows stay top-level.",
@@ -259,23 +259,23 @@ for (const file of sourceFiles) {
   }
 
   // Command-lens ownership: nothing may import the retired "@/features/vaccination" barrel. Command lenses are
-  // owned by features/process-integrity; the Preventive Care (PC) module is features/phc-vaccination.
+  // owned by features/process-integrity; the Preventive Care (PC) module is features/preventive-care-vaccination.
   if (/from\s+["'`]@\/features\/vaccination(["'`]|\/)/.test(text)) {
     findings.push(
       `${file} imports from @/features/vaccination (retired). ` +
-        "Import command lenses from @/features/process-integrity and the Preventive Care (PC) module from @/features/phc-vaccination.",
+        "Import command lenses from @/features/process-integrity and the Preventive Care (PC) module from @/features/preventive-care-vaccination.",
     );
   }
 }
 
 // ---- features/vaccination must not return as a command-lens home ----
 // Command lenses (Action Center / Calendar / Protocol Adherence / Workflows / their shared model) live in
-// features/process-integrity; the Preventive Care (PC) operations surface is features/phc-vaccination. A reappearing
+// features/process-integrity; the Preventive Care (PC) operations surface is features/preventive-care-vaccination. A reappearing
 // features/vaccination directory is the exact ownership drift this guard exists to block.
 if (existsSync("features/vaccination")) {
   findings.push(
     "features/vaccination/ exists again. Command lenses live in features/process-integrity and the Preventive Care (PC) " +
-      "operations surface is features/phc-vaccination. Do not recreate a features/vaccination home for " +
+      "operations surface is features/preventive-care-vaccination. Do not recreate a features/vaccination home for " +
       "command-lens code.",
   );
 }
@@ -363,8 +363,8 @@ const SCOPE_AWARE_FILES = new Set([
   "features/process-integrity/protocol-adherence.tsx",
   "features/process-integrity/workflows-landing.tsx",
   "features/process-integrity/workflow-drilldown.tsx",
-  "features/phc-vaccination/operations.tsx",
-  "features/phc-vaccination/execution-section.tsx",
+  "features/preventive-care-vaccination/operations.tsx",
+  "features/preventive-care-vaccination/execution-section.tsx",
   "features/vaccination-execution/execution-board.tsx",
   "features/vaccination-execution/shed-drilldown.tsx",
 ]);

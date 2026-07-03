@@ -1227,7 +1227,7 @@ func escalationRole(level int, target escalationTarget) string {
 	case level >= 4:
 		return permissions.RoleCEOInternal
 	case level == 3:
-		return permissions.RolePHCDirector
+		return permissions.RolePCDirector
 	case level == 2:
 		return permissions.RoleParkHead
 	case target.Status == "verification_pending":
@@ -1271,7 +1271,7 @@ func escalationRoleRank(role string) (int, bool) {
 		return 10, true
 	case permissions.RoleParkHead:
 		return 20, true
-	case permissions.RolePHCDirector:
+	case permissions.RolePCDirector:
 		return 30, true
 	case permissions.RoleCEOInternal, permissions.RoleAdmin:
 		return 40, true
@@ -1789,7 +1789,7 @@ WITH obligation_events AS (
   SELECT
     'obligation:' || oi.obligation_id::text AS event_id,
     'vaccination_dose_due'::text AS event_type,
-    'phc'::text AS owner_key,
+    'pc'::text AS owner_key,
     pd.name || ' ' || pr.dose_code || ' due' AS title,
     COALESCE(loc.shed_name, loc.park_code, 'Vaccination obligation') AS subtitle,
     CASE oi.status
@@ -1828,8 +1828,8 @@ WITH obligation_events AS (
     COALESCE(NULLIF(pv.rule_dsl -> 'source' ->> 'source_ref', ''), pd.name) AS source_label,
     'obligation'::text AS source_target_type,
     oi.obligation_id AS source_target_id,
-    'PHC vaccinator'::text AS assignee_label,
-    'phc_vaccinator'::text AS executor_role,
+    'PC vaccinator'::text AS assignee_label,
+    'pc_vaccinator'::text AS executor_role,
     NULL::text AS verifier_label,
     'not_scheduled'::text AS reminder_state,
     'local-stub'::text AS primary_notification_channel,
@@ -1842,7 +1842,7 @@ WITH obligation_events AS (
       'workflow', '/vaccination/workflows/' || ('obligation:' || oi.obligation_id::text)
     ) AS links,
     jsonb_build_object(
-      'summary', jsonb_build_object('owner', 'PHC', 'target_count', 1),
+      'summary', jsonb_build_object('owner', 'PC', 'target_count', 1),
       'source_and_rule', jsonb_build_object(
         'source_backed', true,
         'source_ref', pv.rule_dsl -> 'source' ->> 'source_ref',
@@ -1916,7 +1916,7 @@ catchup_drive_events AS (
         'catchup:tenant:' || $1::text || ':rule:' || grouped.rule_id::text || ':due:' || grouped.due_day
     END AS event_id,
     'vaccination_drive'::text AS event_type,
-    'phc'::text AS owner_key,
+    'pc'::text AS owner_key,
     grouped.vaccine_name || ' catch-up drive' AS title,
     COALESCE(grouped.shed_name, grouped.park_code, 'Catch-up drive') AS subtitle,
     grouped.status,
@@ -1943,9 +1943,9 @@ catchup_drive_events AS (
     grouped.source_label,
     CASE WHEN grouped.target_count = 1 THEN 'obligation' ELSE 'catchup' END AS source_target_type,
     CASE WHEN grouped.target_count = 1 THEN grouped.single_obligation_id ELSE COALESCE(grouped.shed_id, $1::uuid) END AS source_target_id,
-    'PHC drive team'::text AS assignee_label,
-    'phc_vaccinator'::text AS executor_role,
-    'PHC verifier'::text AS verifier_label,
+    'PC drive team'::text AS assignee_label,
+    'pc_vaccinator'::text AS executor_role,
+    'PC verifier'::text AS verifier_label,
     'not_scheduled'::text AS reminder_state,
     'local-stub'::text AS primary_notification_channel,
     'none'::text AS escalation_state,
@@ -1956,7 +1956,7 @@ catchup_drive_events AS (
       'drive', CASE WHEN grouped.shed_id IS NOT NULL THEN '/vaccination/execution/sheds/' || grouped.shed_id::text ELSE NULL END
     ) AS links,
     jsonb_build_object(
-      'summary', jsonb_build_object('owner', 'PHC', 'target_count', grouped.target_count, 'catchup', true),
+      'summary', jsonb_build_object('owner', 'PC', 'target_count', grouped.target_count, 'catchup', true),
       'source_and_rule', jsonb_build_object(
         'source_backed', true,
         'source_ref', grouped.source_ref,
@@ -2070,7 +2070,7 @@ batch_events AS (
   SELECT DISTINCT ON (ob.batch_id, pr.rule_id)
     'batch:' || ob.batch_id::text || ':rule:' || pr.rule_id::text || ':shed:' || ob.scope_id::text AS event_id,
     'vaccination_drive'::text AS event_type,
-    'phc'::text AS owner_key,
+    'pc'::text AS owner_key,
     pd.name || ' drive' AS title,
     COALESCE(scope_loc.name, 'Vaccination drive') AS subtitle,
     CASE ob.status
@@ -2104,9 +2104,9 @@ batch_events AS (
     COALESCE(NULLIF(pv.rule_dsl -> 'source' ->> 'source_ref', ''), pd.name) AS source_label,
     'batch'::text AS source_target_type,
     ob.batch_id AS source_target_id,
-    'PHC drive team'::text AS assignee_label,
-    'phc_vaccinator'::text AS executor_role,
-    'PHC verifier'::text AS verifier_label,
+    'PC drive team'::text AS assignee_label,
+    'pc_vaccinator'::text AS executor_role,
+    'PC verifier'::text AS verifier_label,
     'not_scheduled'::text AS reminder_state,
     'local-stub'::text AS primary_notification_channel,
     'none'::text AS escalation_state,
@@ -2117,7 +2117,7 @@ batch_events AS (
       'drive', '/vaccination/execution/sheds/' || ob.scope_id::text
     ) AS links,
     jsonb_build_object(
-      'summary', jsonb_build_object('owner', 'PHC', 'target_count', GREATEST(ob.estimated_targets, 1)),
+      'summary', jsonb_build_object('owner', 'PC', 'target_count', GREATEST(ob.estimated_targets, 1)),
       'source_and_rule', jsonb_build_object(
         'source_backed', true,
         'protocol_version_id', pv.protocol_version_id,
@@ -2126,7 +2126,7 @@ batch_events AS (
       'execution', jsonb_build_object('batch_id', ob.batch_id, 'sop_task_id', ob.sop_task_id, 'work_state', ob.status),
       'stock', jsonb_build_object('reserved_qty', ob.reserved_quantity, 'planned_qty', ob.planned_quantity),
       'proof', jsonb_build_object(),
-      'verification', jsonb_build_object('verifier', 'PHC verifier'),
+      'verification', jsonb_build_object('verifier', 'PC verifier'),
       'notification_channels', jsonb_build_array('local-stub'),
       'notification_policy', jsonb_build_object('nudge_allowed', true),
       'links', jsonb_build_object()
@@ -2161,7 +2161,7 @@ sop_events AS (
       WHEN st.state IN ('rework_requested', 'rejected') THEN 'vaccination_rework_due'
       ELSE 'vaccination_proof_verification'
     END AS event_type,
-    'phc'::text AS owner_key,
+    'pc'::text AS owner_key,
     st.title,
     COALESCE(scope_loc.name, 'Vaccination SOP task') AS subtitle,
     CASE st.state
@@ -2199,9 +2199,9 @@ sop_events AS (
     COALESCE(NULLIF(pv.rule_dsl -> 'source' ->> 'source_ref', ''), pd.name) AS source_label,
     'sop_task'::text AS source_target_type,
     st.task_id AS source_target_id,
-    COALESCE(st.assigned_to::text, 'PHC verifier') AS assignee_label,
-    CASE WHEN st.state IN ('submitted', 'needs_review') THEN NULL ELSE 'phc_vaccinator' END AS executor_role,
-    CASE WHEN st.state IN ('submitted', 'needs_review') THEN 'PHC verifier' ELSE NULL END AS verifier_label,
+    COALESCE(st.assigned_to::text, 'PC verifier') AS assignee_label,
+    CASE WHEN st.state IN ('submitted', 'needs_review') THEN NULL ELSE 'pc_vaccinator' END AS executor_role,
+    CASE WHEN st.state IN ('submitted', 'needs_review') THEN 'PC verifier' ELSE NULL END AS verifier_label,
     'not_scheduled'::text AS reminder_state,
     'local-stub'::text AS primary_notification_channel,
     'none'::text AS escalation_state,
@@ -2209,7 +2209,7 @@ sop_events AS (
     false AS cross_cutting,
     jsonb_build_object('workflow', '/vaccination/workflows/' || ('calendar:' || st.task_id::text)) AS links,
     jsonb_build_object(
-      'summary', jsonb_build_object('owner', 'PHC', 'task_type', st.task_type),
+      'summary', jsonb_build_object('owner', 'PC', 'task_type', st.task_type),
       'source_and_rule', jsonb_build_object(
         'source_backed', true,
         'protocol_version_id', pv.protocol_version_id,

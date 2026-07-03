@@ -52,7 +52,7 @@ func seed(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (obligationID s
 	}
 	ruleID, err := proto.CreateRule(ctx, protocoldomain.NewRule{
 		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
 		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {

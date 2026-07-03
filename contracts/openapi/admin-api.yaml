@@ -7102,7 +7102,7 @@ components:
           type: array
           maxItems: 1000
           items:
-            $ref: "#/components/schemas/ProcurementPHCHandoff"
+            $ref: "#/components/schemas/ProcurementPCHandoff"
         trace_id:
           type: string
     ProcurementLoadDetailResponse:
@@ -7308,7 +7308,7 @@ components:
         - decisions
         - transit_handoffs
         - arrival_reviews
-        - phc_handoffs
+        - pc_handoffs
         - timeline
       properties:
         load:
@@ -7348,11 +7348,11 @@ components:
           maxItems: 100
           items:
             $ref: "#/components/schemas/ProcurementArrivalReview"
-        phc_handoffs:
+        pc_handoffs:
           type: array
           maxItems: 1000
           items:
-            $ref: "#/components/schemas/ProcurementPHCHandoff"
+            $ref: "#/components/schemas/ProcurementPCHandoff"
         timeline:
           type: array
           maxItems: 5000
@@ -7644,7 +7644,7 @@ components:
           format: uuid
         arrival_state:
           $ref: "#/components/schemas/ProcurementArrivalState"
-    ProcurementPHCHandoff:
+    ProcurementPCHandoff:
       type: object
       additionalProperties: true
       properties:

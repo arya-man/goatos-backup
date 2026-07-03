@@ -85,7 +85,7 @@ ORDER BY sort_order ASC, "sequence" ASC;
 -- name: ListActiveAnimalStages :many
 -- Active animal-stage reference data for a tenant, ordered for display. Drives the Config authoring
 -- stage picker (e.g. K1/K2) so stage bands live in animal_stage_lookup, NOT in frontend literals
--- (PHC vaccination TRD: stage bands must not be hardcoded). Tenant-scoped (uses the
+-- (PC vaccination TRD: stage bands must not be hardcoded). Tenant-scoped (uses the
 -- (tenant_id, stage_code) unique index) and bounded by @row_limit; the lookup is inherently tiny.
 SELECT
   animal_stage_id::text AS animal_stage_id,

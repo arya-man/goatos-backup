@@ -49,8 +49,8 @@ the live sidebar until the product scope is explicitly widened.
 | Herd Register `/counts/herd` | Mock Herd table in `mock/goatos-dashboard-mock.html`; user herd screenshots | `desktop-counts-herd.png` | Table toolbar now has search rows, Filters, row count, and `10 / page`. Columns now match mock: Goat ID, Park, Shed, Breed, Sex, WT, Lifecycle, Health, Breeding. Goat ID is the contextual passport drilldown; no extra Passport action column. Filters, Register goat, and Import sheet all open/close real overlays. | fix now | `apps/admin-web/features/counts/herd-register.tsx`, `apps/admin-web/features/counts/herd-filters-modal-client.tsx`, `apps/admin-web/features/counts/herd-actions-ui.tsx`; backend contract below. |
 | Herd backend contract | Mock needs separate Park, Shed, WT | Verified through `/goats/search` rendered rows | API no longer forces the UI to guess from one combined location string. It returns park/shed labels and nullable weight. | fix now | `backend/internal/identity/domain/types.go`, `backend/internal/identity/adapters/postgres/repository.go`, `contracts/openapi/app-api.yaml`, `contracts/openapi/admin-api.yaml`, `packages/api-client/src/generated/*`. |
 | Herd KPI cards | Mock has scoped herd context | `desktop-counts-herd.png` | Header now shows scoped context; KPI totals remain honest `--` because Counts aggregate read-model is not in the generated client. | backend-blocked but visible-honest | No fake totals added. Needs Counts aggregate read model before showing Active/Adults/Kids/Untagged totals. |
-| Vaccination operation `/vaccination` | Mock vaccination first screen | `desktop-vaccination.png` | Target, Group, Route, Execute band, supplier warmup / Holding-Farm context, status matrix, per-cohort detail, and PPR drive shed events are present in mock layout style. SOP, Import sheet, New drive, and all four Filters controls open/close real overlays. | fix now | `apps/admin-web/features/phc-vaccination/operations.tsx`, `supplier-warmup-context.tsx`, `vaccination-action-dialogs.tsx`, `vaccination-filter-modal.tsx`, `status-matrix.tsx`, `cohort-detail.tsx`, `apps/admin-web/features/vaccination-execution/execution-board.tsx`. |
-| Vaccination supplier warmup context | Mock Supplier warmup / Holding Farm table | `desktop-vaccination.png` | `/vaccination` now shows the pre-arrival source-entry/HF evidence panel before the matrix: Load, Holding farm / supplier, Purpose, Animals, Warmup, Tagging, Vaccination at HF, Health / Selection, Status. It is read-only in Preventive Care (PC) and links to Source Entry for writes. | fix now + ownership boundary | `apps/admin-web/features/phc-vaccination/supplier-warmup-context.tsx`; Source Entry owns writes per `context/frontend/current-admin-web-scope.md`. |
+| Vaccination operation `/vaccination` | Mock vaccination first screen | `desktop-vaccination.png` | Target, Group, Route, Execute band, supplier warmup / Holding-Farm context, status matrix, per-cohort detail, and PPR drive shed events are present in mock layout style. SOP, Import sheet, New drive, and all four Filters controls open/close real overlays. | fix now | `apps/admin-web/features/preventive-care-vaccination/operations.tsx`, `supplier-warmup-context.tsx`, `vaccination-action-dialogs.tsx`, `vaccination-filter-modal.tsx`, `status-matrix.tsx`, `cohort-detail.tsx`, `apps/admin-web/features/vaccination-execution/execution-board.tsx`. |
+| Vaccination supplier warmup context | Mock Supplier warmup / Holding Farm table | `desktop-vaccination.png` | `/vaccination` now shows the pre-arrival source-entry/HF evidence panel before the matrix: Load, Holding farm / supplier, Purpose, Animals, Warmup, Tagging, Vaccination at HF, Health / Selection, Status. It is read-only in Preventive Care (PC) and links to Source Entry for writes. | fix now + ownership boundary | `apps/admin-web/features/preventive-care-vaccination/supplier-warmup-context.tsx`; Source Entry owns writes per `context/frontend/current-admin-web-scope.md`. |
 | Vaccination clicks | Mock cells and shed rows open operational action | Captured by routes `/vaccination`, `/vaccination#execution`, `/action-center` | Matrix/detail/status links route to Action Center with scope preserved instead of being dead UI. Search controls stay visibly disabled where backend contracts are missing; filter buttons now open a modal with the backend-gap reason and real Action Center link. | fix now + backend-blocked where noted | Same frontend files; disabled reasons shown rather than fake filtering. |
 | Vaccination data | Mock shows named cohorts and clean statuses | `desktop-vaccination.png` | Live uses real obligations from local backend. Current local rows show generated cohorts/sheds and `owner_missing` where source data lacks owner assignment. | backend/data gap, not faked | No fake K3/F2 rows added. Needs assignment/owner data and dose-specific protocol catalog expansion to match final business data. |
 | Action Center `/action-center` | Mock command/action panels | `desktop-action-center.png` | Uses the same mock shell/topbar/sidebar and shows real vaccination work items surfaced from backend state. | fix now | `apps/admin-web/components/mesha-shell.tsx`; existing action-center surface retained as top-level command screen. |
@@ -118,7 +118,7 @@ that punted to the Action Center — a plainer substitute, not the mock's
 record/verify FORM. Now all three open the same mock-shaped Record / verify
 drawer.
 
-New shared component: `features/phc-vaccination/record-verify-drawer.tsx`
+New shared component: `features/preventive-care-vaccination/record-verify-drawer.tsx`
 (`VaccinationRecordVerifyDrawer` + exported `VaccinationRecordFormFields`).
 Consumers: `status-matrix.tsx`, `cohort-detail.tsx`,
 `features/vaccination-execution/execution-board.tsx` (shed-event drawer).
@@ -169,7 +169,7 @@ Live proof (this session, against the running `:3300` dev server via browser):
   detail/Close.
 
 Gates this pass: `typecheck` ✓, `lint` ✓, `check:mock-fidelity` ✓ (IA guard +
-old-admin palette scan), no hardcoded hex leaks in `features/phc-vaccination`
+old-admin palette scan), no hardcoded hex leaks in `features/preventive-care-vaccination`
 or `features/vaccination-execution`. `next build` deliberately NOT run — another
 session's `next dev` owns `.next`; a concurrent build would corrupt it.
 
@@ -251,7 +251,7 @@ a real `<input type="file" accept="video/*,image/*" multiple>` (was a camera-sty
 `.videobox`). Label "Proof — shed + vial video (file upload)" per the SOP
 `proof_policy`. Disabled with the exact reason below (no `task_id` to attach to).
 
-**Pagers.** Mock `.pager2` footer (new `features/phc-vaccination/table-pager.tsx`)
+**Pagers.** Mock `.pager2` footer (new `features/preventive-care-vaccination/table-pager.tsx`)
 on the status matrix, per-cohort detail, and per-park shed-events tables — "N …
 · all in-scope shown" + disabled Previous/Next, because the read-models return the
 full in-scope set in one response (no cursor/total; same million-goat COUNT(*)

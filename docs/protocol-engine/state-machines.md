@@ -37,7 +37,7 @@ Existing goat names below describe the pre-correction implementation only.
    - `after_previous_completion`: **deferred to SM-7** (generated from the prior dose's actual `administered_at` + `offset_days`, respecting `min_gap_days`).
    - `manual_campaign`: generated only when a campaign trigger fires.
    - apply `repeat` (`yearly`/`every_n_days`; age-window repeats are rejected until generator support lands) to spawn the lifecycle-phase recurrences.
-3. **History-based next-due (catch-up):** if the animal has prior accepted history (`vaccination_completions` / imported), compute next due from the **last accepted completion**, not blindly from DOB. For an already-passed due with no completion, apply `missed_dose_policy`: `immediate` (catch-up now) · `next_cycle` (skip to next) · `phc_approval` (hold for sign-off) · `defer` (defer + reason) — see migration-and-cutover §6 for the cutover variant (no historical-overdue flood).
+3. **History-based next-due (catch-up):** if the animal has prior accepted history (`vaccination_completions` / imported), compute next due from the **last accepted completion**, not blindly from DOB. For an already-passed due with no completion, apply `missed_dose_policy`: `immediate` (catch-up now) · `next_cycle` (skip to next) · `pc_approval` (hold for sign-off) · `defer` (defer + reason) — see migration-and-cutover §6 for the cutover variant (no historical-overdue flood).
 4. **Upsert** `obligation_instances`, deterministic `idempotency_key = hash(tenant·protocol_version_id·rule_id·target_type·target_id·due_at·sequence)`; status `scheduled`.
 
 **Invariants:** never two active obligations for `(tenant, protocol_version, rule_id, target, due_at)` (DB guard, `NULLS NOT DISTINCT`). Idempotent — re-run produces zero new rows.

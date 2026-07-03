@@ -167,7 +167,7 @@ These are **only about SM-4** — assume the goat already has an open obligation
 |------|--------------|------|
 | 1 | `MarkMissed` after grace | `sweeper.MarkMissed` |
 | 2 | Status `missed` still unbatched | SQL includes `missed` in sweep |
-| 3 | Can still batch for catch-up drive | SM-4 (if PHC unblocks / regen) |
+| 3 | Can still batch for catch-up drive | SM-4 (if Preventive Care unblocks / regen) |
 
 **Built:** Yes.
 
@@ -293,7 +293,7 @@ These are **only about SM-4** — assume the goat already has an open obligation
 
 | Ch | Stage A | Stage B |
 |----|---------|---------|
-| 1 | `catch_up_phc_approval` defer | **C** until PHC path |
+| 1 | `catch_up_preventive_care_approval` defer | **C** until Preventive Care path |
 | 2 | Missed materialized | `MarkMissed` | **G** |
 
 ---
@@ -325,7 +325,7 @@ These are **only about SM-4** — assume the goat already has an open obligation
 
 ---
 
-### Story 15 — Manual PHC campaign
+### Story 15 — Manual Preventive Care campaign
 
 | Ch | Stage A | Stage B |
 |----|---------|---------|
@@ -352,7 +352,7 @@ These are **only about SM-4** — assume the goat already has an open obligation
 | 3 | SOP task created | `finalizePlannedBatches` |
 | 4 | Stock reserved | FEFO |
 | 5 | Operator records dose | completion API |
-| 6 | PHC verifies accept | SM-5 |
+| 6 | Preventive Care verifies accept | SM-5 |
 | 7 | `vaccination.completed` event | outbox |
 | 8 | SM-7 next dose | `ScheduleNextDose` |
 | 9 | Calendar updated | `RefreshVaccinationProjection` |

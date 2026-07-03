@@ -44,10 +44,10 @@ source explicitly defines them as stage rows.
 
 | item | local/dev decision | source |
 | --- | --- | --- |
-| Schedule-bearing protocol | Use the source-nuance vaccination matrix as the dev/config preset: ET+TT (`2 ml`, `28d` + `49d`, revaccination 6mo), PPR (`1 ml`, `112d`, revaccination 3y), FMD (`1 ml`, `84d`, revaccination 9mo), HS (`2 ml`, `84d`, revaccination 1y), and Goat Pox (`1 ml`, source 112d but V1 shifted to 140d for live-live spacing with PPR, revaccination 1y). | `docs/preventive-care-vaccination/source-nuances-rules.md`; `Nuances_Rules.docx` graph extraction |
+| Schedule-bearing protocol | Use the Vaccination Rules vaccination matrix as the dev/config preset: ET+TT (`2 ml`, `28d` + `49d`, revaccination 6mo), PPR (`1 ml`, `112d`, revaccination 3y), FMD (`1 ml`, `84d`, revaccination 9mo), HS (`2 ml`, `84d`, revaccination 1y), and Goat Pox (`1 ml`, source 112d but V1 shifted to 140d for live-live spacing with PPR, revaccination 1y). | `docs/preventive-care-vaccination/vaccination-rules.md`; `Vaccination Rules.docx` (formerly `Vaccination Rules.docx`) graph extraction |
 | SOP execution labels | SOP picker/form labels may include `PPR`, `ET`, `FMD`, `HS`, `BQ`; required execution fields are scheduled date, operator, goat scan, vaccine name, medicine batch, dose ml, administered date, proof photo, adverse reaction, verifier, notes. | `source-material/sop-playground-local/playground.html:1057-1083` |
 | Proof/verification shape | Keep proof + medicine batch + park-head verification gates; missing schedule escalates, adverse reaction requires notes/follow-up, empty medicine batch blocks submission. | `source-material/sop-playground-local/playground.html:1067-1082` |
-| PPR/FMD/HS/Goat Pox | Schedule-bearing V1 matrix rows. They generate only when present in the active scoped vaccination ruleset, not because a SOP label exists. | `docs/preventive-care-vaccination/source-nuances-rules.md`; `docs/preventive-care-vaccination/RULE-MATRIX-AUTHORING-HANDOFF.md` |
+| PPR/FMD/HS/Goat Pox | Schedule-bearing V1 matrix rows. They generate only when present in the active scoped vaccination ruleset, not because a SOP label exists. | `docs/preventive-care-vaccination/vaccination-rules.md`; `docs/preventive-care-vaccination/RULE-MATRIX-AUTHORING-HANDOFF.md` |
 | BQ | Label-only until a reviewed goat schedule/dose/revaccination row is added to the governed matrix. | SOP playground labels above |
 | Sheep Pox | Exclude from goat dev roster for now; the evidence found is sheep/procurement-history context. | `wiki/graphify-out/converted/Procurement DB [Goats]_dda03a25.md:78,:86,:91` |
 
@@ -71,7 +71,7 @@ scope and edge-case checklist for PPR/FMD/HS/BQ expansion lives in
 ## 2026-07-02 matrix alignment
 
 The earlier 2026-06-26 ET-only local proof baseline is superseded for new V1
-Config work. The source-nuance matrix now supplies goat-applicable schedule
+Config work. The vaccination-rule matrix now supplies goat-applicable schedule
 math for PPR/FMD/HS/Goat Pox in addition to ET+TT. Closed states:
 
 | Vaccine | Closed state |

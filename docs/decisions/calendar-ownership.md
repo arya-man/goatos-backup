@@ -32,7 +32,7 @@ Source anchors:
   vaccination flow: config -> per-goat schedule -> shed event -> completion ->
   stock, plus SOP proof and procurement/quarantine task patterns.
 - Mesha wiki source files `Handbooks/Mesha-dept-directors.pdf` and
-  `Handbooks/PHC_Director.pdf` - Preventive Care (PC) responsibility for vaccination calendar,
+  `Preventive Care Director handbook source` - Preventive Care (PC) responsibility for vaccination calendar,
   cold chain, quarantine, feed/water testing, SOP video double verification,
   and stock anti-misuse.
 
@@ -80,7 +80,7 @@ projections; display labels can change.
 | --- | --- | --- |
 | `all` | All | Combined scheduled work across all eligible pills. Filter-only; do not persist as an event owner. |
 | `counts` | Counts / Identity | Scheduled-only identity/count work: tagging due, weekly/monthly weigh-ins, count verification, count reconciliation. Most census/passport data is not Calendar. |
-| `phc` | Preventive Care (PC) | Vaccination, deworming, treatment sessions, ICU follow-ups, quarantine health checks, feed/water lab tests, post-mortem/health verification, Preventive Care (PC) biosecurity checks, SOP-video double verification, and Preventive Care (PC) stock anti-misuse investigation with a dated human action. |
+| `pc` | Preventive Care (PC) | Vaccination, deworming, treatment sessions, ICU follow-ups, quarantine health checks, feed/water lab tests, post-mortem/health verification, Preventive Care (PC) biosecurity checks, SOP-video double verification, and Preventive Care (PC) stock anti-misuse investigation with a dated human action. |
 | `feed` | Feed | Feed direction publish, cutoff Diff, packing, feeding sessions, feed distribution, feed-prep staging, bridge exceptions, feed execution checks. Lab QA is not Feed; see Preventive Care (PC). |
 | `breeding` | Breeding | Estrus/heat windows, AI/natural breeding, pregnancy scan, kidding watch, colostrum, K1 bottle-feeding, lactation/milk sessions. Preventive Care (PC) sees only downstream health exceptions. |
 | `parks` | Parks / Infra | Shed sanitation, deep clean, panel clean, shifting/movement, physical isolation moves, trough/water availability, infra inspection, ground execution proof. |
@@ -157,18 +157,18 @@ Current Calendar-eligible vaccination events:
 
 | Event family | owner_key | Source of truth | Notes |
 | --- | --- | --- | --- |
-| Published vaccination dose due | `phc` | `obligation_instances` generated from a `protocol_definitions(category='vaccination')` protocol with a published, source-backed `protocol_versions` row expanded through `protocol_rules` | Requires a published source-backed rule and a due date/window. Draft or label-only rows generate no event. |
-| Shed/cohort vaccination drive | `phc` | `obligation_batches` grouped from due vaccination obligations | This is the worker-facing work unit. The event owner is the vaccinator/health worker or assigned execution role. |
-| Manual campaign / catch-up drive | `phc` | Published/manual-campaign protocol rule or explicit Preventive Care approved catch-up batch | Must be source-backed or explicitly approved; no fabricated history. |
-| Booster due after accepted completion | `phc` | SM-7 generation from accepted `vaccination_completions.administered_at` | Due date is based on actual administration time, not planned date. |
-| Vaccination defer / waiver review due | `phc` | Dated Preventive Care (PC) review task derived from a blocked/deferred obligation | Applies to medical defer states such as sick, ICU, quarantine, adverse reaction review, or Preventive Care approved waiver. No event if the state is only a passive flag. |
-| Historical or holding-farm vaccination evidence review due | `phc` | Procurement/intake evidence plus Preventive Care (PC) backfill/review workflow | Source-side vaccination history is evidence only. It becomes Calendar work only when a Preventive Care (PC) reviewer has a due action to accept/reject it under the vaccination contract. |
-| Vaccination proof verification due | `phc` | SOP task/submission verification due work, when it has `due_at` and verifier owner | Only appears if it is a dated human verifier action. Otherwise it stays in Action Center / Protocol Adherence. |
-| Vaccination rework due | `phc` | Rejected proof/rework task with owner and due date | Only the dated rework action appears. The rejected proof record itself is not a Calendar event. |
+| Published vaccination dose due | `pc` | `obligation_instances` generated from a `protocol_definitions(category='vaccination')` protocol with a published, source-backed `protocol_versions` row expanded through `protocol_rules` | Requires a published source-backed rule and a due date/window. Draft or label-only rows generate no event. |
+| Shed/cohort vaccination drive | `pc` | `obligation_batches` grouped from due vaccination obligations | This is the worker-facing work unit. The event owner is the vaccinator/health worker or assigned execution role. |
+| Manual campaign / catch-up drive | `pc` | Published/manual-campaign protocol rule or explicit Preventive Care approved catch-up batch | Must be source-backed or explicitly approved; no fabricated history. |
+| Booster due after accepted completion | `pc` | SM-7 generation from accepted `vaccination_completions.administered_at` | Due date is based on actual administration time, not planned date. |
+| Vaccination defer / waiver review due | `pc` | Dated Preventive Care (PC) review task derived from a blocked/deferred obligation | Applies to medical defer states such as sick, ICU, quarantine, adverse reaction review, or Preventive Care approved waiver. No event if the state is only a passive flag. |
+| Historical or holding-farm vaccination evidence review due | `pc` | Procurement/intake evidence plus Preventive Care (PC) backfill/review workflow | Source-side vaccination history is evidence only. It becomes Calendar work only when a Preventive Care (PC) reviewer has a due action to accept/reject it under the vaccination contract. |
+| Vaccination proof verification due | `pc` | SOP task/submission verification due work, when it has `due_at` and verifier owner | Only appears if it is a dated human verifier action. Otherwise it stays in Action Center / Protocol Adherence. |
+| Vaccination rework due | `pc` | Rejected proof/rework task with owner and due date | Only the dated rework action appears. The rejected proof record itself is not a Calendar event. |
 | Vaccine cold-chain check | `inventory` | Inventory/cold-chain task or obligation | Supporting vaccination readiness, but owned by inventory keeper. |
 | Vaccine stock readiness / reservation shortfall | `inventory` | `obligation_batches` plus inventory ledger/readiness task | Resolves lot assignment, FEFO reserve, stock-out, or shortfall before a drive. The drive remains Preventive Care (PC); the stock fix is Inventory/Stock. |
 | Vaccine reorder / expiry / GRN | `inventory` | Inventory task or stock review due action | Not a Preventive Care (PC) event unless Preventive Care (PC) separately raises a dated medical or anti-misuse action. |
-| Preventive Care (PC) stock anti-misuse investigation due | `phc` | Preventive Care (PC) discrepancy/spot-audit/penalty follow-up with due date | Used when expected vaccine usage, access log, or stock movement variance needs Preventive Care (PC) Director action. Physical ledger correction stays Inventory/Stock. |
+| Preventive Care (PC) stock anti-misuse investigation due | `pc` | Preventive Care (PC) discrepancy/spot-audit/penalty follow-up with due date | Used when expected vaccine usage, access log, or stock movement variance needs Preventive Care (PC) Director action. Physical ledger correction stays Inventory/Stock. |
 | Config/source approval due | `admin_data_ops` | Config/source-review workflow with due date | A protocol draft itself is not a Calendar event; a due source-review or approval task is. |
 
 Vaccination data that must not create Calendar events:
@@ -224,7 +224,7 @@ Examples:
   views even if their v1 owner key is `hr_people`.
 - Protocol category is a source hint, not the final owner by itself:
   `vaccination`, `deworming`, `biosecurity`, `feed_water_testing`, `sop_video`,
-  and Preventive Care (PC) `stock_check` review work normally map to `phc`; `feed_direction`
+  and Preventive Care (PC) `stock_check` review work normally map to `pc`; `feed_direction`
   maps to `feed`; `director_reporting` should derive `cross_cutting: true`.
 - The top bar owns park/date scope. Calendar may filter by date/window and park,
   but should not duplicate scope chips inside every event section.

@@ -1120,8 +1120,8 @@ func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time) (time.Tim
 	switch strings.ToLower(strings.TrimSpace(rule.CatchUp)) {
 	case "", "immediate":
 		return asOf, "", false
-	case "phc_approval":
-		return asOf, "catch_up_phc_approval", false
+	case "pc_approval":
+		return asOf, "catch_up_pc_approval", false
 	case "defer":
 		return asOf, "missed_dose_deferred", false
 	case "next_cycle":

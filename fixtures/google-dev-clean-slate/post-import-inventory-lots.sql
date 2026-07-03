@@ -7,7 +7,7 @@ INSERT INTO inventory_items (
 ) VALUES (
   '00000000-0000-4000-8000-00000000b001',
   :'tenant_id'::uuid,
-  'VAC-ET-PHC',
+  'VAC-ET-PC',
   'Enterotoxaemia Vaccine',
   'vaccine',
   'dose',
@@ -31,7 +31,7 @@ SELECT
   '{"seed":"google-dev-clean-slate-vaccination","source_ref":"docs/preventive-care-vaccination/PRD.md"}'::jsonb
 FROM inventory_items i
 WHERE i.tenant_id = :'tenant_id'::uuid
-  AND i.item_code = 'VAC-ET-PHC'
+  AND i.item_code = 'VAC-ET-PC'
 ON CONFLICT (tenant_id, item_id) DO UPDATE
 SET disease = EXCLUDED.disease,
     manufacturer = EXCLUDED.manufacturer,
@@ -44,7 +44,7 @@ WITH item AS (
   SELECT tenant_id, item_id
   FROM inventory_items
   WHERE tenant_id = :'tenant_id'::uuid
-    AND item_code = 'VAC-ET-PHC'
+    AND item_code = 'VAC-ET-PC'
 ),
 park AS (
   SELECT tenant_id, location_id
@@ -96,7 +96,7 @@ JOIN inventory_items i
   ON i.tenant_id = st.tenant_id
  AND i.item_id = st.item_id
 WHERE st.tenant_id = :'tenant_id'::uuid
-  AND i.item_code = 'VAC-ET-PHC'
+  AND i.item_code = 'VAC-ET-PC'
   AND st.lot_code LIKE 'GDEV-ET-%'
 \gset
 

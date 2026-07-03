@@ -1,5 +1,5 @@
 -- +goose Up
--- Generic Calendar projection/action state for the PHC vaccination slice.
+-- Generic Calendar projection/action state for the PC vaccination slice.
 -- Calendar reads dated human work from this projection; vaccination truth stays in protocol,
 -- obligation, SOP, proof, inventory, and audit tables.
 
@@ -61,10 +61,10 @@ CREATE TABLE calendar_event_projections (
     'vaccine_stock_readiness',
     'vaccine_cold_chain_check',
     'vaccine_reorder_expiry_grn',
-    'phc_stock_anti_misuse',
+    'pc_stock_anti_misuse',
     'vaccination_config_activation_review'
   )),
-  CONSTRAINT calendar_event_owner_check CHECK (owner_key IN ('phc', 'inventory', 'admin_data_ops')),
+  CONSTRAINT calendar_event_owner_check CHECK (owner_key IN ('pc', 'inventory', 'admin_data_ops')),
   CONSTRAINT calendar_event_status_check CHECK (status IN (
     'scheduled', 'due', 'overdue', 'in_progress', 'proof_pending',
     'verification_pending', 'rejected', 'rework_due', 'deferred', 'blocked',
@@ -78,7 +78,7 @@ CREATE TABLE calendar_event_projections (
     system
     OR (
       due_at IS NOT NULL
-      AND owner_key IN ('phc', 'inventory', 'admin_data_ops')
+      AND owner_key IN ('pc', 'inventory', 'admin_data_ops')
       AND (executor_role IS NOT NULL OR assignee_label IS NOT NULL OR verifier_label IS NOT NULL)
     )
   ),

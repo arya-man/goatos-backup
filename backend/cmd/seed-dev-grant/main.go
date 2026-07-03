@@ -26,7 +26,7 @@ func main() {
 	flag.StringVar(&userID, "user-id", "", "user UUID for the grant")
 	flag.StringVar(&externalSubject, "external-subject", "", "non-UUID IdP subject to map into the grant user UUID")
 	flag.StringVar(&authIssuer, "auth-issuer", os.Getenv("GOATOS_AUTH_ISSUER"), "issuer used when mapping an external IdP subject")
-	flag.StringVar(&role, "role", "", "required role: admin, verifier, park_head, phc_director, operator, or ceo_internal")
+	flag.StringVar(&role, "role", "", "required role: admin, verifier, park_head, pc_director, operator, or ceo_internal")
 	flag.Parse()
 
 	var err error
@@ -137,7 +137,7 @@ func isUUID(value string) bool {
 
 func validRole(role string) bool {
 	switch role {
-	case permissions.RoleAdmin, permissions.RoleVerifier, permissions.RoleParkHead, permissions.RolePHCDirector, permissions.RoleOperator, permissions.RoleCEOInternal:
+	case permissions.RoleAdmin, permissions.RoleVerifier, permissions.RoleParkHead, permissions.RolePCDirector, permissions.RoleOperator, permissions.RoleCEOInternal:
 		return true
 	default:
 		return false

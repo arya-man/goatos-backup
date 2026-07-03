@@ -101,7 +101,7 @@ facts are not copied into this JSON; they come from `herd_animals`, `locations`,
    what booster/repeat/course-lapse policy, and with what SOP/proof/version
    audit. `PPR`, `FMD`, `HS`, `BQ`, Goat Pox, and ET+TT-style labels are not
    enough by themselves; they become real V1 config only when their matrix rows
-   are authored from the tracked nuance/source docs and published by CEO/COO.
+   are authored from the tracked vaccination rules source docs and published by CEO/COO.
 2. **Sheds foundation** — active sheds are locations under parent parks; every
    active shed has `animal_stage_id`; include source age range/normalized age
    days, allowed-species policy, `sex` grouping + `has_icu` /
@@ -190,7 +190,7 @@ Procurement vertical for v1.
 
 1. Seed/backfill `species_catalog`, breed/species references, and `animal_stage_lookup` + active sheds' `animal_stage_id` (+ shed_lifecycle_status_lookup) with Goats and Parks age ranges.
 2. Build the `herd_animals`/`animal_id` clean-slate target model first, then wipe and reseed local/dev/test herd data through the governed species, shed/tag, Animal ID 1/2, and vaccination-history rules. Do not patch dirty goat-only rows in place.
-3. Configure the vaccine-animal matrix rows from the tracked nuance/source docs, not just vaccine labels.
+3. Configure the vaccine-animal matrix rows from the tracked vaccination rules source docs, not just vaccine labels.
 4. Config UI fields aligned to the `animal_stage` model (screen at `/config?category=vaccination`, mock-faithful).
 5. Vaccination generation engine using current animal facts and the matrix (birth / post_arrival / calendar / after_previous_completion).
 6. Existing-animal backfill and changed-fact recheck for the same matrix.

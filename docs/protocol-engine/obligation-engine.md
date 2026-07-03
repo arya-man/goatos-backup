@@ -113,7 +113,7 @@ scope → create/edit a *draft* ruleset version → link an `sop_version_id` →
 define proof policy → define escalation policy → **impact preview** →
 activate/publish version.
 
-**Rule fields:** module/`category` (vaccination, feed_direction, deworming, sanitation, ...) · multi-factor eligibility (species, breed/breed group, age, animal_stage, sex, lifecycle, health_status, shed/cohort/park, reproductive[exclude pregnant/lactating], defer_states[ICU/quarantine/sick]) · **`schedule[]` — the Schedule Builder: an array of dose/phase rows** (dose_code · trigger_type[birth_age/post_arrival/calendar/after_previous_completion/manual_campaign] · offset_days · due_window_days · min_gap_days · repeat[none/every_n_days/yearly; age-window repeats rejected until generator support lands] · repeat_until_after_age · catch_up · per-dose sop_label[display only — executable SOP binds at version sop_version_id] + proof_policy) — NOT a single trigger-day + booster flag · `missed_dose_policy` (immediate/next_cycle/phc_approval/defer) · park override (scope_type/scope_id) · `effective_from`/`effective_to`. Next due is derived by trigger/repeat/catch-up logic plus trusted accepted completion evidence; there is no separate next-due-basis DSL field. Rule JSON must not embed animal row snapshots; it references stable dimension keys and is evaluated against canonical `herd_animals` / location / procurement / completion facts.
+**Rule fields:** module/`category` (vaccination, feed_direction, deworming, sanitation, ...) · multi-factor eligibility (species, breed/breed group, age, animal_stage, sex, lifecycle, health_status, shed/cohort/park, reproductive[exclude pregnant/lactating], defer_states[ICU/quarantine/sick]) · **`schedule[]` — the Schedule Builder: an array of dose/phase rows** (dose_code · trigger_type[birth_age/post_arrival/calendar/after_previous_completion/manual_campaign] · offset_days · due_window_days · min_gap_days · repeat[none/every_n_days/yearly; age-window repeats rejected until generator support lands] · repeat_until_after_age · catch_up · per-dose sop_label[display only — executable SOP binds at version sop_version_id] + proof_policy) — NOT a single trigger-day + booster flag · `missed_dose_policy` (immediate/next_cycle/pc_approval/defer) · park override (scope_type/scope_id) · `effective_from`/`effective_to`. Next due is derived by trigger/repeat/catch-up logic plus trusted accepted completion evidence; there is no separate next-due-basis DSL field. Rule JSON must not embed animal row snapshots; it references stable dimension keys and is evaluated against canonical `herd_animals` / location / procurement / completion facts.
 
 **Activation behavior:** production obligations generate **only** from active
 versions resolved by the category scope policy. Drafts and inactive historical
@@ -194,7 +194,7 @@ This read model also powers Config list summaries:
 "Company-wide v3 applies to 12 parks; excluded by 2 park overrides."
 
 ### `protocol_rules` (cadence / eligibility expansion — **one row per dose/phase**)
-`rule_id PK · tenant_id · protocol_version_id→protocol_versions · dose_code text (primary/booster_1/booster_2/annual/catch_up/…) · sequence int · trigger_type text CHECK(birth_age/post_arrival/calendar/after_previous_completion/manual_campaign) · offset_days int · due_window_days int · min_gap_days int · repeat text CHECK(none/every_n_days/yearly) · repeat_until_after_age text · catch_up text CHECK(immediate/next_cycle/phc_approval/defer) · eligibility_json jsonb · sop_version_id uuid NULL (per-dose override) · proof_policy jsonb · withdrawal_days int NULL · sort_order int`.
+`rule_id PK · tenant_id · protocol_version_id→protocol_versions · dose_code text (primary/booster_1/booster_2/annual/catch_up/…) · sequence int · trigger_type text CHECK(birth_age/post_arrival/calendar/after_previous_completion/manual_campaign) · offset_days int · due_window_days int · min_gap_days int · repeat text CHECK(none/every_n_days/yearly) · repeat_until_after_age text · catch_up text CHECK(immediate/next_cycle/pc_approval/defer) · eligibility_json jsonb · sop_version_id uuid NULL (per-dose override) · proof_policy jsonb · withdrawal_days int NULL · sort_order int`.
 
 ### `rule_dsl` shape (the authored ruleset — **multi-dose / multi-phase**, source of truth on `protocol_versions`)
 A rule is **not** a single trigger+booster. The editor authors and stores in `protocol_versions.rule_dsl` (jsonb, JSON-Schema-validated), then the engine **expands each `schedule[]` entry into one `protocol_rules` row**:
@@ -203,7 +203,7 @@ A rule is **not** a single trigger+booster. The editor authors and stores in `pr
   eligibility:{ age_band, animal_stage, sex, breed, lifecycle_status, health_status,
                 park/shed/cohort, reproductive(any|exclude_pregnant|exclude_lactating|pregnant_only),
                 defer_states:[ICU,quarantine,sick] },
-  missed_dose_policy: immediate | next_cycle | phc_approval | defer,
+  missed_dose_policy: immediate | next_cycle | pc_approval | defer,
   schedule: [                                 // ARRAY — multi-dose / lifecycle phases
     { dose_code, sequence, trigger_type, offset_days, due_window_days, min_gap_days,
       repeat, repeat_until_after_age, catch_up, sop_label, proof_policy:[…] }, … ],

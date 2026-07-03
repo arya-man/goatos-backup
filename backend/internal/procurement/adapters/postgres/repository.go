@@ -225,7 +225,7 @@ WHERE pl.tenant_id = $1::uuid AND pl.load_id = $2::uuid`, tenantID, loadID))
 	if detail.ArrivalReviews, err = r.listArrivalReviews(ctx, tenantID, loadID); err != nil {
 		return domain.LoadDetail{}, err
 	}
-	if detail.PHCHandoffs, err = r.listPHCHandoffs(ctx, tenantID, loadID); err != nil {
+	if detail.PCHandoffs, err = r.listPCHandoffs(ctx, tenantID, loadID); err != nil {
 		return domain.LoadDetail{}, err
 	}
 	detail.Timeline = buildTimeline(detail)
@@ -1215,7 +1215,7 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 	return review, nil
 }
 
-func (r *Repository) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([]domain.PHCHandoff, error) {
+func (r *Repository) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([]domain.PCHandoff, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -1242,9 +1242,9 @@ func (r *Repository) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([
 			return nil, rerr
 		}
 		if !res.proceed {
-			// Replay: the PHC handoffs for this load were already produced; return them, run NO side effects.
+			// Replay: the PC handoffs for this load were already produced; return them, run NO side effects.
 			_ = tx.Rollback(ctx)
-			return r.listPHCHandoffs(ctx, in.TenantID, in.LoadID)
+			return r.listPCHandoffs(ctx, in.TenantID, in.LoadID)
 		}
 	}
 
@@ -1290,7 +1290,7 @@ ORDER BY goat_id`, in.TenantID, in.LoadID)
 	if len(goatIDs) == 0 {
 		return nil, fmt.Errorf("%w: accepted intake requires at least one arrival-accepted goat", ports.ErrInvalidTransition)
 	}
-	out := make([]domain.PHCHandoff, 0, len(goatIDs))
+	out := make([]domain.PCHandoff, 0, len(goatIDs))
 	for _, goatID := range goatIDs {
 		var acceptedGoatID string
 		if err = tx.QueryRow(ctx, `
@@ -1375,8 +1375,8 @@ INSERT INTO goat_location_history (
 			in.TenantID, acceptedGoatID, in.ShedLocationID, in.AcceptedAt, stringPtrValue(in.ActorID), "procurement_load:"+in.LoadID); err != nil {
 			return nil, fmt.Errorf("procurement: record accepted intake location: %w", err)
 		}
-		handoff, handoffErr := scanPHCHandoff(tx.QueryRow(ctx, `
-INSERT INTO procurement_phc_handoffs (
+		handoff, handoffErr := scanPCHandoff(tx.QueryRow(ctx, `
+INSERT INTO procurement_pc_handoffs (
   tenant_id, load_id, goat_id, accepted_at, park_location_id, shed_location_id,
   entry_date, trusted_vaccination_history, intake_health_signal, idempotency_key
 ) VALUES (
@@ -1393,16 +1393,16 @@ SET accepted_at = EXCLUDED.accepted_at,
     updated_at = now()
 RETURNING handoff_id::text, tenant_id::text, load_id::text, goat_id::text,
           accepted_at, park_location_id::text,
-          COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_phc_handoffs.tenant_id AND location_id = procurement_phc_handoffs.park_location_id), park_location_id::text),
+          COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_pc_handoffs.tenant_id AND location_id = procurement_pc_handoffs.park_location_id), park_location_id::text),
           shed_location_id::text,
-          COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_phc_handoffs.tenant_id AND location_id = procurement_phc_handoffs.shed_location_id), shed_location_id::text),
+          COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_pc_handoffs.tenant_id AND location_id = procurement_pc_handoffs.shed_location_id), shed_location_id::text),
           entry_date,
           trusted_vaccination_history, intake_health_signal, event_status, created_at, updated_at`,
 			in.TenantID, in.LoadID, acceptedGoatID, in.AcceptedAt, in.ParkLocationID, in.ShedLocationID,
 			in.EntryDate, jsonArrayArg(in.TrustedVaccinationHistory), stringPtrValue(in.IntakeHealthSignal),
 			in.IdempotencyKey+":"+acceptedGoatID))
 		if handoffErr != nil {
-			return nil, fmt.Errorf("procurement: create PHC handoff: %w", handoffErr)
+			return nil, fmt.Errorf("procurement: create PC handoff: %w", handoffErr)
 		}
 		if err := r.emitAcceptedIntakeGoatCreated(ctx, tx, in, handoff); err != nil {
 			return nil, err
@@ -1418,7 +1418,7 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 		return nil, fmt.Errorf("procurement: update accepted intake load: %w", err)
 	}
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
-		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "procurement_phc_handoffs_load", in.LoadID); err != nil {
+		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "procurement_pc_handoffs_load", in.LoadID); err != nil {
 			return nil, fmt.Errorf("procurement: complete accept intake idempotency: %w", err)
 		}
 	}
@@ -1822,15 +1822,15 @@ func scanArrivalGoat(row scanner) (domain.ArrivalGoat, error) {
 	return out, nil
 }
 
-func scanPHCHandoff(row scanner) (domain.PHCHandoff, error) {
-	var out domain.PHCHandoff
+func scanPCHandoff(row scanner) (domain.PCHandoff, error) {
+	var out domain.PCHandoff
 	var history []byte
 	var parkLabel, shedLabel, signal pgtype.Text
 	var entryDate pgtype.Date
 	if err := row.Scan(&out.HandoffID, &out.TenantID, &out.LoadID, &out.GoatID,
 		&out.AcceptedAt, &out.ParkLocationID, &parkLabel, &out.ShedLocationID, &shedLabel, &entryDate,
 		&history, &signal, &out.EventStatus, &out.CreatedAt, &out.UpdatedAt); err != nil {
-		return domain.PHCHandoff{}, err
+		return domain.PCHandoff{}, err
 	}
 	if entryDate.Valid {
 		out.EntryDate = entryDate.Time
@@ -2330,25 +2330,25 @@ ORDER BY arrival_state ASC, review_goat_id ASC`, tenantID, reviewID)
 	return out, rows.Err()
 }
 
-func (r *Repository) listPHCHandoffs(ctx context.Context, tenantID, loadID string) ([]domain.PHCHandoff, error) {
+func (r *Repository) listPCHandoffs(ctx context.Context, tenantID, loadID string) ([]domain.PCHandoff, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT handoff_id::text, tenant_id::text, load_id::text, goat_id::text,
        accepted_at, park_location_id::text,
-       COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_phc_handoffs.tenant_id AND location_id = procurement_phc_handoffs.park_location_id), park_location_id::text),
+       COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_pc_handoffs.tenant_id AND location_id = procurement_pc_handoffs.park_location_id), park_location_id::text),
        shed_location_id::text,
-       COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_phc_handoffs.tenant_id AND location_id = procurement_phc_handoffs.shed_location_id), shed_location_id::text),
+       COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_pc_handoffs.tenant_id AND location_id = procurement_pc_handoffs.shed_location_id), shed_location_id::text),
        entry_date,
        trusted_vaccination_history, intake_health_signal, event_status, created_at, updated_at
-FROM procurement_phc_handoffs
+FROM procurement_pc_handoffs
 WHERE tenant_id = $1::uuid AND load_id = $2::uuid
 ORDER BY accepted_at ASC, handoff_id ASC`, tenantID, loadID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []domain.PHCHandoff
+	var out []domain.PCHandoff
 	for rows.Next() {
-		row, scanErr := scanPHCHandoff(rows)
+		row, scanErr := scanPCHandoff(rows)
 		if scanErr != nil {
 			return nil, scanErr
 		}
@@ -2387,9 +2387,9 @@ func buildTimeline(detail domain.LoadDetail) []domain.TimelineEvent {
 	for _, review := range detail.ArrivalReviews {
 		events = append(events, domain.TimelineEvent{EventType: "arrival_review", OccurredAt: review.ReviewedAt, RefID: review.ReviewID, State: review.Status, Summary: "arrival gate reviewed"})
 	}
-	for _, handoff := range detail.PHCHandoffs {
+	for _, handoff := range detail.PCHandoffs {
 		goatID := handoff.GoatID
-		events = append(events, domain.TimelineEvent{EventType: "accepted_intake_phc_handoff", OccurredAt: handoff.AcceptedAt, GoatID: &goatID, RefID: handoff.HandoffID, State: handoff.EventStatus, Summary: "accepted intake ready for PHC vaccination handoff"})
+		events = append(events, domain.TimelineEvent{EventType: "accepted_intake_pc_handoff", OccurredAt: handoff.AcceptedAt, GoatID: &goatID, RefID: handoff.HandoffID, State: handoff.EventStatus, Summary: "accepted intake ready for PC vaccination handoff"})
 	}
 	sort.SliceStable(events, func(i, j int) bool {
 		return events[i].OccurredAt.Before(events[j].OccurredAt)

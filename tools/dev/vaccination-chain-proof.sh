@@ -26,7 +26,7 @@
 #
 # This uses the source-derived local/dev baseline in
 # context/source-findings/preventive-care-vaccination-roster-stage-proposal.md. Production can replace it
-# with a later source-backed version if PHC/vet data changes.
+# with a later source-backed version if PC/vet data changes.
 set -euo pipefail
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
 export GOATOS_ENV=local GOATOS_AUTH_MODE=bearer
@@ -101,7 +101,7 @@ echo "## vaccination-chain-proof stamp=$STAMP api=$API"
 echo; echo "### 0. V1 vaccine-goat matrix fixture is present"
 ( cd "$BACKEND" && go run ./cmd/seed-vaccination-trigger -tenant-id "$TENANT" >/dev/null )
 MATRIX=$(psqlq "select concat_ws('|', rule_dsl->'vaccine'->>'code', rule_dsl->'vaccine'->>'type', rule_dsl #>> '{schedule,0,dose_amount}', rule_dsl #>> '{schedule,0,dose_unit}', rule_dsl #>> '{schedule,0,route_site}', rule_dsl #>> '{schedule,0,max_delay_days}', rule_dsl #>> '{schedule,0,course_lapse_policy}', rule_dsl #>> '{eligibility,stage}', rule_dsl #>> '{eligibility,sex}', rule_dsl #>> '{eligibility,breed}', rule_dsl #>> '{eligibility,lifecycle}', rule_dsl #>> '{eligibility,health}', rule_dsl #>> '{eligibility,reproductive}', jsonb_array_length(rule_dsl->'schedule')) from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$VERSION'")
-[ "$MATRIX" = "ET|toxoid|0.5|ml|subcutaneous|7|phc_review|K1|all|all|alive|any|any|2" ] || fail "V1 matrix fixture missing/wrong for version=$VERSION got=$MATRIX"
+[ "$MATRIX" = "ET|toxoid|0.5|ml|subcutaneous|7|pc_review|K1|all|all|alive|any|any|2" ] || fail "V1 matrix fixture missing/wrong for version=$VERSION got=$MATRIX"
 MATRIX_REPRO_EXCLUSIONS=$(psqlq "select jsonb_array_length(rule_dsl #> '{eligibility,exclude_reproductive_states}') from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$VERSION'")
 [ "$MATRIX_REPRO_EXCLUSIONS" = "2" ] || fail "V1 matrix missing reproductive exclusions; count=$MATRIX_REPRO_EXCLUSIONS version=$VERSION"
 OLD_STATUS=$(psqlq "select status from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$OLD_VERSION'")

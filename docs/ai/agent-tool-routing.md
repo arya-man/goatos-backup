@@ -74,7 +74,7 @@ Best for depth, cross-module consistency, and contract-first work.
 | --- | --- |
 | OpenAPI / `contracts/openapi/*` changes + regenerate clients | Fewer missed codegen steps |
 | `backend/internal/adminui` bootstrap / compiler changes | Large surface; contract drift risk |
-| Protocol engine, PHC vaccination scheduling, obligation kernel | Multi-module + docs (`docs/protocol-engine/`, `docs/phc-vaccination/`) |
+| Protocol engine, Preventive Care vaccination scheduling, obligation kernel | Multi-module + docs (`docs/protocol-engine/`, `docs/preventive-care-vaccination/`) |
 | Migrations + sqlc + repository changes on hot paths | Needs query-plan / idempotency discipline |
 | Refactors across backend modules | CRG + hooks + long context |
 | Phase PRD/TRD closure (code vs spec diff) | Wide read, narrow write |
@@ -120,7 +120,7 @@ Gate: check:mock-fidelity if UI changes
 
 ```text
 Slice: [e.g. vaccination scheduling algorithm — backend only]
-Read first: docs/phc-vaccination/vaccination-scheduling-algorithm-review.md
+Read first: docs/preventive-care-vaccination/vaccination-scheduling-algorithm-review.md
             backend/AGENTS.md + .agents/skills/goatos-build/SKILL.md
 4-layer lookup: CRG impact before editing
 Task: [specific outcome + acceptance tests]
@@ -136,7 +136,7 @@ Handoff: list files changed, tests run, contract/OpenAPI regen if any
 | --- | --- |
 | Admin-web mock-faithful UI | **Cursor** |
 | `/config` protocol rules + bootstrap copy | **Claude** (backend contract) then **Cursor** (render) |
-| PHC vaccination execution read models | **Claude** |
+| Preventive Care vaccination execution read models | **Claude** |
 | Scheduling / calendar due-work algorithm | **Claude** |
 | OpenAPI + generated TS client | **Claude** |
 | Migrations / sqlc | **Claude** |

@@ -69,7 +69,7 @@ func TestSM4bSpawnsSopTaskPerBatch(t *testing.T) {
 	}
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("rule: %v", err)
@@ -145,7 +145,7 @@ func TestSM4bFinalizesPlannedBatchMissingSOPTask(t *testing.T) {
 	}
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("rule: %v", err)
@@ -219,7 +219,7 @@ func TestSM4SweeperBatchesByScopeRuleAndDueDate(t *testing.T) {
 	}
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("rule: %v", err)
@@ -294,7 +294,7 @@ func TestSM4SweeperKeepsOneScopeInOneBatchAcrossPages(t *testing.T) {
 	}
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("rule: %v", err)

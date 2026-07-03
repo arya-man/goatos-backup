@@ -9,7 +9,7 @@ captured Goal 1 end-to-end local run (CLOSED locally, 2026-06-29).
 The standalone `vaccination-chain-proof.sh` script is data-plane/API proof. The
 Goal 1 smoke path now wraps it with the procurement negative matrix and browser
 visual/click checks through `tools/dev/admin-web-e2e-smoke.sh`. Logging-only
-outbox publish does NOT count as delivery. `procurement_phc_handoffs.event_status
+outbox publish does NOT count as delivery. `procurement_pc_handoffs.event_status
 = emitted` means "outbox enqueued", not "downstream generation/read-models
 succeeded", unless a real downstream reconciliation signal is added.
 

@@ -53,7 +53,7 @@ func TestSM4cReservesStockPerBatch(t *testing.T) {
 	}
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("rule: %v", err)
@@ -160,7 +160,7 @@ func TestSM4cReservesShedScopedDriveFromParkStock(t *testing.T) {
 	}
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("rule: %v", err)
@@ -231,7 +231,7 @@ func reserveTestVersion(t *testing.T, ctx context.Context, proto *protopg.Reposi
 	}
 	ruleID, err = proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("rule: %v", err)

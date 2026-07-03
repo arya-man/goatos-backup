@@ -52,7 +52,7 @@ calendar reminder sweep queued=2 tenant=00000000-0000-4000-8000-000000000001
 owner_key       events
 admin_data_ops 1
 inventory      3
-phc            8
+pc            8
 
 notification_type notifications
 reminder          3

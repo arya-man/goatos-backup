@@ -55,7 +55,7 @@ No Import-Review product screen, **no review workflow, no review queue.** This i
 |---|---|---|
 | `accepted` | enough data to create a canonical herd animal | full obligation generation |
 | `accepted_with_estimate` | usable, but DOB/stage/etc. estimated (`dob_estimated=true`) | generate with estimated anchors; flag |
-| `blocked_for_phc` | animal exists but a key field (species/sex/stage/shed/DOB) is missing → vaccination can't trigger | no obligations until resolved; listed in report |
+| `blocked_for_pc` | animal exists but a key field (species/sex/stage/shed/DOB) is missing → vaccination can't trigger | no obligations until resolved; listed in report |
 | `discarded_legacy_noise` | BQ/dashboard-only junk, not a real animal | dropped (archived, not canonical) |
 
 The report is the cutover artifact Preventive Care (PC) reviews — counts per class, blocked-field breakdown, per-park.
@@ -118,7 +118,7 @@ become runtime API/DB names.
 verified source evidence
   → clean seed/import validation
   → canonical Goat OS herd_animals/locations/operators
-  → migration quality report (accepted / accepted_with_estimate / blocked_for_phc / discarded_noise)
+  → migration quality report (accepted / accepted_with_estimate / blocked_for_pc / discarded_noise)
   → one-time Preventive Care (PC) backfill generator (canonical → missing obligations → shed drives)
   → cutover policy (catch-up/baseline, NOT historical overdue)
   → current/future vaccination + feed obligations run from Goat OS only

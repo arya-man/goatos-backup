@@ -343,7 +343,7 @@ Current active owner pills for the vaccination slice:
 | owner_key | Display | Use in this slice |
 | --- | --- | --- |
 | `all` | All | Filter-only combined view. Do not persist as event owner. |
-| `phc` | Preventive Care (PC) | Vaccination dose due, drive, booster, catch-up, defer/waiver review, evidence review, proof verification, rework, Preventive Care (PC) anti-misuse action. |
+| `pc` | Preventive Care (PC) | Vaccination dose due, drive, booster, catch-up, defer/waiver review, evidence review, proof verification, rework, Preventive Care (PC) anti-misuse action. |
 | `inventory` | Inventory / Stock | Vaccine stock readiness, reservation shortfall, cold-chain, expiry/reorder/GRN when tied to vaccination readiness. |
 | `admin_data_ops` | Admin / Data Ops | Source review, config approval, import/replay review, audit follow-up when it is a dated human task for vaccination config/evidence. |
 
@@ -357,17 +357,17 @@ Backend must produce these event families when source-backed data exists:
 
 | Family | owner_key | Backend source | Sidebar must show |
 | --- | --- | --- | --- |
-| Vaccination dose due | `phc` | `obligation_instances` from published source-backed `protocol_versions` and `protocol_rules` under `protocol_definitions(category='vaccination')` | vaccine, dose, due/window, target count, status, owner, source-backed rule |
-| Shed/cohort drive | `phc` | `obligation_batches` grouped from due vaccination obligations | park, shed/cohort, target count, assigned executor, SOP task, stock readiness, proof state |
-| Manual campaign / catch-up | `phc` | approved campaign rule or Preventive Care approved catch-up batch | campaign reason, target cohort, owner, source/approval |
-| Booster due | `phc` | SM-7 from accepted `vaccination_completions.administered_at` | previous dose, administered_at, booster basis, min gap/window |
-| Defer / waiver review | `phc` | dated Preventive Care (PC) review task from blocked/deferred obligation | defer reason, impacted goats, reviewer, resume/waiver action |
-| HF/historical evidence review | `phc` | procurement/intake evidence plus Preventive Care (PC) review/backfill task | evidence source, accepted-intake link, review due, accept/reject action |
-| Proof verification | `phc` | dated verifier task from SOP submission/proof state | shed video, vial video, pending/rejected/accepted, verifier |
-| Rework due | `phc` | rejected proof/rework task with due date | rejection reason, required rework, assigned worker/verifier |
+| Vaccination dose due | `pc` | `obligation_instances` from published source-backed `protocol_versions` and `protocol_rules` under `protocol_definitions(category='vaccination')` | vaccine, dose, due/window, target count, status, owner, source-backed rule |
+| Shed/cohort drive | `pc` | `obligation_batches` grouped from due vaccination obligations | park, shed/cohort, target count, assigned executor, SOP task, stock readiness, proof state |
+| Manual campaign / catch-up | `pc` | approved campaign rule or Preventive Care approved catch-up batch | campaign reason, target cohort, owner, source/approval |
+| Booster due | `pc` | SM-7 from accepted `vaccination_completions.administered_at` | previous dose, administered_at, booster basis, min gap/window |
+| Defer / waiver review | `pc` | dated Preventive Care (PC) review task from blocked/deferred obligation | defer reason, impacted goats, reviewer, resume/waiver action |
+| HF/historical evidence review | `pc` | procurement/intake evidence plus Preventive Care (PC) review/backfill task | evidence source, accepted-intake link, review due, accept/reject action |
+| Proof verification | `pc` | dated verifier task from SOP submission/proof state | shed video, vial video, pending/rejected/accepted, verifier |
+| Rework due | `pc` | rejected proof/rework task with due date | rejection reason, required rework, assigned worker/verifier |
 | Cold-chain / stock readiness | `inventory` | inventory/cold-chain task or batch readiness task | lot, expiry, FEFO state, reserved/shortfall, cold-chain status |
 | Reorder / expiry / GRN | `inventory` | inventory review task tied to vaccination readiness | item, lot, quantity, threshold, due action |
-| Preventive Care (PC) stock anti-misuse | `phc` | Preventive Care (PC) discrepancy or spot-audit follow-up with due date | variance, expected use, actual use/movement, Preventive Care (PC) owner |
+| Preventive Care (PC) stock anti-misuse | `pc` | Preventive Care (PC) discrepancy or spot-audit follow-up with due date | variance, expected use, actual use/movement, Preventive Care (PC) owner |
 | Config/source approval | `admin_data_ops` | dated config/source-review workflow | protocol version, source ref, review state, approver |
 
 ## Calendar Event Shape
@@ -607,7 +607,7 @@ Seeded owner-pill coverage:
 | Pill | Must prove |
 | --- | --- |
 | `all` | Combined vaccination slice only; no unrelated domain events. |
-| `phc` | Dose due, drive, booster, campaign/catch-up, defer/waiver review, historical evidence review, proof verification, rework, Preventive Care (PC) stock anti-misuse. |
+| `pc` | Dose due, drive, booster, campaign/catch-up, defer/waiver review, historical evidence review, proof verification, rework, Preventive Care (PC) stock anti-misuse. |
 | `inventory` | Stock readiness, reservation shortfall, cold-chain, expiry/reorder/GRN tied to vaccination readiness. |
 | `admin_data_ops` | Config/source approval, import/replay review, audit follow-up tied to vaccination config/evidence. |
 
@@ -767,7 +767,7 @@ Docker volume.
    - owner-missing gap is excluded until owner exists
    - stock readiness maps to `inventory`
    - source/config approval maps to `admin_data_ops`
-   - Preventive Care (PC) proof/rework/drive maps to `phc`
+   - Preventive Care (PC) proof/rework/drive maps to `pc`
 12. Add tests for Calendar read-model status mapping so UI statuses never force
     new invalid canonical `obligation_instances.status` values.
 13. Wire local Docker rehearsal:
@@ -908,7 +908,7 @@ vaccination_rework_due
 vaccine_stock_readiness
 vaccine_cold_chain_check
 vaccine_reorder_expiry_grn
-phc_stock_anti_misuse
+pc_stock_anti_misuse
 vaccination_config_source_approval
 ```
 

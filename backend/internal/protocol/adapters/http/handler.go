@@ -298,7 +298,7 @@ type animalStageListResponse struct {
 }
 
 // ListAnimalStages serves GET /protocols/animal-stages — the tenant's active animal_stage_lookup
-// rows, so the Config authoring stage picker is backend-driven (PHC vaccination TRD: stage bands
+// rows, so the Config authoring stage picker is backend-driven (PC vaccination TRD: stage bands
 // live in the lookup, not in frontend literals). Read-only; an empty list is honest (no stages
 // seeded yet) and the UI shows a seed-stages empty state rather than falling back to hardcoded codes.
 func (h *Handler) ListAnimalStages(w http.ResponseWriter, r *http.Request) {

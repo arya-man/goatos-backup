@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Local DATA-PLANE proof for imported/existing vaccination history.
 #
-# Proves the V1 Nuance Rules path the demo depends on:
-#   published ET+TT Nuance config + SOP
+# Proves the V1 Vaccination Rules path the demo depends on:
+#   published ET+TT Vaccination Rules config + SOP
 #     -> goat already has accepted/verified 4-week ET+TT history
 #     -> generator suppresses the old 4-week dose
 #     -> generator creates the next 7-week ET+TT obligation only
@@ -12,7 +12,7 @@
 # Prerequisites:
 #   - local stack up: api :8080 and docker PG 127.0.0.1:55432 (`make dev-local`)
 #   - migrations applied
-#   - source-backed Nuance Rules config already authored/published by
+#   - source-backed Vaccination Rules config already authored/published by
 #     `apps/admin-web/scripts/smoke-vaccination-authoring-live.mjs`
 set -euo pipefail
 
@@ -50,7 +50,7 @@ SHED_CODE="TRUST-HIST-$STAMP"
 
 echo "## vaccination-trusted-history-proof stamp=$STAMP api=$API as_of=$AS_OF"
 
-echo; echo "### 0. find latest published ET+TT Nuance matrix row"
+echo; echo "### 0. find latest published ET+TT Vaccination Rules matrix row"
 MATRIX_ROW=$(psqlq "
 WITH latest AS (
   SELECT pv.protocol_version_id, pv.sop_version_id, pv.effective_from, pv.created_at
@@ -64,7 +64,6 @@ WITH latest AS (
     AND pv.rule_dsl->'vaccine'->>'code' = 'ET+TT'
     AND pv.rule_dsl #>> '{source,review_status}' = 'approved'
     AND pv.rule_dsl #>> '{source,source_system}' = 'vaccinations_db'
-    AND lower(coalesce(pv.rule_dsl #>> '{source,source_ref}', '')) LIKE '%nuance%'
   ORDER BY pv.created_at DESC
   LIMIT 1
 )
@@ -88,9 +87,9 @@ JOIN protocol_rules pr7
  AND pr7.protocol_version_id = latest.protocol_version_id
  AND pr7.dose_code = 'et_tt_7w'
 ")
-[ -n "$MATRIX_ROW" ] || fail "published Nuance ET+TT config not found; run the vaccination authoring smoke first"
+[ -n "$MATRIX_ROW" ] || fail "published Vaccination Rules ET+TT config not found; run the vaccination authoring smoke first"
 IFS='|' read -r VERSION SOPVER RULE4 RULE7 DOSE4 DOSE7 OFFSET4 OFFSET7 EFFECTIVE_FROM <<<"$MATRIX_ROW"
-[ -n "$VERSION" ] && [ -n "$SOPVER" ] && [ -n "$RULE4" ] && [ -n "$RULE7" ] || fail "incomplete Nuance ET+TT row: $MATRIX_ROW"
+[ -n "$VERSION" ] && [ -n "$SOPVER" ] && [ -n "$RULE4" ] && [ -n "$RULE7" ] || fail "incomplete Vaccination Rules ET+TT row: $MATRIX_ROW"
 assert_eq "4-week dose code" "et_tt_4w" "$DOSE4"
 assert_eq "7-week dose code" "et_tt_7w" "$DOSE7"
 assert_eq "4-week offset" "28" "$OFFSET4"

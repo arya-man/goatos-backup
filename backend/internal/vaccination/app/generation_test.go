@@ -302,7 +302,7 @@ func TestGenerateForVersionDefaultsClinicalHoldStatesToDeferred(t *testing.T) {
 	}
 }
 
-func TestGenerateForVersionHonorsNuanceClinicalAndPregnancyRules(t *testing.T) {
+func TestGenerateForVersionHonorsVaccinationRulesClinicalAndPregnancyRules(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
@@ -366,21 +366,21 @@ func TestGenerateForVersionHonorsProcurementWarmupOffset(t *testing.T) {
 	}
 }
 
-func TestGenerateForVersionHonorsNuanceSourceScheduleWithTrustedHistory(t *testing.T) {
+func TestGenerateForVersionHonorsVaccinationRulesSourceScheduleWithTrustedHistory(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	et4w := dob.AddDate(0, 0, 28)
 	proto := &generationProtoFake{
 		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]},"compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21},"pregnancy_policy":{"allow_until_pregnancy_month":3,"skip_from_pregnancy_month":4,"skip_through_pregnancy_month":5,"post_delivery_catch_up_days":14}}`),
 		rules: []protodomain.Rule{
-			{RuleID: "rule-et-4w", DoseCode: "et_tt_4w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7, CatchUp: "phc_approval"},
-			{RuleID: "rule-et-7w", DoseCode: "et_tt_7w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 49, DueWindowDays: 7, MinGapDays: 21, Repeat: "none", CatchUp: "phc_approval"},
-			{RuleID: "rule-fmd-12w", DoseCode: "fmd_12w", Sequence: 3, TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7, CatchUp: "phc_approval"},
-			{RuleID: "rule-hs-12w", DoseCode: "hs_12w", Sequence: 4, TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7, CatchUp: "phc_approval"},
-			{RuleID: "rule-ppr-16w", DoseCode: "ppr_16w", Sequence: 5, TriggerType: "birth_age", OffsetDays: 112, DueWindowDays: 7, CatchUp: "phc_approval"},
+			{RuleID: "rule-et-4w", DoseCode: "et_tt_4w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7, CatchUp: "pc_approval"},
+			{RuleID: "rule-et-7w", DoseCode: "et_tt_7w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 49, DueWindowDays: 7, MinGapDays: 21, Repeat: "none", CatchUp: "pc_approval"},
+			{RuleID: "rule-fmd-12w", DoseCode: "fmd_12w", Sequence: 3, TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7, CatchUp: "pc_approval"},
+			{RuleID: "rule-hs-12w", DoseCode: "hs_12w", Sequence: 4, TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7, CatchUp: "pc_approval"},
+			{RuleID: "rule-ppr-16w", DoseCode: "ppr_16w", Sequence: 5, TriggerType: "birth_age", OffsetDays: 112, DueWindowDays: 7, CatchUp: "pc_approval"},
 			// Goat Pox source is 16 weeks, but V1 same-day live-live spacing moves the effective row
-			// four weeks after PPR when the full Nuance Rules matrix is loaded.
-			{RuleID: "rule-goatpox-20w", DoseCode: "goat_pox_20w", Sequence: 6, TriggerType: "birth_age", OffsetDays: 140, DueWindowDays: 7, CatchUp: "phc_approval"},
+			// four weeks after PPR when the full Vaccination Rules matrix is loaded.
+			{RuleID: "rule-goatpox-20w", DoseCode: "goat_pox_20w", Sequence: 6, TriggerType: "birth_age", OffsetDays: 140, DueWindowDays: 7, CatchUp: "pc_approval"},
 		},
 	}
 	goats := &generationGoatFake{
@@ -394,7 +394,7 @@ func TestGenerateForVersionHonorsNuanceSourceScheduleWithTrustedHistory(t *testi
 
 	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.January, 2, 0, 0, 0, 0, time.UTC))
 	if err != nil {
-		t.Fatalf("generate nuance schedule: %v", err)
+		t.Fatalf("generate vaccination rules schedule: %v", err)
 	}
 	if result.Generated != 5 || result.SuppressedByTrustedHistory != 1 || len(obl.inserted) != 5 {
 		t.Fatalf("result=%#v inserted=%#v, want ET 4w suppressed and five source-table obligations generated", result, obl.inserted)
@@ -745,18 +745,18 @@ func TestGenerateAppliesMissedDosePolicy(t *testing.T) {
 		}
 	})
 
-	t.Run("phc approval", func(t *testing.T) {
+	t.Run("pc approval", func(t *testing.T) {
 		proto := &generationProtoFake{rules: []protodomain.Rule{{
-			RuleID: "rule-phc", DoseCode: "dose-1", Sequence: 1,
-			TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, CatchUp: "phc_approval",
+			RuleID: "rule-pc", DoseCode: "dose-1", Sequence: 1,
+			TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, CatchUp: "pc_approval",
 		}}}
 		obl := &generationObligationFake{seen: map[string]bool{}}
 		result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
 		if err != nil {
-			t.Fatalf("generate phc approval: %v", err)
+			t.Fatalf("generate pc approval: %v", err)
 		}
 		if result.Deferred != 1 || len(obl.deferReasons) != 0 || obl.inserted[0].Status != "deferred" {
-			t.Fatalf("result=%#v inserted=%#v reasons=%#v, want deferred PHC approval gap", result, obl.inserted, obl.deferReasons)
+			t.Fatalf("result=%#v inserted=%#v reasons=%#v, want deferred PC approval gap", result, obl.inserted, obl.deferReasons)
 		}
 	})
 
@@ -937,18 +937,18 @@ func TestOlderGoatUnknownHistoryCreatesOnlyOneHistoricalCatchUp(t *testing.T) {
 	}
 }
 
-func TestOlderGoatUnknownHistoryCreatesOnlyOnePHCReviewCatchUp(t *testing.T) {
+func TestOlderGoatUnknownHistoryCreatesOnlyOnePCReviewCatchUp(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
 	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{rules: []protodomain.Rule{
 		{
 			RuleID: "rule-dose-1", DoseCode: "dose-1", Sequence: 1,
-			TriggerType: "birth_age", OffsetDays: 180, DueWindowDays: 7, CatchUp: "phc_approval",
+			TriggerType: "birth_age", OffsetDays: 180, DueWindowDays: 7, CatchUp: "pc_approval",
 		},
 		{
 			RuleID: "rule-dose-2", DoseCode: "dose-2", Sequence: 2,
-			TriggerType: "birth_age", OffsetDays: 300, DueWindowDays: 7, CatchUp: "phc_approval",
+			TriggerType: "birth_age", OffsetDays: 300, DueWindowDays: 7, CatchUp: "pc_approval",
 		},
 	}}
 	goats := &generationGoatFake{list: []domain.EligibleGoat{
@@ -961,7 +961,7 @@ func TestOlderGoatUnknownHistoryCreatesOnlyOnePHCReviewCatchUp(t *testing.T) {
 		t.Fatalf("generate older unknown-history goat: %v", err)
 	}
 	if result.Generated != 1 || result.Deferred != 1 || len(obl.inserted) != 1 {
-		t.Fatalf("result=%#v inserted=%#v, want one PHC-review catch-up only", result, obl.inserted)
+		t.Fatalf("result=%#v inserted=%#v, want one PC-review catch-up only", result, obl.inserted)
 	}
 	if got := obl.inserted[0]; got.RuleID != "rule-dose-1" || got.Status != "deferred" || !got.DueAt.Equal(asOf) {
 		t.Fatalf("inserted=%#v, want first missed dose as one deferred review item", got)

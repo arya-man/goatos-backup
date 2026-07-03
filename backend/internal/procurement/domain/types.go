@@ -245,7 +245,7 @@ type ArrivalGoat struct {
 	CreatedAt         time.Time `json:"created_at"`
 }
 
-type PHCHandoff struct {
+type PCHandoff struct {
 	HandoffID                 string          `json:"handoff_id"`
 	TenantID                  string          `json:"tenant_id"`
 	LoadID                    string          `json:"load_id"`
@@ -297,7 +297,7 @@ type LoadDetail struct {
 	Decisions      []Decision              `json:"decisions"`
 	Transit        []TransitHandoff        `json:"transit_handoffs"`
 	ArrivalReviews []ArrivalReview         `json:"arrival_reviews"`
-	PHCHandoffs    []PHCHandoff            `json:"phc_handoffs"`
+	PCHandoffs     []PCHandoff             `json:"pc_handoffs"`
 	Timeline       []TimelineEvent         `json:"timeline"`
 }
 

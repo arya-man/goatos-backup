@@ -74,7 +74,7 @@ Fixed in this pass:
   defaults plus park overrides. Explicit `-version-id` runs are now gated behind
   `-unsafe-version-id-bypass-effective-resolution` for repair-only use.
 - Explicit missed-dose policy with a due window is now executable:
-  `immediate`, `phc_approval`, `defer`, and yearly `next_cycle`.
+  `immediate`, `pc_approval`, `defer`, and yearly `next_cycle`.
 - Vaccination execution rendered the returned shed-event set as one long page.
   It now pages filtered execution rows before grouping by park/shed.
 - Vaccination status matrix and cohort detail used a disabled "no cursor"
@@ -309,7 +309,7 @@ Run API/integration checks before browser clicks.
      coverage.
    - Run birth-age K1 generation for a goat with no DOB; assert a visible
      deferred data-quality row appears in AC/PA/Calendar/Passport where exposed.
-   - Run missed-dose policy cases for `immediate`, `next_cycle`, `phc_approval`,
+   - Run missed-dose policy cases for `immediate`, `next_cycle`, `pc_approval`,
      and `defer`; assert status/due date/reason across AC, Execution, Passport,
      and Calendar.
 

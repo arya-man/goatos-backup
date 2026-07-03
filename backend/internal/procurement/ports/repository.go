@@ -43,7 +43,7 @@ type Repository interface {
 	ReviewHFVaccinationEvidence(ctx context.Context, in ReviewHFVaccinationEvidence) (domain.HFVaccinationEvidence, error)
 	DispatchLoad(ctx context.Context, in DispatchLoad) (domain.TransitHandoff, error)
 	RecordArrivalReview(ctx context.Context, in ArrivalReview) (domain.ArrivalReview, error)
-	AcceptIntake(ctx context.Context, in AcceptIntake) ([]domain.PHCHandoff, error)
+	AcceptIntake(ctx context.Context, in AcceptIntake) ([]domain.PCHandoff, error)
 	ListWorkRows(ctx context.Context, q domain.WorkQuery) (domain.WorkListResult, error)
 	GetWorkRow(ctx context.Context, q domain.WorkQuery, rowID string) (domain.WorkRow, bool, error)
 }

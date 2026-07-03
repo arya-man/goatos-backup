@@ -52,7 +52,7 @@ func parkConsolidationProtocol(t *testing.T, ctx context.Context, pool *pgxpool.
 	}
 	ruleID, err = proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
 		DueWindowDays: 7, EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
@@ -327,7 +327,7 @@ func TestSM4ParkConsolidationMergesDifferentVaccinesAcrossSheds(t *testing.T) {
 	}
 	ruleET, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
 		DueWindowDays: 7, EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
@@ -335,7 +335,7 @@ func TestSM4ParkConsolidationMergesDifferentVaccinesAcrossSheds(t *testing.T) {
 	}
 	ruleTT, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "booster_1", Sequence: 2,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
 		DueWindowDays: 7, EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {

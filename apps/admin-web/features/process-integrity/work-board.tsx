@@ -57,7 +57,7 @@ function optionTone(options: AdminUiOption[], key: string): Tone {
 export function actionDriveLabel(pageContract: AdminUiPageContract, row: Pick<ActionCenterObligation, "drive_name" | "protocol_name" | "dose_code">): string {
   const raw = row.drive_name || `${row.protocol_name} ${row.dose_code}` || copy(pageContract, "label.vaccination_drive");
   const cleaned = raw
-    .replace(/\s+[-–]\s+PHC-[A-Z0-9-]+$/i, "")
+    .replace(/\s+[-–]\s+PC-[A-Z0-9-]+$/i, "")
     .replace(/\s+[-–]\s+[A-Z]+-[A-Z0-9-]+$/i, "")
     .replace(/\s+/g, " ")
     .trim();

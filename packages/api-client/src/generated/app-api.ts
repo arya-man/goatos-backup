@@ -1625,15 +1625,15 @@ export interface components {
             first_result_id?: string | null;
         };
         /** @enum {string} */
-        CalendarOwnerFilter: "all" | "phc" | "inventory" | "admin_data_ops";
+        CalendarOwnerFilter: "all" | "pc" | "inventory" | "admin_data_ops";
         /** @enum {string} */
-        CalendarOwnerKey: "phc" | "inventory" | "admin_data_ops";
+        CalendarOwnerKey: "pc" | "inventory" | "admin_data_ops";
         /** @enum {string} */
         CalendarStatus: "scheduled" | "due" | "overdue" | "missed" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "rework_due" | "deferred" | "blocked" | "completed" | "canceled";
         /** @enum {string} */
         CalendarSeverity: "info" | "warning" | "critical";
         /** @enum {string} */
-        CalendarEventType: "vaccination_dose_due" | "vaccination_drive" | "vaccination_campaign" | "vaccination_booster_due" | "vaccination_defer_review" | "vaccination_evidence_review" | "vaccination_proof_verification" | "vaccination_rework_due" | "vaccine_stock_readiness" | "vaccine_cold_chain_check" | "vaccine_reorder_expiry_grn" | "phc_stock_anti_misuse" | "vaccination_config_activation_review";
+        CalendarEventType: "vaccination_dose_due" | "vaccination_drive" | "vaccination_campaign" | "vaccination_booster_due" | "vaccination_defer_review" | "vaccination_evidence_review" | "vaccination_proof_verification" | "vaccination_rework_due" | "vaccine_stock_readiness" | "vaccine_cold_chain_check" | "vaccine_reorder_expiry_grn" | "pc_stock_anti_misuse" | "vaccination_config_activation_review";
         CalendarJSONBlock: {
             [key: string]: unknown;
         };

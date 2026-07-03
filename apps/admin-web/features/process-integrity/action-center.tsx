@@ -23,7 +23,7 @@ import {
   paginateRows,
   VaccinationTablePager,
   type VaccinationPageSize,
-} from "@/features/phc-vaccination";
+} from "@/features/preventive-care-vaccination";
 import { rejectCompletionAction, verifyCompletionAction } from "./actions";
 import { ActionCenterFiltersButton } from "./action-center-filters";
 import { WorkBoard, actionWorkTitle } from "./work-board";

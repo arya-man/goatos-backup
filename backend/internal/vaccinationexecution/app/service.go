@@ -409,9 +409,9 @@ func blockerReason(p domain.ExecutionProjection, workState domain.WorkState) *st
 	case !p.UsableForVaccination:
 		reason = "Shed is not marked usable for vaccination"
 	case p.IsICU:
-		reason = "Shed is ICU; PHC defer/approval required"
+		reason = "Shed is ICU; PC defer/approval required"
 	case p.IsQuarantine:
-		reason = "Shed is quarantine; PHC defer/approval required"
+		reason = "Shed is quarantine; PC defer/approval required"
 	case p.HealthDeferredCount > 0:
 		reason = "Some goats are sick, under treatment, quarantined, or in ICU"
 	case p.MissedCount > 0:
@@ -432,11 +432,11 @@ func nextAction(p domain.ExecutionProjection, workState domain.WorkState) string
 	case domain.WorkStateRejected:
 		return "Review rejection and request rework"
 	case domain.WorkStateMissed:
-		return "Escalate missed dose to PHC"
+		return "Escalate missed dose to PC"
 	case domain.WorkStateBlocked:
 		return "Resolve blocker before execution"
 	case domain.WorkStateDeferred:
-		return "Confirm defer reason with PHC"
+		return "Confirm defer reason with PC"
 	case domain.WorkStateOwnerMissing:
 		return "Assign operator / owner chain"
 	case domain.WorkStateVerificationPending:

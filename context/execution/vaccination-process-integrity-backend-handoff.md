@@ -86,7 +86,7 @@ accepted intake
   -> CT / AC / PA / WF / Vaccination read models reflect the same state
 ```
 
-`procurement_phc_handoffs.event_status` is useful tracking, but it is not proof
+`procurement_pc_handoffs.event_status` is useful tracking, but it is not proof
 by itself. A log line or queued row is not enough; tests must prove the handler
 ran and the downstream vaccination read models changed.
 

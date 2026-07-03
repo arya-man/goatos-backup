@@ -356,7 +356,7 @@ only: source-backed published vaccination obligations, shed/cohort drives,
 booster/catch-up work, Preventive Care (PC) defer or evidence-review actions, dated proof
 verification/rework, and directly supporting dated human actions such as vaccine
 stock readiness, cold-chain, reorder/expiry, Preventive Care (PC) anti-misuse review, or
-source-review tasks under their proper `owner_key` values (`phc`, `inventory`,
+source-review tasks under their proper `owner_key` values (`pc`, `inventory`,
 or `admin_data_ops`). Label-only vaccines, status-matrix cells, coverage KPIs,
 Goat Passport history, owner-missing gaps, reminder pings, and pure system
 sweepers/replays do not create Calendar events.

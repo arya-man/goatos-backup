@@ -616,7 +616,7 @@ var stableUIConfigOptionGroups = map[string]map[string]struct{}{
 	"calendar_rhythm_days_admin_data_ops":     presentationOptionFields,
 	"calendar_rhythm_days_all":                presentationOptionFields,
 	"calendar_rhythm_days_inventory":          presentationOptionFields,
-	"calendar_rhythm_days_phc":                presentationOptionFields,
+	"calendar_rhythm_days_pc":                 presentationOptionFields,
 	"calendar_severity":                       presentationOptionFields,
 	"calendar_status":                         presentationOptionFields,
 	"calendar_view_tabs":                      presentationOptionFields,
@@ -624,7 +624,7 @@ var stableUIConfigOptionGroups = map[string]map[string]struct{}{
 	"calendar_workstream_tabs_admin_data_ops": presentationOptionFields,
 	"calendar_workstream_tabs_all":            presentationOptionFields,
 	"calendar_workstream_tabs_inventory":      presentationOptionFields,
-	"calendar_workstream_tabs_phc":            presentationOptionFields,
+	"calendar_workstream_tabs_pc":             presentationOptionFields,
 	"chain_steps":                             presentationOptionFields,
 	"cohort_detail_facets":                    presentationOptionFields,
 	"dlq_repair_actions":                      presentationOptionFields,
@@ -991,7 +991,7 @@ func hasAnyRole(roles []string, targets ...string) bool {
 }
 
 func highestRole(roles []string) string {
-	for _, role := range []string{permissions.RoleCEOInternal, permissions.RoleAdmin, permissions.RolePHCDirector, permissions.RoleParkHead, permissions.RoleVerifier, permissions.RoleOperator} {
+	for _, role := range []string{permissions.RoleCEOInternal, permissions.RoleAdmin, permissions.RolePCDirector, permissions.RoleParkHead, permissions.RoleVerifier, permissions.RoleOperator} {
 		for _, got := range roles {
 			if got == role {
 				return role
@@ -1008,12 +1008,12 @@ func roleLensForRole(role string) domain.RoleLensContract {
 	switch role {
 	case permissions.RoleCEOInternal, permissions.RoleAdmin:
 		return domain.RoleLensContract{ID: "coo", Name: "Superadmin / CEO / COO", AuditShort: "COO", Scope: "all · deep", Description: "Central Command · all parks", Superadmin: true}
-	case permissions.RolePHCDirector:
-		return domain.RoleLensContract{ID: "health-director", Name: "Health Director", AuditShort: "Health Dir", Scope: "health vertical · all parks", Description: "PHC / health governance view"}
+	case permissions.RolePCDirector:
+		return domain.RoleLensContract{ID: "health-director", Name: "Health Director", AuditShort: "Health Dir", Scope: "health vertical · all parks", Description: "PC / health governance view"}
 	case permissions.RoleParkHead:
 		return domain.RoleLensContract{ID: "park-head", Name: "Park Head", AuditShort: "Park Head", Scope: "all verticals · assigned park", Description: "Assigned park leadership view"}
 	case permissions.RoleVerifier:
-		return domain.RoleLensContract{ID: "health-manager", Name: "Health Manager", AuditShort: "Health Mgr", Scope: "health vertical · assigned park", Description: "Assigned-park PHC manager view"}
+		return domain.RoleLensContract{ID: "health-manager", Name: "Health Manager", AuditShort: "Health Mgr", Scope: "health vertical · assigned park", Description: "Assigned-park PC manager view"}
 	case permissions.RoleOperator:
 		return domain.RoleLensContract{ID: "ground", Name: "Assist / Ground", AuditShort: "Assist", Scope: "tasks · assigned park", Description: "field execution queue"}
 	default:
@@ -1029,7 +1029,7 @@ func roleInitials(role string) string {
 	switch role {
 	case permissions.RoleCEOInternal, permissions.RoleAdmin:
 		return "AD"
-	case permissions.RolePHCDirector:
+	case permissions.RolePCDirector:
 		return "HD"
 	case permissions.RoleParkHead:
 		return "PH"
@@ -1059,7 +1059,7 @@ func scopeSummary(grants []permissions.ActiveGrant, parkCount int) string {
 
 func permissionsForNav(id string) []string {
 	switch id {
-	case "control-tower", "action-center", "protocol-adherence", "workflows", "phc-vaccination":
+	case "control-tower", "action-center", "protocol-adherence", "workflows", "preventive-care-vaccination":
 		return []string{permissions.ObligationRead, permissions.VaccinationRead}
 	case "calendar":
 		return []string{permissions.CalendarRead, permissions.VaccinationRead, permissions.ObligationRead}

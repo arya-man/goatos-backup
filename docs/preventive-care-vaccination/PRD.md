@@ -5,8 +5,8 @@
 repo state; `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`
 and `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md` for
 accepted source findings; then `/Users/ravi/mesha/wiki` goatOS/Preventive Care/Health
-handbook material, including the tracked vaccination nuance source
-[source-nuances-rules.md](./source-nuances-rules.md), and the product mock
+handbook material, including the tracked vaccination rules source
+[vaccination-rules.md](./vaccination-rules.md), and the product mock
 where they do not conflict.
 **Foundation:** [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md) — vaccination is the first module on a shared engine, not a one-off.
 **Explicitly NOT a source:** the older `goatos/context/*` and `goatos/docs/phases/*` planning docs (scrapped new-dashboard effort).
@@ -115,8 +115,8 @@ not product UI columns or runtime approval fields.
 Purchased/intake animals and existing animals already in the database must be
 run through the same matrix as farm-born animals.
 
-The matrix must also carry the vaccination nuance rules from
-[source-nuances-rules.md](./source-nuances-rules.md): vaccine class and
+The matrix must also carry the vaccination vaccination rules from
+[vaccination-rules.md](./vaccination-rules.md): vaccine class and
 pathogen class, post-procurement warm-up hold, live/killed spacing metadata,
 same-day allowance metadata, quarantine/ICU/sick defer states, pregnancy and
 post-delivery policy, and adult prior-vaccination policy. V1 enforces the
@@ -137,7 +137,7 @@ in canonical tables or read models:
 |---|---|
 | Species, breed, sex, DOB/age, lifecycle, health, reproductive state | `herd_animals` plus typed lifecycle/reproductive deltas where current columns are not precise enough |
 | Current park/shed/cohort and canonical shed tag/stage | `herd_animals.current_location_id` / `herd_animals.shed_id`, `locations`, `shed_profiles.animal_stage_id`, `animal_stage_lookup.stage_code` |
-| Procurement path, herd-entry date, warm-up, trusted source vaccination history | `procurement_phc_handoffs`, `procurement_hf_vaccination_evidence`, animal `origin_type`/`entry_date` |
+| Procurement path, herd-entry date, warm-up, trusted source vaccination history | `procurement_pc_handoffs`, `procurement_hf_vaccination_evidence`, animal `origin_type`/`entry_date` |
 | Accepted vaccination history and booster anchor | `vaccination_completions` joined to `obligation_instances.rule_id` |
 | UI impact preview at scale | indexed animal/protocol fact read models, not full-herd scans |
 
@@ -307,8 +307,8 @@ V1 matrix or V1 Calendar de-duplication.
 Coverage % within window (per vaccine/park/species/shed tag) · on-time drive rate · stock integrity (zero negative, zero expired-lot use) · **zero ghost-overdue** (dead/sold never overdue) · engine latency (obligation generated promptly after herd-animal CRUD).
 
 ## 7. Source-derived baseline and remaining production inputs
-1. **Source-nuance matrix selected** — use the tracked matrix in
-   [source-nuances-rules.md](./source-nuances-rules.md) for V1 Config presets:
+1. **Vaccination Rules matrix selected** — use the tracked matrix in
+   [vaccination-rules.md](./vaccination-rules.md) for V1 Config presets:
    ET+TT at 4 and 7 weeks with 2 ml, PPR at 16 weeks, FMD/HS at 12 weeks, Goat
    Pox shifted to 20 weeks for live-live spacing, plus adult revaccination
    intervals. Older ET/K1/day-21/0.5 ml fixture language is legacy local proof
@@ -348,7 +348,7 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    status, GoatOS ignores that branch and uses the standard mother/adult repeat
    policy. The business policy is that mothers are kept vaccinated; gaps are
    handled as catch-up/review obligations, not as a permanent category.
-4. **Source Nuance roster** — [source-nuances-rules.md](./source-nuances-rules.md)
+4. **Vaccination Rules roster** — [vaccination-rules.md](./vaccination-rules.md)
    now carries the V1 schedule/dose/vial/revaccination source for ET+TT, PPR,
    Goat Pox, Sheep Pox, Blue Tongue, FMD, and HS rows. Goat-specific vaccines
    apply to goat species rows; sheep-specific vaccines apply to sheep species

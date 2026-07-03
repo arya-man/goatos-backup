@@ -6,7 +6,7 @@ const (
 	RoleAdmin       = "admin"
 	RoleVerifier    = "verifier"
 	RoleParkHead    = "park_head"
-	RolePHCDirector = "phc_director"
+	RolePCDirector  = "pc_director"
 	RoleOperator    = "operator"
 	RoleCEOInternal = "ceo_internal"
 
@@ -79,7 +79,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 	},
-	RolePHCDirector: {
+	RolePCDirector: {
 		GoatRead: {}, GoatWriteHealth: {},
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},

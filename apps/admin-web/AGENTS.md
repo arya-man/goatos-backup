@@ -362,7 +362,7 @@ PROCEDURE steps. The mock's drawer checklist is the SOP's operator steps (e.g.
 "Consume posted", "Coverage + booster") — what the operator does, with per-step
 proof gates — NOT the system lifecycle. The lifecycle chain belongs to the
 Workflow record (`/workflows/{row_id}`), not the drawer. Drawer SOP steps come
-from `features/phc-vaccination/vaccination-sop-steps.ts` (shared with the Preventive Care (PC)
+from `features/preventive-care-vaccination/vaccination-sop-steps.ts` (shared with the Preventive Care (PC)
 SOP quick-view) rendered by `features/process-integrity/sop-checklist.tsx` with
 done/current derived read-only from the computed obligation states. Matching the
 component shell + class is not enough — the checklist must show the SOP's steps,
