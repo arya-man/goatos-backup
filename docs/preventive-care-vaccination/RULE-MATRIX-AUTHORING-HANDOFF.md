@@ -1229,7 +1229,7 @@ Hard validation rules for this sample and the production schema:
       "second_wave_after_days": 28,
       "second_wave_vaccines_by_species": {
         "goat": ["GOAT_POX", "ET_TT"],
-        "sheep": ["SHEEP_POX", "BLUE_TONGUE"]
+        "sheep": ["ET_TT", "SHEEP_POX"]
       }
     },
     "reproductive": {

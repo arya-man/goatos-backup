@@ -172,6 +172,90 @@ func TestScheduleNextDoseRepeatsYearlyAdultRule(t *testing.T) {
 	}
 }
 
+func TestScheduleNextDoseChecksAllRecentVaccinesForCrossGap(t *testing.T) {
+	ctx := context.Background()
+	proto := &boosterRuleReaderFake{
+		version: protodomain.Version{
+			RuleDsl: []byte(`{
+				"eligibility":{"species":"goat","animal_stage":"K3","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},
+				"vaccine":{"code":"vaccination.matrix","type":"matrix","pathogen_class":"mixed"},
+				"compatibility_policy":{"live_to_live_gap_days":28,"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14}
+			}`),
+		},
+		rules: []protodomain.Rule{
+			{
+				RuleID:      "rule-ppr",
+				DoseCode:    "ppr",
+				Sequence:    1,
+				TriggerType: "birth_age",
+				EligibilityJSON: []byte(`{
+					"eligibility":{"species":"goat","animal_stage":"K3","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},
+					"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}
+				}`),
+			},
+			{
+				RuleID:      "rule-goat-pox",
+				DoseCode:    "goat_pox",
+				Sequence:    2,
+				TriggerType: "after_previous_completion",
+				OffsetDays:  7,
+				EligibilityJSON: []byte(`{
+					"eligibility":{"species":"goat","animal_stage":"K3","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},
+					"vaccine":{"code":"Goat Pox","type":"live","pathogen_class":"viral"}
+				}`),
+			},
+		},
+	}
+	obl := &boosterObligationWriterFake{}
+	goats := &boosterGoatReaderFake{goat: vaccdomain.EligibleGoat{
+		GoatID:          "goat-1",
+		Species:         "goat",
+		LifecycleStatus: "alive",
+		HealthStatus:    "healthy",
+		Sex:             "female",
+		Stage:           "K3",
+	}, found: true}
+	administered := time.Date(2026, time.July, 15, 8, 0, 0, 0, time.UTC)
+	history := &boosterCrossVaccineFake{history: map[string][]vaccdomain.RecentVaccineAdministration{
+		"goat-1": {
+			{
+				VaccineCode:    "HS",
+				VaccineType:    "killed",
+				PathogenClass:  "bacterial",
+				AdministeredAt: administered.AddDate(0, 0, -1),
+			},
+			{
+				VaccineCode:    "PPR",
+				VaccineType:    "live",
+				PathogenClass:  "viral",
+				AdministeredAt: administered.AddDate(0, 0, -7),
+			},
+		},
+	}}
+	svc := NewBoosterService(proto, obl).WithGoatReader(goats).WithCrossVaccineGapReader(history)
+
+	scheduled, err := svc.ScheduleNextDose(ctx, ScheduleNextInput{
+		TenantID:          "tenant-1",
+		ProtocolVersionID: "version-1",
+		GoatID:            "goat-1",
+		ScopeType:         "shed",
+		ScopeID:           "shed-1",
+		PrevSequence:      1,
+		AdministeredAt:    administered,
+	})
+
+	if err != nil {
+		t.Fatalf("schedule next dose: %v", err)
+	}
+	if !scheduled || len(obl.inserted) != 1 {
+		t.Fatalf("scheduled=%v inserted=%d, want one next live vaccine obligation", scheduled, len(obl.inserted))
+	}
+	wantDue := dateUTC(administered).AddDate(0, 0, 21)
+	if got := obl.inserted[0].DueAt; !got.Equal(wantDue) {
+		t.Fatalf("due_at=%s, want live-live floor %s", got, wantDue)
+	}
+}
+
 func TestScheduleNextDoseDefersWhenCurrentGoatIsInDeferState(t *testing.T) {
 	ctx := context.Background()
 	proto := &boosterRuleReaderFake{
@@ -237,6 +321,30 @@ type boosterGoatReaderFake struct {
 
 func (f *boosterGoatReaderFake) GetGoatForGeneration(context.Context, string, string) (vaccdomain.EligibleGoat, bool, error) {
 	return f.goat, f.found, nil
+}
+
+type boosterCrossVaccineFake struct {
+	history map[string][]vaccdomain.RecentVaccineAdministration
+}
+
+func (f *boosterCrossVaccineFake) LastRecentVaccineAdministrationsForGoats(_ context.Context, _ string, goatIDs []string, _ time.Time) (map[string]vaccdomain.RecentVaccineAdministration, error) {
+	out := make(map[string]vaccdomain.RecentVaccineAdministration, len(goatIDs))
+	for _, goatID := range goatIDs {
+		if admins := f.history[goatID]; len(admins) > 0 {
+			out[goatID] = admins[0]
+		}
+	}
+	return out, nil
+}
+
+func (f *boosterCrossVaccineFake) RecentVaccineAdministrationsForGoats(_ context.Context, _ string, goatIDs []string, _ time.Time) (map[string][]vaccdomain.RecentVaccineAdministration, error) {
+	out := make(map[string][]vaccdomain.RecentVaccineAdministration, len(goatIDs))
+	for _, goatID := range goatIDs {
+		if admins := f.history[goatID]; len(admins) > 0 {
+			out[goatID] = admins
+		}
+	}
+	return out, nil
 }
 
 type boosterObligationWriterFake struct {

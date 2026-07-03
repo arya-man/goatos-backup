@@ -2371,6 +2371,31 @@ export function RuleEditorModal({
                     fontSize: 13,
                   }}
                 />
+                <input
+                  aria-label={copy(
+                    pageContract,
+                    "modal.rule_editor.field.sheep_second_wave",
+                  )}
+                  value={procurementPolicy.sheepSecondWave}
+                  onChange={(e) =>
+                    setProcurementField({ sheepSecondWave: e.target.value })
+                  }
+                  placeholder={copy(
+                    pageContract,
+                    "modal.rule_editor.field.sheep_second_wave",
+                  )}
+                  style={{
+                    marginTop: 6,
+                    width: "100%",
+                    border: "1px solid var(--line)",
+                    background: "var(--bg)",
+                    color: "var(--ink)",
+                    borderRadius: 8,
+                    padding: "8px 10px",
+                    font: "inherit",
+                    fontSize: 13,
+                  }}
+                />
                 <div className="cfgchk" style={{ marginTop: 7 }}>
                   <label>
                     <input

@@ -1621,6 +1621,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.field.first_wave":                        "first wave vaccines",
 			"modal.rule_editor.field.second_wave_after_days":            "second wave after days",
 			"modal.rule_editor.field.goat_second_wave":                  "goat second wave vaccines",
+			"modal.rule_editor.field.sheep_second_wave":                 "sheep second wave vaccines",
 			"modal.rule_editor.field.pregnancy_policy":                  "Pregnancy / delivery policy",
 			"modal.rule_editor.field.allow_until_pregnancy_month":       "allow until pregnancy month",
 			"modal.rule_editor.field.skip_from_pregnancy_month":         "skip from pregnancy month",

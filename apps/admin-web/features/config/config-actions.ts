@@ -6,6 +6,7 @@ import {
   addProtocolRule,
   createProtocolDefinition,
   createProtocolVersion,
+  listProtocolConfigs,
   previewVaccinationImpact,
   publishProtocolVersion,
   type ImpactPreviewInput,
@@ -81,7 +82,12 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
   const versionBody = {
     scope_type: scopeType,
     scope_id: scopeId ?? undefined,
-    version: 1,
+    version: await nextDraftVersionNumber(
+      input.category,
+      input.code,
+      scopeType,
+      scopeId,
+    ),
     effective_from: effectiveFrom,
     rule_dsl: ruleDsl,
     proof_policy: proofPolicy,
@@ -187,7 +193,12 @@ export async function saveDraftBatch(
   const versionBody = {
     scope_type: scopeType,
     scope_id: scopeId ?? undefined,
-    version: nextDraftVersionNumber(),
+    version: await nextDraftVersionNumber(
+      "vaccination",
+      "vaccination.matrix",
+      scopeType,
+      scopeId,
+    ),
     effective_from: effectiveFrom,
     rule_dsl: ruleDsl,
     proof_policy: proofPolicy,
@@ -411,7 +422,32 @@ function buildMatrixProofPolicy(
   };
 }
 
-function nextDraftVersionNumber(): number {
+let lastDraftVersionNumber = 0;
+
+function nextMonotonicDraftVersionNumber(): number {
   const epochSeconds = Math.floor(Date.now() / 1000);
-  return Math.min(2_147_483_647, Math.max(1, epochSeconds));
+  lastDraftVersionNumber = Math.min(
+    2_147_483_647,
+    Math.max(1, epochSeconds, lastDraftVersionNumber + 1),
+  );
+  return lastDraftVersionNumber;
+}
+
+async function nextDraftVersionNumber(
+  category: string,
+  code: string,
+  scopeType: string,
+  scopeId: string | null,
+): Promise<number> {
+  const floor = nextMonotonicDraftVersionNumber();
+  const configs = await listProtocolConfigs(category);
+  if (!configs.ok) return floor;
+  const normalizedScopeId = scopeId ?? "";
+  const maxExisting = configs.data.items.reduce((max, item) => {
+    if (item.code !== code) return max;
+    if (item.scope_type !== scopeType) return max;
+    if ((item.scope_id ?? "") !== normalizedScopeId) return max;
+    return Math.max(max, Number(item.version) || 0);
+  }, 0);
+  return Math.min(2_147_483_647, Math.max(floor, maxExisting + 1));
 }

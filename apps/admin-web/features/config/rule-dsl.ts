@@ -93,6 +93,7 @@ export interface ProcurementPolicy {
   firstWave: string;
   secondWaveAfterDays: number;
   goatSecondWave: string;
+  sheepSecondWave: string;
 }
 
 export interface PregnancyPolicy {
@@ -227,6 +228,7 @@ export function newProcurementPolicy(): ProcurementPolicy {
     firstWave: "ET+TT,PPR",
     secondWaveAfterDays: 28,
     goatSecondWave: "Goat Pox,ET+TT booster",
+    sheepSecondWave: "ET+TT booster,Sheep Pox",
   };
 }
 
@@ -320,6 +322,9 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
         0,
         2,
       ),
+      sheep_second_wave: csvToArr(
+        input.procurementPolicy.sheepSecondWave,
+      ).slice(0, 2),
     },
     pregnancy_policy: {
       allow_until_pregnancy_month:
@@ -529,6 +534,9 @@ export function buildVaccinationMatrixPreview(
         0,
         2,
       ),
+      sheep_second_wave: csvToArr(
+        input.procurementPolicy.sheepSecondWave,
+      ).slice(0, 2),
     },
     pregnancy_policy: {
       allow_until_pregnancy_month:
