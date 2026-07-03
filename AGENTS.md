@@ -335,6 +335,20 @@ Do not:
   (stop it first), and if you break it, restore it. See
   `apps/admin-web/AGENTS.md` → "Local Dev Server Safety" for the full rule. This
   applies to every agent (Codex and Claude).
+- Always-on local stack rule (Codex and Claude): when a task needs any local
+  frontend, backend, worker, importer, proxy, emulator, database container, or
+  other Goat OS service, first check whether it is already running and do not
+  stop it just because the immediate command is done. Prefer the persistent
+  service wrapper (`make dev-local-service-start`, `make dev-local-service-status`,
+  `make dev-local-service-logs`) over foreground one-off terminals for long-lived
+  stack work. Leave required services running at the end of the turn/session
+  unless the user explicitly asks to stop them or stopping is required to prevent
+  machine damage/data loss. If code/env changes require a restart, restart on the
+  same ports and health-check before reporting done. Do not finish with a needed
+  app stack stopped, and do not leave required servers as active Codex terminal
+  sessions that block the final response; use the service wrapper/supervisor and
+  logs. Status/final updates must name what is running plus the URL/port. If a
+  service cannot be kept running, state the blocker and the exact restore command.
 - Do not reintroduce old staging labels as architecture.
 - Do not commit generated Graphify/CRG graphs. `graphify-out/graph.json`,
   `manifest.json`, `GRAPH_REPORT.md`, `graph.html`, `cost.json` and the
