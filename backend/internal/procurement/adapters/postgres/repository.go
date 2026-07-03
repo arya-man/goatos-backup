@@ -575,11 +575,20 @@ func (r *Repository) ReviewHFVaccinationEvidence(ctx context.Context, in ports.R
 	if before.RowVersion != in.ExpectedRowVersion {
 		return domain.HFVaccinationEvidence{}, ports.ErrStaleWrite
 	}
-	// Trusted evidence can suppress a real post-arrival dose, so it must carry verifiable proof. Reject a
-	// trust transition on a row with no proof_ref_id (checked against the in-txn `before` snapshot).
+	// Trusted evidence can suppress a real post-arrival dose. It is only valid when the dose was
+	// administered inside our governed procurement holding stay, not from an outside/vendor claim.
 	if in.ReviewStatus == domain.HFVaccinationReviewTrusted &&
 		(before.ProofRefID == nil || strings.TrimSpace(*before.ProofRefID) == "") {
 		return domain.HFVaccinationEvidence{}, ports.ErrProofRequired
+	}
+	if in.ReviewStatus == domain.HFVaccinationReviewTrusted {
+		trustOK, err := trustedProcurementHoldingEvidenceContext(ctx, tx, in.TenantID, in.EvidenceID)
+		if err != nil {
+			return domain.HFVaccinationEvidence{}, err
+		}
+		if !trustOK {
+			return domain.HFVaccinationEvidence{}, ports.ErrInvalidTrustContext
+		}
 	}
 	if before.ReviewStatus == domain.HFVaccinationReviewTrusted && in.ReviewStatus != domain.HFVaccinationReviewTrusted {
 		return domain.HFVaccinationEvidence{}, fmt.Errorf("%w: trusted HF vaccination evidence requires correction workflow", ports.ErrInvalidTransition)
@@ -1724,6 +1733,38 @@ func scanHFVaccinationEvidence(row scanner) (domain.HFVaccinationEvidence, error
 	return out, nil
 }
 
+func trustedProcurementHoldingEvidenceContext(ctx context.Context, tx pgx.Tx, tenantID, evidenceID string) (bool, error) {
+	var ok bool
+	err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM procurement_hf_vaccination_evidence ev
+  JOIN procurement_load_goats plg
+    ON plg.tenant_id = ev.tenant_id
+   AND plg.load_id = ev.load_id
+   AND plg.goat_id = ev.goat_id
+  JOIN proof_artifacts proof
+    ON proof.proof_id = ev.proof_ref_id
+   AND proof.tenant_id = ev.tenant_id
+   AND proof.upload_state = 'completed'
+  WHERE ev.tenant_id = $1::uuid
+    AND ev.evidence_id = $2::uuid
+    AND ev.proof_ref_id IS NOT NULL
+    AND plg.holding_location_id IS NOT NULL
+    AND plg.warmup_started_at IS NOT NULL
+    AND COALESCE(
+      plg.warmup_days,
+      floor(extract(epoch FROM (COALESCE(plg.warmup_ended_at, ev.administered_at) - plg.warmup_started_at)) / 86400)::int
+    ) BETWEEN 28 AND 35
+    AND ev.administered_at >= plg.warmup_started_at
+    AND (plg.warmup_ended_at IS NULL OR ev.administered_at <= plg.warmup_ended_at)
+)`, tenantID, evidenceID).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("procurement: validate trusted holding vaccination evidence: %w", err)
+	}
+	return ok, nil
+}
+
 func scanHealthCheck(row scanner) (domain.SourceHealthCheck, error) {
 	var out domain.SourceHealthCheck
 	var checkedBy, proofRefID, taskID pgtype.Text
@@ -1913,18 +1954,22 @@ WITH goat_rows AS (
       WHEN plg.ownership_state IN ('pending', 'shared_pending') THEN 'owner_missing'
       WHEN plg.current_state IN ('pre_dispatch_deferred') OR plg.health_state = 'deferred' THEN 'deferred'
       WHEN plg.current_state = 'pre_dispatch_accepted' THEN 'proof_pending'
-      WHEN plg.warmup_started_at IS NOT NULL
-       AND COALESCE(plg.warmup_days, floor(extract(epoch FROM (now() - plg.warmup_started_at)) / 86400)::int) >
-           CASE WHEN plg.purpose IN ('fattening', 'non_breeding') THEN 14 ELSE 70 END THEN 'overdue'
+	      WHEN plg.warmup_started_at IS NOT NULL
+	       AND (
+	         COALESCE(plg.warmup_days, floor(extract(epoch FROM (now() - plg.warmup_started_at)) / 86400)::int) > 35
+	         OR (plg.warmup_ended_at IS NOT NULL AND COALESCE(plg.warmup_days, floor(extract(epoch FROM (plg.warmup_ended_at - plg.warmup_started_at)) / 86400)::int) < 28)
+	       ) THEN 'overdue'
       ELSE 'due'
     END AS work_state,
     CASE
       WHEN plg.source_entry_state = 'blocked' OR plg.ownership_state IN ('blocked', 'not_owned') THEN 'critical'
       WHEN plg.current_state IN ('pre_dispatch_rejected', 'arrival_rejected', 'source_rejected', 'dead', 'sold', 'lost') OR plg.health_state = 'failed' THEN 'critical'
       WHEN plg.current_state = 'arrival_review_pending' THEN 'at_risk'
-      WHEN plg.warmup_started_at IS NOT NULL
-       AND COALESCE(plg.warmup_days, floor(extract(epoch FROM (now() - plg.warmup_started_at)) / 86400)::int) >
-           CASE WHEN plg.purpose IN ('fattening', 'non_breeding') THEN 14 ELSE 70 END THEN 'at_risk'
+	      WHEN plg.warmup_started_at IS NOT NULL
+	       AND (
+	         COALESCE(plg.warmup_days, floor(extract(epoch FROM (now() - plg.warmup_started_at)) / 86400)::int) > 35
+	         OR (plg.warmup_ended_at IS NOT NULL AND COALESCE(plg.warmup_days, floor(extract(epoch FROM (plg.warmup_ended_at - plg.warmup_started_at)) / 86400)::int) < 28)
+	       ) THEN 'at_risk'
       WHEN plg.current_state = 'accepted_herd_intake' THEN 'ok'
       ELSE 'watch'
     END AS severity,
@@ -2467,11 +2512,7 @@ func warmupState(days *int, purpose string) string {
 	if days == nil {
 		return "in_progress"
 	}
-	limit := 70
-	if purpose == domain.PurposeFattening || purpose == domain.PurposeNonBreeding {
-		limit = 14
-	}
-	if *days > limit {
+	if *days < 28 || *days > 35 {
 		return "outside_normal_window"
 	}
 	return "completed"

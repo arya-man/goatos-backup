@@ -157,12 +157,12 @@ func configChangedOutboxCountAndKey(t *testing.T, ctx context.Context, pool *pgx
 	SELECT
 	  count(*),
 	  COALESCE(min(idempotency_key), ''),
-	  COALESCE(max((payload->'metadata'->>'coalesced_change_count')::int), 0)
+	  COALESCE(max((COALESCE(payload->'metadata', payload #> '{payload,metadata}')->>'coalesced_change_count')::int), 0)
 	FROM outbox_messages
 	WHERE tenant_id = $1::uuid
 	  AND event_type = 'config.changed'
-	  AND payload->>'family_key' = $2
-	  AND (payload->>'revision')::bigint = $3`, adminUITestTenant, familyKey, revision).Scan(&count, &idempotencyKey, &coalescedCount); err != nil {
+	  AND COALESCE(payload->>'family_key', payload #>> '{payload,family_key}') = $2
+	  AND (COALESCE(payload->>'revision', payload #>> '{payload,revision}'))::bigint = $3`, adminUITestTenant, familyKey, revision).Scan(&count, &idempotencyKey, &coalescedCount); err != nil {
 		t.Fatalf("count config.changed outbox rows for family %s revision %d: %v", familyKey, revision, err)
 	}
 	return count, idempotencyKey, coalescedCount
@@ -176,7 +176,7 @@ SELECT count(*)
 FROM outbox_messages
 WHERE tenant_id = $1::uuid
   AND event_type = 'config.changed'
-  AND payload->>'family_key' = $2`, adminUITestTenant, familyKey).Scan(&count); err != nil {
+  AND COALESCE(payload->>'family_key', payload #>> '{payload,family_key}') = $2`, adminUITestTenant, familyKey).Scan(&count); err != nil {
 		t.Fatalf("count config.changed outbox rows: %v", err)
 	}
 	if count == 0 {

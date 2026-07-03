@@ -97,7 +97,37 @@ type goatGenerationPlan struct {
 	vaccineProfile vaccineProfile
 }
 
-type trustedEvidenceLookup map[string]bool
+type trustedEvidenceLookup struct {
+	checked map[string]bool
+	trusted map[string]bool
+}
+
+func newTrustedEvidenceLookup() trustedEvidenceLookup {
+	return trustedEvidenceLookup{
+		checked: make(map[string]bool),
+		trusted: make(map[string]bool),
+	}
+}
+
+func (l trustedEvidenceLookup) record(key string, trusted bool) {
+	if l.checked == nil {
+		return
+	}
+	l.checked[key] = true
+	if trusted {
+		l.trusted[key] = true
+	}
+}
+
+func (l trustedEvidenceLookup) get(key string) (bool, bool) {
+	if l.checked == nil {
+		return false, false
+	}
+	if !l.checked[key] {
+		return false, false
+	}
+	return l.trusted[key], true
+}
 
 // GenerationService implements SM-1: expand a published protocol version's rules into per-goat
 // obligations over the in-care cohort, idempotently, deferring (visibly) ICU/quarantine/sick goats.
@@ -636,7 +666,7 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 	seenByVersion := make(map[string]map[string]bool)
 	for _, plan := range plans {
 		if _, ok := lookups[plan.versionID]; !ok {
-			lookups[plan.versionID] = trustedEvidenceLookup{}
+			lookups[plan.versionID] = newTrustedEvidenceLookup()
 		}
 		if _, ok := seenByVersion[plan.versionID]; !ok {
 			seenByVersion[plan.versionID] = make(map[string]bool)
@@ -675,23 +705,22 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 			if err != nil {
 				return nil, err
 			}
-			for key, trusted := range hits {
-				if trusted {
-					lookups[versionID][key] = true
-				}
+			lookup := lookups[versionID]
+			for _, candidate := range candidates {
+				key := candidate.Key()
+				lookup.record(key, hits[key])
 			}
 		}
 		return lookups, nil
 	}
 	for versionID, candidates := range candidatesByVersion {
+		lookup := lookups[versionID]
 		for _, candidate := range candidates {
 			trusted, err := s.evidence.HasTrustedCompletionEvidence(ctx, tenantID, candidate.GoatID, versionID, candidate.RuleID, candidate.DoseCode, candidate.DueAt, asOf)
 			if err != nil {
 				return nil, err
 			}
-			if trusted {
-				lookups[versionID][candidate.Key()] = true
-			}
+			lookup.record(candidate.Key(), trusted)
 		}
 	}
 	return lookups, nil
@@ -699,8 +728,8 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 
 func (s *GenerationService) hasTrustedCompletionEvidence(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, due, asOf time.Time, trustedLookup trustedEvidenceLookup) (bool, error) {
 	candidate := trustedCompletionCandidate(rule, g, due)
-	if trustedLookup != nil {
-		return trustedLookup[candidate.Key()], nil
+	if trusted, checked := trustedLookup.get(candidate.Key()); checked {
+		return trusted, nil
 	}
 	return s.evidence.HasTrustedCompletionEvidence(ctx, tenantID, g.GoatID, versionID, rule.RuleID, rule.DoseCode, due, asOf)
 }
@@ -767,6 +796,12 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				return err
 			}
 			continue
+		}
+		if !ok {
+			if historyDue, found := dueAfterPreviousCompletion(rule, ruleVaccine, vaccineHistory); found {
+				baseDue = historyDue
+				ok = true
+			}
 		}
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
@@ -1334,6 +1369,62 @@ func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, opts ge
 	default: // after_previous_completion (SM-7)
 		return time.Time{}, false, false
 	}
+}
+
+func dueAfterPreviousCompletion(rule protodomain.Rule, ruleVaccine vaccineProfile, history []domain.RecentVaccineAdministration) (time.Time, bool) {
+	if !strings.EqualFold(strings.TrimSpace(rule.TriggerType), "after_previous_completion") {
+		return time.Time{}, false
+	}
+	targetVaccine := strings.TrimSpace(ruleVaccine.Code)
+	if targetVaccine == "" {
+		return time.Time{}, false
+	}
+	if due, ok := dueAfterSameRuleRepeatCompletion(rule, targetVaccine, history); ok {
+		return due, true
+	}
+	prevSeq := rule.Sequence - 1
+	if prevSeq <= 0 {
+		return time.Time{}, false
+	}
+	for _, admin := range history {
+		if admin.AdministeredAt.IsZero() || admin.Sequence != prevSeq {
+			continue
+		}
+		adminVaccine := strings.TrimSpace(admin.VaccineCode)
+		if adminVaccine == "" || !strings.EqualFold(targetVaccine, adminVaccine) {
+			continue
+		}
+		return admin.AdministeredAt.AddDate(0, 0, int(afterPreviousGapDays(rule))), true
+	}
+	return time.Time{}, false
+}
+
+func dueAfterSameRuleRepeatCompletion(rule protodomain.Rule, targetVaccine string, history []domain.RecentVaccineAdministration) (time.Time, bool) {
+	if strings.EqualFold(strings.TrimSpace(rule.Repeat), "") || strings.EqualFold(strings.TrimSpace(rule.Repeat), "none") {
+		return time.Time{}, false
+	}
+	for _, admin := range history {
+		if admin.AdministeredAt.IsZero() || admin.Sequence != rule.Sequence {
+			continue
+		}
+		adminVaccine := strings.TrimSpace(admin.VaccineCode)
+		if adminVaccine == "" || !strings.EqualFold(targetVaccine, adminVaccine) {
+			continue
+		}
+		if admin.DoseCode != "" && rule.DoseCode != "" && !strings.EqualFold(strings.TrimSpace(admin.DoseCode), strings.TrimSpace(rule.DoseCode)) {
+			continue
+		}
+		return repeatDueAfterCompletion(rule, admin.AdministeredAt)
+	}
+	return time.Time{}, false
+}
+
+func afterPreviousGapDays(rule protodomain.Rule) int32 {
+	gap := rule.OffsetDays
+	if rule.MinGapDays > gap {
+		gap = rule.MinGapDays
+	}
+	return gap
 }
 
 func obligationKey(parts ...string) string {

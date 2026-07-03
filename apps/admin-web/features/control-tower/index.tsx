@@ -8,7 +8,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { Tag } from "@/components/ui-primitives";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { VaccinationFilterButton, VisibleTableSearch, paginateRows, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
+import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "@/features/process-integrity/process-integrity";
 
 // Severity tint for the alert-band icon chip.
@@ -45,6 +45,26 @@ function Kpi({ label, value, sub, tone, icon }: { label: string; value: React.Re
 function fmtInt(n: number): string {
   return n.toLocaleString("en-IN");
 }
+
+function backendPage(
+  sp: RouteSearchParams,
+  prefix: string,
+  pageSizeOptions: readonly number[],
+  fallbackPageSize: VaccinationPageSize,
+): { page: number; pageSize: VaccinationPageSize; offset: number } {
+  const requestedSize = Number(one(sp, `${prefix}_limit`));
+  const pageSize = pageSizeOptions.includes(requestedSize) ? requestedSize : fallbackPageSize;
+  const requestedPage = Number(one(sp, `${prefix}_page`));
+  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  return { page, pageSize, offset: (page - 1) * pageSize };
+}
+
+function pageResult<T>(items: T[], total: number, page: number, pageSize: VaccinationPageSize) {
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = total === 0 ? 0 : Math.min(total, (page - 1) * pageSize + items.length);
+  return { items, page, pageSize, total, start, end };
+}
+
 function ownerOf(alert: ControlTowerAlert, unassignedLabel: string): string {
   return alert.owner?.operator_name ?? alert.owner?.park_head_name ?? unassignedLabel;
 }
@@ -58,29 +78,33 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
   // Control Tower honors the top-bar scope via the shared contract (park is the backend-safe UUID).
   const scope = parseScope(sp);
   const { parkId, asOf } = backendScope(scope);
-  const result = await getVaccinationControlTower({ parkId, asOf, limit: 200 });
-  const authError = firstAuthRequiredError(result);
-  if (authError) redirect(INTERNAL_LOGIN_PATH);
-
-  const summary = result.ok ? result.data.summary : null;
   const severityOptions = optionGroup(pageContract, "severity_chips");
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
-  const severityRank = new Map(severityOptions.map((option, index) => [option.key, index]));
-  // Most-broken first.
-  const alerts: ControlTowerAlert[] = result.ok
-    ? [...result.data.alerts].sort((a, b) => (severityRank.get(a.severity) ?? 999) - (severityRank.get(b.severity) ?? 999))
-    : [];
   const severityParam = one(sp, "ct_severity");
   const severityFilter = (severityOptions.some((option) => option.key === severityParam) ? severityParam : "all") as ProcessIntegritySeverity | "all";
   const stateParam = one(sp, "ct_state");
   const stateFilter = (workStateOptions.some((option) => option.key === stateParam) ? stateParam : "all") as WorkState | "all";
-  const filteredAlerts = alerts.filter(
-    (alert) =>
-      (severityFilter === "all" || alert.severity === severityFilter) &&
-      (stateFilter === "all" || alert.work_state === stateFilter),
-  );
-  const alertStateSet = new Set(alerts.map((alert) => alert.work_state));
-  const visibleWorkStates = WORK_STATE_ORDER.filter((state) => alertStateSet.has(state) || stateFilter === state);
+  const openGapLabels = tableLabels(pageContract, "open-gaps");
+  const pageSizeOptions = tablePageSizes(pageContract, "open-gaps");
+  const requestedPage = backendPage(sp, "ct", pageSizeOptions, 10);
+  const result = await getVaccinationControlTower({
+    parkId,
+    asOf,
+    workState: stateFilter === "all" ? undefined : stateFilter,
+    severity: severityFilter === "all" ? undefined : severityFilter,
+    limit: requestedPage.pageSize,
+    offset: requestedPage.offset,
+  });
+  const authError = firstAuthRequiredError(result);
+  if (authError) redirect(INTERNAL_LOGIN_PATH);
+
+  const summary = result.ok ? result.data.summary : null;
+  const severityRank = new Map(severityOptions.map((option, index) => [option.key, index]));
+  // Most-broken first. The backend already applied filters/page bounds.
+  const alerts: ControlTowerAlert[] = result.ok
+    ? [...result.data.alerts].sort((a, b) => (severityRank.get(a.severity) ?? 999) - (severityRank.get(b.severity) ?? 999))
+    : [];
+  const visibleWorkStates = WORK_STATE_ORDER;
 
   const processTone: Tone4 = !summary ? "mut" : !summary.process_intact ? (summary.critical_count > 0 ? "dng" : "warn") : "ok";
   const processLabel = !summary
@@ -90,10 +114,9 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
       : summary.critical_count > 0
         ? copy(pageContract, "label.process_not_intact")
         : copy(pageContract, "label.process_at_risk");
-  const band = filteredAlerts.slice(0, 5);
-  const openGapLabels = tableLabels(pageContract, "open-gaps");
-  const pageSizeOptions = tablePageSizes(pageContract, "open-gaps");
-  const paged = paginateRows(filteredAlerts, sp, "ct", 10, pageSizeOptions);
+  const hasAlertFilters = severityFilter !== "all" || stateFilter !== "all";
+  const band = alerts.slice(0, 5);
+  const paged = pageResult(alerts, result.ok ? result.data.total_count : 0, requestedPage.page, requestedPage.pageSize);
   const ownerUnassignedLabel = copy(pageContract, "label.owner_unassigned");
   const selectedAlertId = one(sp, "ct_alert");
   const selectedAlert = selectedAlertId ? alerts.find((alert) => alert.row_id === selectedAlertId) : undefined;
@@ -227,10 +250,18 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
                 <CheckCircle2 className="ic" />
               </span>
               <div className="tx">
-                <b>{result.ok ? copy(pageContract, "empty.critical_ok_title") : copy(pageContract, "empty.critical_unavailable")}</b>
+                <b>
+                  {result.ok
+                    ? hasAlertFilters
+                      ? copy(pageContract, "empty.open_gaps_filtered")
+                      : copy(pageContract, "empty.critical_ok_title")
+                    : copy(pageContract, "empty.critical_unavailable")}
+                </b>
                 <div className="mt">
                   {result.ok
-                    ? copy(pageContract, "empty.critical_ok_body")
+                    ? hasAlertFilters
+                      ? copy(pageContract, "filter.reason")
+                      : copy(pageContract, "empty.critical_ok_body")
                     : copy(pageContract, "empty.resolve_error")}
                 </div>
               </div>
@@ -272,26 +303,25 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
           {summary && summary.owner_missing_count > 0 ? <Tag tone="dng">{summary.owner_missing_count} {copy(pageContract, "label.owner_missing")}</Tag> : null}
         </div>
         <div className="tbar">
-          <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_label")} />
           <VaccinationFilterButton
             pageContract={pageContract}
             title={copy(pageContract, "filter.drawer.title")}
             searchReason={copy(pageContract, "filter.search_reason")}
             filterReason={copy(pageContract, "filter.reason")}
-            rowsLabel={`${paged.start}-${paged.end} of ${filteredAlerts.length} ${copy(pageContract, "filter.rows_suffix")}`}
+            rowsLabel={`${paged.start}-${paged.end} of ${paged.total} ${copy(pageContract, "filter.rows_suffix")}`}
             actionHref={scopeHref("/action-center", scope)}
             actionLabel={copy(pageContract, "action.open_action_center")}
             facets={openGapLabels}
           />
           <span className="muted small">
-            {paged.start}-{paged.end} of {filteredAlerts.length} {copy(pageContract, "table.open_gaps.noun")}s
+            {paged.start}-{paged.end} of {paged.total} {copy(pageContract, "table.open_gaps.noun")}s
           </span>
           <span className="muted small">{copy(pageContract, "filter.click_row")}</span>
         </div>
-        {filteredAlerts.length === 0 ? (
+        {paged.total === 0 ? (
           <div className="bd">
             <p className="muted small" style={{ margin: 0, lineHeight: 1.6 }}>
-              {result.ok ? (alerts.length === 0 ? copy(pageContract, "empty.open_gaps_detail") : copy(pageContract, "empty.open_gaps_filtered")) : copy(pageContract, "empty.open_gaps_unavailable")}
+              {result.ok ? (hasAlertFilters ? copy(pageContract, "empty.open_gaps_filtered") : copy(pageContract, "empty.open_gaps_detail")) : copy(pageContract, "empty.open_gaps_unavailable")}
             </p>
           </div>
         ) : (

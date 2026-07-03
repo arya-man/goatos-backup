@@ -196,6 +196,33 @@ func TestProtocolCreateWritesAreIdempotentAndAudited(t *testing.T) {
 		t.Fatalf("version conflict err=%v, want ErrIdempotencyConflict", err)
 	}
 
+	autoVersionID, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID:       testTenantID,
+		ProtocolID:     protocolID,
+		ScopeType:      "tenant",
+		Version:        0,
+		Status:         "draft",
+		EffectiveFrom:  time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:        []byte(`{"ruleset_family":"vaccination.matrix"}`),
+		ProofPolicy:    []byte(`{"required_proofs":["video"]}`),
+		DraftedBy:      &actorID,
+		IdempotencyKey: "version-key-auto",
+	})
+	if err != nil {
+		t.Fatalf("create backend-allocated version: %v", err)
+	}
+	var allocatedVersion int32
+	if err := pool.QueryRow(ctx, `
+SELECT version
+FROM protocol_versions
+WHERE tenant_id = $1::uuid
+  AND protocol_version_id = $2::uuid`, testTenantID, autoVersionID).Scan(&allocatedVersion); err != nil {
+		t.Fatalf("read backend-allocated version: %v", err)
+	}
+	if allocatedVersion != 2 {
+		t.Fatalf("backend allocated version = %d, want 2", allocatedVersion)
+	}
+
 	ruleInput := domain.NewRule{
 		TenantID:          testTenantID,
 		ProtocolVersionID: versionID,
@@ -247,11 +274,11 @@ SELECT
 	).Scan(&defCount, &versionCount, &ruleCount, &auditCount, &humanRuleAuditCount, &idemCount); err != nil {
 		t.Fatalf("read idempotent create evidence: %v", err)
 	}
-	if defCount != 1 || versionCount != 1 || ruleCount != 1 {
-		t.Fatalf("row counts def/version/rule = %d/%d/%d, want 1/1/1", defCount, versionCount, ruleCount)
+	if defCount != 1 || versionCount != 2 || ruleCount != 1 {
+		t.Fatalf("row counts def/version/rule = %d/%d/%d, want 1/2/1", defCount, versionCount, ruleCount)
 	}
-	if auditCount != 3 {
-		t.Fatalf("audit count = %d, want 3", auditCount)
+	if auditCount != 4 {
+		t.Fatalf("audit count = %d, want 4", auditCount)
 	}
 	if humanRuleAuditCount != 1 {
 		t.Fatalf("human rule audit count = %d, want 1", humanRuleAuditCount)

@@ -6,7 +6,6 @@ import {
   addProtocolRule,
   createProtocolDefinition,
   createProtocolVersion,
-  listProtocolConfigs,
   previewVaccinationImpact,
   publishProtocolVersion,
   type ImpactPreviewInput,
@@ -82,12 +81,6 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
   const versionBody = {
     scope_type: scopeType,
     scope_id: scopeId ?? undefined,
-    version: await nextDraftVersionNumber(
-      input.category,
-      input.code,
-      scopeType,
-      scopeId,
-    ),
     effective_from: effectiveFrom,
     rule_dsl: ruleDsl,
     proof_policy: proofPolicy,
@@ -193,12 +186,6 @@ export async function saveDraftBatch(
   const versionBody = {
     scope_type: scopeType,
     scope_id: scopeId ?? undefined,
-    version: await nextDraftVersionNumber(
-      "vaccination",
-      "vaccination.matrix",
-      scopeType,
-      scopeId,
-    ),
     effective_from: effectiveFrom,
     rule_dsl: ruleDsl,
     proof_policy: proofPolicy,
@@ -220,43 +207,10 @@ export async function saveDraftBatch(
     };
   }
 
-  for (const row of protocolRows) {
-    const ruleBody = {
-      dose_code: row.doseCode,
-      sequence: row.sortOrder,
-      trigger_type: row.trigger,
-      offset_days: Number(row.offsetDays) || 0,
-      due_window_days: Number(row.dueWindowDays) || 0,
-      min_gap_days: Number(row.minGapDays) || 0,
-      repeat: row.repeat,
-      repeat_until_after_age: row.repeatUntilAfterAge,
-      catch_up: row.catchUp,
-      proof_policy: row.proofPolicy,
-      eligibility_json: row.eligibilityJson ?? {},
-      sort_order: row.sortOrder,
-    };
-    const rule = await addProtocolRule(
-      version.data.protocol_version_id,
-      ruleBody,
-      stableMutationKey("protocol-rule", {
-        versionId: version.data.protocol_version_id,
-        ...ruleBody,
-      }),
-    );
-    if (!rule.ok) {
-      return {
-        ok: false,
-        message: rule.error.message ?? "add matrix rule failed",
-        code: rule.error.code,
-        versionIds: [version.data.protocol_version_id],
-      };
-    }
-  }
-
   revalidatePath("/config");
   return {
     ok: true,
-    message: `vaccination matrix draft saved - ${rows.length} rows / ${protocolRows.length} schedule cells - no live obligations`,
+    message: `vaccination matrix draft saved - ${rows.length} rows / ${protocolRows.length} schedule cells - backend expands executable rows at publish`,
     versionId: version.data.protocol_version_id,
     versionIds: [version.data.protocol_version_id],
   };
@@ -420,34 +374,4 @@ function buildMatrixProofPolicy(
       new Set(rows.flatMap((row) => row.proofPolicy).filter(Boolean)),
     ),
   };
-}
-
-let lastDraftVersionNumber = 0;
-
-function nextMonotonicDraftVersionNumber(): number {
-  const epochSeconds = Math.floor(Date.now() / 1000);
-  lastDraftVersionNumber = Math.min(
-    2_147_483_647,
-    Math.max(1, epochSeconds, lastDraftVersionNumber + 1),
-  );
-  return lastDraftVersionNumber;
-}
-
-async function nextDraftVersionNumber(
-  category: string,
-  code: string,
-  scopeType: string,
-  scopeId: string | null,
-): Promise<number> {
-  const floor = nextMonotonicDraftVersionNumber();
-  const configs = await listProtocolConfigs(category);
-  if (!configs.ok) return floor;
-  const normalizedScopeId = scopeId ?? "";
-  const maxExisting = configs.data.items.reduce((max, item) => {
-    if (item.code !== code) return max;
-    if (item.scope_type !== scopeType) return max;
-    if ((item.scope_id ?? "") !== normalizedScopeId) return max;
-    return Math.max(max, Number(item.version) || 0);
-  }, 0);
-  return Math.min(2_147_483_647, Math.max(floor, maxExisting + 1));
 }

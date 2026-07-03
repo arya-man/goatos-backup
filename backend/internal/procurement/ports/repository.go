@@ -22,6 +22,9 @@ var (
 	// proof_ref_id. Trusted evidence can suppress a real post-arrival dose, so unproven evidence must
 	// not be trusted.
 	ErrProofRequired = errors.New("procurement: proof reference required")
+	// ErrInvalidTrustContext is returned when a procurement vaccination evidence row has proof, but the
+	// goat/load context is not a supervised procurement holding stay that can suppress Preventive Care work.
+	ErrInvalidTrustContext = errors.New("procurement: invalid trusted vaccination context")
 	// ErrInvalidReference is returned when a write references a tenant-scoped entity that does not exist
 	// (protocol version, rule, goat, load, or proof). Surfaced as a 400 instead of a raw FK 500.
 	ErrInvalidReference = errors.New("procurement: referenced entity does not exist")

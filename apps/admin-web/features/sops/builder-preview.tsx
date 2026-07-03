@@ -114,6 +114,7 @@ export function BuilderPreview({ pc, steps }: { pc: AdminUiPageContract; steps: 
                   <textarea
                     className="pvctl"
                     rows={2}
+                    aria-label={step.label.trim() || `${copy(pc, "builder.question_label")} ${num}`}
                     placeholder={step.placeholder}
                     value={(answer as string) ?? ""}
                     onChange={(e) => setAnswer(step.id, e.target.value)}
@@ -121,6 +122,7 @@ export function BuilderPreview({ pc, steps }: { pc: AdminUiPageContract; steps: 
                 ) : (
                   <input
                     className="pvctl"
+                    aria-label={step.label.trim() || `${copy(pc, "builder.question_label")} ${num}`}
                     placeholder={step.placeholder}
                     value={(answer as string) ?? ""}
                     onChange={(e) => setAnswer(step.id, e.target.value)}
@@ -133,6 +135,7 @@ export function BuilderPreview({ pc, steps }: { pc: AdminUiPageContract; steps: 
                   <input
                     className="pvctl"
                     type="number"
+                    aria-label={step.label.trim() || `${copy(pc, "builder.question_label")} ${num}`}
                     value={(answer as string) ?? ""}
                     onChange={(e) => setAnswer(step.id, e.target.value)}
                   />

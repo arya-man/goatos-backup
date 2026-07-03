@@ -176,10 +176,10 @@ echo "### seed: local grant and vaccination trigger"
 
 STAMP="${GOATOS_E2E_RUN_ID:-MATRIX-$(date +%Y%m%d-%H%M%S)}-$(date +%s)"
 ENTRY_DATE="$(date -u +%F)"
-if DOB_DAY21="$(date -u -v-21d +%F 2>/dev/null)"; then
+if DOB_DAY28="$(date -u -v-28d +%F 2>/dev/null)"; then
   :
 else
-  DOB_DAY21="$(date -u -d "$ENTRY_DATE - 21 days" +%F)"
+  DOB_DAY28="$(date -u -d "$ENTRY_DATE - 28 days" +%F)"
 fi
 
 echo "### create procurement load"
@@ -197,7 +197,7 @@ add_goat() {
   local metadata="$3"
   local add_json goat_id
   add_json="$(api_post "/procurement/source-entry/loads/$LOAD/goats" "matrix-goat-$suffix-$STAMP" "$(cat <<JSON
-{"animal_identifier_1":"MATRIX-$suffix-$STAMP-A1","animal_identifier_2":"MATRIX-$suffix-$STAMP-A2","species":"goat","sex":"female","selection_state":"candidate","selection_reason":"procurement vaccination matrix","purpose":"breeding","current_state":"source_candidate","source_entry_state":"pending","ownership_state":"$ownership","health_state":"pending","proof_refs":[],"metadata":$metadata}
+{"animal_identifier_1":"MATRIX-$suffix-$STAMP-A1","animal_identifier_2":"MATRIX-$suffix-$STAMP-A2","species":"goat","sex":"female","selection_state":"candidate","selection_reason":"procurement vaccination matrix","purpose":"breeding","current_state":"source_candidate","source_entry_state":"accepted","ownership_state":"$ownership","health_state":"pending","proof_refs":[],"metadata":$metadata}
 JSON
 )")"
   goat_id="$(echo "$add_json" | jqp 'd["goat"]["goat_id"]')"
@@ -205,9 +205,9 @@ JSON
   echo "$goat_id"
 }
 
-CLEAN="$(add_goat "CLEAN" "mesha_owned" "{\"sex\":\"female\",\"dob\":\"$DOB_DAY21\",\"dob_estimated\":true,\"management_stage\":\"K1\",\"matrix_case\":\"clean_accepted\"}")"
-REJECTED="$(add_goat "REJECTED" "mesha_owned" "{\"sex\":\"female\",\"dob\":\"$DOB_DAY21\",\"dob_estimated\":true,\"management_stage\":\"K1\",\"matrix_case\":\"rejected_before_truck\"}")"
-OWNER_MISSING="$(add_goat "OWNERMISS" "pending" "{\"sex\":\"female\",\"dob\":\"$DOB_DAY21\",\"dob_estimated\":true,\"management_stage\":\"K1\",\"matrix_case\":\"owner_missing\"}")"
+CLEAN="$(add_goat "CLEAN" "mesha_owned" "{\"sex\":\"female\",\"dob\":\"$DOB_DAY28\",\"dob_estimated\":true,\"management_stage\":\"K2\",\"matrix_case\":\"clean_accepted\"}")"
+REJECTED="$(add_goat "REJECTED" "mesha_owned" "{\"sex\":\"female\",\"dob\":\"$DOB_DAY28\",\"dob_estimated\":true,\"management_stage\":\"K2\",\"matrix_case\":\"rejected_before_truck\"}")"
+OWNER_MISSING="$(add_goat "OWNERMISS" "pending" "{\"sex\":\"female\",\"dob\":\"$DOB_DAY28\",\"dob_estimated\":true,\"management_stage\":\"K2\",\"matrix_case\":\"owner_missing\"}")"
 EXTRA_ANIMAL_ID_2="MATRIX-EXTRA-$STAMP-A2"
 
 echo "load=$LOAD clean=$CLEAN rejected=$REJECTED owner_missing=$OWNER_MISSING extra_animal_identifier_2=$EXTRA_ANIMAL_ID_2"
@@ -275,7 +275,7 @@ expect_count "rejected_goat_created_outbox" "select count(*) from outbox_message
 expect_count "owner_missing_goat_created_outbox" "select count(*) from outbox_messages where tenant_id='$TENANT' and event_type='goat.created' and aggregate_id='$OWNER_MISSING'" "0"
 
 CANONICAL_STATE="$(psqlq "select sex || ':' || to_char(dob, 'YYYY-MM-DD') || ':' || dob_estimated::text || ':' || management_stage || ':' || health_status || ':' || lifecycle_status || ':' || park_id::text || ':' || shed_id::text from goats where tenant_id='$TENANT' and goat_id='$CLEAN'")"
-EXPECTED_STATE="female:$DOB_DAY21:true:K1:healthy:alive:$PARK:$SHED"
+EXPECTED_STATE="female:$DOB_DAY28:true:K2:healthy:alive:$PARK:$SHED"
 [ "$CANONICAL_STATE" = "$EXPECTED_STATE" ] || fail "clean goat canonical state=$CANONICAL_STATE want=$EXPECTED_STATE"
 echo "clean_canonical_state=$CANONICAL_STATE"
 

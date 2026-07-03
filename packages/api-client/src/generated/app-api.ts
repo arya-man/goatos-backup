@@ -1966,6 +1966,7 @@ export interface components {
             source: "api";
             items: components["schemas"]["ActionCenterObligation"][];
             counts_by_work_state: components["schemas"]["CountByWorkState"][];
+            total_count: number;
             next_cursor?: string;
         };
         AdherenceSummary: {
@@ -1992,6 +1993,7 @@ export interface components {
             source: "api";
             summary: components["schemas"]["AdherenceSummary"];
             rows: components["schemas"]["AdherenceRow"][];
+            total_count: number;
             next_cursor?: string;
         };
         ControlTowerSummary: {
@@ -2025,6 +2027,8 @@ export interface components {
             source: "api";
             summary: components["schemas"]["ControlTowerSummary"];
             alerts: components["schemas"]["ControlTowerAlert"][];
+            total_count: number;
+            next_cursor?: string;
         };
         WorkflowNode: {
             key: string;
@@ -2228,7 +2232,8 @@ export interface components {
         CreateProtocolVersionRequest: {
             scope_type: string;
             scope_id?: string | null;
-            version: number;
+            /** @description Optional compatibility field. When omitted, the backend allocates the next scoped protocol version atomically. */
+            version?: number;
             version_label?: string;
             /** Format: date-time */
             effective_from: string;
@@ -3437,6 +3442,7 @@ export interface operations {
                 due_after?: string;
                 due_before?: string;
                 cursor?: string;
+                offset?: number;
                 limit?: number;
             };
             header?: never;
@@ -3474,6 +3480,7 @@ export interface operations {
                 due_after?: string;
                 due_before?: string;
                 cursor?: string;
+                offset?: number;
                 limit?: number;
             };
             header?: never;
@@ -3511,6 +3518,7 @@ export interface operations {
                 due_after?: string;
                 due_before?: string;
                 cursor?: string;
+                offset?: number;
                 limit?: number;
             };
             header?: never;
@@ -3542,6 +3550,10 @@ export interface operations {
                 as_of?: string;
                 shed_id?: string;
                 due_before?: string;
+                work_state?: components["schemas"]["WorkState"];
+                severity?: components["schemas"]["ProcessIntegritySeverity"];
+                cursor?: string;
+                offset?: number;
                 limit?: number;
             };
             header?: never;

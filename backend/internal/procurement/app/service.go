@@ -476,7 +476,10 @@ func (s *Service) ReviewHFVaccinationEvidence(ctx context.Context, in ports.Revi
 		return domain.HFVaccinationEvidence{}, Conflict("stale_hf_vaccination_evidence_review", "HF vaccination evidence changed; reload before reviewing")
 	}
 	if errors.Is(err, ports.ErrProofRequired) {
-		return domain.HFVaccinationEvidence{}, BadRequest("missing_proof_ref", "trusted HF vaccination evidence requires a proof_ref_id before it can suppress a dose")
+		return domain.HFVaccinationEvidence{}, BadRequest("missing_proof_ref", "trusted procurement holding vaccination evidence requires a completed proof_ref_id before it can suppress a dose")
+	}
+	if errors.Is(err, ports.ErrInvalidTrustContext) {
+		return domain.HFVaccinationEvidence{}, BadRequest("invalid_trust_context", "trusted procurement holding vaccination evidence must belong to an animal held in our procurement holding park for 28-35 days, with the dose administered inside that holding stay")
 	}
 	if errors.Is(err, ports.ErrInvalidTransition) {
 		return domain.HFVaccinationEvidence{}, Conflict("invalid_hf_vaccination_evidence_review_transition", "trusted HF vaccination evidence cannot be changed by this review endpoint")

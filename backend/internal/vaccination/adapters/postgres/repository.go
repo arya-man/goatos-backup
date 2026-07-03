@@ -1818,19 +1818,32 @@ func (r *Repository) HasTrustedCompletionEvidenceBatch(ctx context.Context, tena
 	  JOIN goats g
 	    ON g.tenant_id = ev.tenant_id
 	   AND g.goat_id = ev.goat_id
-	  LEFT JOIN procurement_load_goats plg
-	    ON plg.tenant_id = ev.tenant_id
-	   AND plg.load_id = ev.load_id
-	   AND plg.goat_id = ev.goat_id
-	  WHERE ev.dose_code = t.dose_code
-	    AND ev_pr.dose_code = t.dose_code
-	    AND ev_pr.sequence = t.sequence
-	    AND ev_pv.protocol_id = t.protocol_id
-	    AND ev.administered_at <= $3::timestamptz
-	    AND ev.reviewed_at <= $3::timestamptz
-	    AND (t.rule_repeat = 'none' OR ev.administered_at >= t.due_at)
-	    AND (
-	      plg.intake_accepted_at IS NULL
+		  JOIN procurement_load_goats plg
+		    ON plg.tenant_id = ev.tenant_id
+		   AND plg.load_id = ev.load_id
+		   AND plg.goat_id = ev.goat_id
+		  JOIN proof_artifacts proof
+		    ON proof.tenant_id = ev.tenant_id
+		   AND proof.proof_id = ev.proof_ref_id
+		   AND proof.upload_state = 'completed'
+		  WHERE ev.dose_code = t.dose_code
+		    AND ev_pr.dose_code = t.dose_code
+		    AND ev_pr.sequence = t.sequence
+		    AND ev_pv.protocol_id = t.protocol_id
+		    AND ev.administered_at <= $3::timestamptz
+		    AND ev.reviewed_at <= $3::timestamptz
+		    AND ev.proof_ref_id IS NOT NULL
+		    AND plg.holding_location_id IS NOT NULL
+		    AND plg.warmup_started_at IS NOT NULL
+		    AND COALESCE(
+		      plg.warmup_days,
+		      floor(extract(epoch FROM (COALESCE(plg.warmup_ended_at, ev.administered_at) - plg.warmup_started_at)) / 86400)::int
+		    ) BETWEEN 28 AND 35
+		    AND ev.administered_at >= plg.warmup_started_at
+		    AND (plg.warmup_ended_at IS NULL OR ev.administered_at <= plg.warmup_ended_at)
+		    AND (t.rule_repeat = 'none' OR ev.administered_at >= t.due_at)
+		    AND (
+		      plg.intake_accepted_at IS NULL
 	      OR ev.administered_at <= plg.intake_accepted_at
 	    )
 	    AND (
@@ -1946,6 +1959,8 @@ WITH completion_admins AS (
            NULLIF(pv.rule_dsl -> 'vaccine' ->> 'pathogen_class', ''),
            ''
          )::text AS pathogen_class,
+         COALESCE(NULLIF(pr.dose_code, ''), '')::text AS dose_code,
+         COALESCE(pr.sequence, 0)::int AS sequence,
          oi.protocol_version_id::text AS protocol_version_id
   FROM vaccination_completions vc
   JOIN obligation_instances oi
@@ -1963,6 +1978,7 @@ WITH completion_admins AS (
     AND vc.status = 'accepted'
     AND vc.verified_at IS NOT NULL
     AND vc.administered_at <= $3::timestamptz
+    AND vc.verified_at <= $3::timestamptz
 ),
 trusted_admins AS (
   SELECT ev.goat_id::text AS goat_id,
@@ -1986,8 +2002,18 @@ trusted_admins AS (
            NULLIF(pv.rule_dsl -> 'vaccine' ->> 'pathogen_class', ''),
            ''
          )::text AS pathogen_class,
+         COALESCE(NULLIF(pr.dose_code, ''), '')::text AS dose_code,
+         COALESCE(pr.sequence, 0)::int AS sequence,
          ev.protocol_version_id::text AS protocol_version_id
   FROM procurement_hf_vaccination_evidence ev
+  JOIN procurement_load_goats plg
+    ON plg.tenant_id = ev.tenant_id
+   AND plg.load_id = ev.load_id
+   AND plg.goat_id = ev.goat_id
+  JOIN proof_artifacts proof
+    ON proof.tenant_id = ev.tenant_id
+   AND proof.proof_id = ev.proof_ref_id
+   AND proof.upload_state = 'completed'
   JOIN protocol_versions pv
     ON pv.tenant_id = ev.tenant_id
    AND pv.protocol_version_id = ev.protocol_version_id
@@ -2000,8 +2026,18 @@ trusted_admins AS (
     AND ev.review_status = 'trusted'
     AND ev.reviewed_at IS NOT NULL
     AND ev.administered_at <= $3::timestamptz
+    AND ev.reviewed_at <= $3::timestamptz
+    AND ev.proof_ref_id IS NOT NULL
+    AND plg.holding_location_id IS NOT NULL
+    AND plg.warmup_started_at IS NOT NULL
+    AND COALESCE(
+      plg.warmup_days,
+      floor(extract(epoch FROM (COALESCE(plg.warmup_ended_at, ev.administered_at) - plg.warmup_started_at)) / 86400)::int
+    ) BETWEEN 28 AND 35
+    AND ev.administered_at >= plg.warmup_started_at
+    AND (plg.warmup_ended_at IS NULL OR ev.administered_at <= plg.warmup_ended_at)
 )
-SELECT goat_id, administered_at, vaccine_code, vaccine_type, pathogen_class, protocol_version_id
+SELECT goat_id, administered_at, vaccine_code, vaccine_type, pathogen_class, dose_code, sequence, protocol_version_id
 FROM (
   SELECT * FROM completion_admins
   UNION ALL
@@ -2022,6 +2058,8 @@ ORDER BY goat_id, administered_at DESC`, tenant, uuids, pgconv.Timestamptz(befor
 			&admin.VaccineCode,
 			&admin.VaccineType,
 			&admin.PathogenClass,
+			&admin.DoseCode,
+			&admin.Sequence,
 			&admin.ProtocolVersionID,
 		); err != nil {
 			return nil, fmt.Errorf("vaccination: scan recent vaccine administration: %w", err)

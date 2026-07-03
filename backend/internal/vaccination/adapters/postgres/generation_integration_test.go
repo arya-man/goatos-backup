@@ -613,34 +613,48 @@ func TestGoatCreatedTrustedHFEvidenceSuppressesAcrossProtocolVersions(t *testing
 
 func seedGenerationProcurementEvidence(t *testing.T, ctx context.Context, pool *pgxpool.Pool, loadID, goatID, versionID, ruleID, reviewStatus string, administeredAt time.Time, reviewedAt *time.Time) {
 	t.Helper()
+	holdingStart := administeredAt.Add(-10 * 24 * time.Hour)
+	holdingEnd := holdingStart.Add(30 * 24 * time.Hour)
 	if _, err := pool.Exec(ctx, `
-INSERT INTO procurement_loads (load_id, tenant_id, source_party_id, expected_count, status, idempotency_key)
-VALUES ($1, $2, $3, 1, 'source_warmup', $4)
+	INSERT INTO procurement_loads (load_id, tenant_id, source_party_id, expected_count, status, idempotency_key)
+	VALUES ($1, $2, $3, 1, 'source_warmup', $4)
 ON CONFLICT (tenant_id, load_id) DO NOTHING`, loadID, impTenant, impParty, "gen-hf-load:"+loadID); err != nil {
 		t.Fatalf("seed procurement load: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO procurement_load_goats (
-  tenant_id, load_id, goat_id, purpose, current_state, selection_state,
-  source_entry_state, ownership_state, health_state
-) VALUES (
-  $1, $2, $3, 'breeding', 'accepted_herd_intake', 'accepted_herd_intake',
-  'accepted', 'mesha_owned', 'passed'
-)
-ON CONFLICT (tenant_id, load_id, goat_id) DO NOTHING`, impTenant, loadID, goatID); err != nil {
+	INSERT INTO procurement_load_goats (
+	  tenant_id, load_id, goat_id, purpose, current_state, selection_state,
+	  source_entry_state, ownership_state, health_state, warmup_started_at,
+	  warmup_ended_at, warmup_days, holding_location_id
+	) VALUES (
+	  $1, $2, $3, 'breeding', 'accepted_herd_intake', 'accepted_herd_intake',
+	  'accepted', 'mesha_owned', 'passed', $4::timestamptz, $5::timestamptz, 30, $6::uuid
+	)
+	ON CONFLICT (tenant_id, load_id, goat_id) DO NOTHING`, impTenant, loadID, goatID, holdingStart, holdingEnd, impCbe); err != nil {
 		t.Fatalf("seed procurement load goat: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO procurement_hf_vaccination_evidence (
-  tenant_id, load_id, goat_id, protocol_version_id, rule_id, dose_code,
-  administered_at, vaccine_name, lot_number, source_ref, review_status,
-  reviewed_at, idempotency_key
-) VALUES (
-  $1, $2, $3, $4, $5, 'primary',
-  $6::timestamptz, 'HF vaccine', 'HF-LOT', 'supplier:hf',
-  $7, $8::timestamptz,
-  $9
-)`, impTenant, loadID, goatID, versionID, ruleID, administeredAt, reviewStatus, reviewedAt, "gen-hf-evidence:"+goatID); err != nil {
+	INSERT INTO proof_artifacts (
+	  proof_id, tenant_id, storage_provider, object_key, upload_state,
+	  scope_type, scope_id, subject_type, proof_type, content_hash, mime_type, size_bytes
+	) VALUES (
+	  $1::uuid, $2, 'local', 'gen-hf-proof-' || $1::text, 'completed',
+	  'tenant', $2, 'other', 'video', 'hash-' || $1::text, 'video/mp4', 100
+	)
+	ON CONFLICT (proof_id) DO NOTHING`, loadID, impTenant); err != nil {
+		t.Fatalf("seed HF proof: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+	INSERT INTO procurement_hf_vaccination_evidence (
+	  tenant_id, load_id, goat_id, protocol_version_id, rule_id, dose_code,
+	  administered_at, vaccine_name, lot_number, proof_ref_id, source_ref, review_status,
+	  reviewed_at, idempotency_key
+	) VALUES (
+	  $1, $2, $3, $4, $5, 'primary',
+	  $6::timestamptz, 'HF vaccine', 'HF-LOT', $10::uuid, 'procurement_holding_park',
+	  $7, $8::timestamptz,
+	  $9
+	)`, impTenant, loadID, goatID, versionID, ruleID, administeredAt, reviewStatus, reviewedAt, "gen-hf-evidence:"+goatID, loadID); err != nil {
 		t.Fatalf("seed HF evidence: %v", err)
 	}
 }
@@ -732,6 +746,66 @@ func TestGoatCreatedAcceptedCompletionSuppressesMatchingObligation(t *testing.T)
 	}
 	if unverifiedRes.Generated != 1 || unverifiedRes.SuppressedByTrustedHistory != 0 {
 		t.Fatalf("unverified result = %#v, want generated 1 suppressed 0 (accepted requires verified_at)", unverifiedRes)
+	}
+}
+
+func TestRecentVaccineAdministrationsRespectsVerificationAsOf(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.goatos.history_asof", Name: "GoatOS History As-Of", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{"eligibility":{}}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "post_arrival", OffsetDays: 7, Repeat: "none", CatchUp: "pc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	if err := proto.PublishVersion(ctx, impTenant, versionID, nil); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	goatID := "30000000-0000-4000-8000-0000000000f1"
+	seedGenAdultProcuredGoat(t, ctx, pool, goatID, "alive", time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC))
+	administered := time.Date(2026, 6, 12, 8, 0, 0, 0, time.UTC)
+	futureVerifiedAt := time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC)
+	seedGoatOSCompletionWithVerifiedAt(t, ctx, pool, obl, versionID, ruleID, goatID, "accepted", administered, &futureVerifiedAt)
+
+	beforeReview := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	early, err := vacc.RecentVaccineAdministrationsForGoats(ctx, impTenant, []string{goatID}, beforeReview)
+	if err != nil {
+		t.Fatalf("recent before verification: %v", err)
+	}
+	if got := len(early[goatID]); got != 0 {
+		t.Fatalf("recent before verification rows=%d, want 0 so generation cannot use future-verified history", got)
+	}
+
+	afterReview := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	late, err := vacc.RecentVaccineAdministrationsForGoats(ctx, impTenant, []string{goatID}, afterReview)
+	if err != nil {
+		t.Fatalf("recent after verification: %v", err)
+	}
+	if got := len(late[goatID]); got != 1 {
+		t.Fatalf("recent after verification rows=%d, want 1", got)
 	}
 }
 
@@ -885,13 +959,24 @@ func TestGenerateScopesObligationToShedLocation(t *testing.T) {
 // administration history.
 func seedGoatOSCompletion(t *testing.T, ctx context.Context, pool *pgxpool.Pool, obl *oblpg.Repository, versionID, ruleID, goatID, status string, administered time.Time) {
 	t.Helper()
-	dbStatus := status
-	var verifiedAt any
+	var verifiedAt *time.Time
 	if status == "accepted" {
-		verifiedAt = administered.Add(2 * time.Hour)
+		acceptedAt := administered.Add(2 * time.Hour)
+		verifiedAt = &acceptedAt
+	}
+	seedGoatOSCompletionWithVerifiedAt(t, ctx, pool, obl, versionID, ruleID, goatID, status, administered, verifiedAt)
+}
+
+func seedGoatOSCompletionWithVerifiedAt(t *testing.T, ctx context.Context, pool *pgxpool.Pool, obl *oblpg.Repository, versionID, ruleID, goatID, status string, administered time.Time, verifiedAt *time.Time) {
+	t.Helper()
+	dbStatus := status
+	var verifiedAtParam any
+	if verifiedAt != nil {
+		verifiedAtParam = *verifiedAt
 	}
 	if status == "accepted_unverified" {
 		dbStatus = "accepted"
+		verifiedAtParam = nil
 	}
 	obID, applied, err := obl.InsertObligation(ctx, obldomain.NewObligation{
 		TenantID: impTenant, ProtocolVersionID: versionID, RuleID: ruleID,
@@ -904,7 +989,7 @@ func seedGoatOSCompletion(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	if _, err := pool.Exec(ctx, `
 INSERT INTO vaccination_completions (tenant_id, obligation_id, goat_id, doses, administered_at, status, verified_at, idempotency_key)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 1, $4::timestamptz, $5, $6::timestamptz, $7)`,
-		impTenant, obID, goatID, administered, dbStatus, verifiedAt, "compl:"+goatID); err != nil {
+		impTenant, obID, goatID, administered, dbStatus, verifiedAtParam, "compl:"+goatID); err != nil {
 		t.Fatalf("seed completion: %v", err)
 	}
 }

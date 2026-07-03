@@ -20,7 +20,7 @@ const (
 	defaultLimit            = 100
 	maxLimit                = 500
 	countQueryArgCount      = 15
-	rowsQueryArgCount       = 19
+	rowsQueryArgCount       = 20
 )
 
 type Repository struct {
@@ -50,13 +50,18 @@ func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListR
 
 	out := []domain.Row{}
 	var lastCursor *domain.Cursor
+	seenExtra := false
 	for rows.Next() {
 		row, cursor, err := scanRow(rows)
 		if err != nil {
 			return domain.ListResult{}, err
 		}
-		out = append(out, row)
-		lastCursor = &cursor
+		if len(out) < q.Limit {
+			out = append(out, row)
+			lastCursor = &cursor
+		} else {
+			seenExtra = true
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return domain.ListResult{}, fmt.Errorf("processintegrity: iterate rows: %w", err)
@@ -68,6 +73,7 @@ func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListR
 	}
 	defer countRows.Close()
 	counts := []domain.CountByWorkState{}
+	var totalCount int64
 	for countRows.Next() {
 		var state string
 		var count int64
@@ -75,20 +81,21 @@ func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListR
 			return domain.ListResult{}, fmt.Errorf("processintegrity: scan count: %w", err)
 		}
 		counts = append(counts, domain.CountByWorkState{WorkState: domain.WorkState(state), Count: count})
+		totalCount += count
 	}
 	if err := countRows.Err(); err != nil {
 		return domain.ListResult{}, fmt.Errorf("processintegrity: iterate counts: %w", err)
 	}
 
 	var next *string
-	if len(out) == q.Limit && lastCursor != nil {
+	if seenExtra && lastCursor != nil {
 		encoded, err := domain.EncodeCursor(*lastCursor)
 		if err != nil {
 			return domain.ListResult{}, err
 		}
 		next = &encoded
 	}
-	return domain.ListResult{Rows: out, CountsByWorkState: counts, NextCursor: next}, nil
+	return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, NextCursor: next}, nil
 }
 
 func (r *Repository) GetRow(ctx context.Context, q domain.Query, rowID string) (domain.Row, bool, error) {
@@ -230,6 +237,9 @@ func normalizeQuery(q domain.Query) domain.Query {
 	if q.Limit > maxLimit {
 		q.Limit = maxLimit
 	}
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
 	if q.AsOf.IsZero() {
 		q.AsOf = time.Now().UTC()
 	}
@@ -268,7 +278,8 @@ func queryArgs(q domain.Query) []any {
 		cursorSort,
 		cursorDue,
 		cursorRow,
-		int32(q.Limit),
+		int32(q.Limit + 1),
+		int32(q.Offset),
 	}
 	if len(args) != rowsQueryArgCount {
 		panic(fmt.Sprintf("processintegrity: query arg count drifted: got %d want %d", len(args), rowsQueryArgCount))
@@ -1159,8 +1170,9 @@ WHERE (
     OR (sort_priority, due_at, row_id) > ($16::int, $17::timestamptz, $18::text)
   )
 ORDER BY sort_priority ASC, due_at ASC, row_id ASC
-LIMIT $19;
-`
+LIMIT $19
+OFFSET $20;
+	`
 
 const processIntegrityCountsSQL = processIntegrityBaseSQL + processIntegrityFeedExceptionSQL + `,
 all_counts AS (

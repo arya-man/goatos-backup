@@ -65,7 +65,7 @@ func TestActionCenterParsesBoundedVaccinationQuery(t *testing.T) {
 		"&shed_id="+handlerShed+
 		"&work_state=verification_pending&severity=watch&owner_id="+handlerOwner+
 		"&protocol_version_id="+handlerVer+
-		"&due_after=2026-06-20T00:00:00Z&due_before=2026-07-01T00:00:00Z&limit=999&cursor="+cursor, nil)
+		"&due_after=2026-06-20T00:00:00Z&due_before=2026-07-01T00:00:00Z&limit=999&offset=20&cursor="+cursor, nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), handlerTenant))
 	rec := httptest.NewRecorder()
 
@@ -95,6 +95,9 @@ func TestActionCenterParsesBoundedVaccinationQuery(t *testing.T) {
 	}
 	if q.Limit != maxLimit {
 		t.Fatalf("limit = %d want %d", q.Limit, maxLimit)
+	}
+	if q.Offset != 20 {
+		t.Fatalf("offset = %d want 20", q.Offset)
 	}
 	if q.Cursor == nil || q.Cursor.SortPriority != 5 {
 		t.Fatalf("cursor = %+v", q.Cursor)

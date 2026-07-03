@@ -54,6 +54,54 @@ func TestRecoveryRescheduleDue(t *testing.T) {
 	}
 }
 
+func TestRecoveryRescheduleDueUsesOneWeekMaxBuffer(t *testing.T) {
+	policy := genRecoveryPolicy{MaxNearbyDriveAlignDays: 7}
+	cases := []struct {
+		name       string
+		recovered  time.Time
+		drive      time.Time
+		wantReason string
+		wantDue    time.Time
+	}{
+		{
+			name:       "july 5 recovery can join july 10 drive",
+			recovered:  time.Date(2026, 7, 5, 9, 0, 0, 0, time.UTC),
+			drive:      time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+			wantReason: recoveryAlignNearbyDrive,
+			wantDue:    time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:       "july 4 recovery can join july 10 drive",
+			recovered:  time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC),
+			drive:      time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+			wantReason: recoveryAlignNearbyDrive,
+			wantDue:    time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:       "seven day boundary can still batch",
+			recovered:  time.Date(2026, 7, 5, 9, 0, 0, 0, time.UTC),
+			drive:      time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
+			wantReason: recoveryAlignNearbyDrive,
+			wantDue:    time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:       "eight days cannot wait and becomes micro drive",
+			recovered:  time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC),
+			drive:      time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
+			wantReason: recoveryMicroDrive,
+			wantDue:    time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotDue, gotReason := recoveryRescheduleDue(tc.recovered, policy, &tc.drive)
+			if gotReason != tc.wantReason || !gotDue.Equal(tc.wantDue) {
+				t.Fatalf("got due=%v reason=%q, want due=%v reason=%q", gotDue, gotReason, tc.wantDue, tc.wantReason)
+			}
+		})
+	}
+}
+
 func TestWarmingDeferReason(t *testing.T) {
 	entry := time.Date(2026, time.July, 1, 12, 0, 0, 0, time.UTC)
 	proc := genProcurementPolicy{WarmupNoVaccinationDays: 7}

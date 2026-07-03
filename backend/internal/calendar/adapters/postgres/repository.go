@@ -1509,7 +1509,7 @@ FOR UPDATE`, tenantID, eventID, tenantWide, parkIDs, shedIDs).Scan(
 	case verifier.String != "":
 		out.RecipientRef = verifier.String
 	}
-	if system || (!sourceBacked && out.EventType != domain.EventVaccinationConfigActivationReview) || out.RecipientRef == "" {
+	if system || out.RecipientRef == "" {
 		return actionTarget{}, ports.ErrEventNotActionable
 	}
 	return out, nil
@@ -1824,8 +1824,8 @@ WITH obligation_events AS (
     pr.rule_id,
     pd.name AS vaccine_name,
     pr.dose_code,
-    true AS source_backed,
-    COALESCE(NULLIF(pv.rule_dsl -> 'source' ->> 'source_ref', ''), pd.name) AS source_label,
+    false AS source_backed,
+    pd.name AS source_label,
     'obligation'::text AS source_target_type,
     oi.obligation_id AS source_target_id,
     'PC vaccinator'::text AS assignee_label,
@@ -1844,8 +1844,6 @@ WITH obligation_events AS (
     jsonb_build_object(
       'summary', jsonb_build_object('owner', 'PC', 'target_count', 1),
       'source_and_rule', jsonb_build_object(
-        'source_backed', true,
-        'source_ref', pv.rule_dsl -> 'source' ->> 'source_ref',
         'protocol_version_id', pv.protocol_version_id,
         'rule_id', pr.rule_id
       ),
@@ -1939,7 +1937,7 @@ catchup_drive_events AS (
     grouped.rule_id,
     grouped.vaccine_name,
     grouped.dose_code,
-    true AS source_backed,
+    false AS source_backed,
     grouped.source_label,
     CASE WHEN grouped.target_count = 1 THEN 'obligation' ELSE 'catchup' END AS source_target_type,
     CASE WHEN grouped.target_count = 1 THEN grouped.single_obligation_id ELSE COALESCE(grouped.shed_id, $1::uuid) END AS source_target_id,
@@ -1958,8 +1956,6 @@ catchup_drive_events AS (
     jsonb_build_object(
       'summary', jsonb_build_object('owner', 'PC', 'target_count', grouped.target_count, 'catchup', true),
       'source_and_rule', jsonb_build_object(
-        'source_backed', true,
-        'source_ref', grouped.source_ref,
         'protocol_version_id', grouped.protocol_version_id,
         'rule_id', grouped.rule_id,
         'due_day', grouped.due_day
@@ -1984,8 +1980,8 @@ catchup_drive_events AS (
       pd.name AS vaccine_name,
       pr.dose_code,
       (array_agg(oi.obligation_id ORDER BY oi.obligation_id))[1] AS single_obligation_id,
-      COALESCE(NULLIF(pv.rule_dsl -> 'source' ->> 'source_ref', ''), pd.name) AS source_label,
-      pv.rule_dsl -> 'source' ->> 'source_ref' AS source_ref,
+      pd.name AS source_label,
+      ''::text AS source_ref,
       COALESCE(scope_loc.timezone, 'Asia/Kolkata') AS timezone,
       CASE WHEN scope_loc.timezone IS NULL THEN 'fallback' ELSE 'location' END AS timezone_source,
       to_char((oi.due_at AT TIME ZONE COALESCE(scope_loc.timezone, 'Asia/Kolkata'))::date, 'YYYY-MM-DD') AS due_day,
@@ -2053,8 +2049,6 @@ catchup_drive_events AS (
       )
       AND pd.category = 'vaccination'
       AND pv.status = 'published'
-      AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
-      AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
       AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
     GROUP BY
       loc.shed_id, loc.shed_name, loc.park_id, loc.park_code,
@@ -2100,8 +2094,8 @@ batch_events AS (
     pr.rule_id,
     pd.name AS vaccine_name,
     pr.dose_code,
-    true AS source_backed,
-    COALESCE(NULLIF(pv.rule_dsl -> 'source' ->> 'source_ref', ''), pd.name) AS source_label,
+    false AS source_backed,
+    pd.name AS source_label,
     'batch'::text AS source_target_type,
     ob.batch_id AS source_target_id,
     'PC drive team'::text AS assignee_label,
@@ -2119,7 +2113,6 @@ batch_events AS (
     jsonb_build_object(
       'summary', jsonb_build_object('owner', 'PC', 'target_count', GREATEST(ob.estimated_targets, 1)),
       'source_and_rule', jsonb_build_object(
-        'source_backed', true,
         'protocol_version_id', pv.protocol_version_id,
         'rule_id', pr.rule_id
       ),
@@ -2195,8 +2188,8 @@ sop_events AS (
     pr.rule_id,
     pd.name AS vaccine_name,
     pr.dose_code,
-    true AS source_backed,
-    COALESCE(NULLIF(pv.rule_dsl -> 'source' ->> 'source_ref', ''), pd.name) AS source_label,
+    false AS source_backed,
+    pd.name AS source_label,
     'sop_task'::text AS source_target_type,
     st.task_id AS source_target_id,
     COALESCE(st.assigned_to::text, 'PC verifier') AS assignee_label,
@@ -2211,7 +2204,6 @@ sop_events AS (
     jsonb_build_object(
       'summary', jsonb_build_object('owner', 'PC', 'task_type', st.task_type),
       'source_and_rule', jsonb_build_object(
-        'source_backed', true,
         'protocol_version_id', pv.protocol_version_id,
         'rule_id', pr.rule_id
       ),
@@ -2453,8 +2445,6 @@ WITH source_event_ids AS (
     )
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND oi.status NOT IN ('waived', 'canceled', 'superseded')
     AND (oi.status <> 'completed' OR oi.due_at >= now() - interval '90 days')
 
@@ -2474,8 +2464,6 @@ WITH source_event_ids AS (
     AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < $3::timestamptz
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND ob.status NOT IN ('superseded', 'canceled')
     AND (ob.status <> 'completed' OR COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= now() - interval '90 days')
 
@@ -2523,8 +2511,6 @@ WITH source_event_ids AS (
     )
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
-    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
   GROUP BY event_id
   HAVING count(*) > 1

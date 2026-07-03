@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Local DATA-PLANE proof for imported/existing vaccination history.
 #
-# Proves the V1 Vaccination Rules path the demo depends on:
+# Proves the Preventive Care Vaccination Rules path the demo depends on:
 #   published ET+TT Vaccination Rules config + SOP
 #     -> goat already has accepted/verified 4-week ET+TT history
 #     -> generator suppresses the old 4-week dose
@@ -12,8 +12,8 @@
 # Prerequisites:
 #   - local stack up: api :8080 and docker PG 127.0.0.1:55432 (`make dev-local`)
 #   - migrations applied
-#   - source-backed Vaccination Rules config already authored/published by
-#     `apps/admin-web/scripts/smoke-vaccination-authoring-live.mjs`
+#   - Preventive Care Vaccination Rules config already authored/published by
+#     `seed-vaccination-trigger` or the live authoring smoke.
 set -euo pipefail
 
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
@@ -39,8 +39,11 @@ assert_hit(){ local label=$1 needle=$2 haystack=$3; [ "$(has "$needle" "$haystac
 assert_no_hit(){ local label=$1 needle=$2 haystack=$3; [ "$(has "$needle" "$haystack")" = MISS ] || fail "$label unexpectedly contains $needle"; }
 
 STAMP=$(date +%s)
-RUN_SECOND=$((STAMP % 60))
-AS_OF=$(printf '2026-07-01T10:00:%02dZ' "$RUN_SECOND")
+RUN_DAY_SECOND=$((STAMP % 86400))
+AS_HOUR=$((RUN_DAY_SECOND / 3600))
+AS_MINUTE=$(((RUN_DAY_SECOND % 3600) / 60))
+AS_SECOND=$((RUN_DAY_SECOND % 60))
+AS_OF=$(printf '2026-07-01T%02d:%02d:%02dZ' "$AS_HOUR" "$AS_MINUTE" "$AS_SECOND")
 DOB="2026-05-13"
 FOUR_WEEK_DUE="2026-06-10T00:00:00Z"
 SEVEN_WEEK_DUE_DATE="2026-07-01"
@@ -62,8 +65,6 @@ WITH latest AS (
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
     AND pv.rule_dsl->'vaccine'->>'code' = 'ET+TT'
-    AND pv.rule_dsl #>> '{source,review_status}' = 'approved'
-    AND pv.rule_dsl #>> '{source,source_system}' = 'vaccinations_db'
   ORDER BY pv.created_at DESC
   LIMIT 1
 )
@@ -81,22 +82,22 @@ FROM latest
 JOIN protocol_rules pr4
   ON pr4.tenant_id = '$TENANT'
  AND pr4.protocol_version_id = latest.protocol_version_id
- AND pr4.dose_code = 'et_tt_4w'
+ AND pr4.dose_code = 'ET_TT_4W'
 JOIN protocol_rules pr7
   ON pr7.tenant_id = '$TENANT'
  AND pr7.protocol_version_id = latest.protocol_version_id
- AND pr7.dose_code = 'et_tt_7w'
+ AND pr7.dose_code = 'ET_TT_7W'
 ")
 [ -n "$MATRIX_ROW" ] || fail "published Vaccination Rules ET+TT config not found; run the vaccination authoring smoke first"
 IFS='|' read -r VERSION SOPVER RULE4 RULE7 DOSE4 DOSE7 OFFSET4 OFFSET7 EFFECTIVE_FROM <<<"$MATRIX_ROW"
 [ -n "$VERSION" ] && [ -n "$SOPVER" ] && [ -n "$RULE4" ] && [ -n "$RULE7" ] || fail "incomplete Vaccination Rules ET+TT row: $MATRIX_ROW"
-assert_eq "4-week dose code" "et_tt_4w" "$DOSE4"
-assert_eq "7-week dose code" "et_tt_7w" "$DOSE7"
+assert_eq "4-week dose code" "ET_TT_4W" "$DOSE4"
+assert_eq "7-week dose code" "ET_TT_7W" "$DOSE7"
 assert_eq "4-week offset" "28" "$OFFSET4"
-assert_eq "7-week offset" "49" "$OFFSET7"
+assert_eq "7-week after-completion offset" "21" "$OFFSET7"
 echo "VERSION=$VERSION SOPVER=$SOPVER RULE4=$RULE4 RULE7=$RULE7 effective_from=$EFFECTIVE_FROM"
 
-echo; echo "### 1. seed K0 goat + accepted/verified 4-week vaccination history"
+echo; echo "### 1. seed K2 goat + accepted/verified 4-week vaccination history"
 SHED=$(psqlq "
 INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status)
 VALUES (gen_random_uuid(), '$TENANT', 'shed', '$SHED_CODE', 'Trusted History Shed $STAMP', '$PARK', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active')
@@ -109,7 +110,7 @@ INSERT INTO goats (
   dob, approx_dob, entry_date, health_status, reproductive_status, origin_type
 ) VALUES (
   gen_random_uuid(), '$TENANT', 'alive', '00000000-0000-4000-8000-000000001001',
-  '$SHED', '$PARK', '$SHED', 'K0', 'female', 'all',
+  '$SHED', '$PARK', '$SHED', 'K2', 'female', 'all',
   DATE '$DOB', DATE '$DOB', DATE '$DOB', 'healthy', 'open', 'birth'
 ) RETURNING goat_id
 ")
@@ -135,6 +136,19 @@ INSERT INTO vaccination_completions (
 ) RETURNING completion_id
 ")
 echo "GOAT=$GOAT SHED=$SHED_CODE/$SHED accepted_history_obligation=$HISTORY_OBL completion=$COMPLETION"
+
+psqlq "
+UPDATE obligation_instances oi
+SET status = 'canceled', updated_at = now()
+FROM goats g
+JOIN locations l ON l.location_id = g.shed_id
+WHERE oi.tenant_id = '$TENANT'
+  AND oi.target_id = g.goat_id
+  AND oi.protocol_version_id = '$VERSION'
+  AND oi.status IN ('scheduled','due','deferred','in_progress')
+  AND g.goat_id <> '$GOAT'
+  AND (l.location_code LIKE 'TRUST-HIST-%' OR l.location_code LIKE 'CHAIN-%')
+" >/dev/null
 
 echo; echo "### 2. run real generation: suppress 4w, create next 7w"
 GEN_OUT=$(cd "$BACKEND" && GOATOS_TENANT_ID="$TENANT" go run ./cmd/generate-vaccination-obligations \
@@ -173,6 +187,18 @@ assert_eq "7w due date" "$SEVEN_WEEK_DUE_DATE" "$SEVEN_DUE_DATE"
 echo "SEVEN_OBLIGATION=$SEVEN_OBL due=$SEVEN_DUE_DATE"
 
 echo; echo "### 3. sweeper batches the next dose into a shed drive/SOP task and Calendar projection"
+psqlq "
+UPDATE obligation_instances oi
+SET status = 'canceled', updated_at = now()
+FROM goats g
+JOIN locations l ON l.location_id = g.shed_id
+WHERE oi.tenant_id = '$TENANT'
+  AND oi.target_id = g.goat_id
+  AND oi.protocol_version_id = '$VERSION'
+  AND oi.status IN ('scheduled','due','deferred','in_progress')
+  AND g.goat_id <> '$GOAT'
+  AND (l.location_code LIKE 'TRUST-HIST-%' OR l.location_code LIKE 'CHAIN-%')
+" >/dev/null
 ( cd "$BACKEND" && GOATOS_TENANT_ID="$TENANT" go run ./cmd/obligation-sweeper \
   -tenant-id "$TENANT" \
   -version-id "$VERSION" \
@@ -184,7 +210,14 @@ BATCH=$(psqlq "select batch_id from obligation_instances where obligation_id='$S
 TASK=$(psqlq "select sop_task_id from obligation_batches where batch_id='$BATCH'")
 [ -n "$BATCH" ] || fail "7-week obligation did not get a batch"
 [ -n "$TASK" ] || fail "7-week batch did not get a SOP task"
-echo "BATCH=$BATCH TASK=$TASK"
+BATCH_DATE=$(psqlq "select coalesce(planned_date, window_start::date, window_end::date)::text from obligation_batches where batch_id='$BATCH'")
+[ -n "$BATCH_DATE" ] || fail "7-week batch did not get a planned date"
+( cd "$BACKEND" && GOATOS_TENANT_ID="$TENANT" go run ./cmd/calendar-vaccination-projector \
+  -tenant-id "$TENANT" \
+  -date-from "2026-07-01T00:00:00Z" \
+  -date-to "2026-07-11T00:00:00Z" \
+  -limit 2000 2>&1 | tail -1 )
+echo "BATCH=$BATCH TASK=$TASK planned_date=$BATCH_DATE"
 
 TOKEN=$(cd "$BACKEND" && go run ./cmd/mint-dev-token -tenant-id "$TENANT" -user-id "$USER" -ttl 2h 2>/dev/null)
 A=(-H "Authorization: Bearer $TOKEN")
@@ -195,7 +228,7 @@ RID=$(echo "$AC" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next
 [ -n "$RID" ] || fail "Action Center row not found for batch=$BATCH"
 WF=$(curl -s "${A[@]}" "$API/vaccination/workflows/$RID")
 PP=$(curl -s "${A[@]}" "$API/goats/$GOAT/passport")
-CAL=$(curl -s "${A[@]}" "$API/calendar/vaccination/events?shed_id=$SHED&date_from=$SEVEN_WEEK_DUE_DATE&date_to=$SEVEN_WEEK_DUE_DATE&limit=200")
+CAL=$(curl -s "${A[@]}" "$API/calendar/vaccination/events?shed_id=$SHED&date_from=$BATCH_DATE&date_to=$BATCH_DATE&limit=200")
 CT=$(curl -s "${A[@]}" "$API/control-tower/vaccination")
 PA=$(curl -s "${A[@]}" "$API/vaccination/adherence")
 

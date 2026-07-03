@@ -643,10 +643,10 @@
   .onode .nxt{position:absolute;right:11px;top:11px;font-size:10px;font-weight:800;color:var(--info);background:var(--infox);border:1px solid var(--info);padding:2px 8px;border-radius:20px}
   /* ---------- CRUD row actions ---------- */
   .rowact{display:inline-flex;gap:6px}
-  .ia{width:28px;height:28px;border-radius:7px;border:1px solid var(--line);display:grid;place-items:center;cursor:pointer;color:var(--muted);background:var(--panel)}
+  .ia{width:40px;height:40px;border-radius:8px;border:1px solid var(--line);display:grid;place-items:center;cursor:pointer;color:var(--muted);background:var(--panel);flex:none}
   .ia:hover{color:var(--brand);border-color:var(--brand)}
   .ia.del:hover{color:var(--danger);border-color:var(--danger)}
-  .ia .ic{width:15px;height:15px}
+  .ia .ic{width:16px;height:16px}
   /* ---------- calendar / reminders ---------- */
   .calendar-week-grid{grid-template-columns:minmax(0,1.7fr) minmax(280px,1fr)}
   .rhythm{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}

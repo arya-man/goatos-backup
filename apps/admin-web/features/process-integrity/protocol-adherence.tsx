@@ -7,7 +7,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "./process-integrity";
 import { ClipText, Tag } from "@/components/ui-primitives";
-import { VaccinationFilterButton, VisibleTableSearch, paginateRows, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
+import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 
 type Tone4 = "ok" | "warn" | "dng" | "info" | "mut";
 const accentVar: Record<Tone4, string> = {
@@ -47,6 +47,25 @@ function adherenceLedgerLabels(pageContract: AdminUiPageContract): string[] {
 
 function copyOr(pageContract: AdminUiPageContract, key: string, fallback: string): string {
   return optionalCopy(pageContract, key) ?? fallback;
+}
+
+function backendPage(
+  sp: RouteSearchParams,
+  prefix: string,
+  pageSizeOptions: readonly number[],
+  fallbackPageSize: VaccinationPageSize,
+): { page: number; pageSize: VaccinationPageSize; offset: number } {
+  const requestedSize = Number(one(sp, `${prefix}_limit`));
+  const pageSize = pageSizeOptions.includes(requestedSize) ? requestedSize : fallbackPageSize;
+  const requestedPage = Number(one(sp, `${prefix}_page`));
+  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  return { page, pageSize, offset: (page - 1) * pageSize };
+}
+
+function pageResult<T>(items: T[], total: number, page: number, pageSize: VaccinationPageSize) {
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = total === 0 ? 0 : Math.min(total, (page - 1) * pageSize + items.length);
+  return { items, page, pageSize, total, start, end };
 }
 
 function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string {
@@ -100,19 +119,22 @@ export async function ProtocolAdherencePage({
   const workStateFilter = (workStateOptions.some((option) => option.key === workStateParam) ? workStateParam : "all") as WorkState | "all";
   const scope = parseScope(sp);
   const { parkId, asOf } = backendScope(scope);
+  const pageSizeOptions = tablePageSizes(pageContract, "adherence-ledger");
+  const requestedPage = backendPage(sp, "adh", pageSizeOptions, 10);
 
   const result = await getVaccinationAdherence({
     parkId,
     asOf,
     workState: workStateFilter === "all" ? undefined : workStateFilter,
     severity: severityFilter === "all" ? undefined : severityFilter,
-    limit: 200,
+    limit: requestedPage.pageSize,
+    offset: requestedPage.offset,
   });
 
   const summary = result.ok ? result.data.summary : null;
   const rows: AdherenceRow[] = result.ok ? result.data.rows : [];
-  const pageSizeOptions = tablePageSizes(pageContract, "adherence-ledger");
-  const paged = paginateRows(rows, sp, "adh", 10, pageSizeOptions);
+  const hasLedgerFilters = severityFilter !== "all" || workStateFilter !== "all";
+  const paged = pageResult(rows, result.ok ? result.data.total_count : 0, requestedPage.page, requestedPage.pageSize);
   const ledgerLabels = adherenceLedgerLabels(pageContract);
   const selectedRowId = one(sp, "adh_row");
   const selectedRow = selectedRowId ? rows.find((row) => row.row_id === selectedRowId) : undefined;
@@ -197,19 +219,18 @@ export async function ProtocolAdherencePage({
 	          <span className="muted small">{copy(pageContract, "section.ledger.note")}</span>
 	        </div>
 	        <div className="tbar">
-	          <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_label")} />
 	          <VaccinationFilterButton
 	            pageContract={pageContract}
 	            title={copy(pageContract, "filter.drawer.title")}
 	            searchReason={copy(pageContract, "filter.search_reason")}
 	            filterReason={copy(pageContract, "filter.reason")}
-	            rowsLabel={`${paged.start}-${paged.end} of ${rows.length} rows · ${copy(pageContract, "filter.rows_suffix")}`}
+	            rowsLabel={`${paged.start}-${paged.end} of ${paged.total} rows · ${copy(pageContract, "filter.rows_suffix")}`}
 	            actionHref={scopeHref("/action-center", scope)}
 	            actionLabel={copy(pageContract, "action.open_action_center")}
 	            facets={ledgerLabels}
 	          />
           <span className="muted small">
-            {paged.start}-{paged.end} of {rows.length} rows
+            {paged.start}-{paged.end} of {paged.total} rows
           </span>
 	          <span className="muted small">{copy(pageContract, "filter.click_row")}</span>
 	        </div>
@@ -232,12 +253,14 @@ export async function ProtocolAdherencePage({
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {paged.total === 0 ? (
                 <tr>
 	                  <td colSpan={ledgerLabels.length}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
 	                      {result.ok
-	                        ? copy(pageContract, "empty.ledger_detail")
+	                        ? hasLedgerFilters
+	                          ? copy(pageContract, "empty.ledger_filtered")
+	                          : copy(pageContract, "empty.ledger_detail")
 	                        : copy(pageContract, "empty.unavailable")}
                     </div>
                   </td>

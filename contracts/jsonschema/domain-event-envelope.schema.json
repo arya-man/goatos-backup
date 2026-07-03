@@ -61,6 +61,7 @@
         "vaccination.verify.rejected",
         "vaccination.completed",
         "protocol.version.published",
+        "config.changed",
         "counts.base_count_anchor.recorded",
         "counts.shifting_event.recorded"
       ]
@@ -87,6 +88,7 @@
         "obligation_instance",
         "vaccination_completion",
         "protocol_version",
+        "admin_ui_config_family",
         "count_base_anchor",
         "shifting_event"
       ]
@@ -108,6 +110,7 @@
         "obligation_instance",
         "vaccination_completion",
         "protocol_version",
+        "admin_ui_config_family",
         "count_base_anchor",
         "shifting_event"
       ]

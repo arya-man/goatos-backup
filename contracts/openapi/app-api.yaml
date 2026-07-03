@@ -870,6 +870,12 @@ paths:
             type: string
             minLength: 1
             maxLength: 512
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
         - name: limit
           in: query
           required: false
@@ -959,6 +965,12 @@ paths:
             type: string
             minLength: 1
             maxLength: 512
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
         - name: limit
           in: query
           required: false
@@ -1048,6 +1060,12 @@ paths:
             type: string
             minLength: 1
             maxLength: 512
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
         - name: limit
           in: query
           required: false
@@ -1102,6 +1120,29 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: work_state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/WorkState"
+        - name: severity
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ProcessIntegritySeverity"
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
         - name: limit
           in: query
           required: false
@@ -5383,6 +5424,7 @@ components:
         - source
         - items
         - counts_by_work_state
+        - total_count
       properties:
         source:
           type: string
@@ -5396,6 +5438,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CountByWorkState"
+        total_count:
+          type: integer
+          minimum: 0
         next_cursor:
           type: string
     AdherenceSummary:
@@ -5465,6 +5510,7 @@ components:
         - source
         - summary
         - rows
+        - total_count
       properties:
         source:
           type: string
@@ -5476,6 +5522,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdherenceRow"
+        total_count:
+          type: integer
+          minimum: 0
         next_cursor:
           type: string
     ControlTowerSummary:
@@ -5562,6 +5611,7 @@ components:
         - source
         - summary
         - alerts
+        - total_count
       properties:
         source:
           type: string
@@ -5573,6 +5623,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ControlTowerAlert"
+        total_count:
+          type: integer
+          minimum: 0
+        next_cursor:
+          type: string
     WorkflowNode:
       type: object
       additionalProperties: false
@@ -6107,7 +6162,6 @@ components:
       additionalProperties: false
       required:
         - scope_type
-        - version
         - effective_from
         - rule_dsl
       properties:
@@ -6118,6 +6172,7 @@ components:
           nullable: true
         version:
           type: integer
+          description: Optional compatibility field. When omitted, the backend allocates the next scoped protocol version atomically.
         version_label:
           type: string
         effective_from:

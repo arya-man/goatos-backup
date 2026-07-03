@@ -33,9 +33,9 @@ func TestProcurementSourceEntryPostgresPaths(t *testing.T) {
 
 	repo := NewRepository(pool, 5*time.Second)
 
-	t.Run("45-70 day source warmup is valid", func(t *testing.T) {
+	t.Run("28-35 day procurement holding is valid", func(t *testing.T) {
 		start := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-		for _, days := range []int{45, 70} {
+		for _, days := range []int{28, 35} {
 			load := createProcurementLoad(t, ctx, repo, "warmup-load-"+itoa(days), 1)
 			end := start.Add(time.Duration(days) * 24 * time.Hour)
 			goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
@@ -60,7 +60,7 @@ func TestProcurementSourceEntryPostgresPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("purpose-specific warmup classifies non-breeding window", func(t *testing.T) {
+	t.Run("short procurement holding is outside the governed window", func(t *testing.T) {
 		start := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 		days := 15
 		end := start.Add(time.Duration(days) * 24 * time.Hour)
@@ -97,6 +97,9 @@ WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, 
 			LoadID:            load.LoadID,
 			AnimalIdentifier1: strPtr("HF-EVIDENCE"),
 			Purpose:           domain.PurposeBreeding,
+			WarmupStartedAt:   timePtrLocal(time.Date(2026, 4, 1, 8, 0, 0, 0, time.UTC)),
+			WarmupEndedAt:     timePtrLocal(time.Date(2026, 5, 1, 8, 0, 0, 0, time.UTC)),
+			HoldingLocationID: strPtr(testSourceLocation),
 			IdempotencyKey:    "hf-evidence-goat",
 		})
 		versionID, ruleID := seedProcurementHFProtocol(t, ctx, pool)
@@ -108,7 +111,7 @@ WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, 
 			ProtocolVersionID: versionID,
 			RuleID:            ruleID,
 			DoseCode:          "primary",
-			AdministeredAt:    time.Date(2026, 5, 1, 8, 0, 0, 0, time.UTC),
+			AdministeredAt:    time.Date(2026, 4, 20, 8, 0, 0, 0, time.UTC),
 			VaccineName:       "HF Enterotox",
 			LotNumber:         "HF-LOT-1",
 			ProofRefID:        &proofID,
@@ -204,6 +207,44 @@ WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, 
 			IdempotencyKey:     "hf-evidence-review-no-proof",
 		}); !errors.Is(err, ports.ErrProofRequired) {
 			t.Fatalf("trust without proof err = %v, want ErrProofRequired", err)
+		}
+		outsideLoad := createProcurementLoad(t, ctx, repo, "hf-evidence-outside-load", 1)
+		outsideGoat := addProcurementGoat(t, ctx, repo, outsideLoad.LoadID, ports.AddGoatToLoad{
+			TenantID:          testTenant,
+			LoadID:            outsideLoad.LoadID,
+			AnimalIdentifier1: strPtr("HF-OUTSIDE"),
+			Purpose:           domain.PurposeBreeding,
+			IdempotencyKey:    "hf-evidence-outside-goat",
+		})
+		outsideProofID := insertProof(t, ctx, pool, "71000000-0000-4000-8000-000000000501", "hf-evidence-outside-proof")
+		outsideEvidence, err := repo.RecordHFVaccinationEvidence(ctx, ports.HFVaccinationEvidence{
+			TenantID:          testTenant,
+			LoadID:            outsideLoad.LoadID,
+			GoatID:            outsideGoat.GoatID,
+			ProtocolVersionID: versionID,
+			RuleID:            ruleID,
+			DoseCode:          "primary",
+			AdministeredAt:    time.Date(2026, 5, 4, 8, 0, 0, 0, time.UTC),
+			VaccineName:       "Outside claim",
+			LotNumber:         "OUTSIDE-1",
+			ProofRefID:        &outsideProofID,
+			SourceRef:         "supplier:outside-claim",
+			IdempotencyKey:    "hf-evidence-import-outside",
+		})
+		if err != nil {
+			t.Fatalf("RecordHFVaccinationEvidence outside: %v", err)
+		}
+		if _, err := repo.ReviewHFVaccinationEvidence(ctx, ports.ReviewHFVaccinationEvidence{
+			TenantID:           testTenant,
+			EvidenceID:         outsideEvidence.EvidenceID,
+			ExpectedRowVersion: outsideEvidence.RowVersion,
+			ReviewStatus:       domain.HFVaccinationReviewTrusted,
+			ReviewReason:       "outside proof is still not supervised holding context",
+			ReviewedAt:         time.Date(2026, 5, 4, 9, 0, 0, 0, time.UTC),
+			ReviewedAtSet:      true,
+			IdempotencyKey:     "hf-evidence-review-outside",
+		}); !errors.Is(err, ports.ErrInvalidTrustContext) {
+			t.Fatalf("trust outside holding context err = %v, want ErrInvalidTrustContext", err)
 		}
 		detail, err := repo.GetLoadDetail(ctx, testTenant, load.LoadID)
 		if err != nil {
@@ -1375,6 +1416,10 @@ func isProcurementExceptionRow(row domain.WorkRow) bool {
 }
 
 func strPtr(v string) *string {
+	return &v
+}
+
+func timePtrLocal(v time.Time) *time.Time {
 	return &v
 }
 

@@ -1004,6 +1004,197 @@ func TestOlderGoatTrustedFirstDoseAllowsNextMissingDose(t *testing.T) {
 	}
 }
 
+func TestTrustedPreviousCompletionAllowsAfterPreviousCompletionDose(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 13, 0, 0, 0, 0, time.UTC)
+	firstAdmin := time.Date(2026, time.June, 10, 0, 0, 0, 0, time.UTC)
+	firstDue := dob.AddDate(0, 0, 28)
+	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"ET+TT","type":"toxoid","pathogen_class":"bacterial"},"eligibility":{}}`),
+		rules: []protodomain.Rule{
+			{
+				RuleID: "rule-et-4w", DoseCode: "ET_TT_4W", Sequence: 1,
+				TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7, CatchUp: "immediate",
+			},
+			{
+				RuleID: "rule-et-7w", DoseCode: "ET_TT_7W", Sequence: 2,
+				TriggerType: "after_previous_completion", OffsetDays: 21, DueWindowDays: 7, CatchUp: "immediate",
+			},
+		},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{GoatID: "kid-1", LifecycleStatus: "alive", DOB: &dob}},
+		trustedByDue: map[string]bool{
+			firstDue.UTC().Format(time.RFC3339Nano): true,
+		},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"kid-1": {{
+				AdministeredAt: firstAdmin,
+				VaccineCode:    "ET+TT",
+				VaccineType:    "toxoid",
+				PathogenClass:  "bacterial",
+				DoseCode:       "ET_TT_4W",
+				Sequence:       1,
+			}},
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+
+	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate after previous trusted dose: %v", err)
+	}
+	wantDue := firstAdmin.AddDate(0, 0, 21)
+	if result.SuppressedByTrustedHistory != 1 || result.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want dose 1 suppressed and dose 2 generated", result, obl.inserted)
+	}
+	got := obl.inserted[0]
+	if got.RuleID != "rule-et-7w" || got.Sequence != 2 || !got.DueAt.Equal(wantDue) {
+		t.Fatalf("inserted=%#v, want ET+TT dose 2 due %s", got, wantDue)
+	}
+}
+
+func TestTrustedAfterPreviousCompletionSuppressesAlreadyAcceptedDose(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 13, 0, 0, 0, 0, time.UTC)
+	firstAdmin := time.Date(2026, time.June, 10, 0, 0, 0, 0, time.UTC)
+	firstDue := dob.AddDate(0, 0, 28)
+	secondDue := firstAdmin.AddDate(0, 0, 21)
+	asOf := time.Date(2026, time.July, 10, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"ET+TT","type":"toxoid","pathogen_class":"bacterial"},"eligibility":{}}`),
+		rules: []protodomain.Rule{
+			{
+				RuleID: "rule-et-4w", DoseCode: "ET_TT_4W", Sequence: 1,
+				TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7, CatchUp: "immediate",
+			},
+			{
+				RuleID: "rule-et-7w", DoseCode: "ET_TT_7W", Sequence: 2,
+				TriggerType: "after_previous_completion", OffsetDays: 21, DueWindowDays: 7, CatchUp: "immediate",
+			},
+		},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{GoatID: "kid-1", LifecycleStatus: "alive", DOB: &dob}},
+		trustedByDue: map[string]bool{
+			firstDue.UTC().Format(time.RFC3339Nano):  true,
+			secondDue.UTC().Format(time.RFC3339Nano): true,
+		},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"kid-1": {{
+				AdministeredAt: firstAdmin,
+				VaccineCode:    "ET+TT",
+				VaccineType:    "toxoid",
+				PathogenClass:  "bacterial",
+				DoseCode:       "ET_TT_4W",
+				Sequence:       1,
+			}},
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+
+	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate already accepted after-previous dose: %v", err)
+	}
+	if result.SuppressedByTrustedHistory != 2 || result.Generated != 0 || len(obl.inserted) != 0 {
+		t.Fatalf("result=%#v inserted=%#v, want both doses suppressed by trusted history", result, obl.inserted)
+	}
+	if len(goats.trustedCalls) != 2 || !goats.trustedCalls[1].Equal(secondDue) {
+		t.Fatalf("trusted evidence calls=%#v, want history-derived booster due %s checked", goats.trustedCalls, secondDue)
+	}
+}
+
+func TestAfterPreviousCompletionFromHistoryRespectsMinGap(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 13, 0, 0, 0, 0, time.UTC)
+	firstAdmin := time.Date(2026, time.June, 10, 0, 0, 0, 0, time.UTC)
+	firstDue := dob.AddDate(0, 0, 28)
+	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"ET+TT","type":"toxoid","pathogen_class":"bacterial"},"eligibility":{}}`),
+		rules: []protodomain.Rule{
+			{
+				RuleID: "rule-et-4w", DoseCode: "ET_TT_4W", Sequence: 1,
+				TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7, CatchUp: "immediate",
+			},
+			{
+				RuleID: "rule-et-7w", DoseCode: "ET_TT_7W", Sequence: 2,
+				TriggerType: "after_previous_completion", OffsetDays: 21, MinGapDays: 28, DueWindowDays: 7, CatchUp: "immediate",
+			},
+		},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{GoatID: "kid-1", LifecycleStatus: "alive", DOB: &dob}},
+		trustedByDue: map[string]bool{
+			firstDue.UTC().Format(time.RFC3339Nano): true,
+		},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"kid-1": {{
+				AdministeredAt: firstAdmin,
+				VaccineCode:    "ET+TT",
+				VaccineType:    "toxoid",
+				PathogenClass:  "bacterial",
+				DoseCode:       "ET_TT_4W",
+				Sequence:       1,
+			}},
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+
+	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate min-gap after-previous dose: %v", err)
+	}
+	wantDue := firstAdmin.AddDate(0, 0, 28)
+	if result.SuppressedByTrustedHistory != 1 || result.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want first dose suppressed and booster generated", result, obl.inserted)
+	}
+	if got := obl.inserted[0]; got.RuleID != "rule-et-7w" || !got.DueAt.Equal(wantDue) {
+		t.Fatalf("inserted=%#v, want min-gap booster due %s", got, wantDue)
+	}
+}
+
+func TestAfterPreviousCompletionHistoryContinuesAdultRepeatCycle(t *testing.T) {
+	ctx := context.Background()
+	lastAdmin := time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"adult"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-fmd-adult", DoseCode: "FMD_ADULT", Sequence: 1,
+			TriggerType: "after_previous_completion", Repeat: "yearly", DueWindowDays: 7, CatchUp: "immediate",
+		}},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{GoatID: "adult-1", LifecycleStatus: "alive", Stage: "adult"}},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"adult-1": {{
+				AdministeredAt: lastAdmin,
+				VaccineCode:    "FMD",
+				VaccineType:    "killed",
+				PathogenClass:  "viral",
+				DoseCode:       "FMD_ADULT",
+				Sequence:       1,
+			}},
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+
+	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate adult repeat from history: %v", err)
+	}
+	wantDue := lastAdmin.AddDate(1, 0, 0)
+	if result.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want adult repeat generated from accepted history", result, obl.inserted)
+	}
+	if got := obl.inserted[0]; got.RuleID != "rule-fmd-adult" || got.Sequence != 1 || !got.DueAt.Equal(wantDue) {
+		t.Fatalf("inserted=%#v, want adult repeat due %s", got, wantDue)
+	}
+}
+
 func TestGenerateForGoatUsesEffectiveVersionsAsOf(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)

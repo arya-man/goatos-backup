@@ -427,7 +427,7 @@ WHERE tenant_id = $1::uuid AND event_id = $2`,
 		testTenantID, "obligation:"+obligationID).Scan(&gotEventID, &sourceBacked); err != nil {
 		t.Fatalf("query projection: %v", err)
 	}
-	if gotEventID != "obligation:"+obligationID || !sourceBacked {
+	if gotEventID != "obligation:"+obligationID || sourceBacked {
 		t.Fatalf("projection event_id=%s source_backed=%t", gotEventID, sourceBacked)
 	}
 }

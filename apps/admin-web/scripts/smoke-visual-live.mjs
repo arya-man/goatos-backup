@@ -523,12 +523,12 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
 
   if (routeName === "counts-herd") {
     await openAndCloseDialog(page, page.getByRole("button", { name: "Filters", exact: true }), "Filter — Counts / Herd", "Close filters", routeName);
-    await openAndCloseDialog(page, page.getByRole("button", { name: "Register goat", exact: true }), "Register goat", "Close", routeName);
+    await openAndCloseDialog(page, page.getByRole("button", { name: "Register animal", exact: true }), "Register animal", "Close", routeName);
     await openAndCloseDialog(page, page.getByRole("button", { name: "Import sheet", exact: true }), "Import sheet", "Close", routeName);
     await openAndCloseDrawer(
       page,
       page.locator('section:has-text("Herd") tbody tr .celllink').first(),
-      "Goat Passport",
+      "Animal Passport",
       routeName,
     );
   }

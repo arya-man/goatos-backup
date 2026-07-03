@@ -136,6 +136,8 @@ func ruleMatchesSchedulePath(rule protodomain.Rule, path string) bool {
 	switch rule.TriggerType {
 	case "manual_campaign", "calendar":
 		return true
+	case "after_previous_completion":
+		return true
 	case "birth_age":
 		return path == schedulePathKid
 	case "post_arrival":
