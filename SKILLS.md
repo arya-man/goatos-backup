@@ -21,6 +21,14 @@ Claude discovers the same skill through a symlink:
 
 Do not hand-maintain two copies. `.agents/skills/goatos-build/` is the source.
 
+## Agent tool routing (human)
+
+Before starting work, read **`docs/ai/agent-tool-routing.md`**:
+
+- **Cursor** — admin-web UI, mock fidelity, small single-file fixes.
+- **Claude Code** (`claude` in repo root) — OpenAPI, backend engine, migrations,
+  sqlc, protocol/scheduling, multi-module refactors.
+
 ## Context Files
 
 Always start with:

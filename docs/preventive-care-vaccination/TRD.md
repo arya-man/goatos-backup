@@ -4,7 +4,7 @@
 **Companion:** [PRD.md](./PRD.md) · **Foundation:** [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md)
 **Grounded in:** this TRD was originally grounded in `backend/migrations/postgres/000001…000060`; the repo now contains later protocol/obligation/inventory/vaccination migrations through `000117` at the Feed Direction correction. Use the live migrations and [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md) for current repo state. The wiki goatOS handbook §6, accepted source findings (`context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`, `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`), and the tracked nuance source [source-nuances-rules.md](./source-nuances-rules.md) are design/source references, **not** a replacement for committed schema — where they differ, committed wins.
 
-> **v2 correction note.** v1 assessed the wiki DDL as if committed and was wrong: it assumed `parks`/`sheds`/`vaccine_stock` tables and `goats.dob`/`goats.gender` columns that **do not exist**. v2 separates **committed → target**, builds on the generic obligation engine, and drops the unverified cost figure.
+> **v2 correction note.** v1 assessed the wiki DDL as if committed and was wrong: it assumed `parks`/`sheds`/`vaccine_stock` tables and animal DOB/sex columns that **do not exist in that shape**. v2 separates **committed → target**, builds on the generic obligation engine, and drops the unverified cost figure.
 
 ---
 
@@ -101,14 +101,14 @@ Stage/species invariants:
   source rows with blank, unknown, inferred-only, or conflicting sex are rejected
   before canonical creation/import and cannot generate vaccination obligations.
   Rule authoring must not offer or store `unknown` sex selectors.
-- Migration `000135_hard_reject_unknown_animal_sex` is an intentional deploy
-  gate, not a data backfill. Before running it in dev/stage/prod, Data Ops must
-  find rows where `goats.sex is null or sex not in ('female','male')`,
-  `counts_current_snapshot_rows.sex not in ('female','male')`, or
-  `mortality_events.sex not in ('female','male')` and correct them from
-  verified source evidence. Do not default to female, infer from F2 labels, or
-  write `unknown`; unresolved rows stay blocked outside accepted herd/vaccination
-  matching until the real sex is corrected.
+- V1 dev/test uses clean-slate wipe + reseed, not dirty-row repair. Existing
+  goat-only rows, sheet/BQ snapshots, or source files are evidence for a new
+  seed/import run; they are not patched in place as accepted herd rows. A row
+  without real sex is not accepted into GoatOS. Local/dev/test may choose a
+  deterministic `female` or `male` fixture value only under an explicit seed
+  rule with seed/test provenance; production blocks until the real sex is
+  provided at source. No database table, API, UI, seed, or rule selector may
+  store or offer an unknown sex value.
 - `MOTHER` / lactating adult is a biological reproductive state. It can match
   goat and sheep mothers for vaccination and should use the species-appropriate
   adult repeat/catch-up vaccine cells.
@@ -211,7 +211,7 @@ The protocol/obligation/SOP/escalation tables are the [engine](../protocol-engin
 
 `protocol_versions.rule_dsl` is the persisted authoring payload. It stores
 policy, not animal rows. It must not contain a list like
-`goat_herd_required_fields`, current animal snapshots, or copied shed rows. The
+embedded herd-animal required-field checklists, current animal snapshots, or copied shed rows. The
 rule JSON stores:
 
 - matrix dimensions and allowed selectors;
@@ -358,7 +358,7 @@ Each evidence-derived, CEO/COO-published vaccine matrix row must carry:
 | Trigger | birth-age, post-arrival/intake, calendar, manual campaign, or after previous completion |
 | Medical window | earliest safe date, ideal/offset date, latest safe date, min gap, max delay, missed-dose policy |
 | Repeat/lifetime | none, every N days, yearly, booster sequence, lifetime/age cutoff, course-lapse/restart policy or explicit unsupported/review-needed |
-| Animal cohort | species, breed/breed group, shed tag/stage, source/display age range, normalized age days, sex, lifecycle state, source confidence |
+| Animal cohort | species, breed/breed group, shed tag/stage, source/display age range, normalized age days, sex, lifecycle state, and current health/reproductive/procurement facts |
 | Reproductive state | allowed/blocked/review-needed for pregnant, lactating, mother, buck, flushing, breeding, warm-up |
 | Health/defer state | allowed/deferred/blocked for sick, under treatment, ICU, quarantine, recovery, adverse-event review |
 | History handling | trusted accepted history suppresses or advances the row; untrusted/unknown history produces catch-up/review, with older-animal anti-flood behavior that creates one safe next catch-up/review action before any further historical dose rows |
@@ -492,9 +492,10 @@ available to detail and audit surfaces.
 - `obligation_instances` for vaccination rules, including `rule_id`,
   `protocol_version_id`, `due_at`, `window_start`, `window_end`, target animal,
   scope shed/cohort, status, and trusted completion suppression.
-- Animal facts used by eligibility and replanning: species, breed, lifecycle, exit reason,
-  health, reproductive status, management stage, approximate DOB/age, breed,
-  sex, current park/shed/cohort, identity/tag state, and source confidence.
+- Animal facts used by eligibility and replanning: species, breed, lifecycle,
+  exit reason, health, reproductive status, management stage, DOB/age, sex,
+  current park/shed/cohort, Animal ID 1/2 replacement state, and governed
+  shed/tag validity.
 - Rule config: schedule rows, eligibility JSON, defer states, min gaps,
   due-window policy, missed-dose policy, proof policy, SOP binding, withdrawal
   days, and the V1 vaccine compatibility policy.
@@ -521,7 +522,7 @@ available to detail and audit surfaces.
 4. For each shed/time bucket, build a vaccine conflict graph. Each vaccine or
    dose family is a node. An edge means the two nodes cannot be executed in the
    same drive because of live/killed compatibility, same-vaccine gap, required
-   2-week/4-week separation, route/site restriction, or unknown compatibility
+   2-week/4-week separation, route/site restriction, or unreviewed compatibility
    that must fail closed. Graph partitioning/coloring yields safe same-day
    vaccine groups.
 5. Generate candidate drive dates only inside each group's medical window:

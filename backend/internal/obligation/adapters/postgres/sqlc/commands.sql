@@ -130,6 +130,52 @@ WHERE oi.tenant_id = @tenant_id
       AND (
         g.lifecycle_status IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
         OR g.merged_into_goat_id IS NOT NULL
+        OR EXISTS (
+          SELECT 1
+          FROM vw_procurement_vaccination_excluded_goats ex
+          WHERE ex.tenant_id = g.tenant_id
+            AND ex.goat_id = g.goat_id
+        )
+      )
+  )
+RETURNING oi.obligation_id::text AS obligation_id;
+
+-- name: ReopenDeferredObligationForKeyWithDue :one
+-- Health recovery replan: reopen a held obligation and slide due_at to a nearby planned drive date
+-- or to recovery time for an immediate micro-drive. Clears batch_id so the sweeper re-attaches.
+UPDATE obligation_instances oi
+SET status = 'scheduled',
+    batch_id = NULL,
+    due_at = @rescheduled_due_at,
+    window_start = @rescheduled_window_start,
+    window_end = @rescheduled_window_end,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE oi.tenant_id = @tenant_id
+  AND oi.idempotency_key = @idempotency_key
+  AND oi.status = 'deferred'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM goats g
+    JOIN protocol_versions pv
+      ON pv.tenant_id = oi.tenant_id
+     AND pv.protocol_version_id = oi.protocol_version_id
+    JOIN protocol_definitions pd
+      ON pd.tenant_id = pv.tenant_id
+     AND pd.protocol_id = pv.protocol_id
+    WHERE oi.target_type = 'goat'
+      AND g.tenant_id = oi.tenant_id
+      AND g.goat_id = oi.target_id
+      AND pd.category = 'vaccination'
+      AND (
+        g.lifecycle_status IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
+        OR g.merged_into_goat_id IS NOT NULL
+        OR EXISTS (
+          SELECT 1
+          FROM vw_procurement_vaccination_excluded_goats ex
+          WHERE ex.tenant_id = g.tenant_id
+            AND ex.goat_id = g.goat_id
+        )
       )
   )
 RETURNING oi.obligation_id::text AS obligation_id;

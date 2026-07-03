@@ -2,7 +2,10 @@
 
 **Status:** Draft v1 · **Date:** 2026-06-23
 **Companion:** [obligation-engine.md](./obligation-engine.md) · [state-machines.md](./state-machines.md) · [Preventive Care (PC) TRD](../preventive-care-vaccination/TRD.md)
-**Context:** legacy BQ/Sheets data was already ported into `goatos-dev` (snapshot-based). This doc says how to turn that into clean canonical state that Preventive Care (PC) / Feed run on — **without** the new system depending on legacy forever, and **without** flooding Control Tower with fake historical breaches.
+**Context:** local/dev/test may use verified source files or prior snapshots as
+seed evidence, but the V1 base is clean slate. This doc says how to seed clean
+canonical state for Preventive Care (PC) / Feed without carrying old dashboard,
+BQ, Sheets, import-review, or sync-runtime tables forward.
 
 > **Prime rule:** Legacy data **seeds** canonical state; it does **not** drive the runtime. Once canonical herd animals are clean enough, vaccination/feed rules run from Goat OS Postgres only.
 
@@ -14,12 +17,19 @@ is considered clean.
 
 ---
 
-## 1. Freeze legacy as an archived source (never runtime truth)
+## 1. Treat source files as evidence, not runtime truth
 
-Keep the raw imported data, but quarantine it from the running system:
-- Archive every legacy/BQ/Sheets row with `source_system`, `source_row_id`, `imported_at`, and a `checksum`. Committed `legacy_import_*` / `legacy_sync_runs` tables are the home — **reference/archive only**.
-- **Runtime (api/consumer/sweeper/Control Tower) must not read legacy/BQ/Sheets or the import ledger.** Enforced by the engine's read rules + `feature_coverage_registry`.
-- BigQuery/Sheets parity thinking, dashboard-specific derived tables, and the old import-review UI are **scrapped from runtime** (kept only for audit during cutover, then frozen).
+Keep source files outside the runtime schema:
+- Local/dev/test cutover wipes and reseeds GoatOS data through the target model.
+  It does not repair old rows in place.
+- Raw BQ/Sheets/dashboard/procurement rows are evidence for the seed/importer
+  only. Do not create `legacy_import_*`, `legacy_sync_*`, old dashboard sync,
+  import-review, conflict-resolution, or freshness tables as part of the V1 base.
+- **Runtime (api/consumer/sweeper/Control Tower) must not read legacy/BQ/Sheets
+  or any import ledger.** Enforced by the engine's read rules +
+  `feature_coverage_registry`.
+- BigQuery/Sheets parity thinking, dashboard-specific derived tables, and the
+  old import-review UI are **scrapped from runtime**.
 
 ## 2. Build canonical Goat OS tables fresh (only what Preventive Care (PC) / Feed need for v1)
 
@@ -28,9 +38,9 @@ From the frozen source, materialize clean canonical rows in the **target** table
 - `herd_animals`: `sex`, `dob`/`dob_confidence` plus migrated `approx_dob`, `origin_type`, `entry_date`, `lifecycle_status` (active/dead/sold/missing), `park_id`/`shed_id`/`cohort_id`, and current shed tag/stage.
 - `animal_identifiers` for `animal_identifier_1` and `animal_identifier_2`.
   Both current values are required, different on the same animal, and globally
-  single-use for life across current plus historical rows. RFID/source labels
-  are provenance/proof only unless the clean importer explicitly maps them into
-  an Animal ID slot.
+  single-use for life across current plus historical rows. Source labels are
+  provenance/proof only unless the clean importer explicitly maps them into an
+  Animal ID slot.
 - current location/shed (`current_location_id`, `shed_id`) and `animal_location_history` **if trustworthy**.
 - inventory **opening balances** as `inventory_stock` lots + an initial `inventory_stock_movements` `adjust` row, **if trustworthy**.
 - operator/user mapping into `workforce_*` / `user_scope_grants` **if needed**.
@@ -93,15 +103,20 @@ Otherwise Control Tower explodes with fake historical overdue — the single wor
 
 ## 7. Keep / scrap
 
-**KEEP (seed canonical from these):** raw source snapshots (audit), animal identity, species/breed, RFID/ear-tags/old-tags, active/dead/sold state, park/shed mapping, shift/location history *if trustworthy*, vaccination history *if trustworthy*, inventory opening balances *if trustworthy*, operator/user mapping *if needed*.
+**KEEP as source evidence only:** animal identity, species/breed, active/dead/sold
+state, park/shed mapping, shift/location history *if trustworthy*, vaccination
+history *if trustworthy*, inventory opening balances *if trustworthy*, and
+operator/user mapping *if needed*. The clean importer maps any source identifier
+labels into Animal ID 1/2 or rejects the row; source identifier names do not
+become runtime API/DB names.
 
 **SCRAP from runtime:** BQ dashboard-parity thinking, legacy review UI, old Sheets/BQ row model as runtime schema, dashboard-specific derived tables, old import-review workflows.
 
 ## 8. The migration story (one line)
 
 ```
-legacy BQ/Sheets
-  → frozen source archive (legacy_import_*, checksummed)
+verified source evidence
+  → clean seed/import validation
   → canonical Goat OS herd_animals/locations/operators
   → migration quality report (accepted / accepted_with_estimate / blocked_for_phc / discarded_noise)
   → one-time Preventive Care (PC) backfill generator (canonical → missing obligations → shed drives)

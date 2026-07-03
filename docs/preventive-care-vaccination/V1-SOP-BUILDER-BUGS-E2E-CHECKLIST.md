@@ -333,7 +333,7 @@ Expected:
 
 Observed:
 
-- The builder exposes text, number, yes/no, select, multiselect, animal scan/RFID,
+- The builder exposes text, number, yes/no, select, multiselect, animal scan / Animal ID,
   shed picker, vaccine batch picker, medicine picker, photo proof, and video
   proof as field types.
 - The UI does not clearly show the required configuration for each type.
@@ -345,7 +345,7 @@ Expected:
 - Yes/no: label, required rule, pass/fail behavior when needed.
 - Select: label, required rule, options.
 - Multiselect: label, required rule, options, min/max selected when needed.
-- Animal scan/RFID: label, required rule, expected source of eligible herd animals.
+- Animal scan / Animal ID: label, required rule, expected source of eligible herd animals.
 - Shed picker: label, required rule, scope source.
 - Vaccine batch picker: label, required rule, FEFO/lot source.
 - Medicine picker: label, required rule, inventory source.
@@ -1049,7 +1049,7 @@ These checks are in addition to the clean-slate E2E path above.
 - [x] Multiselect field can save/publish after options are added.
 - [x] Multiselect options can be added, edited, removed, reordered, saved, and
   reopened.
-- [x] Animal scan/RFID field can be saved, reopened, and shows how the eligible
+- [x] Animal scan / Animal ID field can be saved, reopened, and shows how the eligible
   animal list is sourced.
 - [x] Shed picker field can be saved, reopened, and shows how shed scope is
   sourced.

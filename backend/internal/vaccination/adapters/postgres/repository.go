@@ -1589,6 +1589,43 @@ func (r *Repository) CountEligibleShedScopes(ctx context.Context, f domain.Impac
 	return n, nil
 }
 
+func timestamptzValue(t pgtype.Timestamptz) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	tt := t.Time.UTC()
+	return &tt
+}
+
+func eligibleGoatFromGenerationRow(
+	goatID string,
+	dob, entryDate pgtype.Date,
+	lifecycle, health, reproductive, species, originType string,
+	warmingEntryAt pgtype.Timestamptz,
+	shedID, parkID, sex, breed, stage, ageBand string,
+	locationIsQuarantine, locationIsICU bool,
+) domain.EligibleGoat {
+	return domain.EligibleGoat{
+		GoatID:               goatID,
+		DOB:                  pgconv.DateValue(dob),
+		EntryDate:            pgconv.DateValue(entryDate),
+		WarmingEntryAt:       timestamptzValue(warmingEntryAt),
+		Species:              species,
+		OriginType:           originType,
+		LifecycleStatus:      lifecycle,
+		HealthStatus:         health,
+		ReproductiveStatus:   reproductive,
+		ShedID:               shedID,
+		ParkID:               parkID,
+		Sex:                  sex,
+		Breed:                breed,
+		Stage:                stage,
+		AgeBand:              ageBand,
+		LocationIsQuarantine: locationIsQuarantine,
+		LocationIsICU:        locationIsICU,
+	}
+}
+
 // ListEligibleGoatsForGeneration returns a chunked page of the in-care cohort for SM-1.
 func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domain.ImpactFilter, afterGoatID string, limit int32) ([]domain.EligibleGoat, error) {
 	ctx, cancel := r.withTimeout(ctx)
@@ -1623,22 +1660,13 @@ func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domai
 	}
 	out := make([]domain.EligibleGoat, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, domain.EligibleGoat{
-			GoatID:               row.GoatID,
-			DOB:                  pgconv.DateValue(row.Dob),
-			EntryDate:            pgconv.DateValue(row.EntryDate),
-			LifecycleStatus:      row.LifecycleStatus,
-			HealthStatus:         row.HealthStatus,
-			ReproductiveStatus:   row.ReproductiveStatus,
-			ShedID:               row.ShedID,
-			ParkID:               row.ParkID,
-			Sex:                  row.Sex,
-			Breed:                row.Breed,
-			Stage:                row.ManagementStage,
-			AgeBand:              row.AgeBand,
-			LocationIsQuarantine: row.LocationIsQuarantine,
-			LocationIsICU:        row.LocationIsIcu,
-		})
+		out = append(out, eligibleGoatFromGenerationRow(
+			row.GoatID, row.Dob, row.EntryDate,
+			row.LifecycleStatus, row.HealthStatus, row.ReproductiveStatus, row.Species, row.OriginType,
+			row.WarmingEntryAt,
+			row.ShedID, row.ParkID, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
+			row.LocationIsQuarantine, row.LocationIsIcu,
+		))
 	}
 	return out, nil
 }
@@ -1662,22 +1690,13 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 	if err != nil {
 		return domain.EligibleGoat{}, false, fmt.Errorf("vaccination: get goat for generation: %w", err)
 	}
-	return domain.EligibleGoat{
-		GoatID:               row.GoatID,
-		DOB:                  pgconv.DateValue(row.Dob),
-		EntryDate:            pgconv.DateValue(row.EntryDate),
-		LifecycleStatus:      row.LifecycleStatus,
-		HealthStatus:         row.HealthStatus,
-		ReproductiveStatus:   row.ReproductiveStatus,
-		ShedID:               row.ShedID,
-		ParkID:               row.ParkID,
-		Sex:                  row.Sex,
-		Breed:                row.Breed,
-		Stage:                row.ManagementStage,
-		AgeBand:              row.AgeBand,
-		LocationIsQuarantine: row.LocationIsQuarantine,
-		LocationIsICU:        row.LocationIsIcu,
-	}, true, nil
+	return eligibleGoatFromGenerationRow(
+		row.GoatID, row.Dob, row.EntryDate,
+		row.LifecycleStatus, row.HealthStatus, row.ReproductiveStatus, row.Species, row.OriginType,
+		row.WarmingEntryAt,
+		row.ShedID, row.ParkID, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
+		row.LocationIsQuarantine, row.LocationIsIcu,
+	), true, nil
 }
 
 // HasTrustedCompletionEvidence returns true when prior trusted evidence already satisfies the
@@ -1884,4 +1903,73 @@ func (r *Repository) SumAvailableStock(ctx context.Context, tenantID, itemID str
 		return "", nil, fmt.Errorf("vaccination: sum available stock: %w", err)
 	}
 	return pgconv.NumericString(row.Available), pgconv.DateValue(row.EarliestExpiry), nil
+}
+
+// LastRecentVaccineAdministrationsForGoats returns the latest accepted Goat OS dose per goat for
+// cross-vaccine gap enforcement (Phase 2).
+func (r *Repository) LastRecentVaccineAdministrationsForGoats(ctx context.Context, tenantID string, goatIDs []string, before time.Time) (map[string]domain.RecentVaccineAdministration, error) {
+	out := make(map[string]domain.RecentVaccineAdministration)
+	if len(goatIDs) == 0 {
+		return out, nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	uuids := make([]pgtype.UUID, 0, len(goatIDs))
+	for _, goatID := range goatIDs {
+		id, err := pgconv.UUID(goatID)
+		if err != nil {
+			return nil, fmt.Errorf("vaccination: goat id %q: %w", goatID, err)
+		}
+		uuids = append(uuids, id)
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT ON (vc.goat_id)
+       vc.goat_id::text AS goat_id,
+       vc.administered_at,
+       COALESCE(pv.rule_dsl -> 'vaccine' ->> 'code', '')::text AS vaccine_code,
+       COALESCE(pv.rule_dsl -> 'vaccine' ->> 'type', '')::text AS vaccine_type,
+       COALESCE(pv.rule_dsl -> 'vaccine' ->> 'pathogen_class', '')::text AS pathogen_class,
+       oi.protocol_version_id::text AS protocol_version_id
+FROM vaccination_completions vc
+JOIN obligation_instances oi
+  ON oi.tenant_id = vc.tenant_id
+ AND oi.obligation_id = vc.obligation_id
+JOIN protocol_versions pv
+  ON pv.tenant_id = oi.tenant_id
+ AND pv.protocol_version_id = oi.protocol_version_id
+WHERE vc.tenant_id = $1
+  AND vc.goat_id = ANY($2::uuid[])
+  AND vc.status = 'accepted'
+  AND vc.verified_at IS NOT NULL
+  AND vc.administered_at <= $3::timestamptz
+ORDER BY vc.goat_id, vc.administered_at DESC`, tenant, uuids, pgconv.Timestamptz(before))
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: last recent vaccine administrations: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var goatID string
+		var admin domain.RecentVaccineAdministration
+		var administeredAt pgtype.Timestamptz
+		if err := rows.Scan(
+			&goatID,
+			&administeredAt,
+			&admin.VaccineCode,
+			&admin.VaccineType,
+			&admin.PathogenClass,
+			&admin.ProtocolVersionID,
+		); err != nil {
+			return nil, fmt.Errorf("vaccination: scan last recent vaccine administration: %w", err)
+		}
+		admin.AdministeredAt = administeredAt.Time
+		out[goatID] = admin
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination: last recent vaccine administrations rows: %w", err)
+	}
+	return out, nil
 }

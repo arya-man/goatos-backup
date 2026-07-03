@@ -23,6 +23,15 @@ type NewObligation struct {
 	Sequence             int32
 }
 
+// RecoveryReschedule replans a health-deferred obligation on recovery: align to a nearby planned
+// drive within the policy window, or due immediately for a micro-drive.
+type RecoveryReschedule struct {
+	DueAt       time.Time
+	WindowStart time.Time
+	WindowEnd   *time.Time
+	AlignReason string
+}
+
 // ObligationRef is a minimal stored-obligation lookup result.
 type ObligationRef struct {
 	ObligationID string
@@ -78,13 +87,80 @@ type NewBatch struct {
 
 // UnbatchedDue is an unbatched scheduled/due obligation (SM-4 sweep input).
 type UnbatchedDue struct {
-	ObligationID string
-	RuleID       string
-	ScopeType    string
-	ScopeID      string
-	DueAt        time.Time
-	WindowStart  *time.Time
-	WindowEnd    *time.Time
+	ObligationID  string
+	RuleID        string
+	ScopeType     string
+	ScopeID       string
+	TargetSpecies string
+	DueAt         time.Time
+	WindowStart   *time.Time
+	WindowEnd     *time.Time
+}
+
+// ParkConsolidationCandidate is a shed-scoped unbatched obligation eligible for park-level
+// drive consolidation after the shed sweep pass.
+type ParkConsolidationCandidate struct {
+	ObligationID  string
+	RuleID        string
+	ShedID        string
+	ParkID        string
+	TargetSpecies string
+	DueAt         time.Time
+	WindowStart   *time.Time
+	WindowEnd     *time.Time
+}
+
+// ComboDriveBatch is a planned shed/park batch participating in combo-session alignment.
+type ComboDriveBatch struct {
+	BatchID           string
+	ProtocolVersionID string
+	ScopeType         string
+	ScopeID           string
+	Session           string
+	PlannedDate       *time.Time
+}
+
+// ParkConsolidationSettings controls the second-pass park drive planner (after shed batching).
+type ParkConsolidationSettings struct {
+	Enabled             bool
+	MinShedDriveTargets int32 // layer 1 defers shed groups smaller than this to the park pass
+	MinParkMergeTargets int32 // cross-shed park batch needs at least this many goats
+	MinParkMergeSheds   int32 // cross-shed park batch needs goats from at least this many sheds
+}
+
+// DrivePlannerSettings tunes Phase 3 smart drive date selection and batch sizing.
+// Zero values use DefaultDrivePlannerSettings().
+type DrivePlannerSettings struct {
+	Enabled              bool
+	MaxGoatsPerDrive     int32 // 0 = no limit
+	VaccinePriority      int32 // lower = higher disease priority (ET+TT=1, PPR=2, …)
+	ComboAlignWindowDays int32 // cross-version combo batches align within this many days
+}
+
+// DefaultDrivePlannerSettings returns conservative Phase 3 defaults when rule_dsl omits drive_policy.
+func DefaultDrivePlannerSettings() DrivePlannerSettings {
+	return DrivePlannerSettings{
+		Enabled:              true,
+		MaxGoatsPerDrive:     0,
+		VaccinePriority:      50,
+		ComboAlignWindowDays: 7,
+	}
+}
+
+// DefaultParkConsolidationSettings returns the standard park consolidation thresholds.
+func DefaultParkConsolidationSettings() ParkConsolidationSettings {
+	return ParkConsolidationSettings{
+		Enabled:             true,
+		MinShedDriveTargets: 2,
+		MinParkMergeTargets: 2,
+		MinParkMergeSheds:   2,
+	}
+}
+
+// RuleAttachmentCount is the number of obligations attached to a batch for one protocol rule.
+type RuleAttachmentCount struct {
+	RuleID string
+	Count  int64
 }
 
 // PlannedBatchFinalization is a planned batch that already owns obligations but still needs
@@ -104,8 +180,10 @@ type PlannedBatchFinalization struct {
 
 // SweepResult summarises an SM-4 sweep (batches created, obligations attached).
 type SweepResult struct {
-	Batches     int
-	Obligations int
+	Batches         int
+	Obligations     int
+	ParkBatches     int
+	ParkObligations int
 }
 
 // NewStatusEvent is the input to append an obligation status event. Scope/RequestHash drive the

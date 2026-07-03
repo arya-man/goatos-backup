@@ -726,6 +726,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/calendar/vaccination/events/{event_id}/targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List herd animals eligible for a vaccination drive calendar event with cursor pagination. */
+        get: operations["listCalendarVaccinationDriveTargets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/calendar/vaccination/events/{event_id}/history": {
         parameters: {
             query?: never;
@@ -1791,6 +1808,25 @@ export interface components {
             notification_policy: components["schemas"]["CalendarJSONBlock"];
             links: components["schemas"]["CalendarEventLinks"];
             recent_actions: components["schemas"]["CalendarHistoryItem"][];
+        };
+        CalendarDriveTarget: {
+            /** Format: uuid */
+            obligation_id: string;
+            /** Format: uuid */
+            animal_id: string;
+            animal_identifier_1: string | null;
+            animal_identifier_2: string | null;
+            stage?: string | null;
+            status: string;
+            /** Format: date-time */
+            due_at: string;
+        };
+        CalendarDriveTargetListResponse: {
+            /** @constant */
+            source: "api";
+            event_id: string;
+            items: components["schemas"]["CalendarDriveTarget"][];
+            next_cursor: string | null;
         };
         CalendarNudgeRequest: {
             /** @enum {string} */
@@ -3894,6 +3930,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CalendarEventDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listCalendarVaccinationDriveTargets: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                event_id: components["parameters"]["CalendarEventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated herd animals for the selected vaccination drive. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarDriveTargetListResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

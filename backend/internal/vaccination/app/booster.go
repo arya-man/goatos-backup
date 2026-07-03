@@ -25,15 +25,20 @@ type BoosterGoatReader interface {
 	GetGoatForGeneration(ctx context.Context, tenantID, goatID string) (domain.EligibleGoat, bool, error)
 }
 
+type BoosterCrossVaccineGapReader interface {
+	LastRecentVaccineAdministrationsForGoats(ctx context.Context, tenantID string, goatIDs []string, before time.Time) (map[string]domain.RecentVaccineAdministration, error)
+}
+
 // BoosterService implements SM-7: when a dose is administered, schedule the next dose in the series
 // when that next rule is triggered after_previous_completion. The next dose is due administeredAt +
 // max(offset_days, min_gap_days) so the minimum interval between doses is always respected.
 // Idempotent — the deterministic obligation key makes a replay a no-op.
 type BoosterService struct {
-	proto    BoosterRuleReader
-	versions BoosterVersionReader
-	goats    BoosterGoatReader
-	obl      ObligationWriter
+	proto           BoosterRuleReader
+	versions        BoosterVersionReader
+	goats           BoosterGoatReader
+	crossVaccineGap BoosterCrossVaccineGapReader
+	obl             ObligationWriter
 }
 
 // NewBoosterService wires the protocol rule reader and the obligation writer.
@@ -48,6 +53,12 @@ func NewBoosterService(proto BoosterRuleReader, obl ObligationWriter) *BoosterSe
 // WithGoatReader lets SM-7 apply the same current goat eligibility/defer-state rules as SM-1.
 func (s *BoosterService) WithGoatReader(goats BoosterGoatReader) *BoosterService {
 	s.goats = goats
+	return s
+}
+
+// WithCrossVaccineGapReader applies cross-vaccine gap floors when scheduling the next dose.
+func (s *BoosterService) WithCrossVaccineGapReader(reader BoosterCrossVaccineGapReader) *BoosterService {
+	s.crossVaccineGap = reader
 	return s
 }
 
@@ -125,10 +136,24 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		if err != nil {
 			return false, err
 		}
-		if !found || !inCare(goat.LifecycleStatus) || !goatMatchesEligibility(goat, dsl.Eligibility, due) {
+		policies := versionPoliciesFromDSL(dsl)
+		vaccineProf := vaccineProfileFromDSL(dsl)
+		if s.crossVaccineGap != nil {
+			admins, err := s.crossVaccineGap.LastRecentVaccineAdministrationsForGoats(ctx, in.TenantID, []string{in.GoatID}, in.AdministeredAt)
+			if err != nil {
+				return false, err
+			}
+			if admin, ok := admins[in.GoatID]; ok {
+				due = applyCrossVaccineGapFloor(due, &admin, vaccineProf, policies.Compatibility)
+			}
+		}
+		if !found || !inCare(goat.LifecycleStatus) || !goatMatchesEligibility(goat, dsl.Eligibility, policies.Pregnancy, due) {
 			return false, nil
 		}
 		deferReason = deferredReason(goat, dsl.Eligibility.DeferStates)
+		if deferReason == "" {
+			deferReason = policyDeferReason(goat, policies, due)
+		}
 		if deferReason != "" {
 			status = "deferred"
 		}

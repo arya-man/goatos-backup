@@ -12,6 +12,46 @@ import (
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
+func TestGenerateForVersionAppliesCrossVaccineGap(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	pprAt := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		rules: []protodomain.Rule{{
+			RuleID: "rule-gpox", DoseCode: "gpox-dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 98,
+		}},
+		ruleDSL: []byte(`{"vaccine":{"code":"Goat Pox","type":"live","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},"compatibility_policy":{"live_to_live_gap_days":28}}`),
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{GoatID: "goat-1", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"}},
+		lastVaccine: map[string]domain.RecentVaccineAdministration{
+			"goat-1": {
+				AdministeredAt: pprAt,
+				VaccineCode:    "PPR",
+				VaccineType:    "live",
+				PathogenClass:  "viral",
+			},
+		},
+	}
+	obl := &generationObligationFake{}
+	gen := NewGenerationService(proto, goats, obl)
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 1 {
+		t.Fatalf("generated=%d want 1", result.Generated)
+	}
+	if len(obl.inserted) != 1 {
+		t.Fatalf("inserted=%d want 1", len(obl.inserted))
+	}
+	wantDue := time.Date(2026, 6, 29, 0, 0, 0, 0, time.UTC)
+	if !obl.inserted[0].DueAt.Equal(wantDue) {
+		t.Fatalf("due=%s want %s (4-week live→live gap after PPR)", obl.inserted[0].DueAt, wantDue)
+	}
+}
+
 func TestManualCampaignHTTPRunReplaysByIdempotencyKey(t *testing.T) {
 	ctx := context.Background()
 	proto := &generationProtoFake{}
@@ -467,6 +507,39 @@ func TestGoatRecheckHandlerReopensOnHealthRecovery(t *testing.T) {
 	}
 	if obl.inserted[0].Status != "scheduled" || len(obl.reopenedKeys) != 1 {
 		t.Fatalf("health recovery must reopen the held obligation via the bus, inserted=%#v reopened=%#v", obl.inserted, obl.reopenedKeys)
+	}
+	if !obl.inserted[0].DueAt.Equal(time.Date(2026, time.June, 2, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("micro-drive due=%v, want recovery time", obl.inserted[0].DueAt)
+	}
+}
+
+func TestGoatRecheckHandlerAlignsRecoveredGoatToNearbyDrive(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","defer_states":["sick"]},"recovery_policy":{"max_nearby_drive_align_days":7}}`),
+		rules:   []protodomain.Rule{{RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21, DueWindowDays: 7}},
+	}
+	goats := &generationGoatFake{goat: domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "sick", Stage: "K1", DOB: &dob, ShedID: "shed-1", ParkID: "park-1"}}
+	nearby := time.Date(2026, time.June, 5, 0, 0, 0, 0, time.UTC)
+	obl := &generationObligationFake{seen: map[string]bool{}, nearbyDrive: &nearby}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if _, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("initial generate: %v", err)
+	}
+	goats.goat.HealthStatus = "healthy"
+	bus := eventbus.NewInProcessBus()
+	NewGoatRecheckHandler(gen).Register(bus)
+	if err := bus.Publish(ctx, eventbus.Event{
+		Type: EventGoatHealthChanged, TenantID: "tenant-1", Key: "goat-1",
+		OccurredAt: time.Date(2026, time.June, 2, 8, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("publish goat.health.changed: %v", err)
+	}
+	wantDue := time.Date(2026, time.June, 5, 0, 0, 0, 0, time.UTC)
+	if !obl.inserted[0].DueAt.Equal(wantDue) {
+		t.Fatalf("aligned due=%v, want nearby drive %v", obl.inserted[0].DueAt, wantDue)
 	}
 }
 
@@ -1001,6 +1074,7 @@ type generationGoatFake struct {
 	filters      []domain.ImpactFilter
 	trustedByDue map[string]bool
 	trustedCalls []time.Time
+	lastVaccine  map[string]domain.RecentVaccineAdministration
 }
 
 func (g *generationGoatFake) ListEligibleGoatsForGeneration(_ context.Context, f domain.ImpactFilter, _ string, _ int32) ([]domain.EligibleGoat, error) {
@@ -1026,6 +1100,16 @@ func (g *generationGoatFake) HasTrustedCompletionEvidence(_ context.Context, _, 
 	return g.trustedByDue[dueAt.UTC().Format(time.RFC3339Nano)], nil
 }
 
+func (g *generationGoatFake) LastRecentVaccineAdministrationsForGoats(_ context.Context, _ string, goatIDs []string, _ time.Time) (map[string]domain.RecentVaccineAdministration, error) {
+	out := make(map[string]domain.RecentVaccineAdministration, len(goatIDs))
+	for _, id := range goatIDs {
+		if admin, ok := g.lastVaccine[id]; ok {
+			out[id] = admin
+		}
+	}
+	return out, nil
+}
+
 type generationObligationFake struct {
 	seen                   map[string]bool
 	keyIndex               map[string]int
@@ -1037,6 +1121,7 @@ type generationObligationFake struct {
 	canceledVersions       []string
 	canceledExceptVersions [][]string
 	cancelReasons          []string
+	nearbyDrive            *time.Time
 	failOnceAfterInserted  int
 	failed                 bool
 }
@@ -1076,7 +1161,7 @@ func (o *generationObligationFake) DeferOpenObligationByIdempotencyKey(_ context
 	return "obligation-1", true, nil
 }
 
-func (o *generationObligationFake) ReopenDeferredObligationByIdempotencyKey(_ context.Context, _, idempotencyKey string, _ time.Time) (string, bool, error) {
+func (o *generationObligationFake) ReopenDeferredObligationByIdempotencyKey(_ context.Context, _, idempotencyKey string, _ time.Time, reschedule *obldomain.RecoveryReschedule) (string, bool, error) {
 	idx, ok := o.keyIndex[idempotencyKey]
 	if !ok {
 		return "", false, nil
@@ -1085,8 +1170,17 @@ func (o *generationObligationFake) ReopenDeferredObligationByIdempotencyKey(_ co
 		return "", false, nil
 	}
 	o.inserted[idx].Status = "scheduled"
+	if reschedule != nil {
+		o.inserted[idx].DueAt = reschedule.DueAt
+		o.inserted[idx].WindowStart = &reschedule.WindowStart
+		o.inserted[idx].WindowEnd = reschedule.WindowEnd
+	}
 	o.reopenedKeys = append(o.reopenedKeys, idempotencyKey)
 	return "obligation-1", true, nil
+}
+
+func (o *generationObligationFake) FindNearestPlannedBatchDate(_ context.Context, _, _, _, _, _ string, _, _ time.Time) (*time.Time, error) {
+	return o.nearbyDrive, nil
 }
 
 func (o *generationObligationFake) CancelOpenObligationByIdempotencyKey(_ context.Context, _, idempotencyKey, _ string, _ time.Time) (string, bool, error) {

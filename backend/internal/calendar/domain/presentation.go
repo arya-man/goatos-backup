@@ -29,7 +29,7 @@ func CalendarPresentationForQuery(ownerKey string) CalendarPresentation {
 
 	return CalendarPresentation{
 		PageTitle:              "Calendar",
-		PageSubtitle:           "Vaccination due work by time - configured obligations, drives, boosters, proof/rework, defer reviews, and the stock / config tasks that gate them. Click an event for its rich detail and deep links.",
+		PageSubtitle:           "Vaccination due work by time — configured obligations, drives, boosters, proof/rework, defer reviews, and the stock / config tasks that gate them. Open a drive to page through eligible goats (10 per page).",
 		ViewTabs:               calendarViewTabs(),
 		OwnerTabs:              calendarOwnerTabs(ownerKey),
 		WorkstreamTabs:         active.workstreams,

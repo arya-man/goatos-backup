@@ -25,6 +25,7 @@ import {
 } from "@/lib/search-params";
 import { HerdActions, type HerdAnimalStageOption } from "./herd-actions-ui";
 import { HerdFiltersModalClient } from "./herd-filters-modal-client";
+import { HerdPassportVaccinationBlock } from "./herd-passport-vaccination";
 
 // Counts -> Herd Register. The vaccination cascade's real business entry point: register/import a goat,
 // emit goat.created, generate vaccination obligations. This screen is the OPERATIONAL Counts module surface.
@@ -377,7 +378,7 @@ export async function HerdRegisterPage({
   );
 }
 
-function HerdPassportDrawer({
+async function HerdPassportDrawer({
   goat,
   closeHref,
   fullPassportHref,
@@ -437,6 +438,7 @@ function HerdPassportDrawer({
           <div className="note" style={{ marginTop: 8 }}>
             {copy(pageContract, "label.goat_id")}: {goat.goat_id} · {copy(pageContract, "label.display_id")}: {goat.display_id} · {copy(pageContract, "label.animal_identifier_1")}: {dash(goat.animal_identifier_1)} · {copy(pageContract, "label.animal_identifier_2")}: {dash(goat.animal_identifier_2)}
           </div>
+          <HerdPassportVaccinationBlock goatId={goat.goat_id} />
         </div>
         <div className="df">
           <Link href={fullPassportHref} className="btn p">

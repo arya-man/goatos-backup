@@ -24,6 +24,7 @@ export interface DoseRow {
 }
 
 export interface Eligibility {
+  species: string;
   stage: string;
   sex: string;
   breed: string;
@@ -49,6 +50,7 @@ export interface VaccineMatrix {
 export interface VaccinationMatrixRow {
   id: string;
   vaccine: VaccineMatrix;
+  species: string;
   stage: string;
   sex: string;
   breed: string;
@@ -81,6 +83,7 @@ export interface CompatibilityPolicy {
   kidBoosterMinGapDays: number;
   bacterialViralSameDayAllowed: boolean;
   liveKilledViralSameDayAllowed: boolean;
+  maxVaccinesPerComboSession: number;
 }
 
 export interface ProcurementPolicy {
@@ -155,7 +158,8 @@ export interface ProtocolRuleDraft {
 // ALL_STAGES filter below, which is a UI scope ("every stage"), not an animal_stage_lookup row.
 export const ALL_STAGES_VALUE = "all";
 
-export const STAGE_SOURCE = "shed_profiles.animal_stage_id -> animal_stage_lookup";
+export const STAGE_SOURCE =
+  "shed_profiles.animal_stage_id -> animal_stage_lookup";
 
 export function newDose(seq: number): DoseRow {
   return {
@@ -194,7 +198,8 @@ export function newFeedFields(): FeedFields {
     sessionTimes: "09:00,15:00",
     slotWeights: "50,50",
     packingProofCsv: "pack_qty,feed_item,lot,video",
-    executionProofCsv: "distribution_video,consumed_qty,wastage_qty,water_check",
+    executionProofCsv:
+      "distribution_video,consumed_qty,wastage_qty,water_check",
     inventoryPolicy: "reserve_consume_release",
     validationChecks: [],
     calculationOutputs: [],
@@ -209,6 +214,7 @@ export function newCompatibilityPolicy(): CompatibilityPolicy {
     kidBoosterMinGapDays: 21,
     bacterialViralSameDayAllowed: true,
     liveKilledViralSameDayAllowed: true,
+    maxVaccinesPerComboSession: 2,
   };
 }
 
@@ -257,9 +263,13 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       inventory_item_id: input.vaccine.inventoryItemId.trim() || null,
       manufacturer: input.vaccine.manufacturer.trim() || null,
       disease: input.vaccine.disease.trim() || input.name.trim() || null,
-      compatibility_group: input.vaccine.compatibilityGroup.trim() || input.vaccine.code.trim() || input.code.trim(),
+      compatibility_group:
+        input.vaccine.compatibilityGroup.trim() ||
+        input.vaccine.code.trim() ||
+        input.code.trim(),
     },
     eligibility: {
+      species: input.eligibility.species,
       animal_stage: input.eligibility.stage,
       animal_stage_source: STAGE_SOURCE,
       sex: input.eligibility.sex,
@@ -278,26 +288,47 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       cold_chain_required: true,
     },
     compatibility_policy: {
-      live_to_killed_gap_days: Number(input.compatibilityPolicy.liveToKilledGapDays) || 0,
-      killed_to_killed_gap_days: Number(input.compatibilityPolicy.killedToKilledGapDays) || 0,
-      live_to_live_gap_days: Number(input.compatibilityPolicy.liveToLiveGapDays) || 0,
-      kid_booster_min_gap_days: Number(input.compatibilityPolicy.kidBoosterMinGapDays) || 0,
-      bacterial_viral_same_day_allowed: input.compatibilityPolicy.bacterialViralSameDayAllowed,
-      live_killed_viral_same_day_allowed: input.compatibilityPolicy.liveKilledViralSameDayAllowed,
+      live_to_killed_gap_days:
+        Number(input.compatibilityPolicy.liveToKilledGapDays) || 0,
+      killed_to_killed_gap_days:
+        Number(input.compatibilityPolicy.killedToKilledGapDays) || 0,
+      live_to_live_gap_days:
+        Number(input.compatibilityPolicy.liveToLiveGapDays) || 0,
+      kid_booster_min_gap_days:
+        Number(input.compatibilityPolicy.kidBoosterMinGapDays) || 0,
+      bacterial_viral_same_day_allowed:
+        input.compatibilityPolicy.bacterialViralSameDayAllowed,
+      live_killed_viral_same_day_allowed:
+        input.compatibilityPolicy.liveKilledViralSameDayAllowed,
+      max_vaccines_per_combo_session: Math.min(
+        2,
+        Number(input.compatibilityPolicy.maxVaccinesPerComboSession) || 2,
+      ),
     },
     procurement_policy: {
-      warmup_no_vaccination_days: Number(input.procurementPolicy.warmupNoVaccinationDays) || 0,
-      kids_normal_schedule_until_weeks: Number(input.procurementPolicy.kidsNormalScheduleUntilWeeks) || 0,
-      adult_prior_vaccination_allowed: input.procurementPolicy.adultPriorVaccinationAllowed,
-      first_wave: csvToArr(input.procurementPolicy.firstWave),
-      second_wave_after_days: Number(input.procurementPolicy.secondWaveAfterDays) || 0,
-      goat_second_wave: csvToArr(input.procurementPolicy.goatSecondWave),
+      warmup_no_vaccination_days:
+        Number(input.procurementPolicy.warmupNoVaccinationDays) || 0,
+      kids_normal_schedule_until_weeks:
+        Number(input.procurementPolicy.kidsNormalScheduleUntilWeeks) || 0,
+      adult_prior_vaccination_allowed:
+        input.procurementPolicy.adultPriorVaccinationAllowed,
+      first_wave: csvToArr(input.procurementPolicy.firstWave).slice(0, 2),
+      second_wave_after_days:
+        Number(input.procurementPolicy.secondWaveAfterDays) || 0,
+      goat_second_wave: csvToArr(input.procurementPolicy.goatSecondWave).slice(
+        0,
+        2,
+      ),
     },
     pregnancy_policy: {
-      allow_until_pregnancy_month: Number(input.pregnancyPolicy.allowUntilPregnancyMonth) || 0,
-      skip_from_pregnancy_month: Number(input.pregnancyPolicy.skipFromPregnancyMonth) || 0,
-      skip_through_pregnancy_month: Number(input.pregnancyPolicy.skipThroughPregnancyMonth) || 0,
-      post_delivery_catch_up_days: Number(input.pregnancyPolicy.postDeliveryCatchUpDays) || 0,
+      allow_until_pregnancy_month:
+        Number(input.pregnancyPolicy.allowUntilPregnancyMonth) || 0,
+      skip_from_pregnancy_month:
+        Number(input.pregnancyPolicy.skipFromPregnancyMonth) || 0,
+      skip_through_pregnancy_month:
+        Number(input.pregnancyPolicy.skipThroughPregnancyMonth) || 0,
+      post_delivery_catch_up_days:
+        Number(input.pregnancyPolicy.postDeliveryCatchUpDays) || 0,
     },
     schedule: input.doses.map((d, i) => ({
       dose_code: d.doseCode,
@@ -360,7 +391,8 @@ function feedDsl(input: RuleInput): Record<string, unknown> {
       feed_item: input.feed.feedItem,
       quantity: Number(input.feed.quantity) || 0,
       unit: input.feed.unit,
-      quantity_semantics: "source-row variable by approved dimensions; examples are not global defaults",
+      quantity_semantics:
+        "source-row variable by approved dimensions; examples are not global defaults",
     },
     session_timing: feedSessions(input.feed).map((session_time, i) => ({
       session_order: i + 1,
@@ -390,16 +422,32 @@ export function buildRuleDsl(input: RuleInput): Record<string, unknown> {
   return vaccinationDsl(input);
 }
 
-export function ruleInputForVaccinationMatrixRow(input: RuleInput, row: VaccinationMatrixRow, index: number, total: number): RuleInput {
+export function ruleInputForVaccinationMatrixRow(
+  input: RuleInput,
+  row: VaccinationMatrixRow,
+  index: number,
+  total: number,
+): RuleInput {
   if (input.category !== "vaccination") return input;
-  const suffix = compactSlug([row.vaccine.code, row.stage, row.sex, row.breed]).join("_") || `row_${index + 1}`;
+  const suffix =
+    compactSlug([
+      row.vaccine.code,
+      row.species,
+      row.stage,
+      row.sex,
+      row.breed,
+    ]).join("_") || `row_${index + 1}`;
   return {
     ...input,
     code: total > 1 ? `${input.code}.${suffix}` : input.code,
-    name: total > 1 ? `${input.name} - ${row.vaccine.code || row.vaccine.name || `row ${index + 1}`} ${row.stage}/${row.breed}` : input.name,
+    name:
+      total > 1
+        ? `${input.name} - ${row.vaccine.code || row.vaccine.name || `row ${index + 1}`} ${row.species}/${row.stage}/${row.breed}`
+        : input.name,
     vaccine: row.vaccine,
     eligibility: {
       ...input.eligibility,
+      species: row.species,
       stage: row.stage,
       sex: row.sex,
       breed: row.breed,
@@ -408,20 +456,26 @@ export function ruleInputForVaccinationMatrixRow(input: RuleInput, row: Vaccinat
   };
 }
 
-export function buildVaccinationMatrixPreview(input: RuleInput, rows: VaccinationMatrixRow[]): Record<string, unknown> {
+export function buildVaccinationMatrixPreview(
+  input: RuleInput,
+  rows: VaccinationMatrixRow[],
+): Record<string, unknown> {
   if (input.category !== "vaccination") return buildRuleDsl(input);
-  if (rows.length <= 1 && rows[0]) return buildRuleDsl(ruleInputForVaccinationMatrixRow(input, rows[0], 0, 1));
+  if (rows.length <= 1 && rows[0])
+    return buildRuleDsl(ruleInputForVaccinationMatrixRow(input, rows[0], 0, 1));
   return {
     category: input.category,
     scope: parseScope(input.scope),
-    matrix_rows: rows.map((row, index) => buildRuleDsl(ruleInputForVaccinationMatrixRow(input, row, index, rows.length))),
+    matrix_rows: rows.map((row, index) =>
+      buildRuleDsl(
+        ruleInputForVaccinationMatrixRow(input, row, index, rows.length),
+      ),
+    ),
   };
 }
 
 function compactSlug(values: string[]): string[] {
-  return values
-    .map((value) => slugPart(value))
-    .filter(Boolean);
+  return values.map((value) => slugPart(value)).filter(Boolean);
 }
 
 function slugPart(value: string): string {
@@ -439,7 +493,10 @@ function slugPart(value: string): string {
 // vaccination, packing+execution for feed). Single source for buildProofPolicy + hasProofRequirement.
 function proofTokens(input: RuleInput): string[] {
   return input.category === "feed_direction"
-    ? [...csvToArr(input.feed.packingProofCsv), ...csvToArr(input.feed.executionProofCsv)]
+    ? [
+        ...csvToArr(input.feed.packingProofCsv),
+        ...csvToArr(input.feed.executionProofCsv),
+      ]
     : input.doses.flatMap((d) => csvToArr(d.proofCsv));
 }
 
@@ -459,7 +516,10 @@ export function hasProofRequirement(input: RuleInput): boolean {
 
 export function buildProtocolRuleRows(input: RuleInput): ProtocolRuleDraft[] {
   if (input.category === "feed_direction") {
-    const proofPolicy = [...csvToArr(input.feed.packingProofCsv), ...csvToArr(input.feed.executionProofCsv)];
+    const proofPolicy = [
+      ...csvToArr(input.feed.packingProofCsv),
+      ...csvToArr(input.feed.executionProofCsv),
+    ];
     return feedSessions(input.feed).map((session, i) => ({
       doseCode: `feed_session_${i + 1}_${session.replace(/[^0-9A-Za-z]/g, "") || "slot"}`,
       trigger: "calendar",

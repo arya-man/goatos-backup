@@ -24,10 +24,13 @@ type StockReserver interface {
 // SweepConfig carries the per-version batch config resolved by the caller from the protocol version:
 // the SOP to instantiate, the vaccine item to reserve, and doses per goat.
 type SweepConfig struct {
-	SOPVersionID  string
-	VaccineItemID string
-	DosesPerGoat  int32
-	RuleConfigs   map[string]SweepRuleConfig
+	SOPVersionID      string
+	VaccineItemID     string
+	VaccineCode       string
+	DosesPerGoat      int32
+	RuleConfigs       map[string]SweepRuleConfig
+	ParkConsolidation domain.ParkConsolidationSettings
+	DrivePlanner      domain.DrivePlannerSettings
 }
 
 // SweepRuleConfig overrides version-level execution bindings for one protocol rule.
@@ -72,59 +75,91 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 			scopeType   string
 			scopeID     string
 			ruleID      string
-			plannedDate *time.Time
 			windowStart *time.Time
 			windowEnd   *time.Time
+			rows        []domain.UnbatchedDue
 			ids         []string
 		}
 		order := make([]string, 0)
 		groups := make(map[string]*group)
 		for _, r := range rows {
-			plannedDate := batchPlannedDate(r.DueAt)
-			k := sweepGroupKey(r, plannedDate)
+			k := sweepWindowGroupKey(r)
 			g := groups[k]
 			if g == nil {
-				g = &group{scopeType: r.ScopeType, scopeID: r.ScopeID, ruleID: r.RuleID, plannedDate: plannedDate, windowStart: r.WindowStart, windowEnd: r.WindowEnd}
+				g = &group{scopeType: r.ScopeType, scopeID: r.ScopeID, ruleID: r.RuleID, windowStart: r.WindowStart, windowEnd: r.WindowEnd}
 				groups[k] = g
 				order = append(order, k)
 			}
+			g.rows = append(g.rows, r)
 			g.ids = append(g.ids, r.ObligationID)
 		}
 
+		planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
 		var progressed int64
 		for _, k := range order {
 			g := groups[k]
-			_, n, err := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
-				TenantID:          tenantID,
-				ProtocolVersionID: versionID,
-				ScopeType:         g.scopeType,
-				ScopeID:           g.scopeID,
-				Session:           batchSession(g.ruleID),
-				PlannedDate:       g.plannedDate,
-				WindowStart:       g.windowStart,
-				WindowEnd:         g.windowEnd,
-				Status:            "planned",
-				EstimatedTargets:  int32(len(g.ids)),
-				PlannedQuantity:   strconv.FormatInt(int64(len(g.ids))*int64(normalizedDosesPerGoat(cfg.forRule(g.ruleID).DosesPerGoat)), 10),
-				QuantityUnit:      "dose",
-			}, g.ids)
-			if err != nil {
-				return res, err
-			}
-			if n == 0 {
+			if deferShedGroupToPark(cfg, g.scopeType, len(g.ids)) {
 				continue
 			}
-			if !touchedScopes[k] {
-				res.Batches++
-				touchedScopes[k] = true
+			plannedDate := batchPlannedDate(g.rows[0].DueAt)
+			if planner.Enabled {
+				if picked := pickBestDriveDate(dueBefore, driveCandidatesFromUnbatched(g.rows), planner.VaccinePriority); picked != nil {
+					plannedDate = picked
+				}
 			}
-			res.Obligations += int(n)
-			progressed += n
+			idChunks := splitObligationIDs(g.ids, planner.MaxGoatsPerDrive)
+			for _, chunk := range idChunks {
+				if len(chunk) == 0 {
+					continue
+				}
+				_, n, err := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+					TenantID:          tenantID,
+					ProtocolVersionID: versionID,
+					ScopeType:         g.scopeType,
+					ScopeID:           g.scopeID,
+					Session:           batchSession(g.ruleID, cfg.VaccineCode),
+					PlannedDate:       plannedDate,
+					WindowStart:       g.windowStart,
+					WindowEnd:         g.windowEnd,
+					Status:            "planned",
+					EstimatedTargets:  int32(len(chunk)),
+					PlannedQuantity:   strconv.FormatInt(int64(len(chunk))*int64(normalizedDosesPerGoat(cfg.forRule(g.ruleID).DosesPerGoat)), 10),
+					QuantityUnit:      "dose",
+				}, chunk)
+				if err != nil {
+					return res, err
+				}
+				if n == 0 {
+					continue
+				}
+				if !touchedScopes[k] {
+					res.Batches++
+					touchedScopes[k] = true
+				}
+				res.Obligations += int(n)
+				progressed += n
+			}
 		}
 		if progressed == 0 || int32(len(rows)) < s.page {
 			break
 		}
 	}
+	parkRes, err := s.consolidateParkDrives(ctx, tenantID, versionID, cfg, dueBefore)
+	if err != nil {
+		return res, err
+	}
+	res.ParkBatches = parkRes.ParkBatches
+	res.ParkObligations = parkRes.ParkObligations
+	res.Batches += parkRes.ParkBatches
+	res.Obligations += parkRes.ParkObligations
+
+	fallbackRes, err := s.batchRemainingShedObligations(ctx, tenantID, versionID, cfg, dueBefore)
+	if err != nil {
+		return res, err
+	}
+	res.Batches += fallbackRes.Batches
+	res.Obligations += fallbackRes.Obligations
+
 	if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
 		return res, err
 	}
@@ -136,6 +171,113 @@ func normalizedDosesPerGoat(v int32) int32 {
 		return 1
 	}
 	return v
+}
+
+// deferShedGroupToPark leaves small shed groups unbatched in layer 1 so layer 2 can merge
+// singleton leftovers across sheds in the same park.
+func deferShedGroupToPark(cfg SweepConfig, scopeType string, obligationCount int) bool {
+	if !cfg.ParkConsolidation.Enabled {
+		return false
+	}
+	if scopeType != "shed" {
+		return false
+	}
+	min := cfg.ParkConsolidation.MinShedDriveTargets
+	if min <= 0 {
+		min = domain.DefaultParkConsolidationSettings().MinShedDriveTargets
+	}
+	return int32(obligationCount) < min
+}
+
+// batchRemainingShedObligations creates shed drives for every still-unbatched shed obligation,
+// including missed singletons, so coverage is never left behind after the park merge pass.
+func (s *SweeperService) batchRemainingShedObligations(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
+	var res domain.SweepResult
+	if !cfg.ParkConsolidation.Enabled {
+		return res, nil
+	}
+	touchedScopes := make(map[string]bool)
+	for {
+		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, s.page)
+		if err != nil {
+			return res, err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		type group struct {
+			scopeType   string
+			scopeID     string
+			ruleID      string
+			windowStart *time.Time
+			windowEnd   *time.Time
+			rows        []domain.UnbatchedDue
+			ids         []string
+		}
+		order := make([]string, 0)
+		groups := make(map[string]*group)
+		for _, r := range rows {
+			if r.ScopeType != "shed" {
+				continue
+			}
+			k := sweepWindowGroupKey(r)
+			g := groups[k]
+			if g == nil {
+				g = &group{scopeType: r.ScopeType, scopeID: r.ScopeID, ruleID: r.RuleID, windowStart: r.WindowStart, windowEnd: r.WindowEnd}
+				groups[k] = g
+				order = append(order, k)
+			}
+			g.rows = append(g.rows, r)
+			g.ids = append(g.ids, r.ObligationID)
+		}
+		planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
+		var progressed int64
+		for _, k := range order {
+			g := groups[k]
+			plannedDate := batchPlannedDate(g.rows[0].DueAt)
+			if planner.Enabled {
+				if picked := pickBestDriveDate(dueBefore, driveCandidatesFromUnbatched(g.rows), planner.VaccinePriority); picked != nil {
+					plannedDate = picked
+				}
+			}
+			idChunks := splitObligationIDs(g.ids, planner.MaxGoatsPerDrive)
+			for _, chunk := range idChunks {
+				if len(chunk) == 0 {
+					continue
+				}
+				_, n, err := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+					TenantID:          tenantID,
+					ProtocolVersionID: versionID,
+					ScopeType:         g.scopeType,
+					ScopeID:           g.scopeID,
+					Session:           batchSession(g.ruleID, cfg.VaccineCode),
+					PlannedDate:       plannedDate,
+					WindowStart:       g.windowStart,
+					WindowEnd:         g.windowEnd,
+					Status:            "planned",
+					EstimatedTargets:  int32(len(chunk)),
+					PlannedQuantity:   strconv.FormatInt(int64(len(chunk))*int64(normalizedDosesPerGoat(cfg.forRule(g.ruleID).DosesPerGoat)), 10),
+					QuantityUnit:      "dose",
+				}, chunk)
+				if err != nil {
+					return res, err
+				}
+				if n == 0 {
+					continue
+				}
+				if !touchedScopes[k] {
+					res.Batches++
+					touchedScopes[k] = true
+				}
+				res.Obligations += int(n)
+				progressed += n
+			}
+		}
+		if progressed == 0 || int32(len(rows)) < s.page {
+			break
+		}
+	}
+	return res, nil
 }
 
 func (cfg SweepConfig) forRule(ruleID string) SweepRuleConfig {
@@ -212,25 +354,9 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 					return err
 				}
 			}
-			if s.reserver != nil && batchCfg.VaccineItemID != "" && !b.HasStockReservation {
-				dosesPer := batchCfg.DosesPerGoat
-				if dosesPer < 1 {
-					dosesPer = 1
-				}
-				qty := b.AttachedObligations * int64(dosesPer)
-				if qty <= 0 {
-					continue
-				}
-				if err := s.reserver.ReserveForBatch(ctx, tenantID, b.BatchID, b.ScopeID, batchCfg.VaccineItemID, qty, batchStockValidOn(b)); err != nil {
-					if markErr := s.repo.MarkBatchStockBlocked(ctx, tenantID, b.BatchID, batchCfg.VaccineItemID, qty, err.Error()); markErr != nil {
-						return markErr
-					}
-					continue
-				}
-				if b.StockBlocked {
-					if err := s.repo.ClearBatchStockBlock(ctx, tenantID, b.BatchID); err != nil {
-						return err
-					}
+			if s.reserver != nil && !b.HasStockReservation {
+				if err := s.reservePlannedBatchStock(ctx, tenantID, b, cfg); err != nil {
+					return err
 				}
 			}
 		}
@@ -238,17 +364,6 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 			return nil
 		}
 	}
-}
-
-func sweepGroupKey(r domain.UnbatchedDue, plannedDate *time.Time) string {
-	return r.ScopeType + "|" + r.ScopeID + "|" + r.RuleID + "|" + timeKey(plannedDate) + "|" + timeKey(r.WindowStart) + "|" + timeKey(r.WindowEnd)
-}
-
-func batchSession(ruleID string) string {
-	if ruleID == "" {
-		return ""
-	}
-	return "rule:" + ruleID
 }
 
 func batchPlannedDate(dueAt time.Time) *time.Time {
@@ -265,6 +380,43 @@ func batchStockValidOn(b domain.PlannedBatchFinalization) time.Time {
 		return *b.PlannedDate
 	}
 	return time.Now().UTC()
+}
+
+func (s *SweeperService) reservePlannedBatchStock(ctx context.Context, tenantID string, b domain.PlannedBatchFinalization, cfg SweepConfig) error {
+	ruleCounts, err := s.repo.CountAttachedObligationsByRule(ctx, tenantID, b.BatchID)
+	if err != nil {
+		return err
+	}
+	if len(ruleCounts) == 0 && b.AttachedObligations > 0 {
+		ruleCounts = []domain.RuleAttachmentCount{{RuleID: b.RuleID, Count: b.AttachedObligations}}
+	}
+	if len(ruleCounts) == 0 {
+		return nil
+	}
+	validOn := batchStockValidOn(b)
+	reservedAny := false
+	for _, rc := range ruleCounts {
+		batchCfg := cfg.forRule(rc.RuleID)
+		if batchCfg.VaccineItemID == "" || rc.Count <= 0 {
+			continue
+		}
+		dosesPer := batchCfg.DosesPerGoat
+		if dosesPer < 1 {
+			dosesPer = 1
+		}
+		qty := rc.Count * int64(dosesPer)
+		if err := s.reserver.ReserveForBatch(ctx, tenantID, b.BatchID, b.ScopeID, batchCfg.VaccineItemID, qty, validOn); err != nil {
+			if markErr := s.repo.MarkBatchStockBlocked(ctx, tenantID, b.BatchID, batchCfg.VaccineItemID, qty, err.Error()); markErr != nil {
+				return markErr
+			}
+			return nil
+		}
+		reservedAny = true
+	}
+	if reservedAny && b.StockBlocked {
+		return s.repo.ClearBatchStockBlock(ctx, tenantID, b.BatchID)
+	}
+	return nil
 }
 
 func timeKey(t *time.Time) string {

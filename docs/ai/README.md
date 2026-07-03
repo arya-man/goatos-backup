@@ -7,7 +7,7 @@ their own checkout.
 ## What Is Committed
 
 - Agent routing rules: `AGENTS.md`, `CLAUDE.md`, `.agents/skills/`, `.claude/skills/`,
-  and `.cursor/rules/`.
+  `.cursor/rules/`, `.cursor/hooks.json`, and `docs/ai/agent-tool-routing.md`.
 - Hooks for Claude and Codex: `.claude/settings.json` and `.codex/hooks.json`.
 - Portable scripts: `tools/agent-hooks/*.sh`, `tools/agent-hooks/*.mjs`, and
   `tools/ai/analyze-transcripts.py`.
@@ -93,6 +93,7 @@ Use the cheapest path that matches the task:
 
 | Task shape | First move |
 | --- | --- |
+| **Which agent tool? (human)** | Read `docs/ai/agent-tool-routing.md` |
 | Cold orientation, review, or diff | `get_minimal_context_tool`, then one targeted graph query |
 | Known symbol traversal | `query_graph_tool` with `callers_of`, `callees_of`, `imports_of`, or `tests_for` |
 | Keyword/domain lookup | `semantic_search_nodes_tool`, then `query_graph_tool` |
@@ -116,10 +117,14 @@ Codex:
 
 Cursor:
 
-- Uses `.cursor/rules/ai-graph-routing.mdc` for routing guidance.
-- Cursor does not provide the same deterministic hook wall here, so run
-  `make ai-doctor` and `make ai-rebuild` manually after setup or major doc/code
-  changes.
+- Uses `.cursor/rules/` for routing and area-scoped guidance (`goatos-core.mdc`,
+  `backend.mdc`, `admin-web.mdc`, `contracts.mdc`, `ai-graph-routing.mdc`).
+- Uses `.cursor/hooks.json` for project hooks that reuse the same
+  `tools/agent-hooks/` scripts as Claude/Codex (graph-first guard, RTK,
+  write-scope, post-edit format/boundary/contract-drift, CRG/docs graph update).
+  Restart Cursor after editing hooks if they do not reload automatically.
+- Run `make ai-doctor` and `make ai-rebuild` manually after setup or major
+  doc/code changes.
 
 ## Telemetry
 

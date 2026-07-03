@@ -22,6 +22,7 @@ var (
 type Repository interface {
 	ListEvents(ctx context.Context, q domain.Query) (domain.CalendarEventListResponse, error)
 	GetEventDetail(ctx context.Context, q domain.EventQuery) (domain.CalendarEventDetail, error)
+	ListDriveTargets(ctx context.Context, q domain.DriveTargetQuery) (domain.CalendarDriveTargetListResponse, error)
 	History(ctx context.Context, q domain.HistoryQuery) (domain.CalendarHistoryResponse, error)
 	SendNudge(ctx context.Context, in SendNudge) (domain.CalendarActionResponse, error)
 	Snooze(ctx context.Context, in Snooze) (domain.CalendarActionResponse, error)

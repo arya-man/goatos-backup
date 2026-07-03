@@ -20,6 +20,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+export type CalendarDriveTarget = AppApiComponents["schemas"]["CalendarDriveTarget"];
+export type CalendarDriveTargetListResponse = AppApiComponents["schemas"]["CalendarDriveTargetListResponse"];
 export type CalendarEvent = AppApiComponents["schemas"]["CalendarEvent"];
 export type CalendarEventDetail = AppApiComponents["schemas"]["CalendarEventDetail"];
 export type CalendarEventListResponse = AppApiComponents["schemas"]["CalendarEventListResponse"];

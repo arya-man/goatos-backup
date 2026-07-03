@@ -63,9 +63,11 @@ func DecodeHistoryCursor(value string) (HistoryCursor, error) {
 	return cursor, nil
 }
 
-// ValidateEventID accepts generated Calendar IDs used by this slice:
-// obligation:<uuid>, batch:<uuid>:rule:<uuid>:shed:<uuid>, and calendar:<uuid>.
+// ValidateEventID accepts vaccination drive IDs, catch-up IDs, and legacy calendar projection IDs during cutover.
 func ValidateEventID(eventID string) error {
+	if _, err := ParseDriveEventID(eventID); err == nil {
+		return nil
+	}
 	eventID = strings.TrimSpace(eventID)
 	if eventID == "" || len(eventID) > 256 {
 		return ErrInvalidEventID
@@ -81,11 +83,6 @@ func ValidateEventID(eventID string) error {
 			return nil
 		}
 		return ErrInvalidEventID
-	}
-	parts := strings.Split(eventID, ":")
-	if len(parts) == 6 && parts[0] == "batch" && parts[2] == "rule" && parts[4] == "shed" &&
-		uuidutil.IsUUIDString(parts[1]) && uuidutil.IsUUIDString(parts[3]) && uuidutil.IsUUIDString(parts[5]) {
-		return nil
 	}
 	return ErrInvalidEventID
 }

@@ -87,7 +87,7 @@ func (h *GoatRecheckHandler) HandleEvent(ctx context.Context, e eventbus.Event) 
 	if asOf.IsZero() {
 		asOf = time.Now()
 	}
-	_, err := h.gen.GenerateForGoat(ctx, e.TenantID, e.Key, asOf)
+	_, err := h.gen.generateForGoat(ctx, e.TenantID, e.Key, asOf, generationOptions{healthRecoveryAlign: true})
 	return err
 }
 

@@ -153,6 +153,10 @@ func (f fakeRepo) GetEventDetail(context.Context, domain.EventQuery) (domain.Cal
 	return domain.CalendarEventDetail{}, nil
 }
 
+func (f fakeRepo) ListDriveTargets(context.Context, domain.DriveTargetQuery) (domain.CalendarDriveTargetListResponse, error) {
+	return domain.CalendarDriveTargetListResponse{Source: domain.SourceAPI}, nil
+}
+
 func (f fakeRepo) History(context.Context, domain.HistoryQuery) (domain.CalendarHistoryResponse, error) {
 	return domain.CalendarHistoryResponse{}, nil
 }

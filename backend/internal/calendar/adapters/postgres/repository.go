@@ -998,7 +998,6 @@ LIMIT $7`, in.TenantID, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4
 }
 
 func (r *Repository) selectEscalationEventForObligation(ctx context.Context, in ports.SweepEscalations, obligationID string, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff time.Time) ([]escalationEvent, error) {
-	eventID := "obligation:" + obligationID
 	var event escalationEvent
 	err := r.pool.QueryRow(ctx, `
 WITH candidate AS (
@@ -1013,7 +1012,10 @@ WITH candidate AS (
     END AS level
   FROM calendar_event_projections
   WHERE tenant_id = $1::uuid
-    AND event_id = $7
+    AND (
+      event_id = 'obligation:' || $7::text
+      OR (source_target_type = 'obligation' AND source_target_id = $7::uuid)
+    )
     AND slice_key = 'vaccination'
     AND system = false
     AND due_at IS NOT NULL
@@ -1028,7 +1030,7 @@ WHERE level > 0
     FROM notification_requests nr
     WHERE nr.tenant_id = $1::uuid
       AND nr.idempotency_key = $1 || ':calendar.escalation:' || c.event_id || ':level:' || c.level::text
-  )`, in.TenantID, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff, eventID).Scan(&event.EventID, &event.Level)
+  )`, in.TenantID, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff, obligationID).Scan(&event.EventID, &event.Level)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return []escalationEvent{}, nil
 	}
@@ -1228,7 +1230,7 @@ func escalationRole(level int, target escalationTarget) string {
 		return permissions.RolePHCDirector
 	case level == 2:
 		return permissions.RoleParkHead
-	case target.Status == "verification_pending" || strings.TrimSpace(target.VerifierLabel) != "":
+	case target.Status == "verification_pending":
 		return permissions.RoleVerifier
 	default:
 		return permissions.RoleOperator
@@ -1905,6 +1907,165 @@ WITH obligation_events AS (
     AND oi.status NOT IN ('waived', 'canceled', 'superseded')
     AND (oi.status <> 'completed' OR oi.due_at >= now() - interval '90 days')
 ),
+catchup_drive_events AS (
+  SELECT
+    CASE
+      WHEN grouped.shed_id IS NOT NULL THEN
+        'catchup:shed:' || grouped.shed_id::text || ':rule:' || grouped.rule_id::text || ':due:' || grouped.due_day
+      ELSE
+        'catchup:tenant:' || $1::text || ':rule:' || grouped.rule_id::text || ':due:' || grouped.due_day
+    END AS event_id,
+    'vaccination_drive'::text AS event_type,
+    'phc'::text AS owner_key,
+    grouped.vaccine_name || ' catch-up drive' AS title,
+    COALESCE(grouped.shed_name, grouped.park_code, 'Catch-up drive') AS subtitle,
+    grouped.status,
+    grouped.severity,
+    grouped.due_at,
+    grouped.window_start,
+    grouped.window_end,
+    grouped.timezone,
+    grouped.timezone_source,
+    grouped.park_id,
+    grouped.park_code,
+    grouped.shed_id,
+    grouped.shed_name,
+    NULL::uuid AS cohort_id,
+    NULL::text AS cohort_name,
+    'shed'::text AS target_type,
+    grouped.target_count,
+    grouped.protocol_id,
+    grouped.protocol_version_id,
+    grouped.rule_id,
+    grouped.vaccine_name,
+    grouped.dose_code,
+    true AS source_backed,
+    grouped.source_label,
+    CASE WHEN grouped.target_count = 1 THEN 'obligation' ELSE 'catchup' END AS source_target_type,
+    CASE WHEN grouped.target_count = 1 THEN grouped.single_obligation_id ELSE COALESCE(grouped.shed_id, $1::uuid) END AS source_target_id,
+    'PHC drive team'::text AS assignee_label,
+    'phc_vaccinator'::text AS executor_role,
+    'PHC verifier'::text AS verifier_label,
+    'not_scheduled'::text AS reminder_state,
+    'local-stub'::text AS primary_notification_channel,
+    'none'::text AS escalation_state,
+    false AS system,
+    false AS cross_cutting,
+    jsonb_build_object(
+      'vaccination', '/vaccination/operations',
+      'drive', CASE WHEN grouped.shed_id IS NOT NULL THEN '/vaccination/execution/sheds/' || grouped.shed_id::text ELSE NULL END
+    ) AS links,
+    jsonb_build_object(
+      'summary', jsonb_build_object('owner', 'PHC', 'target_count', grouped.target_count, 'catchup', true),
+      'source_and_rule', jsonb_build_object(
+        'source_backed', true,
+        'source_ref', grouped.source_ref,
+        'protocol_version_id', grouped.protocol_version_id,
+        'rule_id', grouped.rule_id,
+        'due_day', grouped.due_day
+      ),
+      'execution', jsonb_build_object('catchup', true, 'work_state', grouped.status),
+      'stock', jsonb_build_object(),
+      'proof', jsonb_build_object(),
+      'verification', jsonb_build_object(),
+      'notification_channels', jsonb_build_array('local-stub'),
+      'notification_policy', jsonb_build_object('nudge_allowed', true),
+      'links', jsonb_build_object()
+    ) AS detail
+  FROM (
+    SELECT
+      loc.shed_id,
+      loc.shed_name,
+      loc.park_id,
+      loc.park_code,
+      pr.rule_id,
+      pd.protocol_id,
+      pv.protocol_version_id,
+      pd.name AS vaccine_name,
+      pr.dose_code,
+      (array_agg(oi.obligation_id ORDER BY oi.obligation_id))[1] AS single_obligation_id,
+      COALESCE(NULLIF(pv.rule_dsl -> 'source' ->> 'source_ref', ''), pd.name) AS source_label,
+      pv.rule_dsl -> 'source' ->> 'source_ref' AS source_ref,
+      COALESCE(scope_loc.timezone, 'Asia/Kolkata') AS timezone,
+      CASE WHEN scope_loc.timezone IS NULL THEN 'fallback' ELSE 'location' END AS timezone_source,
+      to_char((oi.due_at AT TIME ZONE COALESCE(scope_loc.timezone, 'Asia/Kolkata'))::date, 'YYYY-MM-DD') AS due_day,
+      count(*)::int AS target_count,
+      min(oi.due_at) AS due_at,
+      min(COALESCE(oi.window_start, oi.due_at)) AS window_start,
+      max(COALESCE(oi.window_end, oi.due_at + make_interval(days => pr.due_window_days))) AS window_end,
+      CASE
+        WHEN bool_or(oi.status = 'missed') THEN 'missed'
+        WHEN bool_or(oi.status IN ('scheduled', 'due') AND oi.due_at < now()) THEN 'overdue'
+        WHEN bool_or(oi.status = 'in_progress') THEN 'in_progress'
+        WHEN bool_or(oi.status = 'deferred') THEN 'deferred'
+        WHEN bool_or(oi.status = 'due') THEN 'due'
+        ELSE 'scheduled'
+      END AS status,
+      CASE
+        WHEN bool_or(oi.status = 'missed') OR bool_or(oi.due_at < now()) THEN 'critical'
+        WHEN min(oi.due_at) <= now() + interval '24 hours' THEN 'warning'
+        ELSE 'info'
+      END AS severity
+    FROM obligation_instances oi
+    JOIN protocol_versions pv
+      ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+    JOIN protocol_definitions pd
+      ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+    JOIN protocol_rules pr
+      ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+    LEFT JOIN locations scope_loc
+      ON scope_loc.tenant_id = oi.tenant_id
+     AND scope_loc.location_id = oi.scope_id
+     AND oi.scope_type IN ('park', 'shed', 'cohort')
+    LEFT JOIN locations scope_parent
+      ON scope_parent.tenant_id = oi.tenant_id
+     AND scope_parent.location_id = scope_loc.parent_location_id
+    LEFT JOIN locations scope_grand
+      ON scope_grand.tenant_id = oi.tenant_id
+     AND scope_grand.location_id = scope_parent.parent_location_id
+    LEFT JOIN LATERAL (
+      SELECT
+        CASE
+          WHEN oi.scope_type = 'park' THEN scope_loc.location_id
+          WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
+          WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
+        END AS park_id,
+        CASE
+          WHEN oi.scope_type = 'park' THEN scope_loc.location_code
+          WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code
+          WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_code
+        END AS park_code,
+        CASE
+          WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
+          WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
+        END AS shed_id,
+        CASE
+          WHEN oi.scope_type = 'shed' THEN scope_loc.name
+          WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.name
+        END AS shed_name
+    ) loc ON true
+    WHERE oi.tenant_id = $1::uuid
+      AND oi.batch_id IS NULL
+      AND (
+        (oi.due_at >= $2::timestamptz AND oi.due_at < $3::timestamptz)
+        OR oi.status IN ('missed', 'in_progress', 'deferred')
+        OR (oi.status IN ('scheduled', 'due') AND oi.due_at < now())
+      )
+      AND pd.category = 'vaccination'
+      AND pv.status = 'published'
+      AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
+      AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
+      AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
+    GROUP BY
+      loc.shed_id, loc.shed_name, loc.park_id, loc.park_code,
+      pr.rule_id, pd.protocol_id, pv.protocol_version_id, pd.name, pr.dose_code,
+      source_label, source_ref,
+      COALESCE(scope_loc.timezone, 'Asia/Kolkata'),
+      CASE WHEN scope_loc.timezone IS NULL THEN 'fallback' ELSE 'location' END,
+      due_day
+    HAVING count(*) > 1
+  ) grouped
+),
 batch_events AS (
   SELECT DISTINCT ON (ob.batch_id, pr.rule_id)
     'batch:' || ob.batch_id::text || ':rule:' || pr.rule_id::text || ':shed:' || ob.scope_id::text AS event_id,
@@ -2183,6 +2344,8 @@ source_events AS (
   UNION ALL
   SELECT * FROM batch_events
   UNION ALL
+  SELECT * FROM catchup_drive_events
+  UNION ALL
   SELECT * FROM sop_events
   UNION ALL
   SELECT * FROM config_events
@@ -2290,6 +2453,8 @@ WITH source_event_ids AS (
     )
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
+    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
+    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND oi.status NOT IN ('waived', 'canceled', 'superseded')
     AND (oi.status <> 'completed' OR oi.due_at >= now() - interval '90 days')
 
@@ -2309,8 +2474,60 @@ WITH source_event_ids AS (
     AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < $3::timestamptz
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
+    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
+    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND ob.status NOT IN ('superseded', 'canceled')
     AND (ob.status <> 'completed' OR COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= now() - interval '90 days')
+
+  UNION ALL
+
+  SELECT
+    CASE
+      WHEN loc.shed_id IS NOT NULL THEN
+        'catchup:shed:' || loc.shed_id::text || ':rule:' || pr.rule_id::text || ':due:' ||
+        to_char((oi.due_at AT TIME ZONE COALESCE(scope_loc.timezone, 'Asia/Kolkata'))::date, 'YYYY-MM-DD')
+      ELSE
+        'catchup:tenant:' || oi.tenant_id::text || ':rule:' || pr.rule_id::text || ':due:' ||
+        to_char((oi.due_at AT TIME ZONE COALESCE(scope_loc.timezone, 'Asia/Kolkata'))::date, 'YYYY-MM-DD')
+    END AS event_id
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+  LEFT JOIN locations scope_loc
+    ON scope_loc.tenant_id = oi.tenant_id
+   AND scope_loc.location_id = oi.scope_id
+   AND oi.scope_type IN ('park', 'shed', 'cohort')
+  LEFT JOIN locations scope_parent
+    ON scope_parent.tenant_id = oi.tenant_id
+   AND scope_parent.location_id = scope_loc.parent_location_id
+  LEFT JOIN locations scope_grand
+    ON scope_grand.tenant_id = oi.tenant_id
+   AND scope_grand.location_id = scope_parent.parent_location_id
+  LEFT JOIN LATERAL (
+    SELECT
+      CASE
+        WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
+        WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
+      END AS shed_id
+  ) loc ON true
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.batch_id IS NULL
+    AND (
+      (oi.due_at >= $2::timestamptz AND oi.due_at < $3::timestamptz)
+      OR oi.status IN ('missed', 'in_progress', 'deferred')
+      OR (oi.status IN ('scheduled', 'due') AND oi.due_at < now())
+    )
+    AND pd.category = 'vaccination'
+    AND pv.status = 'published'
+    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
+    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
+    AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
+  GROUP BY event_id
+  HAVING count(*) > 1
 
   UNION ALL
 
@@ -2363,7 +2580,7 @@ tombstoned AS (
     AND cep.system = false
     AND cep.due_at >= $2::timestamptz
     AND cep.due_at < $3::timestamptz
-    AND cep.source_target_type IN ('obligation', 'batch', 'sop_task', 'protocol_version')
+    AND cep.source_target_type IN ('obligation', 'batch', 'catchup', 'sop_task', 'protocol_version')
     AND cep.status NOT IN ('completed', 'canceled')
     AND NOT EXISTS (
       SELECT 1 FROM source_event_ids source

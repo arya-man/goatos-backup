@@ -36,7 +36,8 @@ type GoatLister interface {
 type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
 	DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, applied bool, err error)
-	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time) (obligationID string, changed bool, err error)
+	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obldomain.RecoveryReschedule) (obligationID string, changed bool, err error)
+	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, shedID, parkID string, from, to time.Time) (*time.Time, error)
 	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
 	CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error)
 	CancelOpenVaccinationObligationsForGoatVersion(ctx context.Context, tenantID, goatID, protocolVersionID, reason string, occurredAt time.Time) (int, error)
@@ -65,19 +66,28 @@ type BatchCompletionEvidenceReader interface {
 	HasTrustedCompletionEvidenceBatch(ctx context.Context, tenantID, protocolVersionID string, candidates []domain.TrustedCompletionCandidate, generationAt time.Time) (map[string]bool, error)
 }
 
+// CrossVaccineGapReader resolves the latest accepted dose per goat for cross-vaccine gap floors.
+type CrossVaccineGapReader interface {
+	LastRecentVaccineAdministrationsForGoats(ctx context.Context, tenantID string, goatIDs []string, before time.Time) (map[string]domain.RecentVaccineAdministration, error)
+}
+
 type cachedVersionPlan struct {
-	rules       []protodomain.Rule
-	deferState  []string
-	eligibility genEligibility
+	rules          []protodomain.Rule
+	deferState     []string
+	eligibility    genEligibility
+	policies       genVersionPolicies
+	vaccineProfile vaccineProfile
 }
 
 type goatGenerationPlan struct {
-	versionID   string
-	rules       []protodomain.Rule
-	deferState  []string
-	goat        domain.EligibleGoat
-	opts        generationOptions
-	eligibility genEligibility
+	versionID      string
+	rules          []protodomain.Rule
+	deferState     []string
+	goat           domain.EligibleGoat
+	opts           generationOptions
+	eligibility    genEligibility
+	policies       genVersionPolicies
+	vaccineProfile vaccineProfile
 }
 
 type trustedEvidenceLookup map[string]bool
@@ -85,12 +95,13 @@ type trustedEvidenceLookup map[string]bool
 // GenerationService implements SM-1: expand a published protocol version's rules into per-goat
 // obligations over the in-care cohort, idempotently, deferring (visibly) ICU/quarantine/sick goats.
 type GenerationService struct {
-	proto    ProtocolReader
-	goats    GoatLister
-	obl      ObligationWriter
-	evidence CompletionEvidenceReader
-	runs     GenerationRunRecorder
-	page     int32
+	proto           ProtocolReader
+	goats           GoatLister
+	obl             ObligationWriter
+	evidence        CompletionEvidenceReader
+	crossVaccineGap CrossVaccineGapReader
+	runs            GenerationRunRecorder
+	page            int32
 }
 
 // NewGenerationService wires the three repos. The completion-evidence reader is auto-wired when the
@@ -100,6 +111,9 @@ func NewGenerationService(proto ProtocolReader, goats GoatLister, obl Obligation
 	s := &GenerationService{proto: proto, goats: goats, obl: obl, page: 500}
 	if reader, ok := goats.(CompletionEvidenceReader); ok {
 		s.evidence = reader
+	}
+	if gapReader, ok := goats.(CrossVaccineGapReader); ok {
+		s.crossVaccineGap = gapReader
 	}
 	if recorder, ok := goats.(GenerationRunRecorder); ok {
 		s.runs = recorder
@@ -126,6 +140,7 @@ func (s *GenerationService) requireEvidenceReader() error {
 type genEligibility struct {
 	AnimalStage               string        `json:"animal_stage"`
 	Stage                     string        `json:"stage"`
+	Species                   string        `json:"species"`
 	Sex                       string        `json:"sex"`
 	Breed                     string        `json:"breed"`
 	Lifecycle                 genStringList `json:"lifecycle"`
@@ -139,7 +154,21 @@ type genEligibility struct {
 }
 
 type genDSL struct {
-	Eligibility genEligibility `json:"eligibility"`
+	Vaccine             genVaccineMeta         `json:"vaccine"`
+	Eligibility         genEligibility         `json:"eligibility"`
+	CompatibilityPolicy genCompatibilityPolicy `json:"compatibility_policy"`
+	ProcurementPolicy   genProcurementPolicy   `json:"procurement_policy"`
+	PregnancyPolicy     genPregnancyPolicy     `json:"pregnancy_policy"`
+	RecoveryPolicy      genRecoveryPolicy      `json:"recovery_policy"`
+}
+
+func versionPoliciesFromDSL(dsl genDSL) genVersionPolicies {
+	return genVersionPolicies{
+		Procurement:   dsl.ProcurementPolicy,
+		Pregnancy:     dsl.PregnancyPolicy,
+		Compatibility: dsl.CompatibilityPolicy,
+		Recovery:      dsl.RecoveryPolicy,
+	}
 }
 
 type genStringList []string
@@ -242,19 +271,27 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 					if err != nil {
 						return res, err
 					}
-					p = cachedVersionPlan{rules: rules, deferState: dsl.Eligibility.DeferStates, eligibility: dsl.Eligibility}
+					p = cachedVersionPlan{
+						rules:          rules,
+						deferState:     dsl.Eligibility.DeferStates,
+						eligibility:    dsl.Eligibility,
+						policies:       versionPoliciesFromDSL(dsl),
+						vaccineProfile: vaccineProfileFromDSL(dsl),
+					}
 					plans[versionID] = p
 				}
-				if !goatMatchesEligibility(g, p.eligibility, asOf) {
+				if !goatMatchesEligibility(g, p.eligibility, p.policies.Pregnancy, asOf) {
 					continue
 				}
 				pagePlans = append(pagePlans, goatGenerationPlan{
-					versionID:   versionID,
-					rules:       p.rules,
-					deferState:  p.deferState,
-					goat:        g,
-					opts:        generationOptions{},
-					eligibility: p.eligibility,
+					versionID:      versionID,
+					rules:          p.rules,
+					deferState:     p.deferState,
+					goat:           g,
+					opts:           generationOptions{},
+					eligibility:    p.eligibility,
+					policies:       p.policies,
+					vaccineProfile: p.vaccineProfile,
 				})
 			}
 		}
@@ -262,8 +299,13 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 		if err != nil {
 			return res, err
 		}
+		lastVaccineByGoat, err := s.lastVaccineAdminsForPlans(ctx, tenantID, pagePlans, asOf)
+		if err != nil {
+			return res, err
+		}
 		for _, p := range pagePlans {
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, trustedByVersion[p.versionID], &res); err != nil {
+			lastAdmin := lastVaccineByGoat[p.goat.GoatID]
+			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, lastAdminPtr(lastAdmin), trustedByVersion[p.versionID], &res); err != nil {
 				return res, err
 			}
 		}
@@ -350,6 +392,9 @@ type generationOptions struct {
 	ManualCampaignID  string
 	RunIDempotencyKey string
 	RunRequestHash    string
+	// healthRecoveryAlign enables sick/ICU/quarantine recovery replanning: align to a nearby planned
+	// drive within recovery_policy.max_nearby_drive_align_days (default 7), else micro-drive now.
+	healthRecoveryAlign bool
 	// heartbeat, when set, is invoked once per cohort page so a long run keeps its generation-run row
 	// fresh and is not reclaimed mid-flight. Best-effort: errors are intentionally swallowed by the
 	// caller closure so a transient heartbeat failure never aborts a multi-minute generation pass.
@@ -379,6 +424,8 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		return res, err
 	}
 	elig := dsl.Eligibility
+	policies := versionPoliciesFromDSL(dsl)
+	vaccineProf := vaccineProfileFromDSL(dsl)
 	stage := eligibilityStage(elig)
 	filter := domain.ImpactFilter{
 		TenantID: tenantID,
@@ -406,7 +453,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			if !inCare(g.LifecycleStatus) {
 				continue
 			}
-			if !goatMatchesEligibility(g, elig, asOf) {
+			if !goatMatchesEligibility(g, elig, policies.Pregnancy, asOf) {
 				continue
 			}
 			if v.ScopeType == "tenant" {
@@ -419,20 +466,27 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 				}
 			}
 			pagePlans = append(pagePlans, goatGenerationPlan{
-				versionID:   versionID,
-				rules:       rules,
-				deferState:  elig.DeferStates,
-				goat:        g,
-				opts:        opts,
-				eligibility: elig,
+				versionID:      versionID,
+				rules:          rules,
+				deferState:     elig.DeferStates,
+				goat:           g,
+				opts:           opts,
+				eligibility:    elig,
+				policies:       policies,
+				vaccineProfile: vaccineProf,
 			})
 		}
 		trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf)
 		if err != nil {
 			return res, err
 		}
+		lastVaccineByGoat, err := s.lastVaccineAdminsForPlans(ctx, tenantID, pagePlans, asOf)
+		if err != nil {
+			return res, err
+		}
 		for _, p := range pagePlans {
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, trustedByVersion[p.versionID], &res); err != nil {
+			lastAdmin := lastVaccineByGoat[p.goat.GoatID]
+			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, lastAdminPtr(lastAdmin), trustedByVersion[p.versionID], &res); err != nil {
 				return res, err
 			}
 		}
@@ -483,7 +537,10 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 			seenByVersion[plan.versionID] = make(map[string]bool)
 		}
 		for _, rule := range plan.rules {
-			due, ok, skip := dueAt(rule, plan.goat, asOf, plan.opts)
+			if !ruleMatchesSchedulePath(rule, schedulePathForGoat(plan.goat, plan.policies.Procurement, asOf)) {
+				continue
+			}
+			due, ok, skip := dueAt(rule, plan.goat, asOf, plan.opts, plan.policies)
 			if skip || !ok {
 				continue
 			}
@@ -546,12 +603,40 @@ func trustedCompletionCandidate(rule protodomain.Rule, g domain.EligibleGoat, du
 	}
 }
 
+func (s *GenerationService) lastVaccineAdminsForPlans(ctx context.Context, tenantID string, plans []goatGenerationPlan, before time.Time) (map[string]domain.RecentVaccineAdministration, error) {
+	out := make(map[string]domain.RecentVaccineAdministration)
+	if s.crossVaccineGap == nil || len(plans) == 0 {
+		return out, nil
+	}
+	goatIDs := make([]string, 0, len(plans))
+	seen := make(map[string]bool, len(plans))
+	for _, plan := range plans {
+		if seen[plan.goat.GoatID] {
+			continue
+		}
+		seen[plan.goat.GoatID] = true
+		goatIDs = append(goatIDs, plan.goat.GoatID)
+	}
+	return s.crossVaccineGap.LastRecentVaccineAdministrationsForGoats(ctx, tenantID, goatIDs, before)
+}
+
+func lastAdminPtr(admin domain.RecentVaccineAdministration) *domain.RecentVaccineAdministration {
+	if admin.AdministeredAt.IsZero() {
+		return nil
+	}
+	return &admin
+}
+
 // genOneGoat applies every applicable rule to one goat: compute due_at, idempotent insert, and a
 // canonical deferred state when the goat is in a defer state. Accumulates counts into res.
-func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, g domain.EligibleGoat, asOf time.Time, opts generationOptions, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
+func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, vaccineProf vaccineProfile, lastAdmin *domain.RecentVaccineAdministration, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
 	historicalCatchUpMaterialized := false
+	path := schedulePathForGoat(g, policies.Procurement, asOf)
 	for _, rule := range rules {
-		baseDue, ok, skip := dueAt(rule, g, asOf, opts)
+		if !ruleMatchesSchedulePath(rule, path) {
+			continue
+		}
+		baseDue, ok, skip := dueAt(rule, g, asOf, opts, policies)
 		if skip {
 			res.SkippedNoDueDate++
 			if err := s.genMissingDueDateObligation(ctx, tenantID, versionID, rule, g, asOf, res); err != nil {
@@ -578,6 +663,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if skip {
 			continue
 		}
+		if s.crossVaccineGap != nil && lastAdmin != nil {
+			due = applyCrossVaccineGapFloor(due, lastAdmin, vaccineProf, policies.Compatibility)
+		}
 		if limitsHistoricalCatchUp(rule, baseDue, due, asOf, opts) {
 			if historicalCatchUpMaterialized {
 				continue
@@ -595,6 +683,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		status := "scheduled"
 		deferReason := deferredReason(g, deferStates)
 		if deferReason == "" {
+			deferReason = policyDeferReason(g, policies, asOf)
+		}
+		if deferReason == "" {
 			deferReason = catchUpDeferReason
 		}
 		deferred := deferReason != ""
@@ -610,6 +701,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			ScopeType:         scopeType,
 			ScopeID:           scopeID,
 			DueAt:             due,
+			WindowEnd:         obligationWindowEnd(rule, due),
 			Status:            status,
 			IdempotencyKey:    key,
 			Sequence:          rule.Sequence,
@@ -635,7 +727,14 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				// Goat is no longer in a defer state: if a held (deferred) obligation exists for this
 				// key, reopen it so the recovered goat's due work becomes schedulable again. A no-op
 				// when the row is already schedulable/terminal (safe recovery-recheck replay).
-				_, changed, err := s.obl.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, key, asOf)
+				var reschedule *obldomain.RecoveryReschedule
+				if opts.healthRecoveryAlign {
+					reschedule, err = s.recoveryRescheduleForRule(ctx, tenantID, versionID, rule, g, asOf, policies.Recovery)
+					if err != nil {
+						return err
+					}
+				}
+				_, changed, err := s.obl.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, key, asOf, reschedule)
 				if err != nil {
 					return err
 				}
@@ -751,7 +850,7 @@ func previousMissingDueDateKey(tenantID, versionID string, rule protodomain.Rule
 			return missingDueDateKey(tenantID, versionID, rule, g, "missing_dob")
 		}
 	case "post_arrival":
-		if g.EntryDate != nil {
+		if warmingEntryAt(g) == nil {
 			return missingDueDateKey(tenantID, versionID, rule, g, "missing_entry_date")
 		}
 	}
@@ -761,6 +860,10 @@ func previousMissingDueDateKey(tenantID, versionID string, rule protodomain.Rule
 // GenerateForGoat generates obligations for ONE goat across all published vaccination versions it
 // is eligible for. Used by the goat.created handler (event-driven SM-1). Idempotent.
 func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatID string, asOf time.Time) (domain.GenerateResult, error) {
+	return s.generateForGoat(ctx, tenantID, goatID, asOf, generationOptions{})
+}
+
+func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatID string, asOf time.Time, opts generationOptions) (domain.GenerateResult, error) {
 	var res domain.GenerateResult
 	if err := s.requireEvidenceReader(); err != nil {
 		return res, err
@@ -789,7 +892,8 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 		if err != nil {
 			return res, err
 		}
-		if !goatMatchesEligibility(g, dsl.Eligibility, asOf) {
+		policies := versionPoliciesFromDSL(dsl)
+		if !goatMatchesEligibility(g, dsl.Eligibility, policies.Pregnancy, asOf) {
 			if _, err := s.obl.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, goatID, versionID, "ineligible_after_shift", asOf); err != nil {
 				return res, err
 			}
@@ -800,24 +904,48 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 			return res, err
 		}
 		pagePlans = append(pagePlans, goatGenerationPlan{
-			versionID:   versionID,
-			rules:       rules,
-			deferState:  dsl.Eligibility.DeferStates,
-			goat:        g,
-			opts:        generationOptions{},
-			eligibility: dsl.Eligibility,
+			versionID:      versionID,
+			rules:          rules,
+			deferState:     dsl.Eligibility.DeferStates,
+			goat:           g,
+			opts:           opts,
+			eligibility:    dsl.Eligibility,
+			policies:       policies,
+			vaccineProfile: vaccineProfileFromDSL(dsl),
 		})
 	}
 	trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf)
 	if err != nil {
 		return res, err
 	}
+	lastVaccineByGoat, err := s.lastVaccineAdminsForPlans(ctx, tenantID, pagePlans, asOf)
+	if err != nil {
+		return res, err
+	}
 	for _, p := range pagePlans {
-		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, trustedByVersion[p.versionID], &res); err != nil {
+		lastAdmin := lastVaccineByGoat[p.goat.GoatID]
+		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, lastAdminPtr(lastAdmin), trustedByVersion[p.versionID], &res); err != nil {
 			return res, err
 		}
 	}
 	return res, nil
+}
+
+func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, recovery genRecoveryPolicy) (*obldomain.RecoveryReschedule, error) {
+	from := dateUTC(asOf)
+	to := from.AddDate(0, 0, int(recovery.alignDays()))
+	nearby, err := s.obl.FindNearestPlannedBatchDate(ctx, tenantID, versionID, rule.RuleID, g.ShedID, g.ParkID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	due, reason := recoveryRescheduleDue(asOf, recovery, nearby)
+	windowStart, windowEnd := recoveryDueWindows(due, rule.DueWindowDays)
+	return &obldomain.RecoveryReschedule{
+		DueAt:       due,
+		WindowStart: windowStart,
+		WindowEnd:   windowEnd,
+		AlignReason: reason,
+	}, nil
 }
 
 func inCare(lifecycle string) bool {
@@ -847,7 +975,7 @@ func missingDueDateReason(rule protodomain.Rule, g domain.EligibleGoat) string {
 			return "missing_dob"
 		}
 	case "post_arrival":
-		if g.EntryDate == nil {
+		if warmingEntryAt(g) == nil {
 			return "missing_entry_date"
 		}
 	}
@@ -967,7 +1095,10 @@ func eligibilityStage(e genEligibility) string {
 	return e.Stage
 }
 
-func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, asOf time.Time) bool {
+func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, preg genPregnancyPolicy, asOf time.Time) bool {
+	if s := normDim(e.Species); s != "" && !sameDim(s, g.Species) {
+		return false
+	}
 	if s := normDim(eligibilityStage(e)); s != "" && !sameDim(s, g.Stage) {
 		return false
 	}
@@ -990,7 +1121,7 @@ func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, asOf time.T
 		return false
 	}
 	for _, excluded := range e.ExcludeReproductiveStates {
-		if normDim(excluded) != "" && sameDim(excluded, g.ReproductiveStatus) {
+		if reproductiveStateExcluded(g, []string{excluded}, preg) {
 			return false
 		}
 	}
@@ -1045,7 +1176,15 @@ func wholeDaysBetween(start, end time.Time) int {
 // dueAt computes a rule's due date for a goat. ok=false with skip=false means the trigger is not an
 // SM-1 trigger (after_previous_completion → SM-7, manual_campaign). skip=true means an SM-1 trigger
 // that cannot be scheduled for this goat (missing dob/entry_date).
-func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, opts generationOptions) (due time.Time, ok bool, skip bool) {
+func obligationWindowEnd(rule protodomain.Rule, due time.Time) *time.Time {
+	if rule.DueWindowDays <= 0 {
+		return nil
+	}
+	end := due.Add(time.Duration(rule.DueWindowDays) * 24 * time.Hour)
+	return &end
+}
+
+func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies) (due time.Time, ok bool, skip bool) {
 	off := time.Duration(rule.OffsetDays) * 24 * time.Hour
 	switch rule.TriggerType {
 	case "birth_age":
@@ -1054,10 +1193,10 @@ func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, opts ge
 		}
 		return g.DOB.Add(off), true, false
 	case "post_arrival":
-		if g.EntryDate == nil {
+		if warmingEntryAt(g) == nil {
 			return time.Time{}, false, true
 		}
-		return g.EntryDate.Add(off), true, false
+		return adjustPostArrivalDue(g, rule, policies.Procurement), true, false
 	case "calendar":
 		return asOf.Add(off), true, false
 	case "manual_campaign":

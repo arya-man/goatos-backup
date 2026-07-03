@@ -36,6 +36,8 @@ type Repository interface {
 	// SM-4 sweeper: list unbatched due obligations for a version (idempotent input) + attach a set
 	// to a batch (only still-unbatched rows; returns count attached).
 	ListUnbatchedDueForVersion(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32) ([]domain.UnbatchedDue, error)
+	ListUnbatchedShedDueForParkConsolidation(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32) ([]domain.ParkConsolidationCandidate, error)
+	CountAttachedObligationsByRule(ctx context.Context, tenantID, batchID string) ([]domain.RuleAttachmentCount, error)
 	AttachObligationsToBatch(ctx context.Context, tenantID, batchID string, obligationIDs []string) (int64, error)
 
 	// MarkCompleted marks an obligation completed (SM-5) + writes a 'completed' event, in one txn.

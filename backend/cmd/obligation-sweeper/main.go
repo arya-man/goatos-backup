@@ -18,6 +18,7 @@ import (
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
+	obligationdomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/taskqueue"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
@@ -110,7 +111,15 @@ func run(args []string) error {
 			if err != nil {
 				return fmt.Errorf("sweep version %s: %w", versionID, err)
 			}
-			fmt.Printf("swept version=%s batches=%d obligations=%d\n", versionID, result.Batches, result.Obligations)
+			fmt.Printf("swept version=%s batches=%d obligations=%d park_batches=%d park_obligations=%d\n",
+				versionID, result.Batches, result.Obligations, result.ParkBatches, result.ParkObligations)
+		}
+		aligned, err := sweeper.AlignComboDrives(ctx, cfg.TenantID, obligationdomain.DefaultDrivePlannerSettings().ComboAlignWindowDays, cfg.DueBefore)
+		if err != nil {
+			return fmt.Errorf("align combo drives: %w", err)
+		}
+		if aligned > 0 {
+			fmt.Printf("combo drive dates aligned=%d\n", aligned)
 		}
 	}
 	if cfg.MarkMissed {
@@ -179,10 +188,14 @@ func buildSweepConfig(ctx context.Context, protocolRepo *protocolpg.Repository, 
 	if vaccineItemID == "" {
 		vaccineItemID = stockItemIDFromRuleDSL(version.RuleDsl)
 	}
+	vaccineCode, drivePlanner := obligationapp.DrivePlannerFromRuleDSL(version.RuleDsl)
 	out := obligationapp.SweepConfig{
-		SOPVersionID:  versionSOP,
-		VaccineItemID: vaccineItemID,
-		DosesPerGoat:  int32(cfg.DosesPerGoat),
+		SOPVersionID:      versionSOP,
+		VaccineItemID:     vaccineItemID,
+		VaccineCode:       vaccineCode,
+		DosesPerGoat:      int32(cfg.DosesPerGoat),
+		ParkConsolidation: obligationdomain.DefaultParkConsolidationSettings(),
+		DrivePlanner:      drivePlanner,
 	}
 	rules, err := protocolRepo.ListRules(ctx, cfg.TenantID, versionID)
 	if err != nil {

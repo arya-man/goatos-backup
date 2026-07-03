@@ -36,7 +36,8 @@ export async function runImpactPreview(
   input: ImpactPreviewInput,
 ): Promise<{ ok: boolean; data?: ImpactPreviewResult; message?: string }> {
   const res = await previewVaccinationImpact(input);
-  if (!res.ok) return { ok: false, message: res.error.message ?? "impact preview failed" };
+  if (!res.ok)
+    return { ok: false, message: res.error.message ?? "impact preview failed" };
   return { ok: true, data: res.data };
 }
 
@@ -46,20 +47,33 @@ export async function runImpactPreview(
 // this single action authors any protocol category. Draft never generates live work.
 export async function saveDraft(input: RuleInput): Promise<ActionResult> {
   if (!input.category) return { ok: false, message: "category is required" };
-  if (!input.code || !input.name) return { ok: false, message: "code and name are required" };
+  if (!input.code || !input.name)
+    return { ok: false, message: "code and name are required" };
   const protocolRows = buildProtocolRuleRows(input);
-  if (protocolRows.length === 0) return { ok: false, message: "add at least one rule row" };
+  if (protocolRows.length === 0)
+    return { ok: false, message: "add at least one rule row" };
 
   const def = await createProtocolDefinition(
     { code: input.code, name: input.name, category: input.category },
-    stableMutationKey("protocol-definition", { category: input.category, code: input.code, name: input.name }),
+    stableMutationKey("protocol-definition", {
+      category: input.category,
+      code: input.code,
+      name: input.name,
+    }),
   );
-  if (!def.ok) return { ok: false, message: def.error.message ?? "create definition failed", code: def.error.code };
+  if (!def.ok)
+    return {
+      ok: false,
+      message: def.error.message ?? "create definition failed",
+      code: def.error.code,
+    };
 
   const ruleDsl = buildRuleDsl(input);
   const proofPolicy = buildProofPolicy(input);
   const { type: scopeType, id: scopeId } = parseScope(input.scope);
-  const effectiveFrom = new Date(`${input.effectiveFrom || new Date().toISOString().slice(0, 10)}T00:00:00Z`).toISOString();
+  const effectiveFrom = new Date(
+    `${input.effectiveFrom || new Date().toISOString().slice(0, 10)}T00:00:00Z`,
+  ).toISOString();
   // Version-level sop_version_id (real published SOP UUID) + non-empty proof_policy are required by the
   // backend executable-contract gate (publish.go ValidateExecutionContract). Passing them here lets
   // a complete draft publish instead of failing the execution-contract check.
@@ -75,9 +89,17 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
   const version = await createProtocolVersion(
     def.data.protocol_id,
     versionBody,
-    stableMutationKey("protocol-version", { protocolId: def.data.protocol_id, ...versionBody }),
+    stableMutationKey("protocol-version", {
+      protocolId: def.data.protocol_id,
+      ...versionBody,
+    }),
   );
-  if (!version.ok) return { ok: false, message: version.error.message ?? "create version failed", code: version.error.code };
+  if (!version.ok)
+    return {
+      ok: false,
+      message: version.error.message ?? "create version failed",
+      code: version.error.code,
+    };
 
   for (const d of protocolRows) {
     // Note: AddProtocolRuleRequest has no sop_version field — the executable SOP is bound at the version
@@ -93,22 +115,40 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
       repeat_until_after_age: d.repeatUntilAfterAge,
       catch_up: d.catchUp,
       proof_policy: d.proofPolicy,
-      eligibility_json: typeof ruleDsl.eligibility === "object" && ruleDsl.eligibility !== null ? ruleDsl.eligibility : {},
+      eligibility_json:
+        typeof ruleDsl.eligibility === "object" && ruleDsl.eligibility !== null
+          ? ruleDsl.eligibility
+          : {},
       sort_order: d.sortOrder,
     };
     const rule = await addProtocolRule(
       version.data.protocol_version_id,
       ruleBody,
-      stableMutationKey("protocol-rule", { versionId: version.data.protocol_version_id, ...ruleBody }),
+      stableMutationKey("protocol-rule", {
+        versionId: version.data.protocol_version_id,
+        ...ruleBody,
+      }),
     );
-    if (!rule.ok) return { ok: false, message: rule.error.message ?? "add rule failed", code: rule.error.code };
+    if (!rule.ok)
+      return {
+        ok: false,
+        message: rule.error.message ?? "add rule failed",
+        code: rule.error.code,
+      };
   }
 
   revalidatePath("/config");
-  return { ok: true, message: `draft saved - ${protocolRows.length} rule rows - no live obligations`, versionId: version.data.protocol_version_id };
+  return {
+    ok: true,
+    message: `draft saved - ${protocolRows.length} rule rows - no live obligations`,
+    versionId: version.data.protocol_version_id,
+  };
 }
 
-export async function saveDraftBatch(input: RuleInput, matrixRows: VaccinationMatrixRow[]): Promise<ActionResult> {
+export async function saveDraftBatch(
+  input: RuleInput,
+  matrixRows: VaccinationMatrixRow[],
+): Promise<ActionResult> {
   if (input.category !== "vaccination") return saveDraft(input);
   const validationError = validateVaccinationMatrixRows(input, matrixRows);
   if (validationError) return { ok: false, message: validationError };
@@ -116,7 +156,12 @@ export async function saveDraftBatch(input: RuleInput, matrixRows: VaccinationMa
 
   const versionIds: string[] = [];
   for (let i = 0; i < rows.length; i += 1) {
-    const rowInput = ruleInputForVaccinationMatrixRow(input, rows[i], i, rows.length);
+    const rowInput = ruleInputForVaccinationMatrixRow(
+      input,
+      rows[i],
+      i,
+      rows.length,
+    );
     const result = await saveDraft(rowInput);
     if (!result.ok || !result.versionId) {
       return {
@@ -141,17 +186,40 @@ export async function saveDraftBatch(input: RuleInput, matrixRows: VaccinationMa
 // remains authoritative for the final not_publishable decision.
 export async function publishVersion(versionId: string): Promise<ActionResult> {
   if (!versionId) return { ok: false, message: "save the draft first" };
-  const res = await publishProtocolVersion(versionId, stableMutationKey("protocol-publish", { versionId }));
-  if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
+  const res = await publishProtocolVersion(
+    versionId,
+    stableMutationKey("protocol-publish", { versionId }),
+  );
+  if (!res.ok)
+    return {
+      ok: false,
+      message: res.error.message ?? "publish failed",
+      code: res.error.code,
+    };
   // A publish generates obligations, which surface across every process-integrity screen.
-  for (const p of ["/config", "/action-center", "/vaccination", "/protocol-adherence", "/workflows", "/"]) {
+  for (const p of [
+    "/config",
+    "/action-center",
+    "/vaccination",
+    "/protocol-adherence",
+    "/workflows",
+    "/",
+  ]) {
     revalidatePath(p);
   }
-  return { ok: true, message: "published - immutable; obligations now generate from this version" };
+  return {
+    ok: true,
+    message:
+      "published - immutable; obligations now generate from this version",
+  };
 }
 
-export async function publishVersions(versionIds: string[]): Promise<ActionResult> {
-  const ids = Array.from(new Set(versionIds.map((id) => id.trim()).filter(Boolean)));
+export async function publishVersions(
+  versionIds: string[],
+): Promise<ActionResult> {
+  const ids = Array.from(
+    new Set(versionIds.map((id) => id.trim()).filter(Boolean)),
+  );
   if (ids.length === 0) return { ok: false, message: "save the draft first" };
   const published: string[] = [];
   for (const versionId of ids) {
@@ -174,11 +242,25 @@ export async function publishVersions(versionIds: string[]): Promise<ActionResul
   };
 }
 
-function normalizeVaccinationMatrixRows(input: RuleInput, matrixRows: VaccinationMatrixRow[]): VaccinationMatrixRow[] {
+function normalizeVaccinationMatrixRows(
+  input: RuleInput,
+  matrixRows: VaccinationMatrixRow[],
+): VaccinationMatrixRow[] {
   if (input.category !== "vaccination") return [];
-  const rows = matrixRows.length > 0
-    ? matrixRows
-    : [{ id: "current", vaccine: input.vaccine, stage: input.eligibility.stage, sex: input.eligibility.sex, breed: input.eligibility.breed }];
+  const rows =
+    matrixRows.length > 0
+      ? matrixRows
+      : [
+          {
+            id: "current",
+            vaccine: input.vaccine,
+            species: input.eligibility.species,
+            stage: input.eligibility.stage,
+            sex: input.eligibility.sex,
+            breed: input.eligibility.breed,
+            doses: input.doses,
+          },
+        ];
   return rows.map((row, index) => ({
     id: row.id || `row-${index + 1}`,
     vaccine: {
@@ -192,6 +274,7 @@ function normalizeVaccinationMatrixRows(input: RuleInput, matrixRows: Vaccinatio
       disease: row.vaccine.disease.trim(),
       compatibilityGroup: row.vaccine.compatibilityGroup.trim(),
     },
+    species: row.species || input.eligibility.species,
     stage: row.stage || input.eligibility.stage,
     sex: row.sex || input.eligibility.sex,
     breed: row.breed || input.eligibility.breed,
@@ -199,10 +282,24 @@ function normalizeVaccinationMatrixRows(input: RuleInput, matrixRows: Vaccinatio
   }));
 }
 
-function validateVaccinationMatrixRows(input: RuleInput, matrixRows: VaccinationMatrixRow[]): string {
-  const rows = matrixRows.length > 0
-    ? matrixRows
-    : [{ id: "current", vaccine: input.vaccine, stage: input.eligibility.stage, sex: input.eligibility.sex, breed: input.eligibility.breed }];
+function validateVaccinationMatrixRows(
+  input: RuleInput,
+  matrixRows: VaccinationMatrixRow[],
+): string {
+  const rows =
+    matrixRows.length > 0
+      ? matrixRows
+      : [
+          {
+            id: "current",
+            vaccine: input.vaccine,
+            species: input.eligibility.species,
+            stage: input.eligibility.stage,
+            sex: input.eligibility.sex,
+            breed: input.eligibility.breed,
+            doses: input.doses,
+          },
+        ];
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
     const rowLabel = `matrix row ${i + 1}`;
@@ -219,14 +316,17 @@ function validateVaccinationMatrixRows(input: RuleInput, matrixRows: Vaccination
 }
 
 function stableMutationKey(scope: string, payload: unknown): string {
-  const digest = createHash("sha256").update(stableStringify(payload)).digest("hex");
+  const digest = createHash("sha256")
+    .update(stableStringify(payload))
+    .digest("hex");
   return `${scope}-${digest}`;
 }
 
 function stableStringify(value: unknown): string {
   if (typeof value === "undefined") return "undefined";
   if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  if (Array.isArray(value))
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
   const obj = value as Record<string, unknown>;
   return `{${Object.keys(obj)
     .sort()

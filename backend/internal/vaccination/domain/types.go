@@ -129,6 +129,11 @@ type EligibleGoat struct {
 	GoatID               string
 	DOB                  *time.Time
 	EntryDate            *time.Time
+	WarmingEntryAt       *time.Time
+	BreedingDate         *time.Time
+	LastDeliveryDate     *time.Time
+	Species              string
+	OriginType           string
 	LifecycleStatus      string
 	HealthStatus         string
 	ReproductiveStatus   string
@@ -154,6 +159,15 @@ type TrustedCompletionCandidate struct {
 
 func (c TrustedCompletionCandidate) Key() string {
 	return c.GoatID + "|" + c.RuleID + "|" + c.DoseCode + "|" + c.DueAt.UTC().Format(time.RFC3339Nano)
+}
+
+// RecentVaccineAdministration is the latest accepted Goat OS dose used for cross-vaccine gap checks.
+type RecentVaccineAdministration struct {
+	AdministeredAt    time.Time
+	VaccineCode       string
+	VaccineType       string
+	PathogenClass     string
+	ProtocolVersionID string
 }
 
 // GenerateResult summarises an SM-1 generation run.

@@ -34,6 +34,21 @@ func seedGenGoatWithStage(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	}
 }
 
+func seedGenAdultProcuredGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, lifecycle string, entryDate time.Time) {
+	t.Helper()
+	seedGenGoatWithStage(t, ctx, pool, id, lifecycle, "adult")
+	if _, err := pool.Exec(ctx, `
+UPDATE goats
+SET entry_date = $3::date,
+    dob = DATE '2025-01-01',
+    origin_type = 'procured',
+    shed_id = $4::uuid,
+    current_location_id = $4::uuid
+WHERE tenant_id = $1 AND goat_id = $2`, impTenant, id, entryDate, impCbe); err != nil {
+		t.Fatalf("set adult procured goat %s: %v", id, err)
+	}
+}
+
 func TestSM1GenerationIdempotentAndDeferVisible(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -452,7 +467,7 @@ func TestGoatCreatedTrustedHFEvidenceSuppressesMatchingObligation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("definition: %v", err)
 	}
-	ruleDSL := []byte(`{"eligibility":{"animal_stage":"K1"},"source":{"source_system":"phc","source_ref":"PHC §6","review_status":"approved","approved_by":"Reviewer"}}`)
+	ruleDSL := []byte(`{"eligibility":{},"source":{"source_system":"phc","source_ref":"PHC §6","review_status":"approved","approved_by":"Reviewer"}}`)
 	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
 		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
 		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: ruleDSL, ProofPolicy: []byte(`{}`),
@@ -476,20 +491,9 @@ func TestGoatCreatedTrustedHFEvidenceSuppressesMatchingObligation(t *testing.T) 
 	importedGoat := "30000000-0000-4000-8000-0000000000c2"
 	futureTrustedGoat := "30000000-0000-4000-8000-0000000000c3"
 	entryDate := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
-	seedGenGoat(t, ctx, pool, trustedGoat, "alive")
-	seedGenGoat(t, ctx, pool, importedGoat, "alive")
-	seedGenGoat(t, ctx, pool, futureTrustedGoat, "alive")
-	for _, goatID := range []string{trustedGoat, importedGoat, futureTrustedGoat} {
-		if _, err := pool.Exec(ctx, `
-UPDATE goats
-SET entry_date = $3::date,
-    origin_type = 'procured',
-    shed_id = $4::uuid,
-    current_location_id = $4::uuid
-WHERE tenant_id = $1 AND goat_id = $2`, impTenant, goatID, entryDate, impCbe); err != nil {
-			t.Fatalf("set entry date: %v", err)
-		}
-	}
+	seedGenAdultProcuredGoat(t, ctx, pool, trustedGoat, "alive", entryDate)
+	seedGenAdultProcuredGoat(t, ctx, pool, importedGoat, "alive", entryDate)
+	seedGenAdultProcuredGoat(t, ctx, pool, futureTrustedGoat, "alive", entryDate)
 	pastAdministered := time.Date(2026, 6, 8, 8, 0, 0, 0, time.UTC)
 	pastReviewed := time.Date(2026, 6, 9, 8, 0, 0, 0, time.UTC)
 	futureAdministered := time.Date(2026, 6, 12, 8, 0, 0, 0, time.UTC)
@@ -552,7 +556,7 @@ func TestGoatCreatedTrustedHFEvidenceSuppressesAcrossProtocolVersions(t *testing
 	v1ID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
 		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
 		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), EffectiveTo: &v1End,
-		RuleDsl: []byte(`{"eligibility":{"animal_stage":"K1"}}`), ProofPolicy: []byte(`{}`),
+		RuleDsl: []byte(`{"eligibility":{}}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("v1: %v", err)
@@ -571,7 +575,7 @@ func TestGoatCreatedTrustedHFEvidenceSuppressesAcrossProtocolVersions(t *testing
 
 	v2ID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
 		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 2, Status: "draft",
-		EffectiveFrom: v1End, RuleDsl: []byte(`{"eligibility":{"animal_stage":"K1"}}`), ProofPolicy: []byte(`{}`),
+		EffectiveFrom: v1End, RuleDsl: []byte(`{"eligibility":{}}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("v2: %v", err)
@@ -589,16 +593,7 @@ func TestGoatCreatedTrustedHFEvidenceSuppressesAcrossProtocolVersions(t *testing
 
 	goatID := "30000000-0000-4000-8000-0000000000c4"
 	entryDate := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
-	seedGenGoat(t, ctx, pool, goatID, "alive")
-	if _, err := pool.Exec(ctx, `
-UPDATE goats
-SET entry_date = $3::date,
-    origin_type = 'procured',
-    shed_id = $4::uuid,
-    current_location_id = $4::uuid
-WHERE tenant_id = $1 AND goat_id = $2`, impTenant, goatID, entryDate, impCbe); err != nil {
-		t.Fatalf("set entry date: %v", err)
-	}
+	seedGenAdultProcuredGoat(t, ctx, pool, goatID, "alive", entryDate)
 	reviewedAt := time.Date(2026, 6, 9, 8, 0, 0, 0, time.UTC)
 	seedGenerationProcurementEvidence(t, ctx, pool, "30000000-0000-4000-8000-00000000d004", goatID, v1ID, v1RuleID, "trusted", time.Date(2026, 6, 8, 8, 0, 0, 0, time.UTC), &reviewedAt)
 
@@ -679,7 +674,7 @@ func TestGoatCreatedAcceptedCompletionSuppressesMatchingObligation(t *testing.T)
 	if err != nil {
 		t.Fatalf("definition: %v", err)
 	}
-	ruleDSL := []byte(`{"eligibility":{"animal_stage":"K1"}}`)
+	ruleDSL := []byte(`{"eligibility":{}}`)
 	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
 		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
 		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: ruleDSL, ProofPolicy: []byte(`{}`),
@@ -704,12 +699,7 @@ func TestGoatCreatedAcceptedCompletionSuppressesMatchingObligation(t *testing.T)
 	unverifiedGoat := "30000000-0000-4000-8000-0000000000e3"
 	entryDate := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
 	for _, g := range []string{acceptedGoat, recordedGoat, unverifiedGoat} {
-		seedGenGoat(t, ctx, pool, g, "alive")
-		if _, err := pool.Exec(ctx, `
-UPDATE goats SET entry_date=$3::date, origin_type='procured', shed_id=$4::uuid, current_location_id=$4::uuid
-WHERE tenant_id=$1 AND goat_id=$2`, impTenant, g, entryDate, impCbe); err != nil {
-			t.Fatalf("set entry/shed: %v", err)
-		}
+		seedGenAdultProcuredGoat(t, ctx, pool, g, "alive", entryDate)
 	}
 
 	administered := time.Date(2026, 6, 12, 8, 0, 0, 0, time.UTC)
@@ -766,7 +756,7 @@ func TestGoatCreatedAcceptedCompletionDoesNotSuppressDifferentCalendarCycle(t *t
 	v1, err := proto.CreateVersion(ctx, protodomain.NewVersion{
 		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
 		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), EffectiveTo: &v1End,
-		RuleDsl: []byte(`{"eligibility":{"animal_stage":"K1"}}`), ProofPolicy: []byte(`{}`),
+		RuleDsl: []byte(`{"eligibility":{}}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("create v1: %v", err)
@@ -785,7 +775,7 @@ func TestGoatCreatedAcceptedCompletionDoesNotSuppressDifferentCalendarCycle(t *t
 	v2, err := proto.CreateVersion(ctx, protodomain.NewVersion{
 		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 2, Status: "draft",
 		EffectiveFrom: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
-		RuleDsl:       []byte(`{"eligibility":{"animal_stage":"K1"}}`), ProofPolicy: []byte(`{}`),
+		RuleDsl:       []byte(`{"eligibility":{}}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("create v2: %v", err)
@@ -802,13 +792,8 @@ func TestGoatCreatedAcceptedCompletionDoesNotSuppressDifferentCalendarCycle(t *t
 	}
 
 	goatID := "30000000-0000-4000-8000-0000000000e4"
-	seedGenGoat(t, ctx, pool, goatID, "alive")
 	entryDate := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
-	if _, err := pool.Exec(ctx, `
-UPDATE goats SET entry_date=$3::date, origin_type='procured', shed_id=$4::uuid, current_location_id=$4::uuid
-WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID, entryDate, impCbe); err != nil {
-		t.Fatalf("set entry/shed: %v", err)
-	}
+	seedGenAdultProcuredGoat(t, ctx, pool, goatID, "alive", entryDate)
 	seedGoatOSCompletion(t, ctx, pool, obl, v1, v1Rule, goatID, "accepted", time.Date(2026, 6, 17, 8, 0, 0, 0, time.UTC))
 
 	res, err := vaccapp.NewGenerationService(proto, vacc, obl).GenerateForGoat(ctx, impTenant, goatID, time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC))
@@ -844,7 +829,7 @@ func TestGenerateScopesObligationToShedLocation(t *testing.T) {
 	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
 		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
 		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
-		RuleDsl:       []byte(`{"eligibility":{"animal_stage":"K1"}}`), ProofPolicy: []byte(`{}`),
+		RuleDsl:       []byte(`{"eligibility":{}}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("version: %v", err)
@@ -867,9 +852,10 @@ func TestGenerateScopesObligationToShedLocation(t *testing.T) {
 		t.Fatalf("shed location: %v", err)
 	}
 	goatID := "30000000-0000-4000-8000-0000000000f1"
-	seedGenGoat(t, ctx, pool, goatID, "alive")
+	entryDate := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	seedGenAdultProcuredGoat(t, ctx, pool, goatID, "alive", entryDate)
 	if _, err := pool.Exec(ctx,
-		`UPDATE goats SET entry_date=DATE '2026-06-10', shed_id=$3::uuid, current_location_id=$3::uuid
+		`UPDATE goats SET shed_id=$3::uuid, current_location_id=$3::uuid
 		 WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID, shedID); err != nil {
 		t.Fatalf("set shed: %v", err)
 	}

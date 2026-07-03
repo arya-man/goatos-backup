@@ -13,7 +13,7 @@ import {
   type ApiResult,
 } from "@/lib/api/server";
 import { createAppApiClient, type AppApiComponents } from "@goatos/api-client";
-import type { CalendarEventDetail, CalendarEventListResponse, CalendarOwnerFilter, CalendarStatus } from "./calendar-contract";
+import type { CalendarDriveTargetListResponse, CalendarEventDetail, CalendarEventListResponse, CalendarOwnerFilter, CalendarStatus } from "./calendar-contract";
 
 type CalendarActionResponse = AppApiComponents["schemas"]["CalendarActionResponse"];
 type CalendarNudgeRequest = AppApiComponents["schemas"]["CalendarNudgeRequest"];
@@ -54,12 +54,34 @@ export async function getCalendarVaccinationEvents(params: CalendarListParams = 
   );
 }
 
+const DEFAULT_TARGET_LIMIT = 10;
+const MAX_TARGET_LIMIT = 50;
+
 export async function getCalendarVaccinationEventDetail(eventId: string): Promise<ApiResult<CalendarEventDetail>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   const path = `/calendar/vaccination/events/${encodeURIComponent(eventId)}` as Parameters<typeof client.request>[0];
   return request(() => client.request<CalendarEventDetail>(path, { cache: "no-store" }));
+}
+
+export async function getCalendarDriveTargets(
+  eventId: string,
+  params: { cursor?: string; limit?: number } = {},
+): Promise<ApiResult<CalendarDriveTargetListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/calendar/vaccination/events/${encodeURIComponent(eventId)}/targets` as Parameters<typeof client.request>[0];
+  return request(() =>
+    client.request<CalendarDriveTargetListResponse>(path, {
+      cache: "no-store",
+      query: compactQuery({
+        cursor: params.cursor,
+        limit: Math.min(params.limit ?? DEFAULT_TARGET_LIMIT, MAX_TARGET_LIMIT),
+      }),
+    }),
+  );
 }
 
 // Nudge — idempotent reminder/escalation send through the backend NotificationGateway. The Idempotency-Key

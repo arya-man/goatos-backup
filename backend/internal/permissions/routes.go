@@ -139,6 +139,7 @@ var protectedRoutes = []Route{
 	{OperationID: "dismissFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/dismiss", Permissions: []string{ProtocolWrite}},
 	{OperationID: "listCalendarVaccinationEvents", Method: "GET", Pattern: "/calendar/vaccination/events", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},
 	{OperationID: "getCalendarVaccinationEvent", Method: "GET", Pattern: "/calendar/vaccination/events/{event_id}", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},
+	{OperationID: "listCalendarVaccinationDriveTargets", Method: "GET", Pattern: "/calendar/vaccination/events/{event_id}/targets", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},
 	{OperationID: "getCalendarVaccinationEventHistory", Method: "GET", Pattern: "/calendar/vaccination/events/{event_id}/history", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},
 	{OperationID: "sendCalendarVaccinationEventNudge", Method: "POST", Pattern: "/calendar/vaccination/events/{event_id}/nudge", Permissions: []string{CalendarAction, VaccinationRead, ObligationRead}},
 	{OperationID: "snoozeCalendarVaccinationEvent", Method: "POST", Pattern: "/calendar/vaccination/events/{event_id}/snooze", Permissions: []string{CalendarAction, VaccinationRead, ObligationRead}},

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Info, Plus } from "lucide-react";
 import { actionFeedbackCopy, copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { one, hrefWithoutAction, type RouteSearchParams } from "@/lib/search-params";
+import { one, hrefWithoutAction, hrefWithPagedCursor, hrefPreviousPagedCursor, boundedInt, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref, type Scope } from "@/lib/scope";
 import { Tag } from "@/components/ui-primitives";
 import {
@@ -22,7 +22,7 @@ import {
   type CalendarPresentationTab,
   type OwnerPresentationMap,
 } from "./calendar-contract";
-import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail } from "./calendar-server";
+import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { CalendarEventDrawer } from "./calendar-event-drawer";
 
 const PATH = "/calendar";
@@ -104,6 +104,8 @@ export async function VaccinationCalendarPage({
   const view = one(sp, "view") === "month" ? "month" : "week";
   const requestedOwnerKey = (one(sp, "owner_key") || "all") as CalendarOwnerFilter;
   const selectedEventId = one(sp, "event");
+  const targetsCursor = one(sp, "targets_cursor");
+  const targetsPage = boundedInt(one(sp, "targets_page"), 1, 1, 1000);
   const today = istToday();
   const dayFilter = one(sp, "day") || undefined;
   const actionStatus = one(sp, "action_status");
@@ -115,9 +117,10 @@ export async function VaccinationCalendarPage({
   const anchorKey = asOf ? asOf.slice(0, 10) : today;
   const { dateFrom, dateTo } = view === "month" ? monthWindow(anchorKey) : { dateFrom: asOf ? asOf.slice(0, 10) : undefined, dateTo: undefined };
 
-  const [list, detail] = await Promise.all([
+  const [list, detail, targets] = await Promise.all([
     getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, dateFrom, dateTo }),
     selectedEventId ? getCalendarVaccinationEventDetail(selectedEventId) : Promise.resolve(null),
+    selectedEventId ? getCalendarDriveTargets(selectedEventId, { cursor: targetsCursor, limit: 10 }) : Promise.resolve(null),
   ]);
 
   const events = list.ok ? list.data.items : [];
@@ -131,11 +134,24 @@ export async function VaccinationCalendarPage({
   function hrefWith(overrides: Record<string, string | undefined>): string {
     return scopeHref(PATH, scope, {}, { view: view === "month" ? "month" : undefined, owner_key: activeOwnerKey === "all" ? undefined : activeOwnerKey, day: dayFilter, ...overrides });
   }
-  const hrefForTab = (tab: CalendarPresentationTab | CalendarOwnerPresentationTab) => hrefWith({ ...presentationQueryToSearch(tab.query), event: undefined });
-  const eventHref = (id: string) => hrefWith({ event: id });
-  const closeHref = hrefWith({ event: undefined });
+  const hrefForTab = (tab: CalendarPresentationTab | CalendarOwnerPresentationTab) => hrefWith({ ...presentationQueryToSearch(tab.query), event: undefined, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
+  const eventHref = (id: string) => hrefWith({ event: id, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
+  const closeHref = hrefWith({ event: undefined, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
 
   const sel = detail && detail.ok ? detail.data : null;
+  const spForTargets: RouteSearchParams = { ...sp, event: selectedEventId };
+  function scopedTargetsHref(href: string | null): string | null {
+    if (!href) return null;
+    const [path, query = ""] = href.split("?");
+    const extra = Object.fromEntries(new URLSearchParams(query));
+    return scopeHref(path, scope, {}, extra);
+  }
+  const targetsNextHref =
+    targets && targets.ok && targets.data.next_cursor
+      ? scopedTargetsHref(hrefWithPagedCursor(PATH, spForTargets, "targets_cursor", targets.data.next_cursor, "targets_page", "targets_cursor_stack"))
+      : null;
+  const targetsPrevHref = scopedTargetsHref(hrefPreviousPagedCursor(PATH, spForTargets, "targets_cursor", "targets_page", "targets_cursor_stack"));
+  const targetsOnPage = targets && targets.ok ? targets.data.items.length : 0;
 
   return (
     <div className="screen on">
@@ -270,7 +286,23 @@ export async function VaccinationCalendarPage({
         />
       )}
 
-      {sel ? <CalendarEventDrawer detail={sel} closeHref={closeHref} returnTo={hrefWithoutAction(PATH, sp)} scope={scope} presentation={presentation} ownerMeta={ownerMeta} pageContract={pageContract} /> : null}
+      {sel ? (
+        <CalendarEventDrawer
+          detail={sel}
+          targets={targets && targets.ok ? targets.data.items : null}
+          targetsError={targets && !targets.ok ? targets.error.message : null}
+          targetsNextHref={targetsNextHref}
+          targetsPrevHref={targetsPrevHref}
+          targetsPage={targetsPage}
+          targetsOnPage={targetsOnPage}
+          closeHref={closeHref}
+          returnTo={hrefWithoutAction(PATH, sp)}
+          scope={scope}
+          presentation={presentation}
+          ownerMeta={ownerMeta}
+          pageContract={pageContract}
+        />
+      ) : null}
     </div>
   );
 }

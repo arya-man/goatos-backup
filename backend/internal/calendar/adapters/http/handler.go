@@ -25,6 +25,7 @@ const maxActionBodyBytes = 16 * 1024
 type Service interface {
 	ListEvents(ctx context.Context, q domain.Query) (domain.CalendarEventListResponse, error)
 	GetEventDetail(ctx context.Context, q domain.EventQuery) (domain.CalendarEventDetail, error)
+	ListDriveTargets(ctx context.Context, q domain.DriveTargetQuery) (domain.CalendarDriveTargetListResponse, error)
 	History(ctx context.Context, q domain.HistoryQuery) (domain.CalendarHistoryResponse, error)
 	SendNudge(ctx context.Context, in ports.SendNudge) (domain.CalendarActionResponse, error)
 	Snooze(ctx context.Context, in ports.Snooze) (domain.CalendarActionResponse, error)
@@ -48,6 +49,7 @@ func NewHandler(service Service, log ...*slog.Logger) *Handler {
 func Register(mux *stdhttp.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /calendar/vaccination/events", h.ListEvents)
 	mux.HandleFunc("GET /calendar/vaccination/events/{event_id}", h.GetEventDetail)
+	mux.HandleFunc("GET /calendar/vaccination/events/{event_id}/targets", h.ListDriveTargets)
 	mux.HandleFunc("GET /calendar/vaccination/events/{event_id}/history", h.History)
 	mux.HandleFunc("POST /calendar/vaccination/events/{event_id}/nudge", h.SendNudge)
 	mux.HandleFunc("POST /calendar/vaccination/events/{event_id}/snooze", h.Snooze)
@@ -74,6 +76,37 @@ func (h *Handler) GetEventDetail(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		EventID:  r.PathValue("event_id"),
 		Scope:    calendarScope(r, permissions.CalendarRead),
 	})
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, stdhttp.StatusOK, resp)
+}
+
+func (h *Handler) ListDriveTargets(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	query := r.URL.Query()
+	q := domain.DriveTargetQuery{
+		TenantID: tenantID(r),
+		EventID:  r.PathValue("event_id"),
+		Scope:    calendarScope(r, permissions.CalendarRead),
+	}
+	if raw := query.Get("cursor"); raw != "" {
+		cursor, err := domain.DecodeDriveTargetCursor(raw)
+		if err != nil {
+			h.badRequest(w, r, "invalid_cursor", "cursor is invalid")
+			return
+		}
+		q.Cursor = &cursor
+	}
+	if raw := query.Get("limit"); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil || limit <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		q.Limit = limit
+	}
+	resp, err := h.service.ListDriveTargets(r.Context(), q)
 	if err != nil {
 		h.writeAppError(w, r, err)
 		return

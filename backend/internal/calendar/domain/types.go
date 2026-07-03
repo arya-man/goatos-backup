@@ -206,6 +206,23 @@ type CalendarEventDetail struct {
 	RecentActions        []CalendarHistoryItem `json:"recent_actions"`
 }
 
+type CalendarDriveTarget struct {
+	ObligationID      string    `json:"obligation_id"`
+	AnimalID          string    `json:"animal_id"`
+	AnimalIdentifier1 *string   `json:"animal_identifier_1"`
+	AnimalIdentifier2 *string   `json:"animal_identifier_2"`
+	Stage             *string   `json:"stage"`
+	Status            string    `json:"status"`
+	DueAt             time.Time `json:"due_at"`
+}
+
+type CalendarDriveTargetListResponse struct {
+	Source     string                `json:"source"`
+	EventID    string                `json:"event_id"`
+	Items      []CalendarDriveTarget `json:"items"`
+	NextCursor *string               `json:"next_cursor"`
+}
+
 type CalendarHistoryItem struct {
 	HistoryID   string          `json:"history_id"`
 	EventType   string          `json:"event_type"`

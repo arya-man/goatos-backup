@@ -100,6 +100,29 @@ func (s *Service) GetEventDetail(ctx context.Context, q domain.EventQuery) (doma
 	return detail, nil
 }
 
+func (s *Service) ListDriveTargets(ctx context.Context, q domain.DriveTargetQuery) (domain.CalendarDriveTargetListResponse, error) {
+	if !uuidutil.IsUUIDString(q.TenantID) {
+		return domain.CalendarDriveTargetListResponse{}, BadRequest("invalid_tenant", "tenant id is required")
+	}
+	if err := domain.ValidateEventID(q.EventID); err != nil {
+		return domain.CalendarDriveTargetListResponse{}, BadRequest("invalid_event_id", "event_id is invalid")
+	}
+	if _, err := domain.ParseDriveEventID(q.EventID); err != nil {
+		return domain.CalendarDriveTargetListResponse{}, BadRequest("invalid_event_id", "event_id is not a vaccination drive")
+	}
+	if q.Limit <= 0 {
+		q.Limit = 10
+	}
+	if q.Limit > 50 {
+		q.Limit = 50
+	}
+	resp, err := s.repo.ListDriveTargets(ctx, q)
+	if err != nil {
+		return domain.CalendarDriveTargetListResponse{}, mapRepoError(err)
+	}
+	return resp, nil
+}
+
 func (s *Service) History(ctx context.Context, q domain.HistoryQuery) (domain.CalendarHistoryResponse, error) {
 	if !uuidutil.IsUUIDString(q.TenantID) {
 		return domain.CalendarHistoryResponse{}, BadRequest("invalid_tenant", "tenant id is required")

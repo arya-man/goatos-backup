@@ -4,7 +4,13 @@ import { Bell, X } from "lucide-react";
 import { Tag } from "@/components/ui-primitives";
 import { dateTime, fmtDateTime } from "@/lib/format";
 import { scopeHref, type Scope } from "@/lib/scope";
-import { copy, optionalOption, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import {
+  copy,
+  optionalOption,
+  optionLabel,
+  optionTone,
+  type AdminUiPageContract,
+} from "@/lib/admin-ui-contract";
 import { sendNudgeAction, snoozeAction } from "./calendar-actions";
 import {
   blockEntries,
@@ -14,11 +20,13 @@ import {
   ownerColor,
   ownerLabel,
   parseLinks,
+  type CalendarDriveTarget,
   type CalendarEventDetail,
   type CalendarJSONBlock,
   type CalendarPresentation,
   type OwnerPresentationMap,
 } from "./calendar-contract";
+import { ProcurementPager } from "@/features/procurement";
 
 function MetaCell({ k, v }: { k: string; v: React.ReactNode }) {
   return (
@@ -30,7 +38,15 @@ function MetaCell({ k, v }: { k: string; v: React.ReactNode }) {
 }
 
 // Render one detail JSONBlock as a metagrid card; hidden when the block has no scalar entries.
-function BlockCard({ title, block, leading }: { title: string; block: CalendarJSONBlock | undefined | null; leading?: React.ReactNode }) {
+function BlockCard({
+  title,
+  block,
+  leading,
+}: {
+  title: string;
+  block: CalendarJSONBlock | undefined | null;
+  leading?: React.ReactNode;
+}) {
   const entries = blockEntries(block);
   if (entries.length === 0 && !leading) return null;
   return (
@@ -38,7 +54,9 @@ function BlockCard({ title, block, leading }: { title: string; block: CalendarJS
       <div className="b700" style={{ margin: "2px 0 8px" }}>
         {title}
       </div>
-      {leading ? <div style={{ marginBottom: entries.length ? 8 : 0 }}>{leading}</div> : null}
+      {leading ? (
+        <div style={{ marginBottom: entries.length ? 8 : 0 }}>{leading}</div>
+      ) : null}
       {entries.length ? (
         <div className="metagrid">
           {entries.map((e) => (
@@ -50,14 +68,28 @@ function BlockCard({ title, block, leading }: { title: string; block: CalendarJS
   );
 }
 
-function contractStateLabel(pageContract: AdminUiPageContract, groupId: string, state: string | null | undefined, noneKey = "label.placeholder"): string {
+function contractStateLabel(
+  pageContract: AdminUiPageContract,
+  groupId: string,
+  state: string | null | undefined,
+  noneKey = "label.placeholder",
+): string {
   const key = state?.trim();
-  if (!key || key === "none" || key === "not_scheduled") return copy(pageContract, noneKey);
-  return optionalOption(pageContract, groupId, key)?.label ?? key.replace(/_/g, " ");
+  if (!key || key === "none" || key === "not_scheduled")
+    return copy(pageContract, noneKey);
+  return (
+    optionalOption(pageContract, groupId, key)?.label ?? key.replace(/_/g, " ")
+  );
 }
 
 export function CalendarEventDrawer({
   detail,
+  targets,
+  targetsError,
+  targetsNextHref,
+  targetsPrevHref,
+  targetsPage,
+  targetsOnPage,
   closeHref,
   returnTo,
   scope,
@@ -66,6 +98,12 @@ export function CalendarEventDrawer({
   pageContract,
 }: {
   detail: CalendarEventDetail;
+  targets: CalendarDriveTarget[] | null;
+  targetsError: string | null;
+  targetsNextHref: string | null;
+  targetsPrevHref: string | null;
+  targetsPage: number;
+  targetsOnPage: number;
   closeHref: string;
   returnTo: string;
   scope: Scope;
@@ -79,20 +117,44 @@ export function CalendarEventDrawer({
   const accent = ownerColor(event.owner_key, ownerMeta);
   const status = {
     label: optionLabel(pageContract, "calendar_status", event.status),
-    tone: optionTone(pageContract, "calendar_status", event.status) as "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal",
+    tone: optionTone(pageContract, "calendar_status", event.status) as
+      "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal",
   };
   const severity = {
     label: optionLabel(pageContract, "calendar_severity", event.severity),
-    tone: optionTone(pageContract, "calendar_severity", event.severity) as "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal",
+    tone: optionTone(pageContract, "calendar_severity", event.severity) as
+      "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal",
   };
   const channels = detail.notification_channels ?? [];
-  const whenWindow = event.window_start && event.window_end ? `${fmtDateTime(event.window_start)} → ${fmtDateTime(event.window_end)}` : fmtDateTime(event.due_at);
+  const whenWindow =
+    event.window_start && event.window_end
+      ? `${fmtDateTime(event.window_start)} → ${fmtDateTime(event.window_end)}`
+      : fmtDateTime(event.due_at);
 
   // Footer "Open drive" (shed execution) vs "Open workflow", from the event's link keys → app routes.
   const shedId = driveShedId(event);
-  const driveHref = shedId ? scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(shedId)}`, scope) : undefined;
-  const workflowHref = hasWorkflowLink(event) ? scopeHref(`/workflows/${encodeURIComponent(event.event_id)}`, scope, {}, { from: "calendar" }) : undefined;
-  const primaryOpen = driveHref ? { href: driveHref, label: copy(pageContract, "action.open_drive") } : workflowHref ? { href: workflowHref, label: copy(pageContract, "action.open_workflow") } : null;
+  const driveHref = shedId
+    ? scopeHref(
+        `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`,
+        scope,
+      )
+    : undefined;
+  const workflowHref = hasWorkflowLink(event)
+    ? scopeHref(
+        `/workflows/${encodeURIComponent(event.event_id)}`,
+        scope,
+        {},
+        { from: "calendar" },
+      )
+    : undefined;
+  const primaryOpen = driveHref
+    ? { href: driveHref, label: copy(pageContract, "action.open_drive") }
+    : workflowHref
+      ? {
+          href: workflowHref,
+          label: copy(pageContract, "action.open_workflow"),
+        }
+      : null;
   const linkRow = parseLinks(event, pageContract);
 
   // Per-render idempotency keys: a double-submit of the SAME rendered form replays (no duplicate action).
@@ -103,18 +165,41 @@ export function CalendarEventDrawer({
 
   return (
     <>
-      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.event.close_label")} scroll={false} />
-      <aside className="drawer on" aria-label={copy(pageContract, "drawer.event.aria")}>
+      <Link
+        href={closeHref}
+        replace
+        className="veil"
+        aria-label={copy(pageContract, "drawer.event.close_label")}
+        scroll={false}
+      />
+      <aside
+        className="drawer on"
+        aria-label={copy(pageContract, "drawer.event.aria")}
+      >
         <div className="dh">
-          <span className="fic" style={{ background: `color-mix(in srgb, ${accent} 18%, var(--panel))`, color: accent }}>
+          <span
+            className="fic"
+            style={{
+              background: `color-mix(in srgb, ${accent} 18%, var(--panel))`,
+              color: accent,
+            }}
+          >
             <TypeIcon className="ic" aria-hidden="true" />
           </span>
           <div>
-            <div className="mt">{copy(pageContract, "drawer.event.eyebrow")}</div>
+            <div className="mt">
+              {copy(pageContract, "drawer.event.eyebrow")}
+            </div>
             <h2>{event.title}</h2>
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.event.close_label")} scroll={false}>
+          <Link
+            href={closeHref}
+            replace
+            className="iconbtn"
+            aria-label={copy(pageContract, "drawer.event.close_label")}
+            scroll={false}
+          >
             <X className="ic" />
           </Link>
         </div>
@@ -130,9 +215,33 @@ export function CalendarEventDrawer({
           {/* Mock metagrid: When / Reminder / Channel / Escalates. Channel from the API summary field. */}
           <div className="metagrid">
             <MetaCell k={copy(pageContract, "label.when")} v={whenWindow} />
-            <MetaCell k={copy(pageContract, "label.reminder")} v={contractStateLabel(pageContract, "calendar_reminder_state", event.reminder_state, "label.not_configured")} />
-            <MetaCell k={copy(pageContract, "label.channel")} v={event.primary_notification_channel || <span className="muted">{copy(pageContract, "label.not_configured")}</span>} />
-            <MetaCell k={copy(pageContract, "label.escalates")} v={contractStateLabel(pageContract, "calendar_escalation_state", event.escalation_state)} />
+            <MetaCell
+              k={copy(pageContract, "label.reminder")}
+              v={contractStateLabel(
+                pageContract,
+                "calendar_reminder_state",
+                event.reminder_state,
+                "label.not_configured",
+              )}
+            />
+            <MetaCell
+              k={copy(pageContract, "label.channel")}
+              v={
+                event.primary_notification_channel || (
+                  <span className="muted">
+                    {copy(pageContract, "label.not_configured")}
+                  </span>
+                )
+              }
+            />
+            <MetaCell
+              k={copy(pageContract, "label.escalates")}
+              v={contractStateLabel(
+                pageContract,
+                "calendar_escalation_state",
+                event.escalation_state,
+              )}
+            />
           </div>
           {channels.length > 1 ? (
             <div className="note" style={{ marginTop: 10 }}>
@@ -146,10 +255,24 @@ export function CalendarEventDrawer({
               {copy(pageContract, "label.scope")}
             </div>
             <div className="metagrid">
-              <MetaCell k={copy(pageContract, "label.park_shed")} v={`${event.park_code ?? copy(pageContract, "label.placeholder")} · ${event.shed_name ?? copy(pageContract, "label.all_sheds")}`} />
-              <MetaCell k={copy(pageContract, "label.cohort_target")} v={`${event.cohort_name ?? copy(pageContract, "label.placeholder")} · ${event.target_count}`} />
-              <MetaCell k={copy(pageContract, "label.vaccine_dose")} v={`${event.vaccine_name ?? copy(pageContract, "label.placeholder")} · ${event.dose_code ?? copy(pageContract, "label.placeholder")}`} />
-              <MetaCell k={copy(pageContract, "label.owner")} v={event.assignee_label ?? ownerLabel(event.owner_key, ownerMeta)} />
+              <MetaCell
+                k={copy(pageContract, "label.park_shed")}
+                v={`${event.park_code ?? copy(pageContract, "label.placeholder")} · ${event.shed_name ?? copy(pageContract, "label.all_sheds")}`}
+              />
+              <MetaCell
+                k={copy(pageContract, "label.cohort_target")}
+                v={`${event.cohort_name ?? copy(pageContract, "label.placeholder")} · ${event.target_count}`}
+              />
+              <MetaCell
+                k={copy(pageContract, "label.vaccine_dose")}
+                v={`${event.vaccine_name ?? copy(pageContract, "label.placeholder")} · ${event.dose_code ?? copy(pageContract, "label.placeholder")}`}
+              />
+              <MetaCell
+                k={copy(pageContract, "label.owner")}
+                v={
+                  event.assignee_label ?? ownerLabel(event.owner_key, ownerMeta)
+                }
+              />
             </div>
           </div>
 
@@ -157,12 +280,125 @@ export function CalendarEventDrawer({
           <BlockCard
             title={copy(pageContract, "label.source_backed_rule")}
             block={detail.source_and_rule}
-            leading={<Tag tone={event.source_backed ? "ok" : "warn"}>{event.source_backed ? copy(pageContract, "label.source_backed") : copy(pageContract, "label.not_source_backed")}</Tag>}
+            leading={
+              <Tag tone={event.source_backed ? "ok" : "warn"}>
+                {event.source_backed
+                  ? copy(pageContract, "label.source_backed")
+                  : copy(pageContract, "label.not_source_backed")}
+              </Tag>
+            }
           />
-          <BlockCard title={copy(pageContract, "label.execution")} block={detail.execution} />
-          <BlockCard title={copy(pageContract, "label.stock_readiness")} block={detail.stock} />
-          <BlockCard title={copy(pageContract, "label.proof")} block={detail.proof} />
-          <BlockCard title={copy(pageContract, "label.verification")} block={detail.verification} />
+          <BlockCard
+            title={copy(pageContract, "label.execution")}
+            block={detail.execution}
+          />
+          {event.event_type === "vaccination_drive" ? (
+            <div style={{ marginTop: 16 }}>
+              <div className="b700" style={{ margin: "2px 0 8px" }}>
+                {copy(pageContract, "calendar.drawer.eligible_animals")}
+              </div>
+              {targetsError ? (
+                <div className="alert" style={{ marginBottom: 10 }}>
+                  {targetsError}
+                </div>
+              ) : null}
+              {targets && targets.length > 0 ? (
+                <div
+                  className="bd"
+                  style={{
+                    padding: 0,
+                    border: "1px solid var(--line2)",
+                    borderRadius: 10,
+                    overflow: "hidden",
+                  }}
+                >
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>
+                          {copy(pageContract, "label.animal_identifier_1")}
+                        </th>
+                        <th>
+                          {copy(pageContract, "label.animal_identifier_2")}
+                        </th>
+                        <th>{copy(pageContract, "label.stage")}</th>
+                        <th>{copy(pageContract, "label.status")}</th>
+                        <th>{copy(pageContract, "label.when")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {targets.map((row) => (
+                        <tr key={row.obligation_id}>
+                          <td>
+                            {row.animal_identifier_1 ??
+                              copy(pageContract, "label.placeholder")}
+                          </td>
+                          <td>
+                            {row.animal_identifier_2 ??
+                              copy(pageContract, "label.placeholder")}
+                          </td>
+                          <td>
+                            {row.stage ??
+                              copy(pageContract, "label.placeholder")}
+                          </td>
+                          <td>
+                            <Tag
+                              tone={
+                                optionTone(
+                                  pageContract,
+                                  "calendar_status",
+                                  row.status,
+                                ) as
+                                  | "ok"
+                                  | "warn"
+                                  | "dng"
+                                  | "info"
+                                  | "mut"
+                                  | "pur"
+                                  | "teal"
+                              }
+                            >
+                              {optionLabel(
+                                pageContract,
+                                "calendar_status",
+                                row.status,
+                              )}
+                            </Tag>
+                          </td>
+                          <td className="muted small">
+                            {fmtDateTime(row.due_at)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <ProcurementPager
+                    prevHref={targetsPrevHref}
+                    nextHref={targetsNextHref}
+                    page={targetsPage}
+                    count={targetsOnPage}
+                    noun="animal"
+                  />
+                </div>
+              ) : (
+                <p className="muted small" style={{ margin: 0 }}>
+                  {copy(pageContract, "calendar.drawer.eligible_animals_empty")}
+                </p>
+              )}
+            </div>
+          ) : null}
+          <BlockCard
+            title={copy(pageContract, "label.stock_readiness")}
+            block={detail.stock}
+          />
+          <BlockCard
+            title={copy(pageContract, "label.proof")}
+            block={detail.proof}
+          />
+          <BlockCard
+            title={copy(pageContract, "label.verification")}
+            block={detail.verification}
+          />
 
           {/* Recent activity — the event's audit/reminder/snooze/proof history timeline. */}
           {detail.recent_actions && detail.recent_actions.length ? (
@@ -176,7 +412,17 @@ export function CalendarEventDrawer({
                     <div className="tx">
                       <b>{h.title}</b>
                       <div className="mt">
-                        {[optionLabel(pageContract, "calendar_history_status", h.status), h.actor_label, h.channel].filter(Boolean).join(" · ")}
+                        {[
+                          optionLabel(
+                            pageContract,
+                            "calendar_history_status",
+                            h.status,
+                          ),
+                          h.actor_label,
+                          h.channel,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </div>
                     </div>
                     <span className="tm">{dateTime(h.occurred_at)}</span>
@@ -194,7 +440,11 @@ export function CalendarEventDrawer({
               </div>
               <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
                 {linkRow.map((l) => (
-                  <Link key={l.key} href={scopeHref(l.appPath, scope)} className={`tag t-${l.tone}`}>
+                  <Link
+                    key={l.key}
+                    href={scopeHref(l.appPath, scope)}
+                    className={`tag t-${l.tone}`}
+                  >
                     {l.label}
                   </Link>
                 ))}

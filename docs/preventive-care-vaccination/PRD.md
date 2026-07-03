@@ -228,7 +228,10 @@ Basic Calendar aggregation is V1. Once the sweeper attaches animal due
 rows to a shed-drive batch, Calendar must show the drive as the active item and
 must not duplicate every batched per-animal `dose_due` row as a separate active
 Calendar event. Animal-level due status remains visible in Passport, Protocol
-Adherence, Vaccination detail, and audit surfaces.
+Adherence, Vaccination detail, and audit surfaces. Any Calendar drive target
+drawer must list eligible **herd animals** with Animal ID 1 and Animal ID 2
+fields; it must not expose RFID/old-tag/source-sheet identity columns or label
+the list as goat-only work.
 
 The planner works like this:
 
