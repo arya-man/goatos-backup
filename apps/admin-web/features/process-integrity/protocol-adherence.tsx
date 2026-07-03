@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { Syringe, X } from "lucide-react";
 import { getVaccinationAdherence } from "@/lib/api/server";
-import type { AdherenceRow, ProcessIntegrityEvidence, ProcessIntegritySeverity } from "@/lib/api/server";
-import { copy, optionalCopy, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import type { AdherenceRow, ProcessIntegrityEvidence, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
+import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
-import { SEVERITY_ORDER, type Tone } from "./process-integrity";
+import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "./process-integrity";
 import { ClipText, Tag } from "@/components/ui-primitives";
 import { VaccinationFilterButton, VisibleTableSearch, paginateRows, VaccinationTablePager, type VaccinationPageSize } from "@/features/phc-vaccination";
 
@@ -95,12 +95,16 @@ export async function ProtocolAdherencePage({
 }) {
   const sp = searchParams ?? {};
   const severityFilter = (SEVERITY_ORDER.find((s) => s === one(sp, "severity")) ?? "all") as ProcessIntegritySeverity | "all";
+  const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
+  const workStateParam = one(sp, "state");
+  const workStateFilter = (workStateOptions.some((option) => option.key === workStateParam) ? workStateParam : "all") as WorkState | "all";
   const scope = parseScope(sp);
   const { parkId, asOf } = backendScope(scope);
 
   const result = await getVaccinationAdherence({
     parkId,
     asOf,
+    workState: workStateFilter === "all" ? undefined : workStateFilter,
     severity: severityFilter === "all" ? undefined : severityFilter,
     limit: 200,
   });
@@ -117,6 +121,7 @@ export async function ProtocolAdherencePage({
   function hrefWith(overrides: Record<string, string | undefined>): string {
     return scopeHref("/protocol-adherence", scope, {}, {
       severity: severityFilter,
+      state: workStateFilter,
       adh_page: String(paged.page),
       adh_limit: String(paged.pageSize),
       ...overrides,
@@ -161,7 +166,7 @@ export async function ProtocolAdherencePage({
         </div>
       ) : null}
 
-      {/* Severity filter (server-side). */}
+      {/* Severity + work-state filters (server-side). */}
 	      <div className="chipset" style={{ marginBottom: 14 }}>
 	        <Link href={hrefWith({ severity: "all", adh_page: "1" })} replace scroll={false} className={`chip${severityFilter === "all" ? " on" : ""}`}>
 	          {copy(pageContract, "label.all_severity")}
@@ -171,6 +176,16 @@ export async function ProtocolAdherencePage({
 	            {optionLabel(pageContract, "severity_chips", s)}
 	          </Link>
 	        ))}
+      </div>
+      <div className="chipset" style={{ marginBottom: 14 }}>
+        <Link href={hrefWith({ state: "all", adh_page: "1" })} replace scroll={false} className={`chip${workStateFilter === "all" ? " on" : ""}`}>
+          {copy(pageContract, "label.all_states")}
+        </Link>
+        {WORK_STATE_ORDER.map((state) => (
+          <Link key={state} href={hrefWith({ state, adh_page: "1" })} replace scroll={false} className={`chip${workStateFilter === state ? " on" : ""}`}>
+            {optionLabel(pageContract, "work_state_filter_chips", state)}
+          </Link>
+        ))}
       </div>
 
       <section className="card">
