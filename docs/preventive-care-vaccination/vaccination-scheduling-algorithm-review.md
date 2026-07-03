@@ -15,7 +15,7 @@ Two-stage system:
 | Stage | Name | Question it answers |
 | --- | --- | --- |
 | **A** | Per-goat due engine | *Should this animal receive dose X, and when?* |
-| **B** | Drive planner / batcher | *Which due doses can safely run together in one shed drive on date D?* |
+| **B** | Drive planner / batcher | *Which due doses can safely run together in one park doctor visit on date D, with exact shed/tag/species breakdowns?* |
 
 **Stage A must run first.** Stage B only groups obligations that Stage A already marked eligible and medically safe to combine.
 
@@ -198,6 +198,11 @@ These apply **between any two administered vaccines**, not only within one serie
 - Live viral + killed viral
 - Explicit combo groups from PDF (FMD+HS, PPR+Blue Tongue, etc.)
 
+**Same-day shot cap:** even if more rows are medically compatible, GoatOS
+plans at most **2 shots per animal per drive/doctor visit**. If 3+ vaccines are
+due, choose the highest-priority compatible pair and schedule the remaining
+vaccines on the next safe date.
+
 **Same-day forbidden (unless in approved combo group):**
 
 - Two live vaccines with &lt;4 week gap since last live dose
@@ -246,14 +251,17 @@ These apply **between any two administered vaccines**, not only within one serie
 
 ## 8. Drive planner algorithm (Stage B) — cannot be blind
 
-**Input:** Open obligations in a shed where `status IN (scheduled, due)` and `due_at` within planning window.
+**Input:** open obligations for a park where `status IN (scheduled, due)` and
+`due_at` falls inside the planning window. Sheds/tags remain breakdown
+dimensions; they are not the maximum grouping boundary.
 
 **Steps:**
 
 1. **Revalidate each obligation** against live goat facts (death, shift, new pregnancy, ICU, warming).
 
 2. **Bucket obligations** by:
-   `(shed, due_window_bucket, vaccine_code, dose_role, eligibility_state)`
+   `(park, shed/tag breakdown, due_window_bucket, vaccine_code, dose_role, eligibility_state, species_grouping_key)`
+   where kids can use `kid_mixed` and adults use `species:<species_code>`.
 
 3. **Build vaccine conflict graph** for the bucket:
    - Node = vaccine dose family (e.g. PPR primary, Goat Pox primary)
@@ -266,22 +274,34 @@ These apply **between any two administered vaccines**, not only within one serie
 5. **Propose drive date** only inside medical window:
    `earliest_safe_date ≤ planned_date ≤ last_safe_date`
 
-6. **Score candidate drives** (urgency, animals covered, priority, stock expiry,
+6. **Apply one-time batching hold** before scoring. A compatible small shed/tag
+   group can wait up to 7 calendar days to merge with another same-park group
+   only when every animal remains inside its medical `last_safe_date`. The hold
+   can happen once per obligation/dose cycle. After that, no rolling
+   postponement: execute, micro-drive, defer for a real blocker, or mark a
+   process exception.
+
+7. **Apply the max-shots rule.** At most 2 shots per animal per visit. If more
+   due rows exist, keep the highest-priority compatible pair in this drive and
+   schedule the rest by live/killed and row-specific gap rules.
+
+8. **Score candidate drives** (urgency, animals covered, priority, stock expiry,
    doctor/route efficiency, fairness)—hard constraints are not scored;
    incompatible groups are rejected before scoring. The goal is maximum safe
    doctor coverage for the park visit, not a separate small drive for every
    shed.
 
-7. **Create `obligation_batches`** as park-level drive plans with per-shed/tag
+9. **Create `obligation_batches`** as park-level drive plans with per-shed/tag
    breakdowns. Kid groups can combine goat+sheep kids when compatible; adult
    groups remain species-specific inside the same park visit.
 
-8. **Attach only compatible obligations**; leave incompatible ones for a later drive.
+10. **Attach only compatible obligations**; leave incompatible ones for a later drive.
 
 **What we must NOT do:**
 
 - Batch “all due animals in shed X” into one drive without park-level
   optimization, shed/tag counts, and species/stage safety
+- Keep postponing the same due item beyond the one permitted batching hold
 - Ignore last administered vaccine type when planning date
 - Schedule live vaccines on same day when 4-week rule not met
 - Vaccinate ICU/quarantine/warming animals because their shed has a drive

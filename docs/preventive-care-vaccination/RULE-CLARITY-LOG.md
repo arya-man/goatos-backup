@@ -42,6 +42,31 @@ Implementation note: this is a planning/sweeper target contract. It does not
 mean doctors physically visit twice. It means the generated park drive plan must
 show combined totals plus species-safe execution groups and shed/tag counts.
 
+### 3. One-time batching hold and max shots
+
+Decision: drive planning may delay a due group by up to 7 calendar days to
+combine with a compatible same-park drive group, but the delay is one-time per
+obligation/dose cycle. GoatOS must not keep rolling the same due item forward
+to chase larger future groups.
+
+Rules:
+- Medical window beats batching window. If any animal would cross its
+  `last_safe_date`, run the micro-drive now or escalate the blocker.
+- Default batching policy is `max_batching_hold_days = 7` and
+  `max_batching_hold_count = 1`.
+- A 3-week booster can be held once to week 4 when it safely overlaps another
+  compatible park group. It cannot be moved again to week 5 or week 6.
+- A doctor visit can plan at most 2 shots per animal. If 3+ vaccines are due,
+  choose the highest-priority compatible pair and schedule the remaining rows on
+  the next safe date.
+- Same-day compatibility is still governed by vaccine class: one live + one
+  killed can run together when no blocker exists; the next live vaccine must be
+  at least 4 weeks after the prior live.
+
+Implementation note: persist explicit hold state (`original_due_at`,
+`first_batching_hold_until`, `batching_hold_count`,
+`last_batching_decision_at`) rather than recomputing from current due dates.
+
 ## Pending Clarification
 
 The items below are not final until the owner confirms the exact rule.

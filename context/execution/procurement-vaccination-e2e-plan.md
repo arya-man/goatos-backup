@@ -222,7 +222,8 @@ Run these as API or integration assertions before relying on frontend clicks.
 10. Confirm projections:
    - top-level command screens with procurement selected show source-entry gaps
    - vaccination Action Center/PA/CT/Workflow show only accepted-intake work
-   - vaccination execution context shows only accepted park/shed execution context
+   - vaccination execution context shows only accepted park drive work with
+     shed/tag execution context
 ```
 
 ## Frontend E2E Click Plan

@@ -95,6 +95,10 @@ the rule source and must stay aligned with Config presets and kernel behavior.
 
 - After procurement/warm-up, even if the source vaccinated the animal, do not
   give any vaccination for one week.
+- At most **2 shots per animal per drive/doctor visit**. Same-day compatibility
+  does not mean "give everything due." If more than 2 vaccines are due, GoatOS
+  picks the highest-priority compatible pair and schedules the remainder on the
+  next safe date.
 - Two live vaccines must have a 4-week gap.
 - Bacterial + viral vaccines may be combined on the same day.
 - Live viral + killed viral vaccines may be combined on the same day.
@@ -103,6 +107,27 @@ the rule source and must stay aligned with Config presets and kernel behavior.
 - Killed followed by killed needs a 2-week gap.
 - Live followed by live needs a 4-week gap.
 - Any kid booster needs a 3-week gap.
+- Example: a live + killed pair can run on the same day when no other blocker
+  exists. If the next due vaccine is also live, it must wait at least 4 weeks
+  from the prior live dose even if the park is running another drive sooner.
+
+### Drive batching hold
+
+- The operating goal is to maximize safe doctor output at the **park visit**
+  level, while preserving exact shed/tag/species/vaccine breakdowns for the
+  work list, proof, and audit.
+- GoatOS may hold a due shed/tag group for up to **7 calendar days** to combine
+  it with another compatible same-park drive group, but only if every animal
+  remains inside its medical safe window.
+- This batching hold is **one-time per obligation/dose cycle**. Once a due item
+  has been held to overlap with a later compatible group, it cannot be held
+  again to chase the next group. No rolling postponement.
+- If the item was already held once, the medical window would expire, vaccine
+  compatibility fails, stock/proof/worker requirements fail, or the animal enters
+  a defer state, GoatOS runs a micro-drive now or escalates the explicit blocker.
+- Example: if a booster is due after a 3-week minimum gap and a compatible
+  park drive is safely due in week 4, the planner may move it once to week 4.
+  It must not keep moving it to week 5 or week 6 to chase a larger batch.
 
 ### Pregnancy and delivery
 
@@ -252,6 +277,11 @@ The V1 kernel must enforce:
   per-shed/tag breakdowns;
 - mixed-species kid drive groups (single shared group for compatible goat+sheep
   kids; adult groups stay species-specific inside the same park visit);
+- max 2 shots per animal per drive/doctor visit, with overflow scheduled by
+  vaccine priority and safe gap rules;
+- one-time batching hold up to 7 calendar days to merge compatible same-park
+  shed/tag groups when the medical window stays safe; never rolling
+  postponement;
 - Calendar drive aggregation after sweeper/planner batching, with animal-level
   due rows remaining in Passport, Protocol Adherence, and Vaccination detail.
 

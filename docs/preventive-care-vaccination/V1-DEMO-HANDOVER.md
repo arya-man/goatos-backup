@@ -36,11 +36,11 @@ Fresh evidence:
 What is closed for the V1 demo:
 
 1. SOP builder creates, validates, dry-runs, publishes, reopens, edits, and republishes a vaccination SOP with all supported question types.
-2. Config creates the Vaccination Rules vaccination matrix, previews impact, saves draft, publishes ET+TT, PPR, Goat Pox, FMD, and HS as separate protocol versions, and reopens the published drawer.
+2. Config creates the Vaccination Rules matrix, previews impact, saves draft, publishes one scoped `vaccination.matrix` version containing the vaccine-animal rows, and reopens the published drawer.
 3. Config captures the vaccination policy: vaccine type/pathogen class, course type, schedule, dose, vial, revaccination, breed/stage/sex rows, live/killed gap metadata, same-day compatibility metadata, procurement warm-up, adult prior-vaccination policy, pregnancy skip/post-delivery policy, and clinical defer states.
 4. The V1 kernel enforces V1-local vaccination rule gates proven in tests: clinical holds, pregnancy/reproductive exclusion when generation or backfill reads current animal state, procurement warm-up due offset, older-animal catch-up anti-flood, trusted-history next-dose advancement, Vaccination Rules schedule due dates, live-live spacing, and drive-first Calendar aggregation after batching.
 5. Animal creation/import/intake data paths generate vaccination obligations through the kernel chain.
-6. Sweeper groups due work into shed drive/SOP task work.
+6. Sweeper/planner groups due work into park-level drive/SOP task work with per-shed/tag breakdowns and species-safe execution groups.
 7. Proof upload, accepted verification, completion, booster generation, and replay idempotency are proven.
 8. Rejected proof -> rework -> corrected resubmission -> accepted verification is proven in the data plane.
 9. Animal Passport shows open due rows, rejected and accepted history, and links back to Workflow / Action Center using the real workflow row key.
@@ -76,7 +76,8 @@ Use this path:
 3. `Counts -> Herd Register` or the created animal path
    - Explain that canonical herd animals trigger vaccination generation.
 4. `Vaccination`
-   - Show matrix/status, generated work, cohort/detail drawers, and shed execution.
+   - Show matrix/status, generated work, cohort/detail drawers, and park drive
+     execution with shed/tag breakdowns.
 5. `Action Center`
    - Show actionable proof/verification work.
 6. `Protocol Adherence`
@@ -193,11 +194,11 @@ npm --prefix apps/admin-web run check:mock-fidelity
 
 Say:
 
-> V1 is demo-ready for the Preventive Care (PC) vaccination workflow. SOP policy and multi-row vaccination config capture the vaccination rules for species, breed, stage, sex, vaccine class, course type, dose, vial size, revaccination, schedule, live/killed spacing, clinical defer, procurement warm-up, and pregnancy policy; the kernel generates safe due work, the sweeper groups it into shed execution, the operator submits proof, verification accepts or rejects it, completion updates the Animal Passport, and replay does not duplicate work.
+> V1 is demo-ready for the Preventive Care (PC) vaccination workflow. SOP policy and the scoped vaccination matrix capture the vaccination rules for species, breed, stage, sex, vaccine class, course type, dose, vial size, revaccination, schedule, live/killed spacing, clinical defer, procurement warm-up, and pregnancy policy; the kernel generates safe due work, the planner groups it into park-level execution with per-shed/tag breakdowns, the operator submits proof, verification accepts or rejects it, completion updates the Animal Passport, and replay does not duplicate work.
 
 Also say:
 
-> Calendar is V1-safe for the demo: after the sweeper batches animal due rows into a shed drive, Calendar shows the drive item, not 100 duplicate animal-dose rows. Animal-level due status stays in Passport, Protocol Adherence, and Vaccination detail.
+> Calendar is V1-safe for the demo: after the sweeper batches animal due rows into a park drive group, Calendar shows the drive item, not 100 duplicate animal-dose rows. Animal-level due status stays in Passport, Protocol Adherence, and Vaccination detail.
 
 Also say:
 

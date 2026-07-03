@@ -248,6 +248,15 @@ drawer must list eligible **herd animals** with Animal ID 1 and Animal ID 2
 fields; it must not expose RFID/old-tag/source-sheet identity columns or label
 the list as goat-only work.
 
+Drive planning has two different clocks. The **medical window** is the hard
+safety window for a dose. The **batching hold** is an operations-only delay used
+to merge compatible same-park shed/tag work into a larger doctor visit. GoatOS
+may hold a due group up to 7 calendar days only once per obligation/dose cycle;
+it must not keep postponing the same due item to chase a larger future drive.
+If holding would cross the medical `last_safe_date`, if the group was already
+held once, or if compatibility/stock/proof/worker gates fail, it becomes a
+micro-drive or explicit exception now.
+
 The planner works like this:
 
 1. Start from V1 due work generated from the completed vaccine-animal matrix. This
@@ -282,16 +291,26 @@ The planner works like this:
    smaller shed's medical window ends before the batching hold date, it must run
    as a micro-drive now. The batching window is an operations hold, never a
    medical override.
-7. Create the drive with its animal list, vaccine list, lot/stock reservation,
+7. Enforce the one-time hold rule. A due item can use the configured batching
+   hold once, defaulting to at most 7 calendar days. If it has already been held
+   once for this obligation/dose cycle, the next decision is execute, micro-drive,
+   defer for a real blocker, or mark process-broken when the medical window was
+   missed. It is never moved again just because another larger group appears.
+8. Enforce the per-animal shot cap before finalizing a same-day plan. The default
+   cap is 2 shots per animal per drive/doctor visit. If 3+ vaccines are due, the
+   planner chooses the highest-priority compatible pair that is medically safe
+   today and schedules the remainder on the next safe date using live/killed,
+   booster, and matrix gap rules.
+9. Create the drive with its animal list, vaccine list, lot/stock reservation,
    SOP/proof requirements, worker, verifier, and route. A route may contain
    multiple sheds, but each shed keeps its own animal list, proof, and
    reconciliation.
-8. On execution day, reconcile the scan against the plan: missing animals,
+10. On execution day, reconcile the scan against the plan: missing animals,
    shifted-in animals, shifted-out animals, newly sick/pregnant/quarantined animals,
    unreadable tags, deaths, sales, proof rejection, and cold-chain failure all
    create explicit cancel/defer/rework/replan actions. Nothing silently
    disappears from the process.
-9. Replan incrementally. If one animal dies, moves shed, becomes sick, gets sold,
+11. Replan incrementally. If one animal dies, moves shed, becomes sick, gets sold,
    or a proof fails, only that animal and its affected shed/vaccine bucket are
    invalidated. The system does not recompute the full million-animal herd.
 

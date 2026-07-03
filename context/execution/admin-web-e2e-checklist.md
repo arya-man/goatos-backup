@@ -443,7 +443,7 @@ hiding later columns, or forcing users to guess the value.
 - List rows navigate to `/workflows/{row_id}`.
 - Drilldown shows config -> obligation -> batch/drive -> SOP -> proof ->
   verification -> completion -> next due.
-- Back links, Passport links, shed execution links, AC and PA links.
+- Back links, Passport links, vaccination execution links, AC and PA links.
 - Completed/rejected/rework permutations render the correct chain node state.
 
 ### WF / PA / SOP State Reaction
@@ -498,7 +498,8 @@ E2E must prove the core chain:
   rule authoring and publish.
 - Published config plus goat eligibility creates due vaccination work.
 - New goat creation automatically checks vaccination eligibility.
-- Due goats are grouped shed-wise into a shed drive, not one task per goat.
+- Due herd animals are grouped into park-level drive plans with per-shed/tag
+  breakdowns, not one task per animal.
 - Shed owner/operator executes the SOP, uploads proof, verifier accepts/rejects,
   completion writes vaccination history, and booster date is created only after
   accepted verification.
@@ -517,7 +518,8 @@ frontend assertions:
 - Missing/expired stock is shown as blocked when the runtime enforces it.
 - Missing DOB / missing entry date shows as deferred/explained, not as an
   invisible skipped counter.
-- Batch page boundaries do not split one shed drive.
+- Batch page boundaries do not split one park drive group or hide its
+  per-shed/tag breakdown.
 - Completion emits exactly one `vaccination.completed` outbox event.
 - Calendar closed-row retention: recent completed proof is filterable; old
   completed/canceled projection rows prune while canonical history remains.

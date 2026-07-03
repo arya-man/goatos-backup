@@ -198,7 +198,7 @@ These are **only about SM-4** — assume the goat already has an open obligation
 | 1 | Registered | `goat.created` → SM-1 | — |
 | 2 | Kid path | `schedulePathForGoat` → kid | — |
 | 3 | ET+TT week 4 | obligation **scheduled**, shed scope | — |
-| 4 | Due week 4 | status **due** | **Batch story A** — shed PPR/ET drive |
+| 4 | Due week 4 | status **due** | **Batch story A** — park drive group with shed/tag breakdown |
 | 5 | Vaccinated | verify accept → SM-7 booster | batch **completed** |
 | 6 | PPR → Goat Pox | cross-gap may delay pox | separate drives per vaccine version |
 | 7 | FMD + HS | two obligations | **Batch story D** combo align |

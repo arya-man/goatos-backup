@@ -353,7 +353,8 @@ Required:
 - `/workflows` reads `/vaccination/action-center` for live workflow instances.
 - Catalog rows navigate to `/workflows/{row_id}`.
 - Drilldown reads `/vaccination/workflows/{row_id}`.
-- Drilldown links go to Goat Passport, shed execution detail, Action Center, and Protocol Adherence.
+- Drilldown links go to Goat Passport, vaccination execution detail with the
+  same shed/tag context, Action Center, and Protocol Adherence.
 - Chain must show config -> obligation -> drive -> SOP -> proof -> verification -> completion.
 
 Missing before E2E:

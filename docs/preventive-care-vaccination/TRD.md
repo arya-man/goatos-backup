@@ -366,6 +366,7 @@ Each evidence-derived, CEO/COO-published vaccine matrix row must carry:
 | History handling | trusted accepted history suppresses or advances the row; untrusted/unknown history produces catch-up/review, with older-animal anti-flood behavior that creates one safe next catch-up/review action before any further historical dose rows |
 | Version audit | version number, created_by/created_at, published_by/published_at, effective dates, retired_by/retired_at where applicable |
 | Vaccination policy | procurement warm-up days, kid normal-schedule cutoff weeks, adult prior-vaccination flag, live/killed/live spacing days, same-day allowance metadata, pregnancy skip/catch-up windows |
+| Drive planner policy | `max_batching_hold_days` default 7, `max_batching_hold_count` default 1, `max_shots_per_animal_per_drive` default 2, minimum drive size, force-micro-drive-before-last-safe-date behavior, and `species_grouping_policy` (`kid_mixed` or `species_specific`) |
 
 Without those rows, GoatOS can only prove reusable engine plumbing; it cannot
 honestly claim the full practical vaccine matrix is complete. `PPR`, `FMD`,
@@ -447,6 +448,17 @@ visit with per-shed/tag breakdowns, not a mandatory one-drive-per-shed model.
 Kid goat+sheep obligations may share one compatible kid drive group; adult goat
 and adult sheep obligations stay species-specific execution groups inside the
 same park visit.
+
+The planner must persist enough decision state to prevent rolling
+postponement. Do not hide this only in unindexed `context jsonb`. Use explicit
+indexed columns or a dedicated planning table for at least:
+`original_due_at`, `medical_window_start`, `medical_window_end`,
+`first_batching_hold_until`, `batching_hold_count`,
+`last_batching_decision_at`, `species_grouping_key`, and selected `batch_id`.
+A held obligation/dose cycle is not eligible for another batching hold once
+`batching_hold_count >= 1`; it must execute, micro-drive, defer for a real
+blocker, or become a process-integrity exception if the medical window is
+missed.
 
 **Completion (net-new module table):**
 `vaccination_completions`: `completion_id PK · tenant_id · obligation_id NOT NULL→obligation_instances · batch_id NULL→obligation_batches · animal_id→herd_animals · sop_submission_item_id NULL→sop_submission_items · vaccine_inventory_lot_id NULL→inventory_stock(§5) · doses int · dose_ml_given · route_site text · adverse_reaction bool · adverse_reaction_problem_id NULL · cold_chain_verified bool · administered_at · withdrawal_until_date date NULL · recorded_by · idempotency_key`.
@@ -540,6 +552,10 @@ stay available to detail and audit surfaces.
    proof, ownership, and execution, but it is not the maximum grouping boundary.
    This reduces million-animal planning from animal-level iteration to bounded
    park/cohort work.
+   The concrete `species_grouping_key` is conditional: compatible kid rows use
+   `kid_mixed` so goat and sheep kids can fill one safe doctor group; adult rows
+   use `species:<species_code>` so adult goat and adult sheep vaccine work stays
+   species-safe even when the same doctors visit the park on the same day.
 4. For each park/time/cohort bucket, build a vaccine conflict graph. Each vaccine or
    dose family is a node. An edge means the two nodes cannot be executed in the
    same drive because of live/killed compatibility, same-vaccine gap, required
@@ -564,24 +580,38 @@ stay available to detail and audit surfaces.
    now. Example: 5 due K1 animals in one CBE shed and 15 compatible K1 animals
    in another CBE shed may become one 20-animal park drive only if the 5 animals
    can medically wait through that hold.
-7. Score safe candidates deterministically. Hard constraints are not scores.
+7. Enforce one-time batching hold. Default policy is
+   `max_batching_hold_days = 7` and `max_batching_hold_count = 1`. If a due
+   obligation/dose cycle was already held once, or if its stored hold-until date
+   has arrived, it cannot be moved again to chase a larger future drive. It must
+   execute, micro-drive, defer for a real blocker, or become process-broken if
+   the medical window was missed. Example: a 3-week booster can move once to
+   week 4 when that creates a safe larger park drive; it cannot keep rolling to
+   week 5 or week 6.
+8. Enforce per-animal shot cap. Default policy is
+   `max_shots_per_animal_per_drive = 2`. Same-day compatible vaccine candidates
+   are not unlimited. If more than 2 vaccines are due for an animal, choose the
+   highest-priority compatible pair and schedule the rest by the governed gaps:
+   live→live 4 weeks, live→killed 2 weeks, killed→killed 2 weeks, kid booster
+   3 weeks, plus any row-specific `min_gap_days`.
+9. Score safe candidates deterministically. Hard constraints are not scores.
    Scored factors are urgency/earliest deadline, animals covered, disease
    priority, stock expiry, worker/route efficiency, cold-chain route duration,
    and fairness to small sheds that have already waited.
-8. Pick the best candidate with stable tie-breakers:
+10. Pick the best candidate with stable tie-breakers:
    earliest deadline, higher medical priority, more animals covered, expiring
    stock, lower route cost, then oldest waiting shed bucket.
-9. Assign resources under transaction/lease control: create or update
+11. Assign resources under transaction/lease control: create or update
    `obligation_batches`, attach obligations, reserve stock where vaccination
    policy requires it, create the SOP task, and store worker/verifier/proof
    requirements. Concurrent planners must use idempotency keys and row locks so
    two workers cannot claim the same obligations.
-10. Execute and reconcile by scan. Missing animals stay open/missed/follow-up;
+12. Execute and reconcile by scan. Missing animals stay open/missed/follow-up;
    shifted-in eligible animals become explicit extras; shifted-out animals move to
    the destination bucket; newly sick/pregnant/quarantined animals defer or block;
    deaths/sales cancel; unreadable tags create identity exceptions; proof
    rejection and cold-chain failure create rework.
-11. Replan incrementally. Events such as `animal.exited`,
+13. Replan incrementally. Events such as `animal.exited`,
     `animal.location.changed`, `animal.health.changed`, future/proven
     `animal.reproductive_status.changed`, `proof.rejected`, `stock.shortfall`, or
     `cold_chain.failed` invalidate only the affected animal, bucket, vaccine
@@ -591,7 +621,8 @@ stay available to detail and audit surfaces.
 The drive planner requires the V1-authored vaccine compatibility fields plus
 policy-approved drive thresholds. V1 owns per-animal due work, the authored
 matrix rules, compatibility spacing, park-level drive grouping with shed/tag
-breakdowns, and Calendar drive-first projection. Later optimization can improve
+breakdowns, one-time batching holds, max-2-shots-per-visit selection, and
+Calendar drive-first projection. Later optimization can improve
 route/resource scoring and large-scale incremental replanning. Separately, V1 itself must
 not be called complete until the evidence-derived vaccine-animal matrix in §4.0 is
 configured and proven.
