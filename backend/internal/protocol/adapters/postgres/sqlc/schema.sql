@@ -2408,7 +2408,7 @@ CREATE TABLE public.counts_current_snapshot_rows (
     CONSTRAINT counts_snapshot_age_class_check CHECK (((age_class IS NULL) OR (age_class = ANY (ARRAY['adult'::text, 'kid'::text, 'unknown'::text])))),
     CONSTRAINT counts_snapshot_nonnegative_count_check CHECK (((count_value IS NULL) OR (count_value >= 0))),
     CONSTRAINT counts_snapshot_row_kind_check CHECK ((row_kind = ANY (ARRAY['detail_count'::text, 'summary_kpi'::text, 'age_gender_kpi'::text, 'core_gender_breed'::text]))),
-    CONSTRAINT counts_snapshot_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text, 'unknown'::text])))),
+    CONSTRAINT counts_snapshot_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text])))),
     CONSTRAINT counts_snapshot_source_mode_check CHECK ((source_mode = ANY (ARRAY['legacy_bq'::text, 'goatos_canonical'::text])))
 );
 
@@ -2763,7 +2763,7 @@ CREATE TABLE public.goats (
     species text DEFAULT 'goat'::text NOT NULL,
     breed text,
     breed_id uuid,
-    sex text,
+    sex text NOT NULL,
     approx_dob date,
     age_band text,
     lifecycle_status text NOT NULL,
@@ -2797,7 +2797,7 @@ CREATE TABLE public.goats (
     CONSTRAINT goats_merge_redirect_shape_check CHECK ((((identity_state = 'merged'::text) AND (merged_into_goat_id IS NOT NULL) AND (merged_into_goat_id <> goat_id)) OR ((identity_state <> 'merged'::text) AND (merged_into_goat_id IS NULL)))),
     CONSTRAINT goats_origin_type_check CHECK (((origin_type IS NULL) OR (origin_type = ANY (ARRAY['birth'::text, 'procured'::text, 'imported'::text, 'unknown'::text])))),
     CONSTRAINT goats_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT goats_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text, 'unknown'::text])))),
+    CONSTRAINT goats_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text]))),
     CONSTRAINT goats_source_confidence_check CHECK (((source_confidence IS NULL) OR ((source_confidence >= (0)::numeric) AND (source_confidence <= (1)::numeric)))),
     CONSTRAINT goats_species_check CHECK ((species = 'goat'::text))
 );
@@ -4041,7 +4041,7 @@ CREATE TABLE public.mortality_events (
     CONSTRAINT mortality_events_dedup_confidence_check CHECK ((dedup_confidence = ANY (ARRAY['resolved_identity'::text, 'stable_source_identifier'::text, 'candidate_review'::text]))),
     CONSTRAINT mortality_events_event_type_check CHECK ((event_type = ANY (ARRAY['death'::text, 'abortion'::text]))),
     CONSTRAINT mortality_events_review_status_check CHECK ((review_status = ANY (ARRAY['accepted'::text, 'needs_review'::text, 'rejected'::text, 'superseded'::text]))),
-    CONSTRAINT mortality_events_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text, 'unknown'::text]))))
+    CONSTRAINT mortality_events_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text]))))
 );
 
 

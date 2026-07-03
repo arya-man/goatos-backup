@@ -754,7 +754,7 @@ type Goat struct {
 	Species            string
 	Breed              pgtype.Text
 	BreedID            pgtype.UUID
-	Sex                pgtype.Text
+	Sex                string
 	ApproxDob          pgtype.Date
 	AgeBand            pgtype.Text
 	LifecycleStatus    string

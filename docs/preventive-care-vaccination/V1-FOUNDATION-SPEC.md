@@ -4,8 +4,8 @@
 
 This spec locks the architecture + scope for Vaccination v1. V1 is not just an
 engine foundation or a booster toggle; it must prove a reviewable
-vaccine-goat matrix that can generate per-goat due work for new goats,
-purchased/intake goats, existing-goat backfill, stage changes, shed changes,
+vaccine-animal matrix that can generate per-animal due work for new goats,
+purchased/intake animals, existing-animal backfill, stage changes, shed changes,
 health/defer changes, and accepted-completion next doses. Config IA is settled
 separately: Protocol Rules lives under generic Admin / Data Ops at `/config`,
 while Preventive Care (PC) / Vaccination links to it filtered as `category=vaccination`. The
@@ -39,16 +39,21 @@ Visual source: `mock/goatos-dashboard-mock.html`.
   is `/config` (`Admin / Data Ops -> Config — Protocol Rules`), CEO/COO/
   superadmin only. Preventive Care (PC) / Vaccination may link to `/config?category=vaccination`,
   but Config is not a Vaccination-owned screen.
-- **Eligibility stage comes from the goat's current shed**, never a free-text
+- **Eligibility stage comes from the animal's current shed/tag**, never a free-text
   field:
 
   ```text
-  goat → current shed (location) → shed_profiles.animal_stage_id → animal_stage_lookup
+  herd_animal → current shed (location) → shed_profiles.animal_stage_id → animal_stage_lookup
   ```
 
   `animal_stage_lookup` (K0, K1, K2, K3, F2, Mother, Pregnant, Non-Pregnant,
   Buck, ICU, …) drives vaccination eligibility. `min_age_days`/`max_age_days` on
-  the lookup tie age band to stage.
+  the lookup tie source shed-tag age policy to stage.
+- **V1 target identity is Path B mixed herd animals.** Canonical storage,
+  contracts, domain types, events, and UI language use `herd_animals` /
+  `animal_id`. The old physical `goats` / `goat_id` names are legacy model
+  debt, not the target. Seed goat and sheep in `species_catalog`; goats and
+  sheep may share the same shed/tag while vaccination rows distinguish species.
 - **`shed_lifecycle_status` (active/inactive/retired) is separate** and must
   NOT drive vaccine dosing.
 - **Reuse the committed Locations foundation.** Park = parent location, Shed =
@@ -67,14 +72,14 @@ Visual source: `mock/goatos-dashboard-mock.html`.
 | goatOS.docx §6 | Committed table | Notes |
 | --- | --- | --- |
 | `vaccine_config` (rule) | `protocol_rules` + `protocol_versions.rule_dsl` | rule_dsl carries category + eligibility + schedule[] + compatibility/defer policy; version audit lives on `protocol_versions` |
-| `vaccination_schedule` (per-goat) | `obligation_instances` (target=goat) | due/window/status |
+| `vaccination_schedule` (per-animal) | `obligation_instances` (target=herd_animal) | due/window/status |
 | `vaccination_shed_events` (drive) | `obligation_batches` (scope=shed) | planned date/window, reserved/used qty, lot |
 | `vaccination_completion` | `vaccination_completions` (000075) | dose_ml_given, lot, FEFO, cold chain, adverse |
 | `vaccine_stock` (FEFO) | `vaccines` + `inventory_stock` (000072) | partial FEFO expiry index exists |
-| `vaccination_sop_steps` | `sop_versions` form_dsl/proof_policy (seeded 000075) | `000075` is a draft skeleton (`shed_video`, `vial_lot`, `cold_chain`, `dose`, `route_site`, `administered_at`, `adverse_reaction`, `est_vs_used`, `verifier_review`); source parity also requires goat scan, medicine batch/vial-lot, proof media, adverse-reaction notes/follow-up, and verifier/park-head review. |
+| `vaccination_sop_steps` | `sop_versions` form_dsl/proof_policy (seeded 000075) | `000075` is a draft skeleton (`shed_video`, `vial_lot`, `cold_chain`, `dose`, `route_site`, `administered_at`, `adverse_reaction`, `est_vs_used`, `verifier_review`); source parity also requires animal scan, medicine batch/vial-lot, proof media, adverse-reaction notes/follow-up, and verifier/park-head review. |
 
-**Rule eligibility fields (reconciled to the doc):** `animal_stage` (from
-`animal_stage_lookup`) · age band · `sex` · breed where relevant · lifecycle ·
+**Rule eligibility fields (reconciled to the doc):** species · breed/breed group ·
+`animal_stage` / shed tag (from `animal_stage_lookup`) · age days · `sex` · lifecycle ·
 reproductive state · `defer_states` (ICU/quarantine/sick) · vaccine · vaccine
 type/class (live/killed/toxoid/combo/unknown-review-needed) · dose row ·
 `config_type` (primary/booster/catch-up/annual) · `dose_number` · `dose_ml` ·
@@ -83,35 +88,43 @@ route/site where required · trigger
 + earliest/ideal/latest window · min gap · max delay · repeat/lifetime policy ·
 missed-dose/course-lapse policy · proof/SOP binding · protocol version/audit.
 Stored in `rule_dsl` (structured columns for stable selectors where present;
-jsonb for matrix-specific eligibility and compatibility metadata). Goat/herd
-facts are not copied into this JSON; they come from `goats`, `locations`,
+jsonb for matrix-specific eligibility and compatibility metadata). Herd-animal
+facts are not copied into this JSON; they come from `herd_animals`, `locations`,
 `shed_profiles`, `animal_stage_lookup`, procurement handoffs/evidence, and
 `vaccination_completions`.
 
 ## 3. v1 acceptance scope
 
-1. **CEO/COO-approved vaccine-goat matrix** — each schedule-bearing vaccine row
-   must say which goat category receives which dose, at what age/stage, under
+1. **CEO/COO-approved vaccine-animal matrix** — each schedule-bearing vaccine row
+   must say which species/breed/shed-tag/age cohort receives which dose, under
    what pregnancy/lactation/health restrictions, inside what safe window, with
    what booster/repeat/course-lapse policy, and with what SOP/proof/version
    audit. `PPR`, `FMD`, `HS`, `BQ`, Goat Pox, and ET+TT-style labels are not
    enough by themselves; they become real V1 config only when their matrix rows
    are authored from the tracked nuance/source docs and published by CEO/COO.
 2. **Sheds foundation** — active sheds are locations under parent parks; every
-   active shed has `animal_stage_id`; include `sex` grouping + `has_icu` /
+   active shed has `animal_stage_id`; include source age range/normalized age
+   days, allowed-species policy, `sex` grouping + `has_icu` /
    quarantine / defer metadata (existing `shed_profiles` columns + `context`
-   jsonb). Use existing `capacity`. **Gap:** seed `animal_stage_lookup` +
-   `shed_lifecycle_status_lookup`; backfill `shed_profiles.animal_stage_id` for
-   active sheds.
-3. **Current goat location** — every goat resolves to a current shed/location;
-   `goat_location_history` stays intact. **Gap:** reliable current-shed
+   jsonb). The Goats and Parks tag catalog is shared across herd animals, but
+   each tag/stage has an enforced species allowlist: K0-K3 may include goat and
+   sheep where source/park data allows, `MOTHER` can include goat and sheep for
+   vaccination, `BUCK` is the shared adult-male breeder tag for vaccination
+   eligibility, and commercial milking stages (`MOTHER_MILKING_WAITING`,
+   `MILKING_WARMUP`, `MILKING`) are goat/doe-only. Creation/import, shed-stage
+   movement, rule publish, API selectors, and UI option lists must reject/hide
+   disallowed species/tag pairs. Use existing `capacity`. **Gap:** seed
+   `animal_stage_lookup` + `shed_lifecycle_status_lookup` + stage/species
+   policy; backfill `shed_profiles.animal_stage_id` for active sheds.
+3. **Current animal location** — every herd animal resolves to a current shed/location;
+   `animal_location_history` stays intact. **Gap:** reliable current-shed
    resolution + backfill (verify/derive a current pointer without rewriting history).
-4. **Matrix-driven generation and backfill** — goat creation/import,
-   purchase/intake, existing-goat backfill after publish, stage change, shed
+4. **Matrix-driven generation and backfill** — animal creation/import,
+   purchase/intake, existing-animal backfill after publish, stage change, shed
    change, health/defer exit, and accepted completion must all re-run the matrix
-   for only the affected goat/cohort and produce/cancel/defer the right open
+   for only the affected animal/cohort and produce/cancel/defer the right open
    obligations.
-5. **Minimal shifting recompute** — when a goat changes shed, recompute/rescope
+5. **Minimal shifting recompute** — when an animal changes shed, recompute/rescope
    only **pending/due** vaccination obligations (re-stage, re-batch to the
    destination shed drive; pre-shift / individual completion where the drive
    already ran). **Never** rewrite completed/accepted/rejected history.
@@ -133,7 +146,7 @@ found no first-class vaccination evidence field in the cleaned BigQuery tables.
 Treat procurement vaccination mentions as source facts with confidence/proof
 semantics, not as administered-dose truth.
 
-Supports: procured-goat backfill · `post_arrival` vaccination triggers · intake
+Supports: procured-animal backfill · `post_arrival` vaccination triggers · intake
 health/defer signals · source references/confidence for any vaccination mention.
 It does **not** by itself support imported vaccination completion state.
 
@@ -158,7 +171,7 @@ Procurement vertical for v1.
   (4w, 7w, 12w, 16w, and applicable 20w follow-through), while adult/fattening
   steady state follows repeat intervals from accepted completions and adult
   procurement follows its own first-step/+4w path.
-- Preserve the SOP proof shape: scheduled date, operator, goat scan, vaccine
+- Preserve the SOP proof shape: scheduled date, operator, animal scan, vaccine
   name, medicine batch/vial-lot, dose ml, administered date/time, proof media,
   adverse reaction + notes/follow-up, and verifier/park-head review.
 - Known gaps to close: empty medicine batch blocks submission; adverse reaction
@@ -167,7 +180,7 @@ Procurement vertical for v1.
 - Import/replay mapping: reliable historical vaccination records, if later
   proven, go through staging, reconcile into `vaccination_completions`, complete
   matching obligations, and schedule boosters from actual `administered_at`.
-  Missing or untrusted history must not create completions; older goats whose
+  Missing or untrusted history must not create completions; older animals whose
   historical windows are already past get one safe catch-up/review action first,
   not every old dose as same-day work. After Preventive Care (PC) approval it becomes
   baseline/catch-up shed drives per
@@ -175,12 +188,12 @@ Procurement vertical for v1.
 
 ## 5. Build order (each slice ends with a running local URL for review)
 
-1. Seed/backfill `animal_stage_lookup` + active sheds' `animal_stage_id` (+ shed_lifecycle_status_lookup).
-2. Current goat location resolution + backfill (history preserved).
-3. Configure the vaccine-goat matrix rows from the tracked nuance/source docs, not just vaccine labels.
+1. Seed/backfill `species_catalog`, breed/species references, and `animal_stage_lookup` + active sheds' `animal_stage_id` (+ shed_lifecycle_status_lookup) with Goats and Parks age ranges.
+2. Migrate `goats`/`goat_id` to `herd_animals`/`animal_id`; current animal location resolution + backfill (history preserved).
+3. Configure the vaccine-animal matrix rows from the tracked nuance/source docs, not just vaccine labels.
 4. Config UI fields aligned to the `animal_stage` model (screen at `/config?category=vaccination`, mock-faithful).
-5. Vaccination generation engine using current goat facts and the matrix (birth / post_arrival / calendar / after_previous_completion).
-6. Existing-goat backfill and changed-fact recheck for the same matrix.
+5. Vaccination generation engine using current animal facts and the matrix (birth / post_arrival / calendar / after_previous_completion).
+6. Existing-animal backfill and changed-fact recheck for the same matrix.
 7. Minimal shifting recompute for pending/due obligations only.
 8. FEFO inventory reserve/consume/release + quarantine/ICU defer hooks.
 
@@ -193,11 +206,11 @@ schema fields so the protocol engine is not hardcoded to vaccination.
 ## 6. Frontend acceptance
 
 Routes in scope: `/login · / · /action-center · /protocol-adherence ·
-/workflows · /vaccination · /config · /goats/{goat_id}`. Mesha green/black ·
+/workflows · /vaccination · /config · /animals/{animal_id}`. Mesha green/black ·
 compact sidebar · Preventive Care (PC) vertical with Vaccination as an operational module ·
 Admin/Data Ops with Config · Parks/Sheds as foundation only · no
 Operations/Legacy/SOP/cyan nav · no huge fonts · no horizontal clipping · clean
-theme toggle · Goat Passport contextual/detail only (no global goat search).
+theme toggle · Animal Passport contextual/detail only (no global animal search).
 Config screen matches `mock/goatos-dashboard-mock.html` for the table and
 authoring anatomy, but the table contract changes from one-vaccine rows to
 scoped ruleset rows: Company-wide default first, then active park overrides,

@@ -82,6 +82,7 @@ func TestSourceWarmupFortyFiveToSeventyDaysRemainsValid(t *testing.T) {
 		TenantID:        testTenant,
 		LoadID:          testLoad,
 		SourceTag:       strPtr("SRC-70"),
+		Sex:             "female",
 		WarmupStartedAt: &start,
 		WarmupEndedAt:   &end,
 		IdempotencyKey:  "add-70-day-warmup",
@@ -94,6 +95,52 @@ func TestSourceWarmupFortyFiveToSeventyDaysRemainsValid(t *testing.T) {
 	}
 	if repo.lastAdd.CurrentState != domain.GoatStateSourceWarmup {
 		t.Fatalf("current state = %q", repo.lastAdd.CurrentState)
+	}
+}
+
+func TestAddGoatToLoadRequiresRealSex(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	for _, tc := range []struct {
+		name string
+		sex  string
+		code string
+	}{
+		{name: "missing", sex: "", code: "missing_sex"},
+		{name: "unknown", sex: "unknown", code: "invalid_sex"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := svc.AddGoatToLoad(context.Background(), ports.AddGoatToLoad{
+				TenantID:       testTenant,
+				LoadID:         testLoad,
+				SourceTag:      strPtr("SRC-" + tc.name),
+				Sex:            tc.sex,
+				IdempotencyKey: "add-sex-" + tc.name,
+			})
+			var appErr *Error
+			if !errors.As(err, &appErr) || appErr.Code != tc.code {
+				t.Fatalf("AddGoatToLoad() error = %v, want %s", err, tc.code)
+			}
+			if repo.lastAdd.LoadID != "" {
+				t.Fatalf("invalid sex reached repository: %#v", repo.lastAdd)
+			}
+		})
+	}
+}
+
+func TestAddGoatToLoadMapsExistingGoatSexMismatch(t *testing.T) {
+	repo := &fakeRepo{addErr: ports.ErrSexMismatch}
+	svc := NewService(repo)
+	_, err := svc.AddGoatToLoad(context.Background(), ports.AddGoatToLoad{
+		TenantID:       testTenant,
+		LoadID:         testLoad,
+		GoatID:         strPtr(testGoat),
+		Sex:            "male",
+		IdempotencyKey: "add-sex-mismatch",
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "sex_mismatch" {
+		t.Fatalf("AddGoatToLoad() error = %v, want sex_mismatch", err)
 	}
 }
 
@@ -325,6 +372,7 @@ type fakeRepo struct {
 	lastAdd       ports.AddGoatToLoad
 	lastWorkQuery domain.WorkQuery
 	workRows      []domain.WorkRow
+	addErr        error
 	acceptErr     error
 	goatNotOnLoad bool  // when true, GoatOnLoad reports the goat is not a member of the load
 	recordHFErr   error // when set, RecordHFVaccinationEvidence returns it
@@ -344,6 +392,9 @@ func (f *fakeRepo) GetLoadDetail(context.Context, string, string) (domain.LoadDe
 }
 func (f *fakeRepo) AddGoatToLoad(_ context.Context, in ports.AddGoatToLoad) (domain.LoadGoat, error) {
 	f.lastAdd = in
+	if f.addErr != nil {
+		return domain.LoadGoat{}, f.addErr
+	}
 	return domain.LoadGoat{LoadID: in.LoadID, GoatID: testGoat, CurrentState: in.CurrentState, WarmupDays: in.WarmupDays}, nil
 }
 func (f *fakeRepo) RecordSourceHealth(_ context.Context, in ports.SourceHealth) (domain.SourceHealthCheck, error) {

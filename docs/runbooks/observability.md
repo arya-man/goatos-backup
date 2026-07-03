@@ -57,8 +57,9 @@ rejected by `tools/agent-hooks/check-boundaries.sh`.
 
 ## Rules
 
-- Goat identifiers (RFID, old tag, breed, farm) are business data, not PII — they
-  ARE logged so you can identify the exact goat/row that failed.
+- Goat identifiers (Animal ID 1, Animal ID 2, RFID/proof scan values where
+  present, breed, farm) are business data, not PII — they ARE logged so you can
+  identify the exact goat/row that failed.
 - The only redaction rule is secrets: never log credentials, tokens, or
   service-account JSON.
 - Construct loggers via `backend/internal/platform/observability`, never

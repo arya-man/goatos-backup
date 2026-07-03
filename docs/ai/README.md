@@ -26,6 +26,22 @@ their own checkout.
 
 ## Fresh Clone Setup
 
+Setup is agent-enforced, not optional-by-silence. On a clone that has never run
+`make ai-setup`, the committed hooks make the FIRST agent prompt bootstrap the
+stack before doing the actual work:
+
+- `tools/agent-hooks/ai-setup-guard.sh` (PreToolUse, Claude + Codex) blocks the
+  first real tool call with instructions to run `make ai-setup`, then lets the
+  session resume the original task. Setup commands themselves always pass.
+- Claude also gets a `SessionStart` notice so the instruction appears before any
+  tool call.
+- The guard goes silent once `code-review-graph` is installed and
+  `.code-review-graph/` exists, or after one setup attempt on the clone
+  (marker `<git-dir>/goatos-ai-setup-attempted`), so an offline machine cannot
+  deadlock. Disable with `GOATOS_AI_SETUP_GUARD=0`.
+- Human devs working without an agent are not blocked by anything; they run the
+  commands below by hand.
+
 Run from the repository root:
 
 ```bash

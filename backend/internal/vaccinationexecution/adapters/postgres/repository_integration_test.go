@@ -490,9 +490,9 @@ func seedVaccinationExecutionProjection(t *testing.T, ctx context.Context, pool 
 		 VALUES ($1, $2, 'VER-PROJ', 'Verifier', 'active', 'verifier', $3)`,
 		testVerifier, testTenant, testPark)
 	exec("goat",
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id,
-		   current_location_id, park_id, shed_id, management_stage, health_status)
-		 VALUES ($1, $2, 'alive', 'clean', $3, $4, $5, $4, 'K1', 'healthy')`,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
+			   current_location_id, park_id, shed_id, management_stage, health_status)
+			 VALUES ($1, $2, 'alive', 'clean', $3, 'female', $4, $5, $4, 'K1', 'healthy')`,
 		testGoat, testTenant, testParty, testShed, testPark)
 	exec("protocol definition",
 		`INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
@@ -531,9 +531,9 @@ func execProjectionSQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, la
 func insertProjectionGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, shedID, parkID string) {
 	t.Helper()
 	execProjectionSQL(t, ctx, pool, "goat "+goatID,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id,
-		   current_location_id, park_id, shed_id, management_stage, health_status)
-		 VALUES ($1, $2, 'alive', 'clean', $3, $4, $5, $4, 'K1', 'healthy')`,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
+			   current_location_id, park_id, shed_id, management_stage, health_status)
+			 VALUES ($1, $2, 'alive', 'clean', $3, 'female', $4, $5, $4, 'K1', 'healthy')`,
 		goatID, testTenant, testParty, shedID, parkID)
 }
 
@@ -595,9 +595,9 @@ func TestVaccinationOperationsAggregatesCohortsAndDedupesRework(t *testing.T) {
 	// A K2 cohort goat in the same shed: a completed obligation whose first attempt was REJECTED then a
 	// later attempt was ACCEPTED. The partial unique index allows the rejected history alongside one active row.
 	exec("rework goat",
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id,
-		   current_location_id, park_id, shed_id, management_stage, health_status, age_band)
-		 VALUES ($1, $2, 'alive', 'clean', $3, $4, $5, $4, 'K2', 'healthy', '2-4 mo')`,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
+			   current_location_id, park_id, shed_id, management_stage, health_status, age_band)
+			 VALUES ($1, $2, 'alive', 'clean', $3, 'female', $4, $5, $4, 'K2', 'healthy', '2-4 mo')`,
 		reworkGoat, testTenant, testParty, testShed, testPark)
 	insertProjectionObligation(t, ctx, pool, reworkObl, testBatch, reworkGoat, "completed", "2026-06-24 00:00:00+00", "vaccexec-rework-obl")
 	exec("rework rejected attempt",
@@ -697,9 +697,9 @@ func TestVaccinationOperationsAsOfExcludesFutureCompletions(t *testing.T) {
 	exec := func(label, sql string, args ...any) { execProjectionSQL(t, ctx, pool, label, sql, args...) }
 	// A K9 cohort goat with a completed obligation whose ACCEPTED dose was administered 2026-06-30.
 	exec("future-dose goat",
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id,
-		   current_location_id, park_id, shed_id, management_stage, health_status)
-		 VALUES ($1, $2, 'alive', 'clean', $3, $4, $5, $4, 'K9', 'healthy')`,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
+			   current_location_id, park_id, shed_id, management_stage, health_status)
+			 VALUES ($1, $2, 'alive', 'clean', $3, 'female', $4, $5, $4, 'K9', 'healthy')`,
 		futGoat, testTenant, testParty, testShed, testPark)
 	insertProjectionObligation(t, ctx, pool, futObl, testBatch, futGoat, "completed", "2026-06-24 00:00:00+00", "vaccexec-future-obl")
 	exec("future accepted dose",
@@ -939,9 +939,9 @@ func TestVaccinationOperationsBoundsVerificationByVerifiedAt(t *testing.T) {
 	// K7 cohort: obligation completed on accept; dose ADMINISTERED 2026-06-20 but ACCEPTED (verified_at) and
 	// completed_at on 2026-06-30.
 	execProjectionSQL(t, ctx, pool, "verify goat",
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id,
-		   current_location_id, park_id, shed_id, management_stage, health_status)
-		 VALUES ($1, $2, 'alive', 'clean', $3, $4, $5, $4, 'K7', 'healthy')`,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
+			   current_location_id, park_id, shed_id, management_stage, health_status)
+			 VALUES ($1, $2, 'alive', 'clean', $3, 'female', $4, $5, $4, 'K7', 'healthy')`,
 		vGoat, testTenant, testParty, testShed, testPark)
 	insertProjectionBatch(t, ctx, pool, vBatch, "completed")
 	insertProjectionObligation(t, ctx, pool, vObl, vBatch, vGoat, "completed", "2026-06-20 00:00:00+00", "vaccexec-verify-obl")
@@ -1019,9 +1019,9 @@ func opsCohortByStage(t *testing.T, svc *vaccexecapp.Service, ctx context.Contex
 func insertOpsStageGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, stage string) {
 	t.Helper()
 	execProjectionSQL(t, ctx, pool, "stage goat "+goatID,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id,
-		   current_location_id, park_id, shed_id, management_stage, health_status)
-		 VALUES ($1, $2, 'alive', 'clean', $3, $4, $5, $4, $6, 'healthy')`,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
+			   current_location_id, park_id, shed_id, management_stage, health_status)
+			 VALUES ($1, $2, 'alive', 'clean', $3, 'female', $4, $5, $4, $6, 'healthy')`,
 		goatID, testTenant, testParty, testShed, testPark, stage)
 }
 

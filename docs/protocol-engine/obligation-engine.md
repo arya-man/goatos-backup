@@ -8,6 +8,13 @@ migration tail before adding tables or treating protocol/obligation/inventory as
 absent.
 **Why this doc:** Preventive Care (PC) (vaccination, deworming, biosecurity, feed/water testing, panel cleaning, sanitization, fire-safety, SOP-video, stock checks, director reporting) **and** Feed Direction all need the same thing: admin-set rules → due obligations → tasks → proof → completion → projections. Build it **once**. Module-specific tables (e.g. `vaccination_completions`) link into this engine; they do not re-implement it.
 
+**Path B target correction (2026-07-03):** any current-state references to
+`goats`, `goat_id`, `target_type='goat'`, or `goat.*` events are legacy
+implementation names only. The target contract is mixed-species
+`herd_animals` / `animal_id`, `target_type='herd_animal'`, and `animal.*`
+events. Species is catalog-driven (`species_catalog`) and goats/sheep can share
+the same shed/tag.
+
 ---
 
 ## 0. Repo reality (what already exists — reuse, don't reinvent)
@@ -16,7 +23,7 @@ absent.
 
 | Committed table | Verdict | Role for this engine |
 |---|---|---|
-| `goats`, `goat_identifiers`, `goat_location_history`, `goat_identity_events`(partitioned) | reuse-as-is | obligation targets + provenance |
+| `goats`, `goat_identifiers`, `goat_location_history`, `goat_identity_events`(partitioned) | legacy current implementation; replace/rename under Path B | target becomes `herd_animals`, `animal_identifiers`, `animal_location_history`, `animal_identity_events` |
 | `locations` (self-FK tree: farm/park/shed/cohort/pen) + `location_operational_attributes` (`usable_for_vaccination/feed/sop`, `is_holding/is_quarantine/is_icu`) + `location_capacity_records` (temporal) | reuse-enhance | scope tree; **no `parks`/`sheds` tables exist** |
 | `workforce_*` (members, capabilities `vaccination.execute`/`feed.report`/`proof.verify`, member_capabilities scoped) | reuse-as-is | who executes |
 | `user_scope_grants` (role `admin/park_head/operator/verifier/ceo_internal`, scope validated against `locations`) | reuse-as-is | **authority** (draft vs publish) |
@@ -33,7 +40,7 @@ absent.
 ## 1. The engine in one line
 
 ```
-admin rule (protocol_version, published)  →  trigger fires (goat born / cron / upstream completion)
+admin rule (protocol_version, published)  →  trigger fires (animal born / cron / upstream completion)
   →  obligation_instances rows materialized in Postgres  [SOURCE OF TRUTH for "what is due"]
   →  Cloud Scheduler worker flips due rows, enqueues Cloud Tasks (near-term only)
   →  sop_task dispatched  →  operator submits via sop_submissions (+ proof)  →  verification
@@ -106,7 +113,7 @@ scope → create/edit a *draft* ruleset version → link an `sop_version_id` →
 define proof policy → define escalation policy → **impact preview** →
 activate/publish version.
 
-**Rule fields:** module/`category` (vaccination, feed_direction, deworming, sanitation, ...) · multi-factor eligibility (age, animal_stage, sex, breed, lifecycle, health_status, shed/cohort/park, reproductive[exclude pregnant/lactating], defer_states[ICU/quarantine/sick]) · **`schedule[]` — the Schedule Builder: an array of dose/phase rows** (dose_code · trigger_type[birth_age/post_arrival/calendar/after_previous_completion/manual_campaign] · offset_days · due_window_days · min_gap_days · repeat[none/every_n_days/yearly; age-window repeats rejected until generator support lands] · repeat_until_after_age · catch_up · per-dose sop_label[display only — executable SOP binds at version sop_version_id] + proof_policy) — NOT a single trigger-day + booster flag · `missed_dose_policy` (immediate/next_cycle/phc_approval/defer) · park override (scope_type/scope_id) · `effective_from`/`effective_to`. Next due is derived by trigger/repeat/catch-up logic plus trusted accepted completion evidence; there is no separate next-due-basis DSL field. Rule JSON must not embed goat/herd row snapshots; it references stable dimension keys and is evaluated against canonical goat/location/procurement/completion facts.
+**Rule fields:** module/`category` (vaccination, feed_direction, deworming, sanitation, ...) · multi-factor eligibility (species, breed/breed group, age, animal_stage, sex, lifecycle, health_status, shed/cohort/park, reproductive[exclude pregnant/lactating], defer_states[ICU/quarantine/sick]) · **`schedule[]` — the Schedule Builder: an array of dose/phase rows** (dose_code · trigger_type[birth_age/post_arrival/calendar/after_previous_completion/manual_campaign] · offset_days · due_window_days · min_gap_days · repeat[none/every_n_days/yearly; age-window repeats rejected until generator support lands] · repeat_until_after_age · catch_up · per-dose sop_label[display only — executable SOP binds at version sop_version_id] + proof_policy) — NOT a single trigger-day + booster flag · `missed_dose_policy` (immediate/next_cycle/phc_approval/defer) · park override (scope_type/scope_id) · `effective_from`/`effective_to`. Next due is derived by trigger/repeat/catch-up logic plus trusted accepted completion evidence; there is no separate next-due-basis DSL field. Rule JSON must not embed animal row snapshots; it references stable dimension keys and is evaluated against canonical `herd_animals` / location / procurement / completion facts.
 
 **Activation behavior:** production obligations generate **only** from active
 versions resolved by the category scope policy. Drafts and inactive historical
@@ -114,7 +121,7 @@ versions generate **no** new work. Active versions are **immutable** (a change =
 a new version); old versions stay auditable. Only CEO/COO/superadmin users can
 activate/publish (`protocol.publish.<category>` in V1 wording).
 
-**Impact preview (required before activation — computed from the scoped ruleset):** affected goats/sheds/cohorts (from eligibility); **obligations per cycle** (= affected × non-recurring doses); **annual-repeat count** (rows with `repeat:yearly`); **catch-up count** and **existing-history count** (goats with prior accepted completions → next-due from last completion, not DOB); expected stock required; expected SOP tasks/batches; and **risks** — missing stock, no assigned operator, missing executable `sop_version_id` (a free-text `sop_label` does not count), conflicting rule, effective-date overlap, open obligations to supersede, and in-progress batches that need explicit operator choice. Activation is gated on the operator reviewing this.
+**Impact preview (required before activation — computed from the scoped ruleset):** affected animals/sheds/cohorts (from eligibility); **obligations per cycle** (= affected × non-recurring doses); **annual-repeat count** (rows with `repeat:yearly`); **catch-up count** and **existing-history count** (animals with prior accepted completions → next-due from last completion, not DOB); expected stock required; expected SOP tasks/batches; and **risks** — missing stock, no assigned operator, missing executable `sop_version_id` (a free-text `sop_label` does not count), conflicting rule, effective-date overlap, open obligations to supersede, and in-progress batches that need explicit operator choice. Activation is gated on the operator reviewing this.
 
 **Config visibility matrix:**
 | Role | Config access |
@@ -168,7 +175,7 @@ Recommended generic table:
 `policy_id PK · tenant_id · category · protocol_code NULL · target_type text · allowed_scope_levels jsonb · scope_resolution_mode text · active_cardinality text · override_semantics text · activation_cutover_policy text · status · updated_at`.
 
 Vaccination seed:
-`category='vaccination' · protocol_code='vaccination.matrix' · target_type='goat' · allowed_scope_levels=['tenant','park'] · scope_resolution_mode='tenant_default_with_park_overrides' · active_cardinality='single_active_ruleset_per_scope' · override_semantics='park_replaces_tenant_for_that_park'`.
+`category='vaccination' · protocol_code='vaccination.matrix' · target_type='herd_animal' · allowed_scope_levels=['tenant','park'] · scope_resolution_mode='tenant_default_with_park_overrides' · active_cardinality='single_active_ruleset_per_scope' · override_semantics='park_replaces_tenant_for_that_park'`.
 
 Feed Direction or future modules may use `multiple_active_per_scope`,
 `additive`, or `merge` semantics. The engine reads this policy; it does not
@@ -178,8 +185,8 @@ assume vaccination behavior for all modules.
 Recommended derived table/materialized view:
 `tenant_id · category · protocol_id · target_scope_type='park' · target_scope_id · active_protocol_version_id · source_scope_type(tenant/park) · source_scope_id NULL · overridden_protocol_version_id NULL · resolution_reason · computed_at`.
 
-For vaccination generation, resolve by goat park:
-1. active park version for the goat's park, if present;
+For vaccination generation, resolve by the animal's park:
+1. active park version for the animal's park, if present;
 2. otherwise active company version;
 3. otherwise no ruleset gap.
 
@@ -215,14 +222,14 @@ e.g. booster = `upstream_completion` of the prior obligation; feed direction = `
 ## 4. Schema — obligation layer (the due state — **SOURCE OF TRUTH**)
 
 ### `obligation_instances` — far-future due rows live HERE, queryable
-`obligation_id PK · tenant_id · protocol_version_id→protocol_versions · rule_id NOT NULL→protocol_rules · batch_id uuid NULL→obligation_batches · target_type text CHECK(goat/cohort/shed/park/tenant) · target_id uuid (interpreted per target_type: goat→goats, cohort/shed/park→locations, tenant→tenant_id) · scope_type/scope_id (org unit owning execution; vocabulary = sop_tasks: tenant/custodian_party/farm/park/shed/cohort) · due_at timestamptz NOT NULL · window_start NULL · window_end NULL · status text CHECK(scheduled/due/in_progress/completed/missed/waived/canceled/superseded) · sop_task_id uuid NULL→sop_tasks · idempotency_key text NOT NULL · generated_by_trigger_id NULL→protocol_triggers · sequence int DEFAULT 1 · completed_at · row_version`.
+`obligation_id PK · tenant_id · protocol_version_id→protocol_versions · rule_id NOT NULL→protocol_rules · batch_id uuid NULL→obligation_batches · target_type text CHECK(herd_animal/cohort/shed/park/tenant) · target_id uuid (interpreted per target_type: herd_animal→herd_animals, cohort/shed/park→locations, tenant→tenant_id) · scope_type/scope_id (org unit owning execution; vocabulary = sop_tasks: tenant/custodian_party/farm/park/shed/cohort) · due_at timestamptz NOT NULL · window_start NULL · window_end NULL · status text CHECK(scheduled/due/in_progress/completed/missed/waived/canceled/superseded) · sop_task_id uuid NULL→sop_tasks · idempotency_key text NOT NULL · generated_by_trigger_id NULL→protocol_triggers · sequence int DEFAULT 1 · completed_at · row_version`.
 - **Deterministic idempotency_key** = `hash(tenant_id · protocol_version_id · rule_id · target_type · target_id · due_at · sequence)`. UNIQUE `(tenant_id, idempotency_key)`.
-- **Duplicate-spawn guard:** UNIQUE active per `(tenant_id, protocol_version_id, rule_id, target_type, target_id, due_at)` — **includes `rule_id`** so the same goat can carry two different rules due the same day (e.g. two vaccines), and **`NULLS NOT DISTINCT`** (or `COALESCE(scope_id, sentinel)`), see §7.
+- **Duplicate-spawn guard:** UNIQUE active per `(tenant_id, protocol_version_id, rule_id, target_type, target_id, due_at)` — **includes `rule_id`** so the same animal can carry two different rules due the same day (e.g. two vaccines), and **`NULLS NOT DISTINCT`** (or `COALESCE(scope_id, sentinel)`), see §7.
 - `batch_id` groups per-target obligations into a work unit (shed drive / feed session) — see `obligation_batches` below.
 - Indexes: due-window scan `(tenant_id, status, due_at, obligation_id)`; per-target `(tenant_id, target_type, target_id, status)`; per-scope `(tenant_id, scope_type, scope_id, status, due_at)`; per-batch `(tenant_id, batch_id, status)`.
 
-### `obligation_status_events` (append-only ledger — mirror `goat_identity_events`)
-`obligation_event_id · tenant_id · obligation_id→obligation_instances · event_type text(scheduled/became_due/dispatched/completed/missed/waived/escalated) · occurred_at · recorded_at · actor_id · payload jsonb · idempotency_key · PK(obligation_event_id, recorded_at)` — **PARTITION BY RANGE(recorded_at)** monthly + `_default`, identical to committed `goat_identity_events`/`audit_log`.
+### `obligation_status_events` (append-only ledger — mirror `animal_identity_events`)
+`obligation_event_id · tenant_id · obligation_id→obligation_instances · event_type text(scheduled/became_due/dispatched/completed/missed/waived/escalated) · occurred_at · recorded_at · actor_id · payload jsonb · idempotency_key · PK(obligation_event_id, recorded_at)` — **PARTITION BY RANGE(recorded_at)** monthly + `_default`, identical to target `animal_identity_events`/`audit_log`.
 
 ### `obligation_escalations` (typed — the schema lacks this today)
 `escalation_id PK · tenant_id · obligation_id→obligation_instances · level int CHECK(>=1) · escalated_to_user_id uuid (external subject) · escalated_to_role text CHECK(admin/park_head/operator/verifier/ceo_internal) · reason · status text CHECK(open/acknowledged/resolved/expired) · opened_at · acknowledged_at · resolved_at` — index `(tenant_id, status, level)`.
@@ -238,7 +245,7 @@ A `sop_task` alone can't hold drive-level fields. Group per-target obligations e
 
 ## 5. Execution — reuse the committed SOP engine
 
-The unit of execution is the **batch**, not the individual obligation: **many due obligations → grouped into one `obligation_batch` → one `sop_task`.** Phase 0 catch-up uses Preventive Care approved manual campaign obligations/batches; standalone per-goat individual override generation is not exposed.
+The unit of execution is the **batch**, not the individual obligation: **many due obligations → grouped into one `obligation_batch` → one `sop_task`.** Phase 0 catch-up uses Preventive Care approved manual campaign obligations/batches; standalone per-animal individual override generation is not exposed.
 
 ```
 sweeper: collect due obligation_instances for a (scope, protocol, window)
@@ -269,8 +276,8 @@ inventory uses:
 - **FEFO at application layer**: pick earliest unexpired lot. Movements recorded for every reserve/release/consume.
 
 ### Stock consumption mode — pick by execution path (no contradiction)
-- **Group drive (batch):** `reserve` N doses against the FEFO lot at **batch start** (1 movement); `consume` the actual used + `release` the unused at **drive close / verification** (1–2 movements). **Never decrement per goat row** during a large shed drive.
-- **Manual campaign / catch-up:** create canonical obligations/batches before execution; ad hoc per-goat individual override generation is not exposed in Phase 0.
+- **Group drive (batch):** `reserve` N doses against the FEFO lot at **batch start** (1 movement); `consume` the actual used + `release` the unused at **drive close / verification** (1–2 movements). **Never decrement per animal row** during a large shed drive.
+- **Manual campaign / catch-up:** create canonical obligations/batches before execution; ad hoc per-animal individual override generation is not exposed in Phase 0.
 Either way the running `inventory_stock` balance is updated in the same transaction as the movement insert.
 
 ---
@@ -311,17 +318,17 @@ See: [Preventive Care (PC) Vaccination TRD](../preventive-care-vaccination/TRD.m
 
 ---
 
-## 9. Million-goat scale — acceptance checklist (hard rules, enforce before SQL ships)
+## 9. Million-animal scale — acceptance checklist (hard rules, enforce before SQL ships)
 
 Non-negotiable invariants. A PR that violates any of these is rejected, not merged.
 
-1. **No per-goat `sop_task` for group work.** Group execution = ONE `sop_task` per `obligation_batch` (shed drive / feed session). Catch-up is still canonical obligation/batch work in Phase 0; standalone per-goat tasks wait for an explicit Preventive Care (PC) catch-up action contract. 1M goats must never become ~1M human tasks.
+1. **No per-animal `sop_task` for group work.** Group execution = ONE `sop_task` per `obligation_batch` (shed drive / feed session). Catch-up is still canonical obligation/batch work in Phase 0; standalone per-animal tasks wait for an explicit Preventive Care (PC) catch-up action contract. 1M animals must never become ~1M human tasks.
 2. **No far-future work in Cloud Tasks.** Future due state lives only in `obligation_instances` (Postgres). Cloud Scheduler + sweeper enqueue Cloud Tasks for the near-term window only; a lost task is re-derived from Postgres. Cloud Tasks/Pub-Sub are never the source of truth.
 3. **Due scans use the `(tenant_id, status, due_at)` index** and touch only the current partition/window — never a full-table or full-herd scan. Sweeper pages through results, bounded batch size, resumable.
-4. **Archive/partition policy for growth.** `obligation_instances`, `obligation_batches`, `vaccination_completions`, and `obligation_status_events` are RANGE-partitioned by date (there is **no** `vaccination_schedule` table — per-goat due state lives in `obligation_instances`); `completed`/`canceled`/`superseded` rows roll off hot partitions to cold/archive on a retention policy so the hot set stays bounded (~current + near-future). Control Tower never aggregates over cold history live.
+4. **Archive/partition policy for growth.** `obligation_instances`, `obligation_batches`, `vaccination_completions`, and `obligation_status_events` are RANGE-partitioned by date (there is **no** `vaccination_schedule` table — per-animal due state lives in `obligation_instances`); `completed`/`canceled`/`superseded` rows roll off hot partitions to cold/archive on a retention policy so the hot set stays bounded (~current + near-future). Control Tower never aggregates over cold history live.
 5. **Control Tower / dashboards read Postgres projections, never raw fact scans and never queue state.** Coverage/overdue come from `*_projection` tables (committed projection-contract pattern), refreshed by workers.
 6. **Stock is ledger-based, never direct decrement.** All quantity changes are `inventory_stock_movements` rows; balances are a same-txn projection. Reserve at batch start (vaccination) / packing (feed); consume+release at close.
-7. **Query-plan validation is mandatory** for the sweeper's due-scan, the backfill generator, and every Control Tower/projection query (extend `make validate-sqlc-plans`). A query that can table-scan goats/events/obligations at scale fails CI.
+7. **Query-plan validation is mandatory** for the sweeper's due-scan, the backfill generator, and every Control Tower/projection query (extend `make validate-sqlc-plans`). A query that can table-scan herd animals/events/obligations at scale fails CI.
 8. **Idempotent everywhere.** Generation, consumers, stock movements, batch creation all key on deterministic ids and no-op on replay (at-least-once delivery is assumed).
 
-**Drift guardrails (the three things that kill 1M scale):** do NOT let implementation drift into (a) per-goat tasks, (b) direct stock decrement, (c) queue-as-source-of-truth.
+**Drift guardrails (the three things that kill 1M scale):** do NOT let implementation drift into (a) per-animal tasks, (b) direct stock decrement, (c) queue-as-source-of-truth.

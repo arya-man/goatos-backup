@@ -25,7 +25,7 @@ Implementation order:
 2. Generate sqlc.
 3. Add protocol/obligation/inventory domains and repositories.
 4. Add the outbox Pub/Sub publisher adapter while keeping the logging adapter.
-5. Add idempotency guards and query-plan validation for million-goat hot paths.
+5. Add idempotency guards and query-plan validation for million-animal hot paths.
 6. Add tests.
 ```
 
@@ -54,7 +54,7 @@ Rules:
   trigger, canonical transaction, audit/outbox, obligation/work item, sweeper,
   reminder/deadline alert, notification/escalation, proof/verification,
   read-model/process-integrity view, observability, local/cloud parity, and
-  million-goat scale proof.
+  million-animal scale proof.
 - For Calendar vaccination work, Developer A owns the protected backend routes,
   generic `CalendarEvent` contract, Postgres projection, nudge/snooze
   persistence, seed/E2E proof, and scale/query-plan checks. Developer B owns the

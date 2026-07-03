@@ -97,7 +97,7 @@ CREATE TABLE counts_current_snapshot_rows (
   CONSTRAINT counts_snapshot_source_mode_check CHECK (source_mode IN ('legacy_bq', 'goatos_canonical')),
   CONSTRAINT counts_snapshot_row_kind_check CHECK (row_kind IN ('detail_count', 'summary_kpi', 'age_gender_kpi', 'core_gender_breed')),
   CONSTRAINT counts_snapshot_age_class_check CHECK (age_class IS NULL OR age_class IN ('adult', 'kid', 'unknown')),
-  CONSTRAINT counts_snapshot_sex_check CHECK (sex IS NULL OR sex IN ('female', 'male', 'unknown')),
+  CONSTRAINT counts_snapshot_sex_check CHECK (sex IS NULL OR sex IN ('female', 'male')),
   CONSTRAINT counts_snapshot_nonnegative_count_check CHECK (count_value IS NULL OR count_value >= 0)
 );
 

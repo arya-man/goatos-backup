@@ -176,8 +176,8 @@
         <defs><marker id="e" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#7cc4ff"/></marker></defs>
         <!-- helper boxes -->
         <!-- identity -->
-        <rect x="30" y="40" width="150" height="40" rx="8" fill="#13202c" stroke="#5b9bd5"/><text x="105" y="64" text-anchor="middle" fill="#5b9bd5" font-weight="700">goats</text>
-        <rect x="30" y="100" width="150" height="34" rx="8" fill="#13202c" stroke="#5b9bd5"/><text x="105" y="121" text-anchor="middle" fill="#5b9bd5">goat_identifiers</text>
+        <rect x="30" y="40" width="150" height="40" rx="8" fill="#13202c" stroke="#5b9bd5"/><text x="105" y="64" text-anchor="middle" fill="#5b9bd5" font-weight="700">herd_animals</text>
+        <rect x="30" y="100" width="150" height="34" rx="8" fill="#13202c" stroke="#5b9bd5"/><text x="105" y="121" text-anchor="middle" fill="#5b9bd5">animal_identifiers</text>
         <rect x="30" y="150" width="150" height="34" rx="8" fill="#13202c" stroke="#5b9bd5"/><text x="105" y="171" text-anchor="middle" fill="#5b9bd5">locations</text>
         <rect x="30" y="200" width="150" height="34" rx="8" fill="#16241f" stroke="#48c78e"/><text x="105" y="221" text-anchor="middle" fill="#48c78e">shed_profiles</text>
         <rect x="30" y="300" width="150" height="34" rx="8" fill="#13202c" stroke="#5b9bd5"/><text x="105" y="321" text-anchor="middle" fill="#5b9bd5">workforce_members</text>
@@ -225,55 +225,55 @@
     </div>
   </section>
 
-  <!-- GOATS -->
+  <!-- HERD ANIMALS -->
   <section id="goats">
-    <h2>3 · Goats &amp; identity</h2>
-    <p class="lead">Committed <code>goats</code> is reused as-is + a few provenance/lifecycle columns. <span class="nw">green = add</span>. Canonical names are <code>approx_dob</code> &amp; <code>sex</code> (not dob/gender).</p>
+    <h2>3 · Herd animals &amp; identity</h2>
+    <p class="lead">Clean-slate target is <code>herd_animals</code> + species-neutral identifiers, not goat-only identity. Every accepted animal has two different current values: <code>animal_identifier_1</code> and <code>animal_identifier_2</code>. Each value is globally single-use for life and is never reused after death, sale, transfer, tag loss, or tag breakage.</p>
     <div class="cards">
       <div class="tbl">
-        <div class="h"><b>goats</b><span class="badge b-reuse">000001 · reuse+enhance</span></div>
+        <div class="h"><b>herd_animals</b><span class="badge b-new">Path B · clean slate</span></div>
         <table>
-          <tr><td class="c"><span class="pk">goat_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c"><span class="pk">animal_id</span></td><td class="t">uuid PK</td></tr>
           <tr><td class="c"><span class="fk">tenant_id</span></td><td class="t">uuid NN</td></tr>
           <tr><td class="c">display_id</td><td class="t">text</td></tr>
-          <tr><td class="c">species</td><td class="t">text ='goat'</td></tr>
+          <tr><td class="c">species</td><td class="t">required FK/code from species_catalog</td></tr>
           <tr><td class="c">breed_id / breed</td><td class="t">uuid / text</td></tr>
-          <tr><td class="c">sex</td><td class="t">female/male/unknown</td></tr>
+          <tr><td class="c">sex</td><td class="t">female/male only; required, no unknown</td></tr>
           <tr><td class="c">approx_dob</td><td class="t">date</td></tr>
           <tr><td class="c">age_band</td><td class="t">text</td></tr>
           <tr><td class="c">lifecycle_status</td><td class="t">text (+CHECK <span class="nw">new</span>)</td></tr>
           <tr><td class="c">health_status</td><td class="t">text (+CHECK <span class="nw">new</span>)</td></tr>
           <tr><td class="c">reproductive_status</td><td class="t">text</td></tr>
           <tr><td class="c">management_stage</td><td class="t">text</td></tr>
-          <tr><td class="c">identity_state</td><td class="t">clean/needs_review/…</td></tr>
+          <tr><td class="c">animal_identifier_1 / 2</td><td class="t">both required, different, globally unique forever</td></tr>
           <tr><td class="c"><span class="fk">current_location_id</span></td><td class="t">→locations</td></tr>
           <tr><td class="c"><span class="fk">park_id / shed_id / cohort_id</span></td><td class="t">→locations</td></tr>
-          <tr><td class="c">merged_into_goat_id</td><td class="t">uuid</td></tr>
+          <tr><td class="c">merged_into_animal_id</td><td class="t">uuid</td></tr>
           <tr><td class="c">row_version</td><td class="t">int</td></tr>
           <tr><td class="c"><span class="nw">dob + dob_estimated</span></td><td class="t">date / bool <span class="nw">new</span></td></tr>
           <tr><td class="c"><span class="nw">origin_type</span></td><td class="t">birth/procured/imported <span class="nw">new</span></td></tr>
           <tr><td class="c"><span class="nw">entry_date</span></td><td class="t">date <span class="nw">new</span></td></tr>
           <tr><td class="c"><span class="nw">exited_at / exit_reason</span></td><td class="t">ts / text <span class="nw">new</span></td></tr>
-          <tr><td class="c" style="color:var(--mut)">tagging</td><td class="t">derived VIEW over goat_identifiers — NOT a goats column</td></tr>
+          <tr><td class="c" style="color:var(--mut)">tagging</td><td class="t">derived from animal_identifiers — NOT a herd_animals column</td></tr>
         </table>
       </div>
       <div class="tbl">
-        <div class="h"><b>goat_identifiers</b><span class="badge b-reuse">000001 · reuse</span></div>
+        <div class="h"><b>animal_identifiers</b><span class="badge b-new">Path B · clean slate</span></div>
         <table>
           <tr><td class="c"><span class="pk">identifier_id</span></td><td class="t">uuid PK</td></tr>
-          <tr><td class="c"><span class="fk">goat_id</span></td><td class="t">→goats</td></tr>
-          <tr><td class="c">identifier_type</td><td class="t">rfid/old_tag/visual_tag/…</td></tr>
+          <tr><td class="c"><span class="fk">animal_id</span></td><td class="t">→herd_animals</td></tr>
+          <tr><td class="c">identifier_slot</td><td class="t">animal_identifier_1 / animal_identifier_2</td></tr>
           <tr><td class="c">identifier_value</td><td class="t">text</td></tr>
           <tr><td class="c">normalized_value</td><td class="t">text</td></tr>
-          <tr><td class="c">scope_key</td><td class="t">text (park scope)</td></tr>
-          <tr><td class="c">is_primary_for_goat</td><td class="t">bool</td></tr>
-          <tr><td class="c">status</td><td class="t">active/retired/disputed</td></tr>
+          <tr><td class="c">global_owner</td><td class="t">one value → one animal_id forever; no park scope</td></tr>
+          <tr><td class="c">is_current_for_animal</td><td class="t">bool</td></tr>
+          <tr><td class="c">status</td><td class="t">active/replacement_required/broken/retired</td></tr>
           <tr><td class="c">valid_from / valid_to</td><td class="t">ts</td></tr>
         </table>
-        <div class="h" style="border-top:1px solid var(--line)"><b>goat_location_history</b><span class="badge b-reuse">reuse</span></div>
+        <div class="h" style="border-top:1px solid var(--line)"><b>animal_location_history</b><span class="badge b-new">Path B</span></div>
         <table>
           <tr><td class="c"><span class="pk">location_history_id</span></td><td class="t">uuid PK</td></tr>
-          <tr><td class="c"><span class="fk">goat_id</span></td><td class="t">→goats</td></tr>
+          <tr><td class="c"><span class="fk">animal_id</span></td><td class="t">→herd_animals</td></tr>
           <tr><td class="c"><span class="fk">from/to_location_id</span></td><td class="t">→locations</td></tr>
           <tr><td class="c">reason · occurred_at</td><td class="t">text · ts</td></tr>
         </table>
@@ -515,7 +515,7 @@
         <table>
           <tr><td class="c"><span class="pk">completion_id</span></td><td class="t">uuid PK</td></tr>
           <tr><td class="c"><span class="fk">obligation_id</span></td><td class="t">→obligation_instances NN</td></tr>
-          <tr><td class="c"><span class="fk">goat_id</span></td><td class="t">→goats</td></tr>
+          <tr><td class="c"><span class="fk">animal_id</span></td><td class="t">→herd_animals</td></tr>
           <tr><td class="c"><span class="fk">sop_submission_item_id</span></td><td class="t">→sop_submission_items</td></tr>
           <tr><td class="c"><span class="fk">vaccine_inventory_lot_id</span></td><td class="t">→inventory_stock (FEFO)</td></tr>
           <tr><td class="c">doses · dose_ml_given</td><td class="t">int · num</td></tr>

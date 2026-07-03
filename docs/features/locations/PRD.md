@@ -46,8 +46,9 @@ is its own feature because other modules depend on it.
 - Provide one canonical tenant-scoped location tree for Goat OS.
 - Support full create, read, update, retire, and safe-delete behavior for
   locations.
-- Manage aliases from legacy BQ/Sheets, Android SOP labels, old tag scopes,
-  vendor/import labels, and manual labels.
+- Manage aliases from legacy BQ/Sheets, Android SOP labels, vendor/import
+  labels, and manual labels. Animal IDs are globally single-use for life and
+  are never scoped to locations/parks.
 - Manage shed/housing capacity with effective dates.
 - Show current occupancy, capacity, vacancy, and over-capacity warnings without
   scanning goats from the frontend.

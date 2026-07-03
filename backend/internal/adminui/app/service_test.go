@@ -135,6 +135,20 @@ func TestCalendarOwnerTabsHaveFallbackPresentationGroups(t *testing.T) {
 	}
 }
 
+func TestSourceLoadContractPublishesProcurementSexSelector(t *testing.T) {
+	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "source-load")
+	if got := page.Copy["field.sex"]; got != "Sex" {
+		t.Fatalf("source-load field.sex copy = %q", got)
+	}
+	if got := page.Copy["placeholder.sex"]; got == "" {
+		t.Fatal("source-load placeholder.sex copy is missing")
+	}
+	sexes := optionKeys(optionGroupByID(t, page.OptionGroups, "proc_sex"))
+	if len(sexes) != 2 || !sexes["female"] || !sexes["male"] || sexes["unknown"] {
+		t.Fatalf("source-load proc_sex options must be female/male only, got %#v", sexes)
+	}
+}
+
 func TestBootstrapCompilesDBBackedFamilies(t *testing.T) {
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 		TenantID: "00000000-0000-4000-8000-000000000001",

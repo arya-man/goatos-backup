@@ -88,13 +88,13 @@ normal build docs.
 
 Purpose:
 
-- Goat OS is the operating system for goat identity, health, vaccination, genetics, breeding, workforce, SOP tasks, media proof, verification, devices, commerce interfaces, and analytics.
+- Goat OS is the operating system for mixed-species herd-animal identity, health, vaccination, genetics, breeding, workforce, SOP tasks, media proof, verification, devices, commerce interfaces, and analytics.
 - Canonical backend/data model/app APIs are built fresh.
-- `Goats and Parks.docx` is the base source for goat and park semantics across
-  every slice. Any feature touching goat identity, park/shed scope, shed tags,
-  lifecycle/stage, breed labels, pregnancy/lactation/warm-up/fattening, feed
-  safety, weighing, handling, medicine administration, park roles, or feed
-  sessions must start from
+- `Goats and Parks.docx` is the base source for herd-animal and park semantics
+  across every slice. Any feature touching herd-animal identity, species/breed
+  labels, park/shed scope, shed tags, lifecycle/stage, pregnancy/lactation/
+  warm-up/fattening, feed safety, weighing, handling, medicine administration,
+  park roles, or feed sessions must start from
   `context/source-findings/goats-and-parks-source-findings.md` and must not
   invent conflicting semantics. Feature-specific docs may add stricter
   source-backed rules, but conflicts require an explicit source/owner decision.
@@ -170,7 +170,10 @@ Code navigation (graph-first):
 - Graph is the fast first pass for traversal; native Grep/Read is the fallback
   for graph blind spots. One graph query replaces many grep/read cycles when the
   question is graph-shaped.
-- Setup is per-machine and optional. The graph DB (`.code-review-graph/`) and
+- Setup is per-machine and agent-enforced on fresh clones: if `make ai-setup`
+  has never run on this clone, the committed `ai-setup-guard` hook blocks the
+  first real tool call with bootstrap instructions — run `make ai-setup` first,
+  then resume the task (see `docs/ai/README.md`). The graph DB (`.code-review-graph/`) and
   Graphify outputs (`graphify-out/graph.json`, reports, cost files, cache) are
   gitignored and regenerated locally. To enable the portable setup, run
   `make ai-setup`; to rebuild local graphs, run `make ai-rebuild`; to verify the
@@ -274,7 +277,7 @@ Do:
   review result in the handoff before pushing. Build passing means only that the
   code compiles; it does not mean the UI ships.
 - Read wide, write narrow: agents may inspect the whole tree, but edits must stay within declared task scope.
-- Treat million-goat scale as a hard requirement on every design, prompt, and
+- Treat million-animal scale as a hard requirement on every design, prompt, and
   code change. Before accepting any new query, worker, import path, reporting
   path, or UI data flow, check the scale shape: tenant/run scoped, indexed,
   chunked or paginated, bounded in memory/goroutines, idempotent for retries,

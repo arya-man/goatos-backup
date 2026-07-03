@@ -121,29 +121,47 @@ Build rule:
 - Import-created temporary goats require source-row evidence and stay in review
   until stronger identity is attached.
 
-### Old Tag
+### Animal External Identifiers
 
-Legacy ear tag number used before RFID became the stable identifier. The old tag
-number alone is not unique. The confirmed legacy uniqueness scope is:
-
-```text
-old_tag_number + park_code
-```
-
-Examples:
+Every canonical herd animal has one internal immutable `animal_id` plus two
+required external field/business identifiers:
 
 ```text
-826 CBE and 826 CPT can be two different goats.
-435 CBE and 435 CPT can both be present in Coimbatore after historic movement.
-435 CBE cannot occur twice for two different goats.
+animal_identifier_1
+animal_identifier_2
 ```
+
+These apply to goats, sheep, and future species. They are parallel identifiers,
+not old/new IDs. Product copy, APIs, canonical DB columns, imports after review,
+and vaccination matching must call them Animal ID 1 and Animal ID 2, or the exact
+snake-case field names above.
+
+Identifier values are globally single-use for life:
+
+```text
+identifier_value -> exactly one animal_id ever
+```
+
+No park, shed, source sheet, species, death, sale, transfer, tag breakage, or tag
+loss releases the value. If a value ever belonged to an animal, it remains tied
+to that animal in history forever and cannot be assigned to another animal.
 
 Build rule:
 
-- Never merge by old tag number alone.
-- Normalize historic park aliases (`CJB -> CBE`, `BLR -> CPT`) while preserving
-  the original source code as evidence.
-- Duplicate old tag inside the same normalized park scope goes to review.
+- Never merge by one external identifier value alone.
+- Every accepted/canonical herd animal must have both `animal_identifier_1` and
+  `animal_identifier_2`, and those two current values must be different.
+- Duplicate checks run against all current and historical identifier rows. Any
+  match means the value is already owned by that animal; a new animal using it
+  is invalid source data and must be rejected/fixed, not parked for later.
+- If a physical tag falls off or breaks, mark the old value as broken/retired in
+  identifier history. The animal keeps operating through the surviving
+  identifier while a replacement is pending.
+- Replacement uses a brand-new globally unused identifier value, fills the
+  vacant slot, and writes an audit event with actor, time, reason, old value,
+  and new value. The broken/fallen value is never refitted or reissued.
+- Raw legacy source column names are stored only as import provenance. They must
+  not become canonical field names, UI labels, or rule-selector names.
 
 ## Status And Cohort Labels
 
@@ -162,11 +180,12 @@ genetics category and must not set sex by itself. It maps to
 `ICU-Non-Pregnant` maps to `health_status=icu` and
 `reproductive_status=non_pregnant`.
 
-Legacy code sometimes defaulted unknown gender into an F2 sex label, so
+Legacy code sometimes defaulted unclear gender into an F2 sex label, so
 `F2-Male`/`F2-Female` is a contaminated sex signal. If a compound F2 label
 disagrees with the source `Gender` column, preserve both pieces of evidence and
-route the row to review. If `Gender` is blank and only an F2 label implies sex,
-keep sex as needs-review instead of inferring it from the label.
+reject/block the row before canonical creation. If `Gender` is blank and only an
+F2 label implies sex, do not infer sex from the label; reject/block the row until
+the real sex is corrected.
 
 ## Animal And Breed Terms
 
@@ -247,9 +266,9 @@ post-delivery management stage for a mother.
 
 Fattening groups after K3/weaning. `F2` is the growth/fattening stage; the
 `Male`/`Female` suffix is a legacy grouping label and is not authoritative sex
-evidence. Goat OS uses the source `Gender` column for sex and treats missing or
-conflicting sex evidence as reviewable. The goal is strong feed performance and
-average daily gain.
+evidence. Goat OS requires canonical animal sex to be real `female` or `male`;
+missing, unclear, or conflicting sex evidence blocks import/creation until
+corrected. The goal is strong feed performance and average daily gain.
 
 `F0` is not currently used.
 

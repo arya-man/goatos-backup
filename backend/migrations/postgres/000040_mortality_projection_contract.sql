@@ -62,7 +62,7 @@ CREATE TABLE mortality_events (
   CONSTRAINT mortality_events_dedup_confidence_check CHECK (dedup_confidence IN ('resolved_identity', 'stable_source_identifier', 'candidate_review')),
   CONSTRAINT mortality_events_event_type_check CHECK (event_type IN ('death', 'abortion')),
   CONSTRAINT mortality_events_age_class_check CHECK (age_class IN ('kid', 'adult', 'unknown')),
-  CONSTRAINT mortality_events_sex_check CHECK (sex IS NULL OR sex IN ('female', 'male', 'unknown')),
+  CONSTRAINT mortality_events_sex_check CHECK (sex IS NULL OR sex IN ('female', 'male')),
   CONSTRAINT mortality_events_review_status_check CHECK (review_status IN ('accepted', 'needs_review', 'rejected', 'superseded')),
   CONSTRAINT mortality_events_candidate_key_check CHECK (
     logical_event_key IS NOT NULL OR dedup_candidate_key IS NOT NULL

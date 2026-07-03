@@ -4086,10 +4086,10 @@ components:
             - "null"
           maxLength: 120
         sex:
-          type:
-            - string
-            - "null"
-          maxLength: 40
+          type: string
+          enum:
+            - female
+            - male
         age_band:
           type:
             - string

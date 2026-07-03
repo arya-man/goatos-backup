@@ -538,7 +538,7 @@ instruction to defer those bugs to Goal 2.
 | OCK-070 | MEDIUM | JSON Schema coverage/validation remains pending/under-reviewed. |
 | OCK-071 | MEDIUM | In-trigger fanout behavior remains pending/under-reviewed. |
 | OCK-072 | MEDIUM | Protocol-write idempotency remains pending/under-reviewed. |
-| OCK-073 | LOW/MEDIUM | `old_tag` key behavior remains pending/under-reviewed. |
+| OCK-073 | LOW/MEDIUM | Superseded by the clean-slate Animal ID 1/2 contract: identifier values are globally single-use for life, never park-scoped, never reused after death/sale/exit/tag loss, and checked against current plus historical identifiers. |
 | OCK-074 | LOW | Dead `next_due_basis` code/field remains pending/under-reviewed. |
 | OCK-075 | MEDIUM REGRESSION | Repeat CHECK migration can abort on existing `until_age`/`after_age` data because it adds constraint without pre-clean/backfill. |
 | OCK-076 | MEDIUM REGRESSION | Herd commit may have narrowed from per-row resilience to all-or-nothing rejection on first invalid preview row. |

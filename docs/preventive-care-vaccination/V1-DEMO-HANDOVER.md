@@ -1,5 +1,11 @@
 # Vaccination V1 Demo Handover
 
+**Path B target correction (2026-07-03):** this is a historical local-demo
+handover. The clean target now uses mixed-species `herd_animals` / `animal_id`
+and Animal Passport language per the PRD/TRD/V1 foundation spec. Historical
+proof artifact names may still include old goat-only labels, but product wording
+below should be read as Animal Passport / per-animal / `animal.*`.
+
 Date: 2026-07-01
 Branch: `vaccination-v1-close`
 Worktree: local GoatOS checkout
@@ -19,35 +25,35 @@ Fresh evidence:
 - Source nuance rules: `docs/preventive-care-vaccination/source-nuances-rules.md`
 - Goats and Parks tracked source extract: `context/source-findings/goats-and-parks-source-extract.md`
 - Nuance kernel/config package proof: `go test ./internal/adminui/app ./internal/protocol/app ./internal/vaccination/app -count=1`
-- Older-goat anti-flood tests: `go test ./internal/vaccination/app -run 'TestOlderGoat' -count=1`
+- Older-animal anti-flood tests: `go test ./internal/vaccination/app -run 'TestOlderGoat' -count=1`
 - Calendar drive-collapse test: `go test ./internal/calendar/adapters/postgres -run 'TestCalendarVaccinationProjectionCollapsesBatchedGoatDosesToDrive' -count=1`
 - Chain proof: `vaccination-chain-proof stamp=1782915162`
 - Trusted-history existing-vaccination proof: `vaccination-trusted-history-proof stamp=1782917268`
 - Rework proof: `vaccination-rework-proof stamp=1782899439`
 - Visual screenshots: `.codex-goatos-render/admin-web-screenshots/2026-07-01T14-12-57-572Z`
-- Rework Goat Passport screenshot: `.codex-goatos-render/admin-web-screenshots/2026-07-01T09-04-55-269Z/desktop-goat-passport-rework-proof.png`
+- Rework Animal Passport screenshot: `.codex-goatos-render/admin-web-screenshots/2026-07-01T09-04-55-269Z/desktop-goat-passport-rework-proof.png`
 
 What is closed for the V1 demo:
 
 1. SOP builder creates, validates, dry-runs, publishes, reopens, edits, and republishes a vaccination SOP with all supported question types.
 2. Config creates the Nuance Rules vaccination matrix, previews impact, saves draft, publishes ET+TT, PPR, Goat Pox, FMD, and HS as separate protocol versions, and reopens the published drawer.
 3. Config captures the nuance policy: vaccine type/pathogen class, course type, schedule, dose, vial, revaccination, breed/stage/sex rows, live/killed gap metadata, same-day compatibility metadata, procurement warm-up, adult prior-vaccination policy, pregnancy skip/post-delivery policy, and clinical defer states.
-4. The V1 kernel enforces V1-local nuance gates proven in tests: clinical holds, pregnancy/reproductive exclusion when generation or backfill reads current goat state, procurement warm-up due offset, older-goat catch-up anti-flood, trusted-history next-dose advancement, Nuance schedule due dates, live-live spacing, and drive-first Calendar aggregation after batching.
-5. Goat creation/import/intake data paths generate vaccination obligations through the kernel chain.
+4. The V1 kernel enforces V1-local nuance gates proven in tests: clinical holds, pregnancy/reproductive exclusion when generation or backfill reads current animal state, procurement warm-up due offset, older-animal catch-up anti-flood, trusted-history next-dose advancement, Nuance schedule due dates, live-live spacing, and drive-first Calendar aggregation after batching.
+5. Animal creation/import/intake data paths generate vaccination obligations through the kernel chain.
 6. Sweeper groups due work into shed drive/SOP task work.
 7. Proof upload, accepted verification, completion, booster generation, and replay idempotency are proven.
 8. Rejected proof -> rework -> corrected resubmission -> accepted verification is proven in the data plane.
-9. Goat Passport shows open due rows, rejected and accepted history, and links back to Workflow / Action Center using the real workflow row key.
+9. Animal Passport shows open due rows, rejected and accepted history, and links back to Workflow / Action Center using the real workflow row key.
 10. Current visible V1 click paths pass for shell/sidebar, Vaccination, Action Center, Protocol Adherence, Workflows, Config, and SOP Library.
 11. Desktop/narrow visual smoke passes across the active routes.
-12. Older goats with unknown or untrusted history do not flood Calendar / Action Center with every missed historical dose; the generator creates one safe catch-up/review action first, while trusted first-dose evidence advances to the next missing dose. The live trusted-history smoke seeds an accepted/verified ET+TT 4-week history row, suppresses that old dose, and generates/batches only the next ET+TT 7-week obligation.
-13. Calendar is drive-first after V1 batching: before batching it can project per-goat due work, but once due rows are attached to a shed drive batch, active Calendar suppresses the batched per-goat `vaccination_dose_due` rows and shows one `vaccination_drive` item with the goat count. Per-goat rows remain detail data for Passport / Protocol Adherence / Vaccination drilldowns.
+12. Older animals with unknown or untrusted history do not flood Calendar / Action Center with every missed historical dose; the generator creates one safe catch-up/review action first, while trusted first-dose evidence advances to the next missing dose. The live trusted-history smoke seeds an accepted/verified ET+TT 4-week history row, suppresses that old dose, and generates/batches only the next ET+TT 7-week obligation.
+13. Calendar is drive-first after V1 batching: before batching it can project per-animal due work, but once due rows are attached to a shed drive batch, active Calendar suppresses the batched per-animal `vaccination_dose_due` rows and shows one `vaccination_drive` item with the animal count. Per-animal rows remain detail data for Passport / Protocol Adherence / Vaccination drilldowns.
 
 Outside this V1 demo contract:
 
 - Later route/resource optimizer: cross-shed route planning, worker/stock/cold-chain assignment, smarter wait/run decisions, multi-day plans, small-shed fairness, and replan scoring.
-- Million-goat load/permutation proof beyond the focused V1 source-matrix fixtures.
-- Business-facing user/shed administration UI; local proof uses seeded grant/local shed setup plus real goat/config/SOP/proof flows.
+- Million-animal load/permutation proof beyond the focused V1 source-matrix fixtures.
+- Business-facing user/shed administration UI; local proof uses seeded grant/local shed setup plus real animal/config/SOP/proof flows.
 - Full browser-driven field-worker rework walkthrough; reject -> rework -> resubmit -> accept is proven through backend/API and Passport UI evidence.
 
 ## URL And Login
@@ -67,8 +73,8 @@ Use this path:
    - Show CEO/COO-published vaccination protocol rules and version/audit status.
 2. `SOP Library`
    - Show vaccination SOP policy, then the builder if you want to show authoring.
-3. `Counts -> Herd Register` or the created goat path
-   - Explain that canonical goats trigger vaccination generation.
+3. `Counts -> Herd Register` or the created animal path
+   - Explain that canonical herd animals trigger vaccination generation.
 4. `Vaccination`
    - Show matrix/status, generated work, cohort/detail drawers, and shed execution.
 5. `Action Center`
@@ -77,8 +83,8 @@ Use this path:
    - Show expected vs actual and gap state.
 7. `Workflows`
    - Show config -> obligation -> drive -> SOP -> proof -> verify -> completion.
-8. `Goat Passport`
-   - Show vaccination open due rows and history on the same goat.
+8. `Animal Passport`
+   - Show vaccination open due rows and history on the same animal.
 9. `Control Tower`
    - Show summary of current gaps/process state.
 
@@ -115,18 +121,18 @@ Visual:
 
 Trusted-history existing-vaccination proof IDs from `vaccination-trusted-history-proof stamp=1782917268`:
 
-- Goat: `35832307-c6ce-4624-b3ca-7bd05bf4d07d`
+- Animal: `35832307-c6ce-4624-b3ca-7bd05bf4d07d`
 - Accepted 4-week history obligation: `349b8a98-2ec3-457d-b0d1-b8aad2288708`
 - Accepted 4-week completion: `743d1e25-6c76-4624-b76d-f7f102ccf2ab`
 - Next 7-week obligation: `6b13edf0-feca-4513-a5af-7605110b716a`
 - Shed-drive batch: `3f17e9b6-1809-4693-87e8-4edae0306050`
 - SOP task: `94277d65-1116-4d78-b4e9-8d816c264b2b`
 - Nuance ET+TT protocol version: `ce809b51-4262-47cb-bc88-370adff3aea0`
-- Surface proof: Calendar `shed_drive_batch=HIT`, Calendar per-goat old 4-week `MISS`; Action Center next obligation `HIT`, old 4-week `MISS`; Workflow task `HIT`; Passport history and next obligation `HIT`; Control Tower and Protocol Adherence summaries `HIT`.
+- Surface proof: Calendar `shed_drive_batch=HIT`, Calendar per-animal old 4-week `MISS`; Action Center next obligation `HIT`, old 4-week `MISS`; Workflow task `HIT`; Passport history and next obligation `HIT`; Control Tower and Protocol Adherence summaries `HIT`.
 
 Fresh chain IDs from `vaccination-chain-proof stamp=1782915162`:
 
-- Goat: `5e5dbff7-493a-4916-b586-09c18e8eebdc`
+- Animal: `5e5dbff7-493a-4916-b586-09c18e8eebdc`
 - Primary obligation: `95b0df2f-6e4e-4ee7-81a0-b5ccc75182c2`
 - Booster obligation: `e5b73456-07cf-46fb-8d4f-07ee45899a1e`
 - Batch: `1c2b68f7-bf5d-44c8-8633-686aa140a889`
@@ -136,7 +142,7 @@ Fresh chain IDs from `vaccination-chain-proof stamp=1782915162`:
 
 Rework proof IDs:
 
-- Goat: `8f77b2a9-e969-4313-96b9-b6a8a5c30482`
+- Animal: `8f77b2a9-e969-4313-96b9-b6a8a5c30482`
 - Obligation: `06eb74a3-d44d-48e7-bb8f-8a025e071b11`
 - Booster obligation: `912b95a0-33f2-426a-92f2-e6ca2df20eed`
 - Batch: `13658fc0-6c6f-4620-bc75-ac2213b31e7a`
@@ -187,12 +193,12 @@ npm --prefix apps/admin-web run check:mock-fidelity
 
 Say:
 
-> V1 is demo-ready for the Preventive Care (PC) vaccination workflow. SOP policy and multi-row vaccination config capture the nuance rules for breed, stage, sex, vaccine class, course type, dose, vial size, revaccination, schedule, live/killed spacing, clinical defer, procurement warm-up, and pregnancy policy; the kernel generates safe due work, the sweeper groups it into shed execution, the operator submits proof, verification accepts or rejects it, completion updates the goat passport, and replay does not duplicate work.
+> V1 is demo-ready for the Preventive Care (PC) vaccination workflow. SOP policy and multi-row vaccination config capture the nuance rules for species, breed, stage, sex, vaccine class, course type, dose, vial size, revaccination, schedule, live/killed spacing, clinical defer, procurement warm-up, and pregnancy policy; the kernel generates safe due work, the sweeper groups it into shed execution, the operator submits proof, verification accepts or rejects it, completion updates the Animal Passport, and replay does not duplicate work.
 
 Also say:
 
-> Calendar is V1-safe for the demo: after the sweeper batches goat due rows into a shed drive, Calendar shows the drive item, not 100 duplicate goat-dose rows. Goat-level due status stays in Passport, Protocol Adherence, and Vaccination detail.
+> Calendar is V1-safe for the demo: after the sweeper batches animal due rows into a shed drive, Calendar shows the drive item, not 100 duplicate animal-dose rows. Animal-level due status stays in Passport, Protocol Adherence, and Vaccination detail.
 
 Also say:
 
-> This handover is the V1 Preventive Care (PC) vaccination demo contract. V1 captures the Nuance Rules matrix and proves the local rule gates, including compatibility spacing. Route/resource optimization and million-goat load/permutation work are separate production programs, not hidden claims inside this demo.
+> This handover is the V1 Preventive Care (PC) vaccination demo contract. V1 captures the Nuance Rules matrix and proves the local rule gates, including compatibility spacing. Route/resource optimization and million-animal load/permutation work are separate production programs, not hidden claims inside this demo.

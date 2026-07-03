@@ -248,7 +248,7 @@ func (r *Repository) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) 
 	// Fingerprint the ORIGINAL request before any in-flight mutation of in.* below (rfid-conflict path).
 	fingerprint := requestFingerprint(
 		in.TenantID, in.LoadID, stringPtrValue(in.GoatID), stringPtrValue(in.SourceTag),
-		stringPtrValue(in.SourceRFID), stringPtrValue(in.TemporaryID), in.SelectionState,
+		stringPtrValue(in.SourceRFID), stringPtrValue(in.TemporaryID), in.Sex, in.SelectionState,
 		in.SelectionReason, in.Purpose, in.CurrentState, in.IdentityState, in.OwnershipState, in.HealthState,
 		stringPtrValue(in.HoldingLocationID), fpTime(in.WarmupStartedAt), fpTime(in.WarmupEndedAt),
 		intPtrFingerprint(in.WarmupDays), canonicalJSON(in.ProofRefs), canonicalJSON(in.Metadata),
@@ -305,14 +305,16 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`, in.TenantID, in.LoadID).Scan
 		}
 		if err = tx.QueryRow(ctx, `
 INSERT INTO goats (
-  tenant_id, lifecycle_status, identity_state, custodian_party_id,
+  tenant_id, lifecycle_status, identity_state, custodian_party_id, sex,
   origin_type, source_confidence, created_by
 ) VALUES (
-  $1::uuid, 'inactive', $2, $3::uuid, 'procured', 0.50, nullif($4::text, '')::uuid
+  $1::uuid, 'inactive', $2, $3::uuid, $4, 'procured', 0.50, nullif($5::text, '')::uuid
 )
-RETURNING goat_id::text`, in.TenantID, identityState, sourcePartyID, stringPtrValue(in.ActorID)).Scan(&goatID); err != nil {
+RETURNING goat_id::text`, in.TenantID, identityState, sourcePartyID, in.Sex, stringPtrValue(in.ActorID)).Scan(&goatID); err != nil {
 			return domain.LoadGoat{}, fmt.Errorf("procurement: create source goat: %w", err)
 		}
+	} else if err = ensureExistingGoatSex(ctx, tx, in.TenantID, goatID, in.Sex); err != nil {
+		return domain.LoadGoat{}, err
 	}
 	if rfidConflictOwner != "" {
 		in.IdentityState = "conflict"
@@ -1576,6 +1578,25 @@ SELECT EXISTS (
 		return false, fmt.Errorf("procurement: check load RFID replay: %w", err)
 	}
 	return exists, nil
+}
+
+func ensureExistingGoatSex(ctx context.Context, tx pgx.Tx, tenantID, goatID, requestedSex string) error {
+	var canonicalSex string
+	err := tx.QueryRow(ctx, `
+SELECT sex
+FROM goats
+WHERE tenant_id = $1::uuid
+  AND goat_id = $2::uuid`, tenantID, goatID).Scan(&canonicalSex)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrInvalidReference
+	}
+	if err != nil {
+		return fmt.Errorf("procurement: lookup existing goat sex: %w", err)
+	}
+	if canonicalSex != requestedSex {
+		return fmt.Errorf("%w: goat %s is %s, request was %s", ports.ErrSexMismatch, goatID, canonicalSex, requestedSex)
+	}
+	return nil
 }
 
 func insertRFIDIdentifier(ctx context.Context, tx pgx.Tx, tenantID, goatID string, value *string) error {

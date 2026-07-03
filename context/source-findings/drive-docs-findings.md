@@ -46,25 +46,17 @@ current farm process. Current data treats them as one site each. Future parks in
 the same broader place, such as Hindupur, should get distinct codenames instead
 of reusing one code for multiple physical sites.
 
-### Old Tag Scope
+### Historical Old Tag Scope (superseded by GoatOS Animal IDs)
 
-Old ear-tag numbers are not globally unique by themselves. The confirmed legacy
-identity key is:
+Old source sheets showed ear-tag numbers that appeared scoped by source park or
+historic park alias. That legacy scoping is evidence only and must not be copied
+into the GoatOS target identity contract.
 
-```text
-old_tag_number + park_code
-```
-
-Examples:
-
-```text
-826 CBE and 826 CPT can be two different goats.
-435 CBE and 435 CPT can both exist in Coimbatore after historic movement.
-435 CBE cannot exist twice for two different goats.
-```
-
-Goat OS must not merge goats by old tag number alone. It must normalize historic
-park aliases and preserve the source code used as evidence.
+Target GoatOS behavior supersedes this: every accepted animal has
+`animal_identifier_1` and `animal_identifier_2`; the two values are different on
+the same animal; each value is globally single-use for life; and no park, shed,
+source sheet, species, death, sale, transfer, broken tag, or fallen tag releases
+the value for reuse.
 
 ### RFID And First Import
 
@@ -100,9 +92,10 @@ kid tags: F2 284, K2 209, K1 2
 adult tag field: blank for adult rows
 ```
 
-The workbook snapshot supports the RFID parser-harness design. RFID is the clean
-parser anchor. Old tags still require scoped handling and review because the
-historical snapshot had duplicate old-tag keys under source scope rules:
+The workbook snapshot supports parser tests and source evidence only. It must
+not reintroduce park-scoped identifiers or long-lived review states into the
+target herd model. Historical duplicate source keys remain evidence that seed
+data must be normalized/rejected before accepted herd animals are created:
 
 ```text
 old tag + suffix-or-fallback-scope duplicate keys: 3
@@ -111,13 +104,13 @@ old tag + suffix-or-fallback-scope duplicate keys: 3
 Raw duplicate row values are intentionally not committed. Import behavior:
 
 ```text
-RFID -> global active RFID identifier
-Old ID -> old_tag identifier value
-Old ID Suffix -> old_tag source scope when present
-blank Old ID Suffix -> fallback/review scope; duplicate fallback keys route to review
+RFID -> source/proof evidence when present
+Old ID -> source evidence mapped to Animal ID 1/2 only through the clean importer
+Old ID Suffix -> source provenance only, never a target identity scope
+blank Old ID Suffix -> invalid/ambiguous source evidence; fix before accepted seed
 Farm/Shed/Partition -> current location evidence
 Age/Tag -> lifecycle/growth cohort evidence
-Gender -> sex source of truth; blank gender routes to review
+Gender -> sex source evidence; accepted GoatOS animals must be female or male
 Breed -> breed/source label evidence, preserving exact source spelling
 ```
 
@@ -659,7 +652,11 @@ Each module configures the proof policy; no module owns a one-off uploader.
 ```text
 Phase 1:
   import RFID DB only
-  old_tag uniqueness = Number + Park/historic park alias
+  historical source observation: old tag values appeared scoped by number +
+  park/historic park alias in source data
+  TARGET CONTRACT SUPERSEDES THIS: Animal ID 1/2 values are globally
+  single-use for life and never reused across animals, parks, death/sale/exit,
+  or broken/fallen tags
   latest DB event wins placement recency when RFID shed is stale, but preserve both
   HF rows create source/partner evidence and review ownership where needed
 

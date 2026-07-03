@@ -4,7 +4,13 @@
 **Companion:** [obligation-engine.md](./obligation-engine.md) · [state-machines.md](./state-machines.md) · [Preventive Care (PC) TRD](../preventive-care-vaccination/TRD.md)
 **Context:** legacy BQ/Sheets data was already ported into `goatos-dev` (snapshot-based). This doc says how to turn that into clean canonical state that Preventive Care (PC) / Feed run on — **without** the new system depending on legacy forever, and **without** flooding Control Tower with fake historical breaches.
 
-> **Prime rule:** Legacy data **seeds** canonical state; it does **not** drive the runtime. Once canonical goats are clean enough, vaccination/feed rules run from Goat OS Postgres only.
+> **Prime rule:** Legacy data **seeds** canonical state; it does **not** drive the runtime. Once canonical herd animals are clean enough, vaccination/feed rules run from Goat OS Postgres only.
+
+**Path B target correction (2026-07-03):** canonical state is mixed-species
+`herd_animals` / `animal_id`, not goat-only storage. Any references below to
+`goats`, `goat_id`, `goat_identifiers`, or `goat.*` events are legacy/current
+implementation names that must be migrated to the animal model before the base
+is considered clean.
 
 ---
 
@@ -17,10 +23,15 @@ Keep the raw imported data, but quarantine it from the running system:
 
 ## 2. Build canonical Goat OS tables fresh (only what Preventive Care (PC) / Feed need for v1)
 
-From the frozen source, materialize clean canonical rows in the **committed** tables:
-- `goats` (+ the `000070` provenance/lifecycle columns): `sex`, `approx_dob` (+`dob_estimated`), `origin_type`, `entry_date`, `lifecycle_status` (active/dead/sold/missing), `park_id`/`shed_id`/`cohort_id`.
-- `goat_identifiers` (RFID, old ear-tag, visual tag — committed identifier types + trust rules).
-- current location/shed (`current_location_id`, `shed_id`) and `goat_location_history` **if trustworthy**.
+From the frozen source, materialize clean canonical rows in the **target** tables:
+- `species_catalog` and species-owned breed rows/aliases. Seed at least goat and sheep; Anantapur Sheep is sheep.
+- `herd_animals`: `sex`, `dob`/`dob_confidence` plus migrated `approx_dob`, `origin_type`, `entry_date`, `lifecycle_status` (active/dead/sold/missing), `park_id`/`shed_id`/`cohort_id`, and current shed tag/stage.
+- `animal_identifiers` for `animal_identifier_1` and `animal_identifier_2`.
+  Both current values are required, different on the same animal, and globally
+  single-use for life across current plus historical rows. RFID/source labels
+  are provenance/proof only unless the clean importer explicitly maps them into
+  an Animal ID slot.
+- current location/shed (`current_location_id`, `shed_id`) and `animal_location_history` **if trustworthy**.
 - inventory **opening balances** as `inventory_stock` lots + an initial `inventory_stock_movements` `adjust` row, **if trustworthy**.
 - operator/user mapping into `workforce_*` / `user_scope_grants` **if needed**.
 
@@ -32,19 +43,19 @@ No Import-Review product screen, **no review workflow, no review queue.** This i
 
 | Class | Meaning | Preventive Care (PC) effect |
 |---|---|---|
-| `accepted` | enough data to create a canonical goat | full obligation generation |
+| `accepted` | enough data to create a canonical herd animal | full obligation generation |
 | `accepted_with_estimate` | usable, but DOB/stage/etc. estimated (`dob_estimated=true`) | generate with estimated anchors; flag |
-| `blocked_for_phc` | goat exists but a key field (sex/stage/shed/DOB) is missing → vaccination can't trigger | no obligations until resolved; listed in report |
+| `blocked_for_phc` | animal exists but a key field (species/sex/stage/shed/DOB) is missing → vaccination can't trigger | no obligations until resolved; listed in report |
 | `discarded_legacy_noise` | BQ/dashboard-only junk, not a real animal | dropped (archived, not canonical) |
 
 The report is the cutover artifact Preventive Care (PC) reviews — counts per class, blocked-field breakdown, per-park.
 
 ## 4. Vaccination triggers from canonical state — NOT legacy import events
 
-Do **not** replay old rows as `goat.created`. Run a **one-time Preventive Care (PC) backfill generator** (a bounded, resumable Cloud Run Job, chunked by park/date — same scale rules as the sweeper):
+Do **not** replay old rows as `animal.created`. Run a **one-time Preventive Care (PC) backfill generator** (a bounded, resumable Cloud Run Job, chunked by park/date — same scale rules as the sweeper):
 
 ```
-for each canonical ACTIVE goat (paged, chunked by park):
+for each canonical ACTIVE herd animal (paged, chunked by park):
    read published vaccination protocol_versions (effective today, tenant/park scope)
    evaluate eligibility: age (approx_dob) + sex + animal_stage(shed/cohort) + lifecycle + health + overrides
    subtract already-known vaccination history (§5)
@@ -70,19 +81,19 @@ Idempotent: re-running the backfill creates zero duplicates (same `idempotency_k
 The backfill must not manufacture historical breaches:
 
 ```
-for a goat's computed past-due dose:
+for an animal's computed past-due dose:
   if due_date < CUTOVER_DATE and no reliable completion:
       → create ONE catch-up obligation / fold into a baseline drive   (status reflects "catch-up", not "overdue since 2023")
   else (due on/after cutover):
       → normal scheduled obligation
-NEVER: emit one historical 'overdue' obligation per missed past dose per goat
+NEVER: emit one historical 'overdue' obligation per missed past dose per animal
 ```
 
 Otherwise Control Tower explodes with fake historical overdue — the single worst cutover failure mode. `CUTOVER_DATE` is a config knob Preventive Care (PC) sets.
 
 ## 7. Keep / scrap
 
-**KEEP (seed canonical from these):** raw source snapshots (audit), goat identity, RFID/ear-tags/old-tags, active/dead/sold state, park/shed mapping, shift/location history *if trustworthy*, vaccination history *if trustworthy*, inventory opening balances *if trustworthy*, operator/user mapping *if needed*.
+**KEEP (seed canonical from these):** raw source snapshots (audit), animal identity, species/breed, RFID/ear-tags/old-tags, active/dead/sold state, park/shed mapping, shift/location history *if trustworthy*, vaccination history *if trustworthy*, inventory opening balances *if trustworthy*, operator/user mapping *if needed*.
 
 **SCRAP from runtime:** BQ dashboard-parity thinking, legacy review UI, old Sheets/BQ row model as runtime schema, dashboard-specific derived tables, old import-review workflows.
 
@@ -91,11 +102,11 @@ Otherwise Control Tower explodes with fake historical overdue — the single wor
 ```
 legacy BQ/Sheets
   → frozen source archive (legacy_import_*, checksummed)
-  → canonical Goat OS goats/locations/operators (committed tables + 000070 cols)
+  → canonical Goat OS herd_animals/locations/operators
   → migration quality report (accepted / accepted_with_estimate / blocked_for_phc / discarded_noise)
   → one-time Preventive Care (PC) backfill generator (canonical → missing obligations → shed drives)
   → cutover policy (catch-up/baseline, NOT historical overdue)
   → current/future vaccination + feed obligations run from Goat OS only
 ```
 
-**Build gate:** this cutover plan + the [7 state machines](./state-machines.md) + the rule values are the prerequisites for migrations `000070–078` and the backfill Job. Agree all three, then SQL.
+**Build gate:** this cutover plan + the [7 state machines](./state-machines.md) + the rule values are the prerequisites for the Path B herd-animal base migrations and the backfill Job. Agree all three, then SQL.

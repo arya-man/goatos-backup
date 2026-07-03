@@ -4166,10 +4166,10 @@ components:
             - "null"
           maxLength: 120
         sex:
-          type:
-            - string
-            - "null"
-          maxLength: 40
+          type: string
+          enum:
+            - female
+            - male
         age_band:
           type:
             - string
@@ -4365,7 +4365,6 @@ components:
           enum:
             - female
             - male
-            - unknown
         dob:
           type: string
           format: date
@@ -6347,6 +6346,8 @@ components:
     AddProcurementLoadGoatRequest:
       type: object
       additionalProperties: false
+      required:
+        - sex
       properties:
         goat_id:
           type:
@@ -6368,6 +6369,11 @@ components:
             - string
             - "null"
           maxLength: 160
+        sex:
+          type: string
+          enum:
+            - female
+            - male
         selection_state:
           $ref: "#/components/schemas/ProcurementSelectionState"
         selection_reason:

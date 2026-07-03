@@ -1670,7 +1670,8 @@ export interface components {
             primary_old_tag?: string | null;
             rfid?: string | null;
             breed: string | null;
-            sex: string | null;
+            /** @enum {string} */
+            sex: "female" | "male";
             age_band: string | null;
             lifecycle_status: string;
             reproductive_status: string | null;
@@ -1730,7 +1731,7 @@ export interface components {
             shed_code?: string;
             breed?: string;
             /** @enum {string} */
-            sex: "female" | "male" | "unknown";
+            sex: "female" | "male";
             /** Format: date */
             dob: string;
             dob_estimated?: boolean;
@@ -2347,6 +2348,8 @@ export interface components {
             source_tag?: string | null;
             source_rfid?: string | null;
             temporary_id?: string | null;
+            /** @enum {string} */
+            sex: "female" | "male";
             selection_state?: components["schemas"]["ProcurementSelectionState"];
             selection_reason?: string;
             purpose?: components["schemas"]["ProcurementPurpose"];

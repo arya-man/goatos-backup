@@ -66,11 +66,12 @@ Every phase must inspect available legacy/source artifacts before asking the
 business to answer from memory. Agents should produce evidence-backed proposals
 with source paths, counts, and confidence, then ask for confirmation. Raw PII or
 private source rows must not be committed.
-Every phase touching goat identity, park/shed scope, shed tags, lifecycle/stage,
-breed labels, pregnancy/lactation/warm-up/fattening, feed safety, weighing,
-handling, medicine administration, park roles, or feed sessions must start from
+Every phase touching herd-animal identity, species/breed labels, park/shed
+scope, shed tags, lifecycle/stage, pregnancy/lactation/warm-up/fattening, feed
+safety, weighing, handling, medicine administration, park roles, or feed
+sessions must start from
 `context/source-findings/goats-and-parks-source-findings.md` as the base
-goat/park source and must record an explicit source/owner decision before
+herd/park source and must record an explicit source/owner decision before
 building conflicting semantics.
 When a phase or policy pack replaces a legacy Slack/Sheets/App Script workflow,
 it must declare the `legacy capability parity floor`, `known legacy gaps to
@@ -103,7 +104,7 @@ Current active path:
   docs/preventive-care-vaccination/TRD.md
   docs/preventive-care-vaccination/V1-FOUNDATION-SPEC.md
 
-Old Goat Passport and generic SOP task-engine phase folders were deleted
+Old Animal Passport and generic SOP task-engine phase folders were deleted
 because they described the old import-review, identity-review, generic SOP/admin,
 counts, mortality, and legacy-sync track. Use the active docs above plus
 `context/frontend/current-admin-web-scope.md` for the current Admin Config + Preventive Care (PC)

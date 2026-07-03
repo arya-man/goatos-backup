@@ -50,6 +50,7 @@ const SELECTION_STATES: ProcurementSelectionState[] = [
 const HEALTH_FULL: ProcurementHealthState[] = ["pending", "passed", "failed", "deferred"];
 const OWNERSHIP_STATES: ProcurementOwnershipState[] = ["pending", "shared_pending", "mesha_owned", "blocked", "not_owned", "settled"];
 const PURPOSES: ProcurementPurpose[] = ["breeding", "fattening", "non_breeding", "unspecified"];
+const SEXES = ["female", "male"] as const;
 type HFReviewRequestStatus = ReviewProcurementHFVaccinationEvidenceRequest["review_status"];
 const HF_REVIEW_STATUSES: HFReviewRequestStatus[] = ["trusted", "rejected", "conflicting", "duplicate"];
 
@@ -161,6 +162,7 @@ export async function addSourceGoatAction(formData: FormData): Promise<void> {
       source_tag: optionalString(formData, "source_tag") ?? null,
       source_rfid: optionalString(formData, "source_rfid") ?? null,
       temporary_id: optionalString(formData, "temporary_id") ?? null,
+      sex: inEnum(optionalString(formData, "sex"), SEXES, "sex"),
       selection_state: optionalString(formData, "selection_state")
         ? inEnum<ProcurementSelectionState>(optionalString(formData, "selection_state"), SELECTION_STATES, "selection_state")
         : undefined,

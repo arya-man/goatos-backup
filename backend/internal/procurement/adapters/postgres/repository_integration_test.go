@@ -248,6 +248,31 @@ WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, 
 		}
 	})
 
+	t.Run("existing goat sex mismatch is rejected", func(t *testing.T) {
+		load := createProcurementLoad(t, ctx, repo, "existing-goat-sex-mismatch-load", 1)
+		_, err := repo.AddGoatToLoad(ctx, ports.AddGoatToLoad{
+			TenantID:       testTenant,
+			LoadID:         load.LoadID,
+			GoatID:         strPtr(testOtherGoat),
+			SourceTag:      strPtr("SEX-MISMATCH"),
+			Sex:            "male",
+			SelectionState: "candidate",
+			CurrentState:   domain.GoatStateSourceCandidate,
+			IdentityState:  "pending",
+			OwnershipState: "pending",
+			HealthState:    "pending",
+			ProofRefs:      []byte("[]"),
+			Metadata:       []byte("{}"),
+			IdempotencyKey: "existing-goat-sex-mismatch",
+		})
+		if !errors.Is(err, ports.ErrSexMismatch) {
+			t.Fatalf("AddGoatToLoad sex mismatch error = %v, want ErrSexMismatch", err)
+		}
+		if got := countRows(t, ctx, pool, `SELECT count(*) FROM procurement_load_goats WHERE tenant_id=$1 AND load_id=$2`, testTenant, load.LoadID); got != 0 {
+			t.Fatalf("sex mismatch inserted load goat rows = %d, want 0", got)
+		}
+	})
+
 	t.Run("pending identity ownership health cannot accepted intake", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "pending-intake-load", 1)
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
@@ -922,7 +947,7 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "idem-addgoat-load", 1)
 		in := ports.AddGoatToLoad{
 			TenantID: testTenant, LoadID: load.LoadID,
-			SourceTag: strPtr("IDEM-ADDGOAT"), TemporaryID: strPtr("TMP-ADDGOAT"),
+			SourceTag: strPtr("IDEM-ADDGOAT"), TemporaryID: strPtr("TMP-ADDGOAT"), Sex: "female",
 			SelectionState: "candidate", CurrentState: domain.GoatStateSourceCandidate,
 			IdentityState: "pending", OwnershipState: "pending", HealthState: "pending",
 			ProofRefs: []byte("[]"), Metadata: []byte("{}"), IdempotencyKey: "idem-addgoat",
@@ -1136,6 +1161,9 @@ func addProcurementGoat(t *testing.T, ctx context.Context, repo *Repository, loa
 	if in.HealthState == "" {
 		in.HealthState = "pending"
 	}
+	if in.Sex == "" {
+		in.Sex = "female"
+	}
 	if in.WarmupDays == nil && in.WarmupStartedAt != nil && in.WarmupEndedAt != nil {
 		days := int(in.WarmupEndedAt.Sub(*in.WarmupStartedAt).Hours() / 24)
 		in.WarmupDays = &days
@@ -1156,8 +1184,8 @@ func addProcurementGoat(t *testing.T, ctx context.Context, repo *Repository, loa
 func seedExistingRFIDGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, rfid string) {
 	t.Helper()
 	_, err := pool.Exec(ctx, `
-INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id)
-VALUES ($1, $2, 'alive', 'clean', '00000000-0000-4000-8000-000000001001', $3, $3)
+	INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, sex, current_location_id, park_id)
+	VALUES ($1, $2, 'alive', 'clean', '00000000-0000-4000-8000-000000001001', 'female', $3, $3)
 ON CONFLICT (goat_id) DO NOTHING`, goatID, testTenant, testPark)
 	if err != nil {
 		t.Fatalf("seed existing goat: %v", err)

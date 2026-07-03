@@ -2,6 +2,19 @@
 
 Date: 2026-06-25
 
+> **Superseded for Path B clean-slate herd identity:** this handoff records the
+> earlier goat-table implementation state. For current V1 architecture, use
+> `docs/preventive-care-vaccination/PRD.md`,
+> `docs/preventive-care-vaccination/TRD.md`, and
+> `context/product/glossary.md`. Current target terms are `herd_animals`,
+> `animal_id`, `animal_identifier_1`, `animal_identifier_2`,
+> `animal_identifiers`, `animal_location_history`, and
+> `animal_identity_events`. Every accepted goat/sheep/future species has two
+> different current Animal IDs; each value is globally single-use for life and
+> never reused after death, sale, transfer, tag loss, or tag breakage. Clean
+> V1 local/dev/test data is wiped and reseeded through the new importer instead
+> of preserving stale goat-only or old-dashboard rows.
+
 Purpose: close the remaining build plan before vaccination E2E by documenting the
 minimum trigger points, sidebar/IA changes, audit-log needs, backend work, and
 frontend work. E2E starts only after these pieces are built and tied together.
@@ -540,14 +553,19 @@ Audit location and meaning:
 
 ## Schema And Local Data Decision
 
-Do not design a different goat/location schema for this slice.
+This section is superseded for the current Path B V1 base. Do not preserve or
+reuse local goat-only rows as target truth. Build the clean mixed-herd schema and
+reseed local/dev/test herd data through the species-aware importer described in
+the PRD/TRD.
 
-Use the committed canonical Goat OS Postgres schema:
+Use the clean target Goat OS Postgres shape:
 
-- `goats`
-- `goat_identifiers`
-- `goat_location_history`
-- `goat_identity_events`
+- `herd_animals`
+- `animal_identifiers`
+- `animal_location_history`
+- `animal_identity_events`
+- `species_catalog`
+- `breeds`
 - `locations`
 - `farm_profiles`, `park_profiles`, `shed_profiles`
 - `animal_stage_lookup`
@@ -560,33 +578,29 @@ Use the committed canonical Goat OS Postgres schema:
 - `inventory_*`
 - `vaccination_completions`
 
-This is the enhanced GoatOS schema built from migrations `000001` through the
-current vaccination/procurement migrations, not a new Counts schema and not a
-legacy dashboard schema.
-
 Important schema rules:
 
-- `goats` already has canonical identity, lifecycle, current location, farm,
-  park, shed, cohort, DOB, origin, entry, exit, and merge fields.
+- `herd_animals` owns canonical mixed-species identity, lifecycle, current
+  location, farm, park, shed, cohort/tag, DOB, origin, entry, exit, and merge
+  fields.
 - Do not use the legacy Counting DB as a runtime dependency for vaccination,
   audit, source entry, or Herd Register. Treat it as retire/legacy migration
   evidence only.
-- The needed "association DB" concept is canonical GoatOS goat-to-shed truth:
-  `goats.current_location_id` / `goats.shed_id` plus
-  `goat_location_history`, `locations`, and shed/location profile tables. If a
-  derived read model is needed, it must be generated from those canonical
+- The needed "association DB" concept is canonical GoatOS animal-to-shed truth:
+  `herd_animals.current_location_id` / `herd_animals.shed_id` plus
+  `animal_location_history`, `locations`, and shed/location profile tables. If
+  a derived read model is needed, it must be generated from those canonical
   Postgres tables, not from Counting DB.
-- Tagging state is derived from active `goat_identifiers` through
-  `vw_goat_tagging`; do not add a stored `is_tagged` or `tagging_status` column
-  to `goats`.
+- Tagging state is derived from current/historical `animal_identifiers`; do not
+  add a stored `is_tagged` or `tagging_status` column to `herd_animals`.
 - Location truth is `locations` plus profile tables. Do not copy old BigQuery
   shed/census shapes into runtime tables.
 - Legacy/BQ/Sheets data may seed canonical rows, but runtime API, sweepers, UI,
   Control Tower, Action Center, Protocol Adherence, Workflows, Vaccination, and
   Audit must read Goat OS Postgres only.
-- Existing local goat/location rows may be reused only if they are already in
-  the canonical tables and pass the current migrations/constraints. If not, fix
-  or seed canonical rows; do not build compatibility code around stale shapes.
+- Local/dev/test herd rows are wiped and reseeded through the clean importer.
+  Do not build compatibility code around stale goat-only shapes or old-dashboard
+  rows.
 - Supplier/HF warmup uses the existing procurement/source-entry schema
   (`procurement_loads`, `procurement_load_goats`, `source_holding_stays`,
   `procurement_phc_handoffs`, proof/audit/outbox tables). Do not create a
@@ -993,7 +1007,8 @@ Single create request fields:
 - `park_id`
 - `shed_id` or `current_location_id`
 - `rfid`
-- `old_tag`
+- `animal_identifier_1`
+- `animal_identifier_2`
 - `breed`
 - `sex`
 - `dob`
@@ -1001,8 +1016,8 @@ Single create request fields:
 - `weight_kg`
 - `dam_identifier`
 - `sire_or_lot`
-- `origin_type` (`birth`, `procured`, `imported`, `unknown`; UI labels like
-  farm-born/manual-admin must map to these committed values)
+- `origin_type` (`birth`, `procured`, or an explicit approved source/import
+  type; unknown origin is not accepted for clean-slate herd animals)
 - `origin_ref`
 - `photo_url` or evidence reference
 - `entry_date`
@@ -1010,15 +1025,14 @@ Single create request fields:
 Minimum validation:
 
 - Require tenant, actor, idempotency key, and stable request fingerprint.
-- Require at least one usable identifier: RFID, old tag, or temp field ID.
+- Require both Animal ID 1 and Animal ID 2 at accepted/canonical creation.
 - Require park and current shed/location for the clean E2E trigger.
 - Reject unknown location, retired location, unusable vaccination location, bad
   sex, invalid DOB, negative weight, unknown breed if strict breed lookup exists.
-- Normalize RFID/old tag with existing identifier rules.
-- Same RFID active on another goat returns conflict/review, not silent merge.
-- Same numeric old tag can exist in different park/scope when scope keys differ.
-- If identity is not clean, create review state and do not generate active
-  vaccination work.
+- Normalize Animal ID 1/2 with the global lifetime identifier rules.
+- Any identifier value already present in current or historical records belongs
+  to exactly one animal forever; a new animal using it is rejected/fixed at
+  source, not parked in GoatOS as review/conflict state.
 
 Write in one transaction:
 
@@ -1588,11 +1602,13 @@ path. A visual screenshot without click classification is not enough.
 
 ## Edge Cases That Must Not Be Missed
 
-- Duplicate RFID active on another goat -> conflict/review, no clean create.
-- Same old tag in different park -> allowed only with distinct scope keys.
+- Duplicate Animal ID 1/2 anywhere in current or historical records -> reject
+  the new animal row; identifiers are globally single-use for life and are never
+  reused after death, sale, transfer, or broken/fallen tags.
 - Missing park/shed/current location -> no active vaccination trigger.
-- Temp birth kid -> create temp identity and 24h tagging clock, but do not
-  pretend permanent identity is clean until tagging is resolved.
+- Temp birth kid -> create only if the configured birth flow issues the two
+  required Animal ID values or a documented short-lived tagging task owns the
+  missing slot; vaccination must still resolve to one `animal_id`.
 - Birth-created newborn -> generated obligations only if published rules match
   age/stage; otherwise no immediate active vaccination work.
 - Procured adult with trusted prior vaccination history -> next due from last
