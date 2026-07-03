@@ -86,7 +86,7 @@ the rule source and must stay aligned with Config presets and kernel behavior.
 | Warm-up entry: which date counts? | Date the animal enters our farm; deworming-type work may start from day 3. | Vaccination waits 7 days from farm entry; adjacent non-vaccination interventions can have shorter holds. |
 | Kid vs adult: age only, stage only, or both? | Once kids are at least 16 weeks, no minimum-age constraints remain for giving a vaccine. | Age is the cutoff for the kid schedule; adult catch-up/repeat logic applies after it. |
 | Missed / late doses: catch up now, skip to next cycle, or Preventive Care approval? | Depends on next drive distance: immediate if trailing the next cycle; wait if same-cycle drive is within 2 weeks; immediate if more than 2 weeks away. | Missed-dose handling is cycle-relative. |
-| Mixed goat + sheep in one shed: one drive or split by species? | One drive only for kids; adults are not mixed-species in the same shed. | Mixed-species drive grouping is kid-only. |
+| Mixed goat + sheep in one park/shed/tag drive plan: one drive or split by species? | Maximize the doctor visit at park level. Kids can be one shared goat+sheep drive group; adults remain species-specific execution groups inside the same park visit. | Drive planning is park-level with shed/tag breakdowns. Mixed-species grouping is kid-only; adult vaccine work is species-safe. |
 | Additional constraints? | Hold bred animals for at least one month from breeding; prioritize breeding-ready animals; avoid vaccinating milking-department animals during milking. | Breeding hold, breeding-ready prioritization, and milking avoidance are V1 policy inputs. |
 
 ## Additional Rules
@@ -178,10 +178,20 @@ the rule source and must stay aligned with Config presets and kernel behavior.
 
 ### Mixed-species sheds
 
-- A shed with mixed goats and sheep runs a single drive only for **kids**; all
-  kids are treated the same way regardless of species.
-- Adults never share a shed across species, so adult drives are single-species
-  by construction.
+- Parks contain multiple sheds/tags. The operating goal is to give doctors the
+  maximum safe count for a park visit, while still showing the exact per-shed
+  and per-tag animal counts.
+- GoatOS must not treat "one shed = one tiny drive" as the end goal. It should
+  combine compatible due work across sheds/tags in the same park whenever every
+  animal remains inside its safe medical window.
+- Kid shed/tag groups can combine goat and sheep kids into one shared drive
+  group when due windows, live/killed spacing, max-shots-per-visit, stock,
+  health, quarantine/ICU, and warm-up rules are all safe.
+- Adult work remains species-specific inside the same park visit. Doctors may
+  physically handle adult goats and adult sheep on the same day, but GoatOS
+  keeps separate adult goat and adult sheep execution groups because adult
+  species vaccines differ: Goat Pox is goat-only; Sheep Pox and Blue Tongue are
+  sheep-only; ET+TT, PPR, FMD, and HS are shared only where the matrix allows.
 
 ## V1 Implementation Contract
 
@@ -238,10 +248,12 @@ The V1 kernel must enforce:
   and month-5 precision must use pregnancy month fields (clock from breeding
   date) when present in the animal data model;
 - post-breeding one-month vaccination hold from the breeding date;
-- mixed-species kid drives (single shared drive for kids; adult drives stay
-  single-species);
-- Calendar drive aggregation after sweeper batching, with animal-level due rows
-  remaining in Passport, Protocol Adherence, and Vaccination detail.
+- park-level drive planning that maximizes safe doctor coverage while retaining
+  per-shed/tag breakdowns;
+- mixed-species kid drive groups (single shared group for compatible goat+sheep
+  kids; adult groups stay species-specific inside the same park visit);
+- Calendar drive aggregation after sweeper/planner batching, with animal-level
+  due rows remaining in Passport, Protocol Adherence, and Vaccination detail.
 
 ## V1 Source Matrix Presets
 

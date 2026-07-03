@@ -40,7 +40,7 @@ Preventive Care (PC) is **not** just vaccination. The config engine must serve a
 | Herd-animal identity delta (animal facts the cascade reads) | Deworming + FAMACHA-driven dosing | Breeding / milking / growth verticals |
 | Full vaccine-animal matrix as one governed `vaccination` ruleset per scope, with company default + park overrides | Vaccination coverage projection | Procurement intake saga |
 | Auto obligation generation on birth/procurement | Cold-chain excursion + quarantine | Full analytics warehouse / Cube |
-| Per-shed drives + SOP execution + proof video | Booster-chain interrupt policy | Other Preventive Care (PC) modules (engine-ready, not built) |
+| Park-level drive plans + shed/tag breakdown + SOP execution + proof video | Booster-chain interrupt policy | Other Preventive Care (PC) modules (engine-ready, not built) |
 | Generic inventory + FEFO ledger movements | Withdrawal-period sale-block automation | |
 | Lifecycle cleanup (shift/death/sale) | | |
 
@@ -202,8 +202,23 @@ scope override was activated.
 ### 4.2 Herd animal enters → obligations auto-generate
 Birth report (`origin_type=birth`) or procurement (`origin_type=procured`) creates the herd animal. The engine reads published vaccination rules matching the animal's `species × breed × sex × shed-tag/stage × age × dose sequence` and **materializes `obligation_instances`** (one per due dose), `scheduled_date` computed from the trigger.
 
-### 4.3 Due → shed drive appears (the work unit)
-The sweeper batches due per-animal obligations into a **per-shed drive** (`sop_task`) and assigns it via `vaccination.execute` capability. Workers act on drives (hundreds of mixed-species animals), not per-animal tickets — the scale lever.
+### 4.3 Due → park drive plan appears (the work unit)
+The sweeper/planner batches due per-animal obligations into an optimized
+**park-level vaccination drive plan** with shed/tag breakdowns, then assigns the
+execution work through `vaccination.execute`. The operational goal is to give
+the doctors the maximum safe animal count for one park visit, not to create one
+tiny drive per shed. The plan still carries per-shed/tag counts and animal lists
+for proof and execution.
+
+Drive grouping is stage-aware:
+- Kid shed/tag groups may combine goat and sheep kids in the same park drive
+  when due windows, vaccine compatibility, stock, health, and warm-up rules are
+  all safe.
+- Adult groups stay species-specific inside the same park visit: adult goat work
+  and adult sheep work are separate execution groups because their vaccine sets
+  differ. This is not a requirement for doctors to visit twice; it is a safety
+  rule so Goat Pox never leaks to sheep and Sheep Pox/Blue Tongue never leaks to
+  goats.
 
 ### 4.4 Field worker executes (SOP + proof)
 Worker runs the vaccination SOP: animal scan, administer, record vaccine, medicine
@@ -248,16 +263,18 @@ The planner works like this:
    rule, quarantine/ICU rule, proof/SOP requirement, trained worker, stock,
    cold-chain, and the V1-authored vaccine compatibility policy.
 4. Build operational drive groups from the V1-safe vaccine groups for each
-   shed/time window. Unsafe same-day combinations or required 2-week/4-week gaps
-   are already represented by the V1 matrix and source policy; the optimizer
-   separates them while planning routes and resources.
+   park/time window, with shed/tag retained as the execution breakdown. Unsafe
+   same-day combinations or required 2-week/4-week gaps are already represented
+   by the V1 matrix and source policy; the optimizer separates them while
+   planning routes and resources.
 5. Search candidate dates only inside the approved medical window
    (`earliest_safe_date`, `ideal_date`, `last_safe_date`). A date outside the
    safe window is rejected, not merely given a bad score.
 6. Score the remaining safe plans by operational value: animals covered, urgency,
    disease priority, stock expiry, route/resource efficiency, and fairness to
-   small sheds. A one-animal shed can be held if waiting is medically safe, but it
-   becomes a micro-drive if waiting would break the window.
+   small sheds/tags. A one-animal shed/tag group can be held if waiting is
+   medically safe, but it becomes a micro-drive if waiting would break the
+   window.
    Example: if CBE has 5 K1-compatible animals due in one shed today and 15
    compatible animals in another shed whose safe medical window overlaps the next
    week, the planner may hold the smaller shed and create one 20-animal park drive

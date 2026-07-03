@@ -292,6 +292,11 @@ Context:
   not appear as an embedded required-fields list in the JSON.
 - Herd animals are mixed-species. Goat and sheep can share the same shed/tag;
   species is a selector inside the matrix, not a separate product tab.
+- Drive planning is park-level optimization, not one tiny drive per shed. Config
+  and preview must show the combined doctor-visit target plus per-shed/tag
+  counts. Compatible kid goat+sheep groups may be combined; adult goat and adult
+  sheep work must remain species-specific execution groups inside the same park
+  visit.
 
 UI requirements:
 - First screen is the scoped ruleset list.

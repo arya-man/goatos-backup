@@ -266,15 +266,22 @@ These apply **between any two administered vaccines**, not only within one serie
 5. **Propose drive date** only inside medical window:
    `earliest_safe_date ≤ planned_date ≤ last_safe_date`
 
-6. **Score candidate drives** (urgency, goats covered, priority, stock expiry, fairness)—hard constraints are not scored; incompatible groups are rejected before scoring.
+6. **Score candidate drives** (urgency, animals covered, priority, stock expiry,
+   doctor/route efficiency, fairness)—hard constraints are not scored;
+   incompatible groups are rejected before scoring. The goal is maximum safe
+   doctor coverage for the park visit, not a separate small drive for every
+   shed.
 
-7. **Create `obligation_batches`** (one drive per compatible group per shed per window).
+7. **Create `obligation_batches`** as park-level drive plans with per-shed/tag
+   breakdowns. Kid groups can combine goat+sheep kids when compatible; adult
+   groups remain species-specific inside the same park visit.
 
 8. **Attach only compatible obligations**; leave incompatible ones for a later drive.
 
 **What we must NOT do:**
 
-- Batch “all due goats in shed X” into one drive
+- Batch “all due animals in shed X” into one drive without park-level
+  optimization, shed/tag counts, and species/stage safety
 - Ignore last administered vaccine type when planning date
 - Schedule live vaccines on same day when 4-week rule not met
 - Vaccinate ICU/quarantine/warming animals because their shed has a drive

@@ -434,7 +434,19 @@ without durable notes/follow-up, and review confidence not being first-class.
 
 **Due state:** per-animal doses = `obligation_instances` rows (`target_type='herd_animal'`, `target_id=animal_id`, `scope_type='shed'`, `rule_id` set so two vaccines/doses due the same day on one animal don't collide). `after_previous_completion` / booster doses generate on the prior dose's **actual `administered_at`** (`trigger_type='after_previous_completion'`, respecting `min_gap_days`) — see SM-7.
 
-**Shed drive = an `obligation_batches` row** (the generic work-unit, [engine §4](../protocol-engine/obligation-engine.md)), NOT just a `sop_task`. The batch carries drive-level fields the per-animal obligation can't — generic columns: `estimated_targets`, `planned_quantity`/`reserved_quantity`/`used_quantity` + `quantity_unit` (= doses/ml for vaccination), `primary_inventory_lot_id`, `conducted_by`, `proof_ref`, `context jsonb`. The sweeper groups a shed's due obligations into the batch (`obligation_instances.batch_id`), which spawns **one** `sop_task` (assigned via `vaccination.execute`) — many obligations → one batch → one task.
+**Drive plan = an `obligation_batches` row** (the generic work-unit,
+[engine §4](../protocol-engine/obligation-engine.md)), NOT just a `sop_task`.
+The batch carries drive-level fields the per-animal obligation can't — generic
+columns: `estimated_targets`, `planned_quantity`/`reserved_quantity`/
+`used_quantity` + `quantity_unit` (= doses/ml for vaccination),
+`primary_inventory_lot_id`, `conducted_by`, `proof_ref`, `context jsonb`. The
+sweeper/planner groups due obligations into the batch (`obligation_instances.batch_id`),
+which spawns **one** `sop_task` (assigned via `vaccination.execute`) — many
+obligations → one batch → one task. The target work unit is a park-level doctor
+visit with per-shed/tag breakdowns, not a mandatory one-drive-per-shed model.
+Kid goat+sheep obligations may share one compatible kid drive group; adult goat
+and adult sheep obligations stay species-specific execution groups inside the
+same park visit.
 
 **Completion (net-new module table):**
 `vaccination_completions`: `completion_id PK · tenant_id · obligation_id NOT NULL→obligation_instances · batch_id NULL→obligation_batches · animal_id→herd_animals · sop_submission_item_id NULL→sop_submission_items · vaccine_inventory_lot_id NULL→inventory_stock(§5) · doses int · dose_ml_given · route_site text · adverse_reaction bool · adverse_reaction_problem_id NULL · cold_chain_verified bool · administered_at · withdrawal_until_date date NULL · recorded_by · idempotency_key`.
@@ -455,7 +467,10 @@ Preventive Care (PC) vaccination must reuse/enhance it, not rebuild a vaccinatio
 - **`inventory_stock_movements`** append-only ledger (reserve/release/consume/adjust/transfer/expire; `quantity numeric`) — the audit/reconciliation truth; balances are its projection. FEFO pick in app, expiry-gated (`expiry_date >= administered_at`).
 
 **Consumption mode (resolves the v1 contradiction — pick by path, never both):**
-- **Group shed drive:** at **batch start** record one `reserve` movement for `planned_quantity` against the FEFO lot (`reserved_quantity += n`). At **drive close / verification** record `consume` for actual used + `release` for the remainder. **No per-animal decrement.**
+- **Group drive plan:** at **batch start** record one `reserve` movement for
+  `planned_quantity` against the FEFO lot (`reserved_quantity += n`). At
+  **drive close / verification** record `consume` for actual used + `release`
+  for the remainder. **No per-animal decrement.**
 - **Manual campaign / catch-up**: Preventive Care approved catch-up creates canonical obligations/batches before execution; ad hoc per-animal individual override generation is not exposed in Phase 0.
 
 - `[P2]` `inventory_stock.is_quarantined` + a cold-chain excursion table for the breach→quarantine cascade.
@@ -484,11 +499,11 @@ CEO/COO-published vaccine-animal matrix plus animal facts creates or updates
 produces optimized execution-ready `obligation_batches` without recomputing the
 whole herd.
 
-V1 also owns basic shed-drive batching and Calendar de-duplication. When V1
-attaches due rows to an `obligation_batches` shed drive, Calendar projects the
+V1 also owns park-level drive planning and Calendar de-duplication. When V1
+attaches due rows to an `obligation_batches` drive plan, Calendar projects the
 drive row as active operations work and suppresses the batched per-animal
-`vaccination_dose_due` projections from active Calendar. The per-animal rows stay
-available to detail and audit surfaces.
+`vaccination_dose_due` projections from active Calendar. The per-animal rows
+stay available to detail and audit surfaces.
 
 **Inputs**
 - `obligation_instances` for vaccination rules, including `rule_id`,
@@ -517,16 +532,23 @@ available to detail and audit surfaces.
    pregnancy/lactation from current facts during generation/backfill; a
    standalone `animal.reproductive_status.changed` recheck event is a V2/provenance
    extension until a producer and consumer are shipped.
-3. Bucket candidates by:
-   `(tenant_id, park, shed_or_cohort, protocol_version_id, rule_id, dose_code,
-   due_window_bucket, eligibility/defer_state)`. This reduces million-animal
-   planning from animal-level iteration to bounded cohort work.
-4. For each shed/time bucket, build a vaccine conflict graph. Each vaccine or
+3. Bucket candidates by park first, with shed/tag retained as breakdown
+   dimensions:
+   `(tenant_id, park, animal_stage_or_tag_age_band, protocol_version_id,
+   rule_id, dose_code, due_window_bucket, eligibility/defer_state,
+   species_grouping_policy)`. `shed_or_cohort` stays on the candidate for counts,
+   proof, ownership, and execution, but it is not the maximum grouping boundary.
+   This reduces million-animal planning from animal-level iteration to bounded
+   park/cohort work.
+4. For each park/time/cohort bucket, build a vaccine conflict graph. Each vaccine or
    dose family is a node. An edge means the two nodes cannot be executed in the
    same drive because of live/killed compatibility, same-vaccine gap, required
    2-week/4-week separation, route/site restriction, or unreviewed compatibility
    that must fail closed. Graph partitioning/coloring yields safe same-day
    vaccine groups.
+   Stage/species grouping policy is applied before scoring: kid groups may
+   combine goat+sheep when compatible; adult groups are split by species inside
+   the same park visit.
 5. Generate candidate drive dates only inside each group's medical window:
    `earliest_safe_date <= planned_date <= last_safe_date`. Dates outside the
    window are rejected before scoring. The planner must also carry an operations
@@ -535,12 +557,13 @@ available to detail and audit surfaces.
    `force_micro_drive_below_last_safe_date`, shed-tag compatibility, park route
    scope, operator capacity, verifier capacity, stock/lot expiry, and cold-chain
    duration.
-6. Decide hold-vs-micro-drive before scoring. Waiting to combine sheds/cohorts
-   is allowed only when every animal in the merged candidate remains inside its
-   medical safe window. If a +1 week hold would pass any animal's `last_safe_date`,
-   the small shed becomes a micro-drive now. Example: 5 due K1 animals in one CBE
-   shed and 15 compatible K1 animals in another CBE shed may become one 20-animal
-   drive only if the 5 animals can medically wait through that hold.
+6. Decide hold-vs-micro-drive before scoring. Waiting to combine sheds/tags in
+   the same park is allowed only when every animal in the merged candidate
+   remains inside its medical safe window. If a +1 week hold would pass any
+   animal's `last_safe_date`, the small shed/tag group becomes a micro-drive
+   now. Example: 5 due K1 animals in one CBE shed and 15 compatible K1 animals
+   in another CBE shed may become one 20-animal park drive only if the 5 animals
+   can medically wait through that hold.
 7. Score safe candidates deterministically. Hard constraints are not scores.
    Scored factors are urgency/earliest deadline, animals covered, disease
    priority, stock expiry, worker/route efficiency, cold-chain route duration,
@@ -565,11 +588,11 @@ available to detail and audit surfaces.
     group, and batch. The whole herd is never recalculated for one state change.
 
 **Boundary**
-The later optimizer requires the V1-authored vaccine compatibility fields plus
-policy-approved drive thresholds. V1 owns per-animal due work, the authored matrix
-rules, compatibility spacing, basic shed batching, and Calendar drive-first
-projection. The later optimizer owns route/resource scoring, multi-shed
-planning, and large-scale incremental replanning. Separately, V1 itself must
+The drive planner requires the V1-authored vaccine compatibility fields plus
+policy-approved drive thresholds. V1 owns per-animal due work, the authored
+matrix rules, compatibility spacing, park-level drive grouping with shed/tag
+breakdowns, and Calendar drive-first projection. Later optimization can improve
+route/resource scoring and large-scale incremental replanning. Separately, V1 itself must
 not be called complete until the evidence-derived vaccine-animal matrix in §4.0 is
 configured and proven.
 

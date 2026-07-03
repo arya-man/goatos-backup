@@ -619,11 +619,12 @@ parks/tabs:
   CPT
 
 sheds/cohorts:
-  at least one single-shed drive
-  at least one multi-shed grouped drive
+  at least one park-level drive plan with per-shed/tag breakdown
+  at least one multi-shed grouped park drive
   at least one adult goat cohort
   at least one kid goat cohort
-  at least one sheep/mixed-species row if source rules support it
+  at least one shared goat+sheep kid group
+  at least one adult species-specific goat/sheep split inside the same park visit
   at least one quarantine/intake-linked cohort
 ```
 

@@ -237,8 +237,10 @@ If that event is added, this checklist must gain its own defer/reopen proof.
 Scale rule:
 
 - The kernel must be tested as per-animal generation, but read models and
-  execution views must group by shed/protocol/dose/window so the design can
-  scale toward 1 million herd animals.
+  execution views must group into park-level drive plans with shed/tag
+  breakdowns so the design can scale toward 1 million herd animals. Kid
+  goat+sheep work can be grouped together when safe; adult work stays
+  species-specific inside the same park visit.
 - Re-running generators/sweepers must be idempotent: no duplicate obligations,
   no duplicate SOP tasks, and no duplicated workflow rows for the same animal,
   protocol, dose, and due window.
