@@ -8110,7 +8110,7 @@ CREATE INDEX obligation_instances_due_window_idx ON public.obligation_instances 
 -- Name: obligation_instances_missed_deadline_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX obligation_instances_missed_deadline_idx ON public.obligation_instances USING btree (tenant_id, status, COALESCE(window_end, due_at), obligation_id) WHERE (status = ANY (ARRAY['scheduled'::text, 'due'::text]));
+CREATE INDEX obligation_instances_missed_deadline_idx ON public.obligation_instances USING btree (tenant_id, status, COALESCE(window_end, due_at), obligation_id) WHERE (status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text]));
 
 
 --

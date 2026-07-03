@@ -35,6 +35,7 @@ const (
 	obligationMissedTopic             = "obligation.events"
 	obligationCanceledEventType       = "goat.obligations_canceled"
 	obligationRescopedEventType       = "obligation.rescoped"
+	obligationRegeneratedEventType    = "obligation.regenerated"
 )
 
 // Repository is the Postgres-backed obligation repository.
@@ -107,10 +108,161 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 		Sequence:             in.Sequence,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
+		id, reopened, reopenErr := r.reopenTerminalObligationForInsert(ctx, tenant, in)
+		if reopenErr != nil {
+			return "", false, reopenErr
+		}
+		if reopened {
+			return id, true, nil
+		}
 		return "", false, nil // already generated for this idempotency key
 	}
 	if err != nil {
 		return "", false, fmt.Errorf("obligation: insert instance: %w", err)
+	}
+	return id, true, nil
+}
+
+func (r *Repository) reopenTerminalObligationForInsert(ctx context.Context, tenant pgtype.UUID, in domain.NewObligation) (string, bool, error) {
+	scope, err := pgconv.UUID(in.ScopeID)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: reopen terminal scope id: %w", err)
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: begin reopen terminal tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	var id string
+	occurredAt := time.Now().UTC()
+	err = tx.QueryRow(ctx, `
+UPDATE obligation_instances oi
+SET status = $3,
+    batch_id = NULL,
+    scope_type = $4,
+    scope_id = $5,
+    due_at = $6,
+    window_start = $7,
+    window_end = $8,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE oi.tenant_id = $1
+  AND oi.idempotency_key = $2
+  AND oi.status IN ('canceled', 'missed')
+  AND EXISTS (
+    SELECT 1
+    FROM goats g
+    JOIN protocol_versions pv
+      ON pv.tenant_id = oi.tenant_id
+     AND pv.protocol_version_id = oi.protocol_version_id
+    JOIN protocol_definitions pd
+      ON pd.tenant_id = pv.tenant_id
+     AND pd.protocol_id = pv.protocol_id
+    WHERE oi.target_type = 'goat'
+      AND g.tenant_id = oi.tenant_id
+      AND g.goat_id = oi.target_id
+      AND pd.category = 'vaccination'
+      AND g.lifecycle_status NOT IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
+      AND g.merged_into_goat_id IS NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM vw_procurement_vaccination_excluded_goats ex
+        WHERE ex.tenant_id = g.tenant_id
+          AND ex.goat_id = g.goat_id
+      )
+  )
+RETURNING oi.obligation_id::text`,
+		tenant,
+		in.IdempotencyKey,
+		in.Status,
+		in.ScopeType,
+		scope,
+		pgconv.Timestamptz(in.DueAt),
+		pgconv.NullableTimestamptz(in.WindowStart),
+		pgconv.NullableTimestamptz(in.WindowEnd),
+	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: reopen terminal insert target: %w", err)
+	}
+
+	eventKey := id + ":regenerated:" + in.DueAt.UTC().Format(time.RFC3339Nano)
+	_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
+		IdempotencyKey: eventKey,
+		TenantID:       tenant,
+		Scope:          "obligation.status_event",
+		RequestHash:    "regenerate:" + in.Status,
+	})
+	if reserveErr != nil && !errors.Is(reserveErr, pgx.ErrNoRows) {
+		return "", false, fmt.Errorf("obligation: reserve regenerated event key: %w", reserveErr)
+	}
+	if reserveErr == nil {
+		oblUUID, err := pgconv.UUID(id)
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: regenerated obligation id: %w", err)
+		}
+		payload, _ := json.Marshal(map[string]string{
+			"reason":             "generation_requalified_terminal_row",
+			"rescheduled_due_at": in.DueAt.UTC().Format(time.RFC3339),
+		})
+		eventID, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+			TenantID:       tenant,
+			ObligationID:   oblUUID,
+			EventType:      "scheduled",
+			OccurredAt:     pgconv.Timestamptz(occurredAt),
+			Payload:        pgconv.JSONB(payload),
+			IdempotencyKey: eventKey,
+		})
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: insert regenerated event: %w", err)
+		}
+		eventUUID, err := pgconv.UUID(eventID)
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: regenerated event id: %w", err)
+		}
+		if err := qtx.CompleteIdempotencyKey(ctx, obligationdb.CompleteIdempotencyKeyParams{
+			ResultType:     pgconv.Text("obligation_status_event"),
+			ResultID:       eventUUID,
+			IdempotencyKey: eventKey,
+		}); err != nil {
+			return "", false, fmt.Errorf("obligation: complete regenerated event key: %w", err)
+		}
+	}
+	if err := insertObligationLifecycleOutbox(ctx, tx, in.TenantID, id, obligationRegeneratedEventType, "scheduled", occurredAt, map[string]any{
+		"reason":             "generation_requalified_terminal_row",
+		"rescheduled_due_at": in.DueAt.UTC().Format(time.RFC3339),
+		"scope_type":         in.ScopeType,
+		"scope_id":           in.ScopeID,
+	}, "obligation.InsertObligation"); err != nil {
+		return "", false, err
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     in.TenantID,
+		ActorType:    "system",
+		Action:       obligationRegeneratedEventType,
+		ResourceType: "obligation_instance",
+		ResourceID:   id,
+		ScopeType:    "obligation.status_event",
+		ScopeID:      id,
+		AfterState: map[string]any{
+			"status":      "scheduled",
+			"due_at":      in.DueAt.UTC().Format(time.RFC3339),
+			"occurred_at": occurredAt.Format(time.RFC3339Nano),
+		},
+		Metadata: map[string]any{
+			"source": "vaccination_generation",
+		},
+		TraceID: obligationRegeneratedEventType + ":" + id,
+	}); err != nil {
+		return "", false, fmt.Errorf("obligation: regenerated audit: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", false, fmt.Errorf("obligation: commit regenerated: %w", err)
 	}
 	return id, true, nil
 }
@@ -2133,6 +2285,10 @@ func insertObligationLifecycleOutbox(ctx context.Context, tx pgx.Tx, tenantID, o
 			suffix = ":" + strings.TrimSpace(source)
 		} else if scopeID, ok := extra["scope_id"].(string); ok && strings.TrimSpace(scopeID) != "" {
 			suffix = ":" + strings.TrimSpace(scopeID)
+		}
+	} else if eventType == obligationRegeneratedEventType {
+		if dueAt, ok := extra["rescheduled_due_at"].(string); ok && strings.TrimSpace(dueAt) != "" {
+			suffix = ":" + strings.TrimSpace(dueAt)
 		}
 	}
 	idempotencyKey := eventType + ":" + obligationID + suffix
