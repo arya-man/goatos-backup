@@ -12,11 +12,12 @@ import {
   type ImpactPreviewResult,
 } from "@/lib/api/server";
 import {
+  buildVaccinationMatrixPreview,
+  buildVaccinationMatrixProtocolRuleRows,
   buildProtocolRuleRows,
   buildProofPolicy,
   buildRuleDsl,
   parseScope,
-  ruleInputForVaccinationMatrixRow,
   type RuleInput,
   type VaccinationMatrixRow,
 } from "./rule-dsl";
@@ -153,32 +154,100 @@ export async function saveDraftBatch(
   const validationError = validateVaccinationMatrixRows(input, matrixRows);
   if (validationError) return { ok: false, message: validationError };
   const rows = normalizeVaccinationMatrixRows(input, matrixRows);
+  const protocolRows = buildVaccinationMatrixProtocolRuleRows(input, rows);
+  if (protocolRows.length === 0)
+    return { ok: false, message: "add at least one matrix schedule cell" };
 
-  const versionIds: string[] = [];
-  for (let i = 0; i < rows.length; i += 1) {
-    const rowInput = ruleInputForVaccinationMatrixRow(
-      input,
-      rows[i],
-      i,
-      rows.length,
+  const def = await createProtocolDefinition(
+    {
+      code: "vaccination.matrix",
+      name: "Vaccination matrix",
+      category: "vaccination",
+    },
+    stableMutationKey("protocol-definition", {
+      category: "vaccination",
+      code: "vaccination.matrix",
+      name: "Vaccination matrix",
+    }),
+  );
+  if (!def.ok) {
+    return {
+      ok: false,
+      message: def.error.message ?? "create definition failed",
+      code: def.error.code,
+    };
+  }
+
+  const ruleDsl = buildVaccinationMatrixPreview(input, rows);
+  const proofPolicy = buildMatrixProofPolicy(protocolRows);
+  const { type: scopeType, id: scopeId } = parseScope(input.scope);
+  const effectiveFrom = new Date(
+    `${input.effectiveFrom || new Date().toISOString().slice(0, 10)}T00:00:00Z`,
+  ).toISOString();
+  const versionBody = {
+    scope_type: scopeType,
+    scope_id: scopeId ?? undefined,
+    version: nextDraftVersionNumber(),
+    effective_from: effectiveFrom,
+    rule_dsl: ruleDsl,
+    proof_policy: proofPolicy,
+    sop_version_id: input.sopVersionId || undefined,
+  };
+  const version = await createProtocolVersion(
+    def.data.protocol_id,
+    versionBody,
+    stableMutationKey("protocol-version", {
+      protocolId: def.data.protocol_id,
+      ...versionBody,
+    }),
+  );
+  if (!version.ok) {
+    return {
+      ok: false,
+      message: version.error.message ?? "create version failed",
+      code: version.error.code,
+    };
+  }
+
+  for (const row of protocolRows) {
+    const ruleBody = {
+      dose_code: row.doseCode,
+      sequence: row.sortOrder,
+      trigger_type: row.trigger,
+      offset_days: Number(row.offsetDays) || 0,
+      due_window_days: Number(row.dueWindowDays) || 0,
+      min_gap_days: Number(row.minGapDays) || 0,
+      repeat: row.repeat,
+      repeat_until_after_age: row.repeatUntilAfterAge,
+      catch_up: row.catchUp,
+      proof_policy: row.proofPolicy,
+      eligibility_json: row.eligibilityJson ?? {},
+      sort_order: row.sortOrder,
+    };
+    const rule = await addProtocolRule(
+      version.data.protocol_version_id,
+      ruleBody,
+      stableMutationKey("protocol-rule", {
+        versionId: version.data.protocol_version_id,
+        ...ruleBody,
+      }),
     );
-    const result = await saveDraft(rowInput);
-    if (!result.ok || !result.versionId) {
+    if (!rule.ok) {
       return {
         ok: false,
-        message: `matrix row ${i + 1} (${rows[i].vaccine.code || rows[i].vaccine.name || "unnamed"}) failed: ${result.message}`,
-        code: result.code,
-        versionIds,
+        message: rule.error.message ?? "add matrix rule failed",
+        code: rule.error.code,
+        versionIds: [version.data.protocol_version_id],
       };
     }
-    versionIds.push(result.versionId);
   }
+
   revalidatePath("/config");
   return {
     ok: true,
-    message: `${versionIds.length} matrix drafts saved - no live obligations`,
-    versionId: versionIds[0],
-    versionIds,
+    message: `vaccination matrix draft saved - ${rows.length} rows / ${protocolRows.length} schedule cells - no live obligations`,
+    versionId: version.data.protocol_version_id,
+    versionIds: [version.data.protocol_version_id],
   };
 }
 
@@ -221,25 +290,23 @@ export async function publishVersions(
     new Set(versionIds.map((id) => id.trim()).filter(Boolean)),
   );
   if (ids.length === 0) return { ok: false, message: "save the draft first" };
-  const published: string[] = [];
-  for (const versionId of ids) {
-    const result = await publishVersion(versionId);
-    if (!result.ok) {
-      return {
-        ok: false,
-        message: `publish failed after ${published.length}/${ids.length} matrix rows: ${result.message}`,
-        code: result.code,
-        versionIds: published,
-      };
-    }
-    published.push(versionId);
+  if (ids.length !== 1) {
+    return {
+      ok: false,
+      message:
+        "vaccination publishes one whole matrix version at a time; save the matrix again before publishing",
+    };
   }
-  return {
-    ok: true,
-    message: `${published.length} matrix rows published - obligations now generate per eligible breed/stage combo`,
-    versionId: published[0],
-    versionIds: published,
-  };
+  const result = await publishVersion(ids[0]);
+  return result.ok
+    ? {
+        ...result,
+        message:
+          "published vaccination matrix - one immutable active version now generates the full ruleset",
+        versionId: ids[0],
+        versionIds: [ids[0]],
+      }
+    : result;
 }
 
 function normalizeVaccinationMatrixRows(
@@ -332,4 +399,19 @@ function stableStringify(value: unknown): string {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`)
     .join(",")}}`;
+}
+
+function buildMatrixProofPolicy(
+  rows: ReturnType<typeof buildVaccinationMatrixProtocolRuleRows>,
+): Record<string, unknown> {
+  return {
+    required_proofs: Array.from(
+      new Set(rows.flatMap((row) => row.proofPolicy).filter(Boolean)),
+    ),
+  };
+}
+
+function nextDraftVersionNumber(): number {
+  const epochSeconds = Math.floor(Date.now() / 1000);
+  return Math.min(2_147_483_647, Math.max(1, epochSeconds));
 }

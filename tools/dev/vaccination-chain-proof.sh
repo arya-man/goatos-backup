@@ -112,7 +112,7 @@ MAIN_SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type,
 echo "proof_sheds backfill=$BACKFILL_SHED_CODE/$BACKFILL_SHED main=$MAIN_SHED_CODE/$MAIN_SHED"
 
 echo; echo "### 0b. existing-goat backfill generates V1 due work"
-BACKFILL_GOAT=$(psqlq "insert into goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id, shed_id, management_stage, sex, dob, approx_dob, entry_date) values (gen_random_uuid(), '$TENANT', 'alive', 'clean', '00000000-0000-4000-8000-000000001001', '$BACKFILL_SHED', '00000000-0000-4000-8000-000000003001', '$BACKFILL_SHED', 'K1', 'female', DATE '$DOB_DAY21', DATE '$DOB_DAY21', DATE '$ENTRY_DATE') returning goat_id" | head -n 1)
+BACKFILL_GOAT=$(psqlq "insert into goats (goat_id, tenant_id, lifecycle_status, custodian_party_id, current_location_id, park_id, shed_id, management_stage, sex, dob, approx_dob, entry_date, species, origin_type) values (gen_random_uuid(), '$TENANT', 'alive', '00000000-0000-4000-8000-000000001001', '$BACKFILL_SHED', '00000000-0000-4000-8000-000000003001', '$BACKFILL_SHED', 'K1', 'female', DATE '$DOB_DAY21', DATE '$DOB_DAY21', DATE '$ENTRY_DATE', 'goat', 'procured') returning goat_id" | head -n 1)
 BACKFILL_OUTBOX_COUNT=$(psqlq "select count(*) from outbox_messages where tenant_id='$TENANT' and aggregate_id='$BACKFILL_GOAT' and event_type='goat.created'")
 [ "$BACKFILL_OUTBOX_COUNT" = "0" ] || fail "backfill goat unexpectedly has goat.created outbox count=$BACKFILL_OUTBOX_COUNT"
 ( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/backfill-goat-created -tenant-id "$TENANT" -goat-id "$BACKFILL_GOAT" -limit 1 )

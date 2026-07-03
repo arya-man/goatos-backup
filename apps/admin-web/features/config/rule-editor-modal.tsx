@@ -568,15 +568,21 @@ export function RuleEditorModal({
   function applyV1CompatibilitySpacing(
     rows: VaccinationMatrixRow[],
   ): VaccinationMatrixRow[] {
-    const occupiedLiveDays = new Set<number>();
+    const occupiedLiveDays: Array<{ offset: number; species: string }> = [];
     return rows.map((row) => {
       const firstDose = row.doses?.[0];
       if (!firstDose || row.vaccine.type !== "live") return row;
       let effectiveOffset = firstDose.offsetDays;
-      while (occupiedLiveDays.has(effectiveOffset)) {
+      while (
+        occupiedLiveDays.some(
+          (slot) =>
+            slot.offset === effectiveOffset &&
+            speciesScopesOverlap(slot.species, row.species),
+        )
+      ) {
         effectiveOffset += compatibilityPolicy.liveToLiveGapDays;
       }
-      occupiedLiveDays.add(effectiveOffset);
+      occupiedLiveDays.push({ offset: effectiveOffset, species: row.species });
       if (effectiveOffset === firstDose.offsetDays) return row;
       return {
         ...row,
@@ -592,6 +598,11 @@ export function RuleEditorModal({
         ),
       };
     });
+  }
+  function speciesScopesOverlap(left: string, right: string): boolean {
+    const a = (left || "all").toLowerCase();
+    const b = (right || "all").toLowerCase();
+    return a === b || a === "all" || a === "any" || b === "all" || b === "any";
   }
   function rowFromSourcePreset(
     preset: SourceVaccinePreset,

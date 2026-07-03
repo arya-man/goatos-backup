@@ -380,7 +380,10 @@ func (s *Service) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) (do
 		return domain.LoadGoat{}, BadRequest("invalid_goat_reference", "goat_id must reference an existing goat for this tenant")
 	}
 	if errors.Is(err, ports.ErrInvalidTransition) {
-		return domain.LoadGoat{}, BadRequest("animal_identifier_conflict", "animal identifier already belongs to another animal")
+		return domain.LoadGoat{}, Conflict("animal_identifier_conflict", "animal identifier already belongs to another animal")
+	}
+	if errors.Is(err, ports.ErrWriteConflict) {
+		return domain.LoadGoat{}, Conflict("write_conflict", "animal identifier was claimed by another write; reload before retrying")
 	}
 	return goat, err
 }

@@ -1575,9 +1575,17 @@ INSERT INTO goat_identifiers (
   'procurement_source_entry', $7, 'procurement-v1'
 )`, tenantID, goatID, identifierType, strings.TrimSpace(*value), normalizeIdentifier(*value), primary, "animal:"+goatID)
 	if err != nil {
+		if isUniqueViolation(err) {
+			return ports.ErrWriteConflict
+		}
 		return fmt.Errorf("procurement: insert animal identifier: %w", err)
 	}
 	return nil
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func countPreDispatchAccepted(ctx context.Context, tx pgx.Tx, tenantID, loadID string) (int, error) {

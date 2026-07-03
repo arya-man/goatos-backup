@@ -150,6 +150,7 @@ export interface ProtocolRuleDraft {
   sopVersion: string;
   proofPolicy: string[];
   sortOrder: number;
+  eligibilityJson?: Record<string, unknown>;
 }
 
 // Stage bands (K0/K1/K2…) are NOT hardcoded here. They are backend reference data from
@@ -425,25 +426,12 @@ export function buildRuleDsl(input: RuleInput): Record<string, unknown> {
 export function ruleInputForVaccinationMatrixRow(
   input: RuleInput,
   row: VaccinationMatrixRow,
-  index: number,
-  total: number,
 ): RuleInput {
   if (input.category !== "vaccination") return input;
-  const suffix =
-    compactSlug([
-      row.vaccine.code,
-      row.species,
-      row.stage,
-      row.sex,
-      row.breed,
-    ]).join("_") || `row_${index + 1}`;
   return {
     ...input,
-    code: total > 1 ? `${input.code}.${suffix}` : input.code,
-    name:
-      total > 1
-        ? `${input.name} - ${row.vaccine.code || row.vaccine.name || `row ${index + 1}`} ${row.species}/${row.stage}/${row.breed}`
-        : input.name,
+    code: "vaccination.matrix",
+    name: "Vaccination matrix",
     vaccine: row.vaccine,
     eligibility: {
       ...input.eligibility,
@@ -461,16 +449,116 @@ export function buildVaccinationMatrixPreview(
   rows: VaccinationMatrixRow[],
 ): Record<string, unknown> {
   if (input.category !== "vaccination") return buildRuleDsl(input);
-  if (rows.length <= 1 && rows[0])
-    return buildRuleDsl(ruleInputForVaccinationMatrixRow(input, rows[0], 0, 1));
+  const normalizedRows = rows.length > 0
+    ? rows
+    : [
+        {
+          id: "current",
+          vaccine: input.vaccine,
+          species: input.eligibility.species,
+          stage: input.eligibility.stage,
+          sex: input.eligibility.sex,
+          breed: input.eligibility.breed,
+          doses: input.doses,
+        },
+      ];
+  const ruleRows = buildVaccinationMatrixProtocolRuleRows(input, normalizedRows);
   return {
     category: input.category,
+    ruleset_family: "vaccination.matrix",
     scope: parseScope(input.scope),
-    matrix_rows: rows.map((row, index) =>
-      buildRuleDsl(
-        ruleInputForVaccinationMatrixRow(input, row, index, rows.length),
+    vaccine: {
+      code: "vaccination.matrix",
+      name: "Vaccination matrix",
+      type: "matrix",
+      pathogen_class: "mixed",
+      course_type: "matrix",
+      inventory_item_id: null,
+      manufacturer: "goatos-config",
+      disease: "Preventive Care vaccination",
+      compatibility_group: "vaccination.matrix",
+    },
+    eligibility: {
+      species: "all",
+      animal_stage: "all",
+      animal_stage_source: STAGE_SOURCE,
+      sex: "all",
+      breed: "all",
+      lifecycle: input.eligibility.lifecycle || "alive",
+      health: input.eligibility.health || "any",
+      reproductive: input.eligibility.reproductive || "any",
+      exclude_reproductive_states: input.eligibility.excludeReproductiveStates,
+      defer_states: input.eligibility.deferStates,
+    },
+    missed_dose_policy: input.missedDosePolicy,
+    stock_policy: {
+      vaccine_lot_requirement: input.vaccineLotPolicy,
+      pick: "FEFO",
+      reject_expired_lot: true,
+      cold_chain_required: true,
+    },
+    compatibility_policy: {
+      live_to_killed_gap_days:
+        Number(input.compatibilityPolicy.liveToKilledGapDays) || 0,
+      killed_to_killed_gap_days:
+        Number(input.compatibilityPolicy.killedToKilledGapDays) || 0,
+      live_to_live_gap_days:
+        Number(input.compatibilityPolicy.liveToLiveGapDays) || 0,
+      kid_booster_min_gap_days:
+        Number(input.compatibilityPolicy.kidBoosterMinGapDays) || 0,
+      bacterial_viral_same_day_allowed:
+        input.compatibilityPolicy.bacterialViralSameDayAllowed,
+      live_killed_viral_same_day_allowed:
+        input.compatibilityPolicy.liveKilledViralSameDayAllowed,
+      max_vaccines_per_combo_session: Math.min(
+        2,
+        Number(input.compatibilityPolicy.maxVaccinesPerComboSession) || 2,
       ),
-    ),
+    },
+    procurement_policy: {
+      warmup_no_vaccination_days:
+        Number(input.procurementPolicy.warmupNoVaccinationDays) || 0,
+      kids_normal_schedule_until_weeks:
+        Number(input.procurementPolicy.kidsNormalScheduleUntilWeeks) || 0,
+      adult_prior_vaccination_allowed:
+        input.procurementPolicy.adultPriorVaccinationAllowed,
+      first_wave: csvToArr(input.procurementPolicy.firstWave).slice(0, 2),
+      second_wave_after_days:
+        Number(input.procurementPolicy.secondWaveAfterDays) || 0,
+      goat_second_wave: csvToArr(input.procurementPolicy.goatSecondWave).slice(
+        0,
+        2,
+      ),
+    },
+    pregnancy_policy: {
+      allow_until_pregnancy_month:
+        Number(input.pregnancyPolicy.allowUntilPregnancyMonth) || 0,
+      skip_from_pregnancy_month:
+        Number(input.pregnancyPolicy.skipFromPregnancyMonth) || 0,
+      skip_through_pregnancy_month:
+        Number(input.pregnancyPolicy.skipThroughPregnancyMonth) || 0,
+      post_delivery_catch_up_days:
+        Number(input.pregnancyPolicy.postDeliveryCatchUpDays) || 0,
+    },
+    schedule: normalizedRows.flatMap((row, index) => {
+      const rowInput = ruleInputForVaccinationMatrixRow(input, row);
+      return rowInput.doses.map((d, doseIndex) =>
+        matrixScheduleCell(row, d, index, doseIndex, ruleRows),
+      );
+    }),
+    matrix_rows: normalizedRows.map((row, index) => {
+      const rowInput = ruleInputForVaccinationMatrixRow(input, row);
+      return {
+        row_id: row.id || `row-${index + 1}`,
+        vaccine: (buildRuleDsl(rowInput) as Record<string, unknown>).vaccine,
+        eligibility: (buildRuleDsl(rowInput) as Record<string, unknown>)
+          .eligibility,
+        schedule: rowInput.doses.map((d, doseIndex) =>
+          matrixScheduleCell(row, d, index, doseIndex, ruleRows),
+        ),
+      };
+    }),
+    escalation: input.escalation,
   };
 }
 
@@ -548,4 +636,96 @@ export function buildProtocolRuleRows(input: RuleInput): ProtocolRuleDraft[] {
     proofPolicy: csvToArr(d.proofCsv),
     sortOrder: i + 1,
   }));
+}
+
+export function buildVaccinationMatrixProtocolRuleRows(
+  input: RuleInput,
+  rows: VaccinationMatrixRow[],
+): ProtocolRuleDraft[] {
+  const out: ProtocolRuleDraft[] = [];
+  rows.forEach((row, rowIndex) => {
+    const rowInput = ruleInputForVaccinationMatrixRow(
+      input,
+      row,
+    );
+    const ruleDsl = buildRuleDsl(rowInput) as Record<string, unknown>;
+    const rowDoses = rowInput.doses.length > 0 ? rowInput.doses : input.doses;
+    rowDoses.forEach((d, doseIndex) => {
+      out.push({
+        doseCode: matrixDoseCode(row, d, rowIndex, doseIndex),
+        trigger: d.trigger,
+        offsetDays: Number(d.offsetDays) || 0,
+        dueWindowDays: Number(d.dueWindowDays) || 0,
+        minGapDays: Number(d.minGapDays) || 0,
+        repeat: d.repeat,
+        repeatUntilAfterAge: d.repeatUntilAfterAge,
+        catchUp: d.catchUp,
+        sopVersion: d.sopVersion,
+        proofPolicy: csvToArr(d.proofCsv),
+        sortOrder: out.length + 1,
+        eligibilityJson: {
+          matrix_row_id: row.id || `row-${rowIndex + 1}`,
+          source_dose_code: d.doseCode,
+          eligibility: ruleDsl.eligibility ?? {},
+          vaccine: ruleDsl.vaccine ?? {},
+        },
+      });
+    });
+  });
+  return out;
+}
+
+function matrixDoseCode(
+  row: VaccinationMatrixRow,
+  dose: DoseRow,
+  rowIndex: number,
+  doseIndex: number,
+): string {
+  const parts = compactSlug([
+    row.id,
+    row.vaccine.code || row.vaccine.name,
+    row.species,
+    row.stage,
+    row.sex,
+    row.breed,
+    dose.doseCode,
+  ]);
+  return parts.join("_") || `row_${rowIndex + 1}_dose_${doseIndex + 1}`;
+}
+
+function matrixScheduleCell(
+  row: VaccinationMatrixRow,
+  dose: DoseRow,
+  rowIndex: number,
+  doseIndex: number,
+  ruleRows: ProtocolRuleDraft[],
+): Record<string, unknown> {
+  const doseCode = matrixDoseCode(row, dose, rowIndex, doseIndex);
+  const sequence =
+    ruleRows.find((rule) => rule.doseCode === doseCode)?.sortOrder ??
+    doseIndex + 1;
+  return {
+    dose_code: doseCode,
+    source_dose_code: dose.doseCode,
+    sequence,
+    trigger_type: dose.trigger,
+    offset_days: Number(dose.offsetDays) || 0,
+    due_window_days: Number(dose.dueWindowDays) || 0,
+    dose_amount: Number(dose.doseAmount) || 0,
+    dose_unit: dose.doseUnit,
+    vial_doses: Number(dose.vialDoses) || 0,
+    revaccination_interval_days:
+      Number(dose.revaccinationIntervalDays) || 0,
+    schedule_note: dose.scheduleNote.trim() || null,
+    route_site: dose.routeSite,
+    max_delay_days:
+      Number(dose.maxDelayDays) || Number(dose.dueWindowDays) || 0,
+    course_lapse_policy: dose.courseLapsePolicy,
+    min_gap_days: Number(dose.minGapDays) || 0,
+    repeat: dose.repeat,
+    repeat_until_after_age: dose.repeatUntilAfterAge,
+    catch_up: dose.catchUp,
+    sop_label: dose.sopVersion,
+    proof_policy: csvToArr(dose.proofCsv),
+  };
 }

@@ -860,6 +860,7 @@ func (r *Repository) ListRules(ctx context.Context, tenantID, versionID string) 
 			Repeat:              row.Repeat,
 			RepeatUntilAfterAge: row.RepeatUntilAfterAge,
 			CatchUp:             row.CatchUp,
+			EligibilityJSON:     row.EligibilityJson,
 			SopVersionID:        row.SopVersionID,
 			SortOrder:           row.SortOrder,
 		})

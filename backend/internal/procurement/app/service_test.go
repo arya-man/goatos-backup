@@ -151,6 +151,24 @@ func TestAddGoatToLoadMapsExistingGoatSexMismatch(t *testing.T) {
 	}
 }
 
+func TestAddGoatToLoadMapsAnimalIdentifierConflictTo409(t *testing.T) {
+	repo := &fakeRepo{addErr: ports.ErrInvalidTransition}
+	svc := NewService(repo)
+	_, err := svc.AddGoatToLoad(context.Background(), ports.AddGoatToLoad{
+		TenantID:          testTenant,
+		LoadID:            testLoad,
+		AnimalIdentifier1: strPtr("DUPLICATE-A"),
+		AnimalIdentifier2: strPtr("DUPLICATE-B"),
+		Species:           "goat",
+		Sex:               "female",
+		IdempotencyKey:    "add-identifier-conflict",
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "animal_identifier_conflict" || appErr.HTTPStatus != 409 {
+		t.Fatalf("AddGoatToLoad() error = %v, want 409 animal_identifier_conflict", err)
+	}
+}
+
 func TestRejectAndFailedSourceHealthCancelOpenVaccination(t *testing.T) {
 	repo := &fakeRepo{}
 	cancel := &fakeCanceler{}

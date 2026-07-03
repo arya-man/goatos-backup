@@ -355,7 +355,7 @@ JSON
       -H "Content-Type: application/json" \
       -X POST "$GOATOS_API_BASE_URL/procurement/source-entry/loads/$load_id/goats" \
       -d @- <<JSON
-{"source_tag":"SMOKE-PROC-$stamp","source_rfid":"SMOKE-PROC-RFID-$stamp","temporary_id":"SMOKE-PROC-TEMP-$stamp","selection_state":"candidate","selection_reason":"admin-web smoke supplier warmup seed","purpose":"breeding","current_state":"source_warmup","identity_review_state":"clean","ownership_state":"pending","health_state":"pending","warmup_days":45,"holding_location_id":null,"proof_refs":[],"metadata":{"seed":"admin-web-e2e-smoke","run_id":"$run_id"}}
+{"animal_identifier_1":"SMOKE-PROC-$stamp-A1","animal_identifier_2":"SMOKE-PROC-$stamp-A2","species":"goat","sex":"female","selection_state":"candidate","selection_reason":"admin-web smoke supplier warmup seed","purpose":"breeding","current_state":"source_warmup","source_entry_state":"pending","ownership_state":"pending","health_state":"pending","warmup_days":45,"holding_location_id":null,"proof_refs":[],"metadata":{"seed":"admin-web-e2e-smoke","run_id":"$run_id"}}
 JSON
   )"
   local goat_id

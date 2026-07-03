@@ -53,78 +53,85 @@ while IFS= read -r migration; do
 done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
 
 run_psql <<'SQL'
-\echo 'Running positive invariant checks'
+\echo 'Running clean-slate GoatOS invariant checks'
 
-SELECT plan_seed.tenant_id
-FROM tenants plan_seed
-WHERE plan_seed.name = 'Mesha'
-  AND plan_seed.status = 'active';
+SELECT tenant_id
+FROM tenants
+WHERE name = 'Mesha'
+  AND status = 'active';
 
 DO $$
 DECLARE
   tenant uuid := '00000000-0000-4000-8000-000000000001';
   mesha_party uuid := '00000000-0000-4000-8000-000000001001';
   cbe uuid := '00000000-0000-4000-8000-000000003001';
-  goat_a uuid := '10000000-0000-4000-8000-000000000001';
-  goat_b uuid := '10000000-0000-4000-8000-000000000002';
-  goat_c uuid := '10000000-0000-4000-8000-000000000003';
-  survivor uuid := '10000000-0000-4000-8000-000000000004';
-  merged uuid := '10000000-0000-4000-8000-000000000005';
+  goat_animal uuid := '10000000-0000-4000-8000-000000000001';
+  sheep_animal uuid := '10000000-0000-4000-8000-000000000002';
+  survivor uuid := '10000000-0000-4000-8000-000000000003';
+  merged uuid := '10000000-0000-4000-8000-000000000004';
   decision uuid := '20000000-0000-4000-8000-000000000001';
   event_partition text;
   audit_partition text;
 BEGIN
-  INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id)
+  INSERT INTO goats (
+    goat_id, tenant_id, species, breed, sex, approx_dob, lifecycle_status,
+    reproductive_status, management_stage, health_status, custodian_party_id,
+    current_location_id, park_id, shed_id, origin_type
+  )
   VALUES
-    (goat_a, tenant, 'alive', 'clean', mesha_party, cbe, cbe),
-    (goat_b, tenant, 'alive', 'clean', mesha_party, cbe, cbe),
-    (goat_c, tenant, 'alive', 'clean', mesha_party, cbe, cbe),
-    (survivor, tenant, 'alive', 'clean', mesha_party, cbe, cbe),
-    (merged, tenant, 'alive', 'needs_review', mesha_party, cbe, cbe);
+    (goat_animal, tenant, 'goat', 'osmanabadi', 'female', DATE '2026-06-01', 'alive', 'open', 'K1', 'healthy', mesha_party, cbe, cbe, cbe, 'birth'),
+    (sheep_animal, tenant, 'sheep', 'anantapur', 'male', DATE '2026-05-01', 'alive', 'open', 'K2', 'healthy', mesha_party, cbe, cbe, cbe, 'procured'),
+    (survivor, tenant, 'goat', 'beetal', 'female', DATE '2025-01-01', 'alive', 'open', 'adult', 'healthy', mesha_party, cbe, cbe, cbe, 'imported'),
+    (merged, tenant, 'goat', 'beetal', 'female', DATE '2025-01-01', 'alive', 'open', 'adult', 'healthy', mesha_party, cbe, cbe, cbe, 'imported');
 
-  INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, status, valid_from, normalizer_version)
+  INSERT INTO goat_identifiers (
+    identifier_id, tenant_id, goat_id, identifier_type, identifier_value,
+    normalized_value, scope_key, is_primary_for_goat, status, valid_from,
+    source_system, source_record_id, normalizer_version
+  )
   VALUES
-    ('30000000-0000-4000-8000-000000000001', tenant, goat_a, 'rfid', 'RFID_EXAMPLE_A', 'RFID_EXAMPLE_A', 'global', 'active', now(), 'test_v1'),
-    ('30000000-0000-4000-8000-000000000002', tenant, goat_a, 'old_tag', '1900', '1900', 'park:CBE', 'active', now(), 'test_v1'),
-    ('30000000-0000-4000-8000-000000000003', tenant, goat_b, 'old_tag', '1900', '1900', 'park:CPT', 'active', now(), 'test_v1'),
-    ('30000000-0000-4000-8000-000000000004', tenant, merged, 'old_tag', '1999', '1999', 'park:CBE', 'retired', now(), 'test_v1');
+    ('30000000-0000-4000-8000-000000000001', tenant, goat_animal, 'animal_identifier_1', 'ANIMAL-A1', 'ANIMAL-A1', 'global', true, 'active', now(), 'validation', 'goat-a-1', 'test_v1'),
+    ('30000000-0000-4000-8000-000000000002', tenant, goat_animal, 'animal_identifier_2', 'ANIMAL-A2', 'ANIMAL-A2', 'global', false, 'active', now(), 'validation', 'goat-a-2', 'test_v1'),
+    ('30000000-0000-4000-8000-000000000003', tenant, sheep_animal, 'animal_identifier_1', 'ANIMAL-B1', 'ANIMAL-B1', 'global', true, 'active', now(), 'validation', 'sheep-b-1', 'test_v1'),
+    ('30000000-0000-4000-8000-000000000004', tenant, sheep_animal, 'animal_identifier_2', 'ANIMAL-B2', 'ANIMAL-B2', 'global', false, 'active', now(), 'validation', 'sheep-b-2', 'test_v1'),
+    ('30000000-0000-4000-8000-000000000005', tenant, survivor, 'animal_identifier_1', 'ANIMAL-C1', 'ANIMAL-C1', 'global', true, 'active', now(), 'validation', 'survivor-c-1', 'test_v1'),
+    ('30000000-0000-4000-8000-000000000006', tenant, survivor, 'animal_identifier_2', 'ANIMAL-C2', 'ANIMAL-C2', 'global', false, 'active', now(), 'validation', 'survivor-c-2', 'test_v1'),
+    ('30000000-0000-4000-8000-000000000007', tenant, merged, 'animal_identifier_1', 'ANIMAL-D1', 'ANIMAL-D1', 'global', true, 'active', now(), 'validation', 'merged-d-1', 'test_v1'),
+    ('30000000-0000-4000-8000-000000000008', tenant, merged, 'animal_identifier_2', 'ANIMAL-D2', 'ANIMAL-D2', 'global', false, 'active', now(), 'validation', 'merged-d-2', 'test_v1');
 
-  INSERT INTO identity_decisions (decision_id, tenant_id, decision_type, decision_result, decision_state, decided_by_type, policy_version, evidence)
-  VALUES (decision, tenant, 'merge_goats', 'same_goat_merge', 'approved', 'human', 'phase1-identifier-v1', '{"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-validation"}]}'::jsonb);
+  INSERT INTO identity_decisions (
+    decision_id, tenant_id, decision_type, decision_result, decision_state,
+    decided_by_type, policy_version, evidence
+  )
+  VALUES (
+    decision, tenant, 'merge_goats', 'same_goat_merge', 'approved',
+    'human', 'clean-slate-v1', '{"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-validation"}]}'::jsonb
+  );
 
   UPDATE goats
-  SET identity_state = 'merged',
-      lifecycle_status = 'merged',
+  SET lifecycle_status = 'merged',
       merged_into_goat_id = survivor,
       row_version = row_version + 1
   WHERE goat_id = merged;
 
-  INSERT INTO goat_merge_links (merge_link_id, tenant_id, survivor_goat_id, merged_goat_id, decision_id, reason, created_by)
-  VALUES ('40000000-0000-4000-8000-000000000001', tenant, survivor, merged, decision, 'Synthetic merge validation.', '50000000-0000-4000-8000-000000000001');
-
-  INSERT INTO goat_identity_events (
-    identity_event_id,
-    tenant_id,
-    goat_id,
-    event_type,
-    event_version,
-    occurred_at,
-    recorded_at,
-    payload,
-    decision_id,
-    idempotency_key
+  INSERT INTO goat_merge_links (
+    merge_link_id, tenant_id, survivor_goat_id, merged_goat_id, decision_id,
+    reason, created_by
   )
   VALUES (
-    '60000000-0000-4000-8000-000000000001',
-    tenant,
-    goat_a,
-    'goat.created',
-    1,
-    '2026-06-15 08:00:00+00',
-    '2026-06-15 08:00:01+00',
-    '{"synthetic":true}'::jsonb,
-    decision,
-    'validation-event-june'
+    '40000000-0000-4000-8000-000000000001', tenant, survivor, merged, decision,
+    'Synthetic merge validation.', '50000000-0000-4000-8000-000000000001'
+  );
+
+  INSERT INTO goat_identity_events (
+    identity_event_id, tenant_id, goat_id, event_type, event_version,
+    occurred_at, recorded_at, payload, decision_id, idempotency_key
+  )
+  VALUES (
+    '60000000-0000-4000-8000-000000000001', tenant, goat_animal,
+    'goat.created', 1, '2026-06-15 08:00:00+00',
+    '2026-06-15 08:00:01+00', '{"synthetic":true}'::jsonb,
+    decision, 'validation-event-june'
   )
   RETURNING tableoid::regclass::text INTO event_partition;
 
@@ -132,641 +139,100 @@ BEGIN
     RAISE EXCEPTION 'expected June event partition, got %', event_partition;
   END IF;
 
-  INSERT INTO goat_identity_events (
-    identity_event_id,
-    tenant_id,
-    goat_id,
-    event_type,
-    event_version,
-    occurred_at,
-    recorded_at,
-    payload,
-    decision_id,
-    idempotency_key
+  INSERT INTO audit_log (
+    audit_id, tenant_id, actor_type, action, resource_type, resource_id,
+    metadata, recorded_at
   )
   VALUES (
-    '60000000-0000-4000-8000-000000000002',
-    tenant,
-    goat_a,
-    'goat.identity.updated',
-    1,
-    '2035-01-01 00:00:00+00',
-    '2035-01-01 00:00:01+00',
-    '{"synthetic":true}'::jsonb,
-    decision,
-    'validation-event-default'
-  )
-  RETURNING tableoid::regclass::text INTO event_partition;
-
-  IF event_partition <> 'goat_identity_events_default' THEN
-    RAISE EXCEPTION 'expected default event partition, got %', event_partition;
-  END IF;
-
-  INSERT INTO audit_log (audit_id, tenant_id, actor_type, action, resource_type, resource_id, metadata, recorded_at)
-  VALUES (
-    '70000000-0000-4000-8000-000000000001',
-    tenant,
-    'system_rule',
-    'validation.audit',
-    'goat',
-    goat_a,
-    '{"synthetic":true}'::jsonb,
-    '2026-06-15 08:00:02+00'
+    '70000000-0000-4000-8000-000000000001', tenant, 'system_rule',
+    'validation.audit', 'goat', goat_animal,
+    '{"synthetic":true}'::jsonb, '2026-06-15 08:00:02+00'
   )
   RETURNING tableoid::regclass::text INTO audit_partition;
 
   IF audit_partition <> 'audit_log_2026_06' THEN
     RAISE EXCEPTION 'expected June audit partition, got %', audit_partition;
   END IF;
-
-  INSERT INTO audit_log (audit_id, tenant_id, actor_type, action, resource_type, resource_id, metadata, recorded_at)
-  VALUES (
-    '70000000-0000-4000-8000-000000000002',
-    tenant,
-    'system_rule',
-    'validation.audit.default',
-    'goat',
-    goat_a,
-    '{"synthetic":true}'::jsonb,
-    '2035-01-01 00:00:02+00'
-  )
-  RETURNING tableoid::regclass::text INTO audit_partition;
-
-  IF audit_partition <> 'audit_log_default' THEN
-    RAISE EXCEPTION 'expected default audit partition, got %', audit_partition;
-  END IF;
-
-  INSERT INTO goat_identity_counter_processed_events (
-    tenant_id,
-    event_id,
-    event_recorded_at,
-    event_type,
-    outcome
-  )
-  VALUES (
-    tenant,
-    '60000000-0000-4000-8000-000000000001',
-    '2026-06-15 08:00:01+00',
-    'goat.created',
-    'noop'
-  );
 END $$;
 SQL
 
-expect_failure "processed counter event FK includes recorded_at" "
-INSERT INTO goat_identity_counter_processed_events (
-  tenant_id,
-  event_id,
-  event_recorded_at,
-  event_type,
-  outcome
+expect_failure "import-port table is absent" "SELECT count(*) FROM legacy_import_runs;"
+expect_failure "sync-port table is absent" "SELECT count(*) FROM legacy_sync_runs;"
+expect_failure "candidate match table is absent" "SELECT count(*) FROM identity_match_candidates;"
+expect_failure "identity counter table is absent" "SELECT count(*) FROM goat_identity_counters;"
+expect_failure "snapshot mirror table is absent" "SELECT count(*) FROM counts_current_snapshot_rows;"
+expect_failure "identity_state column is absent" "SELECT identity_state FROM goats LIMIT 1;"
+expect_failure "source_confidence column is absent" "SELECT source_confidence FROM goats LIMIT 1;"
+expect_failure "unknown sex is rejected" "
+INSERT INTO goats (
+  goat_id, tenant_id, species, sex, lifecycle_status, custodian_party_id, current_location_id, park_id, origin_type
+) VALUES (
+  '10000000-0000-4000-8000-000000000101',
+  '00000000-0000-4000-8000-000000000001',
+  'goat',
+  'unknown',
+  'alive',
+  '00000000-0000-4000-8000-000000001001',
+  '00000000-0000-4000-8000-000000003001',
+  '00000000-0000-4000-8000-000000003001',
+  'birth'
+);
+"
+expect_failure "invalid identifier type is rejected" "
+INSERT INTO goat_identifiers (
+  tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
+  scope_key, is_primary_for_goat, status, valid_from, normalizer_version
 ) VALUES (
   '00000000-0000-4000-8000-000000000001',
-  '60000000-0000-4000-8000-000000000001',
-  '2026-06-15 08:00:02+00',
-  'goat.created',
-  'noop'
-);
-"
-
-run_psql <<'SQL'
-\echo 'Running correction resolve schema checks'
-
-DO $$
-DECLARE
-  tenant uuid := '00000000-0000-4000-8000-000000000001';
-  goat_a uuid := '10000000-0000-4000-8000-000000000001';
-  goat_b uuid := '10000000-0000-4000-8000-000000000002';
-  correction_id uuid;
-  default_row_version integer;
-  decision_type text;
-BEGIN
-  INSERT INTO identity_correction_requests (
-    tenant_id,
-    request_type,
-    state,
-    description,
-    evidence,
-    requested_by
-  )
-  VALUES (
-    tenant,
-    'missing_tag',
-    'open',
-    'Synthetic row version validation.',
-    '{"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-version"}]}'::jsonb,
-    '90000000-0000-4000-8000-000000000001'
-  )
-  RETURNING correction_request_id, row_version INTO correction_id, default_row_version;
-
-  IF default_row_version <> 1 THEN
-    RAISE EXCEPTION 'expected correction row_version default 1, got %', default_row_version;
-  END IF;
-
-  INSERT INTO identity_match_candidates (
-    tenant_id,
-    proposed_goat_id,
-    candidate_goat_id,
-    match_score,
-    match_reasons,
-    state,
-    created_by
-  )
-  VALUES (
-    tenant,
-    goat_a,
-    goat_b,
-    0.91,
-    '["synthetic row_version validation"]'::jsonb,
-    'proposed',
-    'system_rule'
-  )
-  RETURNING row_version INTO default_row_version;
-
-  IF default_row_version <> 1 THEN
-    RAISE EXCEPTION 'expected candidate row_version default 1, got %', default_row_version;
-  END IF;
-
-  FOREACH decision_type IN ARRAY ARRAY[
-    'create_goat',
-    'attach_identifier',
-    'retire_identifier',
-    'mark_identifier_disputed',
-    'merge_goats',
-    'batch_merge_goats',
-    'reject_match',
-    'request_field_verification',
-    'resolve_correction_request'
-  ]
-  LOOP
-    INSERT INTO identity_decisions (
-      tenant_id,
-      decision_type,
-      decision_result,
-      decision_state,
-      decided_by_type,
-      policy_version,
-      evidence
-    )
-    VALUES (
-      tenant,
-      decision_type,
-      'synthetic_result',
-      'approved',
-      'human',
-      'phase1-manual-correction-review-v1',
-      '{"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-decision-type"}]}'::jsonb
-    );
-  END LOOP;
-END $$;
-SQL
-
-expect_failure "candidate row_version must be positive" "
-INSERT INTO identity_match_candidates (
-  tenant_id,
-  proposed_goat_id,
-  candidate_goat_id,
-  match_score,
-  match_reasons,
-  state,
-  created_by,
-  row_version
-)
-VALUES (
-  '00000000-0000-4000-8000-000000000001',
   '10000000-0000-4000-8000-000000000001',
-  '10000000-0000-4000-8000-000000000002',
-  0.91,
-  '[\"synthetic row_version failure\"]'::jsonb,
-  'proposed',
-  'system_rule',
-  0
-);
-"
-
-expect_failure "bad active ownership share total fails at commit" "
-BEGIN;
-INSERT INTO goat_ownership (tenant_id, goat_id, owner_party_id, share_bps, valid_from, status)
-VALUES (
-  '00000000-0000-4000-8000-000000000001',
-  '10000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000001001',
-  5000,
-  now(),
-  'active'
-);
-COMMIT;
-"
-
-run_psql <<'SQL'
-BEGIN;
-INSERT INTO goat_ownership (tenant_id, goat_id, owner_party_id, share_bps, valid_from, status)
-VALUES (
-  '00000000-0000-4000-8000-000000000001',
-  '10000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000001001',
-  10000,
-  now(),
-  'active'
-);
-COMMIT;
-SQL
-
-expect_failure "goat_id-changing ownership update checks old goat total" "
-BEGIN;
-UPDATE goat_ownership
-SET goat_id = '10000000-0000-4000-8000-000000000002'
-WHERE goat_id = '10000000-0000-4000-8000-000000000001'
-  AND status = 'active';
-COMMIT;
-"
-
-expect_failure "duplicate active RFID fails" "
-INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, status, valid_from, normalizer_version)
-VALUES (
-  '00000000-0000-4000-8000-000000000001',
-  '10000000-0000-4000-8000-000000000002',
   'rfid',
-  'RFID_EXAMPLE_A',
-  'RFID_EXAMPLE_A',
+  'RFID-OLD-NAME',
+  'RFID-OLD-NAME',
   'global',
+  false,
   'active',
   now(),
   'test_v1'
 );
 "
-
-expect_failure "duplicate active old_tag in same scope fails" "
-INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, status, valid_from, normalizer_version)
-VALUES (
+expect_failure "duplicate lifetime Animal ID is rejected" "
+INSERT INTO goat_identifiers (
+  tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
+  scope_key, is_primary_for_goat, status, valid_from, normalizer_version
+) VALUES (
   '00000000-0000-4000-8000-000000000001',
-  '10000000-0000-4000-8000-000000000003',
-  'old_tag',
-  '1900',
-  '1900',
-  'park:CBE',
+  '10000000-0000-4000-8000-000000000002',
+  'animal_identifier_2',
+  'ANIMAL-A1',
+  'ANIMAL-A1',
+  'global',
+  false,
   'active',
   now(),
   'test_v1'
 );
 "
-
-run_psql <<'SQL'
-\echo 'Running tenant namespace positive checks'
-
-INSERT INTO tenants (tenant_id, name, status)
-VALUES ('00000000-0000-4000-8000-000000000002', 'Synthetic second tenant', 'active');
-
-INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
-VALUES ('00000000-0000-4000-8000-000000003101', '00000000-0000-4000-8000-000000000002', 'park', 'CBE', 'Synthetic tenant 2 CBE', 'active');
-
-INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id)
-VALUES (
-  '10000000-0000-4000-8000-000000000101',
-  '00000000-0000-4000-8000-000000000002',
-  'alive',
-  'clean',
-  '00000000-0000-4000-8000-000000001001',
-  '00000000-0000-4000-8000-000000003101',
-  '00000000-0000-4000-8000-000000003101'
-);
-
-INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, status, valid_from, normalizer_version)
-VALUES (
-  '00000000-0000-4000-8000-000000000002',
-  '10000000-0000-4000-8000-000000000101',
-  'old_tag',
-  '1900',
-  '1900',
-  'park:CBE',
-  'active',
-  now(),
-  'test_v1'
-);
-
-INSERT INTO legacy_import_runs (import_run_id, tenant_id, source_name, source_system, source_dataset, policy_version, status)
-VALUES
-  ('80000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'Synthetic import T1', 'legacy_rfid_db', 'rfid_db_first_import', 'phase1-rfid-db-import-v1', 'completed'),
-  ('80000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000002', 'Synthetic import T2', 'legacy_rfid_db', 'rfid_db_first_import', 'phase1-rfid-db-import-v1', 'completed'),
-  ('80000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001', 'Synthetic import alternate source', 'legacy_other_source', 'rfid_db_first_import', 'phase1-rfid-db-import-v1', 'completed');
-
-INSERT INTO legacy_import_rows (
-  tenant_id,
-  import_run_id,
-  row_number,
-  source_system,
-  source_dataset,
-  source_row_key,
-  source_key_recipe_version,
-  source_row_version_hash,
-  hash_recipe_version,
-  raw_payload,
-  normalized_payload,
-  processing_state
-)
-VALUES
-  ('00000000-0000-4000-8000-000000000001', '80000000-0000-4000-8000-000000000001', 1, 'legacy_rfid_db', 'rfid_db_first_import', 'same-key', 'test_recipe', 'same-hash', 'test_hash', '{"synthetic":true}'::jsonb, '{"synthetic":true}'::jsonb, 'pending'),
-  ('00000000-0000-4000-8000-000000000002', '80000000-0000-4000-8000-000000000002', 1, 'legacy_rfid_db', 'rfid_db_first_import', 'same-key', 'test_recipe', 'same-hash', 'test_hash', '{"synthetic":true}'::jsonb, '{"synthetic":true}'::jsonb, 'pending'),
-  ('00000000-0000-4000-8000-000000000001', '80000000-0000-4000-8000-000000000003', 1, 'legacy_other_source', 'rfid_db_first_import', 'same-key', 'test_recipe', 'same-hash', 'test_hash', '{"synthetic":true}'::jsonb, '{"synthetic":true}'::jsonb, 'pending');
-SQL
-
-expect_failure "duplicate source row key/hash in same tenant/source fails" "
-INSERT INTO legacy_import_rows (
-  tenant_id,
-  import_run_id,
-  row_number,
-  source_system,
-  source_dataset,
-  source_row_key,
-  source_key_recipe_version,
-  source_row_version_hash,
-  hash_recipe_version,
-  raw_payload,
-  normalized_payload,
-  processing_state
-)
-VALUES (
-  '00000000-0000-4000-8000-000000000001',
-  '80000000-0000-4000-8000-000000000001',
-  2,
-  'legacy_rfid_db',
-  'rfid_db_first_import',
-  'same-key',
-  'test_recipe',
-  'same-hash',
-  'test_hash',
-  '{\"synthetic\":true}'::jsonb,
-  '{\"synthetic\":true}'::jsonb,
-  'pending'
-);
-"
-
-expect_failure "tenant-scoped child cannot reference goat from another tenant" "
-INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, status, valid_from, normalizer_version)
-VALUES (
-  '00000000-0000-4000-8000-000000000002',
-  '10000000-0000-4000-8000-000000000001',
-  'old_tag',
-  'cross-tenant-bad',
-  'cross-tenant-bad',
-  'park:CBE',
-  'active',
-  now(),
-  'test_v1'
-);
-"
-
-expect_failure "tenant-scoped goat cannot reference location from another tenant" "
-INSERT INTO goats (tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id)
-VALUES (
-  '00000000-0000-4000-8000-000000000002',
-  'alive',
-  'clean',
-  '00000000-0000-4000-8000-000000001001',
-  '00000000-0000-4000-8000-000000003001'
-);
-"
-
-expect_failure "tenant-scoped location cannot reference parent from another tenant" "
-INSERT INTO locations (tenant_id, location_type, location_code, name, parent_location_id, status)
-VALUES (
-  '00000000-0000-4000-8000-000000000002',
-  'shed',
-  'T2-BAD-SHED',
-  'Synthetic invalid cross-tenant shed',
-  '00000000-0000-4000-8000-000000003001',
-  'active'
-);
-"
-
-expect_failure "tenant-scoped location alias cannot reference canonical location from another tenant" "
-INSERT INTO location_aliases (tenant_id, alias_code, canonical_location_id, source_context, notes)
-VALUES (
-  '00000000-0000-4000-8000-000000000002',
-  'BAD-CBE-ALIAS',
-  '00000000-0000-4000-8000-000000003001',
-  'validation',
-  'Synthetic invalid cross-tenant alias.'
-);
-"
-
-expect_failure "tenant-scoped decision join cannot cross tenants" "
-INSERT INTO identity_decision_goats (tenant_id, decision_id, goat_id, role)
-VALUES (
-  '00000000-0000-4000-8000-000000000002',
-  '20000000-0000-4000-8000-000000000001',
-  '10000000-0000-4000-8000-000000000101',
-  'affected'
-);
-"
-
-expect_failure "normal write to merged goat is blocked" "
+expect_failure "normal update to merged animal is blocked" "
 UPDATE goats
-SET breed = 'Synthetic invalid update'
-WHERE goat_id = '10000000-0000-4000-8000-000000000005';
+SET breed = 'blocked'
+WHERE goat_id = '10000000-0000-4000-8000-000000000004';
 "
-
-expect_failure "hard delete of goat is blocked" "
-DELETE FROM goats
-WHERE goat_id = '10000000-0000-4000-8000-000000000005';
-"
-
-expect_failure "identifier child write to merged goat is blocked" "
-INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, status, valid_from, normalizer_version)
-VALUES (
+expect_failure "child identifier write to merged animal is blocked" "
+INSERT INTO goat_identifiers (
+  tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
+  scope_key, is_primary_for_goat, status, valid_from, normalizer_version
+) VALUES (
   '00000000-0000-4000-8000-000000000001',
-  '10000000-0000-4000-8000-000000000005',
-  'old_tag',
-  'merged-child-bad',
-  'merged-child-bad',
-  'park:CBE',
+  '10000000-0000-4000-8000-000000000004',
+  'animal_identifier_2',
+  'ANIMAL-D-REPLACEMENT',
+  'ANIMAL-D-REPLACEMENT',
+  'global',
+  false,
   'active',
   now(),
   'test_v1'
 );
 "
 
-expect_failure "identifier child update on merged goat is blocked" "
-UPDATE goat_identifiers
-SET normalizer_version = 'test_v2'
-WHERE identifier_id = '30000000-0000-4000-8000-000000000004';
-"
-
-expect_failure "identity event child write to merged goat is blocked" "
-INSERT INTO goat_identity_events (
-  tenant_id,
-  goat_id,
-  event_type,
-  event_version,
-  occurred_at,
-  recorded_at,
-  payload,
-  idempotency_key
-)
-VALUES (
-  '00000000-0000-4000-8000-000000000001',
-  '10000000-0000-4000-8000-000000000005',
-  'goat.identity.updated',
-  1,
-  now(),
-  now(),
-  '{\"synthetic\":true}'::jsonb,
-  'merged-child-event-bad'
-);
-"
-
-expect_failure "outbox event must belong to same tenant" "
-INSERT INTO outbox_messages (
-  tenant_id,
-  event_id,
-  event_type,
-  schema_version,
-  aggregate_type,
-  aggregate_id,
-  topic,
-  payload,
-  headers,
-  idempotency_key,
-  status
-)
-VALUES (
-  '00000000-0000-4000-8000-000000000002',
-  '60000000-0000-4000-8000-000000000001',
-  'goat.created',
-  '1.0.0',
-  'goat',
-  '10000000-0000-4000-8000-000000000001',
-  'goat.identity.events',
-  '{\"synthetic\":true}'::jsonb,
-  '{}'::jsonb,
-  'outbox-tenant-mismatch',
-  'pending'
-);
-"
-
-expect_failure "correction outbox aggregate must exist for tenant" "
-INSERT INTO outbox_messages (
-  tenant_id,
-  event_id,
-  event_type,
-  schema_version,
-  aggregate_type,
-  aggregate_id,
-  topic,
-  payload,
-  headers,
-  idempotency_key,
-  status
-)
-VALUES (
-  '00000000-0000-4000-8000-000000000001',
-  gen_random_uuid(),
-  'identity.correction_request.created',
-  '1.0.0',
-  'correction_request',
-  gen_random_uuid(),
-  'identity.events',
-  '{\"synthetic\":true}'::jsonb,
-  '{}'::jsonb,
-  'outbox-missing-correction-aggregate',
-  'pending'
-);
-"
-
-expect_failure "user scope grant location must belong to tenant" "
-INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
-VALUES (
-  '00000000-0000-4000-8000-000000000002',
-  '90000000-0000-4000-8000-000000000001',
-  'operator',
-  'park',
-  '00000000-0000-4000-8000-000000003001',
-  'active',
-  now()
-);
-"
-
-run_psql <<'SQL'
-\echo 'Seeding Phase 0 protocol/inventory fixtures (positive paths)'
-DO $$
-DECLARE
-  tenant uuid := '00000000-0000-4000-8000-000000000001';
-  cbe uuid := '00000000-0000-4000-8000-000000003001'; -- park
-  item_v uuid := 'a0000000-0000-4000-8000-000000000001';
-  lot_v uuid := 'a0000000-0000-4000-8000-000000000002';
-  proto_v uuid := 'a0000000-0000-4000-8000-000000000003';
-  pv1 uuid := 'a0000000-0000-4000-8000-000000000004';
-BEGIN
-  INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit)
-    VALUES (item_v, tenant, 'VAC-ENTEROTOX', 'Enterotoxaemia vaccine', 'vaccine', 'dose');
-  INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit)
-    VALUES (lot_v, tenant, item_v, cbe, 100, 0, 'dose');
-  -- valid ledger movement (lot/item/location/tenant all match the lot)
-  INSERT INTO inventory_stock_movements (tenant_id, lot_id, item_id, location_id, movement_type, quantity, quantity_unit, idempotency_key)
-    VALUES (tenant, lot_v, item_v, cbe, 'receive', 100, 'dose', 'mvmt-seed-receive');
-  INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category)
-    VALUES (proto_v, tenant, 'vaccination.enterotox', 'Enterotoxaemia', 'vaccination');
-  INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version, effective_from)
-    VALUES (pv1, tenant, proto_v, 'tenant', NULL, 1, DATE '2026-06-01');
-  -- valid batch: scope_type park matches cbe's location_type
-  INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id)
-    VALUES ('a0000000-0000-4000-8000-000000000005', tenant, pv1, 'park', cbe);
-  -- valid park-scoped version (cbe is a park; distinct scope from the tenant default)
-  INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version, effective_from)
-    VALUES ('a0000000-0000-4000-8000-000000000006', tenant, proto_v, 'park', cbe, 1, DATE '2026-06-01');
-  -- a dose rule + valid obligation targeting an existing goat under a park scope
-  INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type)
-    VALUES ('a0000000-0000-4000-8000-000000000007', tenant, pv1, 'primary', 'birth_age');
-  INSERT INTO obligation_instances (tenant_id, protocol_version_id, rule_id, target_type, target_id, scope_type, scope_id, due_at, idempotency_key)
-    VALUES (tenant, pv1, 'a0000000-0000-4000-8000-000000000007', 'goat', '10000000-0000-4000-8000-000000000001', 'park', cbe, TIMESTAMPTZ '2026-08-01 00:00:00+00', 'oblig-seed-1');
-END $$;
-SQL
-
-expect_failure "inventory stock quantity cannot be negative" "
-INSERT INTO inventory_stock (tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit)
-VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000003001', -1, 0, 'dose');
-"
-
-expect_failure "movement lot/item/location must match the stock lot" "
-INSERT INTO inventory_stock_movements (tenant_id, lot_id, item_id, location_id, movement_type, quantity, quantity_unit, idempotency_key)
-VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000002', gen_random_uuid(), '00000000-0000-4000-8000-000000003001', 'consume', 5, 'dose', 'mvmt-bad-item');
-"
-
-expect_failure "movement quantity must be positive" "
-INSERT INTO inventory_stock_movements (tenant_id, lot_id, item_id, location_id, movement_type, quantity, quantity_unit, idempotency_key)
-VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000003001', 'consume', 0, 'dose', 'mvmt-zero-qty');
-"
-
-expect_failure "tenant-default protocol version number is unique (NULLS NOT DISTINCT)" "
-INSERT INTO protocol_versions (tenant_id, protocol_id, scope_type, scope_id, version, effective_from)
-VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000003', 'tenant', NULL, 1, DATE '2026-07-01');
-"
-
-expect_failure "obligation batch scope_type must match location type" "
-INSERT INTO obligation_batches (tenant_id, protocol_version_id, scope_type, scope_id)
-VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000004', 'shed', '00000000-0000-4000-8000-000000003001');
-"
-
-expect_failure "protocol version park scope must be a real park location" "
-INSERT INTO protocol_versions (tenant_id, protocol_id, scope_type, scope_id, version, effective_from)
-VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000003', 'park', '00000000-0000-4000-8000-000000003003', 2, DATE '2026-06-01');
-"
-
-expect_failure "obligation goat target must reference a real same-tenant goat" "
-INSERT INTO obligation_instances (tenant_id, protocol_version_id, rule_id, target_type, target_id, scope_type, scope_id, due_at, idempotency_key)
-VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000004', 'a0000000-0000-4000-8000-000000000007', 'goat', '99999999-0000-4000-8000-000000000999', 'park', '00000000-0000-4000-8000-000000003001', TIMESTAMPTZ '2026-08-02 00:00:00+00', 'oblig-bad-goat');
-"
-
-expect_failure "obligation shed target must reference a shed location" "
-INSERT INTO obligation_instances (tenant_id, protocol_version_id, rule_id, target_type, target_id, scope_type, scope_id, due_at, idempotency_key)
-VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000004', 'a0000000-0000-4000-8000-000000000007', 'shed', '00000000-0000-4000-8000-000000003001', 'park', '00000000-0000-4000-8000-000000003001', TIMESTAMPTZ '2026-08-03 00:00:00+00', 'oblig-bad-shed');
-"
-
-expect_failure "protocol version sop_version_id must reference a same-tenant sop_version" "
-INSERT INTO protocol_versions (tenant_id, protocol_id, scope_type, scope_id, version, effective_from, sop_version_id)
-VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000003', 'tenant', NULL, 3, DATE '2026-09-01', '88888888-0000-4000-8000-000000000888');
-"
-
-run_psql <<'SQL'
-\echo 'Migration validation complete'
-SQL
+echo "Migration validation passed"

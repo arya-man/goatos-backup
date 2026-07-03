@@ -78,12 +78,14 @@ type scheduleRow struct {
 var (
 	ruleDSLTopLevelKeys = map[string]bool{
 		"category":             true,
+		"ruleset_family":       true,
 		"scope":                true,
 		"vaccine":              true,
 		"eligibility":          true,
 		"missed_dose_policy":   true,
 		"stock_policy":         true,
 		"schedule":             true,
+		"matrix_rows":          true,
 		"escalation":           true,
 		"compatibility_policy": true,
 		"procurement_policy":   true,
@@ -111,11 +113,11 @@ var (
 		"health":                      true,
 		"reproductive":                true,
 		"exclude_reproductive_states": true,
-			"defer_states":                true,
-			"min_age_days":                true,
-			"max_age_days":                true,
-			"age_band":                    true,
-		}
+		"defer_states":                true,
+		"min_age_days":                true,
+		"max_age_days":                true,
+		"age_band":                    true,
+	}
 	ruleDSLVaccineKeys = map[string]bool{
 		"code":                true,
 		"name":                true,
@@ -137,13 +139,13 @@ var (
 		"max_vaccines_per_combo_session":     true,
 	}
 	ruleDSLProcurementPolicyKeys = map[string]bool{
-			"warmup_no_vaccination_days":            true,
-			"kids_normal_schedule_until_weeks":      true,
-			"adult_prior_vaccination_allowed":       true,
-			"first_wave":                            true,
-		"second_wave_after_days":                true,
-		"goat_second_wave":                      true,
-		"sheep_second_wave":                     true,
+		"warmup_no_vaccination_days":       true,
+		"kids_normal_schedule_until_weeks": true,
+		"adult_prior_vaccination_allowed":  true,
+		"first_wave":                       true,
+		"second_wave_after_days":           true,
+		"goat_second_wave":                 true,
+		"sheep_second_wave":                true,
 	}
 	ruleDSLPregnancyPolicyKeys = map[string]bool{
 		"allow_until_pregnancy_month":  true,

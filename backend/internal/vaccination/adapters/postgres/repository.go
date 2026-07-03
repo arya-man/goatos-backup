@@ -1905,10 +1905,11 @@ func (r *Repository) SumAvailableStock(ctx context.Context, tenantID, itemID str
 	return pgconv.NumericString(row.Available), pgconv.DateValue(row.EarliestExpiry), nil
 }
 
-// LastRecentVaccineAdministrationsForGoats returns the latest accepted Goat OS dose per goat for
-// cross-vaccine gap enforcement (Phase 2).
-func (r *Repository) LastRecentVaccineAdministrationsForGoats(ctx context.Context, tenantID string, goatIDs []string, before time.Time) (map[string]domain.RecentVaccineAdministration, error) {
-	out := make(map[string]domain.RecentVaccineAdministration)
+// RecentVaccineAdministrationsForGoats returns every recent accepted/trusted administration per goat
+// needed for cross-vaccine gap enforcement. A later killed dose must not hide an earlier live dose
+// when another live vaccine is being scheduled.
+func (r *Repository) RecentVaccineAdministrationsForGoats(ctx context.Context, tenantID string, goatIDs []string, before time.Time) (map[string][]domain.RecentVaccineAdministration, error) {
+	out := make(map[string][]domain.RecentVaccineAdministration)
 	if len(goatIDs) == 0 {
 		return out, nil
 	}
@@ -1927,28 +1928,88 @@ func (r *Repository) LastRecentVaccineAdministrationsForGoats(ctx context.Contex
 		uuids = append(uuids, id)
 	}
 	rows, err := r.pool.Query(ctx, `
-SELECT DISTINCT ON (vc.goat_id)
-       vc.goat_id::text AS goat_id,
-       vc.administered_at,
-       COALESCE(pv.rule_dsl -> 'vaccine' ->> 'code', '')::text AS vaccine_code,
-       COALESCE(pv.rule_dsl -> 'vaccine' ->> 'type', '')::text AS vaccine_type,
-       COALESCE(pv.rule_dsl -> 'vaccine' ->> 'pathogen_class', '')::text AS pathogen_class,
-       oi.protocol_version_id::text AS protocol_version_id
-FROM vaccination_completions vc
-JOIN obligation_instances oi
-  ON oi.tenant_id = vc.tenant_id
- AND oi.obligation_id = vc.obligation_id
-JOIN protocol_versions pv
-  ON pv.tenant_id = oi.tenant_id
- AND pv.protocol_version_id = oi.protocol_version_id
-WHERE vc.tenant_id = $1
-  AND vc.goat_id = ANY($2::uuid[])
-  AND vc.status = 'accepted'
-  AND vc.verified_at IS NOT NULL
-  AND vc.administered_at <= $3::timestamptz
-ORDER BY vc.goat_id, vc.administered_at DESC`, tenant, uuids, pgconv.Timestamptz(before))
+WITH completion_admins AS (
+  SELECT vc.goat_id::text AS goat_id,
+         vc.administered_at,
+         COALESCE(
+           NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''),
+           NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', ''),
+           ''
+         )::text AS vaccine_code,
+         COALESCE(
+           NULLIF(pr.eligibility_json -> 'vaccine' ->> 'type', ''),
+           NULLIF(pv.rule_dsl -> 'vaccine' ->> 'type', ''),
+           ''
+         )::text AS vaccine_type,
+         COALESCE(
+           NULLIF(pr.eligibility_json -> 'vaccine' ->> 'pathogen_class', ''),
+           NULLIF(pv.rule_dsl -> 'vaccine' ->> 'pathogen_class', ''),
+           ''
+         )::text AS pathogen_class,
+         oi.protocol_version_id::text AS protocol_version_id
+  FROM vaccination_completions vc
+  JOIN obligation_instances oi
+    ON oi.tenant_id = vc.tenant_id
+   AND oi.obligation_id = vc.obligation_id
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  LEFT JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id
+   AND pr.protocol_version_id = oi.protocol_version_id
+   AND pr.rule_id = oi.rule_id
+  WHERE vc.tenant_id = $1
+    AND vc.goat_id = ANY($2::uuid[])
+    AND vc.status = 'accepted'
+    AND vc.verified_at IS NOT NULL
+    AND vc.administered_at <= $3::timestamptz
+),
+trusted_admins AS (
+  SELECT ev.goat_id::text AS goat_id,
+         ev.administered_at,
+         COALESCE(
+           NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''),
+           NULLIF(ev.metadata ->> 'vaccine_code', ''),
+           NULLIF(ev.vaccine_name, ''),
+           NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', ''),
+           ''
+         )::text AS vaccine_code,
+         COALESCE(
+           NULLIF(pr.eligibility_json -> 'vaccine' ->> 'type', ''),
+           NULLIF(ev.metadata ->> 'vaccine_type', ''),
+           NULLIF(pv.rule_dsl -> 'vaccine' ->> 'type', ''),
+           ''
+         )::text AS vaccine_type,
+         COALESCE(
+           NULLIF(pr.eligibility_json -> 'vaccine' ->> 'pathogen_class', ''),
+           NULLIF(ev.metadata ->> 'pathogen_class', ''),
+           NULLIF(pv.rule_dsl -> 'vaccine' ->> 'pathogen_class', ''),
+           ''
+         )::text AS pathogen_class,
+         ev.protocol_version_id::text AS protocol_version_id
+  FROM procurement_hf_vaccination_evidence ev
+  JOIN protocol_versions pv
+    ON pv.tenant_id = ev.tenant_id
+   AND pv.protocol_version_id = ev.protocol_version_id
+  LEFT JOIN protocol_rules pr
+    ON pr.tenant_id = ev.tenant_id
+   AND pr.protocol_version_id = ev.protocol_version_id
+   AND pr.rule_id = ev.rule_id
+  WHERE ev.tenant_id = $1
+    AND ev.goat_id = ANY($2::uuid[])
+    AND ev.review_status = 'trusted'
+    AND ev.reviewed_at IS NOT NULL
+    AND ev.administered_at <= $3::timestamptz
+)
+SELECT goat_id, administered_at, vaccine_code, vaccine_type, pathogen_class, protocol_version_id
+FROM (
+  SELECT * FROM completion_admins
+  UNION ALL
+  SELECT * FROM trusted_admins
+) admins
+ORDER BY goat_id, administered_at DESC`, tenant, uuids, pgconv.Timestamptz(before))
 	if err != nil {
-		return nil, fmt.Errorf("vaccination: last recent vaccine administrations: %w", err)
+		return nil, fmt.Errorf("vaccination: recent vaccine administrations: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -1963,13 +2024,29 @@ ORDER BY vc.goat_id, vc.administered_at DESC`, tenant, uuids, pgconv.Timestamptz
 			&admin.PathogenClass,
 			&admin.ProtocolVersionID,
 		); err != nil {
-			return nil, fmt.Errorf("vaccination: scan last recent vaccine administration: %w", err)
+			return nil, fmt.Errorf("vaccination: scan recent vaccine administration: %w", err)
 		}
 		admin.AdministeredAt = administeredAt.Time
-		out[goatID] = admin
+		out[goatID] = append(out[goatID], admin)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("vaccination: last recent vaccine administrations rows: %w", err)
+		return nil, fmt.Errorf("vaccination: recent vaccine administrations rows: %w", err)
+	}
+	return out, nil
+}
+
+// LastRecentVaccineAdministrationsForGoats preserves the older port for callers that need one row.
+// Cross-vaccine generation now uses RecentVaccineAdministrationsForGoats.
+func (r *Repository) LastRecentVaccineAdministrationsForGoats(ctx context.Context, tenantID string, goatIDs []string, before time.Time) (map[string]domain.RecentVaccineAdministration, error) {
+	out := make(map[string]domain.RecentVaccineAdministration)
+	history, err := r.RecentVaccineAdministrationsForGoats(ctx, tenantID, goatIDs, before)
+	if err != nil {
+		return nil, err
+	}
+	for goatID, admins := range history {
+		if len(admins) > 0 {
+			out[goatID] = admins[0]
+		}
 	}
 	return out, nil
 }

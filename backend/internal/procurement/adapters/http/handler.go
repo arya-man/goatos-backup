@@ -614,6 +614,11 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, payload any, e
 			errorEnvelope{Code: "write_conflict", Message: "record changed; reload before retrying", TraceID: traceID(r)}, err)
 		return
 	}
+	if errors.Is(err, ports.ErrWriteConflict) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "write_conflict", Message: "animal identifier was claimed by another write; reload before retrying", TraceID: traceID(r)}, err)
+		return
+	}
 	if errors.Is(err, ports.ErrNotFound) {
 		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
 			errorEnvelope{Code: "not_found_or_not_allowed", Message: "procurement record was not found", TraceID: traceID(r)}, err)

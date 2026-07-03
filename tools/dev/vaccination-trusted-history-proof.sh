@@ -105,11 +105,11 @@ RETURNING location_id
 ")
 GOAT=$(psqlq "
 INSERT INTO goats (
-  goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id,
+  goat_id, tenant_id, lifecycle_status, custodian_party_id,
   current_location_id, park_id, shed_id, management_stage, sex, breed,
   dob, approx_dob, entry_date, health_status, reproductive_status, origin_type
 ) VALUES (
-  gen_random_uuid(), '$TENANT', 'alive', 'clean', '00000000-0000-4000-8000-000000001001',
+  gen_random_uuid(), '$TENANT', 'alive', '00000000-0000-4000-8000-000000001001',
   '$SHED', '$PARK', '$SHED', 'K0', 'female', 'all',
   DATE '$DOB', DATE '$DOB', DATE '$DOB', 'healthy', 'open', 'birth'
 ) RETURNING goat_id

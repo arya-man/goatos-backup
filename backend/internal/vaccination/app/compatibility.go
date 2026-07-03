@@ -153,3 +153,25 @@ func applyCrossVaccineGapFloor(due time.Time, last *domain.RecentVaccineAdminist
 	}
 	return due
 }
+
+func applyCrossVaccineGapFloorFromHistory(due time.Time, history []domain.RecentVaccineAdministration, next vaccineProfile, policy genCompatibilityPolicy) time.Time {
+	out := due
+	for _, admin := range history {
+		if admin.AdministeredAt.IsZero() {
+			continue
+		}
+		prior := vaccineProfileFromAdministration(admin)
+		if prior.Code != "" && next.Code != "" && strings.EqualFold(prior.Code, next.Code) {
+			continue
+		}
+		gap := crossVaccineGapDays(prior.Class, next.Class, policy)
+		if gap <= 0 {
+			continue
+		}
+		floor := dateUTC(admin.AdministeredAt).AddDate(0, 0, int(gap))
+		if out.Before(floor) {
+			out = floor
+		}
+	}
+	return out
+}

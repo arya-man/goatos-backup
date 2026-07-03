@@ -14,6 +14,7 @@ var (
 	ErrNotFound          = errors.New("procurement: not found")
 	ErrInvalidTransition = errors.New("procurement: invalid transition")
 	ErrStaleWrite        = errors.New("procurement: stale row version")
+	ErrWriteConflict     = errors.New("procurement: write conflict")
 	// ErrIdempotencyConflict is returned when an idempotency key is replayed with a different request
 	// payload (semantic fingerprint mismatch). The write must be rejected without mutating state.
 	ErrIdempotencyConflict = errors.New("procurement: idempotency key reused with different payload")
