@@ -238,11 +238,11 @@ func (l *genStringList) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// normDim maps "all"/"any"/"" to "" (no filter); any other value is an exact-match dimension.
+// normDim maps "all"/"any"/"*"/"" to "" (no filter); any other value is an exact-match dimension.
 func normDim(v string) string {
 	v = strings.TrimSpace(v)
 	switch strings.ToLower(v) {
-	case "", "all", "any":
+	case "", "all", "any", "*":
 		return ""
 	default:
 		return v
@@ -893,7 +893,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				// when the row is already schedulable/terminal (safe recovery-recheck replay).
 				var reschedule *obldomain.RecoveryReschedule
 				if opts.healthRecoveryAlign {
-					reschedule, err = s.recoveryRescheduleForRule(ctx, tenantID, versionID, rule, g, asOf, policies.Recovery)
+					reschedule, err = s.recoveryRescheduleForRule(ctx, tenantID, versionID, rule, ruleVaccine, g, asOf, policies.Recovery, policies.Compatibility, vaccineHistory)
 					if err != nil {
 						return err
 					}
@@ -1094,7 +1094,7 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 	return res, nil
 }
 
-func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, recovery genRecoveryPolicy) (*obldomain.RecoveryReschedule, error) {
+func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, ruleVaccine vaccineProfile, g domain.EligibleGoat, asOf time.Time, recovery genRecoveryPolicy, compatibility genCompatibilityPolicy, vaccineHistory []domain.RecentVaccineAdministration) (*obldomain.RecoveryReschedule, error) {
 	from := dateUTC(asOf)
 	to := from.AddDate(0, 0, int(recovery.alignDays()))
 	nearby, err := s.obl.FindNearestPlannedBatchDate(ctx, tenantID, versionID, rule.RuleID, g.ShedID, g.ParkID, from, to)
@@ -1102,6 +1102,7 @@ func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenan
 		return nil, err
 	}
 	due, reason := recoveryRescheduleDue(asOf, recovery, nearby)
+	due = applyCrossVaccineGapFloorFromHistory(due, vaccineHistory, ruleVaccine, compatibility)
 	windowStart, windowEnd := recoveryDueWindows(due, rule.DueWindowDays)
 	return &obldomain.RecoveryReschedule{
 		DueAt:       due,

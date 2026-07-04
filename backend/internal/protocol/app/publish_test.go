@@ -328,6 +328,27 @@ func TestPublishVersionAlreadyPublishedRetryIsNoop(t *testing.T) {
 	}
 }
 
+func TestPublishVersionAlreadyPublishedVaccinationMatrixRetryUsesMatrixFingerprint(t *testing.T) {
+	version := validPublishVersion("published")
+	version.RuleDsl = []byte(validVaccinationMatrixRulesetDSL())
+	repo := &fakeProtocolRepo{version: version}
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil, "publish-key")
+	if err != nil {
+		t.Fatalf("publish already-published matrix retry: %v", err)
+	}
+	if !repo.publishWithDerivedCalled {
+		t.Fatalf("published vaccination.matrix replay must use matrix publish fingerprint path")
+	}
+	if repo.genericPublishCalled {
+		t.Fatalf("published vaccination.matrix replay must not fall through to generic publish fingerprint")
+	}
+	if repo.createRuleCalled {
+		t.Fatalf("already-published matrix retry must not create protocol rules")
+	}
+}
+
 func TestPublishVersionRejectsRetiredVersion(t *testing.T) {
 	repo := &fakeProtocolRepo{
 		version: validPublishVersion("retired"),
@@ -562,7 +583,7 @@ func TestPublishVersionRejectsMatrixScheduleWithoutRowMetadata(t *testing.T) {
 	}
 }
 
-func TestPublishVersionRejectsExistingMatrixRuleWithoutRowMetadata(t *testing.T) {
+func TestPublishVersionRegeneratesMatrixRulesFromRuleDSL(t *testing.T) {
 	repo := &fakeProtocolRepo{
 		version: validPublishVersion("draft"),
 		rules: []domain.Rule{{
@@ -576,12 +597,162 @@ func TestPublishVersionRejectsExistingMatrixRuleWithoutRowMetadata(t *testing.T)
 	repo.version.RuleDsl = []byte(validVaccinationMatrixRulesetDSL())
 	service := NewService(repo)
 
-	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
-	if !errors.Is(err, ErrNotPublishable) {
-		t.Fatalf("publish existing bad matrix rule err=%v, want ErrNotPublishable", err)
+	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); err != nil {
+		t.Fatalf("publish with stale existing matrix rule: %v", err)
 	}
-	if repo.publishCalled {
-		t.Fatalf("matrix with existing bad protocol_rule must not publish")
+	if !repo.publishWithDerivedCalled || !repo.publishCalled {
+		t.Fatalf("matrix publish should use atomic derived path, derived=%v publish=%v", repo.publishWithDerivedCalled, repo.publishCalled)
+	}
+	if len(repo.createdRules) != 1 {
+		t.Fatalf("created rules=%#v, want regenerated single matrix row", repo.createdRules)
+	}
+	var meta struct {
+		MatrixRowID string `json:"matrix_row_id"`
+		Eligibility struct {
+			Species []string `json:"species"`
+		} `json:"eligibility"`
+		Vaccine struct {
+			Code string `json:"code"`
+		} `json:"vaccine"`
+	}
+	if err := json.Unmarshal(repo.createdRules[0].EligibilityJSON, &meta); err != nil {
+		t.Fatalf("regenerated metadata should be matrix wrapper: %v", err)
+	}
+	if meta.MatrixRowID != "adult-sheep-second-wave" || meta.Vaccine.Code != "SHEEP_POX" || len(meta.Eligibility.Species) != 1 || meta.Eligibility.Species[0] != "sheep" {
+		t.Fatalf("regenerated matrix metadata = %#v", meta)
+	}
+}
+
+func TestPublishVersionMatrixInheritsVersionEligibilityAndCanonicalizesAny(t *testing.T) {
+	repo := &fakeProtocolRepo{version: validPublishVersion("draft")}
+	var dsl map[string]any
+	if err := json.Unmarshal([]byte(validVaccinationMatrixRulesetDSL()), &dsl); err != nil {
+		t.Fatalf("valid matrix dsl: %v", err)
+	}
+	dsl["eligibility"] = map[string]any{
+		"animal_stage":                []any{"any"},
+		"species":                     []any{"sheep"},
+		"sex":                         []any{"any"},
+		"breed":                       []any{"*"},
+		"lifecycle":                   []any{"alive"},
+		"health":                      []any{"*"},
+		"reproductive":                []any{"any"},
+		"exclude_reproductive_states": []any{"pregnant_late"},
+		"defer_states":                []any{"icu", "quarantine"},
+	}
+	matrixRows := dsl["matrix_rows"].([]any)
+	firstRow := cloneAnyMap(matrixRows[0].(map[string]any))
+	firstRow["eligibility"] = map[string]any{
+		"lifecycle":                   []any{"alive"},
+		"reproductive":                []any{"any"},
+		"exclude_reproductive_states": []any{"pregnant_late"},
+		"defer_states":                []any{"icu", "quarantine"},
+	}
+	dsl["matrix_rows"] = []any{firstRow}
+	raw, err := json.Marshal(dsl)
+	if err != nil {
+		t.Fatalf("marshal inherited matrix dsl: %v", err)
+	}
+	repo.version.RuleDsl = raw
+	service := NewService(repo)
+
+	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); err != nil {
+		t.Fatalf("publish inherited matrix: %v", err)
+	}
+	if len(repo.dimensions) != 1 {
+		t.Fatalf("dimensions=%#v, want 1 wildcard sex row with inherited sheep/all/all", repo.dimensions)
+	}
+	for _, dim := range repo.dimensions {
+		if dim.Species != "sheep" || dim.AnimalStage != "all" || dim.Sex != "all" || dim.Breed != "all" {
+			t.Fatalf("dimension did not inherit/canonicalize selectors: %#v", dim)
+		}
+	}
+	var payload struct {
+		Eligibility map[string]json.RawMessage `json:"eligibility"`
+	}
+	if err := json.Unmarshal(repo.createdRules[0].EligibilityJSON, &payload); err != nil {
+		t.Fatalf("derived eligibility json: %v", err)
+	}
+	for field, want := range map[string]string{
+		"species":      "sheep",
+		"animal_stage": "all",
+		"sex":          "all",
+		"breed":        "all",
+		"health":       "all",
+		"reproductive": "all",
+	} {
+		values, err := rawSelectorValues(payload.Eligibility[field])
+		if err != nil || len(values) != 1 || values[0] != want {
+			t.Fatalf("derived eligibility %s=%v err=%v, want [%s]", field, values, err, want)
+		}
+	}
+}
+
+func TestPublishVersionRejectsDuplicateMatrixRowIDAndSourceDoseAlias(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{
+			name: "duplicate row id",
+			mutate: func(dsl map[string]any) {
+				rows := dsl["matrix_rows"].([]any)
+				dsl["matrix_rows"] = append(rows, cloneAnyMap(rows[0].(map[string]any)))
+			},
+		},
+		{
+			name: "duplicate source dose alias",
+			mutate: func(dsl map[string]any) {
+				rows := dsl["matrix_rows"].([]any)
+				row := cloneAnyMap(rows[0].(map[string]any))
+				row["row_id"] = "adult-sheep-second-wave-copy"
+				cells := row["schedule"].([]any)
+				cell := cloneAnyMap(cells[0].(map[string]any))
+				cell["dose_code"] = "sheep_pox_alias_copy"
+				cell["source_dose_code"] = "sheep_pox_adult_second_wave"
+				row["schedule"] = []any{cell}
+				rows = append(rows, row)
+				dsl["matrix_rows"] = rows
+				top := dsl["schedule"].([]any)
+				topCell := cloneAnyMap(top[0].(map[string]any))
+				topCell["dose_code"] = "sheep_pox_alias_copy"
+				topCell["source_dose_code"] = "sheep_pox_adult_second_wave"
+				dsl["schedule"] = append(top, topCell)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeProtocolRepo{version: validPublishVersion("draft")}
+			var dsl map[string]any
+			if err := json.Unmarshal([]byte(validVaccinationMatrixRulesetDSL()), &dsl); err != nil {
+				t.Fatalf("valid matrix dsl: %v", err)
+			}
+			tc.mutate(dsl)
+			raw, err := json.Marshal(dsl)
+			if err != nil {
+				t.Fatalf("marshal bad matrix dsl: %v", err)
+			}
+			repo.version.RuleDsl = raw
+			err = NewService(repo).PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+			if !errors.Is(err, ErrNotPublishable) {
+				t.Fatalf("publish err=%v, want ErrNotPublishable", err)
+			}
+			if repo.publishCalled || repo.createRuleCalled {
+				t.Fatalf("invalid matrix must not publish/create derived rows")
+			}
+		})
+	}
+}
+
+func TestPublishVersionRejectsNegativeMatrixTiming(t *testing.T) {
+	repo := &fakeProtocolRepo{version: validPublishVersion("draft")}
+	repo.version.RuleDsl = []byte(strings.Replace(validVaccinationMatrixRulesetDSL(), `"offset_days":28`, `"offset_days":-1`, 1))
+	err := NewService(repo).PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("publish negative timing err=%v, want ErrNotPublishable", err)
+	}
+	if repo.publishCalled || repo.createRuleCalled {
+		t.Fatalf("negative timing must not publish/create derived rows")
 	}
 }
 
@@ -662,15 +833,17 @@ func cloneAnyMap(in map[string]any) map[string]any {
 }
 
 type fakeProtocolRepo struct {
-	version             domain.Version
-	publishCalled       bool
-	publishCalls        int
-	createVersionCalled bool
-	createRuleCalled    bool
-	createdRule         domain.NewRule
-	createdRules        []domain.NewRule
-	rules               []domain.Rule
-	dimensions          []domain.RuleDimension
+	version                  domain.Version
+	publishCalled            bool
+	genericPublishCalled     bool
+	publishWithDerivedCalled bool
+	publishCalls             int
+	createVersionCalled      bool
+	createRuleCalled         bool
+	createdRule              domain.NewRule
+	createdRules             []domain.NewRule
+	rules                    []domain.Rule
+	dimensions               []domain.RuleDimension
 }
 
 func (f *fakeProtocolRepo) Ping(context.Context) error { return nil }
@@ -695,7 +868,45 @@ func (f *fakeProtocolRepo) ListConfigs(context.Context, string, string) ([]domai
 }
 func (f *fakeProtocolRepo) PublishVersion(context.Context, string, string, *string, ...string) error {
 	f.publishCalled = true
+	f.genericPublishCalled = true
 	f.publishCalls++
+	f.version.Status = "published"
+	return nil
+}
+func (f *fakeProtocolRepo) PublishVersionWithDerivedRules(_ context.Context, _ string, _ domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, _ *string, _ ...string) error {
+	alreadyPublished := f.version.Status == "published"
+	f.publishCalled = true
+	f.publishWithDerivedCalled = true
+	f.publishCalls++
+	f.createRuleCalled = !alreadyPublished && len(rules) > 0
+	f.createdRules = append([]domain.NewRule(nil), rules...)
+	if len(rules) > 0 {
+		f.createdRule = rules[len(rules)-1]
+	}
+	f.rules = f.rules[:0]
+	for _, in := range rules {
+		ruleID := strings.TrimSpace(in.RuleID)
+		if ruleID == "" {
+			ruleID = "rule-" + in.DoseCode
+		}
+		f.rules = append(f.rules, domain.Rule{
+			RuleID:              ruleID,
+			ProtocolVersionID:   in.ProtocolVersionID,
+			ProtocolID:          f.version.ProtocolID,
+			DoseCode:            in.DoseCode,
+			Sequence:            in.Sequence,
+			TriggerType:         in.TriggerType,
+			OffsetDays:          in.OffsetDays,
+			DueWindowDays:       in.DueWindowDays,
+			MinGapDays:          in.MinGapDays,
+			Repeat:              in.Repeat,
+			RepeatUntilAfterAge: in.RepeatUntilAfterAge,
+			CatchUp:             in.CatchUp,
+			EligibilityJSON:     in.EligibilityJSON,
+			SortOrder:           in.SortOrder,
+		})
+	}
+	f.dimensions = append([]domain.RuleDimension(nil), dimensions...)
 	f.version.Status = "published"
 	return nil
 }

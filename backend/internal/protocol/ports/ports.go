@@ -19,6 +19,10 @@ var ErrVersionNotDraft = errors.New("protocol: version is not draft")
 // with a different semantic protocol-config payload.
 var ErrIdempotencyConflict = errors.New("protocol: idempotency key reused with different payload")
 
+// ErrActiveVersionOverlap is returned when a publish would create two active
+// versions for the same logical ruleset family, scope, and effective window.
+var ErrActiveVersionOverlap = errors.New("protocol: active version overlaps existing published version")
+
 // Repository is the persistence boundary for protocol config. Implementations wrap generated
 // sqlc queries; no hand-written SQL leaks above this interface.
 type Repository interface {

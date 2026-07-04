@@ -395,6 +395,11 @@ func (h *Handler) PublishVersion(w http.ResponseWriter, r *http.Request) {
 			errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different protocol publish payload", TraceID: traceID(r)}, nil)
 		return
 	}
+	if errors.Is(err, ports.ErrActiveVersionOverlap) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "active_version_overlap", Message: "another active protocol version already covers this scope and effective window", TraceID: traceID(r)}, nil)
+		return
+	}
 	if errors.Is(err, ports.ErrVersionNotDraft) {
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 			errorEnvelope{Code: "version_not_draft", Message: "only draft protocol versions can be published", TraceID: traceID(r)}, nil)

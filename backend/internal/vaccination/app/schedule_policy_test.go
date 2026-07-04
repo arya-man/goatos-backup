@@ -102,6 +102,15 @@ func TestRecoveryRescheduleDueUsesOneWeekMaxBuffer(t *testing.T) {
 	}
 }
 
+func TestSelectorMatchesTreatsStarAsWildcard(t *testing.T) {
+	if !selectorMatches("goat", genStringList{"*"}) {
+		t.Fatalf("star selector should match any concrete dimension")
+	}
+	if !selectorMatches("female", genStringList{"any"}) || !selectorMatches("male", genStringList{"all"}) {
+		t.Fatalf("any/all selectors should remain wildcard aliases")
+	}
+}
+
 func TestWarmingDeferReason(t *testing.T) {
 	entry := time.Date(2026, time.July, 1, 12, 0, 0, 0, time.UTC)
 	proc := genProcurementPolicy{WarmupNoVaccinationDays: 7}

@@ -62,6 +62,7 @@ type Version struct {
 
 // NewRule is the input to create one dose/phase rule under a version.
 type NewRule struct {
+	RuleID              string
 	TenantID            string
 	ProtocolVersionID   string
 	DoseCode            string

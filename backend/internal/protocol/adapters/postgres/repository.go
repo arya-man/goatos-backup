@@ -567,6 +567,271 @@ WHERE tenant_id = $1
 	return nil
 }
 
+// PublishVersionWithDerivedRules replaces vaccination.matrix derived rules/dimensions and publishes
+// the version in one transaction. The matrix JSON is the authoring source of truth; protocol_rules
+// and protocol_rule_dimensions are regenerated execution indexes, never hand-authored authority.
+func (r *Repository) PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, idempotencyKey ...string) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	vid, err := pgconv.UUID(v.ProtocolVersionID)
+	if err != nil {
+		return fmt.Errorf("protocol: version id: %w", err)
+	}
+	fingerprint := protocolFingerprint(
+		"publish-matrix",
+		tenantID,
+		v.ProtocolVersionID,
+		canonicalJSON(v.RuleDsl),
+		derivedRulesFingerprint(rules),
+		derivedDimensionsFingerprint(dimensions),
+	)
+	key := protocolIdempotencyKey(firstString(idempotencyKey), fingerprint)
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("protocol: begin matrix publish: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := reserveProtocolIdempotency(ctx, tx, tenantID, "protocol.version.publish", key, fingerprint, "protocol_version")
+	if err != nil {
+		return fmt.Errorf("protocol: reserve matrix publish idempotency: %w", err)
+	}
+	if !reservation.proceed {
+		return nil
+	}
+
+	var status, scopeType, scopeID string
+	err = tx.QueryRow(ctx, `
+SELECT status, scope_type, COALESCE(scope_id::text, '')
+FROM protocol_versions
+WHERE tenant_id = $1
+  AND protocol_version_id = $2
+FOR UPDATE`, tenant, vid).Scan(&status, &scopeType, &scopeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("protocol: lock matrix version: %w", err)
+	}
+	if status == "published" {
+		if err := completeProtocolIdempotency(ctx, tx, tenantID, "protocol.version.publish", key, "protocol_version", v.ProtocolVersionID); err != nil {
+			return fmt.Errorf("protocol: complete matrix published replay idempotency: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("protocol: commit matrix published replay: %w", err)
+		}
+		return nil
+	}
+	if status != "draft" {
+		return ports.ErrVersionNotDraft
+	}
+	lockKey := strings.Join([]string{tenantID, "vaccination.matrix", scopeType, scopeID}, ":")
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, lockKey); err != nil {
+		return fmt.Errorf("protocol: lock vaccination matrix scope: %w", err)
+	}
+	if err := assertNoPublishedVaccinationMatrixOverlapTx(ctx, tx, tenant, vid); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+DELETE FROM protocol_rule_dimensions
+WHERE tenant_id = $1 AND protocol_version_id = $2`, tenant, vid); err != nil {
+		return fmt.Errorf("protocol: delete matrix rule dimensions: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+DELETE FROM protocol_rules
+WHERE tenant_id = $1 AND protocol_version_id = $2`, tenant, vid); err != nil {
+		return fmt.Errorf("protocol: delete matrix derived rules: %w", err)
+	}
+	for _, rule := range rules {
+		if err := insertDerivedProtocolRuleTx(ctx, tx, tenant, rule); err != nil {
+			return err
+		}
+	}
+	for _, dim := range dimensions {
+		if err := insertProtocolRuleDimensionTx(ctx, tx, tenant, vid, dim); err != nil {
+			return err
+		}
+	}
+
+	var published protocolPublishedRow
+	err = tx.QueryRow(ctx, `
+UPDATE protocol_versions pv
+SET status = 'published',
+    published_by = $1,
+    published_at = now(),
+    row_version = pv.row_version + 1,
+    updated_at = now()
+FROM protocol_definitions pd
+WHERE pv.tenant_id = $2
+  AND pv.protocol_version_id = $3
+  AND pv.status = 'draft'
+  AND pd.tenant_id = pv.tenant_id
+  AND pd.protocol_id = pv.protocol_id
+RETURNING pv.protocol_version_id::text,
+          pv.protocol_id::text,
+          pd.category,
+          pv.scope_type,
+          COALESCE(pv.scope_id::text, ''),
+          pv.published_at`, pgconv.NullableUUID(publishedBy), tenant, vid).Scan(
+		&published.VersionID,
+		&published.ProtocolID,
+		&published.Category,
+		&published.ScopeType,
+		&published.ScopeID,
+		&published.PublishedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrVersionNotDraft
+	}
+	if err != nil {
+		return fmt.Errorf("protocol: publish matrix version: %w", err)
+	}
+	if err := recordProtocolPublishedAudit(ctx, tx, tenantID, published, publishedBy); err != nil {
+		return err
+	}
+	if err := insertProtocolPublishedOutbox(ctx, tx, tenantID, published, publishedBy); err != nil {
+		return err
+	}
+	if err := completeProtocolIdempotency(ctx, tx, tenantID, "protocol.version.publish", key, "protocol_version", v.ProtocolVersionID); err != nil {
+		return fmt.Errorf("protocol: complete matrix publish idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("protocol: commit matrix publish: %w", err)
+	}
+	return nil
+}
+
+func derivedRulesFingerprint(rules []domain.NewRule) string {
+	parts := make([]string, 0, len(rules)*16)
+	for _, rule := range rules {
+		parts = append(parts,
+			strings.TrimSpace(rule.RuleID),
+			strings.TrimSpace(rule.DoseCode),
+			fmt.Sprint(rule.Sequence),
+			strings.TrimSpace(rule.TriggerType),
+			fmt.Sprint(rule.OffsetDays),
+			fmt.Sprint(rule.DueWindowDays),
+			fmt.Sprint(rule.MinGapDays),
+			strings.TrimSpace(rule.Repeat),
+			strings.TrimSpace(rule.RepeatUntilAfterAge),
+			strings.TrimSpace(rule.CatchUp),
+			canonicalJSON(rule.EligibilityJSON),
+			optionalString(rule.SopVersionID),
+			canonicalJSON(rule.ProofPolicy),
+			optionalInt32(rule.WithdrawalDays),
+			fmt.Sprint(rule.SortOrder),
+		)
+	}
+	return protocolFingerprint(parts...)
+}
+
+func derivedDimensionsFingerprint(dimensions []domain.RuleDimension) string {
+	parts := make([]string, 0, len(dimensions)*12)
+	for _, dim := range dimensions {
+		parts = append(parts,
+			strings.TrimSpace(dim.RuleID),
+			strings.TrimSpace(dim.SelectorKey),
+			strings.TrimSpace(dim.MatrixRowID),
+			strings.TrimSpace(dim.DoseCode),
+			strings.TrimSpace(dim.SourceDoseCode),
+			strings.TrimSpace(dim.VaccineCode),
+			strings.TrimSpace(dim.Species),
+			strings.TrimSpace(dim.AnimalStage),
+			strings.TrimSpace(dim.Sex),
+			strings.TrimSpace(dim.Breed),
+			fmt.Sprint(dim.OffsetDays),
+			fmt.Sprint(dim.MaxDelayDays),
+		)
+	}
+	return protocolFingerprint(parts...)
+}
+
+func assertNoPublishedVaccinationMatrixOverlapTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, versionID pgtype.UUID) error {
+	var existing string
+	err := tx.QueryRow(ctx, `
+SELECT other.protocol_version_id::text
+FROM protocol_versions target
+JOIN protocol_versions other
+  ON other.tenant_id = target.tenant_id
+ AND other.protocol_version_id <> target.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = other.tenant_id
+ AND pd.protocol_id = other.protocol_id
+WHERE target.tenant_id = $1
+  AND target.protocol_version_id = $2
+  AND other.status = 'published'
+  AND pd.category = 'vaccination'
+  AND other.scope_type = target.scope_type
+  AND other.scope_id IS NOT DISTINCT FROM target.scope_id
+  AND daterange(other.effective_from, other.effective_to, '[)') &&
+      daterange(target.effective_from, target.effective_to, '[)')
+  AND (
+    lower(COALESCE(other.rule_dsl->>'ruleset_family', '')) = 'vaccination.matrix'
+    OR lower(COALESCE(other.rule_dsl->'vaccine'->>'code', '')) = 'vaccination.matrix'
+    OR other.rule_dsl ? 'matrix_rows'
+  )
+LIMIT 1`, tenant, versionID).Scan(&existing)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("protocol: check vaccination matrix active overlap: %w", err)
+	}
+	return fmt.Errorf("%w: existing protocol_version_id=%s", ports.ErrActiveVersionOverlap, existing)
+}
+
+func insertDerivedProtocolRuleTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, in domain.NewRule) error {
+	ruleID, err := pgconv.UUID(in.RuleID)
+	if err != nil {
+		return fmt.Errorf("protocol: derived rule id %q: %w", in.RuleID, err)
+	}
+	vid, err := pgconv.UUID(in.ProtocolVersionID)
+	if err != nil {
+		return fmt.Errorf("protocol: version id: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `
+INSERT INTO protocol_rules (
+  rule_id, tenant_id, protocol_version_id, dose_code, "sequence", trigger_type, offset_days,
+  due_window_days, min_gap_days, "repeat", repeat_until_after_age, catch_up,
+  eligibility_json, sop_version_id, proof_policy, withdrawal_days, sort_order
+) SELECT
+  $1, $2, $3, $4, $5, $6, $7,
+  $8, $9, $10, $11, $12,
+  $13, $14, $15, $16, $17
+FROM protocol_versions pv
+WHERE pv.tenant_id = $2
+  AND pv.protocol_version_id = $3
+  AND pv.status = 'draft'`,
+		ruleID, tenant, vid, in.DoseCode, in.Sequence, in.TriggerType, in.OffsetDays,
+		in.DueWindowDays, in.MinGapDays, in.Repeat, pgconv.Text(in.RepeatUntilAfterAge), in.CatchUp,
+		pgconv.JSONB(in.EligibilityJSON), pgconv.NullableUUID(in.SopVersionID), pgconv.JSONB(in.ProofPolicy), pgconv.Int4(in.WithdrawalDays), in.SortOrder,
+	)
+	if err != nil {
+		return fmt.Errorf("protocol: insert derived rule %s: %w", in.DoseCode, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrVersionNotDraft
+	}
+	if err := recordProtocolCreateAudit(ctx, tx, protocolRuleCreatedAction, in.TenantID, "protocol_rule", in.RuleID, "tenant", "", in.CreatedBy, map[string]any{
+		"protocol_version_id": in.ProtocolVersionID,
+		"dose_code":           in.DoseCode,
+		"sequence":            in.Sequence,
+		"trigger_type":        in.TriggerType,
+		"repeat":              in.Repeat,
+		"catch_up":            in.CatchUp,
+		"sort_order":          in.SortOrder,
+	}, map[string]any{"idempotency_scope": "protocol.version.publish.derived_rule"}); err != nil {
+		return err
+	}
+	return nil
+}
+
 // recordProtocolPublishedAudit writes the canonical {domain row + audit + outbox} audit_log entry for
 // a publish, in the same transaction as the status flip and outbox insert, so the operational kernel
 // invariant holds: every published version leaves a durable audit trail alongside its event.
@@ -910,11 +1175,22 @@ WHERE tenant_id = $1 AND protocol_version_id = $2`, tenant, vid); err != nil {
 		return fmt.Errorf("protocol: delete rule dimensions: %w", err)
 	}
 	for _, dim := range dimensions {
-		ruleID, err := pgconv.UUID(dim.RuleID)
-		if err != nil {
-			return fmt.Errorf("protocol: dimension rule id %q: %w", dim.RuleID, err)
+		if err := insertProtocolRuleDimensionTx(ctx, tx, tenant, vid, dim); err != nil {
+			return err
 		}
-		if _, err := tx.Exec(ctx, `
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("protocol: commit replace rule dimensions: %w", err)
+	}
+	return nil
+}
+
+func insertProtocolRuleDimensionTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, vid pgtype.UUID, dim domain.RuleDimension) error {
+	ruleID, err := pgconv.UUID(dim.RuleID)
+	if err != nil {
+		return fmt.Errorf("protocol: dimension rule id %q: %w", dim.RuleID, err)
+	}
+	if _, err := tx.Exec(ctx, `
 INSERT INTO protocol_rule_dimensions (
   tenant_id, protocol_version_id, rule_id, category, ruleset_family, matrix_row_id, selector_key,
   dose_code, source_dose_code, vaccine_code, vaccine_type, pathogen_class, compatibility_group,
@@ -928,17 +1204,13 @@ INSERT INTO protocol_rule_dimensions (
   $23, $24, $25, $26, $27, $28, $29,
   $30, $31, $32, $33, $34
 )`, tenant, vid, ruleID,
-			dim.Category, dim.RulesetFamily, dim.MatrixRowID, dim.SelectorKey,
-			dim.DoseCode, dim.SourceDoseCode, dim.VaccineCode, dim.VaccineType, dim.PathogenClass, dim.CompatibilityGroup,
-			dim.Species, dim.AnimalStage, dim.Sex, dim.Breed, dim.Lifecycle, dim.Health, dim.Reproductive, pgconv.Int4(dim.MinAgeDays), pgconv.Int4(dim.MaxAgeDays),
-			dim.TriggerType, dim.Sequence, dim.OffsetDays, dim.DueWindowDays, dim.MinGapDays, dim.Repeat, dim.CatchUp,
-			dim.MaxDelayDays, dim.RevaccinationIntervalDays, pgconv.JSONB(defaultJSON(dim.EligibilityJSON)), pgconv.JSONB(defaultJSON(dim.VaccineJSON)), pgconv.JSONB(defaultJSON(dim.ScheduleJSON)),
-		); err != nil {
-			return fmt.Errorf("protocol: insert rule dimension %s: %w", dim.SelectorKey, err)
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("protocol: commit replace rule dimensions: %w", err)
+		dim.Category, dim.RulesetFamily, dim.MatrixRowID, dim.SelectorKey,
+		dim.DoseCode, dim.SourceDoseCode, dim.VaccineCode, dim.VaccineType, dim.PathogenClass, dim.CompatibilityGroup,
+		dim.Species, dim.AnimalStage, dim.Sex, dim.Breed, dim.Lifecycle, dim.Health, dim.Reproductive, pgconv.Int4(dim.MinAgeDays), pgconv.Int4(dim.MaxAgeDays),
+		dim.TriggerType, dim.Sequence, dim.OffsetDays, dim.DueWindowDays, dim.MinGapDays, dim.Repeat, dim.CatchUp,
+		dim.MaxDelayDays, dim.RevaccinationIntervalDays, pgconv.JSONB(defaultJSON(dim.EligibilityJSON)), pgconv.JSONB(defaultJSON(dim.VaccineJSON)), pgconv.JSONB(defaultJSON(dim.ScheduleJSON)),
+	); err != nil {
+		return fmt.Errorf("protocol: insert rule dimension %s: %w", dim.SelectorKey, err)
 	}
 	return nil
 }

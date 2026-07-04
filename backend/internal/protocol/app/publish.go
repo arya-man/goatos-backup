@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/protocol/ports"
 )
@@ -36,6 +38,10 @@ const maxCompiledRuleDimensionsPerRule = 5000
 
 type protocolRuleDimensionWriter interface {
 	ReplaceProtocolRuleDimensions(ctx context.Context, tenantID, versionID string, dimensions []domain.RuleDimension) error
+}
+
+type protocolMatrixPublisher interface {
+	PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, idempotencyKey ...string) error
 }
 
 type ruleDSLEnvelope struct {
@@ -484,6 +490,9 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 		if strings.TrimSpace(row.DoseCode) == "" {
 			return fmt.Errorf("%w: schedule[%d] dose_code required for vaccination matrix", ErrNotPublishable, idx)
 		}
+		if err := validateScheduleTimingNumbers(row, fmt.Sprintf("schedule[%d]", idx)); err != nil {
+			return err
+		}
 		if row.DoseAmount <= 0 {
 			return fmt.Errorf("%w: schedule[%d] dose_amount required for vaccination matrix", ErrNotPublishable, idx)
 		}
@@ -511,6 +520,7 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 
 func validateMatrixScheduleCompleteness(env ruleDSLEnvelope) error {
 	topSchedule := map[string]int{}
+	topSourceAliases := map[string]int{}
 	for idx, row := range env.Schedule {
 		doseCode := strings.TrimSpace(row.DoseCode)
 		if doseCode == "" {
@@ -520,22 +530,48 @@ func validateMatrixScheduleCompleteness(env ruleDSLEnvelope) error {
 			return fmt.Errorf("%w: schedule[%d] duplicates dose_code %q from schedule[%d]", ErrNotPublishable, idx, doseCode, prev)
 		}
 		topSchedule[doseCode] = idx
+		alias := normalizedIdentityKey(row.SourceDoseCode)
+		if alias == "" {
+			alias = normalizedIdentityKey(doseCode)
+		}
+		if prev, ok := topSourceAliases[alias]; ok {
+			return fmt.Errorf("%w: schedule[%d] duplicates source_dose_code %q from schedule[%d]", ErrNotPublishable, idx, alias, prev)
+		}
+		topSourceAliases[alias] = idx
 	}
 	matrixSchedule := map[string]string{}
+	matrixRowIDs := map[string]int{}
+	matrixSourceAliases := map[string]string{}
 	for rowIdx, row := range env.MatrixRows {
 		rowID := strings.TrimSpace(row.RowID)
 		if rowID == "" {
 			return fmt.Errorf("%w: matrix_rows[%d].row_id required", ErrNotPublishable, rowIdx)
 		}
+		rowKey := normalizedIdentityKey(rowID)
+		if prev, ok := matrixRowIDs[rowKey]; ok {
+			return fmt.Errorf("%w: matrix_rows[%d].row_id duplicates matrix_rows[%d]", ErrNotPublishable, rowIdx, prev)
+		}
+		matrixRowIDs[rowKey] = rowIdx
 		for cellIdx, cell := range row.Schedule {
 			doseCode := strings.TrimSpace(cell.DoseCode)
 			if doseCode == "" {
 				return fmt.Errorf("%w: matrix_rows[%d].schedule[%d].dose_code required", ErrNotPublishable, rowIdx, cellIdx)
 			}
+			if err := validateScheduleTimingNumbers(cell, fmt.Sprintf("matrix_rows[%d].schedule[%d]", rowIdx, cellIdx)); err != nil {
+				return err
+			}
 			if owner, ok := matrixSchedule[doseCode]; ok {
 				return fmt.Errorf("%w: matrix dose_code %q appears in both %s and matrix_rows[%d].schedule[%d]", ErrNotPublishable, doseCode, owner, rowIdx, cellIdx)
 			}
 			matrixSchedule[doseCode] = fmt.Sprintf("matrix_rows[%d].schedule[%d]", rowIdx, cellIdx)
+			alias := normalizedIdentityKey(cell.SourceDoseCode)
+			if alias == "" {
+				alias = normalizedIdentityKey(doseCode)
+			}
+			if owner, ok := matrixSourceAliases[alias]; ok {
+				return fmt.Errorf("%w: matrix source_dose_code %q appears in both %s and matrix_rows[%d].schedule[%d]", ErrNotPublishable, alias, owner, rowIdx, cellIdx)
+			}
+			matrixSourceAliases[alias] = matrixSchedule[doseCode]
 			if _, ok := topSchedule[doseCode]; !ok {
 				return fmt.Errorf("%w: %s dose_code %q is missing from top-level schedule[]", ErrNotPublishable, matrixSchedule[doseCode], doseCode)
 			}
@@ -550,6 +586,31 @@ func validateMatrixScheduleCompleteness(env ruleDSLEnvelope) error {
 		}
 	}
 	return nil
+}
+
+func validateScheduleTimingNumbers(row scheduleRow, label string) error {
+	checks := []struct {
+		name  string
+		value int32
+	}{
+		{"sequence", row.Sequence},
+		{"offset_days", row.OffsetDays},
+		{"due_window_days", row.DueWindow},
+		{"min_gap_days", row.MinGapDays},
+		{"vial_doses", row.VialDoses},
+		{"revaccination_interval_days", row.RevaccinationDays},
+		{"max_delay_days", row.MaxDelayDays},
+	}
+	for _, check := range checks {
+		if check.value < 0 {
+			return fmt.Errorf("%w: %s.%s cannot be negative", ErrNotPublishable, label, check.name)
+		}
+	}
+	return nil
+}
+
+func normalizedIdentityKey(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 const maxVaccinesPerComboSession = 2
@@ -803,6 +864,24 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 	if err := ValidateRuleDSL(v.RuleDsl); err != nil {
 		return err
 	}
+	env, err := decodeRuleDSLEnvelope(v.RuleDsl)
+	if err != nil {
+		return err
+	}
+	if isVaccinationMatrixRuleset(env) {
+		if err := ValidateExecutionContract(v); err != nil {
+			return err
+		}
+		publisher, ok := s.repo.(protocolMatrixPublisher)
+		if !ok {
+			return fmt.Errorf("%w: repository cannot atomically publish vaccination matrix", ErrNotPublishable)
+		}
+		rules, dimensions, err := buildVaccinationMatrixDerivedRows(tenantID, v, env, publishedBy)
+		if err != nil {
+			return err
+		}
+		return publisher.PublishVersionWithDerivedRules(ctx, tenantID, v, rules, dimensions, publishedBy, idempotencyKey...)
+	}
 	if v.Status == "draft" {
 		if err := ValidateExecutionContract(v); err != nil {
 			return err
@@ -818,6 +897,69 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 		return err
 	}
 	return nil
+}
+
+func decodeRuleDSLEnvelope(raw []byte) (ruleDSLEnvelope, error) {
+	var env ruleDSLEnvelope
+	if len(raw) == 0 {
+		return env, nil
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return env, fmt.Errorf("%w: invalid rule_dsl: %v", ErrNotPublishable, err)
+	}
+	return env, nil
+}
+
+func buildVaccinationMatrixDerivedRows(tenantID string, v domain.Version, env ruleDSLEnvelope, createdBy *string) ([]domain.NewRule, []domain.RuleDimension, error) {
+	rules := make([]domain.NewRule, 0, len(env.Schedule))
+	stored := make([]domain.Rule, 0, len(env.Schedule))
+	for idx, row := range env.Schedule {
+		in, err := scheduleRowRule(tenantID, v, env, row, idx, createdBy)
+		if err != nil {
+			return nil, nil, err
+		}
+		in.RuleID = deterministicProtocolRuleID(v.ProtocolVersionID, in.DoseCode)
+		rules = append(rules, in)
+		stored = append(stored, domain.Rule{
+			RuleID:              in.RuleID,
+			ProtocolVersionID:   in.ProtocolVersionID,
+			ProtocolID:          v.ProtocolID,
+			DoseCode:            in.DoseCode,
+			Sequence:            in.Sequence,
+			TriggerType:         in.TriggerType,
+			OffsetDays:          in.OffsetDays,
+			DueWindowDays:       in.DueWindowDays,
+			MinGapDays:          in.MinGapDays,
+			Repeat:              in.Repeat,
+			RepeatUntilAfterAge: in.RepeatUntilAfterAge,
+			CatchUp:             in.CatchUp,
+			EligibilityJSON:     in.EligibilityJSON,
+			SopVersionID:        optionalString(in.SopVersionID),
+			SortOrder:           in.SortOrder,
+		})
+	}
+	if len(rules) == 0 {
+		return nil, nil, fmt.Errorf("%w: vaccination matrix produced no executable protocol_rules rows", ErrNotPublishable)
+	}
+	dimensions, err := compileVaccinationMatrixDimensions(v, env, stored)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(dimensions) == 0 {
+		return nil, nil, fmt.Errorf("%w: vaccination matrix produced no compiled rule dimensions", ErrNotPublishable)
+	}
+	return rules, dimensions, nil
+}
+
+func deterministicProtocolRuleID(versionID, doseCode string) string {
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("goatos:protocol-rule:"+strings.TrimSpace(versionID)+":"+strings.TrimSpace(doseCode))).String()
+}
+
+func optionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
 }
 
 func (s *Service) ensureExecutableRuleRows(ctx context.Context, tenantID string, v domain.Version, createdBy *string) error {
@@ -904,6 +1046,10 @@ func compileVaccinationMatrixDimensions(v domain.Version, env ruleDSLEnvelope, r
 }
 
 func compileVaccinationRuleDimensions(v domain.Version, env ruleDSLEnvelope, rule domain.Rule) ([]domain.RuleDimension, error) {
+	// protocol_rule_dimensions is an indexed prefilter, not the final medical decision. Species,
+	// stage, sex, breed, and age are used by SQL to avoid scanning every animal; lifecycle, health,
+	// and reproductive values stay materialized for audit/explainability while the vaccination app
+	// re-checks the full eligibility JSON before generating obligations.
 	var payload struct {
 		MatrixRowID    string          `json:"matrix_row_id"`
 		SourceDoseCode string          `json:"source_dose_code"`
@@ -1117,13 +1263,17 @@ func matrixRuleEligibilityJSON(env ruleDSLEnvelope, row scheduleRow, idx int) ([
 	if !ok {
 		return nil, fmt.Errorf("%w: schedule[%d] matrix row metadata required for dose_code %q", ErrNotPublishable, idx, row.DoseCode)
 	}
-	eligibility := rawObjectOnly(match.Eligibility)
+	rowEligibility := rawObjectOnly(match.Eligibility)
 	vaccine := rawObjectOnly(match.Vaccine)
-	if len(eligibility) == 0 || string(eligibility) == "null" || string(eligibility) == "{}" {
+	if len(rowEligibility) == 0 || string(rowEligibility) == "null" || string(rowEligibility) == "{}" {
 		return nil, fmt.Errorf("%w: schedule[%d] matrix row eligibility required", ErrNotPublishable, idx)
 	}
 	if len(vaccine) == 0 || string(vaccine) == "null" || string(vaccine) == "{}" {
 		return nil, fmt.Errorf("%w: schedule[%d] matrix row vaccine required", ErrNotPublishable, idx)
+	}
+	eligibility, err := mergedEligibilityJSON(env.Eligibility, rowEligibility)
+	if err != nil {
+		return nil, fmt.Errorf("%w: schedule[%d] matrix row eligibility merge failed: %v", ErrNotPublishable, idx, err)
 	}
 	sourceDose := strings.TrimSpace(matchedCell.SourceDoseCode)
 	if sourceDose == "" {
@@ -1148,6 +1298,64 @@ func matrixRuleEligibilityJSON(env ruleDSLEnvelope, row scheduleRow, idx int) ([
 		return nil, fmt.Errorf("%w: schedule[%d] matrix metadata marshal failed: %v", ErrNotPublishable, idx, err)
 	}
 	return out, nil
+}
+
+func mergedEligibilityJSON(baseRaw, overrideRaw json.RawMessage) (json.RawMessage, error) {
+	base, err := rawObjectMap(baseRaw)
+	if err != nil {
+		return nil, err
+	}
+	override, err := rawObjectMap(overrideRaw)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range override {
+		if strings.TrimSpace(string(value)) == "" || strings.TrimSpace(string(value)) == "null" {
+			continue
+		}
+		base[key] = value
+	}
+	if err := canonicalizeEligibilitySelectors(base); err != nil {
+		return nil, err
+	}
+	out, err := json.Marshal(base)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func canonicalizeEligibilitySelectors(obj map[string]json.RawMessage) error {
+	for _, field := range []string{"species", "animal_stage", "sex", "breed", "lifecycle", "health", "reproductive"} {
+		raw, ok := obj[field]
+		if !ok || strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
+			continue
+		}
+		values, err := rawSelectorValues(raw)
+		if err != nil {
+			return fmt.Errorf("selector %s must be a string or array of strings", field)
+		}
+		normalized := make([]string, 0, len(values))
+		seen := map[string]bool{}
+		for _, value := range values {
+			v, err := normalizeSelectorValue(field, value)
+			if err != nil {
+				return err
+			}
+			if v == "" || seen[v] {
+				continue
+			}
+			seen[v] = true
+			normalized = append(normalized, v)
+		}
+		if len(normalized) == 0 {
+			continue
+		}
+		if raw, err := json.Marshal(normalized); err == nil {
+			obj[field] = raw
+		}
+	}
+	return nil
 }
 
 func validateExistingMatrixRuleMetadata(rule domain.Rule, idx int) error {
@@ -1267,7 +1475,7 @@ func normalizeSelectorValue(field, value string) (string, error) {
 	if v == "" {
 		return "", nil
 	}
-	if v == "*" {
+	if v == "*" || (strings.EqualFold(v, "any") && selectorFieldUsesAllWildcard(field)) {
 		v = "all"
 	}
 	switch field {
@@ -1285,6 +1493,15 @@ func normalizeSelectorValue(field, value string) (string, error) {
 		}
 	}
 	return v, nil
+}
+
+func selectorFieldUsesAllWildcard(field string) bool {
+	switch field {
+	case "species", "animal_stage", "sex", "breed", "lifecycle", "health", "reproductive":
+		return true
+	default:
+		return false
+	}
 }
 
 func selectorString(obj map[string]json.RawMessage, key string) string {

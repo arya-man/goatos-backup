@@ -713,6 +713,50 @@ func TestGoatRecheckHandlerAlignsRecoveredGoatToNearbyDrive(t *testing.T) {
 	}
 }
 
+func TestGoatRecheckRecoveryRescheduleKeepsCrossVaccineGapFloor(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"GOAT_POX","type":"live","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1","defer_states":["sick"]},"compatibility_policy":{"live_to_live_gap_days":28},"recovery_policy":{"max_nearby_drive_align_days":7}}`),
+		rules:   []protodomain.Rule{{RuleID: "rule-1", DoseCode: "goat_pox", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21, DueWindowDays: 7}},
+	}
+	recentLive := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	goats := &generationGoatFake{
+		goat: domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "sick", Stage: "K1", DOB: &dob, ShedID: "shed-1", ParkID: "park-1"},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"goat-1": {{
+				VaccineCode:    "PPR",
+				VaccineType:    "live",
+				PathogenClass:  "viral",
+				AdministeredAt: recentLive,
+			}},
+		},
+	}
+	nearby := time.Date(2026, time.June, 5, 0, 0, 0, 0, time.UTC)
+	obl := &generationObligationFake{seen: map[string]bool{}, nearbyDrive: &nearby}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if _, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", recentLive); err != nil {
+		t.Fatalf("initial generate: %v", err)
+	}
+	if obl.inserted[0].Status != "deferred" {
+		t.Fatalf("precondition: status=%s, want deferred", obl.inserted[0].Status)
+	}
+	goats.goat.HealthStatus = "healthy"
+	bus := eventbus.NewInProcessBus()
+	NewGoatRecheckHandler(gen).Register(bus)
+	if err := bus.Publish(ctx, eventbus.Event{
+		Type: EventGoatHealthChanged, TenantID: "tenant-1", Key: "goat-1",
+		OccurredAt: time.Date(2026, time.June, 2, 8, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("publish goat.health.changed: %v", err)
+	}
+	wantDue := time.Date(2026, time.June, 29, 0, 0, 0, 0, time.UTC)
+	if !obl.inserted[0].DueAt.Equal(wantDue) {
+		t.Fatalf("recovered due=%v, want live-live floor %v instead of nearby drive %v", obl.inserted[0].DueAt, wantDue, nearby)
+	}
+}
+
 func TestGenerateScopesObligationToShed(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)

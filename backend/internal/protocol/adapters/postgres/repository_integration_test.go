@@ -465,6 +465,109 @@ func TestListEffectiveVaccinationVersionsForGoatPicksParkOverride(t *testing.T) 
 	}
 }
 
+func TestPublishVersionWithDerivedRulesRejectsOverlappingVaccinationMatrixFamily(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	firstProtocol, err := repo.CreateDefinition(ctx, domain.NewDefinition{
+		TenantID: testTenantID, Code: "vaccination.matrix.closeout.a", Name: "Matrix A",
+		Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("create first definition: %v", err)
+	}
+	secondProtocol, err := repo.CreateDefinition(ctx, domain.NewDefinition{
+		TenantID: testTenantID, Code: "vaccination.matrix.closeout.b", Name: "Matrix B",
+		Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("create second definition: %v", err)
+	}
+	firstVersion, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID:      testTenantID,
+		ProtocolID:    firstProtocol,
+		ScopeType:     "tenant",
+		Version:       1,
+		Status:        "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       vaccinationMatrixRuleDSL(),
+		ProofPolicy:   []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create first version: %v", err)
+	}
+	firstRules, firstDims := derivedMatrixRows(firstVersion, "10000000-0000-4000-8000-000000000001", "et_tt")
+	if err := repo.PublishVersionWithDerivedRules(ctx, testTenantID, domain.Version{
+		ProtocolVersionID: firstVersion,
+		ProtocolID:        firstProtocol,
+		ScopeType:         "tenant",
+		Status:            "draft",
+		RuleDsl:           vaccinationMatrixRuleDSL(),
+	}, firstRules, firstDims, nil, "matrix-family-first"); err != nil {
+		t.Fatalf("publish first matrix version: %v", err)
+	}
+
+	secondVersion, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID:      testTenantID,
+		ProtocolID:    secondProtocol,
+		ScopeType:     "tenant",
+		Version:       1,
+		Status:        "draft",
+		EffectiveFrom: time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       vaccinationMatrixRuleDSL(),
+		ProofPolicy:   []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create second version: %v", err)
+	}
+	secondRules, secondDims := derivedMatrixRows(secondVersion, "10000000-0000-4000-8000-000000000002", "ppr")
+	err = repo.PublishVersionWithDerivedRules(ctx, testTenantID, domain.Version{
+		ProtocolVersionID: secondVersion,
+		ProtocolID:        secondProtocol,
+		ScopeType:         "tenant",
+		Status:            "draft",
+		RuleDsl:           vaccinationMatrixRuleDSL(),
+	}, secondRules, secondDims, nil, "matrix-family-overlap")
+	if !errors.Is(err, ports.ErrActiveVersionOverlap) {
+		t.Fatalf("publish overlapping matrix err=%v, want ErrActiveVersionOverlap", err)
+	}
+
+	parkID := "00000000-0000-4000-8000-00000000c003"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+		 VALUES ($1, $2, 'park', 'PARKC', 'Park C', 'active')`, parkID, testTenantID); err != nil {
+		t.Fatalf("park location: %v", err)
+	}
+	parkVersion, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID:      testTenantID,
+		ProtocolID:    secondProtocol,
+		ScopeType:     "park",
+		ScopeID:       &parkID,
+		Version:       1,
+		Status:        "draft",
+		EffectiveFrom: time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       vaccinationMatrixRuleDSL(),
+		ProofPolicy:   []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create park version: %v", err)
+	}
+	parkRules, parkDims := derivedMatrixRows(parkVersion, "10000000-0000-4000-8000-000000000003", "park_et_tt")
+	if err := repo.PublishVersionWithDerivedRules(ctx, testTenantID, domain.Version{
+		ProtocolVersionID: parkVersion,
+		ProtocolID:        secondProtocol,
+		ScopeType:         "park",
+		ScopeID:           parkID,
+		Status:            "draft",
+		RuleDsl:           vaccinationMatrixRuleDSL(),
+	}, parkRules, parkDims, nil, "matrix-family-park-override"); err != nil {
+		t.Fatalf("park-scoped matrix should coexist with tenant default: %v", err)
+	}
+}
+
 func TestListEffectiveVaccinationVersionsForGoatUsesKolkataCutoverDate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -513,4 +616,54 @@ func TestListEffectiveVaccinationVersionsForGoatUsesKolkataCutoverDate(t *testin
 	if len(got) != 1 || got[0] != v2 {
 		t.Fatalf("got %v, want [%s] for Kolkata cutover date", got, v2)
 	}
+}
+
+func vaccinationMatrixRuleDSL() []byte {
+	return []byte(`{"category":"vaccination","ruleset_family":"vaccination.matrix","vaccine":{"code":"vaccination.matrix","name":"Preventive Care vaccination matrix","type":"matrix"},"matrix_rows":[{"row_id":"all","eligibility":{"species":["all"],"animal_stage":["all"],"sex":["all"],"breed":["all"]},"vaccine":{"code":"ET_TT","type":"killed"},"schedule":[{"dose_code":"et_tt"}]}],"schedule":[{"dose_code":"et_tt","trigger_type":"post_arrival","offset_days":0,"due_window_days":7}]}`)
+}
+
+func derivedMatrixRows(versionID, ruleID, doseCode string) ([]domain.NewRule, []domain.RuleDimension) {
+	eligibility := []byte(`{"matrix_row_id":"all","source_dose_code":"` + doseCode + `","eligibility":{"species":["all"],"animal_stage":["all"],"sex":["all"],"breed":["all"],"lifecycle":["alive"]},"vaccine":{"code":"ET_TT","type":"killed","pathogen_class":"bacterial"}}`)
+	schedule := []byte(`{"dose_code":"` + doseCode + `","trigger_type":"post_arrival","offset_days":0,"due_window_days":7}`)
+	rules := []domain.NewRule{{
+		RuleID:            ruleID,
+		TenantID:          testTenantID,
+		ProtocolVersionID: versionID,
+		DoseCode:          doseCode,
+		Sequence:          1,
+		TriggerType:       "post_arrival",
+		DueWindowDays:     7,
+		Repeat:            "none",
+		CatchUp:           "immediate",
+		EligibilityJSON:   eligibility,
+		ProofPolicy:       []byte(`{}`),
+		SortOrder:         1,
+	}}
+	dimensions := []domain.RuleDimension{{
+		Category:          "vaccination",
+		RulesetFamily:     "vaccination.matrix",
+		ProtocolVersionID: versionID,
+		RuleID:            ruleID,
+		MatrixRowID:       "all",
+		SelectorKey:       "all",
+		DoseCode:          doseCode,
+		SourceDoseCode:    doseCode,
+		VaccineCode:       "ET_TT",
+		VaccineType:       "killed",
+		PathogenClass:     "bacterial",
+		Species:           "all",
+		AnimalStage:       "all",
+		Sex:               "all",
+		Breed:             "all",
+		Lifecycle:         "alive",
+		Health:            "all",
+		Reproductive:      "all",
+		TriggerType:       "post_arrival",
+		Sequence:          1,
+		DueWindowDays:     7,
+		EligibilityJSON:   eligibility,
+		VaccineJSON:       []byte(`{"code":"ET_TT","type":"killed","pathogen_class":"bacterial"}`),
+		ScheduleJSON:      schedule,
+	}}
+	return rules, dimensions
 }
