@@ -48,6 +48,15 @@ import sys
 
 CONTROL_MARKERS = ("\n", "&&", "||", "|", ";", ">", "<", "`", "$(")
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+SHELL_TOOLS = {
+    "Bash",
+    "Shell",
+    "exec_command",
+    "functions.exec_command",
+    "unified_exec",
+    "command_execution",
+    "local_shell",
+}
 
 TEST_SCRIPTS = {"test", "test:smoke", "test:e2e", "test:integration", "test:unit"}
 ERR_SCRIPTS = {
@@ -314,7 +323,7 @@ def has_mutating_flag(args):
 
 
 tool, command, cwd = payload()
-if tool != "Bash" or not command or not under_workspace(cwd):
+if tool not in SHELL_TOOLS or not command or not under_workspace(cwd):
     sys.exit(0)
 
 env_overrides, rtk_argv = classify(command)

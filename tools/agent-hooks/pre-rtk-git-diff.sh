@@ -52,6 +52,15 @@ GLOBAL_OPTS_NO_VALUE = {
     "--literal-pathspecs",
 }
 CONTROL_MARKERS = ("\n", "&&", "||", "|", ";", ">", "<", "`", "$(")
+SHELL_TOOLS = {
+    "Bash",
+    "Shell",
+    "exec_command",
+    "functions.exec_command",
+    "unified_exec",
+    "command_execution",
+    "local_shell",
+}
 
 
 def payload():
@@ -176,7 +185,7 @@ def output_exceeds(argv, cwd, threshold):
 
 
 tool, command, cwd = payload()
-if tool != "Bash" or not command:
+if tool not in SHELL_TOOLS or not command:
     sys.exit(0)
 
 classified = classify(command)

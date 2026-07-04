@@ -37,6 +37,8 @@ EXEC_FILES=(
     Makefile
     tools/agent-hooks/pre-search-guard.sh
     tools/agent-hooks/ai-setup-guard.sh
+    tools/agent-hooks/pre-rtk-git-diff.sh
+    tools/agent-hooks/pre-rtk-noisy-commands.sh
     tools/agent-hooks/rebuild-docs-graph.sh
     tools/agent-hooks/update-docs-graph.sh
     tools/agent-hooks/goatos-docs-corpus.sh

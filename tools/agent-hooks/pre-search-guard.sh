@@ -61,14 +61,20 @@ EOF
 [ -z "${TOOL:-}" ] && exit 0
 
 is_search=0
+is_shell_tool=0
+case "$TOOL" in
+  Bash|Shell|exec_command|functions.exec_command|unified_exec|command_execution|local_shell)
+    is_shell_tool=1
+    ;;
+esac
 case "$TOOL" in
   Grep|Glob|Read) is_search=1 ;;
-  Bash|"")
+  *)
     # CONTENT search/read verbs only. find/ls (file location, dir trees) and
     # head/tail (pipe-truncation / log follow) are EXCLUDED as structural
     # blind spots the graph can't answer; a real code sweep in the same command
     # still trips on its grep/cat/rg/sed/awk token.
-    if printf '%s' "$TARGET" | grep -Eq '(^|[;&|[:space:]])(rg|grep|egrep|fgrep|ag|ack|cat|sed|awk)([[:space:]]|$)'; then
+    if [ "$is_shell_tool" = "1" ] && printf '%s' "$TARGET" | grep -Eq '(^|[;&|[:space:]])(rg|grep|egrep|fgrep|ag|ack|cat|sed|awk)([[:space:]]|$)'; then
       is_search=1
     fi
     ;;

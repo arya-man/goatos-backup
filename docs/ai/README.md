@@ -112,6 +112,9 @@ Claude:
 Codex:
 
 - Uses `.codex/hooks.json` for the same guard/RTK/post-edit hooks.
+- The Codex hook matchers include both the classic `Bash` tool name and the
+  newer shell aliases (`exec_command` / `unified_exec`), and the shared hook
+  scripts classify shell payloads themselves before blocking or auto-routing.
 - Trust the repo hooks when Codex prompts for trust.
 - Use `AI_BACKEND=codex` for local docs graph rebuilds.
 
