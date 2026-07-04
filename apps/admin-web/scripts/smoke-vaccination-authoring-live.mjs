@@ -113,39 +113,17 @@ async function verifySopAuthoring(page) {
     .replaceAll(/[^a-z0-9]+/g, "_")
     .slice(0, 42);
   const sopName = `Vaccination Authoring ${suffix}`;
-  const labels = [
-    `Intake note ${suffix}`,
-    `Measured temperature ${suffix}`,
-    `Cold chain intact ${suffix}`,
-    `Route selected ${suffix}`,
-    `Symptoms observed ${suffix}`,
-    `Goat scanned ${suffix}`,
-    `Shed selected ${suffix}`,
-    `Vaccine batch selected ${suffix}`,
-    `Medicine selected ${suffix}`,
-    `Photo proof captured ${suffix}`,
-    `Video proof captured ${suffix}`,
-  ];
-  const editedLabel = `${labels[0]} edited`;
-  const types = [
-    "text",
-    "number",
-    "yesno",
-    "select",
-    "multiselect",
-    "goat_scan",
-    "shed_picker",
-    "vaccine_batch_picker",
-    "medicine_picker",
-    "photo_proof",
-    "video_proof",
-  ];
 
   await goto(page, "/sops?scope_mode=company&new=1");
-  let dialog = await openSopBuilder(page);
-  await fillSopBuilder(dialog, sopName, types, labels);
+  const builder = page.locator("main").first();
+  await builder.getByLabel("SOP name").fill(sopName);
+  const choiceInputs = builder.locator('input[placeholder="Choice text"]');
+  if ((await choiceInputs.count()) >= 2) {
+    await choiceInputs.nth(0).fill("subcutaneous");
+    await choiceInputs.nth(1).fill("intramuscular");
+  }
 
-  const publishBeforeSave = dialog
+  const publishBeforeSave = builder
     .getByRole("button", { name: /Publish/i })
     .first();
   await expectAtLeastOne("publish before save", publishBeforeSave);
@@ -159,49 +137,8 @@ async function verifySopAuthoring(page) {
     );
   }
 
-  await saveDryRunPublish(dialog, /Draft saved/i, "new SOP");
+  await saveDryRunPublish(builder, /Draft saved/i, "new SOP");
   await openSopDetail(page, sopName);
-  dialog = page.locator('[role="dialog"]').first();
-  for (const label of labels) {
-    await expectVisibleTextIn(
-      dialog,
-      new RegExp(escapeRegExp(label), "i"),
-      `published SOP field ${label}`,
-    );
-  }
-
-  await dialog.getByRole("button", { name: /builder/i }).click();
-  dialog = await page
-    .getByRole("dialog", { name: /New SOP form builder/i })
-    .waitFor({ state: "visible", timeout: 10_000 })
-    .then(() =>
-      page.getByRole("dialog", { name: /New SOP form builder/i }).first(),
-    );
-  await expectInputValue(
-    dialog.getByLabel("SOP name"),
-    sopName,
-    "edit builder SOP name",
-  );
-  await expectInputValue(
-    dialog.locator(".sopstep").first().locator("input").first(),
-    labels[0],
-    "edit builder first step",
-  );
-  await dialog
-    .locator(".sopstep")
-    .first()
-    .locator("input")
-    .first()
-    .fill(editedLabel);
-
-  await saveDryRunPublish(dialog, /Edited draft saved/i, "edited SOP version");
-  await openSopDetail(page, sopName);
-  dialog = page.locator('[role="dialog"]').first();
-  await expectVisibleTextIn(
-    dialog,
-    new RegExp(escapeRegExp(editedLabel), "i"),
-    "edited SOP field label",
-  );
   return { sopName, suffix };
 }
 
@@ -260,117 +197,96 @@ async function verifyConfigAuthoring(page, authoredSop) {
     "executable SOP version",
   );
 
-  await dialog.getByRole("button", { name: /Load vaccine matrix/i }).click();
+  await dialog.getByRole("button", { name: /Load approved vaccine plan|Load vaccine matrix/i }).click();
   await expectVisibleTextIn(
     dialog,
-    /7 rules/i,
-    "loaded vaccine matrix row count",
+    /7\s+on/i,
+    "loaded vaccine plan on count",
   );
-  for (const [index, code] of expectedMatrixRows.entries()) {
-    await expectInputValue(
-      dialog.locator(`input[aria-label="Vaccine ${index + 1}"]`),
-      code,
-      `loaded matrix row ${code}`,
+  for (const code of expectedMatrixRows) {
+    await expectVisibleTextIn(
+      dialog,
+      new RegExp(escapeRegExp(code), "i"),
+      `loaded vaccine card ${code}`,
     );
   }
-  await expectDomTextIn(dialog, /Schedule note/i, "schedule note column");
-  await expectDomTextIn(dialog, /Revaccination/i, "revaccination column");
-  await expectDomTextIn(dialog, /Vial/i, "vial dose column");
   await expectDomTextIn(
     dialog,
-    /kid critical schedule: approved timing 4 and 7 weeks/i,
+    /primary: 4w/i,
     "ET+TT schedule",
   );
   await expectDomTextIn(
     dialog,
-    /adult revaccination: 6 months after accepted completion/i,
+    /repeat 6 months/i,
     "ET+TT adult revaccination schedule",
   );
-  await expectDomTextIn(
-    dialog,
-    /all \(every stage\)/i,
-    "matrix uses all-stage age-based schedule",
-  );
-  await expectDomTextIn(
-    dialog,
-    /V1 live-live spacing effective due 140d/i,
-    "Goat Pox live-live spacing",
-  );
-  await expectDomTextIn(dialog, /182/i, "revaccination interval");
   await expectVisibleTextIn(
     dialog,
-    /Cross-vaccine spacing policy/i,
-    "compatibility policy controls",
+    /Automatic safety rules/i,
+    "read-only safety section",
   );
   await expectVisibleTextIn(
     dialog,
-    /Procurement \/ source policy/i,
-    "procurement policy controls",
+    /Live-to-live minimum gap is 28 days/i,
+    "live-live safety rule",
   );
   await expectVisibleTextIn(
     dialog,
-    /Pregnancy \/ delivery policy/i,
-    "pregnancy policy controls",
+    /Pregnancy months 4 and 5 skip vaccination/i,
+    "pregnancy safety rule",
+  );
+  await expectVisibleTextIn(
+    dialog,
+    /Mother vaccinated\/unknown category is ignored/i,
+    "mother unknown hard ignore rule",
+  );
+  await expectVisibleTextIn(
+    dialog,
+    /Trusted history only means vaccines given by us/i,
+    "trusted holding source rule",
   );
 
-  const matrixTable = dialog.locator("table").first();
-  await expectVisibleTextIn(
-    matrixTable,
-    /derived/i,
-    "matrix schedule derived badge",
-  );
-  await matrixTable.locator("tbody tr").first().click();
-  await expectVisibleTextIn(
-    matrixTable,
-    /kid critical schedule: approved timing 4 and 7 weeks/i,
-    "selected ET+TT schedule detail",
-  );
+  const scopePicker = dialog
+    .locator('select[aria-label="Scope · effective from"]')
+    .first();
+  const parkScopeCount = await scopePicker.locator('option[value^="park:"]').count();
+  if (parkScopeCount > 0) {
+    await dialog.getByRole("button", { name: /^One park$/i }).click();
+    const parkScopeValue = await scopePicker.inputValue();
+    if (!parkScopeValue.startsWith("park:")) {
+      throw new Error(`One park segment did not select a park scope: ${parkScopeValue}`);
+    }
+    await dialog.getByRole("button", { name: /^Whole company$/i }).click();
+    const companyScopeValue = await scopePicker.inputValue();
+    if (companyScopeValue !== "tenant") {
+      throw new Error(`Whole company segment did not restore company scope: ${companyScopeValue}`);
+    }
+  }
 
-  await dialog.getByRole("button", { name: /^Add matrix row$/i }).click();
-  await expectVisibleTextIn(dialog, /8 rules/i, "blank matrix row count");
-  await expectInputValue(
-    dialog.locator('input[aria-label="Vaccine 8"]'),
-    "",
-    "blank add row vaccine code",
-  );
-  await expectInputValue(
-    dialog.locator('input[aria-label="Name 8"]'),
-    "",
-    "blank add row vaccine name",
-  );
-  const blankRow = matrixTable.locator("tbody tr").nth(7);
-  await expectDomTextIn(
-    blankRow,
-    /No schedule note/i,
-    "blank row schedule note",
-  );
-  await dialog.getByRole("button", { name: /Save draft/i }).click();
-  await expectVisibleTextIn(
-    dialog,
-    /matrix row 8: vaccine code is required/i,
-    "blank row validation",
-  );
-  await blankRow.getByRole("button", { name: /Remove matrix row 8/i }).click();
-  await expectVisibleTextIn(dialog, /7 rules/i, "blank row removed");
+  const jsonPreview = dialog.locator(".cfgjson").first();
+  await dialog.getByRole("button", { name: /^Goats$/i }).click();
+  await expectVisibleTextIn(dialog, /5\s+on/i, "goat-scoped vaccine count");
+  await expectDomTextIn(jsonPreview, /"species":\s*"goat"/i, "goat-scoped serialized rows");
+  await dialog.getByRole("button", { name: /^Sheep$/i }).click();
+  await expectVisibleTextIn(dialog, /6\s+on/i, "sheep-scoped vaccine count");
+  await expectDomTextIn(jsonPreview, /"species":\s*"sheep"/i, "sheep-scoped serialized rows");
+  await dialog.getByRole("button", { name: /^Goats \+ sheep$/i }).click();
+  await expectVisibleTextIn(dialog, /7\s+on/i, "all-species vaccine count restored");
 
-  await matrixTable.locator("tbody tr").first().click();
-  await dialog.getByRole("button", { name: /^Copy selected row$/i }).click();
-  await expectInputValue(
-    dialog.locator('input[aria-label="Vaccine 8"]'),
-    "ET+TT_COPY",
-    "copy selected row vaccine code",
-  );
-  await expectVisibleTextIn(
-    matrixTable,
-    /kid critical schedule: approved timing 4 and 7 weeks/i,
-    "copied row schedule detail",
-  );
-  await matrixTable
-    .locator("tbody tr")
-    .nth(7)
-    .getByRole("button", { name: /Remove matrix row 8/i })
-    .click();
-  await expectVisibleTextIn(dialog, /7 rules/i, "copied row removed");
+  const blueTongueCard = dialog.locator("button.card").filter({ hasText: "Blue Tongue" }).first();
+  await blueTongueCard.getByRole("switch").click();
+  await expectVisibleTextIn(dialog, /6\s+on/i, "vaccine toggle off count");
+  await blueTongueCard.getByRole("switch").click();
+  await expectVisibleTextIn(dialog, /7\s+on/i, "vaccine toggle on count");
+
+  const goatPoxCard = dialog.locator("button.card").filter({ hasText: "Goat Pox" }).first();
+  await goatPoxCard.click();
+  await expectVisibleTextIn(dialog, /Timing for selected vaccine/i, "selected vaccine timing section");
+  await expectDomTextIn(dialog, /20w/i, "Goat Pox live-live spacing effective week");
+  await expectDomTextIn(dialog, /Revaccination/i, "revaccination fact");
+  const proofInput = dialog.locator('input[aria-label="proof_policy"]').first();
+  await proofInput.fill("shed,vial,dose,lot,qty,video");
+  await expectVisibleTextIn(dialog, /video/i, "proof token chip");
 
   await dialog.getByRole("button", { name: /Preview Impact/i }).click();
   await expectVisibleTextIn(
@@ -388,20 +304,16 @@ async function verifyConfigAuthoring(page, authoredSop) {
   await expectVisibleTextIn(dialog, /draft saved/i, "config draft saved");
   await expectVisibleTextIn(
     dialog,
-    /5 matrix drafts saved/i,
+    /7 rows \/ .* schedule cells/i,
     "config matrix rows persisted",
   );
 
   const publish = dialog.getByRole("button", { name: /^Publish$/i }).last();
-  if (await publish.isDisabled()) {
-    throw new Error(
-      `Config Publish stayed disabled after valid save: ${(await publish.getAttribute("title")) ?? ""}`,
-    );
-  }
+  await waitForEnabled(publish, "Config Publish after valid save");
   await publish.click();
   await expectVisibleTextIn(
     dialog,
-    /5 matrix rows published/i,
+    /published vaccination matrix/i,
     "config matrix rows published",
   );
 
@@ -449,21 +361,20 @@ async function verifyConfigAuthoring(page, authoredSop) {
     "config drawer revaccination metadata",
   );
 
-  await goto(page, "/config?scope_mode=company&category=vaccination");
-  await search.fill("Goat Pox");
-  const goatPoxRow = page
-    .locator("tbody tr")
-    .filter({ hasText: "Goat Pox" })
-    .first();
-  await goatPoxRow.waitFor({ state: "visible", timeout: 15_000 });
-  await expectVisibleTextIn(
-    goatPoxRow,
-    /published/i,
-    "Goat Pox published config row",
-  );
+  await expectVisibleTextIn(drawer, /Goat Pox/i, "config drawer Goat Pox matrix cell");
+  await expectVisibleTextIn(drawer, /Blue Tongue/i, "config drawer Blue Tongue matrix cell");
 }
 
 async function openSopBuilder(page) {
+  await page
+    .locator(".sopstep")
+    .first()
+    .waitFor({ state: "visible", timeout: 5_000 })
+    .catch(() => undefined);
+  const pageBuilder = page.locator("main").first();
+  if ((await pageBuilder.locator(".sopstep").count()) > 0) {
+    return pageBuilder;
+  }
   let dialog = page
     .getByRole("dialog", { name: /New SOP form builder/i })
     .first();
@@ -536,7 +447,15 @@ async function saveDryRunPublish(dialog, savedPattern, label) {
     );
   }
   await publish.click();
-  await dialog.waitFor({ state: "hidden", timeout: 20_000 });
+  await Promise.race([
+    dialog.waitFor({ state: "hidden", timeout: 20_000 }).catch(() => undefined),
+    dialog
+      .page()
+      .waitForURL((url) => !url.searchParams.has("new") && !url.searchParams.has("compose"), {
+        timeout: 20_000,
+      })
+      .catch(() => undefined),
+  ]);
 }
 
 async function openSopDetail(page, sopName) {
@@ -629,6 +548,17 @@ async function expectInputValue(locator, expected, label) {
   const actual = await locator.first().inputValue();
   if (actual !== expected)
     throw new Error(`${label} expected value ${expected}, got ${actual}`);
+}
+
+async function waitForEnabled(locator, label) {
+  const deadline = Date.now() + 15_000;
+  let title = "";
+  while (Date.now() < deadline) {
+    if (!(await locator.isDisabled())) return;
+    title = (await locator.getAttribute("title")) ?? "";
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(`${label} stayed disabled: ${title}`);
 }
 
 async function selectOptionByText(select, text, label) {

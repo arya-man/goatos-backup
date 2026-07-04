@@ -49,6 +49,7 @@ export interface VaccineMatrix {
 
 export interface VaccinationMatrixRow {
   id: string;
+  enabled?: boolean;
   vaccine: VaccineMatrix;
   species: string;
   stage: string;
@@ -454,19 +455,7 @@ export function buildVaccinationMatrixPreview(
   rows: VaccinationMatrixRow[],
 ): Record<string, unknown> {
   if (input.category !== "vaccination") return buildRuleDsl(input);
-  const normalizedRows = rows.length > 0
-    ? rows
-    : [
-        {
-          id: "current",
-          vaccine: input.vaccine,
-          species: input.eligibility.species,
-          stage: input.eligibility.stage,
-          sex: input.eligibility.sex,
-          breed: input.eligibility.breed,
-          doses: input.doses,
-        },
-      ];
+  const normalizedRows = rows.filter((row) => row.enabled !== false);
   const ruleRows = buildVaccinationMatrixProtocolRuleRows(input, normalizedRows);
   return {
     category: input.category,
@@ -651,7 +640,7 @@ export function buildVaccinationMatrixProtocolRuleRows(
   rows: VaccinationMatrixRow[],
 ): ProtocolRuleDraft[] {
   const out: ProtocolRuleDraft[] = [];
-  rows.forEach((row, rowIndex) => {
+  rows.filter((row) => row.enabled !== false).forEach((row, rowIndex) => {
     const rowInput = ruleInputForVaccinationMatrixRow(
       input,
       row,

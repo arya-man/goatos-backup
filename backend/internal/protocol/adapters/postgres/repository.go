@@ -634,7 +634,7 @@ FOR UPDATE`, tenant, vid).Scan(&status, &scopeType, &scopeID)
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, lockKey); err != nil {
 		return fmt.Errorf("protocol: lock vaccination matrix scope: %w", err)
 	}
-	if err := assertNoPublishedVaccinationMatrixOverlapTx(ctx, tx, tenant, vid); err != nil {
+	if err := retirePublishedVaccinationMatrixOverlapsTx(ctx, tx, tenant, vid); err != nil {
 		return err
 	}
 
@@ -752,19 +752,23 @@ func derivedDimensionsFingerprint(dimensions []domain.RuleDimension) string {
 	return protocolFingerprint(parts...)
 }
 
-func assertNoPublishedVaccinationMatrixOverlapTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, versionID pgtype.UUID) error {
-	var existing string
-	err := tx.QueryRow(ctx, `
-SELECT other.protocol_version_id::text
-FROM protocol_versions target
-JOIN protocol_versions other
-  ON other.tenant_id = target.tenant_id
- AND other.protocol_version_id <> target.protocol_version_id
-JOIN protocol_definitions pd
-  ON pd.tenant_id = other.tenant_id
- AND pd.protocol_id = other.protocol_id
+func retirePublishedVaccinationMatrixOverlapsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, versionID pgtype.UUID) error {
+	// Vaccination matrix authoring has one active company/park version at a time. Publishing a new
+	// complete matrix retires the older overlapping matrix in the same transaction, preserving the
+	// immutable historical version while making the newly published one authoritative.
+	_, err := tx.Exec(ctx, `
+UPDATE protocol_versions AS other
+SET status = 'retired',
+    retired_at = now(),
+    row_version = other.row_version + 1,
+    updated_at = now()
+FROM protocol_versions target, protocol_definitions pd
 WHERE target.tenant_id = $1
   AND target.protocol_version_id = $2
+  AND other.tenant_id = target.tenant_id
+  AND other.protocol_version_id <> target.protocol_version_id
+  AND pd.tenant_id = other.tenant_id
+  AND pd.protocol_id = other.protocol_id
   AND other.status = 'published'
   AND pd.category = 'vaccination'
   AND other.scope_type = target.scope_type
@@ -775,15 +779,11 @@ WHERE target.tenant_id = $1
     lower(COALESCE(other.rule_dsl->>'ruleset_family', '')) = 'vaccination.matrix'
     OR lower(COALESCE(other.rule_dsl->'vaccine'->>'code', '')) = 'vaccination.matrix'
     OR other.rule_dsl ? 'matrix_rows'
-  )
-LIMIT 1`, tenant, versionID).Scan(&existing)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
+  )`, tenant, versionID)
 	if err != nil {
-		return fmt.Errorf("protocol: check vaccination matrix active overlap: %w", err)
+		return fmt.Errorf("protocol: retire overlapping vaccination matrix versions: %w", err)
 	}
-	return fmt.Errorf("%w: existing protocol_version_id=%s", ports.ErrActiveVersionOverlap, existing)
+	return nil
 }
 
 func insertDerivedProtocolRuleTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, in domain.NewRule) error {

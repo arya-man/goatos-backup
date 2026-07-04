@@ -571,6 +571,7 @@ export async function createProtocolVersion(
     scope_type: string;
     scope_id?: string;
     version?: number;
+    version_label?: string;
     effective_from: string;
     rule_dsl: unknown;
     proof_policy?: unknown;

@@ -4,9 +4,14 @@ import { useMemo, useState, useTransition } from "react";
 import {
   AlertTriangle,
   CalendarDays,
+  CheckCircle2,
+  ChevronRight,
   Copy,
+  Info,
   Pencil,
   Plus,
+  ShieldCheck,
+  Syringe,
   X,
 } from "lucide-react";
 import {
@@ -368,6 +373,7 @@ export function RuleEditorModal({
         : `matrix-row-${Date.now()}-${seq}`;
     return {
       id,
+      enabled: seed?.enabled ?? true,
       vaccine: {
         code: seed?.vaccine?.code ?? "",
         name: seed?.vaccine?.name ?? "",
@@ -473,6 +479,9 @@ export function RuleEditorModal({
   const [pending, startTransition] = useTransition();
   const isFeedDirection =
     category === "feed_direction" && supportsFeedDirection;
+  const [animalFilter, setAnimalFilter] = useState("all");
+  const firstParkScope =
+    scopeOptions.find((item) => item.key.startsWith("park:"))?.key ?? "";
   const sourceVaccinePresets = sourceVaccinePresetOptions
     .map(sourcePresetFromOption)
     .filter((preset) => preset.approvedKidWeeks.length > 0);
@@ -560,6 +569,140 @@ export function RuleEditorModal({
     setMatrixRows(spacedRows);
     setSelectedMatrixRowId(spacedRows[0]?.id ?? null);
   }
+  function matrixRowHasContent(row: VaccinationMatrixRow): boolean {
+    return Boolean(row.vaccine.code.trim() || row.vaccine.name.trim());
+  }
+  function matrixRowIsActive(row: VaccinationMatrixRow): boolean {
+    return row.enabled !== false && matrixRowHasContent(row);
+  }
+  const populatedMatrixRows = matrixRows.filter(matrixRowHasContent);
+  const activeMatrixRows = matrixRows.filter(matrixRowIsActive);
+  function rowMatchesAnimalScopeValue(
+    row: VaccinationMatrixRow,
+    scopeValue: string,
+  ): boolean {
+    if (scopeValue === "all") return true;
+    const rowSpecies = (row.species || "all").toLowerCase();
+    return (
+      rowSpecies === scopeValue ||
+      rowSpecies === "all" ||
+      rowSpecies === "any"
+    );
+  }
+  function speciesForAnimalScope(row: VaccinationMatrixRow): string {
+    if (animalFilter === "all") return row.species;
+    const rowSpecies = (row.species || "all").toLowerCase();
+    return rowSpecies === "all" || rowSpecies === "any"
+      ? animalFilter
+      : row.species;
+  }
+  function rowForAnimalScope(row: VaccinationMatrixRow): VaccinationMatrixRow {
+    const scopedSpecies = speciesForAnimalScope(row);
+    return scopedSpecies === row.species ? row : { ...row, species: scopedSpecies };
+  }
+  const activeScopedMatrixRows = activeMatrixRows
+    .filter((row) => rowMatchesAnimalScopeValue(row, animalFilter))
+    .map(rowForAnimalScope);
+  function setAnimalScope(next: string) {
+    setAnimalFilter(next);
+    const nextVisibleRows = populatedMatrixRows.filter((row) =>
+      rowMatchesAnimalScopeValue(row, next),
+    );
+    if (!nextVisibleRows.some((row) => row.id === selectedMatrixRowId)) {
+      setSelectedMatrixRowId(nextVisibleRows[0]?.id ?? null);
+    }
+  }
+  function toggleMatrixRowEnabled(rowId: string) {
+    const row = matrixRows.find((candidate) => candidate.id === rowId);
+    patchMatrixRow(rowId, { enabled: !(row?.enabled !== false) });
+  }
+  function setSelectedProofCsv(value: string) {
+    const rows = selectedDoses().map((dose) => ({ ...dose, proofCsv: value }));
+    patchSelectedMatrixRow({ doses: rows });
+  }
+  function proofCsvForSelectedRow(): string {
+    return selectedDoses()[0]?.proofCsv ?? "";
+  }
+  function proofTokensForMatrix(): string[] {
+    return Array.from(
+      new Set(
+        activeScopedMatrixRows.flatMap((row) =>
+          (row.doses ?? doses).flatMap((dose) =>
+            dose.proofCsv
+              .split(",")
+              .map((token) => token.trim())
+              .filter(Boolean),
+          ),
+        ),
+      ),
+    );
+  }
+  function rowDisplayName(row: VaccinationMatrixRow): string {
+    return row.vaccine.name.trim() || row.vaccine.code.trim() || "matrix row";
+  }
+  function rowDisplayCode(row: VaccinationMatrixRow): string {
+    return row.vaccine.code.trim() || rowDisplayName(row);
+  }
+  function labelFromOptions(options: AdminUiOption[], key: string): string {
+    return options.find((option) => option.key === key)?.label ?? key;
+  }
+  function stageLabel(stageCode: string): string {
+    if (stageCode === ALL_STAGES_VALUE)
+      return optionLabel(pageContract, "animal_stage_scope", ALL_STAGES_VALUE);
+    return animalStages.find((item) => item.code === stageCode)?.label ?? stageCode;
+  }
+  function selectedRowPreset(): SourceVaccinePreset | undefined {
+    return findSourcePreset(selectedMatrixRow.vaccine.code || selectedMatrixRow.vaccine.name);
+  }
+  function selectedRowPriority(): string {
+    const priority = selectedRowPreset()?.priority;
+    return priority ? String(priority) : "-";
+  }
+  function doseRoleLabel(dose: DoseRow, index: number, peerDoses: DoseRow[]): string {
+    if (dose.trigger === "after_previous_completion" || dose.repeat === "every_n_days")
+      return "repeat";
+    if (peerDoses.length <= 1) return "single";
+    if (index === 0) return "primary";
+    if (index === 1) return "booster";
+    return `dose ${index + 1}`;
+  }
+  function doseAgeText(dose: DoseRow, index = 0, peerDoses: DoseRow[] = []): string {
+    const related = peerDoses.length > 0 ? peerDoses : [dose];
+    const label = doseRoleLabel(dose, index, related);
+    if (dose.trigger === "after_previous_completion" || dose.repeat === "every_n_days") {
+      return `${label}: ${formatRevaccination(Number(dose.revaccinationIntervalDays) || Number(dose.offsetDays))}`;
+    }
+    const weeks = Number(dose.offsetDays) / 7;
+    const when = Number.isInteger(weeks)
+      ? `${weeks}w`
+      : `${dose.offsetDays}d`;
+    return `${label}: ${when} ±${dose.dueWindowDays}d`;
+  }
+  function rowSummary(row: VaccinationMatrixRow): string {
+    const rowDoses = row.doses ?? doses;
+    const kidDoses = rowDoses.filter((dose) => dose.trigger === "birth_age");
+    const adultDose = rowDoses.find(
+      (dose) => Number(dose.revaccinationIntervalDays) > 0 || dose.repeat === "every_n_days",
+    );
+    const kidText =
+      kidDoses.length > 0
+        ? kidDoses.map(doseAgeText).join(" · ")
+        : "review timing";
+    const adultText = adultDose
+      ? `repeat ${formatRevaccination(Number(adultDose.revaccinationIntervalDays) || Number(adultDose.offsetDays))}`
+      : "no repeat";
+    return `${kidText} · ${adultText}`;
+  }
+  function rowTone(row: VaccinationMatrixRow): "live" | "killed" | "toxoid" | "other" {
+    const value = row.vaccine.type.toLowerCase();
+    if (value === "live") return "live";
+    if (value === "killed") return "killed";
+    if (value === "toxoid") return "toxoid";
+    return "other";
+  }
+  const displayPlanRows = populatedMatrixRows.filter(
+    (row) => rowMatchesAnimalScopeValue(row, animalFilter),
+  );
   function sourceMatrixStage(): string {
     return animalStageScope.some((option) => option.key === ALL_STAGES_VALUE)
       ? ALL_STAGES_VALUE
@@ -892,17 +1035,20 @@ export function RuleEditorModal({
   const dsl = useMemo(
     () =>
       category === "vaccination"
-        ? buildVaccinationMatrixPreview(input, matrixRows)
+        ? buildVaccinationMatrixPreview(input, activeScopedMatrixRows)
         : buildRuleDsl(input),
-    [category, input, matrixRows],
+    [category, input, activeScopedMatrixRows],
   );
   const inputSig = useMemo(
-    () => JSON.stringify({ input, matrixRows }),
-    [input, matrixRows],
+    () => JSON.stringify({ input, matrixRows, animalFilter }),
+    [input, matrixRows, animalFilter],
   );
   // dirty = saved once, but the form has changed since — the stored version is stale for publish.
   const dirty = versionId !== "" && inputSig !== savedSig;
-  const proofOk = hasProofRequirement(input);
+  const proofOk =
+    category === "vaccination"
+      ? proofTokensForMatrix().length > 0
+      : hasProofRequirement(input);
   // The Publish gate, in priority order, so the title explains the first blocking reason. A failed
   // stage-reference read blocks first: we cannot trust eligibility authoring if the stage set is unknown.
   const publishBlock = categoryBlockReason
@@ -1031,8 +1177,21 @@ export function RuleEditorModal({
       setNotice({ ok: false, message: readBlock });
       return;
     }
+    if (category === "vaccination" && activeScopedMatrixRows.length === 0) {
+      setNotice({
+        ok: false,
+        message: copy(
+          pageContract,
+          "modal.rule_editor.guided.no_active_vaccine",
+        ),
+      });
+      return;
+    }
     startTransition(async () => {
-      const res = await saveDraftBatch(input, matrixRows);
+      const res = await saveDraftBatch(
+        input,
+        category === "vaccination" ? activeScopedMatrixRows : matrixRows,
+      );
       setNotice(res);
       if (res.ok && res.versionId) {
         setVersionId(res.versionId);
@@ -1051,6 +1210,998 @@ export function RuleEditorModal({
   }
 
   if (!open) return null;
+
+  if (category === "vaccination" && !isFeedDirection) {
+    const selectedHasContent = matrixRowHasContent(selectedMatrixRow);
+    const selectedRowDoses = selectedDoses();
+    const selectedAgeDoses = selectedRowDoses.filter(
+      (dose) => dose.trigger === "birth_age",
+    );
+    const selectedAdultDoses = selectedRowDoses.filter(
+      (dose) => dose.trigger !== "birth_age",
+    );
+    const activeProofTokens = proofTokensForMatrix();
+    return (
+      <>
+        {presentation === "modal" ? (
+          <div className="cfgback on" onClick={onClose} />
+        ) : null}
+        <div
+          className={
+            presentation === "page" ? "cfgpage cfgpage-rule on" : "cfgmodal on"
+          }
+          data-testid="rule-editor"
+          style={
+            presentation === "modal"
+              ? { width: "min(1180px,96vw)" }
+              : undefined
+          }
+          role={presentation === "modal" ? "dialog" : "region"}
+          aria-modal={presentation === "modal" ? true : undefined}
+          aria-label={copy(pageContract, "modal.rule_editor.aria")}
+        >
+          <div className="cmh">
+            <span
+              className="fic"
+              style={{
+                background: "var(--brand-soft)",
+                color: "var(--brand)",
+                width: 32,
+                height: 32,
+                borderRadius: 9,
+              }}
+            >
+              <Syringe className="ic" />
+            </span>
+            <div>
+              <div className="b700">
+                {copy(pageContract, "modal.rule_editor.guided_title")}
+              </div>
+              <div className="muted small">
+                {copy(pageContract, "modal.rule_editor.guided_subtitle")}
+              </div>
+            </div>
+            <div className="sp" style={{ flex: 1 }} />
+            <button
+              type="button"
+              className="x"
+              onClick={onClose}
+              aria-label={copy(pageContract, "modal.rule_editor.close")}
+            >
+              <X className="ic" />
+            </button>
+          </div>
+
+          <div className="cmb">
+            <div className="cfgform" style={{ display: "grid", gap: 14 }}>
+              {stagesError ? (
+                <div className="alert warn" role="alert">
+                  <AlertTriangle className="ic" />
+                  <div>
+                    {copy(pageContract, "modal.rule_editor.stages_error_prefix")}{" "}
+                    ({stagesError}).{" "}
+                    {copy(pageContract, "modal.rule_editor.stages_error_body")}
+                  </div>
+                </div>
+              ) : null}
+              {sopsError ? (
+                <div className="alert warn" role="alert">
+                  <AlertTriangle className="ic" />
+                  <div>
+                    {copy(pageContract, "modal.rule_editor.sops_error_prefix")} (
+                    {sopsError}).{" "}
+                    {copy(pageContract, "modal.rule_editor.sops_error_body")}
+                  </div>
+                </div>
+              ) : null}
+              {categoryBlockReason ? (
+                <div className="alert warn" role="alert">
+                  <AlertTriangle className="ic" />
+                  <div>{categoryBlockReason}</div>
+                </div>
+              ) : null}
+              {notice ? (
+                notice.ok ? (
+                  <div className="note">
+                    <span className="tag t-ok">
+                      {copy(pageContract, "modal.rule_editor.notice_ok")}
+                    </span>{" "}
+                    {notice.message}
+                  </div>
+                ) : (
+                  <div className="alert warn">
+                    <AlertTriangle className="ic" />
+                    <div>{notice.message}</div>
+                  </div>
+                )
+              ) : null}
+
+              <section className="card">
+                <div className="hd">
+                  <h3>{copy(pageContract, "modal.rule_editor.guided.who_when_title")}</h3>
+                  <div className="sp" />
+                  <span className={`tag ${publishBlock ? "t-warn" : "t-ok"}`}>
+                    {versionId
+                      ? copy(pageContract, "modal.rule_editor.guided.draft")
+                      : copy(pageContract, "modal.rule_editor.guided.draft")}
+                  </span>
+                </div>
+                <div className="bd" style={{ display: "grid", gap: 12 }}>
+                  <label>
+                    {copy(pageContract, "modal.rule_editor.field.protocol")}
+                  </label>
+                  <div className="rowf">
+                    <input
+                      aria-label={copy(
+                        pageContract,
+                        "modal.rule_editor.field.protocol",
+                      )}
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                      placeholder={protocolPlaceholder(category, "code")}
+                    />
+                    <input
+                      aria-label={copy(
+                        pageContract,
+                        "modal.rule_editor.field.protocol",
+                      )}
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder={protocolPlaceholder(category, "name")}
+                    />
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(2,minmax(0,1fr))",
+                      gap: 10,
+                    }}
+                  >
+                    <div>
+                      <label>
+                        {copy(pageContract, "modal.rule_editor.guided.applies_to")}
+                      </label>
+                      <div className="cfgchk" role="group">
+                        <button
+                          type="button"
+                          className="btn sm"
+                          onClick={() => setScope("tenant")}
+                          disabled={!scopeOptions.some((item) => item.key === "tenant")}
+                          aria-pressed={scope === "tenant"}
+                          style={
+                            scope === "tenant"
+                              ? { borderColor: "var(--brand)", color: "var(--brand)" }
+                              : undefined
+                          }
+                        >
+                          {copy(pageContract, "modal.rule_editor.guided.whole_company")}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn sm"
+                          onClick={() => firstParkScope && setScope(firstParkScope)}
+                          disabled={!scopeOptions.some((item) => item.key.startsWith("park:"))}
+                          aria-pressed={scope.startsWith("park:")}
+                          style={
+                            scope.startsWith("park:")
+                              ? { borderColor: "var(--brand)", color: "var(--brand)" }
+                              : undefined
+                          }
+                        >
+                          {copy(pageContract, "modal.rule_editor.guided.one_park")}
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label>
+                        {copy(pageContract, "modal.rule_editor.guided.animals")}
+                      </label>
+                      <div className="cfgchk" role="group">
+                        {[
+                          ["all", "modal.rule_editor.guided.goats_sheep"],
+                          ["goat", "modal.rule_editor.guided.goats"],
+                          ["sheep", "modal.rule_editor.guided.sheep"],
+                        ].map(([key, copyKey]) => (
+                          <button
+                            key={key}
+                            type="button"
+                            className="btn sm"
+                            onClick={() => setAnimalScope(key)}
+                            aria-pressed={animalFilter === key}
+                            style={
+                              animalFilter === key
+                                ? { borderColor: "var(--brand)", color: "var(--brand)" }
+                                : undefined
+                            }
+                          >
+                            {copy(pageContract, copyKey)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <label>
+                    {copy(pageContract, "modal.rule_editor.field.scope")}
+                  </label>
+                  <div className="rowf">
+                    <select
+                      aria-label={copy(pageContract, "modal.rule_editor.field.scope")}
+                      value={scope}
+                      onChange={(e) => setScope(e.target.value)}
+                    >
+                      {scopeOptions.map((s) => (
+                        <option key={s.key} value={s.key}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="date"
+                      aria-label={copy(pageContract, "modal.rule_editor.field.scope")}
+                      value={effectiveFrom}
+                      onChange={(e) => setEffectiveFrom(e.target.value)}
+                    />
+                  </div>
+
+                  <label>
+                    {copy(pageContract, "modal.rule_editor.field.sop_version")}
+                  </label>
+                  <select
+                    aria-label={copy(
+                      pageContract,
+                      "modal.rule_editor.field.sop_version",
+                    )}
+                    value={sopVersionId}
+                    onChange={(e) => setSopVersionId(e.target.value)}
+                    disabled={sopReadFailed || sopVersions.length === 0}
+                    title={sopReadFailed ? sopBlockReason : undefined}
+                  >
+                    <option value="">
+                      {sopReadFailed
+                        ? copy(pageContract, "modal.rule_editor.option.sops_failed")
+                        : sopVersions.length === 0
+                          ? copy(pageContract, "modal.rule_editor.option.no_sop")
+                          : copy(pageContract, "modal.rule_editor.option.select_sop")}
+                    </option>
+                    {sopVersions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className={publishBlock ? "alert warn" : "note"}>
+                    {publishBlock ? (
+                      <AlertTriangle className="ic" />
+                    ) : (
+                      <CheckCircle2 className="ic" />
+                    )}
+                    <div>
+                      <b>
+                        {publishBlock
+                          ? copy(pageContract, "modal.rule_editor.guided.not_publishable")
+                          : copy(pageContract, "modal.rule_editor.guided.publishable")}
+                      </b>{" "}
+                      {publishBlock ||
+                        copy(pageContract, "modal.rule_editor.guided.publish_hint")}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="card">
+                <div className="hd">
+                  <h3>{copy(pageContract, "modal.rule_editor.guided.plan_title")}</h3>
+                  <span className="tag t-ok">
+                    {activeScopedMatrixRows.length}{" "}
+                    {copy(pageContract, "modal.rule_editor.guided.on")}
+                  </span>
+                  <div className="sp" />
+                  <button
+                    type="button"
+                    className="btn sm"
+                    onClick={loadHerdSourceMatrix}
+                  >
+                    <CalendarDays className="ic" />{" "}
+                    {copy(pageContract, "modal.rule_editor.guided.load_plan")}
+                  </button>
+                </div>
+                <div className="bd" style={{ display: "grid", gap: 10 }}>
+                  <div className="muted small">
+                    {copy(pageContract, "modal.rule_editor.guided.plan_hint")}
+                  </div>
+                  {displayPlanRows.length === 0 ? (
+                    <div className="note">
+                      <Info className="ic" />
+                      <div>
+                        <b>
+                          {copy(pageContract, "modal.rule_editor.guided.empty_title")}
+                        </b>
+                        <br />
+                        {copy(pageContract, "modal.rule_editor.guided.empty_body")}
+                      </div>
+                    </div>
+                  ) : (
+                    displayPlanRows.map((row) => {
+                      const selected = row.id === selectedMatrixRow.id;
+                      const enabled = row.enabled !== false;
+                      const tone = rowTone(row);
+                      return (
+                        <button
+                          key={row.id}
+                          type="button"
+                          className="card"
+                          onClick={() => setSelectedMatrixRowId(row.id)}
+                          style={{
+                            textAlign: "left",
+                            padding: 12,
+                            display: "grid",
+                            gridTemplateColumns: "auto minmax(0,1fr) auto",
+                            gap: 12,
+                            alignItems: "center",
+                            boxShadow: "none",
+                            borderColor: selected ? "var(--brand)" : "var(--line)",
+                            background: selected
+                              ? "rgba(120, 210, 72, 0.08)"
+                              : "var(--bg)",
+                          }}
+                        >
+                          <span
+                            role="switch"
+                            aria-checked={enabled}
+                            tabIndex={0}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleMatrixRowEnabled(row.id);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                toggleMatrixRowEnabled(row.id);
+                              }
+                            }}
+                            className={`tag ${enabled ? "t-ok" : "t-mut"}`}
+                          >
+                            {enabled
+                              ? copy(pageContract, "modal.rule_editor.guided.included")
+                              : copy(pageContract, "modal.rule_editor.guided.skipped")}
+                          </span>
+                          <span style={{ minWidth: 0 }}>
+                            <span
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <b>{rowDisplayCode(row)}</b>
+                              <span className="tag t-info">
+                                {labelFromOptions(speciesOptions, speciesForAnimalScope(row))}
+                              </span>
+                              <span className="tag t-mut">
+                                {labelFromOptions(vaccineTypeOptions, row.vaccine.type)}
+                              </span>
+                              <span
+                                style={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: 999,
+                                  background:
+                                    tone === "live"
+                                      ? "var(--warn)"
+                                      : tone === "killed"
+                                        ? "var(--info)"
+                                        : "var(--brand)",
+                                }}
+                              />
+                            </span>
+                            <span className="muted small" style={{ display: "block", marginTop: 4 }}>
+                              {rowSummary(row)}
+                            </span>
+                          </span>
+                          <ChevronRight className="ic" />
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+
+              <section className="card">
+                <div className="hd">
+                  <h3>{copy(pageContract, "modal.rule_editor.guided.selected_timing")}</h3>
+                  <div className="sp" />
+                  {selectedHasContent ? (
+                    <span className="tag t-info">{rowDisplayName(selectedMatrixRow)}</span>
+                  ) : null}
+                </div>
+                <div className="bd" style={{ display: "grid", gap: 12 }}>
+                  {!selectedHasContent ? (
+                    <div className="note">
+                      <Info className="ic" />
+                      <div>
+                        {copy(pageContract, "modal.rule_editor.guided.no_selected")}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="rowf">
+                        <input
+                          aria-label={copy(
+                            pageContract,
+                            "modal.rule_editor.table.vaccine_code",
+                          )}
+                          value={selectedMatrixRow.vaccine.code}
+                          onChange={(e) =>
+                            patchSelectedMatrixRow({
+                              vaccine: {
+                                ...selectedMatrixRow.vaccine,
+                                code: e.target.value,
+                              },
+                            })
+                          }
+                        />
+                        <input
+                          aria-label={copy(
+                            pageContract,
+                            "modal.rule_editor.table.vaccine_name",
+                          )}
+                          value={selectedMatrixRow.vaccine.name}
+                          onChange={(e) =>
+                            patchSelectedMatrixRow({
+                              vaccine: {
+                                ...selectedMatrixRow.vaccine,
+                                name: e.target.value,
+                              },
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="grid g4">
+                        {[
+                          [
+                            copy(pageContract, "modal.rule_editor.guided.fact_type"),
+                            labelFromOptions(vaccineTypeOptions, vaccineType),
+                          ],
+                          [
+                            copy(pageContract, "modal.rule_editor.guided.fact_species"),
+                            labelFromOptions(speciesOptions, species),
+                          ],
+                          [
+                            copy(pageContract, "modal.rule_editor.guided.fact_dose"),
+                            `${selectedRowDoses[0]?.doseAmount ?? "-"} ${selectedRowDoses[0]?.doseUnit ?? ""}`,
+                          ],
+                          [
+                            copy(pageContract, "modal.rule_editor.guided.fact_vial"),
+                            String(selectedRowDoses[0]?.vialDoses || "-"),
+                          ],
+                          [
+                            copy(pageContract, "modal.rule_editor.guided.fact_revaccination"),
+                            formatRevaccination(
+                              Number(
+                                selectedRowDoses.find(
+                                  (dose) =>
+                                    Number(dose.revaccinationIntervalDays) > 0,
+                                )?.revaccinationIntervalDays ?? 0,
+                              ),
+                            ),
+                          ],
+                          [
+                            copy(pageContract, "modal.rule_editor.guided.fact_priority"),
+                            selectedRowPriority(),
+                          ],
+                        ].map(([label, value]) => (
+                          <div key={label} className="kpi">
+                            <div className="lab">{label}</div>
+                            <div className="val" style={{ fontSize: 16 }}>
+                              {value}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <label>
+                        {copy(pageContract, "modal.rule_editor.guided.who_qualifies")}
+                      </label>
+                      <div className="rowf">
+                        <select
+                          aria-label={copy(pageContract, "modal.rule_editor.table.stage")}
+                          value={stage}
+                          onChange={(e) =>
+                            patchSelectedMatrixRow({ stage: e.target.value })
+                          }
+                          disabled={stagePickerDisabled}
+                          title={
+                            stagesError
+                              ? stageBlockReason
+                              : stagesSeeded
+                                ? undefined
+                                : noStagesReason
+                          }
+                        >
+                          <option value={ALL_STAGES_VALUE}>
+                            {optionLabel(
+                              pageContract,
+                              "animal_stage_scope",
+                              ALL_STAGES_VALUE,
+                            )}
+                          </option>
+                          {animalStages.map((s) => (
+                            <option key={s.code} value={s.code}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          aria-label={copy(pageContract, "modal.rule_editor.table.species")}
+                          value={species}
+                          onChange={(e) =>
+                            patchSelectedMatrixRow({ species: e.target.value })
+                          }
+                        >
+                          {speciesOptions.map((s) => (
+                            <option key={s.key} value={s.key}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="rowf">
+                        <select
+                          aria-label={copy(pageContract, "modal.rule_editor.table.sex")}
+                          value={sex}
+                          onChange={(e) =>
+                            patchSelectedMatrixRow({ sex: e.target.value })
+                          }
+                        >
+                          {sexOptions.map((s) => (
+                            <option key={s.key} value={s.key}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          aria-label={copy(pageContract, "modal.rule_editor.table.breed")}
+                          value={breed}
+                          onChange={(e) =>
+                            patchSelectedMatrixRow({ breed: e.target.value })
+                          }
+                        >
+                          {breedOptions.map((s) => (
+                            <option key={s.key} value={s.key}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="muted small">
+                        {copy(pageContract, "modal.rule_editor.guided.qualifies_hint")}{" "}
+                        {stageLabel(stage)}
+                      </div>
+
+                      <details open>
+                        <summary className="b700">
+                          {copy(pageContract, "modal.rule_editor.guided.schedule_editor")}
+                        </summary>
+                        <div className="muted small" style={{ margin: "6px 0 8px" }}>
+                          {copy(pageContract, "modal.rule_editor.guided.schedule_hint")}
+                        </div>
+                        <div className="cfgtablewrap cfgschedule-table">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>{copy(pageContract, "modal.rule_editor.table.dose")}</th>
+                                <th>{copy(pageContract, "modal.rule_editor.table.trigger")}</th>
+                                <th>{copy(pageContract, "modal.rule_editor.table.offset")}</th>
+                                <th>{copy(pageContract, "modal.rule_editor.table.window")}</th>
+                                <th>{copy(pageContract, "modal.rule_editor.table.dose_amount")}</th>
+                                <th>{copy(pageContract, "modal.rule_editor.table.vial_doses")}</th>
+                                <th>{copy(pageContract, "modal.rule_editor.table.revaccination")}</th>
+                                <th>{copy(pageContract, "modal.rule_editor.table.max_delay")}</th>
+                                <th>{copy(pageContract, "modal.rule_editor.table.min_gap")}</th>
+                                <th>{copy(pageContract, "modal.rule_editor.table.proof_policy")}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedRowDoses.map((d, i) => (
+                                <tr key={i}>
+                                  <td style={{ minWidth: 130 }}>
+                                    <input
+                                      aria-label={copy(pageContract, "modal.rule_editor.table.dose")}
+                                      value={d.doseCode}
+                                      onChange={(e) =>
+                                        setSelectedDose(i, { doseCode: e.target.value })
+                                      }
+                                    />
+                                  </td>
+                                  <td style={{ minWidth: 150 }}>
+                                    <select
+                                      aria-label={copy(pageContract, "modal.rule_editor.table.trigger")}
+                                      value={d.trigger}
+                                      onChange={(e) =>
+                                        setSelectedDose(i, { trigger: e.target.value })
+                                      }
+                                    >
+                                      {triggerOptions.map((t) => (
+                                        <option key={t.key} value={t.key}>
+                                          {t.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  <td>
+                                    <input
+                                      aria-label={copy(pageContract, "modal.rule_editor.table.offset")}
+                                      type="number"
+                                      value={d.offsetDays}
+                                      onChange={(e) =>
+                                        setSelectedDose(i, {
+                                          offsetDays: Number(e.target.value),
+                                        })
+                                      }
+                                    />
+                                  </td>
+                                  <td>
+                                    <input
+                                      aria-label={copy(pageContract, "modal.rule_editor.table.window")}
+                                      type="number"
+                                      value={d.dueWindowDays}
+                                      onChange={(e) =>
+                                        setSelectedDose(i, {
+                                          dueWindowDays: Number(e.target.value),
+                                        })
+                                      }
+                                    />
+                                  </td>
+                                  <td>
+                                    <input
+                                      aria-label={copy(pageContract, "modal.rule_editor.table.dose_amount")}
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={d.doseAmount}
+                                      onChange={(e) =>
+                                        setSelectedDose(i, {
+                                          doseAmount: Number(e.target.value),
+                                        })
+                                      }
+                                    />
+                                  </td>
+                                  <td>
+                                    <input
+                                      aria-label={copy(pageContract, "modal.rule_editor.table.vial_doses")}
+                                      type="number"
+                                      min="0"
+                                      value={d.vialDoses}
+                                      onChange={(e) =>
+                                        setSelectedDose(i, {
+                                          vialDoses: Number(e.target.value),
+                                        })
+                                      }
+                                    />
+                                  </td>
+                                  <td>
+                                    <input
+                                      aria-label={copy(pageContract, "modal.rule_editor.table.revaccination")}
+                                      type="number"
+                                      min="0"
+                                      value={d.revaccinationIntervalDays}
+                                      onChange={(e) =>
+                                        setSelectedDose(i, {
+                                          revaccinationIntervalDays: Number(e.target.value),
+                                        })
+                                      }
+                                    />
+                                  </td>
+                                  <td>
+                                    <input
+                                      aria-label={copy(pageContract, "modal.rule_editor.table.max_delay")}
+                                      type="number"
+                                      value={d.maxDelayDays}
+                                      onChange={(e) =>
+                                        setSelectedDose(i, {
+                                          maxDelayDays: Number(e.target.value),
+                                        })
+                                      }
+                                    />
+                                  </td>
+                                  <td>
+                                    <input
+                                      aria-label={copy(pageContract, "modal.rule_editor.table.min_gap")}
+                                      type="number"
+                                      value={d.minGapDays}
+                                      onChange={(e) =>
+                                        setSelectedDose(i, {
+                                          minGapDays: Number(e.target.value),
+                                        })
+                                      }
+                                    />
+                                  </td>
+                                  <td style={{ minWidth: 170 }}>
+                                    <input
+                                      aria-label={copy(pageContract, "modal.rule_editor.table.proof_policy")}
+                                      value={d.proofCsv}
+                                      onChange={(e) =>
+                                        setSelectedDose(i, { proofCsv: e.target.value })
+                                      }
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+
+                      <div className="rowf">
+                        <div>
+                          <label>
+                            {copy(pageContract, "modal.rule_editor.guided.age_course")}
+                          </label>
+                          <div className="note">
+                            {selectedAgeDoses.map(doseAgeText).join(" · ") ||
+                              copy(pageContract, "label.placeholder")}
+                          </div>
+                        </div>
+                        <div>
+                          <label>
+                            {copy(pageContract, "modal.rule_editor.guided.procurement_course")}
+                          </label>
+                          <div className="note">
+                            {selectedAdultDoses.map(doseAgeText).join(" · ") ||
+                              copy(pageContract, "label.placeholder")}
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </section>
+
+              <section className="card">
+                <div className="hd">
+                  <ShieldCheck className="ic" />
+                  <h3>{copy(pageContract, "modal.rule_editor.guided.safety_title")}</h3>
+                  <span className="tag t-info">
+                    {copy(pageContract, "modal.rule_editor.guided.read_only")}
+                  </span>
+                </div>
+                <div className="bd" style={{ display: "grid", gap: 8 }}>
+                  <div className="muted small">
+                    {copy(pageContract, "modal.rule_editor.guided.safety_hint")}
+                  </div>
+                  {[
+                    "modal.rule_editor.guided.safety_max_shots",
+                    "modal.rule_editor.guided.safety_live_live",
+                    "modal.rule_editor.guided.safety_killed_live",
+                    "modal.rule_editor.guided.safety_pregnancy",
+                    "modal.rule_editor.guided.safety_defer",
+                    "modal.rule_editor.guided.safety_mother",
+                    "modal.rule_editor.guided.safety_batch",
+                  ].map((key) => (
+                    <div key={key} className="note">
+                      <CheckCircle2 className="ic" />
+                      <div>{copy(pageContract, key)}</div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="card">
+                <div className="hd">
+                  <h3>{copy(pageContract, "modal.rule_editor.guided.procurement_title")}</h3>
+                </div>
+                <div className="bd" style={{ display: "grid", gap: 8 }}>
+                  <div className="muted small">
+                    {copy(pageContract, "modal.rule_editor.guided.procurement_hint")}
+                  </div>
+                  <div className="rowf">
+                    <input
+                      aria-label={copy(pageContract, "modal.rule_editor.field.first_wave")}
+                      value={procurementPolicy.firstWave}
+                      onChange={(e) =>
+                        setProcurementField({ firstWave: e.target.value })
+                      }
+                    />
+                    <input
+                      aria-label={copy(pageContract, "modal.rule_editor.field.second_wave_after_days")}
+                      type="number"
+                      min="0"
+                      value={procurementPolicy.secondWaveAfterDays}
+                      onChange={(e) =>
+                        setProcurementField({
+                          secondWaveAfterDays: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="rowf">
+                    <input
+                      aria-label={copy(pageContract, "modal.rule_editor.field.goat_second_wave")}
+                      value={procurementPolicy.goatSecondWave}
+                      onChange={(e) =>
+                        setProcurementField({ goatSecondWave: e.target.value })
+                      }
+                    />
+                    <input
+                      aria-label={copy(pageContract, "modal.rule_editor.field.sheep_second_wave")}
+                      value={procurementPolicy.sheepSecondWave}
+                      onChange={(e) =>
+                        setProcurementField({ sheepSecondWave: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="card">
+                <div className="hd">
+                  <h3>{copy(pageContract, "modal.rule_editor.guided.proof_title")}</h3>
+                </div>
+                <div className="bd" style={{ display: "grid", gap: 8 }}>
+                  <div className="muted small">
+                    {copy(pageContract, "modal.rule_editor.guided.proof_hint")}
+                  </div>
+                  <div className="rowf">
+                    <input
+                      aria-label={copy(pageContract, "modal.rule_editor.table.proof_policy")}
+                      value={proofCsvForSelectedRow()}
+                      onChange={(e) => setSelectedProofCsv(e.target.value)}
+                    />
+                    <input
+                      aria-label={copy(pageContract, "modal.rule_editor.field.vaccine_lot")}
+                      value={vaccineLotPolicy}
+                      onChange={(e) => setVaccineLotPolicy(e.target.value)}
+                    />
+                  </div>
+                  <div className="cfgchk">
+                    {activeProofTokens.map((token) => (
+                      <span key={token} className="tag t-info">
+                        {token}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </section>
+
+              <details className="card">
+                <summary className="hd" style={{ cursor: "pointer" }}>
+                  <h3>{copy(pageContract, "modal.rule_editor.guided.advanced_title")}</h3>
+                </summary>
+                <div className="bd">
+                  <div className="muted small" style={{ marginBottom: 8 }}>
+                    {copy(pageContract, "modal.rule_editor.guided.advanced_hint")}
+                  </div>
+                  <div
+                    className="cfgjson"
+                    aria-label={copy(pageContract, "modal.rule_editor.rule_dsl_aria")}
+                  >
+                    {JSON.stringify(dsl, null, 2)}
+                  </div>
+                </div>
+              </details>
+            </div>
+          </div>
+
+          <div className="cmh cfgsection-head cfgimpact-head">
+            <h4 style={{ margin: 0 }}>
+              {copy(pageContract, "modal.rule_editor.impact_title_vaccination")}
+            </h4>
+            <div className="sp" style={{ flex: 1 }} />
+            <button
+              type="button"
+              className="btn sm"
+              onClick={preview}
+              disabled={pending}
+            >
+              {pending
+                ? copy(pageContract, "action.computing")
+                : copy(pageContract, "action.preview_impact")}
+            </button>
+          </div>
+          <div className="cfgimpact-body">
+            {impact ? (
+              <>
+                <div className="grid g4">
+                  {[
+                    [
+                      copy(pageContract, "modal.rule_editor.kpi.eligible_goats"),
+                      impact.eligible_goats,
+                    ],
+                    [
+                      copy(pageContract, "modal.rule_editor.kpi.obligations"),
+                      impact.obligations,
+                    ],
+                    [
+                      copy(pageContract, "modal.rule_editor.kpi.batches"),
+                      impact.batches,
+                    ],
+                    [
+                      copy(pageContract, "modal.rule_editor.kpi.doses_required"),
+                      impact.doses_required,
+                    ],
+                  ].map(([l, v]) => (
+                    <div key={String(l)} className="kpi">
+                      <div className="lab">{l}</div>
+                      <div className="val">{String(v)}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="muted small" style={{ marginTop: 10 }}>
+                  {copy(pageContract, "modal.rule_editor.label.doses_available")}:{" "}
+                  <b>
+                    {impact.doses_available ||
+                      copy(pageContract, "label.placeholder")}
+                  </b>
+                  {impact.earliest_expiry
+                    ? ` · ${copy(pageContract, "modal.rule_editor.label.earliest_expiry")} ${impact.earliest_expiry.slice(0, 10)}`
+                    : ""}
+                </div>
+                {impact.warnings.length > 0
+                  ? impact.warnings.map((w, i) => (
+                      <div
+                        key={i}
+                        className="alert warn"
+                        style={{ marginTop: 8 }}
+                      >
+                        <AlertTriangle className="ic" />
+                        <div>{w}</div>
+                      </div>
+                    ))
+                  : null}
+              </>
+            ) : (
+              <p className="muted small">
+                {copy(pageContract, "modal.rule_editor.preview_empty_vaccination")}
+              </p>
+            )}
+          </div>
+
+          <div className="cfgmf">
+            <button type="button" className="btn" onClick={onClose}>
+              {copy(pageContract, "action.cancel")}
+            </button>
+            <div className="sp" style={{ flex: 1 }} />
+            {versionId ? (
+              <span className="muted small">
+                {copy(pageContract, "modal.rule_editor.label.draft_saved")} ·{" "}
+                {versionId.slice(0, 8)}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              className="btn"
+              onClick={save}
+              disabled={pending || !!stageBlockReason || !!sopBlockReason}
+              title={stageBlockReason || sopBlockReason || undefined}
+              style={
+                stageBlockReason || sopBlockReason ? { opacity: 0.45 } : undefined
+              }
+            >
+              {pending
+                ? copy(pageContract, "action.saving")
+                : copy(pageContract, "action.save_draft")}
+            </button>
+            <button
+              type="button"
+              className="btn p"
+              onClick={publish}
+              disabled={publishDisabled}
+              title={publishBlock}
+              style={publishDisabled ? { opacity: 0.45 } : undefined}
+            >
+              {canPublish
+                ? copy(pageContract, "action.publish")
+                : copy(pageContract, "action.publish_ceo")}
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

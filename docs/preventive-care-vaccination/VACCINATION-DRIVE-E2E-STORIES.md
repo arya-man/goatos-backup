@@ -74,6 +74,63 @@ Proof:
 
 ## Story 2: A Herd Animal Enters GoatOS And Gets Real Vaccination Work
 
+## Story 1A: CEO-Friendly Matrix Authoring
+
+Scenario:
+
+The CEO/COO opens Config, creates one company vaccination matrix, loads the
+approved Vaccination Rules plan, reads the timing in business language, toggles
+one vaccine off/on, checks goat-only/sheep-only matrix scopes, checks the park
+override selector, edits proof requirements, previews impact, saves, publishes,
+and reopens the published drawer.
+
+Expected behavior:
+
+1. The screen looks like a guided matrix plan, not a raw engineering table.
+2. Vaccine cards show readable timing such as `primary: 4w`, `booster: 7w`,
+   and `repeat 6 months`.
+3. Predefined safety rules are visible as read-only facts: max 2 vaccines per
+   visit, live-live 28-day gap, live/killed safety spacing, pregnancy months
+   4-5 skip, clinical defer states, mother unknown ignored, and one 7-day
+   batching buffer.
+4. Editable fields are only the matrix business policy: active vaccines,
+   species/stage/sex/breed selectors, dose timing, dose amount, vial size,
+   revaccination, max delay, minimum gap, proof policy, and procurement holding
+   waves.
+5. The animal segment is not a cosmetic filter: selecting `Goats` serializes
+   only goat-applicable rows and narrows shared goat/sheep vaccines to goat;
+   selecting `Sheep` does the same for sheep. Returning to `Goats + sheep`
+   serializes the full mixed-species matrix.
+6. The `One park` control actually selects a park scope; `Whole company`
+   restores the company default scope.
+7. Save stores one `vaccination.matrix` draft version; publish replaces the
+   older active company/park matrix for the same scope by retiring it, then
+   activates the new version. Historical completed work keeps its old
+   `protocol_version_id`.
+
+Proof:
+
+- `npm --prefix apps/admin-web run smoke:vaccination-authoring:live`
+- Report:
+  `.codex-goatos-render/vaccination-authoring/AUTHORING-2026-07-04T21-04-59-968Z/authoring.md`
+- Current run verified:
+  - SOP builder create/validate/dry-run/publish/reopen/edit/republish.
+  - Config matrix load shows ET+TT, PPR, Goat Pox, FMD, HS, Blue Tongue, and
+    Sheep Pox.
+  - Goats scope shows 5 active rows and JSON species `goat`.
+  - Sheep scope shows 6 active rows and JSON species `sheep`.
+  - Goats + sheep restores 7 active rows.
+  - One park selects a `park:*` scope; Whole company restores `tenant`.
+  - ET+TT business summary includes `primary: 4w` and `repeat 6 months`.
+  - Read-only safety copy includes live-live, pregnancy, mother-unknown ignore,
+    and trusted holding-source rules.
+  - Blue Tongue toggle changes active count from 7 to 6 and back to 7.
+  - Goat Pox row shows 20-week timing and revaccination metadata.
+  - Proof policy edit persists a new `video` token.
+  - Preview, save, publish, and published drawer reopen pass.
+
+## Story 2: A Herd Animal Enters GoatOS And Gets Real Vaccination Work
+
 Scenario:
 
 A valid animal is registered or accepted into GoatOS with species, breed, sex,
@@ -285,6 +342,8 @@ Proof:
 | Area | Required variation | Evidence | Result |
 | --- | --- | --- | --- |
 | Matrix storage | Single scoped `vaccination.matrix`, not one top-level rule per vaccine | Protocol publish tests | PASS |
+| CEO matrix authoring | Guided plan cards, read-only predefined safety rules, animal scope serializes into JSON, park/company scope controls, editable timing/proof/procurement fields, save/publish/reopen | `smoke:vaccination-authoring:live` `AUTHORING-2026-07-04T21-04-59-968Z` | PASS |
+| Active version replacement | Publishing a new scoped matrix retires the prior overlapping company/park active matrix instead of blocking forever | `TestPublishVersionWithDerivedRulesReplacesOverlappingVaccinationMatrixFamily` | PASS |
 | Matrix drift | Stale draft `protocol_rules` regenerated from current `rule_dsl` | `TestPublishVersionRegeneratesMatrixRulesFromRuleDSL` | PASS |
 | Matrix selectors | `any` wildcard keeps old semantics through compiled dimensions | `TestPublishVersionMatrixInheritsVersionEligibilityAndCanonicalizesAny` | PASS |
 | Scale prefilter | Derived dimensions exist for indexed rule prefilter, Go re-checks full eligibility | Protocol adapter/app tests | PASS |
@@ -298,6 +357,7 @@ Proof:
 | Full vaccine history | Later killed dose cannot hide earlier live dose | Generation + booster cross-history tests | PASS |
 | Proof rework | Reject -> rework -> corrected accepted proof | `vaccination-rework-proof.sh` | PASS |
 | UI shell | CT, PA, Vaccination, Action Center, Calendar, Workflows, Config, SOP, Procurement, Passport render from local stack | `admin-web-e2e-smoke.sh` | PASS |
+| Click matrix | Shell/sidebar, Vaccination, Action Center, Protocol Adherence, Workflows, Config, and full-page SOP Library controls | `smoke:vaccination-click-matrix:live` `CLICK-2026-07-04T21-05-45-132Z` | PASS |
 | CT/PA pagination | Extreme pages do not hit backend offset error | Live local HTTP checks | PASS |
 | CT filtered empty | Filtered zero rows shows filtered-empty copy, not false green | Live local HTTP check | PASS |
 
@@ -311,7 +371,11 @@ fixtures.
 (cd backend && go test ./internal/protocol/app ./internal/protocol/adapters/postgres ./internal/vaccination/app)
 npm --prefix apps/admin-web run typecheck
 npm --prefix apps/admin-web run check:mock-fidelity
+npm --prefix apps/admin-web run smoke:vaccination-authoring:live
+npm --prefix apps/admin-web run smoke:vaccination-click-matrix:live
 GOATOS_E2E_RUN_ID=VACCINATION-CLOSEOUT-20260704-R3 bash tools/dev/admin-web-e2e-smoke.sh
+bash tools/dev/vaccination-chain-proof.sh
+bash tools/dev/procurement-vaccination-e2e-matrix.sh
 bash tools/dev/vaccination-trusted-history-proof.sh
 bash tools/dev/vaccination-rework-proof.sh
 (cd backend && go test ./internal/vaccination/app -run 'TestRecoveryReschedule|TestGoatRecheck|TestOlderGoat|TestSchedule' -count=1)

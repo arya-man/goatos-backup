@@ -81,6 +81,7 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
   const versionBody = {
     scope_type: scopeType,
     scope_id: scopeId ?? undefined,
+    version_label: input.name.trim() || input.code.trim(),
     effective_from: effectiveFrom,
     rule_dsl: ruleDsl,
     proof_policy: proofPolicy,
@@ -150,9 +151,12 @@ export async function saveDraftBatch(
   matrixRows: VaccinationMatrixRow[],
 ): Promise<ActionResult> {
   if (input.category !== "vaccination") return saveDraft(input);
-  const validationError = validateVaccinationMatrixRows(input, matrixRows);
+  const activeRows = matrixRows.filter((row) => row.enabled !== false);
+  if (activeRows.length === 0)
+    return { ok: false, message: "add at least one active vaccine to the matrix" };
+  const validationError = validateVaccinationMatrixRows(input, activeRows);
   if (validationError) return { ok: false, message: validationError };
-  const rows = normalizeVaccinationMatrixRows(input, matrixRows);
+  const rows = normalizeVaccinationMatrixRows(input, activeRows);
   const protocolRows = buildVaccinationMatrixProtocolRuleRows(input, rows);
   if (protocolRows.length === 0)
     return { ok: false, message: "add at least one matrix schedule cell" };
@@ -186,6 +190,7 @@ export async function saveDraftBatch(
   const versionBody = {
     scope_type: scopeType,
     scope_id: scopeId ?? undefined,
+    version_label: input.name.trim() || input.code.trim(),
     effective_from: effectiveFrom,
     rule_dsl: ruleDsl,
     proof_policy: proofPolicy,
@@ -279,21 +284,7 @@ function normalizeVaccinationMatrixRows(
   matrixRows: VaccinationMatrixRow[],
 ): VaccinationMatrixRow[] {
   if (input.category !== "vaccination") return [];
-  const rows =
-    matrixRows.length > 0
-      ? matrixRows
-      : [
-          {
-            id: "current",
-            vaccine: input.vaccine,
-            species: input.eligibility.species,
-            stage: input.eligibility.stage,
-            sex: input.eligibility.sex,
-            breed: input.eligibility.breed,
-            doses: input.doses,
-          },
-        ];
-  return rows.map((row, index) => ({
+  return matrixRows.map((row, index) => ({
     id: row.id || `row-${index + 1}`,
     vaccine: {
       code: row.vaccine.code.trim(),
@@ -318,22 +309,8 @@ function validateVaccinationMatrixRows(
   input: RuleInput,
   matrixRows: VaccinationMatrixRow[],
 ): string {
-  const rows =
-    matrixRows.length > 0
-      ? matrixRows
-      : [
-          {
-            id: "current",
-            vaccine: input.vaccine,
-            species: input.eligibility.species,
-            stage: input.eligibility.stage,
-            sex: input.eligibility.sex,
-            breed: input.eligibility.breed,
-            doses: input.doses,
-          },
-        ];
-  for (let i = 0; i < rows.length; i += 1) {
-    const row = rows[i];
+  for (let i = 0; i < matrixRows.length; i += 1) {
+    const row = matrixRows[i];
     const rowLabel = `matrix row ${i + 1}`;
     const vaccineCode = row.vaccine.code.trim();
     const vaccineName = row.vaccine.name.trim();

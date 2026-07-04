@@ -465,7 +465,7 @@ func TestListEffectiveVaccinationVersionsForGoatPicksParkOverride(t *testing.T) 
 	}
 }
 
-func TestPublishVersionWithDerivedRulesRejectsOverlappingVaccinationMatrixFamily(t *testing.T) {
+func TestPublishVersionWithDerivedRulesReplacesOverlappingVaccinationMatrixFamily(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -524,15 +524,27 @@ func TestPublishVersionWithDerivedRulesRejectsOverlappingVaccinationMatrixFamily
 		t.Fatalf("create second version: %v", err)
 	}
 	secondRules, secondDims := derivedMatrixRows(secondVersion, "10000000-0000-4000-8000-000000000002", "ppr")
-	err = repo.PublishVersionWithDerivedRules(ctx, testTenantID, domain.Version{
+	if err := repo.PublishVersionWithDerivedRules(ctx, testTenantID, domain.Version{
 		ProtocolVersionID: secondVersion,
 		ProtocolID:        secondProtocol,
 		ScopeType:         "tenant",
 		Status:            "draft",
 		RuleDsl:           vaccinationMatrixRuleDSL(),
-	}, secondRules, secondDims, nil, "matrix-family-overlap")
-	if !errors.Is(err, ports.ErrActiveVersionOverlap) {
-		t.Fatalf("publish overlapping matrix err=%v, want ErrActiveVersionOverlap", err)
+	}, secondRules, secondDims, nil, "matrix-family-overlap"); err != nil {
+		t.Fatalf("publish replacement matrix: %v", err)
+	}
+	var firstStatus, secondStatus string
+	if err := pool.QueryRow(ctx, `
+SELECT first.status, second.status
+FROM protocol_versions first, protocol_versions second
+WHERE first.tenant_id = $1
+  AND first.protocol_version_id = $2
+  AND second.tenant_id = $1
+  AND second.protocol_version_id = $3`, testTenantID, firstVersion, secondVersion).Scan(&firstStatus, &secondStatus); err != nil {
+		t.Fatalf("read replacement statuses: %v", err)
+	}
+	if firstStatus != "retired" || secondStatus != "published" {
+		t.Fatalf("replacement statuses first=%s second=%s, want retired/published", firstStatus, secondStatus)
 	}
 
 	parkID := "00000000-0000-4000-8000-00000000c003"

@@ -42,7 +42,7 @@ try {
   await step("protocol adherence: filters, ledger drawer, and linked records", () => verifyProtocolAdherence(page));
   await step("workflows: catalog, chain links, and workflow detail", () => verifyWorkflows(page));
   await step("config: protocol-rule drawer and new draft page controls", () => verifyConfig(page));
-  await step("sop library: SOP card drawer and new SOP modal controls", () => verifySops(page));
+  await step("sop library: SOP card drawer and new SOP page controls", () => verifySops(page));
 } finally {
   await browser.close();
 }
@@ -326,22 +326,32 @@ async function verifySops(page) {
     await page.locator('[role="dialog"]').first().waitFor({ state: "visible", timeout: 5_000 });
     await expectVisibleText(page, /SOP|Vaccination/i, "SOP detail modal");
     await page.getByRole("button", { name: /Close/i }).first().click();
+    await page.locator('[role="dialog"]').first().waitFor({ state: "hidden", timeout: 5_000 }).catch(() => undefined);
   }
-  await page.getByRole("button", { name: /New SOP/i }).first().click();
-  const dialog = page.locator('[role="dialog"]').first();
-  await dialog.waitFor({ state: "visible", timeout: 5_000 });
-  await expectVisibleText(page, /Vaccination|SOP/i, "New SOP modal");
-  const trigger = dialog.getByRole("button", { name: /Form/i }).first();
+  await Promise.all([
+    page.waitForURL((url) => url.pathname === "/sops" && (url.searchParams.get("compose") === "1" || url.searchParams.get("new") === "1"), { timeout: 10_000 }),
+    page.getByRole("button", { name: /New SOP/i }).first().click(),
+  ]);
+  await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined);
+  await assertHealthy(page, "New SOP page");
+  if ((await page.locator('[role="dialog"]').count()) > 0) {
+    throw new Error("New SOP should render as a page, not a dialog");
+  }
+  await expectVisibleText(page, /New SOP.*form builder|Build it like a form/i, "New SOP page");
+  const builder = page.locator("main").first();
+  const trigger = builder.getByRole("button", { name: /^Form$/i }).first();
   if ((await trigger.count()) === 1) await trigger.click();
-  await dialog.getByRole("button", { name: /Add step/i }).click();
-  const remove = dialog.getByRole("button", { name: /Remove step/i }).last();
-  if ((await remove.count()) === 1) await remove.click();
-  const publish = dialog.getByRole("button", { name: /Publish/i }).first();
+  await builder.getByRole("button", { name: /Add question/i }).click();
+  const preview = builder.getByRole("button", { name: /Preview form/i }).first();
+  if ((await preview.count()) !== 1) throw new Error("New SOP page missing Preview form control");
+  const publish = builder.getByRole("button", { name: /Publish/i }).first();
   if ((await publish.count()) === 1 && !(await publish.isDisabled())) {
-    throw new Error("New SOP Publish is enabled before draft save");
+    throw new Error("New SOP page Publish is enabled before draft save");
   }
-  await dialog.getByRole("button", { name: /Close/i }).first().click();
-  await dialog.waitFor({ state: "hidden", timeout: 5_000 });
+  await Promise.all([
+    page.waitForURL((url) => url.pathname === "/sops" && url.searchParams.get("compose") !== "1" && url.searchParams.get("new") !== "1", { timeout: 10_000 }),
+    page.getByRole("link", { name: /Back to SOP Library/i }).first().click(),
+  ]);
 }
 
 async function goto(page, path) {
