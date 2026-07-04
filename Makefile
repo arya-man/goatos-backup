@@ -5,7 +5,7 @@ REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
 .PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants verify-google-dev-seed-fixtures admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
-.PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry
+.PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 
 setup-crg: ai-setup
 
@@ -79,6 +79,14 @@ update-docs-graph:
 
 ai-telemetry:
 	python3 tools/ai/analyze-transcripts.py
+
+# HTML telemetry report: realized-vs-unclaimed $ savings, per-agent totals,
+# by-day adoption trend, top sessions. Output is gitignored; opens in browser.
+ai-telemetry-ui:
+	python3 tools/ai/analyze-transcripts.py --by-day --html "$(REPO_ROOT)/ai-telemetry.html"
+	@if command -v open >/dev/null 2>&1; then open "$(REPO_ROOT)/ai-telemetry.html"; \
+	elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$(REPO_ROOT)/ai-telemetry.html"; \
+	else echo "Open: $(REPO_ROOT)/ai-telemetry.html"; fi
 
 guardrails:
 	bash tools/agent-hooks/check-boundaries.sh

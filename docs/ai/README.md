@@ -128,13 +128,40 @@ Cursor:
 
 ## Telemetry
 
-Run:
+Terminal summary:
 
 ```bash
 make ai-telemetry
 ```
 
-This summarizes local Claude/Codex transcript token usage, graph-tool signals,
-and RTK signals for Mesha workspace sessions, which is where Goat OS agents are
-normally launched. Use `--project goatos` only when analyzing clone-rooted
-sessions. It is a local measurement aid; do not commit transcript data.
+HTML report (opens in your browser — realized-vs-unclaimed $ savings, per-agent
+totals, by-day adoption trend, top sessions):
+
+```bash
+make ai-telemetry-ui
+```
+
+Both call `tools/ai/analyze-transcripts.py`, which reads local Claude/Codex
+transcripts (never network) and reports:
+
+- **Token consumption** per agent and per day for Mesha workspace sessions
+  (where Goat OS agents are normally launched). Use `--project goatos` only when
+  analyzing clone-rooted sessions.
+- **Graph / RTK adoption** — how many sessions and calls actually routed through
+  code-review-graph / Graphify / RTK vs bypassing them with raw grep/read/git-diff.
+- **A savings model** — tokens and USD *already banked* (realized) plus the
+  *unclaimed* savings left on the table because grep/read/git-diff calls skipped
+  the stack. Per-call savings are conservative constants from this repo's eval
+  (~9k tok/graph query, ~15k/diff); every assumption is a flag:
+
+  ```bash
+  # tune pricing + per-call savings for the money estimate
+  python3 tools/ai/analyze-transcripts.py --by-day \
+      --price-per-mtok 15 --graph-save 9000 --rtk-save 15000 \
+      --html ai-telemetry.html
+  ```
+
+The point is the **unclaimed** number: it is an adoption gap, not a missing tool
+— route greps through the graph and diffs through RTK to claim it. It is a local
+measurement aid; the generated `ai-telemetry.html` is gitignored and transcript
+data must never be committed.

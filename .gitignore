@@ -77,4 +77,8 @@ graphify-out/cache/
 /.mcp.json
 /.vscode/
 
+# generated telemetry report (make ai-telemetry-ui) — local-only, has no secrets
+# but is machine-specific; never commit
+/ai-telemetry.html
+
 wiki/
