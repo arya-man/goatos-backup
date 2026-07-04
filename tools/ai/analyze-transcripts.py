@@ -169,7 +169,13 @@ def analyze_codex(path: Path, project: str) -> SessionStats:
 
 
 def analyze_claude(path: Path, project: str) -> SessionStats:
-    stats = SessionStats(agent="claude", path=path)
+    # Subagent + workflow transcripts are separate LLM runs with their own
+    # context windows — real ADDITIONAL spend, not the parent's tokens. Keep
+    # them in their own bucket so the subagent burn is visible, never folded
+    # into the main "claude" line.
+    parts = set(path.parts)
+    agent = "claude-sub" if ("subagents" in parts or "workflows" in parts) else "claude"
+    stats = SessionStats(agent=agent, path=path)
     seen_usage: set[str] = set()
     for event in load_jsonl(path):
         cwd = event.get("cwd") or event.get("project") or event.get("project_path")

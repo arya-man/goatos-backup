@@ -145,8 +145,12 @@ Both call `tools/ai/analyze-transcripts.py`, which reads local Claude/Codex
 transcripts (never network) and reports:
 
 - **Token consumption** per agent and per day for Mesha workspace sessions
-  (where Goat OS agents are normally launched). Use `--project goatos` only when
-  analyzing clone-rooted sessions.
+  (where Goat OS agents are normally launched); Heva sessions are excluded by
+  the `mesha` path/cwd filter. Use `--project goatos` only when analyzing
+  clone-rooted sessions. Claude subagent/workflow transcripts are counted as a
+  separate `claude-sub` agent — they are real additional spend (each subagent
+  gets its own context window), so they are never folded into the main `claude`
+  line where the cost would be invisible.
 - **Graph / RTK adoption** — how many sessions and calls actually routed through
   code-review-graph / Graphify / RTK vs bypassing them with raw grep/read/git-diff.
 - **A savings model** — tokens and USD *already banked* (realized) plus the
