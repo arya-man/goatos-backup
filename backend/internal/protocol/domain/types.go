@@ -85,6 +85,8 @@ type NewRule struct {
 // Rule is a stored dose/phase rule.
 type Rule struct {
 	RuleID              string
+	ProtocolVersionID   string
+	ProtocolID          string
 	DoseCode            string
 	Sequence            int32
 	TriggerType         string
@@ -97,6 +99,46 @@ type Rule struct {
 	EligibilityJSON     []byte
 	SopVersionID        string
 	SortOrder           int32
+}
+
+// RuleDimension is the compiled, indexed selector form of an authored rule row.
+// The JSON rule_dsl remains the authoring source of truth; publish materializes
+// these rows so generation, impact scans, and audits can reason over stable
+// dimensions at herd scale without reparsing the full matrix per animal.
+type RuleDimension struct {
+	Category                  string
+	RulesetFamily             string
+	ProtocolVersionID         string
+	RuleID                    string
+	MatrixRowID               string
+	SelectorKey               string
+	DoseCode                  string
+	SourceDoseCode            string
+	VaccineCode               string
+	VaccineType               string
+	PathogenClass             string
+	CompatibilityGroup        string
+	Species                   string
+	AnimalStage               string
+	Sex                       string
+	Breed                     string
+	Lifecycle                 string
+	Health                    string
+	Reproductive              string
+	MinAgeDays                *int32
+	MaxAgeDays                *int32
+	TriggerType               string
+	Sequence                  int32
+	OffsetDays                int32
+	DueWindowDays             int32
+	MinGapDays                int32
+	Repeat                    string
+	CatchUp                   string
+	MaxDelayDays              int32
+	RevaccinationIntervalDays int32
+	EligibilityJSON           []byte
+	VaccineJSON               []byte
+	ScheduleJSON              []byte
 }
 
 // ConfigListItem is one row of the Config authority list (B3): a protocol version (any status)

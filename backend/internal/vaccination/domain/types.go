@@ -103,12 +103,14 @@ type LastAccepted struct {
 // ImpactFilter is the eligibility predicate for impact preview. Empty text dims mean "any";
 // ParkID nil means tenant-wide.
 type ImpactFilter struct {
-	TenantID string
-	Stage    string
-	Sex      string
-	Breed    string
-	Health   string
-	ParkID   *string
+	TenantID          string
+	ProtocolVersionID string
+	AsOf              time.Time
+	Stage             string
+	Sex               string
+	Breed             string
+	Health            string
+	ParkID            *string
 }
 
 // ImpactRequest drives a live impact preview for a vaccination rule/version.
@@ -170,6 +172,7 @@ type RecentVaccineAdministration struct {
 	DoseCode          string
 	Sequence          int32
 	ProtocolVersionID string
+	ProtocolID        string
 }
 
 // GenerateResult summarises an SM-1 generation run.

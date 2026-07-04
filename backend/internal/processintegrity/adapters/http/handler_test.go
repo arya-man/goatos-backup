@@ -229,6 +229,32 @@ func TestActionCenterRejectsMalformedOrOversizedCursor(t *testing.T) {
 	}
 }
 
+func TestActionCenterRejectsOversizedOffset(t *testing.T) {
+	reader := &fakeReader{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader))
+
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/action-center?offset=50001", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), handlerTenant))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.actionQuery.TenantID != "" {
+		t.Fatalf("reader was called for oversized offset: %+v", reader.actionQuery)
+	}
+	var body errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if body.Code != "offset_too_large" {
+		t.Fatalf("error code = %q", body.Code)
+	}
+}
+
 func TestActionCenterRejectsInvalidWorkState(t *testing.T) {
 	reader := &fakeReader{}
 	mux := http.NewServeMux()

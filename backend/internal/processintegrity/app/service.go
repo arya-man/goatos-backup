@@ -45,26 +45,14 @@ func (s *Service) ActionCenter(ctx context.Context, q domain.Query) (domain.Acti
 func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain.ProtocolAdherenceResponse, error) {
 	q = s.defaults(q)
 	q.IncludeCompleted = true
+	q.IncludeAdherenceSummary = true
 	result, err := s.repo.ListRows(ctx, q)
 	if err != nil {
 		return domain.ProtocolAdherenceResponse{}, err
 	}
 	rows := make([]domain.AdherenceRow, 0, len(result.Rows))
-	summary := domain.AdherenceSummary{}
+	summary := result.AdherenceSummary
 	for _, row := range result.Rows {
-		summary.ExpectedCount += row.ExpectedCount
-		summary.CompletedCount += row.CompletedCount
-		if row.ProcessIntact {
-			summary.ProcessIntactCount++
-		} else {
-			summary.OpenGapCount++
-		}
-		if row.WorkState == domain.WorkStateDeferred {
-			summary.DeferredCount += row.DeferredCount
-			if row.DeferredCount == 0 {
-				summary.DeferredCount++
-			}
-		}
 		rows = append(rows, domain.AdherenceRow{
 			RowID:      row.RowID,
 			Expected:   expectedText(row),

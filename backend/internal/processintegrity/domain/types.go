@@ -168,6 +168,9 @@ type Query struct {
 	Cursor             *Cursor
 	IncludeCompleted   bool
 	OnlyBrokenOrAtRisk bool
+	// IncludeAdherenceSummary asks the repository to compute Protocol Adherence
+	// KPIs over the full filtered set, not only the current page.
+	IncludeAdherenceSummary bool
 }
 
 type Cursor struct {
@@ -185,6 +188,7 @@ type ListResult struct {
 	Rows              []Row              `json:"rows"`
 	CountsByWorkState []CountByWorkState `json:"counts_by_work_state"`
 	TotalCount        int64              `json:"total_count"`
+	AdherenceSummary  AdherenceSummary   `json:"-"`
 	NextCursor        *string            `json:"next_cursor,omitempty"`
 }
 

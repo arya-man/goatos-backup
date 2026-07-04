@@ -3923,6 +3923,54 @@ CREATE TABLE public.protocol_definitions (
 
 
 --
+-- Name: protocol_rule_dimensions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.protocol_rule_dimensions (
+    protocol_rule_dimension_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    protocol_version_id uuid NOT NULL,
+    rule_id uuid NOT NULL,
+    category text NOT NULL,
+    ruleset_family text DEFAULT ''::text NOT NULL,
+    matrix_row_id text DEFAULT ''::text NOT NULL,
+    selector_key text NOT NULL,
+    dose_code text DEFAULT ''::text NOT NULL,
+    source_dose_code text DEFAULT ''::text NOT NULL,
+    vaccine_code text DEFAULT ''::text NOT NULL,
+    vaccine_type text DEFAULT ''::text NOT NULL,
+    pathogen_class text DEFAULT ''::text NOT NULL,
+    compatibility_group text DEFAULT ''::text NOT NULL,
+    species text DEFAULT 'all'::text NOT NULL,
+    animal_stage text DEFAULT 'all'::text NOT NULL,
+    sex text DEFAULT 'all'::text NOT NULL,
+    breed text DEFAULT 'all'::text NOT NULL,
+    lifecycle text DEFAULT 'alive'::text NOT NULL,
+    health text DEFAULT 'any'::text NOT NULL,
+    reproductive text DEFAULT 'any'::text NOT NULL,
+    min_age_days integer,
+    max_age_days integer,
+    trigger_type text DEFAULT ''::text NOT NULL,
+    sequence integer DEFAULT 0 NOT NULL,
+    offset_days integer DEFAULT 0 NOT NULL,
+    due_window_days integer DEFAULT 0 NOT NULL,
+    min_gap_days integer DEFAULT 0 NOT NULL,
+    repeat text DEFAULT 'none'::text NOT NULL,
+    catch_up text DEFAULT 'immediate'::text NOT NULL,
+    max_delay_days integer DEFAULT 0 NOT NULL,
+    revaccination_interval_days integer DEFAULT 0 NOT NULL,
+    eligibility_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    vaccine_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    schedule_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT protocol_rule_dimensions_animal_stage_check CHECK ((animal_stage <> ''::text)),
+    CONSTRAINT protocol_rule_dimensions_breed_check CHECK ((breed <> ''::text)),
+    CONSTRAINT protocol_rule_dimensions_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text, 'all'::text]))),
+    CONSTRAINT protocol_rule_dimensions_species_check CHECK ((species <> ''::text))
+);
+
+
+--
 -- Name: protocol_rules; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6019,6 +6067,22 @@ ALTER TABLE ONLY public.protocol_definitions
 
 ALTER TABLE ONLY public.protocol_definitions
     ADD CONSTRAINT protocol_definitions_tenant_id_unique UNIQUE (tenant_id, protocol_id);
+
+
+--
+-- Name: protocol_rule_dimensions protocol_rule_dimensions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_rule_dimensions
+    ADD CONSTRAINT protocol_rule_dimensions_pkey PRIMARY KEY (protocol_rule_dimension_id);
+
+
+--
+-- Name: protocol_rule_dimensions protocol_rule_dimensions_tenant_id_protocol_version_id_rule_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_rule_dimensions
+    ADD CONSTRAINT protocol_rule_dimensions_tenant_id_protocol_version_id_rule_key UNIQUE (tenant_id, protocol_version_id, rule_id, selector_key);
 
 
 --
@@ -8638,6 +8702,34 @@ CREATE UNIQUE INDEX proof_artifacts_tenant_object_key_unique_idx ON public.proof
 --
 
 CREATE INDEX proof_artifacts_tenant_state_idx ON public.proof_artifacts USING btree (tenant_id, upload_state, created_at DESC, proof_id DESC);
+
+
+--
+-- Name: protocol_rule_dimensions_age_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX protocol_rule_dimensions_age_idx ON public.protocol_rule_dimensions USING btree (tenant_id, protocol_version_id, category, min_age_days, max_age_days);
+
+
+--
+-- Name: protocol_rule_dimensions_match_folded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX protocol_rule_dimensions_match_folded_idx ON public.protocol_rule_dimensions USING btree (tenant_id, protocol_version_id, category, species, lower(animal_stage), sex, lower(breed));
+
+
+--
+-- Name: protocol_rule_dimensions_match_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX protocol_rule_dimensions_match_idx ON public.protocol_rule_dimensions USING btree (tenant_id, protocol_version_id, category, species, animal_stage, sex, breed);
+
+
+--
+-- Name: protocol_rule_dimensions_rule_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX protocol_rule_dimensions_rule_idx ON public.protocol_rule_dimensions USING btree (tenant_id, rule_id);
 
 
 --
@@ -12433,6 +12525,30 @@ ALTER TABLE ONLY public.proof_artifacts
 
 ALTER TABLE ONLY public.protocol_definitions
     ADD CONSTRAINT protocol_definitions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: protocol_rule_dimensions protocol_rule_dimensions_protocol_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_rule_dimensions
+    ADD CONSTRAINT protocol_rule_dimensions_protocol_version_id_fkey FOREIGN KEY (protocol_version_id) REFERENCES public.protocol_versions(protocol_version_id) ON DELETE CASCADE;
+
+
+--
+-- Name: protocol_rule_dimensions protocol_rule_dimensions_rule_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_rule_dimensions
+    ADD CONSTRAINT protocol_rule_dimensions_rule_id_fkey FOREIGN KEY (rule_id) REFERENCES public.protocol_rules(rule_id) ON DELETE CASCADE;
+
+
+--
+-- Name: protocol_rule_dimensions protocol_rule_dimensions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_rule_dimensions
+    ADD CONSTRAINT protocol_rule_dimensions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id) ON DELETE CASCADE;
 
 
 --

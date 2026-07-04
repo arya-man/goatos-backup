@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Syringe, X } from "lucide-react";
 import { getVaccinationAdherence } from "@/lib/api/server";
 import type { AdherenceRow, ProcessIntegrityEvidence, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
@@ -6,6 +7,7 @@ import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, 
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "./process-integrity";
+import { backendPage, maxPageFor, pageResult } from "./pagination";
 import { ClipText, Tag } from "@/components/ui-primitives";
 import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 
@@ -47,25 +49,6 @@ function adherenceLedgerLabels(pageContract: AdminUiPageContract): string[] {
 
 function copyOr(pageContract: AdminUiPageContract, key: string, fallback: string): string {
   return optionalCopy(pageContract, key) ?? fallback;
-}
-
-function backendPage(
-  sp: RouteSearchParams,
-  prefix: string,
-  pageSizeOptions: readonly number[],
-  fallbackPageSize: VaccinationPageSize,
-): { page: number; pageSize: VaccinationPageSize; offset: number } {
-  const requestedSize = Number(one(sp, `${prefix}_limit`));
-  const pageSize = pageSizeOptions.includes(requestedSize) ? requestedSize : fallbackPageSize;
-  const requestedPage = Number(one(sp, `${prefix}_page`));
-  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  return { page, pageSize, offset: (page - 1) * pageSize };
-}
-
-function pageResult<T>(items: T[], total: number, page: number, pageSize: VaccinationPageSize) {
-  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const end = total === 0 ? 0 : Math.min(total, (page - 1) * pageSize + items.length);
-  return { items, page, pageSize, total, start, end };
 }
 
 function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string {
@@ -134,7 +117,17 @@ export async function ProtocolAdherencePage({
   const summary = result.ok ? result.data.summary : null;
   const rows: AdherenceRow[] = result.ok ? result.data.rows : [];
   const hasLedgerFilters = severityFilter !== "all" || workStateFilter !== "all";
-  const paged = pageResult(rows, result.ok ? result.data.total_count : 0, requestedPage.page, requestedPage.pageSize);
+  const totalCount = result.ok ? result.data.total_count : 0;
+  const maxPage = maxPageFor(totalCount, requestedPage.pageSize);
+  if (result.ok && requestedPage.page > maxPage) {
+    redirect(scopeHref("/protocol-adherence", scope, {}, {
+      severity: severityFilter,
+      state: workStateFilter,
+      adh_page: String(maxPage),
+      adh_limit: String(requestedPage.pageSize),
+    }));
+  }
+  const paged = pageResult(rows, totalCount, requestedPage.page, requestedPage.pageSize);
   const ledgerLabels = adherenceLedgerLabels(pageContract);
   const selectedRowId = one(sp, "adh_row");
   const selectedRow = selectedRowId ? rows.find((row) => row.row_id === selectedRowId) : undefined;

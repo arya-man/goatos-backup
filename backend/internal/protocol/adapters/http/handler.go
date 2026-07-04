@@ -220,6 +220,11 @@ func (h *Handler) AddRule(w http.ResponseWriter, r *http.Request) {
 			errorEnvelope{Code: "unsupported_repeat_policy", Message: "repeat must be one of none, every_n_days, or yearly", TraceID: traceID(r)}, nil)
 		return
 	}
+	if errors.Is(err, app.ErrNotPublishable) {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			errorEnvelope{Code: "not_publishable", Message: err.Error(), TraceID: traceID(r)}, nil)
+		return
+	}
 	if err != nil {
 		h.internal(w, r, err)
 		return

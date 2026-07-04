@@ -95,6 +95,62 @@ func TestGenerateForVersionChecksAllRecentVaccinesForCrossGap(t *testing.T) {
 	}
 }
 
+func TestDueAfterPreviousCompletionRequiresPositiveGap(t *testing.T) {
+	administered := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
+	rule := protodomain.Rule{
+		RuleID:      "rule-et-booster",
+		DoseCode:    "et_booster",
+		Sequence:    2,
+		TriggerType: "after_previous_completion",
+		OffsetDays:  0,
+		MinGapDays:  0,
+	}
+	history := []domain.RecentVaccineAdministration{{
+		AdministeredAt: administered,
+		VaccineCode:    "ET_TT",
+		Sequence:       1,
+	}}
+
+	if due, ok := dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, history); ok {
+		t.Fatalf("due=%s, want no due date for non-positive after_previous_completion gap", due)
+	}
+}
+
+func TestDueAfterPreviousCompletionRequiresSameProtocolLineage(t *testing.T) {
+	administered := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
+	rule := protodomain.Rule{
+		RuleID:            "rule-et-booster",
+		ProtocolVersionID: "version-v2",
+		ProtocolID:        "protocol-vaccination",
+		DoseCode:          "et_booster",
+		Sequence:          2,
+		TriggerType:       "after_previous_completion",
+		OffsetDays:        21,
+	}
+	otherProtocol := []domain.RecentVaccineAdministration{{
+		AdministeredAt:    administered,
+		VaccineCode:       "ET_TT",
+		Sequence:          1,
+		ProtocolVersionID: "version-other",
+		ProtocolID:        "protocol-other",
+	}}
+	if due, ok := dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, otherProtocol); ok {
+		t.Fatalf("due=%s, want unrelated protocol completion ignored", due)
+	}
+
+	sameProtocolPreviousVersion := []domain.RecentVaccineAdministration{{
+		AdministeredAt:    administered,
+		VaccineCode:       "ET_TT",
+		Sequence:          1,
+		ProtocolVersionID: "version-v1",
+		ProtocolID:        "protocol-vaccination",
+	}}
+	due, ok := dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, sameProtocolPreviousVersion)
+	if !ok || !due.Equal(administered.AddDate(0, 0, 21)) {
+		t.Fatalf("due=%s ok=%v, want same protocol lineage accepted", due, ok)
+	}
+}
+
 func TestManualCampaignHTTPRunReplaysByIdempotencyKey(t *testing.T) {
 	ctx := context.Background()
 	proto := &generationProtoFake{}
@@ -204,15 +260,56 @@ func TestGenerateForVersionUsesConfigAnimalStageEligibility(t *testing.T) {
 	obl := &generationObligationFake{seen: map[string]bool{}}
 	gen := NewGenerationService(proto, goats, obl)
 
-	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	asOf := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if result.Generated != 1 || len(obl.inserted) != 1 || obl.inserted[0].TargetID != "goat-k1" {
 		t.Fatalf("result=%#v inserted=%#v, want only K1 goat generated", result, obl.inserted)
 	}
-	if len(goats.filters) != 1 || goats.filters[0].Stage != "K1" {
-		t.Fatalf("impact filters=%#v, want Config animal_stage propagated", goats.filters)
+	if len(goats.filters) != 1 || goats.filters[0].Stage != "K1" || goats.filters[0].ProtocolVersionID != "version-1" || !goats.filters[0].AsOf.Equal(asOf) {
+		t.Fatalf("impact filters=%#v, want Config animal_stage, version, and asOf propagated", goats.filters)
+	}
+}
+
+func TestGenerateForVersionAcceptsMatrixArraySelectors(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"all","species":["goat","sheep"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"defer_states":["icu","quarantine"]}}`),
+		rules: []protodomain.Rule{{
+			RuleID:          "rule-kid-array",
+			DoseCode:        "kid-primary",
+			Sequence:        1,
+			TriggerType:     "birth_age",
+			OffsetDays:      28,
+			EligibilityJSON: []byte(`{"matrix_row_id":"kid-goat-primary","eligibility":{"species":["goat"],"animal_stage":["K1","K2"],"sex":["female"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"defer_states":["icu","quarantine"]},"vaccine":{"code":"ET_TT","type":"killed","pathogen_class":"killed"}}`),
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-k1-female", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Sex: "female", Stage: "K1", Breed: "Beetal", DOB: &dob},
+		{GoatID: "goat-k2-female", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Sex: "female", Stage: "K2", Breed: "Osmanabadi", DOB: &dob},
+		{GoatID: "goat-k1-male", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Sex: "male", Stage: "K1", Breed: "Beetal", DOB: &dob},
+		{GoatID: "sheep-k1-female", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "sheep", Sex: "female", Stage: "K1", Breed: "Anantapur Sheep", DOB: &dob},
+		{GoatID: "goat-adult-female", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Sex: "female", Stage: "adult", Breed: "Beetal", DOB: &dob},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 15, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate with array selectors: %v", err)
+	}
+	if result.Generated != 2 || len(obl.inserted) != 2 {
+		t.Fatalf("result=%#v inserted=%#v, want two female goat kid obligations", result, obl.inserted)
+	}
+	got := map[string]bool{}
+	for _, ob := range obl.inserted {
+		got[ob.TargetID] = true
+	}
+	if !got["goat-k1-female"] || !got["goat-k2-female"] {
+		t.Fatalf("inserted targets=%#v, want K1 and K2 female goats", got)
 	}
 }
 
@@ -338,6 +435,36 @@ func TestGenerateForVersionHonorsVaccinationRulesClinicalAndPregnancyRules(t *te
 	}
 	if got["goat-pregnant"] != "" || got["goat-lactating"] != "" {
 		t.Fatalf("statuses=%#v, pregnant/lactating goats should be excluded until a reviewed row allows them", got)
+	}
+}
+
+func TestGenerateForVersionDefersClinicalHoldEvenWhenRuleTargetsHealthy(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"healthy","reproductive":"any","defer_states":["sick","under_treatment","quarantine","icu"]}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21, DueWindowDays: 7,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-sick", LifecycleStatus: "alive", HealthStatus: "sick", ReproductiveStatus: "open", Stage: "K1", DOB: &dob},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 1 || result.Deferred != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want visible deferred work for sick animal", result, obl.inserted)
+	}
+	if got := obl.inserted[0].Status; got != "deferred" {
+		t.Fatalf("status=%q, want deferred", got)
+	}
+	if len(goats.filters) != 1 || goats.filters[0].Health != "" {
+		t.Fatalf("filters=%#v, health must not prefilter clinical holds out of SM-1", goats.filters)
 	}
 }
 

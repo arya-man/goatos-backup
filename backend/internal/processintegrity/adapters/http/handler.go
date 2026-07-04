@@ -48,6 +48,7 @@ const (
 	defaultLimit       = 100
 	defaultHorizonDays = 30
 	maxLimit           = 500
+	maxOffset          = 50000
 )
 
 var allowedWorkStates = map[domain.WorkState]bool{
@@ -250,6 +251,10 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request, defaultRowLimit 
 		n, err := strconv.Atoi(offset)
 		if err != nil || n < 0 {
 			h.badRequest(w, r, "invalid_offset", "offset must be a non-negative integer")
+			return domain.Query{}, false
+		}
+		if n > maxOffset {
+			h.badRequest(w, r, "offset_too_large", "offset is too large; use filters or cursor pagination")
 			return domain.Query{}, false
 		}
 		q.Offset = n

@@ -867,6 +867,8 @@ func (r *Repository) ListRules(ctx context.Context, tenantID, versionID string) 
 	for _, row := range rows {
 		out = append(out, domain.Rule{
 			RuleID:              row.RuleID,
+			ProtocolVersionID:   row.ProtocolVersionID,
+			ProtocolID:          row.ProtocolID,
 			DoseCode:            row.DoseCode,
 			Sequence:            row.Sequence,
 			TriggerType:         row.TriggerType,
@@ -882,6 +884,70 @@ func (r *Repository) ListRules(ctx context.Context, tenantID, versionID string) 
 		})
 	}
 	return out, nil
+}
+
+// ReplaceProtocolRuleDimensions rewrites the compiled selector rows for one protocol version.
+// The caller owns DSL validation; this method only makes the materialized table atomic.
+func (r *Repository) ReplaceProtocolRuleDimensions(ctx context.Context, tenantID, versionID string, dimensions []domain.RuleDimension) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	vid, err := pgconv.UUID(versionID)
+	if err != nil {
+		return fmt.Errorf("protocol: version id: %w", err)
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("protocol: begin replace rule dimensions: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `
+DELETE FROM protocol_rule_dimensions
+WHERE tenant_id = $1 AND protocol_version_id = $2`, tenant, vid); err != nil {
+		return fmt.Errorf("protocol: delete rule dimensions: %w", err)
+	}
+	for _, dim := range dimensions {
+		ruleID, err := pgconv.UUID(dim.RuleID)
+		if err != nil {
+			return fmt.Errorf("protocol: dimension rule id %q: %w", dim.RuleID, err)
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO protocol_rule_dimensions (
+  tenant_id, protocol_version_id, rule_id, category, ruleset_family, matrix_row_id, selector_key,
+  dose_code, source_dose_code, vaccine_code, vaccine_type, pathogen_class, compatibility_group,
+  species, animal_stage, sex, breed, lifecycle, health, reproductive, min_age_days, max_age_days,
+  trigger_type, sequence, offset_days, due_window_days, min_gap_days, repeat, catch_up,
+  max_delay_days, revaccination_interval_days, eligibility_json, vaccine_json, schedule_json
+) VALUES (
+  $1, $2, $3, $4, $5, $6, $7,
+  $8, $9, $10, $11, $12, $13,
+  $14, $15, $16, $17, $18, $19, $20, $21, $22,
+  $23, $24, $25, $26, $27, $28, $29,
+  $30, $31, $32, $33, $34
+)`, tenant, vid, ruleID,
+			dim.Category, dim.RulesetFamily, dim.MatrixRowID, dim.SelectorKey,
+			dim.DoseCode, dim.SourceDoseCode, dim.VaccineCode, dim.VaccineType, dim.PathogenClass, dim.CompatibilityGroup,
+			dim.Species, dim.AnimalStage, dim.Sex, dim.Breed, dim.Lifecycle, dim.Health, dim.Reproductive, pgconv.Int4(dim.MinAgeDays), pgconv.Int4(dim.MaxAgeDays),
+			dim.TriggerType, dim.Sequence, dim.OffsetDays, dim.DueWindowDays, dim.MinGapDays, dim.Repeat, dim.CatchUp,
+			dim.MaxDelayDays, dim.RevaccinationIntervalDays, pgconv.JSONB(defaultJSON(dim.EligibilityJSON)), pgconv.JSONB(defaultJSON(dim.VaccineJSON)), pgconv.JSONB(defaultJSON(dim.ScheduleJSON)),
+		); err != nil {
+			return fmt.Errorf("protocol: insert rule dimension %s: %w", dim.SelectorKey, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("protocol: commit replace rule dimensions: %w", err)
+	}
+	return nil
+}
+
+func defaultJSON(raw []byte) []byte {
+	if len(raw) == 0 {
+		return []byte(`{}`)
+	}
+	return raw
 }
 
 // ListConfigs returns every protocol version (draft/published/retired) in a category for a tenant,

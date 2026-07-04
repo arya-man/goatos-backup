@@ -75,12 +75,16 @@ ORDER BY pv.protocol_id,
          pv.protocol_version_id DESC;
 
 -- name: ListRulesForVersion :many
-SELECT rule_id::text AS rule_id, dose_code, "sequence", trigger_type, offset_days,
-       due_window_days, min_gap_days, "repeat", COALESCE(repeat_until_after_age, '')::text AS repeat_until_after_age,
-       catch_up, eligibility_json, COALESCE(sop_version_id::text, '')::text AS sop_version_id, sort_order
-FROM protocol_rules
-WHERE tenant_id = @tenant_id AND protocol_version_id = @protocol_version_id
-ORDER BY sort_order ASC, "sequence" ASC;
+SELECT pr.rule_id::text AS rule_id, pr.protocol_version_id::text AS protocol_version_id,
+       pv.protocol_id::text AS protocol_id, pr.dose_code, pr."sequence", pr.trigger_type, pr.offset_days,
+       pr.due_window_days, pr.min_gap_days, pr."repeat", COALESCE(pr.repeat_until_after_age, '')::text AS repeat_until_after_age,
+       pr.catch_up, pr.eligibility_json, COALESCE(pr.sop_version_id::text, '')::text AS sop_version_id, pr.sort_order
+FROM protocol_rules pr
+JOIN protocol_versions pv
+  ON pv.tenant_id = pr.tenant_id
+ AND pv.protocol_version_id = pr.protocol_version_id
+WHERE pr.tenant_id = @tenant_id AND pr.protocol_version_id = @protocol_version_id
+ORDER BY pr.sort_order ASC, pr."sequence" ASC;
 
 -- name: ListActiveAnimalStages :many
 -- Active animal-stage reference data for a tenant, ordered for display. Drives the Config authoring

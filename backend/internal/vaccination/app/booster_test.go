@@ -46,6 +46,33 @@ func TestScheduleNextDoseUsesImmediateNextSequence(t *testing.T) {
 	}
 }
 
+func TestScheduleNextDoseSkipsNonPositiveCompletionGap(t *testing.T) {
+	ctx := context.Background()
+	proto := &boosterRuleReaderFake{rules: []protodomain.Rule{
+		{RuleID: "rule-1", DoseCode: "dose-a", Sequence: 1, TriggerType: "birth_age"},
+		{RuleID: "rule-2", DoseCode: "dose-b", Sequence: 2, TriggerType: "after_previous_completion"},
+	}}
+	obl := &boosterObligationWriterFake{}
+	svc := NewBoosterService(proto, obl)
+
+	scheduled, err := svc.ScheduleNextDose(ctx, ScheduleNextInput{
+		TenantID:          "tenant-1",
+		ProtocolVersionID: "version-1",
+		GoatID:            "goat-1",
+		ScopeType:         "shed",
+		ScopeID:           "shed-1",
+		PrevSequence:      1,
+		AdministeredAt:    time.Date(2026, time.June, 27, 8, 0, 0, 0, time.UTC),
+	})
+
+	if err != nil {
+		t.Fatalf("schedule next dose: %v", err)
+	}
+	if scheduled || len(obl.inserted) != 0 {
+		t.Fatalf("scheduled=%v inserted=%d, want no obligation for non-positive completion gap", scheduled, len(obl.inserted))
+	}
+}
+
 func TestScheduleNextDoseUsesNextHigherNonContiguousSequence(t *testing.T) {
 	ctx := context.Background()
 	proto := &boosterRuleReaderFake{rules: []protodomain.Rule{

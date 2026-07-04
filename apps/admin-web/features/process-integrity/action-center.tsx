@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Ban, GitBranch, Info, ShieldCheck, Syringe, Video, X } from "lucide-react";
 import { getVaccinationActionCenter, getVaccinationVerificationQueue } from "@/lib/api/server";
 import { actionFeedbackCopy, copy, optionGroup, tableLabels, tablePageSizes, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -15,6 +16,7 @@ import {
   WORK_STATE_ORDER,
   type Tone,
 } from "./process-integrity";
+import { backendPage, maxPageFor, pageResult } from "./pagination";
 import { SopChecklist } from "./sop-checklist";
 import {
   VACCINATION_DRIVE_SOP_STEPS,
@@ -75,25 +77,6 @@ function shortId(id: string): string {
 
 function hasReviewHandle(taskId?: string, rowVersion?: number): boolean {
   return Boolean(taskId) && Number(rowVersion ?? 0) > 0;
-}
-
-function backendPage(
-  sp: RouteSearchParams,
-  prefix: string,
-  pageSizeOptions: readonly number[],
-  fallbackPageSize: VaccinationPageSize,
-): { page: number; pageSize: VaccinationPageSize; offset: number } {
-  const requestedSize = Number(one(sp, `${prefix}_limit`));
-  const pageSize = pageSizeOptions.includes(requestedSize) ? requestedSize : fallbackPageSize;
-  const requestedPage = Number(one(sp, `${prefix}_page`));
-  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  return { page, pageSize, offset: (page - 1) * pageSize };
-}
-
-function pageResult<T>(items: T[], total: number, page: number, pageSize: VaccinationPageSize) {
-  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const end = total === 0 ? 0 : Math.min(total, (page - 1) * pageSize + items.length);
-  return { items, page, pageSize, total, start, end };
 }
 
 // ActionForm posts a per-row server action (Verify / Reject / Rework) against a real completion id.
@@ -172,7 +155,18 @@ export async function VaccinationActionCenterPage({
   const verificationHeaders = tableLabels(pageContract, "verification-queue");
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
   const severityOptions = optionGroup(pageContract, "severity_chips");
-  const boardPaged = pageResult(items, actionCenter.ok ? actionCenter.data.total_count : 0, requestedBoardPage.page, requestedBoardPage.pageSize);
+  const boardTotalCount = actionCenter.ok ? actionCenter.data.total_count : 0;
+  const maxBoardPage = maxPageFor(boardTotalCount, requestedBoardPage.pageSize);
+  if (actionCenter.ok && requestedBoardPage.page > maxBoardPage) {
+    redirect(scopeHref("/action-center", scope, {}, {
+      bucket: view === "verify" ? "verify" : undefined,
+      severity: severityFilter,
+      state: stateFilter,
+      ac_page: String(maxBoardPage),
+      ac_limit: String(requestedBoardPage.pageSize),
+    }));
+  }
+  const boardPaged = pageResult(items, boardTotalCount, requestedBoardPage.page, requestedBoardPage.pageSize);
   const queuePaged = paginateRows(queueItems, sp, "verify", 10, queuePageSizeOptions);
   const nextCursor = actionCenter.ok ? actionCenter.data.next_cursor : undefined;
   const selectedActionRowId = one(sp, "ac_row");

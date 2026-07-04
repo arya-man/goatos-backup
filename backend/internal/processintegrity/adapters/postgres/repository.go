@@ -87,6 +87,20 @@ func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListR
 		return domain.ListResult{}, fmt.Errorf("processintegrity: iterate counts: %w", err)
 	}
 
+	summary := domain.AdherenceSummary{}
+	if q.IncludeAdherenceSummary {
+		summaryRows := r.pool.QueryRow(ctx, processIntegrityAdherenceSummarySQL, countQueryArgs(args)...)
+		if err := summaryRows.Scan(
+			&summary.ExpectedCount,
+			&summary.CompletedCount,
+			&summary.OpenGapCount,
+			&summary.DeferredCount,
+			&summary.ProcessIntactCount,
+		); err != nil {
+			return domain.ListResult{}, fmt.Errorf("processintegrity: adherence summary: %w", err)
+		}
+	}
+
 	var next *string
 	if seenExtra && lastCursor != nil {
 		encoded, err := domain.EncodeCursor(*lastCursor)
@@ -95,7 +109,7 @@ func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListR
 		}
 		next = &encoded
 	}
-	return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, NextCursor: next}, nil
+	return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, AdherenceSummary: summary, NextCursor: next}, nil
 }
 
 func (r *Repository) GetRow(ctx context.Context, q domain.Query, rowID string) (domain.Row, bool, error) {
@@ -1187,4 +1201,32 @@ SELECT work_state, COUNT(*)::bigint
 FROM all_counts
 GROUP BY work_state
 ORDER BY work_state;
+`
+
+const processIntegrityAdherenceSummarySQL = processIntegrityBaseSQL + processIntegrityFeedExceptionSQL + `,
+all_summary AS (
+  SELECT
+    expected_count,
+    completed_count,
+    deferred_count + health_deferred_count AS deferred_count,
+    work_state,
+    process_intact
+  FROM filtered
+  WHERE ($15::text = '' OR $15::text = 'vaccination')
+  UNION ALL
+  SELECT
+    expected_count,
+    completed_count,
+    deferred_count,
+    work_state,
+    process_intact
+  FROM feed_exception_rows
+)
+SELECT
+  COALESCE(SUM(expected_count), 0)::integer AS expected_count,
+  COALESCE(SUM(completed_count), 0)::integer AS completed_count,
+  COALESCE(COUNT(*) FILTER (WHERE NOT process_intact), 0)::integer AS open_gap_count,
+  COALESCE(SUM(CASE WHEN work_state = 'deferred' THEN GREATEST(deferred_count, 1) ELSE 0 END), 0)::integer AS deferred_count,
+  COALESCE(COUNT(*) FILTER (WHERE process_intact), 0)::integer AS process_intact_count
+FROM all_summary;
 `

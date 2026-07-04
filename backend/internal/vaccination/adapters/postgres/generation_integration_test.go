@@ -49,6 +49,107 @@ WHERE tenant_id = $1 AND goat_id = $2`, impTenant, id, entryDate, impCbe); err !
 	}
 }
 
+func TestListEligibleGoatsForGenerationUsesCompiledRuleDimensions(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.compiled", Name: "Compiled Matrix", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{"ruleset_family":"vaccination.matrix"}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", OffsetDays: 28, Repeat: "none", CatchUp: "immediate",
+		EligibilityJSON: []byte(`{"matrix_row_id":"k1-goat-female","eligibility":{"species":["goat"],"animal_stage":["K1"],"sex":["female"],"min_age_days":20,"max_age_days":40},"vaccine":{"code":"ET_TT","type":"killed"}}`),
+		ProofPolicy:     []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	if err := proto.ReplaceProtocolRuleDimensions(ctx, impTenant, versionID, []protodomain.RuleDimension{{
+		Category:        "vaccination",
+		RulesetFamily:   "vaccination.matrix",
+		RuleID:          ruleID,
+		MatrixRowID:     "k1-goat-female",
+		SelectorKey:     "k1-goat-female|primary|goat|K1|female|all|alive|any|any",
+		DoseCode:        "primary",
+		VaccineCode:     "ET_TT",
+		VaccineType:     "killed",
+		Species:         "goat",
+		AnimalStage:     "K1",
+		Sex:             "female",
+		Breed:           "all",
+		Lifecycle:       "alive",
+		Health:          "any",
+		Reproductive:    "any",
+		MinAgeDays:      ptrInt32(20),
+		MaxAgeDays:      ptrInt32(40),
+		TriggerType:     "birth_age",
+		Sequence:        1,
+		OffsetDays:      28,
+		DueWindowDays:   7,
+		Repeat:          "none",
+		CatchUp:         "immediate",
+		EligibilityJSON: []byte(`{"species":["goat"],"animal_stage":["K1"],"sex":["female"],"min_age_days":20,"max_age_days":40}`),
+		VaccineJSON:     []byte(`{"code":"ET_TT","type":"killed"}`),
+		ScheduleJSON:    []byte(`{"dose_code":"primary"}`),
+	}}); err != nil {
+		t.Fatalf("compiled dimensions: %v", err)
+	}
+
+	asOf := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	type animal struct {
+		id      string
+		species string
+		sex     string
+		stage   string
+		dob     any
+	}
+	for _, a := range []animal{
+		{"32000000-0000-4000-8000-000000000101", "goat", "female", "K1", asOf.AddDate(0, 0, -30)},
+		{"32000000-0000-4000-8000-000000000102", "goat", "female", "K1", asOf.AddDate(0, 0, -10)},
+		{"32000000-0000-4000-8000-000000000103", "goat", "male", "K1", asOf.AddDate(0, 0, -30)},
+		{"32000000-0000-4000-8000-000000000104", "sheep", "female", "K1", asOf.AddDate(0, 0, -30)},
+		{"32000000-0000-4000-8000-000000000105", "goat", "female", "adult", asOf.AddDate(0, 0, -30)},
+		{"32000000-0000-4000-8000-000000000106", "goat", "female", "K1", nil},
+	} {
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+			   current_location_id, park_id, management_stage, dob)
+			 VALUES ($1, $2, 'alive', $3, $4, $5, $6, $6, $7, $8::date)`,
+			a.id, impTenant, a.species, impParty, a.sex, impCbe, a.stage, a.dob); err != nil {
+			t.Fatalf("seed compiled goat %s: %v", a.id, err)
+		}
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.ListEligibleGoatsForGeneration(ctx, vaccdomain.ImpactFilter{
+		TenantID:          impTenant,
+		ProtocolVersionID: versionID,
+		AsOf:              asOf,
+	}, "", 50)
+	if err != nil {
+		t.Fatalf("list eligible compiled: %v", err)
+	}
+	if len(rows) != 1 || rows[0].GoatID != "32000000-0000-4000-8000-000000000101" {
+		t.Fatalf("rows=%#v, want only goat/female/K1 in compiled age window", rows)
+	}
+}
+
+func ptrInt32(v int32) *int32 { return &v }
+
 func TestSM1GenerationIdempotentAndDeferVisible(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

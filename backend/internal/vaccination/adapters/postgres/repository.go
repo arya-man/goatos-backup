@@ -1645,6 +1645,9 @@ func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domai
 	if limit <= 0 {
 		limit = 500
 	}
+	if strings.TrimSpace(f.ProtocolVersionID) != "" {
+		return r.listEligibleGoatsForGenerationWithCompiledDimensions(ctx, tenant, f, afterUUID, limit)
+	}
 	rows, err := r.queries.ListEligibleGoatsForGeneration(ctx, vaccinationdb.ListEligibleGoatsForGenerationParams{
 		TenantID:    tenant,
 		Stage:       f.Stage,
@@ -1667,6 +1670,146 @@ func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domai
 			row.ShedID, row.ParkID, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
 			row.LocationIsQuarantine, row.LocationIsIcu,
 		))
+	}
+	return out, nil
+}
+
+func (r *Repository) listEligibleGoatsForGenerationWithCompiledDimensions(ctx context.Context, tenant pgtype.UUID, f domain.ImpactFilter, afterUUID pgtype.UUID, limit int32) ([]domain.EligibleGoat, error) {
+	vid, err := pgconv.UUID(f.ProtocolVersionID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: protocol version id: %w", err)
+	}
+	asOf := f.AsOf
+	if asOf.IsZero() {
+		asOf = time.Now().UTC()
+	}
+	rows, err := r.pool.Query(ctx, `
+WITH compiled AS (
+  SELECT EXISTS (
+    SELECT 1
+    FROM protocol_rule_dimensions prd
+    WHERE prd.tenant_id = $1
+      AND prd.protocol_version_id = $2
+      AND prd.category = 'vaccination'
+  ) AS has_dimensions
+)
+SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
+       COALESCE(g.health_status, '')::text AS health_status,
+       COALESCE(g.reproductive_status, '')::text AS reproductive_status,
+       COALESCE(g.species, 'goat')::text AS species,
+       COALESCE(g.origin_type, '')::text AS origin_type,
+       proc.warming_entry_at,
+       COALESCE(shed.location_id::text, '')::text AS shed_id,
+       COALESCE(park.location_id::text, '')::text AS park_id,
+       COALESCE(g.sex, '')::text AS sex,
+       COALESCE(g.breed, '')::text AS breed,
+       COALESCE(asl.stage_code, g.management_stage, '')::text AS management_stage,
+       COALESCE(g.age_band, '')::text AS age_band,
+       COALESCE(loa.is_quarantine, false)::boolean AS location_is_quarantine,
+       COALESCE(loa.is_icu, false)::boolean AS location_is_icu
+FROM goats g
+CROSS JOIN compiled c
+LEFT JOIN LATERAL (
+  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
+  FROM procurement_load_goats plg
+  WHERE plg.tenant_id = g.tenant_id
+    AND plg.goat_id = g.goat_id
+  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  LIMIT 1
+) proc ON true
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+LEFT JOIN shed_profiles sp
+  ON sp.tenant_id = g.tenant_id
+ AND sp.location_id = g.shed_id
+LEFT JOIN animal_stage_lookup asl
+  ON asl.tenant_id = sp.tenant_id
+ AND asl.animal_stage_id = sp.animal_stage_id
+ AND asl.status = 'active'
+LEFT JOIN locations shed
+  ON shed.tenant_id = g.tenant_id
+ AND shed.location_id = g.shed_id
+ AND shed.location_type = 'shed'
+LEFT JOIN locations park
+  ON park.tenant_id = g.tenant_id
+ AND park.location_id = g.park_id
+ AND park.location_type = 'park'
+WHERE g.tenant_id = $1
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND ($3::text = '' OR lower(COALESCE(asl.stage_code, g.management_stage, '')) = lower($3::text))
+  AND ($4::text = '' OR lower(g.sex) = lower($4::text))
+  AND ($5::text = '' OR lower(g.breed) = lower($5::text))
+  AND ($6::uuid IS NULL OR g.park_id = $6::uuid)
+  AND g.goat_id > $7::uuid
+  AND (
+    NOT c.has_dimensions
+    OR EXISTS (
+      SELECT 1
+      FROM protocol_rule_dimensions prd
+      WHERE prd.tenant_id = g.tenant_id
+        AND prd.protocol_version_id = $2
+        AND prd.category = 'vaccination'
+        AND (prd.species = 'all' OR prd.species = COALESCE(g.species, 'goat'))
+        AND (prd.animal_stage = 'all' OR lower(prd.animal_stage) = lower(COALESCE(asl.stage_code, g.management_stage, '')))
+        AND (prd.sex = 'all' OR prd.sex = lower(g.sex))
+        AND (prd.breed = 'all' OR lower(prd.breed) = lower(g.breed))
+        AND (
+          (prd.min_age_days IS NULL AND prd.max_age_days IS NULL)
+          OR (
+            g.dob IS NOT NULL
+            AND (prd.min_age_days IS NULL OR (($8::timestamptz AT TIME ZONE 'UTC')::date - g.dob) >= prd.min_age_days)
+            AND (prd.max_age_days IS NULL OR (($8::timestamptz AT TIME ZONE 'UTC')::date - g.dob) <= prd.max_age_days)
+          )
+        )
+    )
+  )
+ORDER BY g.goat_id
+LIMIT $9`, tenant, vid, f.Stage, f.Sex, f.Breed, pgconv.NullableUUID(f.ParkID), afterUUID, pgconv.Timestamptz(asOf), limit)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: list eligible goats by compiled dimensions: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.EligibleGoat, 0, limit)
+	for rows.Next() {
+		var (
+			goatID, lifecycle, health, reproductive, species, originType string
+			shedID, parkID, sex, breed, stage, ageBand                   string
+			dob, entryDate                                               pgtype.Date
+			warmingEntryAt                                               pgtype.Timestamptz
+			locationIsQuarantine, locationIsICU                          bool
+		)
+		if err := rows.Scan(
+			&goatID,
+			&dob,
+			&entryDate,
+			&lifecycle,
+			&health,
+			&reproductive,
+			&species,
+			&originType,
+			&warmingEntryAt,
+			&shedID,
+			&parkID,
+			&sex,
+			&breed,
+			&stage,
+			&ageBand,
+			&locationIsQuarantine,
+			&locationIsICU,
+		); err != nil {
+			return nil, fmt.Errorf("vaccination: scan eligible goat by compiled dimensions: %w", err)
+		}
+		out = append(out, eligibleGoatFromGenerationRow(
+			goatID, dob, entryDate,
+			lifecycle, health, reproductive, species, originType,
+			warmingEntryAt,
+			shedID, parkID, sex, breed, stage, ageBand,
+			locationIsQuarantine, locationIsICU,
+		))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination: iterate eligible goats by compiled dimensions: %w", err)
 	}
 	return out, nil
 }
@@ -1961,7 +2104,8 @@ WITH completion_admins AS (
          )::text AS pathogen_class,
          COALESCE(NULLIF(pr.dose_code, ''), '')::text AS dose_code,
          COALESCE(pr.sequence, 0)::int AS sequence,
-         oi.protocol_version_id::text AS protocol_version_id
+         oi.protocol_version_id::text AS protocol_version_id,
+         pv.protocol_id::text AS protocol_id
   FROM vaccination_completions vc
   JOIN obligation_instances oi
     ON oi.tenant_id = vc.tenant_id
@@ -2004,7 +2148,8 @@ trusted_admins AS (
          )::text AS pathogen_class,
          COALESCE(NULLIF(pr.dose_code, ''), '')::text AS dose_code,
          COALESCE(pr.sequence, 0)::int AS sequence,
-         ev.protocol_version_id::text AS protocol_version_id
+         ev.protocol_version_id::text AS protocol_version_id,
+         pv.protocol_id::text AS protocol_id
   FROM procurement_hf_vaccination_evidence ev
   JOIN procurement_load_goats plg
     ON plg.tenant_id = ev.tenant_id
@@ -2037,7 +2182,7 @@ trusted_admins AS (
     AND ev.administered_at >= plg.warmup_started_at
     AND (plg.warmup_ended_at IS NULL OR ev.administered_at <= plg.warmup_ended_at)
 )
-SELECT goat_id, administered_at, vaccine_code, vaccine_type, pathogen_class, dose_code, sequence, protocol_version_id
+SELECT goat_id, administered_at, vaccine_code, vaccine_type, pathogen_class, dose_code, sequence, protocol_version_id, protocol_id
 FROM (
   SELECT * FROM completion_admins
   UNION ALL
@@ -2061,6 +2206,7 @@ ORDER BY goat_id, administered_at DESC`, tenant, uuids, pgconv.Timestamptz(befor
 			&admin.DoseCode,
 			&admin.Sequence,
 			&admin.ProtocolVersionID,
+			&admin.ProtocolID,
 		); err != nil {
 			return nil, fmt.Errorf("vaccination: scan recent vaccine administration: %w", err)
 		}

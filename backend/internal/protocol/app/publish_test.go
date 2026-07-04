@@ -430,6 +430,120 @@ func TestPublishVersionMaterializesMatrixRowMetadata(t *testing.T) {
 	if meta.Vaccine.Code != "SHEEP_POX" || meta.Vaccine.PathogenClass != "live" {
 		t.Fatalf("matrix vaccine metadata = %#v", meta.Vaccine)
 	}
+	if len(repo.dimensions) != 6 {
+		t.Fatalf("compiled dimensions = %#v, want 3 stages x 2 sexes", repo.dimensions)
+	}
+	first := repo.dimensions[0]
+	if first.Category != "vaccination" || first.RulesetFamily != "vaccination.matrix" || first.MatrixRowID != "adult-sheep-second-wave" {
+		t.Fatalf("compiled dimension identity = %#v", first)
+	}
+	if first.Species != "sheep" || first.VaccineCode != "SHEEP_POX" || first.VaccineType != "live" || first.MaxDelayDays != 7 {
+		t.Fatalf("compiled dimension selector/vaccine = %#v", first)
+	}
+	for _, dim := range repo.dimensions {
+		if dim.Sex == "unknown" {
+			t.Fatalf("compiled dimensions must never contain unknown sex: %#v", repo.dimensions)
+		}
+	}
+}
+
+func TestPublishVersionRejectsMatrixUnknownSexSelector(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	repo.version.RuleDsl = []byte(strings.Replace(validVaccinationMatrixRulesetDSL(), `"sex":["female","male"]`, `"sex":["unknown"]`, 1))
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("publish matrix unknown sex err=%v, want ErrNotPublishable", err)
+	}
+	if repo.publishCalled || len(repo.dimensions) > 0 {
+		t.Fatalf("unknown sex must not publish or compile dimensions, publish=%v dimensions=%#v", repo.publishCalled, repo.dimensions)
+	}
+}
+
+func TestPublishVersionRejectsMatrixCellMissingFromTopLevelSchedule(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	var dsl map[string]any
+	if err := json.Unmarshal([]byte(validVaccinationMatrixRulesetDSL()), &dsl); err != nil {
+		t.Fatalf("valid matrix dsl: %v", err)
+	}
+	dsl["schedule"] = []any{}
+	raw, err := json.Marshal(dsl)
+	if err != nil {
+		t.Fatalf("marshal partial matrix dsl: %v", err)
+	}
+	repo.version.RuleDsl = raw
+	service := NewService(repo)
+
+	err = service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("publish partial matrix err=%v, want ErrNotPublishable", err)
+	}
+	if repo.publishCalled || repo.createRuleCalled || len(repo.dimensions) > 0 {
+		t.Fatalf("partial matrix must not publish/create/compile, publish=%v create=%v dimensions=%#v", repo.publishCalled, repo.createRuleCalled, repo.dimensions)
+	}
+}
+
+func TestPublishVersionRejectsExtraTopLevelMatrixScheduleAlias(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	var dsl map[string]any
+	if err := json.Unmarshal([]byte(validVaccinationMatrixRulesetDSL()), &dsl); err != nil {
+		t.Fatalf("valid matrix dsl: %v", err)
+	}
+	schedule, ok := dsl["schedule"].([]any)
+	if !ok || len(schedule) == 0 {
+		t.Fatalf("valid matrix dsl missing schedule: %#v", dsl["schedule"])
+	}
+	extra, ok := schedule[0].(map[string]any)
+	if !ok {
+		t.Fatalf("valid matrix schedule row has wrong shape: %#v", schedule[0])
+	}
+	extra = cloneAnyMap(extra)
+	extra["dose_code"] = "sheep_pox_duplicate_alias"
+	extra["source_dose_code"] = "sheep_pox_adult_second_wave"
+	dsl["schedule"] = append(schedule, extra)
+	raw, err := json.Marshal(dsl)
+	if err != nil {
+		t.Fatalf("marshal aliased matrix dsl: %v", err)
+	}
+	repo.version.RuleDsl = raw
+	service := NewService(repo)
+
+	err = service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("publish aliased matrix err=%v, want ErrNotPublishable", err)
+	}
+	if repo.publishCalled || repo.createRuleCalled || len(repo.dimensions) > 0 {
+		t.Fatalf("aliased matrix must not publish/create/compile, publish=%v create=%v dimensions=%#v", repo.publishCalled, repo.createRuleCalled, repo.dimensions)
+	}
+}
+
+func TestAddRuleRejectsUnknownSexEligibility(t *testing.T) {
+	repo := &fakeProtocolRepo{version: validPublishVersion("draft")}
+	service := NewService(repo)
+
+	_, err := service.AddRule(context.Background(), domain.NewRule{
+		TenantID:          "tenant-1",
+		ProtocolVersionID: "version-1",
+		DoseCode:          "bad-sex",
+		Sequence:          1,
+		TriggerType:       "birth_age",
+		Repeat:            "none",
+		CatchUp:           "immediate",
+		EligibilityJSON:   []byte(`{"eligibility":{"sex":["female","unknown"]}}`),
+	})
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("add rule unknown sex err=%v, want ErrNotPublishable", err)
+	}
+	if repo.createRuleCalled {
+		t.Fatalf("unknown sex rule must not be stored")
+	}
 }
 
 func TestPublishVersionRejectsMatrixScheduleWithoutRowMetadata(t *testing.T) {
@@ -539,6 +653,14 @@ func validVaccinationMatrixRulesetDSL() string {
 	return `{"category":"vaccination","ruleset_family":"vaccination.matrix","vaccine":{"code":"vaccination.matrix","name":"Preventive Care vaccination matrix","type":"matrix"},"eligibility":{"animal_stage":"all","species":["goat","sheep"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"exclude_reproductive_states":["pregnant_late"],"defer_states":["icu","quarantine"]},"missed_dose_policy":"immediate","compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21,"bacterial_viral_same_day_allowed":true,"live_killed_viral_same_day_allowed":true,"max_vaccines_per_combo_session":2},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_prior_vaccination_allowed":true,"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox","ET+TT booster"],"sheep_second_wave":["ET+TT booster","Sheep Pox"]},"matrix_rows":[{"row_id":"adult-sheep-second-wave","vaccine":{"code":"SHEEP_POX","name":"Sheep Pox","type":"live","pathogen_class":"live","compatibility_group":"POX","course_type":"single"},"eligibility":{"species":["sheep"],"animal_stage":["DOE","MOTHER","BUCK"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"exclude_reproductive_states":["pregnant_late"],"defer_states":["icu","quarantine"]},"schedule":[{"dose_code":"sheep_pox_adult_second_wave","source_dose_code":"sheep_pox_adult_second_wave","sequence":1,"trigger_type":"post_arrival","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"yearly","catch_up":"immediate"}]}],"schedule":[{"dose_code":"sheep_pox_adult_second_wave","source_dose_code":"sheep_pox_adult_second_wave","sequence":1,"trigger_type":"post_arrival","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"yearly","catch_up":"immediate"}]}`
 }
 
+func cloneAnyMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
 type fakeProtocolRepo struct {
 	version             domain.Version
 	publishCalled       bool
@@ -548,6 +670,7 @@ type fakeProtocolRepo struct {
 	createdRule         domain.NewRule
 	createdRules        []domain.NewRule
 	rules               []domain.Rule
+	dimensions          []domain.RuleDimension
 }
 
 func (f *fakeProtocolRepo) Ping(context.Context) error { return nil }
@@ -581,21 +704,29 @@ func (f *fakeProtocolRepo) CreateRule(_ context.Context, in domain.NewRule) (str
 	f.createdRule = in
 	f.createdRules = append(f.createdRules, in)
 	f.rules = append(f.rules, domain.Rule{
-		RuleID:        "rule-1",
-		DoseCode:      in.DoseCode,
-		Sequence:      in.Sequence,
-		TriggerType:   in.TriggerType,
-		OffsetDays:    in.OffsetDays,
-		DueWindowDays: in.DueWindowDays,
-		MinGapDays:    in.MinGapDays,
-		Repeat:        in.Repeat,
-		CatchUp:       in.CatchUp,
-		SortOrder:     in.SortOrder,
+		RuleID:              "rule-" + in.DoseCode,
+		ProtocolVersionID:   in.ProtocolVersionID,
+		ProtocolID:          f.version.ProtocolID,
+		DoseCode:            in.DoseCode,
+		Sequence:            in.Sequence,
+		TriggerType:         in.TriggerType,
+		OffsetDays:          in.OffsetDays,
+		DueWindowDays:       in.DueWindowDays,
+		MinGapDays:          in.MinGapDays,
+		Repeat:              in.Repeat,
+		RepeatUntilAfterAge: in.RepeatUntilAfterAge,
+		CatchUp:             in.CatchUp,
+		EligibilityJSON:     in.EligibilityJSON,
+		SortOrder:           in.SortOrder,
 	})
-	return "rule-1", nil
+	return "rule-" + in.DoseCode, nil
 }
 func (f *fakeProtocolRepo) ListRules(context.Context, string, string) ([]domain.Rule, error) {
 	return f.rules, nil
+}
+func (f *fakeProtocolRepo) ReplaceProtocolRuleDimensions(_ context.Context, _ string, _ string, dimensions []domain.RuleDimension) error {
+	f.dimensions = append([]domain.RuleDimension(nil), dimensions...)
+	return nil
 }
 func (f *fakeProtocolRepo) ListActiveAnimalStages(context.Context, string) ([]domain.AnimalStage, error) {
 	return nil, nil

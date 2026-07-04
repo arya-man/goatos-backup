@@ -179,19 +179,19 @@ func (s *GenerationService) requireEvidenceReader() error {
 }
 
 type genEligibility struct {
-	AnimalStage               string        `json:"animal_stage"`
-	Stage                     string        `json:"stage"`
-	Species                   string        `json:"species"`
-	Sex                       string        `json:"sex"`
-	Breed                     string        `json:"breed"`
+	AnimalStage               genStringList `json:"animal_stage"`
+	Stage                     genStringList `json:"stage"`
+	Species                   genStringList `json:"species"`
+	Sex                       genStringList `json:"sex"`
+	Breed                     genStringList `json:"breed"`
 	Lifecycle                 genStringList `json:"lifecycle"`
-	Health                    string        `json:"health"`
-	Reproductive              string        `json:"reproductive"`
+	Health                    genStringList `json:"health"`
+	Reproductive              genStringList `json:"reproductive"`
 	ExcludeReproductiveStates []string      `json:"exclude_reproductive_states"`
 	DeferStates               []string      `json:"defer_states"`
 	MinAgeDays                *int32        `json:"min_age_days"`
 	MaxAgeDays                *int32        `json:"max_age_days"`
-	AgeBand                   string        `json:"age_band"`
+	AgeBand                   genStringList `json:"age_band"`
 }
 
 type genDSL struct {
@@ -291,28 +291,28 @@ func ruleGenerationContext(rule protodomain.Rule, fallbackEligibility genEligibi
 
 func mergeEligibility(base, override genEligibility) genEligibility {
 	out := base
-	if strings.TrimSpace(override.AnimalStage) != "" {
+	if len(override.AnimalStage) > 0 {
 		out.AnimalStage = override.AnimalStage
 	}
-	if strings.TrimSpace(override.Stage) != "" {
+	if len(override.Stage) > 0 {
 		out.Stage = override.Stage
 	}
-	if strings.TrimSpace(override.Species) != "" {
+	if len(override.Species) > 0 {
 		out.Species = override.Species
 	}
-	if strings.TrimSpace(override.Sex) != "" {
+	if len(override.Sex) > 0 {
 		out.Sex = override.Sex
 	}
-	if strings.TrimSpace(override.Breed) != "" {
+	if len(override.Breed) > 0 {
 		out.Breed = override.Breed
 	}
 	if len(override.Lifecycle) > 0 {
 		out.Lifecycle = override.Lifecycle
 	}
-	if strings.TrimSpace(override.Health) != "" {
+	if len(override.Health) > 0 {
 		out.Health = override.Health
 	}
-	if strings.TrimSpace(override.Reproductive) != "" {
+	if len(override.Reproductive) > 0 {
 		out.Reproductive = override.Reproductive
 	}
 	if len(override.ExcludeReproductiveStates) > 0 {
@@ -327,7 +327,7 @@ func mergeEligibility(base, override genEligibility) genEligibility {
 	if override.MaxAgeDays != nil {
 		out.MaxAgeDays = override.MaxAgeDays
 	}
-	if strings.TrimSpace(override.AgeBand) != "" {
+	if len(override.AgeBand) > 0 {
 		out.AgeBand = override.AgeBand
 	}
 	return out
@@ -564,11 +564,12 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 	vaccineProf := vaccineProfileFromDSL(dsl)
 	stage := eligibilityStage(elig)
 	filter := domain.ImpactFilter{
-		TenantID: tenantID,
-		Stage:    normDim(stage),
-		Sex:      normDim(elig.Sex),
-		Breed:    normDim(elig.Breed),
-		Health:   normDim(elig.Health),
+		TenantID:          tenantID,
+		ProtocolVersionID: versionID,
+		AsOf:              asOf,
+		Stage:             normSingleDim(stage),
+		Sex:               normSingleDim(elig.Sex),
+		Breed:             normSingleDim(elig.Breed),
 	}
 	if v.ScopeType == "park" && v.ScopeID != "" {
 		park := v.ScopeID
@@ -1250,36 +1251,36 @@ func deferStateSet(allowed []string) map[string]bool {
 	return allowedStates
 }
 
-func eligibilityStage(e genEligibility) string {
-	if e.AnimalStage != "" {
+func eligibilityStage(e genEligibility) genStringList {
+	if len(e.AnimalStage) > 0 {
 		return e.AnimalStage
 	}
 	return e.Stage
 }
 
 func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, preg genPregnancyPolicy, asOf time.Time) bool {
-	if s := normDim(e.Species); s != "" && !sameDim(s, g.Species) {
+	if !selectorMatches(g.Species, e.Species) {
 		return false
 	}
-	if s := normDim(eligibilityStage(e)); s != "" && !sameDim(s, g.Stage) {
+	if !selectorMatches(g.Stage, eligibilityStage(e)) {
 		return false
 	}
-	if s := normDim(e.Sex); s != "" && !sameDim(s, g.Sex) {
+	if !selectorMatches(g.Sex, e.Sex) {
 		return false
 	}
-	if s := normDim(e.Breed); s != "" && !sameDim(s, g.Breed) {
+	if !selectorMatches(g.Breed, e.Breed) {
 		return false
 	}
 	if !lifecycleMatches(g.LifecycleStatus, e.Lifecycle) {
 		return false
 	}
-	if s := normDim(e.Health); s != "" && !sameDim(s, g.HealthStatus) {
+	if !selectorMatches(g.HealthStatus, e.Health) && deferredReason(g, e.DeferStates) == "" {
 		return false
 	}
-	if s := normDim(e.Reproductive); s != "" && !sameDim(s, g.ReproductiveStatus) {
+	if !selectorMatches(g.ReproductiveStatus, e.Reproductive) {
 		return false
 	}
-	if s := normDim(e.AgeBand); s != "" && !sameDim(s, g.AgeBand) {
+	if !selectorMatches(g.AgeBand, e.AgeBand) {
 		return false
 	}
 	for _, excluded := range e.ExcludeReproductiveStates {
@@ -1294,16 +1295,40 @@ func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, preg genPre
 }
 
 func lifecycleMatches(actual string, allowed genStringList) bool {
+	return selectorMatches(actual, allowed)
+}
+
+func selectorMatches(actual string, allowed genStringList) bool {
 	if len(allowed) == 0 {
 		return true
 	}
-	actual = normDim(actual)
+	hasConcrete := false
 	for _, value := range allowed {
-		if s := normDim(value); s != "" && sameDim(s, actual) {
+		s := normDim(value)
+		if s == "" {
+			return true
+		}
+		hasConcrete = true
+		if sameDim(s, actual) {
 			return true
 		}
 	}
-	return false
+	return !hasConcrete
+}
+
+func normSingleDim(values genStringList) string {
+	out := ""
+	for _, value := range values {
+		s := normDim(value)
+		if s == "" {
+			return ""
+		}
+		if out != "" && !sameDim(out, s) {
+			return ""
+		}
+		out = s
+	}
+	return out
 }
 
 func sameDim(a, b string) bool {
@@ -1390,11 +1415,18 @@ func dueAfterPreviousCompletion(rule protodomain.Rule, ruleVaccine vaccineProfil
 		if admin.AdministeredAt.IsZero() || admin.Sequence != prevSeq {
 			continue
 		}
+		if !sameProtocolLineage(rule, admin) {
+			continue
+		}
 		adminVaccine := strings.TrimSpace(admin.VaccineCode)
 		if adminVaccine == "" || !strings.EqualFold(targetVaccine, adminVaccine) {
 			continue
 		}
-		return admin.AdministeredAt.AddDate(0, 0, int(afterPreviousGapDays(rule))), true
+		gap := afterPreviousGapDays(rule)
+		if gap <= 0 {
+			return time.Time{}, false
+		}
+		return admin.AdministeredAt.AddDate(0, 0, int(gap)), true
 	}
 	return time.Time{}, false
 }
@@ -1407,6 +1439,9 @@ func dueAfterSameRuleRepeatCompletion(rule protodomain.Rule, targetVaccine strin
 		if admin.AdministeredAt.IsZero() || admin.Sequence != rule.Sequence {
 			continue
 		}
+		if !sameProtocolLineage(rule, admin) {
+			continue
+		}
 		adminVaccine := strings.TrimSpace(admin.VaccineCode)
 		if adminVaccine == "" || !strings.EqualFold(targetVaccine, adminVaccine) {
 			continue
@@ -1417,6 +1452,20 @@ func dueAfterSameRuleRepeatCompletion(rule protodomain.Rule, targetVaccine strin
 		return repeatDueAfterCompletion(rule, admin.AdministeredAt)
 	}
 	return time.Time{}, false
+}
+
+func sameProtocolLineage(rule protodomain.Rule, admin domain.RecentVaccineAdministration) bool {
+	ruleProtocolID := strings.TrimSpace(rule.ProtocolID)
+	adminProtocolID := strings.TrimSpace(admin.ProtocolID)
+	if ruleProtocolID != "" && adminProtocolID != "" {
+		return ruleProtocolID == adminProtocolID
+	}
+	ruleVersionID := strings.TrimSpace(rule.ProtocolVersionID)
+	adminVersionID := strings.TrimSpace(admin.ProtocolVersionID)
+	if ruleVersionID != "" && adminVersionID != "" {
+		return ruleVersionID == adminVersionID
+	}
+	return true
 }
 
 func afterPreviousGapDays(rule protodomain.Rule) int32 {

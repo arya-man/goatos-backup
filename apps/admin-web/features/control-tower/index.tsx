@@ -9,6 +9,7 @@ import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { Tag } from "@/components/ui-primitives";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
+import { backendPage, maxPageFor, pageResult } from "@/features/process-integrity/pagination";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "@/features/process-integrity/process-integrity";
 
 // Severity tint for the alert-band icon chip.
@@ -44,25 +45,6 @@ function Kpi({ label, value, sub, tone, icon }: { label: string; value: React.Re
 
 function fmtInt(n: number): string {
   return n.toLocaleString("en-IN");
-}
-
-function backendPage(
-  sp: RouteSearchParams,
-  prefix: string,
-  pageSizeOptions: readonly number[],
-  fallbackPageSize: VaccinationPageSize,
-): { page: number; pageSize: VaccinationPageSize; offset: number } {
-  const requestedSize = Number(one(sp, `${prefix}_limit`));
-  const pageSize = pageSizeOptions.includes(requestedSize) ? requestedSize : fallbackPageSize;
-  const requestedPage = Number(one(sp, `${prefix}_page`));
-  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  return { page, pageSize, offset: (page - 1) * pageSize };
-}
-
-function pageResult<T>(items: T[], total: number, page: number, pageSize: VaccinationPageSize) {
-  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const end = total === 0 ? 0 : Math.min(total, (page - 1) * pageSize + items.length);
-  return { items, page, pageSize, total, start, end };
 }
 
 function ownerOf(alert: ControlTowerAlert, unassignedLabel: string): string {
@@ -116,7 +98,17 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
         : copy(pageContract, "label.process_at_risk");
   const hasAlertFilters = severityFilter !== "all" || stateFilter !== "all";
   const band = alerts.slice(0, 5);
-  const paged = pageResult(alerts, result.ok ? result.data.total_count : 0, requestedPage.page, requestedPage.pageSize);
+  const totalCount = result.ok ? result.data.total_count : 0;
+  const maxPage = maxPageFor(totalCount, requestedPage.pageSize);
+  if (result.ok && requestedPage.page > maxPage) {
+    redirect(scopeHref("/", scope, {}, {
+      ct_severity: severityFilter,
+      ct_state: stateFilter,
+      ct_page: String(maxPage),
+      ct_limit: String(requestedPage.pageSize),
+    }));
+  }
+  const paged = pageResult(alerts, totalCount, requestedPage.page, requestedPage.pageSize);
   const ownerUnassignedLabel = copy(pageContract, "label.owner_unassigned");
   const selectedAlertId = one(sp, "ct_alert");
   const selectedAlert = selectedAlertId ? alerts.find((alert) => alert.row_id === selectedAlertId) : undefined;

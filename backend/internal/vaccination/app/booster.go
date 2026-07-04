@@ -117,6 +117,9 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		if next.MinGapDays > gap {
 			gap = next.MinGapDays // enforce the minimum interval
 		}
+		if gap <= 0 {
+			return false, nil
+		}
 		due = in.AdministeredAt.AddDate(0, 0, int(gap))
 	} else if next == nil && current != nil {
 		var ok bool

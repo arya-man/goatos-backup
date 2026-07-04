@@ -1567,6 +1567,45 @@ type ProtocolRule struct {
 	CreatedAt           pgtype.Timestamptz
 }
 
+type ProtocolRuleDimension struct {
+	ProtocolRuleDimensionID   pgtype.UUID
+	TenantID                  pgtype.UUID
+	ProtocolVersionID         pgtype.UUID
+	RuleID                    pgtype.UUID
+	Category                  string
+	RulesetFamily             string
+	MatrixRowID               string
+	SelectorKey               string
+	DoseCode                  string
+	SourceDoseCode            string
+	VaccineCode               string
+	VaccineType               string
+	PathogenClass             string
+	CompatibilityGroup        string
+	Species                   string
+	AnimalStage               string
+	Sex                       string
+	Breed                     string
+	Lifecycle                 string
+	Health                    string
+	Reproductive              string
+	MinAgeDays                pgtype.Int4
+	MaxAgeDays                pgtype.Int4
+	TriggerType               string
+	Sequence                  int32
+	OffsetDays                int32
+	DueWindowDays             int32
+	MinGapDays                int32
+	Repeat                    string
+	CatchUp                   string
+	MaxDelayDays              int32
+	RevaccinationIntervalDays int32
+	EligibilityJson           []byte
+	VaccineJson               []byte
+	ScheduleJson              []byte
+	CreatedAt                 pgtype.Timestamptz
+}
+
 type ProtocolTrigger struct {
 	TriggerID         pgtype.UUID
 	TenantID          pgtype.UUID
