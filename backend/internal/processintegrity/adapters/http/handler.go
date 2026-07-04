@@ -246,6 +246,14 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request, defaultRowLimit 
 		}
 		q.Limit = n
 	}
+	if offset := values.Get("offset"); offset != "" {
+		n, err := strconv.Atoi(offset)
+		if err != nil || n < 0 {
+			h.badRequest(w, r, "invalid_offset", "offset must be a non-negative integer")
+			return domain.Query{}, false
+		}
+		q.Offset = n
+	}
 	if cursorValue := values.Get("cursor"); cursorValue != "" {
 		cursor, err := domain.DecodeCursor(cursorValue)
 		if err != nil {

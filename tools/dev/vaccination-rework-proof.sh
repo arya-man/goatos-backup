@@ -63,35 +63,38 @@ RFID="REWORKPROOF-$STAMP"
 SHED_CODE="REWORK-MAIN-$STAMP"
 ENTRY_DATE=$(date -u +%F)
 ADMINISTERED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-if DOB_DAY21=$(date -u -v-21d +%F 2>/dev/null); then
+PROOF_PARK=00000000-0000-4000-8000-000000003001
+if DOB_DAY28=$(date -u -v-28d +%F 2>/dev/null); then
   :
 else
-  DOB_DAY21=$(date -u -d "$ENTRY_DATE - 21 days" +%F)
+  DOB_DAY28=$(date -u -d "$ENTRY_DATE - 28 days" +%F)
 fi
 
 echo "## vaccination-rework-proof stamp=$STAMP api=$API"
 
 echo; echo "### 0. seed V1 vaccination fixture"
 ( cd "$BACKEND" && go run ./cmd/seed-vaccination-trigger -tenant-id "$TENANT" >/dev/null )
-MATRIX=$(psqlq "select concat_ws('|', rule_dsl->'vaccine'->>'code', rule_dsl->'vaccine'->>'type', rule_dsl #>> '{schedule,0,dose_amount}', rule_dsl #>> '{schedule,0,dose_unit}', rule_dsl #>> '{schedule,0,route_site}', rule_dsl #>> '{eligibility,stage}', jsonb_array_length(rule_dsl->'schedule')) from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$VERSION'")
-[ "$MATRIX" = "ET|toxoid|0.5|ml|subcutaneous|K1|2" ] || fail "V1 matrix fixture missing/wrong got=$MATRIX"
+MATRIX=$(psqlq "select concat_ws('|', rule_dsl->'vaccine'->>'code', rule_dsl->'vaccine'->>'type', rule_dsl #>> '{schedule,0,dose_amount}', rule_dsl #>> '{schedule,0,dose_unit}', rule_dsl #>> '{schedule,0,route_site}', rule_dsl #>> '{schedule,0,max_delay_days}', rule_dsl #>> '{schedule,0,course_lapse_policy}', rule_dsl #>> '{eligibility,stage}', rule_dsl #>> '{eligibility,sex}', rule_dsl #>> '{eligibility,breed}', rule_dsl #>> '{eligibility,lifecycle}', rule_dsl #>> '{eligibility,health}', rule_dsl #>> '{eligibility,reproductive}', jsonb_array_length(rule_dsl->'schedule')) from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$VERSION'")
+[ "$MATRIX" = "ET+TT|toxoid|2|ml|subcutaneous|7|pc_review|K2|all|all|alive|any|any|2" ] || fail "V1 matrix fixture missing/wrong got=$MATRIX"
 echo "matrix=$MATRIX"
 
-SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status) values (gen_random_uuid(), '$TENANT', 'shed', '$SHED_CODE', 'Rework Proof Main $STAMP', '00000000-0000-4000-8000-000000003001', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active') returning location_id" | head -n 1)
+SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status) values (gen_random_uuid(), '$TENANT', 'shed', '$SHED_CODE', 'Rework Proof Main $STAMP', '$PROOF_PARK', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active') returning location_id" | head -n 1)
 
 echo; echo "### 1. create goat -> goat.created -> obligation"
 CREATE=$(curl -s "${A[@]}" -H "Idempotency-Key: rework-$STAMP" -H "Content-Type: application/json" -X POST "$API/admin/goats" -d @- <<JSON
-{"rfid":"$RFID","park_code":"CBE","shed_code":"$SHED_CODE","sex":"female","dob":"$DOB_DAY21","dob_estimated":true,"origin_type":"procured","entry_date":"$ENTRY_DATE","management_stage":"K1","evidence_refs":[{"evidence_type":"source_record","evidence_id":"rework-$STAMP"}]}
+{"animal_identifier_1":"$RFID-A1","animal_identifier_2":"$RFID-A2","species":"goat","park_id":"$PROOF_PARK","shed_id":"$SHED","sex":"female","dob":"$DOB_DAY28","dob_estimated":true,"origin_type":"procured","entry_date":"$ENTRY_DATE","management_stage":"K2","evidence_refs":[{"evidence_type":"source_record","evidence_id":"rework-$STAMP"}]}
 JSON
 )
 GOAT=$(echo "$CREATE" | jqp 'd["goat"]["goat_id"]')
 [ -n "$GOAT" ] || fail "goat create failed: $CREATE"
+psqlq "update obligation_instances oi set status='canceled', updated_at=now() from goats g join locations l on l.location_id = g.shed_id where oi.tenant_id='$TENANT' and oi.target_id=g.goat_id and oi.protocol_version_id='$VERSION' and oi.status in ('scheduled','due','deferred','in_progress') and g.goat_id <> '$GOAT' and (l.location_code like 'REWORK-%' or l.location_code like 'CHAIN-%' or l.location_code like 'TRUST-HIST-%')" >/dev/null
 relay_until_published "goat.created delivery" "$GOAT" "goat.created"
 OBL=$(psqlq "select obligation_id from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE' limit 1")
 [ -n "$OBL" ] || fail "no obligation generated for goat=$GOAT"
 echo "GOAT=$GOAT OBLIGATION=$OBL"
 
 echo; echo "### 2. sweeper -> batch + SOP task"
+psqlq "update obligation_instances oi set status='canceled', updated_at=now() from goats g join locations l on l.location_id = g.shed_id where oi.tenant_id='$TENANT' and oi.target_id=g.goat_id and oi.protocol_version_id='$VERSION' and oi.status in ('scheduled','due','deferred','in_progress') and g.goat_id <> '$GOAT' and (l.location_code like 'REWORK-%' or l.location_code like 'CHAIN-%' or l.location_code like 'TRUST-HIST-%')" >/dev/null
 ( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/obligation-sweeper -tenant-id "$TENANT" -version-id "$VERSION" -sop-version-id "$SOPVER" -vaccine-item-id "$ITEM" -actor-id "$USER" 2>&1 | tail -1 )
 BATCH=$(psqlq "select batch_id from obligation_instances where obligation_id='$OBL'")
 TASK=$(psqlq "select sop_task_id from obligation_batches where batch_id='$BATCH'")
@@ -122,7 +125,7 @@ submit_task(){ local phase=$1
   p_vial=$(mkproof "$phase" vial_lot)
   p_admin=$(mkproof "$phase" administration)
   sub=$(curl -s "${A[@]}" -H "Content-Type: application/json" -X POST "$API/app/tasks/$TASK/submissions" -d @- <<JSON
-{"sop_version_id":"$SOPVER","idempotency_key":"sub-$STAMP-$phase","answers":{"vaccine_lot_id":"$LOT","cold_chain_verified":true,"shed_video":"$p_shed","vial_lot_video":"$p_vial","administration_video":"$p_admin","goat_ids":["$GOAT"],"dose_ml_given":0.5,"route_site":"subcutaneous","administered_at":"$ADMINISTERED_AT","adverse_reaction":false},"proof_refs":[{"proof_id":"$p_shed","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$p_vial","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$p_admin","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
+{"sop_version_id":"$SOPVER","idempotency_key":"sub-$STAMP-$phase","answers":{"vaccine_lot_id":"$LOT","cold_chain_verified":true,"shed_video":"$p_shed","vial_lot_video":"$p_vial","administration_video":"$p_admin","goat_ids":["$GOAT"],"dose_ml_given":2,"route_site":"subcutaneous","administered_at":"$ADMINISTERED_AT","adverse_reaction":false},"proof_refs":[{"proof_id":"$p_shed","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$p_vial","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$p_admin","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
 JSON
 )
   subid=$(echo "$sub" | jqp 'd.get("submission",{}).get("submission_id","")')

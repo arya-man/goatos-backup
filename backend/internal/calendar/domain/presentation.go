@@ -137,12 +137,12 @@ func calendarEventTypeLabels() []CalendarKeyLabel {
 		{Key: EventVaccineStockReadiness, Label: "Stock readiness"},
 		{Key: EventVaccineColdChainCheck, Label: "Cold-chain check"},
 		{Key: EventVaccineReorderExpiryGRN, Label: "Reorder / expiry / GRN"},
-		{Key: EventPHCStockAntiMisuse, Label: "Stock anti-misuse"},
+		{Key: EventPCStockAntiMisuse, Label: "Stock anti-misuse"},
 		{Key: EventVaccinationConfigActivationReview, Label: "Config activation review"},
 	}
 }
 
-var ownerPresentationOrder = []string{OwnerAll, OwnerPHC, OwnerInventory, OwnerAdminDataOps}
+var ownerPresentationOrder = []string{OwnerAll, OwnerPC, OwnerInventory, OwnerAdminDataOps}
 
 var ownerPresentationConfigs = []ownerPresentationConfig{
 	{
@@ -159,7 +159,7 @@ var ownerPresentationConfigs = []ownerPresentationConfig{
 		scopeMessage: "",
 	},
 	{
-		key:          OwnerPHC,
+		key:          OwnerPC,
 		label:        "Preventive Care (PC)",
 		scopeLabel:   "Preventive Care (PC)",
 		color:        "var(--brand)",

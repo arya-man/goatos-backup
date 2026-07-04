@@ -256,7 +256,7 @@ func workflowNodes(detail domain.LoadDetail) []domain.WorkflowNode {
 		nodes[4].Timestamp = &review.ReviewedAt
 		nodes[4].RefID = &ref
 	}
-	for _, handoff := range detail.PHCHandoffs {
+	for _, handoff := range detail.PCHandoffs {
 		ref := handoff.HandoffID
 		nodes[5].State = handoff.EventStatus
 		nodes[5].Timestamp = &handoff.AcceptedAt
@@ -380,7 +380,10 @@ func (s *Service) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) (do
 		return domain.LoadGoat{}, BadRequest("invalid_goat_reference", "goat_id must reference an existing goat for this tenant")
 	}
 	if errors.Is(err, ports.ErrInvalidTransition) {
-		return domain.LoadGoat{}, BadRequest("animal_identifier_conflict", "animal identifier already belongs to another animal")
+		return domain.LoadGoat{}, Conflict("animal_identifier_conflict", "animal identifier already belongs to another animal")
+	}
+	if errors.Is(err, ports.ErrWriteConflict) {
+		return domain.LoadGoat{}, Conflict("write_conflict", "animal identifier was claimed by another write; reload before retrying")
 	}
 	return goat, err
 }
@@ -473,7 +476,10 @@ func (s *Service) ReviewHFVaccinationEvidence(ctx context.Context, in ports.Revi
 		return domain.HFVaccinationEvidence{}, Conflict("stale_hf_vaccination_evidence_review", "HF vaccination evidence changed; reload before reviewing")
 	}
 	if errors.Is(err, ports.ErrProofRequired) {
-		return domain.HFVaccinationEvidence{}, BadRequest("missing_proof_ref", "trusted HF vaccination evidence requires a proof_ref_id before it can suppress a dose")
+		return domain.HFVaccinationEvidence{}, BadRequest("missing_proof_ref", "trusted procurement holding vaccination evidence requires a completed proof_ref_id before it can suppress a dose")
+	}
+	if errors.Is(err, ports.ErrInvalidTrustContext) {
+		return domain.HFVaccinationEvidence{}, BadRequest("invalid_trust_context", "trusted procurement holding vaccination evidence must belong to an animal held in our procurement holding park for 28-35 days, with the dose administered inside that holding stay")
 	}
 	if errors.Is(err, ports.ErrInvalidTransition) {
 		return domain.HFVaccinationEvidence{}, Conflict("invalid_hf_vaccination_evidence_review_transition", "trusted HF vaccination evidence cannot be changed by this review endpoint")
@@ -631,7 +637,7 @@ func (s *Service) RecordArrivalReview(ctx context.Context, in ports.ArrivalRevie
 	return review, nil
 }
 
-func (s *Service) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([]domain.PHCHandoff, error) {
+func (s *Service) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([]domain.PCHandoff, error) {
 	if err := validateTenant(in.TenantID); err != nil {
 		return nil, err
 	}

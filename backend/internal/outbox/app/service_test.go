@@ -41,6 +41,41 @@ func TestRunOnceReturnsRepositoryMarkError(t *testing.T) {
 	}
 }
 
+func TestRunUntilDrainedProcessesMultipleBatches(t *testing.T) {
+	repo := &serviceFakeRepo{
+		batches: [][]domain.Message{
+			{
+				serviceTestMessage(t, 1, validServiceEnvelope(t, 1)),
+				serviceTestMessage(t, 2, validServiceEnvelope(t, 2)),
+			},
+			{
+				serviceTestMessage(t, 3, validServiceEnvelope(t, 3)),
+			},
+			nil,
+		},
+	}
+	publisher := &serviceFakePublisher{}
+	service := NewService(repo, publisher, serviceTestValidator(t), Config{
+		Limit:       2,
+		MaxAttempts: 5,
+		Now:         func() time.Time { return serviceTestNow },
+	})
+
+	result, err := service.RunUntilDrained(context.Background())
+	if err != nil {
+		t.Fatalf("RunUntilDrained: %v", err)
+	}
+	if result.BatchesProcessed != 3 || result.ClaimedCount != 3 || result.PublishedCount != 3 {
+		t.Fatalf("unexpected drain result: %#v", result)
+	}
+	if publisher.callCount != 3 {
+		t.Fatalf("publisher call count=%d want 3", publisher.callCount)
+	}
+	if repo.claimCalls != 3 {
+		t.Fatalf("claim calls=%d want 3", repo.claimCalls)
+	}
+}
+
 func TestEnvelopeValidatorAcceptsProtocolPublished(t *testing.T) {
 	eventID := serviceTestUUID("21000000", 1)
 	versionID := "62000000-0000-4000-8000-000000000001"
@@ -261,6 +296,8 @@ func serviceTestUUID(prefix string, suffix int) string {
 
 type serviceFakeRepo struct {
 	messages         []domain.Message
+	batches          [][]domain.Message
+	claimCalls       int
 	markPublishedErr error
 }
 
@@ -269,6 +306,12 @@ func (r *serviceFakeRepo) ReclaimStalePublishing(context.Context, time.Time, tim
 }
 
 func (r *serviceFakeRepo) ClaimPending(context.Context, ports.ClaimParams) (*ports.ClaimResult, error) {
+	r.claimCalls++
+	if len(r.batches) > 0 {
+		messages := r.batches[0]
+		r.batches = r.batches[1:]
+		return &ports.ClaimResult{Messages: messages}, nil
+	}
 	return &ports.ClaimResult{Messages: r.messages}, nil
 }
 

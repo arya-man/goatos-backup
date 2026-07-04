@@ -98,7 +98,6 @@ run_llm_extract() {
         printf '%s\n' "$prompt" | GOATOS_GRAPH_GUARD=0 GOATOS_DOCS_GRAPH_AUTOREBUILD=0 \
             codex exec --cd "$REPO" \
             --sandbox danger-full-access \
-            --ask-for-approval never \
             --output-last-message "$OUT/.codex_extract_last.txt" \
             - >> "$LOG" 2>&1
         ;;

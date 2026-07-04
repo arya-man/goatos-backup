@@ -161,9 +161,9 @@ locations:
 source load:
   E2E-SRC-001
   expected goats: 4
-  warmup window: purpose-specific
-    breeding: 45-70 days supported
-    fattening/non-breeding optional fixture: 0 days or around 2 weeks supported
+  warmup window:
+    procurement holding park: 4-5 weeks near the buying region supported
+    source purpose retained as context
 
 vaccination foundation:
   source-backed vaccination protocol version
@@ -222,7 +222,8 @@ Run these as API or integration assertions before relying on frontend clicks.
 10. Confirm projections:
    - top-level command screens with procurement selected show source-entry gaps
    - vaccination Action Center/PA/CT/Workflow show only accepted-intake work
-   - vaccination execution context shows only accepted park/shed execution context
+   - vaccination execution context shows only accepted park drive work with
+     shed/tag execution context
 ```
 
 ## Frontend E2E Click Plan

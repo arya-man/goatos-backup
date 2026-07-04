@@ -106,7 +106,7 @@ func (h *Handler) CreateDefinition(w http.ResponseWriter, r *http.Request) {
 type createVersionRequest struct {
 	ScopeType     string          `json:"scope_type"`
 	ScopeID       *string         `json:"scope_id"`
-	Version       int32           `json:"version"`
+	Version       *int32          `json:"version"`
 	VersionLabel  string          `json:"version_label"`
 	EffectiveFrom time.Time       `json:"effective_from"`
 	EffectiveTo   *time.Time      `json:"effective_to"`
@@ -124,13 +124,21 @@ func (h *Handler) CreateVersion(w http.ResponseWriter, r *http.Request) {
 	if !h.decode(w, r, &req) {
 		return
 	}
-	if strings.TrimSpace(r.PathValue("protocol_id")) == "" || strings.TrimSpace(req.ScopeType) == "" || req.Version <= 0 || req.EffectiveFrom.IsZero() || len(req.RuleDsl) == 0 {
-		h.badRequest(w, r, "missing_required_field", "protocol_id, scope_type, version, effective_from, and rule_dsl are required")
+	if strings.TrimSpace(r.PathValue("protocol_id")) == "" || strings.TrimSpace(req.ScopeType) == "" || req.EffectiveFrom.IsZero() || len(req.RuleDsl) == 0 {
+		h.badRequest(w, r, "missing_required_field", "protocol_id, scope_type, effective_from, and rule_dsl are required")
 		return
+	}
+	var version int32
+	if req.Version != nil {
+		version = *req.Version
+		if version <= 0 {
+			h.badRequest(w, r, "invalid_version", "version must be positive when supplied")
+			return
+		}
 	}
 	id, err := h.config.CreateVersion(r.Context(), domain.NewVersion{
 		TenantID: tenantID(r), ProtocolID: r.PathValue("protocol_id"),
-		ScopeType: req.ScopeType, ScopeID: req.ScopeID, Version: req.Version, VersionLabel: req.VersionLabel,
+		ScopeType: req.ScopeType, ScopeID: req.ScopeID, Version: version, VersionLabel: req.VersionLabel,
 		Status: "draft", EffectiveFrom: req.EffectiveFrom, EffectiveTo: req.EffectiveTo,
 		RuleDsl: rawOrEmpty(req.RuleDsl), ProofPolicy: rawOrEmpty(req.ProofPolicy),
 		SopVersionID: req.SopVersionID, DraftedBy: actorPtr(r), IdempotencyKey: idempotencyKey,
@@ -298,7 +306,7 @@ type animalStageListResponse struct {
 }
 
 // ListAnimalStages serves GET /protocols/animal-stages — the tenant's active animal_stage_lookup
-// rows, so the Config authoring stage picker is backend-driven (PHC vaccination TRD: stage bands
+// rows, so the Config authoring stage picker is backend-driven (PC vaccination TRD: stage bands
 // live in the lookup, not in frontend literals). Read-only; an empty list is honest (no stages
 // seeded yet) and the UI shows a seed-stages empty state rather than falling back to hardcoded codes.
 func (h *Handler) ListAnimalStages(w http.ResponseWriter, r *http.Request) {

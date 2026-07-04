@@ -53,7 +53,7 @@ func TestSM5cCompletionFlow(t *testing.T) {
 		t.Fatalf("definition: %v", err)
 	}
 	ruleDSL := []byte(`{"eligibility":{"stage":"K1"},` +
-		`"source":{"source_system":"phc","source_ref":"PHC §6","review_status":"approved","approved_by":"Reviewer"}}`)
+		`"source":{"source_system":"pc","source_ref":"PC §6","review_status":"approved","approved_by":"Reviewer"}}`)
 	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
 		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
 		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: ruleDSL, ProofPolicy: []byte(`{}`),
@@ -63,7 +63,7 @@ func TestSM5cCompletionFlow(t *testing.T) {
 	}
 	if _, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", OffsetDays: 21, Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", OffsetDays: 21, Repeat: "none", CatchUp: "pc_approval",
 		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	}); err != nil {
 		t.Fatalf("rule: %v", err)
@@ -257,7 +257,7 @@ func TestSM5cAcceptStockFailureRollsBackCompletion(t *testing.T) {
 	}
 	if _, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", OffsetDays: 21, Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", OffsetDays: 21, Repeat: "none", CatchUp: "pc_approval",
 		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	}); err != nil {
 		t.Fatalf("rule: %v", err)

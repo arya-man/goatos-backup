@@ -12,7 +12,7 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleCEOInternal, GoatWriteIdentity, true},
 		{RoleCEOInternal, GoatWriteHealth, true},
 		{RoleAdmin, GoatWriteHealth, true},
-		{RolePHCDirector, GoatWriteHealth, true},
+		{RolePCDirector, GoatWriteHealth, true},
 		{RoleVerifier, GoatWriteHealth, false},
 		{RoleVerifier, GoatWriteIdentity, true},
 		{RoleParkHead, GoatWriteHealth, false},
@@ -24,10 +24,10 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleAdmin, SOPPublish, true},
 		{RoleParkHead, TaskAssign, true},
 		{RoleParkHead, VaccinationRead, true},
-		{RolePHCDirector, VaccinationVerify, true},
-		{RolePHCDirector, CalendarAction, true},
-		{RolePHCDirector, ProcurementWrite, false},
-		{RolePHCDirector, ProcurementReview, false},
+		{RolePCDirector, VaccinationVerify, true},
+		{RolePCDirector, CalendarAction, true},
+		{RolePCDirector, ProcurementWrite, false},
+		{RolePCDirector, ProcurementReview, false},
 		{RoleParkHead, ProcurementReview, true},
 		{RoleOperator, ProcurementWrite, true},
 		{RoleVerifier, ProcurementWrite, false},
@@ -45,9 +45,9 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleCEOInternal, AdminWebBootstrap, true},
 		{RoleAdmin, OperationsRepair, true},
 		{RoleCEOInternal, OperationsRepair, true},
-		{RolePHCDirector, OperationsRepair, false},
+		{RolePCDirector, OperationsRepair, false},
 		{RoleParkHead, OperationsRepair, false},
-		{RolePHCDirector, AdminWebBootstrap, true},
+		{RolePCDirector, AdminWebBootstrap, true},
 		{RoleVerifier, AdminWebBootstrap, false},
 		{RoleParkHead, AdminWebBootstrap, false},
 		{RoleOperator, AdminWebBootstrap, false},
@@ -75,8 +75,8 @@ func TestHealthGoatRouteUsesDedicatedHealthPermission(t *testing.T) {
 	if RolesAuthorize([]string{RoleVerifier}, route.Permissions, route.AdminOnly) {
 		t.Fatal("verifier must not authorize direct health mutation")
 	}
-	if !RolesAuthorize([]string{RolePHCDirector}, route.Permissions, route.AdminOnly) {
-		t.Fatal("phc_director should authorize direct health mutation")
+	if !RolesAuthorize([]string{RolePCDirector}, route.Permissions, route.AdminOnly) {
+		t.Fatal("pc_director should authorize direct health mutation")
 	}
 }
 
@@ -94,8 +94,8 @@ func TestCriticalDeathExitRouteUsesDedicatedHealthPermission(t *testing.T) {
 	if RolesAuthorize([]string{RoleVerifier}, route.Permissions, route.AdminOnly) {
 		t.Fatal("verifier must not authorize critical death exit")
 	}
-	if !RolesAuthorize([]string{RolePHCDirector}, route.Permissions, route.AdminOnly) {
-		t.Fatal("phc_director should authorize critical death exit")
+	if !RolesAuthorize([]string{RolePCDirector}, route.Permissions, route.AdminOnly) {
+		t.Fatal("pc_director should authorize critical death exit")
 	}
 }
 

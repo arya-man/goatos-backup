@@ -751,7 +751,7 @@ func TestHealthGoatBuildsLifecycleCommand(t *testing.T) {
 		IdempotencyKey: "idem-health-0001",
 		TraceID:        testTrace,
 		GoatID:         goatA,
-		RawBody:        []byte(`{"health_status":"healthy","reason":"recovered after PHC treatment","evidence_refs":[{"evidence_type":"source_record","evidence_id":"health-ticket-1"}],"row_version":10}`),
+		RawBody:        []byte(`{"health_status":"healthy","reason":"recovered after PC treatment","evidence_refs":[{"evidence_type":"source_record","evidence_id":"health-ticket-1"}],"row_version":10}`),
 	}
 	result, err := svc.HealthGoat(context.Background(), input)
 	if err != nil {
@@ -804,7 +804,7 @@ func TestExitGoatRejectsDeathBeforeRepository(t *testing.T) {
 		IdempotencyKey: "idem-exit-death-0001",
 		TraceID:        testTrace,
 		GoatID:         goatA,
-		RawBody:        []byte(`{"lifecycle_status":"dead","exit_reason":"died","reason":"death certificate reported by PHC supervisor","evidence_refs":[{"evidence_type":"source_record","evidence_id":"death-ticket-1"}],"row_version":10}`),
+		RawBody:        []byte(`{"lifecycle_status":"dead","exit_reason":"died","reason":"death certificate reported by PC supervisor","evidence_refs":[{"evidence_type":"source_record","evidence_id":"death-ticket-1"}],"row_version":10}`),
 	})
 	var appErr *Error
 	if !errors.As(err, &appErr) {

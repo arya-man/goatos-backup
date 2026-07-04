@@ -397,6 +397,7 @@ DECLARE
   family text := btrim(COALESCE(p_family_key, ''));
   normalized_source text := COALESCE(NULLIF(btrim(p_source), ''), 'system');
   normalized_metadata jsonb := COALESCE(p_metadata, '{}'::jsonb);
+  occurred text;
 BEGIN
   IF p_tenant_id IS NULL OR family = '' THEN
     RETURN;
@@ -438,6 +439,7 @@ BEGIN
 
   event_uuid := admin_ui_deterministic_config_event_uuid(p_tenant_id, family, next_revision);
   event_idempotency_key := 'admin-ui-config:' || p_tenant_id::text || ':' || family || ':' || next_revision::text;
+  occurred := to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"');
 
   INSERT INTO outbox_messages (
     tenant_id,
@@ -457,21 +459,53 @@ BEGIN
     p_tenant_id,
     event_uuid,
     'config.changed',
-    'v1',
+    '1.0.0',
     'admin_ui_config_family',
     p_tenant_id,
     'config.changed',
     jsonb_build_object(
-      'tenant_id', p_tenant_id,
-      'family_key', family,
-      'revision', next_revision,
-      'content_hash', next_hash,
-      'source', normalized_source,
-      'metadata', normalized_metadata
+      'event_id', event_uuid,
+      'event_type', 'config.changed',
+      'schema_version', '1.0.0',
+      'schema_ref', 'contracts/jsonschema/domain-event-envelope.schema.json#config.changed',
+      'aggregate_type', 'admin_ui_config_family',
+      'aggregate_id', p_tenant_id,
+      'occurred_at', occurred,
+      'recorded_at', occurred,
+      'producer', jsonb_build_object(
+        'service', 'postgres',
+        'module', 'admin_ui_config_family_revisions',
+        'version', NULL
+      ),
+      'idempotency_key', event_idempotency_key,
+      'actor', jsonb_build_object(
+        'actor_type', CASE WHEN p_changed_by IS NULL THEN 'system_rule' ELSE 'human' END,
+        'actor_id', p_changed_by,
+        'actor_ref', NULL
+      ),
+      'subject_type', 'admin_ui_config_family',
+      'subject_id', family || ':' || next_revision::text,
+      'visibility_scope', jsonb_build_object('tenant_id', p_tenant_id),
+      'evidence_refs', jsonb_build_array(jsonb_build_object(
+        'evidence_type', 'event',
+        'evidence_id', family || ':' || next_revision::text
+      )),
+      'payload', jsonb_build_object(
+        'tenant_id', p_tenant_id,
+        'family_key', family,
+        'revision', next_revision,
+        'content_hash', next_hash,
+        'source', normalized_source,
+        'metadata', normalized_metadata
+      ),
+      'trace_id', event_idempotency_key
     ),
-    jsonb_build_object('producer', 'postgres.admin_ui_config_family_revisions'),
+    jsonb_build_object(
+      'producer', 'postgres.admin_ui_config_family_revisions',
+      'schema_version', '1.0.0'
+    ),
     event_idempotency_key,
-    NULL,
+    event_idempotency_key,
     'pending',
     now()
   )
@@ -1362,6 +1396,8 @@ $$;
 CREATE FUNCTION public.validate_outbox_event_tenant() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
+DECLARE
+  config_family_key text;
 BEGIN
   IF NEW.aggregate_type = 'count_base_anchor' THEN
     IF NOT EXISTS (
@@ -1406,13 +1442,14 @@ BEGIN
   END IF;
 
   IF NEW.aggregate_type = 'admin_ui_config_family' THEN
+    config_family_key := COALESCE(NEW.payload->>'family_key', NEW.payload #>> '{payload,family_key}');
     IF NOT EXISTS (
       SELECT 1
       FROM admin_ui_config_family_revisions
       WHERE tenant_id = NEW.tenant_id
-        AND family_key = NEW.payload->>'family_key'
+        AND family_key = config_family_key
     ) THEN
-      RAISE EXCEPTION 'admin ui config family outbox aggregate % does not exist for tenant %', NEW.payload->>'family_key', NEW.tenant_id
+      RAISE EXCEPTION 'admin ui config family outbox aggregate % does not exist for tenant %', config_family_key, NEW.tenant_id
         USING ERRCODE = '23503';
     END IF;
 
@@ -1917,7 +1954,7 @@ CREATE TABLE public.auth_pending_email_grants (
     claim_count bigint DEFAULT 0 NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     CONSTRAINT auth_pending_email_grants_email_check CHECK (((normalized_email = lower(btrim(email))) AND (normalized_email <> ''::text) AND (normalized_email !~~ '%,%'::text) AND (normalized_email !~~ '% %'::text) AND (POSITION(('@'::text) IN (normalized_email)) > 1))),
-    CONSTRAINT auth_pending_email_grants_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'park_head'::text, 'phc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text]))),
+    CONSTRAINT auth_pending_email_grants_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'park_head'::text, 'pc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text]))),
     CONSTRAINT auth_pending_email_grants_scope_check CHECK (((scope_type = 'tenant'::text) AND (scope_id = tenant_id))),
     CONSTRAINT auth_pending_email_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text]))),
     CONSTRAINT auth_pending_email_grants_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
@@ -2020,14 +2057,14 @@ CREATE TABLE public.calendar_event_projections (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT calendar_event_detail_object_check CHECK ((jsonb_typeof(detail) = 'object'::text)),
-    CONSTRAINT calendar_event_human_action_check CHECK ((system OR ((due_at IS NOT NULL) AND (owner_key = ANY (ARRAY['phc'::text, 'inventory'::text, 'admin_data_ops'::text])) AND ((executor_role IS NOT NULL) OR (assignee_label IS NOT NULL) OR (verifier_label IS NOT NULL))))),
+    CONSTRAINT calendar_event_human_action_check CHECK ((system OR ((due_at IS NOT NULL) AND (owner_key = ANY (ARRAY['pc'::text, 'inventory'::text, 'admin_data_ops'::text])) AND ((executor_role IS NOT NULL) OR (assignee_label IS NOT NULL) OR (verifier_label IS NOT NULL))))),
     CONSTRAINT calendar_event_links_object_check CHECK ((jsonb_typeof(links) = 'object'::text)),
-    CONSTRAINT calendar_event_owner_check CHECK ((owner_key = ANY (ARRAY['phc'::text, 'inventory'::text, 'admin_data_ops'::text]))),
+    CONSTRAINT calendar_event_owner_check CHECK ((owner_key = ANY (ARRAY['pc'::text, 'inventory'::text, 'admin_data_ops'::text]))),
     CONSTRAINT calendar_event_severity_check CHECK ((severity = ANY (ARRAY['info'::text, 'warning'::text, 'critical'::text]))),
     CONSTRAINT calendar_event_slice_check CHECK ((slice_key = 'vaccination'::text)),
     CONSTRAINT calendar_event_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'overdue'::text, 'missed'::text, 'in_progress'::text, 'proof_pending'::text, 'verification_pending'::text, 'rejected'::text, 'rework_due'::text, 'deferred'::text, 'blocked'::text, 'completed'::text, 'canceled'::text]))),
     CONSTRAINT calendar_event_target_count_check CHECK ((target_count >= 0)),
-    CONSTRAINT calendar_event_type_check CHECK ((event_type = ANY (ARRAY['vaccination_dose_due'::text, 'vaccination_drive'::text, 'vaccination_campaign'::text, 'vaccination_booster_due'::text, 'vaccination_defer_review'::text, 'vaccination_evidence_review'::text, 'vaccination_proof_verification'::text, 'vaccination_rework_due'::text, 'vaccine_stock_readiness'::text, 'vaccine_cold_chain_check'::text, 'vaccine_reorder_expiry_grn'::text, 'phc_stock_anti_misuse'::text, 'vaccination_config_activation_review'::text]))),
+    CONSTRAINT calendar_event_type_check CHECK ((event_type = ANY (ARRAY['vaccination_dose_due'::text, 'vaccination_drive'::text, 'vaccination_campaign'::text, 'vaccination_booster_due'::text, 'vaccination_defer_review'::text, 'vaccination_evidence_review'::text, 'vaccination_proof_verification'::text, 'vaccination_rework_due'::text, 'vaccine_stock_readiness'::text, 'vaccine_cold_chain_check'::text, 'vaccine_reorder_expiry_grn'::text, 'pc_stock_anti_misuse'::text, 'vaccination_config_activation_review'::text]))),
     CONSTRAINT calendar_event_window_check CHECK (((window_end IS NULL) OR (window_start IS NULL) OR (window_end >= window_start)))
 );
 
@@ -3349,7 +3386,7 @@ CREATE TABLE public.obligation_escalations (
     acknowledgement_note text DEFAULT ''::text NOT NULL,
     resolution_note text DEFAULT ''::text NOT NULL,
     CONSTRAINT obligation_escalations_level_check CHECK ((level >= 1)),
-    CONSTRAINT obligation_escalations_role_check CHECK (((escalated_to_role IS NULL) OR (escalated_to_role = ANY (ARRAY['admin'::text, 'park_head'::text, 'phc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text])))),
+    CONSTRAINT obligation_escalations_role_check CHECK (((escalated_to_role IS NULL) OR (escalated_to_role = ANY (ARRAY['admin'::text, 'park_head'::text, 'pc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text])))),
     CONSTRAINT obligation_escalations_status_check CHECK ((status = ANY (ARRAY['open'::text, 'acknowledged'::text, 'resolved'::text, 'expired'::text])))
 );
 
@@ -3780,10 +3817,10 @@ CREATE TABLE public.procurement_loads (
 
 
 --
--- Name: procurement_phc_handoffs; Type: TABLE; Schema: public; Owner: -
+-- Name: procurement_pc_handoffs; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.procurement_phc_handoffs (
+CREATE TABLE public.procurement_pc_handoffs (
     handoff_id uuid DEFAULT gen_random_uuid() NOT NULL,
     tenant_id uuid NOT NULL,
     load_id uuid NOT NULL,
@@ -3798,9 +3835,9 @@ CREATE TABLE public.procurement_phc_handoffs (
     idempotency_key text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT procurement_phc_handoffs_history_array_check CHECK ((jsonb_typeof(trusted_vaccination_history) = 'array'::text)),
-    CONSTRAINT procurement_phc_handoffs_signal_check CHECK (((intake_health_signal IS NULL) OR (intake_health_signal = ANY (ARRAY['clear'::text, 'defer'::text, 'quarantine'::text, 'review'::text])))),
-    CONSTRAINT procurement_phc_handoffs_status_check CHECK ((event_status = ANY (ARRAY['pending'::text, 'emitted'::text, 'canceled'::text])))
+    CONSTRAINT procurement_pc_handoffs_history_array_check CHECK ((jsonb_typeof(trusted_vaccination_history) = 'array'::text)),
+    CONSTRAINT procurement_pc_handoffs_signal_check CHECK (((intake_health_signal IS NULL) OR (intake_health_signal = ANY (ARRAY['clear'::text, 'defer'::text, 'quarantine'::text, 'review'::text])))),
+    CONSTRAINT procurement_pc_handoffs_status_check CHECK ((event_status = ANY (ARRAY['pending'::text, 'emitted'::text, 'canceled'::text])))
 );
 
 
@@ -3901,14 +3938,14 @@ CREATE TABLE public.protocol_rules (
     min_gap_days integer DEFAULT 0 NOT NULL,
     repeat text DEFAULT 'none'::text NOT NULL,
     repeat_until_after_age text,
-    catch_up text DEFAULT 'phc_approval'::text NOT NULL,
+    catch_up text DEFAULT 'pc_approval'::text NOT NULL,
     eligibility_json jsonb DEFAULT '{}'::jsonb NOT NULL,
     sop_version_id uuid,
     proof_policy jsonb DEFAULT '{}'::jsonb NOT NULL,
     withdrawal_days integer,
     sort_order integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT protocol_rules_catch_up_check CHECK ((catch_up = ANY (ARRAY['immediate'::text, 'next_cycle'::text, 'phc_approval'::text, 'defer'::text]))),
+    CONSTRAINT protocol_rules_catch_up_check CHECK ((catch_up = ANY (ARRAY['immediate'::text, 'next_cycle'::text, 'pc_approval'::text, 'defer'::text]))),
     CONSTRAINT protocol_rules_gap_check CHECK ((min_gap_days >= 0)),
     CONSTRAINT protocol_rules_offset_check CHECK ((offset_days >= 0)),
     CONSTRAINT protocol_rules_repeat_check CHECK ((repeat = ANY (ARRAY['none'::text, 'every_n_days'::text, 'yearly'::text]))),
@@ -4402,7 +4439,7 @@ CREATE TABLE public.user_scope_grants (
     valid_to timestamp with time zone,
     created_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT user_scope_grants_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'park_head'::text, 'phc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text]))),
+    CONSTRAINT user_scope_grants_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'park_head'::text, 'pc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text]))),
     CONSTRAINT user_scope_grants_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
     CONSTRAINT user_scope_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'revoked'::text]))),
     CONSTRAINT user_scope_grants_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
@@ -4712,7 +4749,7 @@ CREATE TABLE public.workforce_members (
     row_version integer DEFAULT 1 NOT NULL,
     CONSTRAINT workforce_members_display_code_check CHECK ((btrim(display_code) <> ''::text)),
     CONSTRAINT workforce_members_display_name_check CHECK ((btrim(display_name) <> ''::text)),
-    CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'phc_director'::text, 'verifier'::text, 'supervisor'::text, 'admin'::text, 'other'::text]))),
+    CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'pc_director'::text, 'verifier'::text, 'supervisor'::text, 'admin'::text, 'other'::text]))),
     CONSTRAINT workforce_members_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT workforce_members_status_check CHECK ((status = ANY (ARRAY['candidate'::text, 'active'::text, 'inactive'::text, 'suspended'::text, 'left'::text])))
 );
@@ -5913,27 +5950,27 @@ ALTER TABLE ONLY public.procurement_loads
 
 
 --
--- Name: procurement_phc_handoffs procurement_phc_handoffs_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: procurement_pc_handoffs procurement_pc_handoffs_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.procurement_phc_handoffs
-    ADD CONSTRAINT procurement_phc_handoffs_idempotency_unique UNIQUE (tenant_id, idempotency_key);
-
-
---
--- Name: procurement_phc_handoffs procurement_phc_handoffs_one_per_goat; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.procurement_phc_handoffs
-    ADD CONSTRAINT procurement_phc_handoffs_one_per_goat UNIQUE (tenant_id, load_id, goat_id);
+ALTER TABLE ONLY public.procurement_pc_handoffs
+    ADD CONSTRAINT procurement_pc_handoffs_idempotency_unique UNIQUE (tenant_id, idempotency_key);
 
 
 --
--- Name: procurement_phc_handoffs procurement_phc_handoffs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: procurement_pc_handoffs procurement_pc_handoffs_one_per_goat; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.procurement_phc_handoffs
-    ADD CONSTRAINT procurement_phc_handoffs_pkey PRIMARY KEY (handoff_id);
+ALTER TABLE ONLY public.procurement_pc_handoffs
+    ADD CONSTRAINT procurement_pc_handoffs_one_per_goat UNIQUE (tenant_id, load_id, goat_id);
+
+
+--
+-- Name: procurement_pc_handoffs procurement_pc_handoffs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_pc_handoffs
+    ADD CONSTRAINT procurement_pc_handoffs_pkey PRIMARY KEY (handoff_id);
 
 
 --
@@ -8110,7 +8147,7 @@ CREATE INDEX obligation_instances_due_window_idx ON public.obligation_instances 
 -- Name: obligation_instances_missed_deadline_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX obligation_instances_missed_deadline_idx ON public.obligation_instances USING btree (tenant_id, status, COALESCE(window_end, due_at), obligation_id) WHERE (status = ANY (ARRAY['scheduled'::text, 'due'::text]));
+CREATE INDEX obligation_instances_missed_deadline_idx ON public.obligation_instances USING btree (tenant_id, status, COALESCE(window_end, due_at), obligation_id) WHERE (status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text]));
 
 
 --
@@ -8555,17 +8592,17 @@ CREATE INDEX procurement_loads_source_idx ON public.procurement_loads USING btre
 
 
 --
--- Name: procurement_phc_handoffs_goat_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: procurement_pc_handoffs_goat_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX procurement_phc_handoffs_goat_idx ON public.procurement_phc_handoffs USING btree (tenant_id, goat_id, accepted_at DESC);
+CREATE INDEX procurement_pc_handoffs_goat_idx ON public.procurement_pc_handoffs USING btree (tenant_id, goat_id, accepted_at DESC);
 
 
 --
--- Name: procurement_phc_handoffs_pending_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: procurement_pc_handoffs_pending_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX procurement_phc_handoffs_pending_idx ON public.procurement_phc_handoffs USING btree (tenant_id, event_status, accepted_at, handoff_id);
+CREATE INDEX procurement_pc_handoffs_pending_idx ON public.procurement_pc_handoffs USING btree (tenant_id, event_status, accepted_at, handoff_id);
 
 
 --
@@ -12303,43 +12340,43 @@ ALTER TABLE ONLY public.procurement_loads
 
 
 --
--- Name: procurement_phc_handoffs procurement_phc_handoffs_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: procurement_pc_handoffs procurement_pc_handoffs_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.procurement_phc_handoffs
-    ADD CONSTRAINT procurement_phc_handoffs_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
-
-
---
--- Name: procurement_phc_handoffs procurement_phc_handoffs_load_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.procurement_phc_handoffs
-    ADD CONSTRAINT procurement_phc_handoffs_load_tenant_fk FOREIGN KEY (tenant_id, load_id) REFERENCES public.procurement_loads(tenant_id, load_id);
+ALTER TABLE ONLY public.procurement_pc_handoffs
+    ADD CONSTRAINT procurement_pc_handoffs_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
 
 
 --
--- Name: procurement_phc_handoffs procurement_phc_handoffs_park_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: procurement_pc_handoffs procurement_pc_handoffs_load_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.procurement_phc_handoffs
-    ADD CONSTRAINT procurement_phc_handoffs_park_tenant_fk FOREIGN KEY (tenant_id, park_location_id) REFERENCES public.locations(tenant_id, location_id);
-
-
---
--- Name: procurement_phc_handoffs procurement_phc_handoffs_shed_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.procurement_phc_handoffs
-    ADD CONSTRAINT procurement_phc_handoffs_shed_tenant_fk FOREIGN KEY (tenant_id, shed_location_id) REFERENCES public.locations(tenant_id, location_id);
+ALTER TABLE ONLY public.procurement_pc_handoffs
+    ADD CONSTRAINT procurement_pc_handoffs_load_tenant_fk FOREIGN KEY (tenant_id, load_id) REFERENCES public.procurement_loads(tenant_id, load_id);
 
 
 --
--- Name: procurement_phc_handoffs procurement_phc_handoffs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: procurement_pc_handoffs procurement_pc_handoffs_park_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.procurement_phc_handoffs
-    ADD CONSTRAINT procurement_phc_handoffs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+ALTER TABLE ONLY public.procurement_pc_handoffs
+    ADD CONSTRAINT procurement_pc_handoffs_park_tenant_fk FOREIGN KEY (tenant_id, park_location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: procurement_pc_handoffs procurement_pc_handoffs_shed_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_pc_handoffs
+    ADD CONSTRAINT procurement_pc_handoffs_shed_tenant_fk FOREIGN KEY (tenant_id, shed_location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: procurement_pc_handoffs procurement_pc_handoffs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_pc_handoffs
+    ADD CONSTRAINT procurement_pc_handoffs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -89,7 +90,7 @@ func TestConsolidateParkDrivesRequiresMultipleSheds(t *testing.T) {
 	}
 	svc := NewSweeperService(repo, nil, nil)
 
-	res, err := svc.consolidateParkDrives(t.Context(), "tenant-1", "version-1", SweepConfig{
+	res, err := svc.consolidateParkDrives(context.Background(), "tenant-1", "version-1", SweepConfig{
 		ParkConsolidation: domain.DefaultParkConsolidationSettings(),
 	}, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
@@ -124,7 +125,7 @@ func TestConsolidateParkDrivesCreatesParkBatchAcrossSheds(t *testing.T) {
 	}
 	svc := NewSweeperService(repo, nil, nil)
 
-	res, err := svc.consolidateParkDrives(t.Context(), "tenant-1", "version-1", SweepConfig{
+	res, err := svc.consolidateParkDrives(context.Background(), "tenant-1", "version-1", SweepConfig{
 		ParkConsolidation: domain.DefaultParkConsolidationSettings(),
 	}, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
@@ -169,7 +170,7 @@ func TestConsolidateParkDrivesMergesDifferentVaccinesAcrossSheds(t *testing.T) {
 	}
 	svc := NewSweeperService(repo, nil, nil)
 
-	res, err := svc.consolidateParkDrives(t.Context(), "tenant-1", "version-1", SweepConfig{
+	res, err := svc.consolidateParkDrives(context.Background(), "tenant-1", "version-1", SweepConfig{
 		ParkConsolidation: domain.DefaultParkConsolidationSettings(),
 	}, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {

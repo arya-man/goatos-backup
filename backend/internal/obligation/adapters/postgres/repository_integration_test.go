@@ -52,7 +52,7 @@ func seed(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (obligationID s
 	}
 	ruleID, err := proto.CreateRule(ctx, protocoldomain.NewRule{
 		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
 		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
@@ -106,6 +106,90 @@ func TestObligationInsertIsIdempotent(t *testing.T) {
 		t.Fatalf("expected exactly 1 obligation row, got %d", got)
 	}
 	_ = obligationID
+}
+
+func TestObligationInsertReopensCanceledSameKey(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	obligationID := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+
+	if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET status='canceled' WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, obligationID); err != nil {
+		t.Fatalf("cancel seed obligation: %v", err)
+	}
+	id, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: testGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled",
+		IdempotencyKey: "obl-1", Sequence: 1,
+	})
+	if err != nil {
+		t.Fatalf("reopen canceled insert: %v", err)
+	}
+	if !applied || id != obligationID {
+		t.Fatalf("reopen canceled id=%q applied=%v, want existing id %q with applied", id, applied, obligationID)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND idempotency_key=$2 AND status='scheduled'`, tenantID, "obl-1"); got != 1 {
+		t.Fatalf("expected exactly 1 reopened scheduled obligation, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='scheduled' AND idempotency_key LIKE '%:regenerated:%'`, tenantID, obligationID); got != 1 {
+		t.Fatalf("expected regenerated scheduled status event, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM outbox_messages WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='obligation.regenerated'`, tenantID, obligationID); got != 1 {
+		t.Fatalf("expected regenerated outbox event, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_id=$2 AND action='obligation.regenerated'`, tenantID, obligationID); got != 1 {
+		t.Fatalf("expected regenerated audit event, got %d", got)
+	}
+}
+
+func TestObligationInsertReschedulesMissedSameKey(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	obligationID := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+
+	if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET status='missed' WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, obligationID); err != nil {
+		t.Fatalf("mark seed obligation missed: %v", err)
+	}
+	nextDue := time.Date(2027, 8, 1, 0, 0, 0, 0, time.UTC)
+	id, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: testGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: nextDue, Status: "scheduled",
+		IdempotencyKey: "obl-1", Sequence: 1,
+	})
+	if err != nil {
+		t.Fatalf("reschedule missed insert: %v", err)
+	}
+	if !applied || id != obligationID {
+		t.Fatalf("reschedule missed id=%q applied=%v, want existing id %q with applied", id, applied, obligationID)
+	}
+	var status string
+	var due time.Time
+	if err := pool.QueryRow(ctx, `SELECT status, due_at FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, obligationID).Scan(&status, &due); err != nil {
+		t.Fatalf("read rescheduled obligation: %v", err)
+	}
+	if status != "scheduled" || !due.Equal(nextDue) {
+		t.Fatalf("status=%q due=%s, want scheduled at %s", status, due, nextDue)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='scheduled' AND idempotency_key LIKE '%:regenerated:%'`, tenantID, obligationID); got != 1 {
+		t.Fatalf("expected regenerated scheduled status event, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM outbox_messages WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='obligation.regenerated'`, tenantID, obligationID); got != 1 {
+		t.Fatalf("expected regenerated outbox event, got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_id=$2 AND action='obligation.regenerated'`, tenantID, obligationID); got != 1 {
+		t.Fatalf("expected regenerated audit event, got %d", got)
+	}
 }
 
 func TestObligationInsertDedupesSameLogicalDoseWithDifferentKey(t *testing.T) {

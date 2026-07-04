@@ -88,6 +88,34 @@ func (s *Service) RunOnce(ctx context.Context) (*domain.RunResult, error) {
 	return result, nil
 }
 
+// RunUntilDrained keeps claiming ready outbox rows until there is no immediate
+// queue movement left or the caller's context expires. For scheduled jobs, the
+// configured limit is a batch size; it must not become a hard per-run ceiling.
+func (s *Service) RunUntilDrained(ctx context.Context) (*domain.RunResult, error) {
+	total := &domain.RunResult{}
+	for {
+		if err := ctx.Err(); err != nil {
+			return total, err
+		}
+		result, err := s.RunOnce(ctx)
+		if result != nil {
+			total.BatchesProcessed++
+			total.ReclaimedStaleCount += result.ReclaimedStaleCount
+			total.ClaimedCount += result.ClaimedCount
+			total.PublishedCount += result.PublishedCount
+			total.RetryScheduledCount += result.RetryScheduledCount
+			total.FailedCount += result.FailedCount
+			total.DeadLetterCount += result.DeadLetterCount
+		}
+		if err != nil {
+			return total, err
+		}
+		if result == nil || (result.ReclaimedStaleCount == 0 && result.ClaimedCount == 0 && result.DeadLetterCount == 0) {
+			return total, nil
+		}
+	}
+}
+
 func (s *Service) processMessage(ctx context.Context, message domain.Message, result *domain.RunResult) error {
 	now := s.now()
 	if err := s.validator.Validate(message.Payload); err != nil {

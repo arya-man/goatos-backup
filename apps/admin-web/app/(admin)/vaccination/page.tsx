@@ -1,4 +1,4 @@
-import { VaccinationOperationsPage } from "@/features/phc-vaccination";
+import { VaccinationOperationsPage } from "@/features/preventive-care-vaccination";
 import { requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 

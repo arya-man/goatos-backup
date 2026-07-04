@@ -172,13 +172,13 @@ INSERT INTO calendar_event_projections (
   executor_role, reminder_state, primary_notification_channel, escalation_state,
   system, cross_cutting, links, detail
 ) VALUES (
-  $1::uuid, $2, 'vaccination', 'vaccination_dose_due', 'phc',
+  $1::uuid, $2, 'vaccination', 'vaccination_dose_due', 'pc',
   'Notification repo event', 'Notification integration test', 'due', 'warning',
   now(), now(), now() + interval '1 day', 'Asia/Kolkata', 'fallback',
   'cohort', 1, true, 'notification repo source', 'calendar_event', NULL,
-  'PHC test owner', 'phc_vaccinator', 'not_scheduled', 'local-stub', 'none',
+  'PC test owner', 'pc_vaccinator', 'not_scheduled', 'local-stub', 'none',
   false, false, '{}'::jsonb,
-  '{"summary":{"owner":"PHC"},"source_and_rule":{"source_backed":true},"execution":{},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub"],"notification_policy":{},"links":{}}'::jsonb
+  '{"summary":{"owner":"PC"},"source_and_rule":{"source_backed":true},"execution":{},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub"],"notification_policy":{},"links":{}}'::jsonb
 )
 ON CONFLICT (tenant_id, event_id) DO NOTHING`, testTenantID, eventID); err != nil {
 		t.Fatalf("seed calendar event: %v", err)

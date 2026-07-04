@@ -14,6 +14,7 @@ var (
 	ErrNotFound          = errors.New("procurement: not found")
 	ErrInvalidTransition = errors.New("procurement: invalid transition")
 	ErrStaleWrite        = errors.New("procurement: stale row version")
+	ErrWriteConflict     = errors.New("procurement: write conflict")
 	// ErrIdempotencyConflict is returned when an idempotency key is replayed with a different request
 	// payload (semantic fingerprint mismatch). The write must be rejected without mutating state.
 	ErrIdempotencyConflict = errors.New("procurement: idempotency key reused with different payload")
@@ -21,6 +22,9 @@ var (
 	// proof_ref_id. Trusted evidence can suppress a real post-arrival dose, so unproven evidence must
 	// not be trusted.
 	ErrProofRequired = errors.New("procurement: proof reference required")
+	// ErrInvalidTrustContext is returned when a procurement vaccination evidence row has proof, but the
+	// goat/load context is not a supervised procurement holding stay that can suppress Preventive Care work.
+	ErrInvalidTrustContext = errors.New("procurement: invalid trusted vaccination context")
 	// ErrInvalidReference is returned when a write references a tenant-scoped entity that does not exist
 	// (protocol version, rule, goat, load, or proof). Surfaced as a 400 instead of a raw FK 500.
 	ErrInvalidReference = errors.New("procurement: referenced entity does not exist")
@@ -42,7 +46,7 @@ type Repository interface {
 	ReviewHFVaccinationEvidence(ctx context.Context, in ReviewHFVaccinationEvidence) (domain.HFVaccinationEvidence, error)
 	DispatchLoad(ctx context.Context, in DispatchLoad) (domain.TransitHandoff, error)
 	RecordArrivalReview(ctx context.Context, in ArrivalReview) (domain.ArrivalReview, error)
-	AcceptIntake(ctx context.Context, in AcceptIntake) ([]domain.PHCHandoff, error)
+	AcceptIntake(ctx context.Context, in AcceptIntake) ([]domain.PCHandoff, error)
 	ListWorkRows(ctx context.Context, q domain.WorkQuery) (domain.WorkListResult, error)
 	GetWorkRow(ctx context.Context, q domain.WorkQuery, rowID string) (domain.WorkRow, bool, error)
 }

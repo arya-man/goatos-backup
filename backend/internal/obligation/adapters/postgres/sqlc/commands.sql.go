@@ -345,6 +345,12 @@ WHERE oi.tenant_id = $1
       AND (
         g.lifecycle_status IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
         OR g.merged_into_goat_id IS NOT NULL
+        OR EXISTS (
+          SELECT 1
+          FROM vw_procurement_vaccination_excluded_goats ex
+          WHERE ex.tenant_id = g.tenant_id
+            AND ex.goat_id = g.goat_id
+        )
       )
   )
 RETURNING oi.obligation_id::text AS obligation_id
@@ -371,13 +377,13 @@ const reopenDeferredObligationForKeyWithDue = `-- name: ReopenDeferredObligation
 UPDATE obligation_instances oi
 SET status = 'scheduled',
     batch_id = NULL,
-    due_at = $3,
-    window_start = $4,
-    window_end = $5,
+    due_at = $1,
+    window_start = $2,
+    window_end = $3,
     row_version = row_version + 1,
     updated_at = now()
-WHERE oi.tenant_id = $1
-  AND oi.idempotency_key = $2
+WHERE oi.tenant_id = $4
+  AND oi.idempotency_key = $5
   AND oi.status = 'deferred'
   AND NOT EXISTS (
     SELECT 1
@@ -394,27 +400,35 @@ WHERE oi.tenant_id = $1
       AND pd.category = 'vaccination'
       AND (
         g.lifecycle_status IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
-        OR g.identity_state IN ('disputed', 'merged', 'inactive')
+        OR g.merged_into_goat_id IS NOT NULL
+        OR EXISTS (
+          SELECT 1
+          FROM vw_procurement_vaccination_excluded_goats ex
+          WHERE ex.tenant_id = g.tenant_id
+            AND ex.goat_id = g.goat_id
+        )
       )
   )
 RETURNING oi.obligation_id::text AS obligation_id
 `
 
 type ReopenDeferredObligationForKeyWithDueParams struct {
-	TenantID               pgtype.UUID
-	IdempotencyKey         string
 	RescheduledDueAt       pgtype.Timestamptz
 	RescheduledWindowStart pgtype.Timestamptz
 	RescheduledWindowEnd   pgtype.Timestamptz
+	TenantID               pgtype.UUID
+	IdempotencyKey         string
 }
 
+// Health recovery replan: reopen a held obligation and slide due_at to a nearby planned drive date
+// or to recovery time for an immediate micro-drive. Clears batch_id so the sweeper re-attaches.
 func (q *Queries) ReopenDeferredObligationForKeyWithDue(ctx context.Context, arg ReopenDeferredObligationForKeyWithDueParams) (string, error) {
 	row := q.db.QueryRow(ctx, reopenDeferredObligationForKeyWithDue,
-		arg.TenantID,
-		arg.IdempotencyKey,
 		arg.RescheduledDueAt,
 		arg.RescheduledWindowStart,
 		arg.RescheduledWindowEnd,
+		arg.TenantID,
+		arg.IdempotencyKey,
 	)
 	var obligation_id string
 	err := row.Scan(&obligation_id)

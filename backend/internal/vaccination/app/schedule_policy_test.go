@@ -54,20 +54,51 @@ func TestRecoveryRescheduleDue(t *testing.T) {
 	}
 }
 
-func TestMotherBranchAssumesVaccinatedWhenUnknown(t *testing.T) {
-	proc := genProcurementPolicy{}
-	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	kid := domain.EligibleGoat{OriginType: "birth", DOB: &dob, Stage: "K1"}
-	if !kidMotherVaccinatedBranch(proc) {
-		t.Fatal("expected mother-vaccinated branch by default")
+func TestRecoveryRescheduleDueUsesOneWeekMaxBuffer(t *testing.T) {
+	policy := genRecoveryPolicy{MaxNearbyDriveAlignDays: 7}
+	cases := []struct {
+		name       string
+		recovered  time.Time
+		drive      time.Time
+		wantReason string
+		wantDue    time.Time
+	}{
+		{
+			name:       "july 5 recovery can join july 10 drive",
+			recovered:  time.Date(2026, 7, 5, 9, 0, 0, 0, time.UTC),
+			drive:      time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+			wantReason: recoveryAlignNearbyDrive,
+			wantDue:    time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:       "july 4 recovery can join july 10 drive",
+			recovered:  time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC),
+			drive:      time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+			wantReason: recoveryAlignNearbyDrive,
+			wantDue:    time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:       "seven day boundary can still batch",
+			recovered:  time.Date(2026, 7, 5, 9, 0, 0, 0, time.UTC),
+			drive:      time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
+			wantReason: recoveryAlignNearbyDrive,
+			wantDue:    time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:       "eight days cannot wait and becomes micro drive",
+			recovered:  time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC),
+			drive:      time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
+			wantReason: recoveryMicroDrive,
+			wantDue:    time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC),
+		},
 	}
-	vaccinated := true
-	notVaccinated := false
-	if !motherBranchMatchesGoat(kid, &vaccinated, proc, dob.AddDate(0, 0, 30)) {
-		t.Fatal("mother-vaccinated row should match default branch")
-	}
-	if motherBranchMatchesGoat(kid, &notVaccinated, proc, dob.AddDate(0, 0, 30)) {
-		t.Fatal("mother-not-vaccinated row should not match when unknown dam is assumed vaccinated")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotDue, gotReason := recoveryRescheduleDue(tc.recovered, policy, &tc.drive)
+			if gotReason != tc.wantReason || !gotDue.Equal(tc.wantDue) {
+				t.Fatalf("got due=%v reason=%q, want due=%v reason=%q", gotDue, gotReason, tc.wantDue, tc.wantReason)
+			}
+		})
 	}
 }
 

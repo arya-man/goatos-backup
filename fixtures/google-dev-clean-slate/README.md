@@ -2,7 +2,7 @@
 
 Purpose: provide a small, synthetic seed pack for `goatos-dev` validation after
 the pre-Google correctness gates are closed. This is not a legacy migration and
-must not be treated as production PHC data.
+must not be treated as production PC data.
 
 Run the fixture verifier before using the pack:
 

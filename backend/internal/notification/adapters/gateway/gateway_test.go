@@ -31,7 +31,7 @@ func TestSendEmailPostsVendorPayload(t *testing.T) {
 		EmailWebhookURL: server.URL,
 		EmailAuthToken:  "email-token",
 	}, nil)
-	err := gateway.Send(context.Background(), request("email", "phc@example.com"))
+	err := gateway.Send(context.Background(), request("email", "pc@example.com"))
 	if err != nil {
 		t.Fatalf("Send email: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestSendEmailPostsVendorPayload(t *testing.T) {
 		t.Fatalf("Authorization = %q", gotAuth)
 	}
 	to, _ := got["to"].([]any)
-	if len(to) != 1 || to[0] != "phc@example.com" {
+	if len(to) != 1 || to[0] != "pc@example.com" {
 		t.Fatalf("to = %#v", got["to"])
 	}
 	if got["subject"] != "Vaccination overdue" || got["text"] != "Shed A vaccination is overdue." {
@@ -117,14 +117,14 @@ func TestSendFCMUsesDefaultTopic(t *testing.T) {
 	gateway := New(Config{
 		FCMEndpoint:     server.URL,
 		FCMBearerToken:  "fcm-token",
-		FCMDefaultTopic: "phc-dev",
+		FCMDefaultTopic: "pc-dev",
 	}, nil)
 	err := gateway.Send(context.Background(), request("push_fcm", ""))
 	if err != nil {
 		t.Fatalf("Send FCM: %v", err)
 	}
 	message, _ := got["message"].(map[string]any)
-	if message["topic"] != "phc-dev" {
+	if message["topic"] != "pc-dev" {
 		t.Fatalf("message target = %#v", message)
 	}
 }
@@ -150,7 +150,7 @@ func TestSendIncidentPostsDedupePayload(t *testing.T) {
 	defer server.Close()
 
 	gateway := New(Config{IncidentWebhookURL: server.URL, IncidentAuthToken: "incident-token"}, nil)
-	err := gateway.Send(context.Background(), request("incident", "phc_director"))
+	err := gateway.Send(context.Background(), request("incident", "pc_director"))
 	if err != nil {
 		t.Fatalf("Send incident: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestSendIncidentFallsBackToSlackWhenIncidentWebhookMissing(t *testing.T) {
 	defer server.Close()
 
 	gateway := New(Config{SlackWebhookURL: server.URL}, nil)
-	err := gateway.Send(context.Background(), request("incident", "phc_director"))
+	err := gateway.Send(context.Background(), request("incident", "pc_director"))
 	if err != nil {
 		t.Fatalf("Send incident fallback: %v", err)
 	}

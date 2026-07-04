@@ -200,7 +200,7 @@ Maintainer-local wiki/legacy sources reviewed:
 - `wiki/graphify-out/converted/Death Reports_77cc2f42.md`
 - `wiki/graphify-out/converted/Feed, Shiftings and Count_27cef16d.md`
 - `wiki/graphify-out/converted/Mesha-dept-directors_3e7ab556.md`
-- `Handbooks/PHC_Director.pdf` graph nodes for 21-day quarantine, daily
+- `Preventive Care Director handbook source` graph nodes for 21-day quarantine, daily
   Park Head coordination, EOD reporting, SOP video verification, and Preventive Care (PC)
   daily/weekly execution
 - `Handbooks/Health_Director.pdf` and `Handbooks/Mesha-dept-directors.pdf`
@@ -792,7 +792,7 @@ doing nothing.
 
 Source trail for timetable/round requirements:
 
-- `Handbooks/PHC_Director.pdf` graph nodes cover daily Park Head coordination,
+- `Preventive Care Director handbook source` graph nodes cover daily Park Head coordination,
   EOD reporting, SOP video verification, and Preventive Care (PC) daily/weekly execution.
 - `Handbooks/Health_Director.pdf` and `Handbooks/Mesha-dept-directors.pdf`
   graph nodes cover the 10-minute report response standard where applicable.

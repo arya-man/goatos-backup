@@ -94,6 +94,7 @@ type Rule struct {
 	Repeat              string
 	RepeatUntilAfterAge string
 	CatchUp             string
+	EligibilityJSON     []byte
 	SopVersionID        string
 	SortOrder           int32
 }
@@ -129,7 +130,7 @@ type ConfigListItem struct {
 
 // AnimalStage is one active row of animal_stage_lookup — the tenant's stage reference data
 // (e.g. K1 ≈ milk training, K2 ≈ milk drinking). The Config authoring stage picker is driven by
-// these rows, never by frontend literals (PHC vaccination TRD: stage bands live in the lookup).
+// these rows, never by frontend literals (PC vaccination TRD: stage bands live in the lookup).
 // MinAgeDays/MaxAgeDays are nil when the band is open-ended on that side.
 type AnimalStage struct {
 	AnimalStageID string

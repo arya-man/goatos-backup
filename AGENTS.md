@@ -55,7 +55,7 @@ Only for what the graph cannot see:
 ## Business and medical rule changes (maintainer lock)
 
 When the maintainer states a **new working rule, condition, timing, or workflow**
-(in chat, WhatsApp screenshots, PHC sign-off, or ad-hoc instructions) that may
+(in chat, WhatsApp screenshots, Preventive Care sign-off, or ad-hoc instructions) that may
 **contradict or supersede** existing docs, seeded config, implemented kernel
 behavior, or a prior decision in the same thread:
 
@@ -65,11 +65,17 @@ behavior, or a prior decision in the same thread:
 2. **Ask explicitly** which rule wins, whether the old rule is retired, or
    whether both apply in different scopes (species, stage, procurement path, etc.).
 3. **Implement only after confirmation** — then update the canonical source in the
-   same change as the code (`docs/phc-vaccination/source-nuances-rules.md`,
+   same change as the code (`docs/preventive-care-vaccination/vaccination-rules.md`,
    published `rule_dsl`, TRD/ADR, or this file when appropriate).
 
 Ambiguity is not approval. Informal agreement in a screenshot or chat applies to
 **that** scenario until it is written into the source contract.
+
+Confirmed Preventive Care (PC) vaccination override: never ask about, model, seed,
+import, expose, or schedule from mother-not-vaccinated / unknown-mother status.
+The private source/wiki may contain that branch, but GoatOS ignores it. Mothers
+are kept vaccinated operationally, and every kid uses the approved standard
+schedule in `docs/preventive-care-vaccination/vaccination-rules.md`.
 
 Read first:
 
@@ -335,6 +341,20 @@ Do not:
   (stop it first), and if you break it, restore it. See
   `apps/admin-web/AGENTS.md` → "Local Dev Server Safety" for the full rule. This
   applies to every agent (Codex and Claude).
+- Always-on local stack rule (Codex and Claude): when a task needs any local
+  frontend, backend, worker, importer, proxy, emulator, database container, or
+  other Goat OS service, first check whether it is already running and do not
+  stop it just because the immediate command is done. Prefer the persistent
+  service wrapper (`make dev-local-service-start`, `make dev-local-service-status`,
+  `make dev-local-service-logs`) over foreground one-off terminals for long-lived
+  stack work. Leave required services running at the end of the turn/session
+  unless the user explicitly asks to stop them or stopping is required to prevent
+  machine damage/data loss. If code/env changes require a restart, restart on the
+  same ports and health-check before reporting done. Do not finish with a needed
+  app stack stopped, and do not leave required servers as active Codex terminal
+  sessions that block the final response; use the service wrapper/supervisor and
+  logs. Status/final updates must name what is running plus the URL/port. If a
+  service cannot be kept running, state the blocker and the exact restore command.
 - Do not reintroduce old staging labels as architecture.
 - Do not commit generated Graphify/CRG graphs. `graphify-out/graph.json`,
   `manifest.json`, `GRAPH_REPORT.md`, `graph.html`, `cost.json` and the

@@ -529,7 +529,7 @@ func validMemberStatus(value string) bool {
 
 func validRoleHint(value string) bool {
 	switch value {
-	case "operator", "park_head", "phc_director", "verifier", "supervisor", "admin", "other":
+	case "operator", "park_head", "pc_director", "verifier", "supervisor", "admin", "other":
 		return true
 	default:
 		return false
@@ -538,7 +538,7 @@ func validRoleHint(value string) bool {
 
 func validRole(value string) bool {
 	switch value {
-	case "admin", "park_head", "phc_director", "operator", "verifier", "ceo_internal":
+	case "admin", "park_head", "pc_director", "operator", "verifier", "ceo_internal":
 		return true
 	default:
 		return false

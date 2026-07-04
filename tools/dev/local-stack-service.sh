@@ -64,6 +64,12 @@ bootout_if_loaded() {
   fi
 }
 
+plist_points_to_repo() {
+  [ -f "$plist_path" ] || return 1
+  grep -Fq "<string>$repo_root/tools/dev/run-local-stack-supervised.sh</string>" "$plist_path" \
+    && grep -Fq "<string>$repo_root</string>" "$plist_path"
+}
+
 bootstrap() {
   launchctl bootstrap "$domain" "$plist_path"
   launchctl enable "$domain/$label" >/dev/null 2>&1 || true
@@ -72,6 +78,15 @@ bootstrap() {
 
 status() {
   echo "LaunchAgent: $plist_path"
+  if [ -f "$plist_path" ]; then
+    if plist_points_to_repo; then
+      echo "plist: current repo"
+    else
+      echo "plist: stale or points at a different repo"
+    fi
+  else
+    echo "plist: missing"
+  fi
   if is_loaded; then
     echo "launchd: loaded"
     launchctl print "$domain/$label" | sed -n '1,35p'
@@ -112,13 +127,16 @@ case "$cmd" in
     status
     ;;
   start)
-    if [ ! -f "$plist_path" ]; then
+    if ! plist_points_to_repo; then
       write_plist
-    fi
-    if is_loaded; then
-      launchctl kickstart -k "$domain/$label"
-    else
+      bootout_if_loaded
       bootstrap
+    else
+      if is_loaded; then
+        launchctl kickstart "$domain/$label" >/dev/null 2>&1 || true
+      else
+        bootstrap
+      fi
     fi
     status
     ;;

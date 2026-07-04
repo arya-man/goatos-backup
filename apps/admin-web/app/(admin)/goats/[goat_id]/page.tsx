@@ -1,5 +1,5 @@
 import { GoatPassportPage } from "@/features/goat-passport";
-import { VaccinationPassportSection } from "@/features/phc-vaccination";
+import { VaccinationPassportSection } from "@/features/preventive-care-vaccination";
 import { requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 

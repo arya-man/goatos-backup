@@ -20,13 +20,13 @@
 #   - DB migrated to head. `make dev-local` does NOT migrate; in particular migration
 #     000082 (sop_task_review_fanouts / sop_task_submission_fanouts) must be applied or the
 #     SOP submission step 500s with: relation "sop_task_submission_fanouts" does not exist.
-#   - seeded source-derived ET V1 matrix baseline (seed-vaccination-trigger): published version b051,
-#     rules b052 (ET-PRIMARY-1, birth_age day 21) + b053 (ET-BOOSTER-1, after_previous_completion +14d),
+#   - seeded Preventive Care ET+TT matrix baseline (seed-vaccination-trigger): published version b051,
+#     rules b052 (ET_TT_4W, birth_age day 28) + b053 (ET_TT_7W, after_previous_completion +21d),
 #     linked published SOP b0..0002, FEFO vaccine lot b002.
 #
 # This uses the source-derived local/dev baseline in
 # context/source-findings/preventive-care-vaccination-roster-stage-proposal.md. Production can replace it
-# with a later source-backed version if PHC/vet data changes.
+# with a later source-backed version if PC/vet data changes.
 set -euo pipefail
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
 export GOATOS_ENV=local GOATOS_AUTH_MODE=bearer
@@ -36,8 +36,9 @@ export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:55432/
 PGURL="$DATABASE_URL"; API="${GOATOS_API_BASE_URL:-http://127.0.0.1:8080}"
 TENANT=00000000-0000-4000-8000-000000000001
 USER=90000000-0000-4000-8000-000000000101
-VERSION=00000000-0000-4000-8000-00000000b051        # published source-derived ET V1 matrix baseline
-OLD_VERSION=00000000-0000-4000-8000-00000000b011    # retired legacy ET baseline; must not generate obligations
+PROOF_PARK=00000000-0000-4000-8000-000000003001
+VERSION=00000000-0000-4000-8000-00000000b051        # published Preventive Care ET+TT matrix baseline
+OLD_VERSION=00000000-0000-4000-8000-00000000b011    # retired ET+TT baseline; must not generate obligations
 SOPVER=b0000000-0000-4000-8000-000000000002         # linked published SOP version
 ITEM=00000000-0000-4000-8000-00000000b001           # vaccine inventory item
 LOT=00000000-0000-4000-8000-00000000b002            # inventory_stock.stock_id (FEFO lot ET-LOT-001 @ CBE)
@@ -91,28 +92,29 @@ BACKFILL_SHED_CODE="CHAIN-BF-$STAMP"
 MAIN_SHED_CODE="CHAIN-MAIN-$STAMP"
 ENTRY_DATE=$(date -u +%F)
 ADMINISTERED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-if DOB_DAY21=$(date -u -v-21d +%F 2>/dev/null); then
+if DOB_DAY28=$(date -u -v-28d +%F 2>/dev/null); then
   :
 else
-  DOB_DAY21=$(date -u -d "$ENTRY_DATE - 21 days" +%F)
+  DOB_DAY28=$(date -u -d "$ENTRY_DATE - 28 days" +%F)
 fi
 echo "## vaccination-chain-proof stamp=$STAMP api=$API"
 
-echo; echo "### 0. V1 vaccine-goat matrix fixture is present"
+echo; echo "### 0. Preventive Care ET+TT matrix fixture is present"
 ( cd "$BACKEND" && go run ./cmd/seed-vaccination-trigger -tenant-id "$TENANT" >/dev/null )
 MATRIX=$(psqlq "select concat_ws('|', rule_dsl->'vaccine'->>'code', rule_dsl->'vaccine'->>'type', rule_dsl #>> '{schedule,0,dose_amount}', rule_dsl #>> '{schedule,0,dose_unit}', rule_dsl #>> '{schedule,0,route_site}', rule_dsl #>> '{schedule,0,max_delay_days}', rule_dsl #>> '{schedule,0,course_lapse_policy}', rule_dsl #>> '{eligibility,stage}', rule_dsl #>> '{eligibility,sex}', rule_dsl #>> '{eligibility,breed}', rule_dsl #>> '{eligibility,lifecycle}', rule_dsl #>> '{eligibility,health}', rule_dsl #>> '{eligibility,reproductive}', jsonb_array_length(rule_dsl->'schedule')) from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$VERSION'")
-[ "$MATRIX" = "ET|toxoid|0.5|ml|subcutaneous|7|phc_review|K1|all|all|alive|any|any|2" ] || fail "V1 matrix fixture missing/wrong for version=$VERSION got=$MATRIX"
+[ "$MATRIX" = "ET+TT|toxoid|2|ml|subcutaneous|7|pc_review|K2|all|all|alive|any|any|2" ] || fail "Preventive Care matrix fixture missing/wrong for version=$VERSION got=$MATRIX"
 MATRIX_REPRO_EXCLUSIONS=$(psqlq "select jsonb_array_length(rule_dsl #> '{eligibility,exclude_reproductive_states}') from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$VERSION'")
 [ "$MATRIX_REPRO_EXCLUSIONS" = "2" ] || fail "V1 matrix missing reproductive exclusions; count=$MATRIX_REPRO_EXCLUSIONS version=$VERSION"
 OLD_STATUS=$(psqlq "select status from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$OLD_VERSION'")
 [ "$OLD_STATUS" = "retired" ] || fail "legacy ET baseline status=$OLD_STATUS, want retired for version=$OLD_VERSION"
 echo "matrix=$MATRIX"
-BACKFILL_SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status) values (gen_random_uuid(), '$TENANT', 'shed', '$BACKFILL_SHED_CODE', 'Chain Proof Backfill $STAMP', '00000000-0000-4000-8000-000000003001', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active') returning location_id" | head -n 1)
-MAIN_SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status) values (gen_random_uuid(), '$TENANT', 'shed', '$MAIN_SHED_CODE', 'Chain Proof Main $STAMP', '00000000-0000-4000-8000-000000003001', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active') returning location_id" | head -n 1)
-echo "proof_sheds backfill=$BACKFILL_SHED_CODE/$BACKFILL_SHED main=$MAIN_SHED_CODE/$MAIN_SHED"
+BACKFILL_SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status) values (gen_random_uuid(), '$TENANT', 'shed', '$BACKFILL_SHED_CODE', 'Chain Proof Backfill $STAMP', '$PROOF_PARK', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active') returning location_id" | head -n 1)
+MAIN_SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status) values (gen_random_uuid(), '$TENANT', 'shed', '$MAIN_SHED_CODE', 'Chain Proof Main $STAMP', '$PROOF_PARK', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active') returning location_id" | head -n 1)
+psqlq "insert into location_operational_attributes (tenant_id, location_id, usable_for_counts, usable_for_feed, usable_for_vaccination, usable_for_sop, is_holding, is_quarantine, is_icu, display_order, notes) values ('$TENANT', '$BACKFILL_SHED', true, true, true, true, false, false, false, 101, 'Chain proof isolated backfill shed'), ('$TENANT', '$MAIN_SHED', true, true, true, true, false, false, false, 102, 'Chain proof isolated main shed') on conflict (location_id) do update set usable_for_vaccination=true, usable_for_sop=true, updated_at=now()" >/dev/null
+echo "proof_park=$PROOF_PARK proof_sheds backfill=$BACKFILL_SHED_CODE/$BACKFILL_SHED main=$MAIN_SHED_CODE/$MAIN_SHED"
 
 echo; echo "### 0b. existing-goat backfill generates V1 due work"
-BACKFILL_GOAT=$(psqlq "insert into goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id, shed_id, management_stage, sex, dob, approx_dob, entry_date) values (gen_random_uuid(), '$TENANT', 'alive', 'clean', '00000000-0000-4000-8000-000000001001', '$BACKFILL_SHED', '00000000-0000-4000-8000-000000003001', '$BACKFILL_SHED', 'K1', 'female', DATE '$DOB_DAY21', DATE '$DOB_DAY21', DATE '$ENTRY_DATE') returning goat_id" | head -n 1)
+BACKFILL_GOAT=$(psqlq "insert into goats (goat_id, tenant_id, lifecycle_status, custodian_party_id, current_location_id, park_id, shed_id, management_stage, sex, dob, approx_dob, entry_date, species, origin_type) values (gen_random_uuid(), '$TENANT', 'alive', '00000000-0000-4000-8000-000000001001', '$BACKFILL_SHED', '$PROOF_PARK', '$BACKFILL_SHED', 'K2', 'female', DATE '$DOB_DAY28', DATE '$DOB_DAY28', DATE '$ENTRY_DATE', 'goat', 'procured') returning goat_id" | head -n 1)
 BACKFILL_OUTBOX_COUNT=$(psqlq "select count(*) from outbox_messages where tenant_id='$TENANT' and aggregate_id='$BACKFILL_GOAT' and event_type='goat.created'")
 [ "$BACKFILL_OUTBOX_COUNT" = "0" ] || fail "backfill goat unexpectedly has goat.created outbox count=$BACKFILL_OUTBOX_COUNT"
 ( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/backfill-goat-created -tenant-id "$TENANT" -goat-id "$BACKFILL_GOAT" -limit 1 )
@@ -131,15 +133,17 @@ BACKFILL_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where t
 BACKFILL_OLD_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$BACKFILL_GOAT' and protocol_version_id='$OLD_VERSION' and rule_id='$OLD_RULE'")
 [ "$BACKFILL_OLD_REPLAY_COUNT" = "0" ] || fail "backfill replay generated retired legacy ET obligation count=$BACKFILL_OLD_REPLAY_COUNT goat=$BACKFILL_GOAT"
 echo "BACKFILL_GOAT=$BACKFILL_GOAT obligations=$BACKFILL_OBL_COUNT replay=$BACKFILL_REPLAY_COUNT"
+psqlq "update obligation_instances set status='canceled', updated_at=now() where target_id='$BACKFILL_GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE' and status in ('scheduled','due','deferred')" >/dev/null
 
 echo; echo "### 1. Herd Register create  POST /admin/goats"
 CREATE=$(curl -s "${A[@]}" -H "Idempotency-Key: chain-$STAMP" -H "Content-Type: application/json" -X POST "$API/admin/goats" -d @- <<JSON
-{"rfid":"$RFID","park_code":"CBE","shed_code":"$MAIN_SHED_CODE","sex":"female","dob":"$DOB_DAY21","dob_estimated":true,"origin_type":"procured","entry_date":"$ENTRY_DATE","management_stage":"K1","evidence_refs":[{"evidence_type":"source_record","evidence_id":"chain-$STAMP"}]}
+{"animal_identifier_1":"$RFID-A1","animal_identifier_2":"$RFID-A2","species":"goat","park_id":"$PROOF_PARK","shed_id":"$MAIN_SHED","sex":"female","dob":"$DOB_DAY28","dob_estimated":true,"origin_type":"procured","entry_date":"$ENTRY_DATE","management_stage":"K2","evidence_refs":[{"evidence_type":"source_record","evidence_id":"chain-$STAMP"}]}
 JSON
 )
 GOAT=$(echo "$CREATE" | jqp 'd["goat"]["goat_id"]'); SHED=$(echo "$CREATE" | jqp 'd["goat"]["location_path"]["shed_id"]')
 [ -n "$GOAT" ] || { echo "FAIL step1: $CREATE"; exit 1; }
 echo "GOAT=$GOAT SHED=$SHED"
+psqlq "update obligation_instances oi set status='canceled', updated_at=now() from goats g join locations l on l.location_id = g.shed_id where oi.tenant_id='$TENANT' and oi.target_id=g.goat_id and oi.protocol_version_id='$VERSION' and oi.rule_id='$RULE' and oi.status in ('scheduled','due','deferred') and g.goat_id <> '$GOAT' and l.location_code like 'CHAIN-%'" >/dev/null
 
 echo; echo "### 2. goat.created outbox row"
 psql "$PGURL" -c "select event_id,event_type,status from outbox_messages where aggregate_id='$GOAT'"
@@ -176,7 +180,7 @@ echo "PROOFS shed=$P_SHED vial_lot=$P_VIAL administration=$P_ADMIN"
 
 echo; echo "### 6. SOP task submission  POST /app/tasks/{task}/submissions"
 SUB=$(curl -s "${A[@]}" -H "Content-Type: application/json" -X POST "$API/app/tasks/$TASK/submissions" -d @- <<JSON
-{"sop_version_id":"$SOPVER","idempotency_key":"sub-$STAMP","answers":{"vaccine_lot_id":"$LOT","cold_chain_verified":true,"shed_video":"$P_SHED","vial_lot_video":"$P_VIAL","administration_video":"$P_ADMIN","goat_ids":["$GOAT"],"dose_ml_given":0.5,"route_site":"subcutaneous","administered_at":"$ADMINISTERED_AT","adverse_reaction":false},"proof_refs":[{"proof_id":"$P_SHED","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$P_VIAL","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$P_ADMIN","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
+{"sop_version_id":"$SOPVER","idempotency_key":"sub-$STAMP","answers":{"vaccine_lot_id":"$LOT","cold_chain_verified":true,"shed_video":"$P_SHED","vial_lot_video":"$P_VIAL","administration_video":"$P_ADMIN","goat_ids":["$GOAT"],"dose_ml_given":2,"route_site":"subcutaneous","administered_at":"$ADMINISTERED_AT","adverse_reaction":false},"proof_refs":[{"proof_id":"$P_SHED","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$P_VIAL","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$P_ADMIN","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
 JSON
 )
 SUBID=$(echo "$SUB" | jqp 'd.get("submission",{}).get("submission_id","")')

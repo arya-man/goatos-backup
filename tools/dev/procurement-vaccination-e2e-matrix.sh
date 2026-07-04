@@ -2,10 +2,10 @@
 # Local procurement -> vaccination matrix proof.
 #
 # Drives the real local API for the four non-negotiable source-entry cases:
-#   1. clean accepted goat reaches PHC handoff and vaccination obligation generation
-#   2. pre-truck rejected goat never reaches PHC/vaccination
-#   3. owner-missing goat cannot be accepted and never reaches PHC/vaccination
-#   4. extra unknown arrival row is recorded but never reaches PHC/vaccination
+#   1. clean accepted goat reaches PC handoff and vaccination obligation generation
+#   2. pre-truck rejected goat never reaches PC/vaccination
+#   3. owner-missing goat cannot be accepted and never reaches PC/vaccination
+#   4. extra unknown arrival row is recorded but never reaches PC/vaccination
 set -euo pipefail
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
 
@@ -176,10 +176,10 @@ echo "### seed: local grant and vaccination trigger"
 
 STAMP="${GOATOS_E2E_RUN_ID:-MATRIX-$(date +%Y%m%d-%H%M%S)}-$(date +%s)"
 ENTRY_DATE="$(date -u +%F)"
-if DOB_DAY21="$(date -u -v-21d +%F 2>/dev/null)"; then
+if DOB_DAY28="$(date -u -v-28d +%F 2>/dev/null)"; then
   :
 else
-  DOB_DAY21="$(date -u -d "$ENTRY_DATE - 21 days" +%F)"
+  DOB_DAY28="$(date -u -d "$ENTRY_DATE - 28 days" +%F)"
 fi
 
 echo "### create procurement load"
@@ -197,7 +197,7 @@ add_goat() {
   local metadata="$3"
   local add_json goat_id
   add_json="$(api_post "/procurement/source-entry/loads/$LOAD/goats" "matrix-goat-$suffix-$STAMP" "$(cat <<JSON
-{"source_tag":"MATRIX-$suffix-$STAMP","source_rfid":"MATRIX-RFID-$suffix-$STAMP","temporary_id":"MATRIX-TEMP-$suffix-$STAMP","selection_state":"candidate","selection_reason":"procurement vaccination matrix","purpose":"breeding","current_state":"source_candidate","identity_review_state":"clean","ownership_state":"$ownership","health_state":"pending","proof_refs":[],"metadata":$metadata}
+{"animal_identifier_1":"MATRIX-$suffix-$STAMP-A1","animal_identifier_2":"MATRIX-$suffix-$STAMP-A2","species":"goat","sex":"female","selection_state":"candidate","selection_reason":"procurement vaccination matrix","purpose":"breeding","current_state":"source_candidate","source_entry_state":"accepted","ownership_state":"$ownership","health_state":"pending","proof_refs":[],"metadata":$metadata}
 JSON
 )")"
   goat_id="$(echo "$add_json" | jqp 'd["goat"]["goat_id"]')"
@@ -205,12 +205,12 @@ JSON
   echo "$goat_id"
 }
 
-CLEAN="$(add_goat "CLEAN" "mesha_owned" "{\"sex\":\"female\",\"dob\":\"$DOB_DAY21\",\"dob_estimated\":true,\"management_stage\":\"K1\",\"matrix_case\":\"clean_accepted\"}")"
-REJECTED="$(add_goat "REJECTED" "mesha_owned" "{\"sex\":\"female\",\"dob\":\"$DOB_DAY21\",\"dob_estimated\":true,\"management_stage\":\"K1\",\"matrix_case\":\"rejected_before_truck\"}")"
-OWNER_MISSING="$(add_goat "OWNERMISS" "pending" "{\"sex\":\"female\",\"dob\":\"$DOB_DAY21\",\"dob_estimated\":true,\"management_stage\":\"K1\",\"matrix_case\":\"owner_missing\"}")"
-EXTRA_TEMP="MATRIX-EXTRA-$STAMP"
+CLEAN="$(add_goat "CLEAN" "mesha_owned" "{\"sex\":\"female\",\"dob\":\"$DOB_DAY28\",\"dob_estimated\":true,\"management_stage\":\"K2\",\"matrix_case\":\"clean_accepted\"}")"
+REJECTED="$(add_goat "REJECTED" "mesha_owned" "{\"sex\":\"female\",\"dob\":\"$DOB_DAY28\",\"dob_estimated\":true,\"management_stage\":\"K2\",\"matrix_case\":\"rejected_before_truck\"}")"
+OWNER_MISSING="$(add_goat "OWNERMISS" "pending" "{\"sex\":\"female\",\"dob\":\"$DOB_DAY28\",\"dob_estimated\":true,\"management_stage\":\"K2\",\"matrix_case\":\"owner_missing\"}")"
+EXTRA_ANIMAL_ID_2="MATRIX-EXTRA-$STAMP-A2"
 
-echo "load=$LOAD clean=$CLEAN rejected=$REJECTED owner_missing=$OWNER_MISSING extra_temporary_id=$EXTRA_TEMP"
+echo "load=$LOAD clean=$CLEAN rejected=$REJECTED owner_missing=$OWNER_MISSING extra_animal_identifier_2=$EXTRA_ANIMAL_ID_2"
 
 source_health_passed() {
   local goat_id="$1"
@@ -255,7 +255,7 @@ JSON
 
 echo "### arrival review with one accepted goat and one extra unknown"
 api_post "/procurement/source-entry/loads/$LOAD/arrival-review" "matrix-arrival-$STAMP" "$(cat <<JSON
-{"park_location_id":"$PARK","expected_count":3,"loaded_count":1,"arrived_count":2,"matched_count":1,"missing_count":0,"extra_count":1,"rejected_count":0,"health_flags":[],"weight_flags":[],"status":"accepted","reviewed_at":"${ENTRY_DATE}T11:00:00Z","goats":[{"goat_id":"$CLEAN","arrival_state":"accepted","notes":"clean matrix goat arrived"},{"temporary_id":"$EXTRA_TEMP","arrival_state":"extra_unresolved","notes":"extra unknown arrival matrix row"}]}
+{"park_location_id":"$PARK","expected_count":3,"loaded_count":1,"arrived_count":2,"matched_count":1,"missing_count":0,"extra_count":1,"rejected_count":0,"health_flags":[],"weight_flags":[],"status":"accepted","reviewed_at":"${ENTRY_DATE}T11:00:00Z","goats":[{"goat_id":"$CLEAN","arrival_state":"accepted","notes":"clean matrix goat arrived"},{"animal_identifier_2":"$EXTRA_ANIMAL_ID_2","arrival_state":"extra_unresolved","notes":"extra unknown arrival matrix row"}]}
 JSON
 )" >/dev/null
 
@@ -266,16 +266,16 @@ JSON
 )" >/dev/null
 
 echo "### assertions: procurement boundary"
-expect_count "clean_phc_handoff" "select count(*) from procurement_phc_handoffs where tenant_id='$TENANT' and load_id='$LOAD' and goat_id='$CLEAN'" "1"
-expect_count "rejected_phc_handoff" "select count(*) from procurement_phc_handoffs where tenant_id='$TENANT' and load_id='$LOAD' and goat_id='$REJECTED'" "0"
-expect_count "owner_missing_phc_handoff" "select count(*) from procurement_phc_handoffs where tenant_id='$TENANT' and load_id='$LOAD' and goat_id='$OWNER_MISSING'" "0"
-expect_count "extra_unknown_arrival_row" "select count(*) from arrival_intake_review_goats where tenant_id='$TENANT' and load_id='$LOAD' and temporary_id='$EXTRA_TEMP' and goat_id is null and arrival_state='extra_unresolved'" "1"
+expect_count "clean_pc_handoff" "select count(*) from procurement_pc_handoffs where tenant_id='$TENANT' and load_id='$LOAD' and goat_id='$CLEAN'" "1"
+expect_count "rejected_pc_handoff" "select count(*) from procurement_pc_handoffs where tenant_id='$TENANT' and load_id='$LOAD' and goat_id='$REJECTED'" "0"
+expect_count "owner_missing_pc_handoff" "select count(*) from procurement_pc_handoffs where tenant_id='$TENANT' and load_id='$LOAD' and goat_id='$OWNER_MISSING'" "0"
+expect_count "extra_unknown_arrival_row" "select count(*) from arrival_intake_review_goats where tenant_id='$TENANT' and load_id='$LOAD' and animal_identifier_2='$EXTRA_ANIMAL_ID_2' and goat_id is null and arrival_state='extra_unresolved'" "1"
 expect_count "clean_goat_created_outbox" "select count(*) from outbox_messages where tenant_id='$TENANT' and event_type='goat.created' and aggregate_id='$CLEAN'" "1"
 expect_count "rejected_goat_created_outbox" "select count(*) from outbox_messages where tenant_id='$TENANT' and event_type='goat.created' and aggregate_id='$REJECTED'" "0"
 expect_count "owner_missing_goat_created_outbox" "select count(*) from outbox_messages where tenant_id='$TENANT' and event_type='goat.created' and aggregate_id='$OWNER_MISSING'" "0"
 
 CANONICAL_STATE="$(psqlq "select sex || ':' || to_char(dob, 'YYYY-MM-DD') || ':' || dob_estimated::text || ':' || management_stage || ':' || health_status || ':' || lifecycle_status || ':' || park_id::text || ':' || shed_id::text from goats where tenant_id='$TENANT' and goat_id='$CLEAN'")"
-EXPECTED_STATE="female:$DOB_DAY21:true:K1:healthy:alive:$PARK:$SHED"
+EXPECTED_STATE="female:$DOB_DAY28:true:K2:healthy:alive:$PARK:$SHED"
 [ "$CANONICAL_STATE" = "$EXPECTED_STATE" ] || fail "clean goat canonical state=$CANONICAL_STATE want=$EXPECTED_STATE"
 echo "clean_canonical_state=$CANONICAL_STATE"
 
@@ -303,4 +303,4 @@ expect_count "clean_vaccination_obligation" "select count(*) from obligation_ins
 expect_count "rejected_vaccination_obligation" "select count(*) from obligation_instances where tenant_id='$TENANT' and target_id='$REJECTED' and protocol_version_id='$VERSION' and rule_id='$RULE'" "0"
 expect_count "owner_missing_vaccination_obligation" "select count(*) from obligation_instances where tenant_id='$TENANT' and target_id='$OWNER_MISSING' and protocol_version_id='$VERSION' and rule_id='$RULE'" "0"
 
-echo "## CLOSED procurement-vaccination-e2e-matrix load=$LOAD clean=$CLEAN rejected=$REJECTED owner_missing=$OWNER_MISSING extra_temporary_id=$EXTRA_TEMP obligation=$OBLIGATION batch=$BATCH task=$TASK"
+echo "## CLOSED procurement-vaccination-e2e-matrix load=$LOAD clean=$CLEAN rejected=$REJECTED owner_missing=$OWNER_MISSING extra_animal_identifier_2=$EXTRA_ANIMAL_ID_2 obligation=$OBLIGATION batch=$BATCH task=$TASK"

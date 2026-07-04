@@ -40,7 +40,7 @@ func TestListRecordedCompletionsQueue(t *testing.T) {
 	}
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
 		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
@@ -113,7 +113,7 @@ func TestListRecordedCompletionsQueueIncludesSOPReviewHandle(t *testing.T) {
 	}
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
 		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
@@ -208,7 +208,7 @@ func TestListRecordedCompletionsParkScope(t *testing.T) {
 	}
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
 		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {

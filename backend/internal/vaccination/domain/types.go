@@ -167,6 +167,8 @@ type RecentVaccineAdministration struct {
 	VaccineCode       string
 	VaccineType       string
 	PathogenClass     string
+	DoseCode          string
+	Sequence          int32
 	ProtocolVersionID string
 }
 

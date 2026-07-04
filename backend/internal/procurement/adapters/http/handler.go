@@ -29,7 +29,7 @@ type Service interface {
 	PreDispatchDecision(ctx context.Context, in ports.Decision) (domain.Decision, error)
 	DispatchLoad(ctx context.Context, in ports.DispatchLoad) (domain.TransitHandoff, error)
 	RecordArrivalReview(ctx context.Context, in ports.ArrivalReview) (domain.ArrivalReview, error)
-	AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([]domain.PHCHandoff, error)
+	AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([]domain.PCHandoff, error)
 	ActionCenter(ctx context.Context, q domain.WorkQuery) (domain.ActionCenterResponse, error)
 	ProtocolAdherence(ctx context.Context, q domain.WorkQuery) (domain.ProtocolAdherenceResponse, error)
 	ControlTower(ctx context.Context, q domain.WorkQuery) (domain.ControlTowerResponse, error)
@@ -122,8 +122,8 @@ type arrivalResponse struct {
 }
 
 type intakeResponse struct {
-	Handoffs []domain.PHCHandoff `json:"handoffs"`
-	TraceID  string              `json:"trace_id"`
+	Handoffs []domain.PCHandoff `json:"handoffs"`
+	TraceID  string             `json:"trace_id"`
 }
 
 func (h *Handler) ListLoads(w http.ResponseWriter, r *http.Request) {
@@ -612,6 +612,11 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, payload any, e
 	if errors.Is(err, ports.ErrStaleWrite) {
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 			errorEnvelope{Code: "write_conflict", Message: "record changed; reload before retrying", TraceID: traceID(r)}, err)
+		return
+	}
+	if errors.Is(err, ports.ErrWriteConflict) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "write_conflict", Message: "animal identifier was claimed by another write; reload before retrying", TraceID: traceID(r)}, err)
 		return
 	}
 	if errors.Is(err, ports.ErrNotFound) {

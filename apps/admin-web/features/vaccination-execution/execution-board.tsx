@@ -32,7 +32,7 @@ import {
   paginateRows,
   VaccinationTablePager,
   type VaccinationPageSize,
-} from "@/features/phc-vaccination";
+} from "@/features/preventive-care-vaccination";
 import { ShedEventActions } from "./shed-event-actions";
 
 // Work states that mean "someone must act now" — used for the per-park attention count.

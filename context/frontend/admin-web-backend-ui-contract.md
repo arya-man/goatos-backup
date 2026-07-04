@@ -182,13 +182,13 @@ These are the active admin-web routes covered by the first backend contract:
 
 | Route | Contract route_id | Current surface | Main backend source | Notes |
 | --- | --- | --- | --- | --- |
-| `/` | `control-tower` | Control Tower | `/control-tower/vaccination` | Leadership exception summary. |
+| `/` | `control-tower` | Control Tower | `/control-tower/vaccination` | Leadership exception summary; backend-filtered and backend-paginated. |
 | `/action-center` | `action-center` | Action Center | `/vaccination/action-center` | Board rows open action drawers. |
 | `/calendar` | `calendar` | Calendar | `/calendar/vaccination/events` | Already had backend presentation contract; now included in shell/page contract too. |
-| `/protocol-adherence` | `protocol-adherence` | Protocol Adherence | `/vaccination/adherence` | Ledger rows open record drawers. |
+| `/protocol-adherence` | `protocol-adherence` | Protocol Adherence | `/vaccination/adherence` | Ledger rows open record drawers; backend-filtered and backend-paginated. |
 | `/workflows` | `workflows` | Workflow catalog | `/vaccination/action-center` | Catalog/drilldown split remains. |
 | `/workflows/{row_id}` | `workflow-record` | Workflow drilldown | `/vaccination/workflows/{row_id}` | Full chain record. |
-| `/vaccination` | `vaccination` | Preventive Care (PC) Vaccination | `/vaccination/operations`, `/vaccination/execution` | Status matrix, cohort detail, shed execution, supplier warmup context. |
+| `/vaccination` | `vaccination` | Preventive Care (PC) Vaccination | `/vaccination/operations`, `/vaccination/execution` | Status matrix, cohort detail, park drive execution with shed/tag breakdowns, supplier warmup context. |
 | `/vaccination/execution/sheds/[shedId]` | `shed-execution` | Shed execution detail | `/vaccination/execution/sheds/{shed_id}` | UI route uses the Next.js `[shedId]` segment; backend API uses `{shed_id}`. |
 | `/procurement/source-entry` | `source-entry` | Source Entry Board | `/procurement/source-entry/loads` | Procurement bridge into Preventive Care (PC) vaccination. |
 | `/procurement/source-entry/loads/{load_id}` | `source-load` | Source load detail | `/procurement/source-entry/loads/{load_id}` | Full source-entry journey. |
@@ -220,9 +220,9 @@ Done in this pass:
   Missing copy/table/option keys throw rather than silently falling back to
   React-local labels.
 - Migrated high-risk page bodies include Control Tower, Action Center,
-  Calendar, Protocol Adherence, Workflows, Preventive Care (PC) Vaccination, shed execution,
-  Source Entry, Source Load, Herd Register, Audit Log, Config, SOP Library, and
-  Goat Passport.
+  Calendar, Protocol Adherence, Workflows, Preventive Care (PC) Vaccination,
+  vaccination execution, Source Entry, Source Load, Herd Register, Audit Log,
+  Config, SOP Library, and Goat Passport.
 - Config rule-editor vocabularies are backend-owned: categories, scopes,
   placeholders, sex/breed/health/lifecycle/reproductive/defer values, missed-dose
   policies, source/review statuses, schedule triggers/repeat/catch-up/SOP labels,
@@ -236,6 +236,24 @@ Done in this pass:
   labels, warmup expectation labels/tooltips, and journey stages.
 - Calendar consumes backend month/weekday labels and calendar-band copy; event
   drawer/link/status/severity/reminder/escalation text is contract-driven.
+
+Command-surface pagination rule:
+
+- Control Tower and Protocol Adherence must not fetch a hidden 200-row block and
+  filter it in React.
+- Backend owns severity/state/park/date/owner/search filters, sort order, total
+  count, page number, and page size.
+- Default page size is 25; supported page sizes are 10, 25, and 50 unless the
+  backend contract explicitly changes them.
+- Filtered-empty copy must be distinct from global healthy-empty copy.
+
+Config source-of-truth rule:
+
+- Frontend may keep unsaved form state and cache backend responses.
+- Backend/database owns protocol version allocation, active/inactive state,
+  publish validation, publish transactions, and audit.
+- A frontend-generated timestamp/version is never authoritative for
+  `vaccination.matrix`.
 
 Explicit exceptions:
 

@@ -12,7 +12,7 @@ import { actionFeedbackCopy, copy, optionGroup, optionLabel, optionTitle, option
 import { warmupMeta } from "./work-state";
 import { NewLoadForm } from "./load-forms";
 import { ProcurementPager } from "./pager";
-import { VaccinationFilterButton, VisibleTableSearch } from "@/features/phc-vaccination";
+import { VaccinationFilterButton, VisibleTableSearch } from "@/features/preventive-care-vaccination";
 
 function daysSince(date: string | null | undefined): number | null {
   if (!date) return null;

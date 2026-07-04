@@ -77,7 +77,7 @@ ORDER BY pv.protocol_id,
 -- name: ListRulesForVersion :many
 SELECT rule_id::text AS rule_id, dose_code, "sequence", trigger_type, offset_days,
        due_window_days, min_gap_days, "repeat", COALESCE(repeat_until_after_age, '')::text AS repeat_until_after_age,
-       catch_up, COALESCE(sop_version_id::text, '')::text AS sop_version_id, sort_order
+       catch_up, eligibility_json, COALESCE(sop_version_id::text, '')::text AS sop_version_id, sort_order
 FROM protocol_rules
 WHERE tenant_id = @tenant_id AND protocol_version_id = @protocol_version_id
 ORDER BY sort_order ASC, "sequence" ASC;
@@ -85,7 +85,7 @@ ORDER BY sort_order ASC, "sequence" ASC;
 -- name: ListActiveAnimalStages :many
 -- Active animal-stage reference data for a tenant, ordered for display. Drives the Config authoring
 -- stage picker (e.g. K1/K2) so stage bands live in animal_stage_lookup, NOT in frontend literals
--- (PHC vaccination TRD: stage bands must not be hardcoded). Tenant-scoped (uses the
+-- (PC vaccination TRD: stage bands must not be hardcoded). Tenant-scoped (uses the
 -- (tenant_id, stage_code) unique index) and bounded by @row_limit; the lookup is inherently tiny.
 SELECT
   animal_stage_id::text AS animal_stage_id,

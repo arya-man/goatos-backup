@@ -164,7 +164,7 @@ func TestStageGoatContractShape(t *testing.T) {
 	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
 	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
 
-	body := `{"management_stage":"weaner","reason":"stage confirmed by PHC manager","evidence_refs":[{"evidence_type":"source_record","evidence_id":"stage-ticket-1"}],"row_version":4}`
+	body := `{"management_stage":"weaner","reason":"stage confirmed by PC manager","evidence_refs":[{"evidence_type":"source_record","evidence_id":"stage-ticket-1"}],"row_version":4}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/goats/10000000-0000-4000-8000-000000000001/stage", strings.NewReader(body))
 	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
 	req.Header.Set("X-GoatOS-Actor-ID", "00000000-0000-4000-8000-000000000002")
@@ -194,7 +194,7 @@ func TestHealthGoatContractShape(t *testing.T) {
 	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
 	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
 
-	body := `{"health_status":"healthy","reason":"recovered after PHC treatment","evidence_refs":[{"evidence_type":"source_record","evidence_id":"health-ticket-1"}],"row_version":5}`
+	body := `{"health_status":"healthy","reason":"recovered after PC treatment","evidence_refs":[{"evidence_type":"source_record","evidence_id":"health-ticket-1"}],"row_version":5}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/goats/10000000-0000-4000-8000-000000000001/health", strings.NewReader(body))
 	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
 	req.Header.Set("X-GoatOS-Actor-ID", "00000000-0000-4000-8000-000000000002")

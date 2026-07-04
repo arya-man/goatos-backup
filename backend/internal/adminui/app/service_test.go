@@ -258,7 +258,7 @@ func TestDLQCenterSeparatesReadNavFromRepairActions(t *testing.T) {
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
 		Grants: []permissions.ActiveGrant{
-			{Role: permissions.RolePHCDirector, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
 	item := navLeafByID(t, resp.Navigation.Groups, "dlq-center")
@@ -282,7 +282,7 @@ func TestBootstrapConfigSeparatesReadNavFromPublishAction(t *testing.T) {
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
 		Grants: []permissions.ActiveGrant{
-			{Role: permissions.RolePHCDirector, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
 	item := navLeafByID(t, resp.Navigation.Groups, "config")
@@ -340,7 +340,7 @@ func TestBootstrapConfigPublishesReopenedRuleAuthoringGroups(t *testing.T) {
 		t.Fatalf("protocol placeholders must expose reopened categories only, got %#v", placeholders.Options)
 	}
 	sourceSystems := optionGroupByID(t, config.OptionGroups, "source_systems")
-	if got := optionKeys(sourceSystems); !got["manual_admin"] || !got["vaccinations_db"] || !got["phc"] || !got["vet"] || !got["feed_direction_config_pack"] || !got["feed_directions_automation_db"] || !got["counting_db_values"] || !got["feed_transfer_kt"] || got["feed_master"] || got["nutritionist"] || got["ops_source"] {
+	if got := optionKeys(sourceSystems); !got["manual_admin"] || !got["vaccinations_db"] || !got["pc"] || !got["vet"] || !got["feed_direction_config_pack"] || !got["feed_directions_automation_db"] || !got["counting_db_values"] || !got["feed_transfer_kt"] || got["feed_master"] || got["nutritionist"] || got["ops_source"] {
 		t.Fatalf("source systems must expose reviewed feed evidence sources without old aliases, got %#v", sourceSystems.Options)
 	}
 }
@@ -429,7 +429,7 @@ func TestBootstrapCacheKeyIncludesDBFamilyRevisionInputs(t *testing.T) {
 func TestBootstrapContractRevisionCanonicalizesGrantOrder(t *testing.T) {
 	grants := []permissions.ActiveGrant{
 		{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
-		{Role: permissions.RolePHCDirector, ScopeType: "park", ScopeID: "park-1"},
+		{Role: permissions.RolePCDirector, ScopeType: "park", ScopeID: "park-1"},
 	}
 	reversed := []permissions.ActiveGrant{grants[1], grants[0]}
 

@@ -25,6 +25,28 @@ normally running `next dev` on a fixed port (commonly `:3300`) with a live
 browser tab. The rules below keep restarts clean — they are not a blanket ban,
 given the standing authorization above.
 
+### Always-On Local Stack
+
+For Codex and Claude on this workspace, local services required for the task are
+persistent working infrastructure, not disposable command output. Before starting
+admin-web, backend, workers, proxies, emulators, or local database containers,
+check whether they are already running. Prefer the repo service wrapper from the
+repo root:
+
+```bash
+make dev-local-service-start
+make dev-local-service-status
+make dev-local-service-logs
+```
+
+Leave needed services running when the task is done unless the user explicitly
+asks to stop them or stopping is required to prevent machine damage/data loss. If
+a restart is needed, restart on the same ports (`:3300` admin-web, `:8080`
+backend) and verify health before reporting done. Do not finish with a needed app
+stack stopped, and do not leave required servers running only as foreground Codex
+terminal sessions that block the final response; use the service wrapper or an
+equivalent supervisor and report the URL/port in the status/final update.
+
 > **Local bearer token now self-refreshes — a restart is NO LONGER needed for an
 > expired token.** In local bearer mode (`GOATOS_ENV=local` + `GOATOS_AUTH_MODE=bearer`),
 > SSR self-mints a fresh short-lived HS256 token per request via
@@ -340,7 +362,7 @@ PROCEDURE steps. The mock's drawer checklist is the SOP's operator steps (e.g.
 "Consume posted", "Coverage + booster") — what the operator does, with per-step
 proof gates — NOT the system lifecycle. The lifecycle chain belongs to the
 Workflow record (`/workflows/{row_id}`), not the drawer. Drawer SOP steps come
-from `features/phc-vaccination/vaccination-sop-steps.ts` (shared with the Preventive Care (PC)
+from `features/preventive-care-vaccination/vaccination-sop-steps.ts` (shared with the Preventive Care (PC)
 SOP quick-view) rendered by `features/process-integrity/sop-checklist.tsx` with
 done/current derived read-only from the computed obligation states. Matching the
 component shell + class is not enough — the checklist must show the SOP's steps,

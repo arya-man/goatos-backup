@@ -164,6 +164,7 @@ type Query struct {
 	DueBefore          time.Time
 	AsOf               time.Time
 	Limit              int
+	Offset             int
 	Cursor             *Cursor
 	IncludeCompleted   bool
 	OnlyBrokenOrAtRisk bool
@@ -183,6 +184,7 @@ type CountByWorkState struct {
 type ListResult struct {
 	Rows              []Row              `json:"rows"`
 	CountsByWorkState []CountByWorkState `json:"counts_by_work_state"`
+	TotalCount        int64              `json:"total_count"`
 	NextCursor        *string            `json:"next_cursor,omitempty"`
 }
 
@@ -190,6 +192,7 @@ type ActionCenterResponse struct {
 	Source            string             `json:"source"`
 	Items             []Row              `json:"items"`
 	CountsByWorkState []CountByWorkState `json:"counts_by_work_state"`
+	TotalCount        int64              `json:"total_count"`
 	NextCursor        *string            `json:"next_cursor,omitempty"`
 }
 
@@ -218,6 +221,7 @@ type ProtocolAdherenceResponse struct {
 	Source     string           `json:"source"`
 	Summary    AdherenceSummary `json:"summary"`
 	Rows       []AdherenceRow   `json:"rows"`
+	TotalCount int64            `json:"total_count"`
 	NextCursor *string          `json:"next_cursor,omitempty"`
 }
 
@@ -248,9 +252,11 @@ type ControlTowerAlert struct {
 }
 
 type ControlTowerResponse struct {
-	Source  string              `json:"source"`
-	Summary ControlTowerSummary `json:"summary"`
-	Alerts  []ControlTowerAlert `json:"alerts"`
+	Source     string              `json:"source"`
+	Summary    ControlTowerSummary `json:"summary"`
+	Alerts     []ControlTowerAlert `json:"alerts"`
+	TotalCount int64               `json:"total_count"`
+	NextCursor *string             `json:"next_cursor,omitempty"`
 }
 
 type WorkflowNode struct {

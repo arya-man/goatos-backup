@@ -32,7 +32,7 @@ import type { AdminWebBootstrapResponse } from "@/lib/api/server";
 type NavItem = AdminWebBootstrapResponse["navigation"]["primary"][number];
 type RoleLens = AdminWebBootstrapResponse["role_lenses"][number];
 type RouteLabelRule = AdminWebBootstrapResponse["route_labels"][number];
-type NavCounts = { actionCenter: number | null; phc: number | null };
+type NavCounts = { actionCenter: number | null; pc: number | null };
 type TrailItem = { label: string; href: string };
 
 const iconByToken: Record<string, ElementType> = {
@@ -51,9 +51,9 @@ function visibleBadge(count: number | null | undefined): string | undefined {
   return typeof count === "number" && count > 0 ? String(count) : undefined;
 }
 
-function badgeForKey(key: string, actionCenterBadge?: string, phcBadge?: string): string | undefined {
+function badgeForKey(key: string, actionCenterBadge?: string, pcBadge?: string): string | undefined {
   if (key === "action_center_open_work") return actionCenterBadge;
-  if (key === "phc_open_work") return phcBadge;
+  if (key === "pc_open_work") return pcBadge;
   return undefined;
 }
 
@@ -174,7 +174,7 @@ export function MeshaShell({
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
   const [rangeMenuOpen, setRangeMenuOpen] = useState(false);
   const [roleLens, setRoleLens] = useState<RoleLens>(roleLenses[0]!);
-  const [navCounts, setNavCounts] = useState<NavCounts>({ actionCenter: null, phc: null });
+  const [navCounts, setNavCounts] = useState<NavCounts>({ actionCenter: null, pc: null });
   const [navTrail, setNavTrail] = useState<TrailItem[]>([]);
   const trailRef = useRef<TrailItem[]>([]);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
@@ -188,7 +188,7 @@ export function MeshaShell({
   const freshness = dateFreshnessLabel(scope.asOf, today, contract);
   const navCountsHref = scopeHref("/api/nav-counts", renderedScope);
   const actionCenterBadge = visibleBadge(navCounts.actionCenter);
-  const phcBadge = visibleBadge(navCounts.phc);
+  const pcBadge = visibleBadge(navCounts.pc);
   const currentPageLabel = labelForPath(pathname, contract);
   const companyScopeOption = contract.top_bar.scope_mode_toggle.find((option) => option.key === "company");
   const parkScopeOption = contract.top_bar.scope_mode_toggle.find((option) => option.key === "park");
@@ -260,11 +260,11 @@ export function MeshaShell({
         if (cancelled) return;
         setNavCounts({
           actionCenter: typeof payload?.actionCenter === "number" ? payload.actionCenter : null,
-          phc: typeof payload?.phc === "number" ? payload.phc : null,
+          pc: typeof payload?.pc === "number" ? payload.pc : null,
         });
       })
       .catch(() => {
-        if (!cancelled) setNavCounts({ actionCenter: null, phc: null });
+        if (!cancelled) setNavCounts({ actionCenter: null, pc: null });
       });
     return () => {
       cancelled = true;
@@ -536,7 +536,7 @@ export function MeshaShell({
         <aside className={`side ${navOpen ? "open" : ""}`} id="side">
           {primary.map((n) => {
             const Icon = iconByToken[n.icon] ?? TowerControl;
-            const badge = badgeForKey(n.badge_key, actionCenterBadge, phcBadge);
+            const badge = badgeForKey(n.badge_key, actionCenterBadge, pcBadge);
             if (!n.enabled) {
               return (
                 <span
@@ -569,7 +569,7 @@ export function MeshaShell({
           {groups.map((g) => {
             const GroupIcon = iconByToken[g.icon] ?? TowerControl;
             const open = openGroups[g.id];
-            const badge = badgeForKey(g.badge_key, actionCenterBadge, phcBadge);
+            const badge = badgeForKey(g.badge_key, actionCenterBadge, pcBadge);
             return (
               <div key={g.id}>
                 <div
@@ -609,8 +609,8 @@ export function MeshaShell({
                         onClick={() => setNavOpen(false)}
                       >
                         {l.label}
-                        {badgeForKey(l.badge_key, actionCenterBadge, phcBadge) ? (
-                          <span className="lct">{badgeForKey(l.badge_key, actionCenterBadge, phcBadge)}</span>
+                        {badgeForKey(l.badge_key, actionCenterBadge, pcBadge) ? (
+                          <span className="lct">{badgeForKey(l.badge_key, actionCenterBadge, pcBadge)}</span>
                         ) : null}
                       </Link>
                     ),

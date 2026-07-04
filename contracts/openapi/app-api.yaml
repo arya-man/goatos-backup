@@ -870,6 +870,12 @@ paths:
             type: string
             minLength: 1
             maxLength: 512
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
         - name: limit
           in: query
           required: false
@@ -959,6 +965,12 @@ paths:
             type: string
             minLength: 1
             maxLength: 512
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
         - name: limit
           in: query
           required: false
@@ -1048,6 +1060,12 @@ paths:
             type: string
             minLength: 1
             maxLength: 512
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
         - name: limit
           in: query
           required: false
@@ -1102,6 +1120,29 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: work_state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/WorkState"
+        - name: severity
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ProcessIntegritySeverity"
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
         - name: limit
           in: query
           required: false
@@ -1720,7 +1761,7 @@ paths:
       tags:
         - Calendar
       operationId: listCalendarVaccinationDriveTargets
-      summary: List goats eligible for a vaccination drive calendar event with cursor pagination.
+      summary: List herd animals eligible for a vaccination drive calendar event with cursor pagination.
       parameters:
         - $ref: "#/components/parameters/CalendarEventId"
         - name: cursor
@@ -1740,7 +1781,7 @@ paths:
             default: 10
       responses:
         "200":
-          description: Paginated goats for the selected vaccination drive.
+          description: Paginated herd animals for the selected vaccination drive.
           content:
             application/json:
               schema:
@@ -4380,13 +4421,13 @@ components:
       type: string
       enum:
         - all
-        - phc
+        - pc
         - inventory
         - admin_data_ops
     CalendarOwnerKey:
       type: string
       enum:
-        - phc
+        - pc
         - inventory
         - admin_data_ops
     CalendarStatus:
@@ -4425,7 +4466,7 @@ components:
         - vaccine_stock_readiness
         - vaccine_cold_chain_check
         - vaccine_reorder_expiry_grn
-        - phc_stock_anti_misuse
+        - pc_stock_anti_misuse
         - vaccination_config_activation_review
     CalendarJSONBlock:
       type: object
@@ -4971,17 +5012,23 @@ components:
       additionalProperties: false
       required:
         - obligation_id
-        - goat_id
+        - animal_id
+        - animal_identifier_1
+        - animal_identifier_2
         - status
         - due_at
       properties:
         obligation_id:
           type: string
           format: uuid
-        goat_id:
+        animal_id:
           type: string
           format: uuid
-        rfid:
+        animal_identifier_1:
+          type:
+            - string
+            - "null"
+        animal_identifier_2:
           type:
             - string
             - "null"
@@ -5377,6 +5424,7 @@ components:
         - source
         - items
         - counts_by_work_state
+        - total_count
       properties:
         source:
           type: string
@@ -5390,6 +5438,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CountByWorkState"
+        total_count:
+          type: integer
+          minimum: 0
         next_cursor:
           type: string
     AdherenceSummary:
@@ -5459,6 +5510,7 @@ components:
         - source
         - summary
         - rows
+        - total_count
       properties:
         source:
           type: string
@@ -5470,6 +5522,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdherenceRow"
+        total_count:
+          type: integer
+          minimum: 0
         next_cursor:
           type: string
     ControlTowerSummary:
@@ -5556,6 +5611,7 @@ components:
         - source
         - summary
         - alerts
+        - total_count
       properties:
         source:
           type: string
@@ -5567,6 +5623,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ControlTowerAlert"
+        total_count:
+          type: integer
+          minimum: 0
+        next_cursor:
+          type: string
     WorkflowNode:
       type: object
       additionalProperties: false
@@ -6101,7 +6162,6 @@ components:
       additionalProperties: false
       required:
         - scope_type
-        - version
         - effective_from
         - rule_dsl
       properties:
@@ -6112,6 +6172,7 @@ components:
           nullable: true
         version:
           type: integer
+          description: Optional compatibility field. When omitted, the backend allocates the next scoped protocol version atomically.
         version_label:
           type: string
         effective_from:

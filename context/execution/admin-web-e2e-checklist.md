@@ -74,7 +74,7 @@ Fixed in this pass:
   defaults plus park overrides. Explicit `-version-id` runs are now gated behind
   `-unsafe-version-id-bypass-effective-resolution` for repair-only use.
 - Explicit missed-dose policy with a due window is now executable:
-  `immediate`, `phc_approval`, `defer`, and yearly `next_cycle`.
+  `immediate`, `pc_approval`, `defer`, and yearly `next_cycle`.
 - Vaccination execution rendered the returned shed-event set as one long page.
   It now pages filtered execution rows before grouping by park/shed.
 - Vaccination status matrix and cohort detail used a disabled "no cursor"
@@ -203,7 +203,7 @@ Create through `/counts/herd` or `POST /admin/goats`:
 | --- | --- | --- | --- |
 | `E2E-HERD-CLEAN-A` | A | K1 day-21, eligible, no trusted prior evidence | vaccination obligation generated |
 | `E2E-HERD-CLEAN-B` | B | K1 day-21, eligible | separate shed grouping generated |
-| `E2E-HERD-HF-TRUSTED` | A | matching trusted HF vaccination evidence | matching obligation suppressed |
+| `E2E-HERD-HOLDING-PARK-TRUSTED` | A | matching vaccination evidence from our supervised procurement holding park | matching obligation suppressed |
 | `E2E-HERD-NOT-DUE` | B | outside rule window | no active due work |
 
 ### Procurement Load Goats
@@ -309,7 +309,7 @@ Run API/integration checks before browser clicks.
      coverage.
    - Run birth-age K1 generation for a goat with no DOB; assert a visible
      deferred data-quality row appears in AC/PA/Calendar/Passport where exposed.
-   - Run missed-dose policy cases for `immediate`, `next_cycle`, `phc_approval`,
+   - Run missed-dose policy cases for `immediate`, `next_cycle`, `pc_approval`,
      and `defer`; assert status/due date/reason across AC, Execution, Passport,
      and Calendar.
 
@@ -443,7 +443,7 @@ hiding later columns, or forcing users to guess the value.
 - List rows navigate to `/workflows/{row_id}`.
 - Drilldown shows config -> obligation -> batch/drive -> SOP -> proof ->
   verification -> completion -> next due.
-- Back links, Passport links, shed execution links, AC and PA links.
+- Back links, Passport links, vaccination execution links, AC and PA links.
 - Completed/rejected/rework permutations render the correct chain node state.
 
 ### WF / PA / SOP State Reaction
@@ -498,7 +498,8 @@ E2E must prove the core chain:
   rule authoring and publish.
 - Published config plus goat eligibility creates due vaccination work.
 - New goat creation automatically checks vaccination eligibility.
-- Due goats are grouped shed-wise into a shed drive, not one task per goat.
+- Due herd animals are grouped into park-level drive plans with per-shed/tag
+  breakdowns, not one task per animal.
 - Shed owner/operator executes the SOP, uploads proof, verifier accepts/rejects,
   completion writes vaccination history, and booster date is created only after
   accepted verification.
@@ -509,7 +510,9 @@ Do not claim these edge cases are green until the suite has explicit backend and
 frontend assertions:
 
 - Draft/not-approved rule creates no work.
-- Trusted holding-farm/history evidence suppresses duplicate work.
+- Trusted procurement holding-park evidence suppresses duplicate work only when
+  it is from our supervised SOP/video/physical validation flow; outside-source
+  claims do not suppress work.
 - Sick/ICU/quarantine/deferred goats remain visible with reason.
 - Shed shift moves open pending vaccination work to the new shed.
 - Dead/sold/exited goats cancel pending work without changing completed history.
@@ -517,7 +520,8 @@ frontend assertions:
 - Missing/expired stock is shown as blocked when the runtime enforces it.
 - Missing DOB / missing entry date shows as deferred/explained, not as an
   invisible skipped counter.
-- Batch page boundaries do not split one shed drive.
+- Batch page boundaries do not split one park drive group or hide its
+  per-shed/tag breakdown.
 - Completion emits exactly one `vaccination.completed` outbox event.
 - Calendar closed-row retention: recent completed proof is filterable; old
   completed/canceled projection rows prune while canonical history remains.

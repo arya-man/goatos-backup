@@ -11,7 +11,7 @@ import {
 } from "./process-integrity";
 import { Tag } from "@/components/ui-primitives";
 import { actionDriveLabel, actionWorkTitle } from "./work-board";
-import { VaccinationFilterButton, VisibleTableSearch, paginateRows, VaccinationTablePager, type VaccinationPageSize } from "@/features/phc-vaccination";
+import { VaccinationFilterButton, VisibleTableSearch, paginateRows, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 
 // Top-level Workflows screen — vaccination-only, ported from the mock orchestration layout: KPI tiles,
 // module pill row, a left workflow catalog, and a right chain-reaction map. Each catalog row drills into

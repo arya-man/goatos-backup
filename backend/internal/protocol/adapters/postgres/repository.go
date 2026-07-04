@@ -326,13 +326,29 @@ func (r *Repository) CreateVersion(ctx context.Context, in domain.NewVersion) (s
 	if !reservation.proceed {
 		return reservation.resultID, nil
 	}
+	scopeUUID := pgconv.NullableUUID(in.ScopeID)
+	if in.Version <= 0 {
+		lockKey := strings.Join([]string{in.TenantID, in.ProtocolID, strings.TrimSpace(in.ScopeType), optionalString(in.ScopeID)}, ":")
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, lockKey); err != nil {
+			return "", fmt.Errorf("protocol: lock version allocator: %w", err)
+		}
+		if err := tx.QueryRow(ctx, `
+SELECT COALESCE(MAX(version), 0) + 1
+FROM protocol_versions
+WHERE tenant_id = $1
+  AND protocol_id = $2
+  AND scope_type = $3
+  AND scope_id IS NOT DISTINCT FROM $4`, tenant, protocol, in.ScopeType, scopeUUID).Scan(&in.Version); err != nil {
+			return "", fmt.Errorf("protocol: allocate version number: %w", err)
+		}
+	}
 
 	qtx := r.queries.WithTx(tx)
 	id, err := qtx.CreateProtocolVersion(ctx, protocoldb.CreateProtocolVersionParams{
 		TenantID:      tenant,
 		ProtocolID:    protocol,
 		ScopeType:     in.ScopeType,
-		ScopeID:       pgconv.NullableUUID(in.ScopeID),
+		ScopeID:       scopeUUID,
 		Version:       in.Version,
 		VersionLabel:  in.VersionLabel,
 		Status:        in.Status,
@@ -860,6 +876,7 @@ func (r *Repository) ListRules(ctx context.Context, tenantID, versionID string) 
 			Repeat:              row.Repeat,
 			RepeatUntilAfterAge: row.RepeatUntilAfterAge,
 			CatchUp:             row.CatchUp,
+			EligibilityJSON:     row.EligibilityJson,
 			SopVersionID:        row.SopVersionID,
 			SortOrder:           row.SortOrder,
 		})

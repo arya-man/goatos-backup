@@ -1,6 +1,6 @@
 # One Goat — Vaccination Stories + Batching (Code Flow Map)
 
-**Purpose:** Follow **one goat** from registration → due obligation → **batching into a drive** → execution.  
+**Purpose:** Follow **one goat** from registration → due obligation → **batching into a drive** → execution.
 Each story = a life path. Each chapter = what happens to **this goat** and **which code runs**.
 
 Includes **planned vs built** so you can see what we aimed for and what the repo actually does today.
@@ -12,11 +12,11 @@ Includes **planned vs built** so you can see what we aimed for and what the repo
 | Flow we designed | Built in code? | Where |
 |------------------|----------------|-------|
 | Per-goat due engine (kid / adult path) | **Yes** | `vaccination/app/generation.go`, `schedule_policy.go` |
-| Mother unknown → assume vaccinated | **Yes** | `kidMotherVaccinatedBranch`, `motherBranchMatchesGoat` |
+| Approved kid schedule without mother-vaccination branching | **Yes** | `schedule_policy.go`, `generation.go` |
 | Warming / sick / ICU / pregnancy defer | **Yes** | `schedule_policy.go`, `deferredReason` |
 | Health recovery reopen + align to drive | **Yes** | `ReopenDeferredObligationByIdempotencyKey`, `recoveryRescheduleDue` |
 | Cross-vaccine gap floors | **Yes** | `compatibility.go` (SM-1 + SM-7) |
-| Trusted HF / completion suppression | **Yes** | `hasTrustedCompletionEvidence` |
+| Trusted procurement holding-park / completion suppression | **Yes** | `hasTrustedCompletionEvidence`; trust means our park or our procurement holding park under SOP/video/physical validation, not outside-source claims |
 | Booster / adult revacc chain | **Yes** | `booster.go` (SM-7) |
 | Obligation scoped to **shed** | **Yes** | `generationScope` |
 | **SM-4 shed batching** (rule + window + species) | **Yes** | `sweeper.go` → `sweepWindowGroupKey` |
@@ -34,7 +34,6 @@ Includes **planned vs built** so you can see what we aimed for and what the repo
 | Stock expiry in drive date scoring | **No** (by policy) | FEFO at reserve only |
 | One merged multi-vaccine execution batch | **No** | One batch per protocol version per drive |
 | Full published matrix in every tenant | **Ops/config** | Presets exist; must publish in `/config` |
-| Mother-not-vaccinated early schedule | **No** | V1 assumes mother vaccinated |
 
 ---
 
@@ -168,7 +167,7 @@ These are **only about SM-4** — assume the goat already has an open obligation
 |------|--------------|------|
 | 1 | `MarkMissed` after grace | `sweeper.MarkMissed` |
 | 2 | Status `missed` still unbatched | SQL includes `missed` in sweep |
-| 3 | Can still batch for catch-up drive | SM-4 (if PHC unblocks / regen) |
+| 3 | Can still batch for catch-up drive | SM-4 (if Preventive Care unblocks / regen) |
 
 **Built:** Yes.
 
@@ -192,14 +191,14 @@ These are **only about SM-4** — assume the goat already has an open obligation
 
 ### Story 1 — Farm-born kid, normal (born in our shed)
 
-**Goat:** Born here. DOB known. Mother unknown → mother vaccinated schedule. Healthy. Shed has enough goats.
+**Animal:** Born here. DOB known. Approved kid schedule applies. Healthy. Shed has enough animals.
 
 | Ch | Life event | Stage A (due) | Stage B (batch) |
 |----|------------|---------------|-----------------|
 | 1 | Registered | `goat.created` → SM-1 | — |
 | 2 | Kid path | `schedulePathForGoat` → kid | — |
 | 3 | ET+TT week 4 | obligation **scheduled**, shed scope | — |
-| 4 | Due week 4 | status **due** | **Batch story A** — shed PPR/ET drive |
+| 4 | Due week 4 | status **due** | **Batch story A** — park drive group with shed/tag breakdown |
 | 5 | Vaccinated | verify accept → SM-7 booster | batch **completed** |
 | 6 | PPR → Goat Pox | cross-gap may delay pox | separate drives per vaccine version |
 | 7 | FMD + HS | two obligations | **Batch story D** combo align |
@@ -276,7 +275,7 @@ These are **only about SM-4** — assume the goat already has an open obligation
 
 | Ch | Stage A | Stage B |
 |----|---------|---------|
-| 1 | Trusted HF suppresses day-0 | no duplicate batch |
+| 1 | Trusted procurement holding-park evidence suppresses day-0 | no duplicate batch |
 | 2 | Week-4 wave due | **A** |
 
 ---
@@ -294,7 +293,7 @@ These are **only about SM-4** — assume the goat already has an open obligation
 
 | Ch | Stage A | Stage B |
 |----|---------|---------|
-| 1 | `catch_up_phc_approval` defer | **C** until PHC path |
+| 1 | `catch_up_preventive_care_approval` defer | **C** until Preventive Care path |
 | 2 | Missed materialized | `MarkMissed` | **G** |
 
 ---
@@ -326,7 +325,7 @@ These are **only about SM-4** — assume the goat already has an open obligation
 
 ---
 
-### Story 15 — Manual PHC campaign
+### Story 15 — Manual Preventive Care campaign
 
 | Ch | Stage A | Stage B |
 |----|---------|---------|
@@ -353,7 +352,7 @@ These are **only about SM-4** — assume the goat already has an open obligation
 | 3 | SOP task created | `finalizePlannedBatches` |
 | 4 | Stock reserved | FEFO |
 | 5 | Operator records dose | completion API |
-| 6 | PHC verifies accept | SM-5 |
+| 6 | Preventive Care verifies accept | SM-5 |
 | 7 | `vaccination.completed` event | outbox |
 | 8 | SM-7 next dose | `ScheduleNextDose` |
 | 9 | Calendar updated | `RefreshVaccinationProjection` |
@@ -366,7 +365,7 @@ These are **only about SM-4** — assume the goat already has an open obligation
 STAGE A — Generation
   [ ] goat.created (SM-1)
   [ ] kid path / adult procurement path
-  [ ] mother assumed vaccinated when unknown
+  [ ] approved kid schedule only; no mother-vaccination category
   [ ] warming_hold / sick / ICU / pregnancy defer
   [ ] missing_dob / missing_entry_date
   [ ] trusted history suppress

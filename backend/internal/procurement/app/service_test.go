@@ -151,6 +151,24 @@ func TestAddGoatToLoadMapsExistingGoatSexMismatch(t *testing.T) {
 	}
 }
 
+func TestAddGoatToLoadMapsAnimalIdentifierConflictTo409(t *testing.T) {
+	repo := &fakeRepo{addErr: ports.ErrInvalidTransition}
+	svc := NewService(repo)
+	_, err := svc.AddGoatToLoad(context.Background(), ports.AddGoatToLoad{
+		TenantID:          testTenant,
+		LoadID:            testLoad,
+		AnimalIdentifier1: strPtr("DUPLICATE-A"),
+		AnimalIdentifier2: strPtr("DUPLICATE-B"),
+		Species:           "goat",
+		Sex:               "female",
+		IdempotencyKey:    "add-identifier-conflict",
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "animal_identifier_conflict" || appErr.HTTPStatus != 409 {
+		t.Fatalf("AddGoatToLoad() error = %v, want 409 animal_identifier_conflict", err)
+	}
+}
+
 func TestRejectAndFailedSourceHealthCancelOpenVaccination(t *testing.T) {
 	repo := &fakeRepo{}
 	cancel := &fakeCanceler{}
@@ -255,7 +273,7 @@ func TestArrivalRejectedAndUnknownExtraStayOutOfVaccination(t *testing.T) {
 	}
 }
 
-func TestAcceptedIntakeCreatesPHCHandoffWithoutCancel(t *testing.T) {
+func TestAcceptedIntakeCreatesPCHandoffWithoutCancel(t *testing.T) {
 	repo := &fakeRepo{}
 	cancel := &fakeCanceler{}
 	svc := NewService(repo).WithVaccinationCanceler(cancel)
@@ -431,11 +449,11 @@ func (f *fakeRepo) DispatchLoad(_ context.Context, in ports.DispatchLoad) (domai
 func (f *fakeRepo) RecordArrivalReview(_ context.Context, in ports.ArrivalReview) (domain.ArrivalReview, error) {
 	return domain.ArrivalReview{LoadID: in.LoadID, Status: in.Status, Replayed: f.replay}, nil
 }
-func (f *fakeRepo) AcceptIntake(_ context.Context, in ports.AcceptIntake) ([]domain.PHCHandoff, error) {
+func (f *fakeRepo) AcceptIntake(_ context.Context, in ports.AcceptIntake) ([]domain.PCHandoff, error) {
 	if f.acceptErr != nil {
 		return nil, f.acceptErr
 	}
-	return []domain.PHCHandoff{{LoadID: in.LoadID, GoatID: in.GoatIDs[0], ParkLocationID: in.ParkLocationID, ShedLocationID: in.ShedLocationID}}, nil
+	return []domain.PCHandoff{{LoadID: in.LoadID, GoatID: in.GoatIDs[0], ParkLocationID: in.ParkLocationID, ShedLocationID: in.ShedLocationID}}, nil
 }
 func (f *fakeRepo) ListWorkRows(_ context.Context, q domain.WorkQuery) (domain.WorkListResult, error) {
 	f.lastWorkQuery = q

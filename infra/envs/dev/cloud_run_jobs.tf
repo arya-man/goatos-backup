@@ -9,7 +9,7 @@ locals {
       name                = "goatos-dev-outbox-relay"
       service_account_key = "outbox_relay"
       command             = ["/app/bin/outbox-relay"]
-      args                = ["-limit=100", "-timeout=240s"]
+      args                = ["-limit=500", "-timeout=240s"]
       timeout             = "300s"
       memory              = "512Mi"
       cpu                 = "1"

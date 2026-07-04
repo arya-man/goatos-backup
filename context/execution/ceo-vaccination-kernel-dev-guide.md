@@ -44,7 +44,7 @@ Use this path for a first review.
 | Step | Open | What to check |
 | --- | --- | --- |
 | 1 | Control Tower | Overall vaccination health, top broken items, owner, next action. |
-| 2 | Preventive Care (PC) -> Vaccination | Cohort matrix, per-cohort detail, supplier warmup, and shed execution rows. |
+| 2 | Preventive Care (PC) -> Vaccination | Cohort matrix, per-cohort detail, supplier warmup, and park drive rows with shed/tag breakdowns. |
 | 3 | Action Center | Due, overdue, proof-pending, verification-pending, rejected, blocked, and owner-missing work. |
 | 4 | Calendar | The date view of vaccination due work, reminders, snoozes, and escalations. |
 | 5 | Protocol Adherence | Expected vs actual work, adherence percent, proof count, and gaps by rule/shed. |
@@ -77,17 +77,19 @@ Use Preventive Care (PC) -> Vaccination as the operating floor.
 Expected review:
 
 - The top band shows how a vaccination drive runs.
-- Supplier warmup shows purchased or holding-farm vaccination evidence when it
-  exists, so accepted goats are not double-dosed on arrival.
+- Supplier warmup shows purchased-animal vaccination evidence only when it comes
+  from our supervised procurement holding park, so accepted animals are not
+  double-dosed on arrival.
 - The status matrix shows cohorts against vaccination rules.
 - Per-cohort detail shows animals, age band, last dose, next due, and status.
-- Drive - shed events show park, shed, owner, stock, proof, verification, and
-  next action.
-- Click a shed event to open the shed execution detail.
+- Drive rows show park, shed/tag breakdowns, owner, stock, proof,
+  verification, and next action.
+- Click a drive row to open the vaccination execution detail with the same
+  shed/tag context.
 
 If Record / verify fields are disabled on a matrix or rollup drawer, that is
 expected. The matrix is a summary, not a single task. To act on one real item,
-open the Action Center work row or the shed execution detail.
+open the Action Center work row or the vaccination execution detail.
 
 If "Import sheet" on the vaccination page is reference-only, that is expected.
 Vaccination drives are not hand-created from that drawer. Drives are generated
@@ -110,7 +112,7 @@ Expected review:
 - Verify, reject, or request rework only when the row is a real review item.
 
 If a verify/reject button is disabled, the row is missing the review handle for
-that action. Open the workflow detail or the related shed execution row to see
+that action. Open the workflow detail or the related vaccination execution row to see
 the actual work context.
 
 ## Calendar
@@ -158,8 +160,8 @@ Expected review:
   verify -> close.
 - The selected workflow shows current state, severity, SOP state, proof state,
   verification state, and completion progress.
-- Open the detail page to jump to Goat Passport, shed execution, Action Center,
-  and Protocol Adherence.
+- Open the detail page to jump to Goat Passport, vaccination execution, Action
+  Center, and Protocol Adherence.
 
 What this proves:
 
@@ -172,8 +174,9 @@ Use Config and SOP Library to confirm what creates vaccination work.
 Expected review:
 
 - Draft rules do not create work.
-- Only a published rule backed by approved source records creates vaccination
-  work.
+- Only a published Preventive Care (PC) matrix version creates vaccination work;
+  procurement evidence can suppress duplicate work only when it is our supervised
+  procurement holding-park proof.
 - A published version is not edited in place.
 - The full guided flow for changing an existing published rule is still a
   follow-up. Until then, use the current New draft rule path only for new draft
@@ -244,9 +247,12 @@ Stock problem:
 - The item is blocked with the stock reason.
 - It should not disappear or be silently marked complete.
 
-Supplier or holding-farm vaccination evidence:
+Procurement holding-park vaccination evidence:
 
-- Accepted evidence is used to avoid double-dosing after intake.
+- Accepted evidence from our supervised procurement holding park is used to
+  avoid double-dosing after intake.
+- Third-party/vendor/source claims outside our park or procurement holding park
+  are untrusted notes only and do not suppress Preventive Care (PC) work.
 - Goats rejected before truck or intake remain procurement history and do not
   become active Preventive Care (PC) vaccination work.
 
@@ -256,7 +262,8 @@ For a short CEO review, test these:
 
 1. Login works for an approved Mesha account.
 2. Control Tower shows process health and opens an alert drawer.
-3. Preventive Care (PC) -> Vaccination shows the matrix and shed execution rows.
+3. Preventive Care (PC) -> Vaccination shows the matrix and park drive rows
+   with shed/tag breakdowns.
 4. A disabled rollup Record / verify drawer explains why action must happen on
    the real work item.
 5. Action Center filters work by status and opens a work drawer.
@@ -272,14 +279,14 @@ For a short CEO review, test these:
 - Vaccination rules can generate due work.
 - Due, overdue, missed, deferred, blocked, proof-pending, verification-pending,
   rejected, and completed states are visible.
-- Shed execution rows show owner, stock, proof, verification, and next action.
+- Vaccination execution rows show owner, stock, proof, verification, and next action.
 - Proof upload and SOP task submission exist on the real task path.
 - Verification can accept, reject, or request rework when a real review row is
   available.
 - Stock reservation and blocking are enforced by Goat OS.
 - Booster scheduling works after accepted completion.
-- Procurement holding-farm vaccination evidence can prevent double-dosing after
-  intake.
+- Procurement holding-park vaccination evidence can prevent double-dosing after
+  intake only when it is from our supervised SOP/video/physical validation flow.
 - Critical direct ICU/quarantine/death shortcuts are blocked unless the approved
   guarded death path is used.
 

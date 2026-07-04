@@ -62,6 +62,14 @@ func (q *Queries) CountCatchupGoats(ctx context.Context, arg CountCatchupGoatsPa
 const countEligibleGoats = `-- name: CountEligibleGoats :one
 SELECT count(*)::bigint AS total
 FROM goats g
+LEFT JOIN LATERAL (
+  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
+  FROM procurement_load_goats plg
+  WHERE plg.tenant_id = g.tenant_id
+    AND plg.goat_id = g.goat_id
+  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  LIMIT 1
+) proc ON true
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
@@ -109,6 +117,14 @@ func (q *Queries) CountEligibleGoats(ctx context.Context, arg CountEligibleGoats
 const countEligibleShedScopes = `-- name: CountEligibleShedScopes :one
 SELECT count(DISTINCT g.shed_id)::bigint AS total
 FROM goats g
+LEFT JOIN LATERAL (
+  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
+  FROM procurement_load_goats plg
+  WHERE plg.tenant_id = g.tenant_id
+    AND plg.goat_id = g.goat_id
+  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  LIMIT 1
+) proc ON true
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)

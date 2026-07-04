@@ -733,7 +733,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List goats eligible for a vaccination drive calendar event with cursor pagination. */
+        /** List herd animals eligible for a vaccination drive calendar event with cursor pagination. */
         get: operations["listCalendarVaccinationDriveTargets"];
         put?: never;
         post?: never;
@@ -1625,15 +1625,15 @@ export interface components {
             first_result_id?: string | null;
         };
         /** @enum {string} */
-        CalendarOwnerFilter: "all" | "phc" | "inventory" | "admin_data_ops";
+        CalendarOwnerFilter: "all" | "pc" | "inventory" | "admin_data_ops";
         /** @enum {string} */
-        CalendarOwnerKey: "phc" | "inventory" | "admin_data_ops";
+        CalendarOwnerKey: "pc" | "inventory" | "admin_data_ops";
         /** @enum {string} */
         CalendarStatus: "scheduled" | "due" | "overdue" | "missed" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "rework_due" | "deferred" | "blocked" | "completed" | "canceled";
         /** @enum {string} */
         CalendarSeverity: "info" | "warning" | "critical";
         /** @enum {string} */
-        CalendarEventType: "vaccination_dose_due" | "vaccination_drive" | "vaccination_campaign" | "vaccination_booster_due" | "vaccination_defer_review" | "vaccination_evidence_review" | "vaccination_proof_verification" | "vaccination_rework_due" | "vaccine_stock_readiness" | "vaccine_cold_chain_check" | "vaccine_reorder_expiry_grn" | "phc_stock_anti_misuse" | "vaccination_config_activation_review";
+        CalendarEventType: "vaccination_dose_due" | "vaccination_drive" | "vaccination_campaign" | "vaccination_booster_due" | "vaccination_defer_review" | "vaccination_evidence_review" | "vaccination_proof_verification" | "vaccination_rework_due" | "vaccine_stock_readiness" | "vaccine_cold_chain_check" | "vaccine_reorder_expiry_grn" | "pc_stock_anti_misuse" | "vaccination_config_activation_review";
         CalendarJSONBlock: {
             [key: string]: unknown;
         };
@@ -1813,8 +1813,9 @@ export interface components {
             /** Format: uuid */
             obligation_id: string;
             /** Format: uuid */
-            goat_id: string;
-            rfid?: string | null;
+            animal_id: string;
+            animal_identifier_1: string | null;
+            animal_identifier_2: string | null;
             stage?: string | null;
             status: string;
             /** Format: date-time */
@@ -1965,6 +1966,7 @@ export interface components {
             source: "api";
             items: components["schemas"]["ActionCenterObligation"][];
             counts_by_work_state: components["schemas"]["CountByWorkState"][];
+            total_count: number;
             next_cursor?: string;
         };
         AdherenceSummary: {
@@ -1991,6 +1993,7 @@ export interface components {
             source: "api";
             summary: components["schemas"]["AdherenceSummary"];
             rows: components["schemas"]["AdherenceRow"][];
+            total_count: number;
             next_cursor?: string;
         };
         ControlTowerSummary: {
@@ -2024,6 +2027,8 @@ export interface components {
             source: "api";
             summary: components["schemas"]["ControlTowerSummary"];
             alerts: components["schemas"]["ControlTowerAlert"][];
+            total_count: number;
+            next_cursor?: string;
         };
         WorkflowNode: {
             key: string;
@@ -2227,7 +2232,8 @@ export interface components {
         CreateProtocolVersionRequest: {
             scope_type: string;
             scope_id?: string | null;
-            version: number;
+            /** @description Optional compatibility field. When omitted, the backend allocates the next scoped protocol version atomically. */
+            version?: number;
             version_label?: string;
             /** Format: date-time */
             effective_from: string;
@@ -3436,6 +3442,7 @@ export interface operations {
                 due_after?: string;
                 due_before?: string;
                 cursor?: string;
+                offset?: number;
                 limit?: number;
             };
             header?: never;
@@ -3473,6 +3480,7 @@ export interface operations {
                 due_after?: string;
                 due_before?: string;
                 cursor?: string;
+                offset?: number;
                 limit?: number;
             };
             header?: never;
@@ -3510,6 +3518,7 @@ export interface operations {
                 due_after?: string;
                 due_before?: string;
                 cursor?: string;
+                offset?: number;
                 limit?: number;
             };
             header?: never;
@@ -3541,6 +3550,10 @@ export interface operations {
                 as_of?: string;
                 shed_id?: string;
                 due_before?: string;
+                work_state?: components["schemas"]["WorkState"];
+                severity?: components["schemas"]["ProcessIntegritySeverity"];
+                cursor?: string;
+                offset?: number;
                 limit?: number;
             };
             header?: never;
@@ -3952,7 +3965,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paginated goats for the selected vaccination drive. */
+            /** @description Paginated herd animals for the selected vaccination drive. */
             200: {
                 headers: {
                     [name: string]: unknown;

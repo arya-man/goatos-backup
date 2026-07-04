@@ -88,11 +88,12 @@ func run(args []string) error {
 		LeaseTimeout: cfg.LeaseTimeout,
 	}, logger)
 
-	result, err := service.RunOnce(ctx)
+	result, err := service.RunUntilDrained(ctx)
 	if err != nil {
 		return err
 	}
 	logger.Info("outbox relay run complete",
+		"batches_processed", result.BatchesProcessed,
 		"reclaimed_stale", result.ReclaimedStaleCount,
 		"claimed", result.ClaimedCount,
 		"published", result.PublishedCount,

@@ -59,7 +59,7 @@ changes and generated/local artifacts.
 Use these as the product/business boundary for the next session:
 
 - Mesha wiki/source graph confirms Preventive Care (PC) vaccination requires cold-chain integrity
-  through vaccine storage/transport (`Handbooks/PHC_Director.pdf`, p2). It also
+  through vaccine storage/transport (`Preventive Care Director handbook source`, p2). It also
   contains a diagnosis video-upload UI pattern, but that is not itself a
   vaccination admin-web camera requirement.
 - `docs/preventive-care-vaccination/PRD.md` says field workers execute vaccination SOPs by

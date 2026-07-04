@@ -27,7 +27,7 @@ func TestOperationsAuditRepositoryPaginationFiltersAndAnomalies(t *testing.T) {
 		RecordedAt: base.Add(time.Minute),
 		Action:     "sop.task.rework",
 		Metadata: map[string]any{
-			"domain": "phc", "module": "vaccination", "category": "rework", "result": "rework", "status": "rework",
+			"domain": "pc", "module": "vaccination", "category": "rework", "result": "rework", "status": "rework",
 		},
 	})
 	insertAuditRow(t, ctx, pool, auditSeed{
@@ -43,7 +43,7 @@ func TestOperationsAuditRepositoryPaginationFiltersAndAnomalies(t *testing.T) {
 		RecordedAt: base.Add(3 * time.Minute),
 		Action:     "inventory.stock_mismatch",
 		Metadata: map[string]any{
-			"domain": "phc", "module": "vaccination", "category": "stock_mismatch", "result": "mismatch", "status": "mismatch",
+			"domain": "pc", "module": "vaccination", "category": "stock_mismatch", "result": "mismatch", "status": "mismatch",
 		},
 	})
 	insertAuditRow(t, ctx, pool, auditSeed{
@@ -51,7 +51,7 @@ func TestOperationsAuditRepositoryPaginationFiltersAndAnomalies(t *testing.T) {
 		RecordedAt: base.Add(4 * time.Minute),
 		Action:     "sop.task.submit",
 		Metadata: map[string]any{
-			"domain": "phc", "module": "vaccination", "category": "proof", "result": "completed", "status": "completed", "proof_id": "proof-1",
+			"domain": "pc", "module": "vaccination", "category": "proof", "result": "completed", "status": "completed", "proof_id": "proof-1",
 		},
 	})
 	insertAuditRow(t, ctx, pool, auditSeed{
@@ -59,7 +59,7 @@ func TestOperationsAuditRepositoryPaginationFiltersAndAnomalies(t *testing.T) {
 		RecordedAt: base.Add(5 * time.Minute),
 		Action:     "vaccination.verification.requested",
 		Metadata: map[string]any{
-			"domain": "phc", "module": "vaccination", "category": "verification", "result": "verification_pending", "status": "verification_pending",
+			"domain": "pc", "module": "vaccination", "category": "verification", "result": "verification_pending", "status": "verification_pending",
 		},
 	})
 
@@ -83,7 +83,7 @@ func TestOperationsAuditRepositoryPaginationFiltersAndAnomalies(t *testing.T) {
 		t.Fatalf("page2 rows=%#v; boundary row was skipped", page2)
 	}
 
-	domainFilter := "phc"
+	domainFilter := "pc"
 	moduleFilter := "vaccination"
 	categoryFilter := "stock_mismatch"
 	filtered, _, err := repo.List(ctx, domain.Query{

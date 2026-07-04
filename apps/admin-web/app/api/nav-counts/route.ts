@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 type NavCountsPayload = {
   actionCenter: number | null;
-  phc: number | null;
+  pc: number | null;
 };
 
 export async function GET(request: NextRequest) {
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
 
   if (!actionCenter.ok) {
     return NextResponse.json(
-      { actionCenter: null, phc: null } satisfies NavCountsPayload,
+      { actionCenter: null, pc: null } satisfies NavCountsPayload,
       { headers: { "Cache-Control": "no-store" } },
     );
   }
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(
     {
       actionCenter: openVaccinationWork,
-      phc: openVaccinationWork,
+      pc: openVaccinationWork,
     } satisfies NavCountsPayload,
     { headers: { "Cache-Control": "no-store" } },
   );

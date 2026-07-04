@@ -41,7 +41,7 @@ export type ProcurementDecision = AdminApiComponents["schemas"]["ProcurementDeci
 export type ProcurementTransitHandoff = AdminApiComponents["schemas"]["ProcurementTransitHandoff"];
 export type ProcurementArrivalReview = AdminApiComponents["schemas"]["ProcurementArrivalReview"];
 export type ProcurementArrivalGoat = AdminApiComponents["schemas"]["ProcurementArrivalGoat"];
-export type ProcurementPHCHandoff = AdminApiComponents["schemas"]["ProcurementPHCHandoff"];
+export type ProcurementPCHandoff = AdminApiComponents["schemas"]["ProcurementPCHandoff"];
 export type ProcurementTimelineEvent = AdminApiComponents["schemas"]["ProcurementTimelineEvent"];
 export type ProcurementHFVaccinationEvidence = AdminApiComponents["schemas"]["ProcurementHFVaccinationEvidence"];
 

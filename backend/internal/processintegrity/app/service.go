@@ -37,6 +37,7 @@ func (s *Service) ActionCenter(ctx context.Context, q domain.Query) (domain.Acti
 		Source:            domain.SourceAPI,
 		Items:             result.Rows,
 		CountsByWorkState: result.CountsByWorkState,
+		TotalCount:        result.TotalCount,
 		NextCursor:        result.NextCursor,
 	}, nil
 }
@@ -83,6 +84,7 @@ func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain
 		Source:     domain.SourceAPI,
 		Summary:    summary,
 		Rows:       rows,
+		TotalCount: result.TotalCount,
 		NextCursor: result.NextCursor,
 	}, nil
 }
@@ -94,12 +96,24 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 	if q.Limit <= 0 {
 		q.Limit = 50
 	}
-	result, err := s.repo.ListRows(ctx, q)
+	alertQuery := q
+	result, err := s.repo.ListRows(ctx, alertQuery)
+	if err != nil {
+		return domain.ControlTowerResponse{}, err
+	}
+	summaryQuery := q
+	summaryQuery.WorkState = nil
+	summaryQuery.Severity = nil
+	summaryQuery.OwnerID = nil
+	summaryQuery.Offset = 0
+	summaryQuery.Cursor = nil
+	summaryQuery.Limit = 1
+	summaryResult, err := s.repo.ListRows(ctx, summaryQuery)
 	if err != nil {
 		return domain.ControlTowerResponse{}, err
 	}
 	summary := domain.ControlTowerSummary{ProcessIntact: true}
-	for _, c := range result.CountsByWorkState {
+	for _, c := range summaryResult.CountsByWorkState {
 		switch c.WorkState {
 		case domain.WorkStateRejected, domain.WorkStateBlocked, domain.WorkStateOwnerMissing:
 			summary.CriticalCount += int(c.Count)
@@ -137,7 +151,7 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 			EvidenceLink: workflowLink(row),
 		})
 	}
-	return domain.ControlTowerResponse{Source: domain.SourceAPI, Summary: summary, Alerts: alerts}, nil
+	return domain.ControlTowerResponse{Source: domain.SourceAPI, Summary: summary, Alerts: alerts, TotalCount: result.TotalCount, NextCursor: result.NextCursor}, nil
 }
 
 func (s *Service) WorkflowDrilldown(ctx context.Context, q domain.Query, rowID string) (domain.WorkflowDrilldownResponse, bool, error) {

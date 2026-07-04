@@ -2604,7 +2604,7 @@ export interface components {
             trace_id: string;
         };
         ProcurementIntakeHandoffResponse: {
-            handoffs: components["schemas"]["ProcurementPHCHandoff"][];
+            handoffs: components["schemas"]["ProcurementPCHandoff"][];
             trace_id: string;
         };
         ProcurementLoadDetailResponse: {
@@ -2694,7 +2694,7 @@ export interface components {
             decisions: components["schemas"]["ProcurementDecision"][];
             transit_handoffs: components["schemas"]["ProcurementTransitHandoff"][];
             arrival_reviews: components["schemas"]["ProcurementArrivalReview"][];
-            phc_handoffs: components["schemas"]["ProcurementPHCHandoff"][];
+            pc_handoffs: components["schemas"]["ProcurementPCHandoff"][];
             timeline: components["schemas"]["ProcurementTimelineEvent"][];
         };
         ProcurementLoad: {
@@ -2841,7 +2841,7 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        ProcurementPHCHandoff: {
+        ProcurementPCHandoff: {
             /** Format: uuid */
             handoff_id?: string;
             /** Format: uuid */

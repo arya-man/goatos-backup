@@ -1,5 +1,5 @@
 -- +goose Up
--- Supplier/Holding-Farm vaccination evidence for the procurement -> PHC bridge.
+-- Supplier/Holding-Farm vaccination evidence for the procurement -> PC bridge.
 -- Imported evidence remains procurement-owned until reviewed; only trusted rows
 -- can suppress matching post-arrival vaccination obligations.
 

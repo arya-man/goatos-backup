@@ -151,7 +151,7 @@ func TestReopenDeferredObligationClearsStaleBatch(t *testing.T) {
 	}
 }
 
-func TestReopenDeferredObligationIgnoresTemporaryProcurementState(t *testing.T) {
+func TestReopenDeferredObligationSkipsProcurementFailedIntake(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -179,11 +179,14 @@ FROM load`, tenantID, meshaParty, testGoatID); err != nil {
 	}
 
 	id, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC(), nil)
-	if err != nil || !changed || id != obA {
-		t.Fatalf("reopen temporary procurement state: id=%q changed=%v err=%v", id, changed, err)
+	if err != nil {
+		t.Fatalf("reopen procurement-failed intake: %v", err)
 	}
-	if got := scanStatus(t, ctx, pool, obA); got != "scheduled" {
-		t.Fatalf("temporary procurement state should not strand recovered obligation, got %s", got)
+	if changed || id != "" {
+		t.Fatalf("procurement-failed reopen changed=%v id=%q, want no-op", changed, id)
+	}
+	if got := scanStatus(t, ctx, pool, obA); got != "deferred" {
+		t.Fatalf("procurement-failed deferred obligation status = %s, want deferred", got)
 	}
 }
 

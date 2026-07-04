@@ -17,7 +17,7 @@ ALTER TABLE goats
   ADD COLUMN exit_reason text NULL;
 
 -- Age source-of-truth: approx_dob (existing column, populated for migrated goats) is the
--- canonical birth date; backfill the new dob from it so age-based PHC obligations generate
+-- canonical birth date; backfill the new dob from it so age-based PC obligations generate
 -- for existing goats. approx_dob is retained as provenance. New intake sets dob directly.
 UPDATE goats SET dob = approx_dob, dob_estimated = true
 WHERE dob IS NULL AND approx_dob IS NOT NULL;

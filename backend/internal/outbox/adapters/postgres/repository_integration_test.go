@@ -621,9 +621,9 @@ func seedOutboxGoat(t *testing.T, pool *pgxpool.Pool) {
 	if _, err := pool.Exec(context.Background(), `
 INSERT INTO goats (
   goat_id, tenant_id, species, breed, sex, lifecycle_status,
-  species, custodian_party_id
+  custodian_party_id
 ) VALUES (
-  $1, $2, 'goat', 'Boer', 'female', 'alive', 'goat', $3
+  $1, $2, 'goat', 'Boer', 'female', 'alive', $3
 ) ON CONFLICT DO NOTHING`, outboxGoatID, meshaTenant, meshaParty); err != nil {
 		t.Fatal(err)
 	}

@@ -31,10 +31,10 @@ broad redesign or SOLID cleanup pass.
 
 Business/wiki evidence found through Graphify:
 
-- `Handbooks/PHC_Director.pdf` page 2: Preventive Care (PC) weekly operations, daily checklist tasks, stock control and record management.
-- `Handbooks/PHC_Director.pdf` page 5: vaccine storage and cold-chain integrity, plus health data documentation.
-- `Handbooks/PHC_Director.pdf` page 6: shed sanitization context.
-- `Handbooks/PHC_Director.pdf` page 6 text graph: Health Data Recorder enters vaccination, deworming, and health data into software.
+- `Preventive Care Director handbook source` page 2: Preventive Care (PC) weekly operations, daily checklist tasks, stock control and record management.
+- `Preventive Care Director handbook source` page 5: vaccine storage and cold-chain integrity, plus health data documentation.
+- `Preventive Care Director handbook source` page 6: shed sanitization context.
+- `Preventive Care Director handbook source` page 6 text graph: Health Data Recorder enters vaccination, deworming, and health data into software.
 
 Committed Goat OS source of truth:
 
@@ -128,7 +128,7 @@ Current corrected status:
 - `obligation-sweeper` now exists as a command and can create batches/SOP tasks
   when invoked with tenant, SOP version, actor, and optional vaccine item.
 - Procurement accepted-intake now enqueues a `goat.created` outbox message and
-  writes audit through `platform/audit`, but `procurement_phc_handoffs.event_status
+  writes audit through `platform/audit`, but `procurement_pc_handoffs.event_status
   = emitted` currently means "event row enqueued", not "downstream generation and
   read models succeeded".
 - Procurement idempotency reserve is regression-tested under same-key
@@ -248,7 +248,7 @@ Remaining pending items classified:
 | Rich SOP DSL semantics (step-type evaluator, conditional/branching form logic) | **Out of current local/code closure.** No DSL evaluator exists and we do NOT fake one. Not on the current Config publish path — publish gates on source + `sop_version_id` + object `proof_policy` only (`backend/internal/protocol/app/publish.go`), never on DSL evaluation. SOP builder emits native step types (`apps/admin-web/features/sops/sop-derive.ts`); no evaluator is claimed. | `backend/internal/protocol/app/publish.go`; `apps/admin-web/features/sops/sop-derive.ts`; `docs/protocol-engine/obligation-engine.md` §5 |
 | `as_of` residuals (point-in-time obligation status reconstruction) | **Out of current local/code closure.** Current code does not overclaim: `as_of`/`asOf` is a point-in-time read param threaded into the projection reads (`features/control-tower`, `workflows-landing`, `protocol-adherence`); the top-bar as-of selector is point-in-time only and range choices are disabled (Click Matrix → Top bar). The deeper effective-status reconstruction work is tracked in memory `goatos-phase1-asof-correctness` and is NOT a publish/proof-gate blocker. | `apps/admin-web/features/control-tower/index.tsx:55`; `features/process-integrity/workflows-landing.tsx:95`; `context/execution/vaccination-pre-e2e-readiness-audit.md` Click Matrix |
 | Source Entry search / media-capture limits | **Out of current local/code closure.** Visible UI does not overclaim — media upload and advanced search are disabled-with-reason, documented in `context/frontend/supplier-warmup-vaccination-gaps.md`. Disabled-with-reason is acceptable for this slice. | `context/frontend/supplier-warmup-vaccination-gaps.md`; readiness audit B8 (CLOSED) |
-| SOP taxonomy / category-filter API gap | **Out of current local/code closure — future scale/API cleanup.** The Config SOP picker shows only real published SOP versions (`active_sop_version_id`); the `/vaccination` and `/sops` quick-views use `listSops({ limit: 200 })` + client-side vaccination filtering (`apps/admin-web/app/(admin)/sops/page.tsx:14`, `features/phc-vaccination/operations.tsx:19`). It cannot fake SOPs, but a tenant with >200 SOPs could under-show. Tracked as a category/code-filter or named-binding follow-up in the trigger-closure handoff backlog; not a publish-path blocker. | `apps/admin-web/app/(admin)/sops/page.tsx:14`; `features/phc-vaccination/operations.tsx:19`; `context/execution/vaccination-trigger-closure-parallel-handoff.md` (SOP quick-view backlog) |
+| SOP taxonomy / category-filter API gap | **Out of current local/code closure — future scale/API cleanup.** The Config SOP picker shows only real published SOP versions (`active_sop_version_id`); the `/vaccination` and `/sops` quick-views use `listSops({ limit: 200 })` + client-side vaccination filtering (`apps/admin-web/app/(admin)/sops/page.tsx:14`, `features/preventive-care-vaccination/operations.tsx:19`). It cannot fake SOPs, but a tenant with >200 SOPs could under-show. Tracked as a category/code-filter or named-binding follow-up in the trigger-closure handoff backlog; not a publish-path blocker. | `apps/admin-web/app/(admin)/sops/page.tsx:14`; `features/preventive-care-vaccination/operations.tsx:19`; `context/execution/vaccination-trigger-closure-parallel-handoff.md` (SOP quick-view backlog) |
 | Preventive Care (PC) / vaccine roster + K1/K2/stage values | **Source-derived dev baseline CLOSED.** K2=42 is selected from wiki/glossary/legacy seed, ET/K1/day-21 is selected from the PRD, and the 2026-06-26 PPR/FMD/HS/BQ expansion pass closed all four as `label-only closed` with no schedule-backed rows added. Later production expansion is normal source-backed versioning, not a local/code blocker. | `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`; `context/execution/vaccination-roster-expansion-followup.md`; `docs/preventive-care-vaccination/TRD.md:64,:145` |
 
 No vague "pending" items remain: each is fixed, classified out-of-scope with a
@@ -353,7 +353,8 @@ Required:
 - `/workflows` reads `/vaccination/action-center` for live workflow instances.
 - Catalog rows navigate to `/workflows/{row_id}`.
 - Drilldown reads `/vaccination/workflows/{row_id}`.
-- Drilldown links go to Goat Passport, shed execution detail, Action Center, and Protocol Adherence.
+- Drilldown links go to Goat Passport, vaccination execution detail with the
+  same shed/tag context, Action Center, and Protocol Adherence.
 - Chain must show config -> obligation -> drive -> SOP -> proof -> verification -> completion.
 
 Missing before E2E:
@@ -442,7 +443,7 @@ Required for the procurement -> vaccination bridge:
 
 Missing before E2E:
 
-- Accepted intake currently creates `procurement_phc_handoffs`, but the handoff does not itself prove vaccination obligations were generated.
+- Accepted intake currently creates `procurement_pc_handoffs`, but the handoff does not itself prove vaccination obligations were generated.
 - Build either a production-equivalent event path or a documented synchronous local app-service path from accept-intake to vaccination generation.
 
 ## Hard Blockers Before E2E
@@ -462,12 +463,12 @@ Missing before E2E:
 
 Current observation:
 
-- `AcceptIntake` updates goat location/state, inserts `procurement_phc_handoffs`,
+- `AcceptIntake` updates goat location/state, inserts `procurement_pc_handoffs`,
   writes a `goat.created` identity event, writes audit, and inserts an outbox
   message.
 - API bootstrap and the local outbox relay eventbus mode both register the
   `goat.created` generation handler.
-- `procurement_phc_handoffs.event_status = emitted` is currently set when the
+- `procurement_pc_handoffs.event_status = emitted` is currently set when the
   outbox event is enqueued, not after the relay/generation/sweeper/read-model
   chain succeeds.
 
@@ -533,16 +534,23 @@ Build:
   runtime shapes, old import-review, unrelated Counts dashboard/module code, or
   disabled sidebar placeholders for future Counts modules.
 
-### B8. Supplier Warmup / HF Evidence — CLOSED (current scope)
+### B8. Supplier Warmup / Procurement Holding-Park Evidence — CLOSED (current scope)
+
+Current trust rule: the old `HF` label means our supervised procurement holding
+park only. Evidence is trusted only when our team administered or validated the
+dose under SOP/video/physical validation in our park or procurement holding
+park. Third-party/vendor/source claims outside that lifecycle remain notes and
+must not suppress Preventive Care (PC) obligations.
 
 Current observation:
 
-- Purpose-specific warmup classification (breeding 45-70d, fattening/non_breeding
-  0-14d, unspecified fallback) is in the contract and the Source Entry UI.
-- HF vaccination evidence import/review endpoints exist
+- V1 procurement holding classification is supervised 4-5 week holding near the
+  buying region. Older purpose-specific warmup duration notes are superseded;
+  source purpose remains context, not a separate trust clock.
+- Procurement holding-park vaccination evidence import/review endpoints exist
   (`POST /procurement/source-entry/goats/{goat_id}/hf-vaccination-evidence`,
-  `.../hf-vaccination-evidence/{evidence_id}/review`), and trusted HF evidence
-  feeds the generation suppression path
+  `.../hf-vaccination-evidence/{evidence_id}/review`), and trusted procurement
+  holding-park evidence feeds the generation suppression path
   (`CompletionEvidenceReader.HasTrustedCompletionEvidence`, test
   `TestGoatCreatedTrustedHFEvidenceSuppressesMatchingObligation`).
 - `/vaccination` shows a read-only Supplier warmup / Holding-Farm panel linking
@@ -612,7 +620,7 @@ Closed in this pass:
 - Publish stays gated: the row's status is `Published`, `Draft · source-backed`,
   `Draft · not source-backed`, or `Retired`, computed from the same source-backed
   rule the backend enforces (`protocol/app/publish.go` `ValidatePublishable`:
-  source_system ∈ vaccinations_db/phc/vet + source_ref + review_status=approved +
+  source_system ∈ vaccinations_db/pc/vet + source_ref + review_status=approved +
   approved_by). Drafts that are not source-backed render as such; they cannot
   publish.
 - Tests: `internal/protocol/adapters/http` `TestListConfigsReturnsItemsAndDefaultsCategory`

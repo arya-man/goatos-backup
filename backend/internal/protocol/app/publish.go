@@ -33,12 +33,14 @@ var executableTriggerTypes = map[string]bool{
 
 type ruleDSLEnvelope struct {
 	Category            string          `json:"category"`
+	RulesetFamily       string          `json:"ruleset_family"`
 	Vaccine             vaccineMeta     `json:"vaccine"`
 	Eligibility         json.RawMessage `json:"eligibility"`
 	MissedDosePolicy    string          `json:"missed_dose_policy"`
 	ProcurementPolicy   json.RawMessage `json:"procurement_policy"`
 	CompatibilityPolicy json.RawMessage `json:"compatibility_policy"`
 	Schedule            []scheduleRow   `json:"schedule"`
+	MatrixRows          []matrixRow     `json:"matrix_rows"`
 }
 
 type vaccineMeta struct {
@@ -55,6 +57,7 @@ type vaccineMeta struct {
 
 type scheduleRow struct {
 	DoseCode          string          `json:"dose_code"`
+	SourceDoseCode    string          `json:"source_dose_code"`
 	Sequence          int32           `json:"sequence"`
 	TriggerType       string          `json:"trigger_type"`
 	OffsetDays        int32           `json:"offset_days"`
@@ -75,15 +78,24 @@ type scheduleRow struct {
 	ProofPolicy       json.RawMessage `json:"proof_policy"`
 }
 
+type matrixRow struct {
+	RowID       string          `json:"row_id"`
+	Vaccine     json.RawMessage `json:"vaccine"`
+	Eligibility json.RawMessage `json:"eligibility"`
+	Schedule    []scheduleRow   `json:"schedule"`
+}
+
 var (
 	ruleDSLTopLevelKeys = map[string]bool{
 		"category":             true,
+		"ruleset_family":       true,
 		"scope":                true,
 		"vaccine":              true,
 		"eligibility":          true,
 		"missed_dose_policy":   true,
 		"stock_policy":         true,
 		"schedule":             true,
+		"matrix_rows":          true,
 		"escalation":           true,
 		"compatibility_policy": true,
 		"procurement_policy":   true,
@@ -115,7 +127,6 @@ var (
 		"min_age_days":                true,
 		"max_age_days":                true,
 		"age_band":                    true,
-		"mother_vaccinated_branch":    true,
 	}
 	ruleDSLVaccineKeys = map[string]bool{
 		"code":                true,
@@ -138,14 +149,13 @@ var (
 		"max_vaccines_per_combo_session":     true,
 	}
 	ruleDSLProcurementPolicyKeys = map[string]bool{
-		"warmup_no_vaccination_days":            true,
-		"kids_normal_schedule_until_weeks":      true,
-		"adult_prior_vaccination_allowed":       true,
-		"assume_mother_vaccinated_when_unknown": true,
-		"first_wave":                            true,
-		"second_wave_after_days":                true,
-		"goat_second_wave":                      true,
-		"sheep_second_wave":                     true,
+		"warmup_no_vaccination_days":       true,
+		"kids_normal_schedule_until_weeks": true,
+		"adult_prior_vaccination_allowed":  true,
+		"first_wave":                       true,
+		"second_wave_after_days":           true,
+		"goat_second_wave":                 true,
+		"sheep_second_wave":                true,
 	}
 	ruleDSLPregnancyPolicyKeys = map[string]bool{
 		"allow_until_pregnancy_month":  true,
@@ -167,6 +177,7 @@ var (
 	}
 	ruleDSLScheduleKeys = map[string]bool{
 		"dose_code":                   true,
+		"source_dose_code":            true,
 		"sequence":                    true,
 		"trigger_type":                true,
 		"offset_days":                 true,
@@ -415,6 +426,16 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 	}
 	if len(env.Schedule) == 0 {
 		return fmt.Errorf("%w: vaccination matrix requires at least one schedule row", ErrNotPublishable)
+	}
+	if isVaccinationMatrixRuleset(env) {
+		if len(env.MatrixRows) == 0 {
+			return fmt.Errorf("%w: vaccination matrix requires matrix_rows metadata", ErrNotPublishable)
+		}
+		for idx, row := range env.Schedule {
+			if _, _, ok := findMatrixRowForDose(env.MatrixRows, row); !ok {
+				return fmt.Errorf("%w: schedule[%d] missing matrix_rows metadata", ErrNotPublishable, idx)
+			}
+		}
 	}
 	if len(env.Eligibility) == 0 || strings.TrimSpace(string(env.Eligibility)) == "" || strings.TrimSpace(string(env.Eligibility)) == "null" {
 		return fmt.Errorf("%w: vaccination matrix eligibility required", ErrNotPublishable)
@@ -680,10 +701,10 @@ func (s *Service) ensureExecutableRuleRows(ctx context.Context, tenantID string,
 			return fmt.Errorf("%w: invalid rule_dsl: %v", ErrNotPublishable, err)
 		}
 	}
-	existing := make(map[string]bool, len(rules))
+	existing := make(map[string]domain.Rule, len(rules))
 	for _, rule := range rules {
 		if doseCode := strings.TrimSpace(rule.DoseCode); doseCode != "" {
-			existing[doseCode] = true
+			existing[doseCode] = rule
 		}
 	}
 	created := 0
@@ -692,13 +713,18 @@ func (s *Service) ensureExecutableRuleRows(ctx context.Context, tenantID string,
 		if err != nil {
 			return err
 		}
-		if existing[in.DoseCode] {
+		if existingRule, ok := existing[in.DoseCode]; ok {
+			if isVaccinationMatrixRuleset(env) {
+				if err := validateExistingMatrixRuleMetadata(existingRule, idx); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		if _, err := s.repo.CreateRule(ctx, in); err != nil {
 			return err
 		}
-		existing[in.DoseCode] = true
+		existing[in.DoseCode] = domain.Rule{DoseCode: in.DoseCode, EligibilityJSON: in.EligibilityJSON}
 		created++
 	}
 	if len(rules)+created == 0 {
@@ -739,6 +765,10 @@ func scheduleRowRule(tenantID string, v domain.Version, env ruleDSLEnvelope, row
 	if rowSOP := strings.TrimSpace(row.SOPVersion); rowSOP != "" {
 		sopVersion = &rowSOP
 	}
+	eligibilityJSON, err := ruleEligibilityJSON(env, row, idx)
+	if err != nil {
+		return domain.NewRule{}, err
+	}
 	return domain.NewRule{
 		TenantID:            tenantID,
 		ProtocolVersionID:   v.ProtocolVersionID,
@@ -751,7 +781,7 @@ func scheduleRowRule(tenantID string, v domain.Version, env ruleDSLEnvelope, row
 		Repeat:              repeat,
 		RepeatUntilAfterAge: strings.TrimSpace(row.RepeatUntil),
 		CatchUp:             catchUp,
-		EligibilityJSON:     ruleEligibilityJSON(env.Eligibility),
+		EligibilityJSON:     eligibilityJSON,
 		SopVersionID:        sopVersion,
 		ProofPolicy:         proof,
 		SortOrder:           int32(idx + 1),
@@ -760,7 +790,103 @@ func scheduleRowRule(tenantID string, v domain.Version, env ruleDSLEnvelope, row
 	}, nil
 }
 
-func ruleEligibilityJSON(raw json.RawMessage) []byte {
+func ruleEligibilityJSON(env ruleDSLEnvelope, row scheduleRow, idx int) ([]byte, error) {
+	if isVaccinationMatrixRuleset(env) {
+		return matrixRuleEligibilityJSON(env, row, idx)
+	}
+	return plainRuleEligibilityJSON(env.Eligibility), nil
+}
+
+func isVaccinationMatrixRuleset(env ruleDSLEnvelope) bool {
+	return strings.EqualFold(strings.TrimSpace(env.RulesetFamily), "vaccination.matrix") ||
+		strings.EqualFold(strings.TrimSpace(env.Vaccine.Code), "vaccination.matrix") ||
+		len(env.MatrixRows) > 0
+}
+
+func matrixRuleEligibilityJSON(env ruleDSLEnvelope, row scheduleRow, idx int) ([]byte, error) {
+	match, matchedCell, ok := findMatrixRowForDose(env.MatrixRows, row)
+	if !ok {
+		return nil, fmt.Errorf("%w: schedule[%d] matrix row metadata required for dose_code %q", ErrNotPublishable, idx, row.DoseCode)
+	}
+	eligibility := rawObjectOnly(match.Eligibility)
+	vaccine := rawObjectOnly(match.Vaccine)
+	if len(eligibility) == 0 || string(eligibility) == "null" || string(eligibility) == "{}" {
+		return nil, fmt.Errorf("%w: schedule[%d] matrix row eligibility required", ErrNotPublishable, idx)
+	}
+	if len(vaccine) == 0 || string(vaccine) == "null" || string(vaccine) == "{}" {
+		return nil, fmt.Errorf("%w: schedule[%d] matrix row vaccine required", ErrNotPublishable, idx)
+	}
+	sourceDose := strings.TrimSpace(matchedCell.SourceDoseCode)
+	if sourceDose == "" {
+		sourceDose = strings.TrimSpace(row.SourceDoseCode)
+	}
+	if sourceDose == "" {
+		sourceDose = strings.TrimSpace(row.DoseCode)
+	}
+	payload := struct {
+		MatrixRowID    string          `json:"matrix_row_id,omitempty"`
+		SourceDoseCode string          `json:"source_dose_code,omitempty"`
+		Eligibility    json.RawMessage `json:"eligibility"`
+		Vaccine        json.RawMessage `json:"vaccine"`
+	}{
+		MatrixRowID:    strings.TrimSpace(match.RowID),
+		SourceDoseCode: sourceDose,
+		Eligibility:    eligibility,
+		Vaccine:        vaccine,
+	}
+	out, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("%w: schedule[%d] matrix metadata marshal failed: %v", ErrNotPublishable, idx, err)
+	}
+	return out, nil
+}
+
+func validateExistingMatrixRuleMetadata(rule domain.Rule, idx int) error {
+	var payload struct {
+		MatrixRowID string          `json:"matrix_row_id"`
+		Eligibility json.RawMessage `json:"eligibility"`
+		Vaccine     json.RawMessage `json:"vaccine"`
+	}
+	if err := json.Unmarshal(rule.EligibilityJSON, &payload); err != nil {
+		return fmt.Errorf("%w: schedule[%d] existing matrix rule %q has invalid eligibility_json: %v", ErrNotPublishable, idx, rule.DoseCode, err)
+	}
+	if strings.TrimSpace(payload.MatrixRowID) == "" {
+		return fmt.Errorf("%w: schedule[%d] existing matrix rule %q missing matrix_row_id", ErrNotPublishable, idx, rule.DoseCode)
+	}
+	if len(rawObjectOnly(payload.Eligibility)) == 0 || string(rawObjectOnly(payload.Eligibility)) == "{}" {
+		return fmt.Errorf("%w: schedule[%d] existing matrix rule %q missing row eligibility", ErrNotPublishable, idx, rule.DoseCode)
+	}
+	if len(rawObjectOnly(payload.Vaccine)) == 0 || string(rawObjectOnly(payload.Vaccine)) == "{}" {
+		return fmt.Errorf("%w: schedule[%d] existing matrix rule %q missing row vaccine", ErrNotPublishable, idx, rule.DoseCode)
+	}
+	return nil
+}
+
+func findMatrixRowForDose(rows []matrixRow, row scheduleRow) (matrixRow, scheduleRow, bool) {
+	doseCode := strings.TrimSpace(row.DoseCode)
+	sourceDose := strings.TrimSpace(row.SourceDoseCode)
+	for _, matrixRow := range rows {
+		for _, cell := range matrixRow.Schedule {
+			if strings.TrimSpace(cell.DoseCode) == doseCode {
+				return matrixRow, cell, true
+			}
+			if sourceDose != "" && strings.TrimSpace(cell.SourceDoseCode) == sourceDose {
+				return matrixRow, cell, true
+			}
+		}
+	}
+	return matrixRow{}, scheduleRow{}, false
+}
+
+func rawObjectOnly(raw json.RawMessage) json.RawMessage {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return []byte(`{}`)
+	}
+	return []byte(trimmed)
+}
+
+func plainRuleEligibilityJSON(raw json.RawMessage) []byte {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
 		return []byte(`{}`)

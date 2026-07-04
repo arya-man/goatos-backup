@@ -53,7 +53,14 @@ func batchSession(ruleID, vaccineCode string) string {
 }
 
 func sweepWindowGroupKey(r domain.UnbatchedDue) string {
-	return r.ScopeType + "|" + r.ScopeID + "|" + r.RuleID + "|" + r.TargetSpecies + "|" + timeKey(r.WindowStart) + "|" + timeKey(r.WindowEnd)
+	return r.ScopeType + "|" + r.ScopeID + "|" + r.RuleID + "|" + r.TargetSpecies + "|" + dueDateKey(r.DueAt) + "|" + timeKey(r.WindowStart) + "|" + timeKey(r.WindowEnd)
+}
+
+func dueDateKey(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return utcDate(t).Format("2006-01-02")
 }
 
 func pickBestDriveDate(now time.Time, rows []driveCandidate, priority int32) *time.Time {

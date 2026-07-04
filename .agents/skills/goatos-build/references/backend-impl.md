@@ -84,7 +84,7 @@ nudge/snooze durable and idempotent outside the projection.
 - Keep one SOP/proof/verification engine. Procurement source-health, dispatch,
   transit, and arrival proof extend existing SOP/proof modules and policies; do
   not create a procurement-only SOP runtime or media path.
-- Treat `procurement_phc_handoffs.event_status` as tracking only. The accepted
+- Treat `procurement_pc_handoffs.event_status` as tracking only. The accepted
   intake handoff is proven only when tests show the handler/consumer generated
   vaccination obligations and CT/AC/PA/WF/Vaccination read models reflect them.
 - Large dirty SOP/contract changes must be audited as extensions of current

@@ -38,6 +38,49 @@ func (q *Queries) CountObligationsByScope(ctx context.Context, arg CountObligati
 	return total, err
 }
 
+const findNearestPlannedBatchDate = `-- name: FindNearestPlannedBatchDate :one
+SELECT b.planned_date
+FROM obligation_batches b
+WHERE b.tenant_id = $1
+  AND b.protocol_version_id = $2
+  AND b.session = $3
+  AND b.status = 'planned'
+  AND b.planned_date >= $4::date
+  AND b.planned_date <= $5::date
+  AND (
+    ($6::uuid IS NOT NULL AND b.scope_type = 'shed' AND b.scope_id = $6)
+    OR ($7::uuid IS NOT NULL AND b.scope_type = 'park' AND b.scope_id = $7)
+  )
+ORDER BY b.planned_date ASC
+LIMIT 1
+`
+
+type FindNearestPlannedBatchDateParams struct {
+	TenantID          pgtype.UUID
+	ProtocolVersionID pgtype.UUID
+	Session           pgtype.Text
+	FromDate          pgtype.Date
+	ToDate            pgtype.Date
+	ShedID            pgtype.UUID
+	ParkID            pgtype.UUID
+}
+
+// Sick-recovery align: earliest planned drive for this rule in shed or park within the align window.
+func (q *Queries) FindNearestPlannedBatchDate(ctx context.Context, arg FindNearestPlannedBatchDateParams) (pgtype.Date, error) {
+	row := q.db.QueryRow(ctx, findNearestPlannedBatchDate,
+		arg.TenantID,
+		arg.ProtocolVersionID,
+		arg.Session,
+		arg.FromDate,
+		arg.ToDate,
+		arg.ShedID,
+		arg.ParkID,
+	)
+	var planned_date pgtype.Date
+	err := row.Scan(&planned_date)
+	return planned_date, err
+}
+
 const getObligationBoosterContext = `-- name: GetObligationBoosterContext :one
 SELECT protocol_version_id::text AS protocol_version_id,
        scope_type, COALESCE(scope_id::text, '')::text AS scope_id, "sequence"
@@ -326,46 +369,4 @@ func (q *Queries) ListUnbatchedDueForVersion(ctx context.Context, arg ListUnbatc
 		return nil, err
 	}
 	return items, nil
-}
-
-const findNearestPlannedBatchDate = `-- name: FindNearestPlannedBatchDate :one
-SELECT b.planned_date
-FROM obligation_batches b
-WHERE b.tenant_id = $1
-  AND b.protocol_version_id = $2
-  AND b.session = $3
-  AND b.status = 'planned'
-  AND b.planned_date >= $4::date
-  AND b.planned_date <= $5::date
-  AND (
-    ($6::uuid IS NOT NULL AND b.scope_type = 'shed' AND b.scope_id = $6)
-    OR ($7::uuid IS NOT NULL AND b.scope_type = 'park' AND b.scope_id = $7)
-  )
-ORDER BY b.planned_date ASC
-LIMIT 1
-`
-
-type FindNearestPlannedBatchDateParams struct {
-	TenantID          pgtype.UUID
-	ProtocolVersionID pgtype.UUID
-	Session           pgtype.Text
-	FromDate          pgtype.Date
-	ToDate            pgtype.Date
-	ShedID            pgtype.UUID
-	ParkID            pgtype.UUID
-}
-
-func (q *Queries) FindNearestPlannedBatchDate(ctx context.Context, arg FindNearestPlannedBatchDateParams) (pgtype.Date, error) {
-	row := q.db.QueryRow(ctx, findNearestPlannedBatchDate,
-		arg.TenantID,
-		arg.ProtocolVersionID,
-		arg.Session,
-		arg.FromDate,
-		arg.ToDate,
-		arg.ShedID,
-		arg.ParkID,
-	)
-	var planned_date pgtype.Date
-	err := row.Scan(&planned_date)
-	return planned_date, err
 }

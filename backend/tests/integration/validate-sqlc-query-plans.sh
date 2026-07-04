@@ -70,7 +70,7 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
 SELECT goat_id
 FROM goats
 WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-  AND identity_state <> 'merged'
+  AND merged_into_goat_id IS NULL
 ORDER BY display_id ASC
 LIMIT 50;" '(Sort|Incremental Sort)'
 
@@ -78,7 +78,7 @@ LIMIT 50;" '(Sort|Incremental Sort)'
 SELECT goat_id
 FROM goat_identifiers
 WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-  AND identifier_type = 'old_tag'
+  AND identifier_type = 'animal_identifier_1'
   AND normalized_value = '1900'
   AND status = 'active'
 LIMIT 10;"
@@ -411,7 +411,7 @@ WITH raw AS (
     ON oi.target_type = 'goat'
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
-   AND g.identity_state <> 'merged'
+   AND g.merged_into_goat_id IS NULL
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
@@ -604,7 +604,7 @@ WITH raw AS (
     ON oi.target_type = 'goat'
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
-   AND g.identity_state <> 'merged'
+   AND g.merged_into_goat_id IS NULL
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
@@ -859,7 +859,7 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND loaded_at IS NOT NULL
   AND arrived_at IS NOT NULL
   AND health_state = 'passed'
-  AND identity_review_state = 'clean'
+  AND source_entry_state = 'accepted'
   AND ownership_state IN ('mesha_owned', 'settled')
   AND EXISTS (
     SELECT 1

@@ -87,7 +87,7 @@ export function QuestionCard(props: QuestionCardProps) {
       onDragOver={(e) => e.preventDefault()}
     >
       <div className="qhead">
-        <span className="qgrip" title={copy(pc, "builder.action.drag")} aria-label={copy(pc, "builder.action.drag")}>
+        <span className="qgrip" title={copy(pc, "builder.action.drag")} aria-hidden="true">
           <GripVertical className="ic" />
         </span>
         <span className="qnum">{index + 1}</span>

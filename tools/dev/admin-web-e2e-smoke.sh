@@ -163,13 +163,15 @@ seed_open_vaccination_goat() {
   local vaccine_item="00000000-0000-4000-8000-00000000b001"
   local vaccine_lot="00000000-0000-4000-8000-00000000b002"
   local rule="00000000-0000-4000-8000-00000000b052"
+  local proof_park="00000000-0000-4000-8000-000000003001"
+  local proof_shed="00000000-0000-4000-8000-000000003101"
   local entry_date
-  local dob_day21
+  local dob_day28
   entry_date="$(date -u +%F)"
-  if dob_day21="$(date -u -v-21d +%F 2>/dev/null)"; then
+  if dob_day28="$(date -u -v-28d +%F 2>/dev/null)"; then
     :
   else
-    dob_day21="$(date -u -d "$entry_date - 21 days" +%F)"
+    dob_day28="$(date -u -d "$entry_date - 28 days" +%F)"
   fi
 
   local create
@@ -180,7 +182,7 @@ seed_open_vaccination_goat() {
       -H "Content-Type: application/json" \
       -X POST "$GOATOS_API_BASE_URL/admin/goats" \
       -d @- <<JSON
-{"rfid":"SMOKE-OPEN-$stamp","park_code":"CBE","shed_code":"CBE_SHED_MANDELA_1_PART_1","sex":"female","dob":"$dob_day21","dob_estimated":true,"origin_type":"procured","entry_date":"$entry_date","management_stage":"K1","health_status":"healthy","evidence_refs":[{"evidence_type":"source_record","evidence_id":"smoke-open-$stamp"}]}
+{"animal_identifier_1":"SMOKE-OPEN-$stamp-A1","animal_identifier_2":"SMOKE-OPEN-$stamp-A2","species":"goat","park_id":"$proof_park","shed_id":"$proof_shed","sex":"female","dob":"$dob_day28","dob_estimated":true,"origin_type":"procured","entry_date":"$entry_date","management_stage":"K2","health_status":"healthy","evidence_refs":[{"evidence_type":"source_record","evidence_id":"smoke-open-$stamp"}]}
 JSON
   )"
   local goat_id
@@ -260,7 +262,7 @@ JSON
       -H "Content-Type: application/json" \
       -X POST "$GOATOS_API_BASE_URL/app/tasks/$task_id/submissions" \
       -d @- <<JSON
-{"sop_version_id":"$sop_version","idempotency_key":"smoke-submit-$stamp","answers":{"vaccine_lot_id":"$vaccine_lot","cold_chain_verified":true,"shed_video":"$proof_shed","vial_lot_video":"$proof_vial","administration_video":"$proof_admin","goat_ids":["$goat_id"],"dose_ml_given":0.5,"route_site":"subcutaneous","administered_at":"$administered_at","adverse_reaction":false},"proof_refs":[{"proof_id":"$proof_shed","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$proof_vial","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$proof_admin","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
+{"sop_version_id":"$sop_version","idempotency_key":"smoke-submit-$stamp","answers":{"vaccine_lot_id":"$vaccine_lot","cold_chain_verified":true,"shed_video":"$proof_shed","vial_lot_video":"$proof_vial","administration_video":"$proof_admin","goat_ids":["$goat_id"],"dose_ml_given":2,"route_site":"subcutaneous","administered_at":"$administered_at","adverse_reaction":false},"proof_refs":[{"proof_id":"$proof_shed","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$proof_vial","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$proof_admin","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
 JSON
   )"
   if [ -z "$(echo "$submission" | jq_py 'd.get("submission",{}).get("submission_id","")')" ]; then
@@ -355,7 +357,7 @@ JSON
       -H "Content-Type: application/json" \
       -X POST "$GOATOS_API_BASE_URL/procurement/source-entry/loads/$load_id/goats" \
       -d @- <<JSON
-{"source_tag":"SMOKE-PROC-$stamp","source_rfid":"SMOKE-PROC-RFID-$stamp","temporary_id":"SMOKE-PROC-TEMP-$stamp","selection_state":"candidate","selection_reason":"admin-web smoke supplier warmup seed","purpose":"breeding","current_state":"source_warmup","identity_review_state":"clean","ownership_state":"pending","health_state":"pending","warmup_days":45,"holding_location_id":null,"proof_refs":[],"metadata":{"seed":"admin-web-e2e-smoke","run_id":"$run_id"}}
+{"animal_identifier_1":"SMOKE-PROC-$stamp-A1","animal_identifier_2":"SMOKE-PROC-$stamp-A2","species":"goat","sex":"female","selection_state":"candidate","selection_reason":"admin-web smoke supplier warmup seed","purpose":"breeding","current_state":"source_warmup","source_entry_state":"pending","ownership_state":"pending","health_state":"pending","warmup_days":45,"holding_location_id":null,"proof_refs":[],"metadata":{"seed":"admin-web-e2e-smoke","run_id":"$run_id"}}
 JSON
   )"
   local goat_id

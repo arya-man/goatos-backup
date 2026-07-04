@@ -186,30 +186,17 @@ export const TONE_SWATCH: Record<Tone, string> = {
   mut: "var(--line2)",
 };
 
-export function warmupExpectation(purpose: string | null | undefined): { label: string; maxDays: number; note: string } {
-  if (purpose === "fattening" || purpose === "non_breeding") {
-    return {
-      label: "0-14d",
-      maxDays: 14,
-      note: "fattening / non-breeding warmup can be same-day to about two weeks",
-    };
-  }
-  if (purpose === "breeding") {
-    return {
-      label: "45-70d",
-      maxDays: 70,
-      note: "breeding stock warmup is expected to be 45-70 days",
-    };
-  }
+export function warmupExpectation(_purpose: string | null | undefined): { label: string; minDays: number; maxDays: number; note: string } {
   return {
-    label: "set purpose",
-    maxDays: 70,
-    note: "set purpose to classify the warmup window; fallback is the breeding-safe 70 day ceiling",
+    label: "28-35d",
+    minDays: 28,
+    maxDays: 35,
+    note: "procurement holding animals stay 4-5 weeks; only supervised holding-park vaccinations in this window can be trusted",
   };
 }
 
-// Source warmup classification. Long breeding warmup is valid and must not look anomalous; short
-// fattening/non-breeding warmup is also valid. Beyond the purpose window is a watch, not a hard error.
+// Source warmup classification. The governed procurement holding window is 4-5 weeks for every
+// species/purpose; outside that window is reviewable procurement history and cannot suppress PC work.
 export function warmupMeta(
   days: number | null | undefined,
   purpose?: string | null,
@@ -221,12 +208,12 @@ export function warmupMeta(
     return {
       label,
       tone: "warn",
-      note: `outside ${expected.label} purpose window — still valid, review before dispatch`,
+      note: `outside ${expected.label} procurement holding window — review before trusting vaccination evidence`,
       expectation: expected.label,
     };
   }
-  if (purpose === "breeding" && days < 45) {
-    return { label, tone: "info", note: expected.note, expectation: expected.label };
+  if (days < expected.minDays) {
+    return { label, tone: "info", note: `before ${expected.label} trust window — keep holding or start PC after arrival`, expectation: expected.label };
   }
   return { label, tone: "ok", note: expected.note, expectation: expected.label };
 }

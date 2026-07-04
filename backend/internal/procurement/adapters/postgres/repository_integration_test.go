@@ -33,9 +33,9 @@ func TestProcurementSourceEntryPostgresPaths(t *testing.T) {
 
 	repo := NewRepository(pool, 5*time.Second)
 
-	t.Run("45-70 day source warmup is valid", func(t *testing.T) {
+	t.Run("28-35 day procurement holding is valid", func(t *testing.T) {
 		start := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-		for _, days := range []int{45, 70} {
+		for _, days := range []int{28, 35} {
 			load := createProcurementLoad(t, ctx, repo, "warmup-load-"+itoa(days), 1)
 			end := start.Add(time.Duration(days) * 24 * time.Hour)
 			goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
@@ -60,7 +60,7 @@ func TestProcurementSourceEntryPostgresPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("purpose-specific warmup classifies non-breeding window", func(t *testing.T) {
+	t.Run("short procurement holding is outside the governed window", func(t *testing.T) {
 		start := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 		days := 15
 		end := start.Add(time.Duration(days) * 24 * time.Hour)
@@ -97,6 +97,9 @@ WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, 
 			LoadID:            load.LoadID,
 			AnimalIdentifier1: strPtr("HF-EVIDENCE"),
 			Purpose:           domain.PurposeBreeding,
+			WarmupStartedAt:   timePtrLocal(time.Date(2026, 4, 1, 8, 0, 0, 0, time.UTC)),
+			WarmupEndedAt:     timePtrLocal(time.Date(2026, 5, 1, 8, 0, 0, 0, time.UTC)),
+			HoldingLocationID: strPtr(testSourceLocation),
 			IdempotencyKey:    "hf-evidence-goat",
 		})
 		versionID, ruleID := seedProcurementHFProtocol(t, ctx, pool)
@@ -108,7 +111,7 @@ WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, 
 			ProtocolVersionID: versionID,
 			RuleID:            ruleID,
 			DoseCode:          "primary",
-			AdministeredAt:    time.Date(2026, 5, 1, 8, 0, 0, 0, time.UTC),
+			AdministeredAt:    time.Date(2026, 4, 20, 8, 0, 0, 0, time.UTC),
 			VaccineName:       "HF Enterotox",
 			LotNumber:         "HF-LOT-1",
 			ProofRefID:        &proofID,
@@ -204,6 +207,44 @@ WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, 
 			IdempotencyKey:     "hf-evidence-review-no-proof",
 		}); !errors.Is(err, ports.ErrProofRequired) {
 			t.Fatalf("trust without proof err = %v, want ErrProofRequired", err)
+		}
+		outsideLoad := createProcurementLoad(t, ctx, repo, "hf-evidence-outside-load", 1)
+		outsideGoat := addProcurementGoat(t, ctx, repo, outsideLoad.LoadID, ports.AddGoatToLoad{
+			TenantID:          testTenant,
+			LoadID:            outsideLoad.LoadID,
+			AnimalIdentifier1: strPtr("HF-OUTSIDE"),
+			Purpose:           domain.PurposeBreeding,
+			IdempotencyKey:    "hf-evidence-outside-goat",
+		})
+		outsideProofID := insertProof(t, ctx, pool, "71000000-0000-4000-8000-000000000501", "hf-evidence-outside-proof")
+		outsideEvidence, err := repo.RecordHFVaccinationEvidence(ctx, ports.HFVaccinationEvidence{
+			TenantID:          testTenant,
+			LoadID:            outsideLoad.LoadID,
+			GoatID:            outsideGoat.GoatID,
+			ProtocolVersionID: versionID,
+			RuleID:            ruleID,
+			DoseCode:          "primary",
+			AdministeredAt:    time.Date(2026, 5, 4, 8, 0, 0, 0, time.UTC),
+			VaccineName:       "Outside claim",
+			LotNumber:         "OUTSIDE-1",
+			ProofRefID:        &outsideProofID,
+			SourceRef:         "supplier:outside-claim",
+			IdempotencyKey:    "hf-evidence-import-outside",
+		})
+		if err != nil {
+			t.Fatalf("RecordHFVaccinationEvidence outside: %v", err)
+		}
+		if _, err := repo.ReviewHFVaccinationEvidence(ctx, ports.ReviewHFVaccinationEvidence{
+			TenantID:           testTenant,
+			EvidenceID:         outsideEvidence.EvidenceID,
+			ExpectedRowVersion: outsideEvidence.RowVersion,
+			ReviewStatus:       domain.HFVaccinationReviewTrusted,
+			ReviewReason:       "outside proof is still not supervised holding context",
+			ReviewedAt:         time.Date(2026, 5, 4, 9, 0, 0, 0, time.UTC),
+			ReviewedAtSet:      true,
+			IdempotencyKey:     "hf-evidence-review-outside",
+		}); !errors.Is(err, ports.ErrInvalidTrustContext) {
+			t.Fatalf("trust outside holding context err = %v, want ErrInvalidTrustContext", err)
 		}
 		detail, err := repo.GetLoadDetail(ctx, testTenant, load.LoadID)
 		if err != nil {
@@ -320,7 +361,7 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 		if !errors.Is(err, ports.ErrInvalidTransition) {
 			t.Fatalf("AcceptIntake pending row error = %v, want ErrInvalidTransition", err)
 		}
-		assertNoPHCHandoff(t, ctx, pool, goat.GoatID)
+		assertNoPCHandoff(t, ctx, pool, goat.GoatID)
 	})
 
 	t.Run("arrival extra unknown cannot accepted intake", func(t *testing.T) {
@@ -476,7 +517,7 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 		if err != nil {
 			t.Fatalf("pre-dispatch reject: %v", err)
 		}
-		assertNoPHCHandoff(t, ctx, pool, goat.GoatID)
+		assertNoPCHandoff(t, ctx, pool, goat.GoatID)
 		protocolVersionID, ruleID := seedVaccinationProtocol(t, ctx, pool, "reject-before-truck")
 		err = insertActiveVaccinationObligation(ctx, pool, protocolVersionID, ruleID, goat.GoatID, "reject-before-truck-obligation")
 		if err == nil || !strings.Contains(err.Error(), "vaccination_obligation_blocked_for_procurement_excluded_goat") {
@@ -484,7 +525,7 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 		}
 	})
 
-	t.Run("accepted source-entry goat creates PHC handoff and workflow read model", func(t *testing.T) {
+	t.Run("accepted source-entry goat creates PC handoff and workflow read model", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "accepted-source-entry-load", 1)
 		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
 			TenantID:          testTenant,
@@ -1276,7 +1317,7 @@ SET status = 'draft',
 	}
 	_, err = pool.Exec(ctx, `
 INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, repeat, catch_up, eligibility_json, proof_policy)
-VALUES ($1, $2, $3, 'primary', 1, 'post_arrival', 'none', 'phc_approval', '{}'::jsonb, '{}'::jsonb)
+VALUES ($1, $2, $3, 'primary', 1, 'post_arrival', 'none', 'pc_approval', '{}'::jsonb, '{}'::jsonb)
 ON CONFLICT (tenant_id, rule_id) DO NOTHING`, ruleID, testTenant, versionID)
 	if err != nil {
 		t.Fatalf("seed protocol rule: %v", err)
@@ -1317,7 +1358,7 @@ SET status = 'draft',
 	}
 	_, err = pool.Exec(ctx, `
 INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, repeat, catch_up, eligibility_json, proof_policy)
-VALUES ($1, $2, $3, 'primary', 1, 'post_arrival', 'none', 'phc_approval', '{}'::jsonb, '{}'::jsonb)
+VALUES ($1, $2, $3, 'primary', 1, 'post_arrival', 'none', 'pc_approval', '{}'::jsonb, '{}'::jsonb)
 ON CONFLICT (tenant_id, rule_id) DO NOTHING`, ruleID, testTenant, versionID)
 	if err != nil {
 		t.Fatalf("seed HF protocol rule: %v", err)
@@ -1345,10 +1386,10 @@ INSERT INTO obligation_instances (
 	return err
 }
 
-func assertNoPHCHandoff(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID string) {
+func assertNoPCHandoff(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID string) {
 	t.Helper()
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM procurement_phc_handoffs WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goatID); got != 0 {
-		t.Fatalf("PHC handoffs for goat %s = %d, want 0", goatID, got)
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM procurement_pc_handoffs WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goatID); got != 0 {
+		t.Fatalf("PC handoffs for goat %s = %d, want 0", goatID, got)
 	}
 }
 
@@ -1375,6 +1416,10 @@ func isProcurementExceptionRow(row domain.WorkRow) bool {
 }
 
 func strPtr(v string) *string {
+	return &v
+}
+
+func timePtrLocal(v time.Time) *time.Time {
 	return &v
 }
 

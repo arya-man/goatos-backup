@@ -16,15 +16,15 @@ V1 vaccination is demo-ready for the local Preventive Care (PC) vaccination slic
 
 Fresh evidence:
 
-- Full E2E smoke: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-- SOP/Config authoring smoke: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-- Click/interlink matrix: `NUANCE-RULES-20260701-V1-MATRIX-R2`
+- Full E2E smoke: `VACCINATION-RULES-20260703-V1-MATRIX`
+- SOP/Config authoring smoke: `VACCINATION-RULES-20260703-V1-MATRIX`
+- Click/interlink matrix: `VACCINATION-RULES-20260703-V1-MATRIX`
 - Config page UX follow-up full E2E smoke: `CONFIG-PAGE-V2-20260701`
 - Config page authoring smoke: `AUTHORING-2026-07-01T18-35-03-998Z`
 - Config page click/interlink matrix: `CONFIG-PAGE-V2-20260701-R2`
-- Source nuance rules: `docs/preventive-care-vaccination/source-nuances-rules.md`
+- Source vaccination rules: `docs/preventive-care-vaccination/vaccination-rules.md`
 - Goats and Parks tracked source extract: `context/source-findings/goats-and-parks-source-extract.md`
-- Nuance kernel/config package proof: `go test ./internal/adminui/app ./internal/protocol/app ./internal/vaccination/app -count=1`
+- Vaccination Rules kernel/config package proof: `go test ./internal/adminui/app ./internal/protocol/app ./internal/vaccination/app -count=1`
 - Older-animal anti-flood tests: `go test ./internal/vaccination/app -run 'TestOlderGoat' -count=1`
 - Calendar drive-collapse test: `go test ./internal/calendar/adapters/postgres -run 'TestCalendarVaccinationProjectionCollapsesBatchedGoatDosesToDrive' -count=1`
 - Chain proof: `vaccination-chain-proof stamp=1782915162`
@@ -36,11 +36,11 @@ Fresh evidence:
 What is closed for the V1 demo:
 
 1. SOP builder creates, validates, dry-runs, publishes, reopens, edits, and republishes a vaccination SOP with all supported question types.
-2. Config creates the Nuance Rules vaccination matrix, previews impact, saves draft, publishes ET+TT, PPR, Goat Pox, FMD, and HS as separate protocol versions, and reopens the published drawer.
-3. Config captures the nuance policy: vaccine type/pathogen class, course type, schedule, dose, vial, revaccination, breed/stage/sex rows, live/killed gap metadata, same-day compatibility metadata, procurement warm-up, adult prior-vaccination policy, pregnancy skip/post-delivery policy, and clinical defer states.
-4. The V1 kernel enforces V1-local nuance gates proven in tests: clinical holds, pregnancy/reproductive exclusion when generation or backfill reads current animal state, procurement warm-up due offset, older-animal catch-up anti-flood, trusted-history next-dose advancement, Nuance schedule due dates, live-live spacing, and drive-first Calendar aggregation after batching.
+2. Config creates the Vaccination Rules matrix, previews impact, saves draft, publishes one scoped `vaccination.matrix` version containing the vaccine-animal rows, and reopens the published drawer.
+3. Config captures the vaccination policy: vaccine type/pathogen class, course type, schedule, dose, vial, revaccination, breed/stage/sex rows, live/killed gap metadata, same-day compatibility metadata, procurement warm-up, adult prior-vaccination policy, pregnancy skip/post-delivery policy, and clinical defer states.
+4. The V1 kernel enforces V1-local vaccination rule gates proven in tests: clinical holds, pregnancy/reproductive exclusion when generation or backfill reads current animal state, procurement warm-up due offset, older-animal catch-up anti-flood, trusted-history next-dose advancement, Vaccination Rules schedule due dates, live-live spacing, and drive-first Calendar aggregation after batching.
 5. Animal creation/import/intake data paths generate vaccination obligations through the kernel chain.
-6. Sweeper groups due work into shed drive/SOP task work.
+6. Sweeper/planner groups due work into park-level drive/SOP task work with per-shed/tag breakdowns and species-safe execution groups.
 7. Proof upload, accepted verification, completion, booster generation, and replay idempotency are proven.
 8. Rejected proof -> rework -> corrected resubmission -> accepted verification is proven in the data plane.
 9. Animal Passport shows open due rows, rejected and accepted history, and links back to Workflow / Action Center using the real workflow row key.
@@ -76,7 +76,8 @@ Use this path:
 3. `Counts -> Herd Register` or the created animal path
    - Explain that canonical herd animals trigger vaccination generation.
 4. `Vaccination`
-   - Show matrix/status, generated work, cohort/detail drawers, and shed execution.
+   - Show matrix/status, generated work, cohort/detail drawers, and park drive
+     execution with shed/tag breakdowns.
 5. `Action Center`
    - Show actionable proof/verification work.
 6. `Protocol Adherence`
@@ -92,7 +93,7 @@ Use this path:
 
 Full smoke:
 
-- `.codex-goatos-render/e2e-smoke/NUANCE-RULES-20260701-V1-MATRIX-R2`
+- `.codex-goatos-render/e2e-smoke/VACCINATION-RULES-20260703-V1-MATRIX`
 - `.codex-goatos-render/e2e-smoke/CONFIG-PAGE-V2-20260701`
 - `vaccination-chain-proof.log`
 - `procurement-vaccination-e2e-matrix.log`
@@ -103,12 +104,12 @@ Full smoke:
 
 Authoring:
 
-- `.codex-goatos-render/vaccination-authoring/NUANCE-RULES-20260701-V1-MATRIX-R2/authoring.md`
+- `.codex-goatos-render/vaccination-authoring/VACCINATION-RULES-20260703-V1-MATRIX/authoring.md`
 - `.codex-goatos-render/vaccination-authoring/AUTHORING-2026-07-01T18-35-03-998Z/authoring.md`
 
 Click matrix:
 
-- `.codex-goatos-render/vaccination-click-matrix/NUANCE-RULES-20260701-V1-MATRIX-R2/matrix.md`
+- `.codex-goatos-render/vaccination-click-matrix/VACCINATION-RULES-20260703-V1-MATRIX/matrix.md`
 - `.codex-goatos-render/vaccination-click-matrix/CONFIG-PAGE-V2-20260701-R2/matrix.md`
 
 Visual:
@@ -127,7 +128,7 @@ Trusted-history existing-vaccination proof IDs from `vaccination-trusted-history
 - Next 7-week obligation: `6b13edf0-feca-4513-a5af-7605110b716a`
 - Shed-drive batch: `3f17e9b6-1809-4693-87e8-4edae0306050`
 - SOP task: `94277d65-1116-4d78-b4e9-8d816c264b2b`
-- Nuance ET+TT protocol version: `ce809b51-4262-47cb-bc88-370adff3aea0`
+- Vaccination Rules ET+TT protocol version: `ce809b51-4262-47cb-bc88-370adff3aea0`
 - Surface proof: Calendar `shed_drive_batch=HIT`, Calendar per-animal old 4-week `MISS`; Action Center next obligation `HIT`, old 4-week `MISS`; Workflow task `HIT`; Passport history and next obligation `HIT`; Control Tower and Protocol Adherence summaries `HIT`.
 
 Fresh chain IDs from `vaccination-chain-proof stamp=1782915162`:
@@ -160,15 +161,15 @@ bash tools/dev/run-local-stack-supervised.sh
 ```
 
 ```bash
-GOATOS_E2E_RUN_ID=NUANCE-RULES-20260701-V1-MATRIX-R2 bash tools/dev/admin-web-e2e-smoke.sh
+GOATOS_E2E_RUN_ID=VACCINATION-RULES-20260703-V1-MATRIX bash tools/dev/admin-web-e2e-smoke.sh
 ```
 
 ```bash
-GOATOS_AUTHORING_RUN_ID=NUANCE-RULES-20260701-V1-MATRIX-R2 npm --prefix apps/admin-web run smoke:vaccination-authoring:live
+GOATOS_AUTHORING_RUN_ID=VACCINATION-RULES-20260703-V1-MATRIX npm --prefix apps/admin-web run smoke:vaccination-authoring:live
 ```
 
 ```bash
-GOATOS_CLICK_MATRIX_RUN_ID=NUANCE-RULES-20260701-V1-MATRIX-R2 npm --prefix apps/admin-web run smoke:vaccination-click-matrix:live
+GOATOS_CLICK_MATRIX_RUN_ID=VACCINATION-RULES-20260703-V1-MATRIX npm --prefix apps/admin-web run smoke:vaccination-click-matrix:live
 ```
 
 ```bash
@@ -193,12 +194,12 @@ npm --prefix apps/admin-web run check:mock-fidelity
 
 Say:
 
-> V1 is demo-ready for the Preventive Care (PC) vaccination workflow. SOP policy and multi-row vaccination config capture the nuance rules for species, breed, stage, sex, vaccine class, course type, dose, vial size, revaccination, schedule, live/killed spacing, clinical defer, procurement warm-up, and pregnancy policy; the kernel generates safe due work, the sweeper groups it into shed execution, the operator submits proof, verification accepts or rejects it, completion updates the Animal Passport, and replay does not duplicate work.
+> V1 is demo-ready for the Preventive Care (PC) vaccination workflow. SOP policy and the scoped vaccination matrix capture the vaccination rules for species, breed, stage, sex, vaccine class, course type, dose, vial size, revaccination, schedule, live/killed spacing, clinical defer, procurement warm-up, and pregnancy policy; the kernel generates safe due work, the planner groups it into park-level execution with per-shed/tag breakdowns, the operator submits proof, verification accepts or rejects it, completion updates the Animal Passport, and replay does not duplicate work.
 
 Also say:
 
-> Calendar is V1-safe for the demo: after the sweeper batches animal due rows into a shed drive, Calendar shows the drive item, not 100 duplicate animal-dose rows. Animal-level due status stays in Passport, Protocol Adherence, and Vaccination detail.
+> Calendar is V1-safe for the demo: after the sweeper batches animal due rows into a park drive group, Calendar shows the drive item, not 100 duplicate animal-dose rows. Animal-level due status stays in Passport, Protocol Adherence, and Vaccination detail.
 
 Also say:
 
-> This handover is the V1 Preventive Care (PC) vaccination demo contract. V1 captures the Nuance Rules matrix and proves the local rule gates, including compatibility spacing. Route/resource optimization and million-animal load/permutation work are separate production programs, not hidden claims inside this demo.
+> This handover is the V1 Preventive Care (PC) vaccination demo contract. V1 captures the Vaccination Rules matrix and proves the local rule gates, including compatibility spacing. Route/resource optimization and million-animal load/permutation work are separate production programs, not hidden claims inside this demo.

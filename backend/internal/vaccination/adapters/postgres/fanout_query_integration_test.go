@@ -48,7 +48,7 @@ func TestListRecordedCompletionsByTask(t *testing.T) {
 	}
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
 		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
@@ -148,7 +148,7 @@ func TestRecordCompletionsFromVaccinationSessionTask(t *testing.T) {
 	withdrawalDays := int32(5)
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
 		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`), WithdrawalDays: &withdrawalDays,
 	})
 	if err != nil {
@@ -258,7 +258,7 @@ func TestRecordCompletionsFromSubmissionSkipsTerminalObligation(t *testing.T) {
 	}
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
 		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
@@ -356,7 +356,7 @@ func TestRecordCompletionsFromSubmissionFailsPartialMaterialization(t *testing.T
 	}
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
-		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
 		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {

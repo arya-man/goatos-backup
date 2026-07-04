@@ -23,7 +23,7 @@ import {
   paginateRows,
   VaccinationTablePager,
   type VaccinationPageSize,
-} from "@/features/phc-vaccination";
+} from "@/features/preventive-care-vaccination";
 import { rejectCompletionAction, verifyCompletionAction } from "./actions";
 import { ActionCenterFiltersButton } from "./action-center-filters";
 import { WorkBoard, actionWorkTitle } from "./work-board";
@@ -75,6 +75,25 @@ function shortId(id: string): string {
 
 function hasReviewHandle(taskId?: string, rowVersion?: number): boolean {
   return Boolean(taskId) && Number(rowVersion ?? 0) > 0;
+}
+
+function backendPage(
+  sp: RouteSearchParams,
+  prefix: string,
+  pageSizeOptions: readonly number[],
+  fallbackPageSize: VaccinationPageSize,
+): { page: number; pageSize: VaccinationPageSize; offset: number } {
+  const requestedSize = Number(one(sp, `${prefix}_limit`));
+  const pageSize = pageSizeOptions.includes(requestedSize) ? requestedSize : fallbackPageSize;
+  const requestedPage = Number(one(sp, `${prefix}_page`));
+  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  return { page, pageSize, offset: (page - 1) * pageSize };
+}
+
+function pageResult<T>(items: T[], total: number, page: number, pageSize: VaccinationPageSize) {
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = total === 0 ? 0 : Math.min(total, (page - 1) * pageSize + items.length);
+  return { items, page, pageSize, total, start, end };
 }
 
 // ActionForm posts a per-row server action (Verify / Reject / Rework) against a real completion id.
@@ -129,6 +148,9 @@ export async function VaccinationActionCenterPage({
   const scope = parseScope(sp);
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
+  const boardPageSizeOptions = tablePageSizes(pageContract, "work-board");
+  const queuePageSizeOptions = tablePageSizes(pageContract, "verification-queue");
+  const requestedBoardPage = backendPage(sp, "ac", boardPageSizeOptions, 10);
 
   // Board source = the real process-integrity Action Center contract (server-computed work state,
   // severity, owner, proof/verify state, next action). Verification queue = actionable completions.
@@ -139,7 +161,8 @@ export async function VaccinationActionCenterPage({
       asOf,
       workState: stateFilter === "all" ? undefined : stateFilter,
       severity: severityFilter === "all" ? undefined : severityFilter,
-      limit: 200,
+      limit: requestedBoardPage.pageSize,
+      offset: requestedBoardPage.offset,
     }),
     getVaccinationVerificationQueue({ parkId, limit: 200 }),
   ]);
@@ -149,9 +172,7 @@ export async function VaccinationActionCenterPage({
   const verificationHeaders = tableLabels(pageContract, "verification-queue");
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
   const severityOptions = optionGroup(pageContract, "severity_chips");
-  const boardPageSizeOptions = tablePageSizes(pageContract, "work-board");
-  const queuePageSizeOptions = tablePageSizes(pageContract, "verification-queue");
-  const boardPaged = paginateRows(items, sp, "ac", 10, boardPageSizeOptions);
+  const boardPaged = pageResult(items, actionCenter.ok ? actionCenter.data.total_count : 0, requestedBoardPage.page, requestedBoardPage.pageSize);
   const queuePaged = paginateRows(queueItems, sp, "verify", 10, queuePageSizeOptions);
   const nextCursor = actionCenter.ok ? actionCenter.data.next_cursor : undefined;
   const selectedActionRowId = one(sp, "ac_row");
@@ -160,11 +181,10 @@ export async function VaccinationActionCenterPage({
   // Server-authoritative counts per work state (not derived from the capped page).
   const stateCounts = new Map<WorkState, number>();
   if (actionCenter.ok) for (const c of actionCenter.data.counts_by_work_state) stateCounts.set(c.work_state, c.count);
-  const totalCount = Array.from(stateCounts.values()).reduce((a, b) => a + b, 0);
+  const totalCount = actionCenter.ok ? actionCenter.data.total_count : 0;
   const overdueCount = stateCounts.get("overdue") ?? 0;
   const dueCount = stateCounts.get("due") ?? 0;
-  const severityCounts = new Map<ProcessIntegritySeverity, number>();
-  for (const item of items) severityCounts.set(item.severity, (severityCounts.get(item.severity) ?? 0) + 1);
+  const hasBoardFilters = stateFilter !== "all" || severityFilter !== "all";
 
   // Filter links preserve the FULL top-bar scope (scopeHref) and layer the page filters on top — never
   // hand-rolled, so park/range/as_of/date_from/date_to are never dropped.
@@ -203,12 +223,11 @@ export async function VaccinationActionCenterPage({
     })),
   ];
   const severityFilterLinks = [
-    { label: copy(pageContract, "filter.all_severity"), href: hrefWith({ severity: "all", ac_page: "1", ac_row: undefined }), active: severityFilter === "all", count: items.length },
+    { label: copy(pageContract, "filter.all_severity"), href: hrefWith({ severity: "all", ac_page: "1", ac_row: undefined }), active: severityFilter === "all" },
     ...SEVERITY_ORDER.map((severity) => ({
       label: optionLabel(severityOptions, severity),
       href: hrefWith({ severity, ac_page: "1", ac_row: undefined }),
       active: severityFilter === severity,
-      count: severityCounts.get(severity) ?? 0,
     })),
   ];
   const clearFiltersHref = hrefWith({ severity: "all", state: "all", ac_page: "1", ac_row: undefined });
@@ -379,7 +398,7 @@ export async function VaccinationActionCenterPage({
 	              pageContract={pageContract}
 	              label={copy(pageContract, "filter.my_tasks.title")}
 	              mode="my"
-	              rowsLabel={`${boardPaged.start}-${boardPaged.end} of ${items.length} rows shown · local owner filter applies to visible ${copy(pageContract, "filter.cards_label")}`}
+	              rowsLabel={`${boardPaged.start}-${boardPaged.end} of ${boardPaged.total} rows · owner filter applies after the server page loads`}
 	              clearHref={clearFiltersHref}
 	              stateLinks={stateFilterLinks}
 	              severityLinks={severityFilterLinks}
@@ -387,7 +406,7 @@ export async function VaccinationActionCenterPage({
 	            <ActionCenterFiltersButton
 	              pageContract={pageContract}
 	              label={copy(pageContract, "action.filters")}
-	              rowsLabel={`${boardPaged.start}-${boardPaged.end} of ${items.length} rows shown · ${totalCount} total in current work-state counts`}
+	              rowsLabel={`${boardPaged.start}-${boardPaged.end} of ${boardPaged.total} rows`}
 	              clearHref={clearFiltersHref}
               stateLinks={stateFilterLinks}
               severityLinks={severityFilterLinks}
@@ -424,10 +443,16 @@ export async function VaccinationActionCenterPage({
               <Info className="ic" aria-hidden="true" style={{ color: "var(--brand)", flexShrink: 0 }} />
 	              <span>
 	                {actionCenter.ok
-	                  ? copy(pageContract, "empty.work_board_detail")
+	                  ? hasBoardFilters
+	                    ? copy(pageContract, "empty.work_board_filtered")
+	                    : copy(pageContract, "empty.work_board_detail")
 	                  : copy(pageContract, "empty.unavailable")}
 	              </span>
-	              {actionCenter.ok ? (
+	              {actionCenter.ok && hasBoardFilters ? (
+	                <Link href={clearFiltersHref} className="btn sm">
+	                  {copy(pageContract, "filter.clear_all")}
+	                </Link>
+	              ) : actionCenter.ok ? (
 	                <>
 	                  <Link href="/config?category=vaccination" className="btn sm">
 	                    {copy(pageContract, "action.open_config")}

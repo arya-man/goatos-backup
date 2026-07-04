@@ -27,13 +27,15 @@ scope.
 
 Validated V1 demo closure evidence:
 
-- Full E2E smoke: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-  - Report: `.codex-goatos-render/e2e-smoke/NUANCE-RULES-20260701-V1-MATRIX-R2`
-- SOP/Config authoring smoke: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-  - Report: `.codex-goatos-render/vaccination-authoring/NUANCE-RULES-20260701-V1-MATRIX-R2/authoring.md`
-  - Proves the Nuance Rules matrix loads, saves, and publishes ET+TT, PPR, Goat Pox, FMD, and HS as separate protocol versions from one grid flow.
-- Click/interlink matrix: `NUANCE-RULES-20260701-V1-MATRIX-R2`
-  - Report: `.codex-goatos-render/vaccination-click-matrix/NUANCE-RULES-20260701-V1-MATRIX-R2/matrix.md`
+- Full E2E smoke: `VACCINATION-RULES-20260703-V1-MATRIX`
+  - Report: `.codex-goatos-render/e2e-smoke/VACCINATION-RULES-20260703-V1-MATRIX`
+- SOP/Config authoring smoke: `VACCINATION-RULES-20260703-V1-MATRIX`
+  - Report: `.codex-goatos-render/vaccination-authoring/VACCINATION-RULES-20260703-V1-MATRIX/authoring.md`
+  - Historical demo proof that the Vaccination Rules matrix could load, save,
+    and publish multiple vaccine rows from one grid flow. Final closeout must
+    use one scoped `vaccination.matrix` version with all vaccine-animal rows.
+- Click/interlink matrix: `VACCINATION-RULES-20260703-V1-MATRIX`
+  - Report: `.codex-goatos-render/vaccination-click-matrix/VACCINATION-RULES-20260703-V1-MATRIX/matrix.md`
 - Chain proof: `vaccination-chain-proof stamp=1782915162`
 - Rework proof: `vaccination-rework-proof stamp=1782899439`
   - Proves reject -> rework -> resubmit -> accept, accepted/rejected Passport history, and real Passport workflow row linkage.
@@ -86,7 +88,8 @@ This includes:
 - search
 - filters
 - links between Config, SOP Library, Vaccination, Action Center, Protocol
-  Adherence, Workflows, Control Tower, Animal Passport, and shed execution detail
+  Adherence, Workflows, Control Tower, Animal Passport, and vaccination
+  execution detail with the same shed/tag context
 
 For every one of these controls, E2E must prove one of two things:
 
@@ -111,7 +114,8 @@ The clean proof chain is:
 3. Herd animals exist in valid sheds with usable species, stage, sex, breed,
    lifecycle, health, and reproductive facts.
 4. Vaccination generation creates per-animal due obligations.
-5. Sweeper groups due obligations into shed execution work.
+5. Sweeper/planner groups due obligations into park-level drive work with
+   per-shed/tag breakdowns and species-safe execution groups.
 6. SOP/proof workflow is attached to the generated work.
 7. Calendar, Action Center, Protocol Adherence, Workflows, Control Tower, and
    Vaccination screens refresh from those backend rows.
@@ -177,8 +181,11 @@ The vaccination E2E must cover all three animal entry paths:
 
 3. Procurement -> Source Entry -> Accepted intake
    - Purchased herd animals start in the procurement/source-entry journey.
-   - Holding-farm vaccination evidence may suppress duplicate arrival
-     vaccination where the rules allow it.
+   - Procurement holding-park vaccination evidence may suppress duplicate
+     arrival vaccination only when it comes from our supervised holding-park
+     flow with SOP/video/physical validation.
+   - Third-party/vendor/source claims outside our park or procurement holding
+     park are untrusted notes only; they must not suppress obligations.
    - Only accepted-intake herd animals should enter the normal Preventive Care (PC) vaccination engine.
    - Rejected, canceled, source-only, or pre-intake herd animals must not create Preventive Care (PC)
      vaccination obligations.
@@ -237,8 +244,10 @@ If that event is added, this checklist must gain its own defer/reopen proof.
 Scale rule:
 
 - The kernel must be tested as per-animal generation, but read models and
-  execution views must group by shed/protocol/dose/window so the design can
-  scale toward 1 million herd animals.
+  execution views must group into park-level drive plans with shed/tag
+  breakdowns so the design can scale toward 1 million herd animals. Kid
+  goat+sheep work can be grouped together when safe; adult work stays
+  species-specific inside the same park visit.
 - Re-running generators/sweepers must be idempotent: no duplicate obligations,
   no duplicate SOP tasks, and no duplicated workflow rows for the same animal,
   protocol, dose, and due window.
@@ -262,8 +271,8 @@ Expected behavior:
 - Action Center -> Animal Passport must open the exact animal when the action is
   animal-scoped. If the action is only batch/shed-scoped, the button must be
   hidden or disabled with a clear reason.
-- Vaccination row/drawer -> shed execution detail must open the same shed event
-  or cohort.
+- Vaccination row/drawer -> vaccination execution detail must open the same
+  park drive group and preserve the shed/tag cohort context.
 - Procurement source-load drawer -> load actions/HF evidence must open the same
   source load.
 - Herd Register row actions that affect vaccination must preserve the same animal
@@ -276,8 +285,8 @@ reason.
 ## Historical Blocking Bugs Now Covered For V1 Demo
 
 The observations below are retained as the bug-bash ledger. The V1 demo
-regression coverage for them is `NUANCE-RULES-20260701-V1-MATRIX-R2`,
-`NUANCE-RULES-20260701-V1-MATRIX-R2`,
+regression coverage for them is `VACCINATION-RULES-20260703-V1-MATRIX`,
+`VACCINATION-RULES-20260703-V1-MATRIX`,
 `vaccination-chain-proof stamp=1782915162`, and
 `vaccination-rework-proof stamp=1782899439`.
 
@@ -333,7 +342,7 @@ Expected:
 
 Observed:
 
-- The builder exposes text, number, yes/no, select, multiselect, animal scan/RFID,
+- The builder exposes text, number, yes/no, select, multiselect, animal scan / Animal ID,
   shed picker, vaccine batch picker, medicine picker, photo proof, and video
   proof as field types.
 - The UI does not clearly show the required configuration for each type.
@@ -345,7 +354,7 @@ Expected:
 - Yes/no: label, required rule, pass/fail behavior when needed.
 - Select: label, required rule, options.
 - Multiselect: label, required rule, options, min/max selected when needed.
-- Animal scan/RFID: label, required rule, expected source of eligible herd animals.
+- Animal scan / Animal ID: label, required rule, expected source of eligible herd animals.
 - Shed picker: label, required rule, scope source.
 - Vaccine batch picker: label, required rule, FEFO/lot source.
 - Medicine picker: label, required rule, inventory source.
@@ -645,8 +654,9 @@ Expected:
 - E2E must prove procurement accepted intake triggers vaccination generation.
 - E2E must prove rejected/canceled/source-only/pre-intake procurement herd animals do
   not create Preventive Care (PC) vaccination obligations.
-- E2E must prove trusted holding-farm vaccination evidence suppresses duplicate
-  Preventive Care (PC) obligations where configured.
+- E2E must prove trusted procurement holding-park vaccination evidence suppresses
+  duplicate Preventive Care (PC) obligations where configured, and untrusted
+  outside-source claims do not.
 - All procurement and Herd Register controls that affect vaccination must either
   work, or be hidden/disabled with a clear reason.
 
@@ -659,8 +669,8 @@ Observed:
 - This is only useful if the destination is the exact same vaccination
   obligation/action. Otherwise it feels random and is not demo-safe.
 - Similar risks exist for Action Center -> Workflow, Protocol Adherence ->
-  Workflow, Vaccination -> shed execution detail, Procurement -> load actions,
-  and Herd Register -> animal/vaccination context.
+  Workflow, Vaccination -> vaccination execution detail, Procurement -> load
+  actions, and Herd Register -> animal/vaccination context.
 
 Expected:
 
@@ -712,7 +722,7 @@ Implementation status, 2026-07-01:
 - Focused tests added in
   `backend/internal/vaccination/app/generation_test.go`:
   `TestOlderGoatUnknownHistoryCreatesOnlyOneHistoricalCatchUp`,
-  `TestOlderGoatUnknownHistoryCreatesOnlyOnePHCReviewCatchUp`, and
+  `TestOlderGoatUnknownHistoryCreatesOnlyOnePCReviewCatchUp`, and
   `TestOlderGoatTrustedFirstDoseAllowsNextMissingDose`.
 - Live trusted-history proof added in
   `tools/dev/vaccination-trusted-history-proof.sh`. Latest passing run:
@@ -769,8 +779,12 @@ from a clean tenant/state, not isolated page checks.
 - [ ] Each accepted imported animal is evaluated by vaccination generation.
 - [ ] Invalid imported rows do not create herd animals or vaccination work.
 - [ ] Procurement Source Entry can create a purchased load.
-- [ ] Procurement holding-farm vaccination evidence can be recorded or marked
-  missing with a clear state.
+- [ ] Procurement holding-park vaccination evidence can be recorded only when
+  the source context is our supervised procurement holding park, with holding
+  location, 4–5 week holding window, SOP/video/physical proof, validator, and
+  accepted proof status.
+- [ ] Third-party/vendor/outside-source vaccination claims are recorded as
+  untrusted notes only; they do not create completions or suppress due work.
 - [ ] Procurement accepted intake creates canonical herd animals.
 - [ ] Procurement accepted intake emits or queues the animal creation event needed
   by vaccination generation.
@@ -778,8 +792,10 @@ from a clean tenant/state, not isolated page checks.
   match the published matrix.
 - [ ] Procurement rejected, canceled, source-only, and pre-intake herd animals do not
   create Preventive Care (PC) vaccination obligations.
-- [ ] Trusted holding-farm vaccination history suppresses duplicate Preventive Care (PC)
-  obligations where configured.
+- [ ] Trusted procurement holding-park vaccination history suppresses duplicate
+  Preventive Care (PC) obligations and advances the next due row where configured.
+- [ ] If no trusted procurement holding-park/our-park evidence exists,
+  vaccination starts after accepted shed intake plus warm-up/health gates.
 - [ ] The UI makes the source of each tested animal clear enough for demo:
   manual, template import, or procurement accepted intake.
 
@@ -859,10 +875,11 @@ from a clean tenant/state, not isolated page checks.
   vaccination generation.
 - [ ] Existing-animal flow proves explicit generation/backfill runs after config
   publish.
-- [ ] Sweeper/projector runs after generation and creates shed execution work,
-  missed-dose state, reminders, and calendar projection rows where applicable.
-- [ ] Re-running generation and sweeper does not duplicate obligations, shed
-  events, SOP tasks, calendar rows, or Action Center cards.
+- [ ] Sweeper/projector runs after generation and creates park-level drive work
+  with shed/tag breakdowns, missed-dose state, reminders, and calendar
+  projection rows where applicable.
+- [ ] Re-running generation and sweeper does not duplicate obligations, park
+  drive groups, SOP tasks, calendar rows, or Action Center cards.
 - [ ] Action Center, Protocol Adherence, Workflows, and Control Tower reflect
   only real generated work, not seeded noise or fake rows.
 
@@ -887,7 +904,8 @@ Surface data conditions:
   herd animals.
 - [ ] Procurement Source Entry feeds vaccination only after accepted intake.
 - [ ] Vaccination page is checked first after generation/sweeper because it
-  shows due work, matrix/cohort state, and shed execution rows.
+  shows due work, matrix/cohort state, and vaccination execution rows with
+  shed/tag breakdowns.
 - [ ] Action Center shows cards only when generated work has a next action,
   blocker, overdue state, proof need, or escalation.
 - [ ] Protocol Adherence shows expected-vs-actual gaps only after obligations
@@ -1002,8 +1020,13 @@ These checks are in addition to the clean-slate E2E path above.
   business effect where it claims to change generation/preview behavior.
 - [ ] Every search, filter, and pagination control preserves the selected scope,
   page, row, drawer state, and URL.
+- [ ] Control Tower and Protocol Adherence use backend-owned filters, sort, and
+  pagination; default page size is 25, supported page sizes are 10/25/50, and
+  there is no hidden client-side 200-row dump.
+- [ ] CT/PA filtered-empty states say no rows match the selected filters; they
+  do not show the global healthy/no-risk copy.
 - [x] Every V1 demo link between Config, SOP Library, Vaccination, Action Center,
-  Protocol Adherence, Workflows, Control Tower, Animal Passport, and shed
+  Protocol Adherence, Workflows, Control Tower, Animal Passport, and vaccination
   execution detail lands on the intended record and keeps the same
   animal/shed/protocol context.
 - [x] Every V1 demo deep link from Herd Register and Procurement Source Entry into
@@ -1049,7 +1072,7 @@ These checks are in addition to the clean-slate E2E path above.
 - [x] Multiselect field can save/publish after options are added.
 - [x] Multiselect options can be added, edited, removed, reordered, saved, and
   reopened.
-- [x] Animal scan/RFID field can be saved, reopened, and shows how the eligible
+- [x] Animal scan / Animal ID field can be saved, reopened, and shows how the eligible
   animal list is sourced.
 - [x] Shed picker field can be saved, reopened, and shows how shed scope is
   sourced.
@@ -1216,14 +1239,16 @@ These checks are in addition to the clean-slate E2E path above.
 - [x] After publish, workflow rows and adherence rows point back to the same
   protocol/config version.
 - [x] Creating multiple matrix rows for different vaccine/stage combinations is
-  covered by E2E (`NUANCE-RULES-20260701-V1-MATRIX-R2` loads ET+TT, PPR, Goat Pox,
-  FMD, and HS as separate published config rows).
+  covered by E2E (`VACCINATION-RULES-20260703-V1-MATRIX` loads ET+TT, PPR, Goat Pox,
+  FMD, and HS as matrix rows; final closeout stores them in one scoped
+  `vaccination.matrix` version).
 - [x] Matrix/grid entry mode allows adding ET/K1 and PPR/K2-style rows without
   repeating shared header/source/SOP/schedule fields.
 - [x] Matrix/grid entry mode validates each row independently; row-indexed
   failures are returned by the batch save/publish action.
-- [x] Matrix/grid entry mode persists all rows as separate protocol versions and
-  reloads them in the Config list/drawer.
+- [ ] Final matrix/grid entry mode persists all rows inside one scoped
+  `vaccination.matrix` version and reloads that version in the Config
+  list/drawer.
 - [x] Matrix/grid entry mode shows row-level controls/errors in the authoring
   page without text overlap in the tested desktop viewport.
 - [x] BUG: schedule summary is visible but not directly editable and does not
@@ -1245,12 +1270,12 @@ These checks are in addition to the clean-slate E2E path above.
 ## Demo Rule
 
 You can demo the V1 vaccination SOP builder and Config authoring flow covered by
-`NUANCE-RULES-20260701-V1-MATRIX-R2`.
+`VACCINATION-RULES-20260703-V1-MATRIX`.
 
 Do not demo or claim route/resource optimization, business-facing user/shed
 admin setup UI, full browser-negative coverage, or million-animal permutation
-proof. Do demo the V1 Nuance Rules matrix, including compatibility
-spacing, only when the Nuance smoke evidence below is fresh.
+proof. Do demo the V1 Vaccination Rules matrix, including compatibility
+spacing, only when the Vaccination Rules smoke evidence below is fresh.
 
 ## Handover: V1 Batching Boundary And Later Planner
 
@@ -1291,8 +1316,9 @@ and compatibility spacing are V1.
 
 - Add a drive-planning rule section separate from per-animal vaccine config.
 - Add batching thresholds:
-  minimum herd animals per shed drive, max safe wait days, force micro-drive rule, and
-  small-shed fairness rule.
+  minimum herd animals per park drive group, `max_batching_hold_days = 7`,
+  `max_batching_hold_count = 1`, force micro-drive rule before medical window
+  expiry, max 2 shots per animal per visit, and small-shed/tag fairness rule.
 - Add an explicit medical-window vs batching-window proof case:
   if one shed has a small due count now and a compatible same-park shed/tag
   cohort becomes due within the allowed batching hold, combine them only when
@@ -1300,6 +1326,16 @@ and compatibility spacing are V1.
   herd animals in one shed plus 15 compatible K1 herd animals in another shed may become one
   20-animal drive with a +1 week operations hold only when the medical clock is
   still safe; otherwise the smaller shed becomes a micro-drive now.
+- Add a no-rolling-postponement proof case:
+  after one due group has already used the +7-day batching hold, it must not be
+  moved again to chase a later/larger drive. The next state must be execute,
+  micro-drive, real defer/blocker, or process-broken if the medical window was
+  missed.
+- Add shot-cap proof cases:
+  one live + one killed can share the same visit when otherwise safe; a later
+  live must wait at least 4 weeks from the prior live; when 3+ vaccines are due,
+  the plan keeps only the highest-priority compatible pair in this visit and
+  schedules the rest on the next safe date.
 - Add route/resource controls:
   operator capacity, cold-chain duration, stock lot/expiry, and verifier
   availability.
@@ -1307,6 +1343,35 @@ and compatibility spacing are V1.
   expected herd animals, missing herd animals, extra herd animals, shifted herd animals, sick/deferred herd animals,
   proof pending, verification reject, rework, and cancellation.
 - Add clear generated-plan preview before creating drive work.
+
+### Required drive planner E2E matrix before complete
+
+| E2E case | Must prove |
+|---|---|
+| Same park, shed/tag A due today + compatible shed/tag B due within 7 days | One park-level drive is created on the held date, with per-shed/tag counts visible and every animal inside medical window |
+| Same case, but A's medical window ends before B is safe | A becomes a micro-drive now; no unsafe hold |
+| Same obligation/dose already held once | No second postponement; execute/micro-drive/defer/process-broken only |
+| 3-week booster overlaps safely at week 4 | One-time +7 batching hold is allowed; no move to week 5/week 6 |
+| Kid goat+sheep shared group | Goat and sheep kids can share one compatible kid drive group, with species-specific vaccine rows still correct |
+| Adult goat+sheep same park visit | Adult goat and adult sheep are planned as separate species execution groups inside the same park visit |
+| Species-specific vaccines | Goat Pox never targets sheep; Sheep Pox and Blue Tongue never target goats |
+| 1 live + 1 killed due same day | Same-day plan is allowed when no other blocker exists |
+| Next live after a live dose | Planned date is at least 4 weeks after the prior live vaccine |
+| More than 2 vaccines due | Highest-priority compatible pair is selected; overflow vaccines are scheduled on the next safe date |
+| Warm-up / ICU / quarantine / sick / late pregnancy / post-breeding blocker | Safety blocker beats batching and creates defer/block/exception, not a drive |
+| Recovered animal, compatible drive within 7 days | Animal joins that nearest compatible same-park drive if all medical/vaccine rules stay safe |
+| Recovered animal, nearest compatible drive more than 7 days away | Micro-drive is scheduled inside the 7-day recovery buffer, even for one animal |
+| Multiple recovered animals with overlapping buffers | Animals recovered on nearby dates are batched together when their 7-day buffers, species/vaccine rules, and medical windows overlap |
+| Procurement holding-park trusted evidence | Our supervised holding-park dose with SOP/video/physical proof suppresses duplicate work and advances next due |
+| Unknown/outside-source vaccination claim | Claim does not suppress work; schedule starts/restarts after accepted shed intake and warm-up/health gates |
+| Backend-owned config versioning | Backend allocates draft/version, publish is atomic, active matrix state survives failed publish, frontend cache cannot become source of truth |
+| CT/PA backend pagination and filters | Backend filters by severity/state/park/date/owner/search and paginates 10/25/50 with default 25; filtered-empty copy is accurate |
+| Stock / cold-chain / worker / verifier / proof missing | Drive is blocked or escalated with owner/reason, not silently dropped |
+| Execution reconciliation | Missing, shifted, extra, sick, proof-rejected, and cold-chain-failed animals produce explicit follow-up states |
+
+The final vaccination closeout report must list every E2E case above with the
+fixture used, expected result, actual result, command/browser evidence, and
+pass/fail status. The slice is not complete until this matrix is green.
 
 ## Test Guardrails
 

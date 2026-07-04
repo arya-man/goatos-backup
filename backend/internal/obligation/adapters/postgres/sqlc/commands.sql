@@ -130,6 +130,12 @@ WHERE oi.tenant_id = @tenant_id
       AND (
         g.lifecycle_status IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
         OR g.merged_into_goat_id IS NOT NULL
+        OR EXISTS (
+          SELECT 1
+          FROM vw_procurement_vaccination_excluded_goats ex
+          WHERE ex.tenant_id = g.tenant_id
+            AND ex.goat_id = g.goat_id
+        )
       )
   )
 RETURNING oi.obligation_id::text AS obligation_id;
@@ -163,7 +169,13 @@ WHERE oi.tenant_id = @tenant_id
       AND pd.category = 'vaccination'
       AND (
         g.lifecycle_status IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
-        OR g.identity_state IN ('disputed', 'merged', 'inactive')
+        OR g.merged_into_goat_id IS NOT NULL
+        OR EXISTS (
+          SELECT 1
+          FROM vw_procurement_vaccination_excluded_goats ex
+          WHERE ex.tenant_id = g.tenant_id
+            AND ex.goat_id = g.goat_id
+        )
       )
   )
 RETURNING oi.obligation_id::text AS obligation_id;

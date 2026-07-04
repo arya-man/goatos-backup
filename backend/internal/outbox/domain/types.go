@@ -54,6 +54,7 @@ type DeadLetterMessage struct {
 }
 
 type RunResult struct {
+	BatchesProcessed    int
 	ReclaimedStaleCount int
 	ClaimedCount        int
 	PublishedCount      int

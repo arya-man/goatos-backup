@@ -338,6 +338,7 @@ export async function getVaccinationActionCenter(
     asOf?: string;
     dueBefore?: string;
     cursor?: string;
+    offset?: number;
     limit?: number;
   } = {},
 ): Promise<ApiResult<ActionCenterResponse>> {
@@ -355,6 +356,7 @@ export async function getVaccinationActionCenter(
         as_of: params.asOf,
         due_before: params.dueBefore,
         cursor: params.cursor,
+        offset: params.offset,
         limit: params.limit ?? 200,
       }),
     }),
@@ -370,6 +372,7 @@ export async function getVaccinationAdherence(
     severity?: ProcessIntegritySeverity;
     asOf?: string;
     cursor?: string;
+    offset?: number;
     limit?: number;
   } = {},
 ): Promise<ApiResult<ProtocolAdherenceResponse>> {
@@ -386,6 +389,7 @@ export async function getVaccinationAdherence(
         severity: params.severity,
         as_of: params.asOf,
         cursor: params.cursor,
+        offset: params.offset,
         limit: params.limit ?? 200,
       }),
     }),
@@ -394,7 +398,17 @@ export async function getVaccinationAdherence(
 
 // Control Tower — exception-only leadership summary + alerts (real /control-tower/vaccination).
 export async function getVaccinationControlTower(
-  params: { parkId?: string; shedId?: string; asOf?: string; dueBefore?: string; limit?: number } = {},
+  params: {
+    parkId?: string;
+    shedId?: string;
+    asOf?: string;
+    dueBefore?: string;
+    workState?: WorkState;
+    severity?: ProcessIntegritySeverity;
+    cursor?: string;
+    offset?: number;
+    limit?: number;
+  } = {},
 ): Promise<ApiResult<ControlTowerResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -402,7 +416,17 @@ export async function getVaccinationControlTower(
   return request(() =>
     client.request<ControlTowerResponse>("/control-tower/vaccination", {
       cache: "no-store",
-      query: compactQuery({ park_id: params.parkId, shed_id: params.shedId, as_of: params.asOf, due_before: params.dueBefore, limit: params.limit }),
+      query: compactQuery({
+        park_id: params.parkId,
+        shed_id: params.shedId,
+        as_of: params.asOf,
+        due_before: params.dueBefore,
+        work_state: params.workState,
+        severity: params.severity,
+        cursor: params.cursor,
+        offset: params.offset,
+        limit: params.limit,
+      }),
     }),
   );
 }
@@ -546,7 +570,7 @@ export async function createProtocolVersion(
   body: {
     scope_type: string;
     scope_id?: string;
-    version: number;
+    version?: number;
     effective_from: string;
     rule_dsl: unknown;
     proof_policy?: unknown;

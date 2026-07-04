@@ -2,9 +2,9 @@
 
 **Status:** Draft v2 (corrected against committed schema) · **Repo-state note:** 2026-06-29
 **Companion:** [PRD.md](./PRD.md) · **Foundation:** [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md)
-**Grounded in:** this TRD was originally grounded in `backend/migrations/postgres/000001…000060`; the repo now contains later protocol/obligation/inventory/vaccination migrations through `000117` at the Feed Direction correction. Use the live migrations and [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md) for current repo state. The wiki goatOS handbook §6, accepted source findings (`context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`, `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`), and the tracked nuance source [source-nuances-rules.md](./source-nuances-rules.md) are design/source references, **not** a replacement for committed schema — where they differ, committed wins.
+**Grounded in:** this TRD was originally grounded in `backend/migrations/postgres/000001…000060`; the repo now contains later protocol/obligation/inventory/vaccination migrations through `000117` at the Feed Direction correction. Use the live migrations and [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md) for current repo state. The wiki goatOS handbook §6, accepted source findings (`context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`, `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`), and the tracked vaccination rules source [vaccination-rules.md](./vaccination-rules.md) are design/source references, **not** a replacement for committed schema — where they differ, committed wins.
 
-> **v2 correction note.** v1 assessed the wiki DDL as if committed and was wrong: it assumed `parks`/`sheds`/`vaccine_stock` tables and `goats.dob`/`goats.gender` columns that **do not exist**. v2 separates **committed → target**, builds on the generic obligation engine, and drops the unverified cost figure.
+> **v2 correction note.** v1 assessed the wiki DDL as if committed and was wrong: it assumed `parks`/`sheds`/`vaccine_stock` tables and animal DOB/sex columns that **do not exist in that shape**. v2 separates **committed → target**, builds on the generic obligation engine, and drops the unverified cost figure.
 
 ---
 
@@ -101,14 +101,14 @@ Stage/species invariants:
   source rows with blank, unknown, inferred-only, or conflicting sex are rejected
   before canonical creation/import and cannot generate vaccination obligations.
   Rule authoring must not offer or store `unknown` sex selectors.
-- Migration `000135_hard_reject_unknown_animal_sex` is an intentional deploy
-  gate, not a data backfill. Before running it in dev/stage/prod, Data Ops must
-  find rows where `goats.sex is null or sex not in ('female','male')`,
-  `counts_current_snapshot_rows.sex not in ('female','male')`, or
-  `mortality_events.sex not in ('female','male')` and correct them from
-  verified source evidence. Do not default to female, infer from F2 labels, or
-  write `unknown`; unresolved rows stay blocked outside accepted herd/vaccination
-  matching until the real sex is corrected.
+- V1 dev/test uses clean-slate wipe + reseed, not dirty-row repair. Existing
+  goat-only rows, sheet/BQ snapshots, or source files are evidence for a new
+  seed/import run; they are not patched in place as accepted herd rows. A row
+  without real sex is not accepted into GoatOS. Local/dev/test may choose a
+  deterministic `female` or `male` fixture value only under an explicit seed
+  rule with seed/test provenance; production blocks until the real sex is
+  provided at source. No database table, API, UI, seed, or rule selector may
+  store or offer an unknown sex value.
 - `MOTHER` / lactating adult is a biological reproductive state. It can match
   goat and sheep mothers for vaccination and should use the species-appropriate
   adult repeat/catch-up vaccine cells.
@@ -161,11 +161,13 @@ Vaccination rules can target both `stage_code` and medical `age_days` windows.
 Those are not the same thing: K2 is an operational shed tag; FMD/HS at 12 weeks
 is a medical due rule.
 
-There is no valid stage, category, rule dimension, seed, or UI option based on
-mother vaccination-status. Any source branch that separates mother schedules by
-vaccination status is ignored for V1; the canonical policy assumes mothers are
-kept vaccinated and treats missing evidence as catch-up/review work under the
-normal adult/mother tag, not as a separate cohort.
+There is no valid stage, category, rule dimension, seed, API field, import
+prompt, UI option, kernel branch, or fallback schedule based on mother
+vaccination status. Any source branch that separates mother schedules by
+not-vaccinated or unknown mother evidence is ignored for V1. The canonical
+policy assumes mothers are kept vaccinated and the kid schedule is always the
+approved standard schedule; dam/mother vaccination status must not participate
+in rule matching.
 
 ### 2.3 Eligibility is multi-factor, not shed-derived alone
 
@@ -205,13 +207,20 @@ Shed-tag age policy lives on `animal_stage_lookup` as **config** — the mock's 
 
 The protocol/obligation/SOP/escalation tables are the [engine](../protocol-engine/obligation-engine.md). Vaccination adds:
 
-**Config (scoped ruleset, multi-dose / multi-phase — NOT one vaccine per protocol):** a stable `protocol_definitions` row represents the logical vaccination ruleset family, for example `code='vaccination.matrix'`, `category='vaccination'`. Do not create one top-level protocol definition per vaccine, stage, species, breed, or copied row. The schedule is authored in `protocol_versions.rule_dsl` as the whole matrix for one scope. It contains **`schedule[]` / cell rows — one entry per dose/phase** (`primary`, `booster_1`, `booster_2`, `annual`, `catch_up`, …), each with `trigger_type` (birth_age/post_arrival/calendar/after_previous_completion/manual_campaign) · `offset_days` · `due_window_days` · `min_gap_days` · `repeat` (none/every_n_days/yearly; age-window repeat authoring is rejected until generator support lands) · `repeat_until_after_age` · `catch_up` · per-dose `sop_label` (display only — the executable SOP binds at `protocol_versions.sop_version_id`; a genuine per-dose executable override uses `protocol_rules.sop_version_id`, never a free-text label) + `proof_policy`. The engine **expands each matrix cell / `schedule[]` row into `protocol_rules` rows**. Rule-level: multi-factor `eligibility_json` (species + breed + age_days + shed_tag/animal_stage + sex + lifecycle + health + reproductive/lactation + procurement/warm-up + defer_states[ICU/quarantine/sick]), `missed_dose_policy` (immediate/next_cycle/phc_approval/defer), `withdrawal_days`. Per-park override = a park-scoped active `protocol_version` for the same `protocol_id` (no `park_id` column on a vaccine table — scope is `protocol_versions.scope_id` and the obligation's `scope_id`). **No `vaccine_config` table** — the matrix lives in `protocol_versions.rule_dsl` and expands to `protocol_rules`. _Lifecycle example:_ `0–12mo` → `primary` (birth_age) + `booster_1` (after_previous_completion) + repeat every N months; `>12mo` → `annual` (`repeat:yearly`, modeled as its own eligible lifecycle row); next due is derived from trigger/repeat/catch-up logic and trusted accepted completions, not a separate DSL field.
+**Config (scoped ruleset, multi-dose / multi-phase — NOT one vaccine per protocol):** a stable `protocol_definitions` row represents the logical vaccination ruleset family, for example `code='vaccination.matrix'`, `category='vaccination'`. Do not create one top-level protocol definition per vaccine, stage, species, breed, or copied row. The schedule is authored in `protocol_versions.rule_dsl` as the whole matrix for one scope. It contains **`schedule[]` / cell rows — one entry per dose/phase** (`primary`, `booster_1`, `booster_2`, `annual`, `catch_up`, …), each with `trigger_type` (birth_age/post_arrival/calendar/after_previous_completion/manual_campaign) · `offset_days` · `due_window_days` · `min_gap_days` · `repeat` (none/every_n_days/yearly; age-window repeat authoring is rejected until generator support lands) · `repeat_until_after_age` · `catch_up` · per-dose `sop_label` (display only — the executable SOP binds at `protocol_versions.sop_version_id`; a genuine per-dose executable override uses `protocol_rules.sop_version_id`, never a free-text label) + `proof_policy`. The engine **expands each matrix cell / `schedule[]` row into `protocol_rules` rows**. Rule-level: multi-factor `eligibility_json` (species + breed + age_days + shed_tag/animal_stage + sex + lifecycle + health + reproductive/lactation + procurement/warm-up + defer_states[ICU/quarantine/sick]), `missed_dose_policy` (immediate/next_cycle/pc_approval/defer), `withdrawal_days`. Per-park override = a park-scoped active `protocol_version` for the same `protocol_id` (no `park_id` column on a vaccine table — scope is `protocol_versions.scope_id` and the obligation's `scope_id`). **No `vaccine_config` table** — the matrix lives in `protocol_versions.rule_dsl` and expands to `protocol_rules`. _Lifecycle example:_ `0–12mo` → `primary` (birth_age) + `booster_1` (after_previous_completion) + repeat every N months; `>12mo` → `annual` (`repeat:yearly`, modeled as its own eligible lifecycle row); next due is derived from trigger/repeat/catch-up logic and trusted accepted completions, not a separate DSL field.
+
+Backend/source-of-truth rule: the backend allocates draft/version numbers,
+performs publish validation, activates/deactivates scoped versions, and writes
+audit records in one transaction. The frontend may keep unsaved form state and
+cache fetched contracts, but it must not own version counters, active-state
+truth, publish sequencing, or partial row activation. A failed publish must
+leave the previously active company/park matrix intact.
 
 ### 4.0A Rule JSON vs. herd facts boundary
 
 `protocol_versions.rule_dsl` is the persisted authoring payload. It stores
 policy, not animal rows. It must not contain a list like
-`goat_herd_required_fields`, current animal snapshots, or copied shed rows. The
+embedded herd-animal required-field checklists, current animal snapshots, or copied shed rows. The
 rule JSON stores:
 
 - matrix dimensions and allowed selectors;
@@ -230,7 +239,7 @@ The data plane evaluates the rule against canonical facts:
 | Herd identity and animal dimensions | `herd_animals`: `animal_id`, `tenant_id`, `species_id`/`species_code`, `breed_id`/`breed`, `sex`, `dob`/`approx_dob`, `lifecycle_status`, `health_status`, `reproductive_status`, `lactation_state` |
 | Current physical scope | `herd_animals.current_location_id`, `herd_animals.park_id`, `herd_animals.shed_id`, `herd_animals.cohort_id`, `locations` |
 | Shed tag/stage dimensions | `shed_profiles.animal_stage_id`, `animal_stage_lookup.stage_code`, `shed_profiles.sex_grouping`, `shed_profiles.has_icu_corner`, `location_operational_attributes.is_quarantine/is_icu/is_holding` |
-| Procurement/intake dimensions | `herd_animals.origin_type`, `herd_animals.entry_date`, `procurement_phc_handoffs.entry_date`, warm-up/handoff state, trusted HF evidence |
+| Procurement/intake dimensions | `herd_animals.origin_type`, `herd_animals.entry_date`, `procurement_pc_handoffs.entry_date`, warm-up/handoff state, trusted procurement holding-park evidence |
 | Vaccination history | `vaccination_completions` plus `obligation_instances.rule_id`, not a JSON list in the rule config |
 
 For million-animal scale, V1 should add or maintain an indexed target-facts read
@@ -358,12 +367,14 @@ Each evidence-derived, CEO/COO-published vaccine matrix row must carry:
 | Trigger | birth-age, post-arrival/intake, calendar, manual campaign, or after previous completion |
 | Medical window | earliest safe date, ideal/offset date, latest safe date, min gap, max delay, missed-dose policy |
 | Repeat/lifetime | none, every N days, yearly, booster sequence, lifetime/age cutoff, course-lapse/restart policy or explicit unsupported/review-needed |
-| Animal cohort | species, breed/breed group, shed tag/stage, source/display age range, normalized age days, sex, lifecycle state, source confidence |
+| Animal cohort | species, breed/breed group, shed tag/stage, source/display age range, normalized age days, sex, lifecycle state, and current health/reproductive/procurement facts |
 | Reproductive state | allowed/blocked/review-needed for pregnant, lactating, mother, buck, flushing, breeding, warm-up |
 | Health/defer state | allowed/deferred/blocked for sick, under treatment, ICU, quarantine, recovery, adverse-event review |
 | History handling | trusted accepted history suppresses or advances the row; untrusted/unknown history produces catch-up/review, with older-animal anti-flood behavior that creates one safe next catch-up/review action before any further historical dose rows |
 | Version audit | version number, created_by/created_at, published_by/published_at, effective dates, retired_by/retired_at where applicable |
-| Nuance policy | procurement warm-up days, kid normal-schedule cutoff weeks, adult prior-vaccination flag, live/killed/live spacing days, same-day allowance metadata, pregnancy skip/catch-up windows |
+| Vaccination policy | procurement warm-up days, kid normal-schedule cutoff weeks, adult prior-vaccination flag, live/killed/live spacing days, same-day allowance metadata, pregnancy skip/catch-up windows |
+| Source trust policy | trusted only when `source_context` is our park or our procurement holding park, the holding period/procurement SOP/proof is valid, and verifier status is accepted; all other source/procurement claims are untrusted and do not suppress work |
+| Drive planner policy | `max_batching_hold_days` default 7, `max_batching_hold_count` default 1, `max_shots_per_animal_per_drive` default 2, minimum drive size, force-micro-drive-before-last-safe-date behavior, and `species_grouping_policy` (`kid_mixed` or `species_specific`) |
 
 Without those rows, GoatOS can only prove reusable engine plumbing; it cannot
 honestly claim the full practical vaccine matrix is complete. `PPR`, `FMD`,
@@ -374,7 +385,7 @@ compatibility from the tracked rules is part of the V1 matrix contract. Later dr
 optimization may use those fields for route/resource grouping, but it must not
 invent or postpone the medical rules.
 
-The V1 `rule_dsl` stores the nuance policy in first-class JSONB objects:
+The V1 `rule_dsl` stores the vaccination policy in first-class JSONB objects:
 `vaccine.pathogen_class`, `compatibility_policy`,
 `procurement_policy`, and `pregnancy_policy`. Generation enforces the pieces
 that are local to one published version today: eligibility, defer states,
@@ -391,7 +402,7 @@ to the authoring surface or persisted rule JSON. The rule version is audited by
 the protocol tables: `version`, `created_at`, `drafted_by`/creator,
 `published_by`, `published_at`, `effective_from`, `effective_to`, `retired_at`,
 plus the immutable `rule_dsl` that was published. Source documents and extracted
-nuance tables remain engineering evidence in this repo; they are not runtime
+vaccination rules tables remain engineering evidence in this repo; they are not runtime
 approval columns, and publish is gated by CEO/COO authority, JSON-schema
 validation, SOP binding, impact preview, and non-overlapping effective dates.
 
@@ -417,6 +428,14 @@ without durable notes/follow-up, and review confidence not being first-class.
   `source_ref` + confidence/proof semantics. The live legacy guardrail found no
   first-class trusted vaccination evidence field in the cleaned BigQuery tables,
   so a procurement row/header alone must not create a completed dose.
+- Trusted procurement vaccination requires a first-class supervised-lifecycle
+  record: `source_context in ('our_park','procurement_holding_park')`,
+  holding park/location identity, 4–5 week holding period or governed intake
+  window, SOP/proof media reference, verifier/validator, and accepted proof
+  status. Those doses start the GoatOS course in the procurement holding park.
+  Third-party/vendor/outside-source claims are `untrusted`; after accepted shed
+  intake the animal starts/restarts through the normal GoatOS schedule after
+  warm-up and health gates.
 - Reliable historical vaccination records, if later proven, import through
   staging, reconcile into `vaccination_completions`, complete matching
   obligations, and schedule boosters from actual `administered_at`. Missing or
@@ -432,7 +451,30 @@ without durable notes/follow-up, and review confidence not being first-class.
 
 **Due state:** per-animal doses = `obligation_instances` rows (`target_type='herd_animal'`, `target_id=animal_id`, `scope_type='shed'`, `rule_id` set so two vaccines/doses due the same day on one animal don't collide). `after_previous_completion` / booster doses generate on the prior dose's **actual `administered_at`** (`trigger_type='after_previous_completion'`, respecting `min_gap_days`) — see SM-7.
 
-**Shed drive = an `obligation_batches` row** (the generic work-unit, [engine §4](../protocol-engine/obligation-engine.md)), NOT just a `sop_task`. The batch carries drive-level fields the per-animal obligation can't — generic columns: `estimated_targets`, `planned_quantity`/`reserved_quantity`/`used_quantity` + `quantity_unit` (= doses/ml for vaccination), `primary_inventory_lot_id`, `conducted_by`, `proof_ref`, `context jsonb`. The sweeper groups a shed's due obligations into the batch (`obligation_instances.batch_id`), which spawns **one** `sop_task` (assigned via `vaccination.execute`) — many obligations → one batch → one task.
+**Drive plan = an `obligation_batches` row** (the generic work-unit,
+[engine §4](../protocol-engine/obligation-engine.md)), NOT just a `sop_task`.
+The batch carries drive-level fields the per-animal obligation can't — generic
+columns: `estimated_targets`, `planned_quantity`/`reserved_quantity`/
+`used_quantity` + `quantity_unit` (= doses/ml for vaccination),
+`primary_inventory_lot_id`, `conducted_by`, `proof_ref`, `context jsonb`. The
+sweeper/planner groups due obligations into the batch (`obligation_instances.batch_id`),
+which spawns **one** `sop_task` (assigned via `vaccination.execute`) — many
+obligations → one batch → one task. The target work unit is a park-level doctor
+visit with per-shed/tag breakdowns, not a mandatory one-drive-per-shed model.
+Kid goat+sheep obligations may share one compatible kid drive group; adult goat
+and adult sheep obligations stay species-specific execution groups inside the
+same park visit.
+
+The planner must persist enough decision state to prevent rolling
+postponement. Do not hide this only in unindexed `context jsonb`. Use explicit
+indexed columns or a dedicated planning table for at least:
+`original_due_at`, `medical_window_start`, `medical_window_end`,
+`first_batching_hold_until`, `batching_hold_count`,
+`last_batching_decision_at`, `species_grouping_key`, and selected `batch_id`.
+A held obligation/dose cycle is not eligible for another batching hold once
+`batching_hold_count >= 1`; it must execute, micro-drive, defer for a real
+blocker, or become a process-integrity exception if the medical window is
+missed.
 
 **Completion (net-new module table):**
 `vaccination_completions`: `completion_id PK · tenant_id · obligation_id NOT NULL→obligation_instances · batch_id NULL→obligation_batches · animal_id→herd_animals · sop_submission_item_id NULL→sop_submission_items · vaccine_inventory_lot_id NULL→inventory_stock(§5) · doses int · dose_ml_given · route_site text · adverse_reaction bool · adverse_reaction_problem_id NULL · cold_chain_verified bool · administered_at · withdrawal_until_date date NULL · recorded_by · idempotency_key`.
@@ -453,7 +495,10 @@ Preventive Care (PC) vaccination must reuse/enhance it, not rebuild a vaccinatio
 - **`inventory_stock_movements`** append-only ledger (reserve/release/consume/adjust/transfer/expire; `quantity numeric`) — the audit/reconciliation truth; balances are its projection. FEFO pick in app, expiry-gated (`expiry_date >= administered_at`).
 
 **Consumption mode (resolves the v1 contradiction — pick by path, never both):**
-- **Group shed drive:** at **batch start** record one `reserve` movement for `planned_quantity` against the FEFO lot (`reserved_quantity += n`). At **drive close / verification** record `consume` for actual used + `release` for the remainder. **No per-animal decrement.**
+- **Group drive plan:** at **batch start** record one `reserve` movement for
+  `planned_quantity` against the FEFO lot (`reserved_quantity += n`). At
+  **drive close / verification** record `consume` for actual used + `release`
+  for the remainder. **No per-animal decrement.**
 - **Manual campaign / catch-up**: Preventive Care approved catch-up creates canonical obligations/batches before execution; ad hoc per-animal individual override generation is not exposed in Phase 0.
 
 - `[P2]` `inventory_stock.is_quarantined` + a cold-chain excursion table for the breach→quarantine cascade.
@@ -482,19 +527,20 @@ CEO/COO-published vaccine-animal matrix plus animal facts creates or updates
 produces optimized execution-ready `obligation_batches` without recomputing the
 whole herd.
 
-V1 also owns basic shed-drive batching and Calendar de-duplication. When V1
-attaches due rows to an `obligation_batches` shed drive, Calendar projects the
+V1 also owns park-level drive planning and Calendar de-duplication. When V1
+attaches due rows to an `obligation_batches` drive plan, Calendar projects the
 drive row as active operations work and suppresses the batched per-animal
-`vaccination_dose_due` projections from active Calendar. The per-animal rows stay
-available to detail and audit surfaces.
+`vaccination_dose_due` projections from active Calendar. The per-animal rows
+stay available to detail and audit surfaces.
 
 **Inputs**
 - `obligation_instances` for vaccination rules, including `rule_id`,
   `protocol_version_id`, `due_at`, `window_start`, `window_end`, target animal,
   scope shed/cohort, status, and trusted completion suppression.
-- Animal facts used by eligibility and replanning: species, breed, lifecycle, exit reason,
-  health, reproductive status, management stage, approximate DOB/age, breed,
-  sex, current park/shed/cohort, identity/tag state, and source confidence.
+- Animal facts used by eligibility and replanning: species, breed, lifecycle,
+  exit reason, health, reproductive status, management stage, DOB/age, sex,
+  current park/shed/cohort, Animal ID 1/2 replacement state, and governed
+  shed/tag validity.
 - Rule config: schedule rows, eligibility JSON, defer states, min gaps,
   due-window policy, missed-dose policy, proof policy, SOP binding, withdrawal
   days, and the V1 vaccine compatibility policy.
@@ -506,7 +552,10 @@ available to detail and audit surfaces.
    `(tenant_id, status, due_at)` plus scope filters. Candidates are active
    `scheduled`/`due` obligations, plus `deferred` obligations whose current animal
    facts now satisfy a derived ready-again predicate. Readiness after defer is a
-   computed predicate, not a stored canonical status.
+   computed predicate, not a stored canonical status. Health/recovery,
+   quarantine/ICU exit, pregnancy month transition, post-delivery, and
+   post-breeding-hold completion events enqueue only the affected animals/buckets;
+   the planner must not scan the full herd to find recovered work.
 2. Revalidate each candidate against current animal facts. Dead, sold,
    transferred, culled, or lost animals cancel open work. Sick, quarantine, ICU,
    pregnancy, and lactation states apply the rule's allow/defer/block/review
@@ -514,16 +563,32 @@ available to detail and audit surfaces.
    pregnancy/lactation from current facts during generation/backfill; a
    standalone `animal.reproductive_status.changed` recheck event is a V2/provenance
    extension until a producer and consumer are shipped.
-3. Bucket candidates by:
-   `(tenant_id, park, shed_or_cohort, protocol_version_id, rule_id, dose_code,
-   due_window_bucket, eligibility/defer_state)`. This reduces million-animal
-   planning from animal-level iteration to bounded cohort work.
-4. For each shed/time bucket, build a vaccine conflict graph. Each vaccine or
+   When a deferred animal becomes eligible again and remains in/returns to its
+   valid shed/tag, the reopened obligation receives a `ready_again_at` timestamp.
+   The planner may attach it to the nearest compatible same-park drive only when
+   that drive is within 7 calendar days of `ready_again_at`; otherwise it creates
+   a micro-drive inside that 7-day recovery buffer, even for one animal.
+3. Bucket candidates by park first, with shed/tag retained as breakdown
+   dimensions:
+   `(tenant_id, park, animal_stage_or_tag_age_band, protocol_version_id,
+   rule_id, dose_code, due_window_bucket, eligibility/defer_state,
+   species_grouping_policy)`. `shed_or_cohort` stays on the candidate for counts,
+   proof, ownership, and execution, but it is not the maximum grouping boundary.
+   This reduces million-animal planning from animal-level iteration to bounded
+   park/cohort work.
+   The concrete `species_grouping_key` is conditional: compatible kid rows use
+   `kid_mixed` so goat and sheep kids can fill one safe doctor group; adult rows
+   use `species:<species_code>` so adult goat and adult sheep vaccine work stays
+   species-safe even when the same doctors visit the park on the same day.
+4. For each park/time/cohort bucket, build a vaccine conflict graph. Each vaccine or
    dose family is a node. An edge means the two nodes cannot be executed in the
    same drive because of live/killed compatibility, same-vaccine gap, required
-   2-week/4-week separation, route/site restriction, or unknown compatibility
+   2-week/4-week separation, route/site restriction, or unreviewed compatibility
    that must fail closed. Graph partitioning/coloring yields safe same-day
    vaccine groups.
+   Stage/species grouping policy is applied before scoring: kid groups may
+   combine goat+sheep when compatible; adult groups are split by species inside
+   the same park visit.
 5. Generate candidate drive dates only inside each group's medical window:
    `earliest_safe_date <= planned_date <= last_safe_date`. Dates outside the
    window are rejected before scoring. The planner must also carry an operations
@@ -532,41 +597,61 @@ available to detail and audit surfaces.
    `force_micro_drive_below_last_safe_date`, shed-tag compatibility, park route
    scope, operator capacity, verifier capacity, stock/lot expiry, and cold-chain
    duration.
-6. Decide hold-vs-micro-drive before scoring. Waiting to combine sheds/cohorts
-   is allowed only when every animal in the merged candidate remains inside its
-   medical safe window. If a +1 week hold would pass any animal's `last_safe_date`,
-   the small shed becomes a micro-drive now. Example: 5 due K1 animals in one CBE
-   shed and 15 compatible K1 animals in another CBE shed may become one 20-animal
-   drive only if the 5 animals can medically wait through that hold.
-7. Score safe candidates deterministically. Hard constraints are not scores.
+6. Decide hold-vs-micro-drive before scoring. Waiting to combine sheds/tags in
+   the same park is allowed only when every animal in the merged candidate
+   remains inside its medical safe window. If a +1 week hold would pass any
+   animal's `last_safe_date`, the small shed/tag group becomes a micro-drive
+   now. Example: 5 due K1 animals in one CBE shed and 15 compatible K1 animals
+   in another CBE shed may become one 20-animal park drive only if the 5 animals
+   can medically wait through that hold.
+7. Enforce one-time batching hold. Default policy is
+   `max_batching_hold_days = 7` and `max_batching_hold_count = 1`. If a due
+   obligation/dose cycle was already held once, or if its stored hold-until date
+   has arrived, it cannot be moved again to chase a larger future drive. It must
+   execute, micro-drive, defer for a real blocker, or become process-broken if
+   the medical window was missed. Example: a 3-week booster can move once to
+   week 4 when that creates a safe larger park drive; it cannot keep rolling to
+   week 5 or week 6.
+   Recovery re-entry uses the same cap from `ready_again_at`: animals recovered
+   on July 4 and July 5 can join a July 10 compatible drive; if the nearest
+   compatible drive is July 12, they are grouped into a smaller drive inside
+   their 7-day buffer instead of waiting.
+8. Enforce per-animal shot cap. Default policy is
+   `max_shots_per_animal_per_drive = 2`. Same-day compatible vaccine candidates
+   are not unlimited. If more than 2 vaccines are due for an animal, choose the
+   highest-priority compatible pair and schedule the rest by the governed gaps:
+   live→live 4 weeks, live→killed 2 weeks, killed→killed 2 weeks, kid booster
+   3 weeks, plus any row-specific `min_gap_days`.
+9. Score safe candidates deterministically. Hard constraints are not scores.
    Scored factors are urgency/earliest deadline, animals covered, disease
    priority, stock expiry, worker/route efficiency, cold-chain route duration,
    and fairness to small sheds that have already waited.
-8. Pick the best candidate with stable tie-breakers:
+10. Pick the best candidate with stable tie-breakers:
    earliest deadline, higher medical priority, more animals covered, expiring
    stock, lower route cost, then oldest waiting shed bucket.
-9. Assign resources under transaction/lease control: create or update
+11. Assign resources under transaction/lease control: create or update
    `obligation_batches`, attach obligations, reserve stock where vaccination
    policy requires it, create the SOP task, and store worker/verifier/proof
    requirements. Concurrent planners must use idempotency keys and row locks so
    two workers cannot claim the same obligations.
-10. Execute and reconcile by scan. Missing animals stay open/missed/follow-up;
+12. Execute and reconcile by scan. Missing animals stay open/missed/follow-up;
    shifted-in eligible animals become explicit extras; shifted-out animals move to
    the destination bucket; newly sick/pregnant/quarantined animals defer or block;
    deaths/sales cancel; unreadable tags create identity exceptions; proof
    rejection and cold-chain failure create rework.
-11. Replan incrementally. Events such as `animal.exited`,
+13. Replan incrementally. Events such as `animal.exited`,
     `animal.location.changed`, `animal.health.changed`, future/proven
     `animal.reproductive_status.changed`, `proof.rejected`, `stock.shortfall`, or
     `cold_chain.failed` invalidate only the affected animal, bucket, vaccine
     group, and batch. The whole herd is never recalculated for one state change.
 
 **Boundary**
-The later optimizer requires the V1-authored vaccine compatibility fields plus
-policy-approved drive thresholds. V1 owns per-animal due work, the authored matrix
-rules, compatibility spacing, basic shed batching, and Calendar drive-first
-projection. The later optimizer owns route/resource scoring, multi-shed
-planning, and large-scale incremental replanning. Separately, V1 itself must
+The drive planner requires the V1-authored vaccine compatibility fields plus
+policy-approved drive thresholds. V1 owns per-animal due work, the authored
+matrix rules, compatibility spacing, park-level drive grouping with shed/tag
+breakdowns, one-time batching holds, max-2-shots-per-visit selection, and
+Calendar drive-first projection. Later optimization can improve
+route/resource scoring and large-scale incremental replanning. Separately, V1 itself must
 not be called complete until the evidence-derived vaccine-animal matrix in §4.0 is
 configured and proven.
 
@@ -694,7 +779,7 @@ Local/dev/test reseed rules:
   reads GoatOS Postgres/projection state only.
 
 ## 9. Source-derived local/dev baseline and later inputs
-- Active V1 matrix baseline: use [source-nuances-rules.md](./source-nuances-rules.md)
+- Active V1 matrix baseline: use [vaccination-rules.md](./vaccination-rules.md)
   for the Config preset and generation contract: ET+TT at 28 and 49 days with
   2 ml, PPR at 112 days, FMD/HS at 84 days, Goat Pox at 140 days to honor
   live-live spacing, plus adult revaccination intervals. The older

@@ -532,7 +532,7 @@ export function LoadWriteActions({
             </div>
           </div>
           <div className="muted small" style={{ marginBottom: 8 }}>
-            {copy(pageContract, "label.phc_handoff_note")}
+            {copy(pageContract, "label.pc_handoff_note")}
           </div>
           <ConfirmSubmitButton className="btn p" message={copy(pageContract, "confirm.accept_intake")} disabled={intakeDisabled} title={intakeBlockReason || undefined}>
             {copy(pageContract, "action.accept_intake")}

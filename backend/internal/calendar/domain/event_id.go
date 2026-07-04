@@ -22,12 +22,12 @@ type DriveTargetCursor struct {
 
 // ParsedDriveEvent describes a calendar drive event_id (real batch or synthetic catch-up).
 type ParsedDriveEvent struct {
-	BatchID   string
-	RuleID    string
-	ShedID    string
-	Catchup   bool
-	DueDay    string // YYYY-MM-DD in drive timezone bucket
-	TenantID  string // for tenant-wide catch-up when shed is absent
+	BatchID  string
+	RuleID   string
+	ShedID   string
+	Catchup  bool
+	DueDay   string // YYYY-MM-DD in drive timezone bucket
+	TenantID string // for tenant-wide catch-up when shed is absent
 }
 
 // ParseDriveEventID accepts batch and catch-up drive calendar event IDs.

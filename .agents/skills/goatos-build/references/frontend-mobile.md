@@ -78,7 +78,7 @@ Current implemented admin-web product routes:
 
 `/calendar` is reopened only for the Preventive Care (PC) Vaccination due-work slice. It must use
 the generic `CalendarEvent` summary contract, vaccination-specific detail drawer,
-generated backend clients, active owner pills `all`, `phc`, `inventory`, and
+generated backend clients, active owner pills `all`, `pc`, `inventory`, and
 `admin_data_ops`, and the mock Calendar/drawer UI treatment. Keep primary nav,
 mock-fidelity scan coverage, and `smoke:visual:live` coverage in sync with the
 route. Do not show live all-domain Calendar content.

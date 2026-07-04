@@ -16,8 +16,8 @@ The goat journey can start before park arrival:
 
 ```text
 purchase/source
-  -> supplier / holding farm warmup (purpose-specific: breeding 45-70 days
-     today; fattening/non-breeding can be 0 days or around 2 weeks)
+  -> procurement holding-park warmup (4-5 weeks near the buying region; source
+     purpose remains context, not a separate trusted-vaccination clock)
   -> source-side tagging and warmup may happen before final accepted intake
   -> tagging + health SOP
   -> accept/reject before truck loading
@@ -111,9 +111,9 @@ The goat journey can start before park arrival:
 
 ```text
 purchase/source
-  -> supplier / holding farm warmup by purpose
-     breeding: 45-70 days is realistic today
-     fattening / non-breeding: 0 days or around 2 weeks can happen
+  -> procurement holding-park warmup
+     V1 governed holding: 4-5 weeks near the buying region
+     source purpose remains context, not a separate trusted-vaccination clock
   -> source-side tagging/warmup may happen before final accepted intake
   -> tagging + health SOP
   -> accept/reject before truck loading
@@ -514,8 +514,8 @@ Do not call frontend done until:
 
 ```text
 visible IA makes clear goat journey starts at purchase/source
-purpose-specific source warmup does not look anomalous or invalid:
-  breeding 45-70 days, fattening/non-breeding 0 days or around 2 weeks
+procurement holding-park warmup does not look anomalous or invalid:
+  4-5 week governed holding near the buying region; source purpose retained as context
 pre-dispatch rejected goats are visible as procurement history, not Preventive Care (PC) work
 arrival gate is a distinct checkpoint before accepted herd intake
 all data comes from generated backend contracts

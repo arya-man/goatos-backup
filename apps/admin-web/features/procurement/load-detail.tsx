@@ -18,7 +18,7 @@ import type {
   ProcurementHoldingStay,
   ProcurementLoadDetail,
   ProcurementLoadGoat,
-  ProcurementPHCHandoff,
+  ProcurementPCHandoff,
   ProcurementSourceHealthCheck,
   ProcurementTimelineEvent,
   ProcurementTransitHandoff,
@@ -214,10 +214,10 @@ function GoatRows({ goats, pageContract }: { goats: ProcurementLoadGoat[]; pageC
                     <td>
                       {accepted && goat.goat_id ? (
                         <Link href={`/goats/${encodeURIComponent(goat.goat_id)}`} className="lk small">
-                          {copy(pageContract, "action.phc_passport")} →
+                          {copy(pageContract, "action.pc_passport")} →
                         </Link>
                       ) : historyOnly ? (
-                        <span className="muted small">{copy(pageContract, "label.procurement_history_no_phc")}</span>
+                        <span className="muted small">{copy(pageContract, "label.procurement_history_no_pc")}</span>
                       ) : (
                         <span className="muted small">{copy(pageContract, "label.in_source_entry")}</span>
                       )}
@@ -470,19 +470,19 @@ function HealthCard({ checks, pageContract }: { checks: ProcurementSourceHealthC
   );
 }
 
-function HandoffCard({ handoffs, pageContract }: { handoffs: ProcurementPHCHandoff[]; pageContract: AdminUiPageContract }) {
+function HandoffCard({ handoffs, pageContract }: { handoffs: ProcurementPCHandoff[]; pageContract: AdminUiPageContract }) {
   if (handoffs.length === 0) return null;
-  const labels = tableLabels(pageContract, "phc-handoffs");
+  const labels = tableLabels(pageContract, "pc-handoffs");
   return (
     <section className="card" style={{ marginBottom: 16 }}>
       <div className="hd">
         <PackageCheck className="ic" style={{ color: "var(--brand-d)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.phc_handoffs.title")}</h3>
+        <h3>{copy(pageContract, "section.pc_handoffs.title")}</h3>
         <Tag tone="ok">{handoffs.length}</Tag>
         <div className="sp" style={{ flex: 1 }} />
-        <span className="muted small">{copy(pageContract, "section.phc_handoffs.note")}</span>
+        <span className="muted small">{copy(pageContract, "section.pc_handoffs.note")}</span>
       </div>
-      <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.phc_handoffs.title")}>
+      <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.pc_handoffs.title")}>
         <table>
           <thead>
             <tr>
@@ -566,7 +566,7 @@ export async function ProcurementLoadDetailPage({
   const transitHandoffs = detail.transit_handoffs ?? [];
   const holdingStays = detail.holding_stays ?? [];
   const sourceHealthChecks = detail.source_health_checks ?? [];
-  const phcHandoffs = detail.phc_handoffs ?? [];
+  const pcHandoffs = detail.pc_handoffs ?? [];
   const timeline = detail.timeline ?? [];
   const sourceParty = load.source_party_name || shortId(load.source_party_id);
   const sourceLocation = load.source_location_name || load.source_location_code || null;
@@ -640,7 +640,7 @@ export async function ProcurementLoadDetailPage({
       <TransitCard handoffs={transitHandoffs} pageContract={pageContract} />
       <HoldingCard stays={holdingStays} pageContract={pageContract} />
       <HealthCard checks={sourceHealthChecks} pageContract={pageContract} />
-      <HandoffCard handoffs={phcHandoffs} pageContract={pageContract} />
+      <HandoffCard handoffs={pcHandoffs} pageContract={pageContract} />
       <TimelineCard events={timeline} pageContract={pageContract} />
     </div>
   );

@@ -15,7 +15,7 @@ const (
 
 const (
 	OwnerAll          = "all"
-	OwnerPHC          = "phc"
+	OwnerPC           = "pc"
 	OwnerInventory    = "inventory"
 	OwnerAdminDataOps = "admin_data_ops"
 )
@@ -54,7 +54,7 @@ const (
 	EventVaccineStockReadiness             = "vaccine_stock_readiness"
 	EventVaccineColdChainCheck             = "vaccine_cold_chain_check"
 	EventVaccineReorderExpiryGRN           = "vaccine_reorder_expiry_grn"
-	EventPHCStockAntiMisuse                = "phc_stock_anti_misuse"
+	EventPCStockAntiMisuse                 = "pc_stock_anti_misuse"
 	EventVaccinationConfigActivationReview = "vaccination_config_activation_review"
 )
 
@@ -207,12 +207,13 @@ type CalendarEventDetail struct {
 }
 
 type CalendarDriveTarget struct {
-	ObligationID string    `json:"obligation_id"`
-	GoatID       string    `json:"goat_id"`
-	RFID         *string   `json:"rfid"`
-	Stage        *string   `json:"stage"`
-	Status       string    `json:"status"`
-	DueAt        time.Time `json:"due_at"`
+	ObligationID      string    `json:"obligation_id"`
+	AnimalID          string    `json:"animal_id"`
+	AnimalIdentifier1 *string   `json:"animal_identifier_1"`
+	AnimalIdentifier2 *string   `json:"animal_identifier_2"`
+	Stage             *string   `json:"stage"`
+	Status            string    `json:"status"`
+	DueAt             time.Time `json:"due_at"`
 }
 
 type CalendarDriveTargetListResponse struct {

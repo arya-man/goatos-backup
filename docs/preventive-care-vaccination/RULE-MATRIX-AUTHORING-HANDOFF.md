@@ -18,7 +18,7 @@ Wrong direction:
 
 ```json
 {
-  "goat_herd_required_fields": [
+  "embedded_herd_animal_field_checklist": [
     "species",
     "breed",
     "sex",
@@ -60,7 +60,7 @@ canonical `herd_animals` / `animal_id`, not goat-only physical storage.
 | Per-animal due state | `obligation_instances` from `000074` |
 | Shed drive / grouped work | `obligation_batches` from `000074` |
 | Accepted vaccination history | `vaccination_completions` from `000075` |
-| Procurement accepted intake and warm-up/history evidence | `procurement_phc_handoffs`, `procurement_hf_vaccination_evidence` |
+| Procurement accepted intake and warm-up/history evidence | `procurement_pc_handoffs`, `procurement_hf_vaccination_evidence` |
 
 ## 3. Required DB direction
 
@@ -254,8 +254,8 @@ matrix cells inside the selected active version.
 7. Impact preview: affected animals, deferred animals, excluded animals, due rows,
    catch-up rows, stock estimate, batch estimate, missing data blockers, open
    obligations to supersede, and in-progress batches requiring review.
-8. JSON rail: shows `rule_dsl` only. It must not show animal rows or a
-   `goat_herd_required_fields` list.
+8. JSON rail: shows `rule_dsl` only. It must not show animal rows or an
+   embedded herd-animal field checklist.
 
 ### Matrix behavior
 
@@ -289,9 +289,14 @@ Context:
 - Each park has at most one active park override.
 - A park override excludes only that park from the company version.
 - Rule JSON stores policy only. Herd-animal fields come from DB facts and must
-  not appear as goat_herd_required_fields in the JSON.
+  not appear as an embedded required-fields list in the JSON.
 - Herd animals are mixed-species. Goat and sheep can share the same shed/tag;
   species is a selector inside the matrix, not a separate product tab.
+- Drive planning is park-level optimization, not one tiny drive per shed. Config
+  and preview must show the combined doctor-visit target plus per-shed/tag
+  counts. Compatible kid goat+sheep groups may be combined; adult goat and adult
+  sheep work must remain species-specific execution groups inside the same park
+  visit.
 
 UI requirements:
 - First screen is the scoped ruleset list.
@@ -318,10 +323,11 @@ UI requirements:
 - Do not make "Who qualifies" a single category picker or a goat-only tab. It
   must allow all dimensions together so species x breed x shed tag x vaccine x
   reproductive/health state permutations can be represented.
-- Do not create a category, selector, tab, seed row, or UI option based on
-  mother vaccination-status. The V1 business policy assumes mothers are kept
-  vaccinated; missing evidence becomes catch-up/review work on the normal
-  adult/mother tag.
+- Do not create a category, selector, tab, seed row, API field, import prompt,
+  fallback schedule, or UI option based on mother vaccination status. The V1
+  business policy assumes mothers are kept vaccinated; missing, unknown, or
+  not-vaccinated mother evidence is ignored for scheduling and the approved
+  standard kid schedule is always used.
 - Treat `mother`/`lactating` as biological state that can apply to goat and
   sheep mothers for vaccination. Treat `Mother Milking Waiting`,
   `Milking Warmup`, and `Milking` as commercial goat-milk workflow tags; do not
@@ -424,7 +430,7 @@ This audit/version data is table metadata, not rule-policy JSON:
 ### 7.2 `rule_dsl` policy JSON
 
 This is the JSON policy stored in `protocol_versions.rule_dsl`. It has no animal
-snapshots and no `goat_herd_required_fields`.
+snapshots and no embedded herd-animal field checklist.
 
 Hard validation rules for this sample and the production schema:
 
@@ -500,8 +506,8 @@ Hard validation rules for this sample and the production schema:
       "BUCK": ["male"]
     },
     "health_states": ["healthy", "recovering", "sick", "under_treatment", "quarantine", "icu"],
-    "reproductive_states": ["non_pregnant", "pregnant", "lactating", "mother", "buck", "unknown"],
-    "procurement_paths": ["farm_born", "procured", "imported", "unknown"]
+    "reproductive_states": ["non_pregnant", "pregnant", "lactating", "mother", "buck"],
+    "procurement_paths": ["farm_born", "procured", "imported"]
   },
   "vaccine_catalog": [
     {
@@ -604,8 +610,8 @@ Hard validation rules for this sample and the production schema:
         },
         "lifecycle_status": ["alive"],
         "health_status": ["healthy", "recovering"],
-        "reproductive_status": ["non_pregnant", "unknown"],
-        "procurement_path": ["farm_born", "procured", "imported", "unknown"]
+        "reproductive_status": ["non_pregnant"],
+        "procurement_path": ["farm_born", "procured", "imported"]
       }
     },
     {
@@ -622,8 +628,8 @@ Hard validation rules for this sample and the production schema:
         },
         "lifecycle_status": ["alive"],
         "health_status": ["healthy", "recovering"],
-        "reproductive_status": ["non_pregnant", "unknown"],
-        "procurement_path": ["farm_born", "procured", "imported", "unknown"]
+        "reproductive_status": ["non_pregnant"],
+        "procurement_path": ["farm_born", "procured", "imported"]
       }
     },
     {
@@ -640,8 +646,8 @@ Hard validation rules for this sample and the production schema:
         },
         "lifecycle_status": ["alive"],
         "health_status": ["healthy", "recovering"],
-        "reproductive_status": ["non_pregnant", "unknown"],
-        "procurement_path": ["farm_born", "procured", "imported", "unknown"]
+        "reproductive_status": ["non_pregnant"],
+        "procurement_path": ["farm_born", "procured", "imported"]
       }
     },
     {
@@ -658,8 +664,8 @@ Hard validation rules for this sample and the production schema:
         },
         "lifecycle_status": ["alive"],
         "health_status": ["healthy", "recovering"],
-        "reproductive_status": ["non_pregnant", "pregnant", "lactating", "mother", "unknown"],
-        "procurement_path": ["farm_born", "procured", "imported", "unknown"]
+        "reproductive_status": ["non_pregnant", "pregnant", "lactating", "mother"],
+        "procurement_path": ["farm_born", "procured", "imported"]
       }
     },
     {
@@ -676,8 +682,8 @@ Hard validation rules for this sample and the production schema:
         },
         "lifecycle_status": ["alive"],
         "health_status": ["healthy", "recovering"],
-        "reproductive_status": ["buck", "unknown"],
-        "procurement_path": ["farm_born", "procured", "imported", "unknown"]
+        "reproductive_status": ["buck"],
+        "procurement_path": ["farm_born", "procured", "imported"]
       }
     },
     {
@@ -694,8 +700,8 @@ Hard validation rules for this sample and the production schema:
         },
         "lifecycle_status": ["alive"],
         "health_status": ["healthy", "recovering"],
-        "reproductive_status": ["non_pregnant", "pregnant", "lactating", "mother", "unknown"],
-        "procurement_path": ["farm_born", "procured", "imported", "unknown"]
+        "reproductive_status": ["non_pregnant", "pregnant", "lactating", "mother"],
+        "procurement_path": ["farm_born", "procured", "imported"]
       }
     },
     {
@@ -712,8 +718,8 @@ Hard validation rules for this sample and the production schema:
         },
         "lifecycle_status": ["alive"],
         "health_status": ["healthy", "recovering"],
-        "reproductive_status": ["buck", "unknown"],
-        "procurement_path": ["farm_born", "procured", "imported", "unknown"]
+        "reproductive_status": ["buck"],
+        "procurement_path": ["farm_born", "procured", "imported"]
       }
     },
     {
@@ -730,8 +736,8 @@ Hard validation rules for this sample and the production schema:
         },
         "lifecycle_status": ["alive"],
         "health_status": ["healthy", "recovering"],
-        "reproductive_status": ["lactating", "mother", "unknown"],
-        "procurement_path": ["farm_born", "procured", "imported", "unknown"]
+        "reproductive_status": ["lactating", "mother"],
+        "procurement_path": ["farm_born", "procured", "imported"]
       }
     },
     {
@@ -1229,7 +1235,7 @@ Hard validation rules for this sample and the production schema:
       "second_wave_after_days": 28,
       "second_wave_vaccines_by_species": {
         "goat": ["GOAT_POX", "ET_TT"],
-        "sheep": ["SHEEP_POX", "BLUE_TONGUE"]
+        "sheep": ["ET_TT", "SHEEP_POX"]
       }
     },
     "reproductive": {

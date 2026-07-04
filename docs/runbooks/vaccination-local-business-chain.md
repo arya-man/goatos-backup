@@ -9,7 +9,7 @@ captured Goal 1 end-to-end local run (CLOSED locally, 2026-06-29).
 The standalone `vaccination-chain-proof.sh` script is data-plane/API proof. The
 Goal 1 smoke path now wraps it with the procurement negative matrix and browser
 visual/click checks through `tools/dev/admin-web-e2e-smoke.sh`. Logging-only
-outbox publish does NOT count as delivery. `procurement_phc_handoffs.event_status
+outbox publish does NOT count as delivery. `procurement_pc_handoffs.event_status
 = emitted` means "outbox enqueued", not "downstream generation/read-models
 succeeded", unless a real downstream reconciliation signal is added.
 
@@ -98,7 +98,7 @@ Per-segment behavior is covered by passing integration tests against local PG:
 
 - goat.created delivered to generation handler: `TestGoatCreatedHandlerGeneratesViaBus`.
 - generation idempotent + defer visible: `TestSM1GenerationIdempotentAndDeferVisible`.
-- trusted HF evidence suppresses matching dose (no double-dose):
+- trusted procurement holding-park evidence suppresses matching dose (no double-dose):
   `TestGoatCreatedTrustedHFEvidenceSuppressesMatchingObligation`.
 - shift/cancel re-scope and cancel open obligations: `TestSM2ShiftReScopesOpenObligations`,
   `TestSM3CancelOpenForGoat`.

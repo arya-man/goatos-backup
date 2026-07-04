@@ -14,8 +14,9 @@ import (
 const calendarDriveTargetsSQL = `
 SELECT
   oi.obligation_id::text,
-  oi.target_id::text AS goat_id,
-  rfid.identifier_value AS rfid,
+  oi.target_id::text AS animal_id,
+  aid1.identifier_value AS animal_identifier_1,
+  aid2.identifier_value AS animal_identifier_2,
   g.management_stage AS stage,
   oi.status,
   oi.due_at
@@ -24,11 +25,16 @@ JOIN goats g
   ON g.tenant_id = oi.tenant_id
  AND g.goat_id = oi.target_id
  AND oi.target_type = 'goat'
-LEFT JOIN goat_identifiers rfid
-  ON rfid.tenant_id = g.tenant_id
- AND rfid.goat_id = g.goat_id
- AND rfid.identifier_type = 'rfid'
- AND rfid.status = 'active'
+LEFT JOIN goat_identifiers aid1
+  ON aid1.tenant_id = g.tenant_id
+ AND aid1.goat_id = g.goat_id
+ AND aid1.identifier_type = 'animal_identifier_1'
+ AND aid1.status = 'active'
+LEFT JOIN goat_identifiers aid2
+  ON aid2.tenant_id = g.tenant_id
+ AND aid2.goat_id = g.goat_id
+ AND aid2.identifier_type = 'animal_identifier_2'
+ AND aid2.status = 'active'
 LEFT JOIN locations scope_loc
   ON scope_loc.tenant_id = oi.tenant_id
  AND scope_loc.location_id = oi.scope_id
@@ -120,12 +126,14 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 	items := make([]domain.CalendarDriveTarget, 0, limit)
 	for rows.Next() {
 		var item domain.CalendarDriveTarget
-		var rfid pgtype.Text
+		var animalIdentifier1 pgtype.Text
+		var animalIdentifier2 pgtype.Text
 		var stage pgtype.Text
-		if err := rows.Scan(&item.ObligationID, &item.GoatID, &rfid, &stage, &item.Status, &item.DueAt); err != nil {
+		if err := rows.Scan(&item.ObligationID, &item.AnimalID, &animalIdentifier1, &animalIdentifier2, &stage, &item.Status, &item.DueAt); err != nil {
 			return domain.CalendarDriveTargetListResponse{}, fmt.Errorf("calendar: scan drive target: %w", err)
 		}
-		item.RFID = textPtr(rfid)
+		item.AnimalIdentifier1 = textPtr(animalIdentifier1)
+		item.AnimalIdentifier2 = textPtr(animalIdentifier2)
 		item.Stage = textPtr(stage)
 		items = append(items, item)
 	}

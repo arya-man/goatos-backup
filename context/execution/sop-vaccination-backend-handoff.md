@@ -620,7 +620,7 @@ End-to-end proof
 
 Docs closeout
   [ ] Update this handoff if implementation changes the truth.
-  [ ] Update context/forms/protocol/phc docs only when behavior differs from
+  [ ] Update context/forms/protocol/pc docs only when behavior differs from
       the current docs.
   [ ] Do not mark Vaccination done until SOP/proof/verification/completion is
       end-to-end.
