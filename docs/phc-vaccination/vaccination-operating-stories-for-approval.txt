@@ -1,0 +1,332 @@
+PHC VACCINATION IN GOAT OS
+Operating Stories for Manager Approval
+
+Document purpose
+This document explains how vaccination scheduling and shed drives work in Goat OS,
+written as real farm situations. It is meant for PHC and operations leadership to
+read, challenge, and approve before we rely on the system in staging or
+production.
+
+What we are not doing
+We are not picking a shed and vaccinating every animal inside it on one day
+without checking what each animal actually needs. That was the old risk. Goat OS
+works differently: each animal gets its own due doses first; only then does the
+system group safe, eligible work into shed drives.
+
+
+================================================================================
+PART ONE — THE NORMAL LIFE OF A FARM-BORN KID
+================================================================================
+
+A kid is born in Shed 12 on your farm.
+
+When the kid is registered in Goat OS, the system records that it was born here,
+not bought from outside. It uses the date of birth to work out when each vaccine
+is due. If we do not know whether the mother was vaccinated, we treat the mother
+as vaccinated and use the later kid timings (for example PPR around sixteen weeks,
+not four weeks). That is the policy we are asking you to confirm.
+
+The first dose due is usually ET+TT, around four weeks of age. The system creates
+a piece of work for that kid: "this animal owes ET+TT primary by this date." That
+work shows on the goat's passport, on protocol adherence, and on the calendar
+when the date is near. Nothing is given automatically; the system only plans and
+tracks.
+
+Three weeks after the first ET+TT is accepted, the booster is due. When PHC or
+the operator records the first dose and verification accepts it, the system
+schedules the booster itself. Nobody has to remember to add the next date by hand.
+
+The kid then moves through the series in order: PPR, pox (goat pox for goats,
+sheep pox for sheep), and later FMD and HS when those rows become due. Live
+vaccines are not squeezed together if the gap rules would be broken. For example,
+if PPR was given recently, goat pox may be pushed to a later week so the four-week
+live-to-live gap is respected.
+
+When FMD and HS are both due in the same window, the system tries to plan them
+for the same shed visit. They are still two vaccine products, and we never put
+more than two vaccines on one combo visit.
+
+As the kid grows up and finishes the young-animal series, adult repeat doses take
+over: ET+TT every six months, FMD every nine months, and so on, based on the
+published rules in Config. Each repeat is triggered from the last accepted dose,
+not from birth again.
+
+
+================================================================================
+PART TWO — WHEN A SHED DRIVE HAPPENS (AND WHO IS ON IT)
+================================================================================
+
+Several kids in Shed 12 are due for PPR in the same week. They are healthy, not
+in warming, not in ICU, and not in late pregnancy. Their work is open and due.
+
+Overnight or on schedule, the system runs a planning pass for vaccination drives.
+It looks only at animals whose work is due or scheduled, not on hold. It groups
+goats in the same shed that need the same vaccine in the same time window. Goats
+and sheep are never mixed in one drive even if they share a shed.
+
+If Shed 12 has enough animals, one PPR drive is created for that shed. A date is
+picked inside the medical window. Vaccine stock is reserved using first-expiry
+first-out. A vaccination SOP task is opened for the shed team.
+
+On drive day, the operator sees the list of goats on that task, gives PPR to
+each, records doses and proof. PHC verifies. Each accepted dose closes that
+goat's PPR obligation and the system plans what comes next for that animal
+individually.
+
+If Shed 12 has only one goat due and another shed in the same park also has only
+one goat due for the same vaccine, the system may combine them into one park-level
+visit instead of sending a truck for a single animal. If no combination is
+possible, a small drive still runs for that one goat so it is not forgotten.
+
+Animals on hold never appear on a drive list until the hold is cleared and their
+work is reopened.
+
+
+================================================================================
+PART THREE — A YOUNG ANIMAL BOUGHT FROM OUTSIDE
+================================================================================
+
+A ten-week-old kid arrives on a procurement load.
+
+The system marks it as procured, not farm-born. Because it is under sixteen weeks,
+it still follows the full kid schedule from date of birth, not the short adult
+intake schedule. That matters: young purchases are not treated like mature adults.
+
+For the first seven days after arrival, warming applies. No vaccination is
+planned or executed, even if someone says the animal was vaccinated at the
+source farm. Work shows as on hold for warming. After day seven, normal kid
+scheduling continues.
+
+If trusted records show ET+TT was already given at source with proper evidence,
+the system does not create a duplicate ET+TT obligation. It moves on to the next
+missing step in the series. If the source notes are not trusted, the intake
+schedule applies and PHC may need to review catch-up.
+
+
+================================================================================
+PART FOUR — AN ADULT ANIMAL BOUGHT FROM OUTSIDE
+================================================================================
+
+A two-year-old breeding goat arrives.
+
+It is past the kid cutoff, so it enters the adult procurement path. After the
+seven-day warming hold, the first intake step is ET+TT and PPR together (two
+products, one visit). Four weeks later, goat pox and ET+TT booster are due
+together where the rules allow. FMD and HS follow on their repeat cycles.
+
+This animal does not go back through the week-by-week kid table. That is
+intentional: adults are on the shorter arrival schedule.
+
+
+================================================================================
+PART FIVE — WHEN HEALTH STOPS VACCINATION FOR A WHILE
+================================================================================
+
+A kid in Shed 12 is due for a booster next week. Before drive day, the animal
+becomes sick.
+
+The health status is updated in Goat OS. The system rechecks that goat. Open
+vaccination work is put on hold with a clear reason: sick. The goat drops off the
+drive list. Calendar and adherence show deferred work, not a silent skip.
+
+A week later the kid recovers. Health is updated again. The system reopens the
+held work. If another drive in that shed is planned within about seven days, the
+goat can be aligned to that visit. If not, work becomes due immediately so a
+small drive can be planned and the animal is not left waiting indefinitely.
+
+The same pattern applies for ICU, quarantine, under treatment, and for animals
+moved into ICU or quarantine sheds: hold while the risk applies, reopen when the
+farm confirms recovery or move back to normal care.
+
+
+================================================================================
+PART SIX — PREGNANCY AND AFTER KIDDING
+================================================================================
+
+A female on the farm becomes pregnant while she still has open vaccination work.
+
+In months one to three, vaccination can continue if she is otherwise healthy and
+eligible. In months four and five, doses that would fall in that window are held
+for late pregnancy. The hold is visible on adherence.
+
+After she kids, there is a short catch-up window (two weeks in the current rules)
+when missed doses from the pregnancy hold can be brought forward. After that
+window, scheduling returns to normal for her stage.
+
+If breeding date is missing, pregnancy month may show as needing review until
+data is complete.
+
+
+================================================================================
+PART SEVEN — SHEEP IN THE SAME SHED AS GOATS
+================================================================================
+
+Shed 15 has goats and sheep. Both groups have work due in the same week.
+
+The system plans separate drives by species. Goats due for PPR get a goat drive;
+sheep due for PPR get a sheep drive. Sheep follow their own matrix including Blue
+Tongue and combinations that differ from goats. Operators may visit the same shed
+twice or run two product lines on the same day, but the system never merges goat
+and sheep into one vaccination batch.
+
+
+================================================================================
+PART EIGHT — WHEN DATA IS MISSING
+================================================================================
+
+A kid is registered without a date of birth.
+
+The system cannot place birth-based doses on a calendar. Work is held with a
+visible reason: missing date of birth. Nothing is silently skipped. When DOB is
+added later, the hold is cleared and real due dates are generated.
+
+An adult arrives without a reliable entry or warming date.
+
+The same idea applies: hold with missing arrival information until intake data
+is fixed, then the adult procurement schedule can run.
+
+
+================================================================================
+PART NINE — LATE DOSES AND PHC REVIEW
+================================================================================
+
+A dose window passes and the animal was sick, or the drive was missed.
+
+Depending on the rule, the system may flag catch-up for PHC approval rather than
+automatically injecting on the next day. Adherence shows why it is late. PHC can
+approve the catch-up path. The system avoids dumping every missed primary from
+months ago onto the animal in one shot; it uses a controlled catch-up approach.
+
+
+================================================================================
+PART TEN — MOVING SHEDS, LEAVING THE FARM, AND RULE CHANGES
+================================================================================
+
+A goat is moved from Shed 12 to Shed 18 while PPR is still due.
+
+Open vaccination work moves with the goat. The next drive is planned under Shed
+18, not the old shed.
+
+If the goat is sold, dies, or leaves the herd, new doses are not created. Open
+work is closed appropriately. History of completed doses remains for audit.
+
+When leadership publishes a new vaccination rule version in Config, animals
+already in the herd are rechecked against the new rules. Work tied to old versions
+is handled according to version policy; completed history stays tied to the
+version that created it.
+
+
+================================================================================
+PART ELEVEN — MANUAL CAMPAIGNS
+================================================================================
+
+PHC runs a special campaign after an outbreak or audit.
+
+That is separate from the day-to-day clock. An approved campaign can create
+extra work for a defined group without changing the base matrix for every animal
+on the farm. Normal scheduling continues alongside for everyone else.
+
+
+================================================================================
+PART TWELVE — WHAT THE SYSTEM DOES NOT DO TODAY
+================================================================================
+
+Please read this section carefully before sign-off.
+
+The system does not run a second medical check on every goat at the exact moment
+a drive is built. Holds must be correct in health and location data before the
+planning pass. If a goat is marked healthy but is actually sick on the ground,
+operations discipline still matters.
+
+The system does not use vaccine expiry to pick the drive date. Expiry is handled
+when stock is reserved (first expiry first out), not when choosing which Tuesday
+to visit the shed.
+
+We do not support the early kid schedule for "mother not vaccinated" in this
+release. Unknown mother is treated as vaccinated.
+
+Combo visits align the same date for two products (for example FMD and HS) but may
+still show as separate product tasks in the system, even though the team does one
+visit.
+
+The full vaccine matrix must be published in Config for each environment. Presets
+exist; someone with authority must publish the rules before animals get real due
+dates.
+
+
+================================================================================
+PART THIRTEEN — RULES WE ARE ASKING YOU TO APPROVE
+================================================================================
+
+Please confirm these operating choices:
+
+1. Each animal is scheduled individually before any shed drive is planned.
+
+2. Mother unknown means use the mother-vaccinated (later) kid timings.
+
+3. Maximum two vaccine products on one combo visit, never three.
+
+4. Goats and sheep in the same shed get separate drives.
+
+5. Seven days warming after arrival with no vaccination.
+
+6. Sick, ICU, and quarantine mean hold until cleared, visible in adherence.
+
+7. Pregnancy months four and five hold; catch up within two weeks after delivery.
+
+8. Procured adults use the short intake schedule, not the full kid week table.
+
+9. Trusted source vaccination can skip duplicates; warming still applies.
+
+10. Small sheds may merge at park level; lone animals still get a drive eventually.
+
+11. Combo visits may share a date but appear as separate product tasks — acceptable
+    if the team still does one physical visit.
+
+12. Drive planning does not score by vial expiry — acceptable if FEFO at reserve
+    is enough for operations.
+
+
+================================================================================
+PART FOURTEEN — SIGN-OFF
+================================================================================
+
+PHC / Veterinary lead
+
+Name:
+Date:
+Approved (yes / no):
+Comments:
+
+
+Operations lead
+
+Name:
+Date:
+Approved (yes / no):
+Comments:
+
+
+Product / COO
+
+Name:
+Date:
+Approved (yes / no):
+Comments:
+
+
+================================================================================
+PART FIFTEEN — SUGGESTED STAGING WALKTHROUGH AFTER APPROVAL
+================================================================================
+
+After sign-off, we recommend walking these six situations on staging with real
+shed names and dates, not only reading this document:
+
+1. Farm-born kid from first ET+TT through first FMD+HS visit.
+2. Procured adult after warming through day-zero and week-four waves.
+3. One animal sick between doses, then recovered and driven.
+4. One singleton shed and whether park merge or small drive happens.
+5. One mixed goat-and-sheep shed with two separate drives.
+6. One late dose showing PHC review or catch-up.
+
+

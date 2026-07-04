@@ -1,0 +1,193 @@
+PHC VACCINATION SCHEDULING — SUMMARY FOR REVIEW
+=================================================
+
+THE PROBLEM
+-----------
+We cannot pick a shed and vaccinate everyone who is "due."
+Each goat/sheep needs the right vaccine, at the right time, in the right order.
+Only after that can we group safe doses into a shed drive.
+
+
+HOW IT WORKS (2 STEPS)
+----------------------
+STEP 1 — Per animal: "What dose does THIS animal need, and when?"
+STEP 2 — Per shed: "Which of those doses can safely be done together on one day?"
+
+Step 2 never runs without Step 1.
+
+
+FIRST: CLASSIFY THE ANIMAL
+--------------------------
+Species     Goat or Sheep (different vaccines)
+Path        Farm-born kid | Procured kid (≤16 weeks) | Procured adult
+State       Normal | Warming (first 7 days) | ICU/Quarantine | Pregnant
+
+Rules by path:
+  Kids (born or procured young)  → full age-based schedule (strict)
+  Adults (procured)              → shorter intake schedule at arrival
+  Breeding/fattening adults      → can vaccinate at source/procurement
+
+
+VACCINES
+--------
+GOATS:  ET+TT, PPR, Goat Pox, FMD, HS
+SHEEP:  ET+TT, PPR, Blue Tongue, Sheep Pox, FMD, HS
+
+Kid timing depends on: was the MOTHER vaccinated? (yes = later doses, no = earlier)
+
+
+KID SCHEDULE (simplified)
+-------------------------
+GOAT KIDS — in order:
+  1. ET+TT
+  2. ET+TT booster (3 weeks later)
+  3. PPR
+  4. Goat Pox
+  5. FMD + HS (same day OK)
+
+SHEEP KIDS — in order:
+  1. ET+TT
+  2. ET+TT booster (3 weeks later)
+  3. PPR + Blue Tongue (same day)
+  4. Sheep Pox + Blue Tongue booster
+  5. FMD + HS (same day OK)
+
+Exact ages (weeks) vary by mother vaccinated or not — see Nuances Rules doc.
+
+
+ADULT PROCUREMENT SCHEDULE
+--------------------------
+Day 0:     ET+TT + PPR (together)
+Week 4:    Goat Pox (goats) or Sheep Pox (sheep) + ET+TT booster
+Later:     FMD + HS on their repeat cycles
+
+Adults do NOT follow the full kid week-by-week table.
+
+
+GAP RULES (minimum wait between vaccines)
+-----------------------------------------
+Live  → Killed     2 weeks
+Killed → Killed    2 weeks
+Live  → Live       4 weeks
+ET+TT → ET+TT booster (kids)     3 weeks
+Procurement step 1 → step 2      4 weeks
+
+CAN combine same day:
+  - bacterial + viral
+  - live viral + killed viral
+  - named combos above (e.g. FMD + HS)
+
+CANNOT combine same day:
+  - two live vaccines if 4-week gap not met
+
+
+OPERATIONAL RULES
+-----------------
+Warming (first 7 days after arrival)     No vaccination — wait
+ICU / Quarantine                         No vaccination
+Pregnancy months 1–3                     OK to vaccinate
+Pregnancy months 4–5                   Skip — catch up within 2 weeks after delivery
+Procured at source                     OK for adults; kids still need full schedule till 16 weeks
+
+
+WHAT WE BUILD IN SOFTWARE
+-------------------------
+1. Rule engine per goat — creates "this animal owes dose X by date Y"
+2. Gap checker — blocks doses too soon after last vaccine
+3. State checker — warming, ICU, pregnancy blocks
+4. Drive planner — only batches doses that are medically safe on the same day
+
+We do NOT: schedule one drive for "everyone in the shed."
+
+
+ALREADY BUILT vs STILL NEEDED
+-----------------------------
+Built:     per-goat due dates, booster chaining, basic shed grouping
+Needed:    full vaccine matrix in config, live/killed gap enforcement,
+           combo rules, mother-vaccinated branch, warming hold,
+           pregnancy month 4–5 rule, adult procurement path
+
+
+PLEASE CONFIRM
+------------------------------
+1. Mother vaccinated unknown — use early schedule or hold for PHC review?
+2. Kid strict schedule — till 16 weeks only?
+3. Live-to-live gap — 4 weeks (as in rules doc)?
+4. Vaccinated at source then warming — 7 days from warming entry or from source dose?
+5. After delivery — all missed doses in 2 weeks, or by priority?
+6. Sheep adults — Blue Tongue booster timing vs pox step?
+7. Untrusted procurement vaccine notes — full catch-up or trust with review?
+8.  Pregnancy month 1–5 — what date starts the clock? (breeding date, scan, status label only?)
+9.  Mother vaccinated — how is it recorded? (dam link, manual PHC flag, dam history?)
+10. Warming entry — which date counts? (farm entry, warming shed move, procurement handoff?)
+11. Kid vs adult — age only, stage only, or both? (e.g. >16 weeks = adult path)
+12. Missed / late doses — catch up now, skip to next cycle, or PHC must approve?
+13. Mixed goat + sheep in one shed — one drive or split by species?
+
+
+
+IMPLEMENTATION — 3 PHASES (what we need from you)
+-------------------------------------------------
+
+PHASE 1 — Per-goat due engine
+  What it does:
+    - For each animal: correct vaccine, dose, and due date
+    - Kid schedule, adult procurement schedule, mother branch, warming/ICU defer
+    - Booster chaining (e.g. ET+TT → booster 3 weeks later)
+
+  Required from you BEFORE Phase 1 starts:
+    [ ] Answers to questions 1–7 (medical rules)
+    [ ] Answers to 8–11 (data sources: pregnancy clock, mother flag, warming date, kid/adult cutoff)
+    [ ] Sign-off on kid week table (mother vaccinated vs not) — Nuances Rules doc
+    [ ] Sign-off on adult procurement steps (ET+TT+PPR → 4wk → Pox+booster)
+    [ ] Confirm species list: goats vs sheep vaccine sets as written above
+
+  Required from you DURING Phase 1 (review):
+    [ ] Sample scenarios: farm-born kid, procured kid, procured adult goat, procured adult sheep
+    [ ] Confirm due dates look right on test animals before we turn on drives
+
+  You get after Phase 1:
+    - Calendar / adherence shows per-goat due doses
+    - No smart combining yet — drives stay simple or manual
+
+
+PHASE 2 — Cross-vaccine safety + safer drives
+  What it does:
+    - Enforces live/killed/killed gaps ACROSS different vaccines (not just within one series)
+    - Blocks or reschedules doses too soon after last vaccine
+    - Shed drives: conservative grouping (compatible doses only; no blind shed-wide drives)
+
+  Required from you BEFORE Phase 2 starts:
+    [ ] Answer 3 confirmed (live-to-live = 4 weeks)
+    [ ] Answer 12 (missed / late dose policy)
+    [ ] Answer 13 (mixed species in one shed)
+    [ ] Sign-off on same-day combos (FMD+HS, PPR+Blue Tongue, etc.)
+
+  Required from you DURING Phase 2 (review):
+    [ ] Real examples: "Animal got PPR last week — should Goat Pox drive include them?" (expect: no)
+    [ ] Confirm drive splits make sense on the ground (ops/PHC walkthrough)
+
+  You get after Phase 2:
+    - System won't batch unsafe vaccine pairs on the same day
+    - Drives are medically safe but not yet fully optimized
+
+
+PHASE 3 — Smart drive planner
+  What it does:
+    - Groups compatible due doses into the best shed drive date
+    - Balances urgency, stock expiry, shed fairness, route efficiency
+    - Full combo-group scheduling (as in PDF bundles)
+
+  Required from you BEFORE Phase 3 starts:
+    [ ] Phase 1 + 2 signed off in production or staging
+    [ ] Priority rules when two drives compete (disease priority, stock expiry, small sheds waiting)
+    [ ] Any ops constraints: max goats per drive, cold-chain time limits, worker capacity
+
+  Required from you DURING Phase 3 (review):
+    [ ] Side-by-side: proposed drive plan vs what PHC would have scheduled manually
+    [ ] Tune thresholds if drives are too split or too merged
+
+  You get after Phase 3:
+    - Optimized shed drives that are safe AND efficient
+    - This is optional for first go-live; Phase 1–2 can ship first
+
