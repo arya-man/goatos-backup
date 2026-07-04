@@ -150,7 +150,12 @@ transcripts (never network) and reports:
   clone-rooted sessions. Claude subagent/workflow transcripts are counted as a
   separate `claude-sub` agent — they are real additional spend (each subagent
   gets its own context window), so they are never folded into the main `claude`
-  line where the cost would be invisible.
+  line where the cost would be invisible. Codex multi-agent orchestration is
+  called out by counting parent-session `spawn_agent` / `wait_agent` /
+  `send_input` / `close_agent` calls. Local Codex JSONL does not expose
+  child-agent token usage as separate transcript files, so Codex token totals
+  remain parent-session totals with spawned agents reported as orchestration,
+  not as separately attributable child spend.
 - **Graph / RTK adoption** — how many sessions and calls actually routed through
   code-review-graph / Graphify / RTK vs bypassing them with raw grep/read/git-diff.
 - **A savings model** — tokens and USD *already banked* (realized) plus the

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 from dataclasses import dataclass
@@ -26,6 +27,13 @@ class SessionStats:
     grep_events: int = 0
     read_events: int = 0
     gitdiff_events: int = 0
+    # Codex multi-agent orchestration is visible in parent transcripts, but
+    # child-agent token usage is not separately exposed in local JSONL.
+    codex_agent_spawns: int = 0
+    codex_agent_waits: int = 0
+    codex_agent_sends: int = 0
+    codex_agent_closes: int = 0
+    codex_agent_resumes: int = 0
 
 
 def load_jsonl(path: Path) -> Iterable[dict]:
@@ -124,12 +132,34 @@ def claude_files(root: Path) -> list[Path]:
     return sorted(set(paths))
 
 
+def iso_day(value: object) -> str:
+    """YYYY-MM-DD from an ISO-8601 timestamp string, else empty."""
+    if not isinstance(value, str) or len(value) < 10:
+        return ""
+    head = value[:10]
+    if head[4] == "-" and head[7] == "-" and head[:4].isdigit() and head[5:7].isdigit() and head[8:10].isdigit():
+        return head
+    return ""
+
+
+def codex_agent_call_kind(name: str) -> str:
+    return {
+        "spawn_agent": "spawns",
+        "wait_agent": "waits",
+        "send_input": "sends",
+        "close_agent": "closes",
+        "resume_agent": "resumes",
+    }.get(name, "")
+
+
 def analyze_codex(path: Path, project: str) -> SessionStats:
     stats = SessionStats(agent="codex", path=path)
     max_total = 0
     saw_incremental = False
     for event in load_jsonl(path):
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if not stats.day:
+            stats.day = iso_day(event.get("timestamp"))
 
         if event.get("type") == "session_meta":
             stats.cwd = str(payload.get("cwd") or "")
@@ -154,6 +184,17 @@ def analyze_codex(path: Path, project: str) -> SessionStats:
             if payload.get("type") == "function_call":
                 stats.tool_events += 1
                 marker = f"{name} {args}"
+                agent_kind = codex_agent_call_kind(name)
+                if agent_kind == "spawns":
+                    stats.codex_agent_spawns += 1
+                elif agent_kind == "waits":
+                    stats.codex_agent_waits += 1
+                elif agent_kind == "sends":
+                    stats.codex_agent_sends += 1
+                elif agent_kind == "closes":
+                    stats.codex_agent_closes += 1
+                elif agent_kind == "resumes":
+                    stats.codex_agent_resumes += 1
                 if is_graph_marker(marker):
                     stats.graph_events += 1
                 if is_rtk_marker(marker):
@@ -178,6 +219,8 @@ def analyze_claude(path: Path, project: str) -> SessionStats:
     stats = SessionStats(agent=agent, path=path)
     seen_usage: set[str] = set()
     for event in load_jsonl(path):
+        if not stats.day:
+            stats.day = iso_day(event.get("timestamp"))
         cwd = event.get("cwd") or event.get("project") or event.get("project_path")
         if isinstance(cwd, str) and cwd:
             stats.cwd = stats.cwd or cwd
@@ -214,8 +257,10 @@ def analyze_claude(path: Path, project: str) -> SessionStats:
 
 
 def session_day(path: Path) -> str:
-    """Best-effort YYYY-MM-DD for a session: from a Codex YYYY/MM/DD path segment,
-    else the file's modification date. Empty string if neither is available."""
+    """Fallback YYYY-MM-DD when a transcript carried no event timestamp: from a
+    Codex YYYY/MM/DD path segment, else the file's modification date (last resort
+    only — mtime can be wrong if a transcript was copied/reindexed). Empty if
+    neither is available."""
     parts = path.parts
     for i in range(len(parts) - 2):
         y, m, d = parts[i], parts[i + 1], parts[i + 2]
@@ -231,13 +276,14 @@ def session_day(path: Path) -> str:
 
 def print_table(rows: list[SessionStats], limit: int) -> None:
     shown = rows[:limit]
-    print("agent  tokens      graph  rtk  tools  transcript")
-    print("-----  ----------  -----  ---  -----  ----------")
+    print("agent      tokens      graph  rtk  tools  spawns  transcript")
+    print("---------  ----------  -----  ---  -----  ------  ----------")
     for row in shown:
         rel = str(row.path).replace(str(Path.home()), "~")
         print(
-            f"{row.agent:<5}  {row.tokens:>10,}  {row.graph_events:>5}  "
-            f"{row.rtk_events:>3}  {row.tool_events:>5}  {rel}"
+            f"{row.agent:<9}  {row.tokens:>10,}  {row.graph_events:>5}  "
+            f"{row.rtk_events:>3}  {row.tool_events:>5}  "
+            f"{row.codex_agent_spawns:>6}  {rel}"
         )
 
 
@@ -247,7 +293,20 @@ def agent_summary(rows: list[SessionStats]) -> dict[str, dict[str, int]]:
     for row in rows:
         acc = summary.setdefault(
             row.agent,
-            {"sessions": 0, "tokens": 0, "graph": 0, "rtk": 0, "tools": 0, "graph_sessions": 0, "rtk_sessions": 0},
+            {
+                "sessions": 0,
+                "tokens": 0,
+                "graph": 0,
+                "rtk": 0,
+                "tools": 0,
+                "graph_sessions": 0,
+                "rtk_sessions": 0,
+                "codex_spawns": 0,
+                "codex_waits": 0,
+                "codex_sends": 0,
+                "codex_closes": 0,
+                "codex_resumes": 0,
+            },
         )
         acc["sessions"] += 1
         acc["tokens"] += row.tokens
@@ -256,6 +315,11 @@ def agent_summary(rows: list[SessionStats]) -> dict[str, dict[str, int]]:
         acc["tools"] += row.tool_events
         acc["graph_sessions"] += 1 if row.graph_events else 0
         acc["rtk_sessions"] += 1 if row.rtk_events else 0
+        acc["codex_spawns"] += row.codex_agent_spawns
+        acc["codex_waits"] += row.codex_agent_waits
+        acc["codex_sends"] += row.codex_agent_sends
+        acc["codex_closes"] += row.codex_agent_closes
+        acc["codex_resumes"] += row.codex_agent_resumes
     return summary
 
 
@@ -329,14 +393,30 @@ def print_savings(m: dict[str, float]) -> None:
 def print_agent_summary(summary: dict[str, dict[str, int]]) -> None:
     print()
     print("PER-AGENT TOTALS (all sessions)")
-    print("agent  sessions  tokens          graph_calls  rtk_calls  tools   graph_sess  rtk_sess")
-    print("-----  --------  --------------  -----------  ---------  ------  ----------  --------")
+    print("agent      sessions  tokens          graph_calls  rtk_calls  tools   spawned  graph_sess  rtk_sess")
+    print("---------  --------  --------------  -----------  ---------  ------  -------  ----------  --------")
     for agent, acc in sorted(summary.items(), key=lambda kv: kv[1]["tokens"], reverse=True):
         print(
-            f"{agent:<5}  {acc['sessions']:>8}  {acc['tokens']:>14,}  "
+            f"{agent:<9}  {acc['sessions']:>8}  {acc['tokens']:>14,}  "
             f"{acc['graph']:>11}  {acc['rtk']:>9}  {acc['tools']:>6}  "
-            f"{acc['graph_sessions']:>10}  {acc['rtk_sessions']:>8}"
+            f"{acc['codex_spawns']:>7}  {acc['graph_sessions']:>10}  {acc['rtk_sessions']:>8}"
         )
+
+
+def print_codex_agent_summary(summary: dict[str, dict[str, int]]) -> None:
+    codex = summary.get("codex", {})
+    spawns = int(codex.get("codex_spawns", 0))
+    waits = int(codex.get("codex_waits", 0))
+    sends = int(codex.get("codex_sends", 0))
+    closes = int(codex.get("codex_closes", 0))
+    resumes = int(codex.get("codex_resumes", 0))
+    if not any((spawns, waits, sends, closes, resumes)):
+        return
+    print()
+    print("CODEX MULTI-AGENT VISIBILITY")
+    print(f"  parent transcript calls: {spawns} spawn + {waits} wait + {sends} send + {closes} close + {resumes} resume")
+    print("  child-agent token usage is not separately exposed in local Codex JSONL;")
+    print("  Codex token totals remain parent-session totals, with orchestration called out here.")
 
 
 def print_by_day(days: list[dict[str, int | str]], limit: int = 30) -> None:
@@ -356,6 +436,12 @@ def render_html(project: str, summary: dict[str, dict[str, int]], days: list[dic
     sessions = sum(a["sessions"] for a in summary.values())
     graph_sess = sum(a["graph_sessions"] for a in summary.values())
     rtk_sess = sum(a["rtk_sessions"] for a in summary.values())
+    codex = summary.get("codex", {})
+    codex_spawns = int(codex.get("codex_spawns", 0))
+    codex_waits = int(codex.get("codex_waits", 0))
+    codex_sends = int(codex.get("codex_sends", 0))
+    codex_closes = int(codex.get("codex_closes", 0))
+    codex_resumes = int(codex.get("codex_resumes", 0))
     max_day = max((int(d["tokens"]) for d in days), default=1) or 1
 
     def bar(entry: dict[str, int | str]) -> str:
@@ -363,25 +449,27 @@ def render_html(project: str, summary: dict[str, dict[str, int]], days: list[dic
         g = int(entry["graph_sessions"])
         r = int(entry["rtk_sessions"])
         return (
-            f'<div class="row"><span class="day">{entry["day"]}</span>'
+            f'<div class="row"><span class="day">{html.escape(str(entry["day"]))}</span>'
             f'<span class="track"><span class="fill" style="width:{pct:.1f}%"></span></span>'
             f'<span class="num">{int(entry["tokens"]):,}</span>'
             f'<span class="adopt">{int(entry["sessions"])} sess · graph {g} · rtk {r}</span></div>'
         )
 
     agent_rows = "".join(
-        f"<tr><td>{a}</td><td>{acc['sessions']:,}</td><td>{acc['tokens']:,}</td>"
-        f"<td>{acc['graph_sessions']}</td><td>{acc['rtk_sessions']}</td><td>{acc['tools']:,}</td></tr>"
+        f"<tr><td>{html.escape(a)}</td><td>{acc['sessions']:,}</td><td>{acc['tokens']:,}</td>"
+        f"<td>{acc['graph_sessions']}</td><td>{acc['rtk_sessions']}</td>"
+        f"<td>{acc['tools']:,}</td><td>{acc['codex_spawns']:,}</td></tr>"
         for a, acc in sorted(summary.items(), key=lambda kv: kv[1]["tokens"], reverse=True)
     )
     top_rows = "".join(
-        f"<tr><td>{r.agent}</td><td>{r.tokens:,}</td><td>{r.graph_events}</td>"
-        f"<td>{r.rtk_events}</td><td>{r.tool_events}</td>"
-        f"<td class=\"path\">{str(r.path).replace(str(Path.home()), '~')}</td></tr>"
+        f"<tr><td>{html.escape(r.agent)}</td><td>{r.tokens:,}</td><td>{r.graph_events}</td>"
+        f"<td>{r.rtk_events}</td><td>{r.tool_events}</td><td>{r.codex_agent_spawns}</td>"
+        f"<td class=\"path\">{html.escape(str(r.path).replace(str(Path.home()), '~'))}</td></tr>"
         for r in rows[:limit]
     )
+    project_safe = html.escape(project)
     return f"""<!doctype html><html><head><meta charset="utf-8">
-<title>AI Telemetry — {project}</title><style>
+<title>AI Telemetry — {project_safe}</title><style>
 body{{font:14px/1.5 -apple-system,Segoe UI,sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:24px}}
 h1{{font-size:20px;margin:0 0 4px}}h2{{font-size:15px;color:#7ee787;margin:28px 0 10px}}
 .sub{{color:#8b949e;margin-bottom:18px}}
@@ -397,7 +485,7 @@ th:first-child,td:first-child{{text-align:left}}td.path{{text-align:left;color:#
 .num{{width:120px;text-align:right;font-variant-numeric:tabular-nums}}
 .adopt{{width:210px;color:#8b949e;font-size:12px}}
 </style></head><body>
-<h1>AI Telemetry — project “{project}”</h1>
+<h1>AI Telemetry — project “{project_safe}”</h1>
 <div class="sub">Real Claude + Codex transcript usage. repowise/CRG/Graphify/RTK adoption. Generated locally, no network.</div>
 <div class="cards">
 <div class="card" style="border-color:#238636"><div class="k">💰 Realized savings</div><div class="v" style="color:#7ee787">${model['realized_usd']:,.0f}</div><div class="k">{int(model['realized_tok']):,} tok banked</div></div>
@@ -409,13 +497,15 @@ th:first-child,td:first-child{{text-align:left}}td.path{{text-align:left;color:#
 <div class="card"><div class="k">Sessions</div><div class="v">{sessions:,}</div></div>
 <div class="card"><div class="k">Graph adoption</div><div class="v">{graph_sess}/{sessions} ({100*graph_sess/sessions:.0f}%)</div></div>
 <div class="card"><div class="k">RTK adoption</div><div class="v">{rtk_sess}/{sessions} ({100*rtk_sess/sessions:.0f}%)</div></div>
+<div class="card"><div class="k">Codex spawned agents</div><div class="v">{codex_spawns:,}</div><div class="k">{codex_waits} wait · {codex_sends} send · {codex_closes} close · {codex_resumes} resume</div></div>
 </div>
+<div class="sub" style="font-size:12px">Codex multi-agent calls are visible in parent transcripts, but local Codex JSONL does not expose child-agent token usage separately. Codex tokens remain parent-session totals; spawned agents are called out as orchestration.</div>
 <h2>Per-agent totals</h2>
-<table><tr><th>agent</th><th>sessions</th><th>tokens</th><th>graph sess</th><th>rtk sess</th><th>tool calls</th></tr>{agent_rows}</table>
+<table><tr><th>agent</th><th>sessions</th><th>tokens</th><th>graph sess</th><th>rtk sess</th><th>tool calls</th><th>spawned agents</th></tr>{agent_rows}</table>
 <h2>By day — tokens &amp; tool adoption</h2>
 {''.join(bar(d) for d in days)}
 <h2>Top {limit} heaviest sessions</h2>
-<table><tr><th>agent</th><th>tokens</th><th>graph</th><th>rtk</th><th>tools</th><th>transcript</th></tr>{top_rows}</table>
+<table><tr><th>agent</th><th>tokens</th><th>graph</th><th>rtk</th><th>tools</th><th>spawned</th><th>transcript</th></tr>{top_rows}</table>
 </body></html>"""
 
 
@@ -441,7 +531,9 @@ def main() -> int:
     rows.extend(analyze_claude(path, args.project) for path in claude_files(claude_root))
     rows = [row for row in rows if row.matched_project and (row.tokens or row.tool_events)]
     for row in rows:
-        row.day = session_day(row.path)
+        # Prefer the event timestamp captured during analysis; mtime/path only
+        # as a fallback for transcripts that carried no timestamp.
+        row.day = row.day or session_day(row.path)
     rows.sort(key=lambda row: row.tokens, reverse=True)
 
     total_tokens = sum(row.tokens for row in rows)
@@ -461,6 +553,7 @@ def main() -> int:
     print()
     print_table(rows, args.limit)
     print_agent_summary(summary)
+    print_codex_agent_summary(summary)
     if args.by_day:
         print_by_day(days)
     print_savings(model)
