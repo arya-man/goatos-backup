@@ -41,6 +41,8 @@ EXEC_FILES=(
     tools/agent-hooks/update-docs-graph.sh
     tools/agent-hooks/goatos-docs-corpus.sh
     tools/agent-hooks/ai-doctor.sh
+    tools/agent-hooks/repowise-setup.sh
+    tools/agent-hooks/repowise-coverage.sh
     tools/agent-hooks/check-mock.sh
     tools/agent-hooks/check-mock-clicks.mjs
     tools/agent-hooks/push-mock.sh
@@ -73,7 +75,8 @@ note "ai-doctor: generated graph artifact gate"
 # This catches NEW artifact filenames too, which an enumerated allowlist misses.
 tracked_docs="$(git ls-files graphify-out | grep -v '^graphify-out/\.gitignore$' || true)"
 tracked_crg="$(git ls-files .code-review-graph || true)"
-tracked="$(printf '%s\n%s\n' "$tracked_docs" "$tracked_crg" | grep . || true)"
+tracked_repowise="$(git ls-files .repowise .mcp.json .vscode || true)"
+tracked="$(printf '%s\n%s\n%s\n' "$tracked_docs" "$tracked_crg" "$tracked_repowise" | grep . || true)"
 if [ -n "$tracked" ]; then
     note "  BREAKER: generated graph artifacts are tracked:"
     printf '%s\n' "$tracked" | sed 's/^/      /'
@@ -82,7 +85,8 @@ fi
 
 # Ignore-side invariant: a brand-NEW generated filename must be ignored BY
 # DEFAULT (whitelist .gitignore), not only the known artifact names.
-for f in graphify-out/__ai_doctor_probe__.json .code-review-graph/__ai_doctor_probe__.db; do
+for f in graphify-out/__ai_doctor_probe__.json .code-review-graph/__ai_doctor_probe__.db \
+         .repowise/__ai_doctor_probe__.db .mcp.json; do
     if ! git check-ignore -q "$f"; then
         note "  BREAKER: new generated graph path is not ignored by default: $f"
         fail=1

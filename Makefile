@@ -5,7 +5,7 @@ REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
 .PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants verify-google-dev-seed-fixtures admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
-.PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-telemetry
+.PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry
 
 setup-crg: ai-setup
 
@@ -27,15 +27,21 @@ ai-setup:
 		if command -v brew >/dev/null 2>&1; then brew install rtk; \
 		else echo "RTK is missing. Install from https://www.rtk-ai.app/ or use: brew install rtk"; fi; \
 	fi
+	bash tools/agent-hooks/repowise-setup.sh
 	$(MAKE) ai-doctor
 	@echo ""
-	@echo "AI setup ready. CRG/Graphify outputs are local generated artifacts and stay gitignored."
+	@echo "AI setup ready. CRG/Graphify/repowise outputs are local generated artifacts and stay gitignored."
 	@echo "Build or refresh local graphs with: make ai-rebuild AI_BACKEND=$(AI_BACKEND)"
+	@echo ""
+	@echo "Two dashboards (both local, both free):"
+	@echo "  repowise health/risk/graph : repowise serve   ->  http://localhost:3000"
+	@echo "  Graphify docs graph        : make docs-graph-open  (build first: make ai-rebuild-docs)"
+	@echo "Optional: populate the repowise Coverage tab with: make ai-repowise-coverage  (needs dev DB up)"
 
 ai-doctor:
 	bash tools/agent-hooks/ai-doctor.sh
 
-ai-rebuild: ai-rebuild-code ai-rebuild-docs
+ai-rebuild: ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise
 
 ai-rebuild-code:
 	code-review-graph build --repo "$(REPO_ROOT)"
@@ -43,6 +49,30 @@ ai-rebuild-code:
 ai-rebuild-docs:
 	@mkdir -p graphify-out
 	AI_BACKEND="$(AI_BACKEND)" bash tools/agent-hooks/rebuild-docs-graph.sh
+
+ai-rebuild-repowise:
+	@if command -v repowise >/dev/null 2>&1 && [ -d "$(REPO_ROOT)/.repowise" ]; then \
+		cd "$(REPO_ROOT)" && repowise update; \
+	else \
+		bash tools/agent-hooks/repowise-setup.sh; \
+	fi
+
+# Opt-in: populate the repowise dashboard Coverage tab (free, no LLM). Runs the
+# backend test suite with coverage, then ingests it. DB-backed tests need the
+# local dev DB up (:55432) for full coverage; partial coverage still ingests.
+ai-repowise-coverage:
+	bash tools/agent-hooks/repowise-coverage.sh
+
+# Open the Graphify docs graph (goatos TRDs/ADRs/phase docs — the docs dashboard
+# that complements repowise). Regenerate it first with `make ai-rebuild-docs`.
+docs-graph-open:
+	@if [ -f "$(REPO_ROOT)/graphify-out/graph.html" ]; then \
+		if command -v open >/dev/null 2>&1; then open "$(REPO_ROOT)/graphify-out/graph.html"; \
+		elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$(REPO_ROOT)/graphify-out/graph.html"; \
+		else echo "Open manually: $(REPO_ROOT)/graphify-out/graph.html"; fi; \
+	else \
+		echo "Graphify docs graph not built yet. Run: make ai-rebuild-docs"; \
+	fi
 
 update-docs-graph:
 	$(MAKE) ai-rebuild-docs
