@@ -53,7 +53,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash tools/agent-hooks/format-touched.sh && bash tools/agent-hooks/check-boundaries.sh && bash tools/agent-hooks/check-contract-drift.sh && { if command -v code-review-graph >/dev/null 2>&1; then (code-review-graph update --skip-flows --repo . >/dev/null 2>&1 &); fi; } && { if command -v repowise >/dev/null 2>&1 && [ -d .repowise ]; then (repowise update >/dev/null 2>&1 &); fi; } && bash tools/agent-hooks/update-docs-graph.sh"
+            "command": "bash tools/agent-hooks/format-touched.sh && bash tools/agent-hooks/check-boundaries.sh && bash tools/agent-hooks/check-contract-drift.sh && { if command -v code-review-graph >/dev/null 2>&1; then (code-review-graph update --skip-flows --repo . >/dev/null 2>&1 &); fi; } && { if command -v repowise >/dev/null 2>&1 && [ -d .repowise ]; then (nohup repowise update >/dev/null 2>&1 &); fi; } && bash tools/agent-hooks/update-docs-graph.sh"
           }
         ]
       }

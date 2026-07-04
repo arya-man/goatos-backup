@@ -71,7 +71,7 @@
           },
           {
             "type": "command",
-            "command": "repo=\"${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-}}\"; [ -n \"$repo\" ] || repo=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; command -v repowise >/dev/null 2>&1 && [ -d \"$repo/.repowise\" ] && ( cd \"$repo\" && repowise update >/dev/null 2>&1 & )"
+            "command": "repo=\"${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-}}\"; [ -n \"$repo\" ] || repo=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; command -v repowise >/dev/null 2>&1 && [ -d \"$repo/.repowise\" ] && ( cd \"$repo\" && nohup repowise update >/dev/null 2>&1 & )"
           },
           {
             "type": "command",

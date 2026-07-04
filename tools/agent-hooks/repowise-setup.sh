@@ -87,7 +87,7 @@ if [ ! -f "$HOOK" ]; then
 #!/usr/bin/env sh
 # repowise-auto-update: refresh the local repowise index in the background on commit.
 command -v repowise >/dev/null 2>&1 || exit 0
-( cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" && repowise update >/dev/null 2>&1 & )
+( cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" && nohup repowise update >/dev/null 2>&1 & )
 exit 0
 EOF
     chmod +x "$HOOK"
@@ -95,7 +95,7 @@ EOF
 elif ! grep -q "$MARK" "$HOOK" 2>/dev/null; then
     {
         printf '\n# %s: refresh local repowise index in background on commit.\n' "$MARK"
-        printf 'command -v repowise >/dev/null 2>&1 && ( cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" && repowise update >/dev/null 2>&1 & )\n'
+        printf 'command -v repowise >/dev/null 2>&1 && ( cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" && nohup repowise update >/dev/null 2>&1 & )\n'
     } >> "$HOOK"
     chmod +x "$HOOK"
     echo "repowise-setup: appended repowise auto-update to existing post-commit hook."
