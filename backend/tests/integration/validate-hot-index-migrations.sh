@@ -85,12 +85,13 @@ drop_index_re = re.compile(
     re.I | re.S,
 )
 alter_add_constraint_re = re.compile(
-    r"\bALTER\s+TABLE\s+(?:ONLY\s+)?(?P<table>[a-zA-Z_][\w.]*)\s+ADD\s+"
+    r"\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?"
+    r"(?P<table>[a-zA-Z_][\w.]*)\s+ADD\s+"
     r"(?:CONSTRAINT\s+(?P<constraint>[a-zA-Z_][\w.]*)\s+)?(?P<body>.*)",
     re.I | re.S,
 )
-direct_unique_or_exclude_constraint_re = re.compile(r"\bUNIQUE\b|\bEXCLUDE\b", re.I | re.S)
-unique_using_index_re = re.compile(r"\bUNIQUE\s+USING\s+INDEX\b", re.I | re.S)
+direct_index_constraint_re = re.compile(r"\bUNIQUE\b|\bPRIMARY\s+KEY\b|\bEXCLUDE\b", re.I | re.S)
+using_index_attach_re = re.compile(r"\b(?:UNIQUE|PRIMARY\s+KEY)\s+USING\s+INDEX\b", re.I | re.S)
 concurrent_index_statement_re = re.compile(
     r"\b(?:CREATE\s+(?:UNIQUE\s+)?INDEX|DROP\s+INDEX)\s+CONCURRENTLY\b",
     re.I,
@@ -217,15 +218,15 @@ def classify_direct_constraint_risk(
     if table in created_in_migration or not is_hot_table(table):
         return
     body = match.group("body")
-    if not direct_unique_or_exclude_constraint_re.search(body):
+    if not direct_index_constraint_re.search(body):
         return
-    if unique_using_index_re.search(body):
+    if using_index_attach_re.search(body):
         return
     constraint_name = match.group("constraint") or "<unnamed>"
     suffix = "" if section == "goose Up" else f" in {section} section"
     classify_hot_lock_risk(
         version,
-        f"{path_name}: {constraint_name} on hot table {table} uses direct UNIQUE/EXCLUDE constraint{suffix}",
+        f"{path_name}: {constraint_name} on hot table {table} uses direct UNIQUE/PRIMARY KEY/EXCLUDE constraint{suffix}",
     )
 
 
@@ -340,8 +341,8 @@ if violations:
     print(
         "Use CREATE INDEX CONCURRENTLY / DROP INDEX CONCURRENTLY with a no-transaction "
         "migration for late indexes on populated hot tables. For hot-table uniqueness, "
-        "create the unique index concurrently first, then attach it with ALTER TABLE "
-        "ADD CONSTRAINT ... UNIQUE USING INDEX.",
+        "or primary keys, create the index concurrently first, then attach it with "
+        "ALTER TABLE ADD CONSTRAINT ... UNIQUE/PRIMARY KEY USING INDEX.",
         file=sys.stderr,
     )
     sys.exit(1)

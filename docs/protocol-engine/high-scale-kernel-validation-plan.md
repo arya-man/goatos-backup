@@ -442,10 +442,12 @@ next kernel hardening items to keep explicit:
    projection, completion, dedupe, run-ledger, movement/event, proof, and status
    event tables must use non-blocking patterns: `CREATE INDEX CONCURRENTLY` /
    `DROP INDEX CONCURRENTLY`, with `-- +goose NO TRANSACTION` in the relevant
-   goose `Up`/`Down` section. Do not add direct `ALTER TABLE ... ADD CONSTRAINT
-   ... UNIQUE/EXCLUDE` constraints to populated hot tables; for uniqueness, build
+   goose `Up`/`Down` section. Do not add direct `ALTER TABLE [IF EXISTS] ...
+   ADD CONSTRAINT ... UNIQUE`, `PRIMARY KEY`, or `EXCLUDE` constraints to
+   populated hot tables. For uniqueness or primary keys, build
    `CREATE UNIQUE INDEX CONCURRENTLY` first and attach with `ALTER TABLE ... ADD
-   CONSTRAINT ... UNIQUE USING INDEX`. The hot-index guard must warn on every
+   CONSTRAINT ... UNIQUE/PRIMARY KEY USING INDEX`; exclusion constraints need a
+   reviewed no-lock rollout path. The hot-index guard must warn on every
    historical pre-guard late hot-table index/constraint lock risk and fail future
    ones. A canonical 1M benchmark database must apply all historical warning
    migrations before loading 1M data; any already-populated 1M database still
@@ -528,5 +530,5 @@ Latest architecture feedback is classified as:
 | Mixed categories are required to close the vaccination slice | No; vaccination-slice E2E proves tenant-default and park-override behavior for vaccination. Mixed categories are required only for `multi_domain_kernel` certification. |
 | Staging scale can use any larger DB/schema/data shape | No; certification is tied to the committed `goatos-stg-1m-benchmark-v1` benchmark profile. Changing infra shape, migration/schema identity, seed generator/config, fixture checksum, or loaded dataset checksum creates a new profile id. |
 | Per-push plan guards prove planner choice at scale | Not by themselves; they prove index reachability. Scaled planner choice requires seeded `ANALYZE` plus `EXPLAIN (ANALYZE, BUFFERS)` without disabling sequential scans. |
-| Late hot-table indexes or unique/exclusion constraints can be plain blocking DDL | No; future late indexes/drops on hot tables require concurrent/no-transaction patterns, and future direct hot-table `UNIQUE` / `EXCLUDE` constraints are rejected unless uniqueness is attached with `UNIQUE USING INDEX`. The guard reports all historical pre-guard hot-table warnings, and the 1M baseline must apply them before loading benchmark-scale data or use a no-lock rollout path. |
+| Late hot-table indexes or unique/primary-key/exclusion constraints can be plain blocking DDL | No; future late indexes/drops on hot tables require concurrent/no-transaction patterns, and future direct hot-table `UNIQUE`, `PRIMARY KEY`, or `EXCLUDE` constraints are rejected unless uniqueness/primary-key constraints are attached with `USING INDEX`. The guard reports all historical pre-guard hot-table warnings, and the 1M baseline must apply them before loading benchmark-scale data or use a no-lock rollout path. |
 | Verify fanout can bypass the durable outbox | Not for certification; verify accepted/rejected fanout must be durable or have a tested replay-safe repair path. |
