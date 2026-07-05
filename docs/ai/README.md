@@ -161,10 +161,13 @@ transcripts (never network) and reports:
   not as separately attributable child spend.
 - **Graph / RTK adoption** — how many sessions and calls actually routed through
   code-review-graph / Graphify / RTK vs bypassing them with raw grep/read/git-diff.
-- **A savings model** — tokens and USD *already banked* (realized) plus the
-  *unclaimed* savings left on the table because grep/read/git-diff calls skipped
-  the stack. Per-call savings are conservative constants from this repo's eval
-  (~9k tok/graph query, ~15k/diff); every assumption is a flag:
+- **A savings model** — two numbers: *realized* (tokens + USD the 4 tools saved
+  by absorbing graph/diff calls) and *without these 4 (projected)* = the raw cost
+  of ALL graph/diff/read work if the stack did not exist (realized + the portion
+  still running raw). The gap between them — grep/read/git-diff calls that bypass
+  the stack — is the reclaimable leak, an adoption gap not a missing tool.
+  Per-call savings are conservative constants from this repo's eval (~9k tok/graph
+  query, ~15k/diff); every assumption is a flag:
 
   ```bash
   # tune pricing + per-call savings for the money estimate

@@ -376,6 +376,12 @@ def savings_model(
         "unclaimed_tok": unclaimed_tok,
         "realized_usd": realized_tok * rate,
         "unclaimed_usd": unclaimed_tok * rate,
+        # WITHOUT the 4 tools: every graph/diff/read op would run raw, so the
+        # projected cost of all that work is realized (what the tools save today)
+        # + unclaimed (what still runs raw). Realized is the slice currently
+        # clawed back; the rest still leaks.
+        "notools_tok": realized_tok + unclaimed_tok,
+        "notools_usd": (realized_tok + unclaimed_tok) * rate,
         "price_per_mtok": price_per_mtok,
     }
 
@@ -384,10 +390,11 @@ def print_savings(m: dict[str, float]) -> None:
     print()
     print("SAVINGS MODEL  (conservative; per-call constants from measured eval)")
     print(f"  price assumed: ${m['price_per_mtok']:.2f} / 1M tokens (input-heavy; Opus ~5x)")
-    print(f"  REALIZED (already banked): {int(m['realized_tok']):,} tok  ~= ${m['realized_usd']:,.2f}")
+    print(f"  REALIZED (saved by the stack): {int(m['realized_tok']):,} tok  ~= ${m['realized_usd']:,.2f}")
     print(f"    from {int(m['graph_calls'])} graph calls + {int(m['rtk_calls'])} RTK calls")
-    print(f"  UNCLAIMED (route these too): {int(m['unclaimed_tok']):,} tok  ~= ${m['unclaimed_usd']:,.2f}")
-    print(f"    from {int(m['grep_calls'])} greps + {int(m['gitdiff_calls'])} git-diffs + a fraction of {int(m['read_calls'])} reads")
+    print(f"  WITHOUT THESE 4 (projected raw cost): {int(m['notools_tok']):,} tok  ~= ${m['notools_usd']:,.2f}")
+    print(f"    all graph/diff/read work run raw — stack claws back ${m['realized_usd']:,.2f}; ${m['unclaimed_usd']:,.2f} still leaks raw")
+    print(f"    ({int(m['grep_calls'])} greps + {int(m['gitdiff_calls'])} git-diffs + a fraction of {int(m['read_calls'])} reads bypass the 4)")
 
 
 def print_agent_summary(summary: dict[str, dict[str, int]]) -> None:
@@ -488,10 +495,10 @@ th:first-child,td:first-child{{text-align:left}}td.path{{text-align:left;color:#
 <h1>AI Telemetry — project “{project_safe}”</h1>
 <div class="sub">Real Claude + Codex transcript usage. repowise/CRG/Graphify/RTK adoption. Generated locally, no network.</div>
 <div class="cards">
-<div class="card" style="border-color:#238636"><div class="k">💰 Realized savings</div><div class="v" style="color:#7ee787">${model['realized_usd']:,.0f}</div><div class="k">{int(model['realized_tok']):,} tok banked</div></div>
-<div class="card" style="border-color:#9e6a03"><div class="k">🎯 Unclaimed savings</div><div class="v" style="color:#e3b341">${model['unclaimed_usd']:,.0f}</div><div class="k">{int(model['unclaimed_tok']):,} tok if you route greps/diffs</div></div>
+<div class="card" style="border-color:#238636"><div class="k">💰 Realized savings</div><div class="v" style="color:#7ee787">${model['realized_usd']:,.0f}</div><div class="k">{int(model['realized_tok']):,} tok the 4 tools saved</div></div>
+<div class="card" style="border-color:#9e6a03"><div class="k">🧮 Without these 4 (projected)</div><div class="v" style="color:#e3b341">${model['notools_usd']:,.0f}</div><div class="k">{int(model['notools_tok']):,} tok if all graph/diff/read ran raw</div></div>
 </div>
-<div class="sub" style="font-size:12px">Savings model: {int(model['graph_calls'])} graph + {int(model['rtk_calls'])} RTK calls banked; {int(model['grep_calls'])} greps + {int(model['gitdiff_calls'])} git-diffs + a fraction of {int(model['read_calls'])} reads still bypass the stack. Assumes ~{int(model['price_per_mtok'])}$/1M tok, ~9k saved/graph-query, ~15k/diff — conservative, Opus ~5×.</div>
+<div class="sub" style="font-size:12px">Without the stack this work costs ~${model['notools_usd']:,.0f}. The 4 tools claw back ${model['realized_usd']:,.0f} today; ${model['unclaimed_usd']:,.0f} still leaks raw ({int(model['grep_calls'])} greps + {int(model['gitdiff_calls'])} git-diffs + a fraction of {int(model['read_calls'])} reads bypass all 4). Assumes ~{int(model['price_per_mtok'])}$/1M tok, ~9k saved/graph-query, ~15k/diff — conservative, Opus ~5×.</div>
 <div class="cards">
 <div class="card"><div class="k">Total tokens</div><div class="v">{total:,}</div></div>
 <div class="card"><div class="k">Sessions</div><div class="v">{sessions:,}</div></div>
