@@ -84,6 +84,13 @@ drop_index_re = re.compile(
     r"(?:IF\s+EXISTS\s+)?(?P<index>[a-zA-Z_][\w.]*)",
     re.I | re.S,
 )
+alter_add_constraint_re = re.compile(
+    r"\bALTER\s+TABLE\s+(?:ONLY\s+)?(?P<table>[a-zA-Z_][\w.]*)\s+ADD\s+"
+    r"(?:CONSTRAINT\s+(?P<constraint>[a-zA-Z_][\w.]*)\s+)?(?P<body>.*)",
+    re.I | re.S,
+)
+direct_unique_or_exclude_constraint_re = re.compile(r"\bUNIQUE\b|\bEXCLUDE\b", re.I | re.S)
+unique_using_index_re = re.compile(r"\bUNIQUE\s+USING\s+INDEX\b", re.I | re.S)
 concurrent_index_statement_re = re.compile(
     r"\b(?:CREATE\s+(?:UNIQUE\s+)?INDEX|DROP\s+INDEX)\s+CONCURRENTLY\b",
     re.I,
@@ -195,6 +202,33 @@ def classify_hot_lock_risk(version: int, message: str) -> None:
     violations.append(message)
 
 
+def classify_direct_constraint_risk(
+    *,
+    path_name: str,
+    version: int,
+    section: str,
+    statement: str,
+    created_in_migration: set[str],
+) -> None:
+    match = alter_add_constraint_re.search(statement)
+    if not match:
+        return
+    table = bare_name(match.group("table"))
+    if table in created_in_migration or not is_hot_table(table):
+        return
+    body = match.group("body")
+    if not direct_unique_or_exclude_constraint_re.search(body):
+        return
+    if unique_using_index_re.search(body):
+        return
+    constraint_name = match.group("constraint") or "<unnamed>"
+    suffix = "" if section == "goose Up" else f" in {section} section"
+    classify_hot_lock_risk(
+        version,
+        f"{path_name}: {constraint_name} on hot table {table} uses direct UNIQUE/EXCLUDE constraint{suffix}",
+    )
+
+
 violations: list[str] = []
 warnings: list[str] = []
 index_owner: dict[str, str] = {}
@@ -223,6 +257,14 @@ for path in sorted(migration_dir.glob("*.sql")):
         for match in create_table_re.finditer(up_sql)
     }
     for statement in up_statements:
+        classify_direct_constraint_risk(
+            path_name=path.name,
+            version=version,
+            section="goose Up",
+            statement=statement,
+            created_in_migration=created_in_migration,
+        )
+
         drop_match = drop_index_re.search(statement)
         if drop_match:
             index_name = bare_name(drop_match.group("index"))
@@ -253,6 +295,14 @@ for path in sorted(migration_dir.glob("*.sql")):
         )
 
     for statement in down_statements:
+        classify_direct_constraint_risk(
+            path_name=path.name,
+            version=version,
+            section="goose Down",
+            statement=statement,
+            created_in_migration=created_in_migration,
+        )
+
         drop_match = drop_index_re.search(statement)
         if drop_match:
             index_name = bare_name(drop_match.group("index"))
@@ -289,7 +339,9 @@ if violations:
         print(f"  - {violation}", file=sys.stderr)
     print(
         "Use CREATE INDEX CONCURRENTLY / DROP INDEX CONCURRENTLY with a no-transaction "
-        "migration for late indexes on populated hot tables.",
+        "migration for late indexes on populated hot tables. For hot-table uniqueness, "
+        "create the unique index concurrently first, then attach it with ALTER TABLE "
+        "ADD CONSTRAINT ... UNIQUE USING INDEX.",
         file=sys.stderr,
     )
     sys.exit(1)
