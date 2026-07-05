@@ -336,7 +336,7 @@ type ListUnbatchedDueForVersionRow struct {
 
 // SM-4 sweeper: unbatched scheduled/due obligations for a version within the window, grouped by
 // scope + rule + due/window downstream. batch_id IS NULL makes re-sweeps idempotent.
-// Uses obligation due-window index.
+// Uses obligation_instances_unbatched_due_version_idx.
 func (q *Queries) ListUnbatchedDueForVersion(ctx context.Context, arg ListUnbatchedDueForVersionParams) ([]ListUnbatchedDueForVersionRow, error) {
 	rows, err := q.db.Query(ctx, listUnbatchedDueForVersion,
 		arg.TenantID,

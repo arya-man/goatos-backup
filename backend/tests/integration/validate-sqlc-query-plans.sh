@@ -151,6 +151,31 @@ LIMIT 200;"
 }
 
 validate_kernel_sweeper_hot_path_plans() {
+  explain_must_use_index "ObligationListUnbatchedDueForVersion" 'Seq Scan on obligation_instances' "EXPLAIN (COSTS OFF)
+SELECT oi.obligation_id::text AS obligation_id,
+       oi.rule_id::text AS rule_id,
+       oi.scope_type,
+       COALESCE(oi.scope_id::text, '')::text AS scope_id,
+       CASE
+         WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text
+         ELSE ''
+       END AS target_species,
+       oi.due_at,
+       oi.window_start,
+       oi.window_end
+FROM obligation_instances oi
+LEFT JOIN goats g
+  ON g.tenant_id = oi.tenant_id
+ AND g.goat_id = oi.target_id
+ AND oi.target_type = 'goat'
+WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND oi.protocol_version_id = '10000000-0000-4000-8000-000000000001'::uuid
+  AND oi.status IN ('scheduled', 'due', 'missed')
+  AND oi.batch_id IS NULL
+  AND oi.due_at <= TIMESTAMPTZ '2026-06-29 12:00:00+00'
+ORDER BY oi.scope_type, oi.scope_id, oi.rule_id, target_species, oi.due_at, oi.obligation_id
+LIMIT 1000;"
+
   explain_must_use_index "CalendarDueReminderSweep" 'Seq Scan on calendar_event_projections|Seq Scan on calendar_snoozes|Seq Scan on notification_requests' "EXPLAIN (COSTS OFF)
 SELECT event_id, title, target_type, COALESCE(source_target_id::text, ''), primary_notification_channel,
        COALESCE(NULLIF(timezone, ''), 'Asia/Kolkata')

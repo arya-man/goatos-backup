@@ -8236,6 +8236,13 @@ CREATE INDEX obligation_instances_target_idx ON public.obligation_instances USIN
 
 
 --
+-- Name: obligation_instances_unbatched_due_version_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_instances_unbatched_due_version_idx ON public.obligation_instances USING btree (tenant_id, protocol_version_id, scope_type, scope_id, rule_id, due_at, obligation_id) WHERE ((batch_id IS NULL) AND (status = ANY (ARRAY['scheduled'::text, 'due'::text, 'missed'::text])));
+
+
+--
 -- Name: obligation_status_events_obligation_idx; Type: INDEX; Schema: public; Owner: -
 --
 

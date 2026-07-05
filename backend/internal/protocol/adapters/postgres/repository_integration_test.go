@@ -546,6 +546,51 @@ WHERE first.tenant_id = $1
 	if firstStatus != "retired" || secondStatus != "published" {
 		t.Fatalf("replacement statuses first=%s second=%s, want retired/published", firstStatus, secondStatus)
 	}
+	var retiredOutboxCount int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*)
+FROM outbox_messages
+WHERE tenant_id = $1
+  AND event_type = 'protocol.version.retired'
+  AND aggregate_id = $2::uuid`, testTenantID, firstVersion).Scan(&retiredOutboxCount); err != nil {
+		t.Fatalf("count retired outbox: %v", err)
+	}
+	if retiredOutboxCount != 1 {
+		t.Fatalf("retired outbox count = %d, want 1", retiredOutboxCount)
+	}
+	var retiredEventType, retiredAggregateType, retiredAggregateID, retiredIdempotencyKey string
+	var retiredPayload []byte
+	if err := pool.QueryRow(ctx, `
+SELECT event_type, aggregate_type, aggregate_id::text, idempotency_key, payload
+FROM outbox_messages
+WHERE tenant_id = $1
+  AND event_type = 'protocol.version.retired'
+  AND aggregate_id = $2::uuid`, testTenantID, firstVersion).Scan(
+		&retiredEventType, &retiredAggregateType, &retiredAggregateID, &retiredIdempotencyKey, &retiredPayload,
+	); err != nil {
+		t.Fatalf("read retired outbox: %v", err)
+	}
+	expectedRetiredKey := "protocol:version:retired:" + firstVersion + ":by:" + secondVersion
+	if retiredEventType != "protocol.version.retired" || retiredAggregateType != "protocol_version" || retiredAggregateID != firstVersion || retiredIdempotencyKey != expectedRetiredKey {
+		t.Fatalf("retired outbox = %s/%s/%s/%s, want protocol.version.retired/protocol_version/%s/%s", retiredEventType, retiredAggregateType, retiredAggregateID, retiredIdempotencyKey, firstVersion, expectedRetiredKey)
+	}
+	var retiredEnvelope struct {
+		EventType   string `json:"event_type"`
+		AggregateID string `json:"aggregate_id"`
+		Payload     struct {
+			ProtocolVersionID           string `json:"protocol_version_id"`
+			ReplacedByProtocolVersionID string `json:"replaced_by_protocol_version_id"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(retiredPayload, &retiredEnvelope); err != nil {
+		t.Fatalf("decode retired outbox envelope: %v", err)
+	}
+	if retiredEnvelope.EventType != "protocol.version.retired" ||
+		retiredEnvelope.AggregateID != firstVersion ||
+		retiredEnvelope.Payload.ProtocolVersionID != firstVersion ||
+		retiredEnvelope.Payload.ReplacedByProtocolVersionID != secondVersion {
+		t.Fatalf("unexpected retired envelope: %#v", retiredEnvelope)
+	}
 
 	parkID := "00000000-0000-4000-8000-00000000c003"
 	if _, err := pool.Exec(ctx,

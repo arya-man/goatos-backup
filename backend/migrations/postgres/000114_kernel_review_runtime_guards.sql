@@ -119,6 +119,7 @@ DROP INDEX IF EXISTS obligation_batches_unfinalized_planned_unique_idx;
 
 DROP INDEX IF EXISTS outbox_messages_obligation_rescoped_idempotency_idx;
 DROP INDEX IF EXISTS outbox_messages_obligation_canceled_idempotency_idx;
+DROP INDEX IF EXISTS outbox_messages_protocol_retired_idempotency_idx;
 DROP INDEX IF EXISTS outbox_messages_protocol_published_idempotency_idx;
 
 ALTER TABLE idempotency_keys

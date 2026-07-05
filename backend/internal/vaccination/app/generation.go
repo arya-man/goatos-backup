@@ -376,6 +376,7 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 	filter := domain.ImpactFilter{TenantID: tenantID}
 	after := ""
 	plans := make(map[string]cachedVersionPlan)
+	effectiveVersionsByPark := make(map[string][]string)
 	for {
 		goats, err := s.goats.ListEligibleGoatsForGeneration(ctx, filter, after, s.page)
 		if err != nil {
@@ -389,7 +390,7 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 			if !inCare(g.LifecycleStatus) {
 				continue
 			}
-			versionIDs, err := s.proto.ListEffectiveVaccinationVersionsForGoat(ctx, tenantID, g.ParkID, asOf)
+			versionIDs, err := s.effectiveVersionsForPark(ctx, tenantID, g.ParkID, asOf, effectiveVersionsByPark)
 			if err != nil {
 				return res, err
 			}
@@ -451,6 +452,22 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 		after = goats[len(goats)-1].GoatID
 	}
 	return res, nil
+}
+
+func (s *GenerationService) effectiveVersionsForPark(ctx context.Context, tenantID, parkID string, asOf time.Time, cache map[string][]string) ([]string, error) {
+	key := parkID
+	if key == "" {
+		key = "<tenant>"
+	}
+	if versionIDs, ok := cache[key]; ok {
+		return versionIDs, nil
+	}
+	versionIDs, err := s.proto.ListEffectiveVaccinationVersionsForGoat(ctx, tenantID, parkID, asOf)
+	if err != nil {
+		return nil, err
+	}
+	cache[key] = append([]string(nil), versionIDs...)
+	return versionIDs, nil
 }
 
 // GenerateForVersionWithRun wraps an existing-cohort generation pass in a durable status row. If

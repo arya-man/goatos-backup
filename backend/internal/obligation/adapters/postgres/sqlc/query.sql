@@ -37,7 +37,7 @@ LIMIT @row_limit;
 -- name: ListUnbatchedDueForVersion :many
 -- SM-4 sweeper: unbatched scheduled/due obligations for a version within the window, grouped by
 -- scope + rule + due/window downstream. batch_id IS NULL makes re-sweeps idempotent.
--- Uses obligation due-window index.
+-- Uses obligation_instances_unbatched_due_version_idx.
 SELECT oi.obligation_id::text AS obligation_id,
        oi.rule_id::text AS rule_id,
        oi.scope_type,

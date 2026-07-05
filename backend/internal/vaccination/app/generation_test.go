@@ -1417,6 +1417,37 @@ func TestGenerateEffectiveForAllGoatsUsesPerGoatParkPrecedence(t *testing.T) {
 	}
 }
 
+func TestGenerateEffectiveForAllGoatsCachesEffectiveVersionsPerPark(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-park-a-1", LifecycleStatus: "alive", DOB: &dob, ParkID: "park-a"},
+		{GoatID: "goat-park-a-2", LifecycleStatus: "alive", DOB: &dob, ParkID: "park-a"},
+		{GoatID: "goat-tenant", LifecycleStatus: "alive", DOB: &dob},
+		{GoatID: "goat-tenant-2", LifecycleStatus: "alive", DOB: &dob},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	asOf := time.Date(2026, time.June, 2, 0, 0, 0, 0, time.UTC)
+	result, err := gen.GenerateEffectiveForAllGoats(ctx, "tenant-1", asOf)
+	if err != nil {
+		t.Fatalf("effective cohort generate: %v", err)
+	}
+	if result.Generated != 4 || len(obl.inserted) != 4 {
+		t.Fatalf("result=%#v inserted=%#v, want four effective goat obligations", result, obl.inserted)
+	}
+	if len(proto.effectiveParkID) != 2 || proto.effectiveParkID[0] != "park-a" || proto.effectiveParkID[1] != "" {
+		t.Fatalf("effective park IDs=%#v, want one lookup per park/fallback scope", proto.effectiveParkID)
+	}
+}
+
 func TestGenerateForGoatCancelsOpenWorkWhenEligibilityNoLongerMatches(t *testing.T) {
 	ctx := context.Background()
 	asOf := time.Date(2026, time.June, 3, 0, 0, 0, 0, time.UTC)
