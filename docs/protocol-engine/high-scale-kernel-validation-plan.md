@@ -150,9 +150,10 @@ Seed realistic skew, not uniform fake rows:
   tested and one tenant cannot starve another.
 - At least one tenant with multiple parks: one 1-5 lakh-animal park, at least
   one smaller park, one active park override, and one tenant-default park with no
-  override. Mixed protocol categories must be present so resolution by
-  `(tenant, park, category, as_of)` proves generic scope behavior instead of only
-  a single huge vaccination park.
+  override. Vaccination-slice certification proves scoped default/override
+  behavior for `vaccination.matrix`; multi-domain kernel certification later adds
+  a second operational category so resolution by `(tenant, park, category, as_of)`
+  proves generic scope behavior.
 - 500-1000 animals per shed/tag, plus a few high-skew sheds.
 - Mixed goat/sheep animals.
 - Sick, ICU, quarantine, warm-up, pregnancy month 4/5, lactating, sold/dead,
@@ -164,9 +165,10 @@ Seed realistic skew, not uniform fake rows:
 Acceptance checks:
 
 - Effective protocol version lookup count is proportional to parks, not animals.
-- Scope resolution proves tenant-default, park-override, and mixed-category
-  behavior in the same run; park overrides apply only to their park/category and
-  tenant-default rules still apply elsewhere.
+- Scope resolution proves tenant-default and park-override behavior in the same
+  run; park overrides apply only to their park/category and tenant-default rules
+  still apply elsewhere. Multi-domain certification must also prove
+  mixed-category behavior in the same seed.
 - Goat/animal pages are keyseted and bounded.
 - History/proof/compatibility reads are bulk per page, not N+1 per animal.
 - Obligation writes are page-bounded and idempotent.
@@ -189,19 +191,43 @@ Acceptance checks:
 Every staging-scale report must name the exact command before it runs and list
 the environment shape: Cloud SQL tier, CPU/memory, disk type/size, app/worker
 replicas, DB pool sizes, Pub/Sub topic/subscription/DLQ config, and worker
-concurrency. The canonical command target to add before certification is:
+concurrency. The canonical vaccination-slice command target to add before
+certifying the current Preventive Care (PC) vaccination slice is:
 
 ```text
 make load-test-kernel-stg \
   GOATOS_ENV=stg \
+  KERNEL_CERTIFICATION_SCOPE=vaccination_slice \
   KERNEL_SCALE_OPERATIONS=1000000 \
   KERNEL_SCALE_TENANTS=2 \
   KERNEL_SCALE_PARKS_PER_NOISY_TENANT=3 \
   KERNEL_SCALE_NOISY_TENANT_SHARE=0.80 \
   KERNEL_SCALE_INCLUDE_PARK_OVERRIDE=1 \
-  KERNEL_SCALE_CATEGORIES=vaccination,feed_direction \
+  KERNEL_SCALE_CATEGORIES=vaccination \
   KERNEL_SCALE_FAIL_ON_THRESHOLD=1
 ```
+
+Multi-domain kernel certification is separate and later:
+
+```text
+make load-test-kernel-stg \
+  GOATOS_ENV=stg \
+  KERNEL_CERTIFICATION_SCOPE=multi_domain_kernel \
+  KERNEL_SCALE_OPERATIONS=1000000 \
+  KERNEL_SCALE_TENANTS=2 \
+  KERNEL_SCALE_PARKS_PER_NOISY_TENANT=3 \
+  KERNEL_SCALE_NOISY_TENANT_SHARE=0.80 \
+  KERNEL_SCALE_INCLUDE_PARK_OVERRIDE=1 \
+  KERNEL_SCALE_CATEGORIES=vaccination,<second_operational_category> \
+  KERNEL_SCALE_FAIL_ON_THRESHOLD=1
+```
+
+The second category must already have operational generation, obligation writes,
+event delivery, sweeper/batch behavior, notification/escalation policy,
+projection/read APIs, and tests. Feed Direction is not required for
+vaccination-slice certification while the Feed Direction TRD still marks
+generation, obligation creation, HTTP/OpenAPI, consumers/schedulers, stock, and
+notification routing as not operational.
 
 If the command name changes, the report must show the equivalent invocation and
 prove that it exercises the same chain: generation, outbox relay, domain
@@ -209,14 +235,30 @@ consumer, sweeper, notification/escalation planning, projection refresh, and
 hot read APIs. Local reduced-row runs can be marked `local behavior proof` only;
 they cannot satisfy this staging floor.
 
+The 1,000,000 target is not a summed "operation attempts" bucket. The report must
+list each stage counter separately so cheap target evaluations cannot hide an
+untested kernel stage:
+
+| Stage counter | What counts | Required reporting |
+| --- | --- | --- |
+| Target evaluation | One target/rule evaluation against the active scoped protocol. | Count by tenant, park, category, protocol version, rule, and target cohort. |
+| Obligation write | One durable obligation insert, update, reopen, cancel, defer, suppress, or no-op conflict. | Count attempted and changed rows, rows/sec, duplicate business effects, and idempotent no-ops. |
+| Outbox publish | One outbox row published and marked through the configured relay path. | Count published, retry, failed, DLQ, oldest unsent, and publish rows/sec. |
+| Consumer handle | One delivered event handled by a domain consumer or approved local equivalent. | Count processed, duplicate deliveries, idempotent no-ops, handler errors, and lag. |
+| Sweeper claim | One due/missed/retryable work row claimed or intentionally skipped by a bounded worker. | Count claims, skips, stale reclaims, fairness lag, and rows/sec. |
+| Batch create/attach | One batch/work unit created or updated, plus the obligation rows attached to it. | Count batches, attached rows, zero-attach rollbacks, double-claim attempts, and stock-reservation effects. |
+| Notification intent | One durable reminder, nudge, escalation, exhausted-delivery, or suppression intent row. | Count planned, delivered, suppressed, retried, exhausted, and freshness lag. |
+| Projection update | One projection row upsert, rebuild row, or invalidation processed for command lenses. | Count updated rows, rebuild duration, freshness, and canonical count parity. |
+| Hot read | One API/read-model request against the loaded seed. | Count requests, p95/p99 latency, query plan, buffer/read bounds, and error rate. |
+
 Minimum pass/fail thresholds:
 
 | Signal | Pass/fail floor |
 | --- | --- |
-| Run size, scope, and skew | At least 1,000,000 kernel operation attempts across at least 2 tenants. One noisy tenant carries about 80% of generated load and contains at least 3 parks: one 1-5 lakh-animal park, one park with an active override, and one tenant-default park. At least two protocol categories are exercised so resolver cache keys prove `(tenant, park, category, as_of)`. |
+| Run size, scope, and skew | Vaccination-slice certification requires at least 1,000,000 vaccination target evaluations across at least 2 tenants. One noisy tenant carries about 80% of generated load and contains at least 3 parks: one 1-5 lakh-animal park, one park with an active vaccination override, and one tenant-default park. Multi-domain kernel certification is separate and requires at least two operational categories so resolver cache keys prove `(tenant, park, category, as_of)` across domains. |
 | Generation duration | 1,000,000 target evaluations complete in 60 minutes or less on the approved staging DB shape. A later bounded-worker certification target should tighten this to 30 minutes or less. |
 | Generation throughput | Sustained throughput after seed warm-up is at least 300 target evaluations/sec and at least 150 durable obligation writes/sec, with duplicate obligations = 0. |
-| Correctness reconciliation | For every seeded matrix cell, `generated + deferred + suppressed + ineligible + canceled = expected targets` by tenant, park, category, protocol version, rule, and cohort. Missing obligations = 0, duplicate business effects = 0, and same-key replay changes 0 rows. |
+| Correctness reconciliation | For every seeded matrix cell, `generated + deferred + reopened + suppressed_by_trusted_history + skipped_no_due_date + ineligible + canceled = expected targets` by tenant, park, category, protocol version, rule, and cohort. Missing obligations = 0, duplicate business effects = 0, and same-key replay changes 0 rows. Any residual or future bucket not named here must be 0 unless the report documents the reason and owner-approved acceptance criteria. |
 | Sweeper and batch throughput | Due-window claiming, missed marking, and batch planning sustain at least 500 rows/sec combined, with bounded transactions and no growing memory profile. |
 | Outbox/Pub/Sub throughput and lag | Outbox relay sustains at least 200 published+marked messages/sec against Pub/Sub; oldest unsent event p95 is less than 60s during steady load and never exceeds 300s during burst load. Pub/Sub oldest unacked p95 is less than 60s and backlog stops growing within 10 minutes after load stops. |
 | Tenant fairness | Under the noisy-tenant seed, every tenant with ready work receives claim progress within 5 minutes, and the quiet tenant p95 outbox/sweeper lag is no more than 2x the noisy tenant p95 lag. |
@@ -426,6 +468,9 @@ Latest architecture feedback is classified as:
 | Tenant fairness can live separately in each worker | No; fairness belongs in reusable `WorkClaimer`, `LeaseManager`, and `BackpressurePolicy` ports. |
 | Notification/escalation/replay can be copied per domain | No; planners, delivery gateways, DLQ replay, and run/progress ledgers are shared kernel pieces with domain policy plugged in. |
 | Idempotency rows can grow forever without an explicit decision | Not accepted by default; retention, partitioning, or permanent-replay tradeoffs must be documented and measured before high-scale certification. |
-| One huge park proves scoped override behavior | No; the scale seed must include multiple parks in one tenant, an active park override, a tenant-default park, and mixed categories. |
+| One huge park proves scoped override behavior | No; the scale seed must include multiple parks in one tenant, an active park override, and a tenant-default park. Mixed categories are required for the separate multi-domain certification. |
 | Performance thresholds are enough for certification | No; Section 4.4 requires expected-vs-actual reconciliation against seeded protocol matrix outcomes and canonical/projection count agreement. |
 | Sold/dead/shifted seed rows are enough | No; the E2E checklist requires named shift re-scope, death/sale/exit cancel, stock reconciliation, and no-exited-animal-overdue proof. |
+| Vaccination certification must include Feed Direction | No; vaccination-slice certification runs `vaccination` only. Multi-domain certification is separate and may use Feed Direction only after it is operational. |
+| 1M operation attempts can mean any cheap counter | No; Section 4.4 defines separate stage counters for target evaluation, obligation write, outbox publish, consumer handle, sweeper claim, batch create, notification intent, projection update, and hot read. |
+| Generation reconciliation can ignore residual buckets | No; reconciliation includes `reopened` and `skipped_no_due_date`, and any unnamed residual bucket must be zero or explicitly accepted with a reason. |
