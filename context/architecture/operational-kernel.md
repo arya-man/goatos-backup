@@ -55,6 +55,12 @@ For the concrete backend, frontend, infra, DLQ, SLA waterfall, and vertical
 plug-in system design, read
 `context/architecture/operational-kernel-system-design.md`.
 
+For the scale, retry, Pub/Sub/outbox, bounded-worker, Docker-validation, and
+1M-operation proof plan, read
+`docs/protocol-engine/high-scale-kernel-validation-plan.md` before changing
+generation, sweepers, projections, notification delivery, or protocol publish
+fanout.
+
 ## Kernel Responsibilities
 
 The kernel owns these reusable capabilities. Feature modules plug into them; they

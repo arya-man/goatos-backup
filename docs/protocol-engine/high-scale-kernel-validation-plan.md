@@ -1,0 +1,329 @@
+# Goat OS High-Scale Kernel Validation Plan
+
+**Status:** Active plan
+**Date:** 2026-07-05
+**Applies to:** Preventive Care (PC) vaccination now; every future protocol-driven domain later.
+
+This plan locks how Goat OS proves the operational kernel before calling a slice
+production-ready at 1-5 lakh animals per park and 1-5M animal operations overall.
+The kernel is generic: vaccination is the first heavy user, but the same design
+must support feed direction, breeding, procurement, parks, HR, inventory,
+critical animal actions, and future protocol-driven workflows.
+
+## 1. Non-Negotiable Architecture
+
+Every domain feature must plug into this shared chain:
+
+```text
+business event
+  -> canonical DB transaction
+  -> idempotency + audit + outbox
+  -> durable relay to Pub/Sub/event bus
+  -> trigger evaluation
+  -> bounded obligation generation
+  -> sweeper / scheduler / batch planner
+  -> SOP/proof execution
+  -> verification/completion
+  -> process read models
+  -> Control Tower / Action Center / Calendar / Protocol Adherence
+```
+
+Postgres canonical state is the source of truth. Pub/Sub, Cloud Tasks, workers,
+and notification channels are delivery/execution layers. If a message is lost,
+delayed, retried, or delivered twice, the kernel must be able to reconstruct the
+right answer from Postgres and idempotency keys.
+
+## 2. Scale Model
+
+The design target is not "small farm demo" scale.
+
+| Dimension | Required shape |
+| --- | --- |
+| Animals per park | 1-5 lakh |
+| Operations to tolerate | 1-5M generated, swept, retried, completed, and projected operations |
+| Animals per shed/tag | 500-1000 typical; skewed parks/sheds must be tested |
+| Rule resolution | Cache active protocol versions per `(tenant, park, category, as_of)` within a run |
+| Animal scanning | Keyset pages, normally 500-1000 animals per page |
+| Worker concurrency | Bounded worker pool, not one goroutine per animal |
+| Transaction size | One page or one claimed batch at a time |
+| Reads | Keyset/paginated and index-backed; no broad OFFSET/full-sort hot path |
+| Writes | Deterministic idempotency keys and conflict-safe inserts/updates |
+| Projections | Hot dashboards use projection/counter tables or capped estimates |
+
+Correct concurrency model:
+
+```text
+page size = 500-1000 animals
+worker pool = configured cap, e.g. 4/8/16 workers depending on DB pool and CPU
+each worker owns one page/batch at a time
+each page/batch has a small transaction boundary
+shared caches are precomputed or concurrency-safe
+```
+
+Never run one goroutine per animal. Never load a whole park or whole tenant into
+memory. Never hold one giant transaction across all animals.
+
+## 3. Current Kernel Guarantees To Preserve
+
+These are already the intended shape in the current codebase and must not be
+regressed:
+
+- Protocol publish uses backend-owned transactions, idempotency keys, audit, and
+  outbox events. The frontend is never the source of truth for activation.
+- `vaccination.matrix` publish generates one scoped immutable active version per
+  company or park scope, retires overlapping versions, and emits publish/retire
+  outbox events.
+- `outbox_messages` is the durable handoff before Pub/Sub. `outbox-relay` claims
+  bounded rows, validates envelopes, publishes, retries with backoff, and sends
+  exhausted retry rows to dead-letter status.
+- Staging/production must use `GOATOS_OUTBOX_PUBLISHER=pubsub`; logging/eventbus
+  modes are local-only and require explicit non-durable opt-in.
+- Versioned publish/manual vaccination generation has durable
+  `vaccination_generation_runs` rows, run idempotency keys, heartbeat,
+  completed/failed state, and stale-run reclaim. The safe no-version
+  effective-cohort CLI/backfill path is bounded and cached, but it is not yet
+  wrapped in durable run rows.
+- Existing-cohort generation resolves active vaccination versions with a
+  per-run park cache instead of querying once per animal.
+- Obligation generation uses deterministic keys and conflict-safe writes so
+  replayed events do not duplicate obligations.
+- The sweeper/batch layer is separate from rule generation: first derive due
+  work, then group it into operational drives/tasks.
+
+## 4. Required Local Docker Validation Before Claiming Kernel Ready
+
+Every high-risk kernel change must pass a local Docker chain that exercises the
+same architectural boundaries as cloud. Unit tests alone are not enough. The
+result must be a committed or attached pass/fail report with command output,
+seed shape, query-plan evidence, and failed-case evidence.
+
+### 4.1 Local Stack
+
+Run locally with:
+
+```text
+Docker Postgres
+API/backend
+admin-web where the workflow has a UI surface
+outbox-relay
+domain event consumer or in-process eventbus rehearsal
+obligation sweeper
+calendar/read-model refresh where relevant
+notification/alert stub adapters
+```
+
+For local Pub/Sub publisher/subscriber behavior, use the GCP Pub/Sub emulator or
+a test project topic/subscription. For local-only business-chain smoke tests,
+eventbus mode is allowed only when the test explicitly states it is not proving
+durable cloud egress.
+
+Emulator proof is not cloud-readiness proof. Real GCP readiness must separately
+prove topic/subscription wiring, IAM, ack deadline, retry policy, and DLQ
+behavior in `goatos-stg` or an explicitly approved test project.
+
+Local validation is allowed to run at reduced row count when developer machines
+cannot hold full scale, but the plan must also define the staging-scale command
+and thresholds. A small local run proves behavior; the staging run proves scale.
+
+### 4.2 Must-Prove Failure Cases
+
+| Failure | Expected behavior |
+| --- | --- |
+| API request fails before commit | No canonical state, no outbox event; retry creates the change once |
+| API commits but HTTP response dies | Retrying same idempotency key returns/replays success |
+| Same idempotency key with different payload | Backend rejects conflict |
+| Outbox relay crashes after claiming rows | Stale publishing lease reclaims rows and retries |
+| Pub/Sub publish fails transiently | Outbox row schedules retry with backoff |
+| Pub/Sub publish fails permanently | Outbox row becomes failed/dead-letter with operator visibility |
+| Pub/Sub delivers duplicate event | Consumer/generation idempotency prevents duplicate work |
+| Generation crashes mid-page or mid-run | Current versioned runs retry by replaying idempotently and creating only missing work; cursor/page resume must be added before parallel high-scale certification |
+| Worker times out during one drain stage | Later run continues; no giant transaction rollback |
+| Stock/proof/verification failure | Process exception is visible; no silent log-only failure |
+| Read model refresh fails | Canonical truth remains queryable; refresh can rerun idempotently |
+
+### 4.3 Must-Prove Scale Cases
+
+Seed realistic skew, not uniform fake rows:
+
+- At least 2 tenants, including one noisy tenant, so outbox/sweeper fairness is
+  tested and one tenant cannot starve another.
+- One park with 1-5 lakh animals.
+- 500-1000 animals per shed/tag, plus a few high-skew sheds.
+- Mixed goat/sheep animals.
+- Sick, ICU, quarantine, warm-up, pregnancy month 4/5, lactating, sold/dead,
+  shifted shed, and recovered animals.
+- Trusted procurement-holding vaccination history and untrusted outside history.
+- Overlapping due windows where batching may wait up to 7 days once, but never
+  beyond the medical safety window.
+
+Acceptance checks:
+
+- Effective protocol version lookup count is proportional to parks, not animals.
+- Goat/animal pages are keyseted and bounded.
+- History/proof/compatibility reads are bulk per page, not N+1 per animal.
+- Obligation writes are page-bounded and idempotent.
+- Sweeper claims indexed windows and does not scan whole tenant state.
+- Control Tower / Action Center / Calendar / Protocol Adherence read paths use
+  keyset/cursor or projection tables for broad 1M views.
+- `validate-sqlc-plans` or equivalent plan checks cover every hot list/sweeper
+  query at wide-filter scale.
+- Outbox, sweeper, generation, projection, and notification workers expose
+  queue depth, retry count, dead-letter count, heartbeat age, batch duration,
+  and rows-per-second metrics or logs.
+- Multi-tenant outbox and sweeper workers either use tenant-fair claiming or
+  prove that a high-volume tenant does not starve lower-volume tenants.
+
+## 5. Bounded Goroutine Plan
+
+Parallelism is allowed and wanted, but only inside explicit limits.
+
+Recommended worker shape:
+
+```text
+producer: lists animal pages by keyset cursor
+workers: fixed pool, e.g. 4-16 workers
+worker input: one page/batch
+worker output: counts + errors + emitted obligation writes
+shared cache: precomputed per park/scope, or protected read-only map
+DB pool: larger than worker count + API/system overhead
+```
+
+Rules:
+
+- No goroutine per animal.
+- No unbounded channel fed by all animals.
+- No shared mutable cache without synchronization.
+- Each page/batch must be independently retryable.
+- A failed page must record enough cursor/context to replay before the worker
+  pool is used for high-scale certification. Current single-thread generation
+  can replay from the start because writes are deterministic and idempotent;
+  parallel page workers require cursor/shard state.
+- Worker count must be configuration-driven and load-tested against DB pool,
+  CPU, and lock contention.
+
+## 6. Circuit Breaker, Retry, DLQ, And Replay Policy
+
+Every adapter that talks to a non-Postgres system must sit behind a port and
+declare its retry behavior.
+
+| Adapter kind | Required behavior |
+| --- | --- |
+| Pub/Sub publisher | retryable/permanent errors, bounded attempts, DLQ/dead-letter, metrics |
+| Pub/Sub subscriber | max outstanding messages, ack only after durable handling, idempotent consumer |
+| Cloud Tasks / reminder sender | reconstructable from Postgres, no canonical truth in task payload only |
+| Notification sender | provider circuit breaker, dead-letter/failed delivery rows, retry budget |
+| Inventory/stock mutation | canonical DB transaction or idempotent command; no duplicate consume on retry |
+| Projection refresh | idempotent rebuild/merge, safe rerun after failure |
+
+Retries must use bounded exponential backoff; jitter is required for production
+adapters before high-scale certification. Circuit breakers must trip noisy
+downstream adapters without corrupting canonical state. DLQ replay and discard
+must require operator reason, idempotency key, and audit row.
+
+Circuit breakers are not allowed to drop canonical work. When an adapter is
+open/tripped, the kernel records pending/retryable work in Postgres and exposes
+it through process integrity surfaces.
+
+## 7. Generic Composition Model
+
+Future domains must reuse the kernel by composition, not by copy-pasting a new
+mini-engine.
+
+| Component | Generic responsibility | Domain supplies |
+| --- | --- | --- |
+| `EventIntake` | validate command, reserve idempotency, write canonical event/outbox | command schema and authority |
+| `ProtocolResolver` | active version lookup by category/scope/effective date | category scope policy |
+| `TriggerEvaluator` | decide whether obligations/tasks are due | rule DSL and selectors |
+| `TargetPager` | keyset page targets | domain target query |
+| `EvidenceReader` | bulk fetch history/proof/suppression facts | domain evidence tables |
+| `ObligationWriter` | deterministic key, conflict-safe write | target/rule/due payload |
+| `BatchPlanner` | group compatible obligations into executable work | domain compatibility/scoring |
+| `ExecutionAdapter` | create SOP task and proof requirements | SOP/form/proof policy |
+| `CompletionAdapter` | verify proof, consume stock, mark complete | domain completion table |
+| `ProjectionUpdater` | update read models | dashboard/process state contract |
+
+Domain logic belongs in small policy objects/functions plugged into these
+interfaces. Cross-cutting mechanics stay in the kernel.
+
+## 8. Known Implementation Upgrades To Plan/Track
+
+This plan does not claim every item below is already implemented. These are the
+next kernel hardening items to keep explicit:
+
+1. **Page-bounded batched missed-state writes.** Keep the existing page boundary
+   but replace per-row repeated inserts/updates with multi-row statements per
+   page where safe.
+2. **Per-stage timeout budgets.** Long sweepers/read-model refreshes should use
+   separate bounded contexts per drain stage/page so one slow stage does not
+   starve later stages.
+3. **Explicit Pub/Sub subscriber flow control.** Consumers should configure max
+   outstanding messages/bytes and ack deadlines instead of relying on defaults.
+4. **Durable effective-cohort generation runs.** Wrap the no-version
+   `GenerateEffectiveForAllGoats` CLI/backfill path in durable run rows,
+   heartbeat, replay status, and idempotency just like versioned publish/manual
+   generation.
+5. **Cursor/page resume for parallel generation.** Persist page cursor or shard
+   context so a crashed parallel worker can replay only its page/range instead
+   of requiring full-run replay.
+6. **Notification circuit breaker implementation.** Add open/half-open/closed
+   provider state, cooldowns, metrics, pending-work visibility, and recovery
+   tests for notification/alert adapters.
+7. **Backoff jitter.** Add jitter to outbox, notification, and future adapter
+   retries where currently deterministic exponential backoff is used.
+8. **Tenant-fair outbox/sweeper claiming.** Prove or implement tenant-fair claim
+   order so a noisy tenant cannot monopolize global workers.
+9. **Projection decision for 1M dashboards.** Broad CT/PA/Calendar/Action
+   Center summaries need projection tables or capped estimates, not exact
+   full-scan aggregates on every page.
+10. **Parallel generation worker pool.** Add bounded page-level workers only
+   after the Docker chain proves single-thread correctness and plan guards cover
+   the hot queries.
+11. **Failure injection tests.** Add scripted cases for relay crash, duplicate
+   Pub/Sub delivery, generation mid-run failure, stale heartbeat reclaim, DLQ
+   replay, and idempotency conflict.
+12. **Load-test report.** Keep a committed report/checklist with seed shape,
+   thresholds, commands, pass/fail output, query plans, and observed bottlenecks.
+
+## 9. Minimum E2E Checklist
+
+A kernel slice is not closed until the report lists these cases and their result:
+
+- publish company version, publish park override, retire old active version
+- replay publish with same idempotency key
+- reject conflicting idempotency payload
+- outbox relay success path
+- outbox relay transient failure retry path
+- outbox dead-letter + replay path
+- Pub/Sub/eventbus duplicate event path
+- real GCP Pub/Sub topic/subscription/IAM/ack/DLQ proof before cloud readiness
+- multi-tenant noisy-neighbor outbox/sweeper fairness path
+- generation success, completed replay, stale running retry, failed retry
+- effective-cohort CLI/backfill generation durable run path
+- cursor/page resume or explicit full-replay acceptance for non-parallel paths
+- bounded page processing at realistic page size
+- missed/recovered/deferred animal path
+- sweeper creates batch/drive/task
+- notification circuit breaker open/half-open/closed behavior and pending visibility
+- proof submission accepted, rejected/rework, and duplicate submit
+- inventory reserve/consume/release idempotency
+- read model refresh and UI surface reflects process state
+- broad read/list query plan is index-backed or projection-backed
+
+The E2E report must say `passed`, `failed`, or `not implemented yet` per item.
+No silent blanks.
+
+## 10. Current Feedback Triage
+
+Latest architecture feedback is classified as:
+
+| Feedback | Status |
+| --- | --- |
+| Effective vaccination versions queried once per goat | Stale; current generation has per-run park cache and test coverage. |
+| `ListUnbatchedDueForVersion` lacks version index/plan guard | Fixed by the current tail migration/plan guard; preserve it. |
+| Outbox retry/DLQ unclear | Real requirement; this plan makes local relay retry/DLQ validation mandatory. |
+| Need goroutine per batch/page | Correct direction, but only as bounded worker pool after single-thread Docker proof. |
+| "Doesn't matter how many" batching language | Retired; the rule is bounded pages, bounded workers, bounded transactions. |
+| Kernel must extend beyond vaccination | Correct; composition model above is the target. |
+| Durable generation exists for every path | Not yet; versioned publish/manual paths have run rows, effective-cohort CLI/backfill path needs an upgrade. |
+| Cursor resume already exists | Not yet; current safe behavior is idempotent replay, with cursor/page resume required before parallel certification. |
+| Pub/Sub emulator proves cloud readiness | No; emulator proves local behavior only. Real topic/subscription/IAM/DLQ proof is separate. |

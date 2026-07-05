@@ -62,6 +62,7 @@ docs/protocol-engine/PHASE-0-CHECKLIST.md
 docs/protocol-engine/IMPLEMENTATION-PLAN.md
 docs/protocol-engine/obligation-engine.md
 docs/protocol-engine/state-machines.md
+docs/protocol-engine/high-scale-kernel-validation-plan.md
 docs/protocol-engine/migration-and-cutover.md
 context/architecture/operational-kernel.md
 docs/preventive-care-vaccination/TRD.md

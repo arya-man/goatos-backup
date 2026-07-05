@@ -74,7 +74,10 @@ Current override:
 ```text
 For Protocol Engine Phase 0 (Preventive Care (PC) vaccination, feed direction, protocol config,
 obligations, inventory ledger), load .agents/skills/goatos-build/SKILL.md and
-then docs/protocol-engine/* and docs/preventive-care-vaccination/*.
+then docs/protocol-engine/* and docs/preventive-care-vaccination/*, including
+docs/protocol-engine/high-scale-kernel-validation-plan.md for retry,
+idempotency, outbox/Pub/Sub, sweeper, bounded-worker, and 1M-scale validation
+work.
 ```
 
 After implementing any phase:
