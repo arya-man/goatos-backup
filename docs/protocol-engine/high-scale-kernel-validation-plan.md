@@ -24,6 +24,7 @@ business event
   -> sweeper / scheduler / batch planner
   -> SOP/proof execution
   -> verification/completion
+  -> notification/escalation/acknowledgement
   -> process read models
   -> Control Tower / Action Center / Calendar / Protocol Adherence
 ```
@@ -173,6 +174,49 @@ Acceptance checks:
 - Multi-tenant outbox and sweeper workers either use tenant-fair claiming or
   prove that a high-volume tenant does not starve lower-volume tenants.
 
+### 4.4 Minimum Staging Threshold Floor
+
+Every staging-scale report must name the exact command before it runs and list
+the environment shape: Cloud SQL tier, CPU/memory, disk type/size, app/worker
+replicas, DB pool sizes, Pub/Sub topic/subscription/DLQ config, and worker
+concurrency. The canonical command target to add before certification is:
+
+```text
+make load-test-kernel-stg \
+  GOATOS_ENV=stg \
+  KERNEL_SCALE_OPERATIONS=1000000 \
+  KERNEL_SCALE_TENANTS=2 \
+  KERNEL_SCALE_NOISY_TENANT_SHARE=0.80 \
+  KERNEL_SCALE_FAIL_ON_THRESHOLD=1
+```
+
+If the command name changes, the report must show the equivalent invocation and
+prove that it exercises the same chain: generation, outbox relay, domain
+consumer, sweeper, notification/escalation planning, projection refresh, and
+hot read APIs. Local reduced-row runs can be marked `local behavior proof` only;
+they cannot satisfy this staging floor.
+
+Minimum pass/fail thresholds:
+
+| Signal | Pass/fail floor |
+| --- | --- |
+| Run size and skew | At least 1,000,000 kernel operation attempts across at least 2 tenants, with one noisy tenant carrying about 80% of generated load and with the skew cases from Section 4.3 present. |
+| Generation duration | 1,000,000 target evaluations complete in 60 minutes or less on the approved staging DB shape. A later bounded-worker certification target should tighten this to 30 minutes or less. |
+| Generation throughput | Sustained throughput after seed warm-up is at least 300 target evaluations/sec and at least 150 durable obligation writes/sec, with duplicate obligations = 0. |
+| Sweeper and batch throughput | Due-window claiming, missed marking, and batch planning sustain at least 500 rows/sec combined, with bounded transactions and no growing memory profile. |
+| Outbox/Pub/Sub throughput and lag | Outbox relay sustains at least 200 published+marked messages/sec against Pub/Sub; oldest unsent event p95 is less than 60s during steady load and never exceeds 300s during burst load. Pub/Sub oldest unacked p95 is less than 60s and backlog stops growing within 10 minutes after load stops. |
+| Tenant fairness | Under the noisy-tenant seed, every tenant with ready work receives claim progress within 5 minutes, and the quiet tenant p95 outbox/sweeper lag is no more than 2x the noisy tenant p95 lag. |
+| API and hot query latency | Mutating API paths p95 < 800ms and p99 < 1500ms excluding external provider latency. Keyset list/projection APIs p95 < 1200ms and p99 < 2500ms. Hot DB queries p95 < 250ms and p99 < 1000ms, with query plans proving index/projection-backed reads. |
+| DB CPU, I/O, locks, and pool pressure | Cloud SQL CPU 15-minute average <= 70% and p95 <= 85%; storage I/O p95 <= 80%; connection pool p95 <= 80% of max; lock waits p99 < 250ms; no broad herd sequential scan appears in hot-path plans. |
+| Retry, DLQ, and replay | With no injected provider failures, retry rate < 0.1% and DLQ count = 0. With failure injection, only injected poison reaches DLQ; replay/discard actions are 100% audited and idempotent; duplicate business effects = 0. |
+| Notification/escalation freshness | Reminder/escalation intent rows are created within 60s p95 and 300s p99 after due/missed state crosses the policy threshold; exhausted delivery rows become operator-visible within 2 minutes. |
+| Dashboard projection staleness | Process projections used by Control Tower, Action Center, Calendar, and Protocol Adherence are fresh within 60s p95 and 300s p99 after canonical writes. Any stale response must expose the freshness envelope. A full projection rebuild over the 1M-operation seed completes within 30 minutes. |
+| Idempotency and run-ledger growth | Idempotency and run/progress tables keep primary-key/index probes within the latency floor above, and the report states the retention or partition policy used for replay safety and index-bloat control. |
+
+The report must include measured value, threshold, pass/fail, and evidence link
+for every row above. `Not implemented yet` is acceptable in planning reports, but
+it fails high-scale certification.
+
 ## 5. Bounded Goroutine Plan
 
 Parallelism is allowed and wanted, but only inside explicit limits.
@@ -224,6 +268,10 @@ Circuit breakers are not allowed to drop canonical work. When an adapter is
 open/tripped, the kernel records pending/retryable work in Postgres and exposes
 it through process integrity surfaces.
 
+Notification, escalation, delivery, DLQ replay, and progress recording are
+generic kernel mechanics. A future domain can supply policy and vocabulary, but
+it must not build a private retry, replay, delivery, or escalation engine.
+
 ## 7. Generic Composition Model
 
 Future domains must reuse the kernel by composition, not by copy-pasting a new
@@ -237,13 +285,26 @@ mini-engine.
 | `TargetPager` | keyset page targets | domain target query |
 | `EvidenceReader` | bulk fetch history/proof/suppression facts | domain evidence tables |
 | `ObligationWriter` | deterministic key, conflict-safe write | target/rule/due payload |
+| `RunLedger` / `ProgressRecorder` | record run id, attempt, heartbeat, cursor/page/shard progress, stale reclaim, completion, and failure state | run type, scope, cursor semantics, retry policy, completion criteria |
+| `WorkClaimer` | claim bounded work rows with tenant-fair ordering, `SKIP LOCKED`/lease-safe semantics, and stale-claim recovery | work table, claim query, indexes, status transitions, scope dimensions |
+| `LeaseManager` | start, heartbeat, expire, reclaim, and release leases for jobs, claims, deliveries, and replay actions | lease duration, owner identity, takeover policy |
+| `BackpressurePolicy` | cap worker concurrency, batch size, polling cadence, and provider calls from queue depth, DB pressure, and adapter health | urgency, SLA, priority, and domain-specific pause/degrade rules |
 | `BatchPlanner` | group compatible obligations into executable work | domain compatibility/scoring |
 | `ExecutionAdapter` | create SOP task and proof requirements | SOP/form/proof policy |
 | `CompletionAdapter` | verify proof, consume stock, mark complete | domain completion table |
+| `NotificationPlanner` | create durable reminder and nudge intents from due, blocked, missed, failed, or verification-pending state | recipient chain, timing policy, message semantics, suppression rules |
+| `EscalationPlanner` | advance escalation level, acknowledgement, ownership, resolution, and exception state | role ladder, SLA thresholds, acknowledgement/resolution policy |
+| `DeliveryGateway` | deliver notification/escalation intents through replaceable channels with retry budget, circuit breaker, and delivery ledger | channel selection, template/content payload, vendor adapter config |
+| `DLQReplayController` | list, replay, repair, discard, and audit poison messages or failed work without duplicate effects | operator permissions, repair payload schema, replay safety rules |
 | `ProjectionUpdater` | update read models | dashboard/process state contract |
 
 Domain logic belongs in small policy objects/functions plugged into these
 interfaces. Cross-cutting mechanics stay in the kernel.
+
+Tenant fairness is part of the shared kernel contract, not a one-off outbox or
+sweeper trick. `WorkClaimer`, `LeaseManager`, and `BackpressurePolicy` are the
+ports every high-volume worker should reuse so noisy-neighbor behavior can be
+proved once and applied across domains.
 
 ## 8. Known Implementation Upgrades To Plan/Track
 
@@ -270,8 +331,10 @@ next kernel hardening items to keep explicit:
    tests for notification/alert adapters.
 7. **Backoff jitter.** Add jitter to outbox, notification, and future adapter
    retries where currently deterministic exponential backoff is used.
-8. **Tenant-fair outbox/sweeper claiming.** Prove or implement tenant-fair claim
-   order so a noisy tenant cannot monopolize global workers.
+8. **Tenant-fair work claiming ports.** Implement or prove reusable
+   `WorkClaimer`, `LeaseManager`, and `BackpressurePolicy` behavior so outbox,
+   sweeper, projection, notification, and future workers cannot let a noisy
+   tenant monopolize global capacity.
 9. **Projection decision for 1M dashboards.** Broad CT/PA/Calendar/Action
    Center summaries need projection tables or capped estimates, not exact
    full-scan aggregates on every page.
@@ -282,7 +345,16 @@ next kernel hardening items to keep explicit:
    Pub/Sub delivery, generation mid-run failure, stale heartbeat reclaim, DLQ
    replay, and idempotency conflict.
 12. **Load-test report.** Keep a committed report/checklist with seed shape,
-   thresholds, commands, pass/fail output, query plans, and observed bottlenecks.
+   Section 4.4 thresholds, commands, pass/fail output, query plans, and observed
+   bottlenecks.
+13. **Reusable notification/escalation/replay ports.** Extract or standardize
+   `NotificationPlanner`, `EscalationPlanner`, `DeliveryGateway`,
+   `DLQReplayController`, and `RunLedger` / `ProgressRecorder` contracts before
+   future domains copy those mechanics.
+14. **Idempotency retention and index-bloat decision.** Decide and document the
+   replay window, partition/retention policy, and expired-replay behavior for
+   `idempotency_keys` so replay safety does not silently become unbounded primary
+   key/index growth at 1M+ operations.
 
 ## 9. Minimum E2E Checklist
 
@@ -327,3 +399,7 @@ Latest architecture feedback is classified as:
 | Durable generation exists for every path | Not yet; versioned publish/manual paths have run rows, effective-cohort CLI/backfill path needs an upgrade. |
 | Cursor resume already exists | Not yet; current safe behavior is idempotent replay, with cursor/page resume required before parallel certification. |
 | Pub/Sub emulator proves cloud readiness | No; emulator proves local behavior only. Real topic/subscription/IAM/DLQ proof is separate. |
+| Concrete 1M pass/fail thresholds are optional | No; Section 4.4 defines the minimum staging threshold floor and every report must list measured value vs threshold. |
+| Tenant fairness can live separately in each worker | No; fairness belongs in reusable `WorkClaimer`, `LeaseManager`, and `BackpressurePolicy` ports. |
+| Notification/escalation/replay can be copied per domain | No; planners, delivery gateways, DLQ replay, and run/progress ledgers are shared kernel pieces with domain policy plugged in. |
+| Idempotency rows can grow forever without an explicit decision | Not accepted by default; retention, partitioning, or permanent-replay tradeoffs must be documented and measured before high-scale certification. |
