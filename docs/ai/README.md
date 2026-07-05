@@ -175,6 +175,13 @@ transcripts (never network) and reports:
       --html ai-telemetry.html
   ```
 
+The HTML report also has a **savings trend** — a saved-vs-missed bar per period
+with **Window** (7d / 30d / 90d / All) and **Bucket** (Day / Week / Month)
+toggles, so the numbers show movement instead of an ever-growing all-time pile.
+Watch whether the amber *missed* portion shrinks against green *saved* over time —
+that is adoption improving. To drop old history from the terminal totals too,
+pass `--since YYYY-MM-DD`.
+
 The point is the **missed savings** number: it is an adoption gap, not a missing
 tool — route greps through the graph and diffs through RTK to claim it.
 It is a local measurement aid; the generated `ai-telemetry.html` is gitignored

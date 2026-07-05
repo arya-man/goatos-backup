@@ -337,6 +337,41 @@ def by_day(rows: list[SessionStats]) -> list[dict[str, int | str]]:
     return [{"day": day, **vals} for day, vals in sorted(days.items())]
 
 
+def daily_savings(
+    rows: list[SessionStats],
+    graph_save_tok: int,
+    rtk_save_tok: int,
+    read_replace_frac: float,
+    rate: float,
+) -> list[dict[str, float | str | int]]:
+    """Per-day saved vs missed ($ + tokens) — the series the trend chart buckets
+    by day/week/month so the report shows movement, not an ever-growing pile."""
+    days: dict[str, dict[str, float]] = {}
+    for r in rows:
+        if not r.day:
+            continue
+        a = days.setdefault(r.day, {"sessions": 0, "saved_tok": 0, "missed_tok": 0})
+        a["sessions"] += 1
+        a["saved_tok"] += r.graph_events * graph_save_tok + r.rtk_events * rtk_save_tok
+        a["missed_tok"] += (
+            r.grep_events * graph_save_tok
+            + r.gitdiff_events * rtk_save_tok
+            + int(r.read_events * read_replace_frac) * graph_save_tok
+        )
+    out: list[dict[str, float | str | int]] = []
+    for day in sorted(days):
+        a = days[day]
+        out.append(
+            {
+                "d": day,
+                "sess": int(a["sessions"]),
+                "sav": round(a["saved_tok"] * rate, 2),
+                "mis": round(a["missed_tok"] * rate, 2),
+            }
+        )
+    return out
+
+
 def savings_model(
     rows: list[SessionStats],
     graph_save_tok: int,
@@ -431,7 +466,40 @@ def print_by_day(days: list[dict[str, int | str]], limit: int = 30) -> None:
         )
 
 
-def render_html(project: str, summary: dict[str, dict[str, int]], days: list[dict[str, int | str]], rows: list[SessionStats], limit: int, model: dict[str, float]) -> str:
+TREND_JS = """<script>
+const DAILY = __DAILY__;
+let WIN = 30, GRAN = 'day';
+function monday(ds){ const d = new Date(ds + 'T00:00:00'); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); return d.toISOString().slice(0,10); }
+function bucketKey(ds){ return GRAN === 'month' ? ds.slice(0,7) : GRAN === 'week' ? monday(ds) : ds; }
+function render(){
+  if (!DAILY.length) return;
+  const maxD = DAILY[DAILY.length - 1].d;
+  const cut = new Date(maxD + 'T00:00:00'); cut.setDate(cut.getDate() - (WIN - 1));
+  const cutS = cut.toISOString().slice(0,10);
+  const rows = WIN >= 9999 ? DAILY : DAILY.filter(x => x.d >= cutS);
+  const b = {}; let tsav = 0, tmis = 0, tsess = 0;
+  for (const x of rows){ const k = bucketKey(x.d); (b[k] = b[k] || {sav:0, mis:0, sess:0}); b[k].sav += x.sav; b[k].mis += x.mis; b[k].sess += x.sess; tsav += x.sav; tmis += x.mis; tsess += x.sess; }
+  const keys = Object.keys(b).sort();
+  const maxTot = Math.max(1, ...keys.map(k => b[k].sav + b[k].mis));
+  document.getElementById('winsum').innerHTML =
+    '<b style="color:#7ee787">$' + tsav.toFixed(0) + '</b> saved &nbsp;·&nbsp; <b style="color:#e3b341">$' + tmis.toFixed(0) + '</b> missed &nbsp;·&nbsp; ' + tsess + ' sessions in this window (' + keys.length + ' ' + GRAN + 's)';
+  document.getElementById('trend').innerHTML = keys.map(k => {
+    const t = b[k], tot = t.sav + t.mis, w = 100 * tot / maxTot, sp = tot ? 100 * t.sav / tot : 0;
+    return '<div class="trow"><span class="tlabel">' + k + '</span>' +
+      '<span class="tbar" style="width:' + Math.max(3, w) + '%"><span class="tsav" style="width:' + sp + '%"></span><span class="tmis" style="width:' + (100 - sp) + '%"></span></span>' +
+      '<span class="tnum">$' + t.sav.toFixed(0) + ' saved / $' + t.mis.toFixed(0) + ' missed</span></div>';
+  }).join('');
+}
+document.querySelectorAll('.controls button').forEach(btn => btn.onclick = () => {
+  if (btn.dataset.win){ WIN = +btn.dataset.win; btn.parentNode.querySelectorAll('[data-win]').forEach(x => x.classList.toggle('on', x === btn)); }
+  if (btn.dataset.gran){ GRAN = btn.dataset.gran; btn.parentNode.querySelectorAll('[data-gran]').forEach(x => x.classList.toggle('on', x === btn)); }
+  render();
+});
+render();
+</script>"""
+
+
+def render_html(project: str, summary: dict[str, dict[str, int]], days: list[dict[str, int | str]], rows: list[SessionStats], limit: int, model: dict[str, float], daily: list[dict[str, float | str | int]]) -> str:
     total = sum(a["tokens"] for a in summary.values())
     sessions = sum(a["sessions"] for a in summary.values())
     graph_sess = sum(a["graph_sessions"] for a in summary.values())
@@ -468,6 +536,7 @@ def render_html(project: str, summary: dict[str, dict[str, int]], days: list[dic
         for r in rows[:limit]
     )
     project_safe = html.escape(project)
+    trend_js = TREND_JS.replace("__DAILY__", json.dumps(daily))
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>AI Telemetry — {project_safe}</title><style>
 body{{font:14px/1.5 -apple-system,Segoe UI,sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:24px}}
@@ -484,6 +553,15 @@ th:first-child,td:first-child{{text-align:left}}td.path{{text-align:left;color:#
 .fill{{display:block;height:100%;background:linear-gradient(90deg,#1f6feb,#7ee787)}}
 .num{{width:120px;text-align:right;font-variant-numeric:tabular-nums}}
 .adopt{{width:210px;color:#8b949e;font-size:12px}}
+.controls{{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0 10px}}
+.controls .lbl{{color:#8b949e;font-size:12px;margin-left:12px}}
+.controls button{{background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:4px 11px;cursor:pointer;font-size:12px}}
+.controls button.on{{border-color:#7ee787;color:#7ee787}}
+.trow{{display:flex;align-items:center;gap:10px;margin:2px 0}}
+.tlabel{{width:96px;color:#8b949e;font-size:12px;font-variant-numeric:tabular-nums}}
+.tbar{{flex:1;display:flex;height:16px;border-radius:4px;overflow:hidden;background:#161b22}}
+.tsav{{background:#238636}}.tmis{{background:#9e6a03}}
+.tnum{{width:240px;text-align:right;font-size:12px;color:#8b949e;font-variant-numeric:tabular-nums}}
 </style></head><body>
 <h1>AI Telemetry — project “{project_safe}”</h1>
 <div class="sub">Real Claude + Codex transcript usage. repowise/CRG/Graphify/RTK adoption. Generated locally, no network.</div>
@@ -502,10 +580,19 @@ th:first-child,td:first-child{{text-align:left}}td.path{{text-align:left;color:#
 <div class="sub" style="font-size:12px">Codex multi-agent calls are visible in parent transcripts, but local Codex JSONL does not expose child-agent token usage separately. Codex tokens remain parent-session totals; spawned agents are called out as orchestration.</div>
 <h2>Per-agent totals</h2>
 <table><tr><th>agent</th><th>sessions</th><th>tokens</th><th>graph sess</th><th>rtk sess</th><th>tool calls</th><th>spawned agents</th></tr>{agent_rows}</table>
-<h2>By day — tokens &amp; tool adoption</h2>
+<h2>Savings trend — is the missed number shrinking?</h2>
+<div class="controls">
+<span class="lbl">Window:</span><button data-win="7">7d</button><button data-win="30" class="on">30d</button><button data-win="90">90d</button><button data-win="9999">All</button>
+<span class="lbl">Bucket:</span><button data-gran="day" class="on">Day</button><button data-gran="week">Week</button><button data-gran="month">Month</button>
+</div>
+<div id="winsum" class="sub" style="font-size:13px"></div>
+<div id="trend"></div>
+<div class="sub" style="font-size:11px;margin-top:6px"><span style="color:#238636">■</span> saved by tools &nbsp; <span style="color:#9e6a03">■</span> missed (raw bypass) — bar length = $ that period, split shows the ratio. Missed shrinking vs saved = adoption improving.</div>
+<h2>By day — tokens &amp; tool adoption (all-time)</h2>
 {''.join(bar(d) for d in days)}
 <h2>Top {limit} heaviest sessions</h2>
 <table><tr><th>agent</th><th>tokens</th><th>graph</th><th>rtk</th><th>tools</th><th>spawned</th><th>transcript</th></tr>{top_rows}</table>
+{trend_js}
 </body></html>"""
 
 
@@ -521,6 +608,7 @@ def main() -> int:
     parser.add_argument("--graph-save", type=int, default=9000, help="tokens saved per graph query (avoided grep+read)")
     parser.add_argument("--rtk-save", type=int, default=15000, help="tokens saved per RTK/distill diff pass")
     parser.add_argument("--read-replace-frac", type=float, default=0.3, help="fraction of file reads a graph lookup could replace")
+    parser.add_argument("--since", default="", help="only count sessions on/after this YYYY-MM-DD (drops old history from the totals)")
     args = parser.parse_args()
 
     codex_root = Path(os.path.expanduser(args.codex_root))
@@ -534,6 +622,8 @@ def main() -> int:
         # Prefer the event timestamp captured during analysis; mtime/path only
         # as a fallback for transcripts that carried no timestamp.
         row.day = row.day or session_day(row.path)
+    if args.since:
+        rows = [row for row in rows if row.day and row.day >= args.since]
     rows.sort(key=lambda row: row.tokens, reverse=True)
 
     total_tokens = sum(row.tokens for row in rows)
@@ -559,9 +649,10 @@ def main() -> int:
     print_savings(model)
 
     if args.html:
+        daily = daily_savings(rows, args.graph_save, args.rtk_save, args.read_replace_frac, args.price_per_mtok / 1_000_000.0)
         out = Path(os.path.expanduser(args.html))
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(render_html(args.project, summary, days, rows, args.limit, model), encoding="utf-8")
+        out.write_text(render_html(args.project, summary, days, rows, args.limit, model, daily), encoding="utf-8")
         print(f"\nHTML report written: {out}")
     return 0
 
