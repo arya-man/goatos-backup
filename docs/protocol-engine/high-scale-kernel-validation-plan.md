@@ -148,7 +148,11 @@ Seed realistic skew, not uniform fake rows:
 
 - At least 2 tenants, including one noisy tenant, so outbox/sweeper fairness is
   tested and one tenant cannot starve another.
-- One park with 1-5 lakh animals.
+- At least one tenant with multiple parks: one 1-5 lakh-animal park, at least
+  one smaller park, one active park override, and one tenant-default park with no
+  override. Mixed protocol categories must be present so resolution by
+  `(tenant, park, category, as_of)` proves generic scope behavior instead of only
+  a single huge vaccination park.
 - 500-1000 animals per shed/tag, plus a few high-skew sheds.
 - Mixed goat/sheep animals.
 - Sick, ICU, quarantine, warm-up, pregnancy month 4/5, lactating, sold/dead,
@@ -160,6 +164,9 @@ Seed realistic skew, not uniform fake rows:
 Acceptance checks:
 
 - Effective protocol version lookup count is proportional to parks, not animals.
+- Scope resolution proves tenant-default, park-override, and mixed-category
+  behavior in the same run; park overrides apply only to their park/category and
+  tenant-default rules still apply elsewhere.
 - Goat/animal pages are keyseted and bounded.
 - History/proof/compatibility reads are bulk per page, not N+1 per animal.
 - Obligation writes are page-bounded and idempotent.
@@ -173,6 +180,9 @@ Acceptance checks:
   and rows-per-second metrics or logs.
 - Multi-tenant outbox and sweeper workers either use tenant-fair claiming or
   prove that a high-volume tenant does not starve lower-volume tenants.
+- Expected-vs-actual reconciliation matches the seeded protocol matrix:
+  generated + deferred + suppressed + ineligible + canceled outcomes reconcile
+  by tenant, park, category, protocol version, rule, and target cohort.
 
 ### 4.4 Minimum Staging Threshold Floor
 
@@ -186,7 +196,10 @@ make load-test-kernel-stg \
   GOATOS_ENV=stg \
   KERNEL_SCALE_OPERATIONS=1000000 \
   KERNEL_SCALE_TENANTS=2 \
+  KERNEL_SCALE_PARKS_PER_NOISY_TENANT=3 \
   KERNEL_SCALE_NOISY_TENANT_SHARE=0.80 \
+  KERNEL_SCALE_INCLUDE_PARK_OVERRIDE=1 \
+  KERNEL_SCALE_CATEGORIES=vaccination,feed_direction \
   KERNEL_SCALE_FAIL_ON_THRESHOLD=1
 ```
 
@@ -200,9 +213,10 @@ Minimum pass/fail thresholds:
 
 | Signal | Pass/fail floor |
 | --- | --- |
-| Run size and skew | At least 1,000,000 kernel operation attempts across at least 2 tenants, with one noisy tenant carrying about 80% of generated load and with the skew cases from Section 4.3 present. |
+| Run size, scope, and skew | At least 1,000,000 kernel operation attempts across at least 2 tenants. One noisy tenant carries about 80% of generated load and contains at least 3 parks: one 1-5 lakh-animal park, one park with an active override, and one tenant-default park. At least two protocol categories are exercised so resolver cache keys prove `(tenant, park, category, as_of)`. |
 | Generation duration | 1,000,000 target evaluations complete in 60 minutes or less on the approved staging DB shape. A later bounded-worker certification target should tighten this to 30 minutes or less. |
 | Generation throughput | Sustained throughput after seed warm-up is at least 300 target evaluations/sec and at least 150 durable obligation writes/sec, with duplicate obligations = 0. |
+| Correctness reconciliation | For every seeded matrix cell, `generated + deferred + suppressed + ineligible + canceled = expected targets` by tenant, park, category, protocol version, rule, and cohort. Missing obligations = 0, duplicate business effects = 0, and same-key replay changes 0 rows. |
 | Sweeper and batch throughput | Due-window claiming, missed marking, and batch planning sustain at least 500 rows/sec combined, with bounded transactions and no growing memory profile. |
 | Outbox/Pub/Sub throughput and lag | Outbox relay sustains at least 200 published+marked messages/sec against Pub/Sub; oldest unsent event p95 is less than 60s during steady load and never exceeds 300s during burst load. Pub/Sub oldest unacked p95 is less than 60s and backlog stops growing within 10 minutes after load stops. |
 | Tenant fairness | Under the noisy-tenant seed, every tenant with ready work receives claim progress within 5 minutes, and the quiet tenant p95 outbox/sweeper lag is no more than 2x the noisy tenant p95 lag. |
@@ -210,7 +224,7 @@ Minimum pass/fail thresholds:
 | DB CPU, I/O, locks, and pool pressure | Cloud SQL CPU 15-minute average <= 70% and p95 <= 85%; storage I/O p95 <= 80%; connection pool p95 <= 80% of max; lock waits p99 < 250ms; no broad herd sequential scan appears in hot-path plans. |
 | Retry, DLQ, and replay | With no injected provider failures, retry rate < 0.1% and DLQ count = 0. With failure injection, only injected poison reaches DLQ; replay/discard actions are 100% audited and idempotent; duplicate business effects = 0. |
 | Notification/escalation freshness | Reminder/escalation intent rows are created within 60s p95 and 300s p99 after due/missed state crosses the policy threshold; exhausted delivery rows become operator-visible within 2 minutes. |
-| Dashboard projection staleness | Process projections used by Control Tower, Action Center, Calendar, and Protocol Adherence are fresh within 60s p95 and 300s p99 after canonical writes. Any stale response must expose the freshness envelope. A full projection rebuild over the 1M-operation seed completes within 30 minutes. |
+| Dashboard projection staleness and accuracy | Process projections used by Control Tower, Action Center, Calendar, and Protocol Adherence are fresh within 60s p95 and 300s p99 after canonical writes. Any stale response must expose the freshness envelope. A full projection rebuild over the 1M-operation seed completes within 30 minutes. Projection integer counts for due, overdue, missed, deferred, suppressed, canceled, completed, and exception buckets match canonical Postgres counts exactly after refresh; declared approximate/rate metrics may differ by at most 0.1% and must be labeled. |
 | Idempotency and run-ledger growth | Idempotency and run/progress tables keep primary-key/index probes within the latency floor above, and the report states the retention or partition policy used for replay safety and index-bloat control. |
 
 The report must include measured value, threshold, pass/fail, and evidence link
@@ -373,7 +387,16 @@ A kernel slice is not closed until the report lists these cases and their result
 - effective-cohort CLI/backfill generation durable run path
 - cursor/page resume or explicit full-replay acceptance for non-parallel paths
 - bounded page processing at realistic page size
+- multi-park scoped generation: tenant-default version, park override, override
+  retirement/inheritance, and mixed protocol categories in one run
 - missed/recovered/deferred animal path
+- shift re-scope path: shifted animals move open same-vaccine work to the
+  destination shed/park scope, detach or replan affected batches, and leave audit
+  evidence for the prior scope
+- death/sale/exit cancel path: exited animals cancel open scheduled/due/overdue
+  work, release or reconcile stock reservations, and emit status/audit evidence
+- no exited animal remains overdue in Action Center, Calendar, Protocol
+  Adherence, Control Tower, or projection rows after refresh
 - sweeper creates batch/drive/task
 - notification circuit breaker open/half-open/closed behavior and pending visibility
 - proof submission accepted, rejected/rework, and duplicate submit
@@ -403,3 +426,6 @@ Latest architecture feedback is classified as:
 | Tenant fairness can live separately in each worker | No; fairness belongs in reusable `WorkClaimer`, `LeaseManager`, and `BackpressurePolicy` ports. |
 | Notification/escalation/replay can be copied per domain | No; planners, delivery gateways, DLQ replay, and run/progress ledgers are shared kernel pieces with domain policy plugged in. |
 | Idempotency rows can grow forever without an explicit decision | Not accepted by default; retention, partitioning, or permanent-replay tradeoffs must be documented and measured before high-scale certification. |
+| One huge park proves scoped override behavior | No; the scale seed must include multiple parks in one tenant, an active park override, a tenant-default park, and mixed categories. |
+| Performance thresholds are enough for certification | No; Section 4.4 requires expected-vs-actual reconciliation against seeded protocol matrix outcomes and canonical/projection count agreement. |
+| Sold/dead/shifted seed rows are enough | No; the E2E checklist requires named shift re-scope, death/sale/exit cancel, stock reconciliation, and no-exited-animal-overdue proof. |
