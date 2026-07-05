@@ -41,7 +41,7 @@ The design target is not "small farm demo" scale.
 | Dimension | Required shape |
 | --- | --- |
 | Animals per park | 1-5 lakh |
-| Operations to tolerate | 1-5M generated, swept, retried, completed, and projected operations |
+| Operations to tolerate | 1-5M generated, swept, retried, completed, and projected operations; target-evaluation-only runs are labeled separately and do not certify the full chain |
 | Animals per shed/tag | 500-1000 typical; skewed parks/sheds must be tested |
 | Rule resolution | Cache active protocol versions per `(tenant, park, category, as_of)` within a run |
 | Animal scanning | Keyset pages, normally 500-1000 animals per page |
@@ -175,29 +175,41 @@ Acceptance checks:
 - Sweeper claims indexed windows and does not scan whole tenant state.
 - Control Tower / Action Center / Calendar / Protocol Adherence read paths use
   keyset/cursor or projection tables for broad 1M views.
-- `validate-sqlc-plans` or equivalent plan checks cover every hot list/sweeper
-  query at wide-filter scale.
+- `validate-sqlc-plans` or equivalent per-push plan checks prove index
+  reachability for every hot list/sweeper query shape. Staging-scale
+  certification must also run scaled `EXPLAIN (ANALYZE, BUFFERS)` without
+  disabling sequential scans, after seed load and `ANALYZE`, to prove the
+  planner chooses the intended index/projection path at real row counts.
 - Outbox, sweeper, generation, projection, and notification workers expose
   queue depth, retry count, dead-letter count, heartbeat age, batch duration,
   and rows-per-second metrics or logs.
 - Multi-tenant outbox and sweeper workers either use tenant-fair claiming or
   prove that a high-volume tenant does not starve lower-volume tenants.
 - Expected-vs-actual reconciliation matches the seeded protocol matrix:
-  generated + deferred + suppressed + ineligible + canceled outcomes reconcile
-  by tenant, park, category, protocol version, rule, and target cohort.
+  generated + deferred + reopened + suppressed_by_trusted_history +
+  skipped_no_due_date + ineligible + canceled outcomes reconcile by tenant,
+  park, category, protocol version, rule, and target cohort.
 
 ### 4.4 Minimum Staging Threshold Floor
 
 Every staging-scale report must name the exact command before it runs and list
-the environment shape: Cloud SQL tier, CPU/memory, disk type/size, app/worker
-replicas, DB pool sizes, Pub/Sub topic/subscription/DLQ config, and worker
-concurrency. The canonical vaccination-slice command target to add before
-certifying the current Preventive Care (PC) vaccination slice is:
+the canonical environment shape. Certification runs must use the fixed
+`goatos-stg` benchmark baseline profile from
+`docs/runbooks/google-cloud-environments.md`, currently
+`goatos-stg-1m-benchmark-v1`. The report must include profile id, Cloud SQL
+tier, CPU/memory, disk type/size/autoscaling, replicas, app/worker replicas, DB
+pool sizes, Pub/Sub topic/subscription/DLQ config, and worker concurrency. A run
+on a different or larger shape is a stress exploration unless a new benchmark
+profile is committed first.
+
+The canonical vaccination-slice command target to add before certifying the
+current Preventive Care (PC) vaccination slice is:
 
 ```text
 make load-test-kernel-stg \
   GOATOS_ENV=stg \
   KERNEL_CERTIFICATION_SCOPE=vaccination_slice \
+  KERNEL_CERTIFICATION_LEVEL=full_chain \
   KERNEL_SCALE_OPERATIONS=1000000 \
   KERNEL_SCALE_TENANTS=2 \
   KERNEL_SCALE_PARKS_PER_NOISY_TENANT=3 \
@@ -213,6 +225,7 @@ Multi-domain kernel certification is separate and later:
 make load-test-kernel-stg \
   GOATOS_ENV=stg \
   KERNEL_CERTIFICATION_SCOPE=multi_domain_kernel \
+  KERNEL_CERTIFICATION_LEVEL=full_chain \
   KERNEL_SCALE_OPERATIONS=1000000 \
   KERNEL_SCALE_TENANTS=2 \
   KERNEL_SCALE_PARKS_PER_NOISY_TENANT=3 \
@@ -229,6 +242,11 @@ vaccination-slice certification while the Feed Direction TRD still marks
 generation, obligation creation, HTTP/OpenAPI, consumers/schedulers, stock, and
 notification routing as not operational.
 
+Early generator-only rehearsals may set
+`KERNEL_CERTIFICATION_LEVEL=target_eval`. That label proves page/cache/query
+shape for target evaluation only. It cannot be described as 1M full-chain
+certification, production readiness, or end-to-end kernel scale proof.
+
 If the command name changes, the report must show the equivalent invocation and
 prove that it exercises the same chain: generation, outbox relay, domain
 consumer, sweeper, notification/escalation planning, projection refresh, and
@@ -237,32 +255,36 @@ they cannot satisfy this staging floor.
 
 The 1,000,000 target is not a summed "operation attempts" bucket. The report must
 list each stage counter separately so cheap target evaluations cannot hide an
-untested kernel stage:
+untested kernel stage. A `target_eval` certification only needs the first row. A
+`full_chain` certification must meet every minimum below or fail with `not
+implemented yet`.
 
-| Stage counter | What counts | Required reporting |
-| --- | --- | --- |
-| Target evaluation | One target/rule evaluation against the active scoped protocol. | Count by tenant, park, category, protocol version, rule, and target cohort. |
-| Obligation write | One durable obligation insert, update, reopen, cancel, defer, suppress, or no-op conflict. | Count attempted and changed rows, rows/sec, duplicate business effects, and idempotent no-ops. |
-| Outbox publish | One outbox row published and marked through the configured relay path. | Count published, retry, failed, DLQ, oldest unsent, and publish rows/sec. |
-| Consumer handle | One delivered event handled by a domain consumer or approved local equivalent. | Count processed, duplicate deliveries, idempotent no-ops, handler errors, and lag. |
-| Sweeper claim | One due/missed/retryable work row claimed or intentionally skipped by a bounded worker. | Count claims, skips, stale reclaims, fairness lag, and rows/sec. |
-| Batch create/attach | One batch/work unit created or updated, plus the obligation rows attached to it. | Count batches, attached rows, zero-attach rollbacks, double-claim attempts, and stock-reservation effects. |
-| Notification intent | One durable reminder, nudge, escalation, exhausted-delivery, or suppression intent row. | Count planned, delivered, suppressed, retried, exhausted, and freshness lag. |
-| Projection update | One projection row upsert, rebuild row, or invalidation processed for command lenses. | Count updated rows, rebuild duration, freshness, and canonical count parity. |
-| Hot read | One API/read-model request against the loaded seed. | Count requests, p95/p99 latency, query plan, buffer/read bounds, and error rate. |
+| Stage counter | What counts | 1M target-eval minimum | 1M full-chain minimum |
+| --- | --- | --- | --- |
+| Target evaluation | One target/rule evaluation against the active scoped protocol. | >= 1,000,000 evaluations. | >= 1,000,000 evaluations by tenant, park, category, protocol version, rule, and cohort. |
+| Obligation write | One durable obligation insert, update, reopen, cancel, defer, suppress, or no-op conflict. | Report only. | >= 250,000 attempted writes and >= 100,000 changed durable rows, with duplicate business effects = 0 and idempotent replay no-ops counted separately. |
+| Outbox publish | One outbox row published and marked through the configured relay path. | Report only. | >= 100,000 publish attempts through the configured relay/Pub/Sub path, including success, retry, failed/DLQ, oldest unsent age, and publish rows/sec. |
+| Consumer handle | One delivered event handled by a domain consumer or approved local equivalent. | Report only. | >= 100,000 delivered event handles, including at least 1% duplicate/replay deliveries that produce zero duplicate effects. |
+| Sweeper claim | One due/missed/retryable work row claimed or intentionally skipped by a bounded worker. | Report only. | >= 100,000 due/missed/retryable claims or intentional skips, with stale reclaim and tenant-fair lag reported. |
+| Batch create/attach | One batch/work unit created or updated, plus the obligation rows attached to it. | Report only. | >= 1,000 batch/work units and >= 100,000 attached obligation rows, with zero double-claim effects and stock reservation/release impacts reported. |
+| Completion/proof | One accepted, rejected, reworked, duplicate, or failed completion/proof action. | Report only. | >= 100,000 completion/proof attempts across accepted, rejected/rework, and replay paths, with stock consume/release reconciliation. |
+| Notification intent | One durable reminder, nudge, escalation, exhausted-delivery, or suppression intent row. | Report only. | >= 50,000 notification/escalation intent rows, including >= 1,000 escalation or exhausted-delivery cases when the slice declares escalation policy. |
+| Retry/DLQ injection | One deliberately retried or poison delivery/work item. | Report only. | >= 10,000 retryable attempts and >= 100 poison/DLQ items, all audited with replay/discard reason and zero duplicate business effects. |
+| Projection update | One projection row upsert, rebuild row, or invalidation processed for command lenses. | Report only. | >= 250,000 projection row updates or a full projection rebuild over the 1M seed; canonical/projection count parity must pass after refresh. |
+| Hot read | One API/read-model request against the loaded seed. | Report only. | >= 10,000 hot read requests across Control Tower, Action Center, Calendar, Protocol Adherence, and detail/list APIs, with p95/p99 and scaled query plans reported. |
 
 Minimum pass/fail thresholds:
 
 | Signal | Pass/fail floor |
 | --- | --- |
-| Run size, scope, and skew | Vaccination-slice certification requires at least 1,000,000 vaccination target evaluations across at least 2 tenants. One noisy tenant carries about 80% of generated load and contains at least 3 parks: one 1-5 lakh-animal park, one park with an active vaccination override, and one tenant-default park. Multi-domain kernel certification is separate and requires at least two operational categories so resolver cache keys prove `(tenant, park, category, as_of)` across domains. |
-| Generation duration | 1,000,000 target evaluations complete in 60 minutes or less on the approved staging DB shape. A later bounded-worker certification target should tighten this to 30 minutes or less. |
+| Run size, scope, and skew | Vaccination-slice certification requires at least 1,000,000 vaccination target evaluations across at least 2 tenants. One noisy tenant carries about 80% of generated load and contains at least 3 parks: one 1-5 lakh-animal park, one park with an active vaccination override, and one tenant-default park. Full-chain certification additionally requires every stage minimum above. Multi-domain kernel certification is separate and requires at least two operational categories so resolver cache keys prove `(tenant, park, category, as_of)` across domains. |
+| Generation duration | 1,000,000 target evaluations complete in 60 minutes or less on the committed `goatos-stg-1m-benchmark-v1` staging profile. A later bounded-worker certification target should tighten this to 30 minutes or less. |
 | Generation throughput | Sustained throughput after seed warm-up is at least 300 target evaluations/sec and at least 150 durable obligation writes/sec, with duplicate obligations = 0. |
 | Correctness reconciliation | For every seeded matrix cell, `generated + deferred + reopened + suppressed_by_trusted_history + skipped_no_due_date + ineligible + canceled = expected targets` by tenant, park, category, protocol version, rule, and cohort. Missing obligations = 0, duplicate business effects = 0, and same-key replay changes 0 rows. Any residual or future bucket not named here must be 0 unless the report documents the reason and owner-approved acceptance criteria. |
 | Sweeper and batch throughput | Due-window claiming, missed marking, and batch planning sustain at least 500 rows/sec combined, with bounded transactions and no growing memory profile. |
 | Outbox/Pub/Sub throughput and lag | Outbox relay sustains at least 200 published+marked messages/sec against Pub/Sub; oldest unsent event p95 is less than 60s during steady load and never exceeds 300s during burst load. Pub/Sub oldest unacked p95 is less than 60s and backlog stops growing within 10 minutes after load stops. |
 | Tenant fairness | Under the noisy-tenant seed, every tenant with ready work receives claim progress within 5 minutes, and the quiet tenant p95 outbox/sweeper lag is no more than 2x the noisy tenant p95 lag. |
-| API and hot query latency | Mutating API paths p95 < 800ms and p99 < 1500ms excluding external provider latency. Keyset list/projection APIs p95 < 1200ms and p99 < 2500ms. Hot DB queries p95 < 250ms and p99 < 1000ms, with query plans proving index/projection-backed reads. |
+| API and hot query latency | Mutating API paths p95 < 800ms and p99 < 1500ms excluding external provider latency. Keyset list/projection APIs p95 < 1200ms and p99 < 2500ms. Hot DB queries p95 < 250ms and p99 < 1000ms, with scaled `EXPLAIN (ANALYZE, BUFFERS)` proving index/projection-backed planner choice without `enable_seqscan=off`. |
 | DB CPU, I/O, locks, and pool pressure | Cloud SQL CPU 15-minute average <= 70% and p95 <= 85%; storage I/O p95 <= 80%; connection pool p95 <= 80% of max; lock waits p99 < 250ms; no broad herd sequential scan appears in hot-path plans. |
 | Retry, DLQ, and replay | With no injected provider failures, retry rate < 0.1% and DLQ count = 0. With failure injection, only injected poison reaches DLQ; replay/discard actions are 100% audited and idempotent; duplicate business effects = 0. |
 | Notification/escalation freshness | Reminder/escalation intent rows are created within 60s p95 and 300s p99 after due/missed state crosses the policy threshold; exhausted delivery rows become operator-visible within 2 minutes. |
@@ -382,9 +404,10 @@ next kernel hardening items to keep explicit:
 5. **Cursor/page resume for parallel generation.** Persist page cursor or shard
    context so a crashed parallel worker can replay only its page/range instead
    of requiring full-run replay.
-6. **Notification circuit breaker implementation.** Add open/half-open/closed
-   provider state, cooldowns, metrics, pending-work visibility, and recovery
-   tests for notification/alert adapters.
+6. **Notification circuit breaker implementation.** The durable
+   `notification_requests` retry/exhausted queue exists; add
+   open/half-open/closed provider state, cooldowns, metrics, pending-work
+   visibility, and recovery tests for notification/alert adapters.
 7. **Backoff jitter.** Add jitter to outbox, notification, and future adapter
    retries where currently deterministic exponential backoff is used.
 8. **Tenant-fair work claiming ports.** Implement or prove reusable
@@ -411,6 +434,22 @@ next kernel hardening items to keep explicit:
    replay window, partition/retention policy, and expired-replay behavior for
    `idempotency_keys` so replay safety does not silently become unbounded primary
    key/index growth at 1M+ operations.
+15. **Hot-table migration lock safety.** Late indexes on already-populated hot
+   tables such as `obligation_instances`, `goats`, outbox, notification, audit,
+   projection, and completion tables must use non-blocking patterns:
+   `CREATE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY`, with no surrounding
+   transaction for goose-style runners. Historical tail migrations `000115`,
+   `000137`, and `000140` must be confirmed applied before any environment grows
+   the hot tables to 1M scale, or replaced by a no-lock rollout path before
+   certification.
+16. **Durable verify-fanout path.** Route vaccination verify accepted/rejected
+   fanout through the durable outbox or document and test a replay-safe repair
+   path. Direct synchronous `eventbus.Publish` fanout is not enough for
+   high-scale certification.
+17. **Scaled planner-choice guard.** Keep per-push `validate-sqlc-plans` as an
+   index-reachability guard, but add a seeded staging/CI path that runs
+   `ANALYZE` and `EXPLAIN (ANALYZE, BUFFERS)` without `enable_seqscan=off` for
+   the heaviest hot queries.
 
 ## 9. Minimum E2E Checklist
 
@@ -429,8 +468,10 @@ A kernel slice is not closed until the report lists these cases and their result
 - effective-cohort CLI/backfill generation durable run path
 - cursor/page resume or explicit full-replay acceptance for non-parallel paths
 - bounded page processing at realistic page size
-- multi-park scoped generation: tenant-default version, park override, override
-  retirement/inheritance, and mixed protocol categories in one run
+- vaccination-slice multi-park scoped generation: tenant-default version, park
+  override, and override retirement/inheritance in one run
+- multi-domain scoped generation, only for `multi_domain_kernel`
+  certification: at least two operational protocol categories in one run
 - missed/recovered/deferred animal path
 - shift re-scope path: shifted animals move open same-vaccine work to the
   destination shed/park scope, detach or replan affected batches, and leave audit
@@ -474,3 +515,9 @@ Latest architecture feedback is classified as:
 | Vaccination certification must include Feed Direction | No; vaccination-slice certification runs `vaccination` only. Multi-domain certification is separate and may use Feed Direction only after it is operational. |
 | 1M operation attempts can mean any cheap counter | No; Section 4.4 defines separate stage counters for target evaluation, obligation write, outbox publish, consumer handle, sweeper claim, batch create, notification intent, projection update, and hot read. |
 | Generation reconciliation can ignore residual buckets | No; reconciliation includes `reopened` and `skipped_no_due_date`, and any unnamed residual bucket must be zero or explicitly accepted with a reason. |
+| 1M target evaluations prove the full chain | No; Section 4.4 separates `target_eval` from `full_chain` and defines minimum downstream stage volumes. |
+| Mixed categories are required to close the vaccination slice | No; vaccination-slice E2E proves tenant-default and park-override behavior for vaccination. Mixed categories are required only for `multi_domain_kernel` certification. |
+| Staging scale can use any larger DB shape | No; certification is tied to the committed `goatos-stg-1m-benchmark-v1` benchmark profile. Changing infra shape creates a new profile id. |
+| Per-push plan guards prove planner choice at scale | Not by themselves; they prove index reachability. Scaled planner choice requires seeded `ANALYZE` plus `EXPLAIN (ANALYZE, BUFFERS)` without disabling sequential scans. |
+| Late hot-table indexes can be plain `CREATE INDEX` | No; future late indexes on hot tables require concurrent/no-transaction patterns, and historical tail migrations must be applied before 1M growth or replaced by a no-lock rollout path. |
+| Verify fanout can bypass the durable outbox | Not for certification; verify accepted/rejected fanout must be durable or have a tested replay-safe repair path. |

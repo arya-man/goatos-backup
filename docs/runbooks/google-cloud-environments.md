@@ -297,6 +297,26 @@ per project.
 `goatos-stg` is the scale rehearsal environment. Its benchmark dataset is a
 fixed 1M-goat synthetic/legacy-shaped baseline, not an ever-growing import log.
 
+Canonical benchmark profile:
+
+```text
+profile_id: goatos-stg-1m-benchmark-v1
+project: goatos-stg
+dataset: fixed 1M-goat synthetic/legacy-shaped baseline
+database: Cloud SQL for PostgreSQL 16 in goatos-stg
+write-path reads/writes: primary instance only; read replicas are measured
+  separately and cannot hide primary write-path bottlenecks
+infra shape: Cloud SQL tier, storage type/size/autoscaling, replica count,
+  app/worker CPU+memory, replica counts, DB pool sizes, Pub/Sub retry/DLQ
+  policy, and worker concurrency are pinned in each certification report
+profile changes: changing any infra shape field creates a new profile id
+  before certification; do not compare pass/fail results across profiles
+```
+
+Until a concrete profile report exists for `goatos-stg-1m-benchmark-v1`, any
+large run is a rehearsal only. It must not be described as the canonical 1M
+certification baseline.
+
 Operating model:
 
 ```text
