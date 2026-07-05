@@ -122,6 +122,11 @@ def payload():
         data = {}
     tool = data.get("tool_name") or data.get("tool") or data.get("name") or ""
     ti = data.get("tool_input") or data.get("input") or data.get("arguments") or {}
+    if isinstance(ti, str):
+        try:
+            ti = json.loads(ti)
+        except Exception:
+            ti = {}
     if not isinstance(ti, dict):
         ti = {}
     if not ti:
@@ -129,14 +134,24 @@ def payload():
             ti = json.loads(os.environ.get("CLAUDE_TOOL_INPUT", "{}")) or {}
         except Exception:
             ti = {}
+        if isinstance(ti, str):
+            try:
+                ti = json.loads(ti)
+            except Exception:
+                ti = {}
+        if not isinstance(ti, dict):
+            ti = {}
     cwd = data.get("cwd") or ti.get("cwd") or os.getcwd()
-    cmd = (
-        ti.get("command")
-        or ti.get("cmd")
-        or data.get("command")
-        or (" ".join(data.get("argv")) if isinstance(data.get("argv"), list) else "")
-        or ""
-    )
+
+    def command_string(value):
+        if isinstance(value, list):
+            parts = [str(v) for v in value]
+            if parts and parts[0] in {"bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/bin/zsh"}:
+                return parts[-1] if parts else ""
+            return " ".join(parts)
+        return str(value) if value is not None else ""
+
+    cmd = command_string(ti.get("command") or ti.get("cmd") or data.get("command") or data.get("argv"))
     tool = tool or ("Bash" if cmd else "")
     return str(tool), str(cmd), str(cwd)
 

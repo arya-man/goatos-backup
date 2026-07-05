@@ -137,7 +137,7 @@ Terminal summary:
 make ai-telemetry
 ```
 
-HTML report (opens in your browser — saved-vs-raw-baseline $ model, per-agent
+HTML report (opens in your browser — saved-vs-missed $ model, per-agent
 totals, by-day adoption trend, top sessions):
 
 ```bash
@@ -162,10 +162,9 @@ transcripts (never network) and reports:
 - **Graph / RTK adoption** — how many sessions and calls actually routed through
   code-review-graph / Graphify / RTK vs bypassing them with raw grep/read/git-diff.
 - **A savings model** — two headline numbers: *saved by tools* (tokens + USD the
-  4 tools avoided by absorbing graph/diff calls) and *raw baseline (no tools)* =
-  saved-by-tools plus the portion still running raw. The still-raw portion
-  (formerly "unclaimed") is the grep/read/git-diff bypass leak and the adoption
-  gap to close, not a missing tool.
+  4 tools avoided by absorbing graph/diff calls) and *missed savings (raw
+  bypass)*, the grep/read/git-diff work that skipped the stack. The missed
+  number is the adoption gap to close, not a missing tool.
   Per-call savings are conservative constants from this repo's eval (~9k tok/graph
   query, ~15k/diff); every assumption is a flag:
 
@@ -176,7 +175,7 @@ transcripts (never network) and reports:
       --html ai-telemetry.html
   ```
 
-The point is the **still raw/missed** number: it is an adoption gap, not a
-missing tool — route greps through the graph and diffs through RTK to claim it.
+The point is the **missed savings** number: it is an adoption gap, not a missing
+tool — route greps through the graph and diffs through RTK to claim it.
 It is a local measurement aid; the generated `ai-telemetry.html` is gitignored
 and transcript data must never be committed.

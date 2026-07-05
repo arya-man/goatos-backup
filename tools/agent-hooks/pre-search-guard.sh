@@ -26,12 +26,24 @@ if not isinstance(d, dict):
 
 tool = d.get("tool_name") or d.get("tool") or d.get("name") or ""
 ti = d.get("tool_input") or d.get("input") or d.get("arguments") or {}
+if isinstance(ti, str):
+    try:
+        ti = json.loads(ti)
+    except Exception:
+        ti = {}
 if not isinstance(ti, dict):
     ti = {}
 if not ti:
     try:
         ti = json.loads(os.environ.get("CLAUDE_TOOL_INPUT", "{}")) or {}
     except Exception:
+        ti = {}
+    if isinstance(ti, str):
+        try:
+            ti = json.loads(ti)
+        except Exception:
+            ti = {}
+    if not isinstance(ti, dict):
         ti = {}
 
 cwd = d.get("cwd") or ti.get("cwd") or os.getcwd()
@@ -44,9 +56,16 @@ if tool in ("Grep", "Glob"):
 elif tool == "Read":
     target = ti.get("file_path") or ""
 else:
-    cmd = (ti.get("command") or ti.get("cmd") or d.get("command")
-           or (" ".join(d.get("argv")) if isinstance(d.get("argv"), list) else "")
-           or "")
+    def command_string(value):
+        if isinstance(value, list):
+            parts = [str(v) for v in value]
+            if parts and parts[0] in ("bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/bin/zsh"):
+                return parts[-1] if parts else ""
+            return " ".join(parts)
+        return str(value) if value is not None else ""
+
+    raw_cmd = ti.get("command") or ti.get("cmd") or d.get("command") or d.get("argv")
+    cmd = command_string(raw_cmd)
     tool = tool or ("Bash" if cmd else "")
     target = cmd
 

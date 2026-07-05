@@ -80,7 +80,7 @@ update-docs-graph:
 ai-telemetry:
 	python3 tools/ai/analyze-transcripts.py
 
-# HTML telemetry report: saved-vs-raw-baseline $ model, per-agent totals,
+# HTML telemetry report: saved-vs-missed $ model, per-agent totals,
 # by-day adoption trend, top sessions. Output is gitignored; opens in browser.
 ai-telemetry-ui:
 	python3 tools/ai/analyze-transcripts.py --by-day --html "$(REPO_ROOT)/ai-telemetry.html"
