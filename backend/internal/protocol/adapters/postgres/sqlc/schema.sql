@@ -8523,6 +8523,13 @@ CREATE UNIQUE INDEX outbox_messages_protocol_published_idempotency_idx ON public
 
 
 --
+-- Name: outbox_messages_protocol_retired_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_protocol_retired_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'protocol.version.retired'::text);
+
+
+--
 -- Name: outbox_messages_replay_guard_idx; Type: INDEX; Schema: public; Owner: -
 --
 

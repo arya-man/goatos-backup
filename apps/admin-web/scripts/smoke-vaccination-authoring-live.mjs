@@ -143,7 +143,6 @@ async function verifySopAuthoring(page) {
 }
 
 async function verifyConfigAuthoring(page, authoredSop) {
-  const protocolCode = `vacc_e2e_${authoredSop.suffix}`;
   const protocolName = `Vaccination Config ${authoredSop.suffix}`;
   const expectedMatrixRows = [
     "ET+TT",
@@ -177,16 +176,37 @@ async function verifyConfigAuthoring(page, authoredSop) {
     );
   }
 
-  const protocolInputs = dialog.locator(
-    'input[aria-label="Protocol code · name"]',
-  );
-  await protocolInputs.nth(0).fill(protocolCode);
-  await protocolInputs.nth(1).fill(protocolName);
+  await dialog
+    .locator('input[aria-label="Vaccination plan name"]')
+    .first()
+    .fill(protocolName);
 
   await dialog
-    .locator('input[aria-label="Scope · effective from"]')
+    .getByRole("button", { name: /Pick effective date|\/\d{2}\/\d{4}/i })
     .first()
-    .fill("2026-07-01");
+    .click();
+  const calendarDayCount = await dialog.locator(".cfgcalendar-day").count();
+  if (calendarDayCount < 35) {
+    throw new Error(`effective-date picker is not a calendar grid; day count=${calendarDayCount}`);
+  }
+  await dialog
+    .locator('.cfgdate-popover input[type="date"]')
+    .first()
+    .fill(localDateString(new Date()));
+  const firstInfoButton = dialog.locator(".cfginfoicon").first();
+  const infoBox = await firstInfoButton.boundingBox();
+  if (!infoBox || infoBox.width > 20 || infoBox.height > 20) {
+    throw new Error(
+      `info button is not icon-sized; box=${infoBox ? `${infoBox.width}x${infoBox.height}` : "missing"}`,
+    );
+  }
+  await firstInfoButton.click();
+  await expectDomTextIn(
+    dialog.locator(".cfginfo-popover").first(),
+    /active plan|active rule|one active/i,
+    "icon-only information popover",
+  );
+  await firstInfoButton.click();
   await selectOptionByText(
     dialog
       .locator(
@@ -240,6 +260,10 @@ async function verifyConfigAuthoring(page, authoredSop) {
     /Mother vaccinated\/unknown category is ignored/i,
     "mother unknown hard ignore rule",
   );
+  const safetyRowCount = await dialog.locator(".cfgsafety-row").count();
+  if (safetyRowCount < 7) {
+    throw new Error(`automatic safety rules are not rendered as compact rows; count=${safetyRowCount}`);
+  }
   await expectVisibleTextIn(
     dialog,
     /Trusted history only means vaccines given by us/i,
@@ -284,9 +308,12 @@ async function verifyConfigAuthoring(page, authoredSop) {
   await expectVisibleTextIn(dialog, /Timing for selected vaccine/i, "selected vaccine timing section");
   await expectDomTextIn(dialog, /20w/i, "Goat Pox live-live spacing effective week");
   await expectDomTextIn(dialog, /Revaccination/i, "revaccination fact");
-  const proofInput = dialog.locator('input[aria-label="proof_policy"]').first();
-  await proofInput.fill("shed,vial,dose,lot,qty,video");
-  await expectVisibleTextIn(dialog, /video/i, "proof token chip");
+  const proofSection = dialog
+    .locator("section.card")
+    .filter({ hasText: "Choose the proof fields" })
+    .first();
+  await proofSection.getByRole("button", { name: /^Video proof$/i }).click();
+  await expectVisibleTextIn(dialog, /Video proof/i, "proof token chip");
 
   await dialog.getByRole("button", { name: /Preview Impact/i }).click();
   await expectVisibleTextIn(
@@ -439,7 +466,10 @@ async function saveDryRunPublish(dialog, savedPattern, label) {
   await expectVisibleTextIn(dialog, /dry-run/i, `${label} dry-run`);
   await expectVisibleTextIn(dialog, /workflow:/i, `${label} dry-run workflow`);
 
-  const publish = dialog.getByRole("button", { name: /Publish/i }).first();
+  const publish = dialog
+    .locator("aside, .soppublish, .sopreview")
+    .getByRole("button", { name: /^Publish$/i })
+    .last();
   await expectAtLeastOne(`${label} publish`, publish);
   if (await publish.isDisabled()) {
     throw new Error(
@@ -597,6 +627,14 @@ function renderMarkdown() {
 
 function trimTrailingSlash(value) {
   return value.replace(/\/+$/, "");
+}
+
+function localDateString(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 function recordPageIssue(issue) {

@@ -61,6 +61,7 @@
         "vaccination.verify.rejected",
         "vaccination.completed",
         "protocol.version.published",
+        "protocol.version.retired",
         "config.changed",
         "counts.base_count_anchor.recorded",
         "counts.shifting_event.recorded"

@@ -39,6 +39,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS outbox_messages_protocol_published_idempotency
   ON outbox_messages (tenant_id, idempotency_key)
   WHERE event_type = 'protocol.version.published';
 
+CREATE UNIQUE INDEX IF NOT EXISTS outbox_messages_protocol_retired_idempotency_idx
+  ON outbox_messages (tenant_id, idempotency_key)
+  WHERE event_type = 'protocol.version.retired';
+
 CREATE UNIQUE INDEX IF NOT EXISTS outbox_messages_obligation_canceled_idempotency_idx
   ON outbox_messages (tenant_id, idempotency_key)
   WHERE event_type = 'goat.obligations_canceled';

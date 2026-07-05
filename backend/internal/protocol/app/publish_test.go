@@ -323,6 +323,12 @@ func TestPublishVersionAlreadyPublishedRetryIsNoop(t *testing.T) {
 	if !repo.publishCalled {
 		t.Fatalf("repo publish must run so idempotency is still enforced for already-published retries")
 	}
+	if !repo.genericPublishCalled {
+		t.Fatalf("non-matrix published vaccination retry must use generic publish idempotency path")
+	}
+	if repo.publishedMatrixReplayCalled {
+		t.Fatalf("non-matrix published vaccination retry must not use vaccination.matrix replay path")
+	}
 	if repo.createRuleCalled {
 		t.Fatalf("already-published retry must not create protocol rules")
 	}
@@ -338,14 +344,54 @@ func TestPublishVersionAlreadyPublishedVaccinationMatrixRetryUsesMatrixFingerpri
 	if err != nil {
 		t.Fatalf("publish already-published matrix retry: %v", err)
 	}
-	if !repo.publishWithDerivedCalled {
-		t.Fatalf("published vaccination.matrix replay must use matrix publish fingerprint path")
+	if !repo.publishedMatrixReplayCalled {
+		t.Fatalf("published vaccination.matrix replay must use replay path")
 	}
 	if repo.genericPublishCalled {
 		t.Fatalf("published vaccination.matrix replay must not fall through to generic publish fingerprint")
 	}
+	if repo.publishWithDerivedCalled {
+		t.Fatalf("published vaccination.matrix replay must not rebuild derived rows")
+	}
 	if repo.createRuleCalled {
 		t.Fatalf("already-published matrix retry must not create protocol rules")
+	}
+}
+
+func TestPublishVersionAlreadyPublishedVaccinationMatrixRetrySkipsNewExecutionValidation(t *testing.T) {
+	version := validPublishVersion("published")
+	version.RuleDsl = []byte(strings.Replace(validVaccinationMatrixRulesetDSL(), `"required_proofs":["administration_video"]`, `"required_proofs":[]`, 1))
+	version.ProofPolicy = []byte(`{"required_proofs":[]}`)
+	repo := &fakeProtocolRepo{version: version}
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil, "publish-key")
+	if err != nil {
+		t.Fatalf("published matrix replay must not re-run today's execution validator: %v", err)
+	}
+	if !repo.publishedMatrixReplayCalled {
+		t.Fatalf("published vaccination.matrix replay must use replay path")
+	}
+	if repo.publishWithDerivedCalled || repo.createRuleCalled {
+		t.Fatalf("published replay must not rebuild rules, publishWithDerived=%v create=%v", repo.publishWithDerivedCalled, repo.createRuleCalled)
+	}
+}
+
+func TestPublishVersionAlreadyPublishedVaccinationMatrixRetrySkipsInvalidOldDSL(t *testing.T) {
+	version := validPublishVersion("published")
+	version.RuleDsl = []byte(`{"category":"vaccination","ruleset_family":"vaccination.matrix","matrix_rows":[`)
+	repo := &fakeProtocolRepo{version: version}
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil, "publish-key")
+	if err != nil {
+		t.Fatalf("published matrix replay must not re-validate old invalid DSL: %v", err)
+	}
+	if !repo.publishedMatrixReplayCalled {
+		t.Fatalf("published vaccination.matrix replay must use replay path")
+	}
+	if repo.publishWithDerivedCalled || repo.createRuleCalled {
+		t.Fatalf("published replay must not rebuild rules, publishWithDerived=%v create=%v", repo.publishWithDerivedCalled, repo.createRuleCalled)
 	}
 }
 
@@ -833,17 +879,18 @@ func cloneAnyMap(in map[string]any) map[string]any {
 }
 
 type fakeProtocolRepo struct {
-	version                  domain.Version
-	publishCalled            bool
-	genericPublishCalled     bool
-	publishWithDerivedCalled bool
-	publishCalls             int
-	createVersionCalled      bool
-	createRuleCalled         bool
-	createdRule              domain.NewRule
-	createdRules             []domain.NewRule
-	rules                    []domain.Rule
-	dimensions               []domain.RuleDimension
+	version                     domain.Version
+	publishCalled               bool
+	genericPublishCalled        bool
+	publishWithDerivedCalled    bool
+	publishedMatrixReplayCalled bool
+	publishCalls                int
+	createVersionCalled         bool
+	createRuleCalled            bool
+	createdRule                 domain.NewRule
+	createdRules                []domain.NewRule
+	rules                       []domain.Rule
+	dimensions                  []domain.RuleDimension
 }
 
 func (f *fakeProtocolRepo) Ping(context.Context) error { return nil }
@@ -908,6 +955,12 @@ func (f *fakeProtocolRepo) PublishVersionWithDerivedRules(_ context.Context, _ s
 	}
 	f.dimensions = append([]domain.RuleDimension(nil), dimensions...)
 	f.version.Status = "published"
+	return nil
+}
+func (f *fakeProtocolRepo) PublishPublishedMatrixReplay(context.Context, string, domain.Version, *string, ...string) error {
+	f.publishCalled = true
+	f.publishedMatrixReplayCalled = true
+	f.publishCalls++
 	return nil
 }
 func (f *fakeProtocolRepo) CreateRule(_ context.Context, in domain.NewRule) (string, error) {

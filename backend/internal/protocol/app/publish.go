@@ -44,6 +44,10 @@ type protocolMatrixPublisher interface {
 	PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, idempotencyKey ...string) error
 }
 
+type protocolPublishedMatrixReplayer interface {
+	PublishPublishedMatrixReplay(ctx context.Context, tenantID string, v domain.Version, publishedBy *string, idempotencyKey ...string) error
+}
+
 type ruleDSLEnvelope struct {
 	Category            string          `json:"category"`
 	RulesetFamily       string          `json:"ruleset_family"`
@@ -861,6 +865,14 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 	if v.Status != "draft" && v.Status != "published" {
 		return fmt.Errorf("%w: status=%q", ports.ErrVersionNotDraft, v.Status)
 	}
+	if v.Status == "published" {
+		if publishedVersionLooksLikeVaccinationMatrix(v) {
+			if replayer, ok := s.repo.(protocolPublishedMatrixReplayer); ok {
+				return replayer.PublishPublishedMatrixReplay(ctx, tenantID, v, publishedBy, idempotencyKey...)
+			}
+		}
+		return s.repo.PublishVersion(ctx, tenantID, versionID, publishedBy, idempotencyKey...)
+	}
 	if err := ValidateRuleDSL(v.RuleDsl); err != nil {
 		return err
 	}
@@ -1256,6 +1268,20 @@ func isVaccinationMatrixRuleset(env ruleDSLEnvelope) bool {
 	return strings.EqualFold(strings.TrimSpace(env.RulesetFamily), "vaccination.matrix") ||
 		strings.EqualFold(strings.TrimSpace(env.Vaccine.Code), "vaccination.matrix") ||
 		len(env.MatrixRows) > 0
+}
+
+func publishedVersionLooksLikeVaccinationMatrix(v domain.Version) bool {
+	if !strings.EqualFold(strings.TrimSpace(v.Category), "vaccination") {
+		return false
+	}
+	env, err := decodeRuleDSLEnvelope(v.RuleDsl)
+	if err == nil {
+		return isVaccinationMatrixRuleset(env)
+	}
+	compact := strings.NewReplacer(" ", "", "\n", "", "\r", "", "\t", "").Replace(strings.ToLower(string(v.RuleDsl)))
+	return strings.Contains(compact, `"ruleset_family":"vaccination.matrix"`) ||
+		strings.Contains(compact, `"code":"vaccination.matrix"`) ||
+		strings.Contains(compact, `"matrix_rows":`)
 }
 
 func matrixRuleEligibilityJSON(env ruleDSLEnvelope, row scheduleRow, idx int) ([]byte, error) {

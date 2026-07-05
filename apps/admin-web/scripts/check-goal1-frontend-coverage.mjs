@@ -28,7 +28,7 @@ function functionBody(source, name) {
 
 const ruleEditor = read("features/config/rule-editor-modal.tsx");
 assert.match(ruleEditor, /export function RuleEditorModal/, "RuleEditorModal must be the exported config authoring surface");
-assert.match(ruleEditor, /buildVaccinationMatrixPreview\(input, matrixRows\)/, "RuleEditorModal must preview the shared vaccination matrix rule_dsl builder");
+assert.match(ruleEditor, /buildVaccinationMatrixPreview\(input, activeScopedMatrixRows\)/, "RuleEditorModal must preview the shared vaccination matrix rule_dsl builder for the active company/park + animal scope");
 assert.doesNotMatch(ruleEditor, /validatePublish\(input\.source|publishableSourceKeys|sourceSystemOptions|reviewStatusOptions/, "RuleEditorModal must not gate publish on source review metadata");
 assert.match(ruleEditor, /const dirty = versionId !== "" && inputSig !== savedSig/, "RuleEditorModal must block stale publish after form edits");
 assert.match(ruleEditor, /disabled=\{publishDisabled\}/, "RuleEditorModal publish button must use the computed publish gate");

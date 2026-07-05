@@ -460,8 +460,10 @@ const (
 	protocolVersionCreatedAction    = "protocol.version.created"
 	protocolRuleCreatedAction       = "protocol.rule.created"
 	protocolPublishedEventType      = "protocol.version.published"
+	protocolRetiredEventType        = "protocol.version.retired"
 	protocolPublishedSchemaVersion  = "1.0.0"
 	protocolPublishedSchemaRef      = "contracts/jsonschema/domain-event-envelope.schema.json#protocol.version.published"
+	protocolRetiredSchemaRef        = "contracts/jsonschema/domain-event-envelope.schema.json#protocol.version.retired"
 	protocolPublishedTopic          = "protocol.events"
 	protocolPublishedAggregateType  = "protocol_version"
 	protocolPublishedProducerModule = "protocol"
@@ -634,7 +636,8 @@ FOR UPDATE`, tenant, vid).Scan(&status, &scopeType, &scopeID)
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, lockKey); err != nil {
 		return fmt.Errorf("protocol: lock vaccination matrix scope: %w", err)
 	}
-	if err := retirePublishedVaccinationMatrixOverlapsTx(ctx, tx, tenant, vid); err != nil {
+	retiredRows, err := retirePublishedVaccinationMatrixOverlapsTx(ctx, tx, tenant, vid)
+	if err != nil {
 		return err
 	}
 
@@ -695,6 +698,15 @@ RETURNING pv.protocol_version_id::text,
 	if err := recordProtocolPublishedAudit(ctx, tx, tenantID, published, publishedBy); err != nil {
 		return err
 	}
+	for _, retired := range retiredRows {
+		retired.ReplacedByVersionID = published.VersionID
+		if err := recordProtocolRetiredAudit(ctx, tx, tenantID, retired, publishedBy); err != nil {
+			return err
+		}
+		if err := insertProtocolRetiredOutbox(ctx, tx, tenantID, retired, publishedBy); err != nil {
+			return err
+		}
+	}
 	if err := insertProtocolPublishedOutbox(ctx, tx, tenantID, published, publishedBy); err != nil {
 		return err
 	}
@@ -703,6 +715,84 @@ RETURNING pv.protocol_version_id::text,
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("protocol: commit matrix publish: %w", err)
+	}
+	return nil
+}
+
+// PublishPublishedMatrixReplay resolves a client retry for an already-published
+// vaccination.matrix version without rebuilding derived execution rows. Old
+// published matrices may predate today's stricter authoring validators; once
+// the DB has committed the publish, replay must converge through idempotency
+// instead of re-validating yesterday's authoring shape.
+func (r *Repository) PublishPublishedMatrixReplay(ctx context.Context, tenantID string, v domain.Version, _ *string, idempotencyKey ...string) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	vid, err := pgconv.UUID(v.ProtocolVersionID)
+	if err != nil {
+		return fmt.Errorf("protocol: version id: %w", err)
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("protocol: begin matrix published replay: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var status string
+	err = tx.QueryRow(ctx, `
+SELECT status
+FROM protocol_versions
+WHERE tenant_id = $1
+  AND protocol_version_id = $2
+FOR UPDATE`, tenant, vid).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("protocol: lock matrix published replay: %w", err)
+	}
+	if status != "published" {
+		return ports.ErrVersionNotDraft
+	}
+
+	if clientKey := strings.TrimSpace(firstString(idempotencyKey)); clientKey != "" {
+		scoped := scopedProtocolIdempotencyKey(tenantID, "protocol.version.publish", clientKey)
+		var existingHash, existingStatus, existingType, existingID string
+		err = tx.QueryRow(ctx, `
+SELECT request_hash, status, COALESCE(result_type, ''), COALESCE(result_id::text, '')
+FROM idempotency_keys
+WHERE idempotency_key = $1
+FOR UPDATE`, scoped).Scan(&existingHash, &existingStatus, &existingType, &existingID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			fingerprint := protocolFingerprint("publish-matrix-replay", tenantID, v.ProtocolVersionID)
+			if _, err := tx.Exec(ctx, `
+INSERT INTO idempotency_keys (
+  idempotency_key, tenant_id, scope, request_hash, status, result_type, result_id, completed_at
+) VALUES (
+  $1, $2::uuid, 'protocol.version.publish', $3, 'completed', 'protocol_version', $4::uuid, now()
+)`, scoped, tenantID, fingerprint, v.ProtocolVersionID); err != nil {
+				return fmt.Errorf("protocol: record matrix published replay idempotency: %w", err)
+			}
+		} else if err != nil {
+			return fmt.Errorf("protocol: read matrix published replay idempotency: %w", err)
+		} else {
+			if existingStatus != "completed" {
+				return ports.ErrIdempotencyConflict
+			}
+			if existingType != "protocol_version" || strings.TrimSpace(existingID) != v.ProtocolVersionID {
+				return ports.ErrIdempotencyConflict
+			}
+			// Completed original matrix publishes used the full publish fingerprint. A retry after
+			// validation rules changed may enter this replay path with a different replay-only
+			// fingerprint; same completed result is the durable idempotency authority.
+			_ = existingHash
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("protocol: commit matrix published replay: %w", err)
 	}
 	return nil
 }
@@ -752,12 +842,13 @@ func derivedDimensionsFingerprint(dimensions []domain.RuleDimension) string {
 	return protocolFingerprint(parts...)
 }
 
-func retirePublishedVaccinationMatrixOverlapsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, versionID pgtype.UUID) error {
+func retirePublishedVaccinationMatrixOverlapsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, versionID pgtype.UUID) ([]protocolRetiredRow, error) {
 	// Vaccination matrix authoring has one active company/park version at a time. Publishing a new
 	// complete matrix retires the older overlapping matrix in the same transaction, preserving the
 	// immutable historical version while making the newly published one authoritative.
-	_, err := tx.Exec(ctx, `
-UPDATE protocol_versions AS other
+	rows, err := tx.Query(ctx, `
+WITH retired AS (
+  UPDATE protocol_versions AS other
 SET status = 'retired',
     retired_at = now(),
     row_version = other.row_version + 1,
@@ -779,11 +870,39 @@ WHERE target.tenant_id = $1
     lower(COALESCE(other.rule_dsl->>'ruleset_family', '')) = 'vaccination.matrix'
     OR lower(COALESCE(other.rule_dsl->'vaccine'->>'code', '')) = 'vaccination.matrix'
     OR other.rule_dsl ? 'matrix_rows'
-  )`, tenant, versionID)
+  )
+  RETURNING other.protocol_version_id::text AS protocol_version_id,
+            other.protocol_id::text AS protocol_id,
+            pd.category AS category,
+            other.scope_type AS scope_type,
+            COALESCE(other.scope_id::text, '') AS scope_id,
+            other.retired_at AS retired_at
+)
+SELECT protocol_version_id, protocol_id, category, scope_type, scope_id, retired_at
+FROM retired`, tenant, versionID)
 	if err != nil {
-		return fmt.Errorf("protocol: retire overlapping vaccination matrix versions: %w", err)
+		return nil, fmt.Errorf("protocol: retire overlapping vaccination matrix versions: %w", err)
 	}
-	return nil
+	defer rows.Close()
+	var retired []protocolRetiredRow
+	for rows.Next() {
+		var row protocolRetiredRow
+		if err := rows.Scan(
+			&row.VersionID,
+			&row.ProtocolID,
+			&row.Category,
+			&row.ScopeType,
+			&row.ScopeID,
+			&row.RetiredAt,
+		); err != nil {
+			return nil, fmt.Errorf("protocol: scan retired vaccination matrix version: %w", err)
+		}
+		retired = append(retired, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("protocol: read retired vaccination matrix versions: %w", err)
+	}
+	return retired, nil
 }
 
 func insertDerivedProtocolRuleTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, in domain.NewRule) error {
@@ -882,6 +1001,56 @@ type protocolPublishedRow struct {
 	PublishedAt time.Time
 }
 
+type protocolRetiredRow struct {
+	VersionID           string
+	ProtocolID          string
+	Category            string
+	ScopeType           string
+	ScopeID             string
+	RetiredAt           time.Time
+	ReplacedByVersionID string
+}
+
+func recordProtocolRetiredAudit(ctx context.Context, tx pgx.Tx, tenantID string, retired protocolRetiredRow, retiredBy *string) error {
+	actorType := "system_rule"
+	actorID := ""
+	if retiredBy != nil && strings.TrimSpace(*retiredBy) != "" {
+		actorType = "human"
+		actorID = strings.TrimSpace(*retiredBy)
+	}
+	scopeID := retired.ScopeID
+	if retired.ScopeType == "tenant" {
+		scopeID = ""
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorID:      actorID,
+		ActorType:    actorType,
+		Action:       protocolRetiredEventType,
+		ResourceType: protocolPublishedAggregateType,
+		ResourceID:   retired.VersionID,
+		ScopeType:    retired.ScopeType,
+		ScopeID:      scopeID,
+		AfterState: map[string]any{
+			"status":                          "retired",
+			"category":                        retired.Category,
+			"protocol_id":                     retired.ProtocolID,
+			"scope_type":                      retired.ScopeType,
+			"replaced_by_protocol_version_id": retired.ReplacedByVersionID,
+		},
+		Metadata: map[string]any{
+			"protocol_id":                     retired.ProtocolID,
+			"category":                        retired.Category,
+			"retired_at":                      retired.RetiredAt.UTC().Format(time.RFC3339Nano),
+			"replaced_by_protocol_version_id": retired.ReplacedByVersionID,
+		},
+		TraceID: "protocol:version:retired:" + retired.VersionID + ":by:" + retired.ReplacedByVersionID,
+	}); err != nil {
+		return fmt.Errorf("protocol: audit version retired: %w", err)
+	}
+	return nil
+}
+
 func insertProtocolPublishedOutbox(ctx context.Context, tx pgx.Tx, tenantID string, published protocolPublishedRow, publishedBy *string) error {
 	var eventID string
 	if err := tx.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&eventID); err != nil {
@@ -918,6 +1087,53 @@ INSERT INTO outbox_messages (
 		protocolPublishedAggregateType, published.VersionID, protocolPublishedTopic, envelope, headers, idempotencyKey, traceID)
 	if err != nil {
 		return fmt.Errorf("protocol: insert published outbox: %w", err)
+	}
+	return nil
+}
+
+func insertProtocolRetiredOutbox(ctx context.Context, tx pgx.Tx, tenantID string, retired protocolRetiredRow, retiredBy *string) error {
+	var eventID string
+	if err := tx.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&eventID); err != nil {
+		return fmt.Errorf("protocol: generate retired event id: %w", err)
+	}
+	idempotencyKey := "protocol:version:retired:" + retired.VersionID + ":by:" + retired.ReplacedByVersionID
+	traceID := idempotencyKey
+	payload := map[string]any{
+		"protocol_version_id":             retired.VersionID,
+		"protocol_id":                     retired.ProtocolID,
+		"category":                        retired.Category,
+		"scope_type":                      retired.ScopeType,
+		"scope_id":                        nullableString(retired.ScopeID),
+		"retired_at":                      retired.RetiredAt.UTC().Format(time.RFC3339Nano),
+		"replaced_by_protocol_version_id": retired.ReplacedByVersionID,
+	}
+	envelope, err := protocolRetiredEnvelope(tenantID, eventID, idempotencyKey, traceID, retired, retiredBy, payload)
+	if err != nil {
+		return err
+	}
+	headers, _ := json.Marshal(map[string]any{
+		"protocol_version_id":             retired.VersionID,
+		"category":                        retired.Category,
+		"schema_version":                  protocolPublishedSchemaVersion,
+		"replaced_by_protocol_version_id": retired.ReplacedByVersionID,
+	})
+	_, err = tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) SELECT
+  $1::uuid, $2::uuid, $3, $4, $5, $6::uuid,
+  $7, $8::jsonb, $9::jsonb, $10, $11, 'pending', now()
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM outbox_messages
+  WHERE tenant_id = $1::uuid
+    AND event_type = $3
+    AND idempotency_key = $10
+)`, tenantID, eventID, protocolRetiredEventType, protocolPublishedSchemaVersion,
+		protocolPublishedAggregateType, retired.VersionID, protocolPublishedTopic, envelope, headers, idempotencyKey, traceID)
+	if err != nil {
+		return fmt.Errorf("protocol: insert retired outbox: %w", err)
 	}
 	return nil
 }
@@ -962,6 +1178,52 @@ func protocolPublishedEnvelope(tenantID, eventID, idempotencyKey, traceID string
 		"evidence_refs": []map[string]string{{
 			"evidence_type": "event",
 			"evidence_id":   published.VersionID,
+		}},
+		"payload":  payload,
+		"trace_id": traceID,
+	})
+}
+
+func protocolRetiredEnvelope(tenantID, eventID, idempotencyKey, traceID string, retired protocolRetiredRow, retiredBy *string, payload map[string]any) ([]byte, error) {
+	actorType := "system_rule"
+	if retiredBy != nil && strings.TrimSpace(*retiredBy) != "" {
+		actorType = "human"
+	}
+	actorID := any(nil)
+	if retiredBy != nil && strings.TrimSpace(*retiredBy) != "" {
+		actorID = strings.TrimSpace(*retiredBy)
+	}
+	occurred := retired.RetiredAt.UTC().Format(time.RFC3339Nano)
+	visibilityScope := map[string]any{"tenant_id": tenantID}
+	if retired.ScopeType == "park" && retired.ScopeID != "" {
+		visibilityScope["park_id"] = retired.ScopeID
+	}
+	return json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     protocolRetiredEventType,
+		"schema_version": protocolPublishedSchemaVersion,
+		"schema_ref":     protocolRetiredSchemaRef,
+		"aggregate_type": protocolPublishedAggregateType,
+		"aggregate_id":   retired.VersionID,
+		"occurred_at":    occurred,
+		"recorded_at":    occurred,
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  protocolPublishedProducerModule,
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": actorType,
+			"actor_id":   actorID,
+			"actor_ref":  nil,
+		},
+		"subject_type":     "protocol_version",
+		"subject_id":       retired.VersionID,
+		"visibility_scope": visibilityScope,
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "event",
+			"evidence_id":   retired.VersionID,
 		}},
 		"payload":  payload,
 		"trace_id": traceID,

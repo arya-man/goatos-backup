@@ -66,6 +66,15 @@ type SourceVaccinePreset = {
   species: string;
 };
 
+type InfoPanel = {
+  title: string;
+  body: string;
+  top: number;
+  left: number;
+};
+
+const VACCINATION_MATRIX_CODE = "vaccination.matrix";
+
 export function RuleEditorModal({
   open,
   presentation = "modal",
@@ -117,6 +126,11 @@ export function RuleEditorModal({
     pageContract,
     "source_vaccine_matrix_presets",
   );
+  const procurementVaccineChoices = optionGroup(
+    pageContract,
+    "procurement_wave_vaccine_options",
+  );
+  const proofTokenOptions = optionGroup(pageContract, "proof_requirement_tokens");
   const excludedReproductiveOptions = optionGroup(
     pageContract,
     "excluded_reproductive_states",
@@ -359,6 +373,8 @@ export function RuleEditorModal({
   const [name, setName] = useState("");
   const [scope, setScope] = useState(firstKey(scopeOptions, "rule_scopes"));
   const [effectiveFrom, setEffectiveFrom] = useState("");
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [infoPanel, setInfoPanel] = useState<InfoPanel | null>(null);
   const [sopVersionId, setSopVersionId] = useState("");
 
   // Default to the first backend stage band (lowest sort_order) when seeded, else the ALL_STAGES UI
@@ -485,6 +501,147 @@ export function RuleEditorModal({
   const sourceVaccinePresets = sourceVaccinePresetOptions
     .map(sourcePresetFromOption)
     .filter((preset) => preset.approvedKidWeeks.length > 0);
+  function effectiveProtocolCode(): string {
+    return category === "vaccination"
+      ? VACCINATION_MATRIX_CODE
+      : code.trim();
+  }
+
+  function effectiveProtocolName(): string {
+    if (category !== "vaccination") return name.trim();
+    return (
+      name.trim() ||
+      copy(pageContract, "modal.rule_editor.guided.default_plan_name")
+    );
+  }
+
+  function friendlyScopeLabel(option: AdminUiOption): string {
+    const raw = option.label.replace(/^park:\s*/i, "").trim();
+    if (option.key === "tenant")
+      return copy(pageContract, "modal.rule_editor.guided.company_default_scope");
+    return raw || option.key.replace(/^park:/, "");
+  }
+
+  function formatEffectiveFromLabel(value: string): string {
+    if (!value) return copy(pageContract, "modal.rule_editor.guided.pick_effective_date");
+    const [year, month, day] = value.split("-");
+    if (!year || !month || !day) return value;
+    return `${day}/${month}/${year}`;
+  }
+
+  function localDateValue(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function parseLocalDate(value: string): Date {
+    const [year, month, day] = value.split("-").map(Number);
+    if (
+      Number.isFinite(year) &&
+      Number.isFinite(month) &&
+      Number.isFinite(day)
+    ) {
+      return new Date(year, month - 1, day);
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today;
+  }
+
+  function calendarMonthLabel(): string {
+    return parseLocalDate(effectiveFrom).toLocaleDateString("en-IN", {
+      month: "long",
+      year: "numeric",
+    });
+  }
+
+  function calendarDateOptions(): Array<{
+    value: string;
+    label: string;
+    muted: boolean;
+    today: boolean;
+  }> {
+    const selected = parseLocalDate(effectiveFrom);
+    const monthStart = new Date(selected.getFullYear(), selected.getMonth(), 1);
+    const gridStart = new Date(monthStart);
+    gridStart.setDate(monthStart.getDate() - monthStart.getDay());
+    const todayValue = localDateValue(new Date());
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(gridStart);
+      date.setDate(gridStart.getDate() + index);
+      const value = localDateValue(date);
+      return {
+        value,
+        label: String(date.getDate()),
+        muted: date.getMonth() !== selected.getMonth(),
+        today: value === todayValue,
+      };
+    });
+  }
+
+  function showInfo(
+    anchor: HTMLElement,
+    titleKey: string,
+    bodyKey: string,
+  ) {
+    const title = copy(pageContract, titleKey);
+    const body = copy(pageContract, bodyKey);
+    const rect = anchor.getBoundingClientRect();
+    const maxLeft = Math.max(8, window.innerWidth - 330);
+    const left = Math.max(8, Math.min(rect.left, maxLeft));
+    const top = Math.min(rect.bottom + 8, window.innerHeight - 120);
+    setInfoPanel((previous) =>
+      previous?.title === title && previous.body === body
+        ? null
+        : { title, body, top, left },
+    );
+  }
+
+  function infoButton(titleKey: string, bodyKey: string) {
+    return (
+      <button
+        type="button"
+        className="cfginfoicon"
+        onClick={(event) => showInfo(event.currentTarget, titleKey, bodyKey)}
+        aria-label={copy(pageContract, "modal.rule_editor.guided.info_label")}
+        title={copy(pageContract, "modal.rule_editor.guided.info_label")}
+      >
+        <Info className="ic" />
+      </button>
+    );
+  }
+
+  function csvValues(value: string): string[] {
+    return value
+      .split(",")
+      .map((token) => token.trim())
+      .filter(Boolean);
+  }
+
+  function setSelectedProofTokens(tokens: string[]) {
+    setSelectedProofCsv(tokens.join(","));
+  }
+
+  function toggleSelectedProofToken(token: string) {
+    const current = csvValues(proofCsvForSelectedRow());
+    const next = current.includes(token)
+      ? current.filter((item) => item !== token)
+      : [...current, token];
+    setSelectedProofTokens(next);
+  }
+
+  function toggleProcurementToken(
+    field: "firstWave" | "goatSecondWave" | "sheepSecondWave",
+    token: string,
+  ) {
+    const current = csvValues(String(procurementPolicy[field] ?? ""));
+    const next = current.includes(token)
+      ? current.filter((item) => item !== token)
+      : [...current, token];
+    setProcurementField({ [field]: next.join(",") });
+  }
 
   function patchMatrixRow(rowId: string, patch: Partial<VaccinationMatrixRow>) {
     setMatrixRows((rows) =>
@@ -645,6 +802,9 @@ export function RuleEditorModal({
   }
   function labelFromOptions(options: AdminUiOption[], key: string): string {
     return options.find((option) => option.key === key)?.label ?? key;
+  }
+  function proofTokenLabel(token: string): string {
+    return labelFromOptions(proofTokenOptions, token);
   }
   function stageLabel(stageCode: string): string {
     if (stageCode === ALL_STAGES_VALUE)
@@ -960,8 +1120,8 @@ export function RuleEditorModal({
   const input: RuleInput = useMemo(
     () => ({
       category,
-      code,
-      name,
+      code: effectiveProtocolCode(),
+      name: effectiveProtocolName(),
       scope,
       effectiveFrom,
       sopVersionId,
@@ -1315,6 +1475,34 @@ export function RuleEditorModal({
                   </div>
                 )
               ) : null}
+              {infoPanel ? (
+                <div
+                  className="cfginfo-popover"
+                  role="dialog"
+                  aria-label={infoPanel.title}
+                  style={{ top: infoPanel.top, left: infoPanel.left }}
+                >
+                  <Info className="ic" />
+                  <div>
+                    <b>{infoPanel.title}</b>
+                    <div className="muted small" style={{ marginTop: 4 }}>
+                      {infoPanel.body}
+                    </div>
+                  </div>
+                  <div className="sp" />
+                  <button
+                    type="button"
+                    className="cfginfo-close"
+                    onClick={() => setInfoPanel(null)}
+                    aria-label={copy(
+                      pageContract,
+                      "modal.rule_editor.guided.close_information",
+                    )}
+                  >
+                    <X className="ic" />
+                  </button>
+                </div>
+              ) : null}
 
               <section className="card">
                 <div className="hd">
@@ -1327,29 +1515,24 @@ export function RuleEditorModal({
                   </span>
                 </div>
                 <div className="bd" style={{ display: "grid", gap: 12 }}>
-                  <label>
-                    {copy(pageContract, "modal.rule_editor.field.protocol")}
-                  </label>
-                  <div className="rowf">
-                    <input
-                      aria-label={copy(
-                        pageContract,
-                        "modal.rule_editor.field.protocol",
+                    <div className="hd" style={{ padding: 0, borderBottom: 0 }}>
+                      <label style={{ margin: 0 }}>
+                        {copy(pageContract, "modal.rule_editor.guided.plan_name")}
+                      </label>
+                      {infoButton(
+                        "modal.rule_editor.guided.one_active_matrix_title",
+                        "modal.rule_editor.guided.one_active_matrix_body",
                       )}
-                      value={code}
-                      onChange={(e) => setCode(e.target.value)}
-                      placeholder={protocolPlaceholder(category, "code")}
-                    />
+                    </div>
                     <input
-                      aria-label={copy(
-                        pageContract,
-                        "modal.rule_editor.field.protocol",
-                      )}
+                      aria-label={copy(pageContract, "modal.rule_editor.guided.plan_name")}
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      placeholder={protocolPlaceholder(category, "name")}
+                      placeholder={copy(
+                        pageContract,
+                        "modal.rule_editor.guided.default_plan_name",
+                      )}
                     />
-                  </div>
 
                   <div
                     style={{
@@ -1422,9 +1605,15 @@ export function RuleEditorModal({
                     </div>
                   </div>
 
-                  <label>
-                    {copy(pageContract, "modal.rule_editor.field.scope")}
-                  </label>
+                  <div className="hd" style={{ padding: 0, borderBottom: 0 }}>
+                      <label style={{ margin: 0 }}>
+                        {copy(pageContract, "modal.rule_editor.field.scope")}
+                      </label>
+                      {infoButton(
+                        "modal.rule_editor.guided.company_park_title",
+                        "modal.rule_editor.guided.company_park_body",
+                      )}
+                  </div>
                   <div className="rowf">
                     <select
                       aria-label={copy(pageContract, "modal.rule_editor.field.scope")}
@@ -1433,16 +1622,73 @@ export function RuleEditorModal({
                     >
                       {scopeOptions.map((s) => (
                         <option key={s.key} value={s.key}>
-                          {s.label}
+                          {friendlyScopeLabel(s)}
                         </option>
                       ))}
                     </select>
-                    <input
-                      type="date"
-                      aria-label={copy(pageContract, "modal.rule_editor.field.scope")}
-                      value={effectiveFrom}
-                      onChange={(e) => setEffectiveFrom(e.target.value)}
-                    />
+                    <div style={{ position: "relative" }}>
+                      <button
+                        type="button"
+                        className="btn cfgdate-button"
+                        onClick={() => setDatePickerOpen((open) => !open)}
+                        aria-expanded={datePickerOpen}
+                      >
+                        <span className="cfgdate-label">
+                          <CalendarDays className="ic" />
+                          {formatEffectiveFromLabel(effectiveFrom)}
+                        </span>
+                        <ChevronRight
+                          className="ic"
+                          style={{ transform: datePickerOpen ? "rotate(90deg)" : undefined }}
+                        />
+                      </button>
+                      {datePickerOpen ? (
+                        <div
+                          className="card cfgdate-popover"
+                        >
+                          <div className="cfgcalendar-head">
+                            <b>{calendarMonthLabel()}</b>
+                            <input
+                              type="date"
+                              aria-label={copy(
+                                pageContract,
+                                "modal.rule_editor.guided.pick_effective_date",
+                              )}
+                              value={effectiveFrom}
+                              onChange={(event) => {
+                                setEffectiveFrom(event.target.value);
+                                setDatePickerOpen(false);
+                              }}
+                            />
+                          </div>
+                          <div className="cfgcalendar-grid" aria-label={copy(pageContract, "modal.rule_editor.guided.pick_effective_date")}>
+                            {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
+                              <span key={`${day}-${index}`} className="cfgcalendar-dow">
+                                {day}
+                              </span>
+                            ))}
+                            {calendarDateOptions().map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={[
+                                  "cfgcalendar-day",
+                                  option.muted ? "muted-day" : "",
+                                  option.today ? "today" : "",
+                                  effectiveFrom === option.value ? "on" : "",
+                                ].filter(Boolean).join(" ")}
+                                onClick={() => {
+                                  setEffectiveFrom(option.value);
+                                  setDatePickerOpen(false);
+                                }}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
 
                   <label>
@@ -1498,6 +1744,10 @@ export function RuleEditorModal({
                     {copy(pageContract, "modal.rule_editor.guided.on")}
                   </span>
                   <div className="sp" />
+                  {infoButton(
+                    "modal.rule_editor.guided.recommended_plan_info_title",
+                    "modal.rule_editor.guided.recommended_plan_info_body",
+                  )}
                   <button
                     type="button"
                     className="btn sm"
@@ -1602,7 +1852,10 @@ export function RuleEditorModal({
                               {rowSummary(row)}
                             </span>
                           </span>
-                          <ChevronRight className="ic" />
+                            <span className="btn sm" aria-hidden="true">
+                              <Pencil className="ic" />{" "}
+                              {copy(pageContract, "modal.rule_editor.guided.edit_timing")}
+                            </span>
                         </button>
                       );
                     })
@@ -1614,6 +1867,10 @@ export function RuleEditorModal({
                 <div className="hd">
                   <h3>{copy(pageContract, "modal.rule_editor.guided.selected_timing")}</h3>
                   <div className="sp" />
+                  {infoButton(
+                    "modal.rule_editor.guided.who_qualifies_info_title",
+                    "modal.rule_editor.guided.who_qualifies_info_body",
+                  )}
                   {selectedHasContent ? (
                     <span className="tag t-info">{rowDisplayName(selectedMatrixRow)}</span>
                   ) : null}
@@ -1809,13 +2066,12 @@ export function RuleEditorModal({
                               {selectedRowDoses.map((d, i) => (
                                 <tr key={i}>
                                   <td style={{ minWidth: 130 }}>
-                                    <input
-                                      aria-label={copy(pageContract, "modal.rule_editor.table.dose")}
-                                      value={d.doseCode}
-                                      onChange={(e) =>
-                                        setSelectedDose(i, { doseCode: e.target.value })
-                                      }
-                                    />
+                                    <div className="note" style={{ padding: "7px 9px" }}>
+                                      <div>
+                                        <b>{doseRoleLabel(d, i, selectedRowDoses)}</b>
+                                        <div className="muted small">{doseAgeText(d, i, selectedRowDoses)}</div>
+                                      </div>
+                                    </div>
                                   </td>
                                   <td style={{ minWidth: 150 }}>
                                     <select
@@ -1921,13 +2177,22 @@ export function RuleEditorModal({
                                     />
                                   </td>
                                   <td style={{ minWidth: 170 }}>
-                                    <input
-                                      aria-label={copy(pageContract, "modal.rule_editor.table.proof_policy")}
-                                      value={d.proofCsv}
-                                      onChange={(e) =>
-                                        setSelectedDose(i, { proofCsv: e.target.value })
-                                      }
-                                    />
+                                    <div className="cfgchk" aria-label={copy(pageContract, "modal.rule_editor.table.proof_policy")}>
+                                      {csvValues(d.proofCsv).length > 0 ? (
+                                        csvValues(d.proofCsv).map((token) => (
+                                          <span key={token} className="tag t-info">
+                                            {proofTokenLabel(token)}
+                                          </span>
+                                        ))
+                                      ) : (
+                                          <span className="muted small">
+                                            {copy(
+                                              pageContract,
+                                              "modal.rule_editor.guided.set_below",
+                                            )}
+                                          </span>
+                                      )}
+                                    </div>
                                   </td>
                                 </tr>
                               ))}
@@ -1973,66 +2238,118 @@ export function RuleEditorModal({
                   <div className="muted small">
                     {copy(pageContract, "modal.rule_editor.guided.safety_hint")}
                   </div>
-                  {[
-                    "modal.rule_editor.guided.safety_max_shots",
-                    "modal.rule_editor.guided.safety_live_live",
-                    "modal.rule_editor.guided.safety_killed_live",
-                    "modal.rule_editor.guided.safety_pregnancy",
-                    "modal.rule_editor.guided.safety_defer",
-                    "modal.rule_editor.guided.safety_mother",
-                    "modal.rule_editor.guided.safety_batch",
-                  ].map((key) => (
-                    <div key={key} className="note">
-                      <CheckCircle2 className="ic" />
-                      <div>{copy(pageContract, key)}</div>
-                    </div>
-                  ))}
+                  <div className="cfgsafety-list">
+                    {[
+                      "modal.rule_editor.guided.safety_max_shots",
+                      "modal.rule_editor.guided.safety_live_live",
+                      "modal.rule_editor.guided.safety_killed_live",
+                      "modal.rule_editor.guided.safety_pregnancy",
+                      "modal.rule_editor.guided.safety_defer",
+                      "modal.rule_editor.guided.safety_mother",
+                      "modal.rule_editor.guided.safety_batch",
+                    ].map((key) => (
+                      <div key={key} className="cfgsafety-row">
+                        <CheckCircle2 className="ic" />
+                        <span>{copy(pageContract, key)}</span>
+                        <span className="tag t-mut">
+                          {copy(pageContract, "modal.rule_editor.guided.read_only")}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </section>
 
               <section className="card">
                 <div className="hd">
                   <h3>{copy(pageContract, "modal.rule_editor.guided.procurement_title")}</h3>
+                  <div className="sp" />
+                  {infoButton(
+                    "modal.rule_editor.guided.procurement_info_title",
+                    "modal.rule_editor.guided.procurement_info_body",
+                  )}
                 </div>
                 <div className="bd" style={{ display: "grid", gap: 8 }}>
                   <div className="muted small">
                     {copy(pageContract, "modal.rule_editor.guided.procurement_hint")}
                   </div>
-                  <div className="rowf">
-                    <input
-                      aria-label={copy(pageContract, "modal.rule_editor.field.first_wave")}
-                      value={procurementPolicy.firstWave}
-                      onChange={(e) =>
-                        setProcurementField({ firstWave: e.target.value })
-                      }
-                    />
-                    <input
-                      aria-label={copy(pageContract, "modal.rule_editor.field.second_wave_after_days")}
-                      type="number"
-                      min="0"
-                      value={procurementPolicy.secondWaveAfterDays}
-                      onChange={(e) =>
-                        setProcurementField({
-                          secondWaveAfterDays: Number(e.target.value),
-                        })
-                      }
-                    />
+                  <div>
+                    <label>{copy(pageContract, "modal.rule_editor.field.first_wave")}</label>
+                    <div className="cfgchk">
+                      {procurementVaccineChoices.map((option) => {
+                        const selected = csvValues(procurementPolicy.firstWave).includes(option.key);
+                        return (
+                          <button
+                            key={option.key}
+                            type="button"
+                            className={`tag ${selected ? "t-ok" : "t-mut"}`}
+                            onClick={() => toggleProcurementToken("firstWave", option.key)}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                   <div className="rowf">
-                    <input
-                      aria-label={copy(pageContract, "modal.rule_editor.field.goat_second_wave")}
-                      value={procurementPolicy.goatSecondWave}
-                      onChange={(e) =>
-                        setProcurementField({ goatSecondWave: e.target.value })
-                      }
-                    />
-                    <input
-                      aria-label={copy(pageContract, "modal.rule_editor.field.sheep_second_wave")}
-                      value={procurementPolicy.sheepSecondWave}
-                      onChange={(e) =>
-                        setProcurementField({ sheepSecondWave: e.target.value })
-                      }
-                    />
+                    <div>
+                      <label className="cfglabel-with-info">
+                        {copy(pageContract, "modal.rule_editor.field.second_wave_after_days")}
+                        {infoButton(
+                          "modal.rule_editor.guided.procurement_info_title",
+                          "modal.rule_editor.guided.procurement_second_visit_note",
+                        )}
+                      </label>
+                      <input
+                        aria-label={copy(pageContract, "modal.rule_editor.field.second_wave_after_days")}
+                        type="number"
+                        min="0"
+                        value={procurementPolicy.secondWaveAfterDays}
+                        onChange={(e) =>
+                          setProcurementField({
+                            secondWaveAfterDays: Number(e.target.value),
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="rowf">
+                    <div>
+                      <label>{copy(pageContract, "modal.rule_editor.field.goat_second_wave")}</label>
+                      <div className="cfgchk">
+                        {procurementVaccineChoices.map((option) => {
+                          const selected = csvValues(procurementPolicy.goatSecondWave).includes(option.key);
+                          return (
+                            <button
+                              key={option.key}
+                              type="button"
+                              className={`tag ${selected ? "t-ok" : "t-mut"}`}
+                              onClick={() => toggleProcurementToken("goatSecondWave", option.key)}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <label>{copy(pageContract, "modal.rule_editor.field.sheep_second_wave")}</label>
+                      <div className="cfgchk">
+                        {procurementVaccineChoices.map((option) => {
+                          const selected = csvValues(procurementPolicy.sheepSecondWave).includes(option.key);
+                          return (
+                            <button
+                              key={option.key}
+                              type="button"
+                              className={`tag ${selected ? "t-ok" : "t-mut"}`}
+                              onClick={() => toggleProcurementToken("sheepSecondWave", option.key)}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -2040,27 +2357,45 @@ export function RuleEditorModal({
               <section className="card">
                 <div className="hd">
                   <h3>{copy(pageContract, "modal.rule_editor.guided.proof_title")}</h3>
+                  <div className="sp" />
+                  {infoButton(
+                    "modal.rule_editor.guided.proof_info_title",
+                    "modal.rule_editor.guided.proof_info_body",
+                  )}
                 </div>
                 <div className="bd" style={{ display: "grid", gap: 8 }}>
                   <div className="muted small">
                     {copy(pageContract, "modal.rule_editor.guided.proof_hint")}
+                    </div>
+                    <div className="cfgchk">
+                      {proofTokenOptions.map((option) => {
+                        const selected = csvValues(proofCsvForSelectedRow()).includes(option.key);
+                        return (
+                        <button
+                          key={option.key}
+                          type="button"
+                          className={`tag ${selected ? "t-ok" : "t-mut"}`}
+                          onClick={() => toggleSelectedProofToken(option.key)}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="rowf">
-                    <input
-                      aria-label={copy(pageContract, "modal.rule_editor.table.proof_policy")}
-                      value={proofCsvForSelectedRow()}
-                      onChange={(e) => setSelectedProofCsv(e.target.value)}
-                    />
-                    <input
-                      aria-label={copy(pageContract, "modal.rule_editor.field.vaccine_lot")}
-                      value={vaccineLotPolicy}
-                      onChange={(e) => setVaccineLotPolicy(e.target.value)}
-                    />
-                  </div>
-                  <div className="cfgchk">
+                  <div className="note">
+                    <CheckCircle2 className="ic" />
+                      <div>{vaccineLotPolicy}</div>
+                    </div>
+                    <div
+                      className="cfgchk"
+                      aria-label={copy(
+                        pageContract,
+                        "modal.rule_editor.guided.selected_proof_tokens_aria",
+                      )}
+                    >
                     {activeProofTokens.map((token) => (
                       <span key={token} className="tag t-info">
-                        {token}
+                        {proofTokenLabel(token)}
                       </span>
                     ))}
                   </div>
