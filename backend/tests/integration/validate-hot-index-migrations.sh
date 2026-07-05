@@ -98,7 +98,13 @@ drop_constraint_re = re.compile(
     r"\bDROP\s+CONSTRAINT\s+(?:IF\s+EXISTS\s+)?(?P<constraint>[a-zA-Z_][\w.]*)",
     re.I | re.S,
 )
+validate_constraint_re = re.compile(
+    r"\bVALIDATE\s+CONSTRAINT\s+(?P<constraint>[a-zA-Z_][\w.]*)",
+    re.I | re.S,
+)
 direct_index_constraint_re = re.compile(r"\bUNIQUE\b|\bPRIMARY\s+KEY\b|\bEXCLUDE\b", re.I | re.S)
+direct_validation_constraint_re = re.compile(r"\bCHECK\b|\bFOREIGN\s+KEY\b|\bREFERENCES\b", re.I | re.S)
+not_valid_re = re.compile(r"\bNOT\s+VALID\b", re.I | re.S)
 using_index_attach_re = re.compile(r"\b(?:UNIQUE|PRIMARY\s+KEY)\s+USING\s+INDEX\b", re.I | re.S)
 concurrent_index_statement_re = re.compile(
     r"\b(?:CREATE\s+(?:UNIQUE\s+)?INDEX|DROP\s+INDEX)\s+CONCURRENTLY\b",
@@ -226,16 +232,21 @@ def classify_direct_constraint_risk(
     if table in created_in_migration or not is_hot_table(table):
         return
     body = match.group("body")
-    if not direct_index_constraint_re.search(body):
-        return
-    if using_index_attach_re.search(body):
-        return
     constraint_name = match.group("constraint") or "<unnamed>"
     suffix = "" if section == "goose Up" else f" in {section} section"
-    classify_hot_lock_risk(
-        version,
-        f"{path_name}: {constraint_name} on hot table {table} uses direct UNIQUE/PRIMARY KEY/EXCLUDE constraint{suffix}",
-    )
+    if direct_index_constraint_re.search(body):
+        if using_index_attach_re.search(body):
+            return
+        classify_hot_lock_risk(
+            version,
+            f"{path_name}: {constraint_name} on hot table {table} uses direct UNIQUE/PRIMARY KEY/EXCLUDE constraint{suffix}",
+        )
+        return
+    if direct_validation_constraint_re.search(body) and not not_valid_re.search(body):
+        classify_hot_lock_risk(
+            version,
+            f"{path_name}: {constraint_name} on hot table {table} uses direct CHECK/FOREIGN KEY constraint without NOT VALID{suffix}",
+        )
 
 
 def classify_drop_constraint_risk(
@@ -258,6 +269,29 @@ def classify_drop_constraint_risk(
         classify_hot_lock_risk(
             version,
             f"{path_name}: {constraint_name} on hot table {table} uses direct DROP CONSTRAINT{suffix}",
+        )
+
+
+def classify_validate_constraint_risk(
+    *,
+    path_name: str,
+    version: int,
+    section: str,
+    statement: str,
+    created_in_migration: set[str],
+) -> None:
+    table_match = alter_table_re.search(statement)
+    if not table_match:
+        return
+    table = bare_name(table_match.group("table"))
+    if table in created_in_migration or not is_hot_table(table):
+        return
+    suffix = "" if section == "goose Up" else f" in {section} section"
+    for match in validate_constraint_re.finditer(statement):
+        constraint_name = bare_name(match.group("constraint"))
+        classify_hot_lock_risk(
+            version,
+            f"{path_name}: {constraint_name} on hot table {table} uses direct VALIDATE CONSTRAINT{suffix}",
         )
 
 
@@ -297,6 +331,13 @@ for path in sorted(migration_dir.glob("*.sql")):
             created_in_migration=created_in_migration,
         )
         classify_drop_constraint_risk(
+            path_name=path.name,
+            version=version,
+            section="goose Up",
+            statement=statement,
+            created_in_migration=created_in_migration,
+        )
+        classify_validate_constraint_risk(
             path_name=path.name,
             version=version,
             section="goose Up",
@@ -348,6 +389,13 @@ for path in sorted(migration_dir.glob("*.sql")):
             statement=statement,
             created_in_migration=created_in_migration,
         )
+        classify_validate_constraint_risk(
+            path_name=path.name,
+            version=version,
+            section="goose Down",
+            statement=statement,
+            created_in_migration=created_in_migration,
+        )
 
         drop_match = drop_index_re.search(statement)
         if drop_match:
@@ -388,7 +436,9 @@ if violations:
         "migration for late indexes on populated hot tables. For hot-table uniqueness, "
         "or primary keys, create the index concurrently first, then attach it with "
         "ALTER TABLE ADD CONSTRAINT ... UNIQUE/PRIMARY KEY USING INDEX. For hot-table "
-        "DROP CONSTRAINT, use an explicitly reviewed no-lock rollout.",
+        "CHECK/FOREIGN KEY constraints, add NOT VALID first and validate through an "
+        "explicitly reviewed rollout. For hot-table DROP CONSTRAINT, use an explicitly "
+        "reviewed no-lock rollout.",
         file=sys.stderr,
     )
     sys.exit(1)
