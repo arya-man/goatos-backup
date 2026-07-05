@@ -304,16 +304,22 @@ profile_id: goatos-stg-1m-benchmark-v1
 project: goatos-stg
 dataset: fixed 1M-goat synthetic/legacy-shaped baseline
 database: Cloud SQL for PostgreSQL 16 in goatos-stg
-schema baseline: apply all migrations to current head before loading the 1M
-  dataset; historical hot-table index warnings are not safe to run after data
-  is already at benchmark scale
+schema identity: pinned in the profile report by repo git SHA, highest migration
+  version/file, and ordered migration checksum digest before loading data;
+  historical hot-table index warnings are not safe to run after data is already
+  at benchmark scale
+seed/data identity: pinned in the profile report by seed generator command,
+  seed generator git SHA, seed config version, input fixture checksum manifest,
+  and loaded dataset checksum/row-count manifest
 write-path reads/writes: primary instance only; read replicas are measured
   separately and cannot hide primary write-path bottlenecks
 infra shape: Cloud SQL tier, storage type/size/autoscaling, replica count,
   app/worker CPU+memory, replica counts, DB pool sizes, Pub/Sub retry/DLQ
   policy, and worker concurrency are pinned in each certification report
-profile changes: changing any infra shape field creates a new profile id
-  before certification; do not compare pass/fail results across profiles
+profile changes: changing any infra shape field, repo git SHA, migration head,
+  migration checksum digest, seed generator/config, input fixture checksum, or
+  loaded dataset checksum creates a new profile id before certification; do not
+  compare pass/fail results across profiles
 ```
 
 Until a concrete profile report exists for `goatos-stg-1m-benchmark-v1`, any

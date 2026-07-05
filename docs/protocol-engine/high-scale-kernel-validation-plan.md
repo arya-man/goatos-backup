@@ -198,9 +198,12 @@ the canonical environment shape. Certification runs must use the fixed
 `docs/runbooks/google-cloud-environments.md`, currently
 `goatos-stg-1m-benchmark-v1`. The report must include profile id, Cloud SQL
 tier, CPU/memory, disk type/size/autoscaling, replicas, app/worker replicas, DB
-pool sizes, Pub/Sub topic/subscription/DLQ config, and worker concurrency. A run
-on a different or larger shape is a stress exploration unless a new benchmark
-profile is committed first.
+pool sizes, Pub/Sub topic/subscription/DLQ config, worker concurrency, repo git
+SHA, migration head/checksum digest, seed generator/config identity, input
+fixture checksum manifest, and loaded dataset checksum/row-count manifest. A run
+on a different or larger shape, schema head, seed generator, fixture set, or
+loaded dataset is a stress exploration unless a new benchmark profile is
+committed first.
 
 The canonical vaccination-slice command target to add before certifying the
 current Preventive Care (PC) vaccination slice is:
@@ -519,7 +522,7 @@ Latest architecture feedback is classified as:
 | Generation reconciliation can ignore residual buckets | No; reconciliation includes `reopened` and `skipped_no_due_date`, and any unnamed residual bucket must be zero or explicitly accepted with a reason. |
 | 1M target evaluations prove the full chain | No; Section 4.4 separates `target_eval` from `full_chain` and defines minimum downstream stage volumes. |
 | Mixed categories are required to close the vaccination slice | No; vaccination-slice E2E proves tenant-default and park-override behavior for vaccination. Mixed categories are required only for `multi_domain_kernel` certification. |
-| Staging scale can use any larger DB shape | No; certification is tied to the committed `goatos-stg-1m-benchmark-v1` benchmark profile. Changing infra shape creates a new profile id. |
+| Staging scale can use any larger DB/schema/data shape | No; certification is tied to the committed `goatos-stg-1m-benchmark-v1` benchmark profile. Changing infra shape, migration/schema identity, seed generator/config, fixture checksum, or loaded dataset checksum creates a new profile id. |
 | Per-push plan guards prove planner choice at scale | Not by themselves; they prove index reachability. Scaled planner choice requires seeded `ANALYZE` plus `EXPLAIN (ANALYZE, BUFFERS)` without disabling sequential scans. |
 | Late hot-table indexes can be plain `CREATE INDEX` | No; future late indexes or drops on hot tables require concurrent/no-transaction patterns. The guard reports all historical pre-guard hot-table warnings, and the 1M baseline must apply them before loading benchmark-scale data or use a no-lock rollout path. |
 | Verify fanout can bypass the durable outbox | Not for certification; verify accepted/rejected fanout must be durable or have a tested replay-safe repair path. |

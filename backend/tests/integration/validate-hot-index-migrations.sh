@@ -214,13 +214,15 @@ for path in sorted(migration_dir.glob("*.sql")):
             f"{path.name}: concurrent index statement in goose Down section is missing -- +goose NO TRANSACTION"
         )
     up_sql = strip_sql_comments(up_raw)
-    if not up_sql.strip():
-        continue
+    down_sql = strip_sql_comments(down_raw)
+    up_statements = split_statements(up_sql) if up_sql.strip() else []
+    down_statements = split_statements(down_sql) if down_sql.strip() else []
+    migration_index_owner: dict[str, str] = {}
     created_in_migration = {
         bare_name(match.group("table"))
         for match in create_table_re.finditer(up_sql)
     }
-    for statement in split_statements(up_sql):
+    for statement in up_statements:
         drop_match = drop_index_re.search(statement)
         if drop_match:
             index_name = bare_name(drop_match.group("index"))
@@ -237,6 +239,7 @@ for path in sorted(migration_dir.glob("*.sql")):
             continue
         table = bare_name(match.group("table"))
         index_name = bare_name(match.group("index"))
+        migration_index_owner[index_name] = table
         index_owner[index_name] = table
         if not is_hot_table(table):
             continue
@@ -247,6 +250,31 @@ for path in sorted(migration_dir.glob("*.sql")):
         classify_hot_lock_risk(
             version,
             f"{path.name}: {index_name} on hot table {table} uses non-concurrent CREATE INDEX",
+        )
+
+    for statement in down_statements:
+        drop_match = drop_index_re.search(statement)
+        if drop_match:
+            index_name = bare_name(drop_match.group("index"))
+            owner_table = migration_index_owner.get(index_name) or index_owner.get(index_name)
+            if owner_table and is_hot_table(owner_table) and not drop_match.group("concurrently"):
+                classify_hot_lock_risk(
+                    version,
+                    f"{path.name}: {index_name} on hot table {owner_table} uses non-concurrent DROP INDEX in goose Down section",
+                )
+
+        match = create_index_re.search(statement)
+        if not match:
+            continue
+        table = bare_name(match.group("table"))
+        index_name = bare_name(match.group("index"))
+        if not is_hot_table(table):
+            continue
+        if match.group("concurrently"):
+            continue
+        classify_hot_lock_risk(
+            version,
+            f"{path.name}: {index_name} on hot table {table} uses non-concurrent CREATE INDEX in goose Down section",
         )
 
 if warnings:
