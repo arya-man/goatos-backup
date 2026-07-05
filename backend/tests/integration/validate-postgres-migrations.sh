@@ -4,6 +4,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 source "$repo_root/tools/postgres-ci.sh"
 
+bash "$repo_root/backend/tests/integration/validate-hot-index-migrations.sh"
+
 container_name="goatos-migration-validation-$$"
 image="${GOATOS_POSTGRES_IMAGE:-postgres:16.9-alpine}"
 db_name="goatos"

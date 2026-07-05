@@ -436,12 +436,14 @@ next kernel hardening items to keep explicit:
    key/index growth at 1M+ operations.
 15. **Hot-table migration lock safety.** Late indexes on already-populated hot
    tables such as `obligation_instances`, `goats`, outbox, notification, audit,
-   projection, and completion tables must use non-blocking patterns:
-   `CREATE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY`, with no surrounding
-   transaction for goose-style runners. Historical tail migrations `000115`,
-   `000137`, and `000140` must be confirmed applied before any environment grows
-   the hot tables to 1M scale, or replaced by a no-lock rollout path before
-   certification.
+   projection, completion, dedupe, run-ledger, movement/event, proof, and status
+   event tables must use non-blocking patterns: `CREATE INDEX CONCURRENTLY` /
+   `DROP INDEX CONCURRENTLY`, with `-- +goose NO TRANSACTION` in the relevant
+   goose `Up`/`Down` section. The hot-index guard must warn on every historical
+   pre-guard late hot-table index lock risk and fail future ones. A canonical
+   1M benchmark database must apply all historical warning migrations before
+   loading 1M data; any already-populated 1M database still below current head
+   needs an explicit no-lock rollout path before certification.
 16. **Durable verify-fanout path.** Route vaccination verify accepted/rejected
    fanout through the durable outbox or document and test a replay-safe repair
    path. Direct synchronous `eventbus.Publish` fanout is not enough for
@@ -519,5 +521,5 @@ Latest architecture feedback is classified as:
 | Mixed categories are required to close the vaccination slice | No; vaccination-slice E2E proves tenant-default and park-override behavior for vaccination. Mixed categories are required only for `multi_domain_kernel` certification. |
 | Staging scale can use any larger DB shape | No; certification is tied to the committed `goatos-stg-1m-benchmark-v1` benchmark profile. Changing infra shape creates a new profile id. |
 | Per-push plan guards prove planner choice at scale | Not by themselves; they prove index reachability. Scaled planner choice requires seeded `ANALYZE` plus `EXPLAIN (ANALYZE, BUFFERS)` without disabling sequential scans. |
-| Late hot-table indexes can be plain `CREATE INDEX` | No; future late indexes on hot tables require concurrent/no-transaction patterns, and historical tail migrations must be applied before 1M growth or replaced by a no-lock rollout path. |
+| Late hot-table indexes can be plain `CREATE INDEX` | No; future late indexes or drops on hot tables require concurrent/no-transaction patterns. The guard reports all historical pre-guard hot-table warnings, and the 1M baseline must apply them before loading benchmark-scale data or use a no-lock rollout path. |
 | Verify fanout can bypass the durable outbox | Not for certification; verify accepted/rejected fanout must be durable or have a tested replay-safe repair path. |

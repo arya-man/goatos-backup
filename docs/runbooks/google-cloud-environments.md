@@ -304,6 +304,9 @@ profile_id: goatos-stg-1m-benchmark-v1
 project: goatos-stg
 dataset: fixed 1M-goat synthetic/legacy-shaped baseline
 database: Cloud SQL for PostgreSQL 16 in goatos-stg
+schema baseline: apply all migrations to current head before loading the 1M
+  dataset; historical hot-table index warnings are not safe to run after data
+  is already at benchmark scale
 write-path reads/writes: primary instance only; read replicas are measured
   separately and cannot hide primary write-path bottlenecks
 infra shape: Cloud SQL tier, storage type/size/autoscaling, replica count,

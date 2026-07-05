@@ -141,7 +141,6 @@ validate-hot-index-migrations:
 	bash backend/tests/integration/validate-hot-index-migrations.sh
 
 validate-migrations:
-	bash backend/tests/integration/validate-hot-index-migrations.sh
 	bash backend/tests/integration/validate-postgres-migrations.sh
 
 validate-sqlc-plans:

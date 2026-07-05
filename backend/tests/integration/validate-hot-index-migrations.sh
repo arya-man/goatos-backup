@@ -15,31 +15,61 @@ migration_dir = repo_root / "backend" / "migrations" / "postgres"
 
 hot_tables = {
     "audit_log",
+    "calendar_event_identities",
     "calendar_event_projections",
+    "calendar_snoozes",
+    "count_base_anchors",
+    "count_mismatch_scan_runs",
+    "count_projection_exception_resolutions",
+    "count_projection_exceptions",
+    "count_projection_recompute_runs",
     "count_projection_snapshot_rows",
     "count_projection_snapshots",
+    "counts_shifting_readiness_evidence",
+    "domain_event_processed_events",
+    "feed_direction_completions",
     "goats",
+    "goat_custody_history",
+    "goat_identity_counter_processed_events",
+    "goat_identity_counter_projection_state",
+    "goat_identity_counters",
+    "goat_identity_events",
+    "goat_identifiers",
+    "goat_location_history",
+    "goat_ownership",
     "idempotency_keys",
+    "inventory_stock",
     "inventory_stock_movements",
+    "movement_commands",
     "notification_requests",
     "obligation_batches",
+    "obligation_escalations",
+    "obligation_goat_shift_watermarks",
     "obligation_instances",
+    "obligation_status_events",
+    "outbox_dlq_actions",
     "outbox_messages",
+    "proof_artifacts",
+    "shifting_event_impacts",
+    "shifting_events",
+    "sop_submission_items",
     "sop_submissions",
+    "sop_task_review_fanouts",
+    "sop_task_submission_fanouts",
     "sop_tasks",
     "vaccination_completions",
+    "vaccination_generation_runs",
 }
 
-# These were committed before this guard existed. They are tracked in
-# docs/protocol-engine/high-scale-kernel-validation-plan.md as historical risks
-# that must be applied before hot tables grow to 1M scale or replaced by a
-# no-lock rollout path before certification.
-grandfathered = {
-    ("000115_protocol_repeat_and_obligation_dedup.sql", "obligation_instances_open_logical_due_idx"),
-    ("000137_obligation_missed_deadline_in_progress_index.sql", "obligation_instances_missed_deadline_idx"),
-    ("000140_obligation_unbatched_due_version_index.sql", "obligation_instances_unbatched_due_version_idx"),
-}
+hot_table_prefixes = (
+    "audit_log_",
+    "goat_identity_events_",
+    "obligation_status_events_",
+)
 
+# Older migrations are already checksum-tracked in deployed databases. They stay
+# runnable, but this guard prints every historical hot-table lock risk so scale
+# certification cannot pretend those migrations are safe on populated tables.
 enforcement_floor = 141
 
 create_table_re = re.compile(r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<table>[a-zA-Z_][\w.]*)", re.I)
@@ -49,6 +79,16 @@ create_index_re = re.compile(
     r"(?P<table>[a-zA-Z_][\w.]*)",
     re.I | re.S,
 )
+drop_index_re = re.compile(
+    r"\bDROP\s+INDEX\s+(?P<concurrently>CONCURRENTLY\s+)?"
+    r"(?:IF\s+EXISTS\s+)?(?P<index>[a-zA-Z_][\w.]*)",
+    re.I | re.S,
+)
+concurrent_index_statement_re = re.compile(
+    r"\b(?:CREATE\s+(?:UNIQUE\s+)?INDEX|DROP\s+INDEX)\s+CONCURRENTLY\b",
+    re.I,
+)
+no_transaction_re = re.compile(r"(?im)^\s*--\s*\+goose\s+NO\s+TRANSACTION\s*$")
 
 
 def strip_sql_comments(sql: str) -> str:
@@ -67,6 +107,19 @@ def up_section(sql: str) -> str:
         if stripped.startswith("-- +goose Down"):
             break
         if in_up:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def down_section(sql: str) -> str:
+    lines = []
+    in_down = False
+    for line in sql.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("-- +goose Down"):
+            in_down = True
+            continue
+        if in_down:
             lines.append(line)
     return "\n".join(lines)
 
@@ -123,14 +176,44 @@ def bare_name(name: str) -> str:
     return name.split(".")[-1].strip('"').lower()
 
 
+def is_hot_table(table: str) -> bool:
+    return table in hot_tables or any(table.startswith(prefix) for prefix in hot_table_prefixes)
+
+
+def uses_concurrent_index(section_sql: str) -> bool:
+    return bool(concurrent_index_statement_re.search(strip_sql_comments(section_sql)))
+
+
+def has_no_transaction(section_sql: str) -> bool:
+    return bool(no_transaction_re.search(section_sql))
+
+
+def classify_hot_lock_risk(version: int, message: str) -> None:
+    if version < enforcement_floor:
+        warnings.append("legacy-pre-floor: " + message)
+        return
+    violations.append(message)
+
+
 violations: list[str] = []
 warnings: list[str] = []
+index_owner: dict[str, str] = {}
 
 for path in sorted(migration_dir.glob("*.sql")):
     version_match = re.match(r"(?P<version>\d+)_", path.name)
     version = int(version_match.group("version")) if version_match else 0
     raw = path.read_text(encoding="utf-8")
-    up_sql = strip_sql_comments(up_section(raw))
+    up_raw = up_section(raw)
+    down_raw = down_section(raw)
+    if uses_concurrent_index(up_raw) and not has_no_transaction(up_raw):
+        violations.append(
+            f"{path.name}: concurrent index statement in goose Up section is missing -- +goose NO TRANSACTION"
+        )
+    if uses_concurrent_index(down_raw) and not has_no_transaction(down_raw):
+        violations.append(
+            f"{path.name}: concurrent index statement in goose Down section is missing -- +goose NO TRANSACTION"
+        )
+    up_sql = strip_sql_comments(up_raw)
     if not up_sql.strip():
         continue
     created_in_migration = {
@@ -138,29 +221,39 @@ for path in sorted(migration_dir.glob("*.sql")):
         for match in create_table_re.finditer(up_sql)
     }
     for statement in split_statements(up_sql):
+        drop_match = drop_index_re.search(statement)
+        if drop_match:
+            index_name = bare_name(drop_match.group("index"))
+            owner_table = index_owner.get(index_name)
+            if owner_table and is_hot_table(owner_table) and not drop_match.group("concurrently"):
+                classify_hot_lock_risk(
+                    version,
+                    f"{path.name}: {index_name} on hot table {owner_table} uses non-concurrent DROP INDEX",
+                )
+            index_owner.pop(index_name, None)
+
         match = create_index_re.search(statement)
         if not match:
             continue
         table = bare_name(match.group("table"))
-        if table not in hot_tables:
+        index_name = bare_name(match.group("index"))
+        index_owner[index_name] = table
+        if not is_hot_table(table):
             continue
         if table in created_in_migration:
             continue
-        index_name = bare_name(match.group("index"))
-        key = (path.name, index_name)
         if match.group("concurrently"):
             continue
-        message = f"{path.name}: {index_name} on hot table {table} uses non-concurrent CREATE INDEX"
-        if key in grandfathered:
-            warnings.append("grandfathered: " + message)
-            continue
-        if version < enforcement_floor:
-            continue
-        violations.append(message)
+        classify_hot_lock_risk(
+            version,
+            f"{path.name}: {index_name} on hot table {table} uses non-concurrent CREATE INDEX",
+        )
 
 if warnings:
+    print("Historical hot-table migration lock warnings:", file=sys.stderr)
     for warning in warnings:
         print(warning, file=sys.stderr)
+    sys.stderr.flush()
 
 if violations:
     print("Hot-table migration index safety violations:", file=sys.stderr)
@@ -173,5 +266,8 @@ if violations:
     )
     sys.exit(1)
 
-print("Hot-table index migration safety guard passed.")
+if warnings:
+    print(f"Hot-table index migration safety guard passed with {len(warnings)} historical warning(s).")
+else:
+    print("Hot-table index migration safety guard passed.")
 PY
