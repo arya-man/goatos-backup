@@ -390,10 +390,10 @@ def print_savings(m: dict[str, float]) -> None:
     print()
     print("SAVINGS MODEL  (conservative; per-call constants from measured eval)")
     print(f"  price assumed: ${m['price_per_mtok']:.2f} / 1M tokens (input-heavy; Opus ~5x)")
-    print(f"  REALIZED (saved by the stack): {int(m['realized_tok']):,} tok  ~= ${m['realized_usd']:,.2f}")
+    print(f"  SAVED BY TOOLS: {int(m['realized_tok']):,} tok  ~= ${m['realized_usd']:,.2f}")
     print(f"    from {int(m['graph_calls'])} graph calls + {int(m['rtk_calls'])} RTK calls")
-    print(f"  WITHOUT THESE 4 (projected raw cost): {int(m['notools_tok']):,} tok  ~= ${m['notools_usd']:,.2f}")
-    print(f"    all graph/diff/read work run raw — stack claws back ${m['realized_usd']:,.2f}; ${m['unclaimed_usd']:,.2f} still leaks raw")
+    print(f"  RAW BASELINE (no tools): {int(m['notools_tok']):,} tok  ~= ${m['notools_usd']:,.2f}")
+    print(f"    = ${m['realized_usd']:,.2f} saved by tools + ${m['unclaimed_usd']:,.2f} still raw/missed")
     print(f"    ({int(m['grep_calls'])} greps + {int(m['gitdiff_calls'])} git-diffs + a fraction of {int(m['read_calls'])} reads bypass the 4)")
 
 
@@ -495,10 +495,10 @@ th:first-child,td:first-child{{text-align:left}}td.path{{text-align:left;color:#
 <h1>AI Telemetry — project “{project_safe}”</h1>
 <div class="sub">Real Claude + Codex transcript usage. repowise/CRG/Graphify/RTK adoption. Generated locally, no network.</div>
 <div class="cards">
-<div class="card" style="border-color:#238636"><div class="k">💰 Realized savings</div><div class="v" style="color:#7ee787">${model['realized_usd']:,.0f}</div><div class="k">{int(model['realized_tok']):,} tok the 4 tools saved</div></div>
-<div class="card" style="border-color:#9e6a03"><div class="k">🧮 Without these 4 (projected)</div><div class="v" style="color:#e3b341">${model['notools_usd']:,.0f}</div><div class="k">{int(model['notools_tok']):,} tok if all graph/diff/read ran raw</div></div>
+<div class="card" style="border-color:#238636"><div class="k">💰 Saved by tools</div><div class="v" style="color:#7ee787">${model['realized_usd']:,.0f}</div><div class="k">{int(model['realized_tok']):,} tok avoided</div></div>
+<div class="card" style="border-color:#9e6a03"><div class="k">🧮 Raw baseline (no tools)</div><div class="v" style="color:#e3b341">${model['notools_usd']:,.0f}</div><div class="k">${model['realized_usd']:,.0f} saved + ${model['unclaimed_usd']:,.0f} still raw</div></div>
 </div>
-<div class="sub" style="font-size:12px">Without the stack this work costs ~${model['notools_usd']:,.0f}. The 4 tools claw back ${model['realized_usd']:,.0f} today; ${model['unclaimed_usd']:,.0f} still leaks raw ({int(model['grep_calls'])} greps + {int(model['gitdiff_calls'])} git-diffs + a fraction of {int(model['read_calls'])} reads bypass all 4). Assumes ~{int(model['price_per_mtok'])}$/1M tok, ~9k saved/graph-query, ~15k/diff — conservative, Opus ~5×.</div>
+<div class="sub" style="font-size:12px">Raw baseline = what the graph/diff/read work would cost with no stack at all. Still raw/missed = ${model['unclaimed_usd']:,.0f} ({int(model['grep_calls'])} greps + {int(model['gitdiff_calls'])} git-diffs + a fraction of {int(model['read_calls'])} reads bypass all 4). Assumes ~{int(model['price_per_mtok'])}$/1M tok, ~9k saved/graph-query, ~15k/diff — conservative, Opus ~5×.</div>
 <div class="cards">
 <div class="card"><div class="k">Total tokens</div><div class="v">{total:,}</div></div>
 <div class="card"><div class="k">Sessions</div><div class="v">{sessions:,}</div></div>
