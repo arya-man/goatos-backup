@@ -13,15 +13,23 @@ import (
 // (stock shortage, expiry-before-horizon). Real counts replace the mock's fake math. Overlapping
 // published-window conflicts are enforced at publish time by the DB EXCLUDE constraint.
 func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error) {
-	eligible, err := s.repo.CountEligibleGoats(ctx, req.Filter)
+	filter := req.Filter
+	if filter.AsOf.IsZero() {
+		filter.AsOf = req.AsOf
+	}
+	if filter.AsOf.IsZero() {
+		filter.AsOf = time.Now().UTC()
+	}
+
+	eligible, err := s.repo.CountEligibleGoats(ctx, filter)
 	if err != nil {
 		return domain.ImpactPreview{}, err
 	}
-	catchup, err := s.repo.CountCatchupGoats(ctx, req.Filter)
+	catchup, err := s.repo.CountCatchupGoats(ctx, filter)
 	if err != nil {
 		return domain.ImpactPreview{}, err
 	}
-	sheds, err := s.repo.CountEligibleShedScopes(ctx, req.Filter)
+	sheds, err := s.repo.CountEligibleShedScopes(ctx, filter)
 	if err != nil {
 		return domain.ImpactPreview{}, err
 	}
@@ -48,7 +56,7 @@ func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (
 	}
 
 	if req.VaccineItemID != nil && *req.VaccineItemID != "" {
-		available, earliest, err := s.repo.SumAvailableStock(ctx, req.Filter.TenantID, *req.VaccineItemID, req.LocationID)
+		available, earliest, err := s.repo.SumAvailableStock(ctx, filter.TenantID, *req.VaccineItemID, req.LocationID)
 		if err != nil {
 			return domain.ImpactPreview{}, err
 		}

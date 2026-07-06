@@ -713,6 +713,39 @@ func TestGoatRecheckHandlerAlignsRecoveredGoatToNearbyDrive(t *testing.T) {
 	}
 }
 
+func TestGenerateEffectiveForAllGoatsAlignsRecoveredGoatToNearbyDrive(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","defer_states":["sick"]},"recovery_policy":{"max_nearby_drive_align_days":7}}`),
+		rules:   []protodomain.Rule{{RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21, DueWindowDays: 7}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{{
+		GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "sick", Stage: "K1", DOB: &dob, ShedID: "shed-1", ParkID: "park-1",
+	}}}
+	nearby := time.Date(2026, time.June, 5, 0, 0, 0, 0, time.UTC)
+	obl := &generationObligationFake{seen: map[string]bool{}, nearbyDrive: &nearby}
+	gen := NewGenerationService(proto, goats, obl)
+
+	first, err := gen.GenerateEffectiveForAllGoats(ctx, "tenant-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("initial effective generate: %v", err)
+	}
+	if first.Deferred != 1 || obl.inserted[0].Status != "deferred" {
+		t.Fatalf("initial result=%#v inserted=%#v, want held obligation", first, obl.inserted)
+	}
+
+	goats.list[0].HealthStatus = "healthy"
+	recheck, err := gen.GenerateEffectiveForAllGoats(ctx, "tenant-1", time.Date(2026, time.June, 2, 8, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("effective recovery recheck: %v", err)
+	}
+	wantDue := time.Date(2026, time.June, 5, 0, 0, 0, 0, time.UTC)
+	if recheck.Reopened != 1 || !obl.inserted[0].DueAt.Equal(wantDue) {
+		t.Fatalf("effective recovery result=%#v due=%v, want reopened on nearby drive %v", recheck, obl.inserted[0].DueAt, wantDue)
+	}
+}
+
 func TestGoatRecheckRecoveryRescheduleKeepsCrossVaccineGapFloor(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)

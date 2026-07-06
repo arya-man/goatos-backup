@@ -81,17 +81,18 @@ type errorEnvelope struct {
 // impactPreviewRequest is the API body: the eligibility filter + drive math inputs. All optional;
 // empty filter dims mean "any".
 type impactPreviewRequest struct {
-	Species       string  `json:"species"`
-	Stage         string  `json:"stage"`
-	Sex           string  `json:"sex"`
-	Breed         string  `json:"breed"`
-	Health        string  `json:"health"`
-	ParkID        *string `json:"park_id"`
-	VaccineItemID *string `json:"vaccine_item_id"`
-	LocationID    *string `json:"location_id"`
-	DosesPerGoat  int32   `json:"doses_per_goat"`
-	DoseRows      int32   `json:"dose_rows"`
-	HorizonDays   int     `json:"horizon_days"`
+	Species                 string  `json:"species"`
+	Stage                   string  `json:"stage"`
+	Sex                     string  `json:"sex"`
+	Breed                   string  `json:"breed"`
+	Health                  string  `json:"health"`
+	ParkID                  *string `json:"park_id"`
+	VaccineItemID           *string `json:"vaccine_item_id"`
+	LocationID              *string `json:"location_id"`
+	DosesPerGoat            int32   `json:"doses_per_goat"`
+	DoseRows                int32   `json:"dose_rows"`
+	HorizonDays             int     `json:"horizon_days"`
+	WarmupNoVaccinationDays int32   `json:"warmup_no_vaccination_days"`
 }
 
 type impactPreviewResponse struct {
@@ -224,13 +225,14 @@ func (h *Handler) ImpactPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	preview, err := h.svc.ImpactPreview(r.Context(), domain.ImpactRequest{
 		Filter: domain.ImpactFilter{
-			TenantID: tenantID(r),
-			Species:  req.Species,
-			Stage:    req.Stage,
-			Sex:      req.Sex,
-			Breed:    req.Breed,
-			Health:   req.Health,
-			ParkID:   req.ParkID,
+			TenantID:                tenantID(r),
+			Species:                 req.Species,
+			Stage:                   req.Stage,
+			Sex:                     req.Sex,
+			Breed:                   req.Breed,
+			Health:                  req.Health,
+			ParkID:                  req.ParkID,
+			WarmupNoVaccinationDays: req.WarmupNoVaccinationDays,
 		},
 		VaccineItemID: req.VaccineItemID,
 		LocationID:    req.LocationID,

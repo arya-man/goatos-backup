@@ -284,6 +284,26 @@ INSERT INTO inventory_stock_movements (
 	if got := scanStatus(t, ctx, pool, obA); got != "missed" {
 		t.Fatalf("status = %s, want missed", got)
 	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM obligation_instances
+WHERE tenant_id=$1 AND obligation_id=$2 AND status='missed' AND batch_id IS NULL`, tenantID, obA); got != 1 {
+		t.Fatalf("missed obligation batch attachment = %d, want detached for re-sweep", got)
+	}
+	due, err := repo.ListUnbatchedDueForVersion(ctx, tenantID, mustVersionOf(t, ctx, pool), time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), 100)
+	if err != nil {
+		t.Fatalf("list unbatched missed: %v", err)
+	}
+	foundMissed := false
+	for _, row := range due {
+		if row.ObligationID == obA {
+			foundMissed = true
+			break
+		}
+	}
+	if !foundMissed {
+		t.Fatalf("missed detached obligation %s not visible for next sweep: %#v", obA, due)
+	}
 	if got := scanTextObligation(t, ctx, pool, `
 SELECT context #>> '{missed_repair,state}'
 FROM obligation_batches

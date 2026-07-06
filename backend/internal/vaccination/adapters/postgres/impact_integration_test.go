@@ -14,11 +14,14 @@ import (
 )
 
 const (
-	impTenant = "00000000-0000-4000-8000-000000000001"
-	impParty  = "00000000-0000-4000-8000-000000001001"
-	impCbe    = "00000000-0000-4000-8000-000000003001" // park/location
-	impItem   = "c0000000-0000-4000-8000-000000000001"
-	impLot    = "c0000000-0000-4000-8000-000000000002"
+	impTenant         = "00000000-0000-4000-8000-000000000001"
+	impParty          = "00000000-0000-4000-8000-000000001001"
+	impCbe            = "00000000-0000-4000-8000-000000003001" // park/location
+	impItem           = "c0000000-0000-4000-8000-000000000001"
+	impLot            = "c0000000-0000-4000-8000-000000000002"
+	impQuarantineShed = "31000000-0000-4000-8000-000000000201"
+	impICUShed        = "31000000-0000-4000-8000-000000000202"
+	impUnusableShed   = "31000000-0000-4000-8000-000000000203"
 )
 
 func seedGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, lifecycle, stage string, shed bool) {
@@ -41,13 +44,49 @@ func seedAnimal(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, speci
 	}
 }
 
+func seedShedOperational(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, code string, usable, quarantine, icu bool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1, $2, 'shed', $3, $3, $4, 'active')
+		 ON CONFLICT (location_id) DO NOTHING`,
+		id, impTenant, code, impCbe); err != nil {
+		t.Fatalf("seed shed %s: %v", code, err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO location_operational_attributes (
+		   tenant_id, location_id, usable_for_counts, usable_for_feed, usable_for_vaccination,
+		   usable_for_sop, is_holding, is_quarantine, is_icu, display_order, notes
+		 )
+		 VALUES ($1, $2, true, true, $3, true, false, $4, $5, 200, $6)
+		 ON CONFLICT (location_id) DO UPDATE SET
+		   usable_for_vaccination = EXCLUDED.usable_for_vaccination,
+		   is_quarantine = EXCLUDED.is_quarantine,
+		   is_icu = EXCLUDED.is_icu,
+		   updated_at = now()`,
+		impTenant, id, usable, quarantine, icu, code); err != nil {
+		t.Fatalf("seed shed attrs %s: %v", code, err)
+	}
+}
+
+func seedGoatAtShed(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, shedID string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+		   current_location_id, park_id, shed_id, management_stage)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, 'K1')`,
+		id, impTenant, impParty, shedID, impCbe); err != nil {
+		t.Fatalf("seed goat at shed %s: %v", id, err)
+	}
+}
+
 func TestImpactPreviewLiveCounts(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	// 4 eligible (3 alive + 1 defer-state sick goat, stage K1, in shed cbe); 1 wrong-stage.
+	// 3 dose-eligible goats (alive/healthy, stage K1, in shed cbe); 1 clinical hold; 1 wrong-stage.
 	// A dead goat with stale sick health must not be resurrected into impact counts.
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a1", "alive", "K1", true)
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a2", "alive", "K1", true)
@@ -90,20 +129,20 @@ func TestImpactPreviewLiveCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("impact: %v", err)
 	}
-	if out.EligibleGoats != 4 {
-		t.Fatalf("eligible: want 4, got %d", out.EligibleGoats)
+	if out.EligibleGoats != 3 {
+		t.Fatalf("eligible: want 3, got %d", out.EligibleGoats)
 	}
 	if out.CatchupGoats != 0 {
 		t.Fatalf("catchup: want 0, got %d", out.CatchupGoats)
 	}
-	if out.Obligations != 8 { // 4 eligible × 2 dose rows
-		t.Fatalf("obligations: want 8, got %d", out.Obligations)
+	if out.Obligations != 6 { // 3 eligible × 2 dose rows
+		t.Fatalf("obligations: want 6, got %d", out.Obligations)
 	}
 	if out.Batches != 1 { // all eligible share shed cbe
 		t.Fatalf("batches: want 1, got %d", out.Batches)
 	}
-	if out.DosesRequired != 4 {
-		t.Fatalf("doses required: want 4, got %d", out.DosesRequired)
+	if out.DosesRequired != 3 {
+		t.Fatalf("doses required: want 3, got %d", out.DosesRequired)
 	}
 	if out.DosesAvailable != "2" {
 		t.Fatalf("doses available: want 2, got %q", out.DosesAvailable)
@@ -128,14 +167,69 @@ func TestImpactPreviewLiveCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("impact all/any wildcard: %v", err)
 	}
-	if allOut.EligibleGoats != 6 {
-		t.Fatalf("all/any wildcard eligible: want 6 live animals in park, got %d", allOut.EligibleGoats)
+	if allOut.EligibleGoats != 5 {
+		t.Fatalf("all/any wildcard eligible: want 5 dose-eligible live animals in park, got %d", allOut.EligibleGoats)
 	}
-	if allOut.Obligations != 12 {
-		t.Fatalf("all/any wildcard obligations: want 12, got %d", allOut.Obligations)
+	if allOut.Obligations != 10 {
+		t.Fatalf("all/any wildcard obligations: want 10, got %d", allOut.Obligations)
 	}
 	if allOut.Batches != 1 {
 		t.Fatalf("all/any wildcard batches: want 1, got %d", allOut.Batches)
+	}
+}
+
+func TestImpactPreviewExcludesClinicalLocationAndWarmupHolds(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedShedOperational(t, ctx, pool, impQuarantineShed, "IMPACT-QUARANTINE", true, true, false)
+	seedShedOperational(t, ctx, pool, impICUShed, "IMPACT-ICU", true, false, true)
+	seedShedOperational(t, ctx, pool, impUnusableShed, "IMPACT-NO-VACC", false, false, false)
+	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-000000000101", "alive", "K1", true)
+	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-000000000102", "alive", "K1", true)
+	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-000000000103", "alive", "K1", true)
+	seedGoatAtShed(t, ctx, pool, "20000000-0000-4000-8000-000000000104", impQuarantineShed)
+	seedGoatAtShed(t, ctx, pool, "20000000-0000-4000-8000-000000000105", impICUShed)
+	seedGoatAtShed(t, ctx, pool, "20000000-0000-4000-8000-000000000106", impUnusableShed)
+	if _, err := pool.Exec(ctx,
+		`UPDATE goats
+		 SET health_status = CASE goat_id
+		   WHEN '20000000-0000-4000-8000-000000000102' THEN 'sick'
+		   ELSE health_status
+		 END,
+		 entry_date = CASE goat_id
+		   WHEN '20000000-0000-4000-8000-000000000103' THEN DATE '2026-06-22'
+		   ELSE entry_date
+		 END
+		 WHERE tenant_id = $1
+		   AND goat_id IN (
+		     '20000000-0000-4000-8000-000000000102',
+		     '20000000-0000-4000-8000-000000000103'
+		   )`, impTenant); err != nil {
+		t.Fatalf("mark held goats: %v", err)
+	}
+
+	svc := vaccapp.NewService(NewRepository(pool, 5*time.Second))
+	park := impCbe
+	out, err := svc.ImpactPreview(ctx, domain.ImpactRequest{
+		Filter: domain.ImpactFilter{
+			TenantID:                impTenant,
+			Species:                 "goat",
+			Stage:                   "K1",
+			ParkID:                  &park,
+			WarmupNoVaccinationDays: 7,
+		},
+		DosesPerGoat: 1,
+		DoseRows:     1,
+		AsOf:         time.Date(2026, 6, 23, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("impact: %v", err)
+	}
+	if out.EligibleGoats != 1 || out.Obligations != 1 || out.DosesRequired != 1 || out.Batches != 1 {
+		t.Fatalf("impact=%+v, want only the one healthy/non-held/non-warmup goat counted", out)
 	}
 }
 

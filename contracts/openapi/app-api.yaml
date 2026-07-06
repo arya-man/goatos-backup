@@ -6108,6 +6108,9 @@ components:
         horizon_days:
           type: integer
           minimum: 0
+        warmup_no_vaccination_days:
+          type: integer
+          minimum: 0
     ImpactPreviewResult:
       type: object
       additionalProperties: false

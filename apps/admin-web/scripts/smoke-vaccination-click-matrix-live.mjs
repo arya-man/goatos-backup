@@ -189,13 +189,19 @@ async function verifyVaccination(page) {
 
   await openDrawerAndClose(
     page,
-    page.locator('section:has-text("Vaccination status matrix") tbody tr .celllink').first(),
+    page.locator('section:has-text("Vaccination status matrix") tbody tr td:first-child .celllink').first(),
     /Vaccination work context/i,
-    "vaccination status matrix drawer",
+    "vaccination status matrix cohort drawer",
+  );
+  await openDrawerAndClose(
+    page,
+    page.locator('section:has-text("Vaccination status matrix") tbody tr td:not(:first-child) .celllink').first(),
+    /Vaccination work context/i,
+    "vaccination status matrix cell drawer",
   );
   await openDrawerClickLink(
     page,
-    page.locator('section:has-text("Vaccination status matrix") tbody tr .celllink').first(),
+    page.locator('section:has-text("Vaccination status matrix") tbody tr td:not(:first-child) .celllink').first(),
     /Vaccination work context/i,
     /Open Action Center/i,
     "/action-center",
@@ -203,7 +209,7 @@ async function verifyVaccination(page) {
   await goto(page, "/vaccination?scope_mode=company");
   await openDrawerClickLink(
     page,
-    page.locator('section:has-text("Vaccination status matrix") tbody tr .celllink').first(),
+    page.locator('section:has-text("Vaccination status matrix") tbody tr td:not(:first-child) .celllink').first(),
     /Vaccination work context/i,
     /Protocol Adherence/i,
     "/protocol-adherence",

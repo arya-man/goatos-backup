@@ -599,7 +599,14 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
 
     await openAndCloseDrawer(
       page,
-      page.locator('section:has-text("Vaccination status matrix") tbody tr .celllink').first(),
+      page.locator('section:has-text("Vaccination status matrix") tbody tr td:first-child .celllink').first(),
+      "Vaccination work context",
+      routeName,
+      assertNoFakeVaccinationDrawerControls,
+    );
+    await openAndCloseDrawer(
+      page,
+      page.locator('section:has-text("Vaccination status matrix") tbody tr td:not(:first-child) .celllink').first(),
       "Vaccination work context",
       routeName,
       assertNoFakeVaccinationDrawerControls,

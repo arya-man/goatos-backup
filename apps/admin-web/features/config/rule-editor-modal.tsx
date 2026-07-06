@@ -1370,6 +1370,7 @@ export function RuleEditorModal({
         doses_per_goat: scheduleRows,
         dose_rows: scheduleRows,
         horizon_days: 30,
+        warmup_no_vaccination_days: procurementPolicy.warmupNoVaccinationDays,
       });
       if (res.ok && res.data) setImpact(res.data);
       else

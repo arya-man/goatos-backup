@@ -102,16 +102,13 @@ WHERE tenant_id = @tenant_id
 -- name: CountEligibleGoats :one
 -- Live impact: in-care goats matching a rule's eligibility dims within an optional park scope.
 -- Optional text dims use the ('' OR col = @x) idiom; park scope via a nullable narg uuid.
+WITH impact_params AS (
+  SELECT @warmup_no_vaccination_days::int AS warmup_no_vaccination_days,
+         @as_of::timestamptz AS as_of
+)
 SELECT count(*)::bigint AS total
 FROM goats g
-LEFT JOIN LATERAL (
-  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
-  FROM procurement_load_goats plg
-  WHERE plg.tenant_id = g.tenant_id
-    AND plg.goat_id = g.goat_id
-  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
-  LIMIT 1
-) proc ON true
+CROSS JOIN impact_params ip
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
@@ -123,7 +120,23 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.animal_stage_id = sp.animal_stage_id
  AND asl.status = 'active'
 WHERE g.tenant_id = @tenant_id
-  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND g.lifecycle_status = 'alive'
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(loa.usable_for_vaccination, true)
+  AND NOT COALESCE(loa.is_quarantine, false)
+  AND NOT COALESCE(loa.is_icu, false)
+  AND (
+    ip.warmup_no_vaccination_days <= 0
+    OR COALESCE((
+      SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz)
+             + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of
+      FROM procurement_load_goats plg
+      WHERE plg.tenant_id = g.tenant_id
+        AND plg.goat_id = g.goat_id
+      ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+      LIMIT 1
+    ), g.entry_date IS NULL OR g.entry_date::timestamptz + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of)
+  )
   AND (@species::text = '' OR g.species = @species::text)
   AND (@stage::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = @stage::text)
   AND (@sex::text = '' OR g.sex = @sex::text)
@@ -133,8 +146,13 @@ WHERE g.tenant_id = @tenant_id
 
 -- name: CountCatchupGoats :one
 -- Eligible goats that already have an accepted completion (next-due from last accepted, not DOB).
+WITH impact_params AS (
+  SELECT @warmup_no_vaccination_days::int AS warmup_no_vaccination_days,
+         @as_of::timestamptz AS as_of
+)
 SELECT count(DISTINCT g.goat_id)::bigint AS total
 FROM goats g
+CROSS JOIN impact_params ip
 JOIN vaccination_completions vc
   ON vc.tenant_id = g.tenant_id AND vc.goat_id = g.goat_id AND vc.status = 'accepted'
 LEFT JOIN location_operational_attributes loa
@@ -148,7 +166,23 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.animal_stage_id = sp.animal_stage_id
  AND asl.status = 'active'
 WHERE g.tenant_id = @tenant_id
-  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND g.lifecycle_status = 'alive'
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(loa.usable_for_vaccination, true)
+  AND NOT COALESCE(loa.is_quarantine, false)
+  AND NOT COALESCE(loa.is_icu, false)
+  AND (
+    ip.warmup_no_vaccination_days <= 0
+    OR COALESCE((
+      SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz)
+             + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of
+      FROM procurement_load_goats plg
+      WHERE plg.tenant_id = g.tenant_id
+        AND plg.goat_id = g.goat_id
+      ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+      LIMIT 1
+    ), g.entry_date IS NULL OR g.entry_date::timestamptz + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of)
+  )
   AND (@species::text = '' OR g.species = @species::text)
   AND (@stage::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = @stage::text)
   AND (@sex::text = '' OR g.sex = @sex::text)
@@ -158,16 +192,13 @@ WHERE g.tenant_id = @tenant_id
 
 -- name: CountEligibleShedScopes :one
 -- Estimated drive batches = distinct sheds holding eligible goats (one shed drive per shed).
+WITH impact_params AS (
+  SELECT @warmup_no_vaccination_days::int AS warmup_no_vaccination_days,
+         @as_of::timestamptz AS as_of
+)
 SELECT count(DISTINCT g.shed_id)::bigint AS total
 FROM goats g
-LEFT JOIN LATERAL (
-  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
-  FROM procurement_load_goats plg
-  WHERE plg.tenant_id = g.tenant_id
-    AND plg.goat_id = g.goat_id
-  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
-  LIMIT 1
-) proc ON true
+CROSS JOIN impact_params ip
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
@@ -179,7 +210,23 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.animal_stage_id = sp.animal_stage_id
  AND asl.status = 'active'
 WHERE g.tenant_id = @tenant_id
-  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND g.lifecycle_status = 'alive'
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(loa.usable_for_vaccination, true)
+  AND NOT COALESCE(loa.is_quarantine, false)
+  AND NOT COALESCE(loa.is_icu, false)
+  AND (
+    ip.warmup_no_vaccination_days <= 0
+    OR COALESCE((
+      SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz)
+             + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of
+      FROM procurement_load_goats plg
+      WHERE plg.tenant_id = g.tenant_id
+        AND plg.goat_id = g.goat_id
+      ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+      LIMIT 1
+    ), g.entry_date IS NULL OR g.entry_date::timestamptz + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of)
+  )
   AND g.shed_id IS NOT NULL
   AND (@species::text = '' OR g.species = @species::text)
   AND (@stage::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = @stage::text)

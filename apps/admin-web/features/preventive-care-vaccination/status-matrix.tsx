@@ -148,11 +148,24 @@ export function VaccinationStatusMatrix({
                 {paged.items.map((c) => {
                   const byProtocol = new Map<string, VaccinationOperationsCell>();
                   for (const cell of c.cells) byProtocol.set(cell.protocolId, cell);
+                  const firstProtocol = protocols.find((protocol) => byProtocol.has(protocol.protocolId));
+                  const cohortHref = firstProtocol
+                    ? scopeHref("/vaccination", scope, {}, { vacc_record: matrixRecordId(c, firstProtocol.protocolId) })
+                    : null;
                   return (
                     <tr key={`${c.parkId}|${c.shedId}|${c.stage}`}>
                       <td>
-                        <b>{`${c.stage} · ${c.shedName}`}</b>
-                        <div className="muted small">{c.parkName}</div>
+                        {cohortHref ? (
+                          <Link href={cohortHref} className="celllink" scroll={false} title={copy(pageContract, "section.status_matrix.row_hint")}>
+                            <b>{`${c.stage} · ${c.shedName}`}</b>
+                            <div className="muted small">{c.parkName}</div>
+                          </Link>
+                        ) : (
+                          <>
+                            <b>{`${c.stage} · ${c.shedName}`}</b>
+                            <div className="muted small">{c.parkName}</div>
+                          </>
+                        )}
                       </td>
                       {protocols.map((p) => {
                         const cell = byProtocol.get(p.protocolId);

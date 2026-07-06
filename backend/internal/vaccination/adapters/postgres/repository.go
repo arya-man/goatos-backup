@@ -1524,14 +1524,20 @@ func (r *Repository) eligParams(f domain.ImpactFilter) (vaccinationdb.CountEligi
 	if err != nil {
 		return vaccinationdb.CountEligibleGoatsParams{}, fmt.Errorf("vaccination: tenant id: %w", err)
 	}
+	asOf := f.AsOf
+	if asOf.IsZero() {
+		asOf = time.Now().UTC()
+	}
 	return vaccinationdb.CountEligibleGoatsParams{
-		TenantID: tenant,
-		Species:  eligibilityWildcard(f.Species),
-		Stage:    eligibilityWildcard(f.Stage),
-		Sex:      eligibilityWildcard(f.Sex),
-		Breed:    eligibilityWildcard(f.Breed),
-		Health:   eligibilityWildcard(f.Health),
-		ParkID:   pgconv.NullableUUID(f.ParkID),
+		TenantID:                tenant,
+		WarmupNoVaccinationDays: f.WarmupNoVaccinationDays,
+		AsOf:                    pgtype.Timestamptz{Time: asOf, Valid: true},
+		Species:                 eligibilityWildcard(f.Species),
+		Stage:                   eligibilityWildcard(f.Stage),
+		Sex:                     eligibilityWildcard(f.Sex),
+		Breed:                   eligibilityWildcard(f.Breed),
+		Health:                  eligibilityWildcard(f.Health),
+		ParkID:                  pgconv.NullableUUID(f.ParkID),
 	}, nil
 }
 

@@ -2533,7 +2533,8 @@ func (r *Repository) MarkMissedBefore(ctx context.Context, tenantID string, miss
 
 	rows, err := tx.Query(ctx, `
 WITH candidate AS (
-	  SELECT oi.obligation_id
+	  SELECT oi.obligation_id,
+	         oi.batch_id AS old_batch_id
 	  FROM obligation_instances oi
 	  LEFT JOIN obligation_batches ob
 	    ON ob.tenant_id = oi.tenant_id
@@ -2562,12 +2563,13 @@ WITH candidate AS (
 )
 UPDATE obligation_instances oi
 SET status = 'missed',
+    batch_id = NULL,
     row_version = oi.row_version + 1,
     updated_at = now()
 FROM candidate c
 WHERE oi.tenant_id = $1
   AND oi.obligation_id = c.obligation_id
-RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')::text`, tenant, pgconv.Timestamptz(missedBefore), limit)
+RETURNING oi.obligation_id::text, COALESCE(c.old_batch_id::text, '')::text`, tenant, pgconv.Timestamptz(missedBefore), limit)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: mark missed: %w", err)
 	}

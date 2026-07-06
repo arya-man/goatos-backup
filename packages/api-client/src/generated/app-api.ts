@@ -2211,6 +2211,7 @@ export interface components {
             doses_per_goat?: number;
             dose_rows?: number;
             horizon_days?: number;
+            warmup_no_vaccination_days?: number;
         };
         ImpactPreviewResult: {
             eligible_goats: number;

@@ -167,7 +167,7 @@ func TestImpactPreviewParsesFilterAndReturnsJSON(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(fake, nil))
 
-	body := `{"species":"goat","stage":"K1","sex":"female","health":"healthy","doses_per_goat":1,"dose_rows":1,"vaccine_item_id":"item-1"}`
+	body := `{"species":"goat","stage":"K1","sex":"female","health":"healthy","doses_per_goat":1,"dose_rows":1,"vaccine_item_id":"item-1","warmup_no_vaccination_days":7}`
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/protocols/vaccination/impact-preview", strings.NewReader(body)))
 
@@ -176,6 +176,9 @@ func TestImpactPreviewParsesFilterAndReturnsJSON(t *testing.T) {
 	}
 	if fake.got.Filter.Species != "goat" || fake.got.Filter.Stage != "K1" || fake.got.Filter.Sex != "female" || fake.got.Filter.Health != "healthy" || fake.got.DosesPerGoat != 1 {
 		t.Fatalf("filter/inputs not parsed: %+v", fake.got)
+	}
+	if fake.got.Filter.WarmupNoVaccinationDays != 7 {
+		t.Fatalf("warmup days not parsed: %+v", fake.got.Filter)
 	}
 	if fake.got.VaccineItemID == nil || *fake.got.VaccineItemID != "item-1" {
 		t.Fatalf("vaccine_item_id not parsed: %+v", fake.got.VaccineItemID)

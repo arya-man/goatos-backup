@@ -426,7 +426,7 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 					rules:          p.rules,
 					deferState:     p.deferState,
 					goat:           g,
-					opts:           generationOptions{},
+					opts:           generationOptions{healthRecoveryAlign: true},
 					eligibility:    p.eligibility,
 					policies:       p.policies,
 					vaccineProfile: p.vaccineProfile,
