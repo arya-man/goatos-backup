@@ -10,6 +10,11 @@ import (
 )
 
 func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
+	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
+	return s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, make(map[string]int32))
+}
+
+func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, planner domain.DrivePlannerSettings, visitShotCounts map[string]int32) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	settings := cfg.ParkConsolidation
 	if !settings.Enabled {
@@ -34,7 +39,7 @@ func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, ve
 			break
 		}
 		for _, row := range rows {
-			key := row.ParkID + "|" + row.TargetSpecies
+			key := row.ParkID + "|" + speciesGroupingKey(row.TargetSpecies, row.TargetAnimalStage, planner.SpeciesGroupingPolicy)
 			groups[key] = append(groups[key], row)
 		}
 		if int32(len(rows)) < s.page {
@@ -51,6 +56,14 @@ func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, ve
 		remaining := append([]domain.ParkConsolidationCandidate(nil), rows...)
 		for len(remaining) >= int(minMergeTargets) && uniqueShedCount(remaining) >= int(minMergeSheds) {
 			plannedDate, selected := pickBestParkDriveDate(now, remaining)
+			selected = selectParkIDsWithinVisitShotCap(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, visitShotCounts)
+			if len(selected) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
+				if overflowDate := nextFeasibleParkDriveDateAfter(*plannedDate, remaining); overflowDate != nil {
+					plannedDate = overflowDate
+					selected = obligationsFeasibleOnDate(*plannedDate, remaining)
+					selected = selectParkIDsWithinVisitShotCap(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, visitShotCounts)
+				}
+			}
 			if plannedDate == nil || int32(len(selected)) < minMergeTargets || uniqueShedCount(filterRows(remaining, selected)) < int(minMergeSheds) {
 				break
 			}
@@ -76,12 +89,37 @@ func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, ve
 			if n == 0 {
 				break
 			}
+			if err := s.recordParkBatchingHoldIfNeeded(ctx, tenantID, selected, selectedRows, plannedDate, dueBefore); err != nil {
+				return res, err
+			}
 			res.ParkBatches++
 			res.ParkObligations += int(n)
 			remaining = removeRows(remaining, selected)
 		}
 	}
 	return res, nil
+}
+
+func (s *SweeperService) recordParkBatchingHoldIfNeeded(ctx context.Context, tenantID string, ids []string, rows []domain.ParkConsolidationCandidate, plannedDate *time.Time, occurredAt time.Time) error {
+	if plannedDate == nil || len(ids) == 0 || !parkDriveDateUsesBatchingHold(*plannedDate, rows) {
+		return nil
+	}
+	recorder, ok := s.repo.(batchingHoldRecorder)
+	if !ok {
+		return nil
+	}
+	_, err := recorder.RecordBatchingHoldForObligations(ctx, tenantID, ids, *plannedDate, occurredAt)
+	return err
+}
+
+func parkDriveDateUsesBatchingHold(planned time.Time, rows []domain.ParkConsolidationCandidate) bool {
+	planned = biztime.BusinessDayStart(planned)
+	for _, row := range rows {
+		if planned.After(biztime.BusinessDayStart(row.DueAt)) {
+			return true
+		}
+	}
+	return false
 }
 
 func parkConsolidationSession(selected []string) string {

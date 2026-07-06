@@ -53,10 +53,14 @@ func DrivePlannerFromRuleDSL(raw []byte) (vaccineCode string, planner domain.Dri
 			Code string `json:"code"`
 		} `json:"vaccine"`
 		DrivePolicy struct {
-			Enabled              *bool `json:"enabled"`
-			MaxGoatsPerDrive     int32 `json:"max_goats_per_drive"`
-			Priority             int32 `json:"priority"`
-			ComboAlignWindowDays int32 `json:"combo_align_window_days"`
+			Enabled                   *bool  `json:"enabled"`
+			MaxGoatsPerDrive          int32  `json:"max_goats_per_drive"`
+			Priority                  int32  `json:"priority"`
+			ComboAlignWindowDays      int32  `json:"combo_align_window_days"`
+			MaxBatchingHoldDays       int32  `json:"max_batching_hold_days"`
+			MaxBatchingHoldCount      int32  `json:"max_batching_hold_count"`
+			SpeciesGroupingPolicy     string `json:"species_grouping_policy"`
+			MaxShotsPerAnimalPerDrive int32  `json:"max_shots_per_animal_per_drive"`
 		} `json:"drive_policy"`
 	}
 	if err := json.Unmarshal(raw, &dsl); err != nil {
@@ -74,6 +78,18 @@ func DrivePlannerFromRuleDSL(raw []byte) (vaccineCode string, planner domain.Dri
 	}
 	if dsl.DrivePolicy.ComboAlignWindowDays > 0 {
 		planner.ComboAlignWindowDays = dsl.DrivePolicy.ComboAlignWindowDays
+	}
+	if dsl.DrivePolicy.MaxBatchingHoldDays > 0 {
+		planner.MaxBatchingHoldDays = dsl.DrivePolicy.MaxBatchingHoldDays
+	}
+	if dsl.DrivePolicy.MaxBatchingHoldCount > 0 {
+		planner.MaxBatchingHoldCount = dsl.DrivePolicy.MaxBatchingHoldCount
+	}
+	if strings.TrimSpace(dsl.DrivePolicy.SpeciesGroupingPolicy) != "" {
+		planner.SpeciesGroupingPolicy = strings.TrimSpace(dsl.DrivePolicy.SpeciesGroupingPolicy)
+	}
+	if dsl.DrivePolicy.MaxShotsPerAnimalPerDrive > 0 {
+		planner.MaxShotsPerAnimalPerDrive = dsl.DrivePolicy.MaxShotsPerAnimalPerDrive
 	}
 	return vaccineCode, resolvedDrivePlannerSettings(planner, vaccineCode)
 }
@@ -94,6 +110,18 @@ func resolvedDrivePlannerSettings(cfg domain.DrivePlannerSettings, vaccineCode s
 	}
 	if out.ComboAlignWindowDays <= 0 {
 		out.ComboAlignWindowDays = defaults.ComboAlignWindowDays
+	}
+	if out.MaxBatchingHoldDays <= 0 {
+		out.MaxBatchingHoldDays = defaults.MaxBatchingHoldDays
+	}
+	if out.MaxBatchingHoldCount <= 0 {
+		out.MaxBatchingHoldCount = defaults.MaxBatchingHoldCount
+	}
+	if strings.TrimSpace(out.SpeciesGroupingPolicy) == "" {
+		out.SpeciesGroupingPolicy = defaults.SpeciesGroupingPolicy
+	}
+	if out.MaxShotsPerAnimalPerDrive <= 0 {
+		out.MaxShotsPerAnimalPerDrive = defaults.MaxShotsPerAnimalPerDrive
 	}
 	return out
 }

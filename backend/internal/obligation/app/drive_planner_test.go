@@ -53,6 +53,13 @@ func TestDrivePlannerFromRuleDSLUsesMatrixPriority(t *testing.T) {
 	}
 }
 
+func TestDrivePlannerFromRuleDSLReadsHoldGroupingAndShotCap(t *testing.T) {
+	_, planner := DrivePlannerFromRuleDSL([]byte(`{"drive_policy":{"max_batching_hold_days":5,"max_batching_hold_count":1,"species_grouping_policy":"species_specific","max_shots_per_animal_per_drive":3}}`))
+	if planner.MaxBatchingHoldDays != 5 || planner.MaxBatchingHoldCount != 1 || planner.SpeciesGroupingPolicy != "species_specific" || planner.MaxShotsPerAnimalPerDrive != 3 {
+		t.Fatalf("planner = %#v, want configured hold/grouping/shot cap", planner)
+	}
+}
+
 func TestPickBestDriveDatePrefersMaxCoverage(t *testing.T) {
 	now := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	winEnd := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
@@ -82,6 +89,61 @@ func TestSplitObligationIDsByMaxGoats(t *testing.T) {
 	}
 }
 
+func TestSpeciesGroupingKeyMixesKidsOnly(t *testing.T) {
+	if got := speciesGroupingKey("sheep", "K1", "kid_mixed"); got != "kid_mixed" {
+		t.Fatalf("sheep kid key = %q, want kid_mixed", got)
+	}
+	if got := speciesGroupingKey("goat", "adult", "kid_mixed"); got != "species:goat" {
+		t.Fatalf("goat adult key = %q, want species:goat", got)
+	}
+	if got := speciesGroupingKey("sheep", "K1", "species_specific"); got != "species:sheep" {
+		t.Fatalf("species-specific kid key = %q, want species:sheep", got)
+	}
+}
+
+func TestPickBestDriveDateWithHoldIsOneTimeAndCapped(t *testing.T) {
+	now := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	rows := []driveCandidate{{
+		ObligationID: "obl-1",
+		DueAt:        now,
+		WindowEnd:    &winEnd,
+	}}
+	planner := domain.DefaultDrivePlannerSettings()
+	got := pickBestDriveDateWithHold(now, rows, planner)
+	want := businessDate(now).AddDate(0, 0, int(planner.MaxBatchingHoldDays))
+	if got == nil || !got.Equal(want) {
+		t.Fatalf("held date = %v, want capped hold date %v", got, want)
+	}
+
+	rows[0].BatchingHoldCount = planner.MaxBatchingHoldCount
+	got = pickBestDriveDateWithHold(now, rows, planner)
+	if got == nil || !got.Equal(businessDate(now)) {
+		t.Fatalf("held-once date = %v, want due date %v", got, businessDate(now))
+	}
+}
+
+func TestSelectIDsWithinVisitShotCap(t *testing.T) {
+	planned := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "a", TargetID: "goat-1"},
+		{ObligationID: "b", TargetID: "goat-1"},
+		{ObligationID: "c", TargetID: "goat-1"},
+		{ObligationID: "d", TargetID: "goat-2"},
+	}
+	counts := make(map[string]int32)
+	got := selectIDsWithinVisitShotCap(rows, &planned, 2, counts)
+	want := []string{"a", "b", "d"}
+	if len(got) != len(want) {
+		t.Fatalf("selected=%#v want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("selected=%#v want %#v", got, want)
+		}
+	}
+}
+
 func TestNormalizedDrivePlannerSettingsDefaults(t *testing.T) {
 	got := normalizedDrivePlannerSettings(domain.DrivePlannerSettings{Enabled: true}, "PPR")
 	if got.VaccinePriority != 2 {
@@ -89,5 +151,8 @@ func TestNormalizedDrivePlannerSettingsDefaults(t *testing.T) {
 	}
 	if got.ComboAlignWindowDays != domain.DefaultDrivePlannerSettings().ComboAlignWindowDays {
 		t.Fatalf("combo window = %d", got.ComboAlignWindowDays)
+	}
+	if got.MaxShotsPerAnimalPerDrive != 2 || got.MaxBatchingHoldCount != 1 || got.MaxBatchingHoldDays != 7 {
+		t.Fatalf("planner defaults = %#v, want shot cap/hold defaults", got)
 	}
 }

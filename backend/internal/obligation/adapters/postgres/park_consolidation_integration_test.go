@@ -73,6 +73,17 @@ func insertShedObligation(t *testing.T, ctx context.Context, repo *Repository, v
 	}
 }
 
+func seedParkConsolidationAnimal(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, species, stage, shedID string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+		   current_location_id, park_id, shed_id, management_stage)
+		 VALUES ($1, $2, 'alive', $3, $4, 'female', $5, $6, $5, $7)`,
+		goatID, tenantID, species, meshaParty, shedID, cbePark, stage); err != nil {
+		t.Fatalf("seed %s %s: %v", species, goatID, err)
+	}
+}
+
 // TestSM4ParkConsolidationShedDriveBatchesMultipleGoatsInOneShed proves layer 1 still creates a
 // shed drive when two goats in the same shed share rule + due day.
 func TestSM4ParkConsolidationShedDriveBatchesMultipleGoatsInOneShed(t *testing.T) {
@@ -160,6 +171,43 @@ SELECT count(*) FROM obligation_instances o
 JOIN obligation_batches b ON b.batch_id = o.batch_id
 WHERE o.protocol_version_id=$1 AND b.scope_type='park'`, versionID); got != 2 {
 		t.Fatalf("obligations on park batch = %d, want 2", got)
+	}
+}
+
+func TestSM4ParkConsolidationMergesGoatAndSheepKids(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedParkConsolidationShed(t, ctx, pool, parkShedA, "PARK-KID-GOAT")
+	seedParkConsolidationShed(t, ctx, pool, parkShedB, "PARK-KID-SHEEP")
+	repo := NewRepository(pool, 5*time.Second)
+	versionID, ruleID := parkConsolidationProtocol(t, ctx, pool, "vaccination.park.kidmixed")
+
+	const goatKid = "10000000-0000-4000-8000-00000000d211"
+	const sheepKid = "10000000-0000-4000-8000-00000000d212"
+	seedParkConsolidationAnimal(t, ctx, pool, goatKid, "goat", "K1", parkShedA)
+	seedParkConsolidationAnimal(t, ctx, pool, sheepKid, "sheep", "K1", parkShedB)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	insertShedObligation(t, ctx, repo, versionID, ruleID, goatKid, parkShedA, "park-kidmixed-goat", due)
+	insertShedObligation(t, ctx, repo, versionID, ruleID, sheepKid, parkShedB, "park-kidmixed-sheep", due)
+
+	sweep := oblapp.NewSweeperService(repo, nil, nil)
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, defaultParkSweepConfig(), time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if res.ParkBatches != 1 || res.ParkObligations != 2 {
+		t.Fatalf("result=%#v, want one mixed kid park drive", res)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(DISTINCT g.species)
+FROM obligation_instances oi
+JOIN obligation_batches b ON b.batch_id=oi.batch_id
+JOIN goats g ON g.goat_id=oi.target_id
+WHERE oi.protocol_version_id=$1 AND b.scope_type='park'`, versionID); got != 2 {
+		t.Fatalf("species on park kid batch = %d, want goat + sheep", got)
 	}
 }
 

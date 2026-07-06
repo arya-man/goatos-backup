@@ -295,24 +295,56 @@ SELECT oi.obligation_id::text AS obligation_id,
        oi.rule_id::text AS rule_id,
        oi.scope_type,
        COALESCE(oi.scope_id::text, '')::text AS scope_id,
+       COALESCE(oi.target_id::text, '')::text AS target_id,
        CASE
          WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text
          ELSE ''
        END AS target_species,
+       CASE
+         WHEN oi.target_type = 'goat' THEN COALESCE(asl.stage_code, g.management_stage, '')::text
+         ELSE ''
+       END AS target_animal_stage,
+       CASE
+         WHEN oi.target_type = 'goat' THEN COALESCE(g.reproductive_status, '')::text
+         ELSE ''
+       END AS target_reproductive_status,
        oi.due_at,
        oi.window_start,
-       oi.window_end
+       oi.window_end,
+       COALESCE(oi.batching_hold_count, 0)::int AS batching_hold_count,
+       oi.first_batching_hold_until
 FROM obligation_instances oi
 LEFT JOIN goats g
   ON g.tenant_id = oi.tenant_id
  AND g.goat_id = oi.target_id
  AND oi.target_type = 'goat'
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = g.current_location_id
+LEFT JOIN shed_profiles sp
+  ON sp.tenant_id = g.tenant_id
+ AND sp.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
+LEFT JOIN animal_stage_lookup asl
+  ON asl.tenant_id = sp.tenant_id
+ AND asl.animal_stage_id = sp.animal_stage_id
+ AND asl.status = 'active'
 WHERE oi.tenant_id = $1
   AND oi.protocol_version_id = $2
   AND oi.status IN ('scheduled', 'due', 'missed')
   AND oi.batch_id IS NULL
   AND oi.due_at <= $3
-ORDER BY oi.scope_type, oi.scope_id, oi.rule_id, target_species, oi.due_at, oi.obligation_id
+  AND (
+    oi.target_type <> 'goat'
+    OR (
+      g.goat_id IS NOT NULL
+      AND g.lifecycle_status = 'alive'
+      AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+      AND COALESCE(loa.usable_for_vaccination, true)
+      AND NOT COALESCE(loa.is_quarantine, false)
+      AND NOT COALESCE(loa.is_icu, false)
+    )
+  )
+ORDER BY oi.scope_type, oi.scope_id, oi.rule_id, target_species, target_animal_stage, oi.due_at, oi.obligation_id
 LIMIT $4
 `
 
@@ -324,14 +356,19 @@ type ListUnbatchedDueForVersionParams struct {
 }
 
 type ListUnbatchedDueForVersionRow struct {
-	ObligationID  string
-	RuleID        string
-	ScopeType     string
-	ScopeID       string
-	TargetSpecies string
-	DueAt         pgtype.Timestamptz
-	WindowStart   pgtype.Timestamptz
-	WindowEnd     pgtype.Timestamptz
+	ObligationID             string
+	RuleID                   string
+	ScopeType                string
+	ScopeID                  string
+	TargetID                 string
+	TargetSpecies            string
+	TargetAnimalStage        string
+	TargetReproductiveStatus string
+	DueAt                    pgtype.Timestamptz
+	WindowStart              pgtype.Timestamptz
+	WindowEnd                pgtype.Timestamptz
+	BatchingHoldCount        int32
+	FirstBatchingHoldUntil   pgtype.Timestamptz
 }
 
 // SM-4 sweeper: unbatched scheduled/due obligations for a version within the window, grouped by
@@ -356,10 +393,15 @@ func (q *Queries) ListUnbatchedDueForVersion(ctx context.Context, arg ListUnbatc
 			&i.RuleID,
 			&i.ScopeType,
 			&i.ScopeID,
+			&i.TargetID,
 			&i.TargetSpecies,
+			&i.TargetAnimalStage,
+			&i.TargetReproductiveStatus,
 			&i.DueAt,
 			&i.WindowStart,
 			&i.WindowEnd,
+			&i.BatchingHoldCount,
+			&i.FirstBatchingHoldUntil,
 		); err != nil {
 			return nil, err
 		}

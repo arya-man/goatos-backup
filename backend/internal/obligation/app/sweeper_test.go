@@ -184,6 +184,38 @@ func TestSweeperUsesRuleSpecificExecutionConfig(t *testing.T) {
 	}
 }
 
+func TestSweeperMovesOverflowDoseToNextDriveWhenAnimalShotCapReached(t *testing.T) {
+	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rows: []domain.UnbatchedDue{
+			{ObligationID: "obl-a", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), WindowEnd: &winEnd},
+			{ObligationID: "obl-b", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), WindowEnd: &winEnd},
+			{ObligationID: "obl-c", RuleID: "rule-c", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), WindowEnd: &winEnd},
+		},
+		attachAll: true,
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	result, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		DrivePlanner: domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2},
+	}, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if result.Obligations != 3 || len(repo.createdBatches) != 3 {
+		t.Fatalf("result=%#v batches=%#v, want three one-obligation batches", result, repo.createdBatches)
+	}
+	plannedDates := make(map[string]int)
+	for _, b := range repo.createdBatches {
+		if b.PlannedDate == nil {
+			t.Fatalf("batch missing planned date: %#v", b)
+		}
+		plannedDates[b.PlannedDate.Format("2006-01-02")]++
+	}
+	if plannedDates["2026-07-01"] != 2 || plannedDates["2026-07-02"] != 1 {
+		t.Fatalf("planned dates=%#v, want two shots on Jul 1 and overflow on Jul 2", plannedDates)
+	}
+}
+
 func TestSweeperFinalizesExistingPlannedBatchMissingTask(t *testing.T) {
 	repo := &fakeSweepRepo{
 		finalizationPages: [][]domain.PlannedBatchFinalization{{

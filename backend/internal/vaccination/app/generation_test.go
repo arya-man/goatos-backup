@@ -1097,6 +1097,26 @@ func TestGenerateAppliesMissedDosePolicy(t *testing.T) {
 		}
 	})
 
+	t.Run("immediate waits for nearby planned drive", func(t *testing.T) {
+		nearby := time.Date(2026, time.June, 10, 0, 0, 0, 0, time.UTC)
+		proto := &generationProtoFake{
+			rules: []protodomain.Rule{{
+				RuleID: "rule-immediate", DoseCode: "dose-1", Sequence: 1,
+				TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, CatchUp: "immediate",
+			}},
+			ruleDSL: []byte(`{"missed_dose_policy":{"nearby_drive_align_days":14}}`),
+		}
+		obl := &generationObligationFake{seen: map[string]bool{}, nearbyDrive: &nearby}
+		result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("generate immediate nearby: %v", err)
+		}
+		wantDue := businessDayStart(nearby)
+		if result.Generated != 1 || !obl.inserted[0].DueAt.Equal(wantDue) || obl.inserted[0].Status != "scheduled" {
+			t.Fatalf("result=%#v inserted=%#v, want catch-up aligned to %s", result, obl.inserted, wantDue)
+		}
+	})
+
 	t.Run("pc approval", func(t *testing.T) {
 		proto := &generationProtoFake{rules: []protodomain.Rule{{
 			RuleID: "rule-pc", DoseCode: "dose-1", Sequence: 1,
@@ -1224,6 +1244,37 @@ func TestGenerateAppliesMissedDosePolicy(t *testing.T) {
 			t.Fatalf("second result=%#v inserted=%#v, want no duplicate when asOf advances past next cycle", second, obl.inserted)
 		}
 	})
+}
+
+func TestGenerateDefersPostBreedingAndMilkingHolds(t *testing.T) {
+	ctx := context.Background()
+	entryDate := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	breedingDate := time.Date(2026, time.May, 20, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{rules: []protodomain.Rule{{
+		RuleID: "rule-repro", DoseCode: "dose-1", Sequence: 1,
+		TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, CatchUp: "immediate",
+	}}}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "bred-goat", LifecycleStatus: "alive", EntryDate: &entryDate, ReproductiveStatus: "bred", BreedingDate: &breedingDate},
+		{GoatID: "milking-goat", LifecycleStatus: "alive", EntryDate: &entryDate, Stage: "MOTHER_MILKING_WAITING"},
+		{GoatID: "clear-goat", LifecycleStatus: "alive", EntryDate: &entryDate},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate reproductive holds: %v", err)
+	}
+	if result.Generated != 3 || result.Deferred != 2 || len(obl.inserted) != 3 {
+		t.Fatalf("result=%#v inserted=%#v, want 3 generated with 2 deferred", result, obl.inserted)
+	}
+	statusByGoat := map[string]string{}
+	for _, in := range obl.inserted {
+		statusByGoat[in.TargetID] = in.Status
+	}
+	if statusByGoat["bred-goat"] != "deferred" || statusByGoat["milking-goat"] != "deferred" || statusByGoat["clear-goat"] != "scheduled" {
+		t.Fatalf("statuses=%#v, want bred/milking deferred and clear scheduled", statusByGoat)
+	}
 }
 
 func TestImmediateCatchUpRecheckKeepsOriginalCycleKey(t *testing.T) {

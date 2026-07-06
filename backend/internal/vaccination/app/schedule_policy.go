@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -64,6 +65,41 @@ type genVersionPolicies struct {
 	Pregnancy     genPregnancyPolicy
 	Compatibility genCompatibilityPolicy
 	Recovery      genRecoveryPolicy
+	MissedDose    genMissedDosePolicy
+}
+
+type genMissedDosePolicy struct {
+	NearbyDriveAlignDays int32 `json:"nearby_drive_align_days"`
+}
+
+func (p *genMissedDosePolicy) UnmarshalJSON(raw []byte) error {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		*p = genMissedDosePolicy{}
+		return nil
+	}
+	if strings.HasPrefix(trimmed, `"`) {
+		var legacy string
+		if err := json.Unmarshal(raw, &legacy); err != nil {
+			return err
+		}
+		*p = genMissedDosePolicy{}
+		return nil
+	}
+	type alias genMissedDosePolicy
+	var out alias
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return err
+	}
+	*p = genMissedDosePolicy(out)
+	return nil
+}
+
+func (p genMissedDosePolicy) alignDays() int32 {
+	if p.NearbyDriveAlignDays > 0 {
+		return p.NearbyDriveAlignDays
+	}
+	return 14
 }
 
 const (
@@ -163,7 +199,13 @@ func policyDeferReason(g domain.EligibleGoat, policies genVersionPolicies, asOf 
 	if reason := warmingDeferReason(g, policies.Procurement, asOf); reason != "" {
 		return reason
 	}
+	if reason := postBreedingDeferReason(g, asOf); reason != "" {
+		return reason
+	}
 	if reason := pregnancyDeferReason(g, policies.Pregnancy, asOf); reason != "" {
+		return reason
+	}
+	if reason := milkingDeferReason(g); reason != "" {
 		return reason
 	}
 	return ""
@@ -210,6 +252,29 @@ func pregnancyDeferReason(g domain.EligibleGoat, preg genPregnancyPolicy, asOf t
 		if wholeDaysBetween(*g.LastDeliveryDate, asOf) > int(preg.PostDeliveryCatchUpDays) {
 			return ""
 		}
+	}
+	return ""
+}
+
+func postBreedingDeferReason(g domain.EligibleGoat, asOf time.Time) string {
+	status := strings.ToLower(strings.TrimSpace(g.ReproductiveStatus))
+	if status != "bred" && status != "breeding" {
+		return ""
+	}
+	if g.BreedingDate == nil {
+		return "post_breeding_date_review"
+	}
+	if wholeDaysBetween(*g.BreedingDate, asOf) < 30 {
+		return "post_breeding_hold"
+	}
+	return ""
+}
+
+func milkingDeferReason(g domain.EligibleGoat) string {
+	status := strings.ToLower(strings.TrimSpace(g.ReproductiveStatus))
+	stage := strings.ToLower(strings.TrimSpace(g.Stage))
+	if status == "milking" || strings.Contains(stage, "milking") {
+		return "milking_window_hold"
 	}
 	return ""
 }

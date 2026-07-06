@@ -3432,6 +3432,8 @@ CREATE TABLE public.obligation_instances (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
+    batching_hold_count integer DEFAULT 0,
+    first_batching_hold_until timestamp with time zone,
     CONSTRAINT obligation_instances_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT obligation_instances_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
     CONSTRAINT obligation_instances_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'deferred'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'canceled'::text, 'superseded'::text]))),

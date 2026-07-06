@@ -1205,27 +1205,29 @@ type ObligationGoatShiftWatermark struct {
 }
 
 type ObligationInstance struct {
-	ObligationID         pgtype.UUID
-	TenantID             pgtype.UUID
-	ProtocolVersionID    pgtype.UUID
-	RuleID               pgtype.UUID
-	BatchID              pgtype.UUID
-	TargetType           string
-	TargetID             pgtype.UUID
-	ScopeType            string
-	ScopeID              pgtype.UUID
-	DueAt                pgtype.Timestamptz
-	WindowStart          pgtype.Timestamptz
-	WindowEnd            pgtype.Timestamptz
-	Status               string
-	SopTaskID            pgtype.UUID
-	IdempotencyKey       string
-	GeneratedByTriggerID pgtype.UUID
-	Sequence             int32
-	CompletedAt          pgtype.Timestamptz
-	CreatedAt            pgtype.Timestamptz
-	UpdatedAt            pgtype.Timestamptz
-	RowVersion           int32
+	ObligationID           pgtype.UUID
+	TenantID               pgtype.UUID
+	ProtocolVersionID      pgtype.UUID
+	RuleID                 pgtype.UUID
+	BatchID                pgtype.UUID
+	TargetType             string
+	TargetID               pgtype.UUID
+	ScopeType              string
+	ScopeID                pgtype.UUID
+	DueAt                  pgtype.Timestamptz
+	WindowStart            pgtype.Timestamptz
+	WindowEnd              pgtype.Timestamptz
+	Status                 string
+	SopTaskID              pgtype.UUID
+	IdempotencyKey         string
+	GeneratedByTriggerID   pgtype.UUID
+	Sequence               int32
+	CompletedAt            pgtype.Timestamptz
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+	RowVersion             int32
+	BatchingHoldCount      pgtype.Int4
+	FirstBatchingHoldUntil pgtype.Timestamptz
 }
 
 type ObligationStatusEvent struct {

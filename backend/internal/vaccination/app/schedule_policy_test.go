@@ -150,6 +150,47 @@ func TestPregnancyDeferReason(t *testing.T) {
 	}
 }
 
+func TestPolicyDeferReasonPostBreedingHold(t *testing.T) {
+	breeding := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	policies := genVersionPolicies{}
+	held := domain.EligibleGoat{ReproductiveStatus: "bred", BreedingDate: &breeding}
+	if got := policyDeferReason(held, policies, breeding.AddDate(0, 0, 20)); got != "post_breeding_hold" {
+		t.Fatalf("day 20 reason = %q, want post_breeding_hold", got)
+	}
+	if got := policyDeferReason(held, policies, breeding.AddDate(0, 0, 31)); got != "" {
+		t.Fatalf("day 31 reason = %q, want released", got)
+	}
+	missingDate := domain.EligibleGoat{ReproductiveStatus: "breeding"}
+	if got := policyDeferReason(missingDate, policies, breeding.AddDate(0, 0, 20)); got != "post_breeding_date_review" {
+		t.Fatalf("missing date reason = %q, want post_breeding_date_review", got)
+	}
+	flushing := domain.EligibleGoat{ReproductiveStatus: "flushing"}
+	if got := policyDeferReason(flushing, policies, breeding.AddDate(0, 0, 20)); got != "" {
+		t.Fatalf("flushing reason = %q, want no post-breeding hold", got)
+	}
+}
+
+func TestPolicyDeferReasonMilkingWindowHold(t *testing.T) {
+	policies := genVersionPolicies{}
+	milkingStatus := domain.EligibleGoat{ReproductiveStatus: "milking"}
+	if got := policyDeferReason(milkingStatus, policies, time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)); got != "milking_window_hold" {
+		t.Fatalf("milking status reason = %q, want milking_window_hold", got)
+	}
+	milkingStage := domain.EligibleGoat{Stage: "MOTHER_MILKING_WAITING"}
+	if got := policyDeferReason(milkingStage, policies, time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)); got != "milking_window_hold" {
+		t.Fatalf("milking stage reason = %q, want milking_window_hold", got)
+	}
+}
+
+func TestMissedDosePolicyDefaultsToTwoWeekNearbyDrive(t *testing.T) {
+	if got := (genMissedDosePolicy{}).alignDays(); got != 14 {
+		t.Fatalf("default missed-dose align days = %d, want 14", got)
+	}
+	if got := (genMissedDosePolicy{NearbyDriveAlignDays: 9}).alignDays(); got != 9 {
+		t.Fatalf("configured missed-dose align days = %d, want 9", got)
+	}
+}
+
 func TestAdjustPostArrivalDueHonorsWarmupFloor(t *testing.T) {
 	entry := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
 	g := domain.EligibleGoat{EntryDate: &entry, WarmingEntryAt: &entry}

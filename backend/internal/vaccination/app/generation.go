@@ -221,6 +221,7 @@ type genDSL struct {
 	ProcurementPolicy   genProcurementPolicy   `json:"procurement_policy"`
 	PregnancyPolicy     genPregnancyPolicy     `json:"pregnancy_policy"`
 	RecoveryPolicy      genRecoveryPolicy      `json:"recovery_policy"`
+	MissedDosePolicy    genMissedDosePolicy    `json:"missed_dose_policy"`
 }
 
 type genRuleMetadata struct {
@@ -234,6 +235,7 @@ func versionPoliciesFromDSL(dsl genDSL) genVersionPolicies {
 		Pregnancy:     dsl.PregnancyPolicy,
 		Compatibility: dsl.CompatibilityPolicy,
 		Recovery:      dsl.RecoveryPolicy,
+		MissedDose:    dsl.MissedDosePolicy,
 	}
 }
 
@@ -815,7 +817,7 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 			if skip || !ok {
 				continue
 			}
-			evidenceDue, ok := trustedEvidenceDue(rule, due, asOf)
+			evidenceDue, ok := trustedEvidenceDue(rule, due, asOf, nil, plan.policies.MissedDose)
 			if !ok {
 				continue
 			}
@@ -935,7 +937,11 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
 		}
-		evidenceDue, ok := trustedEvidenceDue(rule, baseDue, asOf)
+		nearbyMissedDrive, err := s.nearbyMissedDoseDriveDate(ctx, tenantID, versionID, rule, g, baseDue, asOf, policies.MissedDose)
+		if err != nil {
+			return err
+		}
+		evidenceDue, ok := trustedEvidenceDue(rule, baseDue, asOf, nearbyMissedDrive, policies.MissedDose)
 		if !ok {
 			continue
 		}
@@ -947,7 +953,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			res.SuppressedByTrustedHistory++
 			continue
 		}
-		due, catchUpDeferReason, skip := applyMissedDosePolicy(rule, baseDue, asOf)
+		due, catchUpDeferReason, skip := applyMissedDosePolicy(rule, baseDue, asOf, nearbyMissedDrive, policies.MissedDose)
 		if skip {
 			continue
 		}
@@ -1240,6 +1246,24 @@ func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenan
 	}, nil
 }
 
+func (s *GenerationService) nearbyMissedDoseDriveDate(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, due, asOf time.Time, policy genMissedDosePolicy) (*time.Time, error) {
+	if rule.DueWindowDays <= 0 {
+		return nil, nil
+	}
+	windowEnd := businessDayStart(due).AddDate(0, 0, int(rule.DueWindowDays))
+	if !asOf.After(windowEnd) {
+		return nil, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(rule.CatchUp)) {
+	case "", "immediate":
+	default:
+		return nil, nil
+	}
+	from := businessDayStart(asOf)
+	to := from.AddDate(0, 0, int(policy.alignDays()))
+	return s.obl.FindNearestPlannedBatchDate(ctx, tenantID, versionID, rule.RuleID, g.ShedID, g.ParkID, from, to)
+}
+
 func inCare(lifecycle string) bool {
 	switch lifecycle {
 	case "alive", "sick", "under_treatment", "quarantine", "icu":
@@ -1274,7 +1298,7 @@ func missingDueDateReason(rule protodomain.Rule, g domain.EligibleGoat) string {
 	return ""
 }
 
-func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time) (time.Time, string, bool) {
+func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time, nearbyDriveDate *time.Time, policy genMissedDosePolicy) (time.Time, string, bool) {
 	if rule.DueWindowDays <= 0 {
 		return due, "", false
 	}
@@ -1284,6 +1308,14 @@ func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time) (time.Tim
 	}
 	switch strings.ToLower(strings.TrimSpace(rule.CatchUp)) {
 	case "", "immediate":
+		if nearbyDriveDate != nil {
+			nearby := businessDayStart(*nearbyDriveDate)
+			from := businessDayStart(asOf)
+			to := from.AddDate(0, 0, int(policy.alignDays()))
+			if !nearby.Before(from) && !nearby.After(to) {
+				return nearby, "", false
+			}
+		}
 		return asOf, "", false
 	case "pc_approval":
 		return asOf, "catch_up_pc_approval", false
@@ -1300,8 +1332,8 @@ func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time) (time.Tim
 	}
 }
 
-func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time) (time.Time, bool) {
-	adjusted, _, skip := applyMissedDosePolicy(rule, due, asOf)
+func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time, nearbyDriveDate *time.Time, policy genMissedDosePolicy) (time.Time, bool) {
+	adjusted, _, skip := applyMissedDosePolicy(rule, due, asOf, nearbyDriveDate, policy)
 	if skip {
 		return time.Time{}, false
 	}

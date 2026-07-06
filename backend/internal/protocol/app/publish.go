@@ -118,6 +118,7 @@ var (
 		"procurement_policy":   true,
 		"pregnancy_policy":     true,
 		"recovery_policy":      true,
+		"drive_policy":         true,
 		"parameter_template":   true,
 		"ration":               true,
 		"session_timing":       true,
@@ -182,6 +183,19 @@ var (
 	}
 	ruleDSLRecoveryPolicyKeys = map[string]bool{
 		"max_nearby_drive_align_days": true,
+	}
+	ruleDSLMissedDosePolicyKeys = map[string]bool{
+		"nearby_drive_align_days": true,
+	}
+	ruleDSLDrivePolicyKeys = map[string]bool{
+		"enabled":                        true,
+		"max_goats_per_drive":            true,
+		"priority":                       true,
+		"combo_align_window_days":        true,
+		"max_batching_hold_days":         true,
+		"max_batching_hold_count":        true,
+		"species_grouping_policy":        true,
+		"max_shots_per_animal_per_drive": true,
 	}
 	ruleDSLSourceKeys = map[string]bool{
 		"source_system": true,
@@ -304,6 +318,18 @@ func ValidateRuleDSL(ruleDSL []byte) error {
 	}
 	if raw, ok := root["recovery_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
 		if _, err := decodeRuleDSLObject(raw, "rule_dsl.recovery_policy", ruleDSLRecoveryPolicyKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["missed_dose_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if strings.HasPrefix(strings.TrimSpace(string(raw)), "{") {
+			if _, err := decodeRuleDSLObject(raw, "rule_dsl.missed_dose_policy", ruleDSLMissedDosePolicyKeys); err != nil {
+				return err
+			}
+		}
+	}
+	if raw, ok := root["drive_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.drive_policy", ruleDSLDrivePolicyKeys); err != nil {
 			return err
 		}
 	}

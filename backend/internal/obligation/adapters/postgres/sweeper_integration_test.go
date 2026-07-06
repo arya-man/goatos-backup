@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -339,5 +340,200 @@ FROM inserted_goats`, tenantID, meshaParty, cbePark, versionID, ruleID); err != 
 	}
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE protocol_version_id=$1 AND batch_id IS NOT NULL`, versionID); got != 1001 {
 		t.Fatalf("batched obligations = %d, want 1001", got)
+	}
+}
+
+func TestSM4SweeperDefersCurrentClinicalHoldBeforeBatching(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID, ruleID := reserveTestVersion(t, ctx, proto, "vaccination.sweep.clinical_recheck")
+
+	const sickGoat = "10000000-0000-4000-8000-00000000e101"
+	const healthyGoat = "10000000-0000-4000-8000-00000000e102"
+	seedReserveGoats(t, ctx, pool, cbePark, cbePark, sickGoat, healthyGoat)
+	if _, err := pool.Exec(ctx, `UPDATE goats SET health_status='sick' WHERE goat_id=$1`, sickGoat); err != nil {
+		t.Fatalf("mark sick goat: %v", err)
+	}
+
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	for _, row := range []struct {
+		goatID string
+		key    string
+	}{
+		{sickGoat, "clinical-sick"},
+		{healthyGoat, "clinical-healthy"},
+	} {
+		if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+			TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+			TargetType: "goat", TargetID: row.goatID, ScopeType: "park", ScopeID: cbePark,
+			DueAt: due, Status: "scheduled", IdempotencyKey: row.key, Sequence: 1,
+		}); err != nil || !applied {
+			t.Fatalf("insert %s: applied=%v err=%v", row.key, applied, err)
+		}
+	}
+
+	sweep := oblapp.NewSweeperService(repo, nil, nil)
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, due)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if res.Obligations != 1 {
+		t.Fatalf("result=%#v, want only healthy goat batched", res)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE protocol_version_id=$1 AND target_id=$2 AND status='deferred' AND batch_id IS NULL`, versionID, sickGoat); got != 1 {
+		t.Fatalf("sick deferred rows = %d, want 1", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE protocol_version_id=$1 AND target_id=$2 AND batch_id IS NOT NULL`, versionID, healthyGoat); got != 1 {
+		t.Fatalf("healthy batched rows = %d, want 1", got)
+	}
+}
+
+func TestSM4SweeperDoesNotReopenMissedClinicalRows(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID, ruleID := reserveTestVersion(t, ctx, proto, "vaccination.sweep.missed_clinical")
+
+	const goatID = "10000000-0000-4000-8000-00000000e201"
+	seedReserveGoats(t, ctx, pool, cbePark, cbePark, goatID)
+	if _, err := pool.Exec(ctx, `UPDATE goats SET health_status='sick' WHERE goat_id=$1`, goatID); err != nil {
+		t.Fatalf("mark sick goat: %v", err)
+	}
+	obID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: goatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: "missed-clinical", Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("insert missed target: applied=%v err=%v", applied, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET status='missed' WHERE obligation_id=$1`, obID); err != nil {
+		t.Fatalf("mark missed: %v", err)
+	}
+
+	sweep := oblapp.NewSweeperService(repo, nil, nil)
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if res.Obligations != 0 {
+		t.Fatalf("result=%#v, want no batching while goat is sick", res)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND status='missed' AND batch_id IS NULL`, obID); got != 1 {
+		t.Fatalf("missed unchanged rows = %d, want 1", got)
+	}
+}
+
+func TestSM4SweeperRecordsOneTimeBatchingHoldMetadata(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID, ruleID := reserveTestVersion(t, ctx, proto, "vaccination.sweep.hold")
+
+	const goatID = "10000000-0000-4000-8000-00000000e301"
+	seedReserveGoats(t, ctx, pool, cbePark, cbePark, goatID)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	windowEnd := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	obID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: goatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: due, WindowEnd: &windowEnd, Status: "scheduled", IdempotencyKey: "hold-once", Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("insert hold target: applied=%v err=%v", applied, err)
+	}
+
+	sweep := oblapp.NewSweeperService(repo, nil, nil)
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, due)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if res.Obligations != 1 {
+		t.Fatalf("result=%#v, want one held obligation batched", res)
+	}
+	wantHoldUntil := time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances oi JOIN obligation_batches b ON b.batch_id=oi.batch_id WHERE oi.obligation_id=$1 AND oi.batching_hold_count=1 AND to_char(oi.first_batching_hold_until AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD')='2026-07-08' AND b.planned_date=$2::date`, obID, wantHoldUntil); got != 1 {
+		t.Fatalf("hold metadata rows = %d, want count=1 first_hold_until/planned_date=%s", got, wantHoldUntil)
+	}
+}
+
+func TestSM4SweeperEnforcesTwoShotsPerAnimalPerDrive(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: tenantID, Code: "vaccination.sweep.shot_cap", Name: "ShotCap", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleIDs := make([]string, 0, 3)
+	for i := 1; i <= 3; i++ {
+		ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+			TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "dose_" + strconv.Itoa(i), Sequence: int32(i),
+			TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", DueWindowDays: 2,
+			EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		})
+		if err != nil {
+			t.Fatalf("rule %d: %v", i, err)
+		}
+		ruleIDs = append(ruleIDs, ruleID)
+	}
+	const goatID = "10000000-0000-4000-8000-00000000e401"
+	seedReserveGoats(t, ctx, pool, cbePark, cbePark, goatID)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	windowEnd := due.AddDate(0, 0, 2)
+	for i, ruleID := range ruleIDs {
+		if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+			TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+			TargetType: "goat", TargetID: goatID, ScopeType: "park", ScopeID: cbePark,
+			DueAt: due, WindowEnd: &windowEnd, Status: "scheduled", IdempotencyKey: "shot-cap-" + ruleID, Sequence: int32(i + 1),
+		}); err != nil || !applied {
+			t.Fatalf("insert shot %d: applied=%v err=%v", i, applied, err)
+		}
+	}
+
+	sweep := oblapp.NewSweeperService(repo, nil, nil)
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, due)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if res.Obligations != 3 {
+		t.Fatalf("result=%#v, want all three obligations planned across visits", res)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT max(per_day.count)
+FROM (
+  SELECT b.planned_date, count(*) AS count
+  FROM obligation_instances oi
+  JOIN obligation_batches b ON b.batch_id=oi.batch_id
+  WHERE oi.protocol_version_id=$1 AND oi.target_id=$2
+  GROUP BY b.planned_date
+) per_day`, versionID, goatID); got != 2 {
+		t.Fatalf("max shots per planned date = %d, want 2", got)
 	}
 }

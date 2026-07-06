@@ -22,6 +22,14 @@ type StockReserver interface {
 	ReserveForBatch(ctx context.Context, tenantID, batchID, locationID, itemID string, qty int64, validOn time.Time) error
 }
 
+type batchingHoldRecorder interface {
+	RecordBatchingHoldForObligations(ctx context.Context, tenantID string, obligationIDs []string, holdUntil time.Time, occurredAt time.Time) (int64, error)
+}
+
+type clinicalSweepDeferrer interface {
+	DeferBlockedVaccinationSweepCandidates(ctx context.Context, tenantID, versionID string, dueBefore, occurredAt time.Time, limit int32) (int, error)
+}
+
 // SweepConfig carries the per-version batch config resolved by the caller from the protocol version:
 // the SOP to instantiate, the vaccine item to reserve, and doses per goat.
 type SweepConfig struct {
@@ -62,7 +70,12 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 	if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
 		return res, err
 	}
+	if err := s.deferBlockedSweepCandidates(ctx, tenantID, versionID, dueBefore); err != nil {
+		return res, err
+	}
 	touchedScopes := make(map[string]bool)
+	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
+	visitShotCounts := make(map[string]int32)
 	for {
 		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, s.page)
 		if err != nil {
@@ -84,7 +97,7 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 		order := make([]string, 0)
 		groups := make(map[string]*group)
 		for _, r := range rows {
-			k := sweepWindowGroupKey(r)
+			k := sweepWindowGroupKey(r, planner.SpeciesGroupingPolicy)
 			g := groups[k]
 			if g == nil {
 				g = &group{scopeType: r.ScopeType, scopeID: r.ScopeID, ruleID: r.RuleID, windowStart: r.WindowStart, windowEnd: r.WindowEnd}
@@ -95,7 +108,6 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 			g.ids = append(g.ids, r.ObligationID)
 		}
 
-		planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
 		var progressed int64
 		for _, k := range order {
 			g := groups[k]
@@ -104,11 +116,18 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 			}
 			plannedDate := batchPlannedDate(g.rows[0].DueAt)
 			if planner.Enabled {
-				if picked := pickBestDriveDate(dueBefore, driveCandidatesFromUnbatched(g.rows), planner.VaccinePriority); picked != nil {
+				if picked := pickBestDriveDateWithHold(dueBefore, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
 					plannedDate = picked
 				}
 			}
-			idChunks := splitObligationIDs(g.ids, planner.MaxGoatsPerDrive)
+			selectedIDs := selectIDsWithinVisitShotCap(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, visitShotCounts)
+			if len(selectedIDs) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
+				if overflowDate := nextFeasibleUnbatchedDriveDateAfter(*plannedDate, g.rows); overflowDate != nil {
+					plannedDate = overflowDate
+					selectedIDs = selectIDsWithinVisitShotCap(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, visitShotCounts)
+				}
+			}
+			idChunks := splitObligationIDs(selectedIDs, planner.MaxGoatsPerDrive)
 			for _, chunk := range idChunks {
 				if len(chunk) == 0 {
 					continue
@@ -137,6 +156,9 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 					res.Batches++
 					touchedScopes[k] = true
 				}
+				if err := s.recordBatchingHoldIfNeeded(ctx, tenantID, chunk, selectedUnbatchedRows(g.rows, chunk), plannedDate, dueBefore); err != nil {
+					return res, err
+				}
 				res.Obligations += int(n)
 				progressed += n
 			}
@@ -145,7 +167,7 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 			break
 		}
 	}
-	parkRes, err := s.consolidateParkDrives(ctx, tenantID, versionID, cfg, dueBefore)
+	parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, visitShotCounts)
 	if err != nil {
 		return res, err
 	}
@@ -154,7 +176,7 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 	res.Batches += parkRes.ParkBatches
 	res.Obligations += parkRes.ParkObligations
 
-	fallbackRes, err := s.batchRemainingShedObligations(ctx, tenantID, versionID, cfg, dueBefore)
+	fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, visitShotCounts)
 	if err != nil {
 		return res, err
 	}
@@ -165,6 +187,51 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 		return res, err
 	}
 	return res, nil
+}
+
+func (s *SweeperService) deferBlockedSweepCandidates(ctx context.Context, tenantID, versionID string, dueBefore time.Time) error {
+	deferrer, ok := s.repo.(clinicalSweepDeferrer)
+	if !ok {
+		return nil
+	}
+	for {
+		n, err := deferrer.DeferBlockedVaccinationSweepCandidates(ctx, tenantID, versionID, dueBefore, time.Now().UTC(), s.page)
+		if err != nil {
+			return err
+		}
+		if n == 0 || int32(n) < s.page {
+			return nil
+		}
+	}
+}
+
+func (s *SweeperService) recordBatchingHoldIfNeeded(ctx context.Context, tenantID string, ids []string, rows []domain.UnbatchedDue, plannedDate *time.Time, occurredAt time.Time) error {
+	if plannedDate == nil || len(ids) == 0 || !driveDateUsesBatchingHold(*plannedDate, driveCandidatesFromUnbatched(rows)) {
+		return nil
+	}
+	recorder, ok := s.repo.(batchingHoldRecorder)
+	if !ok {
+		return nil
+	}
+	_, err := recorder.RecordBatchingHoldForObligations(ctx, tenantID, ids, *plannedDate, occurredAt)
+	return err
+}
+
+func selectedUnbatchedRows(rows []domain.UnbatchedDue, selected []string) []domain.UnbatchedDue {
+	if len(selected) == 0 {
+		return nil
+	}
+	selectedSet := make(map[string]struct{}, len(selected))
+	for _, id := range selected {
+		selectedSet[id] = struct{}{}
+	}
+	out := make([]domain.UnbatchedDue, 0, len(selected))
+	for _, row := range rows {
+		if _, ok := selectedSet[row.ObligationID]; ok {
+			out = append(out, row)
+		}
+	}
+	return out
 }
 
 func normalizedDosesPerGoat(v int32) int32 {
@@ -193,6 +260,11 @@ func deferShedGroupToPark(cfg SweepConfig, scopeType string, obligationCount int
 // batchRemainingShedObligations creates shed drives for every still-unbatched shed obligation,
 // including missed singletons, so coverage is never left behind after the park merge pass.
 func (s *SweeperService) batchRemainingShedObligations(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
+	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
+	return s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, make(map[string]int32))
+}
+
+func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, planner domain.DrivePlannerSettings, visitShotCounts map[string]int32) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	if !cfg.ParkConsolidation.Enabled {
 		return res, nil
@@ -221,7 +293,7 @@ func (s *SweeperService) batchRemainingShedObligations(ctx context.Context, tena
 			if r.ScopeType != "shed" {
 				continue
 			}
-			k := sweepWindowGroupKey(r)
+			k := sweepWindowGroupKey(r, planner.SpeciesGroupingPolicy)
 			g := groups[k]
 			if g == nil {
 				g = &group{scopeType: r.ScopeType, scopeID: r.ScopeID, ruleID: r.RuleID, windowStart: r.WindowStart, windowEnd: r.WindowEnd}
@@ -231,17 +303,23 @@ func (s *SweeperService) batchRemainingShedObligations(ctx context.Context, tena
 			g.rows = append(g.rows, r)
 			g.ids = append(g.ids, r.ObligationID)
 		}
-		planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
 		var progressed int64
 		for _, k := range order {
 			g := groups[k]
 			plannedDate := batchPlannedDate(g.rows[0].DueAt)
 			if planner.Enabled {
-				if picked := pickBestDriveDate(dueBefore, driveCandidatesFromUnbatched(g.rows), planner.VaccinePriority); picked != nil {
+				if picked := pickBestDriveDateWithHold(dueBefore, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
 					plannedDate = picked
 				}
 			}
-			idChunks := splitObligationIDs(g.ids, planner.MaxGoatsPerDrive)
+			selectedIDs := selectIDsWithinVisitShotCap(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, visitShotCounts)
+			if len(selectedIDs) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
+				if overflowDate := nextFeasibleUnbatchedDriveDateAfter(*plannedDate, g.rows); overflowDate != nil {
+					plannedDate = overflowDate
+					selectedIDs = selectIDsWithinVisitShotCap(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, visitShotCounts)
+				}
+			}
+			idChunks := splitObligationIDs(selectedIDs, planner.MaxGoatsPerDrive)
 			for _, chunk := range idChunks {
 				if len(chunk) == 0 {
 					continue
@@ -269,6 +347,9 @@ func (s *SweeperService) batchRemainingShedObligations(ctx context.Context, tena
 				if !touchedScopes[k] {
 					res.Batches++
 					touchedScopes[k] = true
+				}
+				if err := s.recordBatchingHoldIfNeeded(ctx, tenantID, chunk, selectedUnbatchedRows(g.rows, chunk), plannedDate, dueBefore); err != nil {
+					return res, err
 				}
 				res.Obligations += int(n)
 				progressed += n
