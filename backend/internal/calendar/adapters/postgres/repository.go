@@ -1671,7 +1671,13 @@ WHERE tenant_id = $1::uuid AND event_id = $2 AND slice_key = 'vaccination'
   AND ($3::bool OR park_id::text = ANY($4::text[]) OR shed_id::text = ANY($5::text[]))`
 
 const calendarHistorySQL = `
-WITH history AS (
+WITH event_context AS (
+  SELECT COALESCE(NULLIF(timezone, ''), 'Asia/Kolkata') AS timezone
+  FROM calendar_event_projections
+  WHERE tenant_id = $1::uuid AND event_id = $2 AND slice_key = 'vaccination'
+  LIMIT 1
+),
+history AS (
   SELECT
     'notification:' || notification_request_id::text AS history_id,
     'calendar_notification_' || notification_type AS event_type,
@@ -1699,7 +1705,10 @@ WITH history AS (
     'snooze:' || snooze_id::text AS history_id,
     'calendar_snooze' AS event_type,
     status,
-    'Snoozed until ' || to_char(snooze_until AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI') AS title,
+    'Snoozed until ' || to_char(
+      snooze_until AT TIME ZONE COALESCE((SELECT timezone FROM event_context), 'Asia/Kolkata'),
+      'YYYY-MM-DD HH24:MI'
+    ) AS title,
     created_by::text AS actor_label,
     created_at AS occurred_at,
     NULL::text AS channel,

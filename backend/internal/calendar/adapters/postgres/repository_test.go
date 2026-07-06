@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,5 +19,14 @@ func TestCalendarBusinessDateInUsesProjectionTimezone(t *testing.T) {
 	pacificBoundary := time.Date(2026, time.June, 29, 6, 30, 0, 0, time.UTC)
 	if got := calendarBusinessDateIn(pacificBoundary, "America/Los_Angeles"); got != "2026-06-28" {
 		t.Fatalf("America/Los_Angeles business date=%s, want 2026-06-28", got)
+	}
+}
+
+func TestCalendarHistorySnoozeTitleUsesProjectionTimezone(t *testing.T) {
+	if strings.Contains(calendarHistorySQL, "snooze_until AT TIME ZONE 'Asia/Kolkata'") {
+		t.Fatal("calendar snooze history title must use projection timezone, not hardcoded Asia/Kolkata")
+	}
+	if !strings.Contains(calendarHistorySQL, "event_context") {
+		t.Fatal("calendar history query should resolve event projection timezone")
 	}
 }

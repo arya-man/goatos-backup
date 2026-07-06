@@ -1861,6 +1861,9 @@ LEFT JOIN LATERAL (
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+LEFT JOIN locations current_loc
+  ON current_loc.tenant_id = g.tenant_id
+ AND current_loc.location_id = COALESCE(g.current_location_id, g.shed_id, g.park_id)
 LEFT JOIN shed_profiles sp
   ON sp.tenant_id = g.tenant_id
  AND sp.location_id = g.shed_id
@@ -1899,8 +1902,14 @@ WHERE g.tenant_id = $1
           (prd.min_age_days IS NULL AND prd.max_age_days IS NULL)
           OR (
             g.dob IS NOT NULL
-            AND (prd.min_age_days IS NULL OR (($8::timestamptz AT TIME ZONE 'Asia/Kolkata')::date - g.dob) >= prd.min_age_days)
-            AND (prd.max_age_days IS NULL OR (($8::timestamptz AT TIME ZONE 'Asia/Kolkata')::date - g.dob) <= prd.max_age_days)
+            AND (
+              prd.min_age_days IS NULL
+              OR (($8::timestamptz AT TIME ZONE COALESCE(NULLIF(current_loc.timezone, ''), NULLIF(shed.timezone, ''), NULLIF(park.timezone, ''), 'Asia/Kolkata'))::date - g.dob) >= prd.min_age_days
+            )
+            AND (
+              prd.max_age_days IS NULL
+              OR (($8::timestamptz AT TIME ZONE COALESCE(NULLIF(current_loc.timezone, ''), NULLIF(shed.timezone, ''), NULLIF(park.timezone, ''), 'Asia/Kolkata'))::date - g.dob) <= prd.max_age_days
+            )
           )
         )
     )
@@ -2085,6 +2094,27 @@ func (r *Repository) HasTrustedCompletionEvidenceBatch(ctx context.Context, tena
 	    ON target_pv.tenant_id = target_pr.tenant_id
 	   AND target_pv.protocol_version_id = target_pr.protocol_version_id
 	),
+	goat_context AS (
+	  SELECT DISTINCT
+	         c.goat_id,
+	         g.entry_date,
+	         COALESCE(NULLIF(current_loc.timezone, ''), NULLIF(shed.timezone, ''), NULLIF(park.timezone, ''), 'Asia/Kolkata') AS timezone
+	  FROM candidate c
+	  JOIN goats g
+	    ON g.tenant_id = $1::uuid
+	   AND g.goat_id = c.goat_id
+	  LEFT JOIN locations current_loc
+	    ON current_loc.tenant_id = g.tenant_id
+	   AND current_loc.location_id = COALESCE(g.current_location_id, g.shed_id, g.park_id)
+	  LEFT JOIN locations shed
+	    ON shed.tenant_id = g.tenant_id
+	   AND shed.location_id = g.shed_id
+	   AND shed.location_type = 'shed'
+	  LEFT JOIN locations park
+	    ON park.tenant_id = g.tenant_id
+	   AND park.location_id = g.park_id
+	   AND park.location_type = 'park'
+	),
 	trusted_procurement AS (
 	  SELECT DISTINCT t.candidate_key
 	  FROM target t
@@ -2099,9 +2129,8 @@ func (r *Repository) HasTrustedCompletionEvidenceBatch(ctx context.Context, tena
 	  JOIN protocol_versions ev_pv
 	    ON ev_pv.tenant_id = ev.tenant_id
 	   AND ev_pv.protocol_version_id = ev.protocol_version_id
-	  JOIN goats g
-	    ON g.tenant_id = ev.tenant_id
-	   AND g.goat_id = ev.goat_id
+	  JOIN goat_context gc
+	    ON gc.goat_id = ev.goat_id
 		  JOIN procurement_load_goats plg
 		    ON plg.tenant_id = ev.tenant_id
 		   AND plg.load_id = ev.load_id
@@ -2127,15 +2156,15 @@ func (r *Repository) HasTrustedCompletionEvidenceBatch(ctx context.Context, tena
 		    AND (plg.warmup_ended_at IS NULL OR ev.administered_at <= plg.warmup_ended_at)
 		    AND (
 		      t.rule_repeat = 'none'
-		      OR (ev.administered_at AT TIME ZONE 'Asia/Kolkata')::date >= (t.due_at AT TIME ZONE 'Asia/Kolkata')::date
+		      OR (ev.administered_at AT TIME ZONE gc.timezone)::date >= (t.due_at AT TIME ZONE gc.timezone)::date
 		    )
 		    AND (
 		      plg.intake_accepted_at IS NULL
 	      OR ev.administered_at <= plg.intake_accepted_at
 	    )
 	    AND (
-	      g.entry_date IS NULL
-	      OR ev.administered_at < (g.entry_date::timestamptz + interval '1 day')
+	      gc.entry_date IS NULL
+	      OR ev.administered_at < (gc.entry_date::timestamptz + interval '1 day')
 	    )
 	),
 	trusted_completion AS (
@@ -2149,6 +2178,8 @@ func (r *Repository) HasTrustedCompletionEvidenceBatch(ctx context.Context, tena
 	  JOIN obligation_instances oi
 	    ON oi.tenant_id = vc.tenant_id
 	   AND oi.obligation_id = vc.obligation_id
+	  JOIN goat_context gc
+	    ON gc.goat_id = vc.goat_id
 	  JOIN protocol_rules cpr
 	    ON cpr.tenant_id = oi.tenant_id
 	   AND cpr.rule_id = oi.rule_id
@@ -2162,7 +2193,7 @@ func (r *Repository) HasTrustedCompletionEvidenceBatch(ctx context.Context, tena
 	    AND vc.verified_at <= $3::timestamptz
 	    AND (
 	      t.rule_repeat = 'none'
-	      OR (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date = (t.due_at AT TIME ZONE 'Asia/Kolkata')::date
+	      OR (oi.due_at AT TIME ZONE gc.timezone)::date = (t.due_at AT TIME ZONE gc.timezone)::date
 	    )
 	)
 	SELECT candidate_key FROM trusted_procurement
