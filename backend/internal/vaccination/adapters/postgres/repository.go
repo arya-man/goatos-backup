@@ -1679,9 +1679,10 @@ LIMIT $3`, tenant, pgconv.Timestamptz(olderThan), limit)
 	return out, nil
 }
 
-// CountRecoverableDeferredVaccinationObligations is the stuck-deferred detector used by the repair
-// job report. A nonzero count after repair means recovered goats still have old deferred/missed
-// vaccination obligations and need operator attention.
+// CountRecoverableDeferredVaccinationObligations is the stuck-deferred detector used by the
+// recovery repair job report. A nonzero count after repair means recovered goats still have old
+// deferred vaccination obligations and need operator attention. Missed obligations are repaired
+// by the obligation-owned stale-missed batch-link pass and then picked up by the normal sweeper.
 func (r *Repository) CountRecoverableDeferredVaccinationObligations(ctx context.Context, tenantID string, olderThan time.Time) (int64, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -1710,7 +1711,7 @@ LEFT JOIN location_operational_attributes loa
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
 WHERE oi.tenant_id = $1::uuid
   AND oi.target_type = 'goat'
-  AND oi.status IN ('deferred', 'missed')
+  AND oi.status = 'deferred'
   AND oi.due_at <= $2::timestamptz
   AND pd.category = 'vaccination'
   AND g.lifecycle_status = 'alive'

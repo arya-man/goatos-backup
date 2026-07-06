@@ -414,7 +414,7 @@ WITH earliest_by_goat AS (
    AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
   WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
     AND oi.target_type = 'goat'
-    AND oi.status IN ('deferred', 'missed')
+    AND oi.status = 'deferred'
     AND oi.due_at <= TIMESTAMPTZ '2026-06-22 12:00:00+00'
     AND pd.category = 'vaccination'
     AND g.lifecycle_status = 'alive'
