@@ -2200,9 +2200,11 @@ export interface components {
             items: components["schemas"]["VaccinationQueueItem"][];
         };
         ImpactPreviewInput: {
+            species?: string;
             stage?: string;
             sex?: string;
             breed?: string;
+            health?: string;
             park_id?: string;
             vaccine_item_id?: string;
             location_id?: string;

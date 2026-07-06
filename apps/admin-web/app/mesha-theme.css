@@ -275,12 +275,18 @@
   .cfgform input:focus,.cfgform select:focus{border-color:var(--brand)}
   .cfgform .rowf{display:flex;gap:8px}.cfgform .rowf>*{flex:1}
   .cfgchk{display:flex;flex-wrap:wrap;gap:7px;margin-top:4px}.cfgchk label{display:inline-flex;align-items:center;gap:6px;text-transform:none;font-weight:600;color:var(--ink);font-size:12px;margin:0;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:6px 9px;cursor:pointer}.cfgchk input{width:auto}
-  .cfginfoicon{display:inline-grid;place-items:center;width:16px;height:16px;min-width:16px;min-height:16px;padding:0;border-radius:50%;border:1px solid var(--faint);background:transparent;color:var(--faint);cursor:pointer;vertical-align:middle;line-height:1}
-  .cfginfoicon .ic{width:10px;height:10px;stroke-width:2.4}
-  .cfginfoicon:hover,.cfginfoicon:focus-visible{color:var(--brand);border-color:var(--brand);outline:0}
+  .cfginfoicon{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:28px;padding:0 9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer;vertical-align:middle;line-height:1;font:inherit;font-size:11px;font-weight:800;text-transform:uppercase}
+  .cfginfoicon .ic{width:13px;height:13px;stroke-width:2.3}
+  .cfginfoicon:hover,.cfginfoicon:focus-visible{color:var(--brand);border-color:var(--brand);background:var(--brand-soft);outline:0}
   .cfginfo-popover{position:fixed;z-index:180;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:9px;align-items:start;max-width:310px;color:var(--ink);background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-size:12px;line-height:1.5}
   .cfginfo-popover b{color:var(--brand);font-weight:700}.cfginfo-popover>.ic{width:15px;height:15px;margin-top:1px;color:var(--muted)}
   .cfginfo-close{display:inline-grid;place-items:center;width:18px;height:18px;border:0;background:transparent;color:var(--muted);padding:0;cursor:pointer}.cfginfo-close .ic{width:14px;height:14px}.cfginfo-close:hover{color:var(--brand)}
+  .cfgdose-scope{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0 6px;padding:9px 11px;border:1px solid var(--line2);border-radius:9px;background:var(--bg);font-size:12px;color:var(--muted)}
+  .cfgdose-scope>span:first-child{font-weight:800;text-transform:uppercase;color:var(--faint);font-size:10px}.cfgdose-scope>b{color:var(--ink);font-weight:750}
+  .cfgpolicy-note{display:grid;gap:3px;margin-top:4px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink)}
+  .cfgpolicy-note>span{font-size:10px;font-weight:800;text-transform:uppercase;color:var(--faint)}.cfgpolicy-note>b{font-size:13px;line-height:1.35;font-weight:650;color:var(--muted)}
+  .cfgimpact-explain{display:grid;gap:8px;margin-top:12px;padding:11px 13px;border:1px solid var(--line2);border-radius:10px;background:var(--bg);font-size:12px;line-height:1.5;color:var(--muted)}
+  .cfgimpact-explain b{display:block;margin-bottom:2px;color:var(--ink);font-size:12px;font-weight:750}.cfgimpact-explain p{margin:0}.cfgimpact-scope{display:grid;gap:2px}.cfgimpact-scope span{color:var(--muted)}
   .cfgdate-button{width:100%;justify-content:space-between;min-height:38px}
   .cfgdate-label{display:inline-flex;align-items:center;gap:8px;min-width:0}
   .cfgdate-popover{position:absolute;right:0;top:calc(100% + 8px);z-index:20;width:min(330px,88vw);padding:12px;background:var(--panel)}

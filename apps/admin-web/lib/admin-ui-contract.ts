@@ -47,7 +47,16 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "modal.rule_editor.table.stage": "Stage",
     "modal.rule_editor.table.sex": "Sex",
     "modal.rule_editor.table.breed": "Breed",
-    "modal.rule_editor.impact_title_vaccination": "Impact preview - selected row live eligibility",
+    "modal.rule_editor.guided.selected_combo_label": "Selected combo",
+    "modal.rule_editor.guided.dose_rows_count": "dose rows",
+    "modal.rule_editor.guided.vaccine_lot_policy_label": "Vaccine lot policy",
+    "modal.rule_editor.impact_title_vaccination": "Impact preview - selected dose row",
+    "modal.rule_editor.impact_scope_label": "Preview scope",
+    "modal.rule_editor.impact_stock_set": "stock item set",
+    "modal.rule_editor.impact_stock_missing": "no stock item",
+    "modal.rule_editor.impact_method_title": "How the numbers are calculated",
+    "modal.rule_editor.impact_method_body": "Read-only estimate for the selected combo. Eligible goats = live in-care animals matching species, stage, sex, breed, health, and park scope. Obligations/cycle = eligible goats x dose rows. Batches = distinct eligible sheds, approximating one SOP drive task per shed. Doses required = eligible goats x dose rows. Stock appears only when the row has a vaccine inventory item.",
+    "modal.rule_editor.impact_scale_note": "For 1-5M goats, this panel uses aggregate SQL counts and does not load goats into the browser. It is a quick operator estimate; full scale proof still comes from the high-scale kernel E2E/staging report.",
   },
 };
 

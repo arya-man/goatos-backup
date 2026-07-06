@@ -167,14 +167,14 @@ func TestImpactPreviewParsesFilterAndReturnsJSON(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(fake, nil))
 
-	body := `{"stage":"K1","sex":"female","doses_per_goat":1,"dose_rows":1,"vaccine_item_id":"item-1"}`
+	body := `{"species":"goat","stage":"K1","sex":"female","health":"healthy","doses_per_goat":1,"dose_rows":1,"vaccine_item_id":"item-1"}`
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/protocols/vaccination/impact-preview", strings.NewReader(body)))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	if fake.got.Filter.Stage != "K1" || fake.got.Filter.Sex != "female" || fake.got.DosesPerGoat != 1 {
+	if fake.got.Filter.Species != "goat" || fake.got.Filter.Stage != "K1" || fake.got.Filter.Sex != "female" || fake.got.Filter.Health != "healthy" || fake.got.DosesPerGoat != 1 {
 		t.Fatalf("filter/inputs not parsed: %+v", fake.got)
 	}
 	if fake.got.VaccineItemID == nil || *fake.got.VaccineItemID != "item-1" {

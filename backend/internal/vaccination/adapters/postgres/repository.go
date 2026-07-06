@@ -1526,6 +1526,7 @@ func (r *Repository) eligParams(f domain.ImpactFilter) (vaccinationdb.CountEligi
 	}
 	return vaccinationdb.CountEligibleGoatsParams{
 		TenantID: tenant,
+		Species:  eligibilityWildcard(f.Species),
 		Stage:    eligibilityWildcard(f.Stage),
 		Sex:      eligibilityWildcard(f.Sex),
 		Breed:    eligibilityWildcard(f.Breed),

@@ -124,6 +124,7 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.status = 'active'
 WHERE g.tenant_id = @tenant_id
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND (@species::text = '' OR g.species = @species::text)
   AND (@stage::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = @stage::text)
   AND (@sex::text = '' OR g.sex = @sex::text)
   AND (@breed::text = '' OR g.breed = @breed::text)
@@ -148,6 +149,7 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.status = 'active'
 WHERE g.tenant_id = @tenant_id
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND (@species::text = '' OR g.species = @species::text)
   AND (@stage::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = @stage::text)
   AND (@sex::text = '' OR g.sex = @sex::text)
   AND (@breed::text = '' OR g.breed = @breed::text)
@@ -179,6 +181,7 @@ LEFT JOIN animal_stage_lookup asl
 WHERE g.tenant_id = @tenant_id
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND g.shed_id IS NOT NULL
+  AND (@species::text = '' OR g.species = @species::text)
   AND (@stage::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = @stage::text)
   AND (@sex::text = '' OR g.sex = @sex::text)
   AND (@breed::text = '' OR g.breed = @breed::text)

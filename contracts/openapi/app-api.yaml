@@ -6083,11 +6083,15 @@ components:
       type: object
       additionalProperties: false
       properties:
+        species:
+          type: string
         stage:
           type: string
         sex:
           type: string
         breed:
+          type: string
+        health:
           type: string
         park_id:
           type: string

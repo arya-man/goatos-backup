@@ -25,6 +25,7 @@ import {
   buildRuleDsl,
   hasProofRequirement,
   ALL_STAGES_VALUE,
+  parseScope,
   newCompatibilityPolicy,
   newFeedFields,
   newPregnancyPolicy,
@@ -609,6 +610,7 @@ export function RuleEditorModal({
         title={copy(pageContract, "modal.rule_editor.guided.info_label")}
       >
         <Info className="ic" />
+        <span>{copy(pageContract, "modal.rule_editor.guided.info_label")}</span>
       </button>
     );
   }
@@ -797,6 +799,15 @@ export function RuleEditorModal({
   function rowDisplayName(row: VaccinationMatrixRow): string {
     return row.vaccine.name.trim() || row.vaccine.code.trim() || "matrix row";
   }
+  function rowComboLabel(row: VaccinationMatrixRow): string {
+    return [
+      rowDisplayName(row),
+      labelFromOptions(speciesOptions, row.species),
+      stageLabel(row.stage),
+      labelFromOptions(sexOptions, row.sex),
+      labelFromOptions(breedOptions, row.breed),
+    ].join(" / ");
+  }
   function rowDisplayCode(row: VaccinationMatrixRow): string {
     return row.vaccine.code.trim() || rowDisplayName(row);
   }
@@ -810,6 +821,40 @@ export function RuleEditorModal({
     if (stageCode === ALL_STAGES_VALUE)
       return optionLabel(pageContract, "animal_stage_scope", ALL_STAGES_VALUE);
     return animalStages.find((item) => item.code === stageCode)?.label ?? stageCode;
+  }
+  function healthLabel(healthCode: string): string {
+    return labelFromOptions(healthOptions, healthCode);
+  }
+  function selectedScopeLabel(): string {
+    const selected = scopeOptions.find((item) => item.key === scope);
+    return selected ? friendlyScopeLabel(selected) : scope;
+  }
+  function impactScopeSummary(): string {
+    const stockLabel = vaccineInventoryItemId.trim()
+      ? copy(pageContract, "modal.rule_editor.impact_stock_set")
+      : copy(pageContract, "modal.rule_editor.impact_stock_missing");
+    return [
+      rowComboLabel(selectedMatrixRow),
+      selectedScopeLabel(),
+      healthLabel(health),
+      `${selectedDoses().length} ${copy(pageContract, "modal.rule_editor.guided.dose_rows_count")}`,
+      stockLabel,
+    ].join(" · ");
+  }
+  function impactExplanation() {
+    return (
+      <div className="cfgimpact-explain">
+        <div className="cfgimpact-scope">
+          <b>{copy(pageContract, "modal.rule_editor.impact_scope_label")}</b>
+          <span>{impactScopeSummary()}</span>
+        </div>
+        <div>
+          <b>{copy(pageContract, "modal.rule_editor.impact_method_title")}</b>
+          <p>{copy(pageContract, "modal.rule_editor.impact_method_body")}</p>
+        </div>
+        <p>{copy(pageContract, "modal.rule_editor.impact_scale_note")}</p>
+      </div>
+    );
   }
   function selectedRowPreset(): SourceVaccinePreset | undefined {
     return findSourcePreset(selectedMatrixRow.vaccine.code || selectedMatrixRow.vaccine.name);
@@ -1192,13 +1237,10 @@ export function RuleEditorModal({
     ],
   );
 
-  const dsl = useMemo(
-    () =>
-      category === "vaccination"
-        ? buildVaccinationMatrixPreview(input, activeScopedMatrixRows)
-        : buildRuleDsl(input),
-    [category, input, activeScopedMatrixRows],
-  );
+  const dsl =
+    category === "vaccination"
+      ? buildVaccinationMatrixPreview(input, activeScopedMatrixRows)
+      : buildRuleDsl(input);
   const inputSig = useMemo(
     () => JSON.stringify({ input, matrixRows, animalFilter }),
     [input, matrixRows, animalFilter],
@@ -1312,10 +1354,19 @@ export function RuleEditorModal({
     if (category !== "vaccination") return;
     startTransition(async () => {
       const scheduleRows = selectedDoses().length;
+      const parsedScope = parseScope(scope);
+      const vaccineItemId = vaccineInventoryItemId.trim();
       const res = await runImpactPreview({
+        species,
         stage,
         sex,
         breed,
+        health,
+        park_id:
+          parsedScope.type === "park" && parsedScope.id
+            ? parsedScope.id
+            : undefined,
+        vaccine_item_id: vaccineItemId || undefined,
         doses_per_goat: scheduleRows,
         dose_rows: scheduleRows,
         horizon_days: 30,
@@ -2043,6 +2094,14 @@ export function RuleEditorModal({
                         <summary className="b700">
                           {copy(pageContract, "modal.rule_editor.guided.schedule_editor")}
                         </summary>
+                        <div className="cfgdose-scope">
+                          <span>{copy(pageContract, "modal.rule_editor.guided.selected_combo_label")}</span>
+                          <b>{rowComboLabel(selectedMatrixRow)}</b>
+                          <span className="tag t-info">
+                            {selectedRowDoses.length}{" "}
+                            {copy(pageContract, "modal.rule_editor.guided.dose_rows_count")}
+                          </span>
+                        </div>
                         <div className="muted small" style={{ margin: "6px 0 8px" }}>
                           {copy(pageContract, "modal.rule_editor.guided.schedule_hint")}
                         </div>
@@ -2176,7 +2235,7 @@ export function RuleEditorModal({
                                       }
                                     />
                                   </td>
-                                  <td style={{ minWidth: 170 }}>
+                                  <td style={{ minWidth: 220 }}>
                                     <div className="cfgchk" aria-label={copy(pageContract, "modal.rule_editor.table.proof_policy")}>
                                       {csvValues(d.proofCsv).length > 0 ? (
                                         csvValues(d.proofCsv).map((token) => (
@@ -2382,10 +2441,10 @@ export function RuleEditorModal({
                       );
                     })}
                   </div>
-                  <div className="note">
-                    <CheckCircle2 className="ic" />
-                      <div>{vaccineLotPolicy}</div>
-                    </div>
+                  <div className="cfgpolicy-note">
+                    <span>{copy(pageContract, "modal.rule_editor.guided.vaccine_lot_policy_label")}</span>
+                    <b>{vaccineLotPolicy}</b>
+                  </div>
                     <div
                       className="cfgchk"
                       aria-label={copy(
@@ -2487,11 +2546,15 @@ export function RuleEditorModal({
                       </div>
                     ))
                   : null}
+                {impactExplanation()}
               </>
             ) : (
-              <p className="muted small">
-                {copy(pageContract, "modal.rule_editor.preview_empty_vaccination")}
-              </p>
+              <>
+                <p className="muted small">
+                  {copy(pageContract, "modal.rule_editor.preview_empty_vaccination")}
+                </p>
+                {impactExplanation()}
+              </>
             )}
           </div>
 
@@ -4625,16 +4688,20 @@ export function RuleEditorModal({
                     </div>
                   ))
                 : null}
+              {category === "vaccination" ? impactExplanation() : null}
             </>
           ) : (
-            <p className="muted small">
-              {copy(
-                pageContract,
-                isFeedDirection
-                  ? "modal.rule_editor.preview_empty_feed"
-                  : "modal.rule_editor.preview_empty_vaccination",
-              )}
-            </p>
+            <>
+              <p className="muted small">
+                {copy(
+                  pageContract,
+                  isFeedDirection
+                    ? "modal.rule_editor.preview_empty_feed"
+                    : "modal.rule_editor.preview_empty_vaccination",
+                )}
+              </p>
+              {category === "vaccination" ? impactExplanation() : null}
+            </>
           )}
         </div>
 

@@ -106,6 +106,7 @@ type ImpactFilter struct {
 	TenantID          string
 	ProtocolVersionID string
 	AsOf              time.Time
+	Species           string
 	Stage             string
 	Sex               string
 	Breed             string

@@ -28,15 +28,17 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.status = 'active'
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
-  AND ($2::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $2::text)
-  AND ($3::text = '' OR g.sex = $3::text)
-  AND ($4::text = '' OR g.breed = $4::text)
-  AND ($5::text = '' OR COALESCE(g.health_status, '') = $5::text)
-  AND ($6::uuid IS NULL OR g.park_id = $6::uuid)
+  AND ($2::text = '' OR g.species = $2::text)
+  AND ($3::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $3::text)
+  AND ($4::text = '' OR g.sex = $4::text)
+  AND ($5::text = '' OR g.breed = $5::text)
+  AND ($6::text = '' OR COALESCE(g.health_status, '') = $6::text)
+  AND ($7::uuid IS NULL OR g.park_id = $7::uuid)
 `
 
 type CountCatchupGoatsParams struct {
 	TenantID pgtype.UUID
+	Species  string
 	Stage    string
 	Sex      string
 	Breed    string
@@ -48,6 +50,7 @@ type CountCatchupGoatsParams struct {
 func (q *Queries) CountCatchupGoats(ctx context.Context, arg CountCatchupGoatsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countCatchupGoats,
 		arg.TenantID,
+		arg.Species,
 		arg.Stage,
 		arg.Sex,
 		arg.Breed,
@@ -82,15 +85,17 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.status = 'active'
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
-  AND ($2::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $2::text)
-  AND ($3::text = '' OR g.sex = $3::text)
-  AND ($4::text = '' OR g.breed = $4::text)
-  AND ($5::text = '' OR COALESCE(g.health_status, '') = $5::text)
-  AND ($6::uuid IS NULL OR g.park_id = $6::uuid)
+  AND ($2::text = '' OR g.species = $2::text)
+  AND ($3::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $3::text)
+  AND ($4::text = '' OR g.sex = $4::text)
+  AND ($5::text = '' OR g.breed = $5::text)
+  AND ($6::text = '' OR COALESCE(g.health_status, '') = $6::text)
+  AND ($7::uuid IS NULL OR g.park_id = $7::uuid)
 `
 
 type CountEligibleGoatsParams struct {
 	TenantID pgtype.UUID
+	Species  string
 	Stage    string
 	Sex      string
 	Breed    string
@@ -103,6 +108,7 @@ type CountEligibleGoatsParams struct {
 func (q *Queries) CountEligibleGoats(ctx context.Context, arg CountEligibleGoatsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countEligibleGoats,
 		arg.TenantID,
+		arg.Species,
 		arg.Stage,
 		arg.Sex,
 		arg.Breed,
@@ -138,15 +144,17 @@ LEFT JOIN animal_stage_lookup asl
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND g.shed_id IS NOT NULL
-  AND ($2::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $2::text)
-  AND ($3::text = '' OR g.sex = $3::text)
-  AND ($4::text = '' OR g.breed = $4::text)
-  AND ($5::text = '' OR COALESCE(g.health_status, '') = $5::text)
-  AND ($6::uuid IS NULL OR g.park_id = $6::uuid)
+  AND ($2::text = '' OR g.species = $2::text)
+  AND ($3::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $3::text)
+  AND ($4::text = '' OR g.sex = $4::text)
+  AND ($5::text = '' OR g.breed = $5::text)
+  AND ($6::text = '' OR COALESCE(g.health_status, '') = $6::text)
+  AND ($7::uuid IS NULL OR g.park_id = $7::uuid)
 `
 
 type CountEligibleShedScopesParams struct {
 	TenantID pgtype.UUID
+	Species  string
 	Stage    string
 	Sex      string
 	Breed    string
@@ -158,6 +166,7 @@ type CountEligibleShedScopesParams struct {
 func (q *Queries) CountEligibleShedScopes(ctx context.Context, arg CountEligibleShedScopesParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countEligibleShedScopes,
 		arg.TenantID,
+		arg.Species,
 		arg.Stage,
 		arg.Sex,
 		arg.Breed,

@@ -22,18 +22,22 @@ const (
 )
 
 func seedGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, lifecycle, stage string, shed bool) {
+	seedAnimal(t, ctx, pool, id, "goat", lifecycle, stage, shed)
+}
+
+func seedAnimal(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, species, lifecycle, stage string, shed bool) {
 	t.Helper()
 	shedExpr := "NULL"
-	args := []any{id, impTenant, lifecycle, impParty, impCbe, stage}
+	args := []any{id, impTenant, lifecycle, species, impParty, impCbe, stage}
 	if shed {
-		shedExpr = "$5"
+		shedExpr = "$6"
 	}
 	_, err := pool.Exec(ctx,
 		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
 			   current_location_id, park_id, shed_id, management_stage)
-			 VALUES ($1, $2, $3, 'goat', $4, 'female', $5, $5, `+shedExpr+`, $6)`, args...)
+			 VALUES ($1, $2, $3, $4, $5, 'female', $6, $6, `+shedExpr+`, $7)`, args...)
 	if err != nil {
-		t.Fatalf("seed goat %s: %v", id, err)
+		t.Fatalf("seed %s %s: %v", species, id, err)
 	}
 }
 
@@ -51,6 +55,7 @@ func TestImpactPreviewLiveCounts(t *testing.T) {
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a4", "sick", "K1", true)
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000b1", "alive", "K2", true)
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000c1", "dead", "K1", true)
+	seedAnimal(t, ctx, pool, "20000000-0000-4000-8000-0000000000d1", "sheep", "alive", "K1", true)
 	if _, err := pool.Exec(ctx,
 		`UPDATE goats SET health_status='sick' WHERE tenant_id=$1 AND goat_id='20000000-0000-4000-8000-0000000000c1'`,
 		impTenant); err != nil {
@@ -74,7 +79,7 @@ func TestImpactPreviewLiveCounts(t *testing.T) {
 	item := impItem
 	loc := impCbe
 	out, err := svc.ImpactPreview(ctx, domain.ImpactRequest{
-		Filter:        domain.ImpactFilter{TenantID: impTenant, Stage: "K1", ParkID: &park},
+		Filter:        domain.ImpactFilter{TenantID: impTenant, Species: "goat", Stage: "K1", ParkID: &park},
 		VaccineItemID: &item,
 		LocationID:    &loc,
 		DosesPerGoat:  1,
@@ -114,7 +119,7 @@ func TestImpactPreviewLiveCounts(t *testing.T) {
 	}
 
 	allOut, err := svc.ImpactPreview(ctx, domain.ImpactRequest{
-		Filter:       domain.ImpactFilter{TenantID: impTenant, Stage: "all", Sex: "all", Breed: "all", Health: "any", ParkID: &park},
+		Filter:       domain.ImpactFilter{TenantID: impTenant, Species: "all", Stage: "all", Sex: "all", Breed: "all", Health: "any", ParkID: &park},
 		DosesPerGoat: 1,
 		DoseRows:     2,
 		HorizonDays:  30,
@@ -123,11 +128,11 @@ func TestImpactPreviewLiveCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("impact all/any wildcard: %v", err)
 	}
-	if allOut.EligibleGoats != 5 {
-		t.Fatalf("all/any wildcard eligible: want 5 live goats in park, got %d", allOut.EligibleGoats)
+	if allOut.EligibleGoats != 6 {
+		t.Fatalf("all/any wildcard eligible: want 6 live animals in park, got %d", allOut.EligibleGoats)
 	}
-	if allOut.Obligations != 10 {
-		t.Fatalf("all/any wildcard obligations: want 10, got %d", allOut.Obligations)
+	if allOut.Obligations != 12 {
+		t.Fatalf("all/any wildcard obligations: want 12, got %d", allOut.Obligations)
 	}
 	if allOut.Batches != 1 {
 		t.Fatalf("all/any wildcard batches: want 1, got %d", allOut.Batches)
