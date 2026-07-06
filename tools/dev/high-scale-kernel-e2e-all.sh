@@ -4,18 +4,56 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 run_id="${GOATOS_KERNEL_E2E_RUN_ID:-KERNEL-E2E-$(date -u +%Y%m%d-%H%M%S)}"
 report_dir="${GOATOS_KERNEL_E2E_REPORT_DIR:-$repo_root/.codex-goatos-render/high-scale-kernel-e2e/$run_id}"
-scope="${GOATOS_KERNEL_E2E_SCOPE:-vaccination_slice_local}"
+certification_mode="${GOATOS_KERNEL_E2E_CERTIFICATION:-0}"
+if [ "$certification_mode" = "1" ]; then
+  scope="${GOATOS_KERNEL_E2E_SCOPE:-strict_certification}"
+  allow_not_implemented="${GOATOS_KERNEL_E2E_ALLOW_NOT_IMPLEMENTED:-0}"
+else
+  scope="${GOATOS_KERNEL_E2E_SCOPE:-vaccination_slice_local}"
+  allow_not_implemented="${GOATOS_KERNEL_E2E_ALLOW_NOT_IMPLEMENTED:-1}"
+fi
 run_static="${GOATOS_KERNEL_E2E_RUN_STATIC:-1}"
 run_tests="${GOATOS_KERNEL_E2E_RUN_TESTS:-1}"
 run_live="${GOATOS_KERNEL_E2E_RUN_LIVE:-1}"
 run_browser="${GOATOS_KERNEL_E2E_RUN_BROWSER:-0}"
-allow_not_implemented="${GOATOS_KERNEL_E2E_ALLOW_NOT_IMPLEMENTED:-1}"
+allow_local_checksum_drift="${GOATOS_KERNEL_E2E_ALLOW_LOCAL_CHECKSUM_DRIFT:-0}"
 local_database_url="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable}"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 local_user_id="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000101}"
 api_base_url="${GOATOS_API_BASE_URL:-http://127.0.0.1:8080}"
 admin_web_base_url="${GOATOS_ADMIN_WEB_BASE_URL:-http://127.0.0.1:3300}"
 auth_secret="${GOATOS_AUTH_HS256_SECRET:-goatos-local-dev-secret-32-bytes-min}"
+
+require_bool() {
+  local name="$1"
+  local value="$2"
+  case "$value" in
+    0 | 1) ;;
+    *)
+      printf '%s must be 0 or 1, got %q\n' "$name" "$value" >&2
+      exit 2
+      ;;
+  esac
+}
+
+require_bool GOATOS_KERNEL_E2E_CERTIFICATION "$certification_mode"
+require_bool GOATOS_KERNEL_E2E_ALLOW_NOT_IMPLEMENTED "$allow_not_implemented"
+require_bool GOATOS_KERNEL_E2E_ALLOW_LOCAL_CHECKSUM_DRIFT "$allow_local_checksum_drift"
+
+if [ "$certification_mode" = "1" ] && [ "$allow_not_implemented" != "0" ]; then
+  printf 'GOATOS_KERNEL_E2E_CERTIFICATION=1 requires GOATOS_KERNEL_E2E_ALLOW_NOT_IMPLEMENTED=0\n' >&2
+  exit 2
+fi
+
+if [ "$certification_mode" = "1" ] && [ "$allow_local_checksum_drift" = "1" ]; then
+  printf 'GOATOS_KERNEL_E2E_CERTIFICATION=1 cannot use GOATOS_KERNEL_E2E_ALLOW_LOCAL_CHECKSUM_DRIFT=1\n' >&2
+  exit 2
+fi
+
+migrate_flags=()
+if [ "$allow_local_checksum_drift" = "1" ]; then
+  migrate_flags+=("-allow-local-checksum-drift")
+fi
 
 mkdir -p "$report_dir"
 
@@ -105,7 +143,7 @@ not_run() {
 
 kernel_test_packages="./internal/protocol/... ./internal/vaccination/... ./internal/obligation/... ./internal/inventory/... ./internal/outbox/... ./internal/notification/... ./internal/calendar/... ./internal/processintegrity/... ./internal/sop/... ./internal/procurement/... ./cmd/outbox-dlq ./cmd/outbox-relay ./cmd/domain-event-consumer ./cmd/notification-dispatcher ./cmd/obligation-sweeper ./cmd/generate-vaccination-obligations ./cmd/calendar-vaccination-projector ./cmd/calendar-reminder-sweeper ./cmd/calendar-escalation-sweeper ./cmd/idempotency-key-sweeper"
 
-log "High-scale kernel E2E-all run_id=$run_id scope=$scope report_dir=$report_dir"
+log "High-scale kernel E2E-all run_id=$run_id scope=$scope certification=$certification_mode report_dir=$report_dir"
 
 if [ "$run_static" = "1" ]; then
   run_step "static guards: hot-index migrations" "make validate-hot-index-migrations"
@@ -121,7 +159,7 @@ if [ "$run_tests" = "1" ]; then
 fi
 
 if [ "$run_live" = "1" ]; then
-  run_step "local dev DB migration head" "cd backend && GOATOS_ENV=local DATABASE_URL='$local_database_url' go run ./cmd/migrate -allow-local-checksum-drift"
+  run_step "local dev DB migration head" "cd backend && GOATOS_ENV=local DATABASE_URL='$local_database_url' go run ./cmd/migrate ${migrate_flags[*]}"
   run_step "live vaccination chain proof" "DATABASE_URL='$local_database_url' bash tools/dev/vaccination-chain-proof.sh"
   run_step "live procurement vaccination matrix" "GOATOS_E2E_RUN_ID='$run_id' DATABASE_URL='$local_database_url' bash tools/dev/procurement-vaccination-e2e-matrix.sh"
   if [ "$run_browser" = "1" ]; then
@@ -181,9 +219,22 @@ not_implemented "multi-domain scoped generation for multi_domain_kernel certific
 not_implemented "1M full-chain staging scale certification thresholds" "requires goatos-stg 1M benchmark profile, loaded dataset checksum, and scaled EXPLAIN ANALYZE evidence"
 
 {
+  report_result="passed"
+  if [ "$overall_status" -ne 0 ]; then
+    report_result="failed"
+  fi
   printf '%s\n\n' '# High-Scale Kernel E2E Report'
   printf '%s\n' "- Run ID: \`$run_id\`"
+  printf '%s\n' "- Result: \`$report_result\`"
   printf '%s\n' "- Scope: \`$scope\`"
+  printf '%s\n' "- Certification mode: \`$certification_mode\`"
+  printf '%s\n' "- Allows not-implemented rows: \`$allow_not_implemented\`"
+  printf '%s\n' "- Allows local checksum drift: \`$allow_local_checksum_drift\`"
+  if [ "$certification_mode" = "1" ]; then
+    printf '%s\n' "- Certification claim: \`strict_candidate\`"
+  else
+    printf '%s\n' "- Certification claim: \`none_local_proof_only\`"
+  fi
   printf '%s\n' "- Started/ended: \`$(timestamp)\`"
   printf '%s\n' "- Report directory: \`$report_dir\`"
   printf '\n## Commands\n\n'

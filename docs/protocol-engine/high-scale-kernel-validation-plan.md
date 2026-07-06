@@ -506,19 +506,23 @@ A kernel slice is not closed until the report lists these cases and their result
 The E2E report must say `passed`, `failed`, or `not implemented yet` per item.
 No silent blanks.
 
-Canonical local runner:
+Canonical runners:
 
 ```bash
 make high-scale-kernel-e2e-data   # static guards + backend kernel tests + data-plane E2E
 make high-scale-kernel-e2e-all    # same, plus live admin-web/browser smoke
+make high-scale-kernel-e2e-certification  # strict: no checksum drift and no not-implemented rows
 ```
 
-Both commands write a timestamped report under
+These commands write a timestamped report under
 `.codex-goatos-render/high-scale-kernel-e2e/<run_id>/report.md`, including the
 command logs and the full checklist table above. The local `vaccination_slice`
 scope may list cloud/staging/multi-domain certification rows as `not implemented
 yet`; the strict certification goal is to drive those rows to `passed` before a
-cloud or 1M full-chain claim.
+cloud or 1M full-chain claim. Local checksum drift is not accepted by default;
+`GOATOS_KERNEL_E2E_ALLOW_LOCAL_CHECKSUM_DRIFT=1` is an explicit non-certification
+escape hatch for throwaway local databases only, and the strict certification
+target forbids it.
 
 ## 10. Current Feedback Triage
 
