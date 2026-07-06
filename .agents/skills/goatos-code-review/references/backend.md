@@ -9,7 +9,7 @@ and scale concerns, pair this with `references/kernel-and-scale.md`.
 
 ```
 backend/
-  cmd/                 # ~37 binaries: api (HTTP server) + workers/sweepers/relays
+  cmd/                 # api (HTTP server) + workers/sweepers/relays/checkers
   internal/
     <module>/          # domain modules (obligation, vaccination, protocol,
       domain/          #   calendar, notification, proof, sop, inventory,
@@ -62,24 +62,49 @@ Check for:
 
 - [ ] Parameterized queries only — no string-concatenated SQL
 - [ ] Every scoped query filters `tenant_id` (multi-tenant isolation)
+- [ ] Path params (`{goat_id}`, `{location_id}`, `{proof_id}`, `{task_id}`, etc.)
+      are re-scoped by tenant in the query; RBAC pass is not tenant scope
 - [ ] Atomic work uses a single transaction (state + audit + outbox together)
-- [ ] Concurrent writes lock rows (`SELECT … FOR UPDATE`) rather than racing
+- [ ] Concurrent writes lock rows (`SELECT … FOR UPDATE`) rather than racing;
+      multi-worker claim queries use `SKIP LOCKED`, leases, or another
+      double-claim-safe pattern
 - [ ] Keyset pagination + explicit `LIMIT` on list queries; no unbounded scans
 - [ ] Hot-path queries have an indexed access path; `make validate-sqlc-plans`
       updated when the query touches import/animal/event/counter rows at scale
-- [ ] Migrations: `CREATE INDEX CONCURRENTLY`; no `NOT NULL` without `DEFAULT` on
-      large existing tables; partition high-volume tables; migrations are ordered
-      and idempotent-safe
+- [ ] Migrations on populated hot tables use no-lock rollout patterns:
+      `CREATE INDEX CONCURRENTLY`, `NOT VALID`, `VALIDATE CONSTRAINT`,
+      `USING INDEX`, and `-- +goose NO TRANSACTION`; run
+      `make validate-hot-index-migrations` + `make validate-migrations`
+
+## Auth, tenant, and abuse resistance
+
+- [ ] Every new/changed route is registered in `permissions/routes.go`
+      `protectedRoutes`; fail-closed registration is not enough if the permission
+      is too weak
+- [ ] Mutation routes use the least-privilege permission for the write's actual
+      sensitivity, not a nearby read/general permission
+- [ ] Expensive, auth-adjacent, import, proof/media, replay, or repair endpoints
+      have an abuse/rate-limit/backpressure story
+- [ ] `dev_headers` auth bypass remains environment/flag gated and cannot be
+      enabled in production-like environments
+- [ ] Proof/media paths enforce tenant scope, signed URL expiry, content hash,
+      size/type limits, and no API byte proxying for large media
 
 ## Observability & resilience
 
 - [ ] Loggers built via `backend/internal/platform/observability` — never hand-rolled
       `slog.New`; sink from `GOATOS_OBS_SINK`. See `docs/decisions/observability.md`.
 - [ ] Log once at boundaries with trace / request / tenant / import_run_id context
+- [ ] Trace/request context crosses async boundaries where needed
+      (outbox -> Pub/Sub/eventbus -> consumer), not only HTTP
 - [ ] New APIs/workers add metrics: latency, errors, DB pressure, queue lag, DLQ, media failures
+- [ ] Queue metrics include actionable lag/backlog SLOs such as oldest-unsent or
+      oldest-unacked age; reconciler mismatch counters have alerts/owners
 - [ ] Metric labels low-cardinality (no per-animal IDs, no free text, no path params)
 - [ ] External calls (HTTP, Pub/Sub, GCS, Cloud Tasks) have explicit timeouts + ctx cancellation
 - [ ] Retries only on idempotent ops with bounded backoff; DLQ + max-attempts, no unbounded retry
+- [ ] Provider integrations that can fail under load have circuit-breaker states
+      and operator-visible pending/replay/discard paths
 - [ ] Logging redaction rule: secrets only (credentials, tokens, service-account JSON).
       Goat identifiers (RFID, old tag, breed, farm, shed) are livestock data, NOT
       PII — log them so a failure traces to the exact animal/row.
@@ -96,6 +121,9 @@ Check for:
 - [ ] New handlers: success AND each error path covered
 - [ ] State machines / transactions / migrations: integration test via `platform/pgtest`
 - [ ] Idempotency tests: first call, exact replay, same-key different-payload, downstream dup prevention
+- [ ] Migration tests cover up/down/apply against existing data/backfill shape for
+      schema changes on hot tables
+- [ ] Scale-sensitive paths include query-plan/load evidence, not only unit tests
 - [ ] Tests run with `-race`; use CRG `query_graph_tool tests_for` to confirm the change is covered
 
 ## Style

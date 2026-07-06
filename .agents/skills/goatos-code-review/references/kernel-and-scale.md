@@ -40,7 +40,7 @@ near-term retries/reminders (minutes-hours). Losing a task must never lose work.
    scheduler / status field / proof capture / notification sender rather than
    emitting into the kernel chain. Every process joins the shared kernel.
 2. **State + audit + outbox not in one transaction.** Canonical write and its
-   `outbox_events` / audit rows must commit together (`BEGIN … COMMIT`). Split
+   `outbox_messages` / audit rows must commit together (`BEGIN … COMMIT`). Split
    transactions lose the event or the state on failure.
 3. **Direct process-status write that skips the flow.** e.g. setting
    `obligation_instances.status = 'completed'` in an app service instead of going
@@ -98,9 +98,44 @@ CRITICAL scale violations:
    `docs/decisions/high-scale-dashboard-projections.md` — durable projections,
    not raw scans.
 
-Migration hygiene at scale: `CREATE INDEX CONCURRENTLY`; no `NOT NULL` without
-`DEFAULT` on large existing tables; partition high-volume tables (events, audit,
-history, media) by date/scope.
+Migration hygiene at scale: for populated hot tables, require a no-lock rollout:
+`CREATE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY` in `-- +goose NO
+TRANSACTION` sections; add `CHECK`/`FOREIGN KEY` constraints as `NOT VALID` and
+validate separately; attach uniqueness/primary keys via `USING INDEX`; do not add
+direct `UNIQUE`, `PRIMARY KEY`, `EXCLUDE`, `CHECK`, or `FOREIGN KEY` constraints
+to populated hot tables without an explicit reviewed rollout. Run
+`make validate-hot-index-migrations` and `make validate-migrations` for migration
+changes, plus `make validate-sqlc-plans` for hot queries.
+
+High-scale certification gates: kernel/scale changes must either run or clearly
+mark not-applicable/not-implemented for `make high-scale-kernel-e2e-data`,
+`make high-scale-kernel-e2e-all`, or strict
+`make high-scale-kernel-e2e-certification`. Reports must list measured threshold,
+pass/fail, and evidence for each relevant case.
+
+Additional hard scale checks reviewers must name when touched:
+- [ ] Tenant-fair/noisy-neighbor behavior for workers and relays; quiet tenants
+      still make progress under skewed load
+- [ ] Work claims use `FOR UPDATE SKIP LOCKED`, leases/advisory locks, or another
+      double-claim-safe pattern, with stale-claim recovery
+- [ ] Pub/Sub/event consumers ack only after durable handling, configure flow
+      control/ack deadlines where applicable, and dedupe redelivery using a
+      processed-event identity
+- [ ] Retry backoff is bounded and jittered; DLQ replay/discard is an explicit
+      audited operator or repair action with zero duplicate business effects
+- [ ] Outbox and worker backlog have visible lag/oldest-unsent SLOs, not only
+      durable rows
+- [ ] Idempotency scopes have a replay window, expiry/retention policy, and
+      bounded index growth; new namespaces are covered by `idempotency-key-sweeper`
+- [ ] Partition rollover/coverage is maintained (`partition-maintainer` /
+      `goatos_ensure_partition_coverage`), and closed/cold history does not stay
+      in hot read paths
+- [ ] Backfills/imports cannot race live kernel writes; row-version or other
+      optimistic/convergent repair behavior is reviewed
+- [ ] Multi-step sagas record partial-failure state and compensation/repair; no
+      orphaned reservations, obligations, proof rows, or half-applied fanout
+- [ ] Calendar-day decisions that affect due/missed/recovered/drive-planned dates
+      use the intended location calendar, not accidental UTC day boundaries
 
 ## SOLID / generic-engine review
 
@@ -184,8 +219,8 @@ Mismatch classes a reviewer confirms are covered (event guarantee OR reconciler)
 | Obligation open but animal exited/sold/dead/shifted | stale-cancel / re-scope on state change |
 | Drive/batch count ≠ actual eligible animals (missing/extra) | drive-membership reconciliation (candidate scoring / EDF — planner brain; verify built before relying on it) |
 | Deadline passed but status never set `missed` | `obligation-sweeper` mark-missed |
-| Stuck `in_progress` / abandoned assignment | timeout reconciler → reopen/reassign |
-| Orphaned stock reservation (batch cancelled, not released) | `inventory-batch-reconciler` |
+| Stuck `in_progress` / abandoned assignment | timeout reconciler → reopen/reassign; if no reconciler exists yet, mark this as required/unbuilt rather than assuming one ships |
+| Orphaned stock reservation (batch canceled, not released) | `inventory-batch-reconciler` |
 | Outbox event never delivered / consumer lag | `outbox-relay` + `outbox-dlq` |
 | Read model / projection ≠ source | projection-recompute + parity-check |
 
@@ -205,6 +240,8 @@ sweeper's scope, and make it idempotent + bounded + metered from the start.
 - [ ] Sweepers/queries bounded: tenant/date filters, indexed, cursor resume, `LIMIT`, keyset pagination
 - [ ] No unbounded goroutines / full-herd in-memory loads
 - [ ] Hot-path DB/migration changes have indexed access + `make validate-sqlc-plans`
+- [ ] Migration changes on populated hot tables run `make validate-hot-index-migrations` + `make validate-migrations`
+- [ ] Scale-sensitive changes run or explicitly report the relevant high-scale E2E/certification target
 - [ ] Durable status persisted by sweeper; read-time compute only for display derivation
 - [ ] New domain extends the generic engine by config, not by copying it
 - [ ] Escalations/reminders are durable `notification_requests` via `NotificationGateway`, not logs

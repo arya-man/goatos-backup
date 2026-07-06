@@ -1,8 +1,10 @@
 # Review Toolchain — CRG · Graphify · RTK · repowise
 
-Four complementary tools drive a Goat OS review. All four auto-update on file
-edits (PostToolUse hooks) and are set up by `make ai-setup`; verify portability
-with `make ai-doctor`. All outputs are gitignored and machine-local.
+Four complementary tools drive a Goat OS review. CRG, the docs graph, and
+repowise refresh on edits through hooks. RTK is different: it routes large
+display diffs and noisy command output before the tool call; it has no index to
+refresh. All are set up by `make ai-setup`; verify portability with
+`make ai-doctor`. All outputs are gitignored and machine-local.
 
 Golden order: **graph-first, files-last.** One graph query replaces many
 grep/read cycles. Native Grep/Read is the fallback for graph blind spots.
@@ -18,7 +20,7 @@ architecture, dead code, and test coverage. `repo_root` = your goatos checkout
 Load the review tools:
 
 ```
-ToolSearch "select:mcp__code-review-graph__get_minimal_context_tool,mcp__code-review-graph__detect_changes_tool,mcp__code-review-graph__get_review_context_tool,mcp__code-review-graph__get_impact_radius_tool,mcp__code-review-graph__get_affected_flows_tool,mcp__code-review-graph__query_graph_tool,mcp__code-review-graph__get_architecture_overview_tool,mcp__code-review-graph__semantic_search_nodes_tool"
+ToolSearch "select:mcp__code_review_graph.get_minimal_context_tool,mcp__code_review_graph.detect_changes_tool,mcp__code_review_graph.get_review_context_tool,mcp__code_review_graph.get_impact_radius_tool,mcp__code_review_graph.query_graph_tool,mcp__code_review_graph.get_architecture_overview_tool,mcp__code_review_graph.semantic_search_nodes_tool"
 ```
 
 Route by task shape (do not run all of them every time):
@@ -29,7 +31,7 @@ Route by task shape (do not run all of them every time):
 | What changed + risk + test gaps | `detect_changes_tool` |
 | Source snippets for the changed area | `get_review_context_tool` |
 | Blast radius of a change | `get_impact_radius_tool` |
-| Which kernel flows are touched | `get_affected_flows_tool` |
+| Which kernel flows are touched | `detect_changes_tool` flow/risk output, then targeted `query_graph_tool` |
 | Who calls / depends on / tests X | `query_graph_tool` (callers_of / callees_of / imports_of / tests_for) |
 | Find code by keyword/domain | `semantic_search_nodes_tool` |
 | High-level shape / coupling | `get_architecture_overview_tool` |
@@ -123,8 +125,8 @@ these as signals that raise scrutiny, not automatic blocks.
 1. **Scope** — CRG `get_minimal_context_tool` → `detect_changes_tool` (changed
    symbols, affected flows, test gaps).
 2. **Diff** — `git diff main...HEAD` (RTK auto-routes if large).
-3. **Impact** — CRG `get_impact_radius_tool` + `get_affected_flows_tool`;
-   `query_graph_tool tests_for` for coverage.
+3. **Impact** — CRG `get_impact_radius_tool`; targeted `query_graph_tool`
+   (`callers_of`, `callees_of`, `tests_for`) for coverage and flow checks.
 4. **Health/risk** — repowise `risk` / `health` / `dead-code`.
 5. **Business cross-check** — Graphify docs graph for the touched rules; read the
    authoritative doc.
@@ -138,9 +140,11 @@ Then apply the layer checklist (`kernel-and-scale.md`, `backend.md`,
 
 ## Auto-update (no manual rebuild during review)
 
-Edits refresh the graphs in the background via PostToolUse hooks; a post-commit
-hook refreshes repowise. You normally do not rebuild mid-review. If a graph looks
-stale for freshly-changed code: `make ai-rebuild-code` (CRG),
+Edits refresh CRG, Graphify, and repowise in the background via PostToolUse
+hooks; repowise also installs a post-commit refresh hook. RTK has no graph/index.
+Before trusting an empty graph answer (`callers_of=0`, no tests, no importers),
+confirm the graph reflects the reviewed revision or verify with grep. If a graph
+looks stale for freshly-changed code: `make ai-rebuild-code` (CRG),
 `make ai-rebuild-docs` (Graphify), `make ai-rebuild-repowise` (repowise), or
 `make ai-rebuild` for all three. Verify the clone is wired and graph artifacts
 stay untracked with `make ai-doctor`.

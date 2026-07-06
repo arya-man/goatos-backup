@@ -73,8 +73,9 @@ only what the graphs point at. Full operator manual: `references/toolchain.md`.
 2. **View the diff (RTK).** `git diff main...HEAD` — the `pre-rtk-git-diff.sh`
    hook auto-routes large diffs through `rtk` so raw diff bytes never flood
    context. (`GOATOS_RTK=0` to bypass; gate `GOATOS_RTK_MIN_BYTES`, default 50000.)
-3. **Blast radius (CRG).** `get_impact_radius_tool` + `get_affected_flows_tool` —
-   who calls the changed symbols, which kernel flows are touched.
+3. **Blast radius (CRG).** `get_impact_radius_tool` plus targeted
+   `query_graph_tool` calls — who calls the changed symbols, which kernel flows
+   are touched.
    `query_graph_tool tests_for` — is the change tested?
 4. **Health & risk (repowise).** `repowise risk <range>` (defect risk of the
    change), `repowise health`, `repowise dead-code`; or `repowise serve` →
@@ -128,6 +129,11 @@ as a scheduling input.
 Reviews that end in an accepted change push to `main` via the Mesha/VGoats token
 (never a `gh` account — this workspace also has Heva/Slice accounts that must not
 touch this repo):
+
+Before any push, state and verify the authority tuple: branch, remote org/repo,
+git identity, and that `MESHA_GITHUB_PAT` is present. For Goat OS the target must
+be Mesha/VGoats (`vgoats/goatos`) on `main`; stop if the remote or identity points
+at Heva, Slice, or any non-Mesha organization.
 
 ```bash
 # from the goatos checkout root

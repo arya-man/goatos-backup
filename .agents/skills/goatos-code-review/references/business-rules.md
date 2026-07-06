@@ -26,7 +26,9 @@ Key rules a reviewer checks (source: `vaccination-rules.md`):
   killed-viral same-day allowed. "Two live same day" is NOT a rule (that's the
   4-week gap).
 - **Max 2 shots per animal per drive/visit.** Explicit allowed same-drive combos
-  only (e.g. FMD+HS; PPR+BlueTongue for sheep; ET+TT+PPR for procurement adults).
+  only. The examples here are non-exhaustive; review against the active source
+  docs and `backend/internal/obligation/app/drive_planner_config.go` before
+  flagging or approving a combo.
 - **Warm-up hold:** 7 days from farm-entry date (not source dose date).
 - **Species selection is real:** obligations select by species/age/stage. Goat Pox
   = goat-only; Sheep Pox / Blue Tongue = sheep-only; ET+TT / PPR / FMD / HS = all.
@@ -41,9 +43,11 @@ Key rules a reviewer checks (source: `vaccination-rules.md`):
 - **Drive batching:** may hold a due shed/tag group up to 7 calendar days to
   combine with a compatible same-park group — ONE-TIME per obligation/dose cycle,
   no rolling postponement.
-- **Missed-dose handling is cycle-relative** (next-drive distance decides catch-up
-  vs wait). Trusted prior evidence (our supervised parks / procurement holding
-  parks only) suppresses scheduled work; third-party/vendor claims do NOT.
+- **Missed-dose handling is cycle-relative**: if the next drive is a later cycle,
+  vaccinate immediately; if the same-cycle drive is within 2 weeks, wait for it;
+  if the same-cycle drive is more than 2 weeks away, vaccinate immediately.
+  Trusted prior evidence (our supervised parks / procurement holding parks only)
+  suppresses scheduled work; third-party/vendor claims do NOT.
 
 ### Forbidden — never accept:
 - [ ] **Mother-vaccination status as a scheduling input** — explicitly rejected
@@ -64,13 +68,33 @@ Key rules a reviewer checks (source: `vaccination-rules.md`):
 
 ## Obligation engine (source: `docs/protocol-engine/obligation-engine.md`)
 
-- **State machine:** `pending → due → assigned → in_progress → completed / cancelled / deferred`.
-  Verify only legal transitions; deferred re-evaluates on exit; cancellation is
-  explicit (not stale cleanup) and recorded in status events.
+- **State machine:** `scheduled → due → in_progress → deferred → completed /
+  missed / waived / canceled / superseded`. Verify only committed CHECK values;
+  reject `pending`, `assigned`, and British-spelled `cancelled` as durable
+  obligation statuses. Deferred re-evaluates on exit. Closed rows
+  (`completed`, `missed`, `waived`, `canceled`, `superseded`) are immutable
+  history; corrections create new work or repair/correction records, never
+  rewrite closed truth.
+- **Date semantics:** due dates, missed marking, recovery re-entry, and drive
+  planned dates are calendar decisions. Review whether the code intentionally
+  uses the animal/location calendar (locations default to `Asia/Kolkata`) instead
+  of accidentally deriving the day from UTC.
 - **Generation** is event-driven (birth / procurement / stage-change / prior-dose
   completion → booster). Deterministic idempotency key + duplicate-spawn guard.
+- **Birth-age schedules require DOB truth:** `birth_age` rules must fail visibly
+  or defer with reason when DOB/estimated DOB is missing; do not silently skip
+  animals into no-work/no-gap states.
 - **Re-scope (SM-2):** an animal-state change (pregnancy enter/exit, stage change)
   re-evaluates eligibility — may open new dues or suppress current ones.
+- **Animal exit (death/sale/cull/lost/transfer):** open obligations/batches must
+  be canceled or repaired, stock reservations released/reconciled, status/audit
+  evidence emitted, and projections refreshed so exited animals do not remain
+  overdue.
+- **In-flight version/override changes:** activation previews open obligations
+  and in-progress batches. Open future work may be canceled/superseded/reissued
+  only through explicit repair with status events; in-progress batches and closed
+  history stay on their original version unless a documented correction path says
+  otherwise.
 - **Authority:** vaccination config publish is CEO/COO/superadmin only
   (`protocol.publish.<category>`); rule versions are immutable and resolved by
   scope policy (`tenant_default_with_park_overrides`) + effective dates
@@ -109,9 +133,10 @@ as a snapshot, not gospel.
   generic inventory/FEFO, SOP definitions/submissions + proof/verification.
 - **DEFERRED (spec exists, kernel wiring pending):** feed-direction generation/Diff
   (awaits counts/shifting closure), generic calendar projection beyond the
-  vaccination slice, procurement intake saga, SM-2 re-scope wiring, missed-deadline
-  escalation / SLA waterfall read models, vaccination coverage KPI projection,
-  herd-animal Path B rename (`herd_animals`/`animal_id`).
+  vaccination slice (do not confuse this with the shipped vaccination calendar
+  projector/reminder/escalation workers), procurement intake saga, SM-2 re-scope
+  wiring, missed-deadline escalation / SLA waterfall read models, vaccination
+  coverage KPI projection, herd-animal Path B rename (`herd_animals`/`animal_id`).
 - **PARKED / rejected (not V1 — reject as scope creep):** mother-vaccination status
   as input; breeding/genetics verticals; separate config rows for deworming /
   biosecurity / feed-water testing / sanitation / SOP-video / stock-checks;
