@@ -140,10 +140,10 @@ default in migrations/config). Reviewer checks:
   field checklists, current animal snapshots, copied shed rows, vaccination
   history lists, or per-animal JSON payloads. Current animal/location/procurement/
   completion facts come from canonical tables or indexed target-facts read
-  models such as `animal_protocol_facts` (verify the current schema name before
-  citing it). If SQL-selectable predicates are needed, published cells compile
-  to derived dimension rows (e.g. a `protocol_rule_dimension_values`-style
-  table); those rows are derived from `rule_dsl`, not the authoring source.
+  models (verify the current schema name before citing it). If SQL-selectable
+  predicates are needed, published cells compile to derived dimension rows in the
+  `protocol_rule_dimensions` table; those rows are derived from `rule_dsl`, not
+  the authoring source.
   Source: `docs/preventive-care-vaccination/PRD.md` "Rule JSON is policy, herd
   facts are database facts" and `TRD.md` "Rule JSON vs. herd facts boundary".
 - **Generation** is event-driven (birth / procurement / stage-change / prior-dose
@@ -189,6 +189,12 @@ default in migrations/config). Reviewer checks:
   - [ ] Rule versions are immutable; resolution is scope policy
         (tenant-default-with-park-overrides) + effective dates with non-overlap
         enforced per scope. Impact preview required before activation.
+  - [ ] **Every publishable category has an explicit capability seed — there is no
+        `protocol.publish.*` wildcard.** Adding a new `protocol_definitions.category`
+        must ship a migration granting `protocol.publish.<category>` to the
+        publishing roles; without it the category is silently un-publishable
+        (`docs/protocol-engine/obligation-engine.md`). Flag a new category added
+        without its publish-capability seed.
 
 ## Legacy replacement parity and import/replay
 

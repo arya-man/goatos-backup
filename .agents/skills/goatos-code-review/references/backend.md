@@ -230,6 +230,16 @@ TTL (illustratively ~15 min — verify `defaultSignedURLTTL` in
 - [ ] Logging redaction rule: secrets only (credentials, tokens, service-account JSON).
       Goat identifiers (RFID, old tag, breed, farm, shed) are livestock data, NOT
       PII — log them so a failure traces to the exact animal/row.
+- [ ] **No secret committed to source or config.** A diff must not add a hardcoded
+      credential, API key, bearer/OAuth token, DB password/DSN, private key, or
+      service-account JSON to Go source, YAML/JSON config, migrations, or test
+      fixtures. Secrets come from Secret Manager or the environment (`GOATOS_*` /
+      injected secret refs) and are validated present at startup — never inlined.
+      This is separate from the log-redaction rule above (that governs runtime
+      output; this governs the committed tree), and there is no CI secret-scanner
+      backstop, so the reviewer is the gate. Flag any real-looking key/token/`-----BEGIN`
+      block added to the tree; a rotated/exposed secret must be rotated, not just
+      deleted from the diff.
 
 ## Time & scheduling correctness
 
@@ -276,6 +286,12 @@ TTL (illustratively ~15 min — verify `defaultSignedURLTTL` in
       watermark, unavailable sources, rebuild/stale flags, projection version).
       Stale, rebuilding, source-unavailable, or approximate responses must be
       visible to clients; do not serve projection data as if it is fresh truth.
+- [ ] **Rate/percentage projections store `numerator` and `denominator`, not only
+      the final percentage** (`docs/decisions/high-scale-dashboard-projections.md`).
+      A bare stored `%` cannot be re-aggregated, re-based, or blended across
+      sources, and a mixed-source rate then reads as fresh canonical truth. During
+      a legacy→canonical cutover the projection also records source composition/
+      version so a blended rate is never shown as pure canonical.
 
 ## Testing
 

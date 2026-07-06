@@ -186,6 +186,15 @@ CRITICAL scale violations:
    envelope (`as_of`/`last_success_at`, `freshness_status`, `serving_state`,
    source watermark/unavailable sources, stale/rebuild flags, projection
    version); a stale or approximate response must say so.
+8. **N+1 per-animal queries in a loop.** A list, generation, projection, or
+   drive-planning path that issues one DB round-trip per animal (fetch history/
+   proof/compatibility/eligibility/label per row inside an animal loop) instead of
+   one bulk read per keyset page. Bounded goroutines and keyset paging do NOT help
+   if each page still fans out to a query per animal — at 1M animals that is 1M
+   round-trips. Require: history/proof/compatibility reads are **bulk per page,
+   not N+1 per animal**, and per-run lookups (e.g. active protocol version) are
+   cached per park/run, not re-queried per animal
+   (`docs/protocol-engine/high-scale-kernel-validation-plan.md`).
 
 ## Business audit vs technical logs
 
@@ -469,6 +478,7 @@ start.
 - [ ] Every new event consumer dedupes at-least-once redelivery + out-of-order via a processed-event identity; acks only after durable handling
 - [ ] Sweepers/queries bounded: tenant/date filters, indexed, cursor resume, `LIMIT`, keyset pagination
 - [ ] No unbounded goroutines / full-herd in-memory loads
+- [ ] No N+1 per-animal queries: history/proof/compatibility/label reads are bulk per keyset page, not one round-trip per animal; per-run lookups cached per park/run
 - [ ] Hot-path DB/migration changes have indexed access + `make validate-sqlc-plans`
 - [ ] Scale/staging proof for hot reads includes seeded `ANALYZE` +
       `EXPLAIN (ANALYZE, BUFFERS)` without `enable_seqscan=off`, not only static
