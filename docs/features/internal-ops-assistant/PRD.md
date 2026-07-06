@@ -190,6 +190,7 @@ resolve_vaccine_or_protocol(phrase, date?)
 get_missed_vaccination_targets(date, vaccine_or_protocol?, park_id?, shed_id?)
 get_next_vaccination_drives(scope, park_id?, shed_id?, vaccine_or_protocol?)
 get_vaccination_catchup_plan(animal_id, vaccine_or_protocol?)
+get_vaccination_catchup_candidates(scope, park_id?, shed_id?, vaccine_or_protocol?, week?)
 get_vaccination_exception_summary(scope, date_range, group_by)
 ```
 
@@ -232,9 +233,13 @@ Counts must label what they count:
 - `obligation_count` counts due doses/obligations.
 - `distinct_animal_count` counts unique herd animals.
 - group summaries must not present obligation counts as animal counts.
-- species is a first-class filter and grouping dimension. User wording may say
-  "goats", but the system must also support sheep and future species where the
-  underlying domain pack supports them.
+- species defaults to all species in the assistant chat layer. Colloquial
+  wording such as "goats" or "sheep" is not treated as a species filter, so
+  "which goats missed vaccination" is answered across every species the pack
+  supports. The chat layer narrows by species only on an explicit, unambiguous
+  request. This all-species default lives only in natural-language
+  interpretation; ops-query params, tool schemas, read models, and the data
+  model keep species exact and are never loosened by chat wording.
 
 Every paginated answer must distinguish full visible totals from returned rows:
 
@@ -294,7 +299,9 @@ Every operational answer must include:
   answer: `as_of` or `last_success_at`, `freshness_status`, `serving_state`,
   `stale`, `rebuild_required`, `source_watermark`, `unavailable_sources`,
   `conflict_count`, `projection_version`, and `source_composition` when
-  applicable.
+  applicable. When the backing endpoint does not yet emit freshness metadata,
+  set `freshness_status = unknown`, leave unsupplied fields null, and do not
+  claim currency or an `as_of` the source did not return.
 - Source route/tool names and key identifiers.
 - Count taxonomy, including obligation count versus distinct animal count where
   both can differ.
@@ -372,7 +379,9 @@ Eval dimensions:
 - Forbidden-claim evals for ignored source-rule branches such as dam/mother
   vaccination status in Preventive Care scheduling.
 - Truncation and full-count evals.
-- Species evals for goat and sheep where the capability pack supports both.
+- Species evals: chat defaults to all species, colloquial "goats"/"sheep" is not
+  a species filter, and explicit species narrowing still works where the pack
+  supports goat and sheep.
 - Tool failure and retry behavior.
 - Answer provenance and source link coverage.
 - No hallucinated animal IDs, counts, vaccines, dates, or owners.

@@ -129,8 +129,11 @@ POST /assistant/evals/runs
 ```
 
 Implementation may start with `POST /assistant/messages:answer` as a thin
-stateless route, but the contract should preserve a path to durable sessions and
-tool-call audit before production rollout.
+stateless route, but that stateless path is read-only only. Any mutating or safe
+action requires durable sessions, persisted `assistant_tool_calls`, and the
+frozen-preview idempotency record, so the stateless path must be disabled for
+answers that can trigger a mutating tool. The contract should preserve a path to
+durable sessions and tool-call audit before production rollout.
 
 Required request context:
 
@@ -152,7 +155,9 @@ Required response fields:
 - freshness envelope: `as_of` or `last_success_at`, `freshness_status`,
   `serving_state`, `stale`, `rebuild_required`, `source_watermark`,
   `unavailable_sources`, `conflict_count`, `projection_version`, and
-  `source_composition` when applicable
+  `source_composition` when applicable. When a wrapped source does not supply
+  freshness metadata, set `freshness_status = unknown`, leave unsupplied fields
+  null, and do not assert currency
 - full visible count, returned count, truncation flag, and count taxonomy
 - clarification request when needed
 - unauthorized/no-data/missing-capability status when applicable
@@ -188,7 +193,7 @@ Initial tool families:
 | --- | --- |
 | Scope | `resolve_business_scope`, `resolve_location`, `resolve_animal_identifier` |
 | Vaccination | `list_action_center`, `list_calendar_drives`, `list_drive_targets`, `get_goat_passport` |
-| Ops-query | `get_missed_vaccination_targets`, `get_next_vaccination_drives`, `get_exception_summary` |
+| Ops-query | `get_missed_vaccination_targets`, `get_next_vaccination_drives`, `get_vaccination_catchup_candidates`, `get_exception_summary` |
 | Policy docs | `search_protocol_docs`, `explain_vaccination_rule` |
 | Actions | `send_calendar_nudge`, `snooze_calendar_event`, `acknowledge_escalation` |
 | Analytics | `query_governed_metric`, `list_metric_definitions` |
@@ -219,6 +224,15 @@ getGoatVaccinationPassport
 These wrappers should call generated clients or internal app services. Do not
 hand-copy DTOs into assistant code.
 
+Existing vaccination and calendar endpoints predate the assistant freshness
+envelope and do not yet emit `freshness_status`, `serving_state`,
+`source_watermark`, `projection_version`, `rebuild_required`, `stale`, or
+`last_success_at`. Until those endpoints are extended, wrapped-tool answers must
+set `freshness_status = unknown`, leave unsupplied envelope fields null, and must
+not claim currency or an `as_of` the source did not return. Extending the
+existing vaccination/calendar read endpoints to emit the freshness envelope is
+explicit v1 work; only the new ops-query facade emits the full envelope today.
+
 ## Ops-Query API
 
 Add assistant-shaped read APIs only where existing endpoints force unreliable
@@ -230,6 +244,7 @@ Initial routes:
 GET /ops-query/vaccination/missed-targets
 GET /ops-query/vaccination/next-drives
 GET /ops-query/vaccination/catchup-plan
+GET /ops-query/vaccination/catchup-candidates
 GET /ops-query/vaccination/exceptions
 GET /ops-query/scope/resolve-location
 GET /ops-query/scope/resolve-animal
@@ -240,7 +255,7 @@ Example:
 ```text
 GET /ops-query/vaccination/missed-targets
   date=2026-07-06
-  vaccine_code=PPR
+  vaccine_or_protocol=PPR
   park_id=...
   shed_id=...
   group_by=park,shed
@@ -322,8 +337,15 @@ projection. Sort by `window_start`, then `due_at`, then `event_id`. Catch-up
 drives are included only when the event/source type marks them as scheduled or
 actionable for the actor's visible scope.
 
-Species is a first-class query dimension. Tool schemas must accept `species`
-where the backing capability pack is mixed-species. Legacy route names such as
+Species handling is split by layer. In the assistant chat layer, species
+defaults to all species: colloquial wording such as "goats" or "sheep" is not a
+species filter, so "which goats missed vaccination" answers across every species
+the pack supports. The chat layer narrows by species only on an explicit,
+unambiguous request. Outside chat, species stays exact everywhere else -
+ops-query params, tool schemas, read models, and the data model must not inherit
+the loose chat default and must still represent species precisely. Tool schemas
+may expose an optional `species` filter, but it defaults to all species and is
+never set from colloquial species words. Legacy route names such as
 `/goats/{goat_id}/passport` do not remove the requirement to answer animal-level
 questions for sheep where the underlying domain supports them.
 
@@ -689,7 +711,9 @@ Required tests:
 - Query-plan and row-limit tests for ops-query SQL.
 - Truncation tests proving `full_visible_count`, `returned_count`, and
   `result_truncated` are visible to the user.
-- Species filter/group tests for goat and sheep where the pack supports both.
+- Species default/filter tests: chat treats colloquial "goats"/"sheep" as all
+  species, and explicit species narrowing still filters/groups goat and sheep
+  where the pack supports both.
 - Snapshot/eval tests for answer provenance and forbidden claims.
 
 Production readiness requires local and cloud smoke tests with seeded data and
