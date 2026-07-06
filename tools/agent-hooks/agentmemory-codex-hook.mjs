@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -24,6 +25,11 @@ const agentmemoryRoot =
   process.env.AGENTMEMORY_PLUGIN_ROOT ||
   "/opt/homebrew/lib/node_modules/@agentmemory/agentmemory/plugin/scripts";
 const scriptPath = join(agentmemoryRoot, scriptName);
+const projectName = process.env.GOATOS_AGENTMEMORY_PROJECT_NAME || "goatos";
+
+if (!existsSync(scriptPath)) {
+  process.exit(0);
+}
 
 let input = "";
 for await (const chunk of process.stdin) {
@@ -43,6 +49,7 @@ if (payload && typeof payload === "object") {
   // intended shared memory namespace is the Goat OS repo. Pin both namespace
   // and stored cwd so Claude Code and Codex sessions converge on one project.
   payload.cwd = repoRoot;
+  payload.project = projectName;
   forwardedInput = `${JSON.stringify(payload)}\n`;
 }
 
@@ -51,8 +58,7 @@ const result = spawnSync(process.execPath, [scriptPath], {
   stdio: ["pipe", "inherit", "inherit"],
   env: {
     ...process.env,
-    AGENTMEMORY_PROJECT_NAME:
-      process.env.GOATOS_AGENTMEMORY_PROJECT_NAME || "goatos",
+    AGENTMEMORY_PROJECT_NAME: projectName,
     AGENTMEMORY_URL:
       process.env.AGENTMEMORY_URL || "http://localhost:3111",
     AGENTMEMORY_INJECT_CONTEXT:
