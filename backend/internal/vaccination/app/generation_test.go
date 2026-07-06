@@ -181,7 +181,7 @@ func TestManualCampaignHTTPRunReplaysByIdempotencyKey(t *testing.T) {
 	}
 }
 
-func TestManualCampaignHTTPRunFailedRetryReusesOriginalAsOf(t *testing.T) {
+func TestManualCampaignHTTPRunPoisonGoatCompletesWithFailedCounter(t *testing.T) {
 	ctx := context.Background()
 	proto := &generationProtoFake{rules: []protodomain.Rule{
 		{RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "manual_campaign"},
@@ -194,19 +194,20 @@ func TestManualCampaignHTTPRunFailedRetryReusesOriginalAsOf(t *testing.T) {
 
 	firstAt := time.Date(2026, time.June, 27, 8, 0, 0, 0, time.UTC)
 	secondAt := firstAt.Add(5 * time.Minute)
-	if _, _, err := gen.GenerateManualCampaignForVersionWithHTTPRun(ctx, "tenant-1", "version-1", "catchup", firstAt, "manual-key-failed", "hash-1"); err == nil {
-		t.Fatalf("first manual campaign should fail after partial insert")
+	_, firstResult, err := gen.GenerateManualCampaignForVersionWithHTTPRun(ctx, "tenant-1", "version-1", "catchup", firstAt, "manual-key-failed", "hash-1")
+	if err != nil {
+		t.Fatalf("first manual campaign: %v", err)
 	}
-	if len(obl.inserted) != 1 || !runs.byKey["manual-key-failed"].StartedAt.Equal(firstAt) || runs.byKey["manual-key-failed"].Status != "failed" {
-		t.Fatalf("first failed state inserted=%#v run=%#v", obl.inserted, runs.byKey["manual-key-failed"])
+	if firstResult.Generated != 1 || firstResult.FailedGoats != 1 || len(obl.inserted) != 1 || !runs.byKey["manual-key-failed"].StartedAt.Equal(firstAt) || runs.byKey["manual-key-failed"].Status != "completed" {
+		t.Fatalf("first completed state inserted=%#v result=%#v run=%#v", obl.inserted, firstResult, runs.byKey["manual-key-failed"])
 	}
 
 	_, result, err := gen.GenerateManualCampaignForVersionWithHTTPRun(ctx, "tenant-1", "version-1", "catchup", secondAt, "manual-key-failed", "hash-1")
 	if err != nil {
-		t.Fatalf("retry manual campaign: %v", err)
+		t.Fatalf("replay manual campaign: %v", err)
 	}
-	if result.Generated != 1 || len(obl.inserted) != 2 {
-		t.Fatalf("retry result=%#v inserted=%#v, want one remaining insert only", result, obl.inserted)
+	if result.Generated != 1 || result.FailedGoats != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("replay result=%#v inserted=%#v, want original completed run with failed counter", result, obl.inserted)
 	}
 	for i, obligation := range obl.inserted {
 		if !obligation.DueAt.Equal(firstAt) {
@@ -572,6 +573,61 @@ func TestGenerateEffectiveForAllGoatsSkipsExitedBeforeVersionLookup(t *testing.T
 	}
 	if len(proto.effectiveParkID) != 1 || proto.effectiveParkID[0] != "park-alive" {
 		t.Fatalf("effective park lookups=%#v, want no lookup for exited goat", proto.effectiveParkID)
+	}
+}
+
+func TestGenerateForVersionContinuesAfterPoisonGoat(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","defer_states":["sick","quarantine","ICU"]}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "healthy", Stage: "K1", DOB: &dob},
+		{GoatID: "goat-2", LifecycleStatus: "alive", HealthStatus: "healthy", Stage: "K1", DOB: &dob},
+		{GoatID: "goat-3", LifecycleStatus: "alive", HealthStatus: "healthy", Stage: "K1", DOB: &dob},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}, failOnceAfterInserted: 1}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 2 || result.FailedGoats != 1 || len(obl.inserted) != 2 {
+		t.Fatalf("result=%#v inserted=%#v, want poison goat counted and later goat processed", result, obl.inserted)
+	}
+	if obl.inserted[0].TargetID != "goat-1" || obl.inserted[1].TargetID != "goat-3" {
+		t.Fatalf("inserted=%#v, want goat-1 and goat-3 after goat-2 failed", obl.inserted)
+	}
+}
+
+func TestGenerateEffectiveForAllGoatsContinuesAfterPoisonGoat(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","defer_states":["sick","quarantine","ICU"]}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "healthy", Stage: "K1", DOB: &dob},
+		{GoatID: "goat-2", LifecycleStatus: "alive", HealthStatus: "healthy", Stage: "K1", DOB: &dob},
+		{GoatID: "goat-3", LifecycleStatus: "alive", HealthStatus: "healthy", Stage: "K1", DOB: &dob},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}, failOnceAfterInserted: 1}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateEffectiveForAllGoats(ctx, "tenant-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate effective: %v", err)
+	}
+	if result.Generated != 2 || result.FailedGoats != 1 || len(obl.inserted) != 2 {
+		t.Fatalf("result=%#v inserted=%#v, want poison goat counted and later goat processed", result, obl.inserted)
 	}
 }
 
@@ -1755,6 +1811,7 @@ func (r *generationRunRecorderFake) StartGenerationRun(_ context.Context, in dom
 			run.Generated = 0
 			run.Deferred = 0
 			run.Reopened = 0
+			run.FailedGoats = 0
 			run.SkippedNoDueDate = 0
 			run.SuppressedByTrustedHistory = 0
 			run.LastError = ""
@@ -1790,6 +1847,7 @@ func (r *generationRunRecorderFake) FinishGenerationRun(_ context.Context, tenan
 		run.Generated = result.Generated
 		run.Deferred = result.Deferred
 		run.Reopened = result.Reopened
+		run.FailedGoats = result.FailedGoats
 		run.SkippedNoDueDate = result.SkippedNoDueDate
 		run.SuppressedByTrustedHistory = result.SuppressedByTrustedHistory
 		run.LastError = lastError

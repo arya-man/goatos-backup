@@ -18,6 +18,9 @@ func TestParseFlagsDefaultsAsOfToUTCDayBucket(t *testing.T) {
 	if !cfg.AsOf.Equal(want) {
 		t.Fatalf("AsOf=%s, want stable UTC day bucket %s", cfg.AsOf, want)
 	}
+	if cfg.RecoveryRepairLimit != 1000 || cfg.RecoveryRepairAge != 7*24*time.Hour {
+		t.Fatalf("recovery repair defaults limit=%d age=%s", cfg.RecoveryRepairLimit, cfg.RecoveryRepairAge)
+	}
 }
 
 func TestParseFlagsExplicitAsOfOverridesDayBucket(t *testing.T) {
@@ -33,5 +36,21 @@ func TestParseFlagsExplicitAsOfOverridesDayBucket(t *testing.T) {
 	want := time.Date(2026, time.June, 29, 12, 34, 56, 0, time.UTC)
 	if !cfg.AsOf.Equal(want) {
 		t.Fatalf("AsOf=%s, want explicit value %s", cfg.AsOf, want)
+	}
+}
+
+func TestParseFlagsRecoveryRepairControls(t *testing.T) {
+	cfg, err := parseFlags([]string{
+		"-tenant-id", "00000000-0000-4000-8000-000000000001",
+		"-recovery-repair-limit", "250",
+		"-recovery-repair-age", "72h",
+	}, func() time.Time {
+		return time.Date(2026, time.June, 29, 15, 4, 5, 0, time.UTC)
+	})
+	if err != nil {
+		t.Fatalf("parseFlags: %v", err)
+	}
+	if cfg.RecoveryRepairLimit != 250 || cfg.RecoveryRepairAge != 72*time.Hour {
+		t.Fatalf("recovery repair controls limit=%d age=%s", cfg.RecoveryRepairLimit, cfg.RecoveryRepairAge)
 	}
 }

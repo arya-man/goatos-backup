@@ -303,6 +303,9 @@ SELECT batch_id,
          + CASE WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
               THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
               ELSE 0 END
+         + CASE WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+              ELSE 0 END
        )::numeric AS release_qty
 FROM obligation_batches
 WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
@@ -310,6 +313,7 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
     context #>> '{defer_repair,state}' = 'stock_reconcile_required'
     OR context #>> '{shift_repair,state}' = 'stock_reconcile_required'
     OR context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+    OR context #>> '{missed_repair,state}' = 'stock_reconcile_required'
   )
 ORDER BY updated_at ASC, batch_id ASC
 LIMIT 100
@@ -326,6 +330,110 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND goat_id > '00000000-0000-0000-0000-000000000000'::uuid
 ORDER BY goat_id
 LIMIT 500;"
+}
+
+validate_vaccination_impact_count_plans() {
+  local impact_predicates="
+FROM goats g
+CROSS JOIN (
+  SELECT 7::int AS warmup_no_vaccination_days,
+         TIMESTAMPTZ '2026-06-29 12:00:00+00' AS as_of
+) ip
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+LEFT JOIN shed_profiles sp
+  ON sp.tenant_id = g.tenant_id
+ AND sp.location_id = g.shed_id
+LEFT JOIN animal_stage_lookup asl
+  ON asl.tenant_id = sp.tenant_id
+ AND asl.animal_stage_id = sp.animal_stage_id
+ AND asl.status = 'active'
+WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND g.lifecycle_status = 'alive'
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(loa.usable_for_vaccination, true)
+  AND NOT COALESCE(loa.is_quarantine, false)
+  AND NOT COALESCE(loa.is_icu, false)
+  AND (
+    ip.warmup_no_vaccination_days <= 0
+    OR COALESCE((
+      SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz)
+             + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of
+      FROM procurement_load_goats plg
+      WHERE plg.tenant_id = g.tenant_id
+        AND plg.goat_id = g.goat_id
+      ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+      LIMIT 1
+    ), g.entry_date IS NULL OR g.entry_date::timestamptz + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of)
+  )
+  AND ('goat'::text = '' OR g.species = 'goat'::text)
+  AND ('K1'::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = 'K1'::text)
+  AND ('female'::text = '' OR g.sex = 'female'::text)
+  AND ('beetal'::text = '' OR g.breed = 'beetal'::text)
+  AND ('healthy'::text = '' OR COALESCE(g.health_status, '') = 'healthy'::text)"
+
+  explain_must_use_index "VaccinationImpactCountEligibleGoats" 'Seq Scan on goats|Seq Scan on procurement_load_goats|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
+SELECT count(*)::bigint AS total
+$impact_predicates;"
+
+  explain_must_use_index "VaccinationImpactCountCatchupGoats" 'Seq Scan on goats|Seq Scan on procurement_load_goats|Seq Scan on vaccination_completions|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
+SELECT count(DISTINCT g.goat_id)::bigint AS total
+$impact_predicates
+  AND EXISTS (
+    SELECT 1
+    FROM vaccination_completions vc
+    WHERE vc.tenant_id = g.tenant_id
+      AND vc.goat_id = g.goat_id
+      AND vc.status = 'accepted'
+  );"
+
+  explain_must_use_index "VaccinationImpactCountEligibleShedScopes" 'Seq Scan on goats|Seq Scan on procurement_load_goats|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
+SELECT count(DISTINCT g.shed_id)::bigint AS total
+$impact_predicates
+  AND g.shed_id IS NOT NULL;"
+
+  explain_must_use_index "VaccinationRecoverableDeferredRepairCandidates" 'Seq Scan on obligation_instances|Seq Scan on goats|Seq Scan on procurement_load_goats|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
+WITH earliest_by_goat AS (
+  SELECT DISTINCT ON (oi.target_id)
+         oi.target_id::text AS goat_id,
+         oi.due_at,
+         oi.obligation_id
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+  JOIN goats g
+    ON g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+  LEFT JOIN location_operational_attributes loa
+    ON loa.tenant_id = g.tenant_id
+   AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+  WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND oi.target_type = 'goat'
+    AND oi.status IN ('deferred', 'missed')
+    AND oi.due_at <= TIMESTAMPTZ '2026-06-22 12:00:00+00'
+    AND pd.category = 'vaccination'
+    AND g.lifecycle_status = 'alive'
+    AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    AND COALESCE(loa.usable_for_vaccination, true)
+    AND NOT COALESCE(loa.is_quarantine, false)
+    AND NOT COALESCE(loa.is_icu, false)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM vw_procurement_vaccination_excluded_goats ex
+      WHERE ex.tenant_id = oi.tenant_id
+        AND ex.goat_id = oi.target_id
+    )
+  ORDER BY oi.target_id, oi.due_at ASC, oi.obligation_id ASC
+)
+SELECT goat_id
+FROM earliest_by_goat
+ORDER BY due_at ASC, obligation_id ASC
+LIMIT 1000;"
 }
 
 validate_vaccination_review_queue_plan() {
@@ -968,6 +1076,7 @@ validate_inventory_fefo_plan
 validate_inventory_movements_ledger_plan
 validate_inventory_batch_reconcile_plan
 validate_vaccination_generation_scan_plan
+validate_vaccination_impact_count_plans
 validate_vaccination_review_queue_plan
 validate_vaccination_fanout_plan
 validate_sop_failed_submission_fanouts_plan

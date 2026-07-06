@@ -4558,11 +4558,13 @@ components:
         - generated
         - deferred
         - reopened
+        - failed_goats
         - skipped_no_due_date
         - suppressed_by_trusted_history
         - result_generated
         - result_deferred
         - result_reopened
+        - result_failed_goats
         - result_skipped_no_due_date
         - result_suppressed_by_trusted_history
       properties:
@@ -4600,6 +4602,9 @@ components:
         reopened:
           type: integer
           minimum: 0
+        failed_goats:
+          type: integer
+          minimum: 0
         skipped_no_due_date:
           type: integer
           minimum: 0
@@ -4618,6 +4623,9 @@ components:
           type: integer
           minimum: 0
         result_reopened:
+          type: integer
+          minimum: 0
+        result_failed_goats:
           type: integer
           minimum: 0
         result_skipped_no_due_date:

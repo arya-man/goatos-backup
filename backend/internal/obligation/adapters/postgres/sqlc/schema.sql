@@ -4555,6 +4555,7 @@ CREATE TABLE public.vaccination_generation_runs (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
     reopened_count integer DEFAULT 0 NOT NULL,
+    failed_goat_count integer DEFAULT 0 NOT NULL,
     CONSTRAINT vaccination_generation_runs_counts_check CHECK (((generated_count >= 0) AND (deferred_count >= 0) AND (reopened_count >= 0) AND (skipped_no_due_date_count >= 0) AND (suppressed_trusted_history_count >= 0))),
     CONSTRAINT vaccination_generation_runs_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT vaccination_generation_runs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text]))),

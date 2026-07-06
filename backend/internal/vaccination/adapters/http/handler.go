@@ -123,6 +123,7 @@ type manualCampaignRunResponse struct {
 	Generated                        int        `json:"generated"`
 	Deferred                         int        `json:"deferred"`
 	Reopened                         int        `json:"reopened"`
+	FailedGoats                      int        `json:"failed_goats"`
 	SkippedNoDueDate                 int        `json:"skipped_no_due_date"`
 	SuppressedByTrustedHistory       int        `json:"suppressed_by_trusted_history"`
 	CursorGoatID                     string     `json:"cursor_goat_id,omitempty"`
@@ -130,6 +131,7 @@ type manualCampaignRunResponse struct {
 	ResultGenerated                  int        `json:"result_generated"`
 	ResultDeferred                   int        `json:"result_deferred"`
 	ResultReopened                   int        `json:"result_reopened"`
+	ResultFailedGoats                int        `json:"result_failed_goats"`
 	ResultSkippedNoDueDate           int        `json:"result_skipped_no_due_date"`
 	ResultSuppressedByTrustedHistory int        `json:"result_suppressed_by_trusted_history"`
 }
@@ -196,6 +198,7 @@ func (h *Handler) RunManualCampaign(w http.ResponseWriter, r *http.Request) {
 		Generated:                        run.Generated,
 		Deferred:                         run.Deferred,
 		Reopened:                         run.Reopened,
+		FailedGoats:                      run.FailedGoats,
 		SkippedNoDueDate:                 run.SkippedNoDueDate,
 		SuppressedByTrustedHistory:       run.SuppressedByTrustedHistory,
 		CursorGoatID:                     run.CursorGoatID,
@@ -203,6 +206,7 @@ func (h *Handler) RunManualCampaign(w http.ResponseWriter, r *http.Request) {
 		ResultGenerated:                  result.Generated,
 		ResultDeferred:                   result.Deferred,
 		ResultReopened:                   result.Reopened,
+		ResultFailedGoats:                result.FailedGoats,
 		ResultSkippedNoDueDate:           result.SkippedNoDueDate,
 		ResultSuppressedByTrustedHistory: result.SuppressedByTrustedHistory,
 	})

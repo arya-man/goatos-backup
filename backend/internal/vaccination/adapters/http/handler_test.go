@@ -64,11 +64,13 @@ func (f *fakeCampaign) GenerateManualCampaignForVersionWithHTTPRun(_ context.Con
 			Generated:                  4,
 			Deferred:                   1,
 			Reopened:                   3,
+			FailedGoats:                1,
 			SuppressedByTrustedHistory: 2,
 		}, domain.GenerateResult{
 			Generated:                  4,
 			Deferred:                   1,
 			Reopened:                   3,
+			FailedGoats:                1,
 			SuppressedByTrustedHistory: 2,
 		}, nil
 }
@@ -101,7 +103,7 @@ func TestRunManualCampaignCallsGenerator(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("response json: %v", err)
 	}
-	if resp.RunID == "" || resp.TriggerType != "manual_campaign" || resp.Reopened != 3 || resp.ResultReopened != 3 || resp.ResultGenerated != 4 || resp.ResultSuppressedByTrustedHistory != 2 {
+	if resp.RunID == "" || resp.TriggerType != "manual_campaign" || resp.Reopened != 3 || resp.ResultReopened != 3 || resp.FailedGoats != 1 || resp.ResultFailedGoats != 1 || resp.ResultGenerated != 4 || resp.ResultSuppressedByTrustedHistory != 2 {
 		t.Fatalf("response body: %+v", resp)
 	}
 }

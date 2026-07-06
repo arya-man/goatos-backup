@@ -30,14 +30,17 @@ import (
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	vaccinationdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
 type config struct {
-	TenantID         string
-	VersionID        string
-	UnsafeVersionRun bool
-	AsOf             time.Time
-	Timeout          time.Duration
+	TenantID            string
+	VersionID           string
+	UnsafeVersionRun    bool
+	AsOf                time.Time
+	Timeout             time.Duration
+	RecoveryRepairLimit int
+	RecoveryRepairAge   time.Duration
 }
 
 func main() {
@@ -68,12 +71,24 @@ func run(args []string) error {
 	gen := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 
 	if cfg.VersionID == "" {
+		repair, repairCandidates, err := runRecoveryRepair(ctx, vaccinationRepo, gen, cfg.TenantID, cfg.AsOf, cfg.RecoveryRepairAge, cfg.RecoveryRepairLimit)
+		if err != nil {
+			return fmt.Errorf("vaccination recovery repair: %w", err)
+		}
+		if cfg.RecoveryRepairLimit > 0 {
+			fmt.Printf("recovery-repair candidates=%d generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
+				repairCandidates, repair.Generated, repair.Deferred, repair.Reopened, repair.FailedGoats, repair.SkippedNoDueDate, repair.SuppressedByTrustedHistory)
+		}
 		res, err := gen.GenerateEffectiveForAllGoats(ctx, cfg.TenantID, cfg.AsOf)
 		if err != nil {
 			return fmt.Errorf("generate effective cohort: %w", err)
 		}
-		fmt.Printf("generated effective-cohort generated=%d deferred=%d reopened=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
-			res.Generated, res.Deferred, res.Reopened, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
+		stuck, err := vaccinationRepo.CountRecoverableDeferredVaccinationObligations(ctx, cfg.TenantID, cfg.AsOf.Add(-cfg.RecoveryRepairAge))
+		if err != nil {
+			return fmt.Errorf("count recoverable deferred vaccination obligations: %w", err)
+		}
+		fmt.Printf("generated effective-cohort generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d stuck_recoverable_deferred=%d\n",
+			res.Generated, res.Deferred, res.Reopened, res.FailedGoats, res.SkippedNoDueDate, res.SuppressedByTrustedHistory, stuck)
 		return nil
 	}
 	if !cfg.UnsafeVersionRun {
@@ -91,10 +106,45 @@ func run(args []string) error {
 		if err != nil {
 			return fmt.Errorf("generate version %s: %w", versionID, err)
 		}
-		fmt.Printf("generated run=%s version=%s generated=%d deferred=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
-			run.RunID, versionID, res.Generated, res.Deferred, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
+		fmt.Printf("generated run=%s version=%s generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
+			run.RunID, versionID, res.Generated, res.Deferred, res.Reopened, res.FailedGoats, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
 	}
 	return nil
+}
+
+func runRecoveryRepair(ctx context.Context, repo *vaccinationpg.Repository, gen *vaccinationapp.GenerationService, tenantID string, asOf time.Time, age time.Duration, limit int) (vaccinationdomain.GenerateResult, int, error) {
+	var out vaccinationdomain.GenerateResult
+	if limit <= 0 {
+		return out, 0, nil
+	}
+	if age < 0 {
+		age = 0
+	}
+	goatIDs, err := repo.ListRecoverableDeferredVaccinationGoatIDs(ctx, tenantID, asOf.Add(-age), int32(limit))
+	if err != nil {
+		return out, 0, err
+	}
+	for _, goatID := range goatIDs {
+		res, err := gen.GenerateRecoveryRepairForGoat(ctx, tenantID, goatID, asOf)
+		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return out, len(goatIDs), err
+			}
+			out.FailedGoats++
+			continue
+		}
+		mergeGenerateResult(&out, res)
+	}
+	return out, len(goatIDs), nil
+}
+
+func mergeGenerateResult(dst *vaccinationdomain.GenerateResult, src vaccinationdomain.GenerateResult) {
+	dst.Generated += src.Generated
+	dst.Deferred += src.Deferred
+	dst.Reopened += src.Reopened
+	dst.FailedGoats += src.FailedGoats
+	dst.SkippedNoDueDate += src.SkippedNoDueDate
+	dst.SuppressedByTrustedHistory += src.SuppressedByTrustedHistory
 }
 
 func parseFlags(args []string, now func() time.Time) (config, error) {
@@ -104,6 +154,8 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	fs.StringVar(&cfg.VersionID, "version-id", "", "unsafe repair-only protocol version id; empty uses effective per-goat protocol resolution")
 	fs.BoolVar(&cfg.UnsafeVersionRun, "unsafe-version-id-bypass-effective-resolution", false, "allow version-id to bypass effective per-goat protocol resolution for a targeted repair run")
 	fs.DurationVar(&cfg.Timeout, "timeout", 120*time.Second, "generation timeout")
+	fs.IntVar(&cfg.RecoveryRepairLimit, "recovery-repair-limit", 1000, "max old deferred/missed vaccination goats to repair before the full effective-cohort scan; 0 disables")
+	fs.DurationVar(&cfg.RecoveryRepairAge, "recovery-repair-age", 7*24*time.Hour, "minimum age of deferred/missed vaccination obligations considered stuck/recoverable")
 	asOfRaw := fs.String("as-of", "", "RFC3339 as-of instant; default current UTC day bucket")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
@@ -124,6 +176,12 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	}
 	if cfg.Timeout <= 0 {
 		return config{}, errors.New("timeout must be positive")
+	}
+	if cfg.RecoveryRepairLimit < 0 {
+		return config{}, errors.New("recovery-repair-limit must be non-negative")
+	}
+	if cfg.RecoveryRepairAge < 0 {
+		return config{}, errors.New("recovery-repair-age must be non-negative")
 	}
 	return cfg, nil
 }

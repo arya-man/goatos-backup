@@ -54,6 +54,10 @@ migrate_flags=()
 if [ "$allow_local_checksum_drift" = "1" ]; then
   migrate_flags+=("-allow-local-checksum-drift")
 fi
+migrate_flags_text=""
+if [ "${#migrate_flags[@]}" -gt 0 ]; then
+  migrate_flags_text="${migrate_flags[*]}"
+fi
 
 mkdir -p "$report_dir"
 
@@ -159,7 +163,7 @@ if [ "$run_tests" = "1" ]; then
 fi
 
 if [ "$run_live" = "1" ]; then
-  run_step "local dev DB migration head" "cd backend && GOATOS_ENV=local DATABASE_URL='$local_database_url' go run ./cmd/migrate ${migrate_flags[*]}"
+  run_step "local dev DB migration head" "cd backend && GOATOS_ENV=local DATABASE_URL='$local_database_url' go run ./cmd/migrate $migrate_flags_text"
   run_step "live vaccination chain proof" "DATABASE_URL='$local_database_url' bash tools/dev/vaccination-chain-proof.sh"
   run_step "live procurement vaccination matrix" "GOATOS_E2E_RUN_ID='$run_id' DATABASE_URL='$local_database_url' bash tools/dev/procurement-vaccination-e2e-matrix.sh"
   if [ "$run_browser" = "1" ]; then

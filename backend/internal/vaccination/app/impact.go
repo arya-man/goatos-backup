@@ -67,11 +67,7 @@ func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (
 				"stock shortage: required "+strconv.FormatInt(out.DosesRequired, 10)+" > available "+available)
 		}
 		if earliest != nil && req.HorizonDays > 0 {
-			asOf := req.AsOf
-			if asOf.IsZero() {
-				asOf = time.Now()
-			}
-			if earliest.Before(asOf.AddDate(0, 0, req.HorizonDays)) {
+			if earliest.Before(filter.AsOf.AddDate(0, 0, req.HorizonDays)) {
 				out.Warnings = append(out.Warnings, "stock expiry before horizon: earliest "+earliest.Format("2006-01-02"))
 			}
 		}

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -377,6 +378,7 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 	after := ""
 	plans := make(map[string]cachedVersionPlan)
 	effectiveVersionsByPark := make(map[string][]string)
+	failedGoats := make(map[string]struct{})
 	for {
 		goats, err := s.goats.ListEligibleGoatsForGeneration(ctx, filter, after, s.page)
 		if err != nil {
@@ -443,7 +445,11 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 		}
 		for _, p := range pagePlans {
 			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
-				return res, err
+				if shouldAbortGeneration(err) {
+					return res, err
+				}
+				recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
+				continue
 			}
 		}
 		if int32(len(goats)) < s.page {
@@ -452,6 +458,13 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 		after = goats[len(goats)-1].GoatID
 	}
 	return res, nil
+}
+
+// GenerateRecoveryRepairForGoat runs a single-goat recovery repair using the same nearby-drive
+// alignment semantics as goat.health/location recovery events. It is used by bounded repair jobs so
+// recovered deferred goats do not depend on a full-herd scan reaching their page.
+func (s *GenerationService) GenerateRecoveryRepairForGoat(ctx context.Context, tenantID, goatID string, asOf time.Time) (domain.GenerateResult, error) {
+	return s.generateForGoat(ctx, tenantID, goatID, asOf, generationOptions{healthRecoveryAlign: true})
 }
 
 func (s *GenerationService) effectiveVersionsForPark(ctx context.Context, tenantID, parkID string, asOf time.Time, cache map[string][]string) ([]string, error) {
@@ -593,6 +606,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		filter.ParkID = &park
 	}
 	effectiveCache := make(map[string]map[string]struct{})
+	failedGoats := make(map[string]struct{})
 	after := ""
 	for {
 		goats, err := s.goats.ListEligibleGoatsForGeneration(ctx, filter, after, s.page)
@@ -640,7 +654,11 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		}
 		for _, p := range pagePlans {
 			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
-				return res, err
+				if shouldAbortGeneration(err) {
+					return res, err
+				}
+				recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
+				continue
 			}
 		}
 		if opts.heartbeat != nil {
@@ -652,6 +670,23 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		after = goats[len(goats)-1].GoatID
 	}
 	return res, nil
+}
+
+func shouldAbortGeneration(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func recordFailedGenerationGoat(res *domain.GenerateResult, seen map[string]struct{}, goatID string) {
+	key := strings.TrimSpace(goatID)
+	if key == "" {
+		res.FailedGoats++
+		return
+	}
+	if _, ok := seen[key]; ok {
+		return
+	}
+	seen[key] = struct{}{}
+	res.FailedGoats++
 }
 
 func (s *GenerationService) versionEffectiveForGoat(ctx context.Context, tenantID, parkID, versionID string, asOf time.Time, cache map[string]map[string]struct{}) (bool, error) {
@@ -1519,6 +1554,7 @@ func generationResultFromRun(run domain.GenerationRun) domain.GenerateResult {
 		Generated:                  run.Generated,
 		Deferred:                   run.Deferred,
 		Reopened:                   run.Reopened,
+		FailedGoats:                run.FailedGoats,
 		SkippedNoDueDate:           run.SkippedNoDueDate,
 		SuppressedByTrustedHistory: run.SuppressedByTrustedHistory,
 	}

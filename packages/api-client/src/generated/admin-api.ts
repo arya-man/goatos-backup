@@ -1807,6 +1807,7 @@ export interface components {
             generated: number;
             deferred: number;
             reopened: number;
+            failed_goats: number;
             skipped_no_due_date: number;
             suppressed_by_trusted_history: number;
             /** Format: uuid */
@@ -1815,6 +1816,7 @@ export interface components {
             result_generated: number;
             result_deferred: number;
             result_reopened: number;
+            result_failed_goats: number;
             result_skipped_no_due_date: number;
             result_suppressed_by_trusted_history: number;
         };

@@ -182,6 +182,7 @@ type GenerateResult struct {
 	Generated                  int
 	Deferred                   int
 	Reopened                   int
+	FailedGoats                int
 	SkippedNoDueDate           int
 	SuppressedByTrustedHistory int
 }
@@ -201,6 +202,7 @@ type GenerationRun struct {
 	Generated                  int
 	Deferred                   int
 	Reopened                   int
+	FailedGoats                int
 	SkippedNoDueDate           int
 	SuppressedByTrustedHistory int
 	CursorGoatID               string

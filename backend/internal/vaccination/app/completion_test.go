@@ -256,6 +256,8 @@ type completionRepoFake struct {
 	byID           map[string]*completionRowFake
 	byKey          map[string]string
 	rejectOnAccept map[string]bool
+	stockAvailable string
+	stockExpiry    *time.Time
 	next           int
 }
 
@@ -373,7 +375,11 @@ func (r *completionRepoFake) CountEligibleShedScopes(context.Context, domain.Imp
 }
 
 func (r *completionRepoFake) SumAvailableStock(context.Context, string, string, *string) (string, *time.Time, error) {
-	return "0", nil, nil
+	available := r.stockAvailable
+	if available == "" {
+		available = "0"
+	}
+	return available, r.stockExpiry, nil
 }
 
 func (r *completionRepoFake) ListEligibleGoatsForGeneration(context.Context, domain.ImpactFilter, string, int32) ([]domain.EligibleGoat, error) {

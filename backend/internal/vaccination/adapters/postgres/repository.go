@@ -89,6 +89,7 @@ SET status = 'running',
     generated_count = 0,
     deferred_count = 0,
     reopened_count = 0,
+    failed_goat_count = 0,
     skipped_no_due_date_count = 0,
     suppressed_trusted_history_count = 0,
     cursor_goat_id = NULL,
@@ -114,7 +115,7 @@ WHERE (
 RETURNING run_id::text, tenant_id::text, protocol_version_id::text, trigger_type,
           COALESCE(trigger_ref, ''), status, started_at, completed_at,
           generated_count, deferred_count, reopened_count, skipped_no_due_date_count,
-          suppressed_trusted_history_count, COALESCE(cursor_goat_id::text, ''),
+          suppressed_trusted_history_count, failed_goat_count, COALESCE(cursor_goat_id::text, ''),
           COALESCE(last_error, ''), idempotency_key, COALESCE(context->>'request_hash', '')`,
 		in.TenantID, in.ProtocolVersionID, in.TriggerType, in.TriggerRef, in.StartedAt, in.IdempotencyKey, string(runContext), in.RequestHash)
 	if err != nil {
@@ -153,16 +154,17 @@ SET status = $3,
     generated_count = $5,
     deferred_count = $6,
     reopened_count = $7,
-    skipped_no_due_date_count = $8,
-    suppressed_trusted_history_count = $9,
-    cursor_goat_id = nullif($10::text, '')::uuid,
-    last_error = nullif($11, ''),
+    failed_goat_count = $8,
+    skipped_no_due_date_count = $9,
+    suppressed_trusted_history_count = $10,
+    cursor_goat_id = nullif($11::text, '')::uuid,
+    last_error = nullif($12, ''),
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
   AND run_id = $2::uuid`,
 		tenantID, runID, status, completedAt, result.Generated, result.Deferred,
-		result.Reopened, result.SkippedNoDueDate, result.SuppressedByTrustedHistory, cursorGoatID, lastError)
+		result.Reopened, result.FailedGoats, result.SkippedNoDueDate, result.SuppressedByTrustedHistory, cursorGoatID, lastError)
 	if err != nil {
 		return fmt.Errorf("vaccination: finish generation run: %w", err)
 	}
@@ -191,7 +193,7 @@ func (r *Repository) getGenerationRunByKey(ctx context.Context, tenantID, key st
 SELECT run_id::text, tenant_id::text, protocol_version_id::text, trigger_type,
        COALESCE(trigger_ref, ''), status, started_at, completed_at,
        generated_count, deferred_count, reopened_count, skipped_no_due_date_count,
-       suppressed_trusted_history_count, COALESCE(cursor_goat_id::text, ''),
+       suppressed_trusted_history_count, failed_goat_count, COALESCE(cursor_goat_id::text, ''),
        COALESCE(last_error, ''), idempotency_key, COALESCE(context->>'request_hash', '')
 FROM vaccination_generation_runs
 WHERE tenant_id = $1::uuid AND idempotency_key = $2`, tenantID, key).Scan(
@@ -208,6 +210,7 @@ WHERE tenant_id = $1::uuid AND idempotency_key = $2`, tenantID, key).Scan(
 		&run.Reopened,
 		&run.SkippedNoDueDate,
 		&run.SuppressedByTrustedHistory,
+		&run.FailedGoats,
 		&run.CursorGoatID,
 		&run.LastError,
 		&run.IdempotencyKey,
@@ -242,6 +245,7 @@ func scanGenerationRun(row generationRunScanner) (domain.GenerationRun, error) {
 		&run.Reopened,
 		&run.SkippedNoDueDate,
 		&run.SuppressedByTrustedHistory,
+		&run.FailedGoats,
 		&run.CursorGoatID,
 		&run.LastError,
 		&run.IdempotencyKey,
@@ -1594,6 +1598,132 @@ func (r *Repository) CountEligibleShedScopes(ctx context.Context, f domain.Impac
 		return 0, fmt.Errorf("vaccination: count shed scopes: %w", err)
 	}
 	return n, nil
+}
+
+// ListRecoverableDeferredVaccinationGoatIDs returns a bounded set of goats with old deferred/missed
+// vaccination obligations whose current animal/location state no longer requires a clinical or
+// procurement exclusion. The generation job uses this before the full-herd scan so recovery repair
+// does not depend on reaching late goat-id pages.
+func (r *Repository) ListRecoverableDeferredVaccinationGoatIDs(ctx context.Context, tenantID string, olderThan time.Time, limit int32) ([]string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	if olderThan.IsZero() {
+		olderThan = time.Now().UTC()
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := r.pool.Query(ctx, `
+WITH earliest_by_goat AS (
+  SELECT DISTINCT ON (oi.target_id)
+         oi.target_id::text AS goat_id,
+         oi.due_at,
+         oi.obligation_id
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+  JOIN goats g
+    ON g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+  LEFT JOIN location_operational_attributes loa
+    ON loa.tenant_id = g.tenant_id
+   AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.target_type = 'goat'
+    AND oi.status IN ('deferred', 'missed')
+    AND oi.due_at <= $2::timestamptz
+    AND pd.category = 'vaccination'
+    AND g.lifecycle_status = 'alive'
+    AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    AND COALESCE(loa.usable_for_vaccination, true)
+    AND NOT COALESCE(loa.is_quarantine, false)
+    AND NOT COALESCE(loa.is_icu, false)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM vw_procurement_vaccination_excluded_goats ex
+      WHERE ex.tenant_id = oi.tenant_id
+        AND ex.goat_id = oi.target_id
+    )
+  ORDER BY oi.target_id, oi.due_at ASC, oi.obligation_id ASC
+)
+SELECT goat_id
+FROM earliest_by_goat
+ORDER BY due_at ASC, obligation_id ASC
+LIMIT $3`, tenant, pgconv.Timestamptz(olderThan), limit)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: list recoverable deferred goats: %w", err)
+	}
+	defer rows.Close()
+	out := make([]string, 0, limit)
+	for rows.Next() {
+		var goatID string
+		if err := rows.Scan(&goatID); err != nil {
+			return nil, fmt.Errorf("vaccination: scan recoverable deferred goat: %w", err)
+		}
+		out = append(out, goatID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination: iterate recoverable deferred goats: %w", err)
+	}
+	return out, nil
+}
+
+// CountRecoverableDeferredVaccinationObligations is the stuck-deferred detector used by the repair
+// job report. A nonzero count after repair means recovered goats still have old deferred/missed
+// vaccination obligations and need operator attention.
+func (r *Repository) CountRecoverableDeferredVaccinationObligations(ctx context.Context, tenantID string, olderThan time.Time) (int64, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	if olderThan.IsZero() {
+		olderThan = time.Now().UTC()
+	}
+	var total int64
+	if err := r.pool.QueryRow(ctx, `
+SELECT count(*)::bigint
+FROM obligation_instances oi
+JOIN protocol_versions pv
+  ON pv.tenant_id = oi.tenant_id
+ AND pv.protocol_version_id = oi.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+JOIN goats g
+  ON g.tenant_id = oi.tenant_id
+ AND g.goat_id = oi.target_id
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+WHERE oi.tenant_id = $1::uuid
+  AND oi.target_type = 'goat'
+  AND oi.status IN ('deferred', 'missed')
+  AND oi.due_at <= $2::timestamptz
+  AND pd.category = 'vaccination'
+  AND g.lifecycle_status = 'alive'
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(loa.usable_for_vaccination, true)
+  AND NOT COALESCE(loa.is_quarantine, false)
+  AND NOT COALESCE(loa.is_icu, false)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM vw_procurement_vaccination_excluded_goats ex
+    WHERE ex.tenant_id = oi.tenant_id
+      AND ex.goat_id = oi.target_id
+  )`, tenant, pgconv.Timestamptz(olderThan)).Scan(&total); err != nil {
+		return 0, fmt.Errorf("vaccination: count recoverable deferred obligations: %w", err)
+	}
+	return total, nil
 }
 
 func timestamptzValue(t pgtype.Timestamptz) *time.Time {
