@@ -2026,7 +2026,7 @@ CREATE TABLE public.calendar_event_projections (
     window_start timestamp with time zone,
     window_end timestamp with time zone,
     timezone text DEFAULT 'Asia/Kolkata'::text NOT NULL,
-    timezone_source text DEFAULT 'fallback'::text NOT NULL,
+    timezone_source text DEFAULT 'india_only'::text NOT NULL,
     park_id uuid,
     park_code text,
     shed_id uuid,

@@ -201,7 +201,11 @@ TTL (illustratively ~15 min — verify `defaultSignedURLTTL` in
 ## Observability & resilience
 
 - [ ] Loggers built via `backend/internal/platform/observability` — never hand-rolled
-      `slog.New`; sink from `GOATOS_OBS_SINK`. See `docs/decisions/observability.md`.
+      `slog.New`; sink from `GOATOS_OBS_SINK`. Package-level `slog.Error`,
+      `slog.Info`, `slog.Warn`, and `slog.Debug` calls in product code are also
+      forbidden outside `platform/observability` (tests exempt) because they
+      bypass service/version/env fields and sink selection. See
+      `docs/decisions/observability.md`.
 - [ ] Log once at boundaries with trace / request / tenant / import_run_id context
 - [ ] **Trace-context crosses async boundaries.** The event envelope written to
       the outbox must carry the trace/correlation id (e.g. `traceparent`) so
@@ -266,6 +270,12 @@ TTL (illustratively ~15 min — verify `defaultSignedURLTTL` in
       require partition filters or marts/materialized views; reviewed BigQuery
       queries set max-bytes/quota/dry-run controls where applicable, avoid
       `SELECT *`, export jobs metadata, and alert on scan spikes.
+- [ ] Dashboard/read-model APIs backed by projections expose the standard
+      freshness envelope from `docs/decisions/high-scale-dashboard-projections.md`
+      (`as_of`/`last_success_at`, `freshness_status`, `serving_state`, source
+      watermark, unavailable sources, rebuild/stale flags, projection version).
+      Stale, rebuilding, source-unavailable, or approximate responses must be
+      visible to clients; do not serve projection data as if it is fresh truth.
 
 ## Testing
 

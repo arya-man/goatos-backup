@@ -26,7 +26,7 @@ type ParsedDriveEvent struct {
 	RuleID   string
 	ShedID   string
 	Catchup  bool
-	DueDay   string // YYYY-MM-DD in drive timezone bucket
+	DueDay   string // YYYY-MM-DD in the IST business-date bucket
 	TenantID string // for tenant-wide catch-up when shed is absent
 }
 

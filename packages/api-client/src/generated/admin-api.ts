@@ -2068,7 +2068,7 @@ export interface components {
             lat?: number | null;
             lng?: number | null;
             /** @default Asia/Kolkata */
-            timezone: string;
+            timezone: "Asia/Kolkata";
             operational?: components["schemas"]["LocationOperationalAttributes"];
         };
         UpdateLocationRequest: {
@@ -2087,7 +2087,7 @@ export interface components {
             pincode?: string | null;
             lat?: number | null;
             lng?: number | null;
-            timezone?: string;
+            timezone?: "Asia/Kolkata";
             operational?: components["schemas"]["LocationOperationalAttributes"];
             row_version: number;
         };

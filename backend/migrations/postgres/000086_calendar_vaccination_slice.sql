@@ -17,7 +17,7 @@ CREATE TABLE calendar_event_projections (
   window_start timestamptz NULL,
   window_end timestamptz NULL,
   timezone text NOT NULL DEFAULT 'Asia/Kolkata',
-  timezone_source text NOT NULL DEFAULT 'fallback',
+  timezone_source text NOT NULL DEFAULT 'india_only',
   park_id uuid NULL,
   park_code text NULL,
   shed_id uuid NULL,

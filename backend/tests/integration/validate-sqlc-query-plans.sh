@@ -178,7 +178,7 @@ LIMIT 1000;"
 
   explain_must_use_index "CalendarDueReminderSweep" 'Seq Scan on calendar_event_projections|Seq Scan on calendar_snoozes|Seq Scan on notification_requests' "EXPLAIN (COSTS OFF)
 SELECT event_id, title, target_type, COALESCE(source_target_id::text, ''), primary_notification_channel,
-       COALESCE(NULLIF(timezone, ''), 'Asia/Kolkata')
+       'Asia/Kolkata'
 FROM calendar_event_projections
 WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND slice_key = 'vaccination'
@@ -197,7 +197,7 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
     SELECT 1
     FROM notification_requests nr
     WHERE nr.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-      AND nr.idempotency_key = '00000000-0000-4000-8000-000000000001' || ':calendar.reminder:' || calendar_event_projections.event_id || ':' || to_char((TIMESTAMPTZ '2026-06-29 12:00:00+00' AT TIME ZONE COALESCE(NULLIF(calendar_event_projections.timezone, ''), 'Asia/Kolkata'))::date, 'YYYY-MM-DD')
+      AND nr.idempotency_key = '00000000-0000-4000-8000-000000000001' || ':calendar.reminder:' || calendar_event_projections.event_id || ':' || to_char((TIMESTAMPTZ '2026-06-29 12:00:00+00' AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
   )
 ORDER BY due_at ASC, event_id ASC
 LIMIT 100;"
@@ -414,7 +414,7 @@ WITH earliest_by_goat AS (
    AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
   WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
     AND oi.target_type = 'goat'
-    AND oi.status IN ('deferred', 'missed')
+    AND oi.status = 'deferred'
     AND oi.due_at <= TIMESTAMPTZ '2026-06-22 12:00:00+00'
     AND pd.category = 'vaccination'
     AND g.lifecycle_status = 'alive'

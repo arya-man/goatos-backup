@@ -492,8 +492,8 @@ instruction to defer those bugs to Goal 2.
 | OCK-024 | HIGH | Death can be recorded through unreconciled legacy and future guardrail paths unless one path is blocked/wrapped/reconciled. |
 | OCK-025 | MEDIUM | Separation-of-duties check may depend on unreliable shed-owner data. |
 | OCK-026 | CONFLICTING REPORTS | Duplicate vaccination cycle suppression is reported fixed by cycle fence; re-check prior-cycle evidence cannot suppress a future cycle. |
-| OCK-027 | CONFLICTING REPORTS | Protocol effective-version timezone hardcode is reported fixed; re-check all non-test `Asia/Kolkata` literals and location fallback semantics. |
-| OCK-028 | MEDIUM | Due-date/calendar logic may still use UTC or non-location timezone assumptions in some paths. |
+| OCK-027 | fixed | Protocol effective-version business-date selection is now intentionally pinned to `Asia/Kolkata` for the India-only Goal 1 runtime. |
+| OCK-028 | fixed | Due-date/calendar logic now uses the shared IST business calendar instead of per-location timezone derivation. |
 | OCK-029 | DOC/TEST | New critical guardrail rules need acceptance tests. |
 | OCK-030 | DOC | Example quarantine pack still appears to let operator pick classification instead of system computing it from evidence. |
 | OCK-031 | LOW/MEDIUM | Guardrail-required death/ICU/quarantine endpoints should return truthful 4xx conflict/validation errors, not misleading `501`. |
@@ -569,7 +569,7 @@ above.
 | RVF-005 | Blank-only shed CSV preview now errors. |
 | RVF-006 | Bulk file hash regex was collapsed to one SHA-256 regex. |
 | RVF-007 | Unterminated quoted CSV parsing now throws in the client parser. |
-| RVF-008 | Effective protocol timezone query now reads location timezone with India fallback. |
+| RVF-008 | Effective protocol timezone query now uses the fixed India-only `Asia/Kolkata` business calendar. |
 | RVF-009 | Duplicate-cycle suppression gained a cycle fence for repeat rules. |
 | RVF-010 | Primitive exposure plan was mirrored into the canonical guardrail rule list. |
 | RVF-011 | Late accepted evidence suppression no longer requires `administered_at <= due_at`. |
@@ -809,7 +809,7 @@ final report and any living ledger changed by the work.
 | OCK-020 | Status-event idempotency | `obligation_status_events` cannot duplicate under replay/concurrency. |
 | OCK-021 | Batch sweeper concurrency | Due scan and batch reuse cannot create duplicate open batches under concurrent workers. |
 | OCK-003, OCK-068 | Booster correctness | Booster lookup is scoped to the correct protocol/version/rule and handles sparse sequence/upstream identity correctly. |
-| OCK-027..OCK-028 | Timezone | Effective protocol/version and due-date/calendar logic are location/tenant-timezone aware or explicitly India-only with a tracked product constraint. |
+| OCK-027..OCK-028 | Timezone | Effective protocol/version and due-date/calendar logic are explicitly fixed to the India-only `Asia/Kolkata` business calendar. |
 | OCK-022 | Withdrawal/cold chain | SOP verify path populates withdrawal/cold-chain fields where contracts require them. |
 | OCK-004, OCK-023, OCK-057 | Shift payloads | Malformed or out-of-order shift payloads produce observable failure and deterministic ordering, not silent success. |
 | OCK-006, OCK-024, OCK-031 | Death paths | Death cannot be recorded through unreconciled legacy and guardrail paths, and incomplete guardrail paths expose truthful errors. |

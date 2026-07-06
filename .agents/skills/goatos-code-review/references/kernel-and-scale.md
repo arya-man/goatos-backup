@@ -169,7 +169,11 @@ CRITICAL scale violations:
    same-key different-payload replay, downstream duplicate prevention.
 5. **No query-plan validation on a hot path.** DB/migration change touching
    import/animal/event/counter rows at scale without an indexed access path and
-   `make validate-sqlc-plans` coverage.
+   `make validate-sqlc-plans` coverage. That target proves static/index
+   reachability; high-scale/staging claims also need seeded `ANALYZE` plus
+   `EXPLAIN (ANALYZE, BUFFERS)` at realistic row counts proving the planner
+   chooses the index/projection path **without** `enable_seqscan=off` (see
+   `docs/protocol-engine/high-scale-kernel-validation-plan.md`).
 6. **Read-time process state instead of persisted.** Computing durable status
    (missed/overdue/escalation level) at read time when the sweeper should
    materialize it. Read-time compute is non-durable and inconsistent across
@@ -178,7 +182,28 @@ CRITICAL scale violations:
 7. **Dashboards/reports sliced by dimension without the projection rule.** Slicing
    by month/date/breed/farm/shed/load/status/etc. must follow
    `docs/decisions/high-scale-dashboard-projections.md` — durable projections,
-   not raw scans.
+   not raw scans. Projection-backed APIs must expose the standard freshness
+   envelope (`as_of`/`last_success_at`, `freshness_status`, `serving_state`,
+   source watermark/unavailable sources, stale/rebuild flags, projection
+   version); a stale or approximate response must say so.
+
+## Business audit vs technical logs
+
+Business audit rows and domain status/event ledgers are product truth. Structured
+logs, metrics, traces, and panic logs are engineering diagnosis. Do not accept a
+technical log line, metric, or DLQ counter as the business audit record for a
+state transition, proof decision, exception, assignment, snooze/nudge, deadline
+change, policy publish, or replay/discard action.
+
+Review checkpoints:
+- [ ] Mutating product actions decide explicitly which durable product record is
+      written: business audit row, domain status/event ledger row, outbox event,
+      or all of them. The decision is not replaced by `log.Info` / `log.Warn`.
+- [ ] Routine read-only views, polling requests, hovers, and page views do NOT
+      flood business audit rows unless product policy explicitly requires access
+      review. They may produce technical access logs/metrics.
+- [ ] Operations Audit surfaces durable audit/status/proof history, not raw
+      engineering logs.
 
 Migration hygiene at scale: for populated hot tables, require a no-lock rollout:
 `CREATE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY` in `-- +goose NO
@@ -247,6 +272,12 @@ Additional hard scale checks reviewers must name when touched:
       an optimistic lock / `row_version` (or other convergent-repair) protects a
       row that both a backfill and a live handler may touch. Backfill never
       clobbers a newer live write
+- [ ] **Durable run/progress ledger.** Long-running generation, backfill, import,
+      projection rebuild, and large reconciliation jobs persist run/progress rows
+      with run id, idempotency key, attempt, heartbeat, page/cursor/shard state,
+      stale reclaim, completion, and failure state before claiming high-scale or
+      parallel safety. Crash/retry resumes bounded work without duplicate effects
+      or full-run-only replay unless the review explicitly accepts that limitation
 - [ ] **Saga partial-failure / compensation.** Multi-step flows (procurement
       intake, drive execution, booster chains, drive→proof→completion) record
       partial-failure state and compensation/repair on mid-step failure: no
@@ -439,6 +470,14 @@ start.
 - [ ] Sweepers/queries bounded: tenant/date filters, indexed, cursor resume, `LIMIT`, keyset pagination
 - [ ] No unbounded goroutines / full-herd in-memory loads
 - [ ] Hot-path DB/migration changes have indexed access + `make validate-sqlc-plans`
+- [ ] Scale/staging proof for hot reads includes seeded `ANALYZE` +
+      `EXPLAIN (ANALYZE, BUFFERS)` without `enable_seqscan=off`, not only static
+      plan/index lint
+- [ ] Projection-backed APIs expose freshness/serving-state/source-watermark
+      envelopes and label stale or approximate data
+- [ ] Long-running generation/backfill/import/projection jobs have durable
+      run/progress rows with heartbeat, cursor/page/shard resume, stale reclaim,
+      and completion/failure state
 - [ ] Migration changes on populated hot tables run `make validate-hot-index-migrations` + `make validate-migrations`
 - [ ] Scale-sensitive changes run or explicitly report the relevant high-scale
       E2E/certification target (`make high-scale-kernel-e2e-*`); 1M/full-chain

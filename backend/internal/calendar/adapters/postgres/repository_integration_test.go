@@ -1403,7 +1403,7 @@ INSERT INTO calendar_event_projections (
   $1::uuid, $2, 'vaccination', 'vaccination_config_activation_review', 'admin_data_ops',
   'Review activation', 'Protocol activation review due', 'due', 'warning',
   now() + interval '2 hours', now() + interval '2 hours', now() + interval '1 day',
-  'Asia/Kolkata', 'fallback', 'protocol_version', 1, false, 'draft protocol',
+  'Asia/Kolkata', 'india_only', 'protocol_version', 1, false, 'draft protocol',
   'protocol_version', '86000000-0000-4000-8000-000000000902',
   'Admin Data Ops reviewer', 'admin_data_ops_reviewer', 'not_scheduled', 'local-stub',
   'none', false, false, '{}'::jsonb,
@@ -1454,7 +1454,7 @@ INSERT INTO calendar_event_projections (
 ) VALUES (
 	  $1::uuid, $2, 'vaccination', 'vaccination_drive', 'pc', 'ET primary drive',
 	  'Calendar integration test', 'due', 'warning', $3::timestamptz, $3::timestamptz,
-	  $3::timestamptz + interval '1 day', 'Asia/Kolkata', 'fallback', 'shed', 20,
+	  $3::timestamptz + interval '1 day', 'Asia/Kolkata', 'india_only', 'shed', 20,
 	  true, 'integration source-backed rule', 'batch', '86000000-0000-4000-8000-000000001001',
 	  'PC test owner', 'pc_vaccinator', $4, 'local-stub', 'none', false, false,
   '{"workflow":"/vaccination/workflows/test"}'::jsonb,
@@ -1482,7 +1482,7 @@ INSERT INTO calendar_event_projections (
 ) VALUES (
   $5::uuid, $3, 'vaccination', 'vaccination_drive', 'pc', 'Scoped drive',
   'Scoped integration test', 'due', 'warning', now() + interval '2 hours', now(), now() + interval '1 day',
-  'Asia/Kolkata', 'location', $1::uuid, 'TST', $2::uuid, 'Scoped Shed',
+  'Asia/Kolkata', 'india_only', $1::uuid, 'TST', $2::uuid, 'Scoped Shed',
   'shed', 1, true, 'active matrix test', 'shed', $4::uuid,
   'PC test owner', 'pc_vaccinator', 'not_scheduled', 'local-stub', 'none',
   $6, false, '{}'::jsonb,

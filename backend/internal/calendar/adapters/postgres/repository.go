@@ -764,7 +764,7 @@ type dueReminderEvent struct {
 func (r *Repository) selectDueReminderEvents(ctx context.Context, tenantID string, limit int) ([]dueReminderEvent, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT event_id, title, target_type, COALESCE(source_target_id::text, ''), primary_notification_channel,
-       COALESCE(NULLIF(timezone, ''), 'Asia/Kolkata')
+       'Asia/Kolkata'
 	FROM calendar_event_projections
 	WHERE tenant_id = $1::uuid
 	  AND slice_key = 'vaccination'
@@ -783,7 +783,7 @@ SELECT event_id, title, target_type, COALESCE(source_target_id::text, ''), prima
 	    SELECT 1
 	    FROM notification_requests nr
 	    WHERE nr.tenant_id = $1::uuid
-	      AND nr.idempotency_key = $1 || ':calendar.reminder:' || calendar_event_projections.event_id || ':' || to_char((now() AT TIME ZONE COALESCE(NULLIF(calendar_event_projections.timezone, ''), 'Asia/Kolkata'))::date, 'YYYY-MM-DD')
+	      AND nr.idempotency_key = $1 || ':calendar.reminder:' || calendar_event_projections.event_id || ':' || to_char((now() AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
 	  )
 	ORDER BY due_at ASC, event_id ASC
 	LIMIT $2`, tenantID, limit)
@@ -814,7 +814,7 @@ func (r *Repository) queueDueReminder(ctx context.Context, tenantID, eventID str
 	var e dueReminderEvent
 	if err := tx.QueryRow(ctx, `
 SELECT event_id, title, target_type, COALESCE(source_target_id::text, ''), primary_notification_channel,
-       COALESCE(NULLIF(timezone, ''), 'Asia/Kolkata')
+       'Asia/Kolkata'
 FROM calendar_event_projections
 	WHERE tenant_id = $1::uuid
 	  AND event_id = $2
@@ -834,7 +834,7 @@ FROM calendar_event_projections
 	    SELECT 1
 	    FROM notification_requests nr
 	    WHERE nr.tenant_id = $1::uuid
-	      AND nr.idempotency_key = $1 || ':calendar.reminder:' || calendar_event_projections.event_id || ':' || to_char((now() AT TIME ZONE COALESCE(NULLIF(calendar_event_projections.timezone, ''), 'Asia/Kolkata'))::date, 'YYYY-MM-DD')
+	      AND nr.idempotency_key = $1 || ':calendar.reminder:' || calendar_event_projections.event_id || ':' || to_char((now() AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
 	  )
 	ORDER BY due_at ASC, event_id ASC
 	LIMIT 1
@@ -1799,8 +1799,8 @@ WITH obligation_events AS (
     oi.due_at,
     COALESCE(oi.window_start, oi.due_at) AS window_start,
     COALESCE(oi.window_end, oi.due_at + make_interval(days => pr.due_window_days)) AS window_end,
-    COALESCE(scope_loc.timezone, 'Asia/Kolkata') AS timezone,
-    CASE WHEN scope_loc.timezone IS NULL THEN 'fallback' ELSE 'location' END AS timezone_source,
+    'Asia/Kolkata'::text AS timezone,
+    'india_only'::text AS timezone_source,
     loc.park_id,
     loc.park_code,
     loc.shed_id,
@@ -1972,9 +1972,9 @@ catchup_drive_events AS (
       (array_agg(oi.obligation_id ORDER BY oi.obligation_id))[1] AS single_obligation_id,
       pd.name AS source_label,
       ''::text AS source_ref,
-      COALESCE(scope_loc.timezone, 'Asia/Kolkata') AS timezone,
-      CASE WHEN scope_loc.timezone IS NULL THEN 'fallback' ELSE 'location' END AS timezone_source,
-      to_char((oi.due_at AT TIME ZONE COALESCE(scope_loc.timezone, 'Asia/Kolkata'))::date, 'YYYY-MM-DD') AS due_day,
+      'Asia/Kolkata'::text AS timezone,
+      'india_only'::text AS timezone_source,
+      to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS due_day,
       count(*)::int AS target_count,
       min(oi.due_at) AS due_at,
       min(COALESCE(oi.window_start, oi.due_at)) AS window_start,
@@ -2044,8 +2044,8 @@ catchup_drive_events AS (
       loc.shed_id, loc.shed_name, loc.park_id, loc.park_code,
       pr.rule_id, pd.protocol_id, pv.protocol_version_id, pd.name, pr.dose_code,
       source_label, source_ref,
-      COALESCE(scope_loc.timezone, 'Asia/Kolkata'),
-      CASE WHEN scope_loc.timezone IS NULL THEN 'fallback' ELSE 'location' END,
+      'Asia/Kolkata'::text,
+      'india_only'::text,
       due_day
     HAVING count(*) > 1
   ) grouped
@@ -2069,8 +2069,8 @@ batch_events AS (
     COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) AS due_at,
     COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) AS window_start,
     COALESCE(ob.window_end, ob.window_start + interval '8 hours', ob.planned_date::timestamptz + interval '8 hours') AS window_end,
-    COALESCE(scope_loc.timezone, 'Asia/Kolkata') AS timezone,
-    CASE WHEN scope_loc.timezone IS NULL THEN 'fallback' ELSE 'location' END AS timezone_source,
+    'Asia/Kolkata'::text AS timezone,
+    'india_only'::text AS timezone_source,
     scope_parent.location_id AS park_id,
     scope_parent.location_code AS park_code,
     ob.scope_id AS shed_id,
@@ -2163,8 +2163,8 @@ sop_events AS (
     st.due_at,
     st.due_at AS window_start,
     st.due_at + interval '1 day' AS window_end,
-    COALESCE(scope_loc.timezone, 'Asia/Kolkata') AS timezone,
-    CASE WHEN scope_loc.timezone IS NULL THEN 'fallback' ELSE 'location' END AS timezone_source,
+    'Asia/Kolkata'::text AS timezone,
+    'india_only'::text AS timezone_source,
     loc.park_id,
     loc.park_code,
     loc.shed_id,
@@ -2278,7 +2278,7 @@ config_events AS (
     raw_due_at::timestamptz AS window_start,
     raw_due_at::timestamptz + interval '1 day' AS window_end,
     'Asia/Kolkata'::text AS timezone,
-    'fallback'::text AS timezone_source,
+    'india_only'::text AS timezone_source,
     NULL::uuid AS park_id,
     NULL::text AS park_code,
     NULL::uuid AS shed_id,
@@ -2463,10 +2463,10 @@ WITH source_event_ids AS (
     CASE
       WHEN loc.shed_id IS NOT NULL THEN
         'catchup:shed:' || loc.shed_id::text || ':rule:' || pr.rule_id::text || ':due:' ||
-        to_char((oi.due_at AT TIME ZONE COALESCE(scope_loc.timezone, 'Asia/Kolkata'))::date, 'YYYY-MM-DD')
+        to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
       ELSE
         'catchup:tenant:' || oi.tenant_id::text || ':rule:' || pr.rule_id::text || ':due:' ||
-        to_char((oi.due_at AT TIME ZONE COALESCE(scope_loc.timezone, 'Asia/Kolkata'))::date, 'YYYY-MM-DD')
+        to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
     END AS event_id
   FROM obligation_instances oi
   JOIN protocol_versions pv

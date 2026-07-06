@@ -2775,61 +2775,80 @@ RETURNING oi.obligation_id::text, COALESCE(c.old_batch_id::text, '')::text`, ten
 	}
 	rows.Close()
 
-	for batchID, count := range oldBatches {
+	if len(oldBatches) > 0 {
+		batchIDs := make([]string, 0, len(oldBatches))
+		missedCounts := make([]int32, 0, len(oldBatches))
+		for batchID, count := range oldBatches {
+			batchIDs = append(batchIDs, batchID)
+			missedCounts = append(missedCounts, int32(count))
+		}
 		if _, err := tx.Exec(ctx, `
-WITH reserved AS (
-  SELECT COALESCE(SUM(quantity), 0)::numeric AS qty
-  FROM inventory_stock_movements
-  WHERE tenant_id = $1
-    AND batch_id = $2::uuid
-    AND movement_type = 'reserve'
+WITH affected(batch_id, missed_count) AS (
+  SELECT batch_id::uuid, missed_count::int
+  FROM unnest($2::text[], $3::int[]) AS u(batch_id, missed_count)
+),
+reserved AS (
+  SELECT a.batch_id,
+         COALESCE(SUM(ism.quantity), 0)::numeric AS qty
+  FROM affected a
+  LEFT JOIN inventory_stock_movements ism
+    ON ism.tenant_id = $1
+   AND ism.batch_id = a.batch_id
+   AND ism.movement_type = 'reserve'
+  GROUP BY a.batch_id
 ),
 repair AS (
-  SELECT (
-    CASE WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
-         THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
+  SELECT ob.batch_id,
+         (
+    CASE WHEN ob.context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(ob.context #>> '{defer_repair,release_qty}', '')::numeric, 0)
          ELSE 0 END
-    + CASE WHEN context #>> '{shift_repair,state}' = 'stock_reconcile_required'
-         THEN COALESCE(NULLIF(context #>> '{shift_repair,release_qty}', '')::numeric, 0)
+    + CASE WHEN ob.context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(ob.context #>> '{shift_repair,release_qty}', '')::numeric, 0)
          ELSE 0 END
-    + CASE WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
-         THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+    + CASE WHEN ob.context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(ob.context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
          ELSE 0 END
-    + CASE WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
-         THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+    + CASE WHEN ob.context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(ob.context #>> '{missed_repair,release_qty}', '')::numeric, 0)
          ELSE 0 END
   )::numeric AS pending_release
-  FROM obligation_batches
-  WHERE tenant_id = $1
-    AND batch_id = $2::uuid
+  FROM obligation_batches ob
+  JOIN affected a
+    ON a.batch_id = ob.batch_id
+  WHERE ob.tenant_id = $1
 )
 UPDATE obligation_batches ob
-SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
+SET estimated_targets = GREATEST(0, ob.estimated_targets - a.missed_count),
     context = CASE
-      WHEN reserved.qty > 0 THEN context || jsonb_build_object(
+      WHEN r.qty > 0 THEN ob.context || jsonb_build_object(
         'missed_repair', jsonb_build_object(
           'state', 'stock_reconcile_required',
           'reason', 'obligation_missed',
-          'missed_count', $3::int,
+          'missed_count', a.missed_count,
           'release_qty',
             (CASE
-              WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
-              THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+              WHEN ob.context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(ob.context #>> '{missed_repair,release_qty}', '')::numeric, 0)
               ELSE 0
             END) + LEAST(
-              GREATEST(0, reserved.qty - repair.pending_release),
-              ($3::numeric * GREATEST(0, reserved.qty - repair.pending_release)) / GREATEST(ob.estimated_targets, 1)
+              GREATEST(0, r.qty - repair.pending_release),
+              (a.missed_count::numeric * GREATEST(0, r.qty - repair.pending_release)) / GREATEST(ob.estimated_targets, 1)
             ),
           'recorded_at', now()
         )
       )
-      ELSE context
+      ELSE ob.context
     END,
     updated_at = now(),
-    row_version = row_version + 1
-FROM reserved, repair
-WHERE tenant_id = $1
-  AND batch_id = $2::uuid`, tenant, batchID, count); err != nil {
+    row_version = ob.row_version + 1
+FROM affected a
+JOIN reserved r
+  ON r.batch_id = a.batch_id
+JOIN repair
+  ON repair.batch_id = a.batch_id
+WHERE ob.tenant_id = $1
+  AND ob.batch_id = a.batch_id`, tenant, batchIDs, missedCounts); err != nil {
 			return 0, fmt.Errorf("obligation: update missed batch repair: %w", err)
 		}
 	}
@@ -2955,86 +2974,118 @@ RETURNING oi.obligation_id::text, c.old_batch_id::text`, tenant, pgconv.Timestam
 	}
 	rows.Close()
 
-	for batchID, count := range oldBatches {
+	if len(oldBatches) > 0 {
+		batchIDs := make([]string, 0, len(oldBatches))
+		missedCounts := make([]int32, 0, len(oldBatches))
+		for batchID, count := range oldBatches {
+			batchIDs = append(batchIDs, batchID)
+			missedCounts = append(missedCounts, int32(count))
+		}
 		if _, err := tx.Exec(ctx, `
-WITH reserved AS (
-  SELECT COALESCE(SUM(quantity), 0)::numeric AS qty
-  FROM inventory_stock_movements
-  WHERE tenant_id = $1
-    AND batch_id = $2::uuid
-    AND movement_type = 'reserve'
+WITH affected(batch_id, missed_count) AS (
+  SELECT batch_id::uuid, missed_count::int
+  FROM unnest($2::text[], $3::int[]) AS u(batch_id, missed_count)
+),
+reserved AS (
+  SELECT a.batch_id,
+         COALESCE(SUM(ism.quantity), 0)::numeric AS qty
+  FROM affected a
+  LEFT JOIN inventory_stock_movements ism
+    ON ism.tenant_id = $1
+   AND ism.batch_id = a.batch_id
+   AND ism.movement_type = 'reserve'
+  GROUP BY a.batch_id
 ),
 repair AS (
-  SELECT (
-    CASE WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
-         THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
+  SELECT ob.batch_id,
+         (
+    CASE WHEN ob.context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(ob.context #>> '{defer_repair,release_qty}', '')::numeric, 0)
          ELSE 0 END
-    + CASE WHEN context #>> '{shift_repair,state}' = 'stock_reconcile_required'
-         THEN COALESCE(NULLIF(context #>> '{shift_repair,release_qty}', '')::numeric, 0)
+    + CASE WHEN ob.context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(ob.context #>> '{shift_repair,release_qty}', '')::numeric, 0)
          ELSE 0 END
-    + CASE WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
-         THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+    + CASE WHEN ob.context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(ob.context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
          ELSE 0 END
-    + CASE WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
-         THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+    + CASE WHEN ob.context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(ob.context #>> '{missed_repair,release_qty}', '')::numeric, 0)
          ELSE 0 END
   )::numeric AS pending_release
-  FROM obligation_batches
-  WHERE tenant_id = $1
-    AND batch_id = $2::uuid
+  FROM obligation_batches ob
+  JOIN affected a
+    ON a.batch_id = ob.batch_id
+  WHERE ob.tenant_id = $1
 )
 UPDATE obligation_batches ob
-SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
+SET estimated_targets = GREATEST(0, ob.estimated_targets - a.missed_count),
     context = CASE
-      WHEN reserved.qty > 0 THEN context || jsonb_build_object(
+      WHEN r.qty > 0 THEN ob.context || jsonb_build_object(
         'missed_repair', jsonb_build_object(
           'state', 'stock_reconcile_required',
           'reason', 'stale_missed_batch_link',
-          'missed_count', $3::int,
+          'missed_count', a.missed_count,
           'release_qty',
             (CASE
-              WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
-              THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+              WHEN ob.context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(ob.context #>> '{missed_repair,release_qty}', '')::numeric, 0)
               ELSE 0
             END) + LEAST(
-              GREATEST(0, reserved.qty - repair.pending_release),
-              ($3::numeric * GREATEST(0, reserved.qty - repair.pending_release)) / GREATEST(ob.estimated_targets, 1)
+              GREATEST(0, r.qty - repair.pending_release),
+              (a.missed_count::numeric * GREATEST(0, r.qty - repair.pending_release)) / GREATEST(ob.estimated_targets, 1)
             ),
           'recorded_at', now()
         )
       )
-      ELSE context
+      ELSE ob.context
     END,
     updated_at = now(),
-    row_version = row_version + 1
-FROM reserved, repair
-WHERE tenant_id = $1
-  AND batch_id = $2::uuid`, tenant, batchID, count); err != nil {
-			return 0, fmt.Errorf("obligation: update stale missed batch repair: %w", err)
+    row_version = ob.row_version + 1
+FROM affected a
+JOIN reserved r
+  ON r.batch_id = a.batch_id
+JOIN repair
+  ON repair.batch_id = a.batch_id
+WHERE ob.tenant_id = $1
+  AND ob.batch_id = a.batch_id`, tenant, batchIDs, missedCounts); err != nil {
+			return 0, fmt.Errorf("obligation: bulk update stale missed batch repair: %w", err)
 		}
 	}
 
 	now := time.Now().UTC()
-	recorder := audit.NewTxRecorder(tx)
-	for _, id := range ids {
-		if err := recorder.Record(ctx, audit.Event{
-			TenantID:     tenantID,
-			ActorType:    "system",
-			Action:       obligationMissedBatchRepairAction,
-			ResourceType: "obligation_instance",
-			ResourceID:   id,
-			ScopeType:    "obligation.repair",
-			ScopeID:      id,
-			AfterState: map[string]any{
-				"batch_id":    nil,
-				"occurred_at": now.Format(time.RFC3339Nano),
-			},
-			Metadata: map[string]any{
-				"source": "vaccination_recovery_repair",
-			},
-			TraceID: obligationMissedBatchRepairAction + ":" + id,
-		}); err != nil {
-			return 0, fmt.Errorf("obligation: missed batch repair audit: %w", err)
+	if len(ids) > 0 {
+		if _, err := tx.Exec(ctx, `
+INSERT INTO audit_log (
+  tenant_id,
+  actor_id,
+  actor_type,
+  action,
+  resource_type,
+  resource_id,
+  scope_type,
+  scope_id,
+  decision_id,
+  before_state,
+  after_state,
+  metadata,
+  trace_id
+)
+SELECT
+  $1::uuid,
+  NULL::uuid,
+  'system',
+  $2::text,
+  'obligation_instance',
+  id::uuid,
+  'obligation.repair',
+  id::uuid,
+  NULL::uuid,
+  NULL::jsonb,
+  jsonb_build_object('batch_id', NULL, 'occurred_at', $4::text),
+  jsonb_build_object('source', 'vaccination_recovery_repair'),
+  $2::text || ':' || id
+FROM unnest($3::text[]) AS ids(id)`, tenant, obligationMissedBatchRepairAction, ids, now.Format(time.RFC3339Nano)); err != nil {
+			return 0, fmt.Errorf("obligation: bulk missed batch repair audit: %w", err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

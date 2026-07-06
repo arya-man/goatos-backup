@@ -150,6 +150,108 @@ func TestListEligibleGoatsForGenerationUsesCompiledRuleDimensions(t *testing.T) 
 
 func ptrInt32(v int32) *int32 { return &v }
 
+func TestListEligibleGoatsForGenerationUsesISTForCompiledAge(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.compiled.tz", Name: "Compiled Matrix TZ", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{"ruleset_family":"vaccination.matrix"}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", OffsetDays: 1, Repeat: "none", CatchUp: "immediate",
+		EligibilityJSON: []byte(`{"matrix_row_id":"k1-goat-female-tz","eligibility":{"species":["goat"],"animal_stage":["K1"],"sex":["female"],"min_age_days":1},"vaccine":{"code":"ET_TT","type":"killed"}}`),
+		ProofPolicy:     []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	if err := proto.ReplaceProtocolRuleDimensions(ctx, impTenant, versionID, []protodomain.RuleDimension{{
+		Category:        "vaccination",
+		RulesetFamily:   "vaccination.matrix",
+		RuleID:          ruleID,
+		MatrixRowID:     "k1-goat-female-tz",
+		SelectorKey:     "k1-goat-female-tz|primary|goat|K1|female|all|alive|any|any",
+		DoseCode:        "primary",
+		VaccineCode:     "ET_TT",
+		VaccineType:     "killed",
+		Species:         "goat",
+		AnimalStage:     "K1",
+		Sex:             "female",
+		Breed:           "all",
+		Lifecycle:       "alive",
+		Health:          "any",
+		Reproductive:    "any",
+		MinAgeDays:      ptrInt32(1),
+		TriggerType:     "birth_age",
+		Sequence:        1,
+		OffsetDays:      1,
+		DueWindowDays:   7,
+		Repeat:          "none",
+		CatchUp:         "immediate",
+		EligibilityJSON: []byte(`{"species":["goat"],"animal_stage":["K1"],"sex":["female"],"min_age_days":1}`),
+		VaccineJSON:     []byte(`{"code":"ET_TT","type":"killed"}`),
+		ScheduleJSON:    []byte(`{"dose_code":"primary"}`),
+	}}); err != nil {
+		t.Fatalf("compiled dimensions: %v", err)
+	}
+
+	goatID := "32000000-0000-4000-8000-000000000201"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+		   current_location_id, park_id, management_stage, dob)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4, 'K1', DATE '2026-06-28')`,
+		goatID, impTenant, impParty, impCbe); err != nil {
+		t.Fatalf("seed timezone goat: %v", err)
+	}
+
+	asOf := time.Date(2026, 6, 28, 20, 0, 0, 0, time.UTC)
+	repo := NewRepository(pool, 5*time.Second)
+
+	if _, err := pool.Exec(ctx, `UPDATE locations SET timezone = 'UTC' WHERE tenant_id = $1 AND location_id = $2`, impTenant, impCbe); err != nil {
+		t.Fatalf("set UTC location timezone: %v", err)
+	}
+	rows, err := repo.ListEligibleGoatsForGeneration(ctx, vaccdomain.ImpactFilter{
+		TenantID:          impTenant,
+		ProtocolVersionID: versionID,
+		AsOf:              asOf,
+	}, "", 50)
+	if err != nil {
+		t.Fatalf("list eligible UTC boundary: %v", err)
+	}
+	if len(rows) != 1 || rows[0].GoatID != goatID {
+		t.Fatalf("UTC rows=%#v, want goat eligible on the IST first birthday", rows)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE locations SET timezone = 'Asia/Kolkata' WHERE tenant_id = $1 AND location_id = $2`, impTenant, impCbe); err != nil {
+		t.Fatalf("set IST location timezone: %v", err)
+	}
+	rows, err = repo.ListEligibleGoatsForGeneration(ctx, vaccdomain.ImpactFilter{
+		TenantID:          impTenant,
+		ProtocolVersionID: versionID,
+		AsOf:              asOf,
+	}, "", 50)
+	if err != nil {
+		t.Fatalf("list eligible IST boundary: %v", err)
+	}
+	if len(rows) != 1 || rows[0].GoatID != goatID {
+		t.Fatalf("IST rows=%#v, want goat eligible on the IST first birthday", rows)
+	}
+}
+
 func TestSM1GenerationIdempotentAndDeferVisible(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -769,6 +871,78 @@ func countRowsVacc(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql st
 	return n
 }
 
+func TestRecoverableDeferredCounterIgnoresMissedRows(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.recoverable_counter", Name: "Recoverable Counter", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{"ruleset_family":"vaccination.matrix"}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", OffsetDays: 28, Repeat: "none", CatchUp: "immediate",
+		EligibilityJSON: []byte(`{"species":["goat"],"animal_stage":["K1"]}`),
+		ProofPolicy:     []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+
+	deferredGoat := "33000000-0000-4000-8000-000000000101"
+	missedGoat := "33000000-0000-4000-8000-000000000102"
+	seedGenGoat(t, ctx, pool, deferredGoat, "alive")
+	seedGenGoat(t, ctx, pool, missedGoat, "alive")
+	dueAt := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	for _, row := range []struct {
+		goatID string
+		status string
+		key    string
+	}{
+		{goatID: deferredGoat, status: "deferred", key: "recoverable-counter:deferred"},
+		{goatID: missedGoat, status: "missed", key: "recoverable-counter:missed"},
+	} {
+		if _, applied, err := obl.InsertObligation(ctx, obldomain.NewObligation{
+			TenantID: impTenant, ProtocolVersionID: versionID, RuleID: ruleID,
+			TargetType: "goat", TargetID: row.goatID, ScopeType: "tenant", ScopeID: impTenant,
+			DueAt: dueAt, Status: row.status, IdempotencyKey: row.key, Sequence: 1,
+		}); err != nil || !applied {
+			t.Fatalf("seed %s obligation: applied=%v err=%v", row.status, applied, err)
+		}
+	}
+
+	olderThan := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
+	total, err := vacc.CountRecoverableDeferredVaccinationObligations(ctx, impTenant, olderThan)
+	if err != nil {
+		t.Fatalf("count recoverable deferred: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("recoverable deferred count: want 1 deferred row, got %d", total)
+	}
+	goatIDs, err := vacc.ListRecoverableDeferredVaccinationGoatIDs(ctx, impTenant, olderThan, 10)
+	if err != nil {
+		t.Fatalf("list recoverable deferred goats: %v", err)
+	}
+	if len(goatIDs) != 1 || goatIDs[0] != deferredGoat {
+		t.Fatalf("recoverable deferred goats=%v, want only %s", goatIDs, deferredGoat)
+	}
+}
+
 // TestGoatCreatedAcceptedCompletionSuppressesMatchingObligation proves that an ACCEPTED+VERIFIED
 // Goat OS administration for the same protocol+dose suppresses re-generation of that dose, while a
 // merely RECORDED or accepted-without-verified_at completion does NOT — so version changes / catch-up
@@ -980,6 +1154,90 @@ func TestGoatCreatedAcceptedCompletionDoesNotSuppressDifferentCalendarCycle(t *t
 	}
 	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND protocol_version_id=$3 AND "sequence"=2`, impTenant, goatID, v2); got != 1 {
 		t.Fatalf("sequence-2 obligations = %d, want 1", got)
+	}
+}
+
+func TestTrustedCompletionEvidenceUsesISTForRepeatCycle(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.goatos.repeat_tz", Name: "GoatOS Repeat TZ",
+		Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"eligibility":{}}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "post_arrival", OffsetDays: 7, Repeat: "yearly", CatchUp: "pc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+
+	goatID := "30000000-0000-4000-8000-0000000000e5"
+	seedGenAdultProcuredGoat(t, ctx, pool, goatID, "alive", time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC))
+	existingDue := time.Date(2026, 6, 29, 0, 30, 0, 0, time.UTC)
+	obID, applied, err := obl.InsertObligation(ctx, obldomain.NewObligation{
+		TenantID: impTenant, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: goatID, ScopeType: "tenant", ScopeID: impTenant,
+		DueAt: existingDue, Status: "completed", IdempotencyKey: "prior-repeat-tz:" + goatID, Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("seed repeat obligation: applied=%v err=%v", applied, err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (tenant_id, obligation_id, goat_id, doses, administered_at, status, verified_at, idempotency_key)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 1, $4::timestamptz, 'accepted', $5::timestamptz, $6)`,
+		impTenant, obID, goatID, existingDue, existingDue.Add(30*time.Minute), "compl-repeat-tz:"+goatID); err != nil {
+		t.Fatalf("seed repeat completion: %v", err)
+	}
+
+	candidate := vaccdomain.TrustedCompletionCandidate{
+		GoatID:   goatID,
+		RuleID:   ruleID,
+		DoseCode: "primary",
+		DueAt:    time.Date(2026, 6, 28, 20, 0, 0, 0, time.UTC),
+		Repeat:   "yearly",
+	}
+	generationAt := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+
+	if _, err := pool.Exec(ctx, `UPDATE locations SET timezone = 'UTC' WHERE tenant_id = $1 AND location_id = $2`, impTenant, impCbe); err != nil {
+		t.Fatalf("set UTC location timezone: %v", err)
+	}
+	hits, err := vacc.HasTrustedCompletionEvidenceBatch(ctx, impTenant, versionID, []vaccdomain.TrustedCompletionCandidate{candidate}, generationAt)
+	if err != nil {
+		t.Fatalf("trusted evidence UTC: %v", err)
+	}
+	if !hits[candidate.Key()] {
+		t.Fatalf("UTC location should still match repeat cycles that share the IST business date")
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE locations SET timezone = 'Asia/Kolkata' WHERE tenant_id = $1 AND location_id = $2`, impTenant, impCbe); err != nil {
+		t.Fatalf("set IST location timezone: %v", err)
+	}
+	hits, err = vacc.HasTrustedCompletionEvidenceBatch(ctx, impTenant, versionID, []vaccdomain.TrustedCompletionCandidate{candidate}, generationAt)
+	if err != nil {
+		t.Fatalf("trusted evidence IST: %v", err)
+	}
+	if !hits[candidate.Key()] {
+		t.Fatalf("IST location should match repeat cycles that share the IST business date")
 	}
 }
 

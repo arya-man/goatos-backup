@@ -5403,6 +5403,8 @@ components:
           minLength: 1
           maxLength: 80
           default: Asia/Kolkata
+          enum:
+            - Asia/Kolkata
         operational:
           $ref: "#/components/schemas/LocationOperationalAttributes"
     UpdateLocationRequest:
@@ -5477,6 +5479,8 @@ components:
           type: string
           minLength: 1
           maxLength: 80
+          enum:
+            - Asia/Kolkata
         operational:
           $ref: "#/components/schemas/LocationOperationalAttributes"
         row_version:
