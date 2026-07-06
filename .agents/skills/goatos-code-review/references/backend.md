@@ -231,8 +231,9 @@ TTL (illustratively ~15 min — verify `defaultSignedURLTTL` in
       "missed", recovery, and drive-planned dates across a day boundary.
 - [ ] Raw UTC is used only for persisted instants / audit / event-key
       normalization. A sweeper or scheduler using `.UTC().Date()` or
-      `time.Now().UTC()` to decide a medical/business day is a finding unless the
-      product contract explicitly defines that value as UTC.
+      `time.Now().UTC()` to decide a medical/business day is a finding. Convert
+      the instant to the animal/location timezone first, then take the calendar
+      day.
 - [ ] No naive `time.Now()` in local time where the animal/location timezone or a
       stored instant is required; no assumption that the server timezone equals
       the tenant/location timezone.
