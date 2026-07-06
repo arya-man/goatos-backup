@@ -60,7 +60,7 @@ WHERE oi.tenant_id = $1::uuid
     OR (
       $3::uuid IS NULL
       AND oi.batch_id IS NULL
-      AND to_char((oi.due_at AT TIME ZONE COALESCE(scope_loc.timezone, 'Asia/Kolkata'))::date, 'YYYY-MM-DD') = $4::text
+      AND to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $4::text
       AND (
         ($5::uuid IS NULL AND loc.shed_id IS NULL)
         OR loc.shed_id = $5::uuid

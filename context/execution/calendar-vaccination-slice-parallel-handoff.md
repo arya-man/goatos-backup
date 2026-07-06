@@ -422,12 +422,12 @@ links
 
 Timezone source:
 
-- Use the most specific relevant `locations.timezone`: shed/cohort location when
-  the event is shed/cohort scoped, otherwise park/current location.
-- If a tenant-level default timezone is added later, it can be the next fallback,
-  but do not assume it exists in the current schema.
-- Final fallback is the current schema default `Asia/Kolkata`; emit/log a
-  configuration warning so missing location timezone is visible.
+- Goat OS is India-only for Goal 1, so calendar business dates, reminder
+  dedupe, and catch-up bucketing all run in `Asia/Kolkata`.
+- Keep the `timezone` field fixed to `Asia/Kolkata` and set
+  `timezone_source = india_only` so the contract is explicit.
+- Location timezone metadata may still exist on `locations`, but it must not
+  change vaccination/calendar due semantics.
 
 Notification channel source:
 

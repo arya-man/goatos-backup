@@ -174,7 +174,7 @@ INSERT INTO calendar_event_projections (
 ) VALUES (
   $1::uuid, $2, 'vaccination', 'vaccination_dose_due', 'pc',
   'Notification repo event', 'Notification integration test', 'due', 'warning',
-  now(), now(), now() + interval '1 day', 'Asia/Kolkata', 'fallback',
+  now(), now(), now() + interval '1 day', 'Asia/Kolkata', 'india_only',
   'cohort', 1, true, 'notification repo source', 'calendar_event', NULL,
   'PC test owner', 'pc_vaccinator', 'not_scheduled', 'local-stub', 'none',
   false, false, '{}'::jsonb,

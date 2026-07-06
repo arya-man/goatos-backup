@@ -128,7 +128,7 @@ shed-wise batching (45 due → 1 drive). Missed/overdue: DURABLE visible excepti
 or only read-time/log? Do all surfaces agree? Reminders durable + recreatable +
 idempotent. Escalation waterfall owner→manager→higher, durable rows, ack/resolve,
 incident adapter actually routed (not slack-only). Notifier dedupe on replay;
-per-location timezone day boundaries (flag server-tz math). Projection refresh
+IST business-date boundaries (flag server-tz math). Projection refresh
 idempotent + bounded.
 Files: backend/cmd/{obligation-sweeper,sweeper,calendar-reminder-sweeper,
 calendar-escalation-sweeper,notification-dispatcher,calendar-vaccination-projector},

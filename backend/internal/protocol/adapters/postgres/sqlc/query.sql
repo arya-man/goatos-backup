@@ -41,15 +41,7 @@ ORDER BY pv.protocol_version_id;
 -- — never both, and never another park's calendar. A goat with no park (@park_id IS NULL) only matches
 -- tenant-default versions.
 WITH operating_timezone AS (
-  SELECT COALESCE((
-    SELECT NULLIF(l.timezone, '')
-    FROM locations l
-    WHERE l.tenant_id = @tenant_id
-      AND l.location_id = sqlc.narg('park_id')
-      AND l.location_type = 'park'
-      AND l.status = 'active'
-    LIMIT 1
-  ), 'Asia/Kolkata') AS timezone
+  SELECT 'Asia/Kolkata'::text AS timezone
 ),
 effective_clock AS (
   SELECT (sqlc.arg('as_of')::timestamptz AT TIME ZONE ot.timezone)::date AS business_date
@@ -63,8 +55,7 @@ CROSS JOIN effective_clock ec
 WHERE pv.tenant_id = @tenant_id
   AND pv.status = 'published'
   AND pd.category = 'vaccination'
-  -- Protocol dates are business-calendar dates for the goat's park timezone, falling back to the
-  -- tenant's historical default when the goat has no park.
+  -- Protocol dates are business-calendar dates in Goat OS' fixed India-only operating timezone.
   AND pv.effective_from <= ec.business_date
   AND (pv.effective_to IS NULL OR pv.effective_to > ec.business_date)
   AND (pv.scope_type = 'tenant'

@@ -49,7 +49,7 @@ The remaining work is dev evidence or later backlog:
 | H8 | `domain_event_processed_events` had no cleanup/retention sweeper. | closed | No | Dedicated processed-event retention sweeper exists and is part of the dev worker evidence. |
 | H9 | Inventory batch reconciler let one bad batch stall siblings. | closed | No | Reconciler continues past a bad batch and records failed repair state for retry; prove with seeded dev stock cases. |
 | H10 | Obligation sweeper isolated stock failures but not all SOP/batch failures. | bounded | No | Stock failure isolation and batch blocking are covered; Google dev must prove SOP task and batch-create failure evidence paths before calling dev done. |
-| M1 | `calendarBusinessDateIn` IST fallback diverged from SQL. | closed | No | Calendar Go code now uses shared `platform/biztime` with `Asia/Kolkata` fallback, matching the SQL default. |
+| M1 | `calendarBusinessDateIn` business-date handling diverged from SQL. | closed | No | Calendar Go code now uses the shared fixed `Asia/Kolkata` business calendar, matching the SQL behavior. |
 | M2 | `birth_age`/`post_arrival` due calculations used raw 24-hour / UTC date arithmetic. | closed | No | Vaccination due dates, windows, warmup floors, catch-up cycles, sweepers, and preview/reporting date helpers now normalize through the IST business calendar. |
 | M3 | Calendar-trigger due embeds `asOf`, creating N-multiply risk. | backlog | No | Not a clean dev blocker while unsupported/unsafe recurrence is rejected. |
 | M4 | No `trigger_type` enum validation at publish. | closed | No | Publish validates supported trigger types and rejects unknown/missing values. |

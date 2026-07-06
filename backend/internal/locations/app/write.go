@@ -12,6 +12,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/locations/domain"
 	"github.com/vgoats/goatos/backend/internal/locations/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
 
@@ -825,6 +826,13 @@ func updateLocationCommandFromBody(tenantID, actorID, clientKey, traceID, locati
 	body.District = trimOptional(body.District)
 	body.Pincode = trimOptional(body.Pincode)
 	body.Timezone = trimOptional(body.Timezone)
+	if body.Timezone != nil {
+		normalizedTimezone, err := normalizeLocationTimezone(*body.Timezone)
+		if err != nil {
+			return ports.UpdateLocationCommand{}, err
+		}
+		body.Timezone = &normalizedTimezone
+	}
 	if body.Name != nil && (*body.Name == "" || len(*body.Name) > maxLocationTextLength) {
 		return ports.UpdateLocationCommand{}, BadRequest("invalid_name", "name must be between 1 and 200 characters")
 	}
@@ -870,7 +878,11 @@ func normalizeLocationBody(body *locationBody) error {
 	body.StateRegion = trimOptional(body.StateRegion)
 	body.District = trimOptional(body.District)
 	body.Pincode = trimOptional(body.Pincode)
-	body.Timezone = strings.TrimSpace(body.Timezone)
+	normalizedTimezone, err := normalizeLocationTimezone(body.Timezone)
+	if err != nil {
+		return err
+	}
+	body.Timezone = normalizedTimezone
 	if !allowedLocationTypes[body.LocationType] {
 		return BadRequest("invalid_location_type", "location_type is not supported")
 	}
@@ -886,9 +898,6 @@ func normalizeLocationBody(body *locationBody) error {
 	if body.Country == "" {
 		body.Country = "IN"
 	}
-	if body.Timezone == "" {
-		body.Timezone = "Asia/Kolkata"
-	}
 	if body.ParentLocationID != nil && !uuidutil.IsUUIDString(*body.ParentLocationID) {
 		return BadRequest("invalid_parent_location_id", "parent_location_id must be a UUID")
 	}
@@ -896,6 +905,17 @@ func normalizeLocationBody(body *locationBody) error {
 		return err
 	}
 	return validateOperational(body.Operational)
+}
+
+func normalizeLocationTimezone(raw string) (string, error) {
+	timezone := strings.TrimSpace(raw)
+	if timezone == "" {
+		return biztime.DefaultTimezone, nil
+	}
+	if timezone != biztime.DefaultTimezone {
+		return "", BadRequest("invalid_timezone", "timezone must be Asia/Kolkata for India-only Goat OS")
+	}
+	return biztime.DefaultTimezone, nil
 }
 
 func validateCapacityBody(body *createCapacityBody) error {

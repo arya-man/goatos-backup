@@ -150,7 +150,7 @@ func TestListEligibleGoatsForGenerationUsesCompiledRuleDimensions(t *testing.T) 
 
 func ptrInt32(v int32) *int32 { return &v }
 
-func TestListEligibleGoatsForGenerationUsesLocationTimezoneForCompiledAge(t *testing.T) {
+func TestListEligibleGoatsForGenerationUsesISTForCompiledAge(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -232,8 +232,8 @@ func TestListEligibleGoatsForGenerationUsesLocationTimezoneForCompiledAge(t *tes
 	if err != nil {
 		t.Fatalf("list eligible UTC boundary: %v", err)
 	}
-	if len(rows) != 0 {
-		t.Fatalf("UTC rows=%#v, want no goats before local first birthday", rows)
+	if len(rows) != 1 || rows[0].GoatID != goatID {
+		t.Fatalf("UTC rows=%#v, want goat eligible on the IST first birthday", rows)
 	}
 
 	if _, err := pool.Exec(ctx, `UPDATE locations SET timezone = 'Asia/Kolkata' WHERE tenant_id = $1 AND location_id = $2`, impTenant, impCbe); err != nil {
@@ -248,7 +248,7 @@ func TestListEligibleGoatsForGenerationUsesLocationTimezoneForCompiledAge(t *tes
 		t.Fatalf("list eligible IST boundary: %v", err)
 	}
 	if len(rows) != 1 || rows[0].GoatID != goatID {
-		t.Fatalf("IST rows=%#v, want goat eligible on local first birthday", rows)
+		t.Fatalf("IST rows=%#v, want goat eligible on the IST first birthday", rows)
 	}
 }
 
@@ -1157,7 +1157,7 @@ func TestGoatCreatedAcceptedCompletionDoesNotSuppressDifferentCalendarCycle(t *t
 	}
 }
 
-func TestTrustedCompletionEvidenceUsesLocationTimezoneForRepeatCycle(t *testing.T) {
+func TestTrustedCompletionEvidenceUsesISTForRepeatCycle(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -1225,8 +1225,8 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 1, $4::timestamptz, 'accepted', $5::timest
 	if err != nil {
 		t.Fatalf("trusted evidence UTC: %v", err)
 	}
-	if hits[candidate.Key()] {
-		t.Fatalf("UTC location should not match repeat cycles across different UTC dates")
+	if !hits[candidate.Key()] {
+		t.Fatalf("UTC location should still match repeat cycles that share the IST business date")
 	}
 
 	if _, err := pool.Exec(ctx, `UPDATE locations SET timezone = 'Asia/Kolkata' WHERE tenant_id = $1 AND location_id = $2`, impTenant, impCbe); err != nil {

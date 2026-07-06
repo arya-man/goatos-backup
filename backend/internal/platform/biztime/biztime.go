@@ -2,12 +2,10 @@
 package biztime
 
 import (
-	"strings"
 	"time"
 )
 
-// DefaultTimezone is Goat OS' operational business calendar unless a location
-// carries a more specific timezone.
+// DefaultTimezone is Goat OS' fixed operational business calendar.
 const DefaultTimezone = "Asia/Kolkata"
 
 var defaultLocation = func() *time.Location {
@@ -23,17 +21,9 @@ func DefaultLocation() *time.Location {
 	return defaultLocation
 }
 
-// Location returns the requested IANA location, falling back to the IST default.
-func Location(timezone string) *time.Location {
-	timezone = strings.TrimSpace(timezone)
-	if timezone == "" || timezone == DefaultTimezone {
-		return defaultLocation
-	}
-	loc, err := time.LoadLocation(timezone)
-	if err != nil {
-		return defaultLocation
-	}
-	return loc
+// Location returns Goat OS' fixed India-only business-calendar location.
+func Location(_ string) *time.Location {
+	return defaultLocation
 }
 
 // BusinessDayStart returns midnight for t's date in the default Goat OS
@@ -42,8 +32,9 @@ func BusinessDayStart(t time.Time) time.Time {
 	return BusinessDayStartIn(t, DefaultTimezone)
 }
 
-// BusinessDayStartIn returns midnight for t's date in the given location's
-// operational calendar.
+// BusinessDayStartIn returns midnight for t's date in the Goat OS operational
+// calendar. The timezone parameter is retained for API compatibility and is
+// ignored.
 func BusinessDayStartIn(t time.Time, timezone string) time.Time {
 	loc := Location(timezone)
 	inLoc := t.In(loc)
@@ -56,7 +47,8 @@ func BusinessDate(t time.Time) string {
 	return BusinessDayStart(t).Format("2006-01-02")
 }
 
-// BusinessDateIn returns YYYY-MM-DD for t in a location's operational calendar.
+// BusinessDateIn returns YYYY-MM-DD for t in the Goat OS operational calendar.
+// The timezone parameter is retained for API compatibility and is ignored.
 func BusinessDateIn(t time.Time, timezone string) string {
 	return BusinessDayStartIn(t, timezone).Format("2006-01-02")
 }

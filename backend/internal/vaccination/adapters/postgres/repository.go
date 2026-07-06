@@ -1904,11 +1904,11 @@ WHERE g.tenant_id = $1
             g.dob IS NOT NULL
             AND (
               prd.min_age_days IS NULL
-              OR (($8::timestamptz AT TIME ZONE COALESCE(NULLIF(current_loc.timezone, ''), NULLIF(shed.timezone, ''), NULLIF(park.timezone, ''), 'Asia/Kolkata'))::date - g.dob) >= prd.min_age_days
+              OR (($8::timestamptz AT TIME ZONE 'Asia/Kolkata')::date - g.dob) >= prd.min_age_days
             )
             AND (
               prd.max_age_days IS NULL
-              OR (($8::timestamptz AT TIME ZONE COALESCE(NULLIF(current_loc.timezone, ''), NULLIF(shed.timezone, ''), NULLIF(park.timezone, ''), 'Asia/Kolkata'))::date - g.dob) <= prd.max_age_days
+              OR (($8::timestamptz AT TIME ZONE 'Asia/Kolkata')::date - g.dob) <= prd.max_age_days
             )
           )
         )
@@ -2098,7 +2098,7 @@ func (r *Repository) HasTrustedCompletionEvidenceBatch(ctx context.Context, tena
 	  SELECT DISTINCT
 	         c.goat_id,
 	         g.entry_date,
-	         COALESCE(NULLIF(current_loc.timezone, ''), NULLIF(shed.timezone, ''), NULLIF(park.timezone, ''), 'Asia/Kolkata') AS timezone
+	         'Asia/Kolkata'::text AS timezone
 	  FROM candidate c
 	  JOIN goats g
 	    ON g.tenant_id = $1::uuid

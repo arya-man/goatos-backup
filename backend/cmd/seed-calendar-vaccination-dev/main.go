@@ -244,7 +244,7 @@ INSERT INTO calendar_event_projections (
 )
 SELECT
   $1::uuid, event_id, 'vaccination', event_type, owner_key, title, subtitle, status, severity,
-  due_at, window_start, window_end, 'Asia/Kolkata', 'location', park_id::uuid, park_code,
+  due_at, window_start, window_end, 'Asia/Kolkata', 'india_only', park_id::uuid, park_code,
   NULLIF(shed_id, '')::uuid, shed_name, NULLIF(cohort_id, '')::uuid, cohort_name, target_type,
   target_count, '` + protocolID + `'::uuid, '` + versionID + `'::uuid, '` + ruleID + `'::uuid,
   'ET+TT Vaccine', 'ET_TT_4W', true, source_label, target_type,
@@ -289,7 +289,7 @@ INSERT INTO calendar_event_projections (
   system, cross_cutting, links, detail, updated_at
 ) VALUES
   ($1::uuid, 'calendar:86000000-0000-4000-8000-000000009001', 'vaccination', 'vaccination_dose_due', 'pc',
-   'Excluded system reminder ping', 'Negative fixture', 'due', 'info', now(), 'Asia/Kolkata', 'fallback',
+   'Excluded system reminder ping', 'Negative fixture', 'due', 'info', now(), 'Asia/Kolkata', 'india_only',
    '` + cbeParkID + `', 'CBE', 'system_job', 0, true, 'negative system fixture',
    'calendar_event', '86000000-0000-4000-8000-000000009001', 'System', 'system', 'queued',
    'local-stub', 'none', true, false, '{}'::jsonb, '{"negative":"system rows are excluded"}'::jsonb, now())

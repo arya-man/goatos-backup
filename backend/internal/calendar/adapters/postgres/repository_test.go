@@ -6,27 +6,27 @@ import (
 	"time"
 )
 
-func TestCalendarBusinessDateInUsesProjectionTimezone(t *testing.T) {
+func TestCalendarBusinessDateInAlwaysUsesIST(t *testing.T) {
 	now := time.Date(2026, time.June, 28, 20, 0, 0, 0, time.UTC)
 
-	if got := calendarBusinessDateIn(now, "UTC"); got != "2026-06-28" {
-		t.Fatalf("UTC business date=%s, want 2026-06-28", got)
+	if got := calendarBusinessDateIn(now, "UTC"); got != "2026-06-29" {
+		t.Fatalf("UTC business date=%s, want 2026-06-29", got)
 	}
 	if got := calendarBusinessDateIn(now, "Asia/Kolkata"); got != "2026-06-29" {
 		t.Fatalf("Asia/Kolkata business date=%s, want 2026-06-29", got)
 	}
 
 	pacificBoundary := time.Date(2026, time.June, 29, 6, 30, 0, 0, time.UTC)
-	if got := calendarBusinessDateIn(pacificBoundary, "America/Los_Angeles"); got != "2026-06-28" {
-		t.Fatalf("America/Los_Angeles business date=%s, want 2026-06-28", got)
+	if got := calendarBusinessDateIn(pacificBoundary, "America/Los_Angeles"); got != "2026-06-29" {
+		t.Fatalf("America/Los_Angeles business date=%s, want 2026-06-29", got)
 	}
 }
 
-func TestCalendarHistorySnoozeTitleUsesProjectionTimezone(t *testing.T) {
-	if strings.Contains(calendarHistorySQL, "snooze_until AT TIME ZONE 'Asia/Kolkata'") {
-		t.Fatal("calendar snooze history title must use projection timezone, not hardcoded Asia/Kolkata")
+func TestCalendarHistorySnoozeTitleUsesISTOnly(t *testing.T) {
+	if !strings.Contains(calendarHistorySQL, "snooze_until AT TIME ZONE 'Asia/Kolkata'") {
+		t.Fatal("calendar snooze history title must use fixed Asia/Kolkata business time")
 	}
-	if !strings.Contains(calendarHistorySQL, "event_context") {
-		t.Fatal("calendar history query should resolve event projection timezone")
+	if strings.Contains(calendarHistorySQL, "event_context") {
+		t.Fatal("calendar history query should not resolve per-event projection timezone")
 	}
 }

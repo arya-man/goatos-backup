@@ -160,15 +160,7 @@ func (q *Queries) ListActiveAnimalStages(ctx context.Context, arg ListActiveAnim
 
 const listEffectiveVaccinationVersionsForGoat = `-- name: ListEffectiveVaccinationVersionsForGoat :many
 WITH operating_timezone AS (
-  SELECT COALESCE((
-    SELECT NULLIF(l.timezone, '')
-    FROM locations l
-    WHERE l.tenant_id = $1
-      AND l.location_id = $2
-      AND l.location_type = 'park'
-      AND l.status = 'active'
-    LIMIT 1
-  ), 'Asia/Kolkata') AS timezone
+  SELECT 'Asia/Kolkata'::text AS timezone
 ),
 effective_clock AS (
   SELECT ($3::timestamptz AT TIME ZONE ot.timezone)::date AS business_date
@@ -182,8 +174,7 @@ CROSS JOIN effective_clock ec
 WHERE pv.tenant_id = $1
   AND pv.status = 'published'
   AND pd.category = 'vaccination'
-  -- Protocol dates are business-calendar dates for the goat's park timezone, falling back to the
-  -- tenant's historical default when the goat has no park.
+  -- Protocol dates are business-calendar dates in Goat OS' fixed India-only operating timezone.
   AND pv.effective_from <= ec.business_date
   AND (pv.effective_to IS NULL OR pv.effective_to > ec.business_date)
   AND (pv.scope_type = 'tenant'
