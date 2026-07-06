@@ -272,8 +272,8 @@ func postBreedingDeferReason(g domain.EligibleGoat, asOf time.Time) string {
 
 func milkingDeferReason(g domain.EligibleGoat) string {
 	status := strings.ToLower(strings.TrimSpace(g.ReproductiveStatus))
-	stage := strings.ToLower(strings.TrimSpace(g.Stage))
-	if status == "milking" || strings.Contains(stage, "milking") {
+	stage := strings.ToUpper(strings.TrimSpace(g.Stage))
+	if status == "milking" || (strings.Contains(stage, "MILKING") && !strings.Contains(stage, "WAITING") && !strings.Contains(stage, "WARMUP")) {
 		return "milking_window_hold"
 	}
 	return ""

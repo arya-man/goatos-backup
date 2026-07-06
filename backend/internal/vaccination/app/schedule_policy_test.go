@@ -176,9 +176,17 @@ func TestPolicyDeferReasonMilkingWindowHold(t *testing.T) {
 	if got := policyDeferReason(milkingStatus, policies, time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)); got != "milking_window_hold" {
 		t.Fatalf("milking status reason = %q, want milking_window_hold", got)
 	}
-	milkingStage := domain.EligibleGoat{Stage: "MOTHER_MILKING_WAITING"}
+	milkingStage := domain.EligibleGoat{Stage: "MILKING"}
 	if got := policyDeferReason(milkingStage, policies, time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)); got != "milking_window_hold" {
 		t.Fatalf("milking stage reason = %q, want milking_window_hold", got)
+	}
+	waitingStage := domain.EligibleGoat{Stage: "MOTHER_MILKING_WAITING"}
+	if got := policyDeferReason(waitingStage, policies, time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)); got != "" {
+		t.Fatalf("waiting stage reason = %q, want schedulable outside active milking", got)
+	}
+	warmupStage := domain.EligibleGoat{Stage: "MILKING_WARMUP"}
+	if got := policyDeferReason(warmupStage, policies, time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)); got != "" {
+		t.Fatalf("warmup stage reason = %q, want schedulable outside active milking", got)
 	}
 }
 

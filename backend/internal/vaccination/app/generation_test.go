@@ -1257,7 +1257,7 @@ func TestGenerateDefersPostBreedingAndMilkingHolds(t *testing.T) {
 	}}}
 	goats := &generationGoatFake{list: []domain.EligibleGoat{
 		{GoatID: "bred-goat", LifecycleStatus: "alive", EntryDate: &entryDate, ReproductiveStatus: "bred", BreedingDate: &breedingDate},
-		{GoatID: "milking-goat", LifecycleStatus: "alive", EntryDate: &entryDate, Stage: "MOTHER_MILKING_WAITING"},
+		{GoatID: "milking-goat", LifecycleStatus: "alive", EntryDate: &entryDate, Stage: "MILKING"},
 		{GoatID: "clear-goat", LifecycleStatus: "alive", EntryDate: &entryDate},
 	}}
 	obl := &generationObligationFake{seen: map[string]bool{}}
