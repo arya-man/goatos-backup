@@ -147,7 +147,7 @@ func applyCrossVaccineGapFloor(due time.Time, last *domain.RecentVaccineAdminist
 	if gap <= 0 {
 		return due
 	}
-	floor := dateUTC(last.AdministeredAt).AddDate(0, 0, int(gap))
+	floor := businessDayStart(last.AdministeredAt).AddDate(0, 0, int(gap))
 	if due.Before(floor) {
 		return floor
 	}
@@ -168,7 +168,7 @@ func applyCrossVaccineGapFloorFromHistory(due time.Time, history []domain.Recent
 		if gap <= 0 {
 			continue
 		}
-		floor := dateUTC(admin.AdministeredAt).AddDate(0, 0, int(gap))
+		floor := businessDayStart(admin.AdministeredAt).AddDate(0, 0, int(gap))
 		if out.Before(floor) {
 			out = floor
 		}

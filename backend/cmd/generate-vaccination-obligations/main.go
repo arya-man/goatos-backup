@@ -12,8 +12,8 @@
 //	  -tenant-id <tenant> [-as-of RFC3339]
 //
 // The default path resolves the effective protocol per goat, including park/scope precedence. When
-// -as-of is omitted, generation uses the current UTC day bucket so replaying a calendar-trigger
-// backfill on the same day is idempotent.
+// -as-of is omitted, generation uses the current India business-day bucket so replaying a
+// calendar-trigger backfill on the same day is idempotent.
 package main
 
 import (
@@ -43,6 +43,16 @@ type config struct {
 	RecoveryRepairAge   time.Duration
 }
 
+var indiaLocation = func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		return time.FixedZone("Asia/Kolkata", 5*60*60+30*60)
+	}
+	return loc
+}()
+
+var errRecoveryRepairPartialFailures = errors.New("vaccination recovery repair completed with failed goats")
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -71,13 +81,13 @@ func run(args []string) error {
 	gen := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 
 	if cfg.VersionID == "" {
-		repair, repairCandidates, err := runRecoveryRepair(ctx, vaccinationRepo, gen, cfg.TenantID, cfg.AsOf, cfg.RecoveryRepairAge, cfg.RecoveryRepairLimit)
-		if err != nil {
-			return fmt.Errorf("vaccination recovery repair: %w", err)
+		repair, repairCandidates, missedBatchRepaired, repairErr := runRecoveryRepair(ctx, obligationRepo, vaccinationRepo, gen, cfg.TenantID, cfg.AsOf, cfg.RecoveryRepairAge, cfg.RecoveryRepairLimit)
+		if repairErr != nil && !errors.Is(repairErr, errRecoveryRepairPartialFailures) {
+			return fmt.Errorf("vaccination recovery repair: %w", repairErr)
 		}
 		if cfg.RecoveryRepairLimit > 0 {
-			fmt.Printf("recovery-repair candidates=%d generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
-				repairCandidates, repair.Generated, repair.Deferred, repair.Reopened, repair.FailedGoats, repair.SkippedNoDueDate, repair.SuppressedByTrustedHistory)
+			fmt.Printf("recovery-repair candidates=%d missed_batch_repaired=%d generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
+				repairCandidates, missedBatchRepaired, repair.Generated, repair.Deferred, repair.Reopened, repair.FailedGoats, repair.SkippedNoDueDate, repair.SuppressedByTrustedHistory)
 		}
 		res, err := gen.GenerateEffectiveForAllGoats(ctx, cfg.TenantID, cfg.AsOf)
 		if err != nil {
@@ -89,6 +99,9 @@ func run(args []string) error {
 		}
 		fmt.Printf("generated effective-cohort generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d stuck_recoverable_deferred=%d\n",
 			res.Generated, res.Deferred, res.Reopened, res.FailedGoats, res.SkippedNoDueDate, res.SuppressedByTrustedHistory, stuck)
+		if repairErr != nil {
+			return fmt.Errorf("vaccination recovery repair: %w", repairErr)
+		}
 		return nil
 	}
 	if !cfg.UnsafeVersionRun {
@@ -112,30 +125,38 @@ func run(args []string) error {
 	return nil
 }
 
-func runRecoveryRepair(ctx context.Context, repo *vaccinationpg.Repository, gen *vaccinationapp.GenerationService, tenantID string, asOf time.Time, age time.Duration, limit int) (vaccinationdomain.GenerateResult, int, error) {
+func runRecoveryRepair(ctx context.Context, obligationRepo *obligationpg.Repository, repo *vaccinationpg.Repository, gen *vaccinationapp.GenerationService, tenantID string, asOf time.Time, age time.Duration, limit int) (vaccinationdomain.GenerateResult, int, int, error) {
 	var out vaccinationdomain.GenerateResult
 	if limit <= 0 {
-		return out, 0, nil
+		return out, 0, 0, nil
 	}
 	if age < 0 {
 		age = 0
 	}
-	goatIDs, err := repo.ListRecoverableDeferredVaccinationGoatIDs(ctx, tenantID, asOf.Add(-age), int32(limit))
+	olderThan := asOf.Add(-age)
+	missedBatchRepaired, err := obligationRepo.RepairStaleMissedVaccinationBatchLinks(ctx, tenantID, olderThan, int32(limit))
 	if err != nil {
-		return out, 0, err
+		return out, 0, 0, err
+	}
+	goatIDs, err := repo.ListRecoverableDeferredVaccinationGoatIDs(ctx, tenantID, olderThan, int32(limit))
+	if err != nil {
+		return out, 0, missedBatchRepaired, err
 	}
 	for _, goatID := range goatIDs {
 		res, err := gen.GenerateRecoveryRepairForGoat(ctx, tenantID, goatID, asOf)
 		if err != nil {
 			if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return out, len(goatIDs), err
+				return out, len(goatIDs), missedBatchRepaired, err
 			}
 			out.FailedGoats++
 			continue
 		}
 		mergeGenerateResult(&out, res)
 	}
-	return out, len(goatIDs), nil
+	if out.FailedGoats > 0 {
+		return out, len(goatIDs), missedBatchRepaired, errRecoveryRepairPartialFailures
+	}
+	return out, len(goatIDs), missedBatchRepaired, nil
 }
 
 func mergeGenerateResult(dst *vaccinationdomain.GenerateResult, src vaccinationdomain.GenerateResult) {
@@ -156,7 +177,7 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	fs.DurationVar(&cfg.Timeout, "timeout", 120*time.Second, "generation timeout")
 	fs.IntVar(&cfg.RecoveryRepairLimit, "recovery-repair-limit", 1000, "max old deferred/missed vaccination goats to repair before the full effective-cohort scan; 0 disables")
 	fs.DurationVar(&cfg.RecoveryRepairAge, "recovery-repair-age", 7*24*time.Hour, "minimum age of deferred/missed vaccination obligations considered stuck/recoverable")
-	asOfRaw := fs.String("as-of", "", "RFC3339 as-of instant; default current UTC day bucket")
+	asOfRaw := fs.String("as-of", "", "RFC3339 as-of instant; default current India business-day bucket")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -166,13 +187,13 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	if now == nil {
 		now = time.Now
 	}
-	cfg.AsOf = now().UTC().Truncate(24 * time.Hour)
+	cfg.AsOf = startOfIndiaBusinessDay(now())
 	if strings.TrimSpace(*asOfRaw) != "" {
 		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*asOfRaw))
 		if err != nil {
 			return config{}, errors.New("as-of must be RFC3339")
 		}
-		cfg.AsOf = parsed.UTC()
+		cfg.AsOf = parsed.In(indiaLocation)
 	}
 	if cfg.Timeout <= 0 {
 		return config{}, errors.New("timeout must be positive")
@@ -184,4 +205,10 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 		return config{}, errors.New("recovery-repair-age must be non-negative")
 	}
 	return cfg, nil
+}
+
+func startOfIndiaBusinessDay(t time.Time) time.Time {
+	inIST := t.In(indiaLocation)
+	y, m, d := inIST.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, indiaLocation)
 }

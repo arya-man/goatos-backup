@@ -277,7 +277,7 @@ func TestScheduleNextDoseChecksAllRecentVaccinesForCrossGap(t *testing.T) {
 	if !scheduled || len(obl.inserted) != 1 {
 		t.Fatalf("scheduled=%v inserted=%d, want one next live vaccine obligation", scheduled, len(obl.inserted))
 	}
-	wantDue := dateUTC(administered).AddDate(0, 0, 21)
+	wantDue := businessDayStart(administered).AddDate(0, 0, 21)
 	if got := obl.inserted[0].DueAt; !got.Equal(wantDue) {
 		t.Fatalf("due_at=%s, want live-live floor %s", got, wantDue)
 	}

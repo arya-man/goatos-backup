@@ -33,6 +33,8 @@ type GoatLister interface {
 	GetGoatForGeneration(ctx context.Context, tenantID, goatID string) (domain.EligibleGoat, bool, error)
 }
 
+var errGenerationPartialFailures = errors.New("vaccination: generation completed with failed goats")
+
 // ObligationWriter is the slice of the obligation repo SM-1 generation needs.
 type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
@@ -457,6 +459,9 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 		}
 		after = goats[len(goats)-1].GoatID
 	}
+	if res.FailedGoats > 0 {
+		return res, errGenerationPartialFailures
+	}
 	return res, nil
 }
 
@@ -668,6 +673,9 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			break
 		}
 		after = goats[len(goats)-1].GoatID
+	}
+	if res.FailedGoats > 0 {
+		return res, errGenerationPartialFailures
 	}
 	return res, nil
 }
@@ -1147,7 +1155,7 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 }
 
 func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, ruleVaccine vaccineProfile, g domain.EligibleGoat, asOf time.Time, recovery genRecoveryPolicy, compatibility genCompatibilityPolicy, vaccineHistory []domain.RecentVaccineAdministration) (*obldomain.RecoveryReschedule, error) {
-	from := dateUTC(asOf)
+	from := businessDayStart(asOf)
 	to := from.AddDate(0, 0, int(recovery.alignDays()))
 	nearby, err := s.obl.FindNearestPlannedBatchDate(ctx, tenantID, versionID, rule.RuleID, g.ShedID, g.ParkID, from, to)
 	if err != nil {
@@ -1406,10 +1414,8 @@ func ageMatches(g domain.EligibleGoat, e genEligibility, asOf time.Time) bool {
 }
 
 func wholeDaysBetween(start, end time.Time) int {
-	y, m, d := start.UTC().Date()
-	startDate := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
-	y, m, d = end.UTC().Date()
-	endDate := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+	startDate := businessDayStart(start)
+	endDate := businessDayStart(end)
 	return int(endDate.Sub(startDate).Hours() / 24)
 }
 

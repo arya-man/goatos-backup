@@ -40,16 +40,17 @@ func TestRecoveryRescheduleDue(t *testing.T) {
 	asOf := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
 	nearby := time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)
 	due, reason := recoveryRescheduleDue(asOf, policy, &nearby)
-	if !due.Equal(nearby) || reason != recoveryAlignNearbyDrive {
-		t.Fatalf("nearby align = %v %q, want %v %q", due, reason, nearby, recoveryAlignNearbyDrive)
+	wantNearby := businessDayStart(nearby)
+	if !due.Equal(wantNearby) || reason != recoveryAlignNearbyDrive {
+		t.Fatalf("nearby align = %v %q, want %v %q", due, reason, wantNearby, recoveryAlignNearbyDrive)
 	}
 	due, reason = recoveryRescheduleDue(asOf, policy, nil)
-	if !due.Equal(asOf.UTC()) || reason != recoveryMicroDrive {
-		t.Fatalf("micro-drive = %v %q, want %v %q", due, reason, asOf.UTC(), recoveryMicroDrive)
+	if !due.Equal(asOf) || due.Location().String() != "Asia/Kolkata" || reason != recoveryMicroDrive {
+		t.Fatalf("micro-drive = %v %q, want %v in Asia/Kolkata with %q", due, reason, asOf, recoveryMicroDrive)
 	}
 	far := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
 	due, reason = recoveryRescheduleDue(asOf, policy, &far)
-	if !due.Equal(asOf.UTC()) || reason != recoveryMicroDrive {
+	if !due.Equal(asOf) || due.Location().String() != "Asia/Kolkata" || reason != recoveryMicroDrive {
 		t.Fatalf("beyond window = %v %q, want micro-drive now", due, reason)
 	}
 }
@@ -68,21 +69,21 @@ func TestRecoveryRescheduleDueUsesOneWeekMaxBuffer(t *testing.T) {
 			recovered:  time.Date(2026, 7, 5, 9, 0, 0, 0, time.UTC),
 			drive:      time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
 			wantReason: recoveryAlignNearbyDrive,
-			wantDue:    time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+			wantDue:    businessDayStart(time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)),
 		},
 		{
 			name:       "july 4 recovery can join july 10 drive",
 			recovered:  time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC),
 			drive:      time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
 			wantReason: recoveryAlignNearbyDrive,
-			wantDue:    time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+			wantDue:    businessDayStart(time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)),
 		},
 		{
 			name:       "seven day boundary can still batch",
 			recovered:  time.Date(2026, 7, 5, 9, 0, 0, 0, time.UTC),
 			drive:      time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
 			wantReason: recoveryAlignNearbyDrive,
-			wantDue:    time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
+			wantDue:    businessDayStart(time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)),
 		},
 		{
 			name:       "eight days cannot wait and becomes micro drive",

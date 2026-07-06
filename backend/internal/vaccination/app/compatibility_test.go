@@ -64,7 +64,7 @@ func TestApplyCrossVaccineGapFloorDelaysGoatPoxAfterPPR(t *testing.T) {
 	}
 	baseDue := time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC) // 1 week after PPR — too soon
 	got := applyCrossVaccineGapFloor(baseDue, last, next, genCompatibilityPolicy{LiveToLiveGapDays: 28})
-	want := time.Date(2026, 6, 29, 0, 0, 0, 0, time.UTC) // 28 days after PPR
+	want := businessDayStart(pprAt).AddDate(0, 0, 28) // 28 India business days after PPR
 	if !got.Equal(want) {
 		t.Fatalf("due = %s, want %s (4-week live→live gap)", got.Format(time.RFC3339), want.Format(time.RFC3339))
 	}

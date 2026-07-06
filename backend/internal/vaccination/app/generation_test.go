@@ -46,7 +46,7 @@ func TestGenerateForVersionAppliesCrossVaccineGap(t *testing.T) {
 	if len(obl.inserted) != 1 {
 		t.Fatalf("inserted=%d want 1", len(obl.inserted))
 	}
-	wantDue := time.Date(2026, 6, 29, 0, 0, 0, 0, time.UTC)
+	wantDue := businessDayStart(pprAt).AddDate(0, 0, 28)
 	if !obl.inserted[0].DueAt.Equal(wantDue) {
 		t.Fatalf("due=%s want %s (4-week live→live gap after PPR)", obl.inserted[0].DueAt, wantDue)
 	}
@@ -89,7 +89,7 @@ func TestGenerateForVersionChecksAllRecentVaccinesForCrossGap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	wantDue := time.Date(2026, 6, 29, 0, 0, 0, 0, time.UTC)
+	wantDue := businessDayStart(pprAt).AddDate(0, 0, 28)
 	if result.Generated != 1 || len(obl.inserted) != 1 || !obl.inserted[0].DueAt.Equal(wantDue) {
 		t.Fatalf("result=%#v inserted=%#v, want live-live gap from older PPR through %s", result, obl.inserted, wantDue)
 	}
@@ -181,7 +181,7 @@ func TestManualCampaignHTTPRunReplaysByIdempotencyKey(t *testing.T) {
 	}
 }
 
-func TestManualCampaignHTTPRunPoisonGoatCompletesWithFailedCounter(t *testing.T) {
+func TestManualCampaignHTTPRunPoisonGoatFailsRunAfterCountingFailure(t *testing.T) {
 	ctx := context.Background()
 	proto := &generationProtoFake{rules: []protodomain.Rule{
 		{RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "manual_campaign"},
@@ -195,10 +195,10 @@ func TestManualCampaignHTTPRunPoisonGoatCompletesWithFailedCounter(t *testing.T)
 	firstAt := time.Date(2026, time.June, 27, 8, 0, 0, 0, time.UTC)
 	secondAt := firstAt.Add(5 * time.Minute)
 	_, firstResult, err := gen.GenerateManualCampaignForVersionWithHTTPRun(ctx, "tenant-1", "version-1", "catchup", firstAt, "manual-key-failed", "hash-1")
-	if err != nil {
-		t.Fatalf("first manual campaign: %v", err)
+	if !errors.Is(err, errGenerationPartialFailures) {
+		t.Fatalf("first manual campaign err=%v, want partial failure", err)
 	}
-	if firstResult.Generated != 1 || firstResult.FailedGoats != 1 || len(obl.inserted) != 1 || !runs.byKey["manual-key-failed"].StartedAt.Equal(firstAt) || runs.byKey["manual-key-failed"].Status != "completed" {
+	if firstResult.Generated != 1 || firstResult.FailedGoats != 1 || len(obl.inserted) != 1 || !runs.byKey["manual-key-failed"].StartedAt.Equal(firstAt) || runs.byKey["manual-key-failed"].Status != "failed" {
 		t.Fatalf("first completed state inserted=%#v result=%#v run=%#v", obl.inserted, firstResult, runs.byKey["manual-key-failed"])
 	}
 
@@ -206,13 +206,42 @@ func TestManualCampaignHTTPRunPoisonGoatCompletesWithFailedCounter(t *testing.T)
 	if err != nil {
 		t.Fatalf("replay manual campaign: %v", err)
 	}
-	if result.Generated != 1 || result.FailedGoats != 1 || len(obl.inserted) != 1 {
-		t.Fatalf("replay result=%#v inserted=%#v, want original completed run with failed counter", result, obl.inserted)
+	if result.Generated != 1 || result.FailedGoats != 0 || len(obl.inserted) != 2 || runs.byKey["manual-key-failed"].Status != "completed" {
+		t.Fatalf("retry result=%#v inserted=%#v run=%#v, want failed run to retry missing work and complete", result, obl.inserted, runs.byKey["manual-key-failed"])
 	}
 	for i, obligation := range obl.inserted {
 		if !obligation.DueAt.Equal(firstAt) {
 			t.Fatalf("inserted[%d].DueAt = %s, want original as_of %s", i, obligation.DueAt, firstAt)
 		}
+	}
+}
+
+func TestGenerateForVersionContinuesAfterPerGoatFailureThenFailsRun(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-1", LifecycleStatus: "alive", Stage: "K1", DOB: &dob},
+		{GoatID: "goat-2", LifecycleStatus: "alive", Stage: "K1", DOB: &dob},
+		{GoatID: "goat-3", LifecycleStatus: "alive", Stage: "K1", DOB: &dob},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}, failOnceAfterInserted: 1}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if !errors.Is(err, errGenerationPartialFailures) {
+		t.Fatalf("generate err=%v, want partial failure", err)
+	}
+	if result.Generated != 2 || result.FailedGoats != 1 {
+		t.Fatalf("result=%#v, want two generated and one failed goat", result)
+	}
+	if len(obl.inserted) != 2 || obl.inserted[0].TargetID != "goat-1" || obl.inserted[1].TargetID != "goat-3" {
+		t.Fatalf("inserted=%#v, want scan to continue through goat-3 after goat-2 failure", obl.inserted)
 	}
 }
 
@@ -594,11 +623,11 @@ func TestGenerateForVersionContinuesAfterPoisonGoat(t *testing.T) {
 	gen := NewGenerationService(proto, goats, obl)
 
 	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatalf("generate: %v", err)
+	if !errors.Is(err, errGenerationPartialFailures) {
+		t.Fatalf("generate err=%v, want partial failure", err)
 	}
 	if result.Generated != 2 || result.FailedGoats != 1 || len(obl.inserted) != 2 {
-		t.Fatalf("result=%#v inserted=%#v, want poison goat counted and later goat processed", result, obl.inserted)
+		t.Fatalf("result=%#v inserted=%#v, want poison goat counted, later goat processed, and run failed", result, obl.inserted)
 	}
 	if obl.inserted[0].TargetID != "goat-1" || obl.inserted[1].TargetID != "goat-3" {
 		t.Fatalf("inserted=%#v, want goat-1 and goat-3 after goat-2 failed", obl.inserted)
@@ -623,11 +652,11 @@ func TestGenerateEffectiveForAllGoatsContinuesAfterPoisonGoat(t *testing.T) {
 	gen := NewGenerationService(proto, goats, obl)
 
 	result, err := gen.GenerateEffectiveForAllGoats(ctx, "tenant-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatalf("generate effective: %v", err)
+	if !errors.Is(err, errGenerationPartialFailures) {
+		t.Fatalf("generate effective err=%v, want partial failure", err)
 	}
 	if result.Generated != 2 || result.FailedGoats != 1 || len(obl.inserted) != 2 {
-		t.Fatalf("result=%#v inserted=%#v, want poison goat counted and later goat processed", result, obl.inserted)
+		t.Fatalf("result=%#v inserted=%#v, want poison goat counted, later goat processed, and run failed", result, obl.inserted)
 	}
 }
 
@@ -763,7 +792,7 @@ func TestGoatRecheckHandlerAlignsRecoveredGoatToNearbyDrive(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("publish goat.health.changed: %v", err)
 	}
-	wantDue := time.Date(2026, time.June, 5, 0, 0, 0, 0, time.UTC)
+	wantDue := businessDayStart(time.Date(2026, time.June, 5, 0, 0, 0, 0, time.UTC))
 	if !obl.inserted[0].DueAt.Equal(wantDue) {
 		t.Fatalf("aligned due=%v, want nearby drive %v", obl.inserted[0].DueAt, wantDue)
 	}
@@ -796,7 +825,7 @@ func TestGenerateEffectiveForAllGoatsAlignsRecoveredGoatToNearbyDrive(t *testing
 	if err != nil {
 		t.Fatalf("effective recovery recheck: %v", err)
 	}
-	wantDue := time.Date(2026, time.June, 5, 0, 0, 0, 0, time.UTC)
+	wantDue := businessDayStart(time.Date(2026, time.June, 5, 0, 0, 0, 0, time.UTC))
 	if recheck.Reopened != 1 || !obl.inserted[0].DueAt.Equal(wantDue) {
 		t.Fatalf("effective recovery result=%#v due=%v, want reopened on nearby drive %v", recheck, obl.inserted[0].DueAt, wantDue)
 	}
@@ -840,7 +869,7 @@ func TestGoatRecheckRecoveryRescheduleKeepsCrossVaccineGapFloor(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("publish goat.health.changed: %v", err)
 	}
-	wantDue := time.Date(2026, time.June, 29, 0, 0, 0, 0, time.UTC)
+	wantDue := businessDayStart(recentLive).AddDate(0, 0, 28)
 	if !obl.inserted[0].DueAt.Equal(wantDue) {
 		t.Fatalf("recovered due=%v, want live-live floor %v instead of nearby drive %v", obl.inserted[0].DueAt, wantDue, nearby)
 	}

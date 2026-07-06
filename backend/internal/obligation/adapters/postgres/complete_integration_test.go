@@ -318,6 +318,112 @@ WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchID); got != "1" {
 	}
 }
 
+func TestRepairStaleMissedVaccinationBatchLinksDetachesAndRecordsStockRepair(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obA := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	const itemID = "d2000000-0000-4000-8000-000000000101"
+	const lotID = "d2000000-0000-4000-8000-000000000102"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit)
+		 VALUES ($1, $2, 'VAC-MISS-REPAIR', 'Stale missed repair vaccine', 'vaccine', 'dose')`, itemID, tenantID); err != nil {
+		t.Fatalf("seed item: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
+		 VALUES ($1, $2, $3, $4, 10, 1, 'dose', DATE '2026-12-31')`, lotID, tenantID, itemID, cbePark); err != nil {
+		t.Fatalf("seed stock: %v", err)
+	}
+	batchID, err := repo.CreateBatch(ctx, domain.NewBatch{
+		TenantID:              tenantID,
+		ProtocolVersionID:     mustVersionOf(t, ctx, pool),
+		ScopeType:             "park",
+		ScopeID:               cbePark,
+		Status:                "planned",
+		EstimatedTargets:      1,
+		PlannedQuantity:       "1",
+		QuantityUnit:          "dose",
+		PrimaryInventoryLotID: strPtrObligation(lotID),
+	})
+	if err != nil {
+		t.Fatalf("create batch: %v", err)
+	}
+	if attached, err := repo.AttachObligationsToBatch(ctx, tenantID, batchID, []string{obA}); err != nil || attached != 1 {
+		t.Fatalf("attach obligation: attached=%d err=%v", attached, err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO inventory_stock_movements (
+  tenant_id, lot_id, item_id, location_id, movement_type, quantity,
+  quantity_unit, batch_id, reason, idempotency_key
+) VALUES (
+  $1, $2, $3, $4, 'reserve', 1, 'dose', $5, 'batch reserve', 'stale-missed-reserve'
+)`, tenantID, lotID, itemID, cbePark, batchID); err != nil {
+		t.Fatalf("seed reserve movement: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET status='missed'
+WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, obA); err != nil {
+		t.Fatalf("seed stale missed batch link: %v", err)
+	}
+
+	n, err := repo.RepairStaleMissedVaccinationBatchLinks(ctx, tenantID, time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), 100)
+	if err != nil {
+		t.Fatalf("repair stale missed links: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("repaired stale missed links = %d, want 1", n)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM obligation_instances
+WHERE tenant_id=$1 AND obligation_id=$2 AND status='missed' AND batch_id IS NULL`, tenantID, obA); got != 1 {
+		t.Fatalf("stale missed obligation not detached: got %d", got)
+	}
+	due, err := repo.ListUnbatchedDueForVersion(ctx, tenantID, mustVersionOf(t, ctx, pool), time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), 100)
+	if err != nil {
+		t.Fatalf("list unbatched after repair: %v", err)
+	}
+	foundMissed := false
+	for _, row := range due {
+		if row.ObligationID == obA {
+			foundMissed = true
+			break
+		}
+	}
+	if !foundMissed {
+		t.Fatalf("repaired missed obligation %s not visible for next sweep: %#v", obA, due)
+	}
+	if got := scanTextObligation(t, ctx, pool, `
+SELECT context #>> '{missed_repair,state}'
+FROM obligation_batches
+WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchID); got != "stock_reconcile_required" {
+		t.Fatalf("missed repair state = %q, want stock_reconcile_required", got)
+	}
+	if got := scanTextObligation(t, ctx, pool, `
+SELECT context #>> '{missed_repair,release_qty}'
+FROM obligation_batches
+WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchID); got != "1" {
+		t.Fatalf("missed repair release_qty = %q, want 1", got)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_id=$2 AND action='obligation.missed_batch_repaired'`,
+		tenantID, obA); got != 1 {
+		t.Fatalf("expected 1 missed batch repair audit event, got %d", got)
+	}
+	replay, err := repo.RepairStaleMissedVaccinationBatchLinks(ctx, tenantID, time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), 100)
+	if err != nil {
+		t.Fatalf("repair replay: %v", err)
+	}
+	if replay != 0 {
+		t.Fatalf("repair replay = %d, want 0", replay)
+	}
+}
+
 func TestCancelOpenForGoatCancelsInProgress(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

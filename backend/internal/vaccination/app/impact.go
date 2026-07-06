@@ -18,7 +18,7 @@ func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (
 		filter.AsOf = req.AsOf
 	}
 	if filter.AsOf.IsZero() {
-		filter.AsOf = time.Now().UTC()
+		filter.AsOf = time.Now().In(indiaLocation)
 	}
 
 	eligible, err := s.repo.CountEligibleGoats(ctx, filter)

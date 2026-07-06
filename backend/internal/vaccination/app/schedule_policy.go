@@ -8,6 +8,14 @@ import (
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
+var indiaLocation = func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		return time.FixedZone("Asia/Kolkata", 5*60*60+30*60)
+	}
+	return loc
+}()
+
 const (
 	schedulePathKid              = "kid"
 	schedulePathAdultProcurement = "adult_procurement"
@@ -74,28 +82,30 @@ const (
 // within the align window, join that drive date; otherwise due immediately so the sweeper can run a
 // micro-drive for a single goat.
 func recoveryRescheduleDue(asOf time.Time, policy genRecoveryPolicy, nearbyDriveDate *time.Time) (time.Time, string) {
-	alignEnd := dateUTC(asOf).AddDate(0, 0, int(policy.alignDays()))
+	recoveredDay := businessDayStart(asOf)
+	alignEnd := recoveredDay.AddDate(0, 0, int(policy.alignDays()))
 	if nearbyDriveDate != nil {
-		aligned := dateUTC(*nearbyDriveDate)
-		if !aligned.Before(dateUTC(asOf)) && !aligned.After(alignEnd) {
+		aligned := businessDayStart(*nearbyDriveDate)
+		if !aligned.Before(recoveredDay) && !aligned.After(alignEnd) {
 			return aligned, recoveryAlignNearbyDrive
 		}
 	}
-	return asOf.UTC(), recoveryMicroDrive
+	return asOf.In(indiaLocation), recoveryMicroDrive
 }
 
 func recoveryDueWindows(due time.Time, dueWindowDays int32) (time.Time, *time.Time) {
-	start := due.UTC()
+	start := due.In(indiaLocation)
 	if dueWindowDays <= 0 {
 		return start, nil
 	}
-	end := start.Add(time.Duration(dueWindowDays) * 24 * time.Hour)
+	end := start.AddDate(0, 0, int(dueWindowDays))
 	return start, &end
 }
 
-func dateUTC(t time.Time) time.Time {
-	y, m, d := t.UTC().Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+func businessDayStart(t time.Time) time.Time {
+	inIST := t.In(indiaLocation)
+	y, m, d := inIST.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, indiaLocation)
 }
 
 func schedulePathForGoat(g domain.EligibleGoat, proc genProcurementPolicy, asOf time.Time) string {

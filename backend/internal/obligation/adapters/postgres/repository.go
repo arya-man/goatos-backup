@@ -36,6 +36,7 @@ const (
 	obligationCanceledEventType       = "goat.obligations_canceled"
 	obligationRescopedEventType       = "obligation.rescoped"
 	obligationRegeneratedEventType    = "obligation.regenerated"
+	obligationMissedBatchRepairAction = "obligation.missed_batch_repaired"
 )
 
 // Repository is the Postgres-backed obligation repository.
@@ -2694,6 +2695,168 @@ WHERE tenant_id = $1
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("obligation: commit missed: %w", err)
+	}
+	return len(ids), nil
+}
+
+// RepairStaleMissedVaccinationBatchLinks detaches legacy missed vaccination rows that still carry a
+// batch_id. New MarkMissedBefore transitions do this inline, but this bounded repair lets the recovery
+// generator heal old rows before the normal sweeper looks for missed + unbatched obligations.
+func (r *Repository) RepairStaleMissedVaccinationBatchLinks(ctx context.Context, tenantID string, olderThan time.Time, limit int32) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if olderThan.IsZero() {
+		olderThan = time.Now().UTC()
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: begin missed batch repair tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, `
+WITH candidate AS (
+  SELECT oi.obligation_id,
+         oi.batch_id AS old_batch_id
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+  WHERE oi.tenant_id = $1
+    AND oi.target_type = 'goat'
+    AND oi.status = 'missed'
+    AND oi.batch_id IS NOT NULL
+    AND oi.due_at <= $2
+    AND pd.category = 'vaccination'
+  ORDER BY oi.due_at ASC, oi.obligation_id ASC
+  LIMIT $3
+  FOR UPDATE OF oi SKIP LOCKED
+)
+UPDATE obligation_instances oi
+SET batch_id = NULL,
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM candidate c
+WHERE oi.tenant_id = $1
+  AND oi.obligation_id = c.obligation_id
+RETURNING oi.obligation_id::text, c.old_batch_id::text`, tenant, pgconv.Timestamptz(olderThan), limit)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: detach stale missed batches: %w", err)
+	}
+	defer rows.Close()
+
+	ids := make([]string, 0)
+	oldBatches := make(map[string]int)
+	for rows.Next() {
+		var id, batchID string
+		if err := rows.Scan(&id, &batchID); err != nil {
+			return 0, fmt.Errorf("obligation: scan missed batch repair: %w", err)
+		}
+		ids = append(ids, id)
+		if batchID != "" {
+			oldBatches[batchID]++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("obligation: missed batch repair rows: %w", err)
+	}
+	rows.Close()
+
+	for batchID, count := range oldBatches {
+		if _, err := tx.Exec(ctx, `
+WITH reserved AS (
+  SELECT COALESCE(SUM(quantity), 0)::numeric AS qty
+  FROM inventory_stock_movements
+  WHERE tenant_id = $1
+    AND batch_id = $2::uuid
+    AND movement_type = 'reserve'
+),
+repair AS (
+  SELECT (
+    CASE WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{shift_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+  )::numeric AS pending_release
+  FROM obligation_batches
+  WHERE tenant_id = $1
+    AND batch_id = $2::uuid
+)
+UPDATE obligation_batches ob
+SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
+    context = CASE
+      WHEN reserved.qty > 0 THEN context || jsonb_build_object(
+        'missed_repair', jsonb_build_object(
+          'state', 'stock_reconcile_required',
+          'reason', 'stale_missed_batch_link',
+          'missed_count', $3::int,
+          'release_qty',
+            (CASE
+              WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+              ELSE 0
+            END) + LEAST(
+              GREATEST(0, reserved.qty - repair.pending_release),
+              ($3::numeric * GREATEST(0, reserved.qty - repair.pending_release)) / GREATEST(ob.estimated_targets, 1)
+            ),
+          'recorded_at', now()
+        )
+      )
+      ELSE context
+    END,
+    updated_at = now(),
+    row_version = row_version + 1
+FROM reserved, repair
+WHERE tenant_id = $1
+  AND batch_id = $2::uuid`, tenant, batchID, count); err != nil {
+			return 0, fmt.Errorf("obligation: update stale missed batch repair: %w", err)
+		}
+	}
+
+	now := time.Now().UTC()
+	recorder := audit.NewTxRecorder(tx)
+	for _, id := range ids {
+		if err := recorder.Record(ctx, audit.Event{
+			TenantID:     tenantID,
+			ActorType:    "system",
+			Action:       obligationMissedBatchRepairAction,
+			ResourceType: "obligation_instance",
+			ResourceID:   id,
+			ScopeType:    "obligation.repair",
+			ScopeID:      id,
+			AfterState: map[string]any{
+				"batch_id":    nil,
+				"occurred_at": now.Format(time.RFC3339Nano),
+			},
+			Metadata: map[string]any{
+				"source": "vaccination_recovery_repair",
+			},
+			TraceID: obligationMissedBatchRepairAction + ":" + id,
+		}); err != nil {
+			return 0, fmt.Errorf("obligation: missed batch repair audit: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit missed batch repair: %w", err)
 	}
 	return len(ids), nil
 }

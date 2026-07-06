@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func TestParseFlagsDefaultsAsOfToUTCDayBucket(t *testing.T) {
+func TestParseFlagsDefaultsAsOfToIndiaBusinessDayBucket(t *testing.T) {
 	now := func() time.Time {
 		return time.Date(2026, time.June, 29, 15, 4, 5, 0, time.UTC)
 	}
@@ -14,9 +14,12 @@ func TestParseFlagsDefaultsAsOfToUTCDayBucket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseFlags: %v", err)
 	}
-	want := time.Date(2026, time.June, 29, 0, 0, 0, 0, time.UTC)
+	want := time.Date(2026, time.June, 29, 0, 0, 0, 0, indiaLocation)
 	if !cfg.AsOf.Equal(want) {
-		t.Fatalf("AsOf=%s, want stable UTC day bucket %s", cfg.AsOf, want)
+		t.Fatalf("AsOf=%s, want stable India business-day bucket %s", cfg.AsOf, want)
+	}
+	if cfg.AsOf.Location().String() != "Asia/Kolkata" {
+		t.Fatalf("AsOf location=%s, want Asia/Kolkata", cfg.AsOf.Location())
 	}
 	if cfg.RecoveryRepairLimit != 1000 || cfg.RecoveryRepairAge != 7*24*time.Hour {
 		t.Fatalf("recovery repair defaults limit=%d age=%s", cfg.RecoveryRepairLimit, cfg.RecoveryRepairAge)
@@ -36,6 +39,9 @@ func TestParseFlagsExplicitAsOfOverridesDayBucket(t *testing.T) {
 	want := time.Date(2026, time.June, 29, 12, 34, 56, 0, time.UTC)
 	if !cfg.AsOf.Equal(want) {
 		t.Fatalf("AsOf=%s, want explicit value %s", cfg.AsOf, want)
+	}
+	if cfg.AsOf.Location().String() != "Asia/Kolkata" {
+		t.Fatalf("explicit AsOf location=%s, want Asia/Kolkata", cfg.AsOf.Location())
 	}
 }
 
