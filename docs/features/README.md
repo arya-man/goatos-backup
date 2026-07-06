@@ -11,6 +11,10 @@ Current feature docs:
 
 - `docs/features/cutover-contract.md`
 - `docs/features/critical-animal-action-guardrails.md`
+- `docs/features/internal-ops-assistant/PRD.md` - internal role-aware AI ops
+  assistant product contract.
+- `docs/features/internal-ops-assistant/TRD.md` - assistant, ops-query, RBAC,
+  freshness, and eval technical contract.
 - `docs/features/locations/AGENT-TASK.md`
 - `docs/features/locations/PRD.md`
 - `docs/features/locations/TRD.md`
