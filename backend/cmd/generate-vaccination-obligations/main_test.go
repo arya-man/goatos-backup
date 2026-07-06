@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 func TestParseFlagsDefaultsAsOfToIndiaBusinessDayBucket(t *testing.T) {
@@ -15,7 +17,7 @@ func TestParseFlagsDefaultsAsOfToIndiaBusinessDayBucket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseFlags: %v", err)
 	}
-	want := startOfIndiaBusinessDay(time.Date(2026, time.June, 29, 15, 4, 5, 0, time.UTC))
+	want := biztime.BusinessDayStart(time.Date(2026, time.June, 29, 15, 4, 5, 0, time.UTC))
 	if !cfg.AsOf.Equal(want) {
 		t.Fatalf("AsOf=%s, want stable India business-day bucket %s", cfg.AsOf, want)
 	}

@@ -3,8 +3,11 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
@@ -652,7 +655,7 @@ func TestGenerateForVersionAbortsOnTransientDBError(t *testing.T) {
 	obl := &generationObligationFake{
 		seen:                  map[string]bool{},
 		failOnceAfterInserted: 1,
-		failErr:               errors.New("insert obligation: ERROR: deadlock detected (SQLSTATE 40P01)"),
+		failErr:               fmt.Errorf("insert obligation: %w", &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}),
 	}
 	gen := NewGenerationService(proto, goats, obl)
 
@@ -672,8 +675,8 @@ func TestShouldAbortGenerationClassifiesRetryableInfrastructure(t *testing.T) {
 	retryable := []error{
 		context.Canceled,
 		context.DeadlineExceeded,
-		errors.New("write obligation: ERROR: could not serialize access (SQLSTATE 40001)"),
-		errors.New("write obligation: ERROR: deadlock detected (SQLSTATE 40P01)"),
+		&pgconn.PgError{Code: "40001", Message: "could not serialize access"},
+		&pgconn.PgError{Code: "40P01", Message: "deadlock detected"},
 		errors.New("pgxpool: failed to acquire connection: timeout acquiring connection"),
 		errors.New("read goat: server closed the connection unexpectedly"),
 	}
@@ -685,7 +688,7 @@ func TestShouldAbortGenerationClassifiesRetryableInfrastructure(t *testing.T) {
 
 	poison := []error{
 		errors.New("forced partial failure"),
-		errors.New("write obligation: ERROR: duplicate key value violates unique constraint (SQLSTATE 23505)"),
+		&pgconn.PgError{Code: "23505", Message: "duplicate key value violates unique constraint"},
 	}
 	for _, err := range poison {
 		if IsGenerationAbortError(err) {

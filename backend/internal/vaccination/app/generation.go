@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
@@ -706,23 +708,34 @@ func shouldAbortGeneration(err error) bool {
 }
 
 func isRetryableGenerationInfraError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "40001", // serialization_failure
+			"40P01", // deadlock_detected
+			"55P03", // lock_not_available
+			"57014", // query_canceled / statement timeout
+			"57P01", // admin_shutdown
+			"57P02", // crash_shutdown
+			"57P03", // cannot_connect_now
+			"53300", // too_many_connections
+			"53400", // configuration_limit_exceeded
+			"08000",
+			"08001",
+			"08003",
+			"08004",
+			"08006",
+			"08007":
+			return true
+		default:
+			return false
+		}
+	}
 	msg := strings.ToLower(err.Error())
 	for _, marker := range []string{
-		"sqlstate 40001", // serialization_failure
-		"sqlstate 40p01", // deadlock_detected
-		"sqlstate 55p03", // lock_not_available
-		"sqlstate 57014", // query_canceled / statement timeout
-		"sqlstate 57p01", // admin_shutdown
-		"sqlstate 57p02", // crash_shutdown
-		"sqlstate 57p03", // cannot_connect_now
-		"sqlstate 53300", // too_many_connections
-		"sqlstate 53400", // configuration_limit_exceeded
-		"sqlstate 08000",
-		"sqlstate 08001",
-		"sqlstate 08003",
-		"sqlstate 08004",
-		"sqlstate 08006",
-		"sqlstate 08007",
 		"failed to acquire connection",
 		"timeout acquiring connection",
 		"pool closed",

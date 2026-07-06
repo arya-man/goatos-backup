@@ -21,6 +21,14 @@ FROM goats g
 CROSS JOIN impact_params ip
 JOIN vaccination_completions vc
   ON vc.tenant_id = g.tenant_id AND vc.goat_id = g.goat_id AND vc.status = 'accepted'
+LEFT JOIN LATERAL (
+  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
+  FROM procurement_load_goats plg
+  WHERE plg.tenant_id = g.tenant_id
+    AND plg.goat_id = g.goat_id
+  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  LIMIT 1
+) proc ON true
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
@@ -39,15 +47,10 @@ WHERE g.tenant_id = $1
   AND NOT COALESCE(loa.is_icu, false)
   AND (
     ip.warmup_no_vaccination_days <= 0
-    OR COALESCE((
-      SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz)
-             + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of
-      FROM procurement_load_goats plg
-      WHERE plg.tenant_id = g.tenant_id
-        AND plg.goat_id = g.goat_id
-      ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
-      LIMIT 1
-    ), g.entry_date IS NULL OR g.entry_date::timestamptz + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of)
+    OR COALESCE(
+      proc.warming_entry_at + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of,
+      g.entry_date IS NULL OR g.entry_date::timestamptz + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of
+    )
   )
   AND ($2::text = '' OR g.species = $2::text)
   AND ($3::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $3::text)
@@ -95,6 +98,14 @@ WITH impact_params AS (
 SELECT count(*)::bigint AS total
 FROM goats g
 CROSS JOIN impact_params ip
+LEFT JOIN LATERAL (
+  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
+  FROM procurement_load_goats plg
+  WHERE plg.tenant_id = g.tenant_id
+    AND plg.goat_id = g.goat_id
+  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  LIMIT 1
+) proc ON true
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
@@ -113,15 +124,10 @@ WHERE g.tenant_id = $1
   AND NOT COALESCE(loa.is_icu, false)
   AND (
     ip.warmup_no_vaccination_days <= 0
-    OR COALESCE((
-      SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz)
-             + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of
-      FROM procurement_load_goats plg
-      WHERE plg.tenant_id = g.tenant_id
-        AND plg.goat_id = g.goat_id
-      ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
-      LIMIT 1
-    ), g.entry_date IS NULL OR g.entry_date::timestamptz + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of)
+    OR COALESCE(
+      proc.warming_entry_at + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of,
+      g.entry_date IS NULL OR g.entry_date::timestamptz + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of
+    )
   )
   AND ($2::text = '' OR g.species = $2::text)
   AND ($3::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $3::text)
@@ -170,6 +176,14 @@ WITH impact_params AS (
 SELECT count(DISTINCT g.shed_id)::bigint AS total
 FROM goats g
 CROSS JOIN impact_params ip
+LEFT JOIN LATERAL (
+  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
+  FROM procurement_load_goats plg
+  WHERE plg.tenant_id = g.tenant_id
+    AND plg.goat_id = g.goat_id
+  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  LIMIT 1
+) proc ON true
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
@@ -188,15 +202,10 @@ WHERE g.tenant_id = $1
   AND NOT COALESCE(loa.is_icu, false)
   AND (
     ip.warmup_no_vaccination_days <= 0
-    OR COALESCE((
-      SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz)
-             + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of
-      FROM procurement_load_goats plg
-      WHERE plg.tenant_id = g.tenant_id
-        AND plg.goat_id = g.goat_id
-      ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
-      LIMIT 1
-    ), g.entry_date IS NULL OR g.entry_date::timestamptz + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of)
+    OR COALESCE(
+      proc.warming_entry_at + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of,
+      g.entry_date IS NULL OR g.entry_date::timestamptz + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of
+    )
   )
   AND g.shed_id IS NOT NULL
   AND ($2::text = '' OR g.species = $2::text)

@@ -576,14 +576,14 @@ func (r *Repository) ReleaseBatchReconcileRemainders(ctx context.Context, tenant
 	if limit > 5000 {
 		limit = 5000
 	}
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
 		return summary, fmt.Errorf("inventory: tenant id: %w", err)
 	}
 	for i := 0; i < limit; i++ {
-		batchSummary, found, err := r.releaseOneBatchReconcileRemainder(ctx, tenant)
+		iterCtx, cancel := r.withTimeout(ctx)
+		batchSummary, found, err := r.releaseOneBatchReconcileRemainder(iterCtx, tenant)
+		cancel()
 		if err != nil {
 			return summary, err
 		}

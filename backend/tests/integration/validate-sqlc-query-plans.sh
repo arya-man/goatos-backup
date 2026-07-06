@@ -339,6 +339,14 @@ CROSS JOIN (
   SELECT 7::int AS warmup_no_vaccination_days,
          TIMESTAMPTZ '2026-06-29 12:00:00+00' AS as_of
 ) ip
+LEFT JOIN LATERAL (
+  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
+  FROM procurement_load_goats plg
+  WHERE plg.tenant_id = g.tenant_id
+    AND plg.goat_id = g.goat_id
+  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  LIMIT 1
+) proc ON true
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
@@ -357,15 +365,10 @@ WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND NOT COALESCE(loa.is_icu, false)
   AND (
     ip.warmup_no_vaccination_days <= 0
-    OR COALESCE((
-      SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz)
-             + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of
-      FROM procurement_load_goats plg
-      WHERE plg.tenant_id = g.tenant_id
-        AND plg.goat_id = g.goat_id
-      ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
-      LIMIT 1
-    ), g.entry_date IS NULL OR g.entry_date::timestamptz + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of)
+    OR COALESCE(
+      proc.warming_entry_at + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of,
+      g.entry_date IS NULL OR g.entry_date::timestamptz + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of
+    )
   )
   AND ('goat'::text = '' OR g.species = 'goat'::text)
   AND ('K1'::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = 'K1'::text)
@@ -373,22 +376,59 @@ WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND ('beetal'::text = '' OR g.breed = 'beetal'::text)
   AND ('healthy'::text = '' OR COALESCE(g.health_status, '') = 'healthy'::text)"
 
-  explain_must_use_index "VaccinationImpactCountEligibleGoats" 'Seq Scan on goats|Seq Scan on procurement_load_goats|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
+  explain_must_use_index "VaccinationImpactCountEligibleGoats" 'Seq Scan on goats|Seq Scan on procurement_load_goats|Seq Scan on location_operational_attributes|SubPlan' "EXPLAIN (COSTS OFF)
 SELECT count(*)::bigint AS total
 $impact_predicates;"
 
-  explain_must_use_index "VaccinationImpactCountCatchupGoats" 'Seq Scan on goats|Seq Scan on procurement_load_goats|Seq Scan on vaccination_completions|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
+  explain_must_use_index "VaccinationImpactCountCatchupGoats" 'Seq Scan on goats|Seq Scan on procurement_load_goats|Seq Scan on vaccination_completions|Seq Scan on location_operational_attributes|SubPlan' "EXPLAIN (COSTS OFF)
 SELECT count(DISTINCT g.goat_id)::bigint AS total
-$impact_predicates
-  AND EXISTS (
-    SELECT 1
-    FROM vaccination_completions vc
-    WHERE vc.tenant_id = g.tenant_id
-      AND vc.goat_id = g.goat_id
-      AND vc.status = 'accepted'
-  );"
+FROM goats g
+CROSS JOIN (
+  SELECT 7::int AS warmup_no_vaccination_days,
+         TIMESTAMPTZ '2026-06-29 12:00:00+00' AS as_of
+) ip
+JOIN vaccination_completions vc
+  ON vc.tenant_id = g.tenant_id
+ AND vc.goat_id = g.goat_id
+ AND vc.status = 'accepted'
+LEFT JOIN LATERAL (
+  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
+  FROM procurement_load_goats plg
+  WHERE plg.tenant_id = g.tenant_id
+    AND plg.goat_id = g.goat_id
+  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  LIMIT 1
+) proc ON true
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+LEFT JOIN shed_profiles sp
+  ON sp.tenant_id = g.tenant_id
+ AND sp.location_id = g.shed_id
+LEFT JOIN animal_stage_lookup asl
+  ON asl.tenant_id = sp.tenant_id
+ AND asl.animal_stage_id = sp.animal_stage_id
+ AND asl.status = 'active'
+WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND g.lifecycle_status = 'alive'
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(loa.usable_for_vaccination, true)
+  AND NOT COALESCE(loa.is_quarantine, false)
+  AND NOT COALESCE(loa.is_icu, false)
+  AND (
+    ip.warmup_no_vaccination_days <= 0
+    OR COALESCE(
+      proc.warming_entry_at + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of,
+      g.entry_date IS NULL OR g.entry_date::timestamptz + (ip.warmup_no_vaccination_days * INTERVAL '1 day') <= ip.as_of
+    )
+  )
+  AND ('goat'::text = '' OR g.species = 'goat'::text)
+  AND ('K1'::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = 'K1'::text)
+  AND ('female'::text = '' OR g.sex = 'female'::text)
+  AND ('beetal'::text = '' OR g.breed = 'beetal'::text)
+  AND ('healthy'::text = '' OR COALESCE(g.health_status, '') = 'healthy'::text);"
 
-  explain_must_use_index "VaccinationImpactCountEligibleShedScopes" 'Seq Scan on goats|Seq Scan on procurement_load_goats|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
+  explain_must_use_index "VaccinationImpactCountEligibleShedScopes" 'Seq Scan on goats|Seq Scan on procurement_load_goats|Seq Scan on location_operational_attributes|SubPlan' "EXPLAIN (COSTS OFF)
 SELECT count(DISTINCT g.shed_id)::bigint AS total
 $impact_predicates
   AND g.shed_id IS NOT NULL;"

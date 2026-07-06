@@ -226,7 +226,7 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	if now == nil {
 		now = time.Now
 	}
-	cfg.AsOf = startOfIndiaBusinessDay(now())
+	cfg.AsOf = biztime.BusinessDayStart(now())
 	if strings.TrimSpace(*asOfRaw) != "" {
 		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*asOfRaw))
 		if err != nil {
@@ -244,8 +244,4 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 		return config{}, errors.New("recovery-repair-age must be non-negative")
 	}
 	return cfg, nil
-}
-
-func startOfIndiaBusinessDay(t time.Time) time.Time {
-	return biztime.BusinessDayStart(t)
 }
