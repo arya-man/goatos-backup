@@ -112,10 +112,17 @@ Claude:
 Codex:
 
 - Uses `.codex/hooks.json` for the same guard/RTK/post-edit hooks.
+- Uses `tools/agent-hooks/agentmemory-codex-hook.mjs` to pin repo-local
+  agentmemory captures to the stable `goatos` project namespace. This is needed
+  because Codex can be launched from the Mesha workspace root, which is not the
+  Goat OS git root.
 - The Codex hook matchers include both the classic `Bash` tool name and the
   newer shell aliases (`exec_command` / `unified_exec`), and the shared hook
   scripts classify shell payloads themselves before blocking or auto-routing.
 - Trust the repo hooks when Codex prompts for trust.
+- When using agentmemory MCP tools for Goat OS, pass `project: "goatos"` on
+  saves and recalls whenever the tool exposes a project argument. Do not rely on
+  a workspace-root fallback such as `mesha`.
 - Use `AI_BACKEND=codex` for local docs graph rebuilds.
 
 Cursor:

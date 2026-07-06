@@ -1,5 +1,30 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node tools/agent-hooks/agentmemory-codex-hook.mjs session-start",
+            "timeout": 10,
+            "statusMessage": "Registering GoatOS agentmemory session"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node tools/agent-hooks/agentmemory-codex-hook.mjs prompt-submit",
+            "timeout": 10,
+            "statusMessage": "Capturing GoatOS prompt context"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash|exec_command|functions.exec_command|functions\\.exec_command|unified_exec|Write|Edit|MultiEdit|apply_patch",
@@ -38,6 +63,17 @@
         ]
       },
       {
+        "matcher": "Edit|Write|Read|Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node tools/agent-hooks/agentmemory-codex-hook.mjs pre-tool-use",
+            "timeout": 10,
+            "statusMessage": "Checking GoatOS memory context"
+          }
+        ]
+      },
+      {
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
@@ -54,6 +90,40 @@
           {
             "type": "command",
             "command": "bash tools/agent-hooks/format-touched.sh && bash tools/agent-hooks/check-boundaries.sh && bash tools/agent-hooks/check-contract-drift.sh && { if command -v code-review-graph >/dev/null 2>&1; then (code-review-graph update --skip-flows --repo . >/dev/null 2>&1 &); fi; } && { if command -v repowise >/dev/null 2>&1 && [ -d .repowise ]; then (nohup repowise update >/dev/null 2>&1 &); fi; } && bash tools/agent-hooks/update-docs-graph.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node tools/agent-hooks/agentmemory-codex-hook.mjs post-tool-use",
+            "timeout": 10,
+            "statusMessage": "Capturing GoatOS tool context"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node tools/agent-hooks/agentmemory-codex-hook.mjs pre-compact",
+            "timeout": 10,
+            "statusMessage": "Saving GoatOS compact context"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node tools/agent-hooks/agentmemory-codex-hook.mjs stop",
+            "timeout": 10,
+            "statusMessage": "Closing GoatOS memory session"
           }
         ]
       }
