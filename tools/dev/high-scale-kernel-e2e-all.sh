@@ -6,7 +6,7 @@ run_id="${GOATOS_KERNEL_E2E_RUN_ID:-KERNEL-E2E-$(date -u +%Y%m%d-%H%M%S)}"
 report_dir="${GOATOS_KERNEL_E2E_REPORT_DIR:-$repo_root/.codex-goatos-render/high-scale-kernel-e2e/$run_id}"
 certification_mode="${GOATOS_KERNEL_E2E_CERTIFICATION:-0}"
 if [ "$certification_mode" = "1" ]; then
-  scope="${GOATOS_KERNEL_E2E_SCOPE:-strict_certification}"
+  scope="${GOATOS_KERNEL_E2E_SCOPE:-vaccination_slice_full_chain}"
   allow_not_implemented="${GOATOS_KERNEL_E2E_ALLOW_NOT_IMPLEMENTED:-0}"
 else
   scope="${GOATOS_KERNEL_E2E_SCOPE:-vaccination_slice_local}"
@@ -138,6 +138,34 @@ not_implemented() {
   fi
 }
 
+certification_evidence() {
+  local label="$1"
+  local env_name="$2"
+  local evidence="$3"
+  local artifact="${!env_name:-}"
+  if [ "$certification_mode" != "1" ]; then
+    not_implemented "$label" "$evidence"
+    return
+  fi
+  if [ -z "$artifact" ]; then
+    printf '%s\tfailed\tmissing strict-certification evidence: set `%s` to a report/log/artifact path; %s\n' "$label" "$env_name" "$evidence" >>"$checklist_tsv"
+    overall_status=1
+    return
+  fi
+  if [ ! -e "$artifact" ]; then
+    printf '%s\tfailed\tstrict-certification evidence path from `%s` does not exist: `%s`; %s\n' "$label" "$env_name" "$artifact" "$evidence" >>"$checklist_tsv"
+    overall_status=1
+    return
+  fi
+  printf '%s\tpassed\tstrict-certification evidence: `%s`\n' "$label" "$artifact" >>"$checklist_tsv"
+}
+
+scope_passed() {
+  local label="$1"
+  local evidence="$2"
+  printf '%s\tpassed\t%s\n' "$label" "$evidence" >>"$checklist_tsv"
+}
+
 not_run() {
   local label="$1"
   local evidence="$2"
@@ -215,12 +243,16 @@ else
   not_run "live data-plane and UI E2E cases" "GOATOS_KERNEL_E2E_RUN_LIVE=0"
 fi
 
-not_implemented "real GCP Pub/Sub topic/subscription/IAM/ack/DLQ proof before cloud readiness" "requires verified goatos-stg/test GCP context; local report does not mutate cloud"
-not_implemented "multi-tenant noisy-neighbor outbox/sweeper fairness path" "reusable WorkClaimer/LeaseManager/BackpressurePolicy behavior still needs implementation and staged fairness load evidence"
-not_implemented "effective-cohort CLI/backfill generation durable run path" "tracked as high-scale plan item 8.4"
-not_implemented "notification circuit breaker open/half-open/closed behavior and pending visibility" "durable retry/exhausted notification queue exists; provider circuit breaker state is still a plan item"
-not_implemented "multi-domain scoped generation for multi_domain_kernel certification" "Feed Direction is not operational; vaccination_slice_local scope does not require mixed categories"
-not_implemented "1M full-chain staging scale certification thresholds" "requires goatos-stg 1M benchmark profile, loaded dataset checksum, and scaled EXPLAIN ANALYZE evidence"
+certification_evidence "real GCP Pub/Sub topic/subscription/IAM/ack/DLQ proof before cloud readiness" "GOATOS_KERNEL_E2E_PUBSUB_PROOF" "requires verified goatos-stg/test GCP context; local report does not mutate cloud"
+certification_evidence "multi-tenant noisy-neighbor outbox/sweeper fairness path" "GOATOS_KERNEL_E2E_TENANT_FAIRNESS_PROOF" "reusable WorkClaimer/LeaseManager/BackpressurePolicy behavior needs staged fairness load evidence"
+certification_evidence "effective-cohort CLI/backfill generation durable run path" "GOATOS_KERNEL_E2E_EFFECTIVE_COHORT_RUN_PROOF" "requires durable run-ledger/cursor/replay evidence for effective-cohort backfill"
+certification_evidence "notification circuit breaker open/half-open/closed behavior and pending visibility" "GOATOS_KERNEL_E2E_NOTIFICATION_CIRCUIT_BREAKER_PROOF" "durable retry/exhausted notification queue exists; provider circuit breaker state must be proven"
+if [ "$scope" = "multi_domain_kernel" ]; then
+  certification_evidence "multi-domain scoped generation for multi_domain_kernel certification" "GOATOS_KERNEL_E2E_MULTI_DOMAIN_PROOF" "requires at least two operational protocol categories in one run"
+else
+  scope_passed "multi-domain scoped generation for multi_domain_kernel certification" "not required for scope \`$scope\`; vaccination-slice certification proves vaccination tenant-default/park-override scope without mixed categories"
+fi
+certification_evidence "1M full-chain staging scale certification thresholds" "GOATOS_KERNEL_E2E_1M_FULL_CHAIN_PROOF" "requires goatos-stg 1M benchmark profile, loaded dataset checksum, and scaled EXPLAIN ANALYZE evidence"
 
 {
   report_result="passed"

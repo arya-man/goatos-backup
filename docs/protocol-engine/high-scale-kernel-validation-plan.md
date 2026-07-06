@@ -524,6 +524,23 @@ cloud or 1M full-chain claim. Local checksum drift is not accepted by default;
 escape hatch for throwaway local databases only, and the strict certification
 target forbids it.
 
+Strict certification rows that depend on external staging/cloud evidence must
+point at immutable report/log/artifact paths. The runner fails the row when the
+path is missing, and marks it `passed` only when the artifact exists:
+
+```bash
+GOATOS_KERNEL_E2E_PUBSUB_PROOF=/path/to/pubsub-proof.md
+GOATOS_KERNEL_E2E_TENANT_FAIRNESS_PROOF=/path/to/fairness-proof.md
+GOATOS_KERNEL_E2E_EFFECTIVE_COHORT_RUN_PROOF=/path/to/run-ledger-proof.md
+GOATOS_KERNEL_E2E_NOTIFICATION_CIRCUIT_BREAKER_PROOF=/path/to/notification-circuit-breaker-proof.md
+GOATOS_KERNEL_E2E_MULTI_DOMAIN_PROOF=/path/to/multi-domain-proof.md
+GOATOS_KERNEL_E2E_1M_FULL_CHAIN_PROOF=/path/to/1m-full-chain-report.md
+```
+
+`GOATOS_KERNEL_E2E_MULTI_DOMAIN_PROOF` is required only when
+`GOATOS_KERNEL_E2E_SCOPE=multi_domain_kernel`; vaccination-slice certification
+does not require mixed protocol categories.
+
 ## 10. Current Feedback Triage
 
 Latest architecture feedback is classified as:
