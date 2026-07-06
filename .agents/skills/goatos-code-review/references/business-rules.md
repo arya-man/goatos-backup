@@ -1,60 +1,96 @@
 # Business-Rule Fidelity — Vaccination, Obligations, Domains
 
 Wrong medical/business rules are worse than wrong code — they ship silent harm.
-The rule docs below are authoritative; the summaries here are a review aid, not a
-replacement. **Always read the cited doc (or query the Graphify docs graph)
-before judging domain logic**, and honor the maintainer-rule lock in `AGENTS.md`:
-if a change encodes a new/contradicting rule, surface the conflict and require an
-explicit decision — do not silently accept it.
+The rule docs and committed migrations/config are authoritative; the summaries
+here are a review aid, not a replacement. **Always read the cited source (doc,
+migration, or seeded config) — or query the Graphify docs graph — before judging
+domain logic.** Every value or list quoted below is illustrative and may have
+drifted; verify it against the named source at review time. Honor the
+maintainer-rule lock in `AGENTS.md`: if a change encodes a new/contradicting
+rule, surface the conflict and require an explicit decision — do not silently
+accept it.
 
-Authoritative sources:
-- Vaccination rules: `docs/preventive-care-vaccination/vaccination-rules.md` (+ `PRD.md`, `TRD.md`)
-- Obligation engine: `docs/protocol-engine/obligation-engine.md`
+Authoritative sources (verify against these — do not trust the prose here):
+- Vaccination rules: `docs/preventive-care-vaccination/vaccination-rules.md` (+ `PRD.md`, `TRD.md`, `APPROVED-SCHEDULE-MATRIX.md`)
+- Drive-planner allowed combos / thresholds (seeded): `backend/internal/obligation/app/drive_planner_config.go`
+- Obligation engine + state machine: `docs/protocol-engine/obligation-engine.md`, `docs/protocol-engine/state-machines.md`
+- Obligation status CHECK (durable truth): the LATEST migration that alters `obligation_instances_status_check` under `backend/migrations/postgres/`
 - Calendar: `docs/decisions/calendar-ownership.md`
 - Feed direction: `docs/feed-direction/PRD.md`, `TRD.md`, `DEPENDENCY-CLOSURE-TRD.md`
 - Forms/SOP: `context/forms/final-forms-sop-engine.md`
 - Org / species / shed base model: `context/source-findings/goats-and-parks-source-findings.md`
 
-## Vaccination rules (verify against the doc — do not hardcode from memory)
+## Vaccination rules (verify against the doc + seeded config — never from memory)
 
 Code: `backend/internal/vaccination/`, `backend/internal/protocol/`,
 `backend/internal/obligation/`.
 
-Key rules a reviewer checks (source: `vaccination-rules.md`):
-- **Dose spacing:** live→live 4-week min gap; live→killed 2-week; killed→killed
-  2-week; ET+TT kid booster 3-week. Bacterial+viral same-day allowed; live-viral +
-  killed-viral same-day allowed. "Two live same day" is NOT a rule (that's the
-  4-week gap).
-- **Max 2 shots per animal per drive/visit.** Explicit allowed same-drive combos
-  only. The examples here are non-exhaustive; review against the active source
-  docs and `backend/internal/obligation/app/drive_planner_config.go` before
-  flagging or approving a combo.
-- **Warm-up hold:** 7 days from farm-entry date (not source dose date).
-- **Species selection is real:** obligations select by species/age/stage. Goat Pox
-  = goat-only; Sheep Pox / Blue Tongue = sheep-only; ET+TT / PPR / FMD / HS = all.
-  Mixed-species: kids may share a drive when safe; adults run species-specific
-  execution groups in the same park visit.
+**The numeric gaps, same-day combo set, shot caps, and hold windows below are
+illustrative only.** A reviewer must not treat this prose as exhaustive: confirm
+the full allowed same-day combo set and every numeric threshold against
+`docs/preventive-care-vaccination/vaccination-rules.md` AND the seeded
+`backend/internal/obligation/app/drive_planner_config.go` before flagging OR
+approving a combo/threshold. If the code and either source disagree, that is a
+finding.
+
+Rule shapes a reviewer checks (illustrative values — verify against source):
+- **Dose spacing:** live→live, live→killed, killed→killed, and booster gaps each
+  have a minimum-gap rule (the doc/config own the actual week counts). Confirm
+  the code reads the gap from config, not a hardcoded literal that can silently
+  diverge from the doc. "Two live same day" is NOT a shortcut for the live→live
+  gap — verify the gap is still enforced.
+- **Per-animal shot cap per drive/visit + explicit allowed same-drive combos.**
+  The combo list here is non-exhaustive; the allowed set is whatever the active
+  doc + `drive_planner_config.go` define. Never approve/reject a combo from this
+  file's examples alone.
+- **Warm-up / entry hold:** a hold measured from farm-entry date (not the source
+  dose date). Verify the anchor date the code uses matches the rule doc.
+- **Species selection is real (verify against config, not prose):** obligations
+  select by species/age/stage. Species-specific vaccines must be species-locked
+  in the seeded eligibility config — a goat-only vaccine must never target sheep
+  and a sheep-only vaccine must never target goats. Check the species tag on each
+  preset in `drive_planner_config.go` / the eligibility selector, not the example
+  mapping here (which may drift). Mixed-species: kids may share a drive when the
+  config says it is safe; adults run species-specific execution groups in the
+  same park visit.
 - **Defers are safety blocks, not planner skips:** ICU, quarantine, sick/under
-  treatment, pregnancy months 4-5, post-breeding hold (≥1 month). On recovery,
-  reopen the missed obligation from the recovery date and rejoin the nearest
-  compatible same-park drive within 7 calendar days — else create a micro-drive.
-  No recovered animal is left waiting more than a week. (Review this flow via
-  `references/kernel-and-scale.md` → "Defer-recovery re-entry".)
-- **Drive batching:** may hold a due shed/tag group up to 7 calendar days to
+  treatment, pregnancy window, post-breeding hold. On recovery, reopen the missed
+  obligation from the recovery date and rejoin the nearest compatible same-park
+  drive within the batching window — else create a micro-drive. No recovered
+  animal is left waiting past the window. (Verify window values against the doc;
+  review this flow via `references/kernel-and-scale.md` → "Defer-recovery
+  re-entry".)
+- **Drive batching:** may hold a due shed/tag group up to the batching window to
   combine with a compatible same-park group — ONE-TIME per obligation/dose cycle,
   no rolling postponement.
-- **Missed-dose handling is cycle-relative**: if the next drive is a later cycle,
-  vaccinate immediately; if the same-cycle drive is within 2 weeks, wait for it;
-  if the same-cycle drive is more than 2 weeks away, vaccinate immediately.
-  Trusted prior evidence (our supervised parks / procurement holding parks only)
-  suppresses scheduled work; third-party/vendor claims do NOT.
+- **Missed-dose handling is cycle-relative** (thresholds illustrative — verify):
+  the decision to vaccinate immediately vs wait for the same-cycle drive depends
+  on a distance threshold defined in the rule doc/config. Trusted prior evidence
+  (our supervised parks / procurement holding parks only) suppresses scheduled
+  work; third-party/vendor claims do NOT.
+
+### Timezone / day-boundary correctness (verify the calendar decision)
+
+Medical schedules mistime when a due/missed day is derived from UTC instead of
+the animal/location calendar. The `locations` timezone default is illustrative
+(e.g. `Asia/Kolkata`) — read it from `backend/migrations/postgres/000001_*` and
+`locations.timezone`, not from this line. Reviewer checks:
+- [ ] Due-date, missed-marking, recovery-re-entry, and drive-planned-date day
+      boundaries resolve against the location timezone, not a raw `time.Now()`
+      UTC date. Sweepers that compute `.UTC().Date()` for a medical day boundary
+      are a finding unless the rule is explicitly UTC-defined and documented.
+- [ ] A dose due "on day N" in `Asia/Kolkata` is not marked missed/early by a
+      worker running in UTC crossing midnight differently.
 
 ### Forbidden — never accept:
 - [ ] **Mother-vaccination status as a scheduling input** — explicitly rejected
       everywhere (config, seed, import, model, condition). Every kid uses the
       approved standard schedule; mothers are kept vaccinated operationally.
 - [ ] Third-party/vendor vaccine claims used to suppress scheduled work
-- [ ] Rolling/repeated postponement in drive batching (one-time 7-day hold only)
+- [ ] Rolling/repeated postponement in drive batching (one-time hold only)
+- [ ] **Species-lock leak** — a species-locked vaccine reaching the wrong species
+      (goat-only → sheep, sheep-only → goat). Verify the lock lives in the
+      eligibility config, not a comment.
 - [ ] Goat-only `CHECK` constraints that block mixed-species — species is an
       animal fact, not a DDL check
 - [ ] Free-text SOP label instead of a bound published `sop_version_id` on an executable rule
@@ -66,50 +102,92 @@ Key rules a reviewer checks (source: `vaccination-rules.md`):
 - [ ] Mixed-species validation at animal create, stage assign, rule publish, generation
 - [ ] Postgres as canonical truth (not Cloud Tasks, Pub/Sub, or frontend state)
 
-## Obligation engine (source: `docs/protocol-engine/obligation-engine.md`)
+## Obligation engine (source: `docs/protocol-engine/obligation-engine.md` + latest migration)
 
-- **Status vocabulary and transitions:** durable `obligation_instances.status`
-  values are `scheduled`, `due`, `in_progress`, `deferred`, `completed`,
-  `missed`, `waived`, `canceled`, and `superseded`. Do not invent `pending`,
-  `assigned`, or British-spelled `cancelled` as durable statuses. This is not one
-  linear chain: scheduled/due rows can defer, in-progress rows can miss, exited
-  animals can cancel open/deferred/missed work, and explicit repair/regeneration
-  paths may reopen or supersede the same logical work while preserving audit and
-  status-event evidence.
-- **Date semantics:** due dates, missed marking, recovery re-entry, and drive
-  planned dates are calendar decisions. Review whether the code intentionally
-  uses the animal/location calendar (locations default to `Asia/Kolkata`) instead
-  of accidentally deriving the day from UTC.
+- **Status vocabulary — verify against the migration, do not trust this list.**
+  The durable allowed set for `obligation_instances.status` lives in the LATEST
+  migration under `backend/migrations/postgres/` that alters
+  `obligation_instances_status_check`. Read that CHECK constraint at review time.
+  As an illustrative snapshot (may drift): `scheduled` (default), `due`,
+  `in_progress`, `deferred`, `completed`, `missed`, `waived`, `canceled`,
+  `superseded`. **`pending` and `assigned` are NOT durable statuses** — they do
+  not appear in any status CHECK constraint or state transition; `pending`
+  appears only as a computed read-model view label (e.g. `proof_pending`) in the
+  HTTP work-state mapping, never as a stored value. British `cancelled` is also
+  not a durable status. If code writes a status not present in the current CHECK
+  constraint, that is a finding (the DB will reject it or a stale enum is drifting
+  from the migration).
+- **Transitions are a state machine, not a linear chain (verify against
+  `state-machines.md`).** Confirm each transition the code performs is legal and
+  that terminal states stay immutable:
+  - Terminal states (`completed`, `missed`, `waived`, `canceled`, `superseded`)
+    are immutable history — no automatic forward progression out of them; only
+    explicit correction/rework paths (with status events) may reopen or supersede
+    the same logical work.
+  - `scheduled`/`due` rows can defer; `due`/`in_progress` rows can miss on window
+    close; `deferred` rows recover to `scheduled` (from ICU/quarantine/sick exit)
+    or cancel on animal exit; exited animals cancel open/deferred/missed work.
+  - A change that adds a new transition edge or a new status must cite the doc +
+    migration change together — code and CHECK constraint must move as one.
+- **Date semantics:** see the timezone section above — due dates, missed marking,
+  recovery re-entry, and drive planned dates are location-calendar decisions, not
+  UTC-day accidents.
 - **Generation** is event-driven (birth / procurement / stage-change / prior-dose
   completion → booster). Deterministic idempotency key + duplicate-spawn guard.
-- **Birth-age schedules require DOB truth:** `birth_age` rules must fail visibly
-  or defer with reason when DOB/estimated DOB is missing; do not silently skip
-  animals into no-work/no-gap states.
+- **Trigger anchor + null-DOB trap (verify):** `birth_age`-anchored rules require
+  DOB truth and **silently skip animals with null/estimated-missing DOB** — those
+  animals fall into no-work/no-gap states. A `post_arrival` (or equivalent
+  arrival-anchored) trigger does not need DOB. Reviewer checks:
+  - [ ] `birth_age` rules fail visibly or defer-with-reason on missing DOB — never
+        silently produce zero obligations for null-DOB animals.
+  - [ ] Generation for a cohort that includes null-DOB animals is reconciled
+        (counted / flagged), not silently short.
 - **Re-scope (SM-2):** an animal-state change (pregnancy enter/exit, stage change)
   re-evaluates eligibility — may open new dues or suppress current ones.
-- **Animal exit (death/sale/cull/lost/transfer):** open obligations/batches must
-  be canceled or repaired, stock reservations released/reconciled, status/audit
-  evidence emitted, and projections refreshed so exited animals do not remain
-  overdue.
-- **In-flight version/override changes:** activation previews open obligations
-  and in-progress batches. Open future work may be canceled/superseded/reissued
-  only through explicit repair with status events; in-progress batches and closed
-  history stay on their original version unless a documented correction path says
-  otherwise.
-- **Authority:** vaccination config publish is CEO/COO/superadmin only
-  (`protocol.publish.<category>`); rule versions are immutable and resolved by
-  scope policy (`tenant_default_with_park_overrides`) + effective dates
-  (non-overlap enforced per scope). Impact preview is required before activation.
+- **Animal exit / cull cascade (dead / sold / culled / transferred / lost):** a
+  single exit must fan out completely — verify all of:
+  - [ ] Open + deferred + due obligations for that animal canceled (or repaired)
+        with status/audit events, so the animal never remains overdue.
+  - [ ] In-flight batch membership reconciled; stock reservations released and
+        reconciled back to the inventory ledger.
+  - [ ] Calendar events / projected rows for that animal dropped or closed so it
+        stops surfacing in action/adherence views.
+  - [ ] Projections refreshed. A cull that cancels obligations but leaks a
+        reservation, a calendar event, or an overdue projection row is a finding.
+- **In-flight version/override changes (park-override mid-cycle cutover):**
+  activation must **preview** open obligations and in-progress batches before it
+  cuts over. Verify the finish-vs-cancel/reissue choice is explicit:
+  - [ ] Only **open future** obligations are superseded/reissued to the new
+        version; the reviewer confirms the code makes an explicit
+        finish-vs-cancel decision for **in-progress** batches rather than silently
+        wiping them.
+  - [ ] Closed/completed history stays on the ORIGINAL version — a cutover must
+        not rewrite audit history to the new rule.
+  - [ ] Every supersede/cancel/reissue emits status events.
+- **Publish authority is enforced SERVER-SIDE, not asserted (verify):**
+  vaccination config publish is restricted (e.g. CEO/COO/superadmin via
+  `protocol.publish.<category>`) — confirm the RBAC check runs in the backend
+  route table (`backend/internal/permissions/routes.go`) and fails closed, not
+  merely hidden in the UI. Additional checks:
+  - [ ] A park-scoped actor cannot publish a tenant-default rule.
+  - [ ] A scope cannot be **widened** (park override must not silently become a
+        tenant-wide rule).
+  - [ ] Rule versions are immutable; resolution is scope policy
+        (tenant-default-with-park-overrides) + effective dates with non-overlap
+        enforced per scope. Impact preview required before activation.
 
 ## Vaccination execution edge cases
 
 For vaccination, reviewers must check the complete execution loop, not just
 generation:
 
-- [ ] Proof policy and SOP form require the source-normalized fields where
-      applicable: animal scan, vaccine/item, medicine batch or vial/lot, dose,
-      administered date/time, cold-chain/quantity checks, proof media,
-      adverse-reaction notes/follow-up, and verifier/park-head review
+- [ ] **Vaccine-matrix acceptance fields + cold-chain/proof parity** — the proof
+      policy / SOP form requires the source-normalized fields where applicable:
+      animal scan, vaccine/item, medicine batch or vial/lot, dose, administered
+      date/time, cold-chain/quantity checks, proof media, adverse-reaction
+      notes/follow-up, and verifier/park-head review. A matrix cell accepted
+      without its required acceptance fields (or without cold-chain evidence where
+      the rule demands it) is a finding.
 - [ ] FEFO stock is reserved/consumed/released through the generic inventory
       ledger; missing stock, stock shortfall, expired lot, quarantined lot, and
       cold-chain failure create visible block/rework/repair state
@@ -126,7 +204,8 @@ generation:
       as explicit cancel/defer/rework/replan actions
 - [ ] Same-day drive compatibility enforces species grouping, live/killed gaps,
       same-vaccine min gaps, per-animal shot cap, proof/worker/verifier gates,
-      and one-time batching hold without rolling postponement
+      and one-time batching hold without rolling postponement (all read from the
+      seeded config, not hardcoded)
 - [ ] Completion proof acceptance, rejection/rework, duplicate submit, and
       replay each have tests or live proof evidence when that path changed
 
@@ -152,27 +231,39 @@ generation:
   (FEFO), reserve at batch level, consume on SOP completion, release on
   cancellation — no `vaccine_stock` table.
 
-## Scope state — know what SHOULD exist before flagging "missing"
+## Scope state — verify current state before flagging "missing" or "scope creep"
 
 Do not flag intentionally-deferred work as a bug, and do not approve scope creep
-into parked areas. Confirm current state via git/migrations + the docs; treat this
-as a snapshot, not gospel.
+into parked areas. **This is a snapshot that drifts — verify current state before
+relying on it:** check `backend/migrations/postgres/`, the `backend/cmd/`
+directory (which worker binaries actually exist), the `Makefile`, and the docs.
+Do not treat any BUILT/DEFERRED/PARKED label below as gospel.
 
-- **BUILT:** obligation engine + state machine, vaccination rules schema/domain,
-  protocol config + authority, locations tree + profiles, mixed-species catalog,
-  generic inventory/FEFO, SOP definitions/submissions + proof/verification.
-- **DEFERRED (spec exists, kernel wiring pending):** feed-direction generation/Diff
-  (awaits counts/shifting closure), generic calendar projection beyond the
-  vaccination slice (do not confuse this with the shipped vaccination calendar
-  projector/reminder/escalation workers), procurement intake saga, SM-2 re-scope
-  wiring, missed-deadline escalation / SLA waterfall read models, vaccination
-  coverage KPI projection, herd-animal Path B rename (`herd_animals`/`animal_id`).
-- **PARKED / rejected (not V1 — reject as scope creep):** mother-vaccination status
-  as input; breeding/genetics verticals; separate config rows for deworming /
-  biosecurity / feed-water testing / sanitation / SOP-video / stock-checks;
-  cold-chain excursion + quarantine automation; booster-chain interrupt policy;
-  withdrawal-period sale-block automation.
+- **BUILT (verify via migrations + `backend/cmd/`):** obligation engine + state
+  machine, vaccination rules schema/domain, protocol config + authority,
+  locations tree + profiles, mixed-species catalog, generic inventory/FEFO, SOP
+  definitions/submissions + proof/verification. The vaccination **calendar
+  workers SHIP** — the calendar projector, reminder sweeper, and escalation
+  sweeper exist as real `backend/cmd/` binaries (verify by listing the directory;
+  e.g. `calendar-vaccination-projector`, `calendar-reminder-sweeper`,
+  `calendar-escalation-sweeper`). Do NOT flag legitimate work on those calendar
+  workers as scope creep, and do NOT label them "deferred."
+- **DEFERRED (spec exists, wiring pending — verify a binary/migration does NOT
+  yet exist before asserting this):** feed-direction generation/Diff (awaits
+  counts/shifting closure), **generic** calendar projection beyond the shipped
+  vaccination slice, procurement intake saga, remaining SM-2 re-scope wiring,
+  broader missed-deadline SLA waterfall read models, vaccination coverage KPI
+  projection, herd-animal Path B rename (`herd_animals`/`animal_id`). If a cmd
+  binary or migration for one of these now exists, it is no longer deferred —
+  update this list rather than flagging the code.
+- **PARKED / rejected (not V1 — reject as scope creep):** mother-vaccination
+  status as input; breeding/genetics verticals; separate config rows for
+  deworming / biosecurity / feed-water testing / sanitation / SOP-video /
+  stock-checks; cold-chain excursion + quarantine automation; booster-chain
+  interrupt policy; withdrawal-period sale-block automation.
 
-When a change adds code for a PARKED area, or wires a DEFERRED area without the
-maintainer reopening scope, that's a HIGH finding — surface it, don't wave it
-through.
+When a change adds code for a PARKED area, or wires a genuinely DEFERRED area
+without the maintainer reopening scope, that's a HIGH finding — surface it, don't
+wave it through. But first confirm against `backend/cmd/` + migrations that the
+area is actually still deferred and not already shipped (calendar workers are the
+common false positive).

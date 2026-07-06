@@ -9,6 +9,13 @@ Law: `context/architecture/operational-kernel.md` (golden rule),
 `context/architecture/operational-kernel-system-design.md` (system design),
 `docs/protocol-engine/high-scale-kernel-validation-plan.md` (scale validation).
 
+**Verify against source, not memory.** This file names tables, statuses, cron
+binaries, and thresholds only to tell you WHAT to check and WHERE to confirm it.
+Values shown inline are illustrative and drift — always re-read the cited
+committed source (the latest migration `CHECK` constraint, seeded config, the
+rules doc, the `Makefile`, `backend/cmd/`) at review time before asserting a
+finding on an exact value.
+
 ## The kernel chain and where each stage lives
 
 Every operational feature must answer: what was expected, was it followed, where
@@ -40,12 +47,15 @@ near-term retries/reminders (minutes-hours). Losing a task must never lose work.
    scheduler / status field / proof capture / notification sender rather than
    emitting into the kernel chain. Every process joins the shared kernel.
 2. **State + audit + outbox not in one transaction.** Canonical write and its
-   `outbox_messages` / audit rows must commit together (`BEGIN … COMMIT`). Split
-   transactions lose the event or the state on failure.
-3. **Direct process-status write that skips the flow.** e.g. setting
-   `obligation_instances.status = 'completed'` in an app service instead of going
-   through verification → completion event → sweeper/booster. Status is durable
-   process truth; direct writes drop audit, skip obligations, break booster chains.
+   outbox row (the outbox table lives in `backend/internal/outbox/adapters/postgres/`
+   and its `CREATE TABLE` migration — verify the table name there rather than
+   trusting a name in this doc) plus audit rows must commit together
+   (`BEGIN … COMMIT`). Split transactions lose the event or the state on failure.
+3. **Direct process-status write that skips the flow.** e.g. setting an
+   `obligation_instances.status` terminal value in an app service instead of
+   going through verification → completion event → sweeper/booster. Status is
+   durable process truth; direct writes drop audit, skip obligations, break
+   booster chains. See "Legal-status transition review" below.
 4. **Cloud Tasks / Pub/Sub / frontend as the calendar.** Future obligations must
    materialize as Postgres rows. Frontend must not own canonical
    due/overdue/escalation/verification state — backend derives it and the UI renders.
@@ -62,6 +72,39 @@ near-term retries/reminders (minutes-hours). Losing a task must never lose work.
    action request, scoped evidence, policy-pack/version, deterministic decision,
    approval/exception/proof/obligation/escalation plan, audit, outbox, and
    projection. Lower-level mutation primitives are adapters, not a bypass.
+
+## Legal-status transition review (obligation state machine)
+
+Obligation status is durable process truth with a fixed allowed set and a
+directed state machine. Two failure classes to catch: (a) code writes a status
+value that is not in the `CHECK` constraint (a migration will reject it, or a
+future migration relaxes it and stale code assumes the old set), and (b) code
+performs an illegal transition — most dangerously, mutating a terminal state.
+
+**Verify the allowed set against the CHECK constraint in the LATEST obligation
+migration, not against this list.** Find it with
+`ls backend/migrations/postgres | grep -iE 'obligation|deferred|missed'` and read
+the newest one that `ALTER … ADD CONSTRAINT … _status_check`. As of the current
+tree that constraint (migration `000097_obligation_deferred_and_missed_deadline_index.sql`)
+allows — *illustrative, re-verify*: `scheduled`, `due`, `in_progress`,
+`deferred`, `completed`, `missed`, `waived`, `canceled`, `superseded` (default
+`scheduled`). `pending` and `assigned` are NOT obligation statuses — `pending`
+appears only as a computed read-model view label (e.g. `proof_pending`), never
+as a persisted DB status. Legal transitions are documented in
+`docs/protocol-engine/state-machines.md` and `docs/protocol-engine/obligation-engine.md`.
+
+Review checkpoints:
+- [ ] Every status literal written to `obligation_instances.status` is in the
+      latest migration's `CHECK` set; no `pending`/`assigned`/ad-hoc value
+- [ ] Transitions follow the documented state machine (e.g. `scheduled→due`,
+      `due→in_progress`, `deferred→scheduled` on recovery); no illegal jumps
+- [ ] **Terminal states are immutable.** `completed`, `missed`, `waived`,
+      `canceled`, `superseded` are history, not mutable state. A correction or
+      rework is a NEW obligation/work record + status event, never an in-place
+      edit of a terminal row
+- [ ] Each transition emits a status event into the obligation status-events
+      ledger (auditable) and, where relevant, an outbox event — not a silent
+      column write
 
 ## Critical action / policy-pack review
 
@@ -117,8 +160,9 @@ CRITICAL scale violations:
    side effects, and reject same-key/different-payload. `ON CONFLICT DO UPDATE`
    that only sets `idempotency_key = EXCLUDED.idempotency_key` is NOT sufficient
    when later code still mutates state. Enforce a DB `UNIQUE (tenant_id,
-   idempotency_key)`. Tests must cover: first call, exact replay, same-key
-   different-payload replay, downstream duplicate prevention.
+   idempotency_key)` (confirm the exact unique constraint on the target table's
+   `CREATE TABLE` migration). Tests must cover: first call, exact replay,
+   same-key different-payload replay, downstream duplicate prevention.
 5. **No query-plan validation on a hot path.** DB/migration change touching
    import/animal/event/counter rows at scale without an indexed access path and
    `make validate-sqlc-plans` coverage.
@@ -145,34 +189,88 @@ High-scale certification gates: kernel/scale changes must either run or clearly
 mark not-applicable/not-implemented for `make high-scale-kernel-e2e-data`,
 `make high-scale-kernel-e2e-all`, or strict
 `make high-scale-kernel-e2e-certification`. Reports must list measured threshold,
-pass/fail, and evidence for each relevant case.
+pass/fail, and evidence for each relevant case. (These are the real high-scale
+targets in the `Makefile`; do not invent others.)
 
 Additional hard scale checks reviewers must name when touched:
-- [ ] Tenant-fair/noisy-neighbor behavior for workers and relays; quiet tenants
-      still make progress under skewed load
-- [ ] Work claims use `FOR UPDATE SKIP LOCKED`, leases/advisory locks, or another
-      double-claim-safe pattern, with stale-claim recovery
-- [ ] Pub/Sub/event consumers ack only after durable handling, configure flow
-      control/ack deadlines where applicable, and dedupe redelivery using a
-      processed-event identity
-- [ ] Retry backoff is bounded and jittered; DLQ replay/discard is an explicit
-      audited operator or repair action with zero duplicate business effects
-- [ ] Outbox and worker backlog have visible lag/oldest-unsent SLOs, not only
-      durable rows
-- [ ] Idempotency scopes have a replay window, expiry/retention policy, and
-      bounded index growth; new namespaces are covered by `idempotency-key-sweeper`
-- [ ] Partition rollover/coverage is maintained (`partition-maintainer` /
-      `goatos_ensure_partition_coverage`), and closed/cold history does not stay
-      in hot read paths
-- [ ] Backfills/imports cannot race live kernel writes; row-version or other
-      optimistic/convergent repair behavior is reviewed
-- [ ] Multi-step sagas record partial-failure state and compensation/repair; no
-      orphaned reservations, obligations, proof rows, or half-applied fanout
-- [ ] Calendar-day decisions that affect due/missed/recovered/drive-planned dates
-      use the intended location calendar, not accidental UTC day boundaries
+- [ ] **Tenant-fair / noisy-neighbor** behavior for workers and relays: one huge
+      tenant or park cannot starve quiet tenants; claiming is fair (round-robin /
+      per-tenant caps / partitioned queues), and quiet tenants still make
+      progress under skewed load
+- [ ] **Concurrent-claim safety.** Work claims use `FOR UPDATE SKIP LOCKED`, a
+      lease/advisory-lock single-flight, or another double-claim-safe pattern —
+      **bare `FOR UPDATE` is not sufficient** (it serializes, it does not prevent
+      two instances from each promoting/claiming/reserving a disjoint-but-
+      overlapping set). Two sweeper/relay/dispatcher instances running at once
+      must never double-promote, double-claim, or double-reserve. Stale/expired
+      claims (crashed worker holding a lease) are reclaimable by a reaper
+- [ ] **Consumer-side redelivery + out-of-order dedupe (Pub/Sub is at-least-once).**
+      Every NEW event consumer records processed-event identity (see the
+      processed-events table's `CREATE TABLE` migration + composite PK; do not
+      assume the name — locate it) and is a no-op on redelivery AND on
+      out-of-order arrival. Ack only after durable handling. A consumer that
+      applies an effect per delivery without a dedupe guard is a HIGH finding
+- [ ] Pub/Sub / event consumers configure **flow control, ack deadlines, retry
+      backoff with jitter, and circuit-breaker/open states**; retry is bounded;
+      DLQ replay/discard is an explicit audited operator/repair action with zero
+      duplicate business effects
+- [ ] **Outbox relay-lag / backlog-age SLO.** Outbox and worker backlog expose an
+      oldest-unsent / oldest-unprocessed **age** metric with an alert threshold —
+      not just durable rows and not just a raw counter. A backlog that grows
+      unbounded with no age SLO is silent drift
+- [ ] **Idempotency-key table GC / retention / bloat.** Idempotency scopes have a
+      replay window, expiry/retention policy, and bounded index growth; new
+      namespaces are covered by the `idempotency-key-sweeper` cron and by the
+      `domain-event-processed-sweeper` for processed-event rows
+- [ ] **Partition rollover / retention + hot-set archive.** Partition
+      rollover/coverage is maintained (`partition-maintainer` /
+      `goatos_ensure_partition_coverage`); closed/cold history is archived out of
+      hot read paths and does not accumulate in the hot set
+- [ ] **Backfill-vs-live race.** Backfills/imports cannot race live kernel writes;
+      an optimistic lock / `row_version` (or other convergent-repair) protects a
+      row that both a backfill and a live handler may touch. Backfill never
+      clobbers a newer live write
+- [ ] **Saga partial-failure / compensation.** Multi-step flows (procurement
+      intake, drive execution, booster chains, drive→proof→completion) record
+      partial-failure state and compensation/repair on mid-step failure: no
+      orphaned reservations, obligations, proof rows, half-applied fanout, or
+      dangling batch membership. Apply steps are idempotent so a resumed saga
+      converges; a compensating action exists for each committed step
+- [ ] **Timezone / calendar-day correctness** — see the dedicated section below
 - [ ] Scheduler/job wiring is present in every claimed environment (`dev`,
       `stg`, `prod`) or the review explicitly says which environments are not
       production-ready yet; local/dev cron proof is not prod parity
+
+## Timezone / calendar-day correctness (CRITICAL — both audits)
+
+All date/deadline math must resolve in the **animal's location timezone**, not
+raw server UTC. `locations.timezone` carries the zone (default `Asia/Kolkata` in
+`backend/migrations/postgres/000001_phase_1_identity_foundation.sql` — verify the
+current default there). A day-rollover or DST bug here silently marks an animal
+missed, recovers it on the wrong calendar day, or plans a drive a day off, and
+none of it throws.
+
+Known live gap to check against: the obligation sweeper computes "today" and the
+due date from UTC (`dueAt.UTC().Date()` / `time.Now().UTC()` at
+`backend/internal/obligation/app/sweeper.go` — re-verify the exact lines).
+Any date/deadline decision that reaches a user-facing calendar day MUST convert
+through the location zone before comparing.
+
+Review checkpoints (confirm each when a change touches date/deadline math):
+- [ ] `due_at`, `window_end`, "sweeper today", and missed-marking compare
+      calendar days in the **location timezone**, not `UTC().Date()` — or the
+      review explicitly justifies why UTC is correct for that specific value
+- [ ] The **7-day recovery rejoin** window and any **batching/hold** window are
+      counted in location-local calendar days; a recovery late on a local day
+      does not slip to the next day because the server was already past midnight
+      UTC
+- [ ] **DST and day-rollover** are handled: a deadline near local midnight, or in
+      a zone with DST, does not cross a calendar-day boundary by accident
+- [ ] **Recovery-date-vs-server-date** never crosses a day boundary: the reopened
+      obligation is dated from the animal-local recovery day, not the server's
+      UTC day
+- [ ] Tests exercise a location whose local day differs from the UTC day at the
+      moment of evaluation (e.g. late-evening `Asia/Kolkata`)
 
 ## SOLID / generic-engine review
 
@@ -215,13 +313,15 @@ than a week. (Rule source: `docs/preventive-care-vaccination/vaccination-rules.m
 Review checkpoints (all must hold):
 - [ ] Exit-of-defer emits a recheck/recovery event (or is swept), and reopens the
       obligation dated from recovery — not from the original stale due date, not
-      at the pre-move shed
+      at the pre-move shed. The `deferred → scheduled` transition is a legal
+      state-machine edge (see legal-status review)
 - [ ] Re-entry is **idempotent**: recovering, or the sweeper running, twice does
       NOT create duplicate obligations/drive memberships (deterministic key +
       duplicate-spawn guard)
 - [ ] The ≤7-calendar-day rejoin/micro-drive SLA is enforced or measured — there
       is a code path (or reconciler) that guarantees a recovered animal joins a
-      drive within a week, and a metric/alert when one is left longer
+      drive within a week (counted in **location-local** days, per the timezone
+      section), and a metric/alert when one is left longer
 - [ ] Recovery emits a `missed → recovered` status event into the obligation
       status-events ledger (auditable), and consumes/releases any stale
       reservation from the missed cycle
@@ -236,9 +336,12 @@ can be lost, arrive out of order, or race a state change. Every operational
 invariant therefore needs EITHER an event-path guarantee OR a periodic,
 **idempotent, bounded, tenant/date-scoped** reconciler that heals drift and is
 safe to run repeatedly (it converges, never double-acts). Reconcilers must be
-observable — emit a metric for how many mismatches were found and healed.
+observable — emit a **metered mismatch counter AND an alert/SLO on it**. A
+metric no one alerts on is still silent drift: require both the counter and a
+threshold/alert that fires when mismatches exceed expected steady-state.
 
-Existing healing crons to model new ones on (verified in `backend/cmd/`):
+**Existing healing crons to model new ones on** (each verified present in
+`backend/cmd/`; re-run `ls backend/cmd` before citing — the list drifts):
 `obligation-sweeper` (due promotion + mark-missed + recovery reopen),
 `domain-event-processed-sweeper`, `idempotency-key-sweeper`,
 `inventory-batch-reconciler`, `counts-mismatch-scan` /
@@ -247,6 +350,12 @@ Existing healing crons to model new ones on (verified in `backend/cmd/`):
 `calendar-escalation-sweeper` / `calendar-vaccination-projector`,
 `outbox-relay` + `outbox-dlq`, `sop-review-fanout-retry`, `partition-maintainer`.
 
+Do NOT model on or assume these — they are NOT built as binaries: there is no
+`in-progress-timeout` reconciler and no `drive-membership` reconciler in
+`backend/cmd/`. `device-gateway`, `goatos-api`, and `sweeper` are stub
+directories (`.gitkeep` only), not runnable crons. If a review needs one of the
+unbuilt reconcilers, flag it as **required-but-unbuilt**, do not assume it ships.
+
 Mismatch classes a reviewer confirms are covered (event guarantee OR reconciler):
 
 | Drift | Heal path to require |
@@ -254,33 +363,74 @@ Mismatch classes a reviewer confirms are covered (event guarantee OR reconciler)
 | Recovered from defer but not rescheduled >7d | defer-exit recheck / recovery sweeper (see above) |
 | Animal due but no obligation row (trigger missed) | generation backfill/reconcile against eligibility |
 | Obligation open but animal exited/sold/dead/shifted | stale-cancel / re-scope on state change |
-| Drive/batch count ≠ actual eligible animals (missing/extra) | drive-membership reconciliation (candidate scoring / EDF — planner brain; verify built before relying on it) |
+| Drive/batch count ≠ actual eligible animals (missing/extra) | drive-membership reconciliation — **planner brain, NOT built as a cron; verify before relying on it** |
 | Deadline passed but status never set `missed` | `obligation-sweeper` mark-missed |
-| Stuck `in_progress` / abandoned assignment | timeout reconciler → reopen/reassign; if no reconciler exists yet, mark this as required/unbuilt rather than assuming one ships |
+| Stuck `in_progress` / abandoned assignment | timeout reconciler → reopen/reassign — **no `in-progress-timeout` binary exists yet; mark required/unbuilt, do not assume one ships** |
 | Orphaned stock reservation (batch canceled, not released) | `inventory-batch-reconciler` |
 | Outbox event never delivered / consumer lag | `outbox-relay` + `outbox-dlq` |
 | Read model / projection ≠ source | projection-recompute + parity-check |
 
+### Scan-day execution reconciliation
+
+Drive execution day is where physical reality diverges from the planned batch,
+and every divergence needs a durable, idempotent heal path — not an operator
+eyeballing a list. When reviewing execution/scan-day code, confirm each class is
+detected and reconciled (missing → re-plan/defer; extra → attach or reject;
+proof gaps → rework; stock/cold-chain → block + escalate), and that re-running
+the reconciliation is a no-op:
+- [ ] **Missing animals** — planned but not scanned: obligation stays open / is
+      re-planned or deferred, never silently dropped
+- [ ] **Extra animals** — scanned but not in the batch: attached with an
+      obligation or rejected with a reason, not silently absorbed
+- [ ] **Shifted animals** — moved shed/park since planning: re-scoped, not
+      double-counted at the stale location
+- [ ] **Unreadable tags** — RFID/old-tag unreadable: routed to a manual-resolve
+      queue, not counted as complete
+- [ ] **New defer states on the day** — sick/ICU/quarantine discovered at scan:
+      moved to `deferred` (recovery re-entry applies), not marked missed
+- [ ] **Death / sale on the day** — obligation `canceled`/re-scoped; no orphaned
+      reservation or half-applied fanout
+- [ ] **Proof rejection** — rework path fires; completion not recorded on a
+      rejected proof
+- [ ] **Stock shortfall** — insufficient vaccine batch: blocks completion and
+      escalates, does not mark done anyway
+- [ ] **Cold-chain failure** — temperature/excursion breach: batch blocked and
+      escalated, proof records the failure
+- [ ] Re-running the scan-day reconciliation converges (idempotent), and counts
+      reconcile (planned = completed + deferred + canceled + carried-over)
+
 If a change adds a new operational invariant with no event guarantee and no
 reconciler, that is a HIGH finding — a mismatch will accumulate silently. If you
 need a NEW cron, prefer a small dedicated reconciler over widening an existing
-sweeper's scope, and make it idempotent + bounded + metered from the start.
+sweeper's scope, and make it idempotent + bounded + metered + alerted from the
+start.
 
 ## Kernel review checklist
 
 - [ ] Feature emits into the kernel chain; no private scheduler/status/proof/notify engine
 - [ ] Canonical state + audit + outbox written in ONE transaction
 - [ ] Process status transitions flow through events/sweeper; no direct status write that skips the flow
+- [ ] Status literals match the latest obligation migration's `CHECK` set; transitions are legal; terminal states immutable (correction = new work)
 - [ ] Postgres owns future due work; Cloud Tasks only near-term; frontend owns no canonical state
 - [ ] No cross-module table writes — owning module's service/port only
 - [ ] Idempotency key + fingerprint persisted in the write txn; `UNIQUE (tenant_id, idempotency_key)`; replay-safe; tests cover replay cases
+- [ ] Work claims are double-claim-safe (`FOR UPDATE SKIP LOCKED` / lease / advisory), NOT bare `FOR UPDATE`; stale claims reclaimable
+- [ ] Every new event consumer dedupes at-least-once redelivery + out-of-order via a processed-event identity; acks only after durable handling
 - [ ] Sweepers/queries bounded: tenant/date filters, indexed, cursor resume, `LIMIT`, keyset pagination
 - [ ] No unbounded goroutines / full-herd in-memory loads
 - [ ] Hot-path DB/migration changes have indexed access + `make validate-sqlc-plans`
 - [ ] Migration changes on populated hot tables run `make validate-hot-index-migrations` + `make validate-migrations`
-- [ ] Scale-sensitive changes run or explicitly report the relevant high-scale E2E/certification target
+- [ ] Scale-sensitive changes run or explicitly report the relevant high-scale E2E/certification target (`make high-scale-kernel-e2e-*`)
 - [ ] Durable status persisted by sweeper; read-time compute only for display derivation
+- [ ] Date/deadline math (due/window/recovery/batching/missed/"today") resolves in the location timezone, not raw UTC; DST/day-rollover safe
+- [ ] Partition rollover/retention maintained; cold history archived out of hot paths; idempotency/processed-event tables have GC/retention
+- [ ] Backfills/imports cannot clobber live writes (optimistic lock / row_version)
+- [ ] Pub/Sub flow control, ack deadline, bounded+jittered retry, DLQ, circuit-breaker states reviewed
+- [ ] Multi-step sagas have compensation/repair; no orphaned reservations/obligations/proof/fanout on mid-failure
+- [ ] Scan-day execution reconciles missing/extra/shifted/unreadable/defer/death/sale/proof-reject/stock/cold-chain, idempotently
+- [ ] Reconciler mismatch metrics are alerted (SLO), and outbox/backlog expose an oldest-unsent age SLO — a counter alone is not enough
+- [ ] Tenant-fair claiming; a huge tenant/park cannot starve quiet ones
 - [ ] New domain extends the generic engine by config, not by copying it
 - [ ] Escalations/reminders are durable `notification_requests` via `NotificationGateway`, not logs
-- [ ] Recovered-from-defer animals reopen from recovery date and rejoin a drive within 7 days (else micro-drive); re-entry is idempotent and emits a status event
-- [ ] Every operational invariant has an event-path guarantee OR an idempotent, bounded, metered reconciler; no silent-drift path with neither
+- [ ] Recovered-from-defer animals reopen from recovery date and rejoin a drive within 7 (location-local) days (else micro-drive); re-entry is idempotent and emits a status event
+- [ ] Every operational invariant has an event-path guarantee OR an idempotent, bounded, metered+alerted reconciler; no silent-drift path with neither; unbuilt reconcilers flagged required, not assumed
