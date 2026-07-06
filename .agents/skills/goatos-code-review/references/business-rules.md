@@ -132,6 +132,19 @@ default in migrations/config). Reviewer checks:
 - **Date semantics:** see the timezone section above — due dates, missed marking,
   recovery re-entry, and drive planned dates are location-calendar decisions, not
   UTC-day accidents.
+- **Rule DSL stores policy, not herd facts (verify on authoring/generation
+  changes):** `protocol_versions.rule_dsl` may contain matrix dimensions,
+  selectors, dose/schedule rows, compatibility/gap rules, defer/blocked rules,
+  proof/SOP binding, and catch-up policy. It must NOT embed herd-animal required
+  field checklists, current animal snapshots, copied shed rows, vaccination
+  history lists, or per-animal JSON payloads. Current animal/location/procurement/
+  completion facts come from canonical tables or indexed target-facts read
+  models such as `animal_protocol_facts` (verify the current schema name before
+  citing it). If SQL-selectable predicates are needed, published cells compile
+  to derived dimension rows (e.g. a `protocol_rule_dimension_values`-style
+  table); those rows are derived from `rule_dsl`, not the authoring source.
+  Source: `docs/preventive-care-vaccination/PRD.md` "Rule JSON is policy, herd
+  facts are database facts" and `TRD.md` "Rule JSON vs. herd facts boundary".
 - **Generation** is event-driven (birth / procurement / stage-change / prior-dose
   completion → booster). Deterministic idempotency key + duplicate-spawn guard.
 - **Trigger anchor + null-DOB trap (verify):** `birth_age`-anchored rules require

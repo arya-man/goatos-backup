@@ -196,6 +196,19 @@ mark not-applicable/not-implemented for `make high-scale-kernel-e2e-data`,
 pass/fail, and evidence for each relevant case. (These are the real high-scale
 targets in the `Makefile`; do not invent others.)
 
+Do not let a report overclaim its certification level. Local `make
+high-scale-kernel-e2e-*` output is local behavior proof unless the report also
+proves the staging floor from
+`docs/protocol-engine/high-scale-kernel-validation-plan.md`. A `target_eval`
+run proves target evaluation/page/cache/query shape only; it is NOT 1M
+full-chain proof, production readiness, or cloud readiness. A full-chain/staging
+claim must name the fixed benchmark profile (currently the `goatos-stg`
+1M profile in `docs/runbooks/google-cloud-environments.md`, verify the current
+id there), canonical command/equivalent invocation, git SHA, migration/fixture/
+dataset checksums, environment shape, stage counters, predeclared thresholds,
+pass/fail rows, and evidence links. Load-test evidence must use realistic skew,
+never write-load-test prod, and never ship graphs without pass/fail verdicts.
+
 Additional hard scale checks reviewers must name when touched:
 - [ ] **Tenant-fair / noisy-neighbor** behavior for workers and relays: one huge
       tenant or park cannot starve quiet tenants; claiming is fair (round-robin /
@@ -426,7 +439,11 @@ start.
 - [ ] No unbounded goroutines / full-herd in-memory loads
 - [ ] Hot-path DB/migration changes have indexed access + `make validate-sqlc-plans`
 - [ ] Migration changes on populated hot tables run `make validate-hot-index-migrations` + `make validate-migrations`
-- [ ] Scale-sensitive changes run or explicitly report the relevant high-scale E2E/certification target (`make high-scale-kernel-e2e-*`)
+- [ ] Scale-sensitive changes run or explicitly report the relevant high-scale
+      E2E/certification target (`make high-scale-kernel-e2e-*`); 1M/full-chain
+      claims distinguish local behavior proof vs `target_eval` vs staging
+      `full_chain` and include the benchmark profile, per-stage counters,
+      thresholds, and pass/fail evidence
 - [ ] Durable status persisted by sweeper; read-time compute only for display derivation
 - [ ] Date/deadline math (due/window/recovery/batching/missed/"today") resolves in the location timezone, not raw UTC; DST/day-rollover safe
 - [ ] Partition rollover/retention maintained; cold history archived out of hot paths; idempotency/processed-event tables have GC/retention

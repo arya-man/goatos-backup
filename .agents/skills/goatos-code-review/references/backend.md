@@ -214,6 +214,11 @@ TTL (illustratively ~15 min — verify `defaultSignedURLTTL` in
 - [ ] Metric labels low-cardinality (no per-animal IDs, no free text, no path params)
 - [ ] External calls (HTTP, Pub/Sub, GCS, Cloud Tasks) have explicit timeouts + ctx cancellation
 - [ ] Retries only on idempotent ops with bounded backoff; DLQ + max-attempts, no unbounded retry
+- [ ] Outbox/deployment reviews verify publisher mode safety: staging/prod jobs use
+      `GOATOS_OUTBOX_PUBLISHER=pubsub` with project/topic/subscription/DLQ env,
+      while `eventbus`/`logging` are local/dev-only and require explicit
+      `GOATOS_OUTBOX_ALLOW_NONDURABLE=1`. A local non-durable relay run proves
+      behavior only; it is not cloud readiness or durable Pub/Sub egress proof.
 - [ ] Provider integrations that can fail under load have explicit circuit-breaker
       states (closed/open/half-open) and operator-visible pending/replay/discard
       paths; DLQ replay/discard is an operator action that is itself audited
