@@ -137,10 +137,12 @@ named committed source and read the live value," not "compare to a number here."
   `calendar-*` sweepers/projectors — *illustrative, grep `backend/cmd/` for the
   current set.* Do NOT assume `in-progress-timeout` or `drive-membership` binaries
   exist; they do not. Stub dirs carry only a `.gitkeep`.
-- **Timezone.** Business/calendar defaults key off `locations` timezone (default
-  `Asia/Kolkata`); the obligation sweeper buckets on the **UTC** date
-  (`backend/internal/obligation/app/sweeper.go`). Flag date logic that conflates
-  the two.
+- **Timezone.** Goat OS medical/business calendar days are resolved in the
+  operational location timezone (currently `Asia/Kolkata` by default via
+  `locations.timezone`). UTC is fine for stored instants, audit timestamps, and
+  event-key normalization, but not for due/missed/recovery/drive calendar-day
+  decisions. Flag raw `UTC().Date()` / `time.Now().UTC()` day bucketing in those
+  decisions.
 - **Make targets / npm scripts / thresholds.** Only cite a target/script the
   Makefile or `package.json` actually defines; verify before asserting one exists.
 
@@ -185,8 +187,10 @@ Role → tool mapping (verify the tool is present in your harness before relying
 it): cold-review entry = `get_minimal_context_tool`; change detection =
 `detect_changes_tool`; blast radius = `get_impact_radius_tool`; graph traversal
 (callers/callees/imports/tests) = `query_graph_tool`; affected execution flows =
-`get_affected_flows_tool`. If a tool is absent in the active harness, fall back to
-the graph-query tool plus Grep rather than assuming it exists.
+`get_affected_flows_tool` **only if ToolSearch exposes it**. If a tool is absent
+in the active harness, derive the same review context from `detect_changes_tool`,
+`get_impact_radius_tool`, targeted `query_graph_tool`, and Grep for graph blind
+spots rather than assuming the optional tool exists.
 
 ## Reference routing
 

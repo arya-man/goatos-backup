@@ -43,9 +43,11 @@ before trusting it.
 
 Locate code with CRG (`semantic_search_nodes_tool`, `query_graph_tool`) before
 grepping. Use `get_review_context_tool` / `get_minimal_context_tool` to pull the
-changed source. CRG tools are the `mcp__code-review-graph__*` namespace
-(`detect_changes_tool`, `get_impact_radius_tool`, `get_affected_flows_tool`,
-`query_graph_tool`, `get_minimal_context_tool`, …).
+changed source. CRG namespace is harness-dependent (Claude
+`mcp__code-review-graph__*`, Codex `mcp__code_review_graph__*`). ToolSearch the
+live tool list before relying on optional tools such as `get_affected_flows_tool`;
+if absent, use `detect_changes_tool`, `get_impact_radius_tool`, and targeted
+`query_graph_tool`.
 
 ## Layer boundaries (enforced — violations are CRITICAL/HIGH)
 
@@ -222,14 +224,18 @@ TTL (illustratively ~15 min — verify `defaultSignedURLTTL` in
 
 ## Time & scheduling correctness
 
-- [ ] Date/window math for sweepers and due-date comparisons uses a consistent,
-      explicit timezone. Sweepers compare on UTC dates
-      (`obligation` sweeper truncates on `.UTC().Date()` / `time.Now().UTC()`),
-      while a location's operational day comes from its stored timezone (locations
-      default illustratively to `Asia/Kolkata` — verify the migration default).
-      A local-vs-UTC mismatch shifts "due today" / "missed" across a day boundary.
-- [ ] No naive `time.Now()` in local time where a stored tz or UTC is required;
-      no assumption that the server tz equals the tenant/location tz
+- [ ] Date/window math for sweepers and due-date comparisons resolves the
+      business calendar day in the location timezone (currently `Asia/Kolkata` by
+      default — verify `locations.timezone` in migrations/config), not the server
+      timezone and not raw UTC. A local-vs-UTC mismatch shifts "due today",
+      "missed", recovery, and drive-planned dates across a day boundary.
+- [ ] Raw UTC is used only for persisted instants / audit / event-key
+      normalization. A sweeper or scheduler using `.UTC().Date()` or
+      `time.Now().UTC()` to decide a medical/business day is a finding unless the
+      product contract explicitly defines that value as UTC.
+- [ ] No naive `time.Now()` in local time where the animal/location timezone or a
+      stored instant is required; no assumption that the server timezone equals
+      the tenant/location timezone.
 
 ## Concurrency
 
@@ -247,6 +253,11 @@ TTL (illustratively ~15 min — verify `defaultSignedURLTTL` in
 - [ ] Backend-owned UI truth (nav, labels, filters, disabled reasons, summary vs
       detail field sets) flows through the contract, not frontend hardcoding —
       cross-check `context/frontend/` scope rules for the touched surface.
+- [ ] Analytics / BI / dashboard-query changes honor cost and performance
+      guardrails from `context/analytics/final-analytics-infra.md`: large facts
+      require partition filters or marts/materialized views; reviewed BigQuery
+      queries set max-bytes/quota/dry-run controls where applicable, avoid
+      `SELECT *`, export jobs metadata, and alert on scan spikes.
 
 ## Testing
 

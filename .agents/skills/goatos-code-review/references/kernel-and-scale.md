@@ -131,6 +131,10 @@ contract from `context/architecture/operational-kernel-system-design.md` and
 - [ ] Missing host-module integration still records a durable deferred marker or
       process exception with owner/SLA/read-model visibility instead of silently
       doing nothing
+- [ ] Destructive correction paths are explicit: wrong critical reports or
+      actions are voided/reversed/corrected with audit/history/outbox and
+      preserved lineage, never hidden by delete-and-recreate or hard-delete
+      unless a cited source explicitly allows that lifecycle
 - [ ] Tests cover allow, block, approval, exception, replay, idempotency conflict,
       missing evidence, stale state, primitive bypass, and skewed/high-scale load
 
@@ -244,9 +248,9 @@ Additional hard scale checks reviewers must name when touched:
 ## Timezone / calendar-day correctness (CRITICAL — both audits)
 
 All date/deadline math must resolve in the **animal's location timezone**, not
-raw server UTC. `locations.timezone` carries the zone (default `Asia/Kolkata` in
-`backend/migrations/postgres/000001_phase_1_identity_foundation.sql` — verify the
-current default there). A day-rollover or DST bug here silently marks an animal
+raw server UTC. Goat OS currently operates on the IST business calendar by
+default (`Asia/Kolkata` through `locations.timezone`; verify the current default
+in migrations/config). A day-rollover or DST bug here silently marks an animal
 missed, recovers it on the wrong calendar day, or plans a drive a day off, and
 none of it throws.
 
@@ -254,12 +258,14 @@ Known live gap to check against: the obligation sweeper computes "today" and the
 due date from UTC (`dueAt.UTC().Date()` / `time.Now().UTC()` at
 `backend/internal/obligation/app/sweeper.go` — re-verify the exact lines).
 Any date/deadline decision that reaches a user-facing calendar day MUST convert
-through the location zone before comparing.
+through the location zone before comparing. UTC is acceptable for stored
+instants, audit timestamps, and deterministic event/idempotency keys, not for
+medical/business day decisions.
 
 Review checkpoints (confirm each when a change touches date/deadline math):
 - [ ] `due_at`, `window_end`, "sweeper today", and missed-marking compare
-      calendar days in the **location timezone**, not `UTC().Date()` — or the
-      review explicitly justifies why UTC is correct for that specific value
+      calendar days in the **location timezone** (IST by default), never raw
+      `UTC().Date()` / server-date bucketing
 - [ ] The **7-day recovery rejoin** window and any **batching/hold** window are
       counted in location-local calendar days; a recovery late on a local day
       does not slip to the next day because the server was already past midnight
@@ -267,8 +273,8 @@ Review checkpoints (confirm each when a change touches date/deadline math):
 - [ ] **DST and day-rollover** are handled: a deadline near local midnight, or in
       a zone with DST, does not cross a calendar-day boundary by accident
 - [ ] **Recovery-date-vs-server-date** never crosses a day boundary: the reopened
-      obligation is dated from the animal-local recovery day, not the server's
-      UTC day
+      obligation is dated from the animal-local/IST recovery day, not the
+      server's UTC day
 - [ ] Tests exercise a location whose local day differs from the UTC day at the
       moment of evaluation (e.g. late-evening `Asia/Kolkata`)
 
@@ -432,5 +438,8 @@ start.
 - [ ] Tenant-fair claiming; a huge tenant/park cannot starve quiet ones
 - [ ] New domain extends the generic engine by config, not by copying it
 - [ ] Escalations/reminders are durable `notification_requests` via `NotificationGateway`, not logs
+- [ ] Critical-action corrections use void/reversal/audit records, not hidden
+      delete-and-recreate; destructive deletes have an explicit lifecycle rule
+      and preserve business history
 - [ ] Recovered-from-defer animals reopen from recovery date and rejoin a drive within 7 (location-local) days (else micro-drive); re-entry is idempotent and emits a status event
 - [ ] Every operational invariant has an event-path guarantee OR an idempotent, bounded, metered+alerted reconciler; no silent-drift path with neither; unbuilt reconcilers flagged required, not assumed

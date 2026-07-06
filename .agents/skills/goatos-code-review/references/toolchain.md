@@ -36,7 +36,7 @@ review tools, `ToolSearch` for them by role (names below are stable across
 harnesses; only the server prefix changes):
 
 ```
-ToolSearch "get_minimal_context detect_changes get_review_context get_impact_radius query_graph get_affected_flows get_architecture_overview semantic_search_nodes"
+ToolSearch "get_minimal_context detect_changes get_review_context get_impact_radius query_graph get_architecture_overview semantic_search_nodes get_affected_flows"
 ```
 
 Route by task shape (do not run all of them every time):
@@ -47,7 +47,7 @@ Route by task shape (do not run all of them every time):
 | What changed + risk + test gaps | `detect_changes_tool` |
 | Source snippets for the changed area | `get_review_context_tool` |
 | Blast radius of a change | `get_impact_radius_tool` |
-| Which kernel flows a change touches | `get_affected_flows_tool` (verified to exist), then targeted `query_graph_tool` |
+| Which kernel flows a change touches | Use `get_affected_flows_tool` only if ToolSearch exposes it; otherwise derive flows from `detect_changes_tool`, `get_impact_radius_tool`, and targeted `query_graph_tool` |
 | Who calls / depends on / tests X | `query_graph_tool` (callers_of / callees_of / imports_of / tests_for) |
 | Find code by keyword/domain | `semantic_search_nodes_tool` |
 | High-level shape / coupling | `get_architecture_overview_tool` |
@@ -145,9 +145,9 @@ these as signals that raise scrutiny, not automatic blocks.
 1. **Scope** — CRG `get_minimal_context_tool` → `detect_changes_tool` (changed
    symbols, affected flows, test gaps).
 2. **Diff** — `git diff main...HEAD` (RTK auto-routes the display if large).
-3. **Impact** — CRG `get_impact_radius_tool`; `get_affected_flows_tool` for
-   kernel flows; targeted `query_graph_tool` (`callers_of`, `callees_of`,
-   `tests_for`) for coverage and flow checks.
+3. **Impact** — CRG `get_impact_radius_tool`; optional
+   `get_affected_flows_tool` if present; targeted `query_graph_tool`
+   (`callers_of`, `callees_of`, `tests_for`) for coverage and flow checks.
 4. **Health/risk** — repowise `risk` / `health` / `dead-code`.
 5. **Business cross-check** — Graphify docs graph for the touched rules; read the
    authoritative doc.

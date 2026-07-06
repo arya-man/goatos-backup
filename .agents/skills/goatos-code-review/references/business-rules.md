@@ -72,13 +72,13 @@ Rule shapes a reviewer checks (illustrative values — verify against source):
 ### Timezone / day-boundary correctness (verify the calendar decision)
 
 Medical schedules mistime when a due/missed day is derived from UTC instead of
-the animal/location calendar. The `locations` timezone default is illustrative
-(e.g. `Asia/Kolkata`) — read it from `backend/migrations/postgres/000001_*` and
-`locations.timezone`, not from this line. Reviewer checks:
+the animal/location calendar. Goat OS currently operates on the IST business
+calendar by default (`Asia/Kolkata` via `locations.timezone`; verify the current
+default in migrations/config). Reviewer checks:
 - [ ] Due-date, missed-marking, recovery-re-entry, and drive-planned-date day
-      boundaries resolve against the location timezone, not a raw `time.Now()`
-      UTC date. Sweepers that compute `.UTC().Date()` for a medical day boundary
-      are a finding unless the rule is explicitly UTC-defined and documented.
+      boundaries resolve against the location timezone / IST business day, not a
+      raw `time.Now()` UTC date. Sweepers that compute `.UTC().Date()` for a
+      medical day boundary are a finding.
 - [ ] A dose due "on day N" in `Asia/Kolkata` is not marked missed/early by a
       worker running in UTC crossing midnight differently.
 

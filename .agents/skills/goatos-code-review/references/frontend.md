@@ -59,6 +59,11 @@ Check for:
       missing (shipping a local fallback IA is a blocking product-truth bug)
 - [ ] Any temporary hardcoded exception is documented in `context/frontend/` before shipping
 - [ ] Backend owns canonical due/overdue/escalation/verification state; frontend renders it (no client-authoritative process state)
+- [ ] Bootstrap/admin-ui-config/feature-flag changes keep Postgres canonical:
+      `/admin-web/bootstrap` and page contracts expose `contract_revision`/ETag
+      and family hashes for tenant/role/locale-sensitive families; config writes
+      bump the relevant family revision and emit `config.changed`; Redis or
+      in-process caches are revision-keyed acceleration only, never truth.
 
 ## Data access (bans)
 
