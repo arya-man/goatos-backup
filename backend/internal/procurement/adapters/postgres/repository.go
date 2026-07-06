@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
@@ -1241,7 +1242,7 @@ func (r *Repository) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([
 	// semantic identity.
 	fingerprint := requestFingerprint(
 		in.TenantID, in.LoadID, in.ParkLocationID, in.ShedLocationID,
-		in.EntryDate.UTC().Format("2006-01-02"), fpTimeIf(in.AcceptedAtSet, in.AcceptedAt),
+		biztime.BusinessDate(in.EntryDate), fpTimeIf(in.AcceptedAtSet, in.AcceptedAt),
 		stringPtrValue(in.IntakeHealthSignal), canonicalJSON(in.TrustedVaccinationHistory),
 		strings.Join(fpGoats, ","),
 	)
@@ -2579,7 +2580,7 @@ func dateArg(v *time.Time) any {
 	if v == nil || v.IsZero() {
 		return nil
 	}
-	return v.Format("2006-01-02")
+	return biztime.BusinessDate(*v)
 }
 
 func intPtrArg(v *int) any {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 )
 
@@ -53,7 +54,7 @@ func WithProjectionInputHandlerGeneratedBy(generatedBy string) ProjectionInputHa
 func NewProjectionInputHandler(recomputer ProjectionRecomputer, opts ...ProjectionInputHandlerOption) *ProjectionInputHandler {
 	h := &ProjectionInputHandler{
 		recomputer:            recomputer,
-		now:                   func() time.Time { return time.Now().UTC() },
+		now:                   func() time.Time { return time.Now().In(biztime.DefaultLocation()) },
 		sourceContractVersion: domain.SourceContractVersionV1,
 		generatedBy:           defaultProjectionEventGeneratedBy,
 	}
@@ -159,15 +160,15 @@ func projectionInputEventTime(payload projectionInputPayload, e eventbus.Event, 
 		if err != nil {
 			return time.Time{}, fmt.Errorf("counts: projection input event time must be RFC3339: %w", err)
 		}
-		return parsed.UTC(), nil
+		return parsed.In(biztime.DefaultLocation()), nil
 	}
 	if !e.OccurredAt.IsZero() {
-		return e.OccurredAt.UTC(), nil
+		return e.OccurredAt.In(biztime.DefaultLocation()), nil
 	}
 	if now == nil {
 		now = time.Now
 	}
-	return now().UTC(), nil
+	return now().In(biztime.DefaultLocation()), nil
 }
 
 func projectionInputTargetDate(payload projectionInputPayload, eventTime time.Time) (time.Time, error) {
@@ -189,7 +190,7 @@ func parseProjectionInputDate(raw string) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, fmt.Errorf("counts: projection target_date must be YYYY-MM-DD or RFC3339: %w", err)
 	}
-	return parsed.UTC(), nil
+	return parsed.In(biztime.DefaultLocation()), nil
 }
 
 func projectionInputHorizons(raw []string) ([]string, error) {

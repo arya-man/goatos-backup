@@ -267,13 +267,14 @@ in migrations/config). A day-rollover or DST bug here silently marks an animal
 missed, recovers it on the wrong calendar day, or plans a drive a day off, and
 none of it throws.
 
-Known live gap to check against: the obligation sweeper computes "today" and the
-due date from UTC (`dueAt.UTC().Date()` / `time.Now().UTC()` at
-`backend/internal/obligation/app/sweeper.go` — re-verify the exact lines).
-Any date/deadline decision that reaches a user-facing calendar day MUST convert
-through the location zone before comparing. UTC is acceptable for stored
-instants, audit timestamps, and deterministic event/idempotency keys, not for
-medical/business day decisions.
+Regression class to check against: obligation sweepers, vaccination generation,
+Counts/Feed target dates, Calendar reminders, FEFO stock validity, and
+user-facing read APIs must route business-day decisions through
+`backend/internal/platform/biztime` or an explicit location timezone. Any
+date/deadline decision that reaches a user-facing calendar day MUST convert
+through the location zone before comparing. Raw UTC may appear only for
+non-calendar instants such as audit/event storage, retention cutoffs, and
+deterministic event/idempotency keys, not for medical/business day decisions.
 
 Review checkpoints (confirm each when a change touches date/deadline math):
 - [ ] `due_at`, `window_end`, "sweeper today", and missed-marking compare

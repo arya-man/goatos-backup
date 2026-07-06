@@ -16,6 +16,7 @@ import (
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -119,13 +120,13 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	if now == nil {
 		now = time.Now
 	}
-	cfg.CountedBefore = now().UTC()
+	cfg.CountedBefore = now().In(biztime.DefaultLocation())
 	if strings.TrimSpace(*countedBeforeRaw) != "" {
 		parsed, err := parseDateOrInstant(strings.TrimSpace(*countedBeforeRaw))
 		if err != nil {
 			return config{}, fmt.Errorf("counted-before: %w", err)
 		}
-		cfg.CountedBefore = parsed.UTC()
+		cfg.CountedBefore = parsed.In(biztime.DefaultLocation())
 	}
 	if strings.TrimSpace(*countedAfterRaw) != "" {
 		parsed, err := parseDateOrInstant(strings.TrimSpace(*countedAfterRaw))
@@ -149,13 +150,13 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 
 func parseDateOrInstant(raw string) (time.Time, error) {
 	if t, err := time.Parse("2006-01-02", raw); err == nil {
-		return t.UTC(), nil
+		return biztime.BusinessDayStart(t), nil
 	}
 	t, err := time.Parse(time.RFC3339Nano, raw)
 	if err != nil {
 		return time.Time{}, errors.New("must be YYYY-MM-DD or RFC3339")
 	}
-	return t.UTC(), nil
+	return t.In(biztime.DefaultLocation()), nil
 }
 
 func ptrIfNotEmpty(v string) *string {

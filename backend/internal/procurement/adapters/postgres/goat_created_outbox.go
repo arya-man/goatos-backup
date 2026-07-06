@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
@@ -35,7 +36,7 @@ func (r *Repository) emitAcceptedIntakeGoatCreated(ctx context.Context, tx pgx.T
 		"load_id":                     in.LoadID,
 		"handoff_id":                  handoff.HandoffID,
 		"origin_type":                 "procured",
-		"entry_date":                  in.EntryDate.UTC().Format("2006-01-02"),
+		"entry_date":                  biztime.BusinessDate(in.EntryDate),
 		"park_id":                     in.ParkLocationID,
 		"shed_id":                     in.ShedLocationID,
 		"trusted_vaccination_history": json.RawMessage(handoff.TrustedVaccinationHistory),

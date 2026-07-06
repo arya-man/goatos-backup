@@ -38,7 +38,7 @@ func TestParseParityFileNormalizesRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseParityFile: %v", err)
 	}
-	if fixture.targetDate.Format(time.RFC3339) != "2026-07-01T00:00:00Z" {
+	if fixture.targetDate.Format(time.RFC3339) != "2026-07-01T00:00:00+05:30" {
 		t.Fatalf("targetDate=%s", fixture.targetDate.Format(time.RFC3339))
 	}
 	if fixture.effectiveMode != modeExact {

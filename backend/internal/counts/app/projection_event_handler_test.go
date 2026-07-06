@@ -40,7 +40,7 @@ func TestProjectionInputHandlerRecomputesBothHorizonsForBaseCount(t *testing.T) 
 		if req.ParkID != payload.ParkID || req.TenantID == "" {
 			t.Fatalf("req scope=%+v", req)
 		}
-		if req.AsOf.Format(time.RFC3339) != "2026-06-30T06:00:00Z" {
+		if req.AsOf.Format(time.RFC3339) != "2026-06-30T11:30:00+05:30" {
 			t.Fatalf("as_of=%s", req.AsOf)
 		}
 		if req.TargetDate.Format("2006-01-02") != "2026-06-30" {

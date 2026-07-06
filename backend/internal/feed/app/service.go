@@ -15,6 +15,7 @@ import (
 	countsports "github.com/vgoats/goatos/backend/internal/counts/ports"
 	"github.com/vgoats/goatos/backend/internal/feed/domain"
 	"github.com/vgoats/goatos/backend/internal/feed/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 var (
@@ -602,7 +603,7 @@ func (s *Service) clock() time.Time {
 }
 
 func dateOnly(t time.Time) time.Time {
-	return time.Date(t.UTC().Year(), t.UTC().Month(), t.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	return biztime.BusinessDayStart(t)
 }
 
 func feedReadinessGates(checkedAt time.Time) []domain.ReadinessGate {

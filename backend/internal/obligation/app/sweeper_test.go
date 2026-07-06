@@ -532,7 +532,7 @@ func dateKey(t *time.Time) string {
 	if t == nil {
 		return ""
 	}
-	return t.UTC().Format("2006-01-02")
+	return businessDate(*t).Format("2006-01-02")
 }
 
 func validOnKeys(values []time.Time) string {
@@ -541,7 +541,7 @@ func validOnKeys(values []time.Time) string {
 		if i > 0 {
 			out += ","
 		}
-		out += v.UTC().Format("2006-01-02")
+		out += businessDate(v).Format("2006-01-02")
 	}
 	return out
 }

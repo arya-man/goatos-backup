@@ -92,12 +92,13 @@ func TestSM7BoosterSchedulesNextDose(t *testing.T) {
 	}
 	dispatchVaccinationCompletedOutbox(t, ctx, pool, vacc, obl, booster, ob1)
 
-	// Dose 2 obligation exists, scheduled, due = administered + 28 (min-gap dominates the 21d offset).
+	// Dose 2 obligation exists, scheduled, due = administered + 28 in the IST business calendar
+	// (min-gap dominates the 21d offset).
 	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g); got != 1 {
 		t.Fatalf("want 1 dose-2 obligation, got %d", got)
 	}
-	if due := scanText(t, ctx, pool, `SELECT due_at::date::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g); due != "2026-07-21" {
-		t.Fatalf("dose-2 due: want 2026-07-21 (administered + 28d), got %s", due)
+	if due := scanText(t, ctx, pool, `SELECT (due_at AT TIME ZONE 'Asia/Kolkata')::date::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g); due != "2026-07-21" {
+		t.Fatalf("dose-2 due: want 2026-07-21 IST (administered + 28d), got %s", due)
 	}
 	if st := scanText(t, ctx, pool, `SELECT status FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g); st != "scheduled" {
 		t.Fatalf("dose-2 status: want scheduled, got %s", st)

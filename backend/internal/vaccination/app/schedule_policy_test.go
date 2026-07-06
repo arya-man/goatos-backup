@@ -157,7 +157,7 @@ func TestAdjustPostArrivalDueHonorsWarmupFloor(t *testing.T) {
 	proc := genProcurementPolicy{WarmupNoVaccinationDays: 7}
 
 	got := adjustPostArrivalDue(g, rule, proc)
-	want := entry.AddDate(0, 0, 7)
+	want := businessDayStart(entry).AddDate(0, 0, 7)
 	if !got.Equal(want) {
 		t.Fatalf("due = %s, want %s", got, want)
 	}

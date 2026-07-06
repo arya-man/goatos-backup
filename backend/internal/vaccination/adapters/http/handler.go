@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
@@ -172,10 +173,10 @@ func (h *Handler) RunManualCampaign(w http.ResponseWriter, r *http.Request) {
 		h.badRequest(w, r, "invalid_campaign_id", "campaign_id must be 3-128 characters using letters, numbers, dash, underscore, colon, or dot")
 		return
 	}
-	asOf := time.Now().UTC()
+	asOf := time.Now().In(biztime.DefaultLocation())
 	asOfProvided := req.AsOf != nil
 	if req.AsOf != nil {
-		asOf = req.AsOf.UTC()
+		asOf = req.AsOf.In(biztime.DefaultLocation())
 	}
 	requestHash := manualCampaignRequestHash(req, asOfProvided)
 	run, result, err := h.campaign.GenerateManualCampaignForVersionWithHTTPRun(r.Context(), tenantID(r), req.ProtocolVersionID, req.CampaignID, asOf, idempotencyKey, requestHash)

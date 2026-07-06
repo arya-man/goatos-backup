@@ -146,7 +146,7 @@ func TestDueAfterPreviousCompletionRequiresSameProtocolLineage(t *testing.T) {
 		ProtocolID:        "protocol-vaccination",
 	}}
 	due, ok := dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, sameProtocolPreviousVersion)
-	if !ok || !due.Equal(administered.AddDate(0, 0, 21)) {
+	if !ok || !due.Equal(businessDayStart(administered).AddDate(0, 0, 21)) {
 		t.Fatalf("due=%s ok=%v, want same protocol lineage accepted", due, ok)
 	}
 }
@@ -210,8 +210,9 @@ func TestManualCampaignHTTPRunPoisonGoatFailsRunAfterCountingFailure(t *testing.
 		t.Fatalf("retry result=%#v inserted=%#v run=%#v, want failed run to retry missing work and complete", result, obl.inserted, runs.byKey["manual-key-failed"])
 	}
 	for i, obligation := range obl.inserted {
-		if !obligation.DueAt.Equal(firstAt) {
-			t.Fatalf("inserted[%d].DueAt = %s, want original as_of %s", i, obligation.DueAt, firstAt)
+		wantDue := businessDayStart(firstAt)
+		if !obligation.DueAt.Equal(wantDue) {
+			t.Fatalf("inserted[%d].DueAt = %s, want original as_of business day %s", i, obligation.DueAt, wantDue)
 		}
 	}
 }
@@ -517,7 +518,7 @@ func TestGenerateForVersionHonorsProcurementWarmupOffset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	wantDue := time.Date(2026, time.July, 8, 0, 0, 0, 0, time.UTC)
+	wantDue := businessDayStart(time.Date(2026, time.July, 8, 0, 0, 0, 0, time.UTC))
 	if result.Generated != 1 || len(obl.inserted) != 1 || !obl.inserted[0].DueAt.Equal(wantDue) {
 		t.Fatalf("result=%#v inserted=%#v, want post-arrival warmup due %s", result, obl.inserted, wantDue)
 	}
@@ -561,11 +562,11 @@ func TestGenerateForVersionHonorsVaccinationRulesSourceScheduleWithTrustedHistor
 		got[inserted.RuleID] = inserted.DueAt
 	}
 	want := map[string]time.Time{
-		"rule-et-7w":       dob.AddDate(0, 0, 49),
-		"rule-fmd-12w":     dob.AddDate(0, 0, 84),
-		"rule-hs-12w":      dob.AddDate(0, 0, 84),
-		"rule-ppr-16w":     dob.AddDate(0, 0, 112),
-		"rule-goatpox-20w": dob.AddDate(0, 0, 140),
+		"rule-et-7w":       businessDayStart(dob).AddDate(0, 0, 49),
+		"rule-fmd-12w":     businessDayStart(dob).AddDate(0, 0, 84),
+		"rule-hs-12w":      businessDayStart(dob).AddDate(0, 0, 84),
+		"rule-ppr-16w":     businessDayStart(dob).AddDate(0, 0, 112),
+		"rule-goatpox-20w": businessDayStart(dob).AddDate(0, 0, 140),
 	}
 	for ruleID, due := range want {
 		if !got[ruleID].Equal(due) {
@@ -1059,7 +1060,7 @@ func TestGenerateAppliesMissedDosePolicy(t *testing.T) {
 		if err != nil {
 			t.Fatalf("generate yearly: %v", err)
 		}
-		wantDue := time.Date(2027, time.January, 8, 0, 0, 0, 0, time.UTC)
+		wantDue := businessDayStart(time.Date(2027, time.January, 8, 0, 0, 0, 0, time.UTC))
 		if result.Generated != 1 || !obl.inserted[0].DueAt.Equal(wantDue) {
 			t.Fatalf("result=%#v inserted=%#v, want next yearly cycle %s", result, obl.inserted, wantDue)
 		}
@@ -1090,7 +1091,7 @@ func TestGenerateAppliesMissedDosePolicy(t *testing.T) {
 		if err != nil {
 			t.Fatalf("generate every_n_days: %v", err)
 		}
-		wantDue := time.Date(2026, time.June, 7, 0, 0, 0, 0, time.UTC)
+		wantDue := businessDayStart(time.Date(2026, time.June, 7, 0, 0, 0, 0, time.UTC))
 		if result.Generated != 1 || len(obl.inserted) != 1 || !obl.inserted[0].DueAt.Equal(wantDue) {
 			t.Fatalf("result=%#v inserted=%#v, want next cycle due %s", result, obl.inserted, wantDue)
 		}
@@ -1098,7 +1099,7 @@ func TestGenerateAppliesMissedDosePolicy(t *testing.T) {
 
 	t.Run("next cycle evidence uses advanced cycle fence", func(t *testing.T) {
 		originalDue := time.Date(2026, time.January, 8, 0, 0, 0, 0, time.UTC)
-		wantDue := time.Date(2027, time.January, 8, 0, 0, 0, 0, time.UTC)
+		wantDue := businessDayStart(time.Date(2027, time.January, 8, 0, 0, 0, 0, time.UTC))
 		proto := &generationProtoFake{rules: []protodomain.Rule{{
 			RuleID: "rule-yearly", DoseCode: "dose-1", Sequence: 1,
 			TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, Repeat: "yearly", CatchUp: "next_cycle",
@@ -1334,7 +1335,7 @@ func TestTrustedPreviousCompletionAllowsAfterPreviousCompletionDose(t *testing.T
 	if err != nil {
 		t.Fatalf("generate after previous trusted dose: %v", err)
 	}
-	wantDue := firstAdmin.AddDate(0, 0, 21)
+	wantDue := businessDayStart(firstAdmin).AddDate(0, 0, 21)
 	if result.SuppressedByTrustedHistory != 1 || result.Generated != 1 || len(obl.inserted) != 1 {
 		t.Fatalf("result=%#v inserted=%#v, want dose 1 suppressed and dose 2 generated", result, obl.inserted)
 	}
@@ -1348,8 +1349,8 @@ func TestTrustedAfterPreviousCompletionSuppressesAlreadyAcceptedDose(t *testing.
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 13, 0, 0, 0, 0, time.UTC)
 	firstAdmin := time.Date(2026, time.June, 10, 0, 0, 0, 0, time.UTC)
-	firstDue := dob.AddDate(0, 0, 28)
-	secondDue := firstAdmin.AddDate(0, 0, 21)
+	firstDue := businessDayStart(dob).AddDate(0, 0, 28)
+	secondDue := businessDayStart(firstAdmin).AddDate(0, 0, 21)
 	asOf := time.Date(2026, time.July, 10, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
 		ruleDSL: []byte(`{"vaccine":{"code":"ET+TT","type":"toxoid","pathogen_class":"bacterial"},"eligibility":{}}`),
@@ -1436,7 +1437,7 @@ func TestAfterPreviousCompletionFromHistoryRespectsMinGap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate min-gap after-previous dose: %v", err)
 	}
-	wantDue := firstAdmin.AddDate(0, 0, 28)
+	wantDue := businessDayStart(firstAdmin).AddDate(0, 0, 28)
 	if result.SuppressedByTrustedHistory != 1 || result.Generated != 1 || len(obl.inserted) != 1 {
 		t.Fatalf("result=%#v inserted=%#v, want first dose suppressed and booster generated", result, obl.inserted)
 	}
@@ -1475,7 +1476,7 @@ func TestAfterPreviousCompletionHistoryContinuesAdultRepeatCycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate adult repeat from history: %v", err)
 	}
-	wantDue := lastAdmin.AddDate(1, 0, 0)
+	wantDue := businessDayStart(lastAdmin).AddDate(1, 0, 0)
 	if result.Generated != 1 || len(obl.inserted) != 1 {
 		t.Fatalf("result=%#v inserted=%#v, want adult repeat generated from accepted history", result, obl.inserted)
 	}
@@ -1696,7 +1697,20 @@ func (g *generationGoatFake) HasTrustedCompletionEvidence(_ context.Context, _, 
 	if g.trustedByDue == nil {
 		return false, nil
 	}
-	return g.trustedByDue[dueAt.UTC().Format(time.RFC3339Nano)], nil
+	if trusted := g.trustedByDue[dueAt.UTC().Format(time.RFC3339Nano)]; trusted {
+		return true, nil
+	}
+	dueDay := businessDayStart(dueAt)
+	for key, trusted := range g.trustedByDue {
+		if !trusted {
+			continue
+		}
+		parsed, err := time.Parse(time.RFC3339Nano, key)
+		if err == nil && businessDayStart(parsed).Equal(dueDay) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (g *generationGoatFake) LastRecentVaccineAdministrationsForGoats(_ context.Context, _ string, goatIDs []string, _ time.Time) (map[string]domain.RecentVaccineAdministration, error) {

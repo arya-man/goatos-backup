@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 	vaccinationdb "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres/sqlc"
@@ -1530,7 +1531,7 @@ func (r *Repository) eligParams(f domain.ImpactFilter) (vaccinationdb.CountEligi
 	}
 	asOf := f.AsOf
 	if asOf.IsZero() {
-		asOf = time.Now().UTC()
+		asOf = time.Now().In(biztime.DefaultLocation())
 	}
 	return vaccinationdb.CountEligibleGoatsParams{
 		TenantID:                tenant,
@@ -1612,7 +1613,7 @@ func (r *Repository) ListRecoverableDeferredVaccinationGoatIDs(ctx context.Conte
 		return nil, fmt.Errorf("vaccination: tenant id: %w", err)
 	}
 	if olderThan.IsZero() {
-		olderThan = time.Now().UTC()
+		olderThan = time.Now().In(biztime.DefaultLocation())
 	}
 	if limit <= 0 {
 		limit = 1000
@@ -1687,7 +1688,7 @@ func (r *Repository) CountRecoverableDeferredVaccinationObligations(ctx context.
 		return 0, fmt.Errorf("vaccination: tenant id: %w", err)
 	}
 	if olderThan.IsZero() {
-		olderThan = time.Now().UTC()
+		olderThan = time.Now().In(biztime.DefaultLocation())
 	}
 	var total int64
 	if err := r.pool.QueryRow(ctx, `
@@ -1818,7 +1819,7 @@ func (r *Repository) listEligibleGoatsForGenerationWithCompiledDimensions(ctx co
 	}
 	asOf := f.AsOf
 	if asOf.IsZero() {
-		asOf = time.Now().UTC()
+		asOf = time.Now().In(biztime.DefaultLocation())
 	}
 	rows, err := r.pool.Query(ctx, `
 WITH compiled AS (
@@ -1895,8 +1896,8 @@ WHERE g.tenant_id = $1
           (prd.min_age_days IS NULL AND prd.max_age_days IS NULL)
           OR (
             g.dob IS NOT NULL
-            AND (prd.min_age_days IS NULL OR (($8::timestamptz AT TIME ZONE 'UTC')::date - g.dob) >= prd.min_age_days)
-            AND (prd.max_age_days IS NULL OR (($8::timestamptz AT TIME ZONE 'UTC')::date - g.dob) <= prd.max_age_days)
+            AND (prd.min_age_days IS NULL OR (($8::timestamptz AT TIME ZONE 'Asia/Kolkata')::date - g.dob) >= prd.min_age_days)
+            AND (prd.max_age_days IS NULL OR (($8::timestamptz AT TIME ZONE 'Asia/Kolkata')::date - g.dob) <= prd.max_age_days)
           )
         )
     )
@@ -2037,7 +2038,7 @@ func (r *Repository) HasTrustedCompletionEvidenceBatch(ctx context.Context, tena
 			GoatID:       candidate.GoatID,
 			RuleID:       candidate.RuleID,
 			DoseCode:     candidate.DoseCode,
-			DueAt:        candidate.DueAt.UTC().Format(time.RFC3339Nano),
+			DueAt:        candidate.DueAt.Format(time.RFC3339Nano),
 			RuleRepeat:   candidate.Repeat,
 		})
 	}
@@ -2121,7 +2122,10 @@ func (r *Repository) HasTrustedCompletionEvidenceBatch(ctx context.Context, tena
 		    ) BETWEEN 28 AND 35
 		    AND ev.administered_at >= plg.warmup_started_at
 		    AND (plg.warmup_ended_at IS NULL OR ev.administered_at <= plg.warmup_ended_at)
-		    AND (t.rule_repeat = 'none' OR ev.administered_at >= t.due_at)
+		    AND (
+		      t.rule_repeat = 'none'
+		      OR (ev.administered_at AT TIME ZONE 'Asia/Kolkata')::date >= (t.due_at AT TIME ZONE 'Asia/Kolkata')::date
+		    )
 		    AND (
 		      plg.intake_accepted_at IS NULL
 	      OR ev.administered_at <= plg.intake_accepted_at
@@ -2153,7 +2157,10 @@ func (r *Repository) HasTrustedCompletionEvidenceBatch(ctx context.Context, tena
 	    AND cpv.protocol_id = t.protocol_id
 	    AND vc.administered_at <= $3::timestamptz
 	    AND vc.verified_at <= $3::timestamptz
-	    AND (t.rule_repeat = 'none' OR oi.due_at = t.due_at)
+	    AND (
+	      t.rule_repeat = 'none'
+	      OR (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date = (t.due_at AT TIME ZONE 'Asia/Kolkata')::date
+	    )
 	)
 	SELECT candidate_key FROM trusted_procurement
 	UNION

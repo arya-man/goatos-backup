@@ -41,8 +41,9 @@ func TestScheduleNextDoseUsesImmediateNextSequence(t *testing.T) {
 	if got.RuleID != "rule-2" || got.Sequence != 2 {
 		t.Fatalf("inserted rule=%s sequence=%d, want rule-2 sequence 2", got.RuleID, got.Sequence)
 	}
-	if !got.DueAt.Equal(administered.AddDate(0, 0, 14)) {
-		t.Fatalf("due_at=%s, want %s", got.DueAt, administered.AddDate(0, 0, 14))
+	wantDue := businessDayStart(administered).AddDate(0, 0, 14)
+	if !got.DueAt.Equal(wantDue) {
+		t.Fatalf("due_at=%s, want %s", got.DueAt, wantDue)
 	}
 }
 
@@ -162,7 +163,7 @@ func TestScheduleNextDoseRepeatsAdultRevaccinationRule(t *testing.T) {
 		t.Fatalf("scheduled=%v inserted=%d, want one adult repeat obligation", scheduled, len(obl.inserted))
 	}
 	got := obl.inserted[0]
-	wantDue := administered.AddDate(0, 0, 182)
+	wantDue := businessDayStart(administered).AddDate(0, 0, 182)
 	if got.RuleID != "rule-et-adult" || got.Sequence != 3 || !got.DueAt.Equal(wantDue) {
 		t.Fatalf("inserted=%#v, want same adult rule sequence 3 due %s", got, wantDue)
 	}
@@ -193,7 +194,7 @@ func TestScheduleNextDoseRepeatsYearlyAdultRule(t *testing.T) {
 	if !scheduled || len(obl.inserted) != 1 {
 		t.Fatalf("scheduled=%v inserted=%d, want one yearly repeat obligation", scheduled, len(obl.inserted))
 	}
-	wantDue := administered.AddDate(1, 0, 0)
+	wantDue := businessDayStart(administered).AddDate(1, 0, 0)
 	if got := obl.inserted[0]; got.RuleID != "rule-goat-pox-adult" || !got.DueAt.Equal(wantDue) {
 		t.Fatalf("inserted=%#v, want yearly repeat due %s", got, wantDue)
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/ports"
 )
@@ -17,7 +18,7 @@ type Service struct {
 }
 
 func NewService(repo ports.Repository) *Service {
-	return &Service{repo: repo, now: func() time.Time { return time.Now().UTC() }}
+	return &Service{repo: repo, now: func() time.Time { return time.Now().In(biztime.DefaultLocation()) }}
 }
 
 func (s *Service) WithClock(now func() time.Time) *Service {
@@ -202,7 +203,7 @@ func (s *Service) defaults(q domain.Query) domain.Query {
 }
 
 func expectedText(row domain.Row) string {
-	return fmt.Sprintf("%s %s: %d due by %s", row.ProtocolName, row.DoseCode, row.ExpectedCount, row.DueAt.UTC().Format("2006-01-02"))
+	return fmt.Sprintf("%s %s: %d due by %s", row.ProtocolName, row.DoseCode, row.ExpectedCount, biztime.BusinessDate(row.DueAt))
 }
 
 func actualText(row domain.Row) string {

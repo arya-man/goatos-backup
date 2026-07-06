@@ -35,7 +35,7 @@ func TestPickBestParkDriveDateMaximizesFeasibleGoats(t *testing.T) {
 	if planned == nil {
 		t.Fatal("planned date is nil")
 	}
-	if got := planned.UTC().Format("2006-01-02"); got != "2026-07-05" {
+	if got := businessDate(*planned).Format("2006-01-02"); got != "2026-07-05" {
 		t.Fatalf("planned date = %s, want 2026-07-05", got)
 	}
 	if len(ids) != 3 {

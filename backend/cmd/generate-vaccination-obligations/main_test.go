@@ -14,7 +14,7 @@ func TestParseFlagsDefaultsAsOfToIndiaBusinessDayBucket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseFlags: %v", err)
 	}
-	want := time.Date(2026, time.June, 29, 0, 0, 0, 0, indiaLocation)
+	want := startOfIndiaBusinessDay(time.Date(2026, time.June, 29, 15, 4, 5, 0, time.UTC))
 	if !cfg.AsOf.Equal(want) {
 		t.Fatalf("AsOf=%s, want stable India business-day bucket %s", cfg.AsOf, want)
 	}
@@ -36,7 +36,7 @@ func TestParseFlagsExplicitAsOfOverridesDayBucket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseFlags: %v", err)
 	}
-	want := time.Date(2026, time.June, 29, 12, 34, 56, 0, time.UTC)
+	want := time.Date(2026, time.June, 29, 18, 4, 56, 0, cfg.AsOf.Location())
 	if !cfg.AsOf.Equal(want) {
 		t.Fatalf("AsOf=%s, want explicit value %s", cfg.AsOf, want)
 	}

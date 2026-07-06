@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/inventory/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 var (
@@ -28,7 +29,7 @@ func (s *Service) ReserveForBatch(ctx context.Context, tenantID, batchID, locati
 		return nil
 	}
 	if validOn.IsZero() {
-		validOn = time.Now().UTC()
+		validOn = biztime.BusinessDayStart(time.Now())
 	}
 	err := s.repo.ReserveForBatch(ctx, tenantID, batchID, locationID, itemID, qty, validOn)
 	switch {

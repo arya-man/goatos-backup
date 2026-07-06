@@ -17,6 +17,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 const (
@@ -605,7 +606,7 @@ func parseAdminGoatCSV(raw string) ([]parsedAdminGoatCSVRow, error) {
 		if entry := optionalCSV(rec, headers, "entry_date"); entry != nil {
 			req.EntryDate = *entry
 		} else {
-			req.EntryDate = time.Now().UTC().Format("2006-01-02")
+			req.EntryDate = biztime.BusinessDate(time.Now())
 		}
 		if weight := optionalCSV(rec, headers, "weight_kg"); weight != nil {
 			var parsed float64

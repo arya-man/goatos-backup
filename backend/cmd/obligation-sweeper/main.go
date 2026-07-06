@@ -19,6 +19,7 @@ import (
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	obligationdomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/taskqueue"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
@@ -155,7 +156,7 @@ func run(args []string) error {
 		queued, err := calendarService.SweepEscalations(ctx, calendarports.SweepEscalations{
 			TenantID:    cfg.TenantID,
 			Limit:       cfg.EscalationLimit,
-			Now:         time.Now().UTC(),
+			Now:         time.Now().In(biztime.DefaultLocation()),
 			Level1After: cfg.Level1After,
 			Level2After: cfg.Level2After,
 			Level3After: cfg.Level3After,
@@ -269,14 +270,14 @@ func parseFlags(args []string) (config, error) {
 	if strings.TrimSpace(cfg.TenantID) == "" {
 		return config{}, errors.New("tenant-id is required")
 	}
-	now := time.Now().UTC()
+	now := time.Now().In(biztime.DefaultLocation())
 	cfg.DueBefore = now
 	if strings.TrimSpace(*dueBeforeRaw) != "" {
 		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*dueBeforeRaw))
 		if err != nil {
 			return config{}, errors.New("due-before must be RFC3339")
 		}
-		cfg.DueBefore = parsed.UTC()
+		cfg.DueBefore = parsed.In(biztime.DefaultLocation())
 	}
 	if *missedGrace < 0 {
 		return config{}, errors.New("missed-grace must be non-negative")
@@ -287,7 +288,7 @@ func parseFlags(args []string) (config, error) {
 		if err != nil {
 			return config{}, errors.New("missed-before must be RFC3339")
 		}
-		cfg.MissedBefore = parsed.UTC()
+		cfg.MissedBefore = parsed.In(biztime.DefaultLocation())
 	}
 	cfg.CalendarDateFrom = now.Add(-24 * time.Hour)
 	if strings.TrimSpace(*calendarDateFromRaw) != "" {
@@ -295,7 +296,7 @@ func parseFlags(args []string) (config, error) {
 		if err != nil {
 			return config{}, errors.New("calendar-date-from must be RFC3339")
 		}
-		cfg.CalendarDateFrom = parsed.UTC()
+		cfg.CalendarDateFrom = parsed.In(biztime.DefaultLocation())
 	}
 	cfg.CalendarDateTo = now.Add(45 * 24 * time.Hour)
 	if strings.TrimSpace(*calendarDateToRaw) != "" {
@@ -303,7 +304,7 @@ func parseFlags(args []string) (config, error) {
 		if err != nil {
 			return config{}, errors.New("calendar-date-to must be RFC3339")
 		}
-		cfg.CalendarDateTo = parsed.UTC()
+		cfg.CalendarDateTo = parsed.In(biztime.DefaultLocation())
 	}
 	if cfg.Timeout <= 0 {
 		return config{}, errors.New("timeout must be positive")
@@ -364,7 +365,7 @@ func enqueueNotificationDispatcher(ctx context.Context, tenantID, source string)
 		return err
 	}
 	defer enqueuer.Close()
-	taskID := taskqueue.SafeTaskID(fmt.Sprintf("notification-dispatcher-%s-%s-%s", tenantID, source, time.Now().UTC().Format("200601021504")))
+	taskID := taskqueue.SafeTaskID(fmt.Sprintf("notification-dispatcher-%s-%s-%s", tenantID, source, time.Now().In(biztime.DefaultLocation()).Format("200601021504")))
 	return enqueuer.EnqueueJSONPost(ctx, taskID, map[string]any{}, time.Time{})
 }
 

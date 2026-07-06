@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 )
@@ -33,7 +34,7 @@ func NewHandler(due DueLister, log ...*slog.Logger) *Handler {
 	} else {
 		l = slog.Default()
 	}
-	return &Handler{due: due, log: l, now: func() time.Time { return time.Now().UTC() }}
+	return &Handler{due: due, log: l, now: func() time.Time { return time.Now().In(biztime.DefaultLocation()) }}
 }
 
 // Register mounts the Action Center routes.
@@ -102,7 +103,7 @@ func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dueBefore := time.Now()
+	dueBefore := h.now()
 	if v := q.Get("due_before"); v != "" {
 		parsed, err := time.Parse(time.RFC3339, v)
 		if err != nil {
@@ -110,7 +111,7 @@ func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) {
 				errorEnvelope{Code: "invalid_due_before", Message: "due_before must be RFC3339", TraceID: traceID(r)}, nil)
 			return
 		}
-		dueBefore = parsed
+		dueBefore = parsed.In(biztime.DefaultLocation())
 	}
 
 	limit := int32(defaultDueLimit)
@@ -133,7 +134,7 @@ func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	asOf := h.now().UTC()
+	asOf := h.now().In(biztime.DefaultLocation())
 	rows, err := h.due.ListDue(r.Context(), tenantID(r), repoStatus, dueBefore, limit)
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,

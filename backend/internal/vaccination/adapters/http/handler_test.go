@@ -93,7 +93,7 @@ func TestRunManualCampaignCallsGenerator(t *testing.T) {
 	if campaign.tenantID != "00000000-0000-4000-8000-000000000001" || campaign.versionID != "65000000-0000-4000-8000-000000000001" || campaign.campaignID != "catchup:2026-06-27" {
 		t.Fatalf("campaign generator got tenant=%s version=%s campaign=%s", campaign.tenantID, campaign.versionID, campaign.campaignID)
 	}
-	if campaign.asOf.Format(time.RFC3339) != "2026-06-27T08:00:00Z" {
+	if campaign.asOf.Format(time.RFC3339) != "2026-06-27T13:30:00+05:30" {
 		t.Fatalf("as_of = %s", campaign.asOf.Format(time.RFC3339))
 	}
 	if campaign.key != "manual-campaign-test-0001" || campaign.hash == "" {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
 
@@ -2451,7 +2452,7 @@ func nullableZeroTime(t time.Time) any {
 }
 
 func dateOnly(t time.Time) time.Time {
-	return time.Date(t.UTC().Year(), t.UTC().Month(), t.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	return biztime.BusinessDayStart(t)
 }
 
 func jsonObject(b []byte) []byte {

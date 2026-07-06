@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -149,7 +150,7 @@ SELECT EXISTS (
 	idempotencyKey := "backfill:goat.created:" + goat.GoatID
 	entryDate := ""
 	if goat.EntryDate != nil {
-		entryDate = goat.EntryDate.UTC().Format("2006-01-02")
+		entryDate = biztime.BusinessDate(*goat.EntryDate)
 	}
 	eventPayload, err := json.Marshal(map[string]any{
 		"goat_id":           goat.GoatID,

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
@@ -18,7 +19,7 @@ func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (
 		filter.AsOf = req.AsOf
 	}
 	if filter.AsOf.IsZero() {
-		filter.AsOf = time.Now().In(indiaLocation)
+		filter.AsOf = time.Now().In(biztime.DefaultLocation())
 	}
 
 	eligible, err := s.repo.CountEligibleGoats(ctx, filter)

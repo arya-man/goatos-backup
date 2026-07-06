@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
@@ -41,7 +42,7 @@ func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, ve
 		}
 	}
 
-	now := dueBefore.UTC()
+	now := biztime.BusinessDayStart(dueBefore)
 	for _, rows := range groups {
 		if len(rows) == 0 {
 			continue
@@ -145,7 +146,7 @@ func uniqueShedCount(rows []domain.ParkConsolidationCandidate) int {
 
 func pickBestParkDriveDate(now time.Time, rows []domain.ParkConsolidationCandidate) (*time.Time, []string) {
 	candidates := parkDriveCandidateDates(now, rows)
-	nowDay := utcDate(now)
+	nowDay := biztime.BusinessDayStart(now)
 	bestCount := 0
 	var bestDate *time.Time
 	var bestIDs []string
@@ -176,7 +177,7 @@ func parkDriveCandidateDates(now time.Time, rows []domain.ParkConsolidationCandi
 		if t.IsZero() {
 			return
 		}
-		day := utcDate(t)
+		day := biztime.BusinessDayStart(t)
 		seen[day.Format("2006-01-02")] = day
 	}
 	add(now)
@@ -197,7 +198,7 @@ func parkDriveCandidateDates(now time.Time, rows []domain.ParkConsolidationCandi
 }
 
 func obligationsFeasibleOnDate(day time.Time, rows []domain.ParkConsolidationCandidate) []string {
-	day = utcDate(day)
+	day = biztime.BusinessDayStart(day)
 	ids := make([]string, 0, len(rows))
 	for _, row := range rows {
 		earliest := obligationEarliestDate(row)
@@ -212,16 +213,16 @@ func obligationsFeasibleOnDate(day time.Time, rows []domain.ParkConsolidationCan
 
 func obligationEarliestDate(row domain.ParkConsolidationCandidate) time.Time {
 	if row.WindowStart != nil && !row.WindowStart.IsZero() {
-		return utcDate(*row.WindowStart)
+		return biztime.BusinessDayStart(*row.WindowStart)
 	}
-	return utcDate(row.DueAt)
+	return biztime.BusinessDayStart(row.DueAt)
 }
 
 func obligationLatestDate(row domain.ParkConsolidationCandidate) time.Time {
 	if row.WindowEnd != nil && !row.WindowEnd.IsZero() {
-		return utcDate(*row.WindowEnd)
+		return biztime.BusinessDayStart(*row.WindowEnd)
 	}
-	return utcDate(row.DueAt)
+	return biztime.BusinessDayStart(row.DueAt)
 }
 
 func parkDriveWindow(rows []domain.ParkConsolidationCandidate, selected []string) (*time.Time, *time.Time) {

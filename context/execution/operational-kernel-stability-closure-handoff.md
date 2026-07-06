@@ -301,7 +301,7 @@ same evidence ledger so they cannot be mistaken for still-pending Goal 1 bugs.
 | H7 | fixed for active Action Center | Due/overdue bucket filtering is pushed into SQL mode before LIMIT, avoiding page starvation by the opposite bucket. The current admin-web Action Center uses the process-integrity contract with `next_cursor`; the older obligation read endpoint remains a bounded compatibility endpoint, not the active reviewer UI path. |
 | H8 | fixed | Missed sweep excludes active in-progress batches and uses locked, non-poisoning batch scans. |
 | H9 | fixed | `idempotency_keys` defaults/backfills to 90-day expiry and has a scheduled sweeper. |
-| H10 | fixed | Default backfill pins `as_of` to the UTC day bucket, and unsafe version-id runs use durable generation-run rows. |
+| H10 | fixed | Default backfill pins `as_of` to the IST business-day bucket through `platform/biztime`, and unsafe version-id runs use durable generation-run rows. |
 | H11 | fixed | Shift/recheck cancels open vaccination obligations that are no longer effective or eligible after the goat moves. |
 | M1 | fixed | Cancel and re-scope paths emit deterministic `goat.obligations_canceled` / `obligation.rescoped` outbox rows with DB dedup indexes. |
 | M2 | fixed | Completion transition writes an audit row in the same transaction as completed status/outbox. |

@@ -11,6 +11,7 @@ import (
 
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/taskqueue"
 )
@@ -69,6 +70,6 @@ func enqueueNotificationDispatcher(ctx context.Context, tenantID, source string)
 		return err
 	}
 	defer enqueuer.Close()
-	taskID := taskqueue.SafeTaskID(fmt.Sprintf("notification-dispatcher-%s-%s-%s", tenantID, source, time.Now().UTC().Format("200601021504")))
+	taskID := taskqueue.SafeTaskID(fmt.Sprintf("notification-dispatcher-%s-%s-%s", tenantID, source, time.Now().In(biztime.DefaultLocation()).Format("200601021504")))
 	return enqueuer.EnqueueJSONPost(ctx, taskID, map[string]any{}, time.Time{})
 }

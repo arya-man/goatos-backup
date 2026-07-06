@@ -40,7 +40,7 @@ func TestParseFlagsAllowsCountAsOfWithoutTargetDate(t *testing.T) {
 	if !cfg.TargetDate.IsZero() {
 		t.Fatalf("target date=%s, want zero before service normalization", cfg.TargetDate)
 	}
-	if cfg.AsOf.Format(time.RFC3339) != "2026-06-30T13:30:00Z" {
+	if cfg.AsOf.Format(time.RFC3339) != "2026-06-30T19:00:00+05:30" {
 		t.Fatalf("as_of=%s", cfg.AsOf.Format(time.RFC3339))
 	}
 }
@@ -54,7 +54,7 @@ func TestParseFlagsNormalizesTargetDate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseFlags: %v", err)
 	}
-	if got := cfg.TargetDate.Format(time.RFC3339); got != "2026-07-01T00:00:00Z" {
+	if got := cfg.TargetDate.Format(time.RFC3339); got != "2026-07-01T00:00:00+05:30" {
 		t.Fatalf("target_date=%s, want day boundary", got)
 	}
 	if got := horizons(cfg.Horizon); len(got) != 2 || got[0] != horizonCountAsOf || got[1] != horizonFeedTargetDate {

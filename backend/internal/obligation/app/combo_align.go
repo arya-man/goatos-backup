@@ -51,7 +51,7 @@ func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, 
 			continue
 		}
 		for _, batch := range batches {
-			if batch.PlannedDate != nil && utcDate(*batch.PlannedDate).Equal(*target) {
+			if batch.PlannedDate != nil && businessDate(*batch.PlannedDate).Equal(*target) {
 				continue
 			}
 			if err := aligner.UpdateBatchPlannedDate(ctx, tenantID, batch.BatchID, *target); err != nil {
@@ -72,7 +72,7 @@ func pickComboAlignDate(batches []domain.ComboDriveBatch, dueBefore time.Time, w
 		if batch.PlannedDate == nil || batch.PlannedDate.IsZero() {
 			continue
 		}
-		day := utcDate(*batch.PlannedDate)
+		day := businessDate(*batch.PlannedDate)
 		if minDate == nil || day.Before(*minDate) {
 			minDate = &day
 		}
@@ -87,7 +87,7 @@ func pickComboAlignDate(batches []domain.ComboDriveBatch, dueBefore time.Time, w
 		return nil
 	}
 	target := *maxDate
-	nowDay := utcDate(dueBefore)
+	nowDay := businessDate(dueBefore)
 	if target.Before(nowDay) {
 		target = nowDay
 	}

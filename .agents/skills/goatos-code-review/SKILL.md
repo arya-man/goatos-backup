@@ -139,10 +139,11 @@ named committed source and read the live value," not "compare to a number here."
   exist; they do not. Stub dirs carry only a `.gitkeep`.
 - **Timezone.** Goat OS medical/business calendar days are resolved in the
   operational location timezone (currently `Asia/Kolkata` by default via
-  `locations.timezone`). UTC is fine for stored instants, audit timestamps, and
-  event-key normalization, but not for due/missed/recovery/drive calendar-day
-  decisions. Flag raw `UTC().Date()` / `time.Now().UTC()` day bucketing in those
-  decisions.
+  `locations.timezone`). Business dates must use `platform/biztime` or an
+  explicit location timezone. Raw UTC may appear only for non-calendar instants
+  such as audit/event storage and deterministic event-key normalization, never
+  for due/missed/recovery/drive calendar-day decisions. Flag raw `UTC().Date()`
+  / `time.Now().UTC()` day bucketing in those decisions.
 - **Make targets / npm scripts / thresholds.** Only cite a target/script the
   Makefile or `package.json` actually defines; verify before asserting one exists.
 

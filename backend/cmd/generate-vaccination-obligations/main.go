@@ -26,6 +26,7 @@ import (
 	"time"
 
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
@@ -42,14 +43,6 @@ type config struct {
 	RecoveryRepairLimit int
 	RecoveryRepairAge   time.Duration
 }
-
-var indiaLocation = func() *time.Location {
-	loc, err := time.LoadLocation("Asia/Kolkata")
-	if err != nil {
-		return time.FixedZone("Asia/Kolkata", 5*60*60+30*60)
-	}
-	return loc
-}()
 
 var errRecoveryRepairPartialFailures = errors.New("vaccination recovery repair completed with failed goats")
 
@@ -193,7 +186,7 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 		if err != nil {
 			return config{}, errors.New("as-of must be RFC3339")
 		}
-		cfg.AsOf = parsed.In(indiaLocation)
+		cfg.AsOf = parsed.In(biztime.DefaultLocation())
 	}
 	if cfg.Timeout <= 0 {
 		return config{}, errors.New("timeout must be positive")
@@ -208,7 +201,5 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 }
 
 func startOfIndiaBusinessDay(t time.Time) time.Time {
-	inIST := t.In(indiaLocation)
-	y, m, d := inIST.Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, indiaLocation)
+	return biztime.BusinessDayStart(t)
 }

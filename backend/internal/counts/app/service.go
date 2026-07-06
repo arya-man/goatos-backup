@@ -14,6 +14,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 var (
@@ -491,7 +492,7 @@ func normalizeProjectionExceptionWork(exception *domain.ProjectionException, anc
 		}
 	}
 	if anchor.IsZero() {
-		anchor = time.Now().UTC()
+		anchor = time.Now().In(biztime.DefaultLocation())
 	}
 	if exception.DueAt.IsZero() {
 		exception.DueAt = exceptionDueAt(anchor, exception.Severity)
@@ -501,7 +502,7 @@ func normalizeProjectionExceptionWork(exception *domain.ProjectionException, anc
 }
 
 func exceptionDueAt(anchor time.Time, severity string) time.Time {
-	anchor = anchor.UTC()
+	anchor = anchor.In(biztime.DefaultLocation())
 	switch severity {
 	case "critical":
 		return anchor
@@ -646,7 +647,7 @@ func normalizeProjectionExceptionQuery(req domain.ProjectionExceptionQuery) (dom
 }
 
 func dateOnly(t time.Time) time.Time {
-	return time.Date(t.UTC().Year(), t.UTC().Month(), t.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	return biztime.BusinessDayStart(t)
 }
 
 func ptrValue(v *string) string {

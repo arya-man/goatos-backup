@@ -91,7 +91,7 @@ func TestGenerationPreviewConsumesProjectedCountsAndBlocksPregnantDestinationRis
 		provider.got.ShedID == nil || *provider.got.ShedID != shedID ||
 		provider.got.BreedKey == nil || *provider.got.BreedKey != "f1" ||
 		provider.got.Limit != 25 ||
-		!provider.got.TargetDate.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)) {
+		!provider.got.TargetDate.Equal(dateOnly(time.Date(2026, 7, 1, 18, 45, 0, 0, time.FixedZone("IST", 5*60*60+30*60)))) {
 		t.Fatalf("projection request=%+v", provider.got)
 	}
 	if out.Status != domain.ReadinessBlocked || out.GenerationAllowed {

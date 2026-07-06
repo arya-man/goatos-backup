@@ -1638,7 +1638,7 @@ INSERT INTO obligation_batches (
   planned_date, window_start, window_end, estimated_targets, planned_quantity
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, 'shed', $4::uuid, 'planned',
-  ($5::timestamptz AT TIME ZONE 'UTC')::date, $5::timestamptz, $5::timestamptz + interval '8 hours',
+  ($5::timestamptz AT TIME ZONE 'Asia/Kolkata')::date, $5::timestamptz, $5::timestamptz + interval '8 hours',
   $6::int, ($6::int)::numeric
 )
 ON CONFLICT (batch_id) DO UPDATE

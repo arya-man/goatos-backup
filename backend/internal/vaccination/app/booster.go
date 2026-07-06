@@ -120,7 +120,7 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		if gap <= 0 {
 			return false, nil
 		}
-		due = in.AdministeredAt.AddDate(0, 0, int(gap))
+		due = businessDayStart(in.AdministeredAt).AddDate(0, 0, int(gap))
 	} else if next == nil && current != nil {
 		var ok bool
 		due, ok = repeatDueAfterCompletion(*current, in.AdministeredAt)
@@ -229,9 +229,9 @@ func repeatDueAfterCompletion(rule protodomain.Rule, administeredAt time.Time) (
 		if gap <= 0 {
 			return time.Time{}, false
 		}
-		return administeredAt.AddDate(0, 0, int(gap)), true
+		return businessDayStart(administeredAt).AddDate(0, 0, int(gap)), true
 	case "yearly":
-		return administeredAt.AddDate(1, 0, 0), true
+		return businessDayStart(administeredAt).AddDate(1, 0, 0), true
 	default:
 		return time.Time{}, false
 	}

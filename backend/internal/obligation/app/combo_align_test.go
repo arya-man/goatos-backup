@@ -15,8 +15,9 @@ func TestPickComboAlignDateWithinWindow(t *testing.T) {
 		{BatchID: "b2", PlannedDate: &d2},
 	}
 	got := pickComboAlignDate(batches, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), 7*24*time.Hour)
-	if got == nil || !got.Equal(d2) {
-		t.Fatalf("aligned=%v want %s", got, d2)
+	want := businessDate(d2)
+	if got == nil || !got.Equal(want) {
+		t.Fatalf("aligned=%v want %s", got, want)
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -202,13 +203,13 @@ func parseParityFile(r io.Reader, cfg config, now func() time.Time) (parityFile,
 	if now == nil {
 		now = time.Now
 	}
-	file.asOf = now().UTC()
+	file.asOf = now().In(biztime.DefaultLocation())
 	if strings.TrimSpace(file.AsOf) != "" {
 		parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(file.AsOf))
 		if err != nil {
 			return parityFile{}, errors.New("as_of must be RFC3339")
 		}
-		file.asOf = parsed.UTC()
+		file.asOf = parsed.In(biztime.DefaultLocation())
 	}
 	if file.Horizon == horizonFeedTargetDate {
 		if strings.TrimSpace(file.TargetDate) == "" {
@@ -429,17 +430,17 @@ func defaultString(value, fallback string) string {
 
 func parseDateOrInstant(raw string) (time.Time, error) {
 	if t, err := time.Parse("2006-01-02", raw); err == nil {
-		return t.UTC(), nil
+		return biztime.BusinessDayStart(t), nil
 	}
 	t, err := time.Parse(time.RFC3339Nano, raw)
 	if err != nil {
 		return time.Time{}, errors.New("target_date must be YYYY-MM-DD or RFC3339")
 	}
-	return t.UTC(), nil
+	return t.In(biztime.DefaultLocation()), nil
 }
 
 func dateOnly(t time.Time) time.Time {
-	return time.Date(t.UTC().Year(), t.UTC().Month(), t.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	return biztime.BusinessDayStart(t)
 }
 
 func getenv(key string) string {

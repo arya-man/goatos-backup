@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 // approvedDriveCombos are PDF/source-approved same-day vaccine bundles. Members share a combo session
@@ -60,7 +61,7 @@ func dueDateKey(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return utcDate(t).Format("2006-01-02")
+	return businessDate(t).Format("2006-01-02")
 }
 
 func pickBestDriveDate(now time.Time, rows []driveCandidate, priority int32) *time.Time {
@@ -68,7 +69,7 @@ func pickBestDriveDate(now time.Time, rows []driveCandidate, priority int32) *ti
 		return nil
 	}
 	candidates := candidateDriveDates(now, rows)
-	nowDay := utcDate(now)
+	nowDay := businessDate(now)
 	bestScore := -1
 	var bestDate *time.Time
 	for _, candidate := range candidates {
@@ -89,9 +90,9 @@ func pickBestDriveDate(now time.Time, rows []driveCandidate, priority int32) *ti
 	if bestDate != nil {
 		return bestDate
 	}
-	earliest := utcDate(rows[0].DueAt)
+	earliest := businessDate(rows[0].DueAt)
 	for _, row := range rows[1:] {
-		day := utcDate(row.DueAt)
+		day := businessDate(row.DueAt)
 		if day.Before(earliest) {
 			earliest = day
 		}
@@ -113,13 +114,13 @@ func scoreDriveDate(day time.Time, rows []driveCandidate, feasibleIDs []string, 
 			continue
 		}
 		latest := driveLatestDate(row)
-		daysLeft := int(utcDate(latest).Sub(day).Hours() / 24)
+		daysLeft := int(businessDate(latest).Sub(day).Hours() / 24)
 		if daysLeft <= 3 {
 			score += 40
 		} else if daysLeft <= 7 {
 			score += 20
 		}
-		overdue := int(utcDate(now).Sub(utcDate(row.DueAt)).Hours() / 24)
+		overdue := int(businessDate(now).Sub(businessDate(row.DueAt)).Hours() / 24)
 		if overdue > 0 {
 			score += 10 + overdue*5
 		}
@@ -133,7 +134,7 @@ func candidateDriveDates(now time.Time, rows []driveCandidate) []time.Time {
 		if t.IsZero() {
 			return
 		}
-		day := utcDate(t)
+		day := businessDate(t)
 		seen[day.Format("2006-01-02")] = day
 	}
 	add(now)
@@ -154,7 +155,7 @@ func candidateDriveDates(now time.Time, rows []driveCandidate) []time.Time {
 }
 
 func obligationsFeasibleOnDriveDate(day time.Time, rows []driveCandidate) []string {
-	day = utcDate(day)
+	day = businessDate(day)
 	ids := make([]string, 0, len(rows))
 	for _, row := range rows {
 		earliest := driveEarliestDate(row)
@@ -169,16 +170,16 @@ func obligationsFeasibleOnDriveDate(day time.Time, rows []driveCandidate) []stri
 
 func driveEarliestDate(row driveCandidate) time.Time {
 	if row.WindowStart != nil && !row.WindowStart.IsZero() {
-		return utcDate(*row.WindowStart)
+		return businessDate(*row.WindowStart)
 	}
-	return utcDate(row.DueAt)
+	return businessDate(row.DueAt)
 }
 
 func driveLatestDate(row driveCandidate) time.Time {
 	if row.WindowEnd != nil && !row.WindowEnd.IsZero() {
-		return utcDate(*row.WindowEnd)
+		return businessDate(*row.WindowEnd)
 	}
-	return utcDate(row.DueAt)
+	return businessDate(row.DueAt)
 }
 
 func splitObligationIDs(ids []string, max int32) [][]string {
@@ -196,7 +197,6 @@ func splitObligationIDs(ids []string, max int32) [][]string {
 	return chunks
 }
 
-func utcDate(t time.Time) time.Time {
-	y, m, d := t.UTC().Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+func businessDate(t time.Time) time.Time {
+	return biztime.BusinessDayStart(t)
 }

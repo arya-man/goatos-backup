@@ -15,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 const (
@@ -647,7 +648,7 @@ func adminGoatEventPayload(cmd ports.CreateAdminGoatCommand, goatID, decisionID,
 		"identifiers":       cmd.Identifiers,
 		"species":           cmd.Species,
 		"origin_type":       cmd.OriginType,
-		"entry_date":        cmd.EntryDate.UTC().Format("2006-01-02"),
+		"entry_date":        biztime.BusinessDate(cmd.EntryDate),
 		"farm_id":           stringValue(cmd.FarmID),
 		"park_id":           cmd.ParkID,
 		"shed_id":           cmd.ShedID,
@@ -680,7 +681,7 @@ func adminGoatDomainEventEnvelope(cmd ports.CreateAdminGoatCommand, goat domain.
 			"identifiers":       cmd.Identifiers,
 			"species":           cmd.Species,
 			"origin_type":       cmd.OriginType,
-			"entry_date":        cmd.EntryDate.UTC().Format("2006-01-02"),
+			"entry_date":        biztime.BusinessDate(cmd.EntryDate),
 			"farm_id":           stringValue(cmd.FarmID),
 			"park_id":           cmd.ParkID,
 			"shed_id":           cmd.ShedID,

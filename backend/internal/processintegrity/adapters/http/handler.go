@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
@@ -142,7 +143,7 @@ func (h *Handler) WorkflowDrilldown(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) query(w http.ResponseWriter, r *http.Request, defaultRowLimit int) (domain.Query, bool) {
-	now := time.Now().UTC()
+	now := time.Now().In(biztime.DefaultLocation())
 	q := domain.Query{
 		TenantID:  tenantID(r),
 		AsOf:      now,
@@ -156,7 +157,7 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request, defaultRowLimit 
 			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
 			return domain.Query{}, false
 		}
-		q.AsOf = parsed.UTC()
+		q.AsOf = parsed.In(biztime.DefaultLocation())
 		// Re-anchor the default horizon to as_of; an explicit due_before below still wins.
 		q.DueBefore = q.AsOf.Add(defaultHorizonDays * 24 * time.Hour)
 	}
@@ -225,7 +226,7 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request, defaultRowLimit 
 			h.badRequest(w, r, "invalid_due_after", "due_after must be RFC3339")
 			return domain.Query{}, false
 		}
-		parsed = parsed.UTC()
+		parsed = parsed.In(biztime.DefaultLocation())
 		q.DueAfter = &parsed
 	}
 	if dueBefore := values.Get("due_before"); dueBefore != "" {
@@ -234,7 +235,7 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request, defaultRowLimit 
 			h.badRequest(w, r, "invalid_due_before", "due_before must be RFC3339")
 			return domain.Query{}, false
 		}
-		q.DueBefore = parsed.UTC()
+		q.DueBefore = parsed.In(biztime.DefaultLocation())
 	}
 	if limit := values.Get("limit"); limit != "" {
 		n, err := strconv.Atoi(limit)

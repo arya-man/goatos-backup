@@ -4,17 +4,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
-
-var indiaLocation = func() *time.Location {
-	loc, err := time.LoadLocation("Asia/Kolkata")
-	if err != nil {
-		return time.FixedZone("Asia/Kolkata", 5*60*60+30*60)
-	}
-	return loc
-}()
 
 const (
 	schedulePathKid              = "kid"
@@ -90,11 +83,11 @@ func recoveryRescheduleDue(asOf time.Time, policy genRecoveryPolicy, nearbyDrive
 			return aligned, recoveryAlignNearbyDrive
 		}
 	}
-	return asOf.In(indiaLocation), recoveryMicroDrive
+	return asOf.In(biztime.DefaultLocation()), recoveryMicroDrive
 }
 
 func recoveryDueWindows(due time.Time, dueWindowDays int32) (time.Time, *time.Time) {
-	start := due.In(indiaLocation)
+	start := due.In(biztime.DefaultLocation())
 	if dueWindowDays <= 0 {
 		return start, nil
 	}
@@ -103,9 +96,7 @@ func recoveryDueWindows(due time.Time, dueWindowDays int32) (time.Time, *time.Ti
 }
 
 func businessDayStart(t time.Time) time.Time {
-	inIST := t.In(indiaLocation)
-	y, m, d := inIST.Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, indiaLocation)
+	return biztime.BusinessDayStart(t)
 }
 
 func schedulePathForGoat(g domain.EligibleGoat, proc genProcurementPolicy, asOf time.Time) string {
@@ -162,7 +153,7 @@ func warmingEntryAt(g domain.EligibleGoat) *time.Time {
 		return g.WarmingEntryAt
 	}
 	if g.EntryDate != nil {
-		start := time.Date(g.EntryDate.Year(), g.EntryDate.Month(), g.EntryDate.Day(), 0, 0, 0, 0, time.UTC)
+		start := businessDayStart(*g.EntryDate)
 		return &start
 	}
 	return nil
@@ -250,9 +241,9 @@ func adjustPostArrivalDue(g domain.EligibleGoat, rule protodomain.Rule, proc gen
 	if anchor == nil {
 		return time.Time{}
 	}
-	due := anchor.Add(time.Duration(rule.OffsetDays) * 24 * time.Hour)
+	due := businessDayStart(*anchor).AddDate(0, 0, int(rule.OffsetDays))
 	if proc.WarmupNoVaccinationDays > 0 {
-		minDue := anchor.AddDate(0, 0, int(proc.WarmupNoVaccinationDays))
+		minDue := businessDayStart(*anchor).AddDate(0, 0, int(proc.WarmupNoVaccinationDays))
 		if due.Before(minDue) {
 			due = minDue
 		}

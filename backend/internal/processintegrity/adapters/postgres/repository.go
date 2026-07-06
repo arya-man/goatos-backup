@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/ports"
 )
@@ -255,7 +256,7 @@ func normalizeQuery(q domain.Query) domain.Query {
 		q.Offset = 0
 	}
 	if q.AsOf.IsZero() {
-		q.AsOf = time.Now().UTC()
+		q.AsOf = time.Now().In(biztime.DefaultLocation())
 	}
 	if q.DueBefore.IsZero() {
 		q.DueBefore = q.AsOf.Add(30 * 24 * time.Hour)

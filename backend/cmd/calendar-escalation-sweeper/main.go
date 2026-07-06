@@ -12,6 +12,7 @@ import (
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/taskqueue"
 )
@@ -56,7 +57,7 @@ func run(args []string) error {
 	count, err := service.SweepEscalations(ctx, calendarports.SweepEscalations{
 		TenantID:    *tenantID,
 		Limit:       *limit,
-		Now:         time.Now().UTC(),
+		Now:         time.Now().In(biztime.DefaultLocation()),
 		Level1After: *level1After,
 		Level2After: *level2After,
 		Level3After: *level3After,
@@ -100,6 +101,6 @@ func enqueueNotificationDispatcher(ctx context.Context, tenantID, source string)
 		return err
 	}
 	defer enqueuer.Close()
-	taskID := taskqueue.SafeTaskID(fmt.Sprintf("notification-dispatcher-%s-%s-%s", tenantID, source, time.Now().UTC().Format("200601021504")))
+	taskID := taskqueue.SafeTaskID(fmt.Sprintf("notification-dispatcher-%s-%s-%s", tenantID, source, time.Now().In(biztime.DefaultLocation()).Format("200601021504")))
 	return enqueuer.EnqueueJSONPost(ctx, taskID, map[string]any{}, time.Time{})
 }

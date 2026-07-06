@@ -234,7 +234,9 @@ TTL (illustratively ~15 min — verify `defaultSignedURLTTL` in
       default — verify `locations.timezone` in migrations/config), not the server
       timezone and not raw UTC. A local-vs-UTC mismatch shifts "due today",
       "missed", recovery, and drive-planned dates across a day boundary.
-- [ ] Raw UTC is used only for persisted instants / audit / event-key
+- [ ] Business dates use `platform/biztime` or an explicit animal/location
+      timezone. Raw UTC may appear only for non-calendar instants such as
+      persisted audit/event storage, retention cutoffs, and event-key
       normalization. A sweeper or scheduler using `.UTC().Date()` or
       `time.Now().UTC()` to decide a medical/business day is a finding. Convert
       the instant to the animal/location timezone first, then take the calendar

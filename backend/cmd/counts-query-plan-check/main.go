@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -117,7 +118,7 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	fs.StringVar(&cfg.ShedID, "shed-id", getenv("GOATOS_COUNTS_SHED_ID"), "optional shed/location id for row-filter proof")
 	fs.StringVar(&cfg.BreedKey, "breed-key", getenv("GOATOS_COUNTS_BREED_KEY"), "optional breed key for row-filter proof")
 	fs.DurationVar(&cfg.Timeout, "timeout", durationEnv("GOATOS_COUNTS_QUERY_PLAN_TIMEOUT", 120*time.Second), "worker timeout")
-	targetDateRaw := fs.String("target-date", getenv("GOATOS_COUNTS_TARGET_DATE"), "target date as YYYY-MM-DD or RFC3339; default tomorrow UTC")
+	targetDateRaw := fs.String("target-date", getenv("GOATOS_COUNTS_TARGET_DATE"), "target date as YYYY-MM-DD or RFC3339; default tomorrow IST")
 	asOfRaw := fs.String("as-of", getenv("GOATOS_COUNTS_AS_OF"), "as-of instant as RFC3339; default now")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
@@ -138,13 +139,13 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	if now == nil {
 		now = time.Now
 	}
-	cfg.AsOf = now().UTC()
+	cfg.AsOf = now().In(biztime.DefaultLocation())
 	if strings.TrimSpace(*asOfRaw) != "" {
 		parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(*asOfRaw))
 		if err != nil {
 			return config{}, errors.New("as-of must be RFC3339")
 		}
-		cfg.AsOf = parsed.UTC()
+		cfg.AsOf = parsed.In(biztime.DefaultLocation())
 	}
 	if strings.TrimSpace(*targetDateRaw) == "" {
 		cfg.TargetDate = dateOnly(cfg.AsOf.AddDate(0, 0, 1))
@@ -446,17 +447,17 @@ func sortedKeys(values map[string]bool) []string {
 
 func parseDateOrInstant(raw string) (time.Time, error) {
 	if t, err := time.Parse("2006-01-02", raw); err == nil {
-		return t.UTC(), nil
+		return biztime.BusinessDayStart(t), nil
 	}
 	t, err := time.Parse(time.RFC3339Nano, raw)
 	if err != nil {
 		return time.Time{}, errors.New("target-date must be YYYY-MM-DD or RFC3339")
 	}
-	return t.UTC(), nil
+	return t.In(biztime.DefaultLocation()), nil
 }
 
 func dateOnly(t time.Time) time.Time {
-	return time.Date(t.UTC().Year(), t.UTC().Month(), t.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	return biztime.BusinessDayStart(t)
 }
 
 func getenv(key string) string {

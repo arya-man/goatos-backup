@@ -8,6 +8,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/calendar/domain"
 	"github.com/vgoats/goatos/backend/internal/calendar/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
 
@@ -33,7 +34,7 @@ type Service struct {
 }
 
 func NewService(repo ports.Repository) *Service {
-	return &Service{repo: repo, now: func() time.Time { return time.Now().UTC() }}
+	return &Service{repo: repo, now: func() time.Time { return time.Now().In(biztime.DefaultLocation()) }}
 }
 
 func (s *Service) ListEvents(ctx context.Context, q domain.Query) (domain.CalendarEventListResponse, error) {
@@ -61,7 +62,7 @@ func (s *Service) ListEvents(ctx context.Context, q domain.Query) (domain.Calend
 	if q.DateFrom.IsZero() {
 		loc := mustCalendarLocation()
 		today := s.now().In(loc)
-		q.DateFrom = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, loc).UTC()
+		q.DateFrom = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, loc)
 	}
 	if q.DateTo.IsZero() {
 		q.DateTo = q.DateFrom.Add(defaultDateRange)

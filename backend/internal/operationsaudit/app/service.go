@@ -6,6 +6,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/operationsaudit/domain"
 	"github.com/vgoats/goatos/backend/internal/operationsaudit/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 type Service struct {
@@ -14,7 +15,7 @@ type Service struct {
 }
 
 func NewService(repo ports.Repository) *Service {
-	return &Service{repo: repo, now: func() time.Time { return time.Now().UTC() }}
+	return &Service{repo: repo, now: func() time.Time { return time.Now().In(biztime.DefaultLocation()) }}
 }
 
 func (s *Service) List(ctx context.Context, q domain.Query, traceID string) (domain.ListResponse, error) {

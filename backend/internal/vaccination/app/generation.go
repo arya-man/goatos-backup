@@ -1008,7 +1008,7 @@ func limitsHistoricalCatchUp(rule protodomain.Rule, baseDue, materializedDue, as
 	if strings.EqualFold(strings.TrimSpace(rule.CatchUp), "next_cycle") {
 		return false
 	}
-	windowEnd := baseDue.Add(time.Duration(rule.DueWindowDays) * 24 * time.Hour)
+	windowEnd := businessDayStart(baseDue).AddDate(0, 0, int(rule.DueWindowDays))
 	return asOf.After(windowEnd) && materializedDue.Equal(asOf)
 }
 
@@ -1210,7 +1210,7 @@ func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time) (time.Tim
 	if rule.DueWindowDays <= 0 {
 		return due, "", false
 	}
-	windowEnd := due.Add(time.Duration(rule.DueWindowDays) * 24 * time.Hour)
+	windowEnd := businessDayStart(due).AddDate(0, 0, int(rule.DueWindowDays))
 	if !asOf.After(windowEnd) {
 		return due, "", false
 	}
@@ -1255,14 +1255,14 @@ func nextRepeatCycle(rule protodomain.Rule, due, asOf time.Time) (time.Time, boo
 			return time.Time{}, false
 		}
 		next := due
-		for !next.Add(time.Duration(rule.DueWindowDays) * 24 * time.Hour).After(asOf) {
-			next = next.AddDate(0, 0, int(interval))
+		for !businessDayStart(next).AddDate(0, 0, int(rule.DueWindowDays)).After(asOf) {
+			next = businessDayStart(next).AddDate(0, 0, int(interval))
 		}
 		return next, true
 	case "yearly":
 		next := due
-		for !next.Add(time.Duration(rule.DueWindowDays) * 24 * time.Hour).After(asOf) {
-			next = next.AddDate(1, 0, 0)
+		for !businessDayStart(next).AddDate(0, 0, int(rule.DueWindowDays)).After(asOf) {
+			next = businessDayStart(next).AddDate(1, 0, 0)
 		}
 		return next, true
 	default:
@@ -1426,30 +1426,29 @@ func obligationWindowEnd(rule protodomain.Rule, due time.Time) *time.Time {
 	if rule.DueWindowDays <= 0 {
 		return nil
 	}
-	end := due.Add(time.Duration(rule.DueWindowDays) * 24 * time.Hour)
+	end := businessDayStart(due).AddDate(0, 0, int(rule.DueWindowDays))
 	return &end
 }
 
 func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies) (due time.Time, ok bool, skip bool) {
-	off := time.Duration(rule.OffsetDays) * 24 * time.Hour
 	switch rule.TriggerType {
 	case "birth_age":
 		if g.DOB == nil {
 			return time.Time{}, false, true
 		}
-		return g.DOB.Add(off), true, false
+		return businessDayStart(*g.DOB).AddDate(0, 0, int(rule.OffsetDays)), true, false
 	case "post_arrival":
 		if warmingEntryAt(g) == nil {
 			return time.Time{}, false, true
 		}
 		return adjustPostArrivalDue(g, rule, policies.Procurement), true, false
 	case "calendar":
-		return asOf.Add(off), true, false
+		return businessDayStart(asOf).AddDate(0, 0, int(rule.OffsetDays)), true, false
 	case "manual_campaign":
 		if opts.ManualCampaignID == "" {
 			return time.Time{}, false, false
 		}
-		return asOf.Add(off), true, false
+		return businessDayStart(asOf).AddDate(0, 0, int(rule.OffsetDays)), true, false
 	default: // after_previous_completion (SM-7)
 		return time.Time{}, false, false
 	}
@@ -1485,7 +1484,7 @@ func dueAfterPreviousCompletion(rule protodomain.Rule, ruleVaccine vaccineProfil
 		if gap <= 0 {
 			return time.Time{}, false
 		}
-		return admin.AdministeredAt.AddDate(0, 0, int(gap)), true
+		return businessDayStart(admin.AdministeredAt).AddDate(0, 0, int(gap)), true
 	}
 	return time.Time{}, false
 }

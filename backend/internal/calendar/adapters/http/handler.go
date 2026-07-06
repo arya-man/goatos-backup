@@ -16,6 +16,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/calendar/domain"
 	"github.com/vgoats/goatos/backend/internal/calendar/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 )
@@ -301,16 +302,13 @@ func (h *Handler) listQuery(w stdhttp.ResponseWriter, r *stdhttp.Request) (domai
 }
 
 func (h *Handler) parseDate(w stdhttp.ResponseWriter, r *stdhttp.Request, field, raw string) (time.Time, bool) {
-	loc, err := time.LoadLocation(domain.DefaultTimezone)
-	if err != nil {
-		loc = time.FixedZone("IST", 5*60*60+30*60)
-	}
+	loc := biztime.Location(domain.DefaultTimezone)
 	parsed, err := time.ParseInLocation("2006-01-02", raw, loc)
 	if err != nil {
 		h.badRequest(w, r, "invalid_"+field, field+" must be YYYY-MM-DD")
 		return time.Time{}, false
 	}
-	return parsed.UTC(), true
+	return parsed, true
 }
 
 type errorEnvelope struct {

@@ -12,6 +12,7 @@ import (
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	"github.com/vgoats/goatos/backend/internal/calendar/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -58,7 +59,7 @@ func run(args []string) error {
 	}
 	pruned := 0
 	if cfg.PruneClosed {
-		pruned, err = service.PruneClosedVaccinationProjection(ctx, cfg.TenantID, time.Now().UTC().Add(-cfg.ClosedRetention), cfg.PruneLimit)
+		pruned, err = service.PruneClosedVaccinationProjection(ctx, cfg.TenantID, time.Now().In(biztime.DefaultLocation()).Add(-cfg.ClosedRetention), cfg.PruneLimit)
 		if err != nil {
 			return err
 		}
@@ -85,7 +86,7 @@ func parseFlags(args []string) (config, error) {
 	if strings.TrimSpace(cfg.TenantID) == "" {
 		return config{}, errors.New("tenant-id is required")
 	}
-	now := time.Now().UTC()
+	now := time.Now().In(biztime.DefaultLocation())
 	cfg.DateFrom = now.Add(-24 * time.Hour)
 	cfg.DateTo = now.Add(45 * 24 * time.Hour)
 	var err error
@@ -94,14 +95,14 @@ func parseFlags(args []string) (config, error) {
 		if err != nil {
 			return config{}, errors.New("date-from must be RFC3339")
 		}
-		cfg.DateFrom = cfg.DateFrom.UTC()
+		cfg.DateFrom = cfg.DateFrom.In(biztime.DefaultLocation())
 	}
 	if strings.TrimSpace(*dateTo) != "" {
 		cfg.DateTo, err = time.Parse(time.RFC3339, strings.TrimSpace(*dateTo))
 		if err != nil {
 			return config{}, errors.New("date-to must be RFC3339")
 		}
-		cfg.DateTo = cfg.DateTo.UTC()
+		cfg.DateTo = cfg.DateTo.In(biztime.DefaultLocation())
 	}
 	if cfg.Timeout <= 0 {
 		return config{}, errors.New("timeout must be positive")

@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -62,10 +63,10 @@ func run(args []string) error {
 			"partition coverage parent=%s created=%d through=%s\n",
 			result.ParentTable,
 			result.CreatedPartitions,
-			result.CoverageThrough.UTC().Format("2006-01-02"),
+			biztime.BusinessDate(result.CoverageThrough),
 		)
 	}
-	fmt.Printf("partition coverage OK created=%d months_ahead=%d as_of=%s\n", total, cfg.MonthsAhead, cfg.AsOf.UTC().Format(time.RFC3339))
+	fmt.Printf("partition coverage OK created=%d months_ahead=%d as_of=%s\n", total, cfg.MonthsAhead, cfg.AsOf.In(biztime.DefaultLocation()).Format(time.RFC3339))
 	return nil
 }
 
@@ -87,13 +88,13 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	if now == nil {
 		now = time.Now
 	}
-	cfg.AsOf = now().UTC()
+	cfg.AsOf = now().In(biztime.DefaultLocation())
 	if strings.TrimSpace(*asOfRaw) != "" {
 		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*asOfRaw))
 		if err != nil {
 			return config{}, errors.New("as-of must be RFC3339")
 		}
-		cfg.AsOf = parsed.UTC()
+		cfg.AsOf = parsed.In(biztime.DefaultLocation())
 	}
 	return cfg, nil
 }

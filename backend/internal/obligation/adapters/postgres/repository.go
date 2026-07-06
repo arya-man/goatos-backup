@@ -18,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 )
@@ -990,7 +991,7 @@ func (r *Repository) listScheduledOrDue(ctx context.Context, tenant pgtype.UUID,
 	if limit <= 0 {
 		limit = 1000
 	}
-	asOf := time.Now().UTC()
+	asOf := time.Now().In(biztime.DefaultLocation())
 	rows, err := r.pool.Query(ctx, `
 	SELECT obligation_id::text,
        protocol_version_id::text,

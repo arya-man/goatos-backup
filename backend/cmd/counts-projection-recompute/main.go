@@ -16,6 +16,7 @@ import (
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -82,7 +83,7 @@ func run(args []string) error {
 		}
 		fmt.Printf("counts projection recomputed run=%s horizon=%s snapshot=%s status=%s rows=%d exceptions=%d target_date=%s as_of=%s\n",
 			result.RunID, result.Horizon, result.SnapshotID, result.ProjectionStatus, result.RowCount, result.ExceptionCount,
-			result.TargetDate.Format("2006-01-02"), result.AsOf.UTC().Format(time.RFC3339))
+			biztime.BusinessDate(result.TargetDate), result.AsOf.In(biztime.DefaultLocation()).Format(time.RFC3339))
 	}
 	return nil
 }
@@ -129,13 +130,13 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	if now == nil {
 		now = time.Now
 	}
-	cfg.AsOf = now().UTC()
+	cfg.AsOf = now().In(biztime.DefaultLocation())
 	if strings.TrimSpace(*asOfRaw) != "" {
 		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*asOfRaw))
 		if err != nil {
 			return config{}, errors.New("as-of must be RFC3339")
 		}
-		cfg.AsOf = parsed.UTC()
+		cfg.AsOf = parsed.In(biztime.DefaultLocation())
 	}
 	if strings.TrimSpace(*targetDateRaw) != "" {
 		parsed, err := parseDateOrInstant(strings.TrimSpace(*targetDateRaw))
@@ -159,17 +160,17 @@ func horizons(horizon string) []string {
 
 func parseDateOrInstant(raw string) (time.Time, error) {
 	if t, err := time.Parse("2006-01-02", raw); err == nil {
-		return t, nil
+		return biztime.BusinessDayStart(t), nil
 	}
 	t, err := time.Parse(time.RFC3339, raw)
 	if err != nil {
 		return time.Time{}, errors.New("target-date must be YYYY-MM-DD or RFC3339")
 	}
-	return t.UTC(), nil
+	return t.In(biztime.DefaultLocation()), nil
 }
 
 func dateOnly(t time.Time) time.Time {
-	return time.Date(t.UTC().Year(), t.UTC().Month(), t.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	return biztime.BusinessDayStart(t)
 }
 
 func ptrIfNotEmpty(v string) *string {

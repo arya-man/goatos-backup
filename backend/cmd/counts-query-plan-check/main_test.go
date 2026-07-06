@@ -96,7 +96,7 @@ func TestParseFlagsDefaultsTargetDateToTomorrow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseFlags: %v", err)
 	}
-	if got := cfg.TargetDate.Format(time.RFC3339); got != "2026-07-01T00:00:00Z" {
+	if got := cfg.TargetDate.Format(time.RFC3339); got != "2026-07-01T00:00:00+05:30" {
 		t.Fatalf("target_date=%s", got)
 	}
 }

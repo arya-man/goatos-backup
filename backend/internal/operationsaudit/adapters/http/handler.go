@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/operationsaudit/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
@@ -97,7 +98,7 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request) (domain.Query, b
 			h.badRequest(w, r, "invalid_from", "from must be RFC3339")
 			return domain.Query{}, false
 		}
-		parsed = parsed.UTC()
+		parsed = parsed.In(biztime.DefaultLocation())
 		q.From = &parsed
 	}
 	if to := strings.TrimSpace(values.Get("to")); to != "" {
@@ -106,7 +107,7 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request) (domain.Query, b
 			h.badRequest(w, r, "invalid_to", "to must be RFC3339")
 			return domain.Query{}, false
 		}
-		parsed = parsed.UTC()
+		parsed = parsed.In(biztime.DefaultLocation())
 		q.To = &parsed
 	}
 	if !h.uuidQuery(w, r, values.Get("actor_id"), "actor_id", &q.ActorID) {

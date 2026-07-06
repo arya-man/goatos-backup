@@ -5,6 +5,7 @@ import (
 	"context"
 	"sort"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
@@ -399,7 +400,7 @@ func dueDate(p domain.ExecutionProjection) *string {
 	if p.DueAt == nil {
 		return nil
 	}
-	date := p.DueAt.UTC().Format("2006-01-02")
+	date := biztime.BusinessDate(*p.DueAt)
 	return &date
 }
 

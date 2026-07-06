@@ -17,6 +17,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/calendar/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -844,7 +845,7 @@ FROM calendar_event_projections
 		return false, fmt.Errorf("calendar: lock reminder event: %w", err)
 	}
 	channel := normalizeChannel("", e.PrimaryChannel)
-	key := tenantID + ":calendar.reminder:" + e.EventID + ":" + calendarBusinessDateIn(time.Now().UTC(), e.Timezone)
+	key := tenantID + ":calendar.reminder:" + e.EventID + ":" + calendarBusinessDateIn(time.Now(), e.Timezone)
 	contextJSON, err := marshalJSON("reminder context", map[string]any{"calendar_event_id": e.EventID, "sweeper": "calendar-reminder-sweeper"})
 	if err != nil {
 		return false, err
@@ -1285,18 +1286,7 @@ func calendarBusinessDate(t time.Time) string {
 }
 
 func calendarBusinessDateIn(t time.Time, timezone string) string {
-	timezone = strings.TrimSpace(timezone)
-	if timezone == "" {
-		timezone = domain.DefaultTimezone
-	}
-	loc, err := time.LoadLocation(domain.DefaultTimezone)
-	if timezone != domain.DefaultTimezone {
-		loc, err = time.LoadLocation(timezone)
-	}
-	if err != nil {
-		loc = time.FixedZone("IST", 5*60*60+30*60)
-	}
-	return t.In(loc).Format("2006-01-02")
+	return biztime.BusinessDateIn(t, timezone)
 }
 
 func escalationReason(target escalationTarget, level int) string {
@@ -1709,7 +1699,7 @@ WITH history AS (
     'snooze:' || snooze_id::text AS history_id,
     'calendar_snooze' AS event_type,
     status,
-    'Snoozed until ' || to_char(snooze_until AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS title,
+    'Snoozed until ' || to_char(snooze_until AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI') AS title,
     created_by::text AS actor_label,
     created_at AS occurred_at,
     NULL::text AS channel,

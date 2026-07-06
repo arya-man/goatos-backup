@@ -65,7 +65,7 @@ func TestPickBestDriveDatePrefersMaxCoverage(t *testing.T) {
 		t.Fatal("expected planned date")
 	}
 	// Both obligations fit on Jul 8; scorer prefers later date with equal coverage when urgency rises.
-	want := time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)
+	want := businessDate(time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC))
 	if !got.Equal(want) {
 		t.Fatalf("planned=%s want %s", got, want)
 	}

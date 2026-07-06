@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
@@ -41,7 +42,7 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 	}
 	asOf := q.AsOf
 	if asOf.IsZero() {
-		asOf = time.Now().UTC()
+		asOf = time.Now().In(biztime.DefaultLocation())
 	}
 	workState := ""
 	if q.WorkState != nil {
@@ -154,7 +155,7 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 	}
 	asOf := q.AsOf
 	if asOf.IsZero() {
-		asOf = time.Now().UTC()
+		asOf = time.Now().In(biztime.DefaultLocation())
 	}
 	dueBefore := q.DueBefore
 	if dueBefore.IsZero() {

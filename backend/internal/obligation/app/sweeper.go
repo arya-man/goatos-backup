@@ -7,6 +7,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/obligation/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 // TaskCreator spawns one SOP task per batch. Implemented by a thin adapter over the SOP module
@@ -370,8 +371,7 @@ func batchPlannedDate(dueAt time.Time) *time.Time {
 	if dueAt.IsZero() {
 		return nil
 	}
-	y, m, d := dueAt.UTC().Date()
-	planned := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+	planned := biztime.BusinessDayStart(dueAt)
 	return &planned
 }
 
@@ -379,7 +379,7 @@ func batchStockValidOn(b domain.PlannedBatchFinalization) time.Time {
 	if b.PlannedDate != nil && !b.PlannedDate.IsZero() {
 		return *b.PlannedDate
 	}
-	return time.Now().UTC()
+	return biztime.BusinessDayStart(time.Now())
 }
 
 func (s *SweeperService) reservePlannedBatchStock(ctx context.Context, tenantID string, b domain.PlannedBatchFinalization, cfg SweepConfig) error {

@@ -17,6 +17,7 @@ import (
 	inventorydb "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/inventory/domain"
 	"github.com/vgoats/goatos/backend/internal/inventory/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 )
 
@@ -539,10 +540,9 @@ func (r *Repository) ReserveForBatch(ctx context.Context, tenantID, batchID, loc
 
 func stockValidOnDate(validOn time.Time) time.Time {
 	if validOn.IsZero() {
-		validOn = time.Now().UTC()
+		validOn = time.Now()
 	}
-	y, m, d := validOn.UTC().Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+	return biztime.BusinessDayStart(validOn)
 }
 
 func markObligationBatchStockReserved(ctx context.Context, tx pgx.Tx, tenant, batch pgtype.UUID) error {

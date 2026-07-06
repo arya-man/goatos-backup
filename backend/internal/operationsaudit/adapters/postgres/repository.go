@@ -13,6 +13,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/operationsaudit/domain"
 	"github.com/vgoats/goatos/backend/internal/operationsaudit/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -105,7 +106,7 @@ WHERE `+strings.Join(where, " AND "), args...).Scan(&out.Actions, &out.AwaitingV
 	}
 	out.From = *q.From
 	out.To = *q.To
-	out.AsOf = time.Now().UTC()
+	out.AsOf = time.Now().In(biztime.DefaultLocation())
 	return out, nil
 }
 
