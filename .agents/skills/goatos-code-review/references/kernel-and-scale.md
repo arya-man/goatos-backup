@@ -56,6 +56,40 @@ near-term retries/reminders (minutes-hours). Losing a task must never lose work.
    durable rows (`notification_requests`) sent via the `NotificationGateway`
    port and acknowledged/resolved — not a `log.Warn`. A dropped log = silently
    missed escalation.
+7. **Critical action bypasses the guardrail/policy-pack contract.** High-risk
+   animal, stock, movement, proof, exit/death, quarantine/ICU, sale/allocation,
+   or other critical transitions must go through the shared guardrail shape:
+   action request, scoped evidence, policy-pack/version, deterministic decision,
+   approval/exception/proof/obligation/escalation plan, audit, outbox, and
+   projection. Lower-level mutation primitives are adapters, not a bypass.
+
+## Critical action / policy-pack review
+
+When a change introduces or exposes a high-risk action, verify the policy-pack
+contract from `context/architecture/operational-kernel-system-design.md` and
+`docs/features/critical-animal-action-guardrails.md`:
+
+- [ ] The action has an explicit type, subject refs, requested transition,
+      tenant/park/shed/date/owner scope, actor/authority, idempotency key,
+      evidence refs, policy pack, and immutable policy version
+- [ ] Evidence-derived classification is computed by the pack/adapters, not from
+      names, tags, free text, or UI labels alone
+- [ ] Decisions are deterministic: `allow`, `block`, `require_approval`,
+      `require_exception`, `defer`, or `create_process_exception`, with disabled
+      reasons and risk/severity recorded
+- [ ] Approval/exception paths record who can approve, segregation-of-duty rules,
+      reason, expiry, proof requirements, and escalation behavior
+- [ ] Lower-level primitives are blocked, wrapped, or restricted until the pack
+      owns the critical transition; unwrapped live paths return a guardrail
+      required error or create a durable process exception
+- [ ] Request + evaluation + state change + audit + outbox commit atomically;
+      replay of same idempotency key returns the same result and same-key
+      different-payload conflicts with no side effects
+- [ ] Missing host-module integration still records a durable deferred marker or
+      process exception with owner/SLA/read-model visibility instead of silently
+      doing nothing
+- [ ] Tests cover allow, block, approval, exception, replay, idempotency conflict,
+      missing evidence, stale state, primitive bypass, and skewed/high-scale load
 
 ## 1-5M-animal scale — hard requirement on every change
 
@@ -136,6 +170,9 @@ Additional hard scale checks reviewers must name when touched:
       orphaned reservations, obligations, proof rows, or half-applied fanout
 - [ ] Calendar-day decisions that affect due/missed/recovered/drive-planned dates
       use the intended location calendar, not accidental UTC day boundaries
+- [ ] Scheduler/job wiring is present in every claimed environment (`dev`,
+      `stg`, `prod`) or the review explicitly says which environments are not
+      production-ready yet; local/dev cron proof is not prod parity
 
 ## SOLID / generic-engine review
 

@@ -68,13 +68,14 @@ Key rules a reviewer checks (source: `vaccination-rules.md`):
 
 ## Obligation engine (source: `docs/protocol-engine/obligation-engine.md`)
 
-- **State machine:** `scheduled → due → in_progress → deferred → completed /
-  missed / waived / canceled / superseded`. Verify only committed CHECK values;
-  reject `pending`, `assigned`, and British-spelled `cancelled` as durable
-  obligation statuses. Deferred re-evaluates on exit. Closed rows
-  (`completed`, `missed`, `waived`, `canceled`, `superseded`) are immutable
-  history; corrections create new work or repair/correction records, never
-  rewrite closed truth.
+- **Status vocabulary and transitions:** durable `obligation_instances.status`
+  values are `scheduled`, `due`, `in_progress`, `deferred`, `completed`,
+  `missed`, `waived`, `canceled`, and `superseded`. Do not invent `pending`,
+  `assigned`, or British-spelled `cancelled` as durable statuses. This is not one
+  linear chain: scheduled/due rows can defer, in-progress rows can miss, exited
+  animals can cancel open/deferred/missed work, and explicit repair/regeneration
+  paths may reopen or supersede the same logical work while preserving audit and
+  status-event evidence.
 - **Date semantics:** due dates, missed marking, recovery re-entry, and drive
   planned dates are calendar decisions. Review whether the code intentionally
   uses the animal/location calendar (locations default to `Asia/Kolkata`) instead
@@ -99,6 +100,35 @@ Key rules a reviewer checks (source: `vaccination-rules.md`):
   (`protocol.publish.<category>`); rule versions are immutable and resolved by
   scope policy (`tenant_default_with_park_overrides`) + effective dates
   (non-overlap enforced per scope). Impact preview is required before activation.
+
+## Vaccination execution edge cases
+
+For vaccination, reviewers must check the complete execution loop, not just
+generation:
+
+- [ ] Proof policy and SOP form require the source-normalized fields where
+      applicable: animal scan, vaccine/item, medicine batch or vial/lot, dose,
+      administered date/time, cold-chain/quantity checks, proof media,
+      adverse-reaction notes/follow-up, and verifier/park-head review
+- [ ] FEFO stock is reserved/consumed/released through the generic inventory
+      ledger; missing stock, stock shortfall, expired lot, quarantined lot, and
+      cold-chain failure create visible block/rework/repair state
+- [ ] Trusted vaccination history is accepted only from our supervised parks or
+      procurement holding parks with SOP/proof/validator evidence; vendor or
+      third-party claims remain untrusted and must not suppress due work
+- [ ] Reliable imported history reconciles into `vaccination_completions` and
+      schedules boosters from actual `administered_at`; missing/untrusted older
+      history creates one safe catch-up/review action, not fabricated completions
+      and not every old dose as same-day work
+- [ ] Scan-day reconciliation handles missing animals, shifted-in extras,
+      shifted-out animals, newly sick/pregnant/quarantined animals, deaths/sales,
+      unreadable tags, proof rejection, stock shortfall, and cold-chain failure
+      as explicit cancel/defer/rework/replan actions
+- [ ] Same-day drive compatibility enforces species grouping, live/killed gaps,
+      same-vaccine min gaps, per-animal shot cap, proof/worker/verifier gates,
+      and one-time batching hold without rolling postponement
+- [ ] Completion proof acceptance, rejection/rework, duplicate submit, and
+      replay each have tests or live proof evidence when that path changed
 
 ## Other domains — one-line rule + doc
 
