@@ -84,11 +84,11 @@ func TestSM2ShiftReScopesOpenObligations(t *testing.T) {
 	}
 }
 
-// TestSM2ShiftReScopesDeferredThenReopensAtCurrentShed guards the MF-2 fix: ReScopeOpenObligationsForGoat
-// must move 'deferred' (held) work too — symmetric with SM-3 cancel — so when a goat that shifted while
+// TestSM2ShiftReScopesWaivedThenReopensAtCurrentShed guards the MF-2 fix: ReScopeOpenObligationsForGoat
+// must move 'waived' (clinical block) work too — symmetric with SM-3 cancel — so when a goat that shifted while
 // held later recovers, ReopenDeferredObligationByIdempotencyKey surfaces the obligation at the goat's
 // CURRENT scope, not the stale pre-move one (otherwise SM-4 would batch the drive under the wrong shed).
-func TestSM2ShiftReScopesDeferredThenReopensAtCurrentShed(t *testing.T) {
+func TestSM2ShiftReScopesWaivedThenReopensAtCurrentShed(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -97,18 +97,18 @@ func TestSM2ShiftReScopesDeferredThenReopensAtCurrentShed(t *testing.T) {
 	_ = seed(t, ctx, pool) // goat + protocol version + rule; obl-1 scheduled at CBE
 	repo := NewRepository(pool, 5*time.Second)
 
-	// A held (deferred), unbatched obligation at the old scope (CBE).
+	// A held (waived), unbatched obligation at the old scope (CBE).
 	obDef, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
 		TenantID: tenantID, ProtocolVersionID: mustVersionOf(t, ctx, pool), RuleID: mustRuleOf(t, ctx, pool),
 		TargetType: "goat", TargetID: testGoatID, ScopeType: "park", ScopeID: cbePark,
-		DueAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), Status: "deferred",
-		IdempotencyKey: "obl-deferred", Sequence: 2,
+		DueAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), Status: "waived",
+		IdempotencyKey: "obl-waived", Sequence: 2,
 	})
 	if err != nil || !applied {
-		t.Fatalf("seed deferred obligation: applied=%v err=%v", applied, err)
+		t.Fatalf("seed waived obligation: applied=%v err=%v", applied, err)
 	}
 
-	// Goat shifts to CPT while still held → the deferred row must re-scope (stays deferred).
+	// Goat shifts to CPT while still held → the waived row must re-scope (stays waived).
 	bus := eventbus.NewInProcessBus()
 	oblapp.NewGoatShiftedHandler(repo).Register(bus)
 	payload, _ := json.Marshal(oblapp.ShiftPayload{ScopeType: "park", ScopeID: cptPark})
@@ -122,12 +122,12 @@ func TestSM2ShiftReScopesDeferredThenReopensAtCurrentShed(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("publish goat.shifted: %v", err)
 	}
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2 AND status='deferred'`, obDef, cptPark); got != 1 {
-		t.Fatalf("deferred obligation should re-scope to CPT and stay deferred, got %d", got)
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2 AND status='waived'`, obDef, cptPark); got != 1 {
+		t.Fatalf("waived obligation should re-scope to CPT and stay waived, got %d", got)
 	}
 
 	// Goat recovers → reopen flips it to scheduled AT THE NEW shed, not stale CBE.
-	if _, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-deferred", time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC), nil); err != nil || !changed {
+	if _, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-waived", time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC), nil); err != nil || !changed {
 		t.Fatalf("reopen deferred: changed=%v err=%v", changed, err)
 	}
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2 AND status='scheduled'`, obDef, cptPark); got != 1 {
@@ -210,9 +210,9 @@ WHERE tenant_id=$1 AND obligation_id=$2::uuid`, tenantID, obInProgress); err != 
 	if got := countRows(t, ctx, pool, `
 SELECT count(*)
 FROM obligation_instances
-WHERE tenant_id=$1 AND obligation_id=$2::uuid AND scope_id=$3::uuid AND batch_id=$4::uuid AND status='in_progress'`,
-		tenantID, obInProgress, cbePark, batchID); got != 1 {
-		t.Fatalf("in-progress obligation must stay on original execution batch, got %d", got)
+WHERE tenant_id=$1 AND obligation_id=$2::uuid AND scope_id=$3::uuid AND batch_id IS NULL AND status='scheduled'`,
+		tenantID, obInProgress, cptPark); got != 1 {
+		t.Fatalf("in-progress obligation must replan to destination scope without batch, got %d", got)
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*)
@@ -224,9 +224,8 @@ WHERE tenant_id=$1 AND obligation_id=$2::uuid AND scope_id=$3::uuid AND status='
 	if got := countRows(t, ctx, pool, `
 SELECT count(*)
 FROM obligation_status_events
-WHERE tenant_id=$1 AND obligation_id IN ($2::uuid, $3::uuid) AND event_type='rescoped'`,
-		tenantID, obInProgress, obDone); got != 0 {
-		t.Fatalf("in-progress/completed work must not get rescoped events, got %d", got)
+WHERE tenant_id=$1 AND obligation_id=$2::uuid AND event_type='rescoped'`, tenantID, obInProgress); got != 1 {
+		t.Fatalf("shifted in-progress obligation must record rescoped event, got %d", got)
 	}
 }
 

@@ -181,6 +181,7 @@ type RecentVaccineAdministration struct {
 type GenerateResult struct {
 	Generated                  int
 	Deferred                   int
+	Waived                     int
 	Reopened                   int
 	FailedGoats                int
 	SkippedNoDueDate           int

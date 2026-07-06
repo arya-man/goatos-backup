@@ -422,11 +422,11 @@ func TestGenerateForVersionDefaultsClinicalHoldStatesToDeferred(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if result.Generated != 1 || result.Deferred != 1 || len(obl.inserted) != 1 {
-		t.Fatalf("result=%#v inserted=%#v, want one deferred hold obligation", result, obl.inserted)
+	if result.Generated != 1 || result.Waived != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want one waived clinical block", result, obl.inserted)
 	}
-	if obl.inserted[0].Status != "deferred" {
-		t.Fatalf("inserted=%#v, want deferred status for sick goat", obl.inserted[0])
+	if obl.inserted[0].Status != "waived" {
+		t.Fatalf("inserted=%#v, want waived status for sick goat", obl.inserted[0])
 	}
 }
 
@@ -454,15 +454,15 @@ func TestGenerateForVersionHonorsVaccinationRulesClinicalAndPregnancyRules(t *te
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if result.Generated != 4 || result.Deferred != 3 || len(obl.inserted) != 4 {
-		t.Fatalf("result=%#v inserted=%#v, want eligible plus sick/quarantine/ICU visible holds only", result, obl.inserted)
+	if result.Generated != 4 || result.Waived != 3 || len(obl.inserted) != 4 {
+		t.Fatalf("result=%#v inserted=%#v, want eligible plus sick/quarantine/ICU visible clinical blocks only", result, obl.inserted)
 	}
 	got := map[string]string{}
 	for _, inserted := range obl.inserted {
 		got[inserted.TargetID] = inserted.Status
 	}
-	if got["goat-ok"] != "scheduled" || got["goat-sick"] != "deferred" || got["goat-quarantine"] != "deferred" || got["goat-icu"] != "deferred" {
-		t.Fatalf("statuses=%#v, want scheduled healthy goat and deferred clinical holds", got)
+	if got["goat-ok"] != "scheduled" || got["goat-sick"] != "waived" || got["goat-quarantine"] != "waived" || got["goat-icu"] != "waived" {
+		t.Fatalf("statuses=%#v, want scheduled healthy goat and waived clinical blocks", got)
 	}
 	if got["goat-pregnant"] != "" || got["goat-lactating"] != "" {
 		t.Fatalf("statuses=%#v, pregnant/lactating goats should be excluded until a reviewed row allows them", got)
@@ -488,11 +488,11 @@ func TestGenerateForVersionDefersClinicalHoldEvenWhenRuleTargetsHealthy(t *testi
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if result.Generated != 1 || result.Deferred != 1 || len(obl.inserted) != 1 {
-		t.Fatalf("result=%#v inserted=%#v, want visible deferred work for sick animal", result, obl.inserted)
+	if result.Generated != 1 || result.Waived != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want visible waived clinical block for sick animal", result, obl.inserted)
 	}
-	if got := obl.inserted[0].Status; got != "deferred" {
-		t.Fatalf("status=%q, want deferred", got)
+	if got := obl.inserted[0].Status; got != "waived" {
+		t.Fatalf("status=%q, want waived", got)
 	}
 	if len(goats.filters) != 1 || goats.filters[0].Health != "" {
 		t.Fatalf("filters=%#v, health must not prefilter clinical holds out of SM-1", goats.filters)
@@ -748,11 +748,11 @@ func TestGenerateForGoatRecheckDefersExistingOpenObligation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recheck generate: %v", err)
 	}
-	if recheck.Generated != 0 || recheck.Deferred != 1 {
-		t.Fatalf("recheck result=%#v, want existing obligation deferred", recheck)
+	if recheck.Generated != 0 || recheck.Waived != 1 {
+		t.Fatalf("recheck result=%#v, want existing obligation waived", recheck)
 	}
-	if obl.inserted[0].Status != "deferred" || len(obl.deferredKeys) != 1 || obl.deferReasons[0] != "sick" {
-		t.Fatalf("defer state inserted=%#v keys=%#v reasons=%#v", obl.inserted, obl.deferredKeys, obl.deferReasons)
+	if obl.inserted[0].Status != "waived" || len(obl.deferredKeys) != 1 || obl.deferReasons[0] != "sick" {
+		t.Fatalf("waive state inserted=%#v keys=%#v reasons=%#v", obl.inserted, obl.deferredKeys, obl.deferReasons)
 	}
 }
 
@@ -775,8 +775,8 @@ func TestGenerateForGoatRecheckReopensRecoveredObligation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initial generate: %v", err)
 	}
-	if first.Deferred != 1 || obl.inserted[0].Status != "deferred" {
-		t.Fatalf("initial result=%#v inserted=%#v, want one deferred obligation", first, obl.inserted)
+	if first.Waived != 1 || obl.inserted[0].Status != "waived" {
+		t.Fatalf("initial result=%#v inserted=%#v, want one waived obligation", first, obl.inserted)
 	}
 
 	goats.goat.HealthStatus = "healthy"
@@ -806,7 +806,7 @@ func TestGoatRecheckHandlerReopensOnHealthRecovery(t *testing.T) {
 	if _, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("initial generate: %v", err)
 	}
-	if obl.inserted[0].Status != "deferred" {
+	if obl.inserted[0].Status != "waived" {
 		t.Fatalf("precondition: want held obligation, got %s", obl.inserted[0].Status)
 	}
 
@@ -876,7 +876,7 @@ func TestGenerateEffectiveForAllGoatsAlignsRecoveredGoatToNearbyDrive(t *testing
 	if err != nil {
 		t.Fatalf("initial effective generate: %v", err)
 	}
-	if first.Deferred != 1 || obl.inserted[0].Status != "deferred" {
+	if first.Waived != 1 || obl.inserted[0].Status != "waived" {
 		t.Fatalf("initial result=%#v inserted=%#v, want held obligation", first, obl.inserted)
 	}
 
@@ -886,8 +886,8 @@ func TestGenerateEffectiveForAllGoatsAlignsRecoveredGoatToNearbyDrive(t *testing
 		t.Fatalf("effective recovery recheck: %v", err)
 	}
 	wantDue := businessDayStart(time.Date(2026, time.June, 5, 0, 0, 0, 0, time.UTC))
-	if recheck.Reopened != 1 || !obl.inserted[0].DueAt.Equal(wantDue) {
-		t.Fatalf("effective recovery result=%#v due=%v, want reopened on nearby drive %v", recheck, obl.inserted[0].DueAt, wantDue)
+	if obl.inserted[0].Status != "scheduled" || !obl.inserted[0].DueAt.Equal(wantDue) {
+		t.Fatalf("effective recovery result=%#v status=%s due=%v, want scheduled on nearby drive %v", recheck, obl.inserted[0].Status, obl.inserted[0].DueAt, wantDue)
 	}
 }
 
@@ -917,8 +917,8 @@ func TestGoatRecheckRecoveryRescheduleKeepsCrossVaccineGapFloor(t *testing.T) {
 	if _, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", recentLive); err != nil {
 		t.Fatalf("initial generate: %v", err)
 	}
-	if obl.inserted[0].Status != "deferred" {
-		t.Fatalf("precondition: status=%s, want deferred", obl.inserted[0].Status)
+	if obl.inserted[0].Status != "waived" {
+		t.Fatalf("precondition: status=%s, want waived", obl.inserted[0].Status)
 	}
 	goats.goat.HealthStatus = "healthy"
 	bus := eventbus.NewInProcessBus()
@@ -1851,12 +1851,27 @@ func (o *generationObligationFake) DeferOpenObligationByIdempotencyKey(_ context
 	return "obligation-1", true, nil
 }
 
+func (o *generationObligationFake) WaiveOpenObligationByIdempotencyKey(_ context.Context, _, idempotencyKey, reason string, _ time.Time) (string, bool, error) {
+	idx, ok := o.keyIndex[idempotencyKey]
+	if !ok {
+		return "", false, errors.New("obligation not found")
+	}
+	switch o.inserted[idx].Status {
+	case "waived", "completed", "canceled", "superseded":
+		return "obligation-1", false, nil
+	}
+	o.inserted[idx].Status = "waived"
+	o.deferredKeys = append(o.deferredKeys, idempotencyKey)
+	o.deferReasons = append(o.deferReasons, reason)
+	return "obligation-1", true, nil
+}
+
 func (o *generationObligationFake) ReopenDeferredObligationByIdempotencyKey(_ context.Context, _, idempotencyKey string, _ time.Time, reschedule *obldomain.RecoveryReschedule) (string, bool, error) {
 	idx, ok := o.keyIndex[idempotencyKey]
 	if !ok {
 		return "", false, nil
 	}
-	if o.inserted[idx].Status != "deferred" {
+	if o.inserted[idx].Status != "deferred" && o.inserted[idx].Status != "waived" {
 		return "", false, nil
 	}
 	o.inserted[idx].Status = "scheduled"

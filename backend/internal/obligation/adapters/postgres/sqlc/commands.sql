@@ -85,7 +85,7 @@ SET scope_type = @scope_type, scope_id = @scope_id, row_version = row_version + 
 WHERE tenant_id = @tenant_id
   AND target_type = 'goat'
   AND target_id = @target_id
-  AND status IN ('scheduled', 'due', 'deferred')
+  AND status IN ('scheduled', 'due', 'deferred', 'waived')
   AND batch_id IS NULL
   AND (scope_type IS DISTINCT FROM @scope_type OR scope_id IS DISTINCT FROM @scope_id)
 RETURNING obligation_id::text AS obligation_id;
@@ -113,7 +113,7 @@ UPDATE obligation_instances oi
 SET status = 'scheduled', batch_id = NULL, row_version = row_version + 1, updated_at = now()
 WHERE oi.tenant_id = @tenant_id
   AND oi.idempotency_key = @idempotency_key
-  AND oi.status = 'deferred'
+  AND oi.status IN ('deferred', 'waived')
   AND NOT EXISTS (
     SELECT 1
     FROM goats g
@@ -153,7 +153,7 @@ SET status = 'scheduled',
     updated_at = now()
 WHERE oi.tenant_id = @tenant_id
   AND oi.idempotency_key = @idempotency_key
-  AND oi.status = 'deferred'
+  AND oi.status IN ('deferred', 'waived')
   AND NOT EXISTS (
     SELECT 1
     FROM goats g

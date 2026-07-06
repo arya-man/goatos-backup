@@ -12,20 +12,26 @@ import (
 // key so cross-version sweeps can align planned dates on one shed visit. See drive_planner_config.go.
 
 type driveCandidate struct {
-	ObligationID string
-	DueAt        time.Time
-	WindowStart  *time.Time
-	WindowEnd    *time.Time
+	ObligationID           string
+	DueAt                  time.Time
+	WindowStart            *time.Time
+	WindowEnd              *time.Time
+	BatchingHoldCount      int32
+	FirstBatchingHoldUntil *time.Time
+	BreedingReadyPriority  bool
 }
 
 func driveCandidatesFromUnbatched(rows []domain.UnbatchedDue) []driveCandidate {
 	out := make([]driveCandidate, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, driveCandidate{
-			ObligationID: row.ObligationID,
-			DueAt:        row.DueAt,
-			WindowStart:  row.WindowStart,
-			WindowEnd:    row.WindowEnd,
+			ObligationID:           row.ObligationID,
+			DueAt:                  row.DueAt,
+			WindowStart:            row.WindowStart,
+			WindowEnd:              row.WindowEnd,
+			BatchingHoldCount:      row.BatchingHoldCount,
+			FirstBatchingHoldUntil: row.FirstBatchingHoldUntil,
+			BreedingReadyPriority:  strings.Contains(strings.ToUpper(strings.TrimSpace(row.TargetAnimalStage)), "FLUSHING"),
 		})
 	}
 	return out
@@ -53,8 +59,30 @@ func batchSession(ruleID, vaccineCode string) string {
 	return "rule:" + ruleID
 }
 
-func sweepWindowGroupKey(r domain.UnbatchedDue) string {
-	return r.ScopeType + "|" + r.ScopeID + "|" + r.RuleID + "|" + r.TargetSpecies + "|" + dueDateKey(r.DueAt) + "|" + timeKey(r.WindowStart) + "|" + timeKey(r.WindowEnd)
+func speciesGroupingKey(stage, species, policy string) string {
+	if strings.EqualFold(strings.TrimSpace(policy), "species_specific") {
+		return "species:" + normalizeSpeciesCode(species)
+	}
+	stageKey := strings.ToUpper(strings.TrimSpace(stage))
+	switch stageKey {
+	case "K0", "K1", "K2", "KID", "KIDS":
+		return "kid_mixed"
+	default:
+		return "species:" + normalizeSpeciesCode(species)
+	}
+}
+
+func normalizeSpeciesCode(species string) string {
+	species = strings.ToLower(strings.TrimSpace(species))
+	if species == "" {
+		return "goat"
+	}
+	return species
+}
+
+func sweepWindowGroupKey(r domain.UnbatchedDue, speciesPolicy string) string {
+	groupSpecies := speciesGroupingKey(r.TargetAnimalStage, r.TargetSpecies, speciesPolicy)
+	return r.ScopeType + "|" + r.ScopeID + "|" + r.RuleID + "|" + groupSpecies + "|" + dueDateKey(r.DueAt) + "|" + timeKey(r.WindowStart) + "|" + timeKey(r.WindowEnd)
 }
 
 func dueDateKey(t time.Time) string {
@@ -65,8 +93,31 @@ func dueDateKey(t time.Time) string {
 }
 
 func pickBestDriveDate(now time.Time, rows []driveCandidate, priority int32) *time.Time {
+	picked, _, _ := pickBestDriveDateRespectingHold(now, rows, priority, domain.DefaultDrivePlannerSettings())
+	return picked
+}
+
+func pickBestDriveDateRespectingHold(now time.Time, rows []driveCandidate, priority int32, planner domain.DrivePlannerSettings) (*time.Time, []string, bool) {
 	if len(rows) == 0 {
-		return nil
+		return nil, nil, false
+	}
+	maxHoldDays := planner.MaxBatchingHoldDays
+	if maxHoldDays <= 0 {
+		maxHoldDays = domain.DefaultDrivePlannerSettings().MaxBatchingHoldDays
+	}
+	maxHoldCount := planner.MaxBatchingHoldCount
+	if maxHoldCount <= 0 {
+		maxHoldCount = domain.DefaultDrivePlannerSettings().MaxBatchingHoldCount
+	}
+	for _, row := range rows {
+		if row.BatchingHoldCount >= maxHoldCount {
+			earliest := earliestCandidateDueDay(rows)
+			ids := obligationsFeasibleOnDriveDate(earliest, rows)
+			if len(ids) == 0 {
+				return nil, nil, false
+			}
+			return &earliest, ids, false
+		}
 	}
 	candidates := candidateDriveDates(now, rows)
 	nowDay := businessDate(now)
@@ -87,9 +138,34 @@ func pickBestDriveDate(now time.Time, rows []driveCandidate, priority int32) *ti
 			bestScore = score
 		}
 	}
-	if bestDate != nil {
-		return bestDate
+	if bestDate == nil {
+		earliest := earliestCandidateDueDay(rows)
+		ids := obligationsFeasibleOnDriveDate(earliest, rows)
+		if len(ids) == 0 {
+			return nil, nil, false
+		}
+		return &earliest, ids, false
 	}
+	earliest := earliestCandidateDueDay(rows)
+	if !businessDate(*bestDate).After(businessDate(earliest)) {
+		ids := obligationsFeasibleOnDriveDate(*bestDate, rows)
+		return bestDate, ids, false
+	}
+	holdCap := businessDate(earliest).AddDate(0, 0, int(maxHoldDays))
+	chosen := *bestDate
+	recordHold := true
+	if chosen.After(holdCap) {
+		chosen = holdCap
+	}
+	ids := obligationsFeasibleOnDriveDate(chosen, rows)
+	if len(ids) == 0 {
+		ids = obligationsFeasibleOnDriveDate(*bestDate, rows)
+		return bestDate, ids, false
+	}
+	return &chosen, ids, recordHold && businessDate(chosen).After(businessDate(earliest))
+}
+
+func earliestCandidateDueDay(rows []driveCandidate) time.Time {
 	earliest := businessDate(rows[0].DueAt)
 	for _, row := range rows[1:] {
 		day := businessDate(row.DueAt)
@@ -97,7 +173,7 @@ func pickBestDriveDate(now time.Time, rows []driveCandidate, priority int32) *ti
 			earliest = day
 		}
 	}
-	return &earliest
+	return earliest
 }
 
 func scoreDriveDate(day time.Time, rows []driveCandidate, feasibleIDs []string, now time.Time, vaccinePriority int32) int {
@@ -123,6 +199,9 @@ func scoreDriveDate(day time.Time, rows []driveCandidate, feasibleIDs []string, 
 		overdue := int(businessDate(now).Sub(businessDate(row.DueAt)).Hours() / 24)
 		if overdue > 0 {
 			score += 10 + overdue*5
+		}
+		if row.BreedingReadyPriority {
+			score += 25
 		}
 	}
 	return score

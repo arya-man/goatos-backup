@@ -389,6 +389,10 @@ func (f *boosterObligationWriterFake) DeferOpenObligationByIdempotencyKey(contex
 	return "", false, nil
 }
 
+func (f *boosterObligationWriterFake) WaiveOpenObligationByIdempotencyKey(context.Context, string, string, string, time.Time) (string, bool, error) {
+	return "", false, nil
+}
+
 func (f *boosterObligationWriterFake) ReopenDeferredObligationByIdempotencyKey(context.Context, string, string, time.Time, *obldomain.RecoveryReschedule) (string, bool, error) {
 	return "", false, nil
 }

@@ -87,27 +87,31 @@ type NewBatch struct {
 
 // UnbatchedDue is an unbatched scheduled/due obligation (SM-4 sweep input).
 type UnbatchedDue struct {
-	ObligationID  string
-	RuleID        string
-	ScopeType     string
-	ScopeID       string
-	TargetSpecies string
-	DueAt         time.Time
-	WindowStart   *time.Time
-	WindowEnd     *time.Time
+	ObligationID           string
+	RuleID                 string
+	ScopeType              string
+	ScopeID                string
+	TargetSpecies          string
+	TargetAnimalStage      string
+	DueAt                  time.Time
+	WindowStart            *time.Time
+	WindowEnd              *time.Time
+	BatchingHoldCount      int32
+	FirstBatchingHoldUntil *time.Time
 }
 
 // ParkConsolidationCandidate is a shed-scoped unbatched obligation eligible for park-level
 // drive consolidation after the shed sweep pass.
 type ParkConsolidationCandidate struct {
-	ObligationID  string
-	RuleID        string
-	ShedID        string
-	ParkID        string
-	TargetSpecies string
-	DueAt         time.Time
-	WindowStart   *time.Time
-	WindowEnd     *time.Time
+	ObligationID      string
+	RuleID            string
+	ShedID            string
+	ParkID            string
+	TargetSpecies     string
+	TargetAnimalStage string
+	DueAt             time.Time
+	WindowStart       *time.Time
+	WindowEnd         *time.Time
 }
 
 // ComboDriveBatch is a planned shed/park batch participating in combo-session alignment.
@@ -131,19 +135,25 @@ type ParkConsolidationSettings struct {
 // DrivePlannerSettings tunes Phase 3 smart drive date selection and batch sizing.
 // Zero values use DefaultDrivePlannerSettings().
 type DrivePlannerSettings struct {
-	Enabled              bool
-	MaxGoatsPerDrive     int32 // 0 = no limit
-	VaccinePriority      int32 // lower = higher disease priority (ET+TT=1, PPR=2, …)
-	ComboAlignWindowDays int32 // cross-version combo batches align within this many days
+	Enabled               bool
+	MaxGoatsPerDrive      int32  // 0 = no limit
+	VaccinePriority       int32  // lower = higher disease priority (ET+TT=1, PPR=2, …)
+	ComboAlignWindowDays  int32  // cross-version combo batches align within this many days
+	MaxBatchingHoldDays   int32  // default 7
+	MaxBatchingHoldCount  int32  // default 1
+	SpeciesGroupingPolicy string // kid_mixed (default) or species_specific
 }
 
 // DefaultDrivePlannerSettings returns conservative Phase 3 defaults when rule_dsl omits drive_policy.
 func DefaultDrivePlannerSettings() DrivePlannerSettings {
 	return DrivePlannerSettings{
-		Enabled:              true,
-		MaxGoatsPerDrive:     0,
-		VaccinePriority:      50,
-		ComboAlignWindowDays: 7,
+		Enabled:               true,
+		MaxGoatsPerDrive:      0,
+		VaccinePriority:       50,
+		ComboAlignWindowDays:  7,
+		MaxBatchingHoldDays:   7,
+		MaxBatchingHoldCount:  1,
+		SpeciesGroupingPolicy: "kid_mixed",
 	}
 }
 

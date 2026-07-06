@@ -163,10 +163,50 @@ func policyDeferReason(g domain.EligibleGoat, policies genVersionPolicies, asOf 
 	if reason := warmingDeferReason(g, policies.Procurement, asOf); reason != "" {
 		return reason
 	}
+	if reason := breedingHoldDeferReason(g, asOf); reason != "" {
+		return reason
+	}
+	if reason := milkingWindowDeferReason(g); reason != "" {
+		return reason
+	}
 	if reason := pregnancyDeferReason(g, policies.Pregnancy, asOf); reason != "" {
 		return reason
 	}
 	return ""
+}
+
+func breedingHoldDeferReason(g domain.EligibleGoat, asOf time.Time) string {
+	if g.BreedingDate == nil {
+		return ""
+	}
+	status := strings.ToLower(strings.TrimSpace(g.ReproductiveStatus))
+	switch status {
+	case "bred", "breeding", "flushing", "pregnant":
+		if wholeDaysBetween(*g.BreedingDate, asOf) < 30 {
+			return "post_breeding_hold"
+		}
+	}
+	return ""
+}
+
+func milkingWindowDeferReason(g domain.EligibleGoat) string {
+	stage := strings.ToUpper(strings.TrimSpace(g.Stage))
+	if stage != "" && strings.Contains(stage, "MILKING") && !strings.Contains(stage, "WAITING") && !strings.Contains(stage, "WARMUP") {
+		return "milking_window_hold"
+	}
+	repro := strings.ToLower(strings.TrimSpace(g.ReproductiveStatus))
+	if repro == "milking" {
+		return "milking_window_hold"
+	}
+	return ""
+}
+
+func breedingReadyForPriority(g domain.EligibleGoat) bool {
+	repro := strings.ToLower(strings.TrimSpace(g.ReproductiveStatus))
+	if repro == "flushing" || repro == "breeding_ready" {
+		return true
+	}
+	return strings.Contains(strings.ToUpper(strings.TrimSpace(g.Stage)), "FLUSHING")
 }
 
 func warmingDeferReason(g domain.EligibleGoat, proc genProcurementPolicy, asOf time.Time) string {

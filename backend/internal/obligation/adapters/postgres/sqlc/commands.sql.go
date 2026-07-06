@@ -328,7 +328,7 @@ UPDATE obligation_instances oi
 SET status = 'scheduled', batch_id = NULL, row_version = row_version + 1, updated_at = now()
 WHERE oi.tenant_id = $1
   AND oi.idempotency_key = $2
-  AND oi.status = 'deferred'
+  AND oi.status IN ('deferred', 'waived')
   AND NOT EXISTS (
     SELECT 1
     FROM goats g
@@ -384,7 +384,7 @@ SET status = 'scheduled',
     updated_at = now()
 WHERE oi.tenant_id = $4
   AND oi.idempotency_key = $5
-  AND oi.status = 'deferred'
+  AND oi.status IN ('deferred', 'waived')
   AND NOT EXISTS (
     SELECT 1
     FROM goats g

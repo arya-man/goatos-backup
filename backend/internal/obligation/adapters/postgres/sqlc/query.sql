@@ -38,6 +38,7 @@ LIMIT @row_limit;
 -- SM-4 sweeper: unbatched scheduled/due obligations for a version within the window, grouped by
 -- scope + rule + due/window downstream. batch_id IS NULL makes re-sweeps idempotent.
 -- Uses obligation_instances_unbatched_due_version_idx.
+-- Clinical blocks and location quarantine/ICU goats are excluded at sweep time.
 SELECT oi.obligation_id::text AS obligation_id,
        oi.rule_id::text AS rule_id,
        oi.scope_type,
@@ -46,19 +47,34 @@ SELECT oi.obligation_id::text AS obligation_id,
          WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text
          ELSE ''
        END AS target_species,
+       COALESCE(g.stage, '')::text AS target_animal_stage,
        oi.due_at,
        oi.window_start,
-       oi.window_end
+       oi.window_end,
+       oi.batching_hold_count,
+       oi.first_batching_hold_until
 FROM obligation_instances oi
 LEFT JOIN goats g
   ON g.tenant_id = oi.tenant_id
  AND g.goat_id = oi.target_id
  AND oi.target_type = 'goat'
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
 WHERE oi.tenant_id = @tenant_id
   AND oi.protocol_version_id = @protocol_version_id
   AND oi.status IN ('scheduled', 'due', 'missed')
   AND oi.batch_id IS NULL
   AND oi.due_at <= @due_before
+  AND (
+    oi.target_type <> 'goat'
+    OR (
+      COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+      AND NOT COALESCE(loa.is_quarantine, false)
+      AND NOT COALESCE(loa.is_icu, false)
+      AND COALESCE(loa.usable_for_vaccination, true)
+    )
+  )
 ORDER BY oi.scope_type, oi.scope_id, oi.rule_id, target_species, oi.due_at, oi.obligation_id
 LIMIT @row_limit;
 

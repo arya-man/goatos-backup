@@ -473,6 +473,137 @@ WHERE tenant_id = $1
 	return obligationID, true, nil
 }
 
+// WaiveOpenObligationByIdempotencyKey blocks an open obligation for clinical/location reasons (TRD:
+// waived vs missed). Includes missed rows so a sick goat after a missed window is not sweepable.
+func (r *Repository) WaiveOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (string, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: begin waive tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var obligationID, oldBatchID, oldBatchStatus string
+	err = tx.QueryRow(ctx, `
+SELECT oi.obligation_id::text,
+       COALESCE(oi.batch_id::text, '')::text AS batch_id,
+       COALESCE(ob.status, '')::text AS batch_status
+FROM obligation_instances oi
+LEFT JOIN obligation_batches ob
+  ON ob.tenant_id = oi.tenant_id
+ AND ob.batch_id = oi.batch_id
+WHERE oi.tenant_id = $1
+  AND oi.idempotency_key = $2
+  AND oi.status IN ('scheduled', 'due', 'missed')
+FOR UPDATE OF oi`, tenant, idempotencyKey).Scan(&obligationID, &oldBatchID, &oldBatchStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		row, lookupErr := r.queries.WithTx(tx).GetObligationByIdempotencyKey(ctx, obligationdb.GetObligationByIdempotencyKeyParams{
+			TenantID:       tenant,
+			IdempotencyKey: idempotencyKey,
+		})
+		if errors.Is(lookupErr, pgx.ErrNoRows) {
+			return "", false, ports.ErrNotFound
+		}
+		if lookupErr != nil {
+			return "", false, fmt.Errorf("obligation: lookup waive replay: %w", lookupErr)
+		}
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return "", false, fmt.Errorf("obligation: commit waive replay: %w", cerr)
+		}
+		return row.ObligationID, false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: lock waive target: %w", err)
+	}
+
+	detachPlannedBatch := oldBatchID != "" && oldBatchStatus == "planned"
+	tag, err := tx.Exec(ctx, `
+UPDATE obligation_instances
+SET status = 'waived',
+    batch_id = CASE WHEN $3::boolean THEN NULL ELSE batch_id END,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1
+  AND obligation_id = $2::uuid
+  AND status IN ('scheduled', 'due', 'missed')`, tenant, obligationID, detachPlannedBatch)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: waive open obligation: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return "", false, fmt.Errorf("obligation: commit waive raced noop: %w", cerr)
+		}
+		return obligationID, false, nil
+	}
+
+	if detachPlannedBatch {
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_batches ob
+SET estimated_targets = GREATEST(0, estimated_targets - 1),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1
+  AND batch_id = $2::uuid`, tenant, oldBatchID); err != nil {
+			return "", false, fmt.Errorf("obligation: update waived planned batch: %w", err)
+		}
+	}
+
+	qtx := r.queries.WithTx(tx)
+	eventKey := obligationID + ":waived:" + occurredAt.UTC().Format(time.RFC3339Nano)
+	_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
+		IdempotencyKey: eventKey,
+		TenantID:       tenant,
+		Scope:          "obligation.status_event",
+		RequestHash:    "waive:" + reason,
+	})
+	if reserveErr != nil && !errors.Is(reserveErr, pgx.ErrNoRows) {
+		return "", false, fmt.Errorf("obligation: reserve waived event key: %w", reserveErr)
+	}
+	if reserveErr == nil {
+		oblUUID, err := pgconv.UUID(obligationID)
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: waived obligation id: %w", err)
+		}
+		payload, _ := json.Marshal(map[string]string{"reason": "clinical_block", "block_status": reason})
+		eventID, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+			TenantID:       tenant,
+			ObligationID:   oblUUID,
+			EventType:      "waived",
+			OccurredAt:     pgconv.Timestamptz(occurredAt),
+			Payload:        pgconv.JSONB(payload),
+			IdempotencyKey: eventKey,
+		})
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: insert waived event: %w", err)
+		}
+		eventUUID, err := pgconv.UUID(eventID)
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: waived event id: %w", err)
+		}
+		if err := qtx.CompleteIdempotencyKey(ctx, obligationdb.CompleteIdempotencyKeyParams{
+			ResultType:     pgconv.Text("obligation_status_event"),
+			ResultID:       eventUUID,
+			IdempotencyKey: eventKey,
+		}); err != nil {
+			return "", false, fmt.Errorf("obligation: complete waived event key: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", false, fmt.Errorf("obligation: commit waive: %w", err)
+	}
+	return obligationID, true, nil
+}
+
 // ReopenDeferredObligationByIdempotencyKey flips a still-'deferred' obligation back to 'scheduled'
 // when a goat recovers from its defer state (sick/ICU/quarantine), and records a 'scheduled' status
 // event in the same transaction. When reschedule is set, due_at is moved to align with a nearby
@@ -1092,14 +1223,17 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 	out := make([]domain.UnbatchedDue, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, domain.UnbatchedDue{
-			ObligationID:  row.ObligationID,
-			RuleID:        row.RuleID,
-			ScopeType:     row.ScopeType,
-			ScopeID:       row.ScopeID,
-			TargetSpecies: row.TargetSpecies,
-			DueAt:         row.DueAt.Time,
-			WindowStart:   timestamptzValue(row.WindowStart),
-			WindowEnd:     timestamptzValue(row.WindowEnd),
+			ObligationID:           row.ObligationID,
+			RuleID:                 row.RuleID,
+			ScopeType:              row.ScopeType,
+			ScopeID:                row.ScopeID,
+			TargetSpecies:          row.TargetSpecies,
+			TargetAnimalStage:      row.TargetAnimalStage,
+			DueAt:                  row.DueAt.Time,
+			WindowStart:            timestamptzValue(row.WindowStart),
+			WindowEnd:              timestamptzValue(row.WindowEnd),
+			BatchingHoldCount:      row.BatchingHoldCount,
+			FirstBatchingHoldUntil: timestamptzValue(row.FirstBatchingHoldUntil),
 		})
 	}
 	return out, nil
@@ -1132,7 +1266,8 @@ SELECT o.obligation_id::text,
        CASE
          WHEN o.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text
          ELSE ''
-       END AS target_species
+       END AS target_species,
+       COALESCE(g.stage, '')::text AS target_animal_stage
 FROM obligation_instances o
 JOIN protocol_rules pr
   ON pr.tenant_id = o.tenant_id
@@ -1149,12 +1284,24 @@ LEFT JOIN goats g
   ON g.tenant_id = o.tenant_id
  AND g.goat_id = o.target_id
  AND o.target_type = 'goat'
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
 WHERE o.tenant_id = $1
   AND o.protocol_version_id = $2
   AND o.status IN ('scheduled', 'due', 'missed')
   AND o.batch_id IS NULL
   AND o.scope_type = 'shed'
   AND o.due_at <= $3
+  AND (
+    o.target_type <> 'goat'
+    OR (
+      COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+      AND NOT COALESCE(loa.is_quarantine, false)
+      AND NOT COALESCE(loa.is_icu, false)
+      AND COALESCE(loa.usable_for_vaccination, true)
+    )
+  )
 ORDER BY park.location_id, o.rule_id, o.due_at, o.obligation_id
 LIMIT $4`, tenant, version, pgconv.Timestamptz(dueBefore), limit)
 	if err != nil {
@@ -1174,6 +1321,7 @@ LIMIT $4`, tenant, version, pgconv.Timestamptz(dueBefore), limit)
 			&windowEnd,
 			&row.ParkID,
 			&row.TargetSpecies,
+			&row.TargetAnimalStage,
 		); err != nil {
 			return nil, fmt.Errorf("obligation: scan park consolidation candidate: %w", err)
 		}
@@ -1745,7 +1893,7 @@ SET status = 'canceled',
 WHERE tenant_id = $1
   AND target_type = 'goat'
   AND target_id = $2
-  AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'waived', 'missed')
 RETURNING obligation_id::text, COALESCE(batch_id::text, '')::text`, tenant, goat)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: cancel open for goat: %w", err)
@@ -2103,7 +2251,7 @@ SET scope_type = $3,
 WHERE tenant_id = $1::uuid
   AND target_type = 'goat'
   AND target_id = $2::uuid
-  AND status IN ('scheduled', 'due', 'deferred')
+  AND status IN ('scheduled', 'due', 'deferred', 'waived')
   AND batch_id IS NULL
   AND (scope_type IS DISTINCT FROM $3 OR scope_id IS DISTINCT FROM $4::uuid)
 RETURNING obligation_id::text`, tenantID, goatID, scopeType, scopeID)
@@ -2134,7 +2282,7 @@ FROM obligation_batches ob
 WHERE oi.tenant_id = $1::uuid
   AND oi.target_type = 'goat'
   AND oi.target_id = $2::uuid
-  AND oi.status IN ('scheduled', 'due', 'deferred')
+  AND oi.status IN ('scheduled', 'due', 'deferred', 'waived')
   AND oi.batch_id = ob.batch_id
   AND ob.tenant_id = oi.tenant_id
   AND ob.status = 'planned'
@@ -2145,6 +2293,39 @@ RETURNING oi.obligation_id::text, ob.batch_id::text`, tenantID, goatID, scopeTyp
 	}
 	defer rows.Close()
 	oldBatches := make(map[string]int)
+	for rows.Next() {
+		var id, batchID string
+		if err := rows.Scan(&id, &batchID); err != nil {
+			return nil, nil, err
+		}
+		ids = append(ids, id)
+		oldBatches[batchID]++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	rows, err = tx.Query(ctx, `
+UPDATE obligation_instances oi
+SET scope_type = $3,
+    scope_id = $4::uuid,
+    batch_id = NULL,
+    status = 'scheduled',
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM obligation_batches ob
+WHERE oi.tenant_id = $1::uuid
+  AND oi.target_type = 'goat'
+  AND oi.target_id = $2::uuid
+  AND oi.status = 'in_progress'
+  AND oi.batch_id = ob.batch_id
+  AND ob.tenant_id = oi.tenant_id
+  AND (oi.scope_type IS DISTINCT FROM $3 OR oi.scope_id IS DISTINCT FROM $4::uuid)
+RETURNING oi.obligation_id::text, ob.batch_id::text`, tenantID, goatID, scopeType, scopeID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
 	for rows.Next() {
 		var id, batchID string
 		if err := rows.Scan(&id, &batchID); err != nil {
@@ -2993,4 +3174,39 @@ func (r *Repository) RecordStatusEvent(ctx context.Context, ev domain.NewStatusE
 		return "", false, fmt.Errorf("obligation: commit: %w", err)
 	}
 	return eventID, true, nil
+}
+
+// RecordBatchingHoldForObligations persists one-time drive-planner hold state on swept obligations.
+func (r *Repository) RecordBatchingHoldForObligations(ctx context.Context, tenantID string, obligationIDs []string, holdUntil time.Time, speciesGroupingKey string) error {
+	if len(obligationIDs) == 0 || holdUntil.IsZero() {
+		return nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	ids := make([]pgtype.UUID, 0, len(obligationIDs))
+	for _, id := range obligationIDs {
+		obl, err := pgconv.UUID(id)
+		if err != nil {
+			return fmt.Errorf("obligation: hold obligation id: %w", err)
+		}
+		ids = append(ids, obl)
+	}
+	_, err = r.pool.Exec(ctx, `
+UPDATE obligation_instances
+SET batching_hold_count = batching_hold_count + 1,
+    first_batching_hold_until = COALESCE(first_batching_hold_until, $3::timestamptz),
+    species_grouping_key = COALESCE(NULLIF(species_grouping_key, ''), $4::text),
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND obligation_id = ANY($2::uuid[])
+  AND batching_hold_count < 1`, tenant, ids, pgconv.Timestamptz(holdUntil), speciesGroupingKey)
+	if err != nil {
+		return fmt.Errorf("obligation: record batching hold: %w", err)
+	}
+	return nil
 }

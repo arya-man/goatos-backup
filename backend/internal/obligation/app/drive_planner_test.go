@@ -82,6 +82,25 @@ func TestSplitObligationIDsByMaxGoats(t *testing.T) {
 	}
 }
 
+func TestSpeciesGroupingKeyUsesKidMixedByDefault(t *testing.T) {
+	goatKid := domain.UnbatchedDue{TargetAnimalStage: "K1", TargetSpecies: "goat"}
+	sheepKid := domain.UnbatchedDue{TargetAnimalStage: "K2", TargetSpecies: "sheep"}
+	if sweepWindowGroupKey(goatKid, "kid_mixed") != sweepWindowGroupKey(sheepKid, "kid_mixed") {
+		t.Fatal("kid goat and sheep should share kid_mixed sweep group")
+	}
+	adult := domain.UnbatchedDue{TargetAnimalStage: "ADULT", TargetSpecies: "goat"}
+	if sweepWindowGroupKey(goatKid, "kid_mixed") == sweepWindowGroupKey(adult, "kid_mixed") {
+		t.Fatal("adult goat must not share kid_mixed group with kids")
+	}
+}
+
+func TestDrivePlannerSettingsIncludeBatchingHoldDefaults(t *testing.T) {
+	got := domain.DefaultDrivePlannerSettings()
+	if got.MaxBatchingHoldDays != 7 || got.MaxBatchingHoldCount != 1 || got.SpeciesGroupingPolicy != "kid_mixed" {
+		t.Fatalf("defaults=%#v, want batching hold + kid_mixed policy", got)
+	}
+}
+
 func TestNormalizedDrivePlannerSettingsDefaults(t *testing.T) {
 	got := normalizedDrivePlannerSettings(domain.DrivePlannerSettings{Enabled: true}, "PPR")
 	if got.VaccinePriority != 2 {

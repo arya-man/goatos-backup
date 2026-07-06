@@ -54,6 +54,7 @@ func IsGenerationAbortError(err error) bool {
 type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
 	DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, applied bool, err error)
+	WaiveOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, applied bool, err error)
 	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obldomain.RecoveryReschedule) (obligationID string, changed bool, err error)
 	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, shedID, parkID string, from, to time.Time) (*time.Time, error)
 	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
@@ -802,7 +803,7 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 			if skip || !ok {
 				continue
 			}
-			evidenceDue, ok := trustedEvidenceDue(rule, due, asOf)
+			evidenceDue, ok := trustedEvidenceDue(rule, due, asOf, nil)
 			if !ok {
 				continue
 			}
@@ -922,7 +923,14 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
 		}
-		evidenceDue, ok := trustedEvidenceDue(rule, baseDue, asOf)
+		var nextDrive *time.Time
+		if rule.DueWindowDays > 0 {
+			windowEnd := businessDayStart(baseDue).AddDate(0, 0, int(rule.DueWindowDays))
+			if asOf.After(windowEnd) {
+				nextDrive = s.nearestPlannedDriveDate(ctx, tenantID, versionID, rule.RuleID, g, asOf, asOf.AddDate(0, 0, 14))
+			}
+		}
+		evidenceDue, ok := trustedEvidenceDue(rule, baseDue, asOf, nextDrive)
 		if !ok {
 			continue
 		}
@@ -934,7 +942,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			res.SuppressedByTrustedHistory++
 			continue
 		}
-		due, catchUpDeferReason, skip := applyMissedDosePolicy(rule, baseDue, asOf)
+		due, catchUpDeferReason, skip := applyMissedDosePolicy(rule, baseDue, asOf, nextDrive)
 		if skip {
 			continue
 		}
@@ -960,16 +968,12 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if len(rowDeferStates) == 0 {
 			rowDeferStates = deferStates
 		}
-		deferReason := deferredReason(g, rowDeferStates)
-		if deferReason == "" {
-			deferReason = policyDeferReason(g, policies, asOf)
-		}
-		if deferReason == "" {
-			deferReason = catchUpDeferReason
-		}
-		deferred := deferReason != ""
-		if deferred {
-			status = "deferred"
+		clinicalReason := deferredReason(g, rowDeferStates)
+		operationalReason := policyDeferReason(g, policies, asOf)
+		holdReason, holdStatus := obligationHoldState(clinicalReason, operationalReason, catchUpDeferReason)
+		held := holdReason != ""
+		if held {
+			status = holdStatus
 		}
 		obID, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{
 			TenantID:          tenantID,
@@ -994,13 +998,23 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 					return err
 				}
 			}
-			if deferred {
-				_, changed, err := s.obl.DeferOpenObligationByIdempotencyKey(ctx, tenantID, key, deferReason, asOf)
-				if err != nil {
-					return err
-				}
-				if changed {
-					res.Deferred++
+			if held {
+				if holdStatus == "waived" {
+					_, changed, err := s.obl.WaiveOpenObligationByIdempotencyKey(ctx, tenantID, key, holdReason, asOf)
+					if err != nil {
+						return err
+					}
+					if changed {
+						res.Waived++
+					}
+				} else {
+					_, changed, err := s.obl.DeferOpenObligationByIdempotencyKey(ctx, tenantID, key, holdReason, asOf)
+					if err != nil {
+						return err
+					}
+					if changed {
+						res.Deferred++
+					}
 				}
 			} else {
 				// Goat is no longer in a defer state: if a held (deferred) obligation exists for this
@@ -1030,24 +1044,38 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			}
 		}
 
-		if deferred {
-			// Same payload shape as DeferOpenObligationByIdempotencyKey's 'deferred' event (no drift):
-			// {reason, defer_status}. The event key carries occurredAt so repeated defer cycles each
-			// record an event (symmetric with the reopen event key).
-			payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "defer_status": deferReason})
-			if _, _, err := s.obl.RecordStatusEvent(ctx, obldomain.NewStatusEvent{
-				TenantID:       tenantID,
-				ObligationID:   obID,
-				EventType:      "deferred",
-				OccurredAt:     asOf,
-				Payload:        payload,
-				IdempotencyKey: obID + ":deferred:" + asOf.UTC().Format(time.RFC3339Nano),
-				Scope:          "obligation.status_event",
-				RequestHash:    "defer:" + deferReason,
-			}); err != nil {
-				return err
+		if held {
+			if holdStatus == "waived" {
+				payload, _ := json.Marshal(map[string]string{"reason": "clinical_block", "block_status": holdReason})
+				if _, _, err := s.obl.RecordStatusEvent(ctx, obldomain.NewStatusEvent{
+					TenantID:       tenantID,
+					ObligationID:   obID,
+					EventType:      "waived",
+					OccurredAt:     asOf,
+					Payload:        payload,
+					IdempotencyKey: obID + ":waived:" + asOf.UTC().Format(time.RFC3339Nano),
+					Scope:          "obligation.status_event",
+					RequestHash:    "waive:" + holdReason,
+				}); err != nil {
+					return err
+				}
+				res.Waived++
+			} else {
+				payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "defer_status": holdReason})
+				if _, _, err := s.obl.RecordStatusEvent(ctx, obldomain.NewStatusEvent{
+					TenantID:       tenantID,
+					ObligationID:   obID,
+					EventType:      "deferred",
+					OccurredAt:     asOf,
+					Payload:        payload,
+					IdempotencyKey: obID + ":deferred:" + asOf.UTC().Format(time.RFC3339Nano),
+					Scope:          "obligation.status_event",
+					RequestHash:    "defer:" + holdReason,
+				}); err != nil {
+					return err
+				}
+				res.Deferred++
 			}
-			res.Deferred++
 		}
 	}
 	return nil
@@ -1261,7 +1289,18 @@ func missingDueDateReason(rule protodomain.Rule, g domain.EligibleGoat) string {
 	return ""
 }
 
-func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time) (time.Time, string, bool) {
+func (s *GenerationService) nearestPlannedDriveDate(ctx context.Context, tenantID, versionID, ruleID string, g domain.EligibleGoat, from, to time.Time) *time.Time {
+	if s.obl == nil {
+		return nil
+	}
+	d, err := s.obl.FindNearestPlannedBatchDate(ctx, tenantID, versionID, ruleID, g.ShedID, g.ParkID, from, to)
+	if err != nil || d == nil {
+		return nil
+	}
+	return d
+}
+
+func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time, nextDriveDate *time.Time) (time.Time, string, bool) {
 	if rule.DueWindowDays <= 0 {
 		return due, "", false
 	}
@@ -1271,6 +1310,13 @@ func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time) (time.Tim
 	}
 	switch strings.ToLower(strings.TrimSpace(rule.CatchUp)) {
 	case "", "immediate":
+		if nextDriveDate != nil && !nextDriveDate.Before(asOf) {
+			days := wholeDaysBetween(asOf, *nextDriveDate)
+			if days > 0 && days <= 14 {
+				// Align due to the nearby drive; this is scheduling, not an operational hold.
+				return businessDayStart(*nextDriveDate), "", false
+			}
+		}
 		return asOf, "", false
 	case "pc_approval":
 		return asOf, "catch_up_pc_approval", false
@@ -1287,8 +1333,8 @@ func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time) (time.Tim
 	}
 }
 
-func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time) (time.Time, bool) {
-	adjusted, _, skip := applyMissedDosePolicy(rule, due, asOf)
+func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time, nextDriveDate *time.Time) (time.Time, bool) {
+	adjusted, _, skip := applyMissedDosePolicy(rule, due, asOf, nextDriveDate)
 	if skip {
 		return time.Time{}, false
 	}

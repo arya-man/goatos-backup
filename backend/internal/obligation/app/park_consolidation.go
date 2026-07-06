@@ -23,6 +23,7 @@ func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, ve
 	if minMergeSheds < 1 {
 		minMergeSheds = domain.DefaultParkConsolidationSettings().MinParkMergeSheds
 	}
+	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
 
 	groups := make(map[string][]domain.ParkConsolidationCandidate)
 	for {
@@ -34,7 +35,8 @@ func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, ve
 			break
 		}
 		for _, row := range rows {
-			key := row.ParkID + "|" + row.TargetSpecies
+			speciesKey := speciesGroupingKey(row.TargetAnimalStage, row.TargetSpecies, planner.SpeciesGroupingPolicy)
+			key := row.ParkID + "|" + speciesKey
 			groups[key] = append(groups[key], row)
 		}
 		if int32(len(rows)) < s.page {

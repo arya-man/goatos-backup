@@ -9,9 +9,9 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
-// TestSM3CancelIncludesDeferredWork proves a goat held (deferred) for sick/ICU/quarantine and then
-// exited (death/sale) does not strand its held obligation: SM-3 cancellation includes 'deferred'.
-func TestSM3CancelIncludesDeferredWork(t *testing.T) {
+// TestSM3CancelIncludesWaivedWork proves a goat held (waived) for sick/ICU/quarantine and then
+// exited (death/sale) does not strand its held obligation: SM-3 cancellation includes 'waived'.
+func TestSM3CancelIncludesWaivedWork(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -20,11 +20,11 @@ func TestSM3CancelIncludesDeferredWork(t *testing.T) {
 	obA := seed(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	if _, changed, err := repo.DeferOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC()); err != nil || !changed {
-		t.Fatalf("defer held obligation: changed=%v err=%v", changed, err)
+	if _, changed, err := repo.WaiveOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC()); err != nil || !changed {
+		t.Fatalf("waive held obligation: changed=%v err=%v", changed, err)
 	}
-	if got := scanStatus(t, ctx, pool, obA); got != "deferred" {
-		t.Fatalf("precondition: want deferred, got %s", got)
+	if got := scanStatus(t, ctx, pool, obA); got != "waived" {
+		t.Fatalf("precondition: want waived, got %s", got)
 	}
 
 	n, err := repo.CancelOpenForGoat(ctx, tenantID, testGoatID, "ineligible_after_exit")
@@ -35,12 +35,12 @@ func TestSM3CancelIncludesDeferredWork(t *testing.T) {
 		t.Fatalf("want 1 canceled (the held obligation), got %d", n)
 	}
 	if got := scanStatus(t, ctx, pool, obA); got != "canceled" {
-		t.Fatalf("deferred work must be canceled on exit, got %s", got)
+		t.Fatalf("waived work must be canceled on exit, got %s", got)
 	}
 }
 
 // TestReopenDeferredObligationOnRecovery proves a recovered goat's held obligation is reopened to
-// 'scheduled' (with a 'scheduled' status event) and that a replay after recovery is a safe no-op.
+// 'scheduled' whether it was deferred (operational hold) or waived (clinical block).
 func TestReopenDeferredObligationOnRecovery(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -50,8 +50,8 @@ func TestReopenDeferredObligationOnRecovery(t *testing.T) {
 	obA := seed(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	if _, changed, err := repo.DeferOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC()); err != nil || !changed {
-		t.Fatalf("defer held obligation: changed=%v err=%v", changed, err)
+	if _, changed, err := repo.WaiveOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC()); err != nil || !changed {
+		t.Fatalf("waive held obligation: changed=%v err=%v", changed, err)
 	}
 
 	id, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC(), nil)
@@ -75,7 +75,7 @@ func TestReopenDeferredObligationOnRecovery(t *testing.T) {
 	}
 }
 
-func TestDeferOpenObligationSkipsMissedRows(t *testing.T) {
+func TestWaiveOpenObligationIncludesMissedRows(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -87,21 +87,21 @@ func TestDeferOpenObligationSkipsMissedRows(t *testing.T) {
 		t.Fatalf("mark missed: n=%d err=%v", n, err)
 	}
 
-	id, changed, err := repo.DeferOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC())
+	id, changed, err := repo.WaiveOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC())
 	if err != nil {
-		t.Fatalf("defer missed row: %v", err)
+		t.Fatalf("waive missed row: %v", err)
 	}
-	if changed || id != obA {
-		t.Fatalf("defer missed row changed=%v id=%q, want no-op for %s", changed, id, obA)
+	if !changed || id != obA {
+		t.Fatalf("waive missed row changed=%v id=%q, want waived %s", changed, id, obA)
 	}
-	if got := scanStatus(t, ctx, pool, obA); got != "missed" {
-		t.Fatalf("missed obligation status = %s, want missed", got)
+	if got := scanStatus(t, ctx, pool, obA); got != "waived" {
+		t.Fatalf("missed obligation status = %s, want waived", got)
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*)
 FROM obligation_status_events
-WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='deferred'`, tenantID, obA); got != 0 {
-		t.Fatalf("defer missed row wrote deferred events=%d, want 0", got)
+WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='waived'`, tenantID, obA); got != 1 {
+		t.Fatalf("waive missed row wrote waived events=%d, want 1", got)
 	}
 }
 
@@ -131,8 +131,8 @@ func TestReopenDeferredObligationClearsStaleBatch(t *testing.T) {
 	if attached, err := repo.AttachObligationsToBatch(ctx, tenantID, batchID, []string{obA}); err != nil || attached != 1 {
 		t.Fatalf("attach stale batch precondition: attached=%d err=%v", attached, err)
 	}
-	if _, changed, err := repo.DeferOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC()); err != nil || !changed {
-		t.Fatalf("defer held obligation: changed=%v err=%v", changed, err)
+	if _, changed, err := repo.WaiveOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC()); err != nil || !changed {
+		t.Fatalf("waive held obligation: changed=%v err=%v", changed, err)
 	}
 	if got := countRows(t, ctx, pool,
 		`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2 AND status='deferred' AND batch_id=$3`,
@@ -159,8 +159,8 @@ func TestReopenDeferredObligationSkipsProcurementFailedIntake(t *testing.T) {
 
 	obA := seed(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
-	if _, changed, err := repo.DeferOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC()); err != nil || !changed {
-		t.Fatalf("defer held obligation: changed=%v err=%v", changed, err)
+	if _, changed, err := repo.WaiveOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC()); err != nil || !changed {
+		t.Fatalf("waive held obligation: changed=%v err=%v", changed, err)
 	}
 	if _, err := pool.Exec(ctx, `
 WITH load AS (
@@ -198,8 +198,8 @@ func TestReopenDeferredObligationSkipsProcurementExcludedVaccination(t *testing.
 
 	obA := seed(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
-	if _, changed, err := repo.DeferOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC()); err != nil || !changed {
-		t.Fatalf("defer held obligation: changed=%v err=%v", changed, err)
+	if _, changed, err := repo.WaiveOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC()); err != nil || !changed {
+		t.Fatalf("waive held obligation: changed=%v err=%v", changed, err)
 	}
 	if _, err := pool.Exec(ctx, `
 UPDATE goats
