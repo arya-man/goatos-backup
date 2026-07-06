@@ -21,6 +21,34 @@ Claude discovers the same skill through a symlink:
 
 Do not hand-maintain two copies. `.agents/skills/goatos-build/` is the source.
 
+## Code Review Skill
+
+Use the Goat OS code-review skill to **review or audit** a change (diff, branch,
+PR, or path) — kernel correctness, 1-5M-animal scale safety, hexagonal
+boundaries, backend + frontend architecture, and vaccination/obligation
+business-rule fidelity. It orchestrates CRG, Graphify, RTK, and repowise. Use
+`goatos-build` to build; use this to review and gate before push.
+
+```text
+.agents/skills/goatos-code-review/SKILL.md
+```
+
+Claude discovers the same skill through a symlink:
+
+```text
+.claude/skills/goatos-code-review -> ../../.agents/skills/goatos-code-review
+```
+
+Reference docs inside (progressive disclosure — load only what the change touches):
+
+```text
+.agents/skills/goatos-code-review/references/toolchain.md         # CRG/Graphify/RTK/repowise operator manual
+.agents/skills/goatos-code-review/references/kernel-and-scale.md  # operational kernel + 1-5M scale + idempotency
+.agents/skills/goatos-code-review/references/backend.md           # Go hexagonal layering, pgx/sqlc, observability
+.agents/skills/goatos-code-review/references/frontend.md          # admin-web contract fidelity, mock, IA guardrails
+.agents/skills/goatos-code-review/references/business-rules.md    # vaccination/obligation/feed/org rule fidelity
+```
+
 ## Agent tool routing (human)
 
 Before starting work, read **`docs/ai/agent-tool-routing.md`**:
