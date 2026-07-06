@@ -16,6 +16,7 @@ Authoritative sources (verify against these — do not trust the prose here):
 - Obligation engine + state machine: `docs/protocol-engine/obligation-engine.md`, `docs/protocol-engine/state-machines.md`
 - Obligation status CHECK (durable truth): the LATEST migration that alters `obligation_instances_status_check` under `backend/migrations/postgres/`
 - Calendar: `docs/decisions/calendar-ownership.md`
+- Legacy replacement parity/import replay: `context/architecture/operational-kernel-system-design.md`, feature PRD/TRD, source findings
 - Feed direction: `docs/feed-direction/PRD.md`, `TRD.md`, `DEPENDENCY-CLOSURE-TRD.md`
 - Forms/SOP: `context/forms/final-forms-sop-engine.md`
 - Org / species / shed base model: `context/source-findings/goats-and-parks-source-findings.md`
@@ -189,6 +190,25 @@ default in migrations/config). Reviewer checks:
         (tenant-default-with-park-overrides) + effective dates with non-overlap
         enforced per scope. Impact preview required before activation.
 
+## Legacy replacement parity and import/replay
+
+When a change replaces a Slack, Sheets, App Script, source-doc, or legacy
+dashboard workflow, reviewers must verify the policy pack or feature doc declares
+the legacy capability parity floor, known legacy gaps to close, and import/replay
+mapping. Parity means preserving useful source signals while adding GoatOS
+validation and evidence; it is not bug-for-bug row copying and not fabricated
+business truth.
+
+Review checkpoints:
+- [ ] The PRD/TRD or policy-pack contract names the legacy capability parity
+      floor and any known legacy gaps intentionally closed by GoatOS validation.
+- [ ] Import/replay maps source evidence to canonical GoatOS records with
+      `source_ref`/confidence/proof semantics where applicable; untrusted or
+      weak source rows create review/catch-up work, not completed facts.
+- [ ] The migration/cutover path can replay or reconcile imported source records
+      idempotently without duplicate obligations, fabricated completions, or
+      loss of useful proof/review signals.
+
 ## Vaccination execution edge cases
 
 For vaccination, reviewers must check the complete execution loop, not just
@@ -227,7 +247,12 @@ generation:
 - **Calendar** (`docs/decisions/calendar-ownership.md`): admits an event only if it
   has a due window, an owning executable role, and requires human action. Owner
   pills: pc / feed / breeding / parks / procurement / inventory. Backend owns the
-  projection; not Cloud Tasks, not frontend.
+  projection; not Cloud Tasks, not frontend. For vaccination drive planning, when
+  due rows attach to an `obligation_batches` drive, Calendar projects the drive
+  row as active operations work and suppresses the batched per-animal
+  `vaccination_dose_due` / `dose_due` rows from active Calendar; per-animal rows
+  stay visible in Passport, Protocol Adherence, vaccination detail, and audit
+  surfaces.
 - **Feed direction** (`docs/feed-direction/*`): "how much of which feed each shed
   gets, each session, each day," recomputed on count/shifting changes; reuses the
   generic obligation + inventory engine — no parallel `feed_*` execution tables.
