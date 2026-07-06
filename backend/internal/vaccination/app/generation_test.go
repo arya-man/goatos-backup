@@ -635,6 +635,65 @@ func TestGenerateForVersionContinuesAfterPoisonGoat(t *testing.T) {
 	}
 }
 
+func TestGenerateForVersionAbortsOnTransientDBError(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","defer_states":["sick","quarantine","ICU"]}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "healthy", Stage: "K1", DOB: &dob},
+		{GoatID: "goat-2", LifecycleStatus: "alive", HealthStatus: "healthy", Stage: "K1", DOB: &dob},
+		{GoatID: "goat-3", LifecycleStatus: "alive", HealthStatus: "healthy", Stage: "K1", DOB: &dob},
+	}}
+	obl := &generationObligationFake{
+		seen:                  map[string]bool{},
+		failOnceAfterInserted: 1,
+		failErr:               errors.New("insert obligation: ERROR: deadlock detected (SQLSTATE 40P01)"),
+	}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err == nil || IsGenerationPartialFailure(err) {
+		t.Fatalf("generate err=%v, want hard transient DB abort", err)
+	}
+	if result.Generated != 1 || result.FailedGoats != 0 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want abort after first generated goat without failed-goat masking", result, obl.inserted)
+	}
+	if obl.inserted[0].TargetID != "goat-1" {
+		t.Fatalf("inserted=%#v, want no work after transient DB error", obl.inserted)
+	}
+}
+
+func TestShouldAbortGenerationClassifiesRetryableInfrastructure(t *testing.T) {
+	retryable := []error{
+		context.Canceled,
+		context.DeadlineExceeded,
+		errors.New("write obligation: ERROR: could not serialize access (SQLSTATE 40001)"),
+		errors.New("write obligation: ERROR: deadlock detected (SQLSTATE 40P01)"),
+		errors.New("pgxpool: failed to acquire connection: timeout acquiring connection"),
+		errors.New("read goat: server closed the connection unexpectedly"),
+	}
+	for _, err := range retryable {
+		if !IsGenerationAbortError(err) {
+			t.Fatalf("IsGenerationAbortError(%q)=false, want true", err)
+		}
+	}
+
+	poison := []error{
+		errors.New("forced partial failure"),
+		errors.New("write obligation: ERROR: duplicate key value violates unique constraint (SQLSTATE 23505)"),
+	}
+	for _, err := range poison {
+		if IsGenerationAbortError(err) {
+			t.Fatalf("IsGenerationAbortError(%q)=true, want false", err)
+		}
+	}
+}
+
 func TestGenerateEffectiveForAllGoatsContinuesAfterPoisonGoat(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
@@ -1750,6 +1809,7 @@ type generationObligationFake struct {
 	cancelReasons          []string
 	nearbyDrive            *time.Time
 	failOnceAfterInserted  int
+	failErr                error
 	failed                 bool
 }
 
@@ -1765,6 +1825,9 @@ func (o *generationObligationFake) InsertObligation(_ context.Context, in obldom
 	}
 	if o.failOnceAfterInserted > 0 && len(o.inserted) >= o.failOnceAfterInserted && !o.failed {
 		o.failed = true
+		if o.failErr != nil {
+			return "", false, o.failErr
+		}
 		return "", false, errors.New("forced partial failure")
 	}
 	o.seen[in.IdempotencyKey] = true

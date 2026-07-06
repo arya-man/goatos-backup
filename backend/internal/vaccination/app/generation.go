@@ -35,6 +35,21 @@ type GoatLister interface {
 
 var errGenerationPartialFailures = errors.New("vaccination: generation completed with failed goats")
 
+// IsGenerationPartialFailure reports whether generation finished the bounded scan but isolated at
+// least one deterministic per-goat failure. Callers should surface the counters before failing the
+// job so operators can distinguish this from a hard infrastructure abort.
+func IsGenerationPartialFailure(err error) bool {
+	return errors.Is(err, errGenerationPartialFailures)
+}
+
+// IsGenerationAbortError reports whether a generation error should abort the whole run rather than
+// be counted as a per-goat poison record. Context cancellation and retryable database/connection
+// failures are run-level faults: swallowing them as failed goats hides infrastructure incidents and
+// prevents the scheduler from retrying the scan cleanly.
+func IsGenerationAbortError(err error) bool {
+	return shouldAbortGeneration(err)
+}
+
 // ObligationWriter is the slice of the obligation repo SM-1 generation needs.
 type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
@@ -681,7 +696,47 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 }
 
 func shouldAbortGeneration(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	return isRetryableGenerationInfraError(err)
+}
+
+func isRetryableGenerationInfraError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"sqlstate 40001", // serialization_failure
+		"sqlstate 40p01", // deadlock_detected
+		"sqlstate 55p03", // lock_not_available
+		"sqlstate 57014", // query_canceled / statement timeout
+		"sqlstate 57p01", // admin_shutdown
+		"sqlstate 57p02", // crash_shutdown
+		"sqlstate 57p03", // cannot_connect_now
+		"sqlstate 53300", // too_many_connections
+		"sqlstate 53400", // configuration_limit_exceeded
+		"sqlstate 08000",
+		"sqlstate 08001",
+		"sqlstate 08003",
+		"sqlstate 08004",
+		"sqlstate 08006",
+		"sqlstate 08007",
+		"failed to acquire connection",
+		"timeout acquiring connection",
+		"pool closed",
+		"connection reset",
+		"connection refused",
+		"connection is closed",
+		"server closed the connection",
+		"broken pipe",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func recordFailedGenerationGoat(res *domain.GenerateResult, seen map[string]struct{}, goatID string) {

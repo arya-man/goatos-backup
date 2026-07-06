@@ -1601,10 +1601,12 @@ func (r *Repository) CountEligibleShedScopes(ctx context.Context, f domain.Impac
 	return n, nil
 }
 
-// ListRecoverableDeferredVaccinationGoatIDs returns a bounded set of goats with old deferred/missed
+// ListRecoverableDeferredVaccinationGoatIDs returns a bounded set of goats with old deferred
 // vaccination obligations whose current animal/location state no longer requires a clinical or
-// procurement exclusion. The generation job uses this before the full-herd scan so recovery repair
-// does not depend on reaching late goat-id pages.
+// procurement exclusion. Missed obligations are repaired by the obligation-owned stale-missed
+// batch-link pass before this selector runs, then re-enter batching through the normal sweeper.
+// The generation job uses this before the full-herd scan so recovery repair does not depend on
+// reaching late goat-id pages.
 func (r *Repository) ListRecoverableDeferredVaccinationGoatIDs(ctx context.Context, tenantID string, olderThan time.Time, limit int32) ([]string, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -1639,7 +1641,7 @@ WITH earliest_by_goat AS (
    AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
   WHERE oi.tenant_id = $1::uuid
     AND oi.target_type = 'goat'
-    AND oi.status IN ('deferred', 'missed')
+    AND oi.status = 'deferred'
     AND oi.due_at <= $2::timestamptz
     AND pd.category = 'vaccination'
     AND g.lifecycle_status = 'alive'

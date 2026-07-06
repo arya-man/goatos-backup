@@ -49,7 +49,7 @@ var errRecoveryRepairPartialFailures = errors.New("vaccination recovery repair c
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		os.Exit(exitCodeForError(err))
 	}
 }
 
@@ -82,9 +82,9 @@ func run(args []string) error {
 			fmt.Printf("recovery-repair candidates=%d missed_batch_repaired=%d generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
 				repairCandidates, missedBatchRepaired, repair.Generated, repair.Deferred, repair.Reopened, repair.FailedGoats, repair.SkippedNoDueDate, repair.SuppressedByTrustedHistory)
 		}
-		res, err := gen.GenerateEffectiveForAllGoats(ctx, cfg.TenantID, cfg.AsOf)
-		if err != nil {
-			return fmt.Errorf("generate effective cohort: %w", err)
+		res, genErr := gen.GenerateEffectiveForAllGoats(ctx, cfg.TenantID, cfg.AsOf)
+		if genErr != nil && !vaccinationapp.IsGenerationPartialFailure(genErr) {
+			return fmt.Errorf("generate effective cohort: %w", genErr)
 		}
 		stuck, err := vaccinationRepo.CountRecoverableDeferredVaccinationObligations(ctx, cfg.TenantID, cfg.AsOf.Add(-cfg.RecoveryRepairAge))
 		if err != nil {
@@ -92,8 +92,11 @@ func run(args []string) error {
 		}
 		fmt.Printf("generated effective-cohort generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d stuck_recoverable_deferred=%d\n",
 			res.Generated, res.Deferred, res.Reopened, res.FailedGoats, res.SkippedNoDueDate, res.SuppressedByTrustedHistory, stuck)
+		if genErr != nil {
+			return withExitCode(exitCodePartialFailure, fmt.Errorf("generate effective cohort: %w", genErr))
+		}
 		if repairErr != nil {
-			return fmt.Errorf("vaccination recovery repair: %w", repairErr)
+			return withExitCode(exitCodePartialFailure, fmt.Errorf("vaccination recovery repair: %w", repairErr))
 		}
 		return nil
 	}
@@ -109,11 +112,14 @@ func run(args []string) error {
 
 	for _, versionID := range versionIDs {
 		run, res, err := gen.GenerateForVersionWithRun(ctx, cfg.TenantID, versionID, cfg.AsOf, "cli", versionID+":"+cfg.AsOf.Format(time.RFC3339))
-		if err != nil {
+		if err != nil && !vaccinationapp.IsGenerationPartialFailure(err) {
 			return fmt.Errorf("generate version %s: %w", versionID, err)
 		}
 		fmt.Printf("generated run=%s version=%s generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
 			run.RunID, versionID, res.Generated, res.Deferred, res.Reopened, res.FailedGoats, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
+		if err != nil {
+			return withExitCode(exitCodePartialFailure, fmt.Errorf("generate version %s: %w", versionID, err))
+		}
 	}
 	return nil
 }
@@ -138,7 +144,7 @@ func runRecoveryRepair(ctx context.Context, obligationRepo *obligationpg.Reposit
 	for _, goatID := range goatIDs {
 		res, err := gen.GenerateRecoveryRepairForGoat(ctx, tenantID, goatID, asOf)
 		if err != nil {
-			if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if ctx.Err() != nil || vaccinationapp.IsGenerationAbortError(err) {
 				return out, len(goatIDs), missedBatchRepaired, err
 			}
 			out.FailedGoats++
@@ -150,6 +156,46 @@ func runRecoveryRepair(ctx context.Context, obligationRepo *obligationpg.Reposit
 		return out, len(goatIDs), missedBatchRepaired, errRecoveryRepairPartialFailures
 	}
 	return out, len(goatIDs), missedBatchRepaired, nil
+}
+
+const (
+	exitCodeHardFailure    = 1
+	exitCodePartialFailure = 2
+)
+
+type exitCodeError struct {
+	code int
+	err  error
+}
+
+func (e exitCodeError) Error() string {
+	return e.err.Error()
+}
+
+func (e exitCodeError) Unwrap() error {
+	return e.err
+}
+
+func (e exitCodeError) ExitCode() int {
+	return e.code
+}
+
+func withExitCode(code int, err error) error {
+	if err == nil {
+		return nil
+	}
+	return exitCodeError{code: code, err: err}
+}
+
+func exitCodeForError(err error) int {
+	if err == nil {
+		return 0
+	}
+	var coded interface{ ExitCode() int }
+	if errors.As(err, &coded) {
+		return coded.ExitCode()
+	}
+	return exitCodeHardFailure
 }
 
 func mergeGenerateResult(dst *vaccinationdomain.GenerateResult, src vaccinationdomain.GenerateResult) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -58,5 +59,18 @@ func TestParseFlagsRecoveryRepairControls(t *testing.T) {
 	}
 	if cfg.RecoveryRepairLimit != 250 || cfg.RecoveryRepairAge != 72*time.Hour {
 		t.Fatalf("recovery repair controls limit=%d age=%s", cfg.RecoveryRepairLimit, cfg.RecoveryRepairAge)
+	}
+}
+
+func TestExitCodeForPartialFailure(t *testing.T) {
+	err := withExitCode(exitCodePartialFailure, errors.New("partial generation failure"))
+	if got := exitCodeForError(err); got != exitCodePartialFailure {
+		t.Fatalf("exitCodeForError(partial)=%d, want %d", got, exitCodePartialFailure)
+	}
+	if got := exitCodeForError(errors.New("hard failure")); got != exitCodeHardFailure {
+		t.Fatalf("exitCodeForError(hard)=%d, want %d", got, exitCodeHardFailure)
+	}
+	if got := exitCodeForError(nil); got != 0 {
+		t.Fatalf("exitCodeForError(nil)=%d, want 0", got)
 	}
 }
