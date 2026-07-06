@@ -206,27 +206,40 @@ from whatever the current row status happens to be when the user asks.
 For missed vaccination questions:
 
 - "Missed yesterday" means the target was due inside the requested business-day
-  window and lacked accepted completion evidence by the end of that window, or
-  had a status-event ledger entry proving a missed transition in that window.
+  window and, by answer time, has no accepted completion whose
+  `administered_at` belongs to that business-day window or the accepted catch-up
+  window for that obligation. Verification/acceptance may happen later than
+  administration; do not classify an animal missed for day D only because the
+  D administration was accepted on D+1.
 - The query must reconstruct effective state from due windows, accepted
-  completions, completion timestamps, and obligation status events.
+  completions keyed by `administered_at`, recorded-but-not-accepted completion
+  evidence, and obligation status events.
+- It must not key date-specific completion on verification time,
+  `verified_at`, or obligation `completed_at`.
 - It must not rely only on today's `status = missed` row value.
 - Late completion after the requested date must not erase the historical missed
-  answer for that date.
+  answer for that date, unless the accepted completion's `administered_at`
+  proves the dose was administered inside the requested window.
 - Un-swept overdue work must not be reported as missed unless the effective
   missed rule proves it was missed.
 
-Exception answers must keep these states non-overlapping:
+Per-animal vaccination status answers must keep these states non-overlapping:
 
 ```text
+scheduled
 due
 overdue
+in_progress
 missed
 deferred
 waived
 completed
-blocked
 ```
+
+`blocked` is a drive/event-level or process-blocker state, not a per-animal
+obligation status bucket. If a drive is blocked, the assistant must say the
+drive is blocked and still report per-animal rows using the per-animal status
+partition above.
 
 Counts must label what they count:
 
@@ -299,9 +312,12 @@ Every operational answer must include:
   answer: `as_of` or `last_success_at`, `freshness_status`, `serving_state`,
   `stale`, `rebuild_required`, `source_watermark`, `unavailable_sources`,
   `conflict_count`, `projection_version`, and `source_composition` when
-  applicable. When the backing endpoint does not yet emit freshness metadata,
-  set `freshness_status = unknown`, leave unsupplied fields null, and do not
-  claim currency or an `as_of` the source did not return.
+  applicable. This envelope is a v1 assistant contract; today it physically
+  exists only for counts/mortality-style projection state. Vaccination v1 serves
+  live from obligation/read-model queries, so wrapped vaccination answers render
+  missing envelope fields as `not_projection_backed` or null, synthesize only
+  the `as_of` they actually used, and never claim projection freshness the
+  source did not provide.
 - Source route/tool names and key identifiers.
 - Count taxonomy, including obligation count versus distinct animal count where
   both can differ.
@@ -372,8 +388,9 @@ Eval dimensions:
 - Missing API and incomplete data behavior.
 - Vaccination edge cases: missed, deferred, waived, catch-up, overdue, next
   drive, shed-level drilldown, animal passport explanation.
-- Historical as-of cases: completed after the requested date, missed then
-  recovered, un-swept overdue, and status-event reconstruction.
+- Historical as-of cases: administered on day D and accepted on D+1, completed
+  after the requested date, missed then recovered, un-swept overdue, and
+  status-event reconstruction.
 - Prompt injection, data-borne injection through notes/reasons/tool outputs, and
   data exfiltration attempts.
 - Forbidden-claim evals for ignored source-rule branches such as dam/mother

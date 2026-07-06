@@ -156,8 +156,9 @@ Required response fields:
   `serving_state`, `stale`, `rebuild_required`, `source_watermark`,
   `unavailable_sources`, `conflict_count`, `projection_version`, and
   `source_composition` when applicable. When a wrapped source does not supply
-  freshness metadata, set `freshness_status = unknown`, leave unsupplied fields
-  null, and do not assert currency
+  freshness metadata, set `freshness_status = unknown`, render unsupported
+  fields as null or `not_projection_backed`, and do not assert currency.
+  `stale` is derived from `serving_state` when no physical stale field exists.
 - full visible count, returned count, truncation flag, and count taxonomy
 - clarification request when needed
 - unauthorized/no-data/missing-capability status when applicable
@@ -193,7 +194,7 @@ Initial tool families:
 | --- | --- |
 | Scope | `resolve_business_scope`, `resolve_location`, `resolve_animal_identifier` |
 | Vaccination | `list_action_center`, `list_calendar_drives`, `list_drive_targets`, `get_goat_passport` |
-| Ops-query | `get_missed_vaccination_targets`, `get_next_vaccination_drives`, `get_vaccination_catchup_candidates`, `get_exception_summary` |
+| Ops-query | `resolve_vaccine_or_protocol`, `get_missed_vaccination_targets`, `get_next_vaccination_drives`, `get_vaccination_catchup_plan`, `get_vaccination_catchup_candidates`, `get_vaccination_exception_summary` |
 | Policy docs | `search_protocol_docs`, `explain_vaccination_rule` |
 | Actions | `send_calendar_nudge`, `snooze_calendar_event`, `acknowledge_escalation` |
 | Analytics | `query_governed_metric`, `list_metric_definitions` |
@@ -228,10 +229,14 @@ Existing vaccination and calendar endpoints predate the assistant freshness
 envelope and do not yet emit `freshness_status`, `serving_state`,
 `source_watermark`, `projection_version`, `rebuild_required`, `stale`, or
 `last_success_at`. Until those endpoints are extended, wrapped-tool answers must
-set `freshness_status = unknown`, leave unsupplied envelope fields null, and must
-not claim currency or an `as_of` the source did not return. Extending the
-existing vaccination/calendar read endpoints to emit the freshness envelope is
-explicit v1 work; only the new ops-query facade emits the full envelope today.
+set `freshness_status = unknown`, leave unsupplied envelope fields null or
+`not_projection_backed`, and must not claim currency or an `as_of` the source did
+not return. The full envelope is a v1 assistant/ops-query contract. Existing
+physical projection-state schema is present for counts/mortality-style
+projections only; vaccination v1 live queries synthesize `as_of` from the query
+clock and mark projection-specific fields such as `source_composition`,
+`source_watermark`, and `projection_version` as not applicable until a real
+vaccination projection state exists.
 
 ## Ops-Query API
 
@@ -308,25 +313,42 @@ For `GET /ops-query/vaccination/missed-targets`, implementation must:
 - resolve relative dates against the fixed Asia/Kolkata Goat OS business
   calendar.
 - reconstruct effective missed state from due windows, accepted completion
-  evidence, completion timestamps, and obligation status events.
-- include animals that missed the requested date even if they completed later.
+  evidence keyed by `vaccination_completions.administered_at`,
+  recorded-but-not-accepted completion evidence, and obligation status events.
+- treat a dose administered inside the requested business-day window and later
+  accepted by answer time as not missed for that day, even when `verified_at` or
+  obligation `completed_at` falls on a later date.
+- never use verification time, `verified_at`, or obligation `completed_at` as
+  the date key for whether the animal was administered on the requested day.
+- include animals that truly missed the requested date even if they completed
+  later outside the accepted administration/catch-up window.
 - exclude work that is only currently overdue unless the requested-date
   effective state proves a missed transition.
 - avoid `WHERE status = 'missed'` as the only correctness condition.
 - return per-animal rows from obligation/target membership, not only a drive
   rollup state such as `bool_or(status = 'missed')`.
 
-Exception tools must keep these states separate and non-overlapping:
+Per-animal vaccination status tools must keep these states separate and
+non-overlapping:
 
 ```text
+scheduled
 due
 overdue
+in_progress
 missed
 deferred
 waived
 completed
-blocked
 ```
+
+`blocked` is a drive/event-level or process-blocker state. Calendar drive/event
+answers may report blocked, proof-pending, verification-pending, rejected, or
+rework states from the event projection. They must not force those event states
+into the per-animal obligation partition above. The canonical per-animal
+exception status for assistant ops-query answers comes from the
+process-integrity/as-of obligation model, not a calendar rollup that may collapse
+or summarize statuses.
 
 Drive and leadership summaries must label counts as obligations or distinct
 animals. When one animal has multiple due doses, obligation counts may be higher
@@ -583,11 +605,14 @@ mutation class.
 
 ## Knowledge Retrieval
 
-Policy/SOP retrieval is for explanation, not operational state.
+Policy/SOP retrieval is for explanation, not operational state. The production
+retrieval corpus is an allowlist, not a recursive index of every file under
+`docs/`.
 
 Sources:
 
-- versioned docs in `docs/`
+- published active protocol/ruleset/SOP/policy documents approved for runtime
+  explanation
 - published protocol/ruleset metadata
 - SOP builder contracts
 - approved handbooks after sanitization and source-owner review
@@ -598,6 +623,10 @@ Rules:
 - Prefer runtime published protocol data over static docs when explaining an
   active rule.
 - Do not answer "what happened today" from documents.
+- Exclude assistant design docs, feature PRDs/TRDs, rule-clarity logs, decision
+  logs, source-discovery notes, and historical handoff files from the runtime
+  retrieval corpus unless a source owner explicitly allowlists a sanitized
+  excerpt.
 - Deterministically exclude ignored or forbidden source-rule branches from the
   retrieval index and model context. For Preventive Care vaccination, do not
   index or retrieve dam/mother vaccination-status branching text as a schedule
@@ -699,11 +728,14 @@ Required tests:
   and unauthorized user.
 - Scope-default tests for omitted shed/park/date.
 - Vaccination golden cases from seeded Postgres data.
-- As-of missed cases: completed after requested date, missed then recovered,
-  un-swept overdue, and status-event ledger reconstruction.
-- Status partition tests proving one item appears in exactly one of due,
-  overdue, missed, deferred, waived, completed, or blocked for the requested
-  answer class.
+- As-of missed cases: completed after requested date, administered on day D and
+  accepted on D+1, missed then recovered, un-swept overdue, and status-event
+  ledger reconstruction.
+- Per-animal status partition tests proving one item appears in exactly one of
+  scheduled, due, overdue, in_progress, missed, deferred, waived, or completed.
+- Drive/event status tests proving blocked/proof-pending/verification-pending
+  states are reported at the drive/event layer and do not corrupt per-animal
+  obligation buckets.
 - Obligation count versus distinct animal count tests.
 - Missing API/no-data/tool-failure tests.
 - Prompt injection and data-borne injection tests using seeded notes/reasons.
