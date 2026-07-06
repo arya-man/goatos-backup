@@ -468,7 +468,7 @@ export function buildVaccinationMatrixPreview(
       pathogen_class: "mixed",
       course_type: "matrix",
       inventory_item_id: null,
-      manufacturer: "goatos-config",
+      manufacturer: "mesha-config",
       disease: "Preventive Care vaccination",
       compatibility_group: "vaccination.matrix",
     },

@@ -2067,7 +2067,10 @@ export interface components {
             pincode?: string | null;
             lat?: number | null;
             lng?: number | null;
-            /** @default Asia/Kolkata */
+            /**
+             * @default Asia/Kolkata
+             * @enum {string}
+             */
             timezone: "Asia/Kolkata";
             operational?: components["schemas"]["LocationOperationalAttributes"];
         };
@@ -2087,6 +2090,7 @@ export interface components {
             pincode?: string | null;
             lat?: number | null;
             lng?: number | null;
+            /** @enum {string} */
             timezone?: "Asia/Kolkata";
             operational?: components["schemas"]["LocationOperationalAttributes"];
             row_version: number;

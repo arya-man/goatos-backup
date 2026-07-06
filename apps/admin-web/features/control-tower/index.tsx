@@ -9,8 +9,7 @@ import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { Tag } from "@/components/ui-primitives";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
-import { backendPage, maxPageFor, pageResult } from "@/features/process-integrity/pagination";
-import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "@/features/process-integrity/process-integrity";
+import { backendPage, maxPageFor, pageResult, SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "@/features/process-integrity";
 
 // Severity tint for the alert-band icon chip.
 const SEVERITY_FILL: Record<ProcessIntegritySeverity, { bg: string; fg: string }> = {
