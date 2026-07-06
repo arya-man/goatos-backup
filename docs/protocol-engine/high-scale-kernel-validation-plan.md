@@ -506,6 +506,20 @@ A kernel slice is not closed until the report lists these cases and their result
 The E2E report must say `passed`, `failed`, or `not implemented yet` per item.
 No silent blanks.
 
+Canonical local runner:
+
+```bash
+make high-scale-kernel-e2e-data   # static guards + backend kernel tests + data-plane E2E
+make high-scale-kernel-e2e-all    # same, plus live admin-web/browser smoke
+```
+
+Both commands write a timestamped report under
+`.codex-goatos-render/high-scale-kernel-e2e/<run_id>/report.md`, including the
+command logs and the full checklist table above. The local `vaccination_slice`
+scope may list cloud/staging/multi-domain certification rows as `not implemented
+yet`; the strict certification goal is to drive those rows to `passed` before a
+cloud or 1M full-chain claim.
+
 ## 10. Current Feedback Triage
 
 Latest architecture feedback is classified as:

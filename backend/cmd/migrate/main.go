@@ -22,9 +22,10 @@ import (
 )
 
 type cliConfig struct {
-	MigrationsDir string
-	Timeout       time.Duration
-	DryRun        bool
+	MigrationsDir           string
+	Timeout                 time.Duration
+	DryRun                  bool
+	AllowLocalChecksumDrift bool
 }
 
 type migrationFile struct {
@@ -69,11 +70,33 @@ func run(ctx context.Context, args []string, log *slog.Logger) error {
 	}
 	defer pool.Close()
 
-	return applyMigrations(ctx, pool, migrations, cfg.DryRun, log)
+	allowChecksumDrift := false
+	if cfg.AllowLocalChecksumDrift {
+		if err := validateLocalChecksumDriftTarget(pgCfg.DatabaseURL); err != nil {
+			return err
+		}
+		allowChecksumDrift = true
+	}
+
+	return applyMigrations(ctx, pool, migrations, cfg.DryRun, allowChecksumDrift, log)
 }
 
 func validateMigrationTarget(databaseURL string) error {
-	return localtarget.ValidateDevCloudSQLDatabaseTarget("migrate", os.Getenv("GOATOS_ENV"), databaseURL)
+	return localtarget.ValidateLocalDatabaseTarget("migrate", os.Getenv("GOATOS_ENV"), databaseURL, "local", "dev")
+}
+
+func validateLocalChecksumDriftTarget(databaseURL string) error {
+	if strings.ToLower(strings.TrimSpace(os.Getenv("GOATOS_ENV"))) != "local" {
+		return errors.New("-allow-local-checksum-drift requires GOATOS_ENV=local")
+	}
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return fmt.Errorf("parse DATABASE_URL for local checksum drift allowance: %w", err)
+	}
+	if !localtarget.IsLocalHost(cfg.ConnConfig.Host) {
+		return fmt.Errorf("-allow-local-checksum-drift requires a loopback/local database host, got %q", cfg.ConnConfig.Host)
+	}
+	return nil
 }
 
 func parseFlags(args []string) (cliConfig, error) {
@@ -85,6 +108,7 @@ func parseFlags(args []string) (cliConfig, error) {
 	fs.StringVar(&cfg.MigrationsDir, "migrations-dir", cfg.MigrationsDir, "directory containing postgres migration .sql files")
 	fs.DurationVar(&cfg.Timeout, "timeout", cfg.Timeout, "migration timeout")
 	fs.BoolVar(&cfg.DryRun, "dry-run", false, "list pending migrations without applying them")
+	fs.BoolVar(&cfg.AllowLocalChecksumDrift, "allow-local-checksum-drift", false, "local-only: continue past historical checksum drift so a throwaway E2E DB can reach head")
 	if err := fs.Parse(args); err != nil {
 		return cliConfig{}, err
 	}
@@ -173,7 +197,7 @@ func extractGooseUp(sql string) (string, error) {
 	return upSQL, nil
 }
 
-func applyMigrations(ctx context.Context, pool *pgxpool.Pool, migrations []migrationFile, dryRun bool, log *slog.Logger) error {
+func applyMigrations(ctx context.Context, pool *pgxpool.Pool, migrations []migrationFile, dryRun bool, allowChecksumDrift bool, log *slog.Logger) error {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return err
@@ -204,6 +228,14 @@ CREATE TABLE IF NOT EXISTS goatos_schema_migrations (
 		}
 		if appliedChecksum != "" {
 			if appliedChecksum != migration.Checksum {
+				if allowChecksumDrift {
+					log.Warn("migration_checksum_drift_ignored_local",
+						slog.String("version", migration.Version),
+						slog.String("filename", migration.Filename),
+						slog.String("applied_checksum", appliedChecksum),
+						slog.String("current_checksum", migration.Checksum))
+					continue
+				}
 				return fmt.Errorf("migration %s was already applied with checksum %s, current %s", migration.Version, appliedChecksum, migration.Checksum)
 			}
 			continue

@@ -77,7 +77,7 @@ export function VaccinationCohortDetail({
             <span className="muted small">{copy(pageContract, "section.cohort_detail.row_hint")}</span>
           </div>
           <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.cohort_detail.aria")}>
-            <table>
+            <table className="vaccination-cohort-detail-table">
               <thead>
                 <tr>
                   {labels.map((label) => (

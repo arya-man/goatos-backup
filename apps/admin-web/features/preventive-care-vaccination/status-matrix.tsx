@@ -135,7 +135,7 @@ export function VaccinationStatusMatrix({
             <span className="muted small">{copy(pageContract, "section.status_matrix.row_hint")}</span>
           </div>
           <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.status_matrix.aria")}>
-            <table>
+            <table className="vaccination-status-matrix-table">
               <thead>
                 <tr>
                   <th>{labels[0]}</th>

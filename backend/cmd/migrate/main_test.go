@@ -61,9 +61,39 @@ func TestValidateMigrationTargetRequiresExplicitDevCloudSQL(t *testing.T) {
 	if err := validateMigrationTarget(validURL); err != nil {
 		t.Fatalf("valid dev Cloud SQL target rejected: %v", err)
 	}
+}
 
+func TestValidateMigrationTargetAllowsLocalLoopback(t *testing.T) {
+	t.Setenv("GOATOS_ENV", "local")
 	localURL := "postgres://postgres:goatos@localhost:5432/goatos?sslmode=disable"
-	if err := validateMigrationTarget(localURL); err == nil {
-		t.Fatal("local target accepted for migration image")
+	if err := validateMigrationTarget(localURL); err != nil {
+		t.Fatalf("local target rejected: %v", err)
+	}
+}
+
+func TestValidateMigrationTargetRejectsStagingLookingTarget(t *testing.T) {
+	t.Setenv("GOATOS_ENV", "local")
+	stagingURL := "postgres://postgres:goatos@127.0.0.1:5432/goatos-stg?sslmode=disable"
+	if err := validateMigrationTarget(stagingURL); err == nil {
+		t.Fatal("staging-looking target accepted")
+	}
+}
+
+func TestValidateLocalChecksumDriftTargetOnlyAllowsLocalLoopback(t *testing.T) {
+	localURL := "postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable"
+
+	t.Setenv("GOATOS_ENV", "dev")
+	if err := validateLocalChecksumDriftTarget(localURL); err == nil {
+		t.Fatal("checksum drift allowance accepted without GOATOS_ENV=local")
+	}
+
+	t.Setenv("GOATOS_ENV", "local")
+	cloudSQLURL := "user=postgres password=goatos dbname=goatos host=/cloudsql/goatos-dev:asia-south1:goatos-dev-core-db sslmode=disable"
+	if err := validateLocalChecksumDriftTarget(cloudSQLURL); err == nil {
+		t.Fatal("checksum drift allowance accepted for Cloud SQL target")
+	}
+
+	if err := validateLocalChecksumDriftTarget(localURL); err != nil {
+		t.Fatalf("local checksum drift allowance rejected: %v", err)
 	}
 }

@@ -318,7 +318,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
           </div>
         ) : (
           <div style={{ overflowX: "auto", padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.open_gaps.aria")}>
-            <table>
+            <table className="control-tower-gaps-table">
               <thead>
                 <tr>
                   {openGapLabels.map((label) => (

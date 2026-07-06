@@ -261,7 +261,7 @@ export async function HerdRegisterPage({
         </div>
         <HerdFiltersModalClient rowCount={goats.length} pageSize={pageSize} pageSizeOptions={pageSizeOptions} hasFilters={hasFilter} pageContract={pageContract} />
 	        <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.herd.aria")}>
-          <table>
+          <table className="herd-register-table">
             <thead>
               <tr>
 	                {cols.map((c) => (
