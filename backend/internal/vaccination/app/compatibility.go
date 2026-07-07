@@ -76,25 +76,39 @@ func classifyVaccine(vaccineType, pathogenClass string) vaccineImmunoClass {
 	}
 }
 
+// Default cross-vaccine medical safety gaps, in days. These are the single source of
+// truth for both enforcement (withDefaults, below, applied when rule_dsl omits a value)
+// and the read-only "Automatic safety rules" copy shown in the vaccination Config UI
+// (adminui pageSpecificCopy("config"), keys modal.rule_editor.guided.safety_*). The
+// guard test TestSafetyRuleCopyMatchesEnforcedDefaults locks that UI copy to these, so
+// the displayed number can never silently drift from the enforced number.
+const (
+	DefaultLiveToLiveGapDays          int32 = 28
+	DefaultLiveToKilledGapDays        int32 = 14
+	DefaultKilledToKilledGapDays      int32 = 14
+	DefaultKidBoosterMinGapDays       int32 = 21
+	DefaultMaxVaccinesPerComboSession int32 = 2
+)
+
 func (p genCompatibilityPolicy) withDefaults() genCompatibilityPolicy {
 	out := p
 	if out.LiveToLiveGapDays <= 0 {
-		out.LiveToLiveGapDays = 28
+		out.LiveToLiveGapDays = DefaultLiveToLiveGapDays
 	}
 	if out.LiveToKilledGapDays <= 0 {
-		out.LiveToKilledGapDays = 14
+		out.LiveToKilledGapDays = DefaultLiveToKilledGapDays
 	}
 	if out.KilledToKilledGapDays <= 0 {
-		out.KilledToKilledGapDays = 14
+		out.KilledToKilledGapDays = DefaultKilledToKilledGapDays
 	}
 	if out.KidBoosterMinGapDays <= 0 {
-		out.KidBoosterMinGapDays = 21
+		out.KidBoosterMinGapDays = DefaultKidBoosterMinGapDays
 	}
 	if out.MaxVaccinesPerComboSession <= 0 {
-		out.MaxVaccinesPerComboSession = 2
+		out.MaxVaccinesPerComboSession = DefaultMaxVaccinesPerComboSession
 	}
-	if out.MaxVaccinesPerComboSession > 2 {
-		out.MaxVaccinesPerComboSession = 2
+	if out.MaxVaccinesPerComboSession > DefaultMaxVaccinesPerComboSession {
+		out.MaxVaccinesPerComboSession = DefaultMaxVaccinesPerComboSession
 	}
 	return out
 }

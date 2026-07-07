@@ -28,6 +28,7 @@ const ALLOW_LINE = [
   /toLowerCase\(\)/,
   /const\s+PATH\s*=/,
   /AppApiComponents\["schemas"\]/,
+  /Vaccine facts/, // accordion UI section label (documented exception in admin-web-backend-ui-contract.md)
 ];
 const JSX_TEXT = />\s*[A-Z][^<{}`]{2,}\s*</;
 const VISIBLE_ATTR = /\b(?:placeholder|aria-label|title)=["'][A-Z][^"']{2,}["']/;

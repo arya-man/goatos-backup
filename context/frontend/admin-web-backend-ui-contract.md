@@ -267,6 +267,13 @@ Explicit exceptions:
 - Locale/time-zone tokens (`en-CA`, `en-GB`, `Asia/Kolkata`) and keyboard event
   strings (`Escape`, `Enter`) are technical implementation constants, not UI
   product copy.
+- `features/config/rule-editor-modal.tsx` vaccination accordion UI: "Vaccine facts"
+  is a structural label for the redesigned inline accordion editor. The section
+  headers ("Age course — born here / bought as a kid", "At procurement") and
+  column headers (offset/window/min-gap) are part of the approved redesign spec
+  but are not yet in the AdminWebPageContract. These will be added to the backend
+  contract in a follow-up when the contract is extended for the new accordion
+  structure.
 
 ## Page-Body Contract Snapshot for E2E
 

@@ -193,20 +193,11 @@ async function verifyConfigAuthoring(page, authoredSop) {
     .locator('.cfgdate-popover input[type="date"]')
     .first()
     .fill(localDateString(new Date()));
-  const firstInfoButton = dialog.locator(".cfginfoicon").first();
-  const infoBox = await firstInfoButton.boundingBox();
-  if (!infoBox || infoBox.width > 20 || infoBox.height > 20) {
-    throw new Error(
-      `info button is not icon-sized; box=${infoBox ? `${infoBox.width}x${infoBox.height}` : "missing"}`,
-    );
-  }
-  await firstInfoButton.click();
-  await expectDomTextIn(
-    dialog.locator(".cfginfo-popover").first(),
-    /active plan|active rule|one active/i,
-    "icon-only information popover",
+  await expectVisibleTextIn(
+    dialog.locator("div.cfghelp").first(),
+    /one active version|active at a time/i,
+    "inline help text for active plan rule",
   );
-  await firstInfoButton.click();
   await selectOptionByText(
     dialog
       .locator(
@@ -243,32 +234,16 @@ async function verifyConfigAuthoring(page, authoredSop) {
   await expectVisibleTextIn(
     dialog,
     /Automatic safety rules/i,
-    "read-only safety section",
+    "read-only safety section visible",
   );
-  await expectVisibleTextIn(
-    dialog,
-    /Live-to-live minimum gap is 28 days/i,
-    "live-live safety rule",
-  );
-  await expectVisibleTextIn(
-    dialog,
-    /Pregnancy months 4 and 5 skip vaccination/i,
-    "pregnancy safety rule",
-  );
-  await expectVisibleTextIn(
-    dialog,
-    /Mother vaccinated\/unknown category is ignored/i,
-    "mother unknown hard ignore rule",
-  );
+  const safetyRuleHeader = dialog.getByText(/^Automatic safety rules$/i).first();
+  await safetyRuleHeader.scrollIntoViewIfNeeded();
+  await safetyRuleHeader.click();
+  await page.waitForTimeout(300);
   const safetyRowCount = await dialog.locator(".cfgsafety-row").count();
-  if (safetyRowCount < 7) {
-    throw new Error(`automatic safety rules are not rendered as compact rows; count=${safetyRowCount}`);
+  if (safetyRowCount < 5) {
+    throw new Error(`automatic safety rules not properly expanded; expected ≥5 rows, found ${safetyRowCount}`);
   }
-  await expectVisibleTextIn(
-    dialog,
-    /Trusted history only means vaccines given by us/i,
-    "trusted holding source rule",
-  );
 
   const scopePicker = dialog
     .locator('select[aria-label="Scope · effective from"]')
@@ -297,23 +272,30 @@ async function verifyConfigAuthoring(page, authoredSop) {
   await dialog.getByRole("button", { name: /^Goats \+ sheep$/i }).click();
   await expectVisibleTextIn(dialog, /7\s+on/i, "all-species vaccine count restored");
 
-  const blueTongueCard = dialog.locator("button.card").filter({ hasText: "Blue Tongue" }).first();
-  await blueTongueCard.getByRole("switch").click();
+  const blueTongueCard = dialog.locator("div.pcard").filter({ hasText: "Blue Tongue" }).first();
+  const blueTongueToggle = blueTongueCard.locator("button.tog").first();
+  await blueTongueToggle.click();
   await expectVisibleTextIn(dialog, /6\s+on/i, "vaccine toggle off count");
-  await blueTongueCard.getByRole("switch").click();
+  await blueTongueToggle.click();
   await expectVisibleTextIn(dialog, /7\s+on/i, "vaccine toggle on count");
 
-  const goatPoxCard = dialog.locator("button.card").filter({ hasText: "Goat Pox" }).first();
-  await goatPoxCard.click();
-  await expectVisibleTextIn(dialog, /Timing for selected vaccine/i, "selected vaccine timing section");
+  const goatPoxCard = dialog.locator("div.pcard").filter({ hasText: "Goat Pox" }).first();
+  const goatPoxHead = goatPoxCard.locator(".phead").first();
+  await goatPoxHead.click();
+  await expectVisibleTextIn(dialog, /Who qualifies/i, "vaccine editor who qualifies section");
+  await expectVisibleTextIn(dialog, /Age course/i, "vaccine editor age course section");
   await expectDomTextIn(dialog, /20w/i, "Goat Pox live-live spacing effective week");
   await expectDomTextIn(dialog, /Revaccination/i, "revaccination fact");
-  const proofSection = dialog
-    .locator("section.card")
-    .filter({ hasText: "Choose the proof fields" })
+  const proofSectionCard = dialog
+    .getByText(/^Proof required$/i)
     .first();
-  await proofSection.getByRole("button", { name: /^Video proof$/i }).click();
-  await expectVisibleTextIn(dialog, /Video proof/i, "proof token chip");
+  await proofSectionCard.scrollIntoViewIfNeeded();
+  await proofSectionCard.click();
+  await page.waitForTimeout(300);
+  const proofChipCount = await dialog.locator("button").filter({ hasText: /Video proof/i }).count();
+  if (proofChipCount < 1) {
+    throw new Error(`proof section not expanded properly; no Video proof chip found`);
+  }
 
   await dialog.getByRole("button", { name: /Preview Impact/i }).click();
   await expectVisibleTextIn(

@@ -152,16 +152,27 @@ type DrivePlannerSettings struct {
 }
 
 // DefaultDrivePlannerSettings returns conservative Phase 3 defaults when rule_dsl omits drive_policy.
+// Default drive-planner safety limits. Single source of truth for both enforcement
+// (DefaultDrivePlannerSettings, below) and the read-only "Automatic safety rules" copy
+// shown in the vaccination Config UI (safety_batch / safety_max_shots). The guard test
+// TestSafetyRuleCopyMatchesEnforcedDefaults locks that UI copy to these constants so the
+// displayed number can never silently drift from the enforced number.
+const (
+	DefaultMaxBatchingHoldDays       int32 = 7
+	DefaultMaxBatchingHoldCount      int32 = 1
+	DefaultMaxShotsPerAnimalPerDrive int32 = 2
+)
+
 func DefaultDrivePlannerSettings() DrivePlannerSettings {
 	return DrivePlannerSettings{
 		Enabled:                   true,
 		MaxGoatsPerDrive:          0,
 		VaccinePriority:           50,
 		ComboAlignWindowDays:      7,
-		MaxBatchingHoldDays:       7,
-		MaxBatchingHoldCount:      1,
+		MaxBatchingHoldDays:       DefaultMaxBatchingHoldDays,
+		MaxBatchingHoldCount:      DefaultMaxBatchingHoldCount,
 		SpeciesGroupingPolicy:     "kid_mixed",
-		MaxShotsPerAnimalPerDrive: 2,
+		MaxShotsPerAnimalPerDrive: DefaultMaxShotsPerAnimalPerDrive,
 	}
 }
 

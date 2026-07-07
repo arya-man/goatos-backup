@@ -2636,11 +2636,11 @@ func configOptionGroups() []domain.OptionGroup {
 		{
 			ID: "trigger_types",
 			Options: []domain.Option{
-				option("birth_age", "birth_age", "", ""),
-				option("post_arrival", "post_arrival", "", ""),
-				option("calendar", "calendar", "", ""),
-				option("after_previous_completion", "after_previous_completion", "", ""),
-				option("manual_campaign", "manual_campaign", "", ""),
+				option("birth_age", "birth / age", "Count from the animal's date of birth — for farm-born kids (needs a known DOB).", ""),
+				option("post_arrival", "herd entry (procured)", "Count from when a bought-in animal arrived on our farm, after the 7-day warmup hold.", ""),
+				option("calendar", "calendar (fixed date)", "Same calendar date for every animal regardless of age — a seasonal or annual whole-herd drive.", ""),
+				option("after_previous_completion", "after previous dose", "Count from when the previous dose was actually given — how boosters work.", ""),
+				option("manual_campaign", "manual campaign", "Never fires automatically; only when a manager launches a drive by hand (ad-hoc / outbreak).", ""),
 			},
 		},
 		{
