@@ -57,7 +57,7 @@ type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
 	DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, applied bool, err error)
 	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obldomain.RecoveryReschedule) (obligationID string, changed bool, err error)
-	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, shedID, parkID string, from, to time.Time) (*time.Time, error)
+	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, vaccineCode, shedID, parkID string, from, to time.Time) (*time.Time, error)
 	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
 	CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error)
 	CancelOpenVaccinationObligationsForGoatVersion(ctx context.Context, tenantID, goatID, protocolVersionID, reason string, occurredAt time.Time) (int, error)
@@ -937,7 +937,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
 		}
-		nearbyMissedDrive, err := s.nearbyMissedDoseDriveDate(ctx, tenantID, versionID, rule, g, baseDue, asOf, policies.MissedDose)
+		nearbyMissedDrive, err := s.nearbyMissedDoseDriveDate(ctx, tenantID, versionID, rule, ruleVaccine, g, baseDue, asOf, policies.MissedDose)
 		if err != nil {
 			return err
 		}
@@ -1231,7 +1231,7 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, ruleVaccine vaccineProfile, g domain.EligibleGoat, asOf time.Time, recovery genRecoveryPolicy, compatibility genCompatibilityPolicy, vaccineHistory []domain.RecentVaccineAdministration) (*obldomain.RecoveryReschedule, error) {
 	from := businessDayStart(asOf)
 	to := from.AddDate(0, 0, int(recovery.alignDays()))
-	nearby, err := s.obl.FindNearestPlannedBatchDate(ctx, tenantID, versionID, rule.RuleID, g.ShedID, g.ParkID, from, to)
+	nearby, err := s.obl.FindNearestPlannedBatchDate(ctx, tenantID, versionID, rule.RuleID, ruleVaccine.Code, g.ShedID, g.ParkID, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -1246,7 +1246,7 @@ func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenan
 	}, nil
 }
 
-func (s *GenerationService) nearbyMissedDoseDriveDate(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, due, asOf time.Time, policy genMissedDosePolicy) (*time.Time, error) {
+func (s *GenerationService) nearbyMissedDoseDriveDate(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, ruleVaccine vaccineProfile, g domain.EligibleGoat, due, asOf time.Time, policy genMissedDosePolicy) (*time.Time, error) {
 	if rule.DueWindowDays <= 0 {
 		return nil, nil
 	}
@@ -1261,7 +1261,7 @@ func (s *GenerationService) nearbyMissedDoseDriveDate(ctx context.Context, tenan
 	}
 	from := businessDayStart(asOf)
 	to := from.AddDate(0, 0, int(policy.alignDays()))
-	return s.obl.FindNearestPlannedBatchDate(ctx, tenantID, versionID, rule.RuleID, g.ShedID, g.ParkID, from, to)
+	return s.obl.FindNearestPlannedBatchDate(ctx, tenantID, versionID, rule.RuleID, ruleVaccine.Code, g.ShedID, g.ParkID, from, to)
 }
 
 func inCare(lifecycle string) bool {

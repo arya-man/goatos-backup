@@ -7,17 +7,6 @@ import (
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 )
 
-// vaccineComboSession maps a vaccine code to its approved same-day combo session (deterministic).
-// Each session bundles at most MaxVaccinesPerComboSession distinct vaccine products per visit.
-var vaccineComboSession = map[string]string{
-	"et+tt":       "combo:ET+TT+PPR",
-	"ppr":         "combo:PPR+Blue Tongue",
-	"blue tongue": "combo:PPR+Blue Tongue",
-	"sheep pox":   "combo:Sheep Pox+Blue Tongue",
-	"fmd":         "combo:FMD+HS",
-	"hs":          "combo:FMD+HS",
-}
-
 // approvedDriveCombos lists PDF/source-approved same-day bundles for cross-version date alignment.
 var approvedDriveCombos = map[string][]string{
 	"FMD+HS":                {"FMD", "HS"},
@@ -33,10 +22,12 @@ func VaccineMatrixPriority(vaccineCode string) int32 {
 		return 1
 	case "ppr":
 		return 2
-	case "goat pox", "sheep pox", "blue tongue":
+	case "goat pox", "sheep pox":
 		return 3
-	case "fmd", "hs":
+	case "blue tongue":
 		return 4
+	case "fmd", "hs":
+		return 5
 	default:
 		return 0
 	}

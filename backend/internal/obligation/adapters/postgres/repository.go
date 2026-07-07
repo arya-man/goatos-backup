@@ -572,9 +572,9 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 	return obligationID, true, nil
 }
 
-// FindNearestPlannedBatchDate returns the earliest planned drive date for a rule in the goat's shed or
+// FindNearestPlannedBatchDate returns the earliest compatible planned drive date in the goat's shed or
 // park within [from, to], used to align recovered sick goats to a nearby vaccination drive.
-func (r *Repository) FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, shedID, parkID string, from, to time.Time) (*time.Time, error) {
+func (r *Repository) FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, vaccineCode, shedID, parkID string, from, to time.Time) (*time.Time, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -598,11 +598,14 @@ func (r *Repository) FindNearestPlannedBatchDate(ctx context.Context, tenantID, 
 			return nil, fmt.Errorf("obligation: park id: %w", err)
 		}
 	}
-	session := pgconv.Text("rule:" + ruleID)
+	sessions := domain.CompatiblePlannedBatchSessions(ruleID, vaccineCode)
+	if len(sessions) == 0 {
+		return nil, nil
+	}
 	planned, err := r.queries.FindNearestPlannedBatchDate(ctx, obligationdb.FindNearestPlannedBatchDateParams{
 		TenantID:          tenant,
 		ProtocolVersionID: version,
-		Session:           session,
+		Sessions:          sessions,
 		FromDate:          pgconv.Date(&from),
 		ToDate:            pgconv.Date(&to),
 		ShedID:            shedUUID,

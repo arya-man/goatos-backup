@@ -38,8 +38,17 @@ func TestVaccineMatrixPriority(t *testing.T) {
 	if got := VaccineMatrixPriority("Goat Pox"); got != 3 {
 		t.Fatalf("Goat Pox priority = %d, want 3", got)
 	}
-	if got := VaccineMatrixPriority("FMD"); got != 4 {
-		t.Fatalf("FMD priority = %d, want 4", got)
+	if got := VaccineMatrixPriority("Sheep Pox"); got != 3 {
+		t.Fatalf("Sheep Pox priority = %d, want 3", got)
+	}
+	if got := VaccineMatrixPriority("Blue Tongue"); got != 4 {
+		t.Fatalf("Blue Tongue priority = %d, want 4", got)
+	}
+	if got := VaccineMatrixPriority("FMD"); got != 5 {
+		t.Fatalf("FMD priority = %d, want 5", got)
+	}
+	if got := VaccineMatrixPriority("HS"); got != 5 {
+		t.Fatalf("HS priority = %d, want 5", got)
 	}
 }
 

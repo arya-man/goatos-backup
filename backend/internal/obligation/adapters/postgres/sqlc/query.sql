@@ -102,12 +102,12 @@ WHERE tenant_id = @tenant_id AND scope_type = @scope_type
   AND scope_id = @scope_id AND status = @status;
 
 -- name: FindNearestPlannedBatchDate :one
--- Sick-recovery align: earliest planned drive for this rule in shed or park within the align window.
+-- Sick-recovery align: earliest compatible planned drive in shed or park within the align window.
 SELECT b.planned_date
 FROM obligation_batches b
 WHERE b.tenant_id = @tenant_id
   AND b.protocol_version_id = @protocol_version_id
-  AND b.session = @session
+  AND b.session = ANY(@sessions::text[])
   AND b.status = 'planned'
   AND b.planned_date >= @from_date::date
   AND b.planned_date <= @to_date::date

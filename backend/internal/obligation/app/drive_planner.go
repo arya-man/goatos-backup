@@ -44,21 +44,11 @@ func normalizedDrivePlannerSettings(cfg domain.DrivePlannerSettings, vaccineCode
 }
 
 func comboSessionKey(vaccineCode string) string {
-	code := strings.ToLower(strings.TrimSpace(vaccineCode))
-	if code == "" {
-		return ""
-	}
-	return vaccineComboSession[code]
+	return domain.VaccineComboSession(vaccineCode)
 }
 
 func batchSession(ruleID, vaccineCode string) string {
-	if session := comboSessionKey(vaccineCode); session != "" {
-		return session
-	}
-	if ruleID == "" {
-		return ""
-	}
-	return "rule:" + ruleID
+	return domain.BatchSession(ruleID, vaccineCode)
 }
 
 func sweepWindowGroupKey(r domain.UnbatchedDue, speciesPolicy string) string {

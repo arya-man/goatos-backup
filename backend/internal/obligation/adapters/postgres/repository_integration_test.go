@@ -108,6 +108,47 @@ func TestObligationInsertIsIdempotent(t *testing.T) {
 	_ = obligationID
 }
 
+func TestFindNearestPlannedBatchDateUsesCompatibleComboSession(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+	unrelated := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+	compatible := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
+	for _, batch := range []domain.NewBatch{
+		{
+			TenantID: tenantID, ProtocolVersionID: versionID, ScopeType: "park", ScopeID: cbePark,
+			Session: "combo:PPR+Blue Tongue", PlannedDate: &unrelated, Status: "planned",
+			EstimatedTargets: 1, PlannedQuantity: "1", QuantityUnit: "dose",
+		},
+		{
+			TenantID: tenantID, ProtocolVersionID: versionID, ScopeType: "park", ScopeID: cbePark,
+			Session: "combo:FMD+HS", PlannedDate: &compatible, Status: "planned",
+			EstimatedTargets: 1, PlannedQuantity: "1", QuantityUnit: "dose",
+		},
+	} {
+		if _, err := repo.CreateBatch(ctx, batch); err != nil {
+			t.Fatalf("create planned batch %s: %v", batch.Session, err)
+		}
+	}
+
+	got, err := repo.FindNearestPlannedBatchDate(ctx, tenantID, versionID, ruleID, "FMD", "", cbePark,
+		time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 8, 0, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("find nearest planned batch: %v", err)
+	}
+	if got == nil || !got.Equal(compatible) {
+		t.Fatalf("nearest planned batch = %v, want compatible combo date %s", got, compatible)
+	}
+}
+
 func TestObligationInsertReopensCanceledSameKey(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

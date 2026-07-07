@@ -835,7 +835,7 @@ func TestGoatRecheckHandlerAlignsRecoveredGoatToNearbyDrive(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
-		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","defer_states":["sick"]},"recovery_policy":{"max_nearby_drive_align_days":7}}`),
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD"},"eligibility":{"animal_stage":"K1","defer_states":["sick"]},"recovery_policy":{"max_nearby_drive_align_days":7}}`),
 		rules:   []protodomain.Rule{{RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21, DueWindowDays: 7}},
 	}
 	goats := &generationGoatFake{goat: domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "sick", Stage: "K1", DOB: &dob, ShedID: "shed-1", ParkID: "park-1"}}
@@ -858,6 +858,14 @@ func TestGoatRecheckHandlerAlignsRecoveredGoatToNearbyDrive(t *testing.T) {
 	wantDue := businessDayStart(time.Date(2026, time.June, 5, 0, 0, 0, 0, time.UTC))
 	if !obl.inserted[0].DueAt.Equal(wantDue) {
 		t.Fatalf("aligned due=%v, want nearby drive %v", obl.inserted[0].DueAt, wantDue)
+	}
+	if len(obl.nearestBatchLookups) == 0 {
+		t.Fatalf("nearest planned batch lookups = %#v, want recovery lookup", obl.nearestBatchLookups)
+	}
+	for _, lookup := range obl.nearestBatchLookups {
+		if lookup.vaccineCode != "FMD" {
+			t.Fatalf("nearest planned batch lookup = %#v, want FMD vaccine code", lookup)
+		}
 	}
 }
 
@@ -1862,9 +1870,17 @@ type generationObligationFake struct {
 	canceledExceptVersions [][]string
 	cancelReasons          []string
 	nearbyDrive            *time.Time
+	nearestBatchLookups    []nearestBatchLookup
 	failOnceAfterInserted  int
 	failErr                error
 	failed                 bool
+}
+
+type nearestBatchLookup struct {
+	ruleID      string
+	vaccineCode string
+	shedID      string
+	parkID      string
 }
 
 func (o *generationObligationFake) InsertObligation(_ context.Context, in obldomain.NewObligation) (string, bool, error) {
@@ -1923,7 +1939,13 @@ func (o *generationObligationFake) ReopenDeferredObligationByIdempotencyKey(_ co
 	return "obligation-1", true, nil
 }
 
-func (o *generationObligationFake) FindNearestPlannedBatchDate(_ context.Context, _, _, _, _, _ string, _, _ time.Time) (*time.Time, error) {
+func (o *generationObligationFake) FindNearestPlannedBatchDate(_ context.Context, _, _, ruleID, vaccineCode, shedID, parkID string, _, _ time.Time) (*time.Time, error) {
+	o.nearestBatchLookups = append(o.nearestBatchLookups, nearestBatchLookup{
+		ruleID:      ruleID,
+		vaccineCode: vaccineCode,
+		shedID:      shedID,
+		parkID:      parkID,
+	})
 	return o.nearbyDrive, nil
 }
 

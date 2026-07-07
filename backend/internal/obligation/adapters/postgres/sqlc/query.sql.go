@@ -43,7 +43,7 @@ SELECT b.planned_date
 FROM obligation_batches b
 WHERE b.tenant_id = $1
   AND b.protocol_version_id = $2
-  AND b.session = $3
+  AND b.session = ANY($3::text[])
   AND b.status = 'planned'
   AND b.planned_date >= $4::date
   AND b.planned_date <= $5::date
@@ -58,19 +58,19 @@ LIMIT 1
 type FindNearestPlannedBatchDateParams struct {
 	TenantID          pgtype.UUID
 	ProtocolVersionID pgtype.UUID
-	Session           pgtype.Text
+	Sessions          []string
 	FromDate          pgtype.Date
 	ToDate            pgtype.Date
 	ShedID            pgtype.UUID
 	ParkID            pgtype.UUID
 }
 
-// Sick-recovery align: earliest planned drive for this rule in shed or park within the align window.
+// Sick-recovery align: earliest compatible planned drive in shed or park within the align window.
 func (q *Queries) FindNearestPlannedBatchDate(ctx context.Context, arg FindNearestPlannedBatchDateParams) (pgtype.Date, error) {
 	row := q.db.QueryRow(ctx, findNearestPlannedBatchDate,
 		arg.TenantID,
 		arg.ProtocolVersionID,
-		arg.Session,
+		arg.Sessions,
 		arg.FromDate,
 		arg.ToDate,
 		arg.ShedID,

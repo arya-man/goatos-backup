@@ -393,7 +393,7 @@ func (f *boosterObligationWriterFake) ReopenDeferredObligationByIdempotencyKey(c
 	return "", false, nil
 }
 
-func (f *boosterObligationWriterFake) FindNearestPlannedBatchDate(context.Context, string, string, string, string, string, time.Time, time.Time) (*time.Time, error) {
+func (f *boosterObligationWriterFake) FindNearestPlannedBatchDate(context.Context, string, string, string, string, string, string, time.Time, time.Time) (*time.Time, error) {
 	return nil, nil
 }
 
