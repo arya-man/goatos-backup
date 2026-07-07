@@ -50,6 +50,7 @@ import {
   type AdminUiOption,
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
+import { todayIso } from "@/lib/format";
 
 type SourceVaccinePreset = {
   code: string;
@@ -546,9 +547,7 @@ export function RuleEditorModal({
     ) {
       return new Date(year, month - 1, day);
     }
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return today;
+    return parseLocalDate(todayIso());
   }
 
   function calendarMonthLabel(): string {
@@ -568,7 +567,7 @@ export function RuleEditorModal({
     const monthStart = new Date(selected.getFullYear(), selected.getMonth(), 1);
     const gridStart = new Date(monthStart);
     gridStart.setDate(monthStart.getDate() - monthStart.getDay());
-    const todayValue = localDateValue(new Date());
+    const todayValue = todayIso();
     return Array.from({ length: 42 }, (_, index) => {
       const date = new Date(gridStart);
       date.setDate(gridStart.getDate() + index);

@@ -307,6 +307,11 @@ Do:
   `idempotency_key = EXCLUDED.idempotency_key` is not sufficient when later code
   can still mutate state. Tests must cover first call, exact replay, same-key
   different-payload replay, and downstream duplicate prevention.
+- Treat Goat OS time semantics as India-business-calendar semantics. Physical
+  storage may use `timestamptz`/absolute instants, but every business meaning
+  derived from those instants — scheduling, due/missed buckets, reminder keys,
+  reporting groups, audit-log display, and UI labels — must convert to
+  `Asia/Kolkata` first. UTC must never define a Goat OS business day.
 - For dashboards or reports that slice data by month, date, breed, farm, shed,
   load, category, status, gender, operator, source, or similar dimensions, use
   the canonical rule in `docs/decisions/high-scale-dashboard-projections.md`

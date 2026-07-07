@@ -3,6 +3,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Clock, Info, Plus } from "luci
 import { actionFeedbackCopy, copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, hrefWithoutAction, hrefWithPagedCursor, hrefPreviousPagedCursor, boundedInt, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref, type Scope } from "@/lib/scope";
+import { fmtDate as fmtIstDate, todayIso } from "@/lib/format";
 import { Tag } from "@/components/ui-primitives";
 import {
   activeEscalationState,
@@ -37,7 +38,7 @@ function weekdayOf(iso: string): string {
 
 // Business "today" in the operating-tenant timezone (IST). Used for the month highlight + agenda "TODAY".
 function istToday(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  return todayIso();
 }
 
 // First/last calendar day of the month an anchor date (YYYY-MM-DD) falls in. Deterministic (args-only Date).
@@ -59,7 +60,7 @@ function dateKey(iso: string): string {
   // Bucket by IST calendar day (events carry an absolute instant; group by the day they fall on in IST).
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(d);
+  return fmtIstDate(iso);
 }
 
 function dateHeading(key: string, today: string, pageContract: AdminUiPageContract): string {

@@ -14,6 +14,7 @@ import { Tag, type Tone } from "@/components/ui-primitives";
 import type { LocationOption } from "@/lib/api/herd-locations";
 import type { AdminGoatBulkResponse, CreateAdminGoatRequest } from "@/lib/api/server";
 import { copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { todayIso } from "@/lib/format";
 import {
   commitGoatsAction,
   commitShedsAction,
@@ -30,11 +31,6 @@ export type HerdAnimalStageOption = {
   code: string;
   label: string;
 };
-
-function todayISO(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
 
 function contractTone(pageContract: AdminUiPageContract, groupId: string, key: string): Tone {
   return optionTone(pageContract, groupId, key) as Tone;
@@ -407,7 +403,7 @@ function RegisterGoatDrawer({
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 150 }}>
             <label htmlFor="rg_entry">{copy(pageContract, "field.entry_date_required")}</label>
-            <input id="rg_entry" name="entry_date" type="date" defaultValue={todayISO()} required />
+            <input id="rg_entry" name="entry_date" type="date" defaultValue={todayIso()} required />
           </div>
         </Row>
         <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 12.5 }}>

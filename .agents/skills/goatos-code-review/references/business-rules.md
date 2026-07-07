@@ -82,6 +82,11 @@ default in migrations/config). Reviewer checks:
       medical day boundary are a finding.
 - [ ] A dose due "on day N" in `Asia/Kolkata` is not marked missed/early by a
       worker running in UTC crossing midnight differently.
+- [ ] Audit/event timestamps stored as `timestamptz` are converted to
+      `Asia/Kolkata` before any operator-facing display, business-date filter,
+      reminder key, due bucket, calendar grouping, or report dimension is
+      computed. UTC is a physical instant representation, never the Goat OS
+      business calendar.
 
 ### Forbidden — never accept:
 - [ ] **Mother-vaccination status as a scheduling input** — explicitly rejected

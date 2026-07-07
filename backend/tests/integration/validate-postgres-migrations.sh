@@ -20,6 +20,40 @@ run_psql() {
   postgres_ci_psql "$container_name" "$db_user" "$db_name" "$@"
 }
 
+validate_goose_structure() {
+  local duplicate_versions
+  duplicate_versions="$(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' \
+    | awk -F/ '{print $NF}' \
+    | sed -E 's/^([0-9]+)_.*/\1/' \
+    | sort \
+    | uniq -d)"
+  if [[ -n "$duplicate_versions" ]]; then
+    echo "Duplicate migration version(s) detected:" >&2
+    while IFS= read -r version; do
+      [[ -z "$version" ]] && continue
+      find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name "${version}_*.sql" \
+        -exec basename {} \; | sort >&2
+    done <<<"$duplicate_versions"
+    exit 1
+  fi
+
+  local migration up_count down_count up_line down_line
+  while IFS= read -r migration; do
+    up_count="$(grep -cE '^-- \+goose Up[[:space:]]*$' "$migration" || true)"
+    down_count="$(grep -cE '^-- \+goose Down[[:space:]]*$' "$migration" || true)"
+    if [[ "$up_count" -ne 1 || "$down_count" -ne 1 ]]; then
+      echo "$(basename "$migration"): expected exactly one -- +goose Up and one -- +goose Down marker" >&2
+      exit 1
+    fi
+    up_line="$(grep -nE '^-- \+goose Up[[:space:]]*$' "$migration" | cut -d: -f1)"
+    down_line="$(grep -nE '^-- \+goose Down[[:space:]]*$' "$migration" | cut -d: -f1)"
+    if (( up_line >= down_line )); then
+      echo "$(basename "$migration"): -- +goose Up must appear before -- +goose Down" >&2
+      exit 1
+    fi
+  done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
+}
+
 apply_goose_up() {
   local migration="$1"
   awk '
@@ -41,6 +75,8 @@ expect_failure() {
 
   echo "Expected failure observed: $label"
 }
+
+validate_goose_structure
 
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \

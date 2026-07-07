@@ -45,6 +45,7 @@ type config struct {
 }
 
 var errRecoveryRepairPartialFailures = errors.New("vaccination recovery repair completed with failed goats")
+var errStuckRecoverableDeferred = errors.New("vaccination recovery repair left stale recoverable deferred goats")
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -97,6 +98,9 @@ func run(args []string) error {
 		}
 		if repairErr != nil {
 			return withExitCode(exitCodePartialFailure, fmt.Errorf("vaccination recovery repair: %w", repairErr))
+		}
+		if stuck > 0 {
+			return withExitCode(exitCodePartialFailure, fmt.Errorf("%w: stuck_recoverable_deferred=%d older_than=%s", errStuckRecoverableDeferred, stuck, cfg.RecoveryRepairAge))
 		}
 		return nil
 	}

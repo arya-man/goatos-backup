@@ -4,6 +4,7 @@ import { ConfigConsole, type ConfigRuleRow } from "./config-console";
 import { type AnimalStageOption, type SopVersionOption } from "./rule-dsl";
 import { getProtocolVersion, listAnimalStages, listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
 import { control, copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { fmtDate as fmtIstDate } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 
 // The generic CEO/COO authoring surface (obligation-engine §2.1 config-UI contract). One Config screen
@@ -17,7 +18,7 @@ function resolveCategory(category: string, pageContract: AdminUiPageContract): s
 }
 
 function fmtDate(iso: string | null | undefined, pageContract: AdminUiPageContract): string {
-  return iso ? iso.slice(0, 10) : copy(pageContract, "label.placeholder");
+  return iso ? fmtIstDate(iso) : copy(pageContract, "label.placeholder");
 }
 
 function shortId(id: string | null | undefined, pageContract: AdminUiPageContract): string {

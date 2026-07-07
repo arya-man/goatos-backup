@@ -26,6 +26,7 @@ import {
   Zap,
 } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { todayIso } from "@/lib/format";
 import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
 import type { AdminWebBootstrapResponse } from "@/lib/api/server";
 
@@ -55,13 +56,6 @@ function badgeForKey(key: string, actionCenterBadge?: string, pcBadge?: string):
   if (key === "action_center_open_work") return actionCenterBadge;
   if (key === "pc_open_work") return pcBadge;
   return undefined;
-}
-
-// Business date for the top bar. MUST be the operating-tenant timezone (IST, Asia/Kolkata) — using UTC
-// (`toISOString`) shows yesterday after midnight IST (e.g. 00:12 IST = previous UTC day). en-CA gives a
-// YYYY-MM-DD string; it's stable within an IST day so SSR and hydration agree.
-function todayIso(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
 }
 
 function shellCopy(contract: AdminWebBootstrapResponse, key: string): string {

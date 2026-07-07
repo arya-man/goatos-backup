@@ -76,3 +76,10 @@ func TestExitCodeForPartialFailure(t *testing.T) {
 		t.Fatalf("exitCodeForError(nil)=%d, want 0", got)
 	}
 }
+
+func TestStuckRecoverableDeferredUsesPartialFailureExit(t *testing.T) {
+	err := withExitCode(exitCodePartialFailure, errStuckRecoverableDeferred)
+	if got := exitCodeForError(err); got != exitCodePartialFailure {
+		t.Fatalf("exitCodeForError(stuck recoverable deferred)=%d, want %d", got, exitCodePartialFailure)
+	}
+}

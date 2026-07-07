@@ -21,6 +21,7 @@ import {
   type RuleInput,
   type VaccinationMatrixRow,
 } from "./rule-dsl";
+import { istBusinessDayStartInstantIso, todayIso } from "@/lib/format";
 
 export interface ActionResult {
   ok: boolean;
@@ -72,9 +73,7 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
   const ruleDsl = buildRuleDsl(input);
   const proofPolicy = buildProofPolicy(input);
   const { type: scopeType, id: scopeId } = parseScope(input.scope);
-  const effectiveFrom = new Date(
-    `${input.effectiveFrom || new Date().toISOString().slice(0, 10)}T00:00:00Z`,
-  ).toISOString();
+  const effectiveFrom = istBusinessDayStartInstantIso(input.effectiveFrom || todayIso());
   // Version-level sop_version_id (real published SOP UUID) + non-empty proof_policy are required by the
   // backend executable-contract gate (publish.go ValidateExecutionContract). Passing them here lets
   // a complete draft publish instead of failing the execution-contract check.
@@ -184,9 +183,7 @@ export async function saveDraftBatch(
   const ruleDsl = buildVaccinationMatrixPreview(input, rows);
   const proofPolicy = buildMatrixProofPolicy(protocolRows);
   const { type: scopeType, id: scopeId } = parseScope(input.scope);
-  const effectiveFrom = new Date(
-    `${input.effectiveFrom || new Date().toISOString().slice(0, 10)}T00:00:00Z`,
-  ).toISOString();
+  const effectiveFrom = istBusinessDayStartInstantIso(input.effectiveFrom || todayIso());
   const versionBody = {
     scope_type: scopeType,
     scope_id: scopeId ?? undefined,

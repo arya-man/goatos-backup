@@ -249,12 +249,15 @@ TTL (illustratively ~15 min — verify `defaultSignedURLTTL` in
       timezone and not raw UTC. A local-vs-UTC mismatch shifts "due today",
       "missed", recovery, and drive-planned dates across a day boundary.
 - [ ] Business dates use `platform/biztime` or an explicit animal/location
-      timezone. Raw UTC may appear only for non-calendar instants such as
-      persisted audit/event storage, retention cutoffs, and event-key
-      normalization. A sweeper or scheduler using `.UTC().Date()` or
-      `time.Now().UTC()` to decide a medical/business day is a finding. Convert
-      the instant to the animal/location timezone first, then take the calendar
-      day.
+      timezone. Physical storage may use `timestamptz`/absolute instants, but
+      every business meaning derived from those instants — scheduling, due/missed
+      buckets, reminder keys, reporting groups, audit-log display, and UI labels
+      — must convert to Goat OS' `Asia/Kolkata` calendar first. Raw UTC may appear
+      only for non-calendar instant storage, retention cutoffs, and deterministic
+      instant normalization. A sweeper, scheduler, report, audit surface, or UI
+      formatter using `.UTC().Date()`, `toISOString().slice(0, 10)`, browser-local
+      time, or `time.Now().UTC()` to decide/display a Goat OS business day is a
+      finding.
 - [ ] No naive `time.Now()` in local time where the animal/location timezone or a
       stored instant is required; no assumption that the server timezone equals
       the tenant/location timezone.
