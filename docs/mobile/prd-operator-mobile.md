@@ -134,6 +134,11 @@ Full per-screen contract in [screens.md](screens.md).
 - **Deterministic skips**: not-due animals in a shed are skipped with a reason
   (quarantine/ICU, not in today's set, under treatment, pregnant hold) and stay
   visible; eligibility comes from the obligation engine, not the operator.
+- **Multi-sensory scan feedback**: every scan gives immediate non-visual feedback
+  so the operator need not watch the screen — eligible = single buzz + soft
+  confirm tone; **a not-due (red) hit = a stronger double-buzz AND an audible
+  alert tone**. Operators scan one-handed with the reader; the not-due case must
+  be unmistakable by feel and by sound.
 - **Coverage honesty**: "N data gaps" surfaces animals excluded from coverage %
   (missing DOB/breed/tag); nothing is faked to look complete.
 - **Buffer**: overdue within a 1-week buffer is recoverable by reschedule; beyond
@@ -154,7 +159,8 @@ localized. See design-system i18n section.
   performance doc).
 - **Offline-first**: a full drive must run with no connectivity and sync later.
 - **Hardware**: Bluetooth UHF RFID handheld (Chainway-class), phone camera for
-  video proof, vibration feedback.
+  video proof, vibration motor **and speaker** — scan feedback is both haptic and
+  audible (a distinct alert tone on a not-due hit).
 - **Auditability**: every recorded dose becomes a verifiable shed record with
   proof; every write is idempotent.
 
@@ -165,7 +171,8 @@ localized. See design-system i18n section.
 - Time-to-record per animal ≤ mock's tap flow (no extra taps).
 - Crash-free sessions ≥ 99.5% on target low-end devices (Crashlytics).
 - Cold start ≤ 2.5 s and scan-tap-to-feedback ≤ 120 ms on target devices
-  (Firebase Performance).
+  (Firebase Performance); a not-due scan fires a distinct haptic + audible alert
+  within that budget.
 - Leadership sees a submitted shed reflected in coverage within the sync SLA.
 - Coverage % never silently excludes animals — data gaps always surfaced.
 

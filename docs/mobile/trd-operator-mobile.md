@@ -43,6 +43,7 @@ the app README with the reason, matching the admin-web pinning discipline.
 | API client | **OpenAPI-generated Kotlin client** | from backend app-api contract; never hand-written DTOs |
 | Images/video | CameraX (video capture) + Coil (thumbnails) | bounded bitmap sizes |
 | RFID/BLE | Vendor `.aar` behind a `RfidReaderPort` | Chainway-class UHF; adapter isolates SDK |
+| Haptics + sound | `Vibrator` + short tone (`ToneGenerator` / `SoundPool`) behind a `FeedbackPort` | scan feedback; distinct not-due alert tone; fake in tests |
 | Media upload | WorkManager + signed-URL uploader | resumable, retryable |
 | Background | WorkManager | sync, upload, retry, reminders |
 | Firebase | Analytics, Performance, Crashlytics, Messaging (FCM) | `asia-south1` where selectable; GA4/Crashlytics/Perf/FCM are global — see firebase doc |
@@ -84,6 +85,7 @@ apps/operator-android/
   device/
     device-rfid/               # RfidReaderPort + Chainway adapter + fake reader
     device-camera/             # CameraCapturePort + CameraX adapter + fake
+    device-feedback/           # FeedbackPort (haptics + alert tones) + fake
   :buildSrc / gradle/libs.versions.toml
 ```
 
@@ -199,6 +201,13 @@ Rules:
   clobber.
 - **Connectivity**: `ConnectivityManager` gates sync workers; capture always
   works offline. No user action blocks on network.
+- **Multi-sensory scan feedback (offline, ≤120 ms)**: each scan emits haptic +
+  audio via `FeedbackPort` — eligible = single short buzz + soft confirm tone;
+  **not-due = double buzz + a distinct audible alert tone**. Feedback fires
+  locally on device (works offline), so the operator gets an unmistakable
+  by-feel-and-sound signal without watching the screen. Honor the OS ring/DND
+  policy, but treat the not-due alert as safety-critical field feedback (prefer an
+  in-app tone/stream that stays audible under silent mode where policy allows).
 - Every adapter/port has a **fake** (in-memory queue, fake reader, fake camera)
   for tests and local dev.
 
@@ -312,6 +321,8 @@ Idempotency tests are mandatory (repo contract).
 - Every write idempotent; sync is at-least-once with dedupe; no silent overwrite.
 - No vendor SDK outside adapters; every adapter has a fake.
 - Offline capture always works; failures surface as visible error states.
+- Scan feedback is multi-sensory via `FeedbackPort` (with a fake): a not-due (red)
+  hit fires haptic + an audible alert tone; eligible fires haptic + a soft tone.
 - `Asia/Kolkata` for all business-time meaning.
 - Mock is the only UI source of truth; match its structure, not a plainer copy.
 - Firebase: `asia-south1` for location-selectable resources under the correct org

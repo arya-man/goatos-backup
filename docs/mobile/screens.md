@@ -58,8 +58,9 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
   vaccine, "2 tags" when double-tagged). Submit gated until shed complete.
 - Backend/device: `RfidReaderPort` (fake in dev); eligibility + roster from
   backend; each tap writes `scan_event` (given / skipped+reason) locally.
-- States: scanning, not-due (red + double buzz), complete → submit enabled;
-  resume preserves prior progress (no reset on re-show — mock fix).
+- States: scanning, not-due (red + double buzz **+ audible alert tone**), complete
+  → submit enabled; resume preserves prior progress (no reset on re-show — mock
+  fix). Feedback (haptic + tone) via `FeedbackPort`.
 
 ### Submit  (`v-submit`)  — O only
 - Module: `feature-submit`. One **shed record** covering all its due vaccines:
