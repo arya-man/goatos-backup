@@ -97,7 +97,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
   legend and shed/animal detail → reschedule.
 - Backend: `GET overdue?scope` (Asia/Kolkata buffer math).
 
-### Reschedule  (`v-reschedule`)  — PM/C (assign) 
+### Reschedule (`v-reschedule`) — PM/C (assign)
 - Module: `feature-leadership`. Segmented reschedule / mark-scheduled;
   buffer-aware **date picker** (`ovl-date`, in/out of buffer); **assign**
   (`ovl-assign`) primary + backup from HR; confirm → 4-channel notify.

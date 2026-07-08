@@ -19,12 +19,13 @@ Status: draft for pre-implementation review. Pairs with [PRD](prd-operator-mobil
 
 Pin in the version catalog at first build; record actuals in the app README.
 **Authority = official Android/Kotlin release notes + Maven metadata**, not any docs
-mirror. Confirm the exact latest at scaffold; the numbers below are the current
-latest at authoring (2026-07):
+mirror. These numbers drift fast — treat them as a **known-good baseline to verify,
+not "the current latest"**; pin the exact current stable at scaffold from official
+Maven metadata / release notes:
 
 ```text
 Kotlin              2.4.0    (K2; Compose Compiler = Kotlin-bundled `org.jetbrains.kotlin.plugin.compose`, versioned with Kotlin — no separate compiler dep)
-AGP / Gradle        AGP 9.2.x / Gradle 9.4.1, Gradle version catalog (libs.versions.toml)
+AGP / Gradle        AGP 9.2.x / Gradle 9.6.1, Gradle version catalog (libs.versions.toml)
 Jetpack Compose     BOM 2026.06.01 (androidx.compose:compose-bom) + Material 3
 compileSdk          36   (Android 16)
 targetSdk           36
@@ -45,8 +46,9 @@ admin-web pinning discipline.
 
 ## 2. Libraries (all have a fake/mock for tests — non-negotiable)
 
-Versions below are the current latest at authoring — **verify each at scaffold
-against official Maven metadata / release notes** (not a docs mirror). Compose libs
+Versions below are a **known-good baseline at authoring — verify each at scaffold
+against official Maven metadata / release notes** (not a docs mirror); they are a
+floor to confirm, not a claim of "current latest". Compose libs
 are BOM-managed, so no per-lib Compose version.
 
 | Concern | Choice | Version | Notes |
@@ -54,7 +56,7 @@ are BOM-managed, so no per-lib Compose version.
 | UI | Compose + Material 3 | BOM 2026.06.01 | custom theme from design-system tokens; M3 `material3` + `material3-adaptive` |
 | Compose↔lifecycle/activity | `lifecycle-*-compose`, `activity-compose` | lifecycle 2.10.0 · activity 1.13.0 | `collectAsStateWithLifecycle`, `viewModelScope` |
 | Navigation | Navigation-Compose (type-safe routes) | 2.9.x | module registry drives destinations |
-| DI | Hilt | 2.57.x (+ hilt-navigation-compose 1.2.x) | constructor injection; no service locators |
+| DI | Hilt | 2.60.1 (+ hilt-navigation-compose 1.2.x) | constructor injection; no service locators |
 | Async | Coroutines + Flow | kotlinx-coroutines 1.11.0 | structured concurrency; no `GlobalScope` |
 | Stability | kotlinx-collections-immutable | 0.4.x | `ImmutableList`/`PersistentList` for skippable composables (§4a) |
 | Local DB | **Room** (SQLite) | 2.8.x (+ KSP) | tasks/sheds/roster/scan/submission/outbox/config cache; expose `Flow` |

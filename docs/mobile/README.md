@@ -69,10 +69,11 @@ app id         : sg.mesha.goatos (prod) · .dev · .stg — env-only flavors, ro
                  are runtime from /app/bootstrap (see app-id + flavors ADR)
 sdk / toolchain: minSdk 31 (Android 12 — locked) · compileSdk/targetSdk 36
                  (Android 16) · JDK 17
-versions       : Kotlin 2.4.0 · AGP 9.2 / Gradle 9.4.1 · Compose BOM 2026.06.01 ·
-                 Room 2.8 · Coroutines 1.11 · Hilt 2.57 · WorkManager 2.11.2 ·
-                 CameraX 1.6.1 · Nav-Compose 2.9 — tested baseline, verify at scaffold
-                 vs official Maven / release notes (TRD §1/§2)
+versions       : Kotlin 2.4.0 · AGP 9.2 / Gradle 9.6.1 · Compose BOM 2026.06.01 ·
+                 Room 2.8 · Coroutines 1.11 · Hilt 2.60.1 · WorkManager 2.11.2 ·
+                 CameraX 1.6.1 · Nav-Compose 2.9 — known-good baseline, NOT "current
+                 latest"; pin exact stable at scaffold vs official Maven / release
+                 notes (TRD §1/§2)
 backend mobile : baseline app-api EXISTS (/app/bootstrap, /app/devices/register,
                  /app/proofs/*, /app/tasks/*/submissions, /vaccination/execution/
                  sheds/{id}, /calendar/vaccination/events, leadership reads).

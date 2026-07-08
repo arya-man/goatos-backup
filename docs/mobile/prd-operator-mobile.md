@@ -148,8 +148,14 @@ Full per-screen contract in [screens.md](screens.md).
   be unmistakable by feel and by sound.
 - **Coverage honesty**: "N data gaps" surfaces animals excluded from coverage %
   (missing DOB/breed/tag); nothing is faked to look complete.
-- **Buffer**: overdue within a 1-week buffer is recoverable by reschedule; beyond
-  it is a missed dose and leadership was alerted a week ahead.
+- **Buffer / missed = backend policy, not a client constant**: whether an overdue
+  dose is still *in buffer* (recoverable by reschedule) or *missed* is computed
+  server-side from `policySnapshot`. Missed-dose handling is **cycle-relative**
+  (catch-up-now vs wait depends on distance to the same-/next-cycle drive — see
+  [vaccination-rules.md](../preventive-care-vaccination/vaccination-rules.md)); the
+  explicit **7-day buffer applies to animals recovering from a defer/hold** rejoining
+  a compatible drive, not to every overdue dose. The app renders the label + colour
+  and shows the alert lead the backend supplies; it never hardcodes the rule.
 - **Explicit refresh**: read screens (Calendar, Drive status / Today's sheds,
   Overview, Overdue) support **pull-to-refresh** plus a header refresh button; it
   re-pulls the scoped read from the backend and updates the local cache. Offline →
