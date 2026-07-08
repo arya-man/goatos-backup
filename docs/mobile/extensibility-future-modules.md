@@ -25,20 +25,25 @@ module that registers itself through a `MobileModule` contract in `core-model`:
 
 ```kotlin
 interface MobileModule {
-  val id: String                 // e.g. "pc.vaccination"
-  val vertical: String           // e.g. "preventive_care"
+  val id: String                       // e.g. "pc.vaccination"
+  val vertical: String                 // e.g. "preventive_care"
   val navGraph: NavGraphBuilder.() -> Unit
-  val homeDestinationFor: (RoleLens) -> Route?   // role-aware entry
+  val routes: Map<RouteId, Route>      // backend route/action IDs → this module's screens
   val icon: IconToken
-  fun isEnabled(bootstrap: Bootstrap): Boolean   // driven by backend grants/flags
+  // NO client role logic. The module declares only its id + an ID→screen map.
+  // Visibility, the per-principal home route, and which actions are enabled all
+  // come from bootstrap; the module never evaluates grants or role itself.
 }
 ```
 
 - The **app module** collects registered modules (Hilt multibinding
-  `@IntoSet`), builds the nav host and drawer from them, and shows a module only
-  when `isEnabled(bootstrap)` is true. Adding a vertical = adding a new
-  `feature-*` module + its registration; **no shell edits, no cross-module deep
-  imports** (CI-enforced boundary).
+  `@IntoSet`) and builds the nav host + drawer, but **shows a module only if the
+  backend returned its `id` in the bootstrap visible-module set** — the app does
+  not run a client `isEnabled(role/grants)` predicate. It lands on the
+  **backend-provided home route ID** and maps every route/action ID the backend
+  sends to a screen via `routes`. Adding a vertical = adding a new `feature-*`
+  module + its registration; **no shell edits, no cross-module deep imports**
+  (CI-enforced boundary).
 - **Backend-driven visibility**: the mobile bootstrap contract returns which
   modules/nav entries are visible for the principal (same as `/admin-web/bootstrap`).
   Unbuilt modules simply aren't returned; the drawer's "Soon" entries (mock) are

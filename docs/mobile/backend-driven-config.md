@@ -2,9 +2,14 @@
 
 How the Android app is **configured from the backend** so the maintainer can push
 **presentation** changes on the fly (nav, labels, flags, UI tunables, module
-availability) **without shipping a new APK**. Business/medical policy is NOT part
-of this push path — it travels in a read-only `policySnapshot` (see the
-`presentationConfig` / `policySnapshot` split below). Pairs with
+availability) **without shipping a new APK**.
+
+**Governing rule: the phone is a dumb renderer.** Backend owns truth, policy,
+permissions, scheduling, and all DB/Redis querying + aggregation. The app renders
+backend payloads and queues user input/media. It follows that **business/medical
+policy is NOT sent to the client to interpret** — the app receives *computed policy
+outcomes* (status, labels, allowed date options, disabled reasons), never raw
+buffer windows / reminder leads / thresholds to do math on. Pairs with
 [TRD](trd-operator-mobile.md) §5/§6 and the golden frontend rule (the app is a
 renderer, not product truth).
 
@@ -15,40 +20,58 @@ titles, table/filter labels, chips/tabs, filter/sort/page-size, row-click params
 drawer/action labels, empty/error copy, disabled reasons, feature flags, and
 UI tunables are backend-owned.** The client only owns layout, CSS-equiv
 styling, density, focus/hover, and local open/selected state. If it's visible text
-or an available action, it comes from config — not a hardcoded constant.
-(Business/medical thresholds are policy, not UI config — see the split below.)
+or an available action, it comes from config — not a hardcoded constant. Business
+rules, medical policy, scheduling, and permission decisions are **computed on the
+backend**; the client never re-derives them.
 
 ## Source of truth: the bootstrap contract (primary)
 
-`GET /app/bootstrap` is the live document. It carries **two distinct blocks** that
-must not be conflated:
+`GET /app/bootstrap` is the live document. It carries **three distinct blocks**
+that must not be conflated, plus computed policy **outcomes** on the domain reads:
 
-**`presentationConfig`** — freely push-able UI config (this is the "change on the
+**`presentationConfig`** — freely push-able UI presentation (the "change on the
 fly" surface):
 
-- role lens + park/shed scope + grants/capabilities;
+- role lens + park/shed scope + grants/capabilities (as data the app renders, not
+  logic the app evaluates — see below);
 - **visible navigation** + labels + icons(token) + disabled reasons;
 - **module registry** — which modules/screens are enabled (kill-switch);
 - **feature flags** (per tenant / role / env);
-- **UI tunables ONLY** — default page sizes, sync backoff/jitter, jank-sampling
-  rate, refresh cadence, cache TTLs;
 - pinned SOP/form versions + scoped option caches;
 - compatible app-version gate;
 - a monotonic **`revision`** (and HTTP `ETag`).
 
-**`policySnapshot`** — read-only business/medical policy the app **renders but
-never treats as tweakable UI config**: reschedule **buffer window**, **reminder
-lead time**, and any medical thresholds. It is NOT a casual config push. It has its
-own **`policy_revision`**, a **`source`** (e.g. `vaccination-rules.md` / published
-`rule_dsl`), and an **audit trail**; changing it goes through the business/medical
-maintainer-lock governance (see `AGENTS.md` "Business and medical rule changes"),
-not a UI config edit. The app compiles it into behaviour (e.g. buffer math) but
-must not expose it as an editable setting.
+**`clientRuntimeConfig`** — client **operational** knobs (not business policy, not
+presentation): default page sizes, sync backoff/jitter, refresh cadence, cache
+TTLs, jank-sampling rate. Backend-owned and **backend-bounded** (the server clamps
+each to a safe min/max), pushed on the same `revision`. These tune how the client
+talks to the backend; they never encode a business rule.
 
-Changing `presentationConfig` server-side changes the app on the **next fetch** —
-no release. `policySnapshot` changes only via governed policy updates. Permissions
-stay **server-authoritative**: config may hide a control, but the server still
-enforces the actual grant (config never widens access).
+**Policy is NOT a client block.** There is deliberately no `policySnapshot` of raw
+thresholds for the app to compile. Instead the backend **computes policy outcomes**
+and ships them on the relevant reads:
+
+- a dose's `status` (`in_buffer` / `missed` / `due` …) — computed server-side from
+  the buffer window + Asia/Kolkata bucketing;
+- allowed **reschedule date options**, each with a precomputed state
+  (`in_buffer` / `out_of_buffer`) and label;
+- disabled reasons, reminder/escalation copy, and the alert lead the backend
+  decided.
+
+The only policy field that travels to the client is a read-only **`policy_revision`**
+(with `source`, e.g. `vaccination-rules.md` / published `rule_dsl`) echoed **purely
+for traceability/telemetry**. The app **never** does buffer/lateness math, never
+schedules reminders, and never exposes policy as an editable setting. Policy
+changes go through the business/medical maintainer-lock (see `AGENTS.md` "Business
+and medical rule changes"), never a config push.
+
+Changing `presentationConfig` / `clientRuntimeConfig` server-side changes the app
+on the **next fetch** — no release. Policy outcomes change only when the backend
+recomputes them under governed policy updates. Permissions stay
+**server-authoritative**: config may hide a control, but the server still enforces
+the actual grant on every command (config never widens access), and grants in the
+payload are **action/route targets the app maps to screens**, not a client-side
+role predicate.
 
 ## Config API
 
@@ -88,19 +111,20 @@ GET /app/config?since=<revision>   → 200 {delta since revision} (optional opti
 - The app is **cache-first**: it renders from the persisted config immediately
   (works offline), then refreshes in the background and re-renders on a new
   revision. Room queries expose `Flow`, so a config/data refresh recomposes the UI
-  reactively.
+  reactively. Room is a **durable cache + outbox, not product truth** — the
+  backend remains the system of record.
 - A new revision **never discards in-flight local work** (the outbox / unsynced
   shed records survive a config refresh).
 
 ## What is config-able vs not
 
-| Config-able — `presentationConfig` (push on the fly) | NOT freely config-able |
+| Config-able — pushed on the fly | NOT client-decided |
 |---|---|
-| Nav visibility, page/section titles, labels | Live domain data — parks, sheds, breeds, SOP names, roles (come from module DB tables) |
-| Chips/tabs, filter/sort/page-size semantics | Actual permissions/RBAC (server-enforced; config only hides UI) |
-| Empty/error copy, disabled reasons | **Business/medical policy** — reschedule buffer window, reminder lead, medical thresholds — lives in read-only `policySnapshot` (own `policy_revision` + source + audit; governed by the maintainer-lock, not a UI push) |
-| Feature flags, per-screen kill-switch, module registry | Business/medical *rules* that need a source-of-truth change (vaccination-rules.md, migrations) |
-| **UI tunables** — page sizes, sync backoff, refresh cadence, cache TTLs, jank-sampling | Anything that would let the client widen its own access |
+| `presentationConfig`: nav visibility, page/section titles, labels, chips/tabs, filter/sort/page-size labels, empty/error copy, disabled reasons, icons(token) | Live domain data — parks, sheds, breeds, SOP names, roles (come from module DB tables, compiled by backend) |
+| `presentationConfig`: feature flags, per-screen kill-switch, module registry | Actual permissions/RBAC (server-enforced on every command; config only hides UI) |
+| `clientRuntimeConfig`: page sizes, sync backoff/jitter, refresh cadence, cache TTLs, jank-sampling (backend-bounded) | **Business/medical policy** — buffer window, reminder lead, medical thresholds, lateness/`missed` math, Asia/Kolkata bucketing — **computed on the backend**; the app gets outcomes (`status`, date options, labels) + a `policy_revision` echo, never raw values |
+| — | Scheduling — reminder/escalation **timing** is kernel-owned; the app never times a notification |
+| — | Stock/FEFO/expiry lot selection + reservation — server/planner-side; the app shows the backend-selected lot or scans/confirms the physical vial |
 
 Business-managed vocabularies (park codes, shed names, operator IDs, capacities)
 are **backend-owned but sourced from Postgres/module tables**, compiled into the
@@ -113,11 +137,14 @@ contract by the backend — not hand-typed into config and not hardcoded in the 
 - Roll out changes behind **flags** (per tenant/role/env) for staged rollout; a
   **kill-switch** flag renders a screen/action disabled-with-reason instead of
   crashing.
-- The app treats config as **presentation only**; every mutating action is still
-  revalidated server-side (permissions + form_version + current state).
+- The app treats config as **presentation + bounded runtime knobs only**; every
+  mutating action is still revalidated server-side (permissions + form_version +
+  current state), and every policy/scheduling decision is computed server-side.
 
 ## Observability
 
 Log the applied config **revision**, fetch latency, 304 ratio, and any
-schema-validation drop (unknown/invalid keys) — so a bad push is diagnosable.
-See TRD §7/§9.
+schema-validation drop (unknown/invalid keys) — so a bad push is diagnosable. When
+a screen shows a policy outcome (`status`, date-option state), telemetry logs the
+**backend-provided** value plus its `policy_revision`, never a client-computed
+state. See TRD §7/§9.

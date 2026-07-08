@@ -108,9 +108,11 @@ flavors (dev/stg/prod)      → each reads its own google-services.json + app-ap
 
 ## 6. Privacy / logging
 
-- No PII to Firebase. Goat/shed/RFID ids are operational data and allowed as
-  params/keys. Tokens, credentials, service-account JSON are **never** logged or
-  sent to Crashlytics/Analytics.
+- No human PII to Firebase. Goat/shed/RFID ids are operational data (not PII) and
+  allowed as params/keys **purposefully** — the ids a repro/trace needs, not
+  blanket dumps (Crashlytics/Analytics is a third-party processor with
+  India-residency scope). Tokens, credentials, service-account JSON are **never**
+  logged or sent to Crashlytics/Analytics.
 - Analytics collection respects a consent/enable flag from bootstrap (can be
   turned off per environment via the port's fake/no-op).
 

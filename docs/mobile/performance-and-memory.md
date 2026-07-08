@@ -49,7 +49,10 @@ Do:
 - `derivedStateOf` for values derived from fast-changing state (scroll index → show-FAB).
 - **Defer state reads** to the lowest composable via a lambda provider
   (`Title(snack) { scroll.value }`) to shrink the recomposition scope.
-- Wrap costly calc in `remember(keys) { … }`; sort/filter in the ViewModel, not `items {}`.
+- Wrap costly calc in `remember(keys) { … }`; do any **presentation** reordering of
+  already-backend-shaped data in the ViewModel, not inside `items {}` — business
+  sort/filter/status semantics are backend-owned; the client never re-sorts by a
+  business rule.
 - `ImmutableList`/`PersistentList` (or `@Immutable` wrapper) for list params;
   add a **stability-configuration file** for domain packages.
 

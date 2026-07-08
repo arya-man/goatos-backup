@@ -11,7 +11,7 @@ Runtime architecture for the Android app. Pairs with the [TRD](trd-operator-mobi
 │                                          ┌─────────────┴──────────────┐            │
 │                                          ▼                            ▼            │
 │                                    Room (SQLite)                 core-network      │
-│                                  on-device truth              Retrofit+OkHttp      │
+│                             durable cache + outbox            Retrofit+OkHttp      │
 │                                          │  outbox / media_pending   │ (gen client)│
 │                                          ▼                            │            │
 │                                   WorkManager sync ──────────────────┘            │
@@ -43,12 +43,15 @@ launch → splash
                              app-version gate, pinned SOP/form versions,
                              scoped option caches, bootstrap revision)
   → version gate: incompatible? ─▶ blocking "update app" screen
-  → persist bootstrap to DataStore (revision-checked); build nav from module
-    registry filtered by grants
-  → route to role home:  ALL roles → Calendar (common entry point).
-       calendar-card tap then branches: operator → Today's sheds (execute);
-       parkmgr → drive-status follow-up (own park); director/ceo → follow-up
-       (all parks). Leadership Overview is the Home nav tab, not the landing.
+  → persist bootstrap to DataStore (revision-checked); build nav from the module
+    registry the backend returned as visible (app maps route IDs → screens; it
+    does NOT filter by grants client-side)
+  → route to the backend-provided home route (ALL roles resolve to Calendar as the
+       common entry). A calendar-card tap opens the backend-provided drill target
+       for that principal — execute (operator) vs read-only drive-status follow-up
+       (leadership), scoped by the backend (own park vs all parks). The app maps
+       the returned route/action IDs to screens; it does not branch on a hardcoded
+       role. Leadership Overview is the Home nav tab, not the landing.
 ```
 
 The app must **block business UI until bootstrap succeeds** (no local-default
@@ -58,9 +61,12 @@ with its revision; a newer revision refreshes nav/labels on reconnect.
 ## 3. Threading model
 
 - **Main/UI**: Compose recomposition only. No IO, no parsing, no bitmap decode.
-- **`Dispatchers.Default`**: shed math, group-progress computation, diffing.
+- **`Dispatchers.Default`**: presentation math only — ring fill / group-progress
+  from backend-shaped `done`/`total`, list diffing. No business status/filter/sort.
 - **`Dispatchers.IO`**: Room, network, file/media, DataStore.
-- **WorkManager**: sync, media upload, reminder scheduling — survives process death.
+- **WorkManager**: sync, media upload, retry/dead-letter — survives process death.
+  (Reminder *timing* is backend kernel-owned; WorkManager never schedules business
+  reminders — it only delivers the app's own outbox to the backend.)
 - **BLE/RFID**: vendor SDK callbacks marshalled off the main thread into a Flow
   (`callbackFlow`), debounced, then to `Default` for dedupe.
 - Structured concurrency only; scopes tied to `viewModelScope` / `WorkManager` /
@@ -104,7 +110,9 @@ Records        = GET shed-record/{shed_id} (per-vaccine breakdown + animals)
 ```
 
 All scope-filtered server-side; cursor pagination for lists; no `COUNT(*)`/full
-scans. `Asia/Kolkata` day boundaries drive "today"/"overdue"/"missed".
+scans. The **backend** applies `Asia/Kolkata` day boundaries to compute
+"today"/"overdue"/"missed"; the app renders the returned buckets, it does not
+bucket.
 
 ## 6. Push / notification flow
 
@@ -137,7 +145,7 @@ shed_submitted{shed_id, animals, vaccines, offline_duration_ms}
 sync_result{submission_id, outcome: acked|conflict|dead_letter, attempts}
 leadership_view{screen, scope}
 scope_changed{from, to}          data_gaps_opened{scope, count}
-reschedule_confirmed{shed_id, in_buffer}
+reschedule_confirmed{shed_id, in_buffer}   // in_buffer = backend-provided outcome, never client-computed
 assign_confirmed{shed_id, primary, backup}
 ```
 

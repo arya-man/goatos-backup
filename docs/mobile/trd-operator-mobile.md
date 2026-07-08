@@ -66,7 +66,7 @@ are BOM-managed, so no per-lib Compose version.
 | Images/video | CameraX (video capture) + Coil 3 (thumbnails) | CameraX 1.6.1 · Coil 3.x | bounded bitmap sizes |
 | RFID/BLE | Vendor `.aar` behind a `RfidReaderPort` | vendor-pinned | Chainway-class UHF; adapter isolates SDK |
 | Haptics + sound | `Vibrator` + short tone (`ToneGenerator`/`SoundPool`) behind a `FeedbackPort` | platform | scan feedback; distinct not-due alert tone; fake in tests |
-| Media upload / background | WorkManager | 2.11.2 | resumable signed-URL upload, sync, retry, reminders |
+| Media upload / background | WorkManager | 2.11.2 | resumable signed-URL upload, sync, retry, dead-letter — **not** reminder timing (kernel-owned via `NotificationGateway`/FCM; the app only renders received pushes) |
 | Firebase | Analytics, Performance, Crashlytics, Messaging (FCM), **Remote Config** | Firebase BOM (latest) | `asia-south1` where selectable; GA4/Crashlytics/Perf/FCM global — see firebase doc. Remote Config = kill-switch/flag fallback (bootstrap is primary — see backend-driven-config.md) |
 | Logging | Timber + structured logger port | Timber 5.0.1 | `LoggerPort` → Timber(debug) + Crashlytics(release) breadcrumbs; see §7/§9 |
 | i18n | Android resources per-locale + backend contract copy | — | en/hi/kn/te |
@@ -127,7 +127,7 @@ Compose screen (stateless) ── observes ─▶ ViewModel (StateFlow<UiState>,
                                           UseCase (core-model + repository ports)
                                                  │
                                                  ▼
-                              Repository (core-data) ── local-first ──▶ Room (source of truth on device)
+                              Repository (core-data) ── local-first ──▶ Room (durable cache + outbox; backend is system of record)
                                                  │                         ▲
                                                  └── remote ──▶ app-api ────┘ (sync engine reconciles)
 ```
@@ -136,8 +136,9 @@ Compose screen (stateless) ── observes ─▶ ViewModel (StateFlow<UiState>,
   per screen; no mutable shared state. (Matches the repo-wide immutability rule.)
 - ViewModels hold **no Android Context**; use `SavedStateHandle` + injected
   use cases. Scope tied to nav entry; cancelled with it (no leaks).
-- **Local Room is the on-device read source of truth**; the UI never blocks on
-  network. The sync engine (§6) reconciles with the backend.
+- **Local Room is a durable read cache + outbox** (the on-device *render* source so
+  the UI never blocks on network) — **not** product truth. The backend is the
+  system of record; the sync engine (§6) reconciles Room with it.
 - Client-side checks are UX-only; **server validation is authoritative** on every
   submit (revalidates form_version + permissions + current state).
 
@@ -206,23 +207,28 @@ budgets: [performance-and-memory.md](performance-and-memory.md).
   is an **additive pass** on these, not a rebuild.
 - **Bootstrap = live backend-driven config** (full spec:
   [backend-driven-config.md](backend-driven-config.md)). Reuse/extend
-  `/app/bootstrap` for the mobile role lens — principal + role, park/shed scope,
-  grants/capabilities, visible navigation + labels, disabled reasons, **module
-  registry (kill-switch), feature flags, and UI tunables** (page sizes, sync
-  backoff, refresh cadence, cache TTLs), app-version gate, pinned SOP/form
-  versions, scoped option caches, plus a monotonic **`revision` + HTTP `ETag`** —
-  all in a `presentationConfig` block. Business/medical policy (reschedule buffer
-  window, reminder lead, medical thresholds) travels in a **separate read-only
-  `policySnapshot`** with its own `policy_revision` + source + audit trail; it is
-  governed by the maintainer-lock, NOT a UI config push. The app renders/compiles
-  policy but never exposes it as an editable setting. The app is a **renderer**; visible nav/labels/filters/disabled
-  reasons/summary-vs-detail come from this contract, not hardcoded (golden
-  frontend rule). Config is **cache-first in Room/DataStore**, refreshed on cold
-  start / resume / pull-to-refresh / an **FCM `config_changed` data-ping** — so the
-  maintainer can push `presentationConfig` (nav/label/flag/UI-tunable) changes on
-  the fly with **no APK release**; `policySnapshot` changes only via governed policy
-  updates. Permissions stay server-authoritative (config may hide UI, never widen
-  access).
+  `/app/bootstrap` for the mobile role lens in **three blocks**: (1)
+  **`presentationConfig`** — principal + role, park/shed scope, grants/capabilities
+  (as data the app maps to routes/actions, not a client role predicate), visible
+  navigation + labels + disabled reasons, module registry (kill-switch), feature
+  flags, app-version gate, pinned SOP/form versions, scoped option caches, and a
+  monotonic **`revision` + HTTP `ETag`**; (2) **`clientRuntimeConfig`** — bounded
+  client operational knobs (page sizes, sync backoff/jitter, refresh cadence, cache
+  TTLs, jank-sampling), backend-owned and server-clamped, not business policy; (3)
+  **no policy block** — business/medical policy (buffer window, reminder lead,
+  medical thresholds, lateness/`missed` math, Asia/Kolkata bucketing) is
+  **computed server-side**; the app receives **outcomes** (a dose's `status`
+  `in_buffer`/`missed`, allowed reschedule date options with per-option state,
+  labels, disabled reasons) and only a read-only **`policy_revision` + source**
+  echoed for traceability. The app **never** does buffer/lateness math and never
+  exposes policy as an editable setting. The app is a **renderer**; visible
+  nav/labels/filters/disabled reasons/summary-vs-detail come from this contract,
+  not hardcoded (golden frontend rule). Config is **cache-first in Room/DataStore**,
+  refreshed on cold start / resume / pull-to-refresh / an **FCM `config_changed`
+  data-ping** — so the maintainer can push `presentationConfig` /
+  `clientRuntimeConfig` changes on the fly with **no APK release**; policy outcomes
+  change only when the backend recomputes them under governed policy updates.
+  Permissions stay server-authoritative (config may hide UI, never widen access).
 - **Gap = the mock-shaped shed-first mobile flow.** New/extended endpoints the
   current contracts don't cover in shed-first shape: **today's-sheds-for-a-drive**
   (scope-filtered — operator/parkmgr park, director/ceo all parks), **per-shed
@@ -362,8 +368,12 @@ streaming. Capture the decision in `docs/decisions/` before implementing.
   paths so any failure is reproducible from logs alone:
   - **RFID scan**: each tap (tag read, matched due vaccine, eligible/skip+reason),
     reader connect/disconnect, battery, dropped reads. Goat identifiers
-    (RFID/old-tag/breed/shed) are operational data — **log them freely**; they are
-    NOT PII.
+    (RFID/old-tag/breed/shed) are operational data, **not** human PII — include the
+    ids a failure needs to be traceable to the exact goat/row. But Crashlytics/
+    Analytics is a **third-party processor** (India-residency scope): log them
+    **purposefully** — the ids a repro needs, not blanket dumps — never in a way
+    that turns telemetry into a bulk livestock export. (Secrets are still a hard
+    never: no tokens/credentials/service-account JSON.)
   - **Sync engine**: outbox enqueue, per-item upload/submit start+result, retry
     count/backoff, conflict, dead-letter, applied server result.
   - **Camera/proof**: capture start/stop, duration/size, upload signed-URL result.
@@ -420,7 +430,7 @@ LeakCanary in debug, bounded image/bitmap sizes, and a leak gate in CI.
 
 | Layer | Tooling | What |
 |---|---|---|
-| Domain/use cases | JUnit5 + MockK | shed math, group progress, buffer logic, idempotency-key derivation |
+| Domain/use cases | JUnit5 + MockK | UI progress math (ring fill from backend `done`/`total`), rendering backend-provided `status`/`in_buffer`/`date_options`, idempotency-key derivation — **not** buffer/lateness/scheduling math (backend-owned) |
 | Repositories/sync | Room in-memory + fake api + Turbine | offline write → outbox → ack; retry; conflict; dedupe (first call, exact replay, same-key/different-payload, downstream dup) |
 | ViewModels | Turbine + fakes | MVI state transitions, effects |
 | Compose UI | Compose UI test + Robolectric | screen renders each state, role gating, disabled-with-reason |
@@ -490,6 +500,12 @@ Idempotency tests are mandatory (repo contract).
 
 ## 14. Non-negotiables (mobile)
 
+- **The phone is a dumb renderer.** Backend owns truth, policy, permissions,
+  scheduling, and all DB/Redis querying + aggregation. The app renders backend
+  payloads and queues user input/media — it does **not** compute buffer/lateness/
+  `missed` math, schedule reminders, pick/reserve FEFO stock, decide role/scope/
+  action grants, or bucket business time. It receives computed outcomes (status,
+  labels, date options, disabled reasons, action/route IDs) and renders them.
 - App is a renderer; backend owns nav/labels/filters/disabled reasons/field sets.
 - No direct datastore access; only generated client → app-api.
 - No client-only RBAC; server authoritative on every command.
@@ -501,7 +517,10 @@ Idempotency tests are mandatory (repo contract).
   vs synced-to-server.
 - Scan feedback is multi-sensory via `FeedbackPort` (with a fake): a not-due (red)
   hit fires haptic + an audible alert tone; eligible fires haptic + a soft tone.
-- `Asia/Kolkata` for all business-time meaning.
+- Backend computes all business-time buckets (due / missed / reminder) in
+  `Asia/Kolkata`; the app **formats and displays** backend date fields and uses
+  `Asia/Kolkata` only for pure display formatting — it never buckets or decides
+  business time itself.
 - Mock is the only UI source of truth; match its structure, not a plainer copy.
 - Firebase: `asia-south1` for location-selectable resources under the correct org
   (telemetry/push are global services); nothing created before the

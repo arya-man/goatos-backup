@@ -64,8 +64,10 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 
 ### Submit  (`v-submit`)  — O only
 - Module: `feature-submit`. One **shed record** covering all its due vaccines:
-  per-group vaccine · dose · **FEFO batch**, cold-chain, animals vaccinated,
-  operator + backup, **video proof** capture, remarks. "Submit shed record".
+  per-group vaccine · dose · **backend-selected lot** (operator scans/confirms the
+  physical vial; the app does not pick FEFO/expiry), cold-chain, animals
+  vaccinated, operator + backup, **video proof** capture, remarks. "Submit shed
+  record".
 - Backend: submit command (idempotency key) → one tx (form_submission + event +
   verification + outbox). Form rendered via forms-runner + pinned form_version.
 - States: draft → queued → syncing → acked / conflict / dead-letter.
@@ -89,18 +91,24 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 - Default scope: parkmgr = own park; **director + CEO/COO = all parks** (drill via
   picker).
 - Backend: `GET rollup/backlog/gaps?scope`; scope filters everything.
-- Role gates: park picker + coverage-by-park = director + CEO/COO; assign =
-  CEO/COO + PM; scan absent.
+- Role gates (**backend-provided grants**, not client-hardcoded): park picker +
+  coverage-by-park, assign, and scan visibility all come from the principal's
+  bootstrap grant set (today: picker/coverage-by-park = director + CEO/COO; assign
+  = CEO/COO + PM; scan operator-only). The app shows a control only when its
+  grant/action target is present in the payload.
 
 ### Overdue  (`v-overdue`)  — PM/D/C
-- Module: `feature-leadership`. Missed (past buffer) vs in-buffer, with color
-  legend and shed/animal detail → reschedule.
-- Backend: `GET overdue?scope` (Asia/Kolkata buffer math).
+- Module: `feature-leadership`. **Backend-classified** missed vs in-buffer, with
+  color legend and shed/animal detail → reschedule (the app renders the returned
+  `status`; it does not classify).
+- Backend: `GET overdue?scope` — backend does the Asia/Kolkata buffer/lateness math.
 
 ### Reschedule (`v-reschedule`) — PM/C (assign)
-- Module: `feature-leadership`. Segmented reschedule / mark-scheduled;
-  buffer-aware **date picker** (`ovl-date`, in/out of buffer); **assign**
-  (`ovl-assign`) primary + backup from HR; confirm → 4-channel notify.
+- Module: `feature-leadership`. Segmented reschedule / mark-scheduled; **date
+  picker** (`ovl-date`) over **backend-provided allowed date options**, each with a
+  precomputed in/out-of-buffer state + label — the app renders the option list, it
+  does not compute the buffer; **assign** (`ovl-assign`) primary + backup from HR;
+  confirm → 4-channel notify.
 - Backend: reschedule + assign commands (idempotent); NotificationGateway.
 
 ### Shed / drive record  (`ovl-shedrec`, `ovl-driverec`)  — all (read-only)
@@ -119,7 +127,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 | `ovl-gaps` | data-gaps sheet | animals excluded from coverage + reason |
 | `ovl-given` | doses-given drill | per-vaccine given + coverage bars (scope-aware) |
 | `ovl-driverec`/`ovl-shedrec` | record sheets | per-vaccine breakdown + animals |
-| `ovl-date` | buffer-aware date picker | reschedule |
+| `ovl-date` | date picker over **backend-provided** date options (each carries its in/out-of-buffer state + label) | reschedule |
 | `ovl-assign` | assign primary/backup | assign command |
 | `ovl-scanlist` | scan list (given/pending/skipped) | local scan_event + roster |
 | `ovl-day` | month day sheet | that day's sheds/record |

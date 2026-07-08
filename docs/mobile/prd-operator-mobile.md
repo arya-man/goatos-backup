@@ -64,15 +64,20 @@ calendar-card drill and scope differ by role. Four role lenses (mock `data-role`
 | **director** (Health Director) | read-only follow-up + **park picker** | **all parks** | company-wide coverage/backlog/overdue; drill into any park |
 | **ceo/coo** | read-only follow-up + park picker + assign | **all parks** | company-wide + per-park rollup, backlog, data gaps, assign |
 
-Scope rule: operator & park manager are locked to their own park; **director and
-CEO/COO default to all parks** and can drill into one via the park picker (Manju,
-2026-07-08 — director was previously park-locked, now company-wide).
+Scope rule (**backend-provided grant/scope options, not a client constant**):
+operator & park manager resolve to their own park; **director and CEO/COO default
+to all parks** with a park picker (Manju, 2026-07-08 — director was previously
+park-locked, now company-wide). The app receives its scope options + default from
+bootstrap and renders them; it does not decide scope.
 
-Server RBAC is authoritative. `canAssign = ceo | parkmgr`. **Execution
-(scan/submit) is the field operator (Health Asst Mgr) only** — the Health Manager
+Server RBAC is authoritative. The **assign** action target is **backend-granted**
+(today: CEO/COO + Park Manager) — the app shows Assign only when that grant is in
+the payload and never hardcodes `role == ceo|parkmgr`. Likewise **execution
+(scan/submit) is the field operator (Health Asst Mgr) only** — Health Manager
 (Park Manager) and every tier above are read-only follow-up; leadership tapping
 scan is blocked server-side. "Health Manager" is the park-manager tier, not an
-executor.
+executor. These are described here as intended behaviour; the app enforces none of
+it client-side — grants/action targets arrive from the backend.
 
 ## 5. Scope — screens (from the mock)
 
@@ -92,8 +97,10 @@ Operator drill (execution):
 - **Scan** — per shed: progress ring (shed total), per-vaccine-group progress
   chips, tap-to-scan roster where each animal shows its own due vaccine; Done /
   Pending / Skipped lists.
-- **Submit** — one shed record covering all its due vaccines (dose, FEFO batch,
-  cold-chain, animal count, operator+backup, video proof, remarks).
+- **Submit** — one shed record covering all its due vaccines (dose, the
+  **backend-selected/reserved lot** — the operator scans/confirms the physical vial
+  against it; the app does **not** pick FEFO/expiry — cold-chain, animal count,
+  operator+backup, video proof, remarks).
 - **You / settings**, **RFID reader** pairing, **Alerts**.
 
 Leadership drill (read-only follow-up):
@@ -148,22 +155,25 @@ Full per-screen contract in [screens.md](screens.md).
   be unmistakable by feel and by sound.
 - **Coverage honesty**: "N data gaps" surfaces animals excluded from coverage %
   (missing DOB/breed/tag); nothing is faked to look complete.
-- **Buffer / missed = backend policy, not a client constant**: whether an overdue
-  dose is still *in buffer* (recoverable by reschedule) or *missed* is computed
-  server-side from `policySnapshot`. Missed-dose handling is **cycle-relative**
-  (catch-up-now vs wait depends on distance to the same-/next-cycle drive — see
+- **Buffer / missed = backend-computed outcome, not a client constant**: whether an
+  overdue dose is still *in buffer* (recoverable by reschedule) or *missed* is
+  **computed server-side** and delivered as a `status` field. Missed-dose handling
+  is **cycle-relative** (catch-up-now vs wait depends on distance to the same-/next-
+  cycle drive — see
   [vaccination-rules.md](../preventive-care-vaccination/vaccination-rules.md)); the
   explicit **7-day buffer applies to animals recovering from a defer/hold** rejoining
-  a compatible drive, not to every overdue dose. The app renders the label + colour
-  and shows the alert lead the backend supplies; it never hardcodes the rule.
+  a compatible drive, not to every overdue dose. The app renders the returned
+  `status` + label + colour and shows the alert lead the backend supplies; it never
+  does the math and never hardcodes the rule.
 - **Explicit refresh**: read screens (Calendar, Drive status / Today's sheds,
   Overview, Overdue) support **pull-to-refresh** plus a header refresh button; it
   re-pulls the scoped read from the backend and updates the local cache. Offline →
   keep the last-synced data and tell the operator (never a blank or endless
   spinner). Execution screens (Scan / Submit) do not refresh — they are
   local-first and reconcile through the sync engine.
-- **India business calendar**: all due/missed/reminder/among-day logic is
-  `Asia/Kolkata`.
+- **India business calendar**: the **backend** computes all due/missed/reminder/
+  day-boundary buckets in `Asia/Kolkata`; the app formats/displays the returned
+  fields (using `Asia/Kolkata` for pure display formatting only) and never buckets.
 
 ## 7. Languages
 

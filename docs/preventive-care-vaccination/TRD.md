@@ -492,7 +492,7 @@ Preventive Care (PC) vaccination must reuse/enhance it, not rebuild a vaccinatio
 [engine §6](../protocol-engine/obligation-engine.md)):
 - `inventory_items` `category` includes `'vaccine'`, `base_unit` = `dose`/`ml`; `vaccines` detail table (`manufacturer, default_dose_ml, requires_booster, booster_interval_days, storage_temp_min/max, withdrawal_period_days`) FK→`inventory_items`.
 - `inventory_stock` lots (running balances, **`numeric` + `quantity_unit`**, never int — engine is shared with feed which is kg/litre): `lot_number, expiry_date, quantity_in_stock numeric, quantity_reserved numeric, quantity_consumed numeric, quantity_unit`, park scope via `location_id`, **`CHECK(quantity_in_stock >= 0)`**.
-- **`inventory_stock_movements`** append-only ledger (reserve/release/consume/adjust/transfer/expire; `quantity numeric`) — the audit/reconciliation truth; balances are its projection. FEFO pick in app, expiry-gated (`expiry_date >= administered_at`).
+- **`inventory_stock_movements`** append-only ledger (reserve/release/consume/adjust/transfer/expire; `quantity numeric`) — the audit/reconciliation truth; balances are its projection. FEFO pick is **server-side** (backend/planner application layer, never the mobile client), expiry-gated (`expiry_date >= administered_at`).
 
 **Consumption mode (resolves the v1 contradiction — pick by path, never both):**
 - **Group drive plan:** at **batch start** record one `reserve` movement for
