@@ -2,6 +2,18 @@
 
 This is the active rule for the Mesha admin-web rebuild.
 
+## Default theme + backend-driven nav (2026-07-09, both surfaces)
+
+- **Dark is the default theme** (light supported). Matches the mobile design
+  system (`docs/mobile/design-system.md`) and the website; applies to admin-web
+  too (maintainer/CEO 2026-07-09).
+- **Nav visibility + chrome are backend-driven per login.** The sidebar shows only
+  the verticals/modules the principal's **department** owns, and appears **only
+  when they own ≥2 modules** (a single-module login has no sidebar). Options
+  hidden "based on the login" come from the backend, never a client role check.
+  Ownership source = department (Goat OS HR); see
+  `docs/decisions/user-module-ownership-and-nav-chrome.md`.
+
 ## Product Taxonomy (READ FIRST — fixed words)
 
 These words are not interchangeable:
