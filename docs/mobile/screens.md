@@ -136,5 +136,9 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
   + sync state (All synced / Syncing N… with progress / N queued). Tap → `ovl-sync`
   outbox sheet. Backed by the Room outbox + `SyncStatus` Flow (TRD §6); records are
   local-first and sync when online, with no duplicates on retry.
+- **Refresh** on read screens (Calendar, Drive status / Today's sheds, Overview,
+  Overdue): pull-to-refresh (`PullToRefreshBox`) + a header refresh button →
+  scoped re-pull into Room. Offline keeps last-synced + a short message. Scan /
+  Submit have no refresh (local-first, sync-engine reconciled). See TRD §6.
 - **Every list/row/tile is actionable or clearly informational** (no dead
   microcopy — repo standing UI rule; the mock already enforces this).

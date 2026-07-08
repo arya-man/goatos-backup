@@ -227,6 +227,19 @@ This is a UI requirement, not just plumbing: the operator must always know wheth
 a record is saved on the phone vs synced to the server. Demonstrated in the mock
 (connectivity toggle + sync sheet with per-record progress).
 
+### Refresh (pull-to-refresh + manual)
+
+Read screens (Calendar, Drive status / Today's sheds, Overview, Overdue) expose an
+explicit refresh: **`PullToRefreshBox`** (Compose Material 3) as the primary
+gesture plus a **header refresh action** for discoverability/accessibility. It
+triggers a scoped re-pull (the same `scope=<park|all>` read that feeds the screen)
+into Room, then recomposes from the cache. Offline → do NOT clear the cache; show
+the last-synced data with a short "offline · showing last synced" message. The
+ViewModel exposes an `isRefreshing` state; refresh is idempotent and cancels with
+the nav entry. Execution screens (Scan / Submit) do not offer refresh — they are
+local-first and reconcile via the sync engine. Demonstrated in the mock
+(pull gesture + header refresh on the four read screens).
+
 ### Server→client push for live screens (OPEN DECISION — needs ADR)
 
 Today client reads are **pull** (bootstrap + on-demand GETs) and the only

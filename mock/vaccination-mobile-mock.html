@@ -273,6 +273,13 @@
   .syncrow .sbar2{height:5px;border-radius:3px;background:var(--surf3);margin-top:7px;overflow:hidden} .syncrow .sbar2 i{display:block;height:100%;background:var(--grad);border-radius:3px;transition:width .25s}
   .syncrow .stag{font-size:10px;font-weight:750;padding:3px 8px;border-radius:6px;white-space:nowrap;flex:none}
 
+  /* pull-to-refresh + manual refresh (read screens) */
+  .ptr{height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;color:var(--brand);opacity:0}
+  .ptr.snap{transition:height .22s ease,opacity .22s}
+  .ptr .ic{width:22px;height:22px}
+  .ptr.spin{height:44px!important;opacity:1!important} .ptr.spin .ic{animation:spin .8s linear infinite}
+  .ib.rfz.spin .ic{animation:spin .8s linear infinite}
+
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 
@@ -349,7 +356,7 @@
 
       <!-- CALENDAR (operator home) -->
       <section class="view" id="v-calendar">
-        <div class="vhead"><button class="ib" data-open="drawer" aria-label="Menu"><svg class="ic"><use href="#i-menu"/></svg></button><div><div class="eb">Vaccination</div><h3 data-t="cal">Calendar</h3></div><span class="sp"></span><button class="ib" data-go="v-alerts"><svg class="ic"><use href="#i-bell"/></svg></button></div>
+        <div class="vhead"><button class="ib" data-open="drawer" aria-label="Menu"><svg class="ic"><use href="#i-menu"/></svg></button><div><div class="eb">Vaccination</div><h3 data-t="cal">Calendar</h3></div><span class="sp"></span><button class="ib rfz" data-refresh="v-calendar" aria-label="Refresh"><svg class="ic"><use href="#i-refresh"/></svg></button><button class="ib" data-go="v-alerts"><svg class="ic"><use href="#i-bell"/></svg></button></div>
         <div class="vscroll">
           <div class="conn"><span class="bt"><svg class="ic" style="width:15px;height:15px"><use href="#i-bt"/></svg></span><span><b>RFID reader connected</b> · Chainway R3</span><span style="flex:1"></span><span class="pill ok">Ready</span></div>
           <div class="segc" id="calMode" style="margin:0 16px 10px"><span class="s on" data-cal="week" data-t="cweek">Week</span><span class="s" data-cal="month" data-t="cmonth">Month</span><span class="s" data-cal="history" data-t="chist">History</span></div>
@@ -367,7 +374,7 @@
 
       <!-- SHED LIST -->
       <section class="view" id="v-sheds">
-        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb" id="shedsEb">Vaccination · CBE</div><h3 id="shedsTitle" data-t="todaysheds">Today's sheds</h3></div></div>
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb" id="shedsEb">Vaccination · CBE</div><h3 id="shedsTitle" data-t="todaysheds">Today's sheds</h3></div><span class="sp"></span><button class="ib rfz" data-refresh="v-sheds" aria-label="Refresh"><svg class="ic"><use href="#i-refresh"/></svg></button></div>
         <div class="vscroll">
           <div class="drivemeta"><svg class="ic"><use href="#i-cal"/></svg> <b>Tue 7 Jul 2026</b> <span class="dot">·</span> <svg class="ic"><use href="#i-clock"/></svg> 08:00–20:00 <span class="dot">·</span> <b id="dayShedN">4</b> <span data-t="shedsw">sheds</span> <span class="dot">·</span> <b id="dayDue">77</b> <span data-t="due2">due</span></div>
           <div class="drivetot"><div class="dt-h"><b data-t="dayprog">Day progress</b><span style="flex:1"></span><span class="dt-n" id="dayProg">46 / 77</span></div><div class="barp" style="margin-top:8px"><i id="dayBar" style="width:60%"></i></div><div class="dt-s" id="daySheds"><span data-t="animalsacross">animals across</span> 4 <span data-t="shedstoday">sheds today</span></div></div>
@@ -456,7 +463,7 @@
 
       <!-- DIRECTOR HOME -->
       <section class="view" id="v-dhome">
-        <div class="vhead"><button class="ib" data-open="drawer"><svg class="ic"><use href="#i-menu"/></svg></button><div><div class="eb" id="dhrole">Vaccination · Director</div><h3 data-t="overview">Overview</h3></div><span class="sp"></span><span class="avatar" style="width:36px;height:36px;font-size:14px" id="dhav" data-go="v-you">A</span></div>
+        <div class="vhead"><button class="ib" data-open="drawer"><svg class="ic"><use href="#i-menu"/></svg></button><div><div class="eb" id="dhrole">Vaccination · Director</div><h3 data-t="overview">Overview</h3></div><span class="sp"></span><button class="ib rfz" data-refresh="v-dhome" aria-label="Refresh"><svg class="ic"><use href="#i-refresh"/></svg></button><span class="avatar" style="width:36px;height:36px;font-size:14px" id="dhav" data-go="v-you">A</span></div>
         <div class="vscroll">
           <div class="hero"><div class="gr" data-t="coverage">Dose coverage · all vaccines</div><div class="big" id="dhcov">48%</div><div class="bl" id="dhdoses">4,650 of 9,698 scheduled doses given</div><div class="row"><span class="hpill" id="dhscope" data-open="scope">All parks · 2 <svg class="ic scopechev" style="width:13px;height:13px"><use href="#i-chev"/></svg></span><span class="hpill"><span id="dhanim">1,312</span> <span data-t="animals">animals</span></span><span class="hpill tap" id="dhgap" data-open="gaps">no data gaps <svg class="ic scopechev" style="width:13px;height:13px"><use href="#i-chev"/></svg></span></div></div>
           <div class="kpis"><div class="kpi ok tap" data-open="given"><svg class="ic"><use href="#i-check"/></svg><div class="n" id="dhgiven">4,650</div><div class="l" data-t="dgiven">Doses given · tap</div></div><div class="kpi tap" data-go="v-overdue"><svg class="ic" style="color:var(--warn)"><use href="#i-chev"/></svg><div class="n" id="dhpending" style="color:var(--warn)">5,048</div><div class="l" data-t="dpending">Pending · tap</div></div></div>
@@ -484,7 +491,7 @@
 
       <!-- OVERDUE LIST -->
       <section class="view" id="v-overdue">
-        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Vaccination</div><h3>Overdue · 38 animals</h3></div></div>
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Vaccination</div><h3>Overdue · 38 animals</h3></div><span class="sp"></span><button class="ib rfz" data-refresh="v-overdue" aria-label="Refresh"><svg class="ic"><use href="#i-refresh"/></svg></button></div>
         <div class="vscroll">
           <div class="lt" data-t="needsresched">Needs rescheduling</div>
           <div style="display:flex;gap:16px;padding:0 16px 10px;font-size:11px;color:var(--muted)">
@@ -1202,6 +1209,34 @@
   function enqueue(s){ _obid++; OUTBOX.unshift({id:_obid,shed:s?s.name:'Shed',park:s?s.park:'',animals:done,state:netOnline?'uploading':'queued',pct:0}); if(netOnline)startSync(); renderSync(); }
   function setNet(on){ netOnline=on; if(on)startSync(); renderSync(); }
   var netset=D.getElementById('netset'); if(netset)netset.addEventListener('click',function(e){var b=e.target.closest('button');if(b)setNet(b.dataset.net==='online');});
+
+  /* ---------- pull-to-refresh + manual refresh (read screens only) ---------- */
+  // Re-pull the cached read from the backend. Offline → keep last-synced, tell the user.
+  function refreshView(id){
+    if(!netOnline){ toast('Offline','Showing last synced · connect to refresh'); return; }
+    var btn=D.querySelector('#'+id+' [data-refresh]'); if(btn)btn.classList.add('spin');
+    setTimeout(function(){
+      if(btn)btn.classList.remove('spin');
+      if(id==='v-calendar'){var on=D.querySelector('#calMode .s.on');var m=on?on.getAttribute('data-cal'):'week';if(typeof calMode==='function')calMode(m);}
+      else if(id==='v-sheds'){if(typeof renderShedsView==='function')renderShedsView();}
+      else if(id==='v-dhome'){if(typeof applyScope==='function')applyScope(curScope);}
+      toast('Updated','Synced from server · just now');
+    },650);
+  }
+  D.addEventListener('click',function(e){var r=e.target.closest('[data-refresh]');if(r){refreshView(r.getAttribute('data-refresh'));}});
+  // pull-to-refresh gesture (pointer-based → works with touch and mouse) on read scrollers
+  function attachPTR(viewId){
+    var view=D.getElementById(viewId); if(!view)return; var sc=view.querySelector('.vscroll'); if(!sc)return;
+    var ind=D.createElement('div'); ind.className='ptr'; ind.innerHTML='<svg class="ic"><use href="#i-refresh"/></svg>'; sc.insertBefore(ind,sc.firstChild);
+    var sy=0,pull=false,dy=0;
+    sc.addEventListener('pointerdown',function(e){ if(sc.scrollTop<=0){sy=e.clientY;pull=true;dy=0;ind.classList.remove('snap','spin');} });
+    sc.addEventListener('pointermove',function(e){ if(!pull)return; dy=e.clientY-sy; if(dy>0&&sc.scrollTop<=0){ if(e.cancelable)e.preventDefault(); var d=Math.min(dy,90); ind.style.height=d+'px'; ind.style.opacity=Math.min(1,d/60); var g=ind.querySelector('.ic'); if(g)g.style.transform='rotate('+(d*4)+'deg)'; } else if(dy<0){ pull=false; ind.classList.add('snap'); ind.style.height='';ind.style.opacity=''; } });
+    function end(){ if(!pull)return; pull=false; ind.classList.add('snap'); var g=ind.querySelector('.ic'); if(g)g.style.transform='';
+      if(dy>60){ ind.classList.add('spin'); setTimeout(function(){ind.classList.remove('spin');ind.style.height='';ind.style.opacity='';},700); refreshView(viewId); }
+      else { ind.style.height='';ind.style.opacity=''; } }
+    sc.addEventListener('pointerup',end); sc.addEventListener('pointercancel',end);
+  }
+  ['v-calendar','v-sheds','v-dhome','v-overdue'].forEach(attachPTR);
 
   /* ---------- init ---------- */
   markTheme(); setLang('en'); setRole('operator'); renderSync();

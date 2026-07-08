@@ -150,6 +150,12 @@ Full per-screen contract in [screens.md](screens.md).
   (missing DOB/breed/tag); nothing is faked to look complete.
 - **Buffer**: overdue within a 1-week buffer is recoverable by reschedule; beyond
   it is a missed dose and leadership was alerted a week ahead.
+- **Explicit refresh**: read screens (Calendar, Drive status / Today's sheds,
+  Overview, Overdue) support **pull-to-refresh** plus a header refresh button; it
+  re-pulls the scoped read from the backend and updates the local cache. Offline →
+  keep the last-synced data and tell the operator (never a blank or endless
+  spinner). Execution screens (Scan / Submit) do not refresh — they are
+  local-first and reconcile through the sync engine.
 - **India business calendar**: all due/missed/reminder/among-day logic is
   `Asia/Kolkata`.
 
