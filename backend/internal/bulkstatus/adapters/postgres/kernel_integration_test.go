@@ -595,6 +595,57 @@ FROM goats WHERE tenant_id=$2::uuid AND species='sheep'`, job2, tenant); err != 
 	}
 }
 
+// TestRunTenantRollsUpStaleTerminalCrashOrphan covers the terminal crash-orphan:
+// a worker marked the last rows terminal ('error') then died before
+// RefreshJobCounts, leaving the job stuck 'running' with failed_rows=0 and NO
+// pending|retry|claimed rows. The claimable-row discovery can never see it, so
+// RunTenant must roll it up via ListJobIDsNeedingRollup — settling it 'failed'
+// and surfacing it — instead of leaving it invisible.
+func TestRunTenantRollsUpStaleTerminalCrashOrphan(t *testing.T) {
+	requirePool(t)
+	ctx := context.Background()
+	tenant := newTenant(t, ctx)
+	copyGoats(t, ctx, tenant, "goat", reproStart, 3)
+
+	var job string
+	if err := itPool.QueryRow(ctx, `
+INSERT INTO bulk_status_job (tenant_id, actor_id, axis, params, total_rows, applied_rows, skipped_rows, failed_rows, state, idempotency_key)
+VALUES ($1::uuid, $2::uuid, 'reproductive', '{}'::jsonb, 3, 0, 0, 0, 'running', $3)
+RETURNING bulk_status_job_id::text`, tenant, itActor, "it-"+t.Name()).Scan(&job); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	// All rows already terminal 'error'; job counters NOT refreshed (failed_rows=0,
+	// state='running') — the crash-after-terminal-before-rollup signature.
+	if _, err := itPool.Exec(ctx, `
+INSERT INTO bulk_status_job_row (tenant_id, job_id, goat_id, axis, target, expected_row_version, row_state, failure_reason)
+SELECT tenant_id, $1::uuid, goat_id, 'reproductive', $2, row_version, 'error', 'invalid_reference'
+FROM goats WHERE tenant_id=$3::uuid AND species='goat'`, job, reproTarget, tenant); err != nil {
+		t.Fatalf("insert rows: %v", err)
+	}
+	// Sanity: nothing claimable, so the drain-discovery path cannot find it.
+	if n := scalarInt(t, ctx, `SELECT count(*) FROM bulk_status_job_row WHERE job_id=$1::uuid AND row_state IN ('pending','retry','claimed')`, job); n != 0 {
+		t.Fatalf("precondition: expected 0 claimable rows, got %d", n)
+	}
+
+	drain, err := buildWorker(drainSettings()).RunTenant(ctx, tenant, 100)
+	if err != nil {
+		t.Fatalf("RunTenant: %v", err)
+	}
+	if len(drain.Jobs) != 1 || drain.Jobs[0].JobID != job {
+		t.Fatalf("RunTenant should roll up exactly the stale terminal job, got %+v", drain.Jobs)
+	}
+	if c := drain.Jobs[0].FinalCounts; c.State != bulkapp.JobStateFailed || c.Failed != 3 {
+		t.Fatalf("stale terminal job not rolled up to failed(3): %+v", c)
+	}
+	if failed := drain.FailedJobs(); len(failed) != 1 || failed[0].JobID != job {
+		t.Fatalf("rolled-up failed job not surfaced: %+v", failed)
+	}
+	// Persisted job state advanced 'running' -> 'failed'.
+	if st := scalarInt(t, ctx, `SELECT count(*) FROM bulk_status_job WHERE bulk_status_job_id=$1::uuid AND state='failed'`, job); st != 1 {
+		t.Fatalf("persisted job state not advanced to failed")
+	}
+}
+
 func itRepoRoot() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {

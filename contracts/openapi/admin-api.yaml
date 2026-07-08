@@ -7955,7 +7955,8 @@ components:
           items:
             $ref: "#/components/schemas/BulkStatusRow"
           minItems: 1
-          description: Per-goat requested changes.
+          maxItems: 20000
+          description: Per-goat requested changes. One request is capped at 20000 rows; split larger sets across commits (each enqueues an independent, resumable job).
     BulkStatusRow:
       type: object
       additionalProperties: false
@@ -8083,7 +8084,8 @@ components:
           items:
             $ref: "#/components/schemas/BulkStatusRow"
           minItems: 1
-          description: Row set (must match preview request exactly).
+          maxItems: 20000
+          description: Row set (must match preview request exactly). Capped at 20000 rows per request.
         preview_token:
           type: string
           description: Signed preview token from preview response.

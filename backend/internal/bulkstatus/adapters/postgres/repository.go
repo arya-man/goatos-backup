@@ -375,3 +375,43 @@ LIMIT $2`, tenantID, limit)
 	}
 	return out, rows.Err()
 }
+
+// ListJobIDsNeedingRollup returns active (pending|running) jobs whose rows are
+// ALL terminal (applied|skipped|error) — i.e. there is nothing claimable left,
+// but the job-level state/counters were never refreshed. This is the terminal
+// crash-orphan: a worker marked the last rows terminal, then died before
+// RefreshJobCounts, leaving the job stuck 'running' and invisible to the
+// claimable-row discovery path. RunTenant rolls these up so a completed/failed
+// job is never left hidden.
+func (r *Repository) ListJobIDsNeedingRollup(ctx context.Context, tenantID string, limit int) ([]string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT j.bulk_status_job_id::text
+FROM bulk_status_job j
+WHERE j.tenant_id = $1::uuid
+  AND j.state IN ('pending', 'running')
+  AND NOT EXISTS (
+    SELECT 1 FROM bulk_status_job_row r
+    WHERE r.tenant_id = j.tenant_id
+      AND r.job_id = j.bulk_status_job_id
+      AND r.row_state IN ('pending', 'retry', 'claimed')
+  )
+LIMIT $2`, tenantID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]string, 0, limit)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}

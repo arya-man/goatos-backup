@@ -147,6 +147,10 @@ func (f *fakeRepo) ListJobIDsWithClaimableRows(_ context.Context, _ string, _ in
 	return []string{"job-1"}, nil
 }
 
+func (f *fakeRepo) ListJobIDsNeedingRollup(_ context.Context, _ string, _ int) ([]string, error) {
+	return nil, nil
+}
+
 type fakeReader struct {
 	states map[string]GoatState
 }

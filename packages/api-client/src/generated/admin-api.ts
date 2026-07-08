@@ -2979,7 +2979,7 @@ export interface components {
              * @enum {string}
              */
             axis: "reproductive" | "health" | "exit";
-            /** @description Per-goat requested changes. */
+            /** @description Per-goat requested changes. One request is capped at 20000 rows; split larger sets across commits (each enqueues an independent, resumable job). */
             rows: components["schemas"]["BulkStatusRow"][];
         };
         BulkStatusRow: {
@@ -3041,7 +3041,7 @@ export interface components {
              * @enum {string}
              */
             axis: "reproductive" | "health" | "exit";
-            /** @description Row set (must match preview request exactly). */
+            /** @description Row set (must match preview request exactly). Capped at 20000 rows per request. */
             rows: components["schemas"]["BulkStatusRow"][];
             /** @description Signed preview token from preview response. */
             preview_token: string;

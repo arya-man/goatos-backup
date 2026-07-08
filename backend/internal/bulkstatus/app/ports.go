@@ -128,8 +128,11 @@ type BulkStatusRepository interface {
 	// ledger and advances job state (running while rows remain, completed when
 	// drained).
 	RefreshJobCounts(ctx context.Context, tenantID, jobID string) (JobCounts, error)
-	// ListJobIDsWithClaimableRows returns tenant jobs that still have pending|retry rows.
+	// ListJobIDsWithClaimableRows returns tenant jobs that still have pending|retry|claimed rows.
 	ListJobIDsWithClaimableRows(ctx context.Context, tenantID string, limit int) ([]string, error)
+	// ListJobIDsNeedingRollup returns active jobs whose rows are all terminal but
+	// whose state/counters were never refreshed (terminal crash-orphan).
+	ListJobIDsNeedingRollup(ctx context.Context, tenantID string, limit int) ([]string, error)
 }
 
 // ApplyRowRequest is one goat transition the worker asks the applier to perform.

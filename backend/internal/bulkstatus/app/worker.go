@@ -302,6 +302,25 @@ func (w *WorkerService) RunTenant(ctx context.Context, tenantID string, maxJobs 
 			return total, err
 		}
 	}
+	// Repair terminal crash-orphans: active jobs whose rows are all terminal but
+	// whose state/counters were never rolled up (a worker died after marking the
+	// last rows terminal, before RefreshJobCounts). These have no claimable rows,
+	// so the drain loop above cannot see them; roll each up so a completed/failed
+	// job is never left invisible as 'running'.
+	rollupIDs, err := w.repo.ListJobIDsNeedingRollup(ctx, tenantID, maxJobs)
+	if err != nil {
+		return total, mapRepoErr(err)
+	}
+	for _, jobID := range rollupIDs {
+		if err := ctx.Err(); err != nil {
+			return total, ctx.Err()
+		}
+		counts, err := w.repo.RefreshJobCounts(ctx, tenantID, jobID)
+		if err != nil {
+			return total, mapRepoErr(err)
+		}
+		total.Jobs = append(total.Jobs, JobDrainResult{JobID: jobID, FinalCounts: counts})
+	}
 	return total, nil
 }
 
