@@ -166,9 +166,10 @@ budgets: [performance-and-memory.md](performance-and-memory.md).
   not rely on it to fix genuinely-unstable params.
 - **Lazy lists**: `LazyColumn`/`LazyRow` with a stable unique `key = { it.id }` and
   `contentType` for mixed rows; `animateItem` requires keys. Never sort/filter/map
-  inside `items {}` — do any **presentation** mapping/ordering in the ViewModel or
-  `remember(keys) { … }`. Business sort/filter/order semantics come from the backend
-  payload/query and are never re-derived on device.
+  inside `items {}` — the only ViewModel transform is **mapping to immutable UI
+  models + precomputing stable keys**; render lists in the **backend-provided
+  order**. Business sort/filter/order semantics come from the backend payload/query
+  and are never re-derived on device.
 - **Shrink recomposition scope**: defer fast-changing state reads to the lowest
   Composable via a lambda provider (e.g. `scrollProvider: () -> Int`), and use
   `derivedStateOf` for values derived from frequently-changing state (e.g. "show
@@ -300,8 +301,11 @@ Rules:
   works offline. No user action blocks on network.
 - **Multi-sensory scan feedback (offline, ≤120 ms)**: each scan emits haptic +
   audio via `FeedbackPort` — eligible = single short buzz + soft confirm tone;
-  **not-due = double buzz + a distinct audible alert tone**. Feedback fires
-  locally on device (works offline), so the operator gets an unmistakable
+  **not-due = double buzz + a distinct audible alert tone**. The eligible/not-due
+  choice is a **lookup of the cached backend eligibility flag** on the roster animal
+  (+ local `scan_event` for already-done) — **never** a device-side eligibility or
+  date/policy computation. Only the haptic/tone render is local, so it fires
+  locally on device (works offline) and the operator gets an unmistakable
   by-feel-and-sound signal without watching the screen. Honor the OS ring/DND
   policy, but treat the not-due alert as safety-critical field feedback (prefer an
   in-app tone/stream that stays audible under silent mode where policy allows).

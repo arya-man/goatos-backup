@@ -19,7 +19,7 @@ entry point.
 
 **Calendar is the common vaccination entry point for every role** (CEO decision,
 Manju, 2026-07-08). After login, operator and leadership both land on the
-Calendar. Tapping a calendar drive card then opens the **backend-provided drill target** for the principal:
+Calendar. Tapping a calendar drive card then opens the **backend-provided drill target** for the principal (the app maps the returned route/action ID to a screen; no client `when(role)` switch — see system-design §2):
 
 - **Operator** (Health Asst Mgr / field) → execution: enter shed → tap-scan each
   animal by RFID → record the due vaccine(s) with video proof, fully
@@ -86,15 +86,20 @@ Shared entry (all roles):
 
 - **Login** — work-email + OTP (not phone).
 - **Calendar** — the universal landing for every role. Week (today's drive card),
-  month (drive-day dots + day sheet), history (past shed records). Operator sees
-  week only; leadership also gets month + history. Tapping the day's drive card is
-  the **backend-provided drill** below.
+  month (drive-day dots + day sheet), history (past shed records). Which calendar
+  segments (week/month/history) are visible comes from the principal's bootstrap
+  `presentationConfig` visible-nav set — today operators get week only and
+  leadership also gets month + history, but the app renders whatever segments the
+  backend marks visible (no `role==operator` check). Tapping the day's drive card
+  is the **backend-provided drill** below.
 
 Operator drill (execution):
 
 - **Today's sheds** (`v-sheds`) — the day's sheds for the operator's park, each
   shed showing its own mix of due vaccine groups (shed-first, several vaccines per
-  shed), with Start / Resume / View-records actions.
+  shed), with Start / Resume / View-records actions (**local execution UX** driven
+  by the operator's own scan progress; the backend revalidates and decides on
+  submit).
 - **Scan** — per shed: progress ring (shed total), per-vaccine-group progress
   chips, tap-to-scan roster where each animal shows its own due vaccine; Done /
   Pending / Skipped lists.
@@ -150,9 +155,11 @@ Full per-screen contract in [screens.md](screens.md).
   can have several due vaccines at once (mix-and-match). A drive is a day of shed
   visits, not "one vaccine across sheds".
 - **Both RFID tags**: animals may carry two RFID tags; scan matches either.
-- **Deterministic skips**: not-due animals in a shed are skipped with a reason
-  (quarantine/ICU, not in today's set, under treatment, pregnant hold) and stay
-  visible; eligibility comes from the obligation engine, not the operator.
+- **Deterministic skips**: not-due animals in a shed are skipped with a
+  **backend-provided** reason from a scoped option set (e.g. quarantine/ICU, not in
+  today's set, under treatment, pregnant hold) and stay visible; eligibility + the
+  reason vocabulary come from the backend (obligation engine / pinned form), not a
+  client enum or the operator.
 - **Multi-sensory scan feedback**: every scan gives immediate non-visual feedback
   so the operator need not watch the screen — eligible = single buzz + soft
   confirm tone; **a not-due (red) hit = a stronger double-buzz AND an audible

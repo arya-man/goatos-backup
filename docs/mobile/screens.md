@@ -27,8 +27,9 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 - Backend: `GET calendar?scope&range` (Asia/Kolkata day buckets); day/record reads.
 - CTA label is **backend-provided** per principal (today: operator "Open drive";
   leadership "View drive status") — not a client role switch.
-- Note: operator sees week only (`calMode` hidden for operator in mock);
-  month/history are leadership.
+- Note: which calendar segments are visible comes from bootstrap
+  `presentationConfig` visible-nav (the mock hides month/history for operators); the
+  app renders the backend-marked segments, never a `role==operator` gate.
 
 ## Drill from the calendar card (backend-provided target)
 
@@ -38,7 +39,8 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
   status pill, **vaccine-group chips (mix-and-match)**, in-shed/due/done nums,
   progress. Roster-change cards + kernel info box.
   - **Operator (execute)**: eyebrow "Vaccination · CBE", title "Today's sheds",
-    action per shed (Start / Resume / View records).
+    action per shed (Start / Resume / View records — **local execution UX** from the
+    operator's own scan progress; server revalidates on submit).
   - **Leadership (read-only follow-up)**: eyebrow scope label ("All parks · 2" for
     director/ceo, "CBE" for parkmgr), title "Drive status". No Start/scan. Per-shed
     status colour: **done = green, in-progress = amber, delayed / not-started =
@@ -63,7 +65,8 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 - Backend/device: `RfidReaderPort` (fake in dev); eligibility + roster from
   backend; each tap writes `scan_event` (given / skipped+reason) locally.
 - States: scanning, not-due (from **backend-provided roster eligibility**, cached;
-  red + double buzz **+ audible alert tone**), complete → submit enabled; resume
+  red + double buzz **+ audible alert tone**), complete → submit enabled (local
+  execution state; backend revalidates on submit); resume
   preserves prior progress (no reset on re-show — mock fix). Feedback (haptic +
   tone) is rendered locally via `FeedbackPort`, but the not-due *signal* is backend
   eligibility, not a client date/policy check.
