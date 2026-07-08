@@ -211,6 +211,43 @@ Rules:
 - Every adapter/port has a **fake** (in-memory queue, fake reader, fake camera)
   for tests and local dev.
 
+### Sync status surface (what the operator sees)
+
+The offline/online state and the outbox are **observable**, not silent. Expose a
+`SyncStatus` cold `Flow` derived from the Room outbox + WorkManager work states
+(online/offline; per-item state queued → uploading proof → syncing record →
+synced/failed; overall progress). It drives:
+
+- a slim **connectivity/sync bar** on every signed-in screen (Online/Offline · All
+  synced / Syncing N… with a progress line / N queued), and
+- a **sync status sheet** listing each queued shed record with its state, a
+  per-item progress bar, and a retry affordance on failure.
+
+This is a UI requirement, not just plumbing: the operator must always know whether
+a record is saved on the phone vs synced to the server. Demonstrated in the mock
+(connectivity toggle + sync sheet with per-record progress).
+
+### Server→client push for live screens (OPEN DECISION — needs ADR)
+
+Today client reads are **pull** (bootstrap + on-demand GETs) and the only
+server→client channel is **FCM** for kernel reminders/escalations (§8). For
+near-real-time leadership screens (e.g. the drive-status follow-up updating as
+operators submit), two options are on the table and must be decided in an ADR
+before build:
+
+- **A — FCM data-ping + pull (default lean path)**: backend sends a lightweight
+  FCM *data* message ("drive X changed"); the app invalidates and re-pulls the
+  affected read. Cheap, offline-tolerant, reuses existing infra, no new transport.
+- **B — streaming transport (SSE / WebSocket / gRPC-streaming) behind the app-api
+  boundary**: a live subscription for dashboards. More infra + connection
+  management. Repo rule bars direct gRPC for browser/RN clients without an ADR;
+  native Android *could* use gRPC, but it stays ADR-gated and behind the app-api
+  boundary — never a vendor SDK in feature code.
+
+Recommendation to discuss: start with **A** (data-ping + pull) for the follow-up
+and reminders; adopt **B** only if a screen genuinely needs sub-second live
+streaming. Capture the decision in `docs/decisions/` before implementing.
+
 ## 7. Security & auth
 
 - Auth via `AuthProvider` semantics already in the backend (Firebase Auth token
@@ -321,6 +358,9 @@ Idempotency tests are mandatory (repo contract).
 - Every write idempotent; sync is at-least-once with dedupe; no silent overwrite.
 - No vendor SDK outside adapters; every adapter has a fake.
 - Offline capture always works; failures surface as visible error states.
+- Sync is observable, never silent: a `SyncStatus` Flow drives an on-screen
+  connectivity/sync bar + outbox progress; the operator always knows saved-local
+  vs synced-to-server.
 - Scan feedback is multi-sensory via `FeedbackPort` (with a fake): a not-due (red)
   hit fires haptic + an audible alert tone; eligible fires haptic + a soft tone.
 - `Asia/Kolkata` for all business-time meaning.

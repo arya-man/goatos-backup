@@ -253,6 +253,26 @@
   .footnote{max-width:640px;margin:26px auto 0;text-align:center;font-size:12.5px;color:var(--page-muted);line-height:1.6}
   .footnote a{color:var(--brand-2)}
 
+  /* net + sync status (offline-first · Room outbox) */
+  .netbar{display:flex;align-items:center;gap:8px;padding:6px 16px;font-size:11px;font-weight:750;background:var(--surf);border-bottom:1px solid var(--hair);flex:none;cursor:pointer;position:relative;z-index:4}
+  .netbar .ndot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--okx);flex:none}
+  .netbar.off .ndot{background:var(--faint);box-shadow:0 0 0 3px var(--surf3)}
+  .netbar .nstate{color:var(--muted)}
+  .netbar .ss{margin-left:auto;display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+  .netbar .ss .ic{width:14px;height:14px}
+  .netbar.ok .ss{color:var(--brand-d)} .netbar.sync .ss{color:var(--warn)}
+  .netbar .ss .spin{animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .netprog{position:absolute;left:0;bottom:-1px;height:2px;width:0;background:var(--grad);transition:width .25s;opacity:0}
+  .netbar.sync .netprog{opacity:1}
+  .syncrow{display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid var(--surf2)} .syncrow:last-child{border:0}
+  .syncrow .si{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;flex:none}
+  .syncrow .si.ok{background:var(--okx);color:var(--brand-d)} .syncrow .si.up{background:var(--warnx);color:var(--warn)} .syncrow .si.q{background:var(--surf3);color:var(--muted)} .syncrow .si.no{background:var(--dangerx);color:var(--danger)}
+  .syncrow .si .ic{width:16px;height:16px}
+  .syncrow .sp{flex:1;min-width:0} .syncrow b{font-size:13px;font-weight:740} .syncrow .sm{font-size:11px;color:var(--muted);margin-top:2px}
+  .syncrow .sbar2{height:5px;border-radius:3px;background:var(--surf3);margin-top:7px;overflow:hidden} .syncrow .sbar2 i{display:block;height:100%;background:var(--grad);border-radius:3px;transition:width .25s}
+  .syncrow .stag{font-size:10px;font-weight:750;padding:3px 8px;border-radius:6px;white-space:nowrap;flex:none}
+
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 
@@ -300,14 +320,16 @@
         <button data-lang="en" class="on">EN</button><button data-lang="hi">हिं</button><button data-lang="kn">ಕನ್ನಡ</button><button data-lang="te">తెలుగు</button>
       </div>
       <div class="seg" id="themeset"><button data-th="dark">Dark</button><button data-th="light">Light</button></div>
+      <div class="seg" id="netset"><button data-net="online" class="on">Online</button><button data-net="offline">Offline</button></div>
       <div class="seg"><button id="resetbtn"><svg class="ic"><use href="#i-refresh"/></svg> Restart</button></div>
     </div>
-    <div class="hintline">Start on <b>Login</b> → <b>Sign in</b> → tap the green <b>Open drive</b> card.</div>
+    <div class="hintline">Start on <b>Login</b> → <b>Sign in</b> → tap the green <b>Open drive</b> card. Flip <b>Offline</b> then submit a shed to watch it queue &amp; sync.</div>
   </header>
 
   <div class="stage"><div class="device"><div class="scr">
     <div class="notch"></div>
     <div class="sbar"><span>9:41</span><span class="r"><svg class="ic" id="btIcon"><use href="#i-bt"/></svg> 5G ▮▮▮</span></div>
+    <div class="netbar ok" id="netbar" data-open="sync" style="display:none"><span class="ndot"></span><span class="nstate" id="netState">Online</span><span class="ss" id="syncState"><svg class="ic"><use href="#i-check"/></svg> All synced</span><i class="netprog" id="netProg"></i></div>
     <div class="screen" id="screen">
 
       <!-- LOGIN -->
@@ -624,6 +646,16 @@
         <div class="sheet"><div class="grip"></div><div class="sh-h" id="dayTtl">Day</div><div id="dayBody" style="padding:2px 4px 8px"></div></div>
       </div>
 
+      <div class="ovl" id="ovl-sync"><div class="vl" data-close></div>
+        <div class="sheet">
+          <div class="grip"></div>
+          <div class="sh-h" data-t="synch">Sync status</div>
+          <div class="sh-s" id="syncSheetSub" data-t="syncsub">Records save on the phone first (local DB), then sync when online</div>
+          <div id="syncBody" style="padding:2px 16px 6px"></div>
+          <div class="more" data-t="syncmore">Offline-first: a full drive records with no signal. The outbox uploads video proof then the shed record, retries with backoff, and never creates a duplicate.</div>
+        </div>
+      </div>
+
       <div class="toast" id="toast"><span class="ti"><svg class="ic"><use href="#i-check"/></svg></span><div><b id="toastt">Submitted</b><div class="ts" id="toasts">Drive recorded</div></div></div>
 
     </div>
@@ -649,6 +681,7 @@
     if(isBack)el.classList.add('back'); el.classList.add('on');
     el.scrollTop=0; var sc=$('.vscroll',el); if(sc)sc.scrollTop=0;
     renderNav();
+    var nb=D.getElementById('netbar'); if(nb)nb.style.display=(id==='v-login')?'none':'flex';
     if(id==='v-calendar'&&typeof calMode==='function')calMode('week');
     // v-scan is set up by enterShed (reset + any pre-done); don't wipe it on show/back.
   }
@@ -663,7 +696,7 @@
   });
 
   /* ---------- overlays ---------- */
-  function openOvl(n){ if(n==='assign'&&!canAssign()){toast('Not allowed','Only CEO/COO or Park Manager can assign the team');return;} if(n==='scope'&&role!=='ceo'&&role!=='director')return; var el=D.getElementById('ovl-'+n); if(el)el.classList.add('open'); if(n==='assign'&&typeof renderAssign==='function')renderAssign();}
+  function openOvl(n){ if(n==='assign'&&!canAssign()){toast('Not allowed','Only CEO/COO or Park Manager can assign the team');return;} if(n==='scope'&&role!=='ceo'&&role!=='director')return; var el=D.getElementById('ovl-'+n); if(el)el.classList.add('open'); if(n==='assign'&&typeof renderAssign==='function')renderAssign(); if(n==='sync'&&typeof renderSync==='function')renderSync();}
   function closeOvl(){$all('.ovl').forEach(function(o){o.classList.remove('open');});}
 
   /* ---------- park scope (leadership overview) ---------- */
@@ -861,7 +894,10 @@
     tb1:{en:'Calendar',hi:'कैलेंडर',kn:'ಕ್ಯಾಲೆಂಡರ್',te:'క్యాలెండర్'},tb2:{en:'Drives',hi:'ड्राइव',kn:'ಡ್ರೈವ್',te:'డ్రైవ్‌లు'},tb3:{en:'Alerts',hi:'अलर्ट',kn:'ಎಚ್ಚರಿಕೆ',te:'అలర్ట్‌లు'},tb4:{en:'You',hi:'आप',kn:'ನೀವು',te:'మీరు'},tbhome:{en:'Home',hi:'होम',kn:'ಮುಖ್ಯ',te:'హోమ్'},
     drivestatus:{en:'Drive status',hi:'ड्राइव स्थिति',kn:'ಡ್ರೈವ್ ಸ್ಥಿತಿ',te:'డ్రైవ్ స్థితి'},
     shedsfollow:{en:'Tap a shed for its live status · red = delayed, chase the team',hi:'लाइव स्थिति के लिए शेड टैप करें · लाल = देरी, टीम से संपर्क करें',kn:'ಲೈವ್ ಸ್ಥಿತಿಗೆ ಶೆಡ್ ಟ್ಯಾಪ್ · ಕೆಂಪು = ವಿಳಂಬ, ತಂಡವನ್ನು ಸಂಪರ್ಕಿಸಿ',te:'లైవ్ స్థితి కోసం షెడ్ ట్యాప్ · ఎరుపు = ఆలస్యం, బృందాన్ని సంప్రదించండి'},
-    viewstatus:{en:'View drive status',hi:'ड्राइव स्थिति देखें',kn:'ಡ್ರೈವ್ ಸ್ಥಿತಿ ನೋಡಿ',te:'డ్రైవ్ స్థితి చూడండి'}
+    viewstatus:{en:'View drive status',hi:'ड्राइव स्थिति देखें',kn:'ಡ್ರೈವ್ ಸ್ಥಿತಿ ನೋಡಿ',te:'డ్రైవ్ స్థితి చూడండి'},
+    synch:{en:'Sync status',hi:'सिंक स्थिति',kn:'ಸಿಂಕ್ ಸ್ಥಿತಿ',te:'సింక్ స్థితి'},
+    syncsub:{en:'Records save on the phone first, then sync when online',hi:'रिकॉर्ड पहले फ़ोन पर सहेजे जाते हैं, फिर ऑनलाइन होने पर सिंक',kn:'ದಾಖಲೆಗಳು ಮೊದಲು ಫೋನ್‌ನಲ್ಲಿ ಉಳಿಯುತ್ತವೆ, ನಂತರ ಆನ್‌ಲೈನ್ ಆದಾಗ ಸಿಂಕ್',te:'రికార్డులు ముందు ఫోన్‌లో సేవ్ అవుతాయి, ఆన్‌లైన్‌లో ఉన్నప్పుడు సింక్'},
+    syncmore:{en:'Offline-first: a full drive records with no signal. The outbox uploads video proof then the shed record, retries with backoff, and never creates a duplicate.',hi:'ऑफ़लाइन-फर्स्ट: बिना सिग्नल पूरी ड्राइव रिकॉर्ड होती है। आउटबॉक्स वीडियो प्रूफ़ फिर शेड रिकॉर्ड अपलोड करता है, बैकऑफ़ से पुनः प्रयास, कोई डुप्लिकेट नहीं।',kn:'ಆಫ್‌ಲೈನ್-ಫಸ್ಟ್: ಸಿಗ್ನಲ್ ಇಲ್ಲದೆ ಪೂರ್ಣ ಡ್ರೈವ್ ದಾಖಲಾಗುತ್ತದೆ. ಔಟ್‌ಬಾಕ್ಸ್ ವಿಡಿಯೊ ಪ್ರೂಫ್ ನಂತರ ಶೆಡ್ ದಾಖಲೆ ಅಪ್‌ಲೋಡ್ ಮಾಡುತ್ತದೆ, ಬ್ಯಾಕ್‌ಆಫ್‌ನೊಂದಿಗೆ ಮರುಪ್ರಯತ್ನ, ನಕಲು ಇಲ್ಲ.',te:'ఆఫ్‌లైన్-ఫస్ట్: సిగ్నల్ లేకుండా పూర్తి డ్రైవ్ రికార్డ్ అవుతుంది. అవుట్‌బాక్స్ వీడియో ప్రూఫ్ తర్వాత షెడ్ రికార్డ్ అప్‌లోడ్ చేస్తుంది, బ్యాకాఫ్‌తో మళ్లీ ప్రయత్నిస్తుంది, డూప్లికేట్ ఉండదు.'}
   };
   function setLang(l){
     curLang=l;
@@ -1012,7 +1048,7 @@
   /* ---------- submit / reschedule feedback ---------- */
   var tt;
   function toast(t,s){$('#toastt').textContent=t;$('#toasts').textContent=s;var el=$('#toast');el.classList.add('show');clearTimeout(tt);tt=setTimeout(function(){el.classList.remove('show');},2200);}
-  $('#finalsubmit').addEventListener('click',function(){var s=curShed;var nv=s?s.groups.length:0;toast('Shed submitted ✓',(s?s.name+' · ':'')+done+' animals · '+nv+' vaccine'+(nv===1?'':'s')+' · draft to your head');setTimeout(function(){go('__home');},700);});
+  $('#finalsubmit').addEventListener('click',function(){var s=curShed;if(typeof enqueue==='function')enqueue(s);toast(netOnline?'Saved · syncing…':'Saved offline · queued',(s?s.name+' · ':'')+done+' animals · '+(netOnline?'uploading proof to server':'will sync when back online'));setTimeout(function(){go('__home');},700);});
   $('#reschedbtn').addEventListener('click',function(){toast('Rescheduled ✓','Fri 10 Jul · team notified on 4 channels');setTimeout(function(){back();},700);});
   $('#proofbox').addEventListener('click',function(){toast('Video attached','Shed clip · 00:48');});
 
@@ -1048,10 +1084,19 @@
     var clkKey=(role==='operator')?'opendrive':'viewstatus';
     var clkTxt=TXT[clkKey]?(TXT[clkKey][curLang]||TXT[clkKey].en):(role==='operator'?'Open drive':'View drive status');
     return dr.go?('<div class="card evt" data-go="v-sheds">'+head+'<div class="clk">'+clkTxt+' <svg class="ic" style="width:13px;height:13px"><use href="#i-chev"/></svg></div></div>'):('<div class="card evt dim">'+head+'</div>');}
+  // Today's drive card is role/scope-aware: it must match the follow-up the tap opens
+  // (operator/parkmgr = own park; director/ceo = all parks or picked park).
+  function todayDriveCard(){
+    var parks=shedsScopeParks();
+    var day=SHEDS.filter(function(s){return parks.indexOf(s.park)>=0;});
+    var due=day.reduce(function(a,s){return a+shedDue(s);},0);
+    var label=parks.length>1?'All parks · 2':parks[0];
+    return {n:'Today · '+day.length+' sheds',pill:'ok',pl:'Due now',sub:due+' animals due · '+label+' · '+day.map(function(s){return s.name;}).join(' · '),go:1};
+  }
   function renderWeek(){
     var strip=$('#weekStrip'); if(strip)strip.innerHTML=[6,7,8,9,10,11,12].map(function(d){var cls='d'+(d===sel?' today':'')+((DR[d]&&DR[d].length&&d!==sel)?' has':'');return '<div class="'+cls+'" data-day="'+d+'"><div class="dn">'+WD[d][0]+'</div><div class="dd">'+d+'</div></div>';}).join('');
     var lab=$('#dayLabel'); if(lab)lab.textContent=(sel===7?'Today · ':'')+WD[sel]+' '+sel+' Jul';
-    var ev=$('#dayEvents'); if(ev){var list=DR[sel]||[]; ev.innerHTML=list.length?list.map(evtCard).join(''):'<div class="card" style="text-align:center;color:var(--muted);font-size:12.5px;padding:22px">'+(TXT.nodrives?TXT.nodrives[curLang]||TXT.nodrives.en:'No drives scheduled')+' · '+WD[sel]+' '+sel+' Jul</div>';}
+    var ev=$('#dayEvents'); if(ev){var list=(sel===7)?[todayDriveCard()]:(DR[sel]||[]); ev.innerHTML=list.length?list.map(evtCard).join(''):'<div class="card" style="text-align:center;color:var(--muted);font-size:12.5px;padding:22px">'+(TXT.nodrives?TXT.nodrives[curLang]||TXT.nodrives.en:'No drives scheduled')+' · '+WD[sel]+' '+sel+' Jul</div>';}
   }
   function renderMonth(){
     var m=$('#calMonth'); if(!m)return; var M=MONTHS[monthIdx];
@@ -1101,8 +1146,65 @@
   $all('#parkbreak [data-park]').forEach(function(p){p.addEventListener('click',function(){var pk=(p.getAttribute('data-park')||'').toLowerCase();applyScope(SCOPES[pk]?pk:'all');var sc=$('#dhscope');if(sc&&sc.scrollIntoView)sc.scrollIntoView({behavior:'smooth',block:'start'});});});
   $all('#v-dhome [data-go="v-sheds"]').forEach(function(x){x.addEventListener('click',function(){var rn=$('#rolenote');if(rn){var sp=rn.querySelector('span');if(sp&&TXT.readonly)sp.textContent=TXT.readonly[curLang]||TXT.readonly.en;}});});
 
+  /* ---------- offline-first sync engine (local DB outbox → app-api) ---------- */
+  // Records save to the on-device DB (Room) first, then an outbox syncs when
+  // online: per-item upload video proof → post shed record, with progress.
+  var netOnline=true, syncTimer=null, _obid=1;
+  var OUTBOX=[{id:0,shed:'Mandela 1',park:'CBE',animals:40,state:'synced',pct:100}];
+  function pendingCount(){return OUTBOX.filter(function(x){return x.state!=='synced';}).length;}
+  function activeItem(){return OUTBOX.filter(function(x){return x.state==='uploading'||x.state==='syncing';})[0];}
+  function syncSummary(){
+    var a=activeItem(), pend=pendingCount();
+    if(a&&netOnline)return {cls:'sync',txt:(a.state==='uploading'?'Uploading proof':'Syncing record')+' · '+pend+' left'};
+    if(!netOnline&&pend>0)return {cls:'off',txt:'Offline · '+pend+' queued'};
+    if(!netOnline)return {cls:'off',txt:'Offline'};
+    if(pend>0)return {cls:'wait',txt:pend+' to sync'};
+    return {cls:'ok',txt:'All synced'};
+  }
+  function renderSync(){
+    var bar=D.getElementById('netbar');
+    if(bar){
+      var s=syncSummary();
+      bar.className='netbar '+s.cls+(netOnline?'':' off')+(bar.style.display==='none'?'':'');
+      if(bar.style.display==='none'){/* keep hidden on login */}
+      var ns=D.getElementById('netState'); if(ns)ns.textContent=netOnline?'Online':'Offline';
+      var ss=D.getElementById('syncState');
+      if(ss){var ic=s.cls==='ok'?'i-check':(s.cls==='sync'?'i-refresh':(s.cls==='off'?'i-bt':'i-clock'));
+        ss.innerHTML='<svg class="ic'+(s.cls==='sync'?' spin':'')+'"><use href="#'+ic+'"/></svg> '+s.txt;}
+      var np=D.getElementById('netProg'); if(np){var a=activeItem();np.style.width=(a&&netOnline?a.pct:0)+'%';}
+    }
+    $all('#netset button').forEach(function(b){b.classList.toggle('on',b.dataset.net===(netOnline?'online':'offline'));});
+    var sb=D.getElementById('syncBody'), ov=D.getElementById('ovl-sync');
+    if(sb&&ov&&ov.classList.contains('open')){
+      var sub=D.getElementById('syncSheetSub'); if(sub){var su=syncSummary();sub.textContent=(pendingCount()?su.txt:'All records synced')+' · saved on the phone first, sync when online';}
+      sb.innerHTML=OUTBOX.length?OUTBOX.map(function(x){
+        var st=x.state, box=st==='synced'?'ok':(st==='queued'?'q':(st==='failed'?'no':'up'));
+        var ic=st==='synced'?'i-check':(st==='queued'?'i-clock':(st==='failed'?'i-x':'i-refresh'));
+        var lab=st==='synced'?'Synced':(st==='queued'?(netOnline?'Waiting':'Queued · offline'):(st==='uploading'?'Uploading proof':(st==='syncing'?'Syncing record':'Failed')));
+        var tagcls=st==='synced'?'ok':(st==='failed'?'dng':(st==='queued'?'mut':'warn'));
+        var spin=(st==='uploading'||st==='syncing')?' spin':'';
+        var showbar=st==='uploading'||st==='syncing';
+        return '<div class="syncrow"><span class="si '+box+'"><svg class="ic'+spin+'"><use href="#'+ic+'"/></svg></span><div class="sp"><b>'+x.shed+' · '+x.park+'</b><div class="sm">'+x.animals+' animals · shed record</div>'+(showbar?'<div class="sbar2"><i style="width:'+x.pct+'%"></i></div>':'')+'</div><span class="pill '+tagcls+'">'+lab+'</span></div>';
+      }).join(''):'<div class="empty" style="padding:26px"><svg class="ic"><use href="#i-check"/></svg><div>Nothing to sync</div></div>';
+    }
+  }
+  function startSync(){ if(syncTimer||!netOnline)return; syncTimer=setInterval(syncStep,300); }
+  function syncStep(){
+    if(!netOnline){clearInterval(syncTimer);syncTimer=null;return;}
+    var it=activeItem();
+    if(!it){var q=OUTBOX.filter(function(x){return x.state==='queued';})[0];
+      if(!q){clearInterval(syncTimer);syncTimer=null;renderSync();return;}
+      q.state='uploading';q.pct=0;it=q;}
+    it.pct+=14+Math.floor(Math.random()*12);
+    if(it.pct>=100){ if(it.state==='uploading'){it.state='syncing';it.pct=0;} else {it.state='synced';it.pct=100;} }
+    renderSync();
+  }
+  function enqueue(s){ _obid++; OUTBOX.unshift({id:_obid,shed:s?s.name:'Shed',park:s?s.park:'',animals:done,state:netOnline?'uploading':'queued',pct:0}); if(netOnline)startSync(); renderSync(); }
+  function setNet(on){ netOnline=on; if(on)startSync(); renderSync(); }
+  var netset=D.getElementById('netset'); if(netset)netset.addEventListener('click',function(e){var b=e.target.closest('button');if(b)setNet(b.dataset.net==='online');});
+
   /* ---------- init ---------- */
-  markTheme(); setLang('en'); setRole('operator');
+  markTheme(); setLang('en'); setRole('operator'); renderSync();
 })();
 </script>
 

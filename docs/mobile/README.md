@@ -60,6 +60,10 @@ verbatim:
 docs           : authored (this set)
 firebase app   : NOT created (gated on org verification + explicit go)
 android app    : NOT started (apps/operator-android does not exist yet)
-backend mobile : app-api mobile bootstrap + submit contracts NOT yet specified
-                 as OpenAPI (tracked as first implementation task in the TRD)
+backend mobile : baseline app-api EXISTS (/app/bootstrap, /app/devices/register,
+                 /app/proofs/*, /app/tasks/*/submissions, /vaccination/execution/
+                 sheds/{id}, /calendar/vaccination/events, leadership reads).
+                 Mock-shaped shed-first mobile DELTAS not yet specified as OpenAPI
+                 (today's-sheds-by-drive, scan roster, shed submit, reschedule,
+                 assign, role-scoped follow-up status) — additive pass, per TRD.
 ```

@@ -123,6 +123,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 | `ovl-assign` | assign primary/backup | assign command |
 | `ovl-scanlist` | scan list (given/pending/skipped) | local scan_event + roster |
 | `ovl-day` | month day sheet | that day's sheds/record |
+| `ovl-sync` | sync status sheet | Room outbox: each queued record + state + progress |
 | toast | `GoatToast` | one-shot effects |
 
 ## Cross-cutting
@@ -131,5 +132,9 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 - **Scope** (park) lives in the top bar / picker; page bodies don't repeat it.
 - **Empty vs error**: empty-but-OK shows zero-count sections; API/RBAC errors
   show a visible error state (never a blank that reads as "no data").
+- **Sync/connectivity bar** (`#netbar`) on every signed-in screen: Online/Offline
+  + sync state (All synced / Syncing N… with progress / N queued). Tap → `ovl-sync`
+  outbox sheet. Backed by the Room outbox + `SyncStatus` Flow (TRD §6); records are
+  local-first and sync when online, with no duplicates on retry.
 - **Every list/row/tile is actionable or clearly informational** (no dead
   microcopy — repo standing UI rule; the mock already enforces this).

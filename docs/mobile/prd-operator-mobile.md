@@ -112,7 +112,14 @@ Leadership drill (read-only follow-up):
   **shed record** (per-vaccine breakdown, searchable animals).
 
 Shared overlays: drawer, language, park scope, data gaps, doses given, drive/shed
-record, date picker, assign team, scan list, day sheet, toast.
+record, date picker, assign team, scan list, day sheet, **sync status**, toast.
+
+Always-on **sync/connectivity bar**: a slim strip on every signed-in screen shows
+Online/Offline and the sync state (All synced · Syncing N… with progress ·
+Offline · N queued). Tapping it opens the **sync status** sheet — the outbox: each
+queued shed record with its state (queued → uploading proof → syncing record →
+synced) and a per-item progress bar. This makes the offline-first behaviour
+visible to the operator instead of a silent background process.
 
 Full per-screen contract in [screens.md](screens.md).
 
@@ -157,7 +164,13 @@ localized. See design-system i18n section.
 - **Low-end Android**: target 2–3 GB RAM, weak GPU, old Android, spotty network.
   Cold start, jank, battery, APK size, and memory are first-class budgets (see
   performance doc).
-- **Offline-first**: a full drive must run with no connectivity and sync later.
+- **Offline-first with visible sync**: a full drive must run with no connectivity.
+  Most data (today's sheds, roster, scan events, shed records, media) is cached in
+  the on-device DB (Room) and served locally first; an outbox syncs to the backend
+  when online, showing live progress (queued → uploading proof → syncing record →
+  synced). Sync must be idempotent — retries and app restarts never create
+  duplicate records. The operator always sees whether their work is saved locally
+  vs synced to the server.
 - **Hardware**: Bluetooth UHF RFID handheld (Chainway-class), phone camera for
   video proof, vibration motor **and speaker** — scan feedback is both haptic and
   audible (a distinct alert tone on a not-due hit).

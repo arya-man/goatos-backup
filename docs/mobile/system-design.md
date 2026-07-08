@@ -89,12 +89,17 @@ effects; same-key/different-payload is a conflict, not an overwrite.
 ## 5. Read data flow (shed-first)
 
 ```text
-Today's sheds  = GET sheds?scope=<park>  → cache shed_day/shed_group/roster
+scope = <park | all>  — operator/parkmgr resolve to their own park; director/ceo
+                        default to all parks and may drill to one via the picker.
+
+Today's sheds  = GET sheds?scope=<park|all>  → cache shed_day/shed_group/roster
+Drive status   = per-shed follow-up status (done / in-progress / delayed) for the
+follow-up        leadership calendar-card drill; same scope, read-only
 Scan roster    = from roster_animal (each animal → its due vaccine group)
-Coverage/hero  = GET rollup?scope=<park> (given/scheduled/pending, per-vaccine)
-Backlog        = GET backlog?scope=<park> (pending doses per vaccine)
-Data gaps      = GET gaps?scope=<park> (animals excluded from coverage + reason)
-Overdue        = GET overdue?scope=<park> (missed vs in-buffer)
+Coverage/hero  = GET rollup?scope=<park|all> (given/scheduled/pending, per-vaccine)
+Backlog        = GET backlog?scope=<park|all> (pending doses per vaccine)
+Data gaps      = GET gaps?scope=<park|all> (animals excluded from coverage + reason)
+Overdue        = GET overdue?scope=<park|all> (missed vs in-buffer)
 Records        = GET shed-record/{shed_id} (per-vaccine breakdown + animals)
 ```
 
@@ -113,6 +118,12 @@ Device registers FCM token via mobile bootstrap/register-device on boot + refres
 
 The app never decides *when* to notify; timing/policy is kernel-owned. FCM is one
 delivery channel alongside call/Slack/email (mock's 4-channel model).
+
+For near-real-time leadership screens (the drive-status follow-up updating live as
+operators submit), server→client push is an **open decision**: FCM data-ping +
+pull (lean default) vs a streaming transport (SSE / WebSocket / gRPC behind the
+app-api boundary). See TRD §6 "Server→client push for live screens" — ADR before
+build.
 
 ## 7. Analytics event taxonomy (Firebase Analytics)
 
