@@ -110,6 +110,13 @@
   .nums>div{flex:1;text-align:center;padding:9px 4px} .nums>div+div{border-left:1px solid var(--hair)}
   .nums b{color:var(--ink);font-weight:800;font-size:16px;display:block;font-variant-numeric:tabular-nums}
   .nums span{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;font-weight:700}
+  /* vaccine-group chips — a shed can have several due vaccines (mix-and-match) */
+  .vgroups{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+  .vchip{display:inline-flex;align-items:center;gap:6px;background:var(--surf2);border:1px solid var(--hair);border-radius:9px;padding:5px 9px;font-size:11px;font-weight:750}
+  .vchip .vg-syr{width:12px;height:12px;color:var(--brand)} .vchip b{font-weight:780} .vchip .c{color:var(--brand-d);font-weight:800;font-variant-numeric:tabular-nums}
+  .vchip.dn{opacity:.6} .vchip.dn .c{color:var(--muted)}
+  .vgchips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:2px 16px 10px}
+  .vgchip{display:inline-flex;align-items:center;gap:6px;background:var(--surf2);border:1px solid var(--hair);border-radius:999px;padding:5px 11px;font-size:11px;font-weight:750;cursor:pointer} .vgchip.on{background:var(--grad-soft);border-color:transparent;color:var(--brand-d)} .vgchip .c{font-family:var(--mono);font-weight:800}
   .barp{height:7px;border-radius:4px;background:var(--surf3);margin-top:13px;overflow:hidden}.barp i{display:block;height:100%;background:var(--grad);border-radius:4px;transition:width .3s}
   .drivemeta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 16px 6px;padding:10px 13px;background:var(--surf2);border-radius:12px;font-size:11.5px;color:var(--muted);font-weight:600} .drivemeta .ic{width:14px;height:14px;opacity:.8;color:var(--brand)} .drivemeta b{color:var(--ink);font-weight:750} .drivemeta .dot{opacity:.45}
   .drivetot{margin:0 16px 6px;padding:13px 15px;background:var(--surf);border:1px solid var(--hair);border-radius:14px} .drivetot .dt-h{display:flex;align-items:center;font-size:13px} .drivetot .dt-h b{font-weight:750} .drivetot .dt-n{font-family:var(--mono);font-weight:800;font-size:14px;color:var(--brand-d)} .drivetot .dt-s{font-size:10.5px;color:var(--muted);margin-top:7px}
@@ -338,15 +345,13 @@
 
       <!-- SHED LIST -->
       <section class="view" id="v-sheds">
-        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Vaccination</div><h3>FMD + HS · Primary</h3></div></div>
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Vaccination · CBE</div><h3 data-t="todaysheds">Today's sheds</h3></div></div>
         <div class="vscroll">
-          <div class="drivemeta"><svg class="ic"><use href="#i-cal"/></svg> <b>Tue 7 Jul 2026</b> <span class="dot">·</span> <svg class="ic"><use href="#i-clock"/></svg> 08:00–20:00 <span class="dot">·</span> <b>118</b> <span data-t="due2">due</span></div>
-          <div class="drivetot"><div class="dt-h"><b data-t="driveprog">Drive progress</b><span style="flex:1"></span><span class="dt-n">87 / 118</span></div><div class="barp" style="margin-top:8px"><i style="width:74%"></i></div><div class="dt-s"><span data-t="acrosssheds">across 3 sheds</span> · Gandhi 1 · Castro 1 · Mandela 1</div></div>
-          <div class="lt" data-t="sheds">Sheds today · tap to enter</div>
+          <div class="drivemeta"><svg class="ic"><use href="#i-cal"/></svg> <b>Tue 7 Jul 2026</b> <span class="dot">·</span> <svg class="ic"><use href="#i-clock"/></svg> 08:00–20:00 <span class="dot">·</span> <b id="dayShedN">4</b> <span data-t="shedsw">sheds</span> <span class="dot">·</span> <b id="dayDue">77</b> <span data-t="due2">due</span></div>
+          <div class="drivetot"><div class="dt-h"><b data-t="dayprog">Day progress</b><span style="flex:1"></span><span class="dt-n" id="dayProg">46 / 77</span></div><div class="barp" style="margin-top:8px"><i id="dayBar" style="width:60%"></i></div><div class="dt-s" id="daySheds"><span data-t="animalsacross">animals across</span> 4 <span data-t="shedstoday">sheds today</span></div></div>
+          <div class="lt" data-t="sheds">Sheds today · tap to enter · each shed shows its own due vaccines</div>
           <div class="rolenote" id="rolenote"><svg class="ic"><use href="#i-user"/></svg> <span data-t="readonly">Read-only · the ground team runs the drive</span></div>
-          <div class="card shed tap" data-go="v-scan"><div class="sh"><span class="wh"><svg class="ic"><use href="#i-house"/></svg></span><div><b>Gandhi 1</b><div class="s">Milking does · 62 animals</div></div><span class="sp"></span><span class="pill ok">Ready</span></div><div class="nums"><div><b>62</b><span>in shed</span></div><div><b>8</b><span data-t="elig">eligible</span></div><div><b>0</b><span data-t="donel">done</span></div></div><div class="barp"><i style="width:0%"></i></div><button class="btn" style="margin-top:13px" data-go="v-scan" data-t="start">Start · scan animals</button></div>
-          <div class="card shed tap" data-go="v-scan"><div class="sh"><span class="wh"><svg class="ic"><use href="#i-house"/></svg></span><div><b>Castro 1</b><div class="s">Breeding does · 44 animals</div></div><span class="sp"></span><span class="pill warn">In progress</span></div><div class="nums"><div><b>44</b><span>in shed</span></div><div><b>40</b><span data-t="elig">eligible</span></div><div><b>17</b><span data-t="donel">done</span></div></div><div class="barp"><i style="width:42%"></i></div><button class="btn ghost" style="margin-top:13px" data-go="v-scan" data-t="resume">Resume · 23 pending</button></div>
-          <div class="card shed tap" data-shedrec="Mandela 1" data-shedn="70"><div class="sh"><span class="wh"><svg class="ic"><use href="#i-house"/></svg></span><div><b>Mandela 1</b><div class="s">K2 kids · 71 animals</div></div><span class="sp"></span><span class="pill ok">Done</span></div><div class="nums"><div><b>71</b><span>in shed</span></div><div><b>70</b><span data-t="elig">eligible</span></div><div><b>70</b><span data-t="donel">done</span></div></div><div class="barp"><i style="width:100%"></i></div><div class="viewrec" data-t="viewrec">View 70 records ›</div></div>
+          <div id="shedList"></div>
           <div class="lt" data-t="rosterchg">Roster changes · since this drive was scheduled</div>
           <div class="chgcard">
             <div class="chg"><span class="ctag warn" data-t="cgquar">Quarantine</span><div class="ct"><span data-t="cgquard">3 does moved to Q2 (ICU) — skipped today, re-checked on release</span></div></div>
@@ -361,11 +366,12 @@
 
       <!-- SCAN -->
       <section class="view" id="v-scan">
-        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Vaccination · Gandhi 1</div><h3 data-t="samevac">FMD + HS · same vaccine</h3></div></div>
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb" id="scEb">Vaccination · Gandhi 1</div><h3 id="scCohort">Milking does</h3></div></div>
         <div class="exwrap">
-          <div class="ringwrap" id="ringwrap" role="button" tabindex="0" aria-label="Scan"><svg class="ring" viewBox="0 0 120 120"><circle class="rbg" cx="60" cy="60" r="50"/><circle class="rfg" id="ring" cx="60" cy="60" r="50"/></svg><div class="ringc"><div class="n"><span id="cnt">0</span><small>/8</small></div><div class="lb" id="ringlb" data-t="vaccinated">vaccinated</div></div></div>
-          <div class="taphint"><span class="bt"><svg class="ic" style="width:13px;height:13px"><use href="#i-bt"/></svg></span><span data-t="tapprompt">Tap reader to animal — or tap the ring</span></div>
-          <div class="qchips"><div class="qc ok tap" id="qcDone"><b id="qdone">0</b><span data-t="done">Done</span></div><div class="qc tap" id="qcPend"><b id="qpend">8</b><span data-t="pending">Pending</span></div><div class="qc sk tap" id="qcSkip"><b id="qskip">0</b><span data-t="skipped2">Skipped</span></div></div>
+          <div class="ringwrap" id="ringwrap" role="button" tabindex="0" aria-label="Scan"><svg class="ring" viewBox="0 0 120 120"><circle class="rbg" cx="60" cy="60" r="50"/><circle class="rfg" id="ring" cx="60" cy="60" r="50"/></svg><div class="ringc"><div class="n"><span id="cnt">0</span><small id="cntT">/11</small></div><div class="lb" id="ringlb" data-t="vaccinated">vaccinated</div></div></div>
+          <div class="taphint"><span class="bt"><svg class="ic" style="width:13px;height:13px"><use href="#i-bt"/></svg></span><span data-t="tapprompt2">Tap reader to animal — reader shows its due vaccine</span></div>
+          <div class="vgchips" id="scGroups"></div>
+          <div class="qchips"><div class="qc ok tap" id="qcDone"><b id="qdone">0</b><span data-t="done">Done</span></div><div class="qc tap" id="qcPend"><b id="qpend">11</b><span data-t="pending">Pending</span></div><div class="qc sk tap" id="qcSkip"><b id="qskip">0</b><span data-t="skipped2">Skipped</span></div></div>
           <div style="text-align:center;font-size:10px;color:var(--faint);padding:0 16px 4px" data-t="taplist">Tap Done · Pending · Skipped to see the animals</div>
           <ul class="slist" id="slist"></ul>
         </div>
@@ -374,18 +380,18 @@
 
       <!-- SUBMIT -->
       <section class="view" id="v-submit">
-        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Vaccination · Gandhi 1</div><h3 data-t="review">Submit drive</h3></div></div>
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb" id="subEb">Vaccination · Gandhi 1</div><h3 data-t="submitshed">Submit shed</h3></div></div>
         <div class="vscroll">
           <div style="margin:8px 16px 2px;font-size:11.5px;color:var(--faint);line-height:1.5" data-t="dashnote">Vaccine, dose &amp; schedule are set in the web dashboard. Here you only record what happened — same as the Slack form.</div>
-          <div class="lt" data-t="fromdrive">From the drive</div>
-          <div class="fgrp"><div class="frow"><span class="fk" data-t="fvac">Vaccine</span><span class="fv">FMD + HS · 1 ml SC</span></div><div class="frow"><span class="fk"><svg class="ic"><use href="#i-vial"/></svg> <span data-t="fbatch">Batch (FEFO)</span></span><span class="fv"><span class="mono">HS-2609-B</span></span></div><div class="frow"><span class="fk"><svg class="ic"><use href="#i-snow"/></svg> <span data-t="fcold">Cold chain</span></span><span class="fv" style="color:var(--brand-d)">2–8°C ✓</span></div></div>
+          <div class="lt" data-t="duehere">Due in this shed</div>
+          <div id="subVac"></div>
           <div class="lt" data-t="yourec">You record</div>
-          <div class="fgrp"><div class="frow"><span class="fk" data-t="fdone">Animals vaccinated</span><span class="fv" id="subcount">8 / 8</span></div><div class="frow"><span class="fk" data-t="fop">Operator · backup</span><span class="fv">Arun Kumar · Indradev Kumar</span></div></div>
+          <div class="fgrp"><div class="frow"><span class="fk" data-t="fdone">Animals vaccinated</span><span class="fv" id="subcount">11 / 11</span></div><div class="frow"><span class="fk" data-t="fop">Operator · backup</span><span class="fv">Arun Kumar · Indradev Kumar</span></div></div>
           <div class="proofbox" id="proofbox"><svg class="ic"><use href="#i-video"/></svg><b data-t="attachvid">Attach shed video proof</b><span data-t="videohint">continuous clip · tap timestamps (V2)</span></div>
           <div class="fld" style="margin:12px 16px 0"><label data-t="remarks">Remarks (optional)</label><div class="inp" style="min-height:44px;color:var(--faint)" data-t="remarksph">Anything unusual…</div></div>
           <div style="height:6px"></div>
         </div>
-        <div class="vfoot"><button class="btn" id="finalsubmit" data-t="submitall">Submit — 1 record, 8 animals</button><div class="note" data-t="submitnote">Same as the Slack workflow · one form for the shed</div></div>
+        <div class="vfoot"><button class="btn" id="finalsubmit">Submit shed record</button><div class="note" data-t="submitnote2">One shed record · all due vaccines in this shed</div></div>
       </section>
 
       <!-- ALERTS -->
@@ -432,9 +438,8 @@
         <div class="vscroll">
           <div class="hero"><div class="gr" data-t="coverage">Dose coverage · all vaccines</div><div class="big" id="dhcov">48%</div><div class="bl" id="dhdoses">4,650 of 9,698 scheduled doses given</div><div class="row"><span class="hpill" id="dhscope" data-open="scope">All parks · 2 <svg class="ic scopechev" style="width:13px;height:13px"><use href="#i-chev"/></svg></span><span class="hpill"><span id="dhanim">1,312</span> <span data-t="animals">animals</span></span><span class="hpill tap" id="dhgap" data-open="gaps">no data gaps <svg class="ic scopechev" style="width:13px;height:13px"><use href="#i-chev"/></svg></span></div></div>
           <div class="kpis"><div class="kpi ok"><svg class="ic"><use href="#i-check"/></svg><div class="n" id="dhgiven">4,650</div><div class="l" data-t="dgiven">Doses given</div></div><div class="kpi tap" data-go="v-overdue"><svg class="ic" style="color:var(--warn)"><use href="#i-chev"/></svg><div class="n" id="dhpending" style="color:var(--warn)">5,048</div><div class="l" data-t="dpending">Pending · tap</div></div></div>
-          <div class="lt" data-t="todaylive">Today's drives · live</div>
-          <div class="lrow tap dhdrive" data-drivescope="cbe" data-go="v-sheds"><span class="miniring"><svg width="38" height="38" viewBox="0 0 38 38"><circle cx="19" cy="19" r="15" fill="none" stroke="var(--surf3)" stroke-width="4"/><circle cx="19" cy="19" r="15" fill="none" stroke="var(--brand)" stroke-width="4" stroke-linecap="round" stroke-dasharray="94.2" stroke-dashoffset="24"/></svg><span class="mc" style="color:var(--brand-d)">74%</span></span><div class="sp"><b>FMD + HS · Primary</b><div class="s">Gandhi 1 · Castro 1 · Mandela 1</div><button class="asgnbtn" data-assign="FMD + HS · Primary"><svg class="ic"><use href="#i-user"/></svg> <span data-t="assignteam2">Assign team</span></button></div><span class="frac" style="color:var(--brand-d)">87/118</span></div>
-          <div class="lrow dhdrive" data-drivescope="cpt"><span class="miniring"><svg width="38" height="38" viewBox="0 0 38 38"><circle cx="19" cy="19" r="15" fill="none" stroke="var(--surf3)" stroke-width="4"/></svg><span class="mc" style="color:var(--muted)">0%</span></span><div class="sp"><b>PPR · Booster</b><div class="s">Opens 14:00 · Sumathi 2</div><button class="asgnbtn" data-assign="PPR · Booster"><svg class="ic"><use href="#i-user"/></svg> <span data-t="assignteam2">Assign team</span></button></div><span class="pill mut">0/38</span></div>
+          <div class="lt" data-t="todaylive">Today's sheds · live</div>
+          <div id="todaySheds"></div>
           <div class="lt" data-t="byvax">Backlog by vaccine · pending doses</div>
           <div class="vaxr"><div class="vh"><b>PPR</b> <span class="vn" data-t="biggest">largest backlog</span><span class="sp" style="flex:1"></span><span class="pill dng" id="bkppr">989</span></div><div class="barp"><i style="width:25%"></i></div></div>
           <div class="vaxr"><div class="vh"><b>FMD</b> <span class="vn" data-t="firstboost">first + booster</span><span class="sp" style="flex:1"></span><span class="pill dng" id="bkfmd">1,406</span></div><div class="barp"><i style="width:46%"></i></div></div>
@@ -634,9 +639,9 @@
     el.scrollTop=0; var sc=$('.vscroll',el); if(sc)sc.scrollTop=0;
     renderNav();
     if(id==='v-calendar'&&typeof calMode==='function')calMode('week');
-    if(id==='v-scan')resetScan();
+    // v-scan is set up by enterShed (reset + any pre-done); don't wipe it on show/back.
   }
-  function go(id){ if(id==='__home')id=homeId(); if(id==='v-login'){stack=['v-login'];} else if(stack[stack.length-1]!==id){stack.push(id);} show(id,false); closeOvl(); }
+  function go(id){ if(id==='__home')id=homeId(); if(id==='v-login'){stack=['v-login'];} else if(stack[stack.length-1]!==id){stack.push(id);} show(id,false); closeOvl(); if(id==='v-sheds'&&typeof renderSheds==='function')renderSheds(); }
   function back(){ if(stack.length>1){stack.pop();} show(stack[stack.length-1],true); }
   D.addEventListener('click',function(e){
     var g=e.target.closest('[data-go]'); if(g){var gid=g.getAttribute('data-go'); if(gid==='v-scan'&&role!=='operator'){toast('Executed on the ground','Only the health manager runs the drive');return;} go(gid);return;}
@@ -683,8 +688,8 @@
     var dd=D.getElementById('dhdoses'); if(dd)dd.textContent=(DOS[lang]||DOS.en)(s.given,s.sched);
     // scope pill label: CEO shows the picker label; park mgr/director show their fixed park
     var sc=D.getElementById('dhscope'); if(sc){var chev=sc.querySelector('.scopechev');sc.textContent=s.label+' ';if(chev)sc.appendChild(chev);}
-    // today's drives — show only drives in this scope
-    $all('.dhdrive').forEach(function(r){var ds=r.getAttribute('data-drivescope');r.style.display=(s.drives.indexOf(ds)>=0)?'':'none';});
+    // today's sheds — shed-first, filtered to this park scope
+    if(typeof renderTodaySheds==='function')renderTodaySheds(scope);
     // backlog numbers per vaccine
     Object.keys(s.backlog).forEach(function(k){set(k,s.backlog[k]);});
     // data gaps pill + sheet (animals excluded from coverage until fixed)
@@ -828,7 +833,8 @@
     firstboost:{en:'first + booster',hi:'पहली + बूस्टर',kn:'ಮೊದಲ + ಬೂಸ್ಟರ್',te:'మొదటి + బూస్టర్'},
     goatonly:{en:'goat-only',hi:'केवल बकरी',kn:'ಮೇಕೆ-ಮಾತ್ರ',te:'మేక-మాత్రమే'},
     sheeponly:{en:'sheep-only',hi:'केवल भेड़',kn:'ಕುರಿ-ಮಾತ್ರ',te:'గొర్రె-మాత్రమే'},statusall:{en:'status known for every animal',hi:'हर पशु की स्थिति ज्ञात',kn:'ಪ್ರತಿ ಪ್ರಾಣಿಯ ಸ್ಥಿತಿ ತಿಳಿದಿದೆ',te:'ప్రతి జంతువు స్థితి తెలుసు'},animals:{en:'animals',hi:'पशु',kn:'ಪ್ರಾಣಿ',te:'జంతువులు'},uptodate:{en:'Up to date',hi:'अद्यतन',kn:'ನವೀಕೃತ',te:'తాజా'},overdue:{en:'Overdue',hi:'अतिदेय',kn:'ಮೀರಿದ',te:'గడువు మీరిన'},
-    todaylive:{en:"Today's drives · live",hi:'आज की ड्राइव · लाइव',kn:'ಇಂದಿನ ಡ್ರೈವ್ · ಲೈವ್',te:'ఈరోజు డ్రైవ్‌లు · లైవ్'},needsdec:{en:'Needs a decision',hi:'निर्णय चाहिए',kn:'ನಿರ್ಧಾರ ಬೇಕು',te:'నిర్ణయం కావాలి'},resched:{en:'Reschedule',hi:'पुनर्निर्धारित',kn:'ಮರುನಿಗದಿ',te:'రీషెడ్యూల్'},
+    todaylive:{en:"Today's sheds · live",hi:'आज के शेड · लाइव',kn:'ಇಂದಿನ ಶೆಡ್‌ಗಳು · ಲೈವ್',te:'ఈరోజు షెడ్‌లు · లైవ్'},needsdec:{en:'Needs a decision',hi:'निर्णय चाहिए',kn:'ನಿರ್ಧಾರ ಬೇಕು',te:'నిర్ణయం కావాలి'},resched:{en:'Reschedule',hi:'पुनर्निर्धारित',kn:'ಮರುನಿಗದಿ',te:'రీషెడ్యూల్'},
+    todaysheds:{en:"Today's sheds",hi:'आज के शेड',kn:'ಇಂದಿನ ಶೆಡ್‌ಗಳು',te:'ఈరోజు షెడ్‌లు'},shedsw:{en:'sheds',hi:'शेड',kn:'ಶೆಡ್',te:'షెడ్‌లు'},dayprog:{en:'Day progress',hi:'दिन की प्रगति',kn:'ದಿನದ ಪ್ರಗತಿ',te:'రోజు పురోగతి'},animalsacross:{en:'animals across',hi:'पशु',kn:'ಪ್ರಾಣಿಗಳು',te:'జంతువులు'},shedstoday:{en:'sheds today',hi:'शेड आज',kn:'ಶೆಡ್ ಇಂದು',te:'షెడ్‌లు ఈరోజు'},tapprompt2:{en:'Tap reader to animal — reader shows its due vaccine',hi:'रीडर पशु पर टैप करें — देय टीका दिखेगा',kn:'ರೀಡರ್ ಪ್ರಾಣಿಗೆ ಟ್ಯಾಪ್ — ಬಾಕಿ ಲಸಿಕೆ ತೋರಿಸುತ್ತದೆ',te:'రీడర్‌ను జంతువుకు ట్యాప్ — దాని వ్యాక్సిన్ చూపుతుంది'},submitshed:{en:'Submit shed',hi:'शेड सबमिट करें',kn:'ಶೆಡ್ ಸಲ್ಲಿಸಿ',te:'షెడ్ సబ్మిట్'},duehere:{en:'Due in this shed',hi:'इस शेड में देय',kn:'ಈ ಶೆಡ್‌ನಲ್ಲಿ ಬಾಕಿ',te:'ఈ షెడ్‌లో డ్యూ'},submitnote2:{en:'One shed record · all due vaccines in this shed',hi:'एक शेड रिकॉर्ड · इस शेड के सभी देय टीके',kn:'ಒಂದು ಶೆಡ್ ದಾಖಲೆ · ಈ ಶೆಡ್‌ನ ಎಲ್ಲಾ ಲಸಿಕೆ',te:'ఒక షెడ్ రికార్డ్ · ఈ షెడ్‌లోని అన్ని వ్యాక్సిన్‌లు'},
     bufmsg:{en:"Can postpone within a <b>1-week buffer</b>. Beyond that it's a missed dose — leadership is alerted a week ahead.",hi:'<b>1-सप्ताह बफ़र</b> में स्थगित कर सकते हैं। उसके बाद खुराक छूटती है।',kn:'<b>1-ವಾರದ ಬಫರ್</b>ನಲ್ಲಿ ಮುಂದೂಡಬಹುದು.',te:'<b>1-వారం బఫర్</b>లో వాయిదా వేయవచ్చు.'},
     action:{en:'Action',hi:'कार्रवाई',kn:'ಕ್ರಿಯೆ',te:'చర్య'},markdone:{en:'Mark scheduled',hi:'निर्धारित करें',kn:'ನಿಗದಿ ಗುರುತಿಸಿ',te:'షెడ్యూల్ గుర్తించు'},newdate:{en:'New date',hi:'नई तारीख',kn:'ಹೊಸ ದಿನಾಂಕ',te:'కొత్త తేదీ'},inbuf:{en:'In buffer',hi:'बफ़र में',kn:'ಬಫರ್‌ನಲ್ಲಿ',te:'బఫర్‌లో'},assign:{en:'Assign to',hi:'को सौंपें',kn:'ನಿಯೋಜಿಸಿ',te:'కేటాయించు'},backup2:{en:'+ backup Indradev',hi:'+ बैकअप इंद्रदेव',kn:'+ ಬ್ಯಾಕಪ್ ಇಂದ್ರದೇವ್',te:'+ బ్యాకప్ ఇంద్రదేవ్'},confirm:{en:'Confirm — notify team',hi:'पुष्टि करें — सूचित करें',kn:'ದೃಢೀಕರಿಸಿ — ತಿಳಿಸಿ',te:'నిర్ధారించు — తెలియజేయి'},chans2:{en:'Team gets a phone call, push, Slack alert and email — 2 days before, and again the morning of.',hi:'टीम को कॉल, पुश, Slack, ईमेल — 2 दिन पहले, और उस सुबह।',kn:'ತಂಡಕ್ಕೆ ಕರೆ, ಪುಶ್, Slack, ಇಮೇಲ್ — 2 ದಿನ ಮೊದಲು.',te:'బృందానికి కాల్, పుష్, Slack, ఇమెయిల్ — 2 రోజుల ముందు.'},
     hmcbe:{en:'Health Asst Mgr · CBE',hi:'हेल्थ असि. मैनेजर · CBE',kn:'ಹೆಲ್ತ್ ಸಹಾಯಕ ಮ್ಯಾನೇಜರ್ · CBE',te:'హెల్త్ అసి. మేనేజర్ · CBE'},dircbe:{en:'Health Director · CBE',hi:'हेल्थ डायरेक्टर · CBE',kn:'ಹೆಲ್ತ್ ಡೈರೆಕ್ಟರ್ · CBE',te:'హెల్త్ డైరెక్టర్ · CBE'},ceocbe:{en:'COO · Company-wide',hi:'COO · कंपनी-व्यापी',kn:'COO · ಕಂಪನಿ-ವ್ಯಾಪಿ',te:'COO · కంపెనీ-వ్యాప్తం'},pmcbe:{en:'Health Manager · CBE',hi:'हेल्थ मैनेजर · CBE',kn:'ಹೆಲ್ತ್ ಮ್ಯಾನೇಜರ್ · CBE',te:'హెల్త్ మేనేజర్ · CBE'},assignteam2:{en:'Assign team',hi:'टीम असाइन करें',kn:'ತಂಡ ನಿಯೋಜಿಸಿ',te:'బృందాన్ని కేటాయించండి'},bypark:{en:'Coverage by park',hi:'पार्क अनुसार कवरेज',kn:'ಪಾರ್ಕ್‌ವಾರು ಕವರೇಜ್',te:'పార్క్‌వారీ కవరేజ్'},revsched:{en:'Revaccination schedule',hi:'पुनःटीकाकरण अनुसूची',kn:'ಮರುಲಸಿಕೆ ವೇಳಾಪಟ್ಟಿ',te:'రీవ్యాక్సినేషన్ షెడ్యూల్'},tapday:{en:'Tap a day for its drives · dots = drive days',hi:'ड्राइव देखने के लिए दिन टैप करें · डॉट = ड्राइव दिन',kn:'ಡ್ರೈವ್‌ಗಾಗಿ ದಿನ ಟ್ಯಾಪ್ · ಡಾಟ್ = ಡ್ರೈವ್ ದಿನ',te:'డ్రైవ్‌ల కోసం రోజు ట్యాప్ · చుక్కలు = డ్రైవ్ రోజులు'},readonly:{en:'Read-only · the ground team runs the drive',hi:'केवल-पढ़ें · ड्राइव ग्राउंड टीम चलाती है',kn:'ಓದಲು-ಮಾತ್ರ · ಡ್ರೈವ್ ಅನ್ನು ನೆಲದ ತಂಡ ನಡೆಸುತ್ತದೆ',te:'చదవడానికి-మాత్రమే · డ్రైవ్‌ను గ్రౌండ్ టీమ్ నడుపుతుంది'},
@@ -849,62 +855,74 @@
   // park picker (CEO/COO) — pick company-wide or a single park; re-scopes the whole overview
   $all('#scopeList .popt').forEach(function(o){o.addEventListener('click',function(){applyScope(o.getAttribute('data-scope'));closeOvl();});});
 
-  /* ---------- scan sim (rule-based, random) ---------- */
-  // Not-due reasons come from the vaccination rules: quarantine/ICU, not in today's eligible set,
-  // under treatment, already given, pregnant hold, and the 1-week arrival warm-up window.
-  var SKIPR=['quarantine (ICU)',"not in today's set",'sick · under treatment','pregnant · hold'];
-  var done=0,skip=0,T=8,C=314.16,tapN=0,givenArr=[],skipArr=[];
-  // Fixed eligible roster for the shed (obligation engine decides this). Pending = roster minus done.
-  var ELIG=[
-    {id:'982 000 6115 7911',tag2:'982 000 3042 8890'},{id:'982 000 6071 3375',tag2:null},
-    {id:'982 000 6288 1204',tag2:'982 000 3390 5561'},{id:'982 000 6512 7788',tag2:null},
-    {id:'982 000 6733 2041',tag2:'982 000 3781 6620'},{id:'982 000 6890 4417',tag2:null},
-    {id:'982 000 7011 9982',tag2:'982 000 3902 1148'},{id:'982 000 7245 3360',tag2:null}
+  /* ---------- shed-first drive model ---------- */
+  // A day's work = SHEDS. Each shed holds ONE cohort but can have SEVERAL due vaccine groups
+  // (mix-and-match). Operator enters a shed and vaccinates each animal for its own due vaccine.
+  var SHEDS=[
+    {id:'gandhi1',name:'Gandhi 1',cohort:'Milking does',park:'CBE',inShed:62,groups:[{v:'FMD + HS',dose:'1 ml SC',batch:'HS-2609-B',due:8,done:0},{v:'ET + TT',dose:'1 ml SC',batch:'ET-2607-A',due:3,done:0}]},
+    {id:'castro1',name:'Castro 1',cohort:'Breeding does',park:'CBE',inShed:44,groups:[{v:'PPR · Booster',dose:'1 ml SC',batch:'PPR-2606-C',due:12,done:6},{v:'Goat Pox',dose:'1 ml SC',batch:'GP-2608-A',due:5,done:0}]},
+    {id:'mandela1',name:'Mandela 1',cohort:'K2 kids',park:'CBE',inShed:71,groups:[{v:'FMD + HS',dose:'1 ml SC',batch:'HS-2609-B',due:40,done:40}]},
+    {id:'sumathi1',name:'Sumathi 1',cohort:'Pregnant does',park:'CBE',inShed:30,groups:[{v:'ET + TT · Booster',dose:'1 ml SC',batch:'ET-2607-A',due:9,done:0}]},
+    {id:'sumathi2',name:'Sumathi 2',cohort:'Yearling does',park:'CPT',inShed:38,groups:[{v:'PPR · Booster',dose:'1 ml SC',batch:'PPR-2606-C',due:38,done:0}]},
+    {id:'godel1',name:'Godel 1',cohort:'Dry does',park:'CPT',inShed:26,groups:[{v:'Goat Pox',dose:'1 ml SC',batch:'GP-2608-A',due:10,done:0},{v:'HS',dose:'1 ml SC',batch:'HS-2609-B',due:6,done:0}]}
   ];
-  // In-shed animals that are NOT eligible today land on these taps — guaranteed not-due so the
-  // red state always shows in the demo (real: eligibility comes from the obligation engine).
-  var SKIPAT={3:1,6:1,9:1};
-  var wrap=$('#ringwrap'),ring=$('#ring'),cnt=$('#cnt'),lb=$('#ringlb'),qd=$('#qdone'),qp=$('#qpend'),qs=$('#qskip'),list=$('#slist'),sb=$('#submitbtn');
-  function buzz(p){if(navigator.vibrate){try{navigator.vibrate(p);}catch(e){}}}
+  function shedById(id){for(var i=0;i<SHEDS.length;i++)if(SHEDS[i].id===id)return SHEDS[i];return null;}
+  function shedDue(s){return s.groups.reduce(function(a,g){return a+g.due;},0);}
+  function shedDone(s){return s.groups.reduce(function(a,g){return a+g.done;},0);}
+  function shedStatus(s){var d=shedDone(s),t=shedDue(s);return d>=t?'done':(d>0?'progress':'ready');}
   function rid(){function p(n){var s='';for(var k=0;k<n;k++)s+=Math.floor(Math.random()*10);return s;}return '982 000 '+p(4)+' '+p(4);}
-  function secondTag(n){return (n%2===0)?rid():null;} // ~half the animals carry a 2nd RFID tag (both RFID, redundancy)
-  function resetScan(){done=0;skip=0;tapN=0;givenArr=[];skipArr=[];cnt.textContent='0';qd.textContent='0';qp.textContent=T;qs.textContent='0';list.innerHTML='';ring.style.strokeDashoffset=C;wrap.classList.remove('hitno');lb.textContent=(TXT.vaccinated&&TXT.vaccinated[curLang])||'vaccinated';sb.classList.add('block');sb.setAttribute('data-locked','1');sb.textContent=(TXT.submitwait[curLang]||TXT.submitwait.en);}
-  function tap(){
-    tapN++;
-    var isSkip=!!SKIPAT[tapN] && done<T;            // deterministic not-due taps (in-shed, not eligible)
-    if(isSkip){
-      var sid=rid(), st2=secondTag(tapN), r=SKIPR[skip%SKIPR.length]; skip++;
-      wrap.classList.add('hitno'); lb.textContent='not due'; buzz([30,60,30]);
-      skipArr.unshift({id:sid,tag2:st2,note:r});
-      pre('no',sid,'skip · '+r,st2);
-    } else if(done<T){
-      var rec=ELIG[done]; done++;                   // scan the next eligible animal off the roster
-      wrap.classList.remove('hitno'); cnt.textContent=done;
-      lb.textContent=(TXT.vaccinated&&TXT.vaccinated[curLang])||'vaccinated'; buzz(35);
-      givenArr.unshift({id:rec.id,tag2:rec.tag2,note:'FMD + HS · 1 ml'});
-      pre('ok',rec.id,'FMD + HS · 1 ml',rec.tag2);
-    } else {
-      wrap.classList.remove('hitno'); lb.textContent=(TXT.vaccinated&&TXT.vaccinated[curLang])||'vaccinated'; buzz(35);
-    }
-    qd.textContent=done;qp.textContent=Math.max(0,T-done);qs.textContent=skip;
-    ring.style.strokeDashoffset=C*(1-Math.min(1,done/T));
-    if(done>=T){sb.classList.remove('block');sb.removeAttribute('data-locked');sb.textContent=(TXT.submitall[curLang]||TXT.submitall.en);}
-    else sb.textContent='Vaccinate all '+T+' ('+done+'/'+T+')';
-    var slov=D.getElementById('ovl-scanlist'); if(slov&&slov.classList.contains('open'))renderScanList();
-  }
   function tagHtml(t2){return t2?'<span class="old">2 tags</span>':'<span class="one">1 tag</span>';}
-  function pre(k,id,vx,t2){var li=D.createElement('li');li.innerHTML='<span class="tk '+k+'"><svg class="ic"><use href="#i-'+(k==='ok'?'check':'x')+'"/></svg></span><span class="id">'+id+' '+tagHtml(t2)+'</span><span class="vx">'+vx+'</span>';list.insertBefore(li,list.firstChild);while(list.children.length>14)list.removeChild(list.lastChild);}
-  // Given / Skipped list sheet — quick review of exactly which tags you've scanned
-  var slMode='given';
-  function renderScanList(){
-    var arr=slMode==='given'?givenArr:(slMode==='pending'?ELIG.slice(done):skipArr); var q=(D.getElementById('slInput')&&D.getElementById('slInput').value||'').toLowerCase();
-    var rows=arr.filter(function(x){return !q||x.id.toLowerCase().indexOf(q)>=0||(x.tag2&&x.tag2.toLowerCase().indexOf(q)>=0);});
-    var box=D.getElementById('slList'); if(!box)return;
-    D.getElementById('slCount').textContent=rows.length;
-    box.innerHTML=rows.length?rows.map(function(x){var tk=slMode==='given'?'ok':(slMode==='pending'?'pend':'no');var ic=slMode==='given'?'check':(slMode==='pending'?'clock':'x');var note=slMode==='pending'?'due · not scanned yet':x.note;return '<div class="slrow"><span class="tk '+tk+'"><svg class="ic"><use href="#i-'+ic+'"/></svg></span><span class="id">'+x.id+' '+tagHtml(x.tag2)+(x.tag2?'<div class="id2">tag 2 · '+x.tag2+'</div>':'')+'</span><span class="vx">'+note+'</span></div>';}).join(''):'<div style="text-align:center;color:var(--faint);font-size:12.5px;padding:26px">'+(slMode==='given'?'No animals given yet':(slMode==='pending'?'All eligible done':'Nothing skipped'))+'</div>';
+  function buzz(p){if(navigator.vibrate){try{navigator.vibrate(p);}catch(e){}}}
+  function vchips(s){return '<div class="vgroups">'+s.groups.map(function(g){var full=g.done>=g.due;return '<span class="vchip'+(full?' dn':'')+'"><svg class="ic vg-syr"><use href="#i-syringe"/></svg><b>'+g.v+'</b> <span class="c">'+g.done+'/'+g.due+'</span></span>';}).join('')+'</div>';}
+
+  /* ---------- operator: today's sheds ---------- */
+  function renderSheds(){
+    var box=D.getElementById('shedList'); if(!box)return;
+    var day=SHEDS.filter(function(s){return s.park==='CBE';});
+    var due=day.reduce(function(a,s){return a+shedDue(s);},0), dn=day.reduce(function(a,s){return a+shedDone(s);},0);
+    var set=function(id,v){var el=D.getElementById(id);if(el)el.textContent=v;};
+    set('dayDue',due); set('dayProg',dn+' / '+due); set('dayShedN',day.length);
+    var db=D.getElementById('dayBar'); if(db)db.style.width=Math.round(dn/due*100)+'%';
+    var dsh=D.getElementById('daySheds'); if(dsh)dsh.textContent=day.map(function(s){return s.name;}).join(' · ');
+    box.innerHTML=day.map(function(s){
+      var t=shedDue(s),d=shedDone(s),st=shedStatus(s),pc=Math.round(d/t*100);
+      var pill=st==='done'?'<span class="pill ok">Done</span>':st==='progress'?'<span class="pill warn">In progress</span>':'<span class="pill ok">Ready</span>';
+      var open=st==='done'?'<div class="card shed tap" data-shedview="'+s.id+'">':'<div class="card shed">';
+      var foot=st==='done'?'<div class="viewrec" data-shedview="'+s.id+'">View '+d+' records ›</div>':'<button class="btn'+(st==='progress'?' ghost':'')+'" style="margin-top:13px" data-shedenter="'+s.id+'">'+(st==='progress'?('Resume · '+(t-d)+' pending'):'Start · scan animals')+'</button>';
+      return open+'<div class="sh"><span class="wh"><svg class="ic"><use href="#i-house"/></svg></span><div><b>'+s.name+'</b><div class="s">'+s.cohort+' · '+s.inShed+' in shed</div></div><span class="sp"></span>'+pill+'</div>'+vchips(s)+'<div class="nums"><div><b>'+s.inShed+'</b><span>in shed</span></div><div><b>'+t+'</b><span>due</span></div><div><b>'+d+'</b><span>done</span></div></div><div class="barp" style="margin-top:12px"><i style="width:'+pc+'%"></i></div>'+foot+'</div>';
+    }).join('');
   }
-  wrap.addEventListener('click',tap);
-  wrap.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();tap();}});
+
+  /* ---------- leadership: today's sheds (scope-filtered, read-only) ---------- */
+  function renderTodaySheds(scope){
+    var box=D.getElementById('todaySheds'); if(!box)return;
+    var parks=scope==='cbe'?['CBE']:scope==='cpt'?['CPT']:['CBE','CPT'];
+    var day=SHEDS.filter(function(s){return parks.indexOf(s.park)>=0;});
+    box.innerHTML=day.map(function(s){
+      var t=shedDue(s),d=shedDone(s),pc=Math.round(d/t*100),off=94.2*(1-d/t);
+      var chips=s.groups.map(function(g){return '<span class="vchip"><b>'+g.v+'</b> <span class="c">'+g.done+'/'+g.due+'</span></span>';}).join('');
+      var ringfg=d>0?'<circle cx="19" cy="19" r="15" fill="none" stroke="var(--brand)" stroke-width="4" stroke-linecap="round" stroke-dasharray="94.2" stroke-dashoffset="'+off+'"/>':'';
+      return '<div class="lrow tap" data-shedview="'+s.id+'"><span class="miniring"><svg width="38" height="38" viewBox="0 0 38 38"><circle cx="19" cy="19" r="15" fill="none" stroke="var(--surf3)" stroke-width="4"/>'+ringfg+'</svg><span class="mc" style="color:'+(d>0?'var(--brand-d)':'var(--muted)')+'">'+pc+'%</span></span><div class="sp"><b>'+s.name+' · '+s.park+'</b><div class="s">'+s.cohort+'</div><div class="vgroups" style="margin-top:8px">'+chips+'</div><button class="asgnbtn" data-assign="'+s.name+'"><svg class="ic"><use href="#i-user"/></svg> Assign team</button></div><span class="frac" style="color:'+(d>=t?'var(--brand-d)':'var(--muted)')+'">'+d+'/'+t+'</span></div>';
+    }).join('');
+  }
+
+  /* ---------- scan sim (shed + multiple due vaccines, rule-based) ---------- */
+  var SKIPR=['quarantine (ICU)',"not in today's set",'sick · under treatment','pregnant · hold'];
+  var SKIPAT={3:1,6:1,9:1};
+  var curShed=SHEDS[0], roster=[], T=11, done=0, skip=0, C=314.16, tapN=0, givenArr=[], skipArr=[];
+  var wrap=$('#ringwrap'),ring=$('#ring'),cnt=$('#cnt'),cntT=$('#cntT'),lb=$('#ringlb'),qd=$('#qdone'),qp=$('#qpend'),qs=$('#qskip'),list=$('#slist'),sb=$('#submitbtn');
+  function gEntry(a){return {id:a.id,tag2:a.tag2,v:a.v,dose:a.dose};}
+  function buildRoster(s){var r=[];s.groups.forEach(function(g){for(var i=0;i<g.due;i++)r.push({v:g.v,dose:g.dose});});r.forEach(function(a,i){a.id=rid();a.tag2=(i%2===0)?rid():null;});return r;}
+  function renderScanGroups(){var box=D.getElementById('scGroups');if(!box||!curShed)return;var start=0,html='',activeSet=false;curShed.groups.forEach(function(g){var gd=Math.max(0,Math.min(g.due,done-start));var active=!activeSet&&gd<g.due;if(active)activeSet=true;html+='<span class="vgchip'+(active?' on':'')+'"><b>'+g.v+'</b> <span class="c">'+gd+'/'+g.due+'</span></span>';start+=g.due;});box.innerHTML=html;}
+  function syncScan(){if(cnt)cnt.textContent=done;if(cntT)cntT.textContent='/'+T;if(qd)qd.textContent=done;if(qp)qp.textContent=Math.max(0,T-done);if(qs)qs.textContent=skip;if(ring)ring.style.strokeDashoffset=C*(1-Math.min(1,done/(T||1)));renderScanGroups();if(sb){if(done>=T){sb.classList.remove('block');sb.removeAttribute('data-locked');sb.textContent='Submit shed · '+done+' animals';}else{sb.classList.add('block');sb.setAttribute('data-locked','1');sb.textContent='Vaccinate all '+T+' ('+done+'/'+T+')';}}var slov=D.getElementById('ovl-scanlist');if(slov&&slov.classList.contains('open'))renderScanList();}
+  function resetScan(){done=0;skip=0;tapN=0;givenArr=[];skipArr=[];if(list)list.innerHTML='';if(wrap)wrap.classList.remove('hitno');if(lb)lb.textContent=(TXT.vaccinated&&TXT.vaccinated[curLang])||'vaccinated';syncScan();}
+  function renderLive(){if(!list)return;var items=[];givenArr.forEach(function(x){items.push({k:'ok',x:x});});skipArr.forEach(function(x){items.push({k:'no',x:x});});list.innerHTML=items.slice(0,14).map(function(it){var x=it.x,vx=it.k==='ok'?(x.v+' · '+x.dose):('skip · '+x.note);return '<li><span class="tk '+it.k+'"><svg class="ic"><use href="#i-'+(it.k==='ok'?'check':'x')+'"/></svg></span><span class="id">'+x.id+' '+tagHtml(x.tag2)+'</span><span class="vx">'+vx+'</span></li>';}).join('');}
+  function enterShed(id){var s=shedById(id);if(!s)return;curShed=s;roster=buildRoster(s);T=roster.length;var pre0=shedDone(s);var eb=$('#scEb');if(eb)eb.textContent='Vaccination · '+s.name;var co=$('#scCohort');if(co)co.textContent=s.cohort;resetScan();for(var i=0;i<pre0;i++){done++;givenArr.unshift(gEntry(roster[i]));}renderLive();syncScan();go('v-scan');}
+  function pre(k,id,vx,t2){if(!list)return;var li=D.createElement('li');li.innerHTML='<span class="tk '+k+'"><svg class="ic"><use href="#i-'+(k==='ok'?'check':'x')+'"/></svg></span><span class="id">'+id+' '+tagHtml(t2)+'</span><span class="vx">'+vx+'</span>';list.insertBefore(li,list.firstChild);while(list.children.length>14)list.removeChild(list.lastChild);}
+  function tap(){tapN++;var isSkip=!!SKIPAT[tapN]&&done<T;if(isSkip){var sid=rid(),st2=(tapN%2===0?rid():null),r=SKIPR[skip%SKIPR.length];skip++;wrap.classList.add('hitno');lb.textContent='not due';buzz([30,60,30]);skipArr.unshift({id:sid,tag2:st2,note:r});pre('no',sid,'skip · '+r,st2);}else if(done<T){var a=roster[done];done++;wrap.classList.remove('hitno');lb.textContent=(TXT.vaccinated&&TXT.vaccinated[curLang])||'vaccinated';buzz(35);givenArr.unshift(gEntry(a));pre('ok',a.id,a.v+' · '+a.dose,a.tag2);}else{wrap.classList.remove('hitno');buzz(35);}syncScan();}
+  if(wrap){wrap.addEventListener('click',tap);wrap.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();tap();}});}
+  var slMode='given';
+  function renderScanList(){var arr=slMode==='given'?givenArr:(slMode==='pending'?roster.slice(done):skipArr);var q=(D.getElementById('slInput')&&D.getElementById('slInput').value||'').toLowerCase();var rows=arr.filter(function(x){return !q||x.id.toLowerCase().indexOf(q)>=0||(x.tag2&&x.tag2.toLowerCase().indexOf(q)>=0);});var box=D.getElementById('slList');if(!box)return;var cc=D.getElementById('slCount');if(cc)cc.textContent=rows.length;box.innerHTML=rows.length?rows.map(function(x){var tk=slMode==='given'?'ok':(slMode==='pending'?'pend':'no');var ic=slMode==='given'?'check':(slMode==='pending'?'clock':'x');var note=slMode==='pending'?('due · '+(x.v||'')):(slMode==='given'?(x.v+' · '+x.dose):x.note);return '<div class="slrow"><span class="tk '+tk+'"><svg class="ic"><use href="#i-'+ic+'"/></svg></span><span class="id">'+x.id+' '+tagHtml(x.tag2)+(x.tag2?'<div class="id2">tag 2 · '+x.tag2+'</div>':'')+'</span><span class="vx">'+note+'</span></div>';}).join(''):'<div style="text-align:center;color:var(--faint);font-size:12.5px;padding:26px">'+(slMode==='given'?'No animals given yet':(slMode==='pending'?'All due done':'Nothing skipped'))+'</div>';}
   function openScanList(mode){slMode=mode;var seg=D.getElementById('slSeg');if(seg)seg.querySelectorAll('.s').forEach(function(s){s.classList.toggle('on',s.dataset.sl===mode);});var inp=D.getElementById('slInput');if(inp)inp.value='';renderScanList();openOvl('scanlist');}
   var qcd=D.getElementById('qcDone'),qcp=D.getElementById('qcPend'),qcs=D.getElementById('qcSkip');
   if(qcd)qcd.addEventListener('click',function(){openScanList('given');});
@@ -912,19 +930,17 @@
   if(qcs)qcs.addEventListener('click',function(){openScanList('skipped');});
   $all('#slSeg .s').forEach(function(s){s.addEventListener('click',function(){slMode=s.dataset.sl;D.getElementById('slSeg').querySelectorAll('.s').forEach(function(x){x.classList.toggle('on',x===s);});renderScanList();});});
   var slInp=D.getElementById('slInput'); if(slInp)slInp.addEventListener('input',renderScanList);
-  // Done shed -> read-only record of what was given
+  /* ---------- submit (per-shed, all its due vaccines) ---------- */
+  function renderSubmit(){var s=curShed;if(!s)return;var eb=$('#subEb');if(eb)eb.textContent='Vaccination · '+s.name;var box=$('#subVac');if(box)box.innerHTML='<div class="fgrp">'+s.groups.map(function(g){return '<div class="frow"><span class="fk"><svg class="ic"><use href="#i-syringe"/></svg> '+g.v+'</span><span class="fv">'+g.dose+' · <span class="mono">'+g.batch+'</span></span></div>';}).join('')+'<div class="frow" style="border:0"><span class="fk"><svg class="ic"><use href="#i-snow"/></svg> Cold chain</span><span class="fv" style="color:var(--brand-d)">2–8°C ✓</span></div></div>';var sc=$('#subcount');if(sc)sc.textContent=done+' / '+T;var fs=$('#finalsubmit');if(fs)fs.textContent='Submit shed record — '+done+' animals';}
+  /* ---------- shed record (read-only: done sheds + leadership) ---------- */
   var srArr=[];
-  function openShedRec(name,n){
-    var t=$('#srTtl'); if(t)t.textContent=name+' · Done'; var c=$('#srCount'); if(c)c.textContent=n;
-    var sum=$('#srSum'); if(sum)sum.innerHTML='<div class="frow"><span class="fk">Vaccine</span><span class="fv">FMD + HS · 1 ml SC</span></div><div class="frow"><span class="fk">Covered</span><span class="fv">'+n+' / '+n+'</span></div><div class="frow"><span class="fk">Operator · backup</span><span class="fv">Arun Kumar · Indradev Kumar</span></div><div class="frow" style="border:0"><span class="fk">Window · proof</span><span class="fv">08:12–09:40 · video ✓</span></div>';
-    srArr=[]; for(var i=0;i<n;i++)srArr.push({id:rid(),tag2:(i%2===0?rid():null)});
-    var inp=$('#srInput'); if(inp)inp.value=''; renderShedRec(); openOvl('shedrec');
-  }
-  function renderShedRec(){var q=($('#srInput')&&$('#srInput').value||'').toLowerCase();var rows=srArr.filter(function(x){return !q||x.id.toLowerCase().indexOf(q)>=0||(x.tag2&&x.tag2.toLowerCase().indexOf(q)>=0);});var box=$('#srList');if(box)box.innerHTML=rows.map(function(x){return '<div class="slrow"><span class="tk ok"><svg class="ic"><use href="#i-check"/></svg></span><span class="id">'+x.id+' '+tagHtml(x.tag2)+(x.tag2?'<div class="id2">tag 2 · '+x.tag2+'</div>':'')+'</span><span class="vx">FMD + HS · 1 ml</span></div>';}).join('');}
-  $all('[data-shedrec]').forEach(function(el){el.addEventListener('click',function(){openShedRec(el.getAttribute('data-shedrec'),+el.getAttribute('data-shedn'));});});
+  function openShedRec(id){var s=shedById(id);if(!s)return;var d=shedDone(s);var t=$('#srTtl');if(t)t.textContent=s.name+' · '+s.cohort;var c=$('#srCount');if(c)c.textContent=d;var sum=$('#srSum');if(sum)sum.innerHTML=s.groups.map(function(g){return '<div class="frow"><span class="fk"><svg class="ic"><use href="#i-syringe"/></svg> '+g.v+'</span><span class="fv">'+g.done+' / '+g.due+' · '+g.dose+'</span></div>';}).join('')+'<div class="frow"><span class="fk">Operator · backup</span><span class="fv">Arun Kumar · Indradev Kumar</span></div><div class="frow" style="border:0"><span class="fk">Window · proof</span><span class="fv">08:12–09:40 · video ✓</span></div>';srArr=[];s.groups.forEach(function(g){for(var i=0;i<g.done;i++)srArr.push({id:rid(),tag2:(i%2===0?rid():null),v:g.v,dose:g.dose});});var inp=$('#srInput');if(inp)inp.value='';renderShedRec();openOvl('shedrec');}
+  function renderShedRec(){var q=($('#srInput')&&$('#srInput').value||'').toLowerCase();var rows=srArr.filter(function(x){return !q||x.id.toLowerCase().indexOf(q)>=0||(x.tag2&&x.tag2.toLowerCase().indexOf(q)>=0);});var box=$('#srList');if(box)box.innerHTML=rows.map(function(x){return '<div class="slrow"><span class="tk ok"><svg class="ic"><use href="#i-check"/></svg></span><span class="id">'+x.id+' '+tagHtml(x.tag2)+(x.tag2?'<div class="id2">tag 2 · '+x.tag2+'</div>':'')+'</span><span class="vx">'+x.v+' · '+x.dose+'</span></div>';}).join('');}
   var srInp=$('#srInput'); if(srInp)srInp.addEventListener('input',renderShedRec);
-  // block submit until target reached
-  sb.addEventListener('click',function(e){if(sb.getAttribute('data-locked')){e.stopImmediatePropagation();e.preventDefault();toast('Finish the shed','Vaccinate all '+T+' eligible first');}else{$('#subcount').textContent=done+' / '+T;}},true);
+  /* ---------- shed navigation (delegated: dynamic cards + rows) ---------- */
+  D.addEventListener('click',function(e){var a=e.target.closest('.asgnbtn');if(a){e.stopPropagation();if(!canAssign()){toast('Not allowed','Only CEO/COO or Park Manager can assign the team');return;}assignDrive=a.getAttribute('data-assign')||'';var sub=$('#ovl-assign .sh-s');if(sub)sub.textContent=assignDrive+' · primary + backup from HR';openOvl('assign');return;}var en=e.target.closest('[data-shedenter]');if(en){enterShed(en.getAttribute('data-shedenter'));return;}var sv=e.target.closest('[data-shedview]');if(sv){openShedRec(sv.getAttribute('data-shedview'));return;}});
+  /* ---------- block submit until shed complete ---------- */
+  if(sb)sb.addEventListener('click',function(e){if(sb.getAttribute('data-locked')){e.stopImmediatePropagation();e.preventDefault();toast('Finish the shed','Vaccinate all '+T+' due first');}else{renderSubmit();}},true);
 
   /* ---------- mixed ack ---------- */
   // (Per-animal "mixed" acknowledge flow removed — a drive is one vaccine across sheds; each shed is one cohort, same-vaccine.)
@@ -932,12 +948,12 @@
   /* ---------- submit / reschedule feedback ---------- */
   var tt;
   function toast(t,s){$('#toastt').textContent=t;$('#toasts').textContent=s;var el=$('#toast');el.classList.add('show');clearTimeout(tt);tt=setTimeout(function(){el.classList.remove('show');},2200);}
-  $('#finalsubmit').addEventListener('click',function(){toast('Drive submitted ✓','FMD + HS · '+done+' animals · draft to your head');setTimeout(function(){go('__home');},700);});
+  $('#finalsubmit').addEventListener('click',function(){var s=curShed;var nv=s?s.groups.length:0;toast('Shed submitted ✓',(s?s.name+' · ':'')+done+' animals · '+nv+' vaccine'+(nv===1?'':'s')+' · draft to your head');setTimeout(function(){go('__home');},700);});
   $('#reschedbtn').addEventListener('click',function(){toast('Rescheduled ✓','Fri 10 Jul · team notified on 4 channels');setTimeout(function(){back();},700);});
   $('#proofbox').addEventListener('click',function(){toast('Video attached','Shed clip · 00:48');});
 
   /* ---------- calendar: week / month / history (dots match real drives) ---------- */
-  var DR={6:[],7:[{n:'FMD + HS · Primary',pill:'ok',pl:'Due now',sub:'08:00–20:00 · 3 sheds · 118 eligible',go:1},{n:'PPR · Booster',pill:'mut',pl:'Opens 14:00',sub:'14:00–20:00 · 38 eligible'}],8:[{n:'Goat Pox',pill:'mut',pl:'Scheduled',sub:'08:00–20:00 · 2 sheds · 76 eligible'}],9:[],10:[{n:'PPR · Booster',pill:'mut',pl:'Scheduled',sub:'14:00–20:00 · 38 eligible'}],11:[],12:[]};
+  var DR={6:[],7:[{n:'Today · 4 sheds',pill:'ok',pl:'Due now',sub:'77 animals due · Gandhi 1 · Castro 1 · Mandela 1 · Sumathi 1',go:1}],8:[{n:'3 sheds due',pill:'mut',pl:'Scheduled',sub:'Godel 1 · Yashoda 2 · Ho Chi Minh · 76 animals'}],9:[],10:[{n:'2 sheds due',pill:'mut',pl:'Scheduled',sub:'Sumathi 2 · Castro 2 · 54 animals'}],11:[],12:[]};
   var WD={6:'Mon',7:'Tue',8:'Wed',9:'Thu',10:'Fri',11:'Sat',12:'Sun'};
   var HIST=[
     {d:'Jul 1',n:'ET + TT · Primary',cov:98,dose:'1 ml SC',elig:120,given:118,skip:2,park:'CBE',sheds:'Gandhi 1 · Castro 1',op:'Arun Kumar',bk:'Indradev Kumar',win:'08:05–10:20'},
