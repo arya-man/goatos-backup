@@ -528,7 +528,7 @@ prepare rollback/replay path
 Developer B:
 
 ```text
-operator app rollout
+mobile app rollout
 admin dashboard rollout
 training/support screens
 watch error logs and user drop-offs

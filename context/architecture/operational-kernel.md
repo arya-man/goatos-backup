@@ -233,7 +233,7 @@ contract boundaries:
 ```text
 local:
   Docker Postgres
-  API/admin-web/operator app
+  API/admin-web/mobile app
   outbox-relay with local/eventbus/Pub/Sub-emulator mode
   sweeper/job binaries
   notification/alert stub adapters

@@ -646,9 +646,10 @@ Current observation:
 - Verification queue can accept/reject/rework existing completions.
 
 Decision (2026-06-26): the pre-E2E execution path is **direct generated API
-seed**, not an admin-web operator console and not operator-mobile.
+seed**, not an admin-web operator console and not the mobile app (goatos-android).
 
-- Rationale: operator execution belongs to the field/operator app, which is out
+- Rationale: operator execution belongs to the mobile app (field operator
+  surface), which is out
   of the current admin-web slice; admin-web must NOT grow fake "start SOP / upload
   proof / submit answers" buttons (that would be a fake-action defect). The
   pre-E2E proof therefore drives the SOP/proof/verification loop through the

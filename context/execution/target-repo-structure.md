@@ -49,7 +49,8 @@ These existing repos stay outside as reference/source material until intentional
 
 <mesha-workspace>/procurement_app/
   reference mobile app
-  copy camera/upload/team ideas into goatos/apps/operator-mobile
+  port camera/upload/team ideas into goatos/apps/goatos-android behind Kotlin
+  device-* ports (the RN operator-mobile scaffold is superseded — see docs/mobile/)
 
 <mesha-workspace>/slack-automation-scripts/
   reference legacy Slack/SOP/Sheets workflows
@@ -204,24 +205,8 @@ goatos/
       features/
       lib/
       tests/
-    operator-mobile/
-      android/
-      ios/
-      src/
-        app/
-        features/
-          tasks/
-          forms/
-          media/
-          goats/
-          sync/
-          devices/
-          profile/
-        shared/
-          api/
-          ui/
-          storage/
-          config/
+    goatos-android/         # native Kotlin + Jetpack Compose · app id sg.mesha.goatos · full module tree in docs/mobile/trd-operator-mobile.md
+    operator-mobile/        # [SUPERSEDED] RN scaffold (android/ios/src...), left untouched pending archival
 
   packages/
     api-client/
@@ -341,9 +326,11 @@ backend/
 apps/admin-web/
   role-aware CEO/admin/investor dashboard and command center
 
-apps/operator-mobile/
-  Android field operator app
+apps/goatos-android/
+  Goat OS Android app — one common role-aware app (field operator + leadership)
+  native Kotlin + Jetpack Compose · app id sg.mesha.goatos
   task-first, offline-capable, form DSL runner
+  (RN apps/operator-mobile/ is the superseded, untouched legacy scaffold)
 
 packages/
   shared TypeScript packages and generated clients
@@ -397,7 +384,7 @@ goatos/backend/internal/verification/AGENTS.md
 goatos/backend/internal/vaccination/AGENTS.md
 
 goatos/apps/admin-web/AGENTS.md
-goatos/apps/operator-mobile/AGENTS.md
+goatos/apps/goatos-android/AGENTS.md
 
 goatos/contracts/AGENTS.md
 goatos/analytics/AGENTS.md
@@ -449,7 +436,7 @@ contracts/
 backend/
 apps/admin-web/
 apps/investor-web-shadow/
-apps/operator-mobile/
+apps/goatos-android/
 packages/
 analytics/
 infra/
@@ -463,7 +450,7 @@ Step 6: Copy code deliberately.
 ```text
 fresh dashboard snapshot/clone -> goatos/apps/admin-web
 fresh vgoats-dashboard snapshot/clone -> goatos/apps/investor-web-shadow
-procurement camera/upload ideas -> goatos/apps/operator-mobile
+procurement camera/upload ideas -> goatos/apps/goatos-android (behind Kotlin device-* ports)
 slack workflow knowledge -> goatos/tools/migration/slack-form-discovery
 ```
 
@@ -493,7 +480,7 @@ contracts/jsonschema/form-dsl.schema.json
 contracts/openapi/app-api.yaml
 backend/
 apps/admin-web/
-apps/operator-mobile/
+apps/goatos-android/
 ```
 
 The first end-to-end build remains:

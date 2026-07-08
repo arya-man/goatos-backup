@@ -950,7 +950,7 @@ Future push may be added only behind a separate requirement:
 
 - Use SSE or WebSocket for authenticated browser live updates only if operators
   need push latency that bounded polling cannot satisfy.
-- Use FCM/mobile push for operator app notifications, not browser MQTT.
+- Use FCM/mobile push for Goat OS mobile app notifications, not browser MQTT.
 - Use MQTT only for device/field telemetry such as RFID readers, scales,
   collars, environmental sensors, or gateway-managed hardware. MQTT messages
   must terminate at a device gateway/telemetry adapter; they must not mutate

@@ -366,7 +366,7 @@ Each should describe:
 - Do not bypass app APIs from frontend/mobile.
 - Do not put vendor SDK calls throughout product code.
 - Do not add direct BigQuery queries to React pages.
-- Do not add direct Firestore/GCS writes to the operator app.
+- Do not add direct Firestore/GCS writes to the Goat OS mobile app.
 - Do not add gRPC as the browser/mobile API without a written ADR replacing this decision.
 - Do not duplicate architecture facts in multiple places.
 

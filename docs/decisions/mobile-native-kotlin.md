@@ -20,7 +20,8 @@ and a TypeScript scaffold exists at `apps/operator-mobile/`.
 
 ## Decision
 
-Build the operator app as a **native Android app in Kotlin + Jetpack Compose**.
+Build the Goat OS mobile app (one common role-aware app) as a **native Android app
+in Kotlin + Jetpack Compose**.
 
 ## Why (vs RN and Flutter)
 
@@ -55,8 +56,8 @@ can hire Flutter but not Kotlin. None hold. RN is not chosen for this profile.
 ## Consequences
 
 - `context/frontend/final-frontend-mobile-backend-architecture.md`'s
-  "operator-mobile = React Native" is superseded for the operator app; a note
-  there points to `docs/mobile/`.
+  "operator-mobile = React Native" is superseded for the Goat OS mobile app; a
+  note there points to `docs/mobile/`.
 - The existing TypeScript `apps/operator-mobile/` scaffold and
   `packages/mobile-forms-runner` (RN renderer) are **superseded**. They are left
   in place, untouched, pending a maintainer decision to archive/remove. The
