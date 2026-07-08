@@ -67,7 +67,7 @@ are BOM-managed, so no per-lib Compose version.
 | RFID/BLE | Vendor `.aar` behind a `RfidReaderPort` | vendor-pinned | Chainway-class UHF; adapter isolates SDK |
 | Haptics + sound | `Vibrator` + short tone (`ToneGenerator`/`SoundPool`) behind a `FeedbackPort` | platform | scan feedback; distinct not-due alert tone; fake in tests |
 | Media upload / background | WorkManager | 2.11.2 | resumable signed-URL upload, sync, retry, dead-letter — **not** reminder timing (kernel-owned via `NotificationGateway`/FCM; the app only renders received pushes) |
-| Firebase | Analytics, Performance, Crashlytics, Messaging (FCM), **Remote Config** | Firebase BOM (latest) | `asia-south1` where selectable; GA4/Crashlytics/Perf/FCM global — see firebase doc. Remote Config = kill-switch/flag fallback (bootstrap is primary — see backend-driven-config.md) |
+| Firebase | Analytics, Performance, Crashlytics, Messaging (FCM), **Remote Config** | Firebase BOM 34.15.0 (verify at scaffold) | `asia-south1` where selectable; GA4/Crashlytics/Perf/FCM global — see firebase doc. Remote Config = kill-switch/flag fallback (bootstrap is primary — see backend-driven-config.md) |
 | Logging | Timber + structured logger port | Timber 5.0.1 | `LoggerPort` → Timber(debug) + Crashlytics(release) breadcrumbs; see §7/§9 |
 | i18n | Android resources per-locale + backend contract copy | — | en/hi/kn/te |
 | Testing | JUnit5, Turbine, MockK, Compose UI test, Room in-memory, Robolectric, Maestro (E2E), Macrobenchmark 1.4.x + Baseline Profiles, LeakCanary | — | see §11 |
@@ -87,8 +87,8 @@ apps/goatos-android/
   core/
     core-designsystem/         # theme, tokens, Compose components (design-system.md)
     core-ui/                   # shared stateless UI (rings, chips, sheets, list rows)
-    core-model/                # pure Kotlin domain models (no Android/vendor deps)
-    core-common/               # Result types, dispatchers, time (Asia/Kolkata), errors
+    core-model/                # pure Kotlin contract/presentation models (no Android/vendor deps, no business rules)
+    core-common/               # Result types, dispatchers, time *formatting* (Asia/Kolkata display only), errors
     core-network/              # OkHttp/Retrofit setup, auth interceptor, error mapping
     core-data/                 # Room DB, DataStore, repositories base, sync/outbox engine
     core-datastore/            # Proto DataStore schemas
@@ -141,6 +141,10 @@ Compose screen (stateless) ── observes ─▶ ViewModel (StateFlow<UiState>,
   system of record; the sync engine (§6) reconciles Room with it.
 - Client-side checks are UX-only; **server validation is authoritative** on every
   submit (revalidates form_version + permissions + current state).
+- **"UseCase" / "domain" here = app orchestration + contract/presentation models,
+  NOT business rules.** Lateness/eligibility/buffer/policy/aggregation live in the
+  backend; a mobile use case only orchestrates ports (fetch → cache → render →
+  queue), it never computes a business outcome.
 
 ## 4a. Recomposition safety & coroutines (no screen may lag)
 
@@ -162,7 +166,9 @@ budgets: [performance-and-memory.md](performance-and-memory.md).
   not rely on it to fix genuinely-unstable params.
 - **Lazy lists**: `LazyColumn`/`LazyRow` with a stable unique `key = { it.id }` and
   `contentType` for mixed rows; `animateItem` requires keys. Never sort/filter/map
-  inside `items {}` — do it in the ViewModel or `remember(keys) { … }`.
+  inside `items {}` — do any **presentation** mapping/ordering in the ViewModel or
+  `remember(keys) { … }`. Business sort/filter/order semantics come from the backend
+  payload/query and are never re-derived on device.
 - **Shrink recomposition scope**: defer fast-changing state reads to the lowest
   Composable via a lambda provider (e.g. `scrollProvider: () -> Int`), and use
   `derivedStateOf` for values derived from frequently-changing state (e.g. "show
@@ -250,7 +256,8 @@ budgets: [performance-and-memory.md](performance-and-memory.md).
 
 ## 6. Offline-first sync engine (the hard part)
 
-State lives in Room; a WorkManager-driven engine reconciles.
+Local cache / outbox / sync state lives in Room (the backend remains business
+truth); a WorkManager-driven engine reconciles.
 
 ```text
 Local tables (Room):
@@ -330,13 +337,15 @@ the nav entry. Execution screens (Scan / Submit) do not offer refresh — they a
 local-first and reconcile via the sync engine. Demonstrated in the mock
 (pull gesture + header refresh on the four read screens).
 
-### Server→client push for live screens (OPEN DECISION — needs ADR)
+### Server→client push for live screens (DECIDED: A is the default; B is ADR-gated)
 
 Today client reads are **pull** (bootstrap + on-demand GETs) and the only
 server→client channel is **FCM** for kernel reminders/escalations (§8). For
 near-real-time leadership screens (e.g. the drive-status follow-up updating as
-operators submit), two options are on the table and must be decided in an ADR
-before build:
+operators submit), the **pre-build decision is A (FCM data-ping + pull)**. B
+(streaming) is **not** built by default; a screen that genuinely needs sub-second
+streaming must file an ADR first. Either way the app never times a notification —
+push timing is kernel-owned. The two options:
 
 - **A — FCM data-ping + pull (default lean path)**: backend sends a lightweight
   FCM *data* message ("drive X changed"); the app invalidates and re-pulls the
@@ -347,9 +356,9 @@ before build:
   native Android *could* use gRPC, but it stays ADR-gated and behind the app-api
   boundary — never a vendor SDK in feature code.
 
-Recommendation to discuss: start with **A** (data-ping + pull) for the follow-up
-and reminders; adopt **B** only if a screen genuinely needs sub-second live
-streaming. Capture the decision in `docs/decisions/` before implementing.
+Decision of record: ship **A** (data-ping + pull) for the follow-up and reminders.
+**B** is adopted only if a screen genuinely needs sub-second live streaming, and
+only via an ADR in `docs/decisions/` filed **before** that screen is built.
 
 ## 7. Security & auth
 
@@ -433,7 +442,7 @@ LeakCanary in debug, bounded image/bitmap sizes, and a leak gate in CI.
 | Domain/use cases | JUnit5 + MockK | UI progress math (ring fill from backend `done`/`total`), rendering backend-provided `status`/`in_buffer`/`date_options`, idempotency-key derivation — **not** buffer/lateness/scheduling math (backend-owned) |
 | Repositories/sync | Room in-memory + fake api + Turbine | offline write → outbox → ack; retry; conflict; dedupe (first call, exact replay, same-key/different-payload, downstream dup) |
 | ViewModels | Turbine + fakes | MVI state transitions, effects |
-| Compose UI | Compose UI test + Robolectric | screen renders each state, role gating, disabled-with-reason |
+| Compose UI | Compose UI test + Robolectric | screen renders each state from **backend grant/action-target fixtures** (visible/hidden + disabled-with-reason) — no client role predicate |
 | Device adapters | fakes + instrumented | fake RFID reader emits tags; fake camera |
 | E2E | Maestro flows | login → today's sheds → scan → submit (offline) → sync |
 | Performance | Macrobenchmark | cold start, scroll jank, baseline profile |

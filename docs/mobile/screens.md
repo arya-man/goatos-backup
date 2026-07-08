@@ -18,22 +18,23 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 ### Calendar  (`v-calendar`: week / month / history)  — **universal landing, all roles**
 - Module: `feature-calendar`. The Calendar is where **every** role lands after
   login (Manju, 2026-07-08). Segmented week/month/history.
-  - **Week**: today's entry = "Today · N sheds · M due" → the **role-branched
-    drill** (operator → execute; leadership → drive-status follow-up). Other days
-    = scheduled shed markers.
+  - **Week**: today's entry = "Today · N sheds · M due" → the **backend-provided
+    drill target** (today: operator → execute; leadership → drive-status
+    follow-up). Other days = scheduled shed markers.
   - **Month**: drive-day dots; tap day → `ovl-day` sheet (that day's sheds +
     status). Done day → opens the shed/drive record.
   - **History**: past shed/drive records → record sheet.
 - Backend: `GET calendar?scope&range` (Asia/Kolkata day buckets); day/record reads.
-- CTA label by role: operator "Open drive"; leadership "View drive status".
+- CTA label is **backend-provided** per principal (today: operator "Open drive";
+  leadership "View drive status") — not a client role switch.
 - Note: operator sees week only (`calMode` hidden for operator in mock);
   month/history are leadership.
 
-## Role-branched drill (from the calendar card)
+## Drill from the calendar card (backend-provided target)
 
 ### Today's sheds / Drive status  (`v-sheds`)  — O execute (own park); PM read-only (own park); D/C read-only (all parks)
 - Module: `feature-sheds`. Same route, role-branched lens. Header: date · window ·
-  shed count · due total. Day progress bar. **Shed cards**, each: cohort · in-shed,
+  shed count · due total. Day progress bar (from backend totals). **Shed cards**, each: cohort · in-shed,
   status pill, **vaccine-group chips (mix-and-match)**, in-shed/due/done nums,
   progress. Roster-change cards + kernel info box.
   - **Operator (execute)**: eyebrow "Vaccination · CBE", title "Today's sheds",
@@ -52,15 +53,20 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 
 ### Scan  (`v-scan`)  — O only (leadership tap blocked server-side)
 - Module: `feature-scan`. Header: shed · cohort. **Progress ring** = shed total
-  `done/T`. **Per-vaccine-group chips** (active group highlighted). Tap-to-scan
+  `done/T` (**T + eligibility from backend**; the ring reflects backend totals plus
+  locally-captured, not-yet-synced scans — it is not a local source of truth). **Per-vaccine-group chips** (active group highlighted). Tap-to-scan
   (RFID or ring). Done / Pending / Skipped tiles → `ovl-scanlist` sheet
   (searchable, per-animal vaccine). Live feed of last taps (each animal → its due
-  vaccine, "2 tags" when double-tagged). Submit gated until shed complete.
+  vaccine, "2 tags" when double-tagged). Submit is **UX-disabled** from the
+  backend-provided completion checklist + local draft scan state; the backend
+  revalidates and decides on submit (the gate is a hint, not the authority).
 - Backend/device: `RfidReaderPort` (fake in dev); eligibility + roster from
   backend; each tap writes `scan_event` (given / skipped+reason) locally.
-- States: scanning, not-due (red + double buzz **+ audible alert tone**), complete
-  → submit enabled; resume preserves prior progress (no reset on re-show — mock
-  fix). Feedback (haptic + tone) via `FeedbackPort`.
+- States: scanning, not-due (from **backend-provided roster eligibility**, cached;
+  red + double buzz **+ audible alert tone**), complete → submit enabled; resume
+  preserves prior progress (no reset on re-show — mock fix). Feedback (haptic +
+  tone) is rendered locally via `FeedbackPort`, but the not-due *signal* is backend
+  eligibility, not a client date/policy check.
 
 ### Submit  (`v-submit`)  — O only
 - Module: `feature-submit`. One **shed record** covering all its due vaccines:
@@ -82,14 +88,15 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 ## Leadership surface
 
 ### Overview  (`v-dhome`)  — PM/D/C, reached via the **Home** nav tab (not the landing)
-- Module: `feature-leadership`. **Coverage hero** (dose coverage %, doses line),
+- Module: `feature-leadership`. **Coverage hero** (dose coverage %, doses line — from the backend rollup, not client-aggregated),
   pills: **park scope picker** (`ovl-scope`, director + CEO/COO), animals,
   **data gaps** (`ovl-gaps`). **KPI tiles**: Doses given → `ovl-given` (per-vaccine
   drill), Pending → overdue list. **Today's sheds** (per-shed vaccine mix +
   assign). **Backlog by vaccine**. **Needs a decision** (overdue → reschedule).
   **Coverage by park** (director + CEO/COO; tap re-scopes).
-- Default scope: parkmgr = own park; **director + CEO/COO = all parks** (drill via
-  picker).
+- Default scope is **backend-provided** per principal (today: parkmgr = own park;
+  **director + CEO/COO = all parks**, drill via picker) — the app renders the scope
+  options + default, it does not resolve scope by role.
 - Backend: `GET rollup/backlog/gaps?scope`; scope filters everything.
 - Role gates (**backend-provided grants**, not client-hardcoded): park picker +
   coverage-by-park, assign, and scan visibility all come from the principal's
@@ -121,9 +128,9 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 
 | Overlay | Component | Feeds |
 |---|---|---|
-| `ovl-drawer` | `NavDrawer` | module registry (built + "Soon"), profile, settings |
+| `ovl-drawer` | `NavDrawer` | module registry (backend-flagged built + non-tappable "Soon" placeholders), profile, settings |
 | `ovl-lang` | language `GoatBottomSheet` | DataStore locale |
-| `ovl-scope` | park picker | scope → re-scopes overview + follow-up (director + CEO/COO) |
+| `ovl-scope` | park picker | sends selected **backend scope token** → backend re-scopes overview + follow-up (director + CEO/COO) |
 | `ovl-gaps` | data-gaps sheet | animals excluded from coverage + reason |
 | `ovl-given` | doses-given drill | per-vaccine given + coverage bars (scope-aware) |
 | `ovl-driverec`/`ovl-shedrec` | record sheets | per-vaccine breakdown + animals |

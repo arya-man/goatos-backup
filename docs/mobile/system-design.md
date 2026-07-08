@@ -128,10 +128,11 @@ The app never decides *when* to notify; timing/policy is kernel-owned. FCM is on
 delivery channel alongside call/Slack/email (mock's 4-channel model).
 
 For near-real-time leadership screens (the drive-status follow-up updating live as
-operators submit), server→client push is an **open decision**: FCM data-ping +
-pull (lean default) vs a streaming transport (SSE / WebSocket / gRPC behind the
-app-api boundary). See TRD §6 "Server→client push for live screens" — ADR before
-build.
+operators submit), server→client push is **decided: A — FCM data-ping + pull**. A
+streaming transport (SSE / WebSocket / gRPC behind the app-api boundary) is
+**ADR-gated** and built only if a screen genuinely needs sub-second streaming. See
+TRD §6 "Server→client push for live screens". Either way the app never times a
+push — timing is kernel-owned.
 
 ## 7. Analytics event taxonomy (Firebase Analytics)
 

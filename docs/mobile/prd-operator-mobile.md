@@ -14,12 +14,12 @@ what is overdue, and whether coverage numbers are trustworthy.
 
 ## 2. Goal
 
-One Android app, **role-aware** (login decides content), built on one shared
+One Android app, **role-aware** (bootstrap decides content per principal), built on one shared
 entry point.
 
 **Calendar is the common vaccination entry point for every role** (CEO decision,
 Manju, 2026-07-08). After login, operator and leadership both land on the
-Calendar. Tapping a calendar drive card then **branches by role**:
+Calendar. Tapping a calendar drive card then opens the **backend-provided drill target** for the principal:
 
 - **Operator** (Health Asst Mgr / field) → execution: enter shed → tap-scan each
   animal by RFID → record the due vaccine(s) with video proof, fully
@@ -30,8 +30,9 @@ Calendar. Tapping a calendar drive card then **branches by role**:
 - **COO / CEO** → like Director for now (company-wide, per-park rollup + data
   gaps), with more control later.
 
-Leadership keeps a richer command **Overview** (coverage, per-vaccine backlog,
-data gaps, overdue decisions, assign) one tap away via the Home nav tab — but the
+Leadership keeps a richer command **Overview** (backend-computed coverage,
+per-vaccine backlog, data gaps, overdue decisions, assign — rendered, not
+client-aggregated) one tap away via the Home nav tab — but the
 Calendar, not the Overview, is where **every** role starts.
 
 It is the mobile renderer on the **same backend contracts** as admin-web — not a
@@ -87,7 +88,7 @@ Shared entry (all roles):
 - **Calendar** — the universal landing for every role. Week (today's drive card),
   month (drive-day dots + day sheet), history (past shed records). Operator sees
   week only; leadership also gets month + history. Tapping the day's drive card is
-  the **role-branched drill** below.
+  the **backend-provided drill** below.
 
 Operator drill (execution):
 
@@ -115,7 +116,8 @@ Leadership drill (read-only follow-up):
   (per vaccine), **pending** drill, **data-gaps** drill, **today's sheds** (per-
   shed vaccine mix, assign), **backlog by vaccine**, **needs-a-decision** (overdue
   → reschedule), **coverage by park** (director + CEO/COO).
-- **Overdue list**, **Reschedule** (buffer-aware date + assign primary/backup),
+- **Overdue list**, **Reschedule** (backend-provided allowed date options with
+  state + labels; assign primary/backup),
   **shed record** (per-vaccine breakdown, searchable animals).
 
 Shared overlays: drawer, language, park scope, data gaps, doses given, drive/shed
@@ -132,15 +134,18 @@ Full per-screen contract in [screens.md](screens.md).
 
 ## 6. Key product rules (already validated on the mock)
 
-- **Calendar-universal, role-branched drill**: the Calendar is the single entry
-  point for all roles. Tapping a drive card runs the **execution** flow for the
-  field operator (Health Asst Mgr) and a **read-only status follow-up** for
-  leadership (Park Manager, Director, CEO/COO) — same card, different drill.
+- **Calendar-universal drill (backend-provided target)**: the Calendar is the
+  single entry point for all roles. Tapping a drive card opens the drill target the
+  backend returns for the principal — today the **execution** flow for the field
+  operator (Health Asst Mgr) and a **read-only status follow-up** for leadership
+  (Park Manager, Director, CEO/COO) — same card, backend-decided target.
 - **Red-on-delay follow-up**: in the leadership follow-up, a not-started / delayed
   drive renders **red** ("chase the team"); in-progress is amber, done is green.
   This is the signal leadership acts on to chase the ground team.
-- **Scope by role**: operator and park manager see their own park; director and
-  CEO/COO see all parks and can drill into any single park via the picker.
+- **Scope (backend-provided per principal)**: operator and park manager resolve to
+  their own park; director and CEO/COO to all parks and can drill into any single
+  park via the picker. The app renders backend scope options/tokens and sends the
+  selection; it does not resolve scope by role and the backend filters every read.
 - **Shed-first**: the unit of work is the shed, not the vaccine. A shed's cohort
   can have several due vaccines at once (mix-and-match). A drive is a day of shed
   visits, not "one vaccine across sheds".
@@ -152,7 +157,9 @@ Full per-screen contract in [screens.md](screens.md).
   so the operator need not watch the screen — eligible = single buzz + soft
   confirm tone; **a not-due (red) hit = a stronger double-buzz AND an audible
   alert tone**. Operators scan one-handed with the reader; the not-due case must
-  be unmistakable by feel and by sound.
+  be unmistakable by feel and by sound. The not-due *signal* is **backend
+  eligibility** (from the cached roster), not a client date/policy check — only the
+  haptic/tone rendering is local (so it still fires offline).
 - **Coverage honesty**: "N data gaps" surfaces animals excluded from coverage %
   (missing DOB/breed/tag); nothing is faked to look complete.
 - **Buffer / missed = backend-computed outcome, not a client constant**: whether an

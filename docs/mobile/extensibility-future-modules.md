@@ -61,7 +61,7 @@ forms-runner (DSL render + proof)         reused for any module's SOP/form
 media capture (camera) + signed upload    device-camera, media uploader
 RFID / device ports                       device-rfid + future device-* adapters
 analytics / crash / push ports            core-analytics, core-notifications
-i18n / time (Asia/Kolkata) / errors       core-common
+i18n / time formatting (Asia/Kolkata display only) / errors  core-common
 ```
 
 A new module reuses all of the above and only adds its screens + read/write
@@ -80,8 +80,8 @@ engine as Vaccination.
     own mock/source of truth)
 [ ] Reuse forms-runner + sync engine + media/RFID ports; add a new device-*
     adapter only if new hardware is needed (each with a fake)
-[ ] Gate visibility on bootstrap grants; never hardcode nav
-[ ] Tests: domain + sync (idempotency quartet) + Compose + a Maestro flow
+[ ] Render only backend-returned visible modules/actions (no client grant predicate); never hardcode nav
+[ ] Tests: orchestration/render + sync (idempotency quartet) + Compose + a Maestro flow
 [ ] No cross-feature imports (CI boundary check stays green)
 ```
 
