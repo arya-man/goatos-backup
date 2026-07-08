@@ -1,0 +1,1027 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Mesha Vaccination — Field Ops</title></head><body>
+<style>
+  :root{
+    --page-bg:#0A0F0C; --page-ink:#ECF4EE; --page-muted:#8FA497; --page-line:#1C2620; --card:#101711;
+    --brand:#8AD457; --brand-2:#5FB531; --brand-d:#B7EA8C;
+    --grad:linear-gradient(135deg,#93DA5E 0%,#5FB531 100%);
+    --grad-soft:linear-gradient(150deg,rgba(147,218,94,.16),rgba(95,181,49,.05));
+    --bg:#0B100D; --surf:#131A15; --surf2:#1A241D; --surf3:#222E25; --hair:#28352B;
+    --ink:#ECF4EE; --muted:#8FA497; --faint:#5F7367;
+    --ok:#8AD457; --okx:rgba(138,212,87,.16); --warn:#F0B54B; --warnx:rgba(240,181,75,.15);
+    --danger:#FB6F63; --dangerx:rgba(251,111,99,.15); --teal:#57C9B0; --purple:#A78BF5; --purplex:rgba(167,139,245,.15);
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    --glow:0 8px 26px rgba(95,181,49,.30);
+  }
+  @media (prefers-color-scheme:light){ :root{ --page-bg:#EDF1EA; --page-ink:#141C17; --page-muted:#54655B; --page-line:#D6DED1; --card:#fff; } }
+  :root[data-theme="light"]{ --page-bg:#EDF1EA; --page-ink:#141C17; --page-muted:#54655B; --page-line:#D6DED1; }
+  :root[data-theme="dark"]{ --page-bg:#0A0F0C; --page-ink:#ECF4EE; --page-muted:#8FA497; --page-line:#1C2620; }
+
+  *{box-sizing:border-box}
+  .vm{font-family:var(--f);background:var(--page-bg);color:var(--page-ink);margin:0;padding:0 clamp(12px,4vw,32px) 60px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .in{max-width:1080px;margin:0 auto}
+  .ic{width:18px;height:18px;display:inline-block;vertical-align:middle;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .ic use{pointer-events:none}
+
+  header.hd{padding:34px 0 20px;text-align:center}
+  .eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--brand-2);margin-bottom:12px}
+  .eyebrow .dot{width:8px;height:8px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 4px rgba(138,212,87,.18)}
+  header.hd h1{font-size:clamp(24px,4vw,36px);font-weight:820;letter-spacing:-.025em;margin:0}
+  header.hd h1 .g{color:var(--brand-2)}
+  header.hd p{color:var(--page-muted);font-size:14.5px;max-width:62ch;margin:12px auto 0}
+
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;margin:20px 0 6px}
+  .seg{display:inline-flex;flex-wrap:wrap;background:var(--card);border:1px solid var(--page-line);border-radius:11px;padding:3px;gap:2px}
+  .seg button{border:0;background:transparent;font:inherit;font-size:13px;font-weight:650;color:var(--page-muted);padding:8px 14px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+  .seg button.on{background:var(--grad);color:#08130B;box-shadow:var(--glow)}
+  .seg button .ic{width:15px;height:15px}
+  .hintline{text-align:center;font-size:12.5px;color:var(--page-muted);margin:2px 0 4px}
+  .hintline b{color:var(--brand-2)}
+
+  /* device */
+  .stage{display:flex;justify-content:center;padding:14px 0 6px}
+  .device{width:min(94vw,384px);height:min(84vh,812px);min-height:640px;border-radius:46px;background:#04060580;border:1px solid #1c2620;padding:8px;box-shadow:0 3px 6px rgba(0,0,0,.3),0 30px 70px rgba(0,0,0,.5);position:relative;flex:none}
+  .scr{position:relative;width:100%;height:100%;border-radius:39px;overflow:hidden;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;font-size:13.5px;-webkit-user-select:none;user-select:none}
+  .notch{position:absolute;top:9px;left:50%;transform:translateX(-50%);width:96px;height:26px;background:#040605;border-radius:16px;z-index:60}
+  .sbar{display:flex;align-items:center;justify-content:space-between;padding:12px 22px 4px;font-size:12px;font-weight:700;flex:none;z-index:5}
+  .sbar .r{display:flex;gap:6px;align-items:center;color:var(--muted)} .sbar .r .ic{width:15px;height:15px}
+  .screen{flex:1;position:relative;min-height:0}
+  .home{height:5px;width:120px;background:var(--faint);opacity:.5;border-radius:3px;margin:6px auto 9px;flex:none;position:relative;z-index:5}
+
+  /* views */
+  .view{position:absolute;inset:0;display:none;flex-direction:column;min-height:0}
+  .view.on{display:flex;animation:vin .22s ease}
+  @keyframes vin{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:none}}
+  .view.back.on{animation:vback .22s ease}
+  @keyframes vback{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+  .vscroll{flex:1;overflow-y:auto;min-height:0}
+  .vscroll::-webkit-scrollbar{width:0}
+  .vhead{display:flex;align-items:center;gap:11px;padding:6px 16px 12px;flex:none}
+  .vhead .bk,.vhead .ib{width:38px;height:38px;border-radius:12px;background:var(--surf2);display:grid;place-items:center;color:var(--muted);flex:none;cursor:pointer;border:0;font:inherit}
+  .vhead .bk:active,.vhead .ib:active,.tap:active{filter:brightness(1.3)}
+  .vhead .eb{font-size:10.5px;font-weight:750;letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+  .vhead h3{font-size:16.5px;font-weight:760;letter-spacing:-.02em;margin:1px 0 0}
+  .vhead .sp{flex:1}
+  .avatar{width:38px;height:38px;border-radius:12px;background:var(--grad);color:#08130B;display:grid;place-items:center;font-weight:800;font-size:14px;flex:none;box-shadow:var(--glow);cursor:pointer}
+  .logo{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;border:2px solid var(--brand);background:rgba(138,212,87,.14);color:var(--brand);font-weight:800;font-size:16px;flex:none}
+  .pad{padding:0 16px}
+  .tap{cursor:pointer}
+
+  .fld{margin-top:14px} .fld label{display:block;font-size:11px;font-weight:750;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+  .inp{background:var(--surf);border:1px solid var(--hair);border-radius:14px;padding:13px 15px;font-size:14.5px;color:var(--ink);display:flex;align-items:center;gap:10px;min-height:50px}
+  .inp .ph{color:var(--faint)}
+  .btn{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;background:var(--grad);color:#08130B;border:0;border-radius:15px;padding:15px;font:inherit;font-size:15px;font-weight:780;cursor:pointer;margin-top:16px;min-height:52px;box-shadow:var(--glow)}
+  .btn:active{transform:translateY(1px)}
+  .btn.ghost{background:var(--surf2);color:var(--ink);border:1px solid var(--hair);box-shadow:none}
+  .btn.block{background:var(--surf);color:var(--faint);border:1px solid var(--hair);cursor:not-allowed;box-shadow:none}
+  .btn.dgh{background:var(--dangerx);color:var(--danger);box-shadow:none}
+  .langbtn{display:flex;align-items:center;gap:12px;background:var(--surf);border:1px solid var(--hair);border-radius:14px;padding:13px 15px;font-size:14.5px;color:var(--ink);cursor:pointer;min-height:50px}
+  .langbtn .gl{width:26px;height:26px;border-radius:9px;background:rgba(138,212,87,.14);color:var(--brand);display:grid;place-items:center;flex:none}
+  .langbtn .chg{color:var(--faint);font-size:13px;font-weight:650;display:inline-flex;align-items:center;gap:2px}
+
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:750;padding:4px 10px;border-radius:999px;white-space:nowrap;flex:none}
+  .pill.ok{background:var(--okx);color:var(--brand-d)} .pill.warn{background:var(--warnx);color:var(--warn)}
+  .pill.dng{background:var(--dangerx);color:var(--danger)} .pill.mut{background:var(--surf3);color:var(--muted)} .pill.teal{background:rgba(87,201,176,.16);color:var(--teal)}
+  .conn{display:flex;align-items:center;gap:10px;background:var(--okx);border:1px solid rgba(138,212,87,.25);border-radius:14px;padding:11px 13px;font-size:12px;color:var(--ink);margin:0 16px 6px}
+  .conn .bt{width:26px;height:26px;border-radius:9px;background:rgba(138,212,87,.16);color:var(--brand);display:grid;place-items:center;flex:none}
+
+  .week{display:flex;gap:6px;padding:8px 16px}
+  .week .d{flex:1;text-align:center;padding:10px 0;border-radius:14px;background:var(--surf);border:1px solid var(--hair)}
+  .week .d .dn{font-size:9.5px;color:var(--faint);font-weight:750;text-transform:uppercase}
+  .week .d .dd{font-size:15px;font-weight:780;margin-top:4px}
+  .week .d.today{background:var(--grad);border-color:transparent;box-shadow:var(--glow)} .week .d.today .dn,.week .d.today .dd{color:#08130B}
+  .week .d.has{position:relative} .week .d.has::after{content:"";position:absolute;bottom:6px;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:var(--brand)}
+  .week .d.today.has::after{background:#0a1206}
+  .dl{font-size:11px;font-weight:750;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:12px 16px 4px}
+
+  .card{margin:0 16px 11px;background:var(--surf);border:1px solid var(--hair);border-radius:18px;padding:15px 16px}
+  .evt{border-left:3px solid var(--brand);cursor:pointer} .evt.dim{opacity:.6;cursor:default} .evt.feed{border-left-color:var(--teal)}
+  .evt .t{display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:6px}
+  .evt .nm{font-weight:750;font-size:15px;letter-spacing:-.01em;margin-top:10px;display:flex;align-items:center;gap:8px}
+  .evt .mt{font-size:12px;color:var(--muted);margin-top:7px;display:flex;flex-wrap:wrap;gap:4px 12px}
+  .evt .mt .ic{width:14px;height:14px;opacity:.8}
+  .evt .clk{font-size:12.5px;color:var(--brand-2);font-weight:750;margin-top:11px;display:inline-flex;align-items:center;gap:4px}
+
+  .shed .sh{display:flex;align-items:center;gap:11px}
+  .shed .wh{width:42px;height:42px;border-radius:13px;background:rgba(138,212,87,.13);color:var(--brand);display:grid;place-items:center;flex:none}
+  .shed .wh .ic{width:20px;height:20px}
+  .shed b{font-size:15.5px;font-weight:760} .shed .s{font-size:12px;color:var(--muted);margin-top:1px} .shed .sp{flex:1}
+  .nums{display:flex;margin-top:14px;background:var(--surf2);border-radius:12px;overflow:hidden}
+  .nums>div{flex:1;text-align:center;padding:9px 4px} .nums>div+div{border-left:1px solid var(--hair)}
+  .nums b{color:var(--ink);font-weight:800;font-size:16px;display:block;font-variant-numeric:tabular-nums}
+  .nums span{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;font-weight:700}
+  .barp{height:7px;border-radius:4px;background:var(--surf3);margin-top:13px;overflow:hidden}.barp i{display:block;height:100%;background:var(--grad);border-radius:4px;transition:width .3s}
+  .drivemeta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 16px 6px;padding:10px 13px;background:var(--surf2);border-radius:12px;font-size:11.5px;color:var(--muted);font-weight:600} .drivemeta .ic{width:14px;height:14px;opacity:.8;color:var(--brand)} .drivemeta b{color:var(--ink);font-weight:750} .drivemeta .dot{opacity:.45}
+  .drivetot{margin:0 16px 6px;padding:13px 15px;background:var(--surf);border:1px solid var(--hair);border-radius:14px} .drivetot .dt-h{display:flex;align-items:center;font-size:13px} .drivetot .dt-h b{font-weight:750} .drivetot .dt-n{font-family:var(--mono);font-weight:800;font-size:14px;color:var(--brand-d)} .drivetot .dt-s{font-size:10.5px;color:var(--muted);margin-top:7px}
+  .chgcard{margin:0 16px;background:var(--surf);border:1px solid var(--hair);border-radius:16px;padding:2px 14px}
+  .chg{display:flex;align-items:flex-start;gap:10px;font-size:12.5px;padding:11px 0;border-bottom:1px solid var(--surf2);line-height:1.4} .chg:last-child{border:0} .chg .ct{flex:1} .chg .ct b{font-weight:700} .chg .ct span{color:var(--muted)}
+  .ctag{flex:none;font-size:10px;font-weight:750;padding:3px 8px;border-radius:6px;white-space:nowrap;margin-top:1px}
+  .ctag.warn{background:var(--warnx);color:var(--warn)} .ctag.dng{background:var(--dangerx);color:var(--danger)} .ctag.ok{background:var(--okx);color:var(--brand-d)} .ctag.info{background:rgba(91,155,232,.16);color:#5B9BE8}
+
+  .exwrap{flex:1;display:flex;flex-direction:column;min-height:0;padding-top:2px}
+  .ringwrap{position:relative;width:132px;height:132px;margin:4px auto 2px;cursor:pointer;-webkit-tap-highlight-color:transparent;flex:none}
+  .ring{width:100%;height:100%;transform:rotate(-90deg)}
+  .ring .rbg{fill:none;stroke:var(--surf3);stroke-width:9}
+  .ring .rfg{fill:none;stroke:var(--brand);stroke-width:9;stroke-linecap:round;stroke-dasharray:314.16;stroke-dashoffset:314.16;transition:stroke-dashoffset .4s ease,stroke .2s}
+  .ringwrap.hitno .rfg{stroke:var(--danger)}
+  .ringc{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+  .ringc .n{font-size:28px;font-weight:840;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums}
+  .ringc .n small{font-size:13px;color:var(--faint);font-weight:750}
+  .ringc .lb{font-size:9.5px;color:var(--muted);font-weight:700;margin-top:2px;text-transform:uppercase;letter-spacing:.04em}
+  .taphint{text-align:center;font-size:11.5px;color:var(--muted);font-weight:650;display:flex;align-items:center;justify-content:center;gap:7px;margin:0 0 6px}
+  .taphint .bt{width:20px;height:20px;border-radius:6px;background:rgba(138,212,87,.15);color:var(--brand);display:grid;place-items:center}
+  .qchips{display:flex;gap:8px;padding:0 16px 6px;flex:none}
+  .qc{flex:1;text-align:center;background:var(--surf);border:1px solid var(--hair);border-radius:11px;padding:6px 4px}
+  .qc b{display:block;font-size:16px;font-weight:820;font-variant-numeric:tabular-nums;line-height:1} .qc span{font-size:9px;color:var(--muted);font-weight:750;text-transform:uppercase;margin-top:3px;display:block}
+  .qc.ok b{color:var(--brand-d)} .qc.sk b{color:var(--danger)}
+  .slist{list-style:none;margin:0;padding:0 16px 8px;overflow-y:auto;flex:1;min-height:0}.slist::-webkit-scrollbar{width:0}
+  .slist li{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--surf2);font-size:12.5px}
+  .slist .tk{width:24px;height:24px;border-radius:8px;display:grid;place-items:center;flex:none}
+  .slist .tk.ok{background:var(--okx);color:var(--brand-d)} .slist .tk.no{background:var(--dangerx);color:var(--danger)} .slist .tk .ic{width:14px;height:14px}
+  .slist .id{font-family:var(--mono);font-size:12px;flex:1} .slist .vx{font-size:10.5px;color:var(--muted)}
+  .old{font-family:var(--f);font-size:10px;font-weight:750;color:var(--brand-d);background:rgba(138,212,87,.14);border-radius:5px;padding:1px 6px;margin-left:4px;white-space:nowrap}
+  .one{font-family:var(--f);font-size:10px;font-weight:700;color:var(--faint);margin-left:4px}
+  /* given/skipped list sheet */
+  .slsheet{max-height:80%;display:flex;flex-direction:column}
+  .slsearch{display:flex;align-items:center;gap:8px;margin:0 20px 8px;background:var(--bg);border:1px solid var(--hair);border-radius:11px;padding:9px 12px} .slsearch input{flex:1;background:transparent;border:0;outline:0;color:var(--ink);font:inherit;font-size:13.5px} .slsearch input::placeholder{color:var(--faint)}
+  #slList,#srList{overflow-y:auto;flex:1;padding:0 20px 8px} #slList::-webkit-scrollbar,#srList::-webkit-scrollbar{width:0}
+  .viewrec{font-size:11.5px;color:var(--brand-d);font-weight:750;text-align:center;margin-top:12px}
+  .slrow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--surf2);font-size:12.5px} .slrow:last-child{border:0}
+  .slrow .tk{width:24px;height:24px;border-radius:8px;display:grid;place-items:center;flex:none} .slrow .tk.ok{background:var(--okx);color:var(--brand-d)} .slrow .tk.no{background:var(--dangerx);color:var(--danger)} .slrow .tk.pend{background:var(--surf3);color:var(--muted)} .slrow .tk .ic{width:14px;height:14px}
+  .slrow .id{font-family:var(--mono);font-size:12px;flex:1} .slrow .vx{font-size:10.5px;color:var(--muted);white-space:nowrap}
+  .id2{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:3px}
+  .vfoot{padding:10px 16px 12px;border-top:1px solid var(--hair);flex:none;background:var(--bg)} .vfoot .note{font-size:10.5px;color:var(--faint);text-align:center;margin-top:7px}
+
+  .scanzone{margin:10px 16px;border:2px dashed var(--hair);border-radius:16px;padding:20px 14px;text-align:center;background:var(--surf);cursor:pointer;transition:border-color .18s,background .18s;-webkit-tap-highlight-color:transparent}
+  .scanzone .bticon{width:44px;height:44px;border-radius:13px;background:rgba(138,212,87,.14);color:var(--brand);display:grid;place-items:center;margin:0 auto 9px}
+  .scanzone .szmsg{font-weight:700;font-size:14px}
+  .scanzone.read{border-style:solid;border-color:var(--brand);background:rgba(138,212,87,.10)} .scanzone.read .bticon{background:var(--grad);color:#08130B}
+  .ack{margin:6px 16px;background:var(--surf);border:1px solid var(--hair);border-radius:18px;padding:16px;text-align:center}
+  .ack .idc{font-size:11px;color:var(--muted);margin-top:2px}
+  .ack .id{font-family:var(--mono);font-size:12px;color:var(--muted)} .ack .gv{font-size:11px;color:var(--muted);margin-top:12px;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+  .ack .vac{font-size:25px;font-weight:840;color:var(--brand-d);margin-top:4px;letter-spacing:-.02em} .ack .ds{font-size:12.5px;color:var(--ink);margin-top:3px}
+  .flash{margin:2px 16px 8px;border-radius:14px;padding:11px 13px;display:flex;align-items:center;gap:10px;flex:none}
+  .flash.ok{background:var(--okx)} .flash .fic{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;flex:none;background:rgba(138,212,87,.22);color:var(--brand-d)} .flash .fic .ic{width:19px;height:19px}
+  .flash b{font-size:14px} .flash .fs{font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px}
+
+  .lt{font-size:11px;font-weight:750;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);padding:14px 16px 6px}
+  .vaxr{margin:0 16px 10px} .vaxr .vh{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px} .vaxr .vh b{font-weight:750} .vaxr .vn{font-size:10.5px;color:var(--faint)} .vaxr .pill{font-size:10.5px}
+  .frow{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:11px 0;border-bottom:1px solid var(--surf2)} .frow:last-child{border:0}
+  .frow .fk{color:var(--muted);display:flex;align-items:center;gap:7px} .frow .fk .ic{width:14px;height:14px;opacity:.7} .frow .fv{font-weight:700;text-align:right} .frow .fv .mono{font-family:var(--mono);font-size:12px}
+  .fgrp{margin:0 16px;background:var(--surf);border:1px solid var(--hair);border-radius:16px;padding:2px 15px}
+  .proofbox{margin:12px 16px 0;border:1.5px dashed var(--hair);border-radius:16px;padding:15px;text-align:center;color:var(--muted);cursor:pointer} .proofbox .ic{width:24px;height:24px;color:var(--brand)} .proofbox b{display:block;color:var(--ink);font-size:13px;margin-top:8px} .proofbox span{font-size:11px}
+
+  .hero{margin:0 16px;border-radius:22px;background:var(--grad);color:#0a1206;padding:18px;position:relative;overflow:hidden;box-shadow:var(--glow)}
+  .hero::after{content:"";position:absolute;right:-30px;top:-30px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.16)}
+  .hero .gr{font-size:12.5px;font-weight:700;opacity:.8} .hero .big{font-size:27px;font-weight:840;letter-spacing:-.03em;margin-top:6px;line-height:1} .hero .bl{font-size:12.5px;font-weight:650;margin-top:4px;opacity:.85}
+  .hero .row{display:flex;gap:8px;margin-top:14px;position:relative;z-index:2;flex-wrap:wrap} .hpill{display:inline-flex;align-items:center;gap:6px;background:rgba(10,18,6,.16);border-radius:999px;padding:6px 11px;font-size:11.5px;font-weight:750;white-space:nowrap;flex:0 0 auto}
+  #dhscope[data-open]{cursor:pointer;background:rgba(10,18,6,.30);padding-right:9px} #dhscope[data-open]:active{filter:brightness(1.25)} #dhscope:not([data-open]) .scopechev{display:none} .scopechev{opacity:.8}
+  .hpill.tap{cursor:pointer;background:rgba(10,18,6,.30);padding-right:9px} .hpill.tap:active{filter:brightness(1.25)}
+  .kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:12px 16px 4px} .kpi{background:var(--surf);border:1px solid var(--hair);border-radius:16px;padding:13px} .kpi .n{font-size:25px;font-weight:840;font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1} .kpi .l{font-size:11px;color:var(--muted);font-weight:650;margin-top:5px} .kpi.dng .n{color:var(--danger)} .kpi.ok .n{color:var(--brand-d)} .kpi .ic{width:16px;height:16px;color:var(--faint);float:right}
+  .lrow{display:flex;align-items:center;gap:11px;background:var(--surf);border:1px solid var(--hair);border-radius:15px;padding:12px 15px;margin:0 16px 9px} .lrow .sp{flex:1;min-width:0} .lrow b{font-size:13.5px;font-weight:750} .lrow .s{font-size:11px;color:var(--muted);margin-top:2px} .lrow .frac{font-family:var(--mono);font-size:13px;font-weight:800}
+  .miniring{width:38px;height:38px;flex:none;position:relative} .miniring svg{transform:rotate(-90deg)} .miniring .mc{position:absolute;inset:0;display:grid;place-items:center;font-size:9.5px;font-weight:800}
+  .segc{display:flex;background:var(--surf);border:1px solid var(--hair);border-radius:13px;padding:4px;margin:0 16px} .segc .s{flex:1;min-width:0;text-align:center;font-size:12px;font-weight:750;padding:9px 6px;border-radius:9px;color:var(--muted);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .segc .s.on{background:var(--grad);color:#08130B}
+  .buffer{margin:0 16px;background:var(--warnx);border:1px solid rgba(240,181,75,.28);border-radius:14px;padding:12px 14px;font-size:11.5px;color:var(--ink);display:flex;gap:10px} .buffer .ic{color:var(--warn);flex:none}
+  .notif{margin:0 16px 11px;background:var(--surf2);border:1px solid var(--hair);border-radius:16px;padding:13px 14px} .notif .nh{display:flex;align-items:center;gap:9px;font-size:10.5px;color:var(--muted);font-weight:750;text-transform:uppercase} .notif .ap{width:20px;height:20px;border-radius:7px;background:var(--grad);color:#08130B;display:grid;place-items:center;font-size:10px;font-weight:800} .notif .sp{flex:1} .notif .nt{font-size:13.5px;font-weight:750;margin-top:8px} .notif .nb{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.45} .notif .chans{display:flex;gap:6px;margin-top:11px;flex-wrap:wrap}
+  .device2{text-align:center;padding:22px 0 12px} .device2 .big{width:80px;height:80px;border-radius:24px;background:var(--grad-soft);border:1px solid var(--hair);color:var(--brand);display:grid;place-items:center;margin:0 auto} .device2 .big .ic{width:36px;height:36px} .infobox{margin:0 16px;background:var(--surf);border:1px solid var(--hair);border-radius:16px;padding:14px;font-size:12px;color:var(--muted);line-height:1.6}
+
+  /* bottom nav */
+  .vnav{display:flex;align-items:center;justify-content:space-around;padding:9px 10px 8px;background:color-mix(in srgb,var(--surf) 92%,transparent);backdrop-filter:blur(12px);border-top:1px solid var(--hair);flex:none}
+  .tab{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9.5px;font-weight:700;color:var(--faint);padding:2px 10px;border-radius:12px;cursor:pointer;background:none;border:0;font-family:inherit}
+  .tab{min-width:0} .tab span{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  .tab .ic{width:22px;height:22px} .tab.on{color:var(--brand)} .tab.on .ic{stroke-width:2.3}
+
+  /* overlays */
+  .ovl{position:absolute;inset:0;z-index:30;opacity:0;visibility:hidden;transition:opacity .2s,visibility .2s}
+  .ovl.open{opacity:1;visibility:visible}
+  .ovl .vl{position:absolute;inset:0;background:rgba(4,8,6,.6)}
+  .draw{position:absolute;top:0;left:0;bottom:0;width:270px;max-width:82%;background:var(--surf);border-right:1px solid var(--hair);box-shadow:10px 0 40px rgba(0,0,0,.5);display:flex;flex-direction:column;transform:translateX(-102%);transition:transform .26s ease}
+  .ovl.open .draw{transform:none}
+  .draw .dp{padding:22px 18px 16px;background:var(--grad-soft);border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:12px} .draw .dp .av{width:46px;height:46px;border-radius:15px;background:var(--grad);color:#08130B;display:grid;place-items:center;font-weight:800;font-size:18px;box-shadow:var(--glow)} .draw .dp b{font-size:15.5px;font-weight:770;display:block} .draw .dp span{font-size:11.5px;color:var(--muted)}
+  .draw .ds{flex:1;overflow-y:auto} .draw .ds::-webkit-scrollbar{width:0}
+  .dgrp{font-size:10.5px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);padding:16px 18px 6px}
+  .di{display:flex;align-items:center;gap:13px;padding:13px 18px;font-size:14.5px;font-weight:650;color:var(--ink);cursor:pointer} .di .ic{width:20px;height:20px;color:var(--muted);flex:none} .di .sp{flex:1}
+  .di.on{color:var(--brand-d);background:rgba(138,212,87,.10);box-shadow:inset 3px 0 0 var(--brand)} .di.on .ic{color:var(--brand)}
+  .di.soon{color:var(--faint);cursor:default} .di.soon .ic{color:var(--faint)} .di .badge{font-size:9.5px;font-weight:750;padding:3px 9px;border-radius:999px;background:var(--surf3);color:var(--muted)} .di .badge.gr{background:rgba(138,212,87,.16);color:var(--brand-d)}
+  .draw .df{border-top:1px solid var(--hair);padding:6px 0 10px}
+
+  /* Bottom sheet: capped height + internal scroll so long lists never clip past the phone frame.
+     The whole sheet scrolls; the drag handle stays pinned at the top. Fixes cramped/dead lists app-wide. */
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surf);border-top:1px solid var(--hair);border-radius:26px 26px 0 0;padding:0 0 max(18px,env(safe-area-inset-bottom));transform:translateY(102%);transition:transform .26s ease;max-height:88%;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  .sheet::-webkit-scrollbar{width:0}
+  .ovl.open .sheet{transform:none}
+  .sheet .grip{position:sticky;top:0;z-index:5;width:100%;padding:10px 0 9px;margin:0;background:var(--surf);border-radius:26px 26px 0 0}
+  .sheet .grip::after{content:"";display:block;width:40px;height:4px;border-radius:2px;background:var(--faint);opacity:.55;margin:0 auto}
+  .sheet .sh-h{position:sticky;top:23px;z-index:4;font-size:16px;font-weight:780;padding:0 20px 6px;background:var(--surf)} .sheet .sh-s{font-size:12px;color:var(--muted);padding:0 20px 10px}
+  /* the scan/shed sheets manage their own inner scroll list, so don't double-scroll the outer sheet */
+  .slsheet{overflow:hidden}
+  .lopt{display:flex;align-items:center;gap:13px;padding:13px 20px;cursor:pointer} .lopt:active{background:var(--bg)}
+  .lopt .fl{width:36px;height:36px;border-radius:11px;background:var(--bg);border:1px solid var(--hair);display:grid;place-items:center;font-size:15px;font-weight:800;color:var(--muted);flex:none} .lopt .nm{font-size:16px;font-weight:700} .lopt .en{font-size:11px;color:var(--muted);margin-top:1px} .lopt .ck{margin-left:auto;color:var(--brand);opacity:0} .lopt.on .ck{opacity:1} .lopt.on .nm{color:var(--brand-d)} .lopt.on .fl{background:var(--grad);color:#08130B;border-color:transparent}
+  .sheet .more{font-size:11px;color:var(--faint);padding:12px 20px 0;border-top:1px solid var(--surf2);margin-top:6px}
+
+  .toast{position:absolute;left:16px;right:16px;bottom:22px;z-index:40;background:var(--surf2);border:1px solid var(--hair);border-radius:14px;padding:13px 15px;display:flex;align-items:center;gap:11px;box-shadow:0 12px 30px rgba(0,0,0,.5);opacity:0;transform:translateY(14px);transition:opacity .22s,transform .22s;pointer-events:none} .toast.show{opacity:1;transform:none}
+  .toast .ti{width:30px;height:30px;border-radius:9px;background:rgba(138,212,87,.2);color:var(--brand-d);display:grid;place-items:center;flex:none} .toast b{font-size:13.5px} .toast .ts{font-size:11px;color:var(--muted);margin-top:1px}
+
+  .rolenote{display:none;align-items:center;gap:8px;margin:0 16px 8px;padding:10px 13px;background:var(--surf2);border:1px solid var(--hair);border-radius:12px;font-size:11.5px;color:var(--muted)} .rolenote .ic{width:16px;height:16px;color:var(--muted)}
+  /* any non-operator role = leadership: read-only, no Start/scan, no RFID banner */
+  .scr:not([data-role="operator"]) .rolenote{display:flex}
+  .scr:not([data-role="operator"]) .shed .btn{display:none}
+  .scr:not([data-role="operator"]) #v-calendar .conn{display:none}
+  /* month / history + week-only for operator */
+  .scr[data-role="operator"] #calMode{display:none}
+  .mcell{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:10px;font-size:12px;font-weight:650;color:var(--ink);cursor:pointer;background:var(--surf);border:1px solid var(--hair)} .mcell i{width:5px;height:5px;border-radius:50%;margin-top:3px} .mcell.has{border-color:var(--brand);color:#fff}
+  .mnav{display:flex;align-items:center;justify-content:space-between;padding:2px 16px 8px} .mnav b{font-size:14px;font-weight:750} .mnav .ib{width:34px;height:34px;border-radius:11px;background:var(--surf2);display:grid;place-items:center;color:var(--muted);border:0;cursor:pointer} .mnav .ib[disabled]{opacity:.3;pointer-events:none}
+  .mwk{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;padding:0 16px 5px;font-size:9.5px;font-weight:750;color:var(--faint);text-align:center}
+  .mgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;padding:0 16px}
+  .mhint{font-size:10.5px;color:var(--faint);text-align:center;padding:9px 16px 2px}
+  .revr{display:flex;align-items:center;gap:8px;margin:0 16px;padding:10px 0;border-bottom:1px solid var(--surf2);font-size:12.5px} .revr:last-child{border:0} .revr b{font-weight:750;min-width:80px} .revr .ri{font-size:10.5px;color:var(--muted)} .revr .rn{font-family:var(--mono);font-size:11.5px;font-weight:700;color:var(--brand-d)}
+  /* people/date picker rows (distinct from .lopt language rows) */
+  .popt{display:flex;align-items:center;gap:13px;padding:12px 20px;cursor:pointer} .popt:active{background:var(--bg)}
+  .popt .fl{width:36px;height:36px;border-radius:11px;background:var(--bg);border:1px solid var(--hair);display:grid;place-items:center;font-size:14px;font-weight:800;color:var(--muted);flex:none}
+  .popt .nm{font-size:15px;font-weight:700} .popt .en{font-size:11px;color:var(--muted);margin-top:1px} .popt .ck{margin-left:auto;color:var(--brand);opacity:0} .popt.on .ck{opacity:1} .popt.on .nm{color:var(--brand-d)} .popt.on .fl{background:var(--grad);color:#08130B;border-color:transparent}
+  /* assign-team chip — only CEO/COO + Park Manager may assign */
+  .asgnbtn{display:none;align-items:center;gap:5px;margin-top:8px;background:rgba(138,212,87,.14);color:var(--brand-d);border:1px solid transparent;border-radius:9px;padding:6px 10px;font:inherit;font-size:11px;font-weight:750;cursor:pointer} .asgnbtn .ic{width:13px;height:13px} .asgnbtn:active{filter:brightness(1.2)}
+  .scr[data-role="ceo"] .asgnbtn,.scr[data-role="parkmgr"] .asgnbtn{display:inline-flex}
+  .empty{padding:40px 20px;text-align:center;color:var(--muted)} .empty .ic{width:34px;height:34px;color:var(--faint);margin-bottom:10px}
+  .footnote{max-width:640px;margin:26px auto 0;text-align:center;font-size:12.5px;color:var(--page-muted);line-height:1.6}
+  .footnote a{color:var(--brand-2)}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5M5.5 10.5V20h13v-9.5"/></symbol>
+<symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8.5 3v4M15.5 3v4"/></symbol>
+<symbol id="i-syringe" viewBox="0 0 24 24"><path d="M13 4.5 19.5 11M17.5 5.5 18.5 6.5M15.5 9 8.5 16l-3.5 1 1-3.5 7-7zM5.5 15.5 8.5 18.5"/></symbol>
+<symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7" stroke-width="2.4"/></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6M10 20a2 2 0 0 0 4 0"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="4"/><path d="M5 20c1-4 4.2-5.5 7-5.5s6 1.5 7 5.5"/></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+<symbol id="i-chevl" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+<symbol id="i-bt" viewBox="0 0 24 24"><path d="M7 7.5 17 17l-5 4V3l5 4L7 16.5"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-house" viewBox="0 0 24 24"><path d="M3 21V8l9-4 9 4v13M3 21h18M8.5 21v-6h7v6"/></symbol>
+<symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4l9 16H3zM12 10v4.5M12 18h.01"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.5 12h17M12 3c3.4 3.5 3.4 14.5 0 18M12 3c-3.4 3.5-3.4 14.5 0 18"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3.5 2.2"/></symbol>
+<symbol id="i-video" viewBox="0 0 24 24"><rect x="3.5" y="7" width="12" height="10" rx="2.5"/><path d="M15.5 10.5 20.5 8v8l-5-2.5"/></symbol>
+<symbol id="i-vial" viewBox="0 0 24 24"><path d="M9 3.5h6M10 3.5v6.5l-3 8a2 2 0 0 0 2 2.5h6a2 2 0 0 0 2-2.5l-3-8V3.5M8 13.5h8"/></symbol>
+<symbol id="i-snow" viewBox="0 0 24 24"><path d="M12 3v18M4.5 7.5l15 9M19.5 7.5l-15 9"/></symbol>
+<symbol id="i-goat" viewBox="0 0 24 24"><path d="M5 8c-1-3 1-4 2-2M19 8c1-3-1-4-2-2M7 6c0 6 2 9 5 9s5-3 5-9M9 15v3M15 15v3M10 11h.01M14 11h.01"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+<symbol id="i-feed" viewBox="0 0 24 24"><path d="M3.5 11h17a8.5 8.5 0 0 1-17 0zM8 11c0-2 1-2.5 0-4.5M12 11c0-2 1-2.5 0-4.5M16 11c0-2 1-2.5 0-4.5"/></symbol>
+<symbol id="i-logout" viewBox="0 0 24 24"><path d="M15 4h4v16h-4M11 8l-4 4 4 4M7 12h9"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M4 11a8 8 0 0 1 13.5-5L20 8M20 13a8 8 0 0 1-13.5 5L4 16M20 4v4h-4M4 20v-4h4"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+</defs></svg>
+
+<div class="vm">
+<div class="in">
+  <header class="hd">
+    <div class="eyebrow"><span class="dot"></span> Mesha · field operations app</div>
+    <h1>Mesha mobile — <span class="g">vaccination</span> prototype</h1>
+    <p>Tap through it — every control works. Log in, open the drive, enter a shed, tap-scan the goats, submit. Switch role to see the same app show leadership content.</p>
+    <div class="bar">
+      <div class="seg" id="roleset">
+        <button data-role="operator" class="on"><svg class="ic"><use href="#i-syringe"/></svg> Operator</button>
+        <button data-role="parkmgr"><svg class="ic"><use href="#i-house"/></svg> Park Mgr</button>
+        <button data-role="director"><svg class="ic"><use href="#i-chart"/></svg> Director</button>
+        <button data-role="ceo"><svg class="ic"><use href="#i-globe"/></svg> CEO / COO</button>
+      </div>
+      <div class="seg" id="langset">
+        <button data-lang="en" class="on">EN</button><button data-lang="hi">हिं</button><button data-lang="kn">ಕನ್ನಡ</button><button data-lang="te">తెలుగు</button>
+      </div>
+      <div class="seg" id="themeset"><button data-th="dark">Dark</button><button data-th="light">Light</button></div>
+      <div class="seg"><button id="resetbtn"><svg class="ic"><use href="#i-refresh"/></svg> Restart</button></div>
+    </div>
+    <div class="hintline">Start on <b>Login</b> → <b>Sign in</b> → tap the green <b>Open drive</b> card.</div>
+  </header>
+
+  <div class="stage"><div class="device"><div class="scr">
+    <div class="notch"></div>
+    <div class="sbar"><span>9:41</span><span class="r"><svg class="ic" id="btIcon"><use href="#i-bt"/></svg> 5G ▮▮▮</span></div>
+    <div class="screen" id="screen">
+
+      <!-- LOGIN -->
+      <section class="view on" id="v-login">
+        <div class="vscroll"><div class="pad">
+          <div style="display:flex;align-items:center;gap:13px;margin-top:26px"><span class="logo">मे</span><div><div style="font-size:22px;font-weight:840;letter-spacing:-.03em">Mesha</div><div style="color:var(--faint);font-size:12px;font-weight:600" data-t="tagline">Field operations</div></div></div>
+          <div class="fld" style="margin-top:30px"><label data-t="email">Work email</label><div class="inp"><svg class="ic" style="color:var(--muted)"><use href="#i-user"/></svg><span>arun.kumar@mesha.sg</span></div></div>
+          <div class="fld"><label data-t="otp">One-time code</label><div class="inp" style="letter-spacing:.35em;font-family:var(--mono)"><span>4 2 9 •</span></div></div>
+          <button class="btn" data-go="__home" data-t="signin">Sign in</button>
+          <div style="text-align:center;font-size:11px;color:var(--faint);margin-top:12px" data-t="otpnote">6-digit code sent to your Mesha email</div>
+          <div class="fld" style="margin-top:22px"><label data-t="applang">App language</label>
+            <div class="langbtn" data-open="lang"><span class="gl"><svg class="ic" style="width:15px;height:15px"><use href="#i-globe"/></svg></span><span data-langname>English</span><span style="flex:1"></span><span class="chg" data-t="change">Change <svg class="ic" style="width:13px;height:13px"><use href="#i-chev"/></svg></span></div>
+          </div>
+          <p style="font-size:11.5px;color:var(--faint);margin-top:18px;line-height:1.55" data-t="rbac">Your role comes from the HR directory — you land on the screen for your job. Managers execute; directors track.</p>
+        </div></div>
+      </section>
+
+      <!-- CALENDAR (operator home) -->
+      <section class="view" id="v-calendar">
+        <div class="vhead"><button class="ib" data-open="drawer" aria-label="Menu"><svg class="ic"><use href="#i-menu"/></svg></button><div><div class="eb">Vaccination</div><h3 data-t="cal">Calendar</h3></div><span class="sp"></span><button class="ib" data-go="v-alerts"><svg class="ic"><use href="#i-bell"/></svg></button></div>
+        <div class="vscroll">
+          <div class="conn"><span class="bt"><svg class="ic" style="width:15px;height:15px"><use href="#i-bt"/></svg></span><span><b>RFID reader connected</b> · Chainway R3</span><span style="flex:1"></span><span class="pill ok">Ready</span></div>
+          <div class="segc" id="calMode" style="margin:0 16px 10px"><span class="s on" data-cal="week" data-t="cweek">Week</span><span class="s" data-cal="month" data-t="cmonth">Month</span><span class="s" data-cal="history" data-t="chist">History</span></div>
+          <div id="calWeek">
+            <div class="week" id="weekStrip"></div>
+            <div class="dl" id="dayLabel">Today · Tue 7 Jul</div>
+            <div id="dayEvents"></div>
+          </div>
+          <div id="calMonth" style="display:none"></div>
+          <div id="calHistory" style="display:none"></div>
+          <div style="height:6px"></div>
+        </div>
+        <nav class="vnav" data-nav="operator"></nav>
+      </section>
+
+      <!-- SHED LIST -->
+      <section class="view" id="v-sheds">
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Vaccination</div><h3>FMD + HS · Primary</h3></div></div>
+        <div class="vscroll">
+          <div class="drivemeta"><svg class="ic"><use href="#i-cal"/></svg> <b>Tue 7 Jul 2026</b> <span class="dot">·</span> <svg class="ic"><use href="#i-clock"/></svg> 08:00–20:00 <span class="dot">·</span> <b>118</b> <span data-t="due2">due</span></div>
+          <div class="drivetot"><div class="dt-h"><b data-t="driveprog">Drive progress</b><span style="flex:1"></span><span class="dt-n">87 / 118</span></div><div class="barp" style="margin-top:8px"><i style="width:74%"></i></div><div class="dt-s"><span data-t="acrosssheds">across 3 sheds</span> · Gandhi 1 · Castro 1 · Mandela 1</div></div>
+          <div class="lt" data-t="sheds">Sheds today · tap to enter</div>
+          <div class="rolenote" id="rolenote"><svg class="ic"><use href="#i-user"/></svg> <span data-t="readonly">Read-only · the ground team runs the drive</span></div>
+          <div class="card shed tap" data-go="v-scan"><div class="sh"><span class="wh"><svg class="ic"><use href="#i-house"/></svg></span><div><b>Gandhi 1</b><div class="s">Milking does · 62 animals</div></div><span class="sp"></span><span class="pill ok">Ready</span></div><div class="nums"><div><b>62</b><span>in shed</span></div><div><b>8</b><span data-t="elig">eligible</span></div><div><b>0</b><span data-t="donel">done</span></div></div><div class="barp"><i style="width:0%"></i></div><button class="btn" style="margin-top:13px" data-go="v-scan" data-t="start">Start · scan animals</button></div>
+          <div class="card shed tap" data-go="v-scan"><div class="sh"><span class="wh"><svg class="ic"><use href="#i-house"/></svg></span><div><b>Castro 1</b><div class="s">Breeding does · 44 animals</div></div><span class="sp"></span><span class="pill warn">In progress</span></div><div class="nums"><div><b>44</b><span>in shed</span></div><div><b>40</b><span data-t="elig">eligible</span></div><div><b>17</b><span data-t="donel">done</span></div></div><div class="barp"><i style="width:42%"></i></div><button class="btn ghost" style="margin-top:13px" data-go="v-scan" data-t="resume">Resume · 23 pending</button></div>
+          <div class="card shed tap" data-shedrec="Mandela 1" data-shedn="70"><div class="sh"><span class="wh"><svg class="ic"><use href="#i-house"/></svg></span><div><b>Mandela 1</b><div class="s">K2 kids · 71 animals</div></div><span class="sp"></span><span class="pill ok">Done</span></div><div class="nums"><div><b>71</b><span>in shed</span></div><div><b>70</b><span data-t="elig">eligible</span></div><div><b>70</b><span data-t="donel">done</span></div></div><div class="barp"><i style="width:100%"></i></div><div class="viewrec" data-t="viewrec">View 70 records ›</div></div>
+          <div class="lt" data-t="rosterchg">Roster changes · since this drive was scheduled</div>
+          <div class="chgcard">
+            <div class="chg"><span class="ctag warn" data-t="cgquar">Quarantine</span><div class="ct"><span data-t="cgquard">3 does moved to Q2 (ICU) — skipped today, re-checked on release</span></div></div>
+            <div class="chg"><span class="ctag dng" data-t="cgdeath">Death</span><div class="ct"><span data-t="cgdeathd">2 died — all future doses auto-cancelled</span></div></div>
+            <div class="chg"><span class="ctag info" data-t="cgshift">Shifted</span><div class="ct"><span data-t="cgshiftd">1 moved to Yashoda 5 — now counted in that shed's drive</span></div></div>
+            <div class="chg"><span class="ctag ok" data-t="cgbirth">Birth</span><div class="ct"><span data-t="cgbirthd">2 born in K0 — auto-scheduled from birth date after warm-up</span></div></div>
+          </div>
+          <div class="infobox" style="margin-top:10px" data-t="rosterinfo">Eligible counts update live: the obligation engine reads birth / death / shifting / quarantine events and reschedules or cancels doses automatically — no manual edit.</div>
+          <div style="height:6px"></div>
+        </div>
+      </section>
+
+      <!-- SCAN -->
+      <section class="view" id="v-scan">
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Vaccination · Gandhi 1</div><h3 data-t="samevac">FMD + HS · same vaccine</h3></div></div>
+        <div class="exwrap">
+          <div class="ringwrap" id="ringwrap" role="button" tabindex="0" aria-label="Scan"><svg class="ring" viewBox="0 0 120 120"><circle class="rbg" cx="60" cy="60" r="50"/><circle class="rfg" id="ring" cx="60" cy="60" r="50"/></svg><div class="ringc"><div class="n"><span id="cnt">0</span><small>/8</small></div><div class="lb" id="ringlb" data-t="vaccinated">vaccinated</div></div></div>
+          <div class="taphint"><span class="bt"><svg class="ic" style="width:13px;height:13px"><use href="#i-bt"/></svg></span><span data-t="tapprompt">Tap reader to animal — or tap the ring</span></div>
+          <div class="qchips"><div class="qc ok tap" id="qcDone"><b id="qdone">0</b><span data-t="done">Done</span></div><div class="qc tap" id="qcPend"><b id="qpend">8</b><span data-t="pending">Pending</span></div><div class="qc sk tap" id="qcSkip"><b id="qskip">0</b><span data-t="skipped2">Skipped</span></div></div>
+          <div style="text-align:center;font-size:10px;color:var(--faint);padding:0 16px 4px" data-t="taplist">Tap Done · Pending · Skipped to see the animals</div>
+          <ul class="slist" id="slist"></ul>
+        </div>
+        <div class="vfoot"><button class="btn block" id="submitbtn" data-go="v-submit" data-t="submitwait">Vaccinate all 8 to submit</button><div class="note" data-t="hapnote">✓ eligible → green + buzz · not due → red ✕ + double buzz</div></div>
+      </section>
+
+      <!-- SUBMIT -->
+      <section class="view" id="v-submit">
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Vaccination · Gandhi 1</div><h3 data-t="review">Submit drive</h3></div></div>
+        <div class="vscroll">
+          <div style="margin:8px 16px 2px;font-size:11.5px;color:var(--faint);line-height:1.5" data-t="dashnote">Vaccine, dose &amp; schedule are set in the web dashboard. Here you only record what happened — same as the Slack form.</div>
+          <div class="lt" data-t="fromdrive">From the drive</div>
+          <div class="fgrp"><div class="frow"><span class="fk" data-t="fvac">Vaccine</span><span class="fv">FMD + HS · 1 ml SC</span></div><div class="frow"><span class="fk"><svg class="ic"><use href="#i-vial"/></svg> <span data-t="fbatch">Batch (FEFO)</span></span><span class="fv"><span class="mono">HS-2609-B</span></span></div><div class="frow"><span class="fk"><svg class="ic"><use href="#i-snow"/></svg> <span data-t="fcold">Cold chain</span></span><span class="fv" style="color:var(--brand-d)">2–8°C ✓</span></div></div>
+          <div class="lt" data-t="yourec">You record</div>
+          <div class="fgrp"><div class="frow"><span class="fk" data-t="fdone">Animals vaccinated</span><span class="fv" id="subcount">8 / 8</span></div><div class="frow"><span class="fk" data-t="fop">Operator · backup</span><span class="fv">Arun Kumar · Indradev Kumar</span></div></div>
+          <div class="proofbox" id="proofbox"><svg class="ic"><use href="#i-video"/></svg><b data-t="attachvid">Attach shed video proof</b><span data-t="videohint">continuous clip · tap timestamps (V2)</span></div>
+          <div class="fld" style="margin:12px 16px 0"><label data-t="remarks">Remarks (optional)</label><div class="inp" style="min-height:44px;color:var(--faint)" data-t="remarksph">Anything unusual…</div></div>
+          <div style="height:6px"></div>
+        </div>
+        <div class="vfoot"><button class="btn" id="finalsubmit" data-t="submitall">Submit — 1 record, 8 animals</button><div class="note" data-t="submitnote">Same as the Slack workflow · one form for the shed</div></div>
+      </section>
+
+      <!-- ALERTS -->
+      <section class="view" id="v-alerts">
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Mesha</div><h3 data-t="alerts">Alerts</h3></div></div>
+        <div class="vscroll" style="padding-top:6px">
+          <div class="notif"><div class="nh"><span class="ap">मे</span> Mesha <span class="sp"></span> now</div><div class="nt" data-t="n1t">Vaccination drive in 2 days</div><div class="nb" data-t="n1b">FMD + HS · Thu 9 Jul · Sheds Gandhi 1, Castro 1, Mandela 1 · 118 animals. Confirm stock &amp; staffing.</div><div class="chans"><span class="pill ok">Call</span><span class="pill mut">Push</span><span class="pill teal">Slack</span><span class="pill mut">Email</span></div></div>
+          <div class="notif"><div class="nh"><span class="ap">मे</span> Mesha <span class="sp"></span> 8:00</div><div class="nt" style="color:var(--warn)" data-t="n2t">Submit today's drive</div><div class="nb" data-t="n2b">Shed Gandhi 1 · 50/50 done but not submitted. Reminder call in 30 min if not sent.</div></div>
+          <div style="height:6px"></div>
+        </div>
+        <nav class="vnav" data-nav="operator"></nav>
+      </section>
+
+      <!-- YOU / SETTINGS -->
+      <section class="view" id="v-you">
+        <div class="vhead"><div><div class="eb" id="yourole">Health Asst Mgr</div><h3 data-t="you">You</h3></div></div>
+        <div class="vscroll">
+          <div style="display:flex;align-items:center;gap:12px;padding:4px 16px 10px"><span class="avatar" style="width:48px;height:48px;font-size:18px" id="youav">AK</span><div><div style="font-size:16px;font-weight:770" id="youname">Arun Kumar</div><div style="font-size:12px;color:var(--muted)" id="yousub">Health Asst Mgr · CBE</div></div></div>
+          <div class="lt" data-t="settings">Settings</div>
+          <div class="fgrp" style="padding:0 4px">
+            <div class="frow tap" data-open="lang" style="padding:14px 12px"><span class="fk"><svg class="ic"><use href="#i-globe"/></svg> <span data-t="langword">Language</span></span><span class="fv" style="color:var(--muted)"><span data-langname>English</span> <svg class="ic" style="width:14px;height:14px"><use href="#i-chev"/></svg></span></div>
+            <div class="frow tap" data-go="v-rfid" style="padding:14px 12px"><span class="fk"><svg class="ic"><use href="#i-bt"/></svg> <span data-t="device">RFID reader</span></span><span class="fv" style="color:var(--brand-d)">Chainway R3 <svg class="ic" style="width:14px;height:14px;color:var(--muted)"><use href="#i-chev"/></svg></span></div>
+            <div class="frow tap" data-go="v-alerts" style="padding:14px 12px"><span class="fk"><svg class="ic"><use href="#i-bell"/></svg> <span data-t="notifs">Notifications</span></span><span class="fv" style="color:var(--muted)"><svg class="ic" style="width:14px;height:14px"><use href="#i-chev"/></svg></span></div>
+          </div>
+          <div class="pad"><button class="btn ghost" data-go="v-login" style="color:var(--danger)"><svg class="ic"><use href="#i-logout"/></svg> <span data-t="signout">Sign out</span></button></div>
+        </div>
+        <nav class="vnav" data-nav="operator"></nav>
+      </section>
+
+      <!-- RFID -->
+      <section class="view" id="v-rfid">
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Settings</div><h3 data-t="device">RFID reader</h3></div></div>
+        <div class="vscroll">
+          <div class="device2"><div class="big"><svg class="ic"><use href="#i-bt"/></svg></div><div style="font-weight:760;font-size:16px;margin-top:12px">Chainway R3</div><div class="pill ok" style="margin-top:9px" data-t="paired">Paired · battery 84%</div></div>
+          <div class="infobox" data-t="hidnote">The reader acts as a Bluetooth keyboard. When a tag is scanned it types the ID into the active field and hits enter — the app captures the event, so operators never type a tag by hand.</div>
+          <div class="pad"><div class="fld"><label data-t="testtag">Test read</label><div class="inp" style="font-family:var(--mono)"><span style="color:var(--faint)">↳</span><span>982 000 4512 8830</span><span style="flex:1"></span><svg class="ic" style="color:var(--brand)"><use href="#i-check"/></svg></div></div><button class="btn ghost" data-t="rescan"><svg class="ic"><use href="#i-refresh"/></svg> Re-scan for readers</button></div>
+          <div style="height:6px"></div>
+        </div>
+      </section>
+
+      <!-- DIRECTOR HOME -->
+      <section class="view" id="v-dhome">
+        <div class="vhead"><button class="ib" data-open="drawer"><svg class="ic"><use href="#i-menu"/></svg></button><div><div class="eb" id="dhrole">Vaccination · Director</div><h3 data-t="overview">Overview</h3></div><span class="sp"></span><span class="avatar" style="width:36px;height:36px;font-size:14px" id="dhav" data-go="v-you">A</span></div>
+        <div class="vscroll">
+          <div class="hero"><div class="gr" data-t="coverage">Dose coverage · all vaccines</div><div class="big" id="dhcov">48%</div><div class="bl" id="dhdoses">4,650 of 9,698 scheduled doses given</div><div class="row"><span class="hpill" id="dhscope" data-open="scope">All parks · 2 <svg class="ic scopechev" style="width:13px;height:13px"><use href="#i-chev"/></svg></span><span class="hpill"><span id="dhanim">1,312</span> <span data-t="animals">animals</span></span><span class="hpill tap" id="dhgap" data-open="gaps">no data gaps <svg class="ic scopechev" style="width:13px;height:13px"><use href="#i-chev"/></svg></span></div></div>
+          <div class="kpis"><div class="kpi ok"><svg class="ic"><use href="#i-check"/></svg><div class="n" id="dhgiven">4,650</div><div class="l" data-t="dgiven">Doses given</div></div><div class="kpi tap" data-go="v-overdue"><svg class="ic" style="color:var(--warn)"><use href="#i-chev"/></svg><div class="n" id="dhpending" style="color:var(--warn)">5,048</div><div class="l" data-t="dpending">Pending · tap</div></div></div>
+          <div class="lt" data-t="todaylive">Today's drives · live</div>
+          <div class="lrow tap dhdrive" data-drivescope="cbe" data-go="v-sheds"><span class="miniring"><svg width="38" height="38" viewBox="0 0 38 38"><circle cx="19" cy="19" r="15" fill="none" stroke="var(--surf3)" stroke-width="4"/><circle cx="19" cy="19" r="15" fill="none" stroke="var(--brand)" stroke-width="4" stroke-linecap="round" stroke-dasharray="94.2" stroke-dashoffset="24"/></svg><span class="mc" style="color:var(--brand-d)">74%</span></span><div class="sp"><b>FMD + HS · Primary</b><div class="s">Gandhi 1 · Castro 1 · Mandela 1</div><button class="asgnbtn" data-assign="FMD + HS · Primary"><svg class="ic"><use href="#i-user"/></svg> <span data-t="assignteam2">Assign team</span></button></div><span class="frac" style="color:var(--brand-d)">87/118</span></div>
+          <div class="lrow dhdrive" data-drivescope="cpt"><span class="miniring"><svg width="38" height="38" viewBox="0 0 38 38"><circle cx="19" cy="19" r="15" fill="none" stroke="var(--surf3)" stroke-width="4"/></svg><span class="mc" style="color:var(--muted)">0%</span></span><div class="sp"><b>PPR · Booster</b><div class="s">Opens 14:00 · Sumathi 2</div><button class="asgnbtn" data-assign="PPR · Booster"><svg class="ic"><use href="#i-user"/></svg> <span data-t="assignteam2">Assign team</span></button></div><span class="pill mut">0/38</span></div>
+          <div class="lt" data-t="byvax">Backlog by vaccine · pending doses</div>
+          <div class="vaxr"><div class="vh"><b>PPR</b> <span class="vn" data-t="biggest">largest backlog</span><span class="sp" style="flex:1"></span><span class="pill dng" id="bkppr">989</span></div><div class="barp"><i style="width:25%"></i></div></div>
+          <div class="vaxr"><div class="vh"><b>FMD</b> <span class="vn" data-t="firstboost">first + booster</span><span class="sp" style="flex:1"></span><span class="pill dng" id="bkfmd">1,406</span></div><div class="barp"><i style="width:46%"></i></div></div>
+          <div class="vaxr"><div class="vh"><b>ET + TT</b> <span class="vn" data-t="firstboost">first + booster</span><span class="sp" style="flex:1"></span><span class="pill warn" id="bkettt">726</span></div><div class="barp"><i style="width:72%"></i></div></div>
+          <div class="vaxr"><div class="vh"><b>HS</b><span class="sp" style="flex:1"></span><span class="pill warn" id="bkhs">542</span></div><div class="barp"><i style="width:59%"></i></div></div>
+          <div class="vaxr"><div class="vh"><b>Goat Pox</b> <span class="vn" data-t="goatonly">goat-only</span><span class="sp" style="flex:1"></span><span class="pill warn" id="bkgp">417</span></div><div class="barp"><i style="width:47%"></i></div></div>
+          <div class="vaxr"><div class="vh"><b>Sheep Pox</b> <span class="vn" data-t="sheeponly">sheep-only</span><span class="sp" style="flex:1"></span><span class="pill dng" id="bksp">447</span></div><div class="barp"><i style="width:14%"></i></div></div>
+          <div class="vaxr"><div class="vh"><b>Blue Tongue</b> <span class="vn" data-t="sheeponly">sheep-only</span><span class="sp" style="flex:1"></span><span class="pill dng" id="bkbt">521</span></div><div class="barp"><i style="width:0%"></i></div></div>
+          <div class="lt" data-t="needsdec">Needs a decision</div>
+          <div class="lrow tap" data-go="v-reschedule" style="border-color:rgba(251,111,99,.3)"><span class="wh" style="width:38px;height:38px;border-radius:11px;background:var(--dangerx);color:var(--danger);display:grid;place-items:center"><svg class="ic"><use href="#i-warn"/></svg></span><div class="sp"><b>Goat Pox · overdue</b><div class="s">Yashoda 5 · 5 days late</div></div><span class="pill dng" data-t="resched">Reschedule</span></div>
+          <div id="parkbreak" style="display:none">
+            <div class="lt" data-t="bypark">Coverage by park</div>
+            <div class="lrow tap" data-park="CBE"><span class="wh" style="width:38px;height:38px;border-radius:11px;background:rgba(138,212,87,.13);color:var(--brand);display:grid;place-items:center"><svg class="ic"><use href="#i-house"/></svg></span><div class="sp"><b>CBE · Coimbatore</b><div class="s">716 animals · dose coverage</div></div><span class="frac" style="color:var(--brand-d)">52%</span></div>
+            <div class="lrow tap" data-park="CPT" style="border-color:rgba(240,181,75,.3)"><span class="wh" style="width:38px;height:38px;border-radius:11px;background:var(--warnx);color:var(--warn);display:grid;place-items:center"><svg class="ic"><use href="#i-warn"/></svg></span><div class="sp"><b>CPT · Channapatna</b><div class="s">596 animals · dose coverage</div></div><span class="frac" style="color:var(--warn)">42%</span></div>
+          </div>
+          <div style="height:6px"></div>
+        </div>
+        <nav class="vnav" data-nav="director"></nav>
+      </section>
+
+      <!-- OVERDUE LIST -->
+      <section class="view" id="v-overdue">
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Vaccination</div><h3>Overdue · 38 animals</h3></div></div>
+        <div class="vscroll">
+          <div class="lt" data-t="needsresched">Needs rescheduling</div>
+          <div style="display:flex;gap:16px;padding:0 16px 10px;font-size:11px;color:var(--muted)">
+            <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:8px;height:8px;border-radius:50%;background:var(--danger)"></i> <span data-t="legmissed">Missed · past buffer</span></span>
+            <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:8px;height:8px;border-radius:50%;background:var(--warn)"></i> <span data-t="leginbuf">In buffer · recoverable</span></span>
+          </div>
+          <div class="lrow tap" data-go="v-reschedule"><span class="wh" style="width:38px;height:38px;border-radius:11px;background:var(--dangerx);color:var(--danger);display:grid;place-items:center"><svg class="ic"><use href="#i-warn"/></svg></span><div class="sp"><b>Goat Pox · Yashoda 5</b><div class="s">CBE · 9 days late · past buffer · 24 animals</div></div><span class="pill dng" data-t="pmissed">Missed</span></div>
+          <div class="lrow tap" data-go="v-reschedule"><span class="wh" style="width:38px;height:38px;border-radius:11px;background:var(--warnx);color:var(--warn);display:grid;place-items:center"><svg class="ic"><use href="#i-warn"/></svg></span><div class="sp"><b>Sheep Pox · Castro 1</b><div class="s">CPT · 3 days late · in buffer · 8 animals</div></div><span class="pill warn" data-t="pinbuf">In buffer</span></div>
+          <div class="lrow tap" data-go="v-reschedule"><span class="wh" style="width:38px;height:38px;border-radius:11px;background:var(--warnx);color:var(--warn);display:grid;place-items:center"><svg class="ic"><use href="#i-warn"/></svg></span><div class="sp"><b>FMD · Booster · Mandela 1</b><div class="s">CBE · 2 days late · in buffer · 6 animals</div></div><span class="pill warn" data-t="pinbuf">In buffer</span></div>
+          <div class="lt" data-t="whyoverdue">What the colours mean</div>
+          <div class="infobox" data-t="overdueinfo"><b style="color:var(--danger)">Red · Missed</b> — past the 1-week buffer; a dose was missed and leadership was already alerted a week ahead. <b style="color:var(--warn)">Amber · In buffer</b> — overdue but still inside the buffer; reschedule recovers it with no dose missed.</div>
+          <div style="height:6px"></div>
+        </div>
+        <nav class="vnav" data-nav="director"></nav>
+      </section>
+
+      <!-- RESCHEDULE -->
+      <section class="view" id="v-reschedule">
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Vaccination</div><h3>Goat Pox · overdue</h3></div></div>
+        <div class="vscroll"><div style="padding-top:6px">
+          <div class="buffer"><svg class="ic"><use href="#i-warn"/></svg><span data-t="bufmsg">Can postpone within a <b>1-week buffer</b>. Beyond that it's a missed dose — leadership is alerted a week ahead.</span></div>
+          <div class="lt" data-t="action">Action</div>
+          <div class="segc" id="reschedSeg"><span class="s on" data-seg="reschedule" data-t="resched">Reschedule</span><span class="s" data-seg="mark" data-t="markdone">Mark scheduled</span></div>
+          <div class="pad">
+            <div class="fld" id="reschedDateFld"><label data-t="newdate">New date</label><div class="inp tap" data-open="date"><svg class="ic" style="color:var(--muted)"><use href="#i-cal"/></svg><span id="reschedDateVal">Fri, 10 Jul 2026</span><span style="flex:1"></span><span class="pill ok" id="reschedBuf">In buffer</span><svg class="ic" style="width:14px;height:14px;color:var(--faint)"><use href="#i-chev"/></svg></div></div>
+            <div class="fld"><label data-t="assign">Assign to</label><div class="inp tap" data-open="assign"><svg class="ic" style="color:var(--muted)"><use href="#i-user"/></svg><span id="assignVal">Arun Kumar</span><span style="flex:1"></span><span class="pill mut" id="assignBk">+ backup Indradev</span><svg class="ic" style="width:14px;height:14px;color:var(--faint)"><use href="#i-chev"/></svg></div></div>
+            <button class="btn" id="reschedbtn" data-t="confirm">Confirm — notify team</button>
+            <p style="font-size:11px;color:var(--faint);margin-top:13px;line-height:1.55" data-t="chans2">Team gets a phone call, push, Slack alert and email — 2 days before, and again the morning of.</p>
+          </div>
+        </div></div>
+      </section>
+
+      <!-- overlays -->
+      <div class="ovl" id="ovl-drawer"><div class="vl" data-close></div>
+        <div class="draw">
+          <div class="dp"><span class="av" id="drav">AK</span><div><b id="drname">Arun Kumar</b><span id="drsub" data-t="hmcbe">Health Asst Mgr · CBE</span></div></div>
+          <div class="ds">
+            <div class="dgrp" data-t="modules">Modules</div>
+            <div class="di on"><svg class="ic"><use href="#i-syringe"/></svg><span>Vaccination</span><span class="sp"></span><svg class="ic" style="width:14px;height:14px;color:var(--brand)"><use href="#i-check"/></svg></div>
+            <div class="di soon"><svg class="ic"><use href="#i-feed"/></svg><span>Feed direction</span><span class="sp"></span><span class="badge" data-t="soonb">Soon</span></div>
+            <div class="di soon"><svg class="ic"><use href="#i-goat"/></svg><span>Breeding</span><span class="sp"></span><span class="badge" data-t="soonb">Soon</span></div>
+            <div class="dgrp" data-t="settings">Settings</div>
+            <div class="di" data-open="lang"><svg class="ic"><use href="#i-globe"/></svg><span data-t="langword">Language</span><span class="sp"></span><span class="badge gr" data-langname>English</span></div>
+            <div class="di" data-go="v-rfid"><svg class="ic"><use href="#i-bt"/></svg><span data-t="device">RFID reader</span></div>
+            <div class="di" data-go="v-alerts"><svg class="ic"><use href="#i-bell"/></svg><span data-t="notifs">Notifications</span></div>
+          </div>
+          <div class="df"><div class="di" data-go="v-login" style="color:var(--danger)"><svg class="ic"><use href="#i-logout"/></svg><span data-t="signout">Sign out</span></div></div>
+        </div>
+      </div>
+
+      <div class="ovl" id="ovl-lang"><div class="vl" data-close></div>
+        <div class="sheet">
+          <div class="grip"></div>
+          <div class="sh-h" data-t="chooselang">Choose language</div>
+          <div class="sh-s" data-t="langsub">Kept for every screen on this phone</div>
+          <div class="lopt on" data-lang="en"><span class="fl">EN</span><div><div class="nm">English</div><div class="en">English</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+          <div class="lopt" data-lang="hi"><span class="fl">हिं</span><div><div class="nm">हिंदी</div><div class="en">Hindi</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+          <div class="lopt" data-lang="kn"><span class="fl">ಕ</span><div><div class="nm">ಕನ್ನಡ</div><div class="en">Kannada</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+          <div class="lopt" data-lang="te"><span class="fl">తె</span><div><div class="nm">తెలుగు</div><div class="en">Telugu</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+          <div class="more" data-t="morelang">More languages added as teams grow</div>
+        </div>
+      </div>
+
+      <div class="ovl" id="ovl-scope"><div class="vl" data-close></div>
+        <div class="sheet">
+          <div class="grip"></div>
+          <div class="sh-h" data-t="choosepark">View a park</div>
+          <div class="sh-s" data-t="parksub">Company-wide, or drill into one park</div>
+          <div id="scopeList">
+            <div class="popt on" data-scope="all"><span class="fl">◎</span><div><div class="nm" data-t="allparks">All parks</div><div class="en" data-t="allparksub">1,312 animals · company-wide</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+            <div class="popt" data-scope="cbe"><span class="fl">CB</span><div><div class="nm">CBE · Coimbatore</div><div class="en">716 animals · 52% coverage</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+            <div class="popt" data-scope="cpt"><span class="fl">CP</span><div><div class="nm">CPT · Channapatna</div><div class="en">596 animals · 42% coverage</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+          </div>
+          <div class="more" data-t="parkmore">Scope also filters the drives and backlog below</div>
+        </div>
+      </div>
+
+      <div class="ovl" id="ovl-gaps"><div class="vl" data-close></div>
+        <div class="sheet">
+          <div class="grip"></div>
+          <div class="sh-h" data-t="gapsh">Data gaps</div>
+          <div class="sh-s" id="gapsSub" data-t="gapssub">Animals the schedule can't evaluate until fixed</div>
+          <div class="fgrp" id="gapBody" style="margin:0 16px 10px"></div>
+          <div class="infobox" style="margin:0 16px 4px" data-t="gapsinfo">These animals are excluded from the coverage % until the missing data is filled. Everything else is fully tracked.</div>
+          <div class="more" data-t="gapsmore">Fix on the web dashboard · Data Ops → Herd Register</div>
+        </div>
+      </div>
+
+      <div class="ovl" id="ovl-driverec"><div class="vl" data-close></div>
+        <div class="sheet">
+          <div class="grip"></div>
+          <div class="sh-h" id="drecH">Drive record</div>
+          <div class="sh-s" id="drecS" data-t="drecsub">Completed drive · read-only</div>
+          <div class="fgrp" id="drecBody" style="margin:0 16px 10px"></div>
+          <div style="padding:0 16px 12px"><span class="pill ok" data-t="drecproof">✓ Verified · video proof on file</span></div>
+        </div>
+      </div>
+
+      <div class="ovl" id="ovl-date"><div class="vl" data-close></div>
+        <div class="sheet">
+          <div class="grip"></div>
+          <div class="sh-h" data-t="pickdate">Pick a new date</div>
+          <div class="sh-s" data-t="pickdatesub">Within the 1-week buffer from the due date</div>
+          <div class="popt" data-date="Wed, 8 Jul 2026" data-buf="1"><span class="fl">8</span><div><div class="nm">Wed, 8 Jul</div><div class="en">Tomorrow · in buffer</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+          <div class="popt" data-date="Thu, 9 Jul 2026" data-buf="1"><span class="fl">9</span><div><div class="nm">Thu, 9 Jul</div><div class="en">In buffer</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+          <div class="popt on" data-date="Fri, 10 Jul 2026" data-buf="1"><span class="fl">10</span><div><div class="nm">Fri, 10 Jul</div><div class="en">In buffer</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+          <div class="popt" data-date="Sat, 11 Jul 2026" data-buf="1"><span class="fl">11</span><div><div class="nm">Sat, 11 Jul</div><div class="en">Last day in buffer</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+          <div class="popt" data-date="Mon, 13 Jul 2026" data-buf="0"><span class="fl" style="color:var(--warn)">13</span><div><div class="nm">Mon, 13 Jul</div><div class="en" style="color:var(--warn)">Out of buffer · counts as missed</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+        </div>
+      </div>
+
+      <div class="ovl" id="ovl-assign"><div class="vl" data-close></div>
+        <div class="sheet">
+          <div class="grip"></div>
+          <div class="sh-h" data-t="assignteam">Assign team</div>
+          <div class="sh-s" data-t="assignsub">Primary + backup — from the HR directory</div>
+          <div class="segc" id="assignSlot" style="margin:0 20px 10px"><span class="s on" data-slot="primary" data-t="primary">Primary</span><span class="s" data-slot="backup" data-t="backupw">Backup</span></div>
+          <div id="assignList">
+            <div class="popt" data-person="Arun Kumar"><span class="fl">AK</span><div><div class="nm">Arun Kumar</div><div class="en">Health Asst Mgr · CBE</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+            <div class="popt" data-person="Indradev Kumar"><span class="fl">IK</span><div><div class="nm">Indradev Kumar</div><div class="en">Health Asst Mgr · CPT</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+            <div class="popt" data-person="Dinakar Reddy"><span class="fl">DR</span><div><div class="nm">Dinakar Reddy</div><div class="en">Health Head · CBE</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+            <div class="popt" data-person="Chandrakanth"><span class="fl">CH</span><div><div class="nm">Chandrakanth</div><div class="en">Health Head · CPT</div></div><svg class="ic ck"><use href="#i-check"/></svg></div>
+          </div>
+          <div style="padding:10px 20px 0"><button class="btn" id="assignDone" data-close data-t="donew">Done</button></div>
+        </div>
+      </div>
+
+      <div class="ovl" id="ovl-scanlist"><div class="vl" data-close></div>
+        <div class="sheet slsheet">
+          <div class="grip"></div>
+          <div class="sh-h"><span data-t="scannedttl">Scanned this drive</span> · <span id="slCount">0</span></div>
+          <div class="segc" id="slSeg" style="margin:0 20px 8px"><span class="s on" data-sl="given" data-t="given2">Given</span><span class="s" data-sl="pending" data-t="pending">Pending</span><span class="s" data-sl="skipped" data-t="skipped2">Skipped</span></div>
+          <div class="slsearch"><svg class="ic" style="width:15px;height:15px;color:var(--faint)"><use href="#i-search"/></svg><input id="slInput" placeholder="Search either RFID tag…"></div>
+          <div id="slList"></div>
+        </div>
+      </div>
+
+      <div class="ovl" id="ovl-shedrec"><div class="vl" data-close></div>
+        <div class="sheet slsheet">
+          <div class="grip"></div>
+          <div class="sh-h"><span id="srTtl">Shed</span> · <span id="srCount">0</span></div>
+          <div class="fgrp" id="srSum" style="margin:0 20px 8px"></div>
+          <div class="slsearch"><svg class="ic" style="width:15px;height:15px;color:var(--faint)"><use href="#i-search"/></svg><input id="srInput" placeholder="Search either RFID tag…"></div>
+          <div id="srList"></div>
+        </div>
+      </div>
+
+      <div class="ovl" id="ovl-day"><div class="vl" data-close></div>
+        <div class="sheet"><div class="grip"></div><div class="sh-h" id="dayTtl">Day</div><div id="dayBody" style="padding:2px 4px 8px"></div></div>
+      </div>
+
+      <div class="toast" id="toast"><span class="ti"><svg class="ic"><use href="#i-check"/></svg></span><div><b id="toastt">Submitted</b><div class="ts" id="toasts">Drive recorded</div></div></div>
+
+    </div>
+    <div class="home"></div>
+  </div></div></div>
+
+  <p class="footnote">Interactive prototype — not the shipped app. Backend obligation engine + web execution surface already exist; this is the mobile renderer on the same contracts. Config &amp; SOP authoring stay on the web dashboard.</p>
+</div>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement, D=document;
+  function $(s,c){return (c||D).querySelector(s);} function $all(s,c){return [].slice.call((c||D).querySelectorAll(s));}
+
+  /* ---------- router ---------- */
+  var role='operator', stack=['v-login'];
+  function homeId(){return role==='operator'?'v-calendar':'v-dhome';}
+  function show(id,isBack){
+    $all('.view').forEach(function(v){v.classList.remove('on','back');});
+    var el=D.getElementById(id); if(!el){el=D.getElementById(homeId());}
+    if(isBack)el.classList.add('back'); el.classList.add('on');
+    el.scrollTop=0; var sc=$('.vscroll',el); if(sc)sc.scrollTop=0;
+    renderNav();
+    if(id==='v-calendar'&&typeof calMode==='function')calMode('week');
+    if(id==='v-scan')resetScan();
+  }
+  function go(id){ if(id==='__home')id=homeId(); if(id==='v-login'){stack=['v-login'];} else if(stack[stack.length-1]!==id){stack.push(id);} show(id,false); closeOvl(); }
+  function back(){ if(stack.length>1){stack.pop();} show(stack[stack.length-1],true); }
+  D.addEventListener('click',function(e){
+    var g=e.target.closest('[data-go]'); if(g){var gid=g.getAttribute('data-go'); if(gid==='v-scan'&&role!=='operator'){toast('Executed on the ground','Only the health manager runs the drive');return;} go(gid);return;}
+    var b=e.target.closest('[data-back]'); if(b){back();return;}
+    var dr=e.target.closest('[data-dayrec]'); if(dr){closeOvl();openDriveRec(+dr.getAttribute('data-dayrec'));return;}
+    var o=e.target.closest('[data-open]'); if(o){openOvl(o.getAttribute('data-open'));return;}
+    var c=e.target.closest('[data-close]'); if(c){closeOvl();return;}
+  });
+
+  /* ---------- overlays ---------- */
+  function openOvl(n){ if(n==='assign'&&!canAssign()){toast('Not allowed','Only CEO/COO or Park Manager can assign the team');return;} if(n==='scope'&&role!=='ceo')return; var el=D.getElementById('ovl-'+n); if(el)el.classList.add('open'); if(n==='assign'&&typeof renderAssign==='function')renderAssign();}
+  function closeOvl(){$all('.ovl').forEach(function(o){o.classList.remove('open');});}
+
+  /* ---------- park scope (leadership overview) ---------- */
+  // Company-wide + per-park rollups. Real split: CBE 716 + CPT 596 = 1,312 animals;
+  // backlog per vaccine sums to each park's pending (CBE 2,768 · CPT 2,280 · all 5,048).
+  var curScope='all';
+  var DOS={en:function(g,s){return g+' of '+s+' scheduled doses given';},
+           hi:function(g,s){return s+' में से '+g+' खुराक दी गईं';},
+           kn:function(g,s){return s+' ರಲ್ಲಿ '+g+' ಡೋಸ್ ನೀಡಲಾಗಿದೆ';},
+           te:function(g,s){return s+'లో '+g+' డోస్‌లు ఇవ్వబడ్డాయి';}};
+  // "status known" made real: a handful of animals can't be auto-scheduled (missing DOB/breed/tag).
+  var GAPWORD={en:'data gaps',hi:'डेटा गैप',kn:'ಡೇಟಾ ಗ್ಯಾಪ್',te:'డేటా గ్యాప్‌లు'};
+  var NOGAP={en:'no data gaps',hi:'कोई डेटा गैप नहीं',kn:'ಡೇಟಾ ಗ್ಯಾಪ್ ಇಲ್ಲ',te:'డేటా గ్యాప్‌లు లేవు'};
+  var GAPROWS={
+    cbe:[{id:'982 000 6115 7911',why:'missing date of birth'},
+         {id:'900 038 0000 4471',why:'no breed → no protocol mapping'},
+         {id:'RFID not assigned',why:'new arrival · tag pending'},
+         {id:'982 000 3042 8890',why:'missing date of birth'}],
+    cpt:[{id:'900 118 0000 2210',why:'transfer in progress · park unset'},
+         {id:'982 000 7781 0090',why:'no breed → no protocol mapping'}]};
+  var SCOPES={
+    all:{label:'All parks · 2',cov:'48%',given:'4,650',sched:'9,698',pending:'5,048',anim:'1,312',gaps:6,gapkeys:['cbe','cpt'],
+         drives:['cbe','cpt'],backlog:{bkppr:'989',bkfmd:'1,406',bkettt:'726',bkhs:'542',bkgp:'417',bksp:'447',bkbt:'521'}},
+    cbe:{label:'CBE · Coimbatore',cov:'52%',given:'3,000',sched:'5,768',pending:'2,768',anim:'716',gaps:4,gapkeys:['cbe'],
+         drives:['cbe'],backlog:{bkppr:'560',bkfmd:'820',bkettt:'430',bkhs:'300',bkgp:'250',bksp:'180',bkbt:'228'}},
+    cpt:{label:'CPT · Channapatna',cov:'42%',given:'1,650',sched:'3,930',pending:'2,280',anim:'596',gaps:2,gapkeys:['cpt'],
+         drives:['cpt'],backlog:{bkppr:'429',bkfmd:'586',bkettt:'296',bkhs:'242',bkgp:'167',bksp:'267',bkbt:'293'}}};
+  function applyScope(scope){
+    var s=SCOPES[scope]||SCOPES.all; curScope=scope;
+    var set=function(id,v){var el=D.getElementById(id);if(el)el.textContent=v;};
+    set('dhcov',s.cov); set('dhanim',s.anim); set('dhgiven',s.given); set('dhpending',s.pending);
+    var lang=(typeof curLang!=='undefined')?curLang:'en';
+    var dd=D.getElementById('dhdoses'); if(dd)dd.textContent=(DOS[lang]||DOS.en)(s.given,s.sched);
+    // scope pill label: CEO shows the picker label; park mgr/director show their fixed park
+    var sc=D.getElementById('dhscope'); if(sc){var chev=sc.querySelector('.scopechev');sc.textContent=s.label+' ';if(chev)sc.appendChild(chev);}
+    // today's drives — show only drives in this scope
+    $all('.dhdrive').forEach(function(r){var ds=r.getAttribute('data-drivescope');r.style.display=(s.drives.indexOf(ds)>=0)?'':'none';});
+    // backlog numbers per vaccine
+    Object.keys(s.backlog).forEach(function(k){set(k,s.backlog[k]);});
+    // data gaps pill + sheet (animals excluded from coverage until fixed)
+    var gp=D.getElementById('dhgap'); if(gp){var chev=gp.querySelector('.scopechev');gp.textContent=(s.gaps>0?(s.gaps+' '+(GAPWORD[lang]||GAPWORD.en)):(NOGAP[lang]||NOGAP.en))+' ';if(chev)gp.appendChild(chev);}
+    var gb=D.getElementById('gapBody'); if(gb){var rows=[];(s.gapkeys||[]).forEach(function(k){(GAPROWS[k]||[]).forEach(function(r){rows.push(r);});});
+      gb.innerHTML = rows.length ? rows.map(function(r){return '<div class="frow"><span class="fk" style="font-variant-numeric:tabular-nums">'+r.id+'</span><span class="fv" style="color:var(--warn);text-align:right">'+r.why+'</span></div>';}).join('') : '<div class="frow"><span class="fk">All animals tracked</span><span class="fv" style="color:var(--brand-d)">0 gaps</span></div>';}
+    var gs=D.getElementById('gapsSub'); if(gs)gs.textContent=(s.gaps>0? (s.gaps+' of '+s.anim+' animals not yet schedulable') : ('All '+s.anim+' animals tracked'));
+    // "Coverage by park" breakdown only makes sense company-wide
+    var pb=D.getElementById('parkbreak'); if(pb)pb.style.display=(scope==='all'&&role==='ceo')?'':'none';
+    // reflect selection in the picker sheet
+    $all('#scopeList .popt').forEach(function(p){p.classList.toggle('on',p.getAttribute('data-scope')===scope);});
+  }
+
+  /* ---------- bottom nav ---------- */
+  var NAV={operator:[['v-calendar','i-cal','tb1'],['v-sheds','i-syringe','tb2'],['v-alerts','i-bell','tb3'],['v-you','i-user','tb4']],
+           director:[['v-dhome','i-home','tbhome'],['v-calendar','i-cal','tb1'],['v-alerts','i-bell','tb3'],['v-you','i-user','tb4']]};
+  NAV.ceo=NAV.director; NAV.parkmgr=NAV.director;
+  function renderNav(){
+    var set=NAV[role]||NAV.operator;
+    $all('.vnav').forEach(function(nav){
+      var cur=nav.closest('.view').id;
+      nav.innerHTML=set.map(function(t){var on=t[0]===cur?' on':'';return '<button class="tab'+on+'" data-go="'+t[0]+'"><svg class="ic"><use href="#'+t[1]+'"/></svg><span data-t="'+t[2]+'">'+(TXT[t[2]]?TXT[t[2]][curLang]||TXT[t[2]].en:t[2])+'</span></button>';}).join('');
+    });
+  }
+
+  /* ---------- role ---------- */
+  function canAssign(){return role==='ceo'||role==='parkmgr';}
+  function setRole(r){
+    role=r; stack=['v-login'];
+    var scr=$('.scr'); if(scr)scr.setAttribute('data-role',r);
+    $('#roleset').querySelectorAll('button').forEach(function(b){b.classList.toggle('on',b.dataset.role===r);});
+    var P=({operator:{n:'Arun Kumar',i:'AK',you:'Health Asst Mgr · CBE',yr:'Health Asst Mgr',dh:'',scope:'CBE',sub:'hmcbe'},
+            parkmgr:{n:'Sidde Gowda',i:'SG',you:'Health Manager · CBE',yr:'Health Manager',dh:'Vaccination · Health Manager',scope:'CBE',sub:'pmcbe'},
+            director:{n:'Avishek Singh',i:'AV',you:'Health Director · CBE',yr:'Health Director',dh:'Vaccination · Health Director',scope:'CBE',sub:'dircbe'},
+            ceo:{n:'Abhishek Singh',i:'AB',you:'COO · Company-wide',yr:'COO',dh:'Vaccination · COO',scope:'All parks · 2',sub:'ceocbe'}})[r]||{};
+    $('#drav').textContent=P.i; $('#drname').textContent=P.n; $('#drsub').setAttribute('data-t',P.sub);
+    $('#youav').textContent=P.i; $('#youname').textContent=P.n; $('#yousub').textContent=P.you; $('#yourole').textContent=P.yr;
+    if($('#dhrole'))$('#dhrole').textContent=P.dh;
+    if($('#dhav'))$('#dhav').textContent=P.i;
+    // CEO/COO can pick any park (company-wide default); park manager & director are locked to their park.
+    curScope = (r==='ceo') ? 'all' : 'cbe';
+    var sc=$('#dhscope'); if(sc){ if(r==='ceo'){sc.setAttribute('data-open','scope');} else {sc.removeAttribute('data-open');} }
+    applyScope(curScope);
+    show('v-login',false); closeOvl(); setLang(curLang);
+  }
+  $('#roleset').addEventListener('click',function(e){var b=e.target.closest('button');if(b)setRole(b.dataset.role);});
+  $('#resetbtn').addEventListener('click',function(){resetScan();setRole(role);});
+
+  /* ---------- theme ---------- */
+  var themeset=$('#themeset');
+  function markTheme(){var t=root.getAttribute('data-theme');var dark=t?t==='dark':matchMedia('(prefers-color-scheme:dark)').matches;themeset.querySelectorAll('button').forEach(function(b){b.classList.toggle('on',b.dataset.th===(dark?'dark':'light'));});}
+  themeset.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;root.setAttribute('data-theme',b.dataset.th);markTheme();});
+  matchMedia('(prefers-color-scheme:dark)').addEventListener('change',markTheme);
+
+  /* ---------- i18n ---------- */
+  var LN={en:'English',hi:'हिंदी',kn:'ಕನ್ನಡ',te:'తెలుగు'}, curLang='en';
+  var TXT={
+    tagline:{en:'Field operations',hi:'फ़ील्ड ऑपरेशंस',kn:'ಕ್ಷೇತ್ರ ಕಾರ್ಯಾಚರಣೆ',te:'క్షేత్ర కార్యకలాపాలు'},
+    email:{en:'Work email',hi:'कार्य ईमेल',kn:'ಕೆಲಸದ ಇಮೇಲ್',te:'పని ఇమెయిల్'},
+    otpnote:{en:'6-digit code sent to your Mesha email',hi:'6-अंकीय कोड आपके Mesha ईमेल पर भेजा गया',kn:'ನಿಮ್ಮ Mesha ಇಮೇಲ್‌ಗೆ 6-ಅಂಕಿಯ ಕೋಡ್ ಕಳುಹಿಸಲಾಗಿದೆ',te:'మీ Mesha ఇమెయిల్‌కు 6-అంకెల కోడ్ పంపబడింది'},
+    otp:{en:'One-time code',hi:'वन-टाइम कोड',kn:'ಒಂದು-ಬಾರಿ ಕೋಡ್',te:'వన్-టైమ్ కోడ్'},
+    signin:{en:'Sign in',hi:'साइन इन',kn:'ಸೈನ್ ಇನ್',te:'సైన్ ఇన్'},
+    applang:{en:'App language',hi:'ऐप भाषा',kn:'ಆ್ಯಪ್ ಭಾಷೆ',te:'యాప్ భాష'},
+    change:{en:'Change',hi:'बदलें',kn:'ಬದಲಿಸಿ',te:'మార్చు'},
+    rbac:{en:'Your role comes from the HR directory — you land on the screen for your job. Managers execute; directors track.',hi:'आपकी भूमिका HR डायरेक्टरी से आती है — आपको अपने काम की स्क्रीन मिलती है।',kn:'ನಿಮ್ಮ ಪಾತ್ರ HR ಡೈರೆಕ್ಟರಿಯಿಂದ — ನಿಮ್ಮ ಕೆಲಸದ ಪರದೆ ಸಿಗುತ್ತದೆ.',te:'మీ పాత్ర HR డైరెక్టరీ నుండి — మీ పని స్క్రీన్ కనిపిస్తుంది.'},
+    cal:{en:'Calendar',hi:'कैलेंडर',kn:'ಕ್ಯಾಲೆಂಡರ್',te:'క్యాలెండర్'},
+    today:{en:'Today · Tue 7 Jul',hi:'आज · मंगल 7 जुल',kn:'ಇಂದು · ಮಂಗಳ 7 ಜುಲೈ',te:'ఈరోజు · మంగళ 7 జూలై'},
+    opendrive:{en:'Open drive',hi:'ड्राइव खोलें',kn:'ಡ್ರೈವ್ ತೆರೆಯಿರಿ',te:'డ్రైవ్ తెరవండి'},
+    cweek:{en:'Week',hi:'सप्ताह',kn:'ವಾರ',te:'వారం'},cmonth:{en:'Month',hi:'माह',kn:'ತಿಂಗಳು',te:'నెల'},chist:{en:'History',hi:'इतिहास',kn:'ಇತಿಹಾಸ',te:'చరిత్ర'},
+    nodrives:{en:'No drives scheduled',hi:'कोई ड्राइव निर्धारित नहीं',kn:'ಯಾವುದೇ ಡ್ರೈವ್ ಇಲ್ಲ',te:'డ్రైవ్‌లు షెడ్యూల్ లేవు'},
+    pickdate:{en:'Pick a new date',hi:'नई तारीख चुनें',kn:'ಹೊಸ ದಿನಾಂಕ ಆಯ್ಕೆಮಾಡಿ',te:'కొత్త తేదీ ఎంచుకోండి'},pickdatesub:{en:'Within the 1-week buffer from the due date',hi:'देय तिथि से 1-सप्ताह बफ़र के भीतर',kn:'ಬಾಕಿ ದಿನಾಂಕದಿಂದ 1-ವಾರದ ಬಫರ್‌ನಲ್ಲಿ',te:'గడువు తేదీ నుండి 1-వారం బఫర్‌లో'},
+    assignteam:{en:'Assign team',hi:'टीम असाइन करें',kn:'ತಂಡ ನಿಯೋಜಿಸಿ',te:'బృందాన్ని కేటాయించండి'},assignsub:{en:'Primary + backup — from the HR directory',hi:'प्राथमिक + बैकअप — HR डायरेक्टरी से',kn:'ಪ್ರಾಥಮಿಕ + ಬ್ಯಾಕಪ್ — HR ಡೈರೆಕ್ಟರಿಯಿಂದ',te:'ప్రైమరీ + బ్యాకప్ — HR డైరెక్టరీ నుండి'},primary:{en:'Primary',hi:'प्राथमिक',kn:'ಪ್ರಾಥಮಿಕ',te:'ప్రైమరీ'},backupw:{en:'Backup',hi:'बैकअप',kn:'ಬ್ಯಾಕಪ್',te:'బ్యాకప్'},donew:{en:'Done',hi:'हो गया',kn:'ಮುಗಿದಿದೆ',te:'పూర్తయింది'},
+    soon2:{en:'Coming soon',hi:'जल्द',kn:'ಶೀಘ್ರ',te:'త్వరలో'},
+    sheds:{en:'Sheds today · tap to enter',hi:'आज के शेड · दर्ज करें',kn:'ಇಂದಿನ ಶೆಡ್ · ಟ್ಯಾಪ್',te:'ఈరోజు షెడ్‌లు · ట్యాప్'},
+    due2:{en:'due',hi:'देय',kn:'ಬಾಕಿ',te:'బాకీ'},
+    driveprog:{en:'Drive progress',hi:'ड्राइव प्रगति',kn:'ಡ್ರೈವ್ ಪ್ರಗತಿ',te:'డ్రైవ్ పురోగతి'},
+    acrosssheds:{en:'across 3 sheds',hi:'3 शेड में',kn:'3 ಶೆಡ್‌ಗಳಲ್ಲಿ',te:'3 షెడ్‌లలో'},
+    rosterchg:{en:'Roster changes · since this drive was scheduled',hi:'रोस्टर बदलाव · ड्राइव निर्धारण के बाद',kn:'ರೋಸ್ಟರ್ ಬದಲಾವಣೆ · ಡ್ರೈವ್ ನಿಗದಿ ನಂತರ',te:'రోస్టర్ మార్పులు · డ్రైవ్ షెడ్యూల్ అయ్యాక'},
+    cgquar:{en:'Quarantine',hi:'क्वारंटीन',kn:'ಕ್ವಾರಂಟೈನ್',te:'క్వారంటైన్'},
+    cgquard:{en:'3 does moved to Q2 (ICU) — skipped today, re-checked on release',hi:'3 बकरियां Q2 (ICU) में — आज छोड़ी, रिलीज़ पर पुनः जांच',kn:'3 ಮೇಕೆ Q2 (ICU)ಗೆ — ಇಂದು ಬಿಟ್ಟದ್ದು, ಬಿಡುಗಡೆಯಲ್ಲಿ ಮರುಪರಿಶೀಲನೆ',te:'3 మేకలు Q2 (ICU)కి — ఈరోజు దాటవేసి, విడుదలలో మళ్లీ తనిఖీ'},
+    cgdeath:{en:'Death',hi:'मृत्यु',kn:'ಸಾವು',te:'మరణం'},
+    cgdeathd:{en:'2 died — all future doses auto-cancelled',hi:'2 मरे — सभी भविष्य की खुराक रद्द',kn:'2 ಸತ್ತವು — ಎಲ್ಲಾ ಭವಿಷ್ಯದ ಡೋಸ್ ರದ್ದು',te:'2 చనిపోయాయి — భవిష్యత్ డోస్‌లు రద్దు'},
+    cgshift:{en:'Shifted',hi:'स्थानांतरित',kn:'ಸ್ಥಳಾಂತರ',te:'తరలించారు'},
+    cgshiftd:{en:'1 moved to Yashoda 5 — now counted in that shed\'s drive',hi:'1 यशोदा 5 में — अब उस शेड की ड्राइव में गिना',kn:'1 ಯಶೋದಾ 5ಗೆ — ಈಗ ಆ ಶೆಡ್‌ನ ಡ್ರೈವ್‌ನಲ್ಲಿ',te:'1 యశోద 5కి — ఇప్పుడు ఆ షెడ్ డ్రైవ్‌లో'},
+    cgbirth:{en:'Birth',hi:'जन्म',kn:'ಜನನ',te:'పుట్టుక'},
+    cgbirthd:{en:'2 born in K0 — auto-scheduled from birth date after warm-up',hi:'K0 में 2 जन्मे — वार्म-अप बाद जन्म तिथि से निर्धारित',kn:'K0ನಲ್ಲಿ 2 ಜನಿಸಿದವು — ವಾರ್ಮ್-ಅಪ್ ನಂತರ ಜನ್ಮ ದಿನಾಂಕದಿಂದ',te:'K0లో 2 పుట్టాయి — వార్మ్-అప్ తర్వాత పుట్టిన తేదీ నుండి'},
+    rosterinfo:{en:'Eligible counts update live: the obligation engine reads birth / death / shifting / quarantine events and reschedules or cancels doses automatically — no manual edit.',hi:'योग्य गिनती लाइव अपडेट: ऑब्लिगेशन इंजन जन्म/मृत्यु/स्थानांतरण/क्वारंटीन घटनाएं पढ़कर स्वतः पुनर्निर्धारित/रद्द करता है।',kn:'ಅರ್ಹ ಎಣಿಕೆ ಲೈವ್: ಆಬ್ಲಿಗೇಶನ್ ಎಂಜಿನ್ ಜನನ/ಸಾವು/ಸ್ಥಳಾಂತರ/ಕ್ವಾರಂಟೈನ್ ಓದಿ ಸ್ವಯಂ ಮರುನಿಗದಿ/ರದ್ದು ಮಾಡುತ್ತದೆ.',te:'అర్హ లెక్క లైవ్: ఆబ్లిగేషన్ ఇంజిన్ పుట్టుక/మరణం/తరలింపు/క్వారంటైన్ చదివి ఆటో రీషెడ్యూల్/రద్దు చేస్తుంది.'},
+    elig:{en:'eligible',hi:'योग्य',kn:'ಅರ್ಹ',te:'అర్హులు'},
+    donel:{en:'done',hi:'हुआ',kn:'ಮುಗಿದ',te:'పూర్తి'},
+    start:{en:'Start · scan animals',hi:'शुरू · पशु स्कैन',kn:'ಪ್ರಾರಂಭಿಸಿ · ಸ್ಕ್ಯಾನ್',te:'ప్రారంభించు · స్కాన్'},
+    resume:{en:'Resume · 27 pending',hi:'जारी · 27 शेष',kn:'ಮುಂದುವರಿಸಿ · 27',te:'కొనసాగించు · 27'},
+    mixedsub:{en:'Breeding · vaccine differs per animal',hi:'ब्रीडिंग · टीका प्रति पशु अलग',kn:'ಬ್ರೀಡಿಂಗ್ · ಪ್ರತಿ ಪ್ರಾಣಿಗೆ ಲಸಿಕೆ ಬೇರೆ',te:'బ్రీడింగ్ · జంతువుకో వ్యాక్సిన్ వేరు'},
+    needsresched:{en:'Needs rescheduling',hi:'पुनर्निर्धारण आवश्यक',kn:'ಮರುನಿಗದಿ ಅಗತ್ಯ',te:'రీషెడ్యూల్ అవసరం'},
+    legmissed:{en:'Missed · past buffer',hi:'छूटा · बफ़र के बाद',kn:'ತಪ್ಪಿದೆ · ಬಫರ್ ನಂತರ',te:'తప్పింది · బఫర్ దాటి'},
+    leginbuf:{en:'In buffer · recoverable',hi:'बफ़र में · वसूली योग्य',kn:'ಬಫರ್‌ನಲ್ಲಿ · ಚೇತರಿಸಬಹುದು',te:'బఫర్‌లో · తిరిగి పొందవచ్చు'},
+    pmissed:{en:'Missed',hi:'छूटा',kn:'ತಪ್ಪಿದೆ',te:'తప్పింది'},
+    pinbuf:{en:'In buffer',hi:'बफ़र में',kn:'ಬಫರ್‌ನಲ್ಲಿ',te:'బఫర్‌లో'},
+    whyoverdue:{en:'What the colours mean',hi:'रंगों का मतलब',kn:'ಬಣ್ಣಗಳ ಅರ್ಥ',te:'రంగుల అర్థం'},
+    overdueinfo:{en:'<b style="color:var(--danger)">Red · Missed</b> — past the 1-week buffer; a dose was missed and leadership was already alerted a week ahead. <b style="color:var(--warn)">Amber · In buffer</b> — overdue but still inside the buffer; reschedule recovers it with no dose missed.',hi:'<b style="color:var(--danger)">लाल · छूटा</b> — 1-सप्ताह बफ़र के बाद; खुराक छूटी और नेतृत्व को एक सप्ताह पहले सूचित किया गया। <b style="color:var(--warn)">एम्बर · बफ़र में</b> — अतिदेय पर बफ़र के भीतर; रीशेड्यूल इसे बिना खुराक छूटे वसूल लेता है।',kn:'<b style="color:var(--danger)">ಕೆಂಪು · ತಪ್ಪಿದೆ</b> — 1-ವಾರದ ಬಫರ್ ನಂತರ; ಡೋಸ್ ತಪ್ಪಿದೆ, ನಾಯಕತ್ವಕ್ಕೆ ವಾರ ಮೊದಲು ಎಚ್ಚರಿಸಲಾಗಿದೆ. <b style="color:var(--warn)">ಅಂಬರ್ · ಬಫರ್‌ನಲ್ಲಿ</b> — ಮೀರಿದೆ ಆದರೆ ಬಫರ್‌ನೊಳಗೆ; ರೀಷೆಡ್ಯೂಲ್ ಡೋಸ್ ತಪ್ಪದೆ ಚೇತರಿಸುತ್ತದೆ.',te:'<b style="color:var(--danger)">ఎరుపు · తప్పింది</b> — 1-వారం బఫర్ దాటి; డోస్ తప్పింది, నాయకత్వానికి వారం ముందు తెలియజేయబడింది. <b style="color:var(--warn)">అంబర్ · బఫర్‌లో</b> — గడువు దాటినా బఫర్‌లో ఉంది; రీషెడ్యూల్ డోస్ తప్పకుండా తిరిగి పొందుతుంది.'},
+    samevac:{en:'FMD + HS · same vaccine',hi:'FMD + HS · एक ही टीका',kn:'FMD + HS · ಒಂದೇ ಲಸಿಕೆ',te:'FMD + HS · ఒకే వ్యాక్సిన్'},
+    vaccinated:{en:'vaccinated',hi:'टीकाकृत',kn:'ಲಸಿಕೆ',te:'టీకా'},
+    tapprompt:{en:'Tap reader to animal — or tap the ring',hi:'रीडर टैप करें — या रिंग टैप करें',kn:'ರೀಡರ್ ಟ್ಯಾಪ್ — ಅಥವಾ ರಿಂಗ್',te:'రీడర్ ట్యాప్ — లేదా రింగ్'},
+    done:{en:'Done',hi:'हुआ',kn:'ಮುಗಿದ',te:'పూర్తి'},pending:{en:'Pending',hi:'शेष',kn:'ಬಾಕಿ',te:'పెండింగ్'},taplist:{en:'Tap Done · Pending · Skipped to see the animals',hi:'पशु देखने के लिए हुआ/शेष/छोड़ा टैप करें',kn:'ಪ್ರಾಣಿ ನೋಡಲು ಟ್ಯಾಪ್',te:'జంతువులు చూడటానికి ట్యాప్'},viewrec:{en:'View 70 records ›',hi:'70 रिकॉर्ड देखें ›',kn:'70 ದಾಖಲೆ ನೋಡಿ ›',te:'70 రికార్డులు చూడండి ›'},scannedttl:{en:'Scanned this drive',hi:'इस ड्राइव में स्कैन',kn:'ಈ ಡ್ರೈವ್‌ನಲ್ಲಿ ಸ್ಕ್ಯಾನ್',te:'ఈ డ్రైవ్‌లో స్కాన్'},given2:{en:'Given',hi:'दिया',kn:'ನೀಡಲಾಗಿದೆ',te:'ఇచ్చిన'},skipped2:{en:'Skipped',hi:'छोड़ा',kn:'ಬಿಟ್ಟ',te:'దాటవేసిన'},
+    hapnote:{en:'✓ eligible → green + buzz · not due → red ✕ + double buzz',hi:'✓ योग्य → हरा · देय नहीं → लाल ✕',kn:'✓ ಅರ್ಹ → ಹಸಿರು · ಬಾಕಿ ಇಲ್ಲ → ಕೆಂಪು ✕',te:'✓ అర్హం → ఆకుపచ్చ · బాకీ లేదు → ఎరుపు ✕'},
+    submitwait:{en:'Vaccinate all 8 to submit',hi:'सबमिट के लिए सभी 8',kn:'ಸಲ್ಲಿಸಲು ಎಲ್ಲಾ 8',te:'సమర్పించడానికి అన్ని 8'},
+    mixed:{en:'Mixed drive · per animal',hi:'मिश्रित ड्राइव',kn:'ಮಿಶ್ರ ಡ್ರೈವ್',te:'మిశ్రమ డ్రైవ్'},
+    tagread:{en:'Tag read',hi:'टैग पढ़ा',kn:'ಟ್ಯಾಗ್ ಓದಲಾಗಿದೆ',te:'ట్యాగ్ చదవబడింది'},
+    tapnext:{en:'Tap reader to next animal',hi:'अगले पशु पर रीडर टैप करें',kn:'ಮುಂದಿನ ಪ್ರಾಣಿಗೆ ರೀಡರ್ ಟ್ಯಾಪ್',te:'తదుపరి జంతువుకు రీడర్ ట్యాప్'},
+    tagread2:{en:'Tag read — give the vaccine shown, then acknowledge',hi:'टैग पढ़ा — दिखाया टीका दें, फिर पुष्टि करें',kn:'ಟ್ಯಾಗ್ ಓದಲಾಗಿದೆ — ತೋರಿಸಿದ ಲಸಿಕೆ ನೀಡಿ, ನಂತರ ದೃಢೀಕರಿಸಿ',te:'ట్యాగ్ చదవబడింది — చూపిన వ్యాక్సిన్ ఇచ్చి, నిర్ధారించండి'},
+    givenow:{en:'Give now',hi:'अभी दें',kn:'ಈಗ ನೀಡಿ',te:'ఇప్పుడు ఇవ్వండి'},
+    ackgiven:{en:'Acknowledge given',hi:'दिया — पुष्टि करें',kn:'ನೀಡಲಾಗಿದೆ — ದೃಢೀಕರಿಸಿ',te:'ఇచ్చినట్లు నిర్ధారించు'},
+    cantgive:{en:"Can't give — flag",hi:'नहीं दे सकते — फ्लैग',kn:'ನೀಡಲಾಗದು — ಫ್ಲ್ಯಾಗ್',te:'ఇవ్వలేను — ఫ్లాగ్'},
+    review:{en:'Submit drive',hi:'ड्राइव सबमिट',kn:'ಡ್ರೈವ್ ಸಲ್ಲಿಸಿ',te:'డ్రైవ్ సమర్పించు'},
+    dashnote:{en:'Vaccine, dose & schedule are set in the web dashboard. Here you only record what happened — same as the Slack form.',hi:'टीका, खुराक व शेड्यूल वेब डैशबोर्ड में सेट। यहां बस दर्ज करते हैं — Slack फॉर्म जैसा।',kn:'ಲಸಿಕೆ, ಡೋಸ್, ವೇಳಾಪಟ್ಟಿ ವೆಬ್ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್‌ನಲ್ಲಿ. ಇಲ್ಲಿ ಏನಾಯಿತು ದಾಖಲಿಸುತ್ತೀರಿ.',te:'వ్యాక్సిన్, డోస్, షెడ్యూల్ వెబ్ డ్యాష్‌బోర్డ్‌లో. ఇక్కడ ఏం జరిగిందో నమోదు చేస్తారు.'},
+    fromdrive:{en:'From the drive',hi:'ड्राइव से',kn:'ಡ್ರೈವ್‌ನಿಂದ',te:'డ్రైవ్ నుండి'},
+    yourec:{en:'You record',hi:'आप दर्ज करते हैं',kn:'ನೀವು ದಾಖಲಿಸುತ್ತೀರಿ',te:'మీరు నమోదు చేస్తారు'},
+    fvac:{en:'Vaccine',hi:'टीका',kn:'ಲಸಿಕೆ',te:'వ్యాక్సిన్'},fbatch:{en:'Batch (FEFO)',hi:'बैच (FEFO)',kn:'ಬ್ಯಾಚ್ (FEFO)',te:'బ్యాచ్ (FEFO)'},fcold:{en:'Cold chain',hi:'कोल्ड चेन',kn:'ಕೋಲ್ಡ್ ಚೈನ್',te:'కోల్డ్ చెయిన్'},fdone:{en:'Animals vaccinated',hi:'पशु टीकाकृत',kn:'ಪ್ರಾಣಿಗಳಿಗೆ ಲಸಿಕೆ',te:'జంతువులకు టీకా'},fop:{en:'Operator · backup',hi:'ऑपरेटर · बैकअप',kn:'ಆಪರೇಟರ್ · ಬ್ಯಾಕಪ್',te:'ఆపరేటర్ · బ్యాకప్'},
+    attachvid:{en:'Attach shed video proof',hi:'शेड वीडियो प्रूफ जोड़ें',kn:'ಶೆಡ್ ವಿಡಿಯೋ ಪ್ರೂಫ್',te:'షెడ్ వీడియో ప్రూఫ్'},videohint:{en:'continuous clip · tap timestamps (V2)',hi:'निरंतर क्लिप (V2)',kn:'ನಿರಂತರ ಕ್ಲಿಪ್ (V2)',te:'నిరంతర క్లిప్ (V2)'},
+    remarks:{en:'Remarks (optional)',hi:'टिप्पणी (वैकल्पिक)',kn:'ಟಿಪ್ಪಣಿ (ಐಚ್ಛಿಕ)',te:'వ్యాఖ్యలు (ఐచ్ఛికం)'},remarksph:{en:'Anything unusual…',hi:'कुछ असामान्य…',kn:'ಏನಾದರೂ…',te:'ఏదైనా…'},
+    submitall:{en:'Submit — 1 record, 8 animals',hi:'सबमिट — 1 रिकॉर्ड, 8 पशु',kn:'ಸಲ್ಲಿಸಿ — 1 ದಾಖಲೆ, 8',te:'సమర్పించు — 1 రికార్డ్, 8'},
+    submitnote:{en:'Same as the Slack workflow · one form for the shed',hi:'Slack वर्कफ़्लो जैसा',kn:'Slack ವರ್ಕ್‌ಫ್ಲೋನಂತೆ',te:'Slack వర్క్‌ఫ్లో లాగా'},
+    alerts:{en:'Alerts',hi:'अलर्ट',kn:'ಎಚ್ಚರಿಕೆ',te:'అలర్ట్‌లు'},
+    n1t:{en:'Vaccination drive in 2 days',hi:'2 दिन में टीकाकरण ड्राइव',kn:'2 ದಿನಗಳಲ್ಲಿ ಲಸಿಕೆ ಡ್ರೈವ್',te:'2 రోజుల్లో టీకా డ్రైవ్'},
+    n1b:{en:'FMD + HS · Thu 9 Jul · Sheds Gandhi 1, Castro 1, Mandela 1 · 118 animals. Confirm stock & staffing.',hi:'FMD + HS · गुरु 9 जुल · 118 पशु।',kn:'FMD + HS · ಗುರು 9 ಜುಲೈ · 118 ಪ್ರಾಣಿ.',te:'FMD + HS · గురు 9 జూలై · 118 జంతువులు.'},
+    n2t:{en:"Submit today's drive",hi:'आज की ड्राइव सबमिट करें',kn:'ಇಂದಿನ ಡ್ರೈವ್ ಸಲ್ಲಿಸಿ',te:'ఈరోజు డ్రైవ్ సమర్పించు'},
+    n2b:{en:'Shed Gandhi 1 · 50/50 done but not submitted. Reminder call in 30 min if not sent.',hi:'शेड Gandhi 1 · 50/50 पर सबमिट नहीं।',kn:'ಶೆಡ್ Gandhi 1 · 50/50 ಸಲ್ಲಿಸಿಲ್ಲ.',te:'షెడ్ Gandhi 1 · 50/50 సమర్పించలేదు.'},
+    you:{en:'You',hi:'आप',kn:'ನೀವು',te:'మీరు'},settings:{en:'Settings',hi:'सेटिंग्स',kn:'ಸೆಟ್ಟಿಂಗ್‌ಗಳು',te:'సెట్టింగ్‌లు'},
+    langword:{en:'Language',hi:'भाषा',kn:'ಭಾಷೆ',te:'భాష'},device:{en:'RFID reader',hi:'RFID रीडर',kn:'RFID ರೀಡರ್',te:'RFID రీడర్'},notifs:{en:'Notifications',hi:'सूचनाएं',kn:'ಅಧಿಸೂಚನೆ',te:'నోటిఫికేషన్‌లు'},signout:{en:'Sign out',hi:'साइन आउट',kn:'ಸೈನ್ ಔಟ್',te:'సైన్ అవుట్'},
+    paired:{en:'Paired · battery 84%',hi:'युग्मित · बैटरी 84%',kn:'ಜೋಡಿಸಲಾಗಿದೆ · 84%',te:'జతచేయబడింది · 84%'},
+    hidnote:{en:'The reader acts as a Bluetooth keyboard. When a tag is scanned it types the ID into the active field and hits enter — the app captures the event, so operators never type a tag by hand.',hi:'रीडर Bluetooth कीबोर्ड की तरह — टैग स्कैन होने पर ID टाइप कर एंटर दबाता है।',kn:'ರೀಡರ್ Bluetooth ಕೀಬೋರ್ಡ್‌ನಂತೆ — ಟ್ಯಾಗ್ ಸ್ಕ್ಯಾನ್ ಆದಾಗ ID ಟೈಪ್ ಮಾಡುತ್ತದೆ.',te:'రీడర్ Bluetooth కీబోర్డ్‌లా — ట్యాగ్ స్కాన్ అయితే ID టైప్ చేస్తుంది.'},
+    testtag:{en:'Test read',hi:'टेस्ट रीड',kn:'ಪರೀಕ್ಷಾ ಓದು',te:'టెస్ట్ రీడ్'},rescan:{en:'Re-scan for readers',hi:'रीडर पुनः स्कैन',kn:'ಮರು-ಸ್ಕ್ಯಾನ್',te:'మళ్లీ స్కాన్'},
+    overview:{en:'Overview',hi:'अवलोकन',kn:'ಅವಲೋಕನ',te:'అవలోకనం'},coverage:{en:'Dose coverage · all vaccines',hi:'खुराक कवरेज · सभी टीके',kn:'ಡೋಸ್ ಕವರೇಜ್ · ಎಲ್ಲಾ ಲಸಿಕೆ',te:'డోస్ కవరేజ్ · అన్ని వ్యాక్సిన్‌లు'},
+    choosepark:{en:'View a park',hi:'पार्क देखें',kn:'ಪಾರ್ಕ್ ವೀಕ್ಷಿಸಿ',te:'పార్క్ చూడండి'},parksub:{en:'Company-wide, or drill into one park',hi:'कंपनी-व्यापी, या एक पार्क में जाएं',kn:'ಕಂಪನಿ-ವ್ಯಾಪಿ, ಅಥವಾ ಒಂದು ಪಾರ್ಕ್',te:'కంపెనీ-వ్యాప్తం, లేదా ఒక పార్క్'},allparks:{en:'All parks',hi:'सभी पार्क',kn:'ಎಲ್ಲಾ ಪಾರ್ಕ್',te:'అన్ని పార్క్‌లు'},allparksub:{en:'1,312 animals · company-wide',hi:'1,312 पशु · कंपनी-व्यापी',kn:'1,312 ಪ್ರಾಣಿ · ಕಂಪನಿ-ವ್ಯಾಪಿ',te:'1,312 జంతువులు · కంపెనీ-వ్యాప్తం'},parkmore:{en:'Scope also filters the drives and backlog below',hi:'यह नीचे की ड्राइव और बैकलॉग भी फ़िल्टर करता है',kn:'ಇದು ಕೆಳಗಿನ ಡ್ರೈವ್ ಮತ್ತು ಬ್ಯಾಕ್‌ಲಾಗ್ ಫಿಲ್ಟರ್ ಮಾಡುತ್ತದೆ',te:'ఇది క్రింది డ్రైవ్‌లు, బ్యాక్‌లాగ్‌ను కూడా ఫిల్టర్ చేస్తుంది'},
+    gapsh:{en:'Data gaps',hi:'डेटा गैप',kn:'ಡೇಟಾ ಗ್ಯಾಪ್',te:'డేటా గ్యాప్‌లు'},gapssub:{en:"Animals the schedule can't evaluate until fixed",hi:'ठीक होने तक शेड्यूल इन्हें नहीं आँक सकता',kn:'ಸರಿಪಡಿಸುವವರೆಗೆ ವೇಳಾಪಟ್ಟಿ ಇವನ್ನು ಪರಿಗಣಿಸಲಾಗದು',te:'సరిచేసే వరకు షెడ్యూల్ వీటిని అంచనా వేయలేదు'},gapsinfo:{en:'These animals are excluded from the coverage % until the missing data is filled. Everything else is fully tracked.',hi:'लापता डेटा भरने तक ये कवरेज % से बाहर हैं। बाकी सब पूरी तरह ट्रैक है।',kn:'ಕಾಣೆಯಾದ ಡೇಟಾ ತುಂಬುವವರೆಗೆ ಇವು ಕವರೇಜ್ %ನಿಂದ ಹೊರಗಿವೆ. ಉಳಿದವು ಸಂಪೂರ್ಣ ಟ್ರ್ಯಾಕ್.',te:'తప్పిపోయిన డేటా నింపే వరకు ఇవి కవరేజ్ % నుండి మినహాయించబడ్డాయి. మిగతావి పూర్తిగా ట్రాక్.'},gapsmore:{en:'Fix on the web dashboard · Data Ops → Herd Register',hi:'वेब डैशबोर्ड पर ठीक करें · Data Ops → Herd Register',kn:'ವೆಬ್ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್‌ನಲ್ಲಿ ಸರಿಪಡಿಸಿ · Data Ops → Herd Register',te:'వెబ్ డాష్‌బోర్డ్‌లో సరిచేయండి · Data Ops → Herd Register'},drecsub:{en:'Completed drive · read-only',hi:'पूर्ण ड्राइव · केवल-पढ़ें',kn:'ಪೂರ್ಣ ಡ್ರೈವ್ · ಓದಲು-ಮಾತ್ರ',te:'పూర్తయిన డ్రైవ్ · చదవడానికి-మాత్రమే'},drecproof:{en:'✓ Verified · video proof on file',hi:'✓ सत्यापित · वीडियो प्रूफ़',kn:'✓ ಪರಿಶೀಲಿಸಲಾಗಿದೆ · ವೀಡಿಯೊ ಪ್ರೂಫ್',te:'✓ ధృవీకరించబడింది · వీడియో ప్రూఫ్'},
+    dosesgiven:{en:'4,650 of 9,698 scheduled doses given',hi:'9,698 में से 4,650 खुराक दी गईं',kn:'9,698 ರಲ್ಲಿ 4,650 ಡೋಸ್ ನೀಡಲಾಗಿದೆ',te:'9,698లో 4,650 డోస్‌లు ఇవ్వబడ్డాయి'},
+    statusknown2:{en:'status known',hi:'स्थिति ज्ञात',kn:'ಸ್ಥಿತಿ ತಿಳಿದಿದೆ',te:'స్థితి తెలుసు'},
+    dgiven:{en:'Doses given',hi:'खुराक दी गईं',kn:'ಡೋಸ್ ನೀಡಲಾಗಿದೆ',te:'ఇచ్చిన డోస్‌లు'},
+    dpending:{en:'Pending · tap',hi:'शेष · टैप',kn:'ಬಾಕಿ · ಟ್ಯಾಪ್',te:'పెండింగ్ · ట్యాప్'},
+    byvax:{en:'Backlog by vaccine · pending doses',hi:'टीके अनुसार बैकलॉग · शेष खुराक',kn:'ಲಸಿಕೆವಾರು ಬ್ಯಾಕ್‌ಲಾಗ್ · ಬಾಕಿ ಡೋಸ್',te:'వ్యాక్సిన్‌వారీ బ్యాక్‌లాగ్ · పెండింగ్ డోస్‌లు'},
+    biggest:{en:'largest backlog',hi:'सबसे बड़ा बैकलॉग',kn:'ಅತಿದೊಡ್ಡ ಬ್ಯಾಕ್‌ಲಾಗ್',te:'అతిపెద్ద బ్యాక్‌లాగ్'},
+    firstboost:{en:'first + booster',hi:'पहली + बूस्टर',kn:'ಮೊದಲ + ಬೂಸ್ಟರ್',te:'మొదటి + బూస్టర్'},
+    goatonly:{en:'goat-only',hi:'केवल बकरी',kn:'ಮೇಕೆ-ಮಾತ್ರ',te:'మేక-మాత్రమే'},
+    sheeponly:{en:'sheep-only',hi:'केवल भेड़',kn:'ಕುರಿ-ಮಾತ್ರ',te:'గొర్రె-మాత్రమే'},statusall:{en:'status known for every animal',hi:'हर पशु की स्थिति ज्ञात',kn:'ಪ್ರತಿ ಪ್ರಾಣಿಯ ಸ್ಥಿತಿ ತಿಳಿದಿದೆ',te:'ప్రతి జంతువు స్థితి తెలుసు'},animals:{en:'animals',hi:'पशु',kn:'ಪ್ರಾಣಿ',te:'జంతువులు'},uptodate:{en:'Up to date',hi:'अद्यतन',kn:'ನವೀಕೃತ',te:'తాజా'},overdue:{en:'Overdue',hi:'अतिदेय',kn:'ಮೀರಿದ',te:'గడువు మీరిన'},
+    todaylive:{en:"Today's drives · live",hi:'आज की ड्राइव · लाइव',kn:'ಇಂದಿನ ಡ್ರೈವ್ · ಲೈವ್',te:'ఈరోజు డ్రైవ్‌లు · లైవ్'},needsdec:{en:'Needs a decision',hi:'निर्णय चाहिए',kn:'ನಿರ್ಧಾರ ಬೇಕು',te:'నిర్ణయం కావాలి'},resched:{en:'Reschedule',hi:'पुनर्निर्धारित',kn:'ಮರುನಿಗದಿ',te:'రీషెడ్యూల్'},
+    bufmsg:{en:"Can postpone within a <b>1-week buffer</b>. Beyond that it's a missed dose — leadership is alerted a week ahead.",hi:'<b>1-सप्ताह बफ़र</b> में स्थगित कर सकते हैं। उसके बाद खुराक छूटती है।',kn:'<b>1-ವಾರದ ಬಫರ್</b>ನಲ್ಲಿ ಮುಂದೂಡಬಹುದು.',te:'<b>1-వారం బఫర్</b>లో వాయిదా వేయవచ్చు.'},
+    action:{en:'Action',hi:'कार्रवाई',kn:'ಕ್ರಿಯೆ',te:'చర్య'},markdone:{en:'Mark scheduled',hi:'निर्धारित करें',kn:'ನಿಗದಿ ಗುರುತಿಸಿ',te:'షెడ్యూల్ గుర్తించు'},newdate:{en:'New date',hi:'नई तारीख',kn:'ಹೊಸ ದಿನಾಂಕ',te:'కొత్త తేదీ'},inbuf:{en:'In buffer',hi:'बफ़र में',kn:'ಬಫರ್‌ನಲ್ಲಿ',te:'బఫర్‌లో'},assign:{en:'Assign to',hi:'को सौंपें',kn:'ನಿಯೋಜಿಸಿ',te:'కేటాయించు'},backup2:{en:'+ backup Indradev',hi:'+ बैकअप इंद्रदेव',kn:'+ ಬ್ಯಾಕಪ್ ಇಂದ್ರದೇವ್',te:'+ బ్యాకప్ ఇంద్రదేవ్'},confirm:{en:'Confirm — notify team',hi:'पुष्टि करें — सूचित करें',kn:'ದೃಢೀಕರಿಸಿ — ತಿಳಿಸಿ',te:'నిర్ధారించు — తెలియజేయి'},chans2:{en:'Team gets a phone call, push, Slack alert and email — 2 days before, and again the morning of.',hi:'टीम को कॉल, पुश, Slack, ईमेल — 2 दिन पहले, और उस सुबह।',kn:'ತಂಡಕ್ಕೆ ಕರೆ, ಪುಶ್, Slack, ಇಮೇಲ್ — 2 ದಿನ ಮೊದಲು.',te:'బృందానికి కాల్, పుష్, Slack, ఇమెయిల్ — 2 రోజుల ముందు.'},
+    hmcbe:{en:'Health Asst Mgr · CBE',hi:'हेल्थ असि. मैनेजर · CBE',kn:'ಹೆಲ್ತ್ ಸಹಾಯಕ ಮ್ಯಾನೇಜರ್ · CBE',te:'హెల్త్ అసి. మేనేజర్ · CBE'},dircbe:{en:'Health Director · CBE',hi:'हेल्थ डायरेक्टर · CBE',kn:'ಹೆಲ್ತ್ ಡೈರೆಕ್ಟರ್ · CBE',te:'హెల్త్ డైరెక్టర్ · CBE'},ceocbe:{en:'COO · Company-wide',hi:'COO · कंपनी-व्यापी',kn:'COO · ಕಂಪನಿ-ವ್ಯಾಪಿ',te:'COO · కంపెనీ-వ్యాప్తం'},pmcbe:{en:'Health Manager · CBE',hi:'हेल्थ मैनेजर · CBE',kn:'ಹೆಲ್ತ್ ಮ್ಯಾನೇಜರ್ · CBE',te:'హెల్త్ మేనేజర్ · CBE'},assignteam2:{en:'Assign team',hi:'टीम असाइन करें',kn:'ತಂಡ ನಿಯೋಜಿಸಿ',te:'బృందాన్ని కేటాయించండి'},bypark:{en:'Coverage by park',hi:'पार्क अनुसार कवरेज',kn:'ಪಾರ್ಕ್‌ವಾರು ಕವರೇಜ್',te:'పార్క్‌వారీ కవరేజ్'},revsched:{en:'Revaccination schedule',hi:'पुनःटीकाकरण अनुसूची',kn:'ಮರುಲಸಿಕೆ ವೇಳಾಪಟ್ಟಿ',te:'రీవ్యాక్సినేషన్ షెడ్యూల్'},tapday:{en:'Tap a day for its drives · dots = drive days',hi:'ड्राइव देखने के लिए दिन टैप करें · डॉट = ड्राइव दिन',kn:'ಡ್ರೈವ್‌ಗಾಗಿ ದಿನ ಟ್ಯಾಪ್ · ಡಾಟ್ = ಡ್ರೈವ್ ದಿನ',te:'డ్రైవ్‌ల కోసం రోజు ట్యాప్ · చుక్కలు = డ్రైవ్ రోజులు'},readonly:{en:'Read-only · the ground team runs the drive',hi:'केवल-पढ़ें · ड्राइव ग्राउंड टीम चलाती है',kn:'ಓದಲು-ಮಾತ್ರ · ಡ್ರೈವ್ ಅನ್ನು ನೆಲದ ತಂಡ ನಡೆಸುತ್ತದೆ',te:'చదవడానికి-మాత్రమే · డ్రైవ్‌ను గ్రౌండ్ టీమ్ నడుపుతుంది'},
+    modules:{en:'Modules',hi:'मॉड्यूल',kn:'ಮಾಡ್ಯೂಲ್',te:'మాడ్యూల్స్'},soonb:{en:'Soon',hi:'जल्द',kn:'ಶೀಘ್ರ',te:'త్వరలో'},
+    chooselang:{en:'Choose language',hi:'भाषा चुनें',kn:'ಭಾಷೆ ಆಯ್ಕೆಮಾಡಿ',te:'భాష ఎంచుకోండి'},langsub:{en:'Kept for every screen on this phone',hi:'हर स्क्रीन के लिए',kn:'ಪ್ರತಿ ಪರದೆಗೆ',te:'ప్రతి స్క్రీన్‌కు'},morelang:{en:'More languages added as teams grow',hi:'टीम बढ़ने पर और भाषाएं',kn:'ಹೆಚ್ಚು ಭಾಷೆಗಳು',te:'మరిన్ని భాషలు'},
+    tb1:{en:'Calendar',hi:'कैलेंडर',kn:'ಕ್ಯಾಲೆಂಡರ್',te:'క్యాలెండర్'},tb2:{en:'Drives',hi:'ड्राइव',kn:'ಡ್ರೈವ್',te:'డ్రైవ్‌లు'},tb3:{en:'Alerts',hi:'अलर्ट',kn:'ಎಚ್ಚರಿಕೆ',te:'అలర్ట్‌లు'},tb4:{en:'You',hi:'आप',kn:'ನೀವು',te:'మీరు'},tbhome:{en:'Home',hi:'होम',kn:'ಮುಖ್ಯ',te:'హోమ్'}
+  };
+  function setLang(l){
+    curLang=l;
+    $all('[data-t]').forEach(function(el){var k=el.getAttribute('data-t');if(TXT[k]&&TXT[k][l])el.innerHTML=TXT[k][l];});
+    $all('[data-langname]').forEach(function(el){el.textContent=LN[l];});
+    $all('.lopt').forEach(function(o){o.classList.toggle('on',o.dataset.lang===l);});
+    $('#langset').querySelectorAll('button').forEach(function(b){b.classList.toggle('on',b.dataset.lang===l);});
+    if(typeof applyScope==='function')applyScope(curScope); // re-render scope-dependent text in the new language
+  }
+  $('#langset').addEventListener('click',function(e){var b=e.target.closest('button');if(b)setLang(b.dataset.lang);});
+  $all('.lopt').forEach(function(o){o.addEventListener('click',function(){setLang(o.dataset.lang);closeOvl();});});
+  // park picker (CEO/COO) — pick company-wide or a single park; re-scopes the whole overview
+  $all('#scopeList .popt').forEach(function(o){o.addEventListener('click',function(){applyScope(o.getAttribute('data-scope'));closeOvl();});});
+
+  /* ---------- scan sim (rule-based, random) ---------- */
+  // Not-due reasons come from the vaccination rules: quarantine/ICU, not in today's eligible set,
+  // under treatment, already given, pregnant hold, and the 1-week arrival warm-up window.
+  var SKIPR=['quarantine (ICU)',"not in today's set",'sick · under treatment','pregnant · hold'];
+  var done=0,skip=0,T=8,C=314.16,tapN=0,givenArr=[],skipArr=[];
+  // Fixed eligible roster for the shed (obligation engine decides this). Pending = roster minus done.
+  var ELIG=[
+    {id:'982 000 6115 7911',tag2:'982 000 3042 8890'},{id:'982 000 6071 3375',tag2:null},
+    {id:'982 000 6288 1204',tag2:'982 000 3390 5561'},{id:'982 000 6512 7788',tag2:null},
+    {id:'982 000 6733 2041',tag2:'982 000 3781 6620'},{id:'982 000 6890 4417',tag2:null},
+    {id:'982 000 7011 9982',tag2:'982 000 3902 1148'},{id:'982 000 7245 3360',tag2:null}
+  ];
+  // In-shed animals that are NOT eligible today land on these taps — guaranteed not-due so the
+  // red state always shows in the demo (real: eligibility comes from the obligation engine).
+  var SKIPAT={3:1,6:1,9:1};
+  var wrap=$('#ringwrap'),ring=$('#ring'),cnt=$('#cnt'),lb=$('#ringlb'),qd=$('#qdone'),qp=$('#qpend'),qs=$('#qskip'),list=$('#slist'),sb=$('#submitbtn');
+  function buzz(p){if(navigator.vibrate){try{navigator.vibrate(p);}catch(e){}}}
+  function rid(){function p(n){var s='';for(var k=0;k<n;k++)s+=Math.floor(Math.random()*10);return s;}return '982 000 '+p(4)+' '+p(4);}
+  function secondTag(n){return (n%2===0)?rid():null;} // ~half the animals carry a 2nd RFID tag (both RFID, redundancy)
+  function resetScan(){done=0;skip=0;tapN=0;givenArr=[];skipArr=[];cnt.textContent='0';qd.textContent='0';qp.textContent=T;qs.textContent='0';list.innerHTML='';ring.style.strokeDashoffset=C;wrap.classList.remove('hitno');lb.textContent=(TXT.vaccinated&&TXT.vaccinated[curLang])||'vaccinated';sb.classList.add('block');sb.setAttribute('data-locked','1');sb.textContent=(TXT.submitwait[curLang]||TXT.submitwait.en);}
+  function tap(){
+    tapN++;
+    var isSkip=!!SKIPAT[tapN] && done<T;            // deterministic not-due taps (in-shed, not eligible)
+    if(isSkip){
+      var sid=rid(), st2=secondTag(tapN), r=SKIPR[skip%SKIPR.length]; skip++;
+      wrap.classList.add('hitno'); lb.textContent='not due'; buzz([30,60,30]);
+      skipArr.unshift({id:sid,tag2:st2,note:r});
+      pre('no',sid,'skip · '+r,st2);
+    } else if(done<T){
+      var rec=ELIG[done]; done++;                   // scan the next eligible animal off the roster
+      wrap.classList.remove('hitno'); cnt.textContent=done;
+      lb.textContent=(TXT.vaccinated&&TXT.vaccinated[curLang])||'vaccinated'; buzz(35);
+      givenArr.unshift({id:rec.id,tag2:rec.tag2,note:'FMD + HS · 1 ml'});
+      pre('ok',rec.id,'FMD + HS · 1 ml',rec.tag2);
+    } else {
+      wrap.classList.remove('hitno'); lb.textContent=(TXT.vaccinated&&TXT.vaccinated[curLang])||'vaccinated'; buzz(35);
+    }
+    qd.textContent=done;qp.textContent=Math.max(0,T-done);qs.textContent=skip;
+    ring.style.strokeDashoffset=C*(1-Math.min(1,done/T));
+    if(done>=T){sb.classList.remove('block');sb.removeAttribute('data-locked');sb.textContent=(TXT.submitall[curLang]||TXT.submitall.en);}
+    else sb.textContent='Vaccinate all '+T+' ('+done+'/'+T+')';
+    var slov=D.getElementById('ovl-scanlist'); if(slov&&slov.classList.contains('open'))renderScanList();
+  }
+  function tagHtml(t2){return t2?'<span class="old">2 tags</span>':'<span class="one">1 tag</span>';}
+  function pre(k,id,vx,t2){var li=D.createElement('li');li.innerHTML='<span class="tk '+k+'"><svg class="ic"><use href="#i-'+(k==='ok'?'check':'x')+'"/></svg></span><span class="id">'+id+' '+tagHtml(t2)+'</span><span class="vx">'+vx+'</span>';list.insertBefore(li,list.firstChild);while(list.children.length>14)list.removeChild(list.lastChild);}
+  // Given / Skipped list sheet — quick review of exactly which tags you've scanned
+  var slMode='given';
+  function renderScanList(){
+    var arr=slMode==='given'?givenArr:(slMode==='pending'?ELIG.slice(done):skipArr); var q=(D.getElementById('slInput')&&D.getElementById('slInput').value||'').toLowerCase();
+    var rows=arr.filter(function(x){return !q||x.id.toLowerCase().indexOf(q)>=0||(x.tag2&&x.tag2.toLowerCase().indexOf(q)>=0);});
+    var box=D.getElementById('slList'); if(!box)return;
+    D.getElementById('slCount').textContent=rows.length;
+    box.innerHTML=rows.length?rows.map(function(x){var tk=slMode==='given'?'ok':(slMode==='pending'?'pend':'no');var ic=slMode==='given'?'check':(slMode==='pending'?'clock':'x');var note=slMode==='pending'?'due · not scanned yet':x.note;return '<div class="slrow"><span class="tk '+tk+'"><svg class="ic"><use href="#i-'+ic+'"/></svg></span><span class="id">'+x.id+' '+tagHtml(x.tag2)+(x.tag2?'<div class="id2">tag 2 · '+x.tag2+'</div>':'')+'</span><span class="vx">'+note+'</span></div>';}).join(''):'<div style="text-align:center;color:var(--faint);font-size:12.5px;padding:26px">'+(slMode==='given'?'No animals given yet':(slMode==='pending'?'All eligible done':'Nothing skipped'))+'</div>';
+  }
+  wrap.addEventListener('click',tap);
+  wrap.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();tap();}});
+  function openScanList(mode){slMode=mode;var seg=D.getElementById('slSeg');if(seg)seg.querySelectorAll('.s').forEach(function(s){s.classList.toggle('on',s.dataset.sl===mode);});var inp=D.getElementById('slInput');if(inp)inp.value='';renderScanList();openOvl('scanlist');}
+  var qcd=D.getElementById('qcDone'),qcp=D.getElementById('qcPend'),qcs=D.getElementById('qcSkip');
+  if(qcd)qcd.addEventListener('click',function(){openScanList('given');});
+  if(qcp)qcp.addEventListener('click',function(){openScanList('pending');});
+  if(qcs)qcs.addEventListener('click',function(){openScanList('skipped');});
+  $all('#slSeg .s').forEach(function(s){s.addEventListener('click',function(){slMode=s.dataset.sl;D.getElementById('slSeg').querySelectorAll('.s').forEach(function(x){x.classList.toggle('on',x===s);});renderScanList();});});
+  var slInp=D.getElementById('slInput'); if(slInp)slInp.addEventListener('input',renderScanList);
+  // Done shed -> read-only record of what was given
+  var srArr=[];
+  function openShedRec(name,n){
+    var t=$('#srTtl'); if(t)t.textContent=name+' · Done'; var c=$('#srCount'); if(c)c.textContent=n;
+    var sum=$('#srSum'); if(sum)sum.innerHTML='<div class="frow"><span class="fk">Vaccine</span><span class="fv">FMD + HS · 1 ml SC</span></div><div class="frow"><span class="fk">Covered</span><span class="fv">'+n+' / '+n+'</span></div><div class="frow"><span class="fk">Operator · backup</span><span class="fv">Arun Kumar · Indradev Kumar</span></div><div class="frow" style="border:0"><span class="fk">Window · proof</span><span class="fv">08:12–09:40 · video ✓</span></div>';
+    srArr=[]; for(var i=0;i<n;i++)srArr.push({id:rid(),tag2:(i%2===0?rid():null)});
+    var inp=$('#srInput'); if(inp)inp.value=''; renderShedRec(); openOvl('shedrec');
+  }
+  function renderShedRec(){var q=($('#srInput')&&$('#srInput').value||'').toLowerCase();var rows=srArr.filter(function(x){return !q||x.id.toLowerCase().indexOf(q)>=0||(x.tag2&&x.tag2.toLowerCase().indexOf(q)>=0);});var box=$('#srList');if(box)box.innerHTML=rows.map(function(x){return '<div class="slrow"><span class="tk ok"><svg class="ic"><use href="#i-check"/></svg></span><span class="id">'+x.id+' '+tagHtml(x.tag2)+(x.tag2?'<div class="id2">tag 2 · '+x.tag2+'</div>':'')+'</span><span class="vx">FMD + HS · 1 ml</span></div>';}).join('');}
+  $all('[data-shedrec]').forEach(function(el){el.addEventListener('click',function(){openShedRec(el.getAttribute('data-shedrec'),+el.getAttribute('data-shedn'));});});
+  var srInp=$('#srInput'); if(srInp)srInp.addEventListener('input',renderShedRec);
+  // block submit until target reached
+  sb.addEventListener('click',function(e){if(sb.getAttribute('data-locked')){e.stopImmediatePropagation();e.preventDefault();toast('Finish the shed','Vaccinate all '+T+' eligible first');}else{$('#subcount').textContent=done+' / '+T;}},true);
+
+  /* ---------- mixed ack ---------- */
+  // (Per-animal "mixed" acknowledge flow removed — a drive is one vaccine across sheds; each shed is one cohort, same-vaccine.)
+
+  /* ---------- submit / reschedule feedback ---------- */
+  var tt;
+  function toast(t,s){$('#toastt').textContent=t;$('#toasts').textContent=s;var el=$('#toast');el.classList.add('show');clearTimeout(tt);tt=setTimeout(function(){el.classList.remove('show');},2200);}
+  $('#finalsubmit').addEventListener('click',function(){toast('Drive submitted ✓','FMD + HS · '+done+' animals · draft to your head');setTimeout(function(){go('__home');},700);});
+  $('#reschedbtn').addEventListener('click',function(){toast('Rescheduled ✓','Fri 10 Jul · team notified on 4 channels');setTimeout(function(){back();},700);});
+  $('#proofbox').addEventListener('click',function(){toast('Video attached','Shed clip · 00:48');});
+
+  /* ---------- calendar: week / month / history (dots match real drives) ---------- */
+  var DR={6:[],7:[{n:'FMD + HS · Primary',pill:'ok',pl:'Due now',sub:'08:00–20:00 · 3 sheds · 118 eligible',go:1},{n:'PPR · Booster',pill:'mut',pl:'Opens 14:00',sub:'14:00–20:00 · 38 eligible'}],8:[{n:'Goat Pox',pill:'mut',pl:'Scheduled',sub:'08:00–20:00 · 2 sheds · 76 eligible'}],9:[],10:[{n:'PPR · Booster',pill:'mut',pl:'Scheduled',sub:'14:00–20:00 · 38 eligible'}],11:[],12:[]};
+  var WD={6:'Mon',7:'Tue',8:'Wed',9:'Thu',10:'Fri',11:'Sat',12:'Sun'};
+  var HIST=[
+    {d:'Jul 1',n:'ET + TT · Primary',cov:98,dose:'1 ml SC',elig:120,given:118,skip:2,park:'CBE',sheds:'Gandhi 1 · Castro 1',op:'Arun Kumar',bk:'Indradev Kumar',win:'08:05–10:20'},
+    {d:'Jun 28',n:'FMD · Booster',cov:95,dose:'1 ml SC',elig:124,given:118,skip:6,park:'CBE',sheds:'Mandela 1 · Sumathi 1',op:'Arun Kumar',bk:'Indradev Kumar',win:'07:50–10:40'},
+    {d:'Jun 20',n:'PPR · Primary',cov:92,dose:'1 ml SC',elig:132,given:121,skip:11,park:'CPT',sheds:'Sumathi 2 · Godel 1',op:'Indradev Kumar',bk:'Dinakar Reddy',win:'08:15–11:05'},
+    {d:'Jun 12',n:'Goat Pox',cov:89,dose:'1 ml SC · goat-only',elig:90,given:80,skip:10,park:'CBE',sheds:'Yashoda 5',op:'Arun Kumar',bk:'Indradev Kumar',win:'08:30–10:10'}];
+  var MONTHS=[
+    {nm:'Jul 2026',fw:3,dd:31,dr:{1:{v:'ET + TT · Primary',s:'done',h:0},7:{v:'FMD + HS · Primary',s:'due'},8:{v:'Goat Pox',s:'sched'},10:{v:'PPR',s:'sched'},15:{v:'Goat Pox',s:'sched'},22:{v:'Sheep Pox',s:'sched'},28:{v:'FMD · Booster',s:'done',h:1}}},
+    {nm:'Aug 2026',fw:6,dd:31,dr:{5:{v:'PPR · primary',s:'sched'},12:{v:'ET+TT · primary',s:'sched'},20:{v:'Goat Pox',s:'sched'}}},
+    {nm:'Sep 2026',fw:2,dd:30,dr:{8:{v:'HS',s:'sched'},18:{v:'FMD',s:'sched'}}},
+    {nm:'Oct 2026',fw:4,dd:31,dr:{3:{v:'Blue Tongue',s:'sched'},14:{v:'PPR',s:'sched'}}},
+    {nm:'Nov 2026',fw:0,dd:30,dr:{9:{v:'HS · booster',s:'sched'}}},
+    {nm:'Dec 2026',fw:2,dd:31,dr:{5:{v:'FMD',s:'sched'}}},
+    {nm:'Jan 2027',fw:5,dd:31,dr:{8:{v:'ET+TT · revacc',s:'sched'}}}
+  ];
+  var monthIdx=0, sel=7;
+  // Revaccination intervals — from Vaccination Rules doc
+  var REVACC=[
+    {v:'ET + TT',iv:'every 6 months',next:'08 Jan 2027'},
+    {v:'FMD',iv:'every 9 months',next:'28 Mar 2027'},
+    {v:'HS',iv:'every 1 year',next:'28 Jun 2027'},
+    {v:'Goat Pox',iv:'every 1 year · goat',next:'15 Jul 2027'},
+    {v:'Sheep Pox',iv:'every 1 year · sheep',next:'22 Jul 2027'},
+    {v:'Blue Tongue',iv:'every 1 year · sheep',next:'03 Oct 2027'},
+    {v:'PPR',iv:'every 3 years',next:'10 Jul 2029'}
+  ];
+  function evtCard(dr){var head='<div class="t"><span class="pill '+dr.pill+'">'+dr.pl+'</span><span style="flex:1"></span><span class="pill mut">Vaccination</span></div><div class="nm"><svg class="ic" style="color:var(--brand)"><use href="#i-syringe"/></svg>'+dr.n+'</div><div class="mt"><span>'+dr.sub+'</span></div>';
+    return dr.go?('<div class="card evt" data-go="v-sheds">'+head+'<div class="clk">'+(TXT.opendrive?TXT.opendrive[curLang]||TXT.opendrive.en:'Open drive')+' <svg class="ic" style="width:13px;height:13px"><use href="#i-chev"/></svg></div></div>'):('<div class="card evt dim">'+head+'</div>');}
+  function renderWeek(){
+    var strip=$('#weekStrip'); if(strip)strip.innerHTML=[6,7,8,9,10,11,12].map(function(d){var cls='d'+(d===sel?' today':'')+((DR[d]&&DR[d].length&&d!==sel)?' has':'');return '<div class="'+cls+'" data-day="'+d+'"><div class="dn">'+WD[d][0]+'</div><div class="dd">'+d+'</div></div>';}).join('');
+    var lab=$('#dayLabel'); if(lab)lab.textContent=(sel===7?'Today · ':'')+WD[sel]+' '+sel+' Jul';
+    var ev=$('#dayEvents'); if(ev){var list=DR[sel]||[]; ev.innerHTML=list.length?list.map(evtCard).join(''):'<div class="card" style="text-align:center;color:var(--muted);font-size:12.5px;padding:22px">'+(TXT.nodrives?TXT.nodrives[curLang]||TXT.nodrives.en:'No drives scheduled')+' · '+WD[sel]+' '+sel+' Jul</div>';}
+  }
+  function renderMonth(){
+    var m=$('#calMonth'); if(!m)return; var M=MONTHS[monthIdx];
+    var head='<div class="mnav"><button class="ib" data-mnav="-1"'+(monthIdx===0?' disabled':'')+'><svg class="ic"><use href="#i-chevl"/></svg></button><b>'+M.nm+'</b><button class="ib" data-mnav="1"'+(monthIdx===MONTHS.length-1?' disabled':'')+'><svg class="ic"><use href="#i-chev"/></svg></button></div>';
+    var wk='<div class="mwk">'+['S','M','T','W','T','F','S'].map(function(x){return '<div>'+x+'</div>';}).join('')+'</div>';
+    var cells=''; for(var b=0;b<M.fw;b++)cells+='<div></div>';
+    for(var d=1;d<=M.dd;d++){var g=M.dr[d];var col=g?(g.s==='done'?'var(--brand-d)':g.s==='due'?'var(--brand)':'var(--warn)'):'transparent';cells+='<div class="mcell'+(g?' has':'')+'" data-mday="'+d+'"><span>'+d+'</span>'+(g?'<i style="background:'+col+'"></i>':'')+'</div>';}
+    var rev='<div class="lt" data-t="revsched">Revaccination schedule</div>'+REVACC.map(function(r){return '<div class="revr"><b>'+r.v+'</b><span class="ri">'+r.iv+'</span><span style="flex:1"></span><span class="rn">'+r.next+'</span></div>';}).join('');
+    m.innerHTML=head+wk+'<div class="mgrid">'+cells+'</div><div class="mhint" data-t="tapday">Tap a day for its drives · dots = drive days</div>'+rev;
+  }
+  function renderHistory(){var h=$('#calHistory'); if(!h)return; h.innerHTML='<div class="lt">Past drives · '+HIST.length+'</div>'+HIST.map(function(x,i){var tone=x.cov>=90?'ok':'warn';return '<div class="lrow tap" data-hist="1" data-hidx="'+i+'"><span class="wh" style="width:38px;height:38px;border-radius:11px;background:rgba(138,212,87,.13);color:var(--brand);display:grid;place-items:center"><svg class="ic"><use href="#i-syringe"/></svg></span><div class="sp"><b>'+x.n+'</b><div class="s">'+x.d+' 2026 · done</div></div><span class="pill '+tone+'">'+x.cov+'%</span></div>';}).join('');}
+  function openDriveRec(i){var x=HIST[i]; if(!x)return; var H=$('#drecH'); if(H)H.textContent=x.n; var S=$('#drecS'); if(S)S.textContent=x.d+' 2026 · completed · read-only';
+    var rows=[['Vaccine · dose',x.dose],['Coverage',x.cov+'%'],['Vaccinated',x.given+' / '+x.elig],['Skipped',x.skip+(x.skip?' · not-due / quarantine / sick':'')],['Park · sheds',x.park+' · '+x.sheds],['Operator · backup',x.op+' · '+x.bk],['Window',x.win]];
+    var b=$('#drecBody'); if(b)b.innerHTML=rows.map(function(r){return '<div class="frow"><span class="fk">'+r[0]+'</span><span class="fv" style="text-align:right">'+r[1]+'</span></div>';}).join('');
+    openOvl('driverec');}
+  function calMode(mode){$all('#calMode .s').forEach(function(s){s.classList.toggle('on',s.dataset.cal===mode);});var w=$('#calWeek'),mo=$('#calMonth'),hi=$('#calHistory');if(w)w.style.display=mode==='week'?'':'none';if(mo)mo.style.display=mode==='month'?'':'none';if(hi)hi.style.display=mode==='history'?'':'none';if(mode==='week')renderWeek();if(mode==='month')renderMonth();if(mode==='history')renderHistory();}
+  function openDay(d){var M=MONTHS[monthIdx];var g=M.dr[d];var tt=$('#dayTtl');if(tt)tt.textContent=d+' '+M.nm;var box=$('#dayBody');if(!box){return;}
+    if(!g){box.innerHTML='<div class="card" style="text-align:center;color:var(--muted);font-size:12.5px;padding:22px">No drive scheduled this day</div>';openOvl('day');return;}
+    var lab=g.s==='due'?'Due':g.s==='done'?'Done':'Scheduled', pill=g.s==='due'?'ok':g.s==='done'?'ok':'mut';
+    var meta=g.s==='done'?'Completed · tap to open the drive record':g.s==='due'?'Due now · team can start the drive':'Planned · team & sheds confirmed nearer the date';
+    var done=(g.h!=null);
+    box.innerHTML='<div class="card evt'+(done?' tap':'')+'"'+(done?(' data-dayrec="'+g.h+'"'):'')+'><div class="t"><span class="pill '+pill+'">'+lab+'</span><span style="flex:1"></span><span class="pill mut">Vaccination</span>'+(done?'<svg class="ic" style="width:15px;height:15px;color:var(--faint);margin-left:6px"><use href="#i-chev"/></svg>':'')+'</div><div class="nm"><svg class="ic" style="color:var(--brand)"><use href="#i-syringe"/></svg>'+g.v+'</div><div style="margin-top:7px;color:var(--muted);font-size:12px">'+meta+'</div></div>';openOvl('day');}
+  $('#v-calendar').addEventListener('click',function(e){
+    var d=e.target.closest('[data-day]'); if(d){sel=+d.getAttribute('data-day');renderWeek();return;}
+    var mn=e.target.closest('[data-mnav]'); if(mn){monthIdx=Math.max(0,Math.min(MONTHS.length-1,monthIdx+(+mn.getAttribute('data-mnav'))));renderMonth();return;}
+    var mc=e.target.closest('[data-mday]'); if(mc){openDay(+mc.getAttribute('data-mday'));return;}
+    var h=e.target.closest('[data-hist]'); if(h){openDriveRec(+h.getAttribute('data-hidx'));return;}
+    var cs=e.target.closest('#calMode .s'); if(cs){calMode(cs.dataset.cal);return;}
+  });
+  renderWeek();
+
+  /* ---------- reschedule: segmented, date picker, assign primary+backup ---------- */
+  var asgn={primary:'Arun Kumar',backup:'Indradev Kumar',slot:'primary'};
+  function renderAssign(){var selp=asgn[asgn.slot];$all('#assignList .popt').forEach(function(p){p.classList.toggle('on',p.dataset.person===selp);});$all('#assignSlot .s').forEach(function(s){s.classList.toggle('on',s.dataset.slot===asgn.slot);});var av=$('#assignVal'),ab=$('#assignBk');if(av)av.textContent=asgn.primary;if(ab)ab.textContent='+ backup '+asgn.backup;}
+  D.addEventListener('click',function(e){
+    var s=e.target.closest('.segc .s'); if(!s)return; var seg=s.parentElement; seg.querySelectorAll('.s').forEach(function(x){x.classList.remove('on');}); s.classList.add('on');
+    if(seg.id==='reschedSeg'){var mark=s.dataset.seg==='mark';var df=$('#reschedDateFld');if(df)df.style.display=mark?'none':'';var rb=$('#reschedbtn');if(rb)rb.textContent=mark?'Mark scheduled — notify':'Confirm — notify team';}
+    if(seg.id==='assignSlot'){asgn.slot=s.dataset.slot;renderAssign();}
+  });
+  $all('#assignList .popt').forEach(function(p){p.addEventListener('click',function(){var n=p.dataset.person;if(asgn.slot==='primary'){if(asgn.backup===n)asgn.backup=asgn.primary;asgn.primary=n;}else{if(asgn.primary===n)asgn.primary=asgn.backup;asgn.backup=n;}renderAssign();});});
+  $all('#ovl-date [data-date]').forEach(function(d){d.addEventListener('click',function(){$all('#ovl-date [data-date]').forEach(function(x){x.classList.remove('on');});d.classList.add('on');var v=$('#reschedDateVal');if(v)v.textContent=d.dataset.date;var inbuf=d.dataset.buf==='1';var pill=$('#reschedBuf');if(pill){pill.textContent=inbuf?'In buffer':'Out of buffer';pill.className='pill '+(inbuf?'ok':'dng');}closeOvl();});});
+  // "Assign team" chips on the overview drive rows (CEO/COO + Park Manager only)
+  var assignDrive='';
+  $all('.asgnbtn').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation(); if(!canAssign()){toast('Not allowed','Only CEO/COO or Park Manager can assign the team');return;} assignDrive=b.getAttribute('data-assign')||''; var sub=$('#ovl-assign .sh-s'); if(sub)sub.textContent=assignDrive+' · primary + backup from HR'; openOvl('assign');});});
+  var ad=$('#assignDone'); if(ad)ad.addEventListener('click',function(){toast('Team assigned ✓',(assignDrive?assignDrive+' · ':'')+asgn.primary+' + backup '+asgn.backup);assignDrive='';});
+
+  $all('#parkbreak [data-park]').forEach(function(p){p.addEventListener('click',function(){var pk=(p.getAttribute('data-park')||'').toLowerCase();applyScope(SCOPES[pk]?pk:'all');var sc=$('#dhscope');if(sc&&sc.scrollIntoView)sc.scrollIntoView({behavior:'smooth',block:'start'});});});
+  $all('#v-dhome [data-go="v-sheds"]').forEach(function(x){x.addEventListener('click',function(){var rn=$('#rolenote');if(rn){var sp=rn.querySelector('span');if(sp&&TXT.readonly)sp.textContent=TXT.readonly[curLang]||TXT.readonly.en;}});});
+
+  /* ---------- init ---------- */
+  markTheme(); setLang('en'); setRole('operator');
+})();
+</script>
+
+</body></html>
