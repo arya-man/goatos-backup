@@ -1,4 +1,4 @@
-# System Design — Goat OS Operator Mobile
+# System Design — Goat OS Mobile (Android)
 
 Runtime architecture for the Android app. Pairs with the [TRD](trd-operator-mobile.md).
 

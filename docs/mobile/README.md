@@ -1,8 +1,9 @@
-# Goat OS Operator Mobile — Documentation Index
+# Goat OS Mobile (Android) — Documentation Index
 
-This directory is the **source of truth for the Goat OS Android operator app**
-(native **Kotlin + Jetpack Compose**), to be built to the finalized prototype
-mock `mock/vaccination-mobile-mock.html`.
+This directory is the **source of truth for the Goat OS Android app** — one common,
+role-aware app for the field operator **and** leadership (native **Kotlin +
+Jetpack Compose**), to be built to the finalized prototype mock
+`mock/vaccination-mobile-mock.html`.
 
 Read these before writing any Android code. Nothing here is implemented yet —
 this is the pre-implementation design set the maintainer asked for.
@@ -20,22 +21,25 @@ this is the pre-implementation design set the maintainer asked for.
 | [firebase-india-setup.md](firebase-india-setup.md) | Runbook to set up Firebase (Analytics, Performance, Crashlytics, FCM push) under the correct org, using `asia-south1` for location-selectable resources — GA4/Crashlytics/Perf/FCM are global — **gated, not yet executed** |
 | [extensibility-future-modules.md](extensibility-future-modules.md) | How new modules/verticals plug in without a rewrite; module registry + navigation contract |
 
-Decision record: [`docs/decisions/mobile-native-kotlin.md`](../decisions/mobile-native-kotlin.md).
+Decision records: [`mobile-native-kotlin.md`](../decisions/mobile-native-kotlin.md)
+(client tech) · [`mobile-app-id-and-flavors.md`](../decisions/mobile-app-id-and-flavors.md)
+(app id, namespace, env-only flavors, runtime roles).
 
 ## Direction change flagged (maintainer-lock)
 
 `context/frontend/final-frontend-mobile-backend-architecture.md` and the existing
-`apps/operator-mobile/` scaffold describe a **React Native / TypeScript** operator
+`apps/operator-mobile/` scaffold describe a **React Native / TypeScript** mobile
 app. The maintainer has since chosen **native Kotlin + Jetpack Compose** for the
-operator app (low-end Android target, heavy BLE/RFID + camera hardware,
-Android-only operators). That decision **supersedes the RN direction for the
-operator app** and is recorded in the ADR above; the arch doc's mobile section
-carries a superseding note pointing here.
+Goat OS mobile app (low-end Android target, heavy BLE/RFID + camera hardware,
+Android-only field staff). That decision **supersedes the RN direction** and is
+recorded in the ADR above; the arch doc's mobile section carries a superseding
+note pointing here.
 
 Open item for the maintainer: the existing TypeScript `apps/operator-mobile/`
 scaffold (+ `packages/mobile-forms-runner`) is now superseded. It is **left in
 place, untouched** until you decide to remove or archive it — this doc set does
-not delete it. The new Kotlin app lands at `apps/operator-android/` (see TRD).
+not delete it. The new Kotlin app lands at `apps/goatos-android/` (see TRD) with
+app id `sg.mesha.goatos` (see the app-id + flavors ADR).
 
 ## What does NOT change
 
@@ -59,7 +63,9 @@ verbatim:
 ```text
 docs           : authored (this set)
 firebase app   : NOT created (gated on org verification + explicit go)
-android app    : NOT started (apps/operator-android does not exist yet)
+android app    : NOT started (apps/goatos-android does not exist yet)
+app id         : sg.mesha.goatos (prod) · .dev · .stg — env-only flavors, roles
+                 are runtime from /app/bootstrap (see app-id + flavors ADR)
 backend mobile : baseline app-api EXISTS (/app/bootstrap, /app/devices/register,
                  /app/proofs/*, /app/tasks/*/submissions, /vaccination/execution/
                  sheds/{id}, /calendar/vaccination/events, leadership reads).

@@ -1,4 +1,4 @@
-# Design System — Goat OS Operator Mobile
+# Design System — Goat OS Mobile (Android)
 
 The app's visual system is **ported from `mock/vaccination-mobile-mock.html`** —
 the only UI/UX source of truth. This doc freezes the tokens and component anatomy

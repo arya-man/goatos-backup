@@ -1,4 +1,4 @@
-# PRD — Goat OS Operator Mobile (Android)
+# PRD — Goat OS Mobile (Android)
 
 Status: draft for pre-implementation review · Owner: mobile · Surface:
 operator/device field surface · Source of truth UI: `mock/vaccination-mobile-mock.html`.

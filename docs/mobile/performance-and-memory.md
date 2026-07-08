@@ -1,4 +1,4 @@
-# Performance & Memory — Goat OS Operator Mobile
+# Performance & Memory — Goat OS Mobile (Android)
 
 Operators run cheap Android phones (target 2–3 GB RAM, weak GPU, old SoC, spotty
 network). Performance and memory are **product requirements**, not polish. This

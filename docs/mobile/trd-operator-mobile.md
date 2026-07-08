@@ -1,4 +1,4 @@
-# TRD — Goat OS Operator Mobile (Android · Kotlin + Jetpack Compose)
+# TRD — Goat OS Mobile (Android · Kotlin + Jetpack Compose)
 
 Status: draft for pre-implementation review. Pairs with [PRD](prd-operator-mobile.md),
 [system-design](system-design.md), [design-system](design-system.md),
@@ -55,12 +55,12 @@ adapters behind ports (mirrors backend ports/adapters).
 
 ## 3. Module structure (Gradle multi-module)
 
-`apps/operator-android/` — Gradle root. Multi-module keeps build times low on
+`apps/goatos-android/` — Gradle root. Multi-module keeps build times low on
 low-end CI and enforces boundaries (the mobile equivalent of admin-web's
 `check-boundaries`).
 
 ```text
-apps/operator-android/
+apps/goatos-android/
   app/                         # thin: Application, DI graph, nav host, theme, boot
   core/
     core-designsystem/         # theme, tokens, Compose components (design-system.md)
@@ -337,6 +337,31 @@ Idempotency tests are mandatory (repo contract).
 - Jobs: ktlint/detekt, unit + Robolectric tests, Compose tests, `assembleDebug`,
   generated-client drift check, boundary check (no cross-feature imports),
   Macrobenchmark on a hosted emulator (smoke), Maestro smoke on emulator.
+- **App id, namespace & flavors** (one common app; roles are runtime, NOT build
+  flavors — see [`docs/decisions/mobile-app-id-and-flavors.md`](../decisions/mobile-app-id-and-flavors.md)):
+
+  ```kotlin
+  android {
+    namespace = "sg.mesha.goatos"                 // FIXED — R/BuildConfig package
+    defaultConfig { applicationId = "sg.mesha.goatos" }
+    flavorDimensions += "env"                      // ONLY env; never persona
+    productFlavors {
+      create("dev")  { dimension = "env"; applicationIdSuffix = ".dev"
+                       resValue("string","app_name","Goat OS Dev") }
+      create("stg")  { dimension = "env"; applicationIdSuffix = ".stg"
+                       resValue("string","app_name","Goat OS Stg") }
+      create("prod") { dimension = "env"
+                       resValue("string","app_name","Goat OS") }
+    }
+  }
+  ```
+
+  appId `sg.mesha.goatos` (prod) · `.dev` · `.stg`. Each appId is a separate
+  Firebase app registration → per-flavor `google-services.json`. There are **no**
+  `operator/manager/director/ceo` flavors: role + scope + nav come from
+  `/app/bootstrap` at runtime, so one AAB serves every role (one security model,
+  one review/pen-test path, no variant drift). appId is permanent on Play — the
+  Play Console account must be under the Mesha/VGoats org (org-boundary rule).
 - Build variants: `dev` / `stg` / `prod` flavors × `debug`/`release`, each
   pointing at the matching Firebase project + app-api base URL. No prod secrets
   in CI logs; state active org/project before any Firebase/gcloud step
@@ -355,7 +380,7 @@ Idempotency tests are mandatory (repo contract).
    not a green-field contract set.)
 2. Firebase India project/app create (gated runbook) → `google-services.json`
    per flavor.
-3. `apps/operator-android` Gradle skeleton: modules, theme from design tokens,
+3. `apps/goatos-android` Gradle skeleton: modules, theme from design tokens,
    nav host + module registry, Hilt graph, Room + DataStore, sync/outbox engine
    with fakes, RFID/camera ports with fakes.
 4. Auth + mobile bootstrap wiring; role-lens shell.

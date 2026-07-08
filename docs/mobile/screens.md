@@ -1,4 +1,4 @@
-# Screen Spec — Goat OS Operator Mobile
+# Screen Spec — Goat OS Mobile (Android)
 
 Every screen maps 1:1 to `mock/vaccination-mobile-mock.html`. For each: mock
 source, Compose destination (feature module), the backend contract that feeds it,

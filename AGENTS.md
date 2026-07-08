@@ -84,7 +84,7 @@ Read first:
 - `.agents/skills/goatos-build/SKILL.md`
 - `context/architecture/final-architecture.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
-- `docs/mobile/README.md` (Android operator app — native Kotlin + Compose; PRD/TRD/design-system/Firebase India; read before any mobile work)
+- `docs/mobile/README.md` (Goat OS Android app — one common role-aware app for field operator + leadership; native Kotlin + Compose, `apps/goatos-android/`, app id `sg.mesha.goatos`; read before any mobile work)
 - `context/forms/final-forms-sop-engine.md`
 - `context/analytics/final-analytics-infra.md`
 - `context/agents/ai-agent-context-and-protocols.md`
@@ -242,7 +242,7 @@ Do:
 - Use protobuf/gRPC only behind the app API boundary when a real internal workload needs it.
 - Keep frontend/mobile data access behind generated clients and app APIs.
 - Golden frontend rule for Codex, Claude, and every developer using this repo:
-  admin-web/operator-mobile are renderers, not product-truth owners. Backend
+  admin-web/goatos-android (mobile) are renderers, not product-truth owners. Backend
   OpenAPI/app contracts must own visible navigation, route availability, page
   titles, section/table labels, filter/sort/page-size semantics, chips/tabs,
   row-click params, drawer/action labels, empty/error copy, disabled reasons,

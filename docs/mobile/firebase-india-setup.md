@@ -1,4 +1,4 @@
-# Firebase Setup (India Region) — Goat OS Operator Mobile
+# Firebase Setup (India Region) — Goat OS Mobile (Android)
 
 Runbook to wire Firebase **Analytics, Performance Monitoring, Crashlytics, and
 Cloud Messaging (FCM)** for the Android app, with data in the **India region**,
@@ -56,15 +56,15 @@ gcloud projects describe goatos-dev            # confirm org/parent = vgoats.com
 firebase projects:list                         # confirm goatos-dev present, correct login
 
 # 2. register the Android app (console: Project settings → Add app → Android)
-#    package name:  sg.mesha.goatos.operator          (dev flavor: .dev suffix)
-#    app nickname:  Goat OS Operator (dev)
+#    package name:  sg.mesha.goatos.dev   (namespace sg.mesha.goatos; prod = no suffix)
+#    app nickname:  Goat OS Dev
 #    → download google-services.json
-firebase apps:create ANDROID "Goat OS Operator (dev)" \
-  --project goatos-dev --package-name sg.mesha.goatos.operator.dev
+firebase apps:create ANDROID "Goat OS Dev" \
+  --project goatos-dev --package-name sg.mesha.goatos.dev
 
 # 3. fetch config for the flavor
 firebase apps:sdkconfig ANDROID <APP_ID> --project goatos-dev \
-  > apps/operator-android/app/src/dev/google-services.json
+  > apps/goatos-android/app/src/dev/google-services.json
 ```
 
 Repeat for `goatos-stg` (`.stg`) and `goatos-prod` (no suffix) when those

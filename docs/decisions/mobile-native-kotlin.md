@@ -1,16 +1,19 @@
-# ADR: Operator mobile app is native Kotlin + Jetpack Compose
+# ADR: Goat OS mobile app is native Kotlin + Jetpack Compose
 
 Status: accepted (maintainer decision, this session) · Supersedes: the "React
 Native operator app" direction in
-`context/frontend/final-frontend-mobile-backend-architecture.md`.
+`context/frontend/final-frontend-mobile-backend-architecture.md`. App identity /
+id / flavors: see [`mobile-app-id-and-flavors.md`](mobile-app-id-and-flavors.md).
 
 ## Context
 
-The Goat OS operator app is used by **health field staff on cheap Android
-phones** (target 2–3 GB RAM, weak GPU, old Android, poor connectivity) to run
+The Goat OS mobile app (one common, role-aware app for field operator **and**
+leadership) is driven by its heaviest user — **health field staff on cheap Android
+phones** (target 2–3 GB RAM, weak GPU, old Android, poor connectivity) — to run
 vaccination drives. It is **hardware-heavy**: Bluetooth UHF **RFID** handheld
-(Chainway-class), **camera** video proof, vibration. Operators are **Android
-only**; leadership uses admin-web (responsive) rather than a native app.
+(Chainway-class), **camera** video proof, vibration. The app is **Android only**;
+leadership uses the **same app** on Android (read-only role lens) or admin-web on
+iPhone (no iOS build).
 
 The prior architecture doc chose **React Native** (reusing `procurement_app`),
 and a TypeScript scaffold exists at `apps/operator-mobile/`.
@@ -46,7 +49,7 @@ can hire Flutter but not Kotlin. None hold. RN is not chosen for this profile.
   bootstrap contract, signed-media upload, outbox, idempotency,
   server-authoritative RBAC, `Asia/Kolkata` business time, operational kernel.
 - The app remains a **renderer**, not product truth (golden frontend rule).
-- New app module: **`apps/operator-android/`** (Gradle multi-module; see
+- New app module: **`apps/goatos-android/`** (Gradle multi-module; see
   `docs/mobile/trd-operator-mobile.md`).
 
 ## Consequences

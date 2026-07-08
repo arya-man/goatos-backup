@@ -76,6 +76,12 @@ Replace:
 
 ### React Native Operator App
 
+> **SUPERSEDED (client tech).** The Goat OS mobile app is now native **Kotlin +
+> Jetpack Compose** (`apps/goatos-android/`, app id `sg.mesha.goatos`) — a common
+> role-aware app for field operator + leadership. See `docs/mobile/` and
+> `docs/decisions/mobile-native-kotlin.md`. The RN notes below are legacy context
+> for the `apps/operator-mobile/` scaffold only.
+
 The mobile app is reusable as a prototype base:
 
 - React Native 0.85, React 19, TypeScript.
@@ -149,8 +155,8 @@ open.
 apps/
   admin-web/             internal SSR command center initialized from dashboard snapshot
   investor-web-shadow/   temporary investor/reduced validation copy
-  operator-mobile/       [SUPERSEDED] RN scaffold; replaced by operator-android/ (Kotlin+Compose) — see docs/mobile/
-  operator-android/      native Kotlin + Jetpack Compose Android app for field operators (docs/mobile/)
+  operator-mobile/       [SUPERSEDED] RN scaffold; replaced by goatos-android/ (Kotlin+Compose) — see docs/mobile/
+  goatos-android/        native Kotlin + Jetpack Compose Android app — one common role-aware app for field operator + leadership; app id sg.mesha.goatos (docs/mobile/)
   public-web/            future public/partner surface only if Goat OS owns it
 
 packages/
@@ -495,15 +501,17 @@ The app code talks to ports. Vendors/tools sit behind adapters.
 
 ## Mobile Architecture
 
-> **SUPERSEDED (client tech) — see `docs/mobile/`.** The operator app is now
-> **native Kotlin + Jetpack Compose** (`apps/operator-android/`), not React
-> Native. Decision + rationale: `docs/decisions/mobile-native-kotlin.md`. The
+> **SUPERSEDED (client tech) — see `docs/mobile/`.** The Goat OS mobile app (one
+> common role-aware app for field operator + leadership) is now **native Kotlin +
+> Jetpack Compose** (`apps/goatos-android/`, app id `sg.mesha.goatos`), not React
+> Native. Decisions: `docs/decisions/mobile-native-kotlin.md` (client tech) +
+> `docs/decisions/mobile-app-id-and-flavors.md` (app id, env-only flavors). The
 > full mobile PRD/TRD/system-design/design-system/screens/perf/Firebase/
 > extensibility set lives in `docs/mobile/README.md`. Everything below about the
 > mobile *contract* (task-first, pinned form_version, offline submission flow,
 > idempotency, signed media, server-authoritative validation, ports/adapters)
 > still holds and is reused verbatim by the Kotlin app — only the client
-> framework and folder (`operator-mobile` RN → `operator-android` Kotlin)
+> framework and folder (`operator-mobile` RN → `goatos-android` Kotlin)
 > changed. The RN `apps/operator-mobile/` scaffold + `packages/mobile-forms-runner`
 > are superseded and left untouched pending an archival decision.
 
@@ -651,7 +659,7 @@ Reuse:
 2. Extract shared chart/UI primitives from `dashboard` into a `ui` package or keep them as a source folder until monorepo migration.
 3. Add `analytics-client` and replace direct page fetches with typed functions.
 4. Create `goatos-core` Go skeleton with modules, ports, adapters, OpenAPI, and Postgres migrations.
-5. Create `operator-mobile` skeleton from `procurement_app`, keeping camera/upload code but replacing Firestore services with API/media adapters.
+5. **[SUPERSEDED — client tech]** the mobile app is now native Kotlin + Jetpack Compose at `apps/goatos-android/` (app id `sg.mesha.goatos`); build it from the `docs/mobile/` PRD/TRD, not an RN `operator-mobile` skeleton from `procurement_app`. Camera/upload move behind Kotlin `device-*` ports.
 6. Implement auth once at API boundary: token verification, principal, roles/scopes/farm scope.
 7. Build the vaccination/task/form loop end to end using the final forms DSL and signed media flow.
 8. Convert existing dashboard pages one by one to analytics API/Cube metrics.
