@@ -217,9 +217,10 @@ budgets: [performance-and-memory.md](performance-and-memory.md).
   reasons/summary-vs-detail come from this contract, not hardcoded (golden
   frontend rule). Config is **cache-first in Room/DataStore**, refreshed on cold
   start / resume / pull-to-refresh / an **FCM `config_changed` data-ping** — so the
-  maintainer can push nav/label/flag/threshold changes on the fly with **no APK
-  release**. Permissions stay server-authoritative (config may hide UI, never
-  widen access).
+  maintainer can push `presentationConfig` (nav/label/flag/UI-tunable) changes on
+  the fly with **no APK release**; `policySnapshot` changes only via governed policy
+  updates. Permissions stay server-authoritative (config may hide UI, never widen
+  access).
 - **Gap = the mock-shaped shed-first mobile flow.** New/extended endpoints the
   current contracts don't cover in shed-first shape: **today's-sheds-for-a-drive**
   (scope-filtered — operator/parkmgr park, director/ceo all parks), **per-shed

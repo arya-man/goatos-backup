@@ -1,18 +1,22 @@
 # Backend-Driven Config — Goat OS Mobile (Android)
 
 How the Android app is **configured from the backend** so the maintainer can push
-changes on the fly (nav, labels, flags, thresholds, module availability) **without
-shipping a new APK**. Pairs with [TRD](trd-operator-mobile.md) §5/§6 and the golden
-frontend rule (the app is a renderer, not product truth).
+**presentation** changes on the fly (nav, labels, flags, UI tunables, module
+availability) **without shipping a new APK**. Business/medical policy is NOT part
+of this push path — it travels in a read-only `policySnapshot` (see the
+`presentationConfig` / `policySnapshot` split below). Pairs with
+[TRD](trd-operator-mobile.md) §5/§6 and the golden frontend rule (the app is a
+renderer, not product truth).
 
 ## Principle
 
 The app renders what the backend contract says. **Visible nav, page/section
 titles, table/filter labels, chips/tabs, filter/sort/page-size, row-click params,
 drawer/action labels, empty/error copy, disabled reasons, feature flags, and
-tunable thresholds are backend-owned.** The client only owns layout, CSS-equiv
+UI tunables are backend-owned.** The client only owns layout, CSS-equiv
 styling, density, focus/hover, and local open/selected state. If it's visible text
 or an available action, it comes from config — not a hardcoded constant.
+(Business/medical thresholds are policy, not UI config — see the split below.)
 
 ## Source of truth: the bootstrap contract (primary)
 
