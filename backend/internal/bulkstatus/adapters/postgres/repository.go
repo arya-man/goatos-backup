@@ -344,6 +344,29 @@ RETURNING j.total_rows, j.applied_rows, j.skipped_rows, j.failed_rows, c.remaini
 	return counts, nil
 }
 
+// BumpJobCounts applies a per-pass delta to the job rollup counters instead of a
+// full COUNT over every row. RunUntilDrained calls this each pass with the pass's
+// terminal tallies, so keeping counters warm is O(1) per pass rather than
+// O(rows). The authoritative full recount + terminal-state transition still
+// happens once at drain end via RefreshJobCounts, which reconciles any drift.
+func (r *Repository) BumpJobCounts(ctx context.Context, tenantID, jobID string, appliedDelta, skippedDelta, failedDelta int) error {
+	if appliedDelta == 0 && skippedDelta == 0 && failedDelta == 0 {
+		return nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	_, err := r.pool.Exec(ctx, `
+UPDATE bulk_status_job
+SET applied_rows = applied_rows + $3,
+    skipped_rows = skipped_rows + $4,
+    failed_rows = failed_rows + $5,
+    state = CASE WHEN state = 'canceled' THEN state ELSE 'running' END,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND bulk_status_job_id = $2::uuid`,
+		tenantID, jobID, appliedDelta, skippedDelta, failedDelta)
+	return err
+}
+
 // ListJobIDsWithClaimableRows returns tenant jobs that still have work: pending,
 // retry, OR claimed rows. 'claimed' is included so a job whose LAST rows were
 // claimed by a worker that then crashed is still rediscovered by the tenant-wide

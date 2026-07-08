@@ -706,6 +706,39 @@ INSERT INTO outbox_messages (
 	})
 }
 
+// TestGoatDisplayIDNoTruncatePastMillion proves next_goat_display_id() no longer
+// truncates once the sequence passes 999,999. Old lpad(nextval::text,6) turned
+// 1000000 into '100000' (collision with G-100000); to_char(nextval,'FM000000')
+// yields G-1000000 with no truncation, unique and format-valid.
+func TestGoatDisplayIDNoTruncatePastMillion(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+	ctx := context.Background()
+	pool, _ := startCorrectionWriteDB(t, ctx)
+	defer pool.Close()
+
+	// Straddle the old 6-digit boundary: next three values are 999999,1000000,1000001.
+	if _, err := pool.Exec(ctx, `SELECT setval('goat_display_id_seq', 999998, true)`); err != nil {
+		t.Fatalf("setval: %v", err)
+	}
+	want := []string{"G-999999", "G-1000000", "G-1000001"}
+	seen := map[string]bool{}
+	for i := range want {
+		var id string
+		if err := pool.QueryRow(ctx, `SELECT next_goat_display_id()`).Scan(&id); err != nil {
+			t.Fatalf("next_goat_display_id(): %v", err)
+		}
+		if id != want[i] {
+			t.Fatalf("display id %d = %q, want %q (lpad-truncation regression at the 1M boundary)", i, id, want[i])
+		}
+		if seen[id] {
+			t.Fatalf("duplicate display id %q past 1M", id)
+		}
+		seen[id] = true
+	}
+}
+
 func insertSyntheticGoat(t *testing.T, pool *pgxpool.Pool, tenantID, parkID string) string {
 	t.Helper()
 	var goatID string

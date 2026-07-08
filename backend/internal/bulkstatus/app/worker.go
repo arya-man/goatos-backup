@@ -250,8 +250,11 @@ func (w *WorkerService) RunUntilDrained(ctx context.Context, tenantID, jobID str
 		pass, err := w.RunOnce(ctx, tenantID, jobID, limiter)
 		drain.Iterations++
 		drain.PassStats.add(pass)
-		if _, err2 := w.repo.RefreshJobCounts(ctx, tenantID, jobID); err2 != nil {
-			w.log.Error("bulk_status_refresh_counts_failed", slog.String("job_id", jobID), slog.String("error", err2.Error()))
+		// Keep the job counters warm with an O(1) delta from this pass's terminal
+		// tallies instead of a full O(rows) recount every pass; the authoritative
+		// recount + terminal-state transition happens once at drain end below.
+		if err2 := w.repo.BumpJobCounts(ctx, tenantID, jobID, pass.Applied, pass.Skipped, pass.Errored); err2 != nil {
+			w.log.Error("bulk_status_bump_counts_failed", slog.String("job_id", jobID), slog.String("error", err2.Error()))
 		}
 		if err != nil {
 			return drain, err

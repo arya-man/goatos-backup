@@ -151,6 +151,10 @@ func (f *fakeRepo) ListJobIDsNeedingRollup(_ context.Context, _ string, _ int) (
 	return nil, nil
 }
 
+func (f *fakeRepo) BumpJobCounts(_ context.Context, _, _ string, _, _, _ int) error {
+	return nil
+}
+
 type fakeReader struct {
 	states map[string]GoatState
 }

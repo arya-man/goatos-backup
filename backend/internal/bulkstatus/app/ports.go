@@ -128,6 +128,9 @@ type BulkStatusRepository interface {
 	// ledger and advances job state (running while rows remain, completed when
 	// drained).
 	RefreshJobCounts(ctx context.Context, tenantID, jobID string) (JobCounts, error)
+	// BumpJobCounts applies a per-pass delta to the job counters (O(1)) instead of
+	// a full recount each drain pass; RefreshJobCounts still reconciles at the end.
+	BumpJobCounts(ctx context.Context, tenantID, jobID string, appliedDelta, skippedDelta, failedDelta int) error
 	// ListJobIDsWithClaimableRows returns tenant jobs that still have pending|retry|claimed rows.
 	ListJobIDsWithClaimableRows(ctx context.Context, tenantID string, limit int) ([]string, error)
 	// ListJobIDsNeedingRollup returns active jobs whose rows are all terminal but
