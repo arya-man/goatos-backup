@@ -84,6 +84,7 @@ Read first:
 - `.agents/skills/goatos-build/SKILL.md`
 - `context/architecture/final-architecture.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
+- `docs/mobile/README.md` (Android operator app — native Kotlin + Compose; PRD/TRD/design-system/Firebase India; read before any mobile work)
 - `context/forms/final-forms-sop-engine.md`
 - `context/analytics/final-analytics-infra.md`
 - `context/agents/ai-agent-context-and-protocols.md`

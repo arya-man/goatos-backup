@@ -1,0 +1,117 @@
+# Screen Spec — Goat OS Operator Mobile
+
+Every screen maps 1:1 to `mock/vaccination-mobile-mock.html`. For each: mock
+source, Compose destination (feature module), the backend contract that feeds it,
+role visibility, and key states. Backend owns nav/labels/filters/disabled reasons
+(golden frontend rule); the app renders.
+
+Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ceo/coo.
+
+## Operator surface
+
+### Login  (`v-login`)
+- Module: `feature-auth`. Work **email + OTP** (not phone). Language sheet
+  (`ovl-lang`) + theme toggle reachable pre-auth.
+- Backend: auth token endpoint (Firebase Auth adapter) → then mobile bootstrap.
+- States: idle, code-sent, verifying, error, version-gate-block.
+
+### Calendar  (`v-calendar`: week / month / history)  — O (week); PM/D/C (month+history)
+- Module: `feature-calendar`. Segmented week/month/history.
+  - **Week**: today's entry = "Today · N sheds · M due" → opens Today's sheds.
+    Other days = scheduled shed markers.
+  - **Month**: drive-day dots; tap day → `ovl-day` sheet (that day's sheds +
+    status). Done day → opens the shed/drive record.
+  - **History**: past shed/drive records → record sheet.
+- Backend: `GET calendar?scope&range` (Asia/Kolkata day buckets); day/record reads.
+- Note: operator sees week only (`calMode` hidden for operator in mock);
+  month/history are leadership.
+
+### Today's sheds  (`v-sheds`)  — O (own park); PM/D/C read-only
+- Module: `feature-sheds`. Header: date · window · shed count · due total. Day
+  progress bar. **Shed cards**, each: cohort · in-shed, status pill,
+  **vaccine-group chips (mix-and-match)**, in-shed/due/done nums, progress,
+  action (Start / Resume / View records). Roster-change cards + kernel info box.
+- Backend: `GET sheds?scope=<park>` → shed_day/shed_group/roster_animal (cached
+  in Room). Shed-first: a shed can have several due vaccine groups.
+- States: ready / in-progress / done per shed; leadership rows are read-only
+  (no Start; rolenote).
+
+### Scan  (`v-scan`)  — O only (leadership tap blocked server-side)
+- Module: `feature-scan`. Header: shed · cohort. **Progress ring** = shed total
+  `done/T`. **Per-vaccine-group chips** (active group highlighted). Tap-to-scan
+  (RFID or ring). Done / Pending / Skipped tiles → `ovl-scanlist` sheet
+  (searchable, per-animal vaccine). Live feed of last taps (each animal → its due
+  vaccine, "2 tags" when double-tagged). Submit gated until shed complete.
+- Backend/device: `RfidReaderPort` (fake in dev); eligibility + roster from
+  backend; each tap writes `scan_event` (given / skipped+reason) locally.
+- States: scanning, not-due (red + double buzz), complete → submit enabled;
+  resume preserves prior progress (no reset on re-show — mock fix).
+
+### Submit  (`v-submit`)  — O only
+- Module: `feature-submit`. One **shed record** covering all its due vaccines:
+  per-group vaccine · dose · **FEFO batch**, cold-chain, animals vaccinated,
+  operator + backup, **video proof** capture, remarks. "Submit shed record".
+- Backend: submit command (idempotency key) → one tx (form_submission + event +
+  verification + outbox). Form rendered via forms-runner + pinned form_version.
+- States: draft → queued → syncing → acked / conflict / dead-letter.
+
+### You / Settings  (`v-you`), RFID reader  (`v-rfid`), Alerts  (`v-alerts`)  — O (leadership: profile only)
+- Module: `feature-profile`. Profile (name/role/scope from bootstrap), language,
+  RFID reader pairing (Chainway-class, battery/paired state), notifications
+  (FCM), sign out.
+- Backend/device: `RfidReaderPort` pairing; FCM token register; profile from
+  bootstrap.
+
+## Leadership surface
+
+### Overview  (`v-dhome`)  — PM/D/C
+- Module: `feature-leadership`. **Coverage hero** (dose coverage %, doses line),
+  pills: **park scope picker** (`ovl-scope`, CEO only), animals, **data gaps**
+  (`ovl-gaps`). **KPI tiles**: Doses given → `ovl-given` (per-vaccine drill),
+  Pending → overdue list. **Today's sheds** (per-shed vaccine mix + assign).
+  **Backlog by vaccine**. **Needs a decision** (overdue → reschedule).
+  **Coverage by park** (CEO; tap re-scopes).
+- Backend: `GET rollup/backlog/gaps?scope`; scope filters everything.
+- Role gates: park picker + coverage-by-park = CEO; assign = CEO/PM; scan absent.
+
+### Overdue  (`v-overdue`)  — PM/D/C
+- Module: `feature-leadership`. Missed (past buffer) vs in-buffer, with color
+  legend and shed/animal detail → reschedule.
+- Backend: `GET overdue?scope` (Asia/Kolkata buffer math).
+
+### Reschedule  (`v-reschedule`)  — PM/C (assign) 
+- Module: `feature-leadership`. Segmented reschedule / mark-scheduled;
+  buffer-aware **date picker** (`ovl-date`, in/out of buffer); **assign**
+  (`ovl-assign`) primary + backup from HR; confirm → 4-channel notify.
+- Backend: reschedule + assign commands (idempotent); NotificationGateway.
+
+### Shed / drive record  (`ovl-shedrec`, `ovl-driverec`)  — all (read-only)
+- Module: `feature-record`. Per-vaccine-group breakdown (given/due, dose),
+  cohort · shed, operator + backup, window · video proof, searchable animal
+  list (each with its vaccine).
+- Backend: `GET shed-record/{shed_id}` / drive record.
+
+## Overlays → components
+
+| Overlay | Component | Feeds |
+|---|---|---|
+| `ovl-drawer` | `NavDrawer` | module registry (built + "Soon"), profile, settings |
+| `ovl-lang` | language `GoatBottomSheet` | DataStore locale |
+| `ovl-scope` | park picker | scope → re-scopes overview (CEO) |
+| `ovl-gaps` | data-gaps sheet | animals excluded from coverage + reason |
+| `ovl-given` | doses-given drill | per-vaccine given + coverage bars (scope-aware) |
+| `ovl-driverec`/`ovl-shedrec` | record sheets | per-vaccine breakdown + animals |
+| `ovl-date` | buffer-aware date picker | reschedule |
+| `ovl-assign` | assign primary/backup | assign command |
+| `ovl-scanlist` | scan list (given/pending/skipped) | local scan_event + roster |
+| `ovl-day` | month day sheet | that day's sheds/record |
+| toast | `GoatToast` | one-shot effects |
+
+## Cross-cutting
+
+- **Role lens** switches content, not app. Server RBAC authoritative.
+- **Scope** (park) lives in the top bar / picker; page bodies don't repeat it.
+- **Empty vs error**: empty-but-OK shows zero-count sections; API/RBAC errors
+  show a visible error state (never a blank that reads as "no data").
+- **Every list/row/tile is actionable or clearly informational** (no dead
+  microcopy — repo standing UI rule; the mock already enforces this).

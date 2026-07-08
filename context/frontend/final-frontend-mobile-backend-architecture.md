@@ -149,7 +149,8 @@ open.
 apps/
   admin-web/             internal SSR command center initialized from dashboard snapshot
   investor-web-shadow/   temporary investor/reduced validation copy
-  operator-mobile/       React Native Android app for field operators
+  operator-mobile/       [SUPERSEDED] RN scaffold; replaced by operator-android/ (Kotlin+Compose) — see docs/mobile/
+  operator-android/      native Kotlin + Jetpack Compose Android app for field operators (docs/mobile/)
   public-web/            future public/partner surface only if Goat OS owns it
 
 packages/
@@ -494,7 +495,19 @@ The app code talks to ports. Vendors/tools sit behind adapters.
 
 ## Mobile Architecture
 
-The Android app should be task-first:
+> **SUPERSEDED (client tech) — see `docs/mobile/`.** The operator app is now
+> **native Kotlin + Jetpack Compose** (`apps/operator-android/`), not React
+> Native. Decision + rationale: `docs/decisions/mobile-native-kotlin.md`. The
+> full mobile PRD/TRD/system-design/design-system/screens/perf/Firebase/
+> extensibility set lives in `docs/mobile/README.md`. Everything below about the
+> mobile *contract* (task-first, pinned form_version, offline submission flow,
+> idempotency, signed media, server-authoritative validation, ports/adapters)
+> still holds and is reused verbatim by the Kotlin app — only the client
+> framework and folder (`operator-mobile` RN → `operator-android` Kotlin)
+> changed. The RN `apps/operator-mobile/` scaffold + `packages/mobile-forms-runner`
+> are superseded and left untouched pending an archival decision.
+
+The mobile submission contract (framework-agnostic; the Kotlin app implements it):
 
 ```text
 operator-mobile/
