@@ -15,36 +15,40 @@ import (
 )
 
 const (
-	goatLifecycleResultType         = "goat"
-	goatLifecyclePolicyVersion      = "goat-lifecycle-v1"
-	goatMovedEventType              = "goat.location.changed"
-	goatExitedEventType             = "goat.exited"
-	goatStageChangedEventType       = "goat.stage_changed"
-	goatHealthChangedEventType      = "goat.health.changed"
-	goatLifecycleAggregate          = "goat"
-	goatLifecycleSubject            = "goat"
-	goatLifecycleTopic              = "identity.events"
-	goatMovedDecisionType           = "move_goat"
-	goatMovedDecisionResult         = "goat_moved"
-	goatExitedDecisionType          = "exit_goat"
-	goatExitedDecisionResult        = "goat_exited"
-	goatStageChangedDecisionType    = "stage_goat"
-	goatStageChangedDecisionResult  = "goat_stage_changed"
-	goatHealthChangedDecisionType   = "health_goat"
-	goatHealthChangedDecisionResult = "goat_health_changed"
-	goatLocationHistoryReasonMove   = "admin_goat_move"
+	goatLifecycleResultType               = "goat"
+	goatLifecyclePolicyVersion            = "goat-lifecycle-v1"
+	goatMovedEventType                    = "goat.location.changed"
+	goatExitedEventType                   = "goat.exited"
+	goatStageChangedEventType             = "goat.stage_changed"
+	goatHealthChangedEventType            = "goat.health.changed"
+	goatReproductiveChangedEventType      = "goat.reproductive.changed"
+	goatLifecycleAggregate                = "goat"
+	goatLifecycleSubject                  = "goat"
+	goatLifecycleTopic                    = "identity.events"
+	goatMovedDecisionType                 = "move_goat"
+	goatMovedDecisionResult               = "goat_moved"
+	goatExitedDecisionType                = "exit_goat"
+	goatExitedDecisionResult              = "goat_exited"
+	goatStageChangedDecisionType          = "stage_goat"
+	goatStageChangedDecisionResult        = "goat_stage_changed"
+	goatHealthChangedDecisionType         = "health_goat"
+	goatHealthChangedDecisionResult       = "goat_health_changed"
+	goatReproductiveChangedDecisionType   = "reproductive_goat"
+	goatReproductiveChangedDecisionResult = "goat_reproductive_changed"
+	goatLocationHistoryReasonMove         = "admin_goat_move"
 )
 
 type goatMutationState struct {
-	LifecycleStatus string
-	MergedIntoGoatID *string
-	ManagementStage string
-	HealthStatus    string
-	RowVersion      int
-	CurrentLocation *string
-	FarmID          *string
-	ParkID          *string
-	ShedID          *string
+	LifecycleStatus    string
+	MergedIntoGoatID   *string
+	ManagementStage    string
+	HealthStatus       string
+	ReproductiveStatus string
+	RowVersion         int
+	CurrentLocation    *string
+	FarmID             *string
+	ParkID             *string
+	ShedID             *string
 }
 
 func (r *Repository) MoveGoat(ctx context.Context, cmd ports.MoveGoatCommand) (*ports.AdminGoatMutationResult, error) {
@@ -99,7 +103,7 @@ func (r *Repository) MoveGoat(ctx context.Context, cmd ports.MoveGoatCommand) (*
 	if err != nil {
 		return nil, err
 	}
-		if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
+	if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
 		return nil, ports.ErrWriteConflict
 	}
 	if state.ShedID != nil && *state.ShedID == cmd.ToShedID && state.ParkID != nil && *state.ParkID == cmd.ToParkID {
@@ -203,7 +207,7 @@ func (r *Repository) ExitGoat(ctx context.Context, cmd ports.ExitGoatCommand) (*
 	if err != nil {
 		return nil, err
 	}
-		if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
+	if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
 		return nil, ports.ErrWriteConflict
 	}
 	if criticalDeathExit(cmd.LifecycleStatus, cmd.ExitReason) && !cmd.GuardrailApproved {
@@ -306,7 +310,7 @@ func (r *Repository) StageGoat(ctx context.Context, cmd ports.StageGoatCommand) 
 	if !stageOK {
 		return nil, ports.ErrInvalidReference
 	}
-		if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
+	if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
 		return nil, ports.ErrWriteConflict
 	}
 	if state.ManagementStage == cmd.ManagementStage {
@@ -399,7 +403,7 @@ func (r *Repository) HealthGoat(ctx context.Context, cmd ports.HealthGoatCommand
 	if err != nil {
 		return nil, err
 	}
-		if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
+	if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
 		return nil, ports.ErrWriteConflict
 	}
 	if state.HealthStatus == cmd.HealthStatus {
@@ -439,6 +443,116 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		DecisionType:   goatHealthChangedDecisionType,
 		DecisionResult: goatHealthChangedDecisionResult,
 		EventType:      goatHealthChangedEventType,
+		OccurredAt:     cmd.OccurredAt,
+		Payload:        payload,
+		Scope: domain.LocationScope{
+			FarmID: state.FarmID,
+			ParkID: state.ParkID,
+			ShedID: state.ShedID,
+		},
+		AggregateType: goatLifecycleAggregate,
+		SubjectType:   goatLifecycleSubject,
+		SubjectID:     cmd.GoatID,
+	})
+}
+
+func (r *Repository) ReproductiveGoat(ctx context.Context, cmd ports.ReproductiveGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tenantUUID, err := uuidParam(cmd.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	actorUUID, err := uuidParam(cmd.ActorID)
+	if err != nil {
+		return nil, err
+	}
+	goatUUID, err := uuidParam(cmd.GoatID)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	qtx := r.queries.WithTx(tx)
+	if _, err = qtx.InsertIdempotencyStarted(ctx, identitydb.InsertIdempotencyStartedParams{
+		IdempotencyKey: cmd.StoredIdempotencyKey,
+		TenantID:       tenantUUID,
+		Scope:          cmd.IdempotencyScope,
+		RequestHash:    cmd.RequestHash,
+	}); errors.Is(err, pgx.ErrNoRows) {
+		return r.replayGoatLifecycleMutation(ctx, tx, qtx, tenantUUID, goatUUID, cmd.StoredIdempotencyKey, cmd.RequestHash)
+	} else if err != nil {
+		return nil, err
+	}
+
+	state, err := lockGoatForLifecycleMutation(ctx, tx, cmd.TenantID, cmd.GoatID)
+	if err != nil {
+		return nil, err
+	}
+	// Vocabulary is source-backed, not a hardcoded map: the target must be an active
+	// status_definitions(axis='reproductive') code (mirrors StageGoat's animal_stage_lookup check).
+	reproductiveOK, err := activeReproductiveStatusExists(ctx, tx, cmd.ReproductiveStatus)
+	if err != nil {
+		return nil, err
+	}
+	if !reproductiveOK {
+		return nil, ports.ErrInvalidReference
+	}
+	if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
+		return nil, ports.ErrWriteConflict
+	}
+	if state.ReproductiveStatus == cmd.ReproductiveStatus {
+		return nil, ports.ErrWriteConflict
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE goats
+SET reproductive_status = $3,
+    breeding_date = COALESCE($4, breeding_date),
+    last_delivery_date = COALESCE($5, last_delivery_date),
+    updated_at = $6::timestamptz,
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		cmd.TenantID, cmd.GoatID, cmd.ReproductiveStatus, nullableDate(cmd.BreedingDate), nullableDate(cmd.LastDeliveryDate), cmd.OccurredAt); err != nil {
+		return nil, err
+	}
+
+	payload := map[string]any{
+		"goat_id":                      cmd.GoatID,
+		"previous_reproductive_status": state.ReproductiveStatus,
+		"reproductive_status":          cmd.ReproductiveStatus,
+		"reason":                       cmd.Reason,
+		"row_version_from":             cmd.RowVersion,
+		"current_location_id":          stringValue(state.CurrentLocation),
+		"current_park_id":              stringValue(state.ParkID),
+		"current_shed_id":              stringValue(state.ShedID),
+		"scope_type":                   "goat",
+		"scope_id":                     cmd.GoatID,
+	}
+	if cmd.BreedingDate != nil {
+		payload["breeding_date"] = cmd.BreedingDate.UTC().Format("2006-01-02")
+	}
+	if cmd.LastDeliveryDate != nil {
+		payload["last_delivery_date"] = cmd.LastDeliveryDate.UTC().Format("2006-01-02")
+	}
+	return r.finishGoatLifecycleMutation(ctx, tx, qtx, &committed, goatLifecycleFinish{
+		TenantUUID:     tenantUUID,
+		ActorUUID:      actorUUID,
+		GoatUUID:       goatUUID,
+		AggregateUUID:  goatUUID,
+		Command:        goatLifecycleCommandFromReproductive(cmd),
+		DecisionType:   goatReproductiveChangedDecisionType,
+		DecisionResult: goatReproductiveChangedDecisionResult,
+		EventType:      goatReproductiveChangedEventType,
 		OccurredAt:     cmd.OccurredAt,
 		Payload:        payload,
 		Scope: domain.LocationScope{
@@ -535,6 +649,48 @@ func goatLifecycleCommandFromHealth(cmd ports.HealthGoatCommand) goatLifecycleCo
 		Reason:               cmd.Reason,
 		EvidenceRefs:         cmd.EvidenceRefs,
 	}
+}
+
+func goatLifecycleCommandFromReproductive(cmd ports.ReproductiveGoatCommand) goatLifecycleCommand {
+	return goatLifecycleCommand{
+		TenantID:             cmd.TenantID,
+		ActorID:              cmd.ActorID,
+		ClientIdempotencyKey: cmd.ClientIdempotencyKey,
+		StoredIdempotencyKey: cmd.StoredIdempotencyKey,
+		IdempotencyScope:     cmd.IdempotencyScope,
+		TraceID:              cmd.TraceID,
+		GoatID:               cmd.GoatID,
+		Reason:               cmd.Reason,
+		EvidenceRefs:         cmd.EvidenceRefs,
+	}
+}
+
+// activeReproductiveStatusExists validates a reproductive target against the source-backed
+// vocabulary (active status_definitions on the reproductive axis) instead of a hardcoded list.
+// status_definitions is a global reference table (no tenant scoping), matching the adminui read.
+func activeReproductiveStatusExists(ctx context.Context, tx pgx.Tx, statusCode string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM status_definitions
+  WHERE axis = 'reproductive'
+    AND active = true
+    AND status_code = $1
+)`, statusCode).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+// nullableDate maps an optional date to a pgtype.Date. A nil pointer becomes SQL NULL so the
+// COALESCE in the reproductive UPDATE keeps the stored value untouched.
+func nullableDate(value *time.Time) pgtype.Date {
+	if value == nil {
+		return pgtype.Date{}
+	}
+	return pgtype.Date{Time: *value, Valid: true}
 }
 
 func activeManagementStageExists(ctx context.Context, tx pgx.Tx, tenantID, stageCode string) (bool, error) {
@@ -721,7 +877,7 @@ func lockGoatForLifecycleMutation(ctx context.Context, tx pgx.Tx, tenantID, goat
 	var state goatMutationState
 	var mergedInto, currentLocation, farmID, parkID, shedID pgtype.UUID
 	err := tx.QueryRow(ctx, `
-	SELECT lifecycle_status, merged_into_goat_id, COALESCE(management_stage, ''), COALESCE(health_status, ''), row_version,
+	SELECT lifecycle_status, merged_into_goat_id, COALESCE(management_stage, ''), COALESCE(health_status, ''), COALESCE(reproductive_status, ''), row_version,
 	       current_location_id, farm_id, park_id, shed_id
 	FROM goats
 	WHERE tenant_id = $1::uuid AND goat_id = $2::uuid
@@ -730,6 +886,7 @@ func lockGoatForLifecycleMutation(ctx context.Context, tx pgx.Tx, tenantID, goat
 		&mergedInto,
 		&state.ManagementStage,
 		&state.HealthStatus,
+		&state.ReproductiveStatus,
 		&state.RowVersion,
 		&currentLocation,
 		&farmID,

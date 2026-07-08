@@ -16,8 +16,10 @@ import {
   commitAdminGoatBulkImport,
   createLocation,
   createAdminGoat,
+  getGoatPassport,
   listLocations,
   previewAdminGoatBulkImport,
+  reproductiveGoat,
   type AdminGoatBulkCommitRequest,
   type AdminGoatBulkResponse,
   type ApiResult,
@@ -25,6 +27,7 @@ import {
   type CreateLocationRequest,
   type LocationMutationResponse,
   type LocationSummary,
+  type ReproductiveGoatRequest,
 } from "@/lib/api/server";
 import { parseCSVRecords } from "./herd-import-utils";
 
@@ -219,6 +222,53 @@ export async function createShedAction(formData: FormData): Promise<void> {
       actionKey = actionErrorMessage(result.error);
     } else {
       revalidatePath(HERD_PATH);
+    }
+  } catch (error) {
+    void error;
+    status = "error";
+    actionKey = "action.error_form";
+  }
+  actionRedirect(formData, status, actionKey);
+}
+
+// Counts -> Herd Register reproductive edit. Records a reproductive status change on one goat. The value
+// list is backend-owned (herd_reproductive option group compiled from active reproductive
+// status_definitions); this action only forwards the operator's chosen key. row_version is read
+// server-side from the current passport (herd list rows do not carry it), so a concurrent edit fails
+// closed with a write conflict instead of silently clobbering. Idempotency-Key replays a double-submit.
+export async function reproductiveGoatAction(formData: FormData): Promise<void> {
+  let status: "success" | "error" = "success";
+  let actionKey = "action.reproductive_updated";
+  try {
+    const idempotencyKey = optionalString(formData, "idempotency_key") ?? randomUUID();
+    const goatId = requiredString(formData, "goat_id");
+    const reproductiveStatus = requiredString(formData, "reproductive_status");
+    const reason = requiredString(formData, "reproductive_reason");
+    const evidenceType = inEnum(optionalString(formData, "evidence_type") ?? "source_record", EVIDENCE_TYPES, "evidence_type");
+
+    const passport = await getGoatPassport(goatId);
+    if (!passport.ok) {
+      status = "error";
+      actionKey = actionErrorMessage(passport.error);
+    } else {
+      const body: ReproductiveGoatRequest = {
+        reproductive_status: reproductiveStatus,
+        reason,
+        evidence_refs: [{ evidence_type: evidenceType, evidence_id: `admin-reproductive:${idempotencyKey}` }],
+        row_version: passport.data.goat.row_version,
+      };
+      const breedingDate = optionalString(formData, "breeding_date");
+      if (breedingDate) body.breeding_date = breedingDate;
+      const lastDeliveryDate = optionalString(formData, "last_delivery_date");
+      if (lastDeliveryDate) body.last_delivery_date = lastDeliveryDate;
+
+      const result = await reproductiveGoat(goatId, body, idempotencyKey);
+      if (!result.ok) {
+        status = "error";
+        actionKey = actionErrorMessage(result.error);
+      } else {
+        revalidatePath(HERD_PATH);
+      }
     }
   } catch (error) {
     void error;

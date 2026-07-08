@@ -1304,6 +1304,20 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.goat_registered_no_generation":     "Herd animal registered; no vaccination generation applicable.",
 			"action.shed_registered":                   "Vaccination shed registered; it is now available for goat registration.",
 			"reason.report_pending":                    "No herd report API exists in this slice. New report stays disabled.",
+			"action.edit_reproductive":                 "Edit",
+			"action.save_reproductive":                 "Save status",
+			"action.reproductive_updated":              "Reproductive status updated; vaccination rechecks queued where applicable.",
+			"drawer.reproductive.title":                "Edit reproductive status",
+			"drawer.reproductive.subtitle":             "Records a reproductive status change → goat.reproductive.changed.",
+			"drawer.reproductive.aria":                 "Edit reproductive status",
+			"field.reproductive_status":                "Reproductive status",
+			"field.reproductive_reason":                "Reason",
+			"field.breeding_date":                      "Breeding / service date",
+			"field.last_delivery_date":                 "Last delivery date",
+			"option.select_reproductive_status":        "Select status",
+			"placeholder.reproductive_reason":          "e.g. ultrasound-confirmed pregnant on 12 Jun",
+			"note.reproductive_dates_optional":         "Breeding and last-delivery dates are optional pregnancy-timing facts; leave blank to keep the stored value.",
+			"reason.reproductive_unavailable":          "Reproductive status options are not configured for this tenant yet. Seed reproductive status definitions before editing.",
 			"drawer.shed_register.title":               "Register shed",
 			"drawer.shed_register.subtitle":            "Creates one active vaccination-usable shed under a real park.",
 			"drawer.register.title":                    "Register animal",
@@ -2999,6 +3013,13 @@ func herdRegisterOptionGroups() []domain.OptionGroup {
 				option("conflict", "conflict", "", "dng"),
 				option("skip", "skip", "", "mut"),
 			},
+		},
+		// herd_reproductive is a source-backed live-data family: compilePages replaces these (empty)
+		// options with the tenant's active reproductive status_definitions so the edit drawer never
+		// hardcodes a reproductive vocabulary. Empty here means "unavailable" until seeded.
+		{
+			ID:      "herd_reproductive",
+			Options: []domain.Option{},
 		},
 	}
 }

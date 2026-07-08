@@ -19,6 +19,7 @@ const (
 	criticalDeathGoatCommand = "criticalDeathGoat"
 	stageGoatCommand         = "stageGoat"
 	healthGoatCommand        = "healthGoat"
+	reproductiveGoatCommand  = "reproductiveGoat"
 )
 
 type MoveGoatInput struct {
@@ -49,6 +50,15 @@ type StageGoatInput struct {
 }
 
 type HealthGoatInput struct {
+	TenantID       string
+	ActorID        string
+	IdempotencyKey string
+	TraceID        string
+	GoatID         string
+	RawBody        []byte
+}
+
+type ReproductiveGoatInput struct {
 	TenantID       string
 	ActorID        string
 	IdempotencyKey string
@@ -267,6 +277,59 @@ func (s *Service) HealthGoat(ctx context.Context, input HealthGoatInput) (*domai
 	return adminGoatResponse(result, clientKey, input.TraceID), nil
 }
 
+func (s *Service) ReproductiveGoat(ctx context.Context, input ReproductiveGoatInput) (*domain.AdminGoatResponse, error) {
+	tenantID, actorID, clientKey, err := validateWriteHeaders(input.TenantID, input.ActorID, input.IdempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	goatID := strings.TrimSpace(input.GoatID)
+	if !uuidPattern.MatchString(goatID) {
+		return nil, BadRequest("invalid_goat_id", "goat_id must be a valid UUID")
+	}
+	body, err := decodeReproductiveGoat(input.RawBody)
+	if err != nil {
+		return nil, err
+	}
+	breedingDate, lastDeliveryDate, err := validateReproductiveGoat(body)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, Internal("reproductive goat request normalization failed")
+	}
+	route := "/admin/goats/{goat_id}/reproductive"
+	requestHash, err := CanonicalRequestHashWithSubject(tenantID, reproductiveGoatCommand, route, goatID, raw)
+	if err != nil {
+		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+	}
+	occurredAt := time.Now().UTC()
+	if body.OccurredAt != nil {
+		occurredAt = body.OccurredAt.UTC()
+	}
+	result, err := s.repo.ReproductiveGoat(ctx, ports.ReproductiveGoatCommand{
+		TenantID:             tenantID,
+		ActorID:              actorID,
+		ClientIdempotencyKey: clientKey,
+		StoredIdempotencyKey: fmt.Sprintf("%s:%s:%s:%s", tenantID, reproductiveGoatCommand, goatID, clientKey),
+		IdempotencyScope:     reproductiveGoatCommand,
+		RequestHash:          requestHash,
+		TraceID:              input.TraceID,
+		GoatID:               goatID,
+		ReproductiveStatus:   strings.TrimSpace(body.ReproductiveStatus),
+		BreedingDate:         breedingDate,
+		LastDeliveryDate:     lastDeliveryDate,
+		Reason:               strings.TrimSpace(body.Reason),
+		OccurredAt:           occurredAt,
+		EvidenceRefs:         body.EvidenceRefs,
+		RowVersion:           body.RowVersion,
+	})
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return adminGoatResponse(result, clientKey, input.TraceID), nil
+}
+
 func decodeMoveGoat(raw []byte) (*domain.MoveGoatRequest, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, BadRequest("invalid_json", "request body is required")
@@ -327,6 +390,23 @@ func decodeHealthGoat(raw []byte) (*domain.HealthGoatRequest, error) {
 	var body domain.HealthGoatRequest
 	if err := decoder.Decode(&body); err != nil {
 		return nil, BadRequest("invalid_json", "request body must match HealthGoatRequest")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, BadRequest("invalid_json", "request body must contain a single JSON object")
+	}
+	return &body, nil
+}
+
+func decodeReproductiveGoat(raw []byte) (*domain.ReproductiveGoatRequest, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, BadRequest("invalid_json", "request body is required")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var body domain.ReproductiveGoatRequest
+	if err := decoder.Decode(&body); err != nil {
+		return nil, BadRequest("invalid_json", "request body must match ReproductiveGoatRequest")
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
@@ -431,6 +511,55 @@ func validateHealthGoat(body *domain.HealthGoatRequest) error {
 		return BadRequest("invalid_row_version", "row_version must be positive")
 	}
 	return validateEvidenceRefs(body.EvidenceRefs, true)
+}
+
+// validateReproductiveGoat does structural validation only. The reproductive value itself is
+// validated against the source-backed vocabulary (active status_definitions on the reproductive
+// axis) inside the repository transaction, so no divergent status list is hardcoded here.
+func validateReproductiveGoat(body *domain.ReproductiveGoatRequest) (*time.Time, *time.Time, error) {
+	body.ReproductiveStatus = strings.TrimSpace(body.ReproductiveStatus)
+	body.Reason = strings.TrimSpace(body.Reason)
+	if len(body.ReproductiveStatus) < 1 || len(body.ReproductiveStatus) > 80 {
+		return nil, nil, BadRequest("invalid_reproductive_status", "reproductive_status must be between 1 and 80 characters")
+	}
+	if strings.ContainsAny(body.ReproductiveStatus, "\n\r\t") {
+		return nil, nil, BadRequest("invalid_reproductive_status", "reproductive_status must be a single line value")
+	}
+	if len(body.Reason) < 3 || len(body.Reason) > 500 {
+		return nil, nil, BadRequest("invalid_reason", "reason must be between 3 and 500 characters")
+	}
+	if body.RowVersion < 1 {
+		return nil, nil, BadRequest("invalid_row_version", "row_version must be positive")
+	}
+	breedingDate, err := optionalDateField("breeding_date", body.BreedingDate)
+	if err != nil {
+		return nil, nil, err
+	}
+	lastDeliveryDate, err := optionalDateField("last_delivery_date", body.LastDeliveryDate)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := validateEvidenceRefs(body.EvidenceRefs, true); err != nil {
+		return nil, nil, err
+	}
+	return breedingDate, lastDeliveryDate, nil
+}
+
+// optionalDateField parses an optional YYYY-MM-DD field. Absent or blank returns (nil, nil) so the
+// stored value is left untouched; a present-but-malformed value is rejected.
+func optionalDateField(field string, raw *string) (*time.Time, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	if strings.TrimSpace(*raw) == "" {
+		return nil, nil
+	}
+	parsed, err := parseDateField(field, *raw)
+	if err != nil {
+		return nil, BadRequest("invalid_"+field, field+" must be YYYY-MM-DD")
+	}
+	utc := parsed.UTC()
+	return &utc, nil
 }
 
 var allowedHealthStatuses = map[string]bool{

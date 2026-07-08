@@ -75,6 +75,7 @@ export type AdminGoatBulkRowResult = AdminApiComponents["schemas"]["AdminGoatBul
 export type AdminGoatBulkSummary = AdminApiComponents["schemas"]["AdminGoatBulkSummary"];
 export type GenerationStatus = AdminApiComponents["schemas"]["GenerationStatus"];
 export type StageGoatRequest = AdminApiComponents["schemas"]["StageGoatRequest"];
+export type ReproductiveGoatRequest = AdminApiComponents["schemas"]["ReproductiveGoatRequest"];
 export type CreateLocationRequest = AdminApiComponents["schemas"]["CreateLocationRequest"];
 export type LocationSummary = AdminApiComponents["schemas"]["LocationSummary"];
 export type LocationListResponse = AdminApiComponents["schemas"]["LocationListResponse"];
@@ -883,6 +884,29 @@ export async function stageGoat(
   if (!config.ok) return config;
   const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/goats/${encodeURIComponent(goatId)}/stage` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<AdminGoatResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+// Reproductive status write path. Mirrors stageGoat: POST /admin/goats/{goat_id}/reproductive with an
+// Idempotency-Key so a double-submit replays the original result. The reproductive value list is
+// backend-owned (herd-register contract option group `herd_reproductive`, compiled from active
+// reproductive status_definitions) — never a hardcoded UI vocabulary.
+export async function reproductiveGoat(
+  goatId: string,
+  body: ReproductiveGoatRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<AdminGoatResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/goats/${encodeURIComponent(goatId)}/reproductive` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<AdminGoatResponse>(path, {
       method: "POST",

@@ -73,6 +73,44 @@ func (s *Service) adminGoatRepository() (adminGoatRepository, error) {
 	return repo, nil
 }
 
+// reproductiveBulkMatcher is an optional capability: when the repository
+// implements it, bulk-import rows carrying reproductive_status that match an
+// existing goat are applied as a reproductive transition instead of being
+// rejected as a create conflict.
+type reproductiveBulkMatcher interface {
+	ResolveGoatForReproductiveBulkUpdate(ctx context.Context, cmd ports.ResolveReproductiveMatchCommand) (ports.ReproductiveMatchResult, error)
+}
+
+func (s *Service) reproductiveBulkMatcher() (reproductiveBulkMatcher, bool) {
+	matcher, ok := s.repo.(reproductiveBulkMatcher)
+	return matcher, ok
+}
+
+const bulkImportUpdateReproductiveDecision = "update_reproductive"
+
+// reproductiveUpdateCandidate reports whether a normalized row explicitly
+// carries a reproductive_status (the only trigger for the matched-existing
+// reproductive update path; rows without it keep their original create-conflict
+// behavior).
+func reproductiveUpdateCandidate(normalized *domain.AdminGoatCreateRequest) bool {
+	return normalized != nil && normalized.ReproductiveStatus != nil && strings.TrimSpace(*normalized.ReproductiveStatus) != ""
+}
+
+// onlyIdentifierOwnershipConflicts reports whether every conflict is an
+// identifier-already-owned conflict (i.e. the row is a clean match against an
+// existing goat rather than a bad reference).
+func onlyIdentifierOwnershipConflicts(conflicts []domain.FieldError) bool {
+	if len(conflicts) == 0 {
+		return false
+	}
+	for _, conflict := range conflicts {
+		if conflict.Code != "identifier_already_owned" {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Service) CreateAdminGoat(ctx context.Context, input CreateAdminGoatInput) (*domain.AdminGoatResponse, error) {
 	tenantID, actorID, clientKey, err := validateWriteHeaders(input.TenantID, input.ActorID, input.IdempotencyKey)
 	if err != nil {
@@ -177,9 +215,16 @@ func (s *Service) PreviewAdminGoatBulkImport(ctx context.Context, input PreviewA
 			}
 			result.Warnings = append(result.Warnings, warnings...)
 		}
+		if result.Decision == "requires_review" && reproductiveUpdateCandidate(normalized) && onlyIdentifierOwnershipConflicts(result.Errors) {
+			if err := s.previewReproductiveBulkUpdate(ctx, input.TenantID, normalized, &result); err != nil {
+				return nil, mapRepoErr(err)
+			}
+		}
 		switch result.Decision {
 		case "create":
 			response.Summary.CreateReady++
+		case bulkImportUpdateReproductiveDecision:
+			response.Summary.UpdateReady++
 		case "requires_review":
 			response.Summary.RequiresReview++
 		default:
@@ -276,6 +321,16 @@ func (s *Service) CommitAdminGoatBulkImport(ctx context.Context, input CommitAdm
 			response.Rows = append(response.Rows, rowResult)
 			continue
 		}
+		if len(conflicts) > 0 && reproductiveUpdateCandidate(normalized) && onlyIdentifierOwnershipConflicts(conflicts) {
+			handled, err := s.commitReproductiveBulkUpdate(ctx, tenantID, actorID, clientKey, input.TraceID, rowNumber, normalized, &rowResult, response)
+			if err != nil {
+				return nil, err
+			}
+			if handled {
+				response.Rows = append(response.Rows, rowResult)
+				continue
+			}
+		}
 		if len(conflicts) > 0 {
 			rowResult.Decision = "requires_review"
 			rowResult.GenerationStatus = "skipped_needs_review"
@@ -317,6 +372,7 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	trimOptionalString(&normalized.Breed)
 	trimOptionalString(&normalized.ManagementStage)
 	trimOptionalString(&normalized.HealthStatus)
+	trimOptionalString(&normalized.ReproductiveStatus)
 	trimOptionalString(&normalized.DamID)
 	trimOptionalString(&normalized.SireOrLot)
 	trimOptionalString(&normalized.PhotoURL)
@@ -583,21 +639,22 @@ func parseAdminGoatCSV(raw string) ([]parsedAdminGoatCSVRow, error) {
 		rowNumber, _ := reader.FieldPos(0)
 		sourceID := fmt.Sprintf("bulk-csv-row:%d", rowNumber)
 		req := domain.AdminGoatCreateRequest{
-			AnimalIdentifier1: optionalCSV(rec, headers, "animal_identifier_1"),
-			AnimalIdentifier2: optionalCSV(rec, headers, "animal_identifier_2"),
-			FarmCode:          optionalCSV(rec, headers, "farm"),
-			Species:           valueCSV(rec, headers, "species"),
-			ParkID:            optionalCSV(rec, headers, "park_id"),
-			ParkCode:          optionalCSV(rec, headers, "park"),
-			ShedID:            optionalCSV(rec, headers, "shed_id"),
-			ShedCode:          optionalCSV(rec, headers, "shed"),
-			Breed:             optionalCSV(rec, headers, "breed"),
-			ManagementStage:   optionalCSV(rec, headers, "management_stage"),
-			Sex:               valueCSV(rec, headers, "sex"),
-			DOB:               optionalCSV(rec, headers, "dob"),
-			OriginType:        valueCSV(rec, headers, "origin"),
-			PhotoURL:          optionalCSV(rec, headers, "photo_url"),
-			SourceRecordID:    &sourceID,
+			AnimalIdentifier1:  optionalCSV(rec, headers, "animal_identifier_1"),
+			AnimalIdentifier2:  optionalCSV(rec, headers, "animal_identifier_2"),
+			FarmCode:           optionalCSV(rec, headers, "farm"),
+			Species:            valueCSV(rec, headers, "species"),
+			ParkID:             optionalCSV(rec, headers, "park_id"),
+			ParkCode:           optionalCSV(rec, headers, "park"),
+			ShedID:             optionalCSV(rec, headers, "shed_id"),
+			ShedCode:           optionalCSV(rec, headers, "shed"),
+			Breed:              optionalCSV(rec, headers, "breed"),
+			ManagementStage:    optionalCSV(rec, headers, "management_stage"),
+			ReproductiveStatus: optionalCSV(rec, headers, "reproductive_status"),
+			Sex:                valueCSV(rec, headers, "sex"),
+			DOB:                optionalCSV(rec, headers, "dob"),
+			OriginType:         valueCSV(rec, headers, "origin"),
+			PhotoURL:           optionalCSV(rec, headers, "photo_url"),
+			SourceRecordID:     &sourceID,
 			EvidenceRefs: []domain.EvidenceRef{{
 				EvidenceType: "source_record",
 				EvidenceID:   sourceID,
@@ -669,11 +726,145 @@ func (s *Service) normalizeBulkCommitRowsForPreviewToken(ctx context.Context, te
 func previewCommitRows(rows []domain.AdminGoatBulkRowResult) []domain.AdminGoatBulkCommitRow {
 	out := make([]domain.AdminGoatBulkCommitRow, 0, len(rows))
 	for _, row := range rows {
-		if row.Decision == "create" && row.Normalized != nil {
+		committable := row.Decision == "create" || row.Decision == bulkImportUpdateReproductiveDecision
+		if committable && row.Normalized != nil {
 			out = append(out, domain.AdminGoatBulkCommitRow{RowNumber: row.RowNumber, Normalized: row.Normalized})
 		}
 	}
 	return out
+}
+
+// adminGoatIdentifiersForMatch builds the normalized identifier lookup keys used
+// to resolve a matched-existing goat, mirroring normalizeAdminGoatCreate.
+func adminGoatIdentifiersForMatch(normalized *domain.AdminGoatCreateRequest) []ports.AdminGoatCreateIdentifier {
+	identifiers := make([]ports.AdminGoatCreateIdentifier, 0, 2)
+	if normalized.AnimalIdentifier1 != nil {
+		identifiers = append(identifiers, ports.AdminGoatCreateIdentifier{
+			IdentifierType:  "animal_identifier_1",
+			NormalizedValue: normalizeIdentifier("animal_identifier_1", *normalized.AnimalIdentifier1),
+		})
+	}
+	if normalized.AnimalIdentifier2 != nil {
+		identifiers = append(identifiers, ports.AdminGoatCreateIdentifier{
+			IdentifierType:  "animal_identifier_2",
+			NormalizedValue: normalizeIdentifier("animal_identifier_2", *normalized.AnimalIdentifier2),
+		})
+	}
+	return identifiers
+}
+
+func reproductiveBulkSourceRef(normalized *domain.AdminGoatCreateRequest, rowNumber int) string {
+	if normalized.SourceRecordID != nil && strings.TrimSpace(*normalized.SourceRecordID) != "" {
+		return strings.TrimSpace(*normalized.SourceRecordID)
+	}
+	return fmt.Sprintf("bulk-import-row:%d", rowNumber)
+}
+
+// previewReproductiveBulkUpdate reclassifies a matched-existing row (identifier
+// already owned) that carries a differing reproductive_status from a create
+// conflict into an actionable reproductive update, capturing match_confidence
+// and source_ref. It does not mutate anything.
+func (s *Service) previewReproductiveBulkUpdate(ctx context.Context, tenantID string, normalized *domain.AdminGoatCreateRequest, result *domain.AdminGoatBulkRowResult) error {
+	matcher, ok := s.reproductiveBulkMatcher()
+	if !ok {
+		return nil
+	}
+	match, err := matcher.ResolveGoatForReproductiveBulkUpdate(ctx, ports.ResolveReproductiveMatchCommand{
+		TenantID:    tenantID,
+		Identifiers: adminGoatIdentifiersForMatch(normalized),
+	})
+	if err != nil {
+		return err
+	}
+	if !match.Matched {
+		return nil
+	}
+	target := strings.TrimSpace(*normalized.ReproductiveStatus)
+	if match.CurrentReproductiveStatus == target {
+		// Already at target: nothing to change; leave as requires_review no-op.
+		return nil
+	}
+	goatID := match.GoatID
+	confidence := match.MatchConfidence
+	result.Decision = bulkImportUpdateReproductiveDecision
+	result.Errors = []domain.FieldError{}
+	result.GenerationStatus = "queued"
+	result.MatchedGoatID = &goatID
+	result.MatchConfidence = &confidence
+	result.SourceRef = normalized.SourceRecordID
+	return nil
+}
+
+// commitReproductiveBulkUpdate applies a matched-existing reproductive update via
+// the event-emitting ReproductiveGoat transition (expected_row_version no-clobber
+// captured from the matched goat's current row_version). It returns handled=true
+// when it took ownership of the row (applied or definitively failed); handled=
+// false lets the caller fall back to the normal create-conflict handling
+// (unmatched / blocked / no-op / capability absent).
+func (s *Service) commitReproductiveBulkUpdate(ctx context.Context, tenantID, actorID, clientKey, traceID string, rowNumber int, normalized *domain.AdminGoatCreateRequest, rowResult *domain.AdminGoatBulkRowResult, response *domain.AdminGoatBulkResponse) (bool, error) {
+	matcher, ok := s.reproductiveBulkMatcher()
+	if !ok {
+		return false, nil
+	}
+	match, err := matcher.ResolveGoatForReproductiveBulkUpdate(ctx, ports.ResolveReproductiveMatchCommand{
+		TenantID:    tenantID,
+		Identifiers: adminGoatIdentifiersForMatch(normalized),
+	})
+	if err != nil {
+		return false, mapRepoErr(err)
+	}
+	if !match.Matched {
+		return false, nil
+	}
+	target := strings.TrimSpace(*normalized.ReproductiveStatus)
+	if match.CurrentReproductiveStatus == target {
+		return false, nil
+	}
+	goatID := match.GoatID
+	confidence := match.MatchConfidence
+	rowResult.MatchedGoatID = &goatID
+	rowResult.MatchConfidence = &confidence
+	rowResult.SourceRef = normalized.SourceRecordID
+
+	evidence := normalized.EvidenceRefs
+	if len(evidence) == 0 {
+		sourceSystem := "bulk_import"
+		evidence = []domain.EvidenceRef{{
+			EvidenceType: "source_record",
+			EvidenceID:   reproductiveBulkSourceRef(normalized, rowNumber),
+			SourceSystem: &sourceSystem,
+		}}
+	}
+	body, err := json.Marshal(domain.ReproductiveGoatRequest{
+		ReproductiveStatus: target,
+		Reason:             fmt.Sprintf("Bulk import reproductive update (row %d)", rowNumber),
+		EvidenceRefs:       evidence,
+		RowVersion:         match.RowVersion,
+	})
+	if err != nil {
+		return false, Internal("bulk reproductive update normalization failed")
+	}
+	resp, applyErr := s.ReproductiveGoat(ctx, ReproductiveGoatInput{
+		TenantID:       tenantID,
+		ActorID:        actorID,
+		IdempotencyKey: rowIdempotencyKey(clientKey, rowNumber),
+		TraceID:        traceID,
+		GoatID:         goatID,
+		RawBody:        body,
+	})
+	if applyErr != nil {
+		rowResult.Decision = "requires_review"
+		rowResult.GenerationStatus = "skipped_needs_review"
+		rowResult.Errors = []domain.FieldError{{Field: "reproductive_status", Code: "update_failed", Message: applyErr.Error()}}
+		response.Summary.Failed++
+		return true, nil
+	}
+	rowResult.Decision = bulkImportUpdateReproductiveDecision
+	rowResult.Errors = []domain.FieldError{}
+	rowResult.GenerationStatus = "updated"
+	rowResult.Result = resp
+	response.Summary.Updated++
+	return true, nil
 }
 
 type bulkPreviewTokenRow struct {
@@ -804,6 +995,8 @@ func normalizeHeader(value string) string {
 		return "animal_identifier_2"
 	case "management_stage", "managementstage", "animal_stage", "animalstage", "stage":
 		return "management_stage"
+	case "reproductive_status", "reproductivestatus", "repro_status", "reprostatus":
+		return "reproductive_status"
 	case "weightkg", "weight_kg":
 		return "weight_kg"
 	case "sire_lot", "sire_or_lot":

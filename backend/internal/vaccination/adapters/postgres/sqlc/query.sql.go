@@ -346,7 +346,7 @@ func (q *Queries) GetAcceptableVaccinationCompletionByIdempotency(ctx context.Co
 }
 
 const getGoatForGeneration = `-- name: GetGoatForGeneration :one
-SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
+SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_delivery_date, g.lifecycle_status,
        COALESCE(g.health_status, '')::text AS health_status,
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
        COALESCE(g.species, 'goat')::text AS species,
@@ -399,6 +399,8 @@ type GetGoatForGenerationRow struct {
 	GoatID               string
 	Dob                  pgtype.Date
 	EntryDate            pgtype.Date
+	BreedingDate         pgtype.Date
+	LastDeliveryDate     pgtype.Date
 	LifecycleStatus      string
 	HealthStatus         string
 	ReproductiveStatus   string
@@ -423,6 +425,8 @@ func (q *Queries) GetGoatForGeneration(ctx context.Context, arg GetGoatForGenera
 		&i.GoatID,
 		&i.Dob,
 		&i.EntryDate,
+		&i.BreedingDate,
+		&i.LastDeliveryDate,
 		&i.LifecycleStatus,
 		&i.HealthStatus,
 		&i.ReproductiveStatus,
@@ -512,7 +516,7 @@ func (q *Queries) GetRecordedVaccinationCompletion(ctx context.Context, arg GetR
 }
 
 const listEligibleGoatsForGeneration = `-- name: ListEligibleGoatsForGeneration :many
-SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
+SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_delivery_date, g.lifecycle_status,
        COALESCE(g.health_status, '')::text AS health_status,
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
        COALESCE(g.species, 'goat')::text AS species,
@@ -580,6 +584,8 @@ type ListEligibleGoatsForGenerationRow struct {
 	GoatID               string
 	Dob                  pgtype.Date
 	EntryDate            pgtype.Date
+	BreedingDate         pgtype.Date
+	LastDeliveryDate     pgtype.Date
 	LifecycleStatus      string
 	HealthStatus         string
 	ReproductiveStatus   string
@@ -621,6 +627,8 @@ func (q *Queries) ListEligibleGoatsForGeneration(ctx context.Context, arg ListEl
 			&i.GoatID,
 			&i.Dob,
 			&i.EntryDate,
+			&i.BreedingDate,
+			&i.LastDeliveryDate,
 			&i.LifecycleStatus,
 			&i.HealthStatus,
 			&i.ReproductiveStatus,

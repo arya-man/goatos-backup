@@ -14,6 +14,9 @@ import (
 	adminuihttp "github.com/vgoats/goatos/backend/internal/adminui/adapters/http"
 	adminuipg "github.com/vgoats/goatos/backend/internal/adminui/adapters/postgres"
 	adminuiapp "github.com/vgoats/goatos/backend/internal/adminui/app"
+	bulkstatushttp "github.com/vgoats/goatos/backend/internal/bulkstatus/adapters/http"
+	bulkstatuspg "github.com/vgoats/goatos/backend/internal/bulkstatus/adapters/postgres"
+	bulkstatusapp "github.com/vgoats/goatos/backend/internal/bulkstatus/app"
 	calendarhttp "github.com/vgoats/goatos/backend/internal/calendar/adapters/http"
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
@@ -224,6 +227,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	identityRepo := identitypg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	identityService := identityapp.NewService(identityRepo).WithBulkPreviewSigningKey(bulkPreviewSigningKey)
 	identityHandler := identityhttp.NewHandler(identityService, log)
+	bulkStatusRepo := bulkstatuspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	bulkStatusService := bulkstatusapp.NewService(bulkStatusRepo, bulkStatusRepo).WithSigningKey(bulkPreviewSigningKey)
+	bulkStatusHandler := bulkstatushttp.NewHandler(bulkStatusService, log)
 	locationsRepo := locationspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	locationsService := locationsapp.NewService(locationsRepo)
 	locationsHandler := locationshttp.NewHandler(locationsService, log)
@@ -315,6 +321,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	identityhttp.Register(protectedMux, identityHandler)
+	bulkstatushttp.Register(protectedMux, bulkStatusHandler)
 	locationshttp.Register(protectedMux, locationsHandler)
 	workforcehttp.Register(protectedMux, workforceHandler)
 	proofhttp.Register(protectedMux, proofHandler)

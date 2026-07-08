@@ -114,6 +114,7 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/exit"},
 		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/critical-death-exit"},
 		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/health"},
+		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/reproductive"},
 		{"GET", "/operations/audit"},
 		{"GET", "/operations/audit/summary"},
 		{"GET", "/operations/kernel-health"},

@@ -1740,7 +1740,7 @@ func timestamptzValue(t pgtype.Timestamptz) *time.Time {
 
 func eligibleGoatFromGenerationRow(
 	goatID string,
-	dob, entryDate pgtype.Date,
+	dob, entryDate, breedingDate, lastDeliveryDate pgtype.Date,
 	lifecycle, health, reproductive, species, originType string,
 	warmingEntryAt pgtype.Timestamptz,
 	shedID, parkID, sex, breed, stage, ageBand string,
@@ -1750,6 +1750,8 @@ func eligibleGoatFromGenerationRow(
 		GoatID:               goatID,
 		DOB:                  pgconv.DateValue(dob),
 		EntryDate:            pgconv.DateValue(entryDate),
+		BreedingDate:         pgconv.DateValue(breedingDate),
+		LastDeliveryDate:     pgconv.DateValue(lastDeliveryDate),
 		WarmingEntryAt:       timestamptzValue(warmingEntryAt),
 		Species:              species,
 		OriginType:           originType,
@@ -1805,7 +1807,7 @@ func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domai
 	out := make([]domain.EligibleGoat, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, eligibleGoatFromGenerationRow(
-			row.GoatID, row.Dob, row.EntryDate,
+			row.GoatID, row.Dob, row.EntryDate, row.BreedingDate, row.LastDeliveryDate,
 			row.LifecycleStatus, row.HealthStatus, row.ReproductiveStatus, row.Species, row.OriginType,
 			row.WarmingEntryAt,
 			row.ShedID, row.ParkID, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
@@ -1834,7 +1836,7 @@ WITH compiled AS (
       AND prd.category = 'vaccination'
   ) AS has_dimensions
 )
-SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
+SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_delivery_date, g.lifecycle_status,
        COALESCE(g.health_status, '')::text AS health_status,
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
        COALESCE(g.species, 'goat')::text AS species,
@@ -1925,7 +1927,7 @@ LIMIT $9`, tenant, vid, f.Stage, f.Sex, f.Breed, pgconv.NullableUUID(f.ParkID), 
 		var (
 			goatID, lifecycle, health, reproductive, species, originType string
 			shedID, parkID, sex, breed, stage, ageBand                   string
-			dob, entryDate                                               pgtype.Date
+			dob, entryDate, breedingDate, lastDeliveryDate               pgtype.Date
 			warmingEntryAt                                               pgtype.Timestamptz
 			locationIsQuarantine, locationIsICU                          bool
 		)
@@ -1933,6 +1935,8 @@ LIMIT $9`, tenant, vid, f.Stage, f.Sex, f.Breed, pgconv.NullableUUID(f.ParkID), 
 			&goatID,
 			&dob,
 			&entryDate,
+			&breedingDate,
+			&lastDeliveryDate,
 			&lifecycle,
 			&health,
 			&reproductive,
@@ -1951,7 +1955,7 @@ LIMIT $9`, tenant, vid, f.Stage, f.Sex, f.Breed, pgconv.NullableUUID(f.ParkID), 
 			return nil, fmt.Errorf("vaccination: scan eligible goat by compiled dimensions: %w", err)
 		}
 		out = append(out, eligibleGoatFromGenerationRow(
-			goatID, dob, entryDate,
+			goatID, dob, entryDate, breedingDate, lastDeliveryDate,
 			lifecycle, health, reproductive, species, originType,
 			warmingEntryAt,
 			shedID, parkID, sex, breed, stage, ageBand,
@@ -1984,7 +1988,7 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 		return domain.EligibleGoat{}, false, fmt.Errorf("vaccination: get goat for generation: %w", err)
 	}
 	return eligibleGoatFromGenerationRow(
-		row.GoatID, row.Dob, row.EntryDate,
+		row.GoatID, row.Dob, row.EntryDate, row.BreedingDate, row.LastDeliveryDate,
 		row.LifecycleStatus, row.HealthStatus, row.ReproductiveStatus, row.Species, row.OriginType,
 		row.WarmingEntryAt,
 		row.ShedID, row.ParkID, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,

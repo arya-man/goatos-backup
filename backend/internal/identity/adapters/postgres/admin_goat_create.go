@@ -776,6 +776,72 @@ SELECT EXISTS (
 	return nil
 }
 
+// ResolveGoatForReproductiveBulkUpdate resolves whether a bulk-import row's
+// identifiers point to a single existing goat that can take a reproductive
+// update. It reuses the same lifetime-ownership lookup used for create conflict
+// detection: every provided identifier must resolve to the SAME goat (any that
+// resolves elsewhere makes the match ambiguous and is rejected). Match
+// confidence is the fraction of provided identifiers that matched that goat.
+func (r *Repository) ResolveGoatForReproductiveBulkUpdate(ctx context.Context, cmd ports.ResolveReproductiveMatchCommand) (ports.ReproductiveMatchResult, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	var result ports.ReproductiveMatchResult
+	if len(cmd.Identifiers) == 0 {
+		return result, nil
+	}
+	matchedGoat := ""
+	matchedCount := 0
+	for _, identifier := range cmd.Identifiers {
+		goatID, err := r.identifierLifetimeConflict(ctx, cmd.TenantID, identifier.NormalizedValue)
+		if err != nil {
+			return ports.ReproductiveMatchResult{}, err
+		}
+		if goatID == "" {
+			continue
+		}
+		if matchedGoat == "" {
+			matchedGoat = goatID
+		} else if matchedGoat != goatID {
+			// Identifiers point at different goats: ambiguous, not a clean match.
+			return ports.ReproductiveMatchResult{}, nil
+		}
+		matchedCount++
+	}
+	if matchedGoat == "" {
+		return result, nil
+	}
+
+	var lifecycle, reproductive string
+	var rowVersion int
+	var merged bool
+	err := r.pool.QueryRow(ctx, `
+SELECT lifecycle_status, COALESCE(reproductive_status, ''), row_version, merged_into_goat_id IS NOT NULL
+FROM goats
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, cmd.TenantID, matchedGoat).Scan(&lifecycle, &reproductive, &rowVersion, &merged)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return result, nil
+	}
+	if err != nil {
+		return ports.ReproductiveMatchResult{}, err
+	}
+	result.GoatID = matchedGoat
+	result.CurrentReproductiveStatus = reproductive
+	result.RowVersion = rowVersion
+	result.MatchConfidence = float64(matchedCount) / float64(len(cmd.Identifiers))
+	if merged || exitedLifecycleStatus(lifecycle) {
+		result.Blocked = true
+		if merged {
+			result.BlockReason = "goat identity has been merged into a survivor"
+		} else {
+			result.BlockReason = "goat has already exited the active herd"
+		}
+		return result, nil
+	}
+	result.Matched = true
+	return result, nil
+}
+
 func (r *Repository) identifierLifetimeConflict(ctx context.Context, tenantID, normalizedValue string) (string, error) {
 	var goatID string
 	err := r.pool.QueryRow(ctx, `

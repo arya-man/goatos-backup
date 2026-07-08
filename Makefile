@@ -4,7 +4,7 @@ GOATOS_DEV_DASHBOARD_ADMIN_EMAILS ?= abhishek@mesha.sg aryaman@mesha.sg manju@me
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants verify-google-dev-seed-fixtures high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
+.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants verify-google-dev-seed-fixtures high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 
 setup-crg: ai-setup
@@ -166,6 +166,24 @@ high-scale-kernel-e2e-data:
 
 high-scale-kernel-e2e-certification:
 	GOATOS_KERNEL_E2E_CERTIFICATION=1 GOATOS_KERNEL_E2E_ALLOW_NOT_IMPLEMENTED=0 GOATOS_KERNEL_E2E_ALLOW_LOCAL_CHECKSUM_DRIFT=0 GOATOS_KERNEL_E2E_RUN_BROWSER=1 bash tools/dev/high-scale-kernel-e2e-all.sh
+
+# Focused bulk status-update kernel integration tests (docker Postgres, all
+# migrations). Runs in the normal suite when docker is present; here as a target
+# for convenience. Proves the worker -> identity transition path end to end.
+bulk-status-kernel-it:
+	cd backend && go test ./internal/bulkstatus/... -count=1 -v
+
+# Opt-in 1,000,000-row bulk status kernel gate (build tag scale_kernel). Seeds +
+# drains a 1M-row job against a throwaway Postgres and asserts zero double-apply,
+# zero missing outbox, zero stuck rows, crash/resume, bounded locks, throttle, and
+# prints drain-time/throughput/backlog. Override GOATOS_SCALE_GATE_ROWS to resize.
+scale-kernel-gate:
+	cd backend && go test -tags scale_kernel -run TestBulkStatusKernelScaleGate -count=1 -v -timeout 90m ./tests/scale/...
+
+# Faster smoke of the same gate at a smaller row count (still exercises every
+# assertion, crash/resume and throttle).
+scale-kernel-gate-smoke:
+	cd backend && GOATOS_SCALE_GATE_ROWS=$${GOATOS_SCALE_GATE_ROWS:-20000} go test -tags scale_kernel -run TestBulkStatusKernelScaleGate -count=1 -v -timeout 20m ./tests/scale/...
 
 admin-web-e2e-smoke:
 	bash tools/dev/admin-web-e2e-smoke.sh

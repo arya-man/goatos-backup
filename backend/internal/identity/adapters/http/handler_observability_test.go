@@ -59,6 +59,9 @@ func (r errRepo) StageGoat(context.Context, ports.StageGoatCommand) (*ports.Admi
 func (r errRepo) HealthGoat(context.Context, ports.HealthGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	return nil, r.err
 }
+func (r errRepo) ReproductiveGoat(context.Context, ports.ReproductiveGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	return nil, r.err
+}
 func (r errRepo) Ping(context.Context) error { return r.err }
 
 // newFakeService constructs an app.Service backed by a fake repo.

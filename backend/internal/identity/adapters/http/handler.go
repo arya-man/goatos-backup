@@ -45,6 +45,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /admin/goats/{goat_id}/critical-death-exit", h.CriticalDeathExit)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/stage", h.StageGoat)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/health", h.HealthGoat)
+	mux.HandleFunc("POST /admin/goats/{goat_id}/reproductive", h.ReproductiveGoat)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers", h.AddGoatIdentifier)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire", h.RetireGoatIdentifier)
 }
@@ -222,6 +223,22 @@ func (h *Handler) HealthGoat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.service.HealthGoat(r.Context(), app.HealthGoatInput{
+		TenantID:       tenantID(r),
+		ActorID:        actorID(r),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		GoatID:         r.PathValue("goat_id"),
+		RawBody:        body,
+	})
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) ReproductiveGoat(w http.ResponseWriter, r *http.Request) {
+	body, ok := readBody(w, r, 1<<20)
+	if !ok {
+		return
+	}
+	result, err := h.service.ReproductiveGoat(r.Context(), app.ReproductiveGoatInput{
 		TenantID:       tenantID(r),
 		ActorID:        actorID(r),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),

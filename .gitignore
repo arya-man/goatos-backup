@@ -57,6 +57,8 @@ Screenshots/
 .codex-exports/
 .understand-anything/
 **/.claude/launch.json
+# local durable-store scratch (bulk-status worker / dev runtime state)
+/data/
 .code-review-graph/
 
 # graphify: commit ONLY the generation skills/scripts (tools/agent-hooks/*.sh),

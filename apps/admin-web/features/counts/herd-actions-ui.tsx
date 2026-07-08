@@ -8,12 +8,12 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, Download, Plus, Upload, X } from "lucide-react";
+import { AlertTriangle, Check, Download, Plus, SquarePen, Upload, X } from "lucide-react";
 
 import { Tag, type Tone } from "@/components/ui-primitives";
 import type { LocationOption } from "@/lib/api/herd-locations";
 import type { AdminGoatBulkResponse, CreateAdminGoatRequest } from "@/lib/api/server";
-import { copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalOptionGroup, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { todayIso } from "@/lib/format";
 import {
   commitGoatsAction,
@@ -22,6 +22,7 @@ import {
   createShedAction,
   previewGoatsAction,
   previewShedsAction,
+  reproductiveGoatAction,
   type ShedImportCommitRow,
   type ShedImportResponse,
 } from "./herd-actions";
@@ -1074,6 +1075,105 @@ export function HerdActions({
       />
       <BulkImportDrawer open={openDrawer === "bulk"} onClose={() => setOpenDrawer(null)} pageContract={pageContract} />
       <ShedImportDrawer open={openDrawer === "shed-bulk"} onClose={() => setOpenDrawer(null)} pageContract={pageContract} />
+    </>
+  );
+}
+
+// ---- Reproductive status edit (record drawer affordance) ----
+// Sits beside the read-only reproductive Tag in the Animal Passport record drawer. The status choices come
+// only from the backend-owned `herd_reproductive` option group (compiled from active reproductive
+// status_definitions) — no hardcoded vocabulary. When that group is empty the control is disabled with a
+// backend-owned reason instead of falling back to a made-up list. row_version is resolved server-side.
+export function HerdReproductiveEdit({
+  goatId,
+  displayId,
+  currentStatus,
+  idempotencyKey,
+  returnTo,
+  pageContract,
+}: {
+  goatId: string;
+  displayId: string;
+  currentStatus: string | null | undefined;
+  idempotencyKey: string;
+  returnTo: string;
+  pageContract: AdminUiPageContract;
+}) {
+  const [open, setOpen] = useState(false);
+  const options = optionalOptionGroup(pageContract, "herd_reproductive");
+  const canEdit = options.length > 0;
+  const defaultStatus = options.some((option) => option.key === currentStatus) ? (currentStatus ?? "") : "";
+
+  return (
+    <>
+      <button
+        type="button"
+        className="btn sm"
+        onClick={() => setOpen(true)}
+        disabled={!canEdit}
+        aria-disabled={!canEdit}
+        title={canEdit ? undefined : copy(pageContract, "reason.reproductive_unavailable")}
+        style={canEdit ? undefined : { opacity: 0.5, cursor: "not-allowed" }}
+      >
+        <SquarePen className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.edit_reproductive")}
+      </button>
+
+      <Drawer
+        open={open && canEdit}
+        onClose={() => setOpen(false)}
+        closeLabel={copy(pageContract, "action.close")}
+        title={copy(pageContract, "drawer.reproductive.title")}
+        subtitle={`${displayId} · ${copy(pageContract, "drawer.reproductive.subtitle")}`}
+        width={560}
+      >
+        {/* Submits the operator's chosen backend status key; the action reads current row_version + writes. */}
+        <form action={reproductiveGoatAction} onSubmit={() => setOpen(false)} className="fld" style={{ margin: 0 }}>
+          <input type="hidden" name="goat_id" value={goatId} />
+          <input type="hidden" name="idempotency_key" value={idempotencyKey} />
+          <input type="hidden" name="return_to" value={returnTo} />
+          <input type="hidden" name="evidence_type" value="source_record" />
+
+          <div className="fld">
+            <label htmlFor="repro_status">{copy(pageContract, "field.reproductive_status")}</label>
+            <select id="repro_status" name="reproductive_status" required defaultValue={defaultStatus}>
+              <option value="" disabled>{copy(pageContract, "option.select_reproductive_status")}</option>
+              {options.map((option) => (
+                <option key={option.key} value={option.key}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <Row>
+            <div className="fld" style={{ flex: 1, minWidth: 160 }}>
+              <label htmlFor="repro_breeding_date">{copy(pageContract, "field.breeding_date")}</label>
+              <input id="repro_breeding_date" name="breeding_date" type="date" />
+            </div>
+            <div className="fld" style={{ flex: 1, minWidth: 160 }}>
+              <label htmlFor="repro_last_delivery_date">{copy(pageContract, "field.last_delivery_date")}</label>
+              <input id="repro_last_delivery_date" name="last_delivery_date" type="date" />
+            </div>
+          </Row>
+          <div className="note" style={{ marginBottom: 12 }}>{copy(pageContract, "note.reproductive_dates_optional")}</div>
+
+          <div className="fld">
+            <label htmlFor="repro_reason">{copy(pageContract, "field.reproductive_reason")}</label>
+            <textarea
+              id="repro_reason"
+              name="reproductive_reason"
+              rows={3}
+              required
+              minLength={3}
+              maxLength={500}
+              placeholder={copy(pageContract, "placeholder.reproductive_reason")}
+            />
+          </div>
+
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", paddingTop: 4 }}>
+            <button type="button" className="btn" onClick={() => setOpen(false)}>{copy(pageContract, "action.cancel")}</button>
+            <SubmitButton pageContract={pageContract}>{copy(pageContract, "action.save_reproductive")}</SubmitButton>
+          </div>
+        </form>
+      </Drawer>
     </>
   );
 }

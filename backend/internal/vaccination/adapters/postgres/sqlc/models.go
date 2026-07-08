@@ -634,6 +634,8 @@ type Goat struct {
 	EntryDate          pgtype.Date
 	ExitedAt           pgtype.Timestamptz
 	ExitReason         pgtype.Text
+	BreedingDate       pgtype.Date
+	LastDeliveryDate   pgtype.Date
 }
 
 type GoatCustodyHistory struct {

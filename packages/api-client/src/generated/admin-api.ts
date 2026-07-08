@@ -803,6 +803,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats/{goat_id}/reproductive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change goat reproductive status and queue goat.reproductive.changed rechecks.
+         * @description The reproductive_status value is validated against the tenant's active reproductive status_definitions inside the write transaction; clients must source the option list from the admin-web contract, not a hardcoded list.
+         */
+        post: operations["reproductiveGoat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/manual-campaigns": {
         parameters: {
             query?: never;
@@ -1777,6 +1797,24 @@ export interface components {
         HealthGoatRequest: {
             /** @enum {string} */
             health_status: "healthy" | "sick" | "under_treatment" | "recovering" | "quarantine" | "icu";
+            reason: string;
+            /** Format: date-time */
+            occurred_at?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            row_version: number;
+        };
+        ReproductiveGoatRequest: {
+            reproductive_status: string;
+            /**
+             * Format: date
+             * @description Optional YYYY-MM-DD breeding/service date. Absent leaves the stored value untouched.
+             */
+            breeding_date?: string;
+            /**
+             * Format: date
+             * @description Optional YYYY-MM-DD last delivery date. Absent leaves the stored value untouched.
+             */
+            last_delivery_date?: string;
             reason: string;
             /** Format: date-time */
             occurred_at?: string;
@@ -4721,6 +4759,39 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["GuardrailOrWriteConflict"];
+        };
+    };
+    reproductiveGoat: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                goat_id: components["parameters"]["GoatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReproductiveGoatRequest"];
+            };
+        };
+        responses: {
+            /** @description Goat reproductive status changed or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminGoatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
         };
     };
     runVaccinationManualCampaign: {

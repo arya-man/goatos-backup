@@ -155,6 +155,27 @@ type HealthGoatCommand struct {
 	RowVersion           int
 }
 
+type ReproductiveGoatCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	GoatID               string
+	ReproductiveStatus   string
+	// BreedingDate and LastDeliveryDate are optional pregnancy-timing facts set on the same
+	// transition. Nil means "leave the stored value untouched"; a value overwrites it. These feed
+	// vaccination pregnancy defer/catch-up windows (see internal/vaccination schedule_policy).
+	BreedingDate     *time.Time
+	LastDeliveryDate *time.Time
+	Reason           string
+	OccurredAt       time.Time
+	EvidenceRefs     []domain.EvidenceRef
+	RowVersion       int
+}
+
 type AdminGoatCreateIdentifier struct {
 	IdentifierType  string
 	IdentifierValue string
@@ -216,6 +237,26 @@ type CreateAdminGoatCommand struct {
 	EvidenceRefs         []domain.EvidenceRef
 }
 
+// ResolveReproductiveMatchCommand asks whether a bulk-import row's identifiers
+// resolve to a single existing goat eligible for a reproductive update.
+type ResolveReproductiveMatchCommand struct {
+	TenantID    string
+	Identifiers []AdminGoatCreateIdentifier
+}
+
+// ReproductiveMatchResult is the resolution outcome. Matched is true only for a
+// single, active (non-merged, non-exited) goat. Blocked marks a matched-but-
+// ineligible goat (merged or exited) so the caller can surface a clear reason.
+type ReproductiveMatchResult struct {
+	Matched                   bool
+	Blocked                   bool
+	BlockReason               string
+	GoatID                    string
+	CurrentReproductiveStatus string
+	RowVersion                int
+	MatchConfidence           float64
+}
+
 type AdminGoatMutationResult struct {
 	Goat             domain.GoatSummary
 	Identifiers      []domain.GoatIdentifier
@@ -239,5 +280,6 @@ type Repository interface {
 	ExitGoat(ctx context.Context, cmd ExitGoatCommand) (*AdminGoatMutationResult, error)
 	StageGoat(ctx context.Context, cmd StageGoatCommand) (*AdminGoatMutationResult, error)
 	HealthGoat(ctx context.Context, cmd HealthGoatCommand) (*AdminGoatMutationResult, error)
+	ReproductiveGoat(ctx context.Context, cmd ReproductiveGoatCommand) (*AdminGoatMutationResult, error)
 	Ping(ctx context.Context) error
 }

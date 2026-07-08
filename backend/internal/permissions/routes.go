@@ -25,6 +25,11 @@ var protectedRoutes = []Route{
 	{OperationID: "criticalDeathExitGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/critical-death-exit", Permissions: []string{GoatWriteHealth}},
 	{OperationID: "stageGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/stage", Permissions: []string{GoatWriteIdentity}},
 	{OperationID: "healthGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/health", Permissions: []string{GoatWriteHealth}},
+	{OperationID: "reproductiveGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/reproductive", Permissions: []string{GoatWriteHealth}},
+	// Bulk status-update kernel spans the reproductive/health/exit axes, so it
+	// requires both the identity and health write grants (superuser data op).
+	{OperationID: "previewBulkStatusUpdate", Method: "POST", Pattern: "/admin/goats/bulk-status/preview", Permissions: []string{GoatWriteIdentity, GoatWriteHealth}},
+	{OperationID: "commitBulkStatusUpdate", Method: "POST", Pattern: "/admin/goats/bulk-status/commit", Permissions: []string{GoatWriteIdentity, GoatWriteHealth}},
 	{OperationID: "listOperationsAudit", Method: "GET", Pattern: "/operations/audit", Permissions: []string{OperatorsViewAudit}},
 	{OperationID: "getOperationsAuditSummary", Method: "GET", Pattern: "/operations/audit/summary", Permissions: []string{OperatorsViewAudit}},
 	{OperationID: "getOperationsKernelHealth", Method: "GET", Pattern: "/operations/kernel-health", Permissions: []string{OperatorsViewAudit}},

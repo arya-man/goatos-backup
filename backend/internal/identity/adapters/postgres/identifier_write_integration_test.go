@@ -312,6 +312,58 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		assertNoRows(t, pool, "outbox after blocked critical exit", "SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
 	})
 
+	t.Run("admin goat reproductive writes goat.reproductive.changed outbox and pregnancy timing", func(t *testing.T) {
+		create := adminGoatCreateCommand(t, "idem-create-goat-repro-0001", "aid1-admin-repro-0001", "admin-repro-aid2-0001")
+		created, err := repo.CreateAdminGoat(ctx, create)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat for reproductive: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+	UPDATE goats
+	SET reproductive_status = 'non_pregnant',
+	    row_version = row_version + 1
+	WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, created.Goat.GoatID); err != nil {
+			t.Fatalf("seed non_pregnant reproductive: %v", err)
+		}
+		cmd := reproductiveGoatCommand(t, "idem-repro-goat-0001", created.Goat.GoatID, rowVersionForGoat(t, pool, created.Goat.GoatID))
+		bred, err := repo.ReproductiveGoat(ctx, cmd)
+		if err != nil {
+			t.Fatalf("ReproductiveGoat: %v", err)
+		}
+		if bred.Events[0].EventType != "goat.reproductive.changed" {
+			t.Fatalf("unexpected reproductive result: %#v", bred)
+		}
+		var (
+			gotStatus   string
+			gotBreeding *time.Time
+		)
+		if err := pool.QueryRow(ctx, "SELECT reproductive_status, breeding_date FROM goats WHERE tenant_id = $1 AND goat_id = $2", meshaTenant, created.Goat.GoatID).Scan(&gotStatus, &gotBreeding); err != nil {
+			t.Fatalf("reproductive state after transition: %v", err)
+		}
+		if gotStatus != "pregnant" {
+			t.Fatalf("reproductive_status=%q, want pregnant", gotStatus)
+		}
+		if gotBreeding == nil || gotBreeding.Format("2006-01-02") != "2026-06-01" {
+			t.Fatalf("breeding_date=%v, want 2026-06-01", gotBreeding)
+		}
+		assertGoatLifecycleOutbox(t, pool, cmd.StoredIdempotencyKey, bred.Events[0].EventID, created.Goat.GoatID, "goat.reproductive.changed", created.Goat.GoatID)
+	})
+
+	t.Run("admin goat reproductive rejects unknown vocabulary before any write", func(t *testing.T) {
+		create := adminGoatCreateCommand(t, "idem-create-goat-repro-invalid-0001", "aid1-admin-repro-invalid-0001", "admin-repro-invalid-aid2-0001")
+		created, err := repo.CreateAdminGoat(ctx, create)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat for invalid reproductive: %v", err)
+		}
+		cmd := reproductiveGoatCommand(t, "idem-repro-invalid-0001", created.Goat.GoatID, rowVersionForGoat(t, pool, created.Goat.GoatID))
+		cmd.ReproductiveStatus = "not_a_real_status"
+		if _, err := repo.ReproductiveGoat(ctx, cmd); !errors.Is(err, ports.ErrInvalidReference) {
+			t.Fatalf("ReproductiveGoat invalid vocabulary error = %v, want ErrInvalidReference", err)
+		}
+		assertNoRows(t, pool, "idempotency after invalid reproductive", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+		assertNoRows(t, pool, "outbox after invalid reproductive", "SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+	})
+
 	t.Run("admin goat create duplicate Animal ID 1 rolls back goat idempotency audit and outbox", func(t *testing.T) {
 		first := adminGoatCreateCommand(t, "idem-create-goat-dupe-0001", "aid1-admin-create-dupe", "admin-create-aid2-dupe-0001")
 		if _, err := repo.CreateAdminGoat(ctx, first); err != nil {
@@ -1052,6 +1104,49 @@ func healthGoatCommand(t *testing.T, key, goatID string, rowVersion int) ports.H
 		TraceID:              "trace-" + key,
 		GoatID:               goatID,
 		HealthStatus:         "healthy",
+		Reason:               reason,
+		OccurredAt:           time.Date(2026, time.June, 26, 12, 0, 0, 0, time.UTC),
+		EvidenceRefs:         evidenceRefs,
+		RowVersion:           rowVersion,
+	}
+}
+
+func reproductiveGoatCommand(t *testing.T, key, goatID string, rowVersion int) ports.ReproductiveGoatCommand {
+	t.Helper()
+	reason := "Synthetic reproductive transition for vaccination pregnancy timing."
+	sourceSystem := "synthetic_admin_register"
+	evidenceRefs := []domain.EvidenceRef{{
+		EvidenceType: "source_record",
+		EvidenceID:   "synthetic-reproductive-" + key,
+		SourceSystem: &sourceSystem,
+	}}
+	breedingDate := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	body := map[string]any{
+		"reproductive_status": "pregnant",
+		"breeding_date":       breedingDate.Format("2006-01-02"),
+		"reason":              reason,
+		"evidence_refs":       evidenceRefs,
+		"row_version":         rowVersion,
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := app.CanonicalRequestHashWithSubject(meshaTenant, "reproductiveGoat", "/admin/goats/{goat_id}/reproductive", goatID, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ports.ReproductiveGoatCommand{
+		TenantID:             meshaTenant,
+		ActorID:              correctionActor,
+		ClientIdempotencyKey: key,
+		StoredIdempotencyKey: meshaTenant + ":reproductiveGoat:" + goatID + ":" + key,
+		IdempotencyScope:     "reproductiveGoat",
+		RequestHash:          hash,
+		TraceID:              "trace-" + key,
+		GoatID:               goatID,
+		ReproductiveStatus:   "pregnant",
+		BreedingDate:         &breedingDate,
 		Reason:               reason,
 		OccurredAt:           time.Date(2026, time.June, 26, 12, 0, 0, 0, time.UTC),
 		EvidenceRefs:         evidenceRefs,

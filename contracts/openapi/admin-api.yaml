@@ -1692,6 +1692,39 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/GuardrailOrWriteConflict"
+  /admin/goats/{goat_id}/reproductive:
+    post:
+      tags:
+        - Admin Goats
+      operationId: reproductiveGoat
+      summary: Change goat reproductive status and queue goat.reproductive.changed rechecks.
+      description: The reproductive_status value is validated against the tenant's active reproductive status_definitions inside the write transaction; clients must source the option list from the admin-web contract, not a hardcoded list.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReproductiveGoatRequest"
+      responses:
+        "200":
+          description: Goat reproductive status changed or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGoatResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /vaccination/manual-campaigns:
     post:
       tags:
@@ -4512,6 +4545,42 @@ components:
             - recovering
             - quarantine
             - icu
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+        occurred_at:
+          type: string
+          format: date-time
+        evidence_refs:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        row_version:
+          type: integer
+          minimum: 1
+    ReproductiveGoatRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reproductive_status
+        - reason
+        - evidence_refs
+        - row_version
+      properties:
+        reproductive_status:
+          type: string
+          minLength: 1
+          maxLength: 80
+        breeding_date:
+          type: string
+          format: date
+          description: Optional YYYY-MM-DD breeding/service date. Absent leaves the stored value untouched.
+        last_delivery_date:
+          type: string
+          format: date
+          description: Optional YYYY-MM-DD last delivery date. Absent leaves the stored value untouched.
         reason:
           type: string
           minLength: 3

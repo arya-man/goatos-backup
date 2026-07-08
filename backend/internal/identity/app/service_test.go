@@ -768,6 +768,58 @@ func TestHealthGoatBuildsLifecycleCommand(t *testing.T) {
 	}
 }
 
+func TestReproductiveGoatBuildsLifecycleCommand(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
+	svc := NewService(repo)
+	input := ReproductiveGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-repro-0001",
+		TraceID:        testTrace,
+		GoatID:         goatA,
+		RawBody:        []byte(`{"reproductive_status":"pregnant","breeding_date":"2026-06-01","reason":"confirmed pregnant on ultrasound","evidence_refs":[{"evidence_type":"source_record","evidence_id":"repro-ticket-1"}],"row_version":10}`),
+	}
+	result, err := svc.ReproductiveGoat(context.Background(), input)
+	if err != nil {
+		t.Fatalf("ReproductiveGoat error = %v", err)
+	}
+	if result.Events[0].EventType != "goat.reproductive.changed" {
+		t.Fatalf("event type = %s", result.Events[0].EventType)
+	}
+	if repo.lastReproductiveGoatCmd.ReproductiveStatus != "pregnant" || repo.lastReproductiveGoatCmd.RowVersion != 10 {
+		t.Fatalf("reproductive command = %#v", repo.lastReproductiveGoatCmd)
+	}
+	if repo.lastReproductiveGoatCmd.BreedingDate == nil || repo.lastReproductiveGoatCmd.BreedingDate.Format("2006-01-02") != "2026-06-01" {
+		t.Fatalf("expected parsed breeding_date, got %#v", repo.lastReproductiveGoatCmd.BreedingDate)
+	}
+	if repo.lastReproductiveGoatCmd.StoredIdempotencyKey == "" || repo.lastReproductiveGoatCmd.RequestHash == "" {
+		t.Fatalf("expected idempotency and request hash, got %#v", repo.lastReproductiveGoatCmd)
+	}
+}
+
+func TestReproductiveGoatRejectsMalformedBreedingDate(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
+	svc := NewService(repo)
+	_, err := svc.ReproductiveGoat(context.Background(), ReproductiveGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-repro-baddate-0001",
+		TraceID:        testTrace,
+		GoatID:         goatA,
+		RawBody:        []byte(`{"reproductive_status":"pregnant","breeding_date":"01-06-2026","reason":"confirmed pregnant on ultrasound","evidence_refs":[{"evidence_type":"source_record","evidence_id":"repro-ticket-2"}],"row_version":10}`),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("ReproductiveGoat error = %v, want app error", err)
+	}
+	if appErr.Code != "invalid_breeding_date" || appErr.HTTPStatus != 400 {
+		t.Fatalf("app error = %#v, want invalid_breeding_date 400", appErr)
+	}
+	if repo.lastReproductiveGoatCmd.GoatID != "" {
+		t.Fatalf("repository should not be called for malformed date, got %#v", repo.lastReproductiveGoatCmd)
+	}
+}
+
 func TestHealthGoatRejectsCriticalTargetBeforeRepository(t *testing.T) {
 	for _, status := range []string{"quarantine", "icu"} {
 		repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
@@ -1027,6 +1079,7 @@ type fakeRepo struct {
 	lastExitGoatCmd             ports.ExitGoatCommand
 	lastStageGoatCmd            ports.StageGoatCommand
 	lastHealthGoatCmd           ports.HealthGoatCommand
+	lastReproductiveGoatCmd     ports.ReproductiveGoatCommand
 	validateAdminGoatCreateFunc func(ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error)
 	validateAdminGoatCreateCmds []ports.ValidateAdminGoatCreateCommand
 	createAdminGoatResult       *ports.AdminGoatMutationResult
@@ -1205,6 +1258,24 @@ func (f *fakeRepo) HealthGoat(_ context.Context, cmd ports.HealthGoatCommand) (*
 			CreatedAt:      time.Now().UTC(),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000204", EventType: "goat.health.changed"}},
+	}, nil
+}
+
+func (f *fakeRepo) ReproductiveGoat(_ context.Context, cmd ports.ReproductiveGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	f.lastReproductiveGoatCmd = cmd
+	out := summary(cmd.GoatID, "G-000001", "clean")
+	return &ports.AdminGoatMutationResult{
+		Goat:        out,
+		Identifiers: []domain.GoatIdentifier{},
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000205",
+			DecisionType:   "reproductive_goat",
+			DecisionResult: "goat_reproductive_changed",
+			DecisionState:  "approved",
+			PolicyVersion:  "goat-lifecycle-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000205", EventType: "goat.reproductive.changed"}},
 	}, nil
 }
 

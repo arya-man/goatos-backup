@@ -505,6 +505,16 @@ func (h handlerRepo) HealthGoat(_ context.Context, cmd ports.HealthGoatCommand) 
 	}, nil
 }
 
+func (h handlerRepo) ReproductiveGoat(_ context.Context, cmd ports.ReproductiveGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	goat := handlerPassport().Summary
+	return &ports.AdminGoatMutationResult{
+		Goat:        goat,
+		Identifiers: []domain.GoatIdentifier{},
+		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000205", "reproductive_goat", "goat_reproductive_changed"),
+		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000205", EventType: "goat.reproductive.changed"}},
+	}, nil
+}
+
 func (handlerRepo) Ping(context.Context) error { return nil }
 
 func strPtr(value string) *string {

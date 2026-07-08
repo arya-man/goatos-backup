@@ -23,7 +23,7 @@ import {
   one,
   type RouteSearchParams,
 } from "@/lib/search-params";
-import { HerdActions, type HerdAnimalStageOption } from "./herd-actions-ui";
+import { HerdActions, HerdReproductiveEdit, type HerdAnimalStageOption } from "./herd-actions-ui";
 import { HerdFiltersModalClient } from "./herd-filters-modal-client";
 import { HerdPassportVaccinationBlock } from "./herd-passport-vaccination";
 
@@ -166,6 +166,8 @@ export async function HerdRegisterPage({
   // A fresh idempotency key per render: a double-submit of the open Register drawer replays the same key
   // (backend returns the original goat); a reload mints a new key for a new logical create.
   const registerIdempotencyKey = randomUUID();
+  // Dedicated key for the reproductive edit drawer so it never shares/replays the register create key.
+  const reproductiveIdempotencyKey = randomUUID();
   const animalStages: HerdAnimalStageOption[] = stagesResult.ok
     ? stagesResult.data.items.map((stage) => ({
         code: stage.stage_code,
@@ -371,6 +373,8 @@ export async function HerdRegisterPage({
           goat={selectedGoat}
           closeHref={closePassportHref}
 	          fullPassportHref={`/goats/${encodeURIComponent(selectedGoat.goat_id)}`}
+	          reproductiveIdempotencyKey={reproductiveIdempotencyKey}
+	          returnTo={returnTo}
 	          pageContract={pageContract}
 	        />
       ) : null}
@@ -382,11 +386,15 @@ async function HerdPassportDrawer({
   goat,
   closeHref,
   fullPassportHref,
+  reproductiveIdempotencyKey,
+  returnTo,
   pageContract,
 }: {
   goat: GoatRow;
   closeHref: string;
   fullPassportHref: string;
+  reproductiveIdempotencyKey: string;
+  returnTo: string;
   pageContract: AdminUiPageContract;
 }) {
   const cols = tableLabels(pageContract, "herd-register");
@@ -428,8 +436,16 @@ async function HerdPassportDrawer({
               <Tag tone={statusTone(goat.health_status, "health")}>{dash(goat.health_status)}</Tag>
             </div>
             <div className="hk">{cols[8]}</div>
-            <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <Tag tone={statusTone(goat.reproductive_status, "breeding")}>{dash(goat.reproductive_status)}</Tag>
+              <HerdReproductiveEdit
+                goatId={goat.goat_id}
+                displayId={goat.display_id}
+                currentStatus={goat.reproductive_status}
+                idempotencyKey={reproductiveIdempotencyKey}
+                returnTo={returnTo}
+                pageContract={pageContract}
+              />
             </div>
           </div>
           <div className="muted small" style={{ marginTop: 14, fontWeight: 700 }}>

@@ -27,6 +27,15 @@ const EventGoatLocationChanged = "goat.location.changed"
 // and the outbox, so local and Pub/Sub delivery both drive the same recheck path.
 const EventGoatHealthChanged = "goat.health.changed"
 
+// EventGoatReproductiveChanged re-evaluates rules after a goat's reproductive status changes (e.g.
+// non_pregnant → pregnant, or mother → milking). Pregnancy/lactation defer and post-delivery
+// catch-up windows depend on reproductive_status plus breeding_date/last_delivery_date, so the
+// recheck must consume this dedicated signal to reopen or re-hold obligations immediately. The
+// identity reproductive-status mutation command durably emits this event through
+// goat_identity_events and the outbox, so local and Pub/Sub delivery drive the same recheck path.
+// Species-agnostic: goat and sheep both flow through the same per-goat recompute.
+const EventGoatReproductiveChanged = "goat.reproductive.changed"
+
 // EventManualCampaignRequested intentionally fires manual_campaign schedule rows for one published
 // vaccination version. It is not part of normal publish/backfill generation.
 const EventManualCampaignRequested = "vaccination.manual_campaign.requested"
@@ -80,6 +89,7 @@ func (h *GoatRecheckHandler) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventGoatStageChanged, h)
 	bus.Subscribe(EventGoatLocationChanged, h)
 	bus.Subscribe(EventGoatHealthChanged, h)
+	bus.Subscribe(EventGoatReproductiveChanged, h)
 }
 
 func (h *GoatRecheckHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {

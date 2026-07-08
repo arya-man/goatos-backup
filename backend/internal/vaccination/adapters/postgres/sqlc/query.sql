@@ -248,7 +248,7 @@ WHERE g.tenant_id = @tenant_id
 -- Chunked (keyset) listing of the in-care cohort for SM-1 generation. Cursor by goat_id over the
 -- (tenant_id, goat_id) unique index. Includes defer-state goats (icu/quarantine/sick) so the
 -- handler can write a canonical deferred obligation rather than silently skipping them.
-SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
+SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_delivery_date, g.lifecycle_status,
        COALESCE(g.health_status, '')::text AS health_status,
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
        COALESCE(g.species, 'goat')::text AS species,
@@ -302,7 +302,7 @@ LIMIT @row_limit;
 
 -- name: GetGoatForGeneration :one
 -- Single-goat generation fields (incl sex/breed/stage for Go-side eligibility match on goat.created).
-SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
+SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_delivery_date, g.lifecycle_status,
        COALESCE(g.health_status, '')::text AS health_status,
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
        COALESCE(g.species, 'goat')::text AS species,
