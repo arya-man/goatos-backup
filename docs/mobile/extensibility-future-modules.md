@@ -76,8 +76,8 @@ engine as Vaccination.
     bootstrap visibility + pinned form versions
 [ ] Create feature-<module> Gradle module (depends only on core-*)
 [ ] Implement MobileModule; register via Hilt @IntoSet
-[ ] Screens use core-ui/design-system components (mock-fidelity for that module's
-    own mock/source of truth)
+[ ] Screens use core-ui/design-system components (mock fidelity for visual/layout/
+    interaction; the backend contract remains the source for data/state/actions)
 [ ] Reuse forms-runner + sync engine + media/RFID ports; add a new device-*
     adapter only if new hardware is needed (each with a fake)
 [ ] Render only backend-returned visible modules/actions (no client grant predicate); never hardcode nav

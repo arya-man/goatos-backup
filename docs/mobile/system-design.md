@@ -101,14 +101,14 @@ scope = <backend-issued token>  — the backend returns the scope options + defa
                         = all parks, drillable to one via the picker. The app sends
                         the selected token; it does not resolve scope from role.
 
-Today's sheds  = GET sheds?scope=<park|all>  → cache shed_day/shed_group/roster
+Today's sheds  = GET sheds?scope_token=<token>  → cache shed_day/shed_group/roster
 Drive status   = per-shed follow-up status (done / in-progress / delayed) for the
-follow-up        leadership calendar-card drill; same scope, read-only
+follow-up        leadership calendar-card drill; same token, read-only
 Scan roster    = from roster_animal (each animal → its due vaccine group)
-Coverage/hero  = GET rollup?scope=<park|all> (given/scheduled/pending, per-vaccine)
-Backlog        = GET backlog?scope=<park|all> (pending doses per vaccine)
-Data gaps      = GET gaps?scope=<park|all> (animals excluded from coverage + reason)
-Overdue        = GET overdue?scope=<park|all> (missed vs in-buffer)
+Coverage/hero  = GET rollup?scope_token=<token> (backend-computed coverage % + given/scheduled/pending counts, per-vaccine)
+Backlog        = GET backlog?scope_token=<token> (pending doses per vaccine)
+Data gaps      = GET gaps?scope_token=<token> (animals excluded from coverage + reason)
+Overdue        = GET overdue?scope_token=<token> (missed vs in-buffer)
 Records        = GET shed-record/{shed_id} (per-vaccine breakdown + animals)
 ```
 
@@ -139,7 +139,10 @@ push — timing is kernel-owned.
 
 ## 7. Analytics event taxonomy (Firebase Analytics)
 
-Product events (no PII; goat/shed ids allowed as params, tokens never):
+Product events (no PII; goat/shed ids allowed as params, tokens never). All
+count/set params (`groups`, `animals`, `vaccines`, `count`, …) are
+**backend-provided payload values echoed for telemetry**, never client-computed
+aggregates:
 
 ```text
 app_open, login_success, bootstrap_loaded{revision, role}

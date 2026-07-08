@@ -244,8 +244,9 @@ budgets: [performance-and-memory.md](performance-and-memory.md).
   **reschedule**, **assign** primary/backup, and the **role-scoped leadership
   follow-up status** that backs the calendar-card drill (per-shed live status for
   a drive: done / in-progress / delayed).
-- **Reads**: today's sheds (scope = operator/parkmgr own park, director/ceo all
-  parks), per-shed roster + due vaccine groups, the **per-drive follow-up status**
+- **Reads**: today's sheds (via the selected **backend-issued scope token**;
+  today's examples: operator/parkmgr own park, director/ceo all parks), per-shed
+  roster + due vaccine groups, the **per-drive follow-up status**
   (done / in-progress / delayed for the leadership drill), coverage/backlog
   rollups, overdue list, records — all paginated/shaped by backend; no full-herd
   scans. Cursor pagination, no `COUNT(*)` on hot tables (million-animal rule).
@@ -341,7 +342,7 @@ a record is saved on the phone vs synced to the server. Demonstrated in the mock
 Read screens (Calendar, Drive status / Today's sheds, Overview, Overdue) expose an
 explicit refresh: **`PullToRefreshBox`** (Compose Material 3) as the primary
 gesture plus a **header refresh action** for discoverability/accessibility. It
-triggers a scoped re-pull (the same `scope=<park|all>` read that feeds the screen)
+triggers a scoped re-pull (the same `scope_token=<token>` read that feeds the screen)
 into Room, then recomposes from the cache. Offline → do NOT clear the cache; show
 the last-synced data with a short "offline · showing last synced" message. The
 ViewModel exposes an `isRefreshing` state; refresh is idempotent and cancels with
@@ -387,7 +388,8 @@ only via an ADR in `docs/decisions/` filed **before** that screen is built.
   breadcrumbs/non-fatals + custom keys (release). Structured, tagged, with
   trace/request/tenant/import-run context where available. Instrument the field
   paths so any failure is reproducible from logs alone:
-  - **RFID scan**: each tap (tag read, matched due vaccine, eligible/skip+reason),
+  - **RFID scan**: each tap (tag read, the **backend-provided** matched due vaccine
+    + eligibility/skip reason from the cached roster, plus local tap evidence),
     reader connect/disconnect, battery, dropped reads. Goat identifiers
     (RFID/old-tag/breed/shed) are operational data, **not** human PII — include the
     ids a failure needs to be traceable to the exact goat/row. But Crashlytics/

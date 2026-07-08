@@ -57,7 +57,9 @@ separate product.
 
 Single app; `GET <mobile bootstrap>` returns the principal's role, park/shed
 scope, grants, and visible navigation. Every role lands on the **Calendar**; the
-calendar-card drill and scope differ by role. Four role lenses (mock `data-role`):
+calendar-card drill and scope differ by **backend-returned route/action/scope
+tokens**; the four role lenses below (mock `data-role`) are examples only, not a
+client `when(role)`:
 
 | Role | In app | Scope | Primary job |
 |------|--------|-------|-------------|

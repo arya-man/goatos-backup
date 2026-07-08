@@ -1,8 +1,9 @@
 # Design System — Goat OS Mobile (Android)
 
 The app's visual system is **ported from `mock/vaccination-mobile-mock.html`** —
-the only UI/UX source of truth. This doc freezes the tokens and component anatomy
-so Compose matches the mock's structure (not a plainer substitute).
+the **visual/layout/interaction** source of truth (the backend contract owns data,
+state, labels, actions, statuses, and options). This doc freezes the tokens and
+component anatomy so Compose matches the mock's structure (not a plainer substitute).
 
 Lives in `core-designsystem`. Exposes `GoatOsTheme { }` + a `GoatOsTokens`
 object; components live in `core-ui`.
@@ -74,7 +75,7 @@ and interaction states — a bare substitute is a defect.
 | Quick chips (`.qchips`) | `CountTiles` | Done / Pending / Skipped tappable tiles |
 | Live scan row (`.slrow`/`li`) | `ScanRow` | ok/skip/pending icon, mono tag(s) + "2 tags", vaccine·dose |
 | KPI tile (`.kpi`) | `KpiTile` | big number, label, tap affordance (given/pending drills) |
-| Hero (`.hero`) | `CoverageHero` | gradient bg, big %, doses line, pills (scope picker, animals, data-gaps) |
+| Hero (`.hero`) | `CoverageHero` | gradient bg, big % (**backend-computed** coverage %, rendered — never divided on device), doses line, pills (scope picker, animals, data-gaps) |
 | Backlog row (`.vaxr`) | `BacklogRow` | vaccine, note, count pill, bar |
 | List row (`.lrow`) | `LeadRow` | mini-ring, title+sub, chips, trailing frac, optional assign button |
 | Bottom sheet (`.sheet`) | `GoatBottomSheet` | grip, sticky header (title+sub), scrollable body, footer; **capped height + internal scroll** (mock fix) |
@@ -83,8 +84,8 @@ and interaction states — a bare substitute is a defect.
 | Segmented (`.segc`/`.seg`) | `SegmentedControl` | week/month/history, given/pending/skipped, primary/backup |
 | Toast | `GoatToast` | icon + title + subtitle, auto-dismiss |
 | Drawer (`.draw`) | `NavDrawer` | profile header, module list (built ones + "Soon"), settings |
-| Buffer/info boxes | `InfoBox` / `BufferBanner` | muted explainer blocks |
-| Roster-change cards | `ChangeCard` | tagged reason rows (quarantine/death/shift/birth) |
+| Buffer/info boxes | `InfoBox` / `BufferBanner` | dumb text containers for **backend-provided** explainer / disabled-reason copy — no baked buffer wording |
+| Roster-change cards | `ChangeCard` | tagged reason rows; reason vocabulary is **backend-provided** (examples: quarantine/death/shift/birth) |
 
 ## 5. Iconography
 

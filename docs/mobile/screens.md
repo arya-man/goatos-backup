@@ -1,9 +1,10 @@
 # Screen Spec — Goat OS Mobile (Android)
 
-Every screen maps 1:1 to `mock/vaccination-mobile-mock.html`. For each: mock
-source, Compose destination (feature module), the backend contract that feeds it,
-role visibility, and key states. Backend owns nav/labels/filters/disabled reasons
-(golden frontend rule); the app renders.
+Every screen follows `mock/vaccination-mobile-mock.html` for **visual/layout/
+interaction** only. For each: mock (visual reference), Compose destination (feature
+module), the backend contract that feeds it, role visibility, and key states. The
+backend contract owns state, visibility, nav/labels/filters/disabled reasons,
+actions, statuses, and options (golden frontend rule); the app renders.
 
 Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ceo/coo.
 
@@ -18,9 +19,10 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 ### Calendar  (`v-calendar`: week / month / history)  — **universal landing, all roles**
 - Module: `feature-calendar`. The Calendar is where **every** role lands after
   login (Manju, 2026-07-08). Segmented week/month/history.
-  - **Week**: today's entry = "Today · N sheds · M due" → the **backend-provided
-    drill target** (today: operator → execute; leadership → drive-status
-    follow-up). Other days = scheduled shed markers.
+  - **Week**: today's entry = "Today · N sheds · M due" (counts from the backend
+    calendar/sheds read — the app does not re-derive which animals are due) → the
+    **backend-provided drill target** (today: operator → execute; leadership →
+    drive-status follow-up). Other days = scheduled shed markers.
   - **Month**: drive-day dots; tap day → `ovl-day` sheet (that day's sheds +
     status). Done day → opens the shed/drive record.
   - **History**: past shed/drive records → record sheet.
@@ -33,7 +35,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 
 ## Drill from the calendar card (backend-provided target)
 
-### Today's sheds / Drive status  (`v-sheds`)  — O execute (own park); PM read-only (own park); D/C read-only (all parks)
+### Today's sheds / Drive status  (`v-sheds`)  — backend-returned lens + scope token (today's examples: O execute own-park; PM read-only own-park; D/C read-only all-parks)
 - Module: `feature-sheds`. Same route, **backend-scoped lens**. Header: date · window ·
   shed count · due total. Day progress bar (from backend totals). **Shed cards**, each: cohort · in-shed,
   status pill, **vaccine-group chips (mix-and-match)**, in-shed/due/done nums,
@@ -47,7 +49,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
     red** (left-border + "Delayed · chase team" / "Not started — chase the team ›").
     Card → shed record (a delayed shed shows "Delayed · not started", not a fake
     proof window).
-- Backend: `GET sheds?scope=<park|all>` → shed_day/shed_group/roster_animal (cached
+- Backend: `GET sheds?scope_token=<token>` → shed_day/shed_group/roster_animal (cached
   in Room) + per-drive follow-up status. Scope = own park (operator/parkmgr) or all
   parks (director/ceo). Shed-first: a shed can have several due vaccine groups.
 - States: ready / in-progress / done per shed; leadership rows are read-only
@@ -59,7 +61,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 - Module: `feature-scan`. Header: shed · cohort. **Progress ring** = shed total
   `done/T` (**T + eligibility from backend**; the ring reflects backend totals plus
   locally-captured, not-yet-synced scans — it is not a local source of truth). **Per-vaccine-group chips** (filter by the **backend-tagged** vaccine group on each roster animal; active group highlighted). Tap-to-scan
-  (RFID or ring). Done / Pending / Skipped tiles (derived from local `scan_event` over the backend roster — no client eligibility/grouping) → `ovl-scanlist` sheet
+  (RFID or ring). Done / Pending / Skipped tiles (render the backend roster/status with a local unsynced-scan overlay for draft UX; backend revalidates final truth — no client eligibility/grouping) → `ovl-scanlist` sheet
   (searchable, per-animal vaccine). Live feed of last taps (each animal → its due
   vaccine, "2 tags" when double-tagged). Submit is **UX-disabled** from the
   backend-provided completion checklist + local draft scan state; the backend
