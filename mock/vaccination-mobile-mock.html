@@ -437,7 +437,7 @@
         <div class="vhead"><button class="ib" data-open="drawer"><svg class="ic"><use href="#i-menu"/></svg></button><div><div class="eb" id="dhrole">Vaccination · Director</div><h3 data-t="overview">Overview</h3></div><span class="sp"></span><span class="avatar" style="width:36px;height:36px;font-size:14px" id="dhav" data-go="v-you">A</span></div>
         <div class="vscroll">
           <div class="hero"><div class="gr" data-t="coverage">Dose coverage · all vaccines</div><div class="big" id="dhcov">48%</div><div class="bl" id="dhdoses">4,650 of 9,698 scheduled doses given</div><div class="row"><span class="hpill" id="dhscope" data-open="scope">All parks · 2 <svg class="ic scopechev" style="width:13px;height:13px"><use href="#i-chev"/></svg></span><span class="hpill"><span id="dhanim">1,312</span> <span data-t="animals">animals</span></span><span class="hpill tap" id="dhgap" data-open="gaps">no data gaps <svg class="ic scopechev" style="width:13px;height:13px"><use href="#i-chev"/></svg></span></div></div>
-          <div class="kpis"><div class="kpi ok"><svg class="ic"><use href="#i-check"/></svg><div class="n" id="dhgiven">4,650</div><div class="l" data-t="dgiven">Doses given</div></div><div class="kpi tap" data-go="v-overdue"><svg class="ic" style="color:var(--warn)"><use href="#i-chev"/></svg><div class="n" id="dhpending" style="color:var(--warn)">5,048</div><div class="l" data-t="dpending">Pending · tap</div></div></div>
+          <div class="kpis"><div class="kpi ok tap" data-open="given"><svg class="ic"><use href="#i-check"/></svg><div class="n" id="dhgiven">4,650</div><div class="l" data-t="dgiven">Doses given · tap</div></div><div class="kpi tap" data-go="v-overdue"><svg class="ic" style="color:var(--warn)"><use href="#i-chev"/></svg><div class="n" id="dhpending" style="color:var(--warn)">5,048</div><div class="l" data-t="dpending">Pending · tap</div></div></div>
           <div class="lt" data-t="todaylive">Today's sheds · live</div>
           <div id="todaySheds"></div>
           <div class="lt" data-t="byvax">Backlog by vaccine · pending doses</div>
@@ -548,6 +548,16 @@
           <div class="fgrp" id="gapBody" style="margin:0 16px 10px"></div>
           <div class="infobox" style="margin:0 16px 4px" data-t="gapsinfo">These animals are excluded from the coverage % until the missing data is filled. Everything else is fully tracked.</div>
           <div class="more" data-t="gapsmore">Fix on the web dashboard · Data Ops → Herd Register</div>
+        </div>
+      </div>
+
+      <div class="ovl" id="ovl-given"><div class="vl" data-close></div>
+        <div class="sheet">
+          <div class="grip"></div>
+          <div class="sh-h" data-t="givenh">Doses given</div>
+          <div class="sh-s" id="givenSub" data-t="givensub">Completed doses this cycle · by vaccine</div>
+          <div id="givenBody" style="padding:0 16px 6px"></div>
+          <div class="more" data-t="givenmore">Every dose is a verified shed record with video proof</div>
         </div>
       </div>
 
@@ -675,11 +685,14 @@
          {id:'982 000 7781 0090',why:'no breed → no protocol mapping'}]};
   var SCOPES={
     all:{label:'All parks · 2',cov:'48%',given:'4,650',sched:'9,698',pending:'5,048',anim:'1,312',gaps:6,gapkeys:['cbe','cpt'],
-         drives:['cbe','cpt'],backlog:{bkppr:'989',bkfmd:'1,406',bkettt:'726',bkhs:'542',bkgp:'417',bksp:'447',bkbt:'521'}},
+         drives:['cbe','cpt'],backlog:{bkppr:'989',bkfmd:'1,406',bkettt:'726',bkhs:'542',bkgp:'417',bksp:'447',bkbt:'521'},
+         gave:[['ET + TT',980,57],['FMD',900,39],['HS',720,57],['Goat Pox',690,62],['Blue Tongue',558,52],['Sheep Pox',480,52],['PPR',322,25]]},
     cbe:{label:'CBE · Coimbatore',cov:'52%',given:'3,000',sched:'5,768',pending:'2,768',anim:'716',gaps:4,gapkeys:['cbe'],
-         drives:['cbe'],backlog:{bkppr:'560',bkfmd:'820',bkettt:'430',bkhs:'300',bkgp:'250',bksp:'180',bkbt:'228'}},
+         drives:['cbe'],backlog:{bkppr:'560',bkfmd:'820',bkettt:'430',bkhs:'300',bkgp:'250',bksp:'180',bkbt:'228'},
+         gave:[['ET + TT',640,60],['FMD',560,41],['Goat Pox',450,64],['HS',430,59],['Blue Tongue',410,64],['Sheep Pox',300,63],['PPR',210,27]]},
     cpt:{label:'CPT · Channapatna',cov:'42%',given:'1,650',sched:'3,930',pending:'2,280',anim:'596',gaps:2,gapkeys:['cpt'],
-         drives:['cpt'],backlog:{bkppr:'429',bkfmd:'586',bkettt:'296',bkhs:'242',bkgp:'167',bksp:'267',bkbt:'293'}}};
+         drives:['cpt'],backlog:{bkppr:'429',bkfmd:'586',bkettt:'296',bkhs:'242',bkgp:'167',bksp:'267',bkbt:'293'},
+         gave:[['FMD',340,37],['ET + TT',340,53],['HS',290,55],['Goat Pox',240,59],['Sheep Pox',180,40],['Blue Tongue',148,34],['PPR',112,21]]}};
   function applyScope(scope){
     var s=SCOPES[scope]||SCOPES.all; curScope=scope;
     var set=function(id,v){var el=D.getElementById(id);if(el)el.textContent=v;};
@@ -692,6 +705,9 @@
     if(typeof renderTodaySheds==='function')renderTodaySheds(scope);
     // backlog numbers per vaccine
     Object.keys(s.backlog).forEach(function(k){set(k,s.backlog[k]);});
+    // doses-given breakdown sheet (per vaccine)
+    var gvb=D.getElementById('givenBody'); if(gvb&&s.gave){gvb.innerHTML=s.gave.map(function(r){return '<div class="vaxr"><div class="vh"><b>'+r[0]+'</b><span class="sp" style="flex:1"></span><span class="pill ok">'+r[1].toLocaleString()+'</span></div><div class="barp"><i style="width:'+r[2]+'%"></i></div></div>';}).join('');}
+    var gvs=D.getElementById('givenSub'); if(gvs)gvs.textContent=s.given+' doses given · '+s.cov+' coverage · by vaccine';
     // data gaps pill + sheet (animals excluded from coverage until fixed)
     var gp=D.getElementById('dhgap'); if(gp){var chev=gp.querySelector('.scopechev');gp.textContent=(s.gaps>0?(s.gaps+' '+(GAPWORD[lang]||GAPWORD.en)):(NOGAP[lang]||NOGAP.en))+' ';if(chev)gp.appendChild(chev);}
     var gb=D.getElementById('gapBody'); if(gb){var rows=[];(s.gapkeys||[]).forEach(function(k){(GAPROWS[k]||[]).forEach(function(r){rows.push(r);});});
@@ -826,7 +842,7 @@
     gapsh:{en:'Data gaps',hi:'डेटा गैप',kn:'ಡೇಟಾ ಗ್ಯಾಪ್',te:'డేటా గ్యాప్‌లు'},gapssub:{en:"Animals the schedule can't evaluate until fixed",hi:'ठीक होने तक शेड्यूल इन्हें नहीं आँक सकता',kn:'ಸರಿಪಡಿಸುವವರೆಗೆ ವೇಳಾಪಟ್ಟಿ ಇವನ್ನು ಪರಿಗಣಿಸಲಾಗದು',te:'సరిచేసే వరకు షెడ్యూల్ వీటిని అంచనా వేయలేదు'},gapsinfo:{en:'These animals are excluded from the coverage % until the missing data is filled. Everything else is fully tracked.',hi:'लापता डेटा भरने तक ये कवरेज % से बाहर हैं। बाकी सब पूरी तरह ट्रैक है।',kn:'ಕಾಣೆಯಾದ ಡೇಟಾ ತುಂಬುವವರೆಗೆ ಇವು ಕವರೇಜ್ %ನಿಂದ ಹೊರಗಿವೆ. ಉಳಿದವು ಸಂಪೂರ್ಣ ಟ್ರ್ಯಾಕ್.',te:'తప్పిపోయిన డేటా నింపే వరకు ఇవి కవరేజ్ % నుండి మినహాయించబడ్డాయి. మిగతావి పూర్తిగా ట్రాక్.'},gapsmore:{en:'Fix on the web dashboard · Data Ops → Herd Register',hi:'वेब डैशबोर्ड पर ठीक करें · Data Ops → Herd Register',kn:'ವೆಬ್ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್‌ನಲ್ಲಿ ಸರಿಪಡಿಸಿ · Data Ops → Herd Register',te:'వెబ్ డాష్‌బోర్డ్‌లో సరిచేయండి · Data Ops → Herd Register'},drecsub:{en:'Completed drive · read-only',hi:'पूर्ण ड्राइव · केवल-पढ़ें',kn:'ಪೂರ್ಣ ಡ್ರೈವ್ · ಓದಲು-ಮಾತ್ರ',te:'పూర్తయిన డ్రైవ్ · చదవడానికి-మాత్రమే'},drecproof:{en:'✓ Verified · video proof on file',hi:'✓ सत्यापित · वीडियो प्रूफ़',kn:'✓ ಪರಿಶೀಲಿಸಲಾಗಿದೆ · ವೀಡಿಯೊ ಪ್ರೂಫ್',te:'✓ ధృవీకరించబడింది · వీడియో ప్రూఫ్'},
     dosesgiven:{en:'4,650 of 9,698 scheduled doses given',hi:'9,698 में से 4,650 खुराक दी गईं',kn:'9,698 ರಲ್ಲಿ 4,650 ಡೋಸ್ ನೀಡಲಾಗಿದೆ',te:'9,698లో 4,650 డోస్‌లు ఇవ్వబడ్డాయి'},
     statusknown2:{en:'status known',hi:'स्थिति ज्ञात',kn:'ಸ್ಥಿತಿ ತಿಳಿದಿದೆ',te:'స్థితి తెలుసు'},
-    dgiven:{en:'Doses given',hi:'खुराक दी गईं',kn:'ಡೋಸ್ ನೀಡಲಾಗಿದೆ',te:'ఇచ్చిన డోస్‌లు'},
+    dgiven:{en:'Doses given · tap',hi:'खुराक दी गईं · टैप',kn:'ಡೋಸ್ ನೀಡಲಾಗಿದೆ · ಟ್ಯಾಪ್',te:'ఇచ్చిన డోస్‌లు · ట్యాప్'},givenh:{en:'Doses given',hi:'खुराक दी गईं',kn:'ಡೋಸ್ ನೀಡಲಾಗಿದೆ',te:'ఇచ్చిన డోస్‌లు'},givensub:{en:'Completed doses this cycle · by vaccine',hi:'इस चक्र में पूर्ण खुराक · टीके अनुसार',kn:'ಈ ಚಕ್ರದ ಪೂರ್ಣ ಡೋಸ್ · ಲಸಿಕೆವಾರು',te:'ఈ చక్రంలో పూర్తి డోస్‌లు · వ్యాక్సిన్‌వారీ'},givenmore:{en:'Every dose is a verified shed record with video proof',hi:'हर खुराक वीडियो प्रूफ़ के साथ सत्यापित शेड रिकॉर्ड है',kn:'ಪ್ರತಿ ಡೋಸ್ ವೀಡಿಯೊ ಪ್ರೂಫ್‌ನೊಂದಿಗೆ ಪರಿಶೀಲಿತ ಶೆಡ್ ದಾಖಲೆ',te:'ప్రతి డోస్ వీడియో ప్రూఫ్‌తో ధృవీకరించిన షెడ్ రికార్డ్'},
     dpending:{en:'Pending · tap',hi:'शेष · टैप',kn:'ಬಾಕಿ · ಟ್ಯಾಪ್',te:'పెండింగ్ · ట్యాప్'},
     byvax:{en:'Backlog by vaccine · pending doses',hi:'टीके अनुसार बैकलॉग · शेष खुराक',kn:'ಲಸಿಕೆವಾರು ಬ್ಯಾಕ್‌ಲಾಗ್ · ಬಾಕಿ ಡೋಸ್',te:'వ్యాక్సిన్‌వారీ బ్యాక్‌లాగ్ · పెండింగ్ డోస్‌లు'},
     biggest:{en:'largest backlog',hi:'सबसे बड़ा बैकलॉग',kn:'ಅತಿದೊಡ್ಡ ಬ್ಯಾಕ್‌ಲಾಗ್',te:'అతిపెద్ద బ్యాక్‌లాగ్'},
