@@ -17,8 +17,9 @@ this is the pre-implementation design set the maintainer asked for.
 | [system-design.md](system-design.md) | Runtime architecture, data flow, sync state machine, threading model, push/notification flow, analytics taxonomy, boot/bootstrap contract |
 | [design-system.md](design-system.md) | Design tokens, Compose theme, component inventory (ported from the mock), motion, dark/light, accessibility, i18n |
 | [screens.md](screens.md) | Screen-by-screen spec: every mock view/overlay → Compose destination, state, backend contract, role visibility |
-| [performance-and-memory.md](performance-and-memory.md) | Low-end-device budgets, Compose performance rules, memory-leak prevention checklist, profiling gates |
-| [firebase-india-setup.md](firebase-india-setup.md) | Runbook to set up Firebase (Analytics, Performance, Crashlytics, FCM push) under the correct org, using `asia-south1` for location-selectable resources — GA4/Crashlytics/Perf/FCM are global — **gated, not yet executed** |
+| [performance-and-memory.md](performance-and-memory.md) | Low-end-device budgets, Compose recomposition-safety cheat sheet, memory-leak prevention checklist, profiling gates |
+| [backend-driven-config.md](backend-driven-config.md) | Bootstrap-as-live-config: nav/labels/flags/tunables/module kill-switch pushed on the fly (no APK), config API (ETag/revision), Room/DataStore cache, FCM config-ping |
+| [firebase-india-setup.md](firebase-india-setup.md) | Runbook to set up Firebase (Analytics, Performance, Crashlytics, FCM push, Remote Config) under the correct org, using `asia-south1` for location-selectable resources — GA4/Crashlytics/Perf/FCM are global — **gated, not yet executed** |
 | [extensibility-future-modules.md](extensibility-future-modules.md) | How new modules/verticals plug in without a rewrite; module registry + navigation contract |
 
 Decision records: [`mobile-native-kotlin.md`](../decisions/mobile-native-kotlin.md)
@@ -66,6 +67,11 @@ firebase app   : NOT created (gated on org verification + explicit go)
 android app    : NOT started (apps/goatos-android does not exist yet)
 app id         : sg.mesha.goatos (prod) · .dev · .stg — env-only flavors, roles
                  are runtime from /app/bootstrap (see app-id + flavors ADR)
+sdk / toolchain: minSdk 31 (Android 12 — maintainer decision; ⚠ drops <12, confirm
+                 field fleet) · compileSdk/targetSdk 36 (Android 16) · JDK 17
+versions       : Kotlin 2.2.20 · AGP 8.13 / Gradle 8.14 · Compose BOM 2026.06.00
+                 (verified via Context7) · Room 2.8 · Coroutines 1.10 · Hilt 2.57 ·
+                 WorkManager 2.10 · Nav-Compose 2.9 — pin in the version catalog (TRD §1/§2)
 backend mobile : baseline app-api EXISTS (/app/bootstrap, /app/devices/register,
                  /app/proofs/*, /app/tasks/*/submissions, /vaccination/execution/
                  sheds/{id}, /calendar/vaccination/events, leadership reads).

@@ -41,6 +41,28 @@ hosted emulator; regressions fail the build.
 - Enable Compose **strong-skipping**; run the **Compose compiler metrics** report
   in CI and fail on newly-unstable hot composables.
 
+## 2a. Recomposition-safety cheat sheet (Google rules, verified via Context7)
+
+Do:
+- One immutable `UiState` per screen via `StateFlow` + `collectAsStateWithLifecycle`.
+- `key = { it.id }` + `contentType` on every Lazy list; `animateItem` needs keys.
+- `derivedStateOf` for values derived from fast-changing state (scroll index → show-FAB).
+- **Defer state reads** to the lowest composable via a lambda provider
+  (`Title(snack) { scroll.value }`) to shrink the recomposition scope.
+- Wrap costly calc in `remember(keys) { … }`; sort/filter in the ViewModel, not `items {}`.
+- `ImmutableList`/`PersistentList` (or `@Immutable` wrapper) for list params;
+  add a **stability-configuration file** for domain packages.
+
+Don't:
+- ❌ Raw `List<T>`/`var` in UI models (unstable → no skipping).
+- ❌ **Backwards write** — writing state you already read in the same composition (infinite recompose).
+- ❌ **Recomposition loop** — feeding measured size back into layout (`onSizeChanged` → padding). Use `Modifier.layout`/proper primitives.
+- ❌ Expensive work, allocation, or object creation in composition / `draw` / scroll.
+
+Verify: Compose **compiler metrics/stability report** in CI (fail on newly-unstable
+`feature-*` composables) + Layout Inspector recomposition counts + Macrobenchmark
+`FrameTimingMetric`.
+
 ## 3. Memory-leak prevention (checklist — enforced)
 
 Root causes we explicitly design out:

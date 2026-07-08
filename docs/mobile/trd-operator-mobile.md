@@ -15,40 +15,59 @@ Status: draft for pre-implementation review. Pairs with [PRD](prd-operator-mobil
   cross-platform choice still requires Kotlin glue. Native wins on RAM, cold
   start, battery, and jank on the exact low-end devices that matter.
 
-### Baseline versions (pin at first build, record actuals in app README)
+### Baseline versions (latest stable at this decision; re-verify at scaffold)
+
+Verified against the Android developer docs via Context7 (2026-07). Pin these in
+the version catalog at first build and record actuals in the app README.
 
 ```text
-Kotlin              2.x (latest stable)
-AGP / Gradle        latest stable, Gradle version catalog (libs.versions.toml)
-Jetpack Compose     BOM (latest stable) + Material 3
-compileSdk/target   latest stable (36+)
-minSdk              24   (covers the low-end field fleet; revisit with device data)
-JDK                 17 (toolchain)
+Kotlin              2.2.20   (K2; Compose Compiler is the Kotlin-bundled plugin — no separate compiler dep)
+AGP / Gradle        AGP 8.13.x / Gradle 8.14.x, Gradle version catalog (libs.versions.toml)
+Jetpack Compose     BOM 2026.06.00 (androidx.compose:compose-bom) + Material 3
+compileSdk          36   (Android 16)
+targetSdk           36
+minSdk              31   (Android 12)   ⚠ see note
+JDK                 17   (toolchain)
 ```
 
-Every dependency is pinned in a **version catalog**. New deps require a note in
-the app README with the reason, matching the admin-web pinning discipline.
+> ⚠ **minSdk = 31 is a maintainer decision (2026-07)** and is a *change* from the
+> prior `minSdk 24`. It drops Android 8–11 devices. The field fleet is "cheap
+> low-end Android" — confirm every operator/leadership phone is **Android 12+**
+> before locking, or the drive can't be run on an excluded device. If any active
+> field phone is < 12, revisit. compileSdk/targetSdk = 36 is the latest stable
+> (Android 16); bump only when a newer stable ships and CI is green.
+
+The **Compose BOM governs all `androidx.compose:*` versions** — never pin those
+individually (override only via the BOM escape hatch when strictly needed).
+Non-Compose libs are pinned explicitly (§2). Every dependency lives in the
+**version catalog**; new deps require a README note with the reason, matching the
+admin-web pinning discipline.
 
 ## 2. Libraries (all have a fake/mock for tests — non-negotiable)
 
-| Concern | Choice | Notes |
-|---|---|---|
-| UI | Compose + Material 3 | custom theme from design-system tokens |
-| Navigation | Navigation-Compose (type-safe routes) | module registry drives destinations |
-| DI | Hilt | constructor injection; no service locators |
-| Async | Coroutines + Flow | structured concurrency; no `GlobalScope` |
-| Local DB | **Room** (SQLite) | tasks/sheds/roster/submission queue/outbox |
-| Key-value | DataStore (Proto) | session flags, language, device/reader state |
-| Network | Retrofit + OkHttp + kotlinx.serialization | generated client (below) |
-| API client | **OpenAPI-generated Kotlin client** | from backend app-api contract; never hand-written DTOs |
-| Images/video | CameraX (video capture) + Coil (thumbnails) | bounded bitmap sizes |
-| RFID/BLE | Vendor `.aar` behind a `RfidReaderPort` | Chainway-class UHF; adapter isolates SDK |
-| Haptics + sound | `Vibrator` + short tone (`ToneGenerator` / `SoundPool`) behind a `FeedbackPort` | scan feedback; distinct not-due alert tone; fake in tests |
-| Media upload | WorkManager + signed-URL uploader | resumable, retryable |
-| Background | WorkManager | sync, upload, retry, reminders |
-| Firebase | Analytics, Performance, Crashlytics, Messaging (FCM) | `asia-south1` where selectable; GA4/Crashlytics/Perf/FCM are global — see firebase doc |
-| i18n | Android resources per-locale + backend contract copy | en/hi/kn/te |
-| Testing | JUnit5, Turbine, MockK, Compose UI test, Room in-memory, Robolectric, Maestro (E2E), Macrobenchmark | see §11 |
+Versions below are the latest stable at this decision (verify at scaffold; Compose
+libs are BOM-managed, so no per-lib Compose version).
+
+| Concern | Choice | Version | Notes |
+|---|---|---|---|
+| UI | Compose + Material 3 | BOM 2026.06.00 | custom theme from design-system tokens; M3 `material3` + `material3-adaptive` |
+| Compose↔lifecycle/activity | `lifecycle-*-compose`, `activity-compose` | lifecycle 2.10.0 · activity 1.13.0 | `collectAsStateWithLifecycle`, `viewModelScope` |
+| Navigation | Navigation-Compose (type-safe routes) | 2.9.x | module registry drives destinations |
+| DI | Hilt | 2.57.x (+ hilt-navigation-compose 1.2.x) | constructor injection; no service locators |
+| Async | Coroutines + Flow | kotlinx-coroutines 1.10.x | structured concurrency; no `GlobalScope` |
+| Stability | kotlinx-collections-immutable | 0.4.x | `ImmutableList`/`PersistentList` for skippable composables (§4a) |
+| Local DB | **Room** (SQLite) | 2.8.x (+ KSP) | tasks/sheds/roster/scan/submission/outbox/config cache; expose `Flow` |
+| Key-value | DataStore (Proto) | 1.1.x | session flags, language, device/reader state, bootstrap revision |
+| Network | Retrofit + OkHttp + kotlinx.serialization | Retrofit 3.x · OkHttp 5.x · serialization-json 1.9.x | generated client (below); ETag/If-None-Match for config |
+| API client | **OpenAPI-generated Kotlin client** | — | from backend app-api contract; never hand-written DTOs |
+| Images/video | CameraX (video capture) + Coil 3 (thumbnails) | CameraX 1.5.x · Coil 3.x | bounded bitmap sizes |
+| RFID/BLE | Vendor `.aar` behind a `RfidReaderPort` | vendor-pinned | Chainway-class UHF; adapter isolates SDK |
+| Haptics + sound | `Vibrator` + short tone (`ToneGenerator`/`SoundPool`) behind a `FeedbackPort` | platform | scan feedback; distinct not-due alert tone; fake in tests |
+| Media upload / background | WorkManager | 2.10.x | resumable signed-URL upload, sync, retry, reminders |
+| Firebase | Analytics, Performance, Crashlytics, Messaging (FCM), **Remote Config** | Firebase BOM (latest) | `asia-south1` where selectable; GA4/Crashlytics/Perf/FCM global — see firebase doc. Remote Config = kill-switch/flag fallback (bootstrap is primary — see backend-driven-config.md) |
+| Logging | Timber + structured logger port | Timber 5.0.1 | `LoggerPort` → Timber(debug) + Crashlytics(release) breadcrumbs; see §7/§9 |
+| i18n | Android resources per-locale + backend contract copy | — | en/hi/kn/te |
+| Testing | JUnit5, Turbine, MockK, Compose UI test, Room in-memory, Robolectric, Maestro (E2E), Macrobenchmark 1.4.x + Baseline Profiles, LeakCanary | — | see §11 |
 
 No vendor SDK may be called from feature/product code. SDKs live only inside
 adapters behind ports (mirrors backend ports/adapters).
@@ -119,6 +138,55 @@ Compose screen (stateless) ── observes ─▶ ViewModel (StateFlow<UiState>,
 - Client-side checks are UX-only; **server validation is authoritative** on every
   submit (revalidates form_version + permissions + current state).
 
+## 4a. Recomposition safety & coroutines (no screen may lag)
+
+Hard rule: **no screen janks at any point.** Follow Google's Compose runtime +
+performance guidance (verified via Context7). Full checklist +
+budgets: [performance-and-memory.md](performance-and-memory.md).
+
+**State & recomposition**
+
+- One **immutable** `data class UiState` per screen, exposed as a single
+  `StateFlow`; the Composable observes with `collectAsStateWithLifecycle()` (stops
+  collecting in background). Hoist state; Composables are stateless renderers.
+- **Everything the UI reads must be a stable/skippable type.** UI models are
+  `@Immutable`/`@Stable` with `val` only (never `var`); lists use
+  `kotlinx.collections.immutable.ImmutableList`/`PersistentList` or an `@Immutable`
+  wrapper — a raw `List<T>` is treated as **unstable** and kills skipping. Add a
+  **stability-configuration file** for domain packages the compiler can't infer.
+  Kotlin 2.x **strong skipping** is on by default (auto-remembers lambdas), but do
+  not rely on it to fix genuinely-unstable params.
+- **Lazy lists**: `LazyColumn`/`LazyRow` with a stable unique `key = { it.id }` and
+  `contentType` for mixed rows; `animateItem` requires keys. Never sort/filter/map
+  inside `items {}` — do it in the ViewModel or `remember(keys) { … }`.
+- **Shrink recomposition scope**: defer fast-changing state reads to the lowest
+  Composable via a lambda provider (e.g. `scrollProvider: () -> Int`), and use
+  `derivedStateOf` for values derived from frequently-changing state (e.g. "show
+  scroll-to-top" from `firstVisibleItemIndex`). Don't read scroll/animation/size
+  state high in the tree.
+- **No expensive work in composition**, no **backwards writes** (writing state you
+  already read in the same pass), no **recomposition loops** (feeding layout size
+  back into layout — use proper layout primitives / `Modifier.layout`).
+
+**Coroutines (structured concurrency)**
+
+- `viewModelScope` for UI-scoped work; **WorkManager** for background/sync/upload;
+  **no `GlobalScope`**. Children cancel with their parent (`coroutineScope` /
+  `supervisorScope`).
+- Inject a `DispatcherProvider`: IO on `Dispatchers.IO`, CPU on `Default`, never
+  block Main; Room/Retrofit are `suspend` and run off-main.
+- Repositories expose cold `Flow`; UI state via
+  `stateIn(scope, SharingStarted.WhileSubscribed(5_000), initial)` with
+  `distinctUntilChanged`/`flowOn`. Cancellation is cooperative; `NonCancellable`
+  only for cleanup; Room writes are transactional.
+
+**Verify (CI + tooling)**
+
+- Compose **compiler stability/metrics report** in CI — fail when a public
+  `feature-*` Composable becomes non-skippable. Layout Inspector recomposition
+  counts during review. **Macrobenchmark** `FrameTimingMetric` + startup gate;
+  **Baseline Profiles** shipped via `ProfileInstaller`; **LeakCanary** in debug.
+
 ## 5. Backend contract & data access
 
 - The app talks **only** to the Goat OS app-api through the **generated Kotlin
@@ -133,12 +201,20 @@ Compose screen (stateless) ── observes ─▶ ViewModel (StateFlow<UiState>,
   (`/vaccination/action-center`, `/vaccination/adherence`,
   `/control-tower/vaccination`, `/action-center/obligations`). Mobile backend work
   is an **additive pass** on these, not a rebuild.
-- **Bootstrap**: reuse/extend `/app/bootstrap` for the mobile role lens —
-  principal + role, park/shed scope, grants/capabilities, visible navigation +
-  labels, disabled reasons, app-version gate, pinned SOP/form versions, scoped
-  option caches. The app is a **renderer**; visible nav/labels/filters/disabled
+- **Bootstrap = live backend-driven config** (full spec:
+  [backend-driven-config.md](backend-driven-config.md)). Reuse/extend
+  `/app/bootstrap` for the mobile role lens — principal + role, park/shed scope,
+  grants/capabilities, visible navigation + labels, disabled reasons, **module
+  registry (kill-switch), feature flags, and tunables** (buffer window, reminder
+  lead, page sizes, sync backoff, refresh cadence), app-version gate, pinned
+  SOP/form versions, scoped option caches, plus a monotonic **`revision` + HTTP
+  `ETag`**. The app is a **renderer**; visible nav/labels/filters/disabled
   reasons/summary-vs-detail come from this contract, not hardcoded (golden
-  frontend rule).
+  frontend rule). Config is **cache-first in Room/DataStore**, refreshed on cold
+  start / resume / pull-to-refresh / an **FCM `config_changed` data-ping** — so the
+  maintainer can push nav/label/flag/threshold changes on the fly with **no APK
+  release**. Permissions stay server-authoritative (config may hide UI, never
+  widen access).
 - **Gap = the mock-shaped shed-first mobile flow.** New/extended endpoints the
   current contracts don't cover in shed-first shape: **today's-sheds-for-a-drive**
   (scope-filtered — operator/parkmgr park, director/ceo all parks), **per-shed
@@ -271,9 +347,25 @@ streaming. Capture the decision in `docs/decisions/` before implementing.
   every command is checked server-side. No client-only permission enforcement.
 - **No secrets in the repo/APK**: Firebase config via `google-services.json`
   per build type (not a secret, but scoped per project); no API keys hardcoded.
-- **Logging**: goat identifiers (RFID/old tag/breed/shed) are operational data,
-  log freely for field diagnosis; **never** log tokens/credentials. Crashlytics
-  custom keys may carry shed/goat ids, never auth material.
+- **Logging / observability (log generously — the field has no debugger)**: all
+  logging goes through a `LoggerPort` → **Timber** (debug) + **Crashlytics**
+  breadcrumbs/non-fatals + custom keys (release). Structured, tagged, with
+  trace/request/tenant/import-run context where available. Instrument the field
+  paths so any failure is reproducible from logs alone:
+  - **RFID scan**: each tap (tag read, matched due vaccine, eligible/skip+reason),
+    reader connect/disconnect, battery, dropped reads. Goat identifiers
+    (RFID/old-tag/breed/shed) are operational data — **log them freely**; they are
+    NOT PII.
+  - **Sync engine**: outbox enqueue, per-item upload/submit start+result, retry
+    count/backoff, conflict, dead-letter, applied server result.
+  - **Camera/proof**: capture start/stop, duration/size, upload signed-URL result.
+  - **Config**: applied bootstrap **revision**, fetch latency, 304 ratio, schema
+    drops (see backend-driven-config.md).
+  - **Firebase Performance custom traces**: `cold_start`, `scan_tap_feedback`,
+    `shed_submit`, `sync_flush`, `ble_connect`, `config_fetch` — tied to the §9
+    budgets. Analytics product events for funnel (login→sheds→scan→submit).
+  - **Never** log tokens/credentials/service-account JSON. Crashlytics custom keys
+    may carry shed/goat/config-revision ids, never auth material.
 - Network: TLS only; certificate/domain pinning considered for prod (ADR if
   added). No cleartext traffic (`usesCleartextTraffic=false`).
 - Media: uploaded via signed URLs, never through the API body.
