@@ -123,7 +123,8 @@ bucket.
 kernel obligation/reminder/escalation (backend, Asia/Kolkata timing)
   → NotificationGateway.NotifyUser/Role  → FCM adapter  → device
   → app renders notification (drive in 2 days / submit today / overdue escalation)
-  → tap deep-links into the relevant screen (shed, overdue, reschedule)
+  → tap deep-links via the **backend-provided route/action ID in the FCM payload**
+    (app maps ID→screen — e.g. shed, overdue, reschedule; no client type→screen switch)
 Device registers FCM token via mobile bootstrap/register-device on boot + refresh.
 ```
 

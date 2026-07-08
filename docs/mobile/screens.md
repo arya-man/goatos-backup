@@ -8,6 +8,11 @@ actions, statuses, and options (golden frontend rule); the app renders.
 
 Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ceo/coo.
 
+> **The role codes (O/PM/D/C) in the headings below are today's backend-returned
+> examples, NOT client gates.** Screen/route/action visibility comes from the
+> principal's bootstrap `presentationConfig` (visible nav + action IDs); the app
+> renders whatever the backend returns and never checks `role ==`.
+
 ## Shared entry (all roles)
 
 ### Login  (`v-login`)
@@ -26,7 +31,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
   - **Month**: drive-day dots; tap day → `ovl-day` sheet (that day's sheds +
     status). Done day → opens the shed/drive record.
   - **History**: past shed/drive records → record sheet.
-- Backend: `GET calendar?scope&range` (Asia/Kolkata day buckets); day/record reads.
+- Backend: `GET calendar?scope_token=<token>&range` (Asia/Kolkata day buckets); day/record reads.
 - CTA label is **backend-provided** per principal (today: operator "Open drive";
   leadership "View drive status") — not a client role switch.
 - Note: which calendar segments are visible comes from bootstrap
@@ -57,7 +62,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
   the action in the payload — not a client `role==` check), with the red-on-delay
   treatment.
 
-### Scan  (`v-scan`)  — O only (leadership tap blocked server-side)
+### Scan  (`v-scan`)  — visible only when the backend returns the scan route/action (today: operator; leadership tap blocked server-side)
 - Module: `feature-scan`. Header: shed · cohort. **Progress ring** = shed total
   `done/T` (**T + eligibility from backend**; the ring reflects backend totals plus
   locally-captured, not-yet-synced scans — it is not a local source of truth). **Per-vaccine-group chips** (filter by the **backend-tagged** vaccine group on each roster animal; active group highlighted). Tap-to-scan
@@ -75,7 +80,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
   tone) is rendered locally via `FeedbackPort`, but the not-due *signal* is backend
   eligibility, not a client date/policy check.
 
-### Submit  (`v-submit`)  — O only
+### Submit  (`v-submit`)  — visible only when the backend returns the submit action (today: operator)
 - Module: `feature-submit`. One **shed record** covering all its due vaccines:
   per-group vaccine · dose · **backend-selected lot** (operator scans/confirms the
   physical vial; the app does not pick FEFO/expiry), cold-chain, animals
@@ -104,18 +109,18 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 - Default scope is **backend-provided** per principal (today: parkmgr = own park;
   **director + CEO/COO = all parks**, drill via picker) — the app renders the scope
   options + default, it does not resolve scope by role.
-- Backend: `GET rollup/backlog/gaps?scope`; scope filters everything.
+- Backend: `GET rollup/backlog/gaps?scope_token=<token>`; the backend filters everything by the token.
 - Backend-returned action visibility / disabled reasons (not client role gates): park picker +
   coverage-by-park, assign, and scan visibility all come from the principal's
   bootstrap grant set (today: picker/coverage-by-park = director + CEO/COO; assign
   = CEO/COO + PM; scan operator-only). The app shows a control only when its
   grant/action target is present in the payload.
 
-### Overdue  (`v-overdue`)  — PM/D/C
+### Overdue  (`v-overdue`)  — visible when the backend returns the overdue route (today's examples: PM/D/C)
 - Module: `feature-leadership`. **Backend-classified** missed vs in-buffer, with
   color legend and shed/animal detail → reschedule (the app renders the returned
   `status`; it does not classify).
-- Backend: `GET overdue?scope` — backend does the Asia/Kolkata buffer/lateness math.
+- Backend: `GET overdue?scope_token=<token>` — backend does the Asia/Kolkata buffer/lateness math.
 
 ### Reschedule (`v-reschedule`) — PM/C (assign)
 - Module: `feature-leadership`. Segmented reschedule / mark-scheduled; **date
@@ -143,7 +148,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 | `ovl-driverec`/`ovl-shedrec` | record sheets | per-vaccine breakdown + animals |
 | `ovl-date` | date picker over **backend-provided** date options (each carries its in/out-of-buffer state + label) | reschedule |
 | `ovl-assign` | assign primary/backup | assign command |
-| `ovl-scanlist` | scan list (given/pending/skipped) | local scan_event + roster |
+| `ovl-scanlist` | scan list (given/pending/skipped) | backend roster/status + local unsynced `scan_event` overlay (draft UX; backend = final truth) |
 | `ovl-day` | month day sheet | that day's sheds/record |
 | `ovl-sync` | sync status sheet | Room outbox: each queued record + state + progress |
 | toast | `GoatToast` | one-shot effects |

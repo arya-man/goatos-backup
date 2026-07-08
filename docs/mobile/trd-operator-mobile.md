@@ -238,7 +238,7 @@ budgets: [performance-and-memory.md](performance-and-memory.md).
   Permissions stay server-authoritative (config may hide UI, never widen access).
 - **Gap = the mock-shaped shed-first mobile flow.** New/extended endpoints the
   current contracts don't cover in shed-first shape: **today's-sheds-for-a-drive**
-  (scope-filtered — operator/parkmgr park, director/ceo all parks), **per-shed
+  (scope-token filtered; today's backend-issued examples: operator/parkmgr own park, director/ceo all parks), **per-shed
   scan roster** (animal + its due vaccine group + tag[s] + skip reason),
   **shed-level submit** (one record across a shed's due vaccine groups),
   **reschedule**, **assign** primary/backup, and the **role-scoped leadership
@@ -263,8 +263,8 @@ truth); a WorkManager-driven engine reconciles.
 
 ```text
 Local tables (Room):
-  shed_day            cached today's sheds for the caller's role scope
-                      (operator/parkmgr = own park; director/ceo = all parks or picked park)
+  shed_day            cached today's sheds for the backend-issued scope token
+                      (today's examples: operator/parkmgr = own park; director/ceo = all parks or picked park)
   shed_group          due vaccine groups per shed (vaccine, dose, batch, due, done)
   roster_animal       per-shed animals + their due vaccine + tag(s) + state
   scan_event          each tap: given / skipped(reason) + captured_at_device (evidence time only — backend owns accepted/administered/business time) + operator
