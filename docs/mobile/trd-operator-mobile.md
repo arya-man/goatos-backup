@@ -15,24 +15,27 @@ Status: draft for pre-implementation review. Pairs with [PRD](prd-operator-mobil
   cross-platform choice still requires Kotlin glue. Native wins on RAM, cold
   start, battery, and jank on the exact low-end devices that matter.
 
-### Baseline versions (latest stable at this decision; re-verify at scaffold)
+### Baseline versions (tested baseline — verify at scaffold against official sources)
 
-Verified against the Android developer docs via Context7 (2026-07). Pin these in
-the version catalog at first build and record actuals in the app README.
+Pin in the version catalog at first build; record actuals in the app README.
+**Authority = official Android/Kotlin release notes + Maven metadata**, not any docs
+mirror. Confirm the exact latest at scaffold; the numbers below are the current
+latest at authoring (2026-07):
 
 ```text
-Kotlin              2.2.20   (K2; Compose Compiler is the Kotlin-bundled plugin — no separate compiler dep)
-AGP / Gradle        AGP 8.13.x / Gradle 8.14.x, Gradle version catalog (libs.versions.toml)
-Jetpack Compose     BOM 2026.06.00 (androidx.compose:compose-bom) + Material 3
+Kotlin              2.4.0    (K2; Compose Compiler = Kotlin-bundled `org.jetbrains.kotlin.plugin.compose`, versioned with Kotlin — no separate compiler dep)
+AGP / Gradle        AGP 9.2.x / Gradle 9.4.1, Gradle version catalog (libs.versions.toml)
+Jetpack Compose     BOM 2026.06.01 (androidx.compose:compose-bom) + Material 3
 compileSdk          36   (Android 16)
 targetSdk           36
 minSdk              31   (Android 12 — locked)
-JDK                 17   (toolchain)
+JDK                 17   (toolchain; 17+)
 ```
 
-**minSdk = 31 is locked** (maintainer decision, 2026-07). Android 12+ only; the
-field fleet is Android 12+. compileSdk/targetSdk = 36 is the latest stable
-(Android 16); bump only when a newer stable ships and CI is green.
+**minSdk = 31 is locked** (maintainer decision, 2026-07): Android 12+ only.
+Procurement/support must ensure operator/leadership devices are Android 12+.
+compileSdk/targetSdk = 36 is the latest stable (Android 16); bump only when a newer
+stable ships and CI is green.
 
 The **Compose BOM governs all `androidx.compose:*` versions** — never pin those
 individually (override only via the BOM escape hatch when strictly needed).
@@ -42,25 +45,26 @@ admin-web pinning discipline.
 
 ## 2. Libraries (all have a fake/mock for tests — non-negotiable)
 
-Versions below are the latest stable at this decision (verify at scaffold; Compose
-libs are BOM-managed, so no per-lib Compose version).
+Versions below are the current latest at authoring — **verify each at scaffold
+against official Maven metadata / release notes** (not a docs mirror). Compose libs
+are BOM-managed, so no per-lib Compose version.
 
 | Concern | Choice | Version | Notes |
 |---|---|---|---|
-| UI | Compose + Material 3 | BOM 2026.06.00 | custom theme from design-system tokens; M3 `material3` + `material3-adaptive` |
+| UI | Compose + Material 3 | BOM 2026.06.01 | custom theme from design-system tokens; M3 `material3` + `material3-adaptive` |
 | Compose↔lifecycle/activity | `lifecycle-*-compose`, `activity-compose` | lifecycle 2.10.0 · activity 1.13.0 | `collectAsStateWithLifecycle`, `viewModelScope` |
 | Navigation | Navigation-Compose (type-safe routes) | 2.9.x | module registry drives destinations |
 | DI | Hilt | 2.57.x (+ hilt-navigation-compose 1.2.x) | constructor injection; no service locators |
-| Async | Coroutines + Flow | kotlinx-coroutines 1.10.x | structured concurrency; no `GlobalScope` |
+| Async | Coroutines + Flow | kotlinx-coroutines 1.11.0 | structured concurrency; no `GlobalScope` |
 | Stability | kotlinx-collections-immutable | 0.4.x | `ImmutableList`/`PersistentList` for skippable composables (§4a) |
 | Local DB | **Room** (SQLite) | 2.8.x (+ KSP) | tasks/sheds/roster/scan/submission/outbox/config cache; expose `Flow` |
 | Key-value | DataStore (Proto) | 1.1.x | session flags, language, device/reader state, bootstrap revision |
 | Network | Retrofit + OkHttp + kotlinx.serialization | Retrofit 3.x · OkHttp 5.x · serialization-json 1.9.x | generated client (below); ETag/If-None-Match for config |
 | API client | **OpenAPI-generated Kotlin client** | — | from backend app-api contract; never hand-written DTOs |
-| Images/video | CameraX (video capture) + Coil 3 (thumbnails) | CameraX 1.5.x · Coil 3.x | bounded bitmap sizes |
+| Images/video | CameraX (video capture) + Coil 3 (thumbnails) | CameraX 1.6.1 · Coil 3.x | bounded bitmap sizes |
 | RFID/BLE | Vendor `.aar` behind a `RfidReaderPort` | vendor-pinned | Chainway-class UHF; adapter isolates SDK |
 | Haptics + sound | `Vibrator` + short tone (`ToneGenerator`/`SoundPool`) behind a `FeedbackPort` | platform | scan feedback; distinct not-due alert tone; fake in tests |
-| Media upload / background | WorkManager | 2.10.x | resumable signed-URL upload, sync, retry, reminders |
+| Media upload / background | WorkManager | 2.11.2 | resumable signed-URL upload, sync, retry, reminders |
 | Firebase | Analytics, Performance, Crashlytics, Messaging (FCM), **Remote Config** | Firebase BOM (latest) | `asia-south1` where selectable; GA4/Crashlytics/Perf/FCM global — see firebase doc. Remote Config = kill-switch/flag fallback (bootstrap is primary — see backend-driven-config.md) |
 | Logging | Timber + structured logger port | Timber 5.0.1 | `LoggerPort` → Timber(debug) + Crashlytics(release) breadcrumbs; see §7/§9 |
 | i18n | Android resources per-locale + backend contract copy | — | en/hi/kn/te |
@@ -137,8 +141,8 @@ Compose screen (stateless) ── observes ─▶ ViewModel (StateFlow<UiState>,
 
 ## 4a. Recomposition safety & coroutines (no screen may lag)
 
-Hard rule: **no screen janks at any point.** Follow Google's Compose runtime +
-performance guidance (verified via Context7). Full checklist +
+Hard rule: **no screen janks at any point.** Follow the official Compose runtime +
+performance guidance (developer.android.com). Full checklist +
 budgets: [performance-and-memory.md](performance-and-memory.md).
 
 **State & recomposition**
@@ -202,10 +206,14 @@ budgets: [performance-and-memory.md](performance-and-memory.md).
   [backend-driven-config.md](backend-driven-config.md)). Reuse/extend
   `/app/bootstrap` for the mobile role lens — principal + role, park/shed scope,
   grants/capabilities, visible navigation + labels, disabled reasons, **module
-  registry (kill-switch), feature flags, and tunables** (buffer window, reminder
-  lead, page sizes, sync backoff, refresh cadence), app-version gate, pinned
-  SOP/form versions, scoped option caches, plus a monotonic **`revision` + HTTP
-  `ETag`**. The app is a **renderer**; visible nav/labels/filters/disabled
+  registry (kill-switch), feature flags, and UI tunables** (page sizes, sync
+  backoff, refresh cadence, cache TTLs), app-version gate, pinned SOP/form
+  versions, scoped option caches, plus a monotonic **`revision` + HTTP `ETag`** —
+  all in a `presentationConfig` block. Business/medical policy (reschedule buffer
+  window, reminder lead, medical thresholds) travels in a **separate read-only
+  `policySnapshot`** with its own `policy_revision` + source + audit trail; it is
+  governed by the maintainer-lock, NOT a UI config push. The app renders/compiles
+  policy but never exposes it as an editable setting. The app is a **renderer**; visible nav/labels/filters/disabled
   reasons/summary-vs-detail come from this contract, not hardcoded (golden
   frontend rule). Config is **cache-first in Room/DataStore**, refreshed on cold
   start / resume / pull-to-refresh / an **FCM `config_changed` data-ping** — so the

@@ -41,7 +41,7 @@ hosted emulator; regressions fail the build.
 - Enable Compose **strong-skipping**; run the **Compose compiler metrics** report
   in CI and fail on newly-unstable hot composables.
 
-## 2a. Recomposition-safety cheat sheet (Google rules, verified via Context7)
+## 2a. Recomposition-safety cheat sheet (per official Compose performance docs)
 
 Do:
 - One immutable `UiState` per screen via `StateFlow` + `collectAsStateWithLifecycle`.

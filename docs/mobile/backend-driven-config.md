@@ -16,22 +16,35 @@ or an available action, it comes from config — not a hardcoded constant.
 
 ## Source of truth: the bootstrap contract (primary)
 
-`GET /app/bootstrap` is the live config document. It returns, for the
-authenticated principal:
+`GET /app/bootstrap` is the live document. It carries **two distinct blocks** that
+must not be conflated:
+
+**`presentationConfig`** — freely push-able UI config (this is the "change on the
+fly" surface):
 
 - role lens + park/shed scope + grants/capabilities;
 - **visible navigation** + labels + icons(token) + disabled reasons;
 - **module registry** — which modules/screens are enabled (kill-switch);
 - **feature flags** (per tenant / role / env);
-- **tunables** — e.g. reschedule buffer window, reminder lead time, default
-  page sizes, sync backoff/jitter, jank-sampling rate, refresh cadence;
+- **UI tunables ONLY** — default page sizes, sync backoff/jitter, jank-sampling
+  rate, refresh cadence, cache TTLs;
 - pinned SOP/form versions + scoped option caches;
 - compatible app-version gate;
 - a monotonic **`revision`** (and HTTP `ETag`).
 
-Changing any of these server-side changes the app on the **next fetch** — no
-release. Permissions stay **server-authoritative**: config may hide a control, but
-the server still enforces the actual grant (config never widens access).
+**`policySnapshot`** — read-only business/medical policy the app **renders but
+never treats as tweakable UI config**: reschedule **buffer window**, **reminder
+lead time**, and any medical thresholds. It is NOT a casual config push. It has its
+own **`policy_revision`**, a **`source`** (e.g. `vaccination-rules.md` / published
+`rule_dsl`), and an **audit trail**; changing it goes through the business/medical
+maintainer-lock governance (see `AGENTS.md` "Business and medical rule changes"),
+not a UI config edit. The app compiles it into behaviour (e.g. buffer math) but
+must not expose it as an editable setting.
+
+Changing `presentationConfig` server-side changes the app on the **next fetch** —
+no release. `policySnapshot` changes only via governed policy updates. Permissions
+stay **server-authoritative**: config may hide a control, but the server still
+enforces the actual grant (config never widens access).
 
 ## Config API
 
@@ -49,8 +62,14 @@ GET /app/config?since=<revision>   → 200 {delta since revision} (optional opti
 
 ## When the app fetches config
 
-1. **Cold start** — block business UI until the first bootstrap succeeds (no
-   local-default flash; matches the admin-web rule). Cached config renders offline.
+1. **Cold start** —
+   - **First-ever launch with no cached config**: block business UI until the
+     first bootstrap succeeds (no local-default flash; matches the admin-web rule).
+     Offline on a fresh install → a "connect to finish setup" state, not a guess.
+   - **Later launches with a valid cache**: render the cached config immediately
+     (works offline) **if** the app-version + config-schema gates pass, then
+     refresh in the background (ETag) and re-render on a new revision. A failed
+     gate falls back to the blocking bootstrap.
 2. **On resume** (app foregrounded) — conditional GET (ETag); apply if changed.
 3. **Pull-to-refresh** on read screens (TRD §6 refresh).
 4. **Push-on-the-fly** — backend sends an **FCM data message** `config_changed`
@@ -71,13 +90,13 @@ GET /app/config?since=<revision>   → 200 {delta since revision} (optional opti
 
 ## What is config-able vs not
 
-| Config-able (push on the fly) | NOT config-able |
+| Config-able — `presentationConfig` (push on the fly) | NOT freely config-able |
 |---|---|
 | Nav visibility, page/section titles, labels | Live domain data — parks, sheds, breeds, SOP names, roles (come from module DB tables) |
 | Chips/tabs, filter/sort/page-size semantics | Actual permissions/RBAC (server-enforced; config only hides UI) |
-| Empty/error copy, disabled reasons | Business/medical rules that need a source-of-truth change (vaccination-rules.md, migrations) |
-| Feature flags, per-screen kill-switch, module registry | Anything that would let the client widen its own access |
-| Tunables (buffer window, reminder lead, page sizes, sync backoff, refresh cadence) | |
+| Empty/error copy, disabled reasons | **Business/medical policy** — reschedule buffer window, reminder lead, medical thresholds — lives in read-only `policySnapshot` (own `policy_revision` + source + audit; governed by the maintainer-lock, not a UI push) |
+| Feature flags, per-screen kill-switch, module registry | Business/medical *rules* that need a source-of-truth change (vaccination-rules.md, migrations) |
+| **UI tunables** — page sizes, sync backoff, refresh cadence, cache TTLs, jank-sampling | Anything that would let the client widen its own access |
 
 Business-managed vocabularies (park codes, shed names, operator IDs, capacities)
 are **backend-owned but sourced from Postgres/module tables**, compiled into the
