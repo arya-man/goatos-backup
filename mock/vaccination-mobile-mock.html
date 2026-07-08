@@ -321,7 +321,7 @@
           <div class="fld" style="margin-top:22px"><label data-t="applang">App language</label>
             <div class="langbtn" data-open="lang"><span class="gl"><svg class="ic" style="width:15px;height:15px"><use href="#i-globe"/></svg></span><span data-langname>English</span><span style="flex:1"></span><span class="chg" data-t="change">Change <svg class="ic" style="width:13px;height:13px"><use href="#i-chev"/></svg></span></div>
           </div>
-          <p style="font-size:11.5px;color:var(--faint);margin-top:18px;line-height:1.55" data-t="rbac">Your role comes from the HR directory — you land on the screen for your job. Managers execute; directors track.</p>
+          <p style="font-size:11.5px;color:var(--faint);margin-top:18px;line-height:1.55" data-t="rbac">Your role comes from the HR directory — you land on the screen for your job. The field operator executes; managers and directors track.</p>
         </div></div>
       </section>
 
@@ -345,11 +345,11 @@
 
       <!-- SHED LIST -->
       <section class="view" id="v-sheds">
-        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb">Vaccination · CBE</div><h3 data-t="todaysheds">Today's sheds</h3></div></div>
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb" id="shedsEb">Vaccination · CBE</div><h3 id="shedsTitle" data-t="todaysheds">Today's sheds</h3></div></div>
         <div class="vscroll">
           <div class="drivemeta"><svg class="ic"><use href="#i-cal"/></svg> <b>Tue 7 Jul 2026</b> <span class="dot">·</span> <svg class="ic"><use href="#i-clock"/></svg> 08:00–20:00 <span class="dot">·</span> <b id="dayShedN">4</b> <span data-t="shedsw">sheds</span> <span class="dot">·</span> <b id="dayDue">77</b> <span data-t="due2">due</span></div>
           <div class="drivetot"><div class="dt-h"><b data-t="dayprog">Day progress</b><span style="flex:1"></span><span class="dt-n" id="dayProg">46 / 77</span></div><div class="barp" style="margin-top:8px"><i id="dayBar" style="width:60%"></i></div><div class="dt-s" id="daySheds"><span data-t="animalsacross">animals across</span> 4 <span data-t="shedstoday">sheds today</span></div></div>
-          <div class="lt" data-t="sheds">Sheds today · tap to enter · each shed shows its own due vaccines</div>
+          <div class="lt" id="shedsLt" data-t="sheds">Sheds today · tap to enter · each shed shows its own due vaccines</div>
           <div class="rolenote" id="rolenote"><svg class="ic"><use href="#i-user"/></svg> <span data-t="readonly">Read-only · the ground team runs the drive</span></div>
           <div id="shedList"></div>
           <div class="lt" data-t="rosterchg">Roster changes · since this drive was scheduled</div>
@@ -641,7 +641,8 @@
 
   /* ---------- router ---------- */
   var role='operator', stack=['v-login'];
-  function homeId(){return role==='operator'?'v-calendar':'v-dhome';}
+  // Calendar is the common vaccination entry point for EVERY role; the tap-through drill changes by role.
+  function homeId(){return 'v-calendar';}
   function show(id,isBack){
     $all('.view').forEach(function(v){v.classList.remove('on','back');});
     var el=D.getElementById(id); if(!el){el=D.getElementById(homeId());}
@@ -651,10 +652,10 @@
     if(id==='v-calendar'&&typeof calMode==='function')calMode('week');
     // v-scan is set up by enterShed (reset + any pre-done); don't wipe it on show/back.
   }
-  function go(id){ if(id==='__home')id=homeId(); if(id==='v-login'){stack=['v-login'];} else if(stack[stack.length-1]!==id){stack.push(id);} show(id,false); closeOvl(); if(id==='v-sheds'&&typeof renderSheds==='function')renderSheds(); }
+  function go(id){ if(id==='__home')id=homeId(); if(id==='v-login'){stack=['v-login'];} else if(stack[stack.length-1]!==id){stack.push(id);} show(id,false); closeOvl(); if(id==='v-sheds'&&typeof renderShedsView==='function')renderShedsView(); }
   function back(){ if(stack.length>1){stack.pop();} show(stack[stack.length-1],true); }
   D.addEventListener('click',function(e){
-    var g=e.target.closest('[data-go]'); if(g){var gid=g.getAttribute('data-go'); if(gid==='v-scan'&&role!=='operator'){toast('Executed on the ground','Only the health manager runs the drive');return;} go(gid);return;}
+    var g=e.target.closest('[data-go]'); if(g){var gid=g.getAttribute('data-go'); if(gid==='v-scan'&&role!=='operator'){toast('Executed on the ground','Only the field operator runs the drive');return;} go(gid);return;}
     var b=e.target.closest('[data-back]'); if(b){back();return;}
     var dr=e.target.closest('[data-dayrec]'); if(dr){closeOvl();openDriveRec(+dr.getAttribute('data-dayrec'));return;}
     var o=e.target.closest('[data-open]'); if(o){openOvl(o.getAttribute('data-open'));return;}
@@ -662,7 +663,7 @@
   });
 
   /* ---------- overlays ---------- */
-  function openOvl(n){ if(n==='assign'&&!canAssign()){toast('Not allowed','Only CEO/COO or Park Manager can assign the team');return;} if(n==='scope'&&role!=='ceo')return; var el=D.getElementById('ovl-'+n); if(el)el.classList.add('open'); if(n==='assign'&&typeof renderAssign==='function')renderAssign();}
+  function openOvl(n){ if(n==='assign'&&!canAssign()){toast('Not allowed','Only CEO/COO or Park Manager can assign the team');return;} if(n==='scope'&&role!=='ceo'&&role!=='director')return; var el=D.getElementById('ovl-'+n); if(el)el.classList.add('open'); if(n==='assign'&&typeof renderAssign==='function')renderAssign();}
   function closeOvl(){$all('.ovl').forEach(function(o){o.classList.remove('open');});}
 
   /* ---------- park scope (leadership overview) ---------- */
@@ -714,14 +715,14 @@
       gb.innerHTML = rows.length ? rows.map(function(r){return '<div class="frow"><span class="fk" style="font-variant-numeric:tabular-nums">'+r.id+'</span><span class="fv" style="color:var(--warn);text-align:right">'+r.why+'</span></div>';}).join('') : '<div class="frow"><span class="fk">All animals tracked</span><span class="fv" style="color:var(--brand-d)">0 gaps</span></div>';}
     var gs=D.getElementById('gapsSub'); if(gs)gs.textContent=(s.gaps>0? (s.gaps+' of '+s.anim+' animals not yet schedulable') : ('All '+s.anim+' animals tracked'));
     // "Coverage by park" breakdown only makes sense company-wide
-    var pb=D.getElementById('parkbreak'); if(pb)pb.style.display=(scope==='all'&&role==='ceo')?'':'none';
+    var pb=D.getElementById('parkbreak'); if(pb)pb.style.display=(scope==='all'&&(role==='ceo'||role==='director'))?'':'none';
     // reflect selection in the picker sheet
     $all('#scopeList .popt').forEach(function(p){p.classList.toggle('on',p.getAttribute('data-scope')===scope);});
   }
 
   /* ---------- bottom nav ---------- */
   var NAV={operator:[['v-calendar','i-cal','tb1'],['v-sheds','i-syringe','tb2'],['v-alerts','i-bell','tb3'],['v-you','i-user','tb4']],
-           director:[['v-dhome','i-home','tbhome'],['v-calendar','i-cal','tb1'],['v-alerts','i-bell','tb3'],['v-you','i-user','tb4']]};
+           director:[['v-calendar','i-cal','tb1'],['v-dhome','i-home','tbhome'],['v-alerts','i-bell','tb3'],['v-you','i-user','tb4']]};
   NAV.ceo=NAV.director; NAV.parkmgr=NAV.director;
   function renderNav(){
     var set=NAV[role]||NAV.operator;
@@ -739,15 +740,16 @@
     $('#roleset').querySelectorAll('button').forEach(function(b){b.classList.toggle('on',b.dataset.role===r);});
     var P=({operator:{n:'Arun Kumar',i:'AK',you:'Health Asst Mgr · CBE',yr:'Health Asst Mgr',dh:'',scope:'CBE',sub:'hmcbe'},
             parkmgr:{n:'Sidde Gowda',i:'SG',you:'Health Manager · CBE',yr:'Health Manager',dh:'Vaccination · Health Manager',scope:'CBE',sub:'pmcbe'},
-            director:{n:'Avishek Singh',i:'AV',you:'Health Director · CBE',yr:'Health Director',dh:'Vaccination · Health Director',scope:'CBE',sub:'dircbe'},
+            director:{n:'Avishek Singh',i:'AV',you:'Health Director · All parks',yr:'Health Director',dh:'Vaccination · Health Director',scope:'All parks · 2',sub:'dircbe'},
             ceo:{n:'Abhishek Singh',i:'AB',you:'COO · Company-wide',yr:'COO',dh:'Vaccination · COO',scope:'All parks · 2',sub:'ceocbe'}})[r]||{};
     $('#drav').textContent=P.i; $('#drname').textContent=P.n; $('#drsub').setAttribute('data-t',P.sub);
     $('#youav').textContent=P.i; $('#youname').textContent=P.n; $('#yousub').textContent=P.you; $('#yourole').textContent=P.yr;
     if($('#dhrole'))$('#dhrole').textContent=P.dh;
     if($('#dhav'))$('#dhav').textContent=P.i;
-    // CEO/COO can pick any park (company-wide default); park manager & director are locked to their park.
-    curScope = (r==='ceo') ? 'all' : 'cbe';
-    var sc=$('#dhscope'); if(sc){ if(r==='ceo'){sc.setAttribute('data-open','scope');} else {sc.removeAttribute('data-open');} }
+    // Director + CEO/COO see all parks (company-wide default) and can drill into one park;
+    // the park manager is locked to their own park.
+    curScope = (r==='ceo'||r==='director') ? 'all' : 'cbe';
+    var sc=$('#dhscope'); if(sc){ if(r==='ceo'||r==='director'){sc.setAttribute('data-open','scope');} else {sc.removeAttribute('data-open');} }
     applyScope(curScope);
     show('v-login',false); closeOvl(); setLang(curLang);
   }
@@ -770,7 +772,7 @@
     signin:{en:'Sign in',hi:'साइन इन',kn:'ಸೈನ್ ಇನ್',te:'సైన్ ఇన్'},
     applang:{en:'App language',hi:'ऐप भाषा',kn:'ಆ್ಯಪ್ ಭಾಷೆ',te:'యాప్ భాష'},
     change:{en:'Change',hi:'बदलें',kn:'ಬದಲಿಸಿ',te:'మార్చు'},
-    rbac:{en:'Your role comes from the HR directory — you land on the screen for your job. Managers execute; directors track.',hi:'आपकी भूमिका HR डायरेक्टरी से आती है — आपको अपने काम की स्क्रीन मिलती है।',kn:'ನಿಮ್ಮ ಪಾತ್ರ HR ಡೈರೆಕ್ಟರಿಯಿಂದ — ನಿಮ್ಮ ಕೆಲಸದ ಪರದೆ ಸಿಗುತ್ತದೆ.',te:'మీ పాత్ర HR డైరెక్టరీ నుండి — మీ పని స్క్రీన్ కనిపిస్తుంది.'},
+    rbac:{en:'Your role comes from the HR directory — you land on the screen for your job. The field operator executes; managers and directors track.',hi:'आपकी भूमिका HR डायरेक्टरी से आती है — आपको अपने काम की स्क्रीन मिलती है। फ़ील्ड ऑपरेटर टीका करता है; मैनेजर और डायरेक्टर ट्रैक करते हैं।',kn:'ನಿಮ್ಮ ಪಾತ್ರ HR ಡೈರೆಕ್ಟರಿಯಿಂದ — ನಿಮ್ಮ ಕೆಲಸದ ಪರದೆ ಸಿಗುತ್ತದೆ. ಫೀಲ್ಡ್ ಆಪರೇಟರ್ ಲಸಿಕೆ ಹಾಕುತ್ತಾರೆ; ಮ್ಯಾನೇಜರ್ ಮತ್ತು ಡೈರೆಕ್ಟರ್ ಟ್ರ್ಯಾಕ್ ಮಾಡುತ್ತಾರೆ.',te:'మీ పాత్ర HR డైరెక్టరీ నుండి — మీ పని స్క్రీన్ కనిపిస్తుంది. ఫీల్డ్ ఆపరేటర్ టీకా వేస్తారు; మేనేజర్‌లు, డైరెక్టర్‌లు ట్రాక్ చేస్తారు.'},
     cal:{en:'Calendar',hi:'कैलेंडर',kn:'ಕ್ಯಾಲೆಂಡರ್',te:'క్యాలెండర్'},
     today:{en:'Today · Tue 7 Jul',hi:'आज · मंगल 7 जुल',kn:'ಇಂದು · ಮಂಗಳ 7 ಜುಲೈ',te:'ఈరోజు · మంగళ 7 జూలై'},
     opendrive:{en:'Open drive',hi:'ड्राइव खोलें',kn:'ಡ್ರೈವ್ ತೆರೆಯಿರಿ',te:'డ్రైవ్ తెరవండి'},
@@ -853,10 +855,13 @@
     todaysheds:{en:"Today's sheds",hi:'आज के शेड',kn:'ಇಂದಿನ ಶೆಡ್‌ಗಳು',te:'ఈరోజు షెడ్‌లు'},shedsw:{en:'sheds',hi:'शेड',kn:'ಶೆಡ್',te:'షెడ్‌లు'},dayprog:{en:'Day progress',hi:'दिन की प्रगति',kn:'ದಿನದ ಪ್ರಗತಿ',te:'రోజు పురోగతి'},animalsacross:{en:'animals across',hi:'पशु',kn:'ಪ್ರಾಣಿಗಳು',te:'జంతువులు'},shedstoday:{en:'sheds today',hi:'शेड आज',kn:'ಶೆಡ್ ಇಂದು',te:'షెడ్‌లు ఈరోజు'},tapprompt2:{en:'Tap reader to animal — reader shows its due vaccine',hi:'रीडर पशु पर टैप करें — देय टीका दिखेगा',kn:'ರೀಡರ್ ಪ್ರಾಣಿಗೆ ಟ್ಯಾಪ್ — ಬಾಕಿ ಲಸಿಕೆ ತೋರಿಸುತ್ತದೆ',te:'రీడర్‌ను జంతువుకు ట్యాప్ — దాని వ్యాక్సిన్ చూపుతుంది'},submitshed:{en:'Submit shed',hi:'शेड सबमिट करें',kn:'ಶೆಡ್ ಸಲ್ಲಿಸಿ',te:'షెడ్ సబ్మిట్'},duehere:{en:'Due in this shed',hi:'इस शेड में देय',kn:'ಈ ಶೆಡ್‌ನಲ್ಲಿ ಬಾಕಿ',te:'ఈ షెడ్‌లో డ్యూ'},submitnote2:{en:'One shed record · all due vaccines in this shed',hi:'एक शेड रिकॉर्ड · इस शेड के सभी देय टीके',kn:'ಒಂದು ಶೆಡ್ ದಾಖಲೆ · ಈ ಶೆಡ್‌ನ ಎಲ್ಲಾ ಲಸಿಕೆ',te:'ఒక షెడ్ రికార్డ్ · ఈ షెడ్‌లోని అన్ని వ్యాక్సిన్‌లు'},
     bufmsg:{en:"Can postpone within a <b>1-week buffer</b>. Beyond that it's a missed dose — leadership is alerted a week ahead.",hi:'<b>1-सप्ताह बफ़र</b> में स्थगित कर सकते हैं। उसके बाद खुराक छूटती है।',kn:'<b>1-ವಾರದ ಬಫರ್</b>ನಲ್ಲಿ ಮುಂದೂಡಬಹುದು.',te:'<b>1-వారం బఫర్</b>లో వాయిదా వేయవచ్చు.'},
     action:{en:'Action',hi:'कार्रवाई',kn:'ಕ್ರಿಯೆ',te:'చర్య'},markdone:{en:'Mark scheduled',hi:'निर्धारित करें',kn:'ನಿಗದಿ ಗುರುತಿಸಿ',te:'షెడ్యూల్ గుర్తించు'},newdate:{en:'New date',hi:'नई तारीख',kn:'ಹೊಸ ದಿನಾಂಕ',te:'కొత్త తేదీ'},inbuf:{en:'In buffer',hi:'बफ़र में',kn:'ಬಫರ್‌ನಲ್ಲಿ',te:'బఫర్‌లో'},assign:{en:'Assign to',hi:'को सौंपें',kn:'ನಿಯೋಜಿಸಿ',te:'కేటాయించు'},backup2:{en:'+ backup Indradev',hi:'+ बैकअप इंद्रदेव',kn:'+ ಬ್ಯಾಕಪ್ ಇಂದ್ರದೇವ್',te:'+ బ్యాకప్ ఇంద్రదేవ్'},confirm:{en:'Confirm — notify team',hi:'पुष्टि करें — सूचित करें',kn:'ದೃಢೀಕರಿಸಿ — ತಿಳಿಸಿ',te:'నిర్ధారించు — తెలియజేయి'},chans2:{en:'Team gets a phone call, push, Slack alert and email — 2 days before, and again the morning of.',hi:'टीम को कॉल, पुश, Slack, ईमेल — 2 दिन पहले, और उस सुबह।',kn:'ತಂಡಕ್ಕೆ ಕರೆ, ಪುಶ್, Slack, ಇಮೇಲ್ — 2 ದಿನ ಮೊದಲು.',te:'బృందానికి కాల్, పుష్, Slack, ఇమెయిల్ — 2 రోజుల ముందు.'},
-    hmcbe:{en:'Health Asst Mgr · CBE',hi:'हेल्थ असि. मैनेजर · CBE',kn:'ಹೆಲ್ತ್ ಸಹಾಯಕ ಮ್ಯಾನೇಜರ್ · CBE',te:'హెల్త్ అసి. మేనేజర్ · CBE'},dircbe:{en:'Health Director · CBE',hi:'हेल्थ डायरेक्टर · CBE',kn:'ಹೆಲ್ತ್ ಡೈರೆಕ್ಟರ್ · CBE',te:'హెల్త్ డైరెక్టర్ · CBE'},ceocbe:{en:'COO · Company-wide',hi:'COO · कंपनी-व्यापी',kn:'COO · ಕಂಪನಿ-ವ್ಯಾಪಿ',te:'COO · కంపెనీ-వ్యాప్తం'},pmcbe:{en:'Health Manager · CBE',hi:'हेल्थ मैनेजर · CBE',kn:'ಹೆಲ್ತ್ ಮ್ಯಾನೇಜರ್ · CBE',te:'హెల్త్ మేనేజర్ · CBE'},assignteam2:{en:'Assign team',hi:'टीम असाइन करें',kn:'ತಂಡ ನಿಯೋಜಿಸಿ',te:'బృందాన్ని కేటాయించండి'},bypark:{en:'Coverage by park',hi:'पार्क अनुसार कवरेज',kn:'ಪಾರ್ಕ್‌ವಾರು ಕವರೇಜ್',te:'పార్క్‌వారీ కవరేజ్'},revsched:{en:'Revaccination schedule',hi:'पुनःटीकाकरण अनुसूची',kn:'ಮರುಲಸಿಕೆ ವೇಳಾಪಟ್ಟಿ',te:'రీవ్యాక్సినేషన్ షెడ్యూల్'},tapday:{en:'Tap a day for its drives · dots = drive days',hi:'ड्राइव देखने के लिए दिन टैप करें · डॉट = ड्राइव दिन',kn:'ಡ್ರೈವ್‌ಗಾಗಿ ದಿನ ಟ್ಯಾಪ್ · ಡಾಟ್ = ಡ್ರೈವ್ ದಿನ',te:'డ్రైవ్‌ల కోసం రోజు ట్యాప్ · చుక్కలు = డ్రైవ్ రోజులు'},readonly:{en:'Read-only · the ground team runs the drive',hi:'केवल-पढ़ें · ड्राइव ग्राउंड टीम चलाती है',kn:'ಓದಲು-ಮಾತ್ರ · ಡ್ರೈವ್ ಅನ್ನು ನೆಲದ ತಂಡ ನಡೆಸುತ್ತದೆ',te:'చదవడానికి-మాత్రమే · డ్రైవ్‌ను గ్రౌండ్ టీమ్ నడుపుతుంది'},
+    hmcbe:{en:'Health Asst Mgr · CBE',hi:'हेल्थ असि. मैनेजर · CBE',kn:'ಹೆಲ್ತ್ ಸಹಾಯಕ ಮ್ಯಾನೇಜರ್ · CBE',te:'హెల్త్ అసి. మేనేజర్ · CBE'},dircbe:{en:'Health Director · All parks',hi:'हेल्थ डायरेक्टर · सभी पार्क',kn:'ಹೆಲ್ತ್ ಡೈರೆಕ್ಟರ್ · ಎಲ್ಲಾ ಪಾರ್ಕ್',te:'హెల్త్ డైరెక్టర్ · అన్ని పార్క్‌లు'},ceocbe:{en:'COO · Company-wide',hi:'COO · कंपनी-व्यापी',kn:'COO · ಕಂಪನಿ-ವ್ಯಾಪಿ',te:'COO · కంపెనీ-వ్యాప్తం'},pmcbe:{en:'Health Manager · CBE',hi:'हेल्थ मैनेजर · CBE',kn:'ಹೆಲ್ತ್ ಮ್ಯಾನೇಜರ್ · CBE',te:'హెల్త్ మేనేజర్ · CBE'},assignteam2:{en:'Assign team',hi:'टीम असाइन करें',kn:'ತಂಡ ನಿಯೋಜಿಸಿ',te:'బృందాన్ని కేటాయించండి'},bypark:{en:'Coverage by park',hi:'पार्क अनुसार कवरेज',kn:'ಪಾರ್ಕ್‌ವಾರು ಕವರೇಜ್',te:'పార్క్‌వారీ కవరేజ్'},revsched:{en:'Revaccination schedule',hi:'पुनःटीकाकरण अनुसूची',kn:'ಮರುಲಸಿಕೆ ವೇಳಾಪಟ್ಟಿ',te:'రీవ్యాక్సినేషన్ షెడ్యూల్'},tapday:{en:'Tap a day for its drives · dots = drive days',hi:'ड्राइव देखने के लिए दिन टैप करें · डॉट = ड्राइव दिन',kn:'ಡ್ರೈವ್‌ಗಾಗಿ ದಿನ ಟ್ಯಾಪ್ · ಡಾಟ್ = ಡ್ರೈವ್ ದಿನ',te:'డ్రైవ్‌ల కోసం రోజు ట్యాప్ · చుక్కలు = డ్రైవ్ రోజులు'},readonly:{en:'Read-only · the ground team runs the drive',hi:'केवल-पढ़ें · ड्राइव ग्राउंड टीम चलाती है',kn:'ಓದಲು-ಮಾತ್ರ · ಡ್ರೈವ್ ಅನ್ನು ನೆಲದ ತಂಡ ನಡೆಸುತ್ತದೆ',te:'చదవడానికి-మాత్రమే · డ్రైవ్‌ను గ్రౌండ్ టీమ్ నడుపుతుంది'},
     modules:{en:'Modules',hi:'मॉड्यूल',kn:'ಮಾಡ್ಯೂಲ್',te:'మాడ్యూల్స్'},soonb:{en:'Soon',hi:'जल्द',kn:'ಶೀಘ್ರ',te:'త్వరలో'},
     chooselang:{en:'Choose language',hi:'भाषा चुनें',kn:'ಭಾಷೆ ಆಯ್ಕೆಮಾಡಿ',te:'భాష ఎంచుకోండి'},langsub:{en:'Kept for every screen on this phone',hi:'हर स्क्रीन के लिए',kn:'ಪ್ರತಿ ಪರದೆಗೆ',te:'ప్రతి స్క్రీన్‌కు'},morelang:{en:'More languages added as teams grow',hi:'टीम बढ़ने पर और भाषाएं',kn:'ಹೆಚ್ಚು ಭಾಷೆಗಳು',te:'మరిన్ని భాషలు'},
-    tb1:{en:'Calendar',hi:'कैलेंडर',kn:'ಕ್ಯಾಲೆಂಡರ್',te:'క్యాలెండర్'},tb2:{en:'Drives',hi:'ड्राइव',kn:'ಡ್ರೈವ್',te:'డ్రైవ్‌లు'},tb3:{en:'Alerts',hi:'अलर्ट',kn:'ಎಚ್ಚರಿಕೆ',te:'అలర్ట్‌లు'},tb4:{en:'You',hi:'आप',kn:'ನೀವು',te:'మీరు'},tbhome:{en:'Home',hi:'होम',kn:'ಮುಖ್ಯ',te:'హోమ్'}
+    tb1:{en:'Calendar',hi:'कैलेंडर',kn:'ಕ್ಯಾಲೆಂಡರ್',te:'క్యాలెండర్'},tb2:{en:'Drives',hi:'ड्राइव',kn:'ಡ್ರೈವ್',te:'డ్రైవ్‌లు'},tb3:{en:'Alerts',hi:'अलर्ट',kn:'ಎಚ್ಚರಿಕೆ',te:'అలర్ట్‌లు'},tb4:{en:'You',hi:'आप',kn:'ನೀವು',te:'మీరు'},tbhome:{en:'Home',hi:'होम',kn:'ಮುಖ್ಯ',te:'హోమ్'},
+    drivestatus:{en:'Drive status',hi:'ड्राइव स्थिति',kn:'ಡ್ರೈವ್ ಸ್ಥಿತಿ',te:'డ్రైవ్ స్థితి'},
+    shedsfollow:{en:'Tap a shed for its live status · red = delayed, chase the team',hi:'लाइव स्थिति के लिए शेड टैप करें · लाल = देरी, टीम से संपर्क करें',kn:'ಲೈವ್ ಸ್ಥಿತಿಗೆ ಶೆಡ್ ಟ್ಯಾಪ್ · ಕೆಂಪು = ವಿಳಂಬ, ತಂಡವನ್ನು ಸಂಪರ್ಕಿಸಿ',te:'లైవ్ స్థితి కోసం షెడ్ ట్యాప్ · ఎరుపు = ఆలస్యం, బృందాన్ని సంప్రదించండి'},
+    viewstatus:{en:'View drive status',hi:'ड्राइव स्थिति देखें',kn:'ಡ್ರೈವ್ ಸ್ಥಿತಿ ನೋಡಿ',te:'డ్రైవ్ స్థితి చూడండి'}
   };
   function setLang(l){
     curLang=l;
@@ -909,6 +914,45 @@
     }).join('');
   }
 
+  /* ---------- calendar-card drill: role decides execute vs follow-up ---------- */
+  // Field operator (Health Asst Mgr) -> execution (Start · scan). Everyone else -> read-only
+  // follow-up status: Park Mgr sees their park; Director + CEO/COO see all parks;
+  // a not-started drive turns RED so leadership can chase the team.
+  function shedsScopeParks(){
+    if(role==='operator'||role==='parkmgr')return ['CBE'];
+    // director/ceo: honor the park picker (curScope) — all parks by default, or drill to one park
+    if(curScope==='cbe')return ['CBE'];
+    if(curScope==='cpt')return ['CPT'];
+    return ['CBE','CPT'];
+  }
+  function renderShedsView(){
+    var isOp=role==='operator', parks=shedsScopeParks();
+    var scopeLabel=parks.length>1?'All parks · 2':parks[0];
+    var eb=D.getElementById('shedsEb'); if(eb)eb.textContent='Vaccination · '+scopeLabel;
+    var titleKey=isOp?'todaysheds':'drivestatus', ltKey=isOp?'sheds':'shedsfollow';
+    var ti=D.getElementById('shedsTitle'); if(ti){ti.setAttribute('data-t',titleKey);ti.textContent=(TXT[titleKey][curLang]||TXT[titleKey].en);}
+    var lt=D.getElementById('shedsLt'); if(lt){lt.setAttribute('data-t',ltKey);lt.textContent=(TXT[ltKey][curLang]||TXT[ltKey].en);}
+    if(isOp)renderSheds(); else renderShedsFollowup(parks);
+  }
+  function renderShedsFollowup(parks){
+    var box=D.getElementById('shedList'); if(!box)return;
+    var day=SHEDS.filter(function(s){return parks.indexOf(s.park)>=0;});
+    var due=day.reduce(function(a,s){return a+shedDue(s);},0), dn=day.reduce(function(a,s){return a+shedDone(s);},0);
+    var set=function(id,v){var el=D.getElementById(id);if(el)el.textContent=v;};
+    set('dayDue',due); set('dayProg',dn+' / '+due); set('dayShedN',day.length);
+    var db=D.getElementById('dayBar'); if(db)db.style.width=(due?Math.round(dn/due*100):0)+'%';
+    var dsh=D.getElementById('daySheds'); if(dsh)dsh.textContent=day.map(function(s){return s.name;}).join(' · ');
+    box.innerHTML=day.map(function(s){
+      var t=shedDue(s),d=shedDone(s),st=shedStatus(s),pc=t?Math.round(d/t*100):0;
+      var delayed=(d===0); // not started yet on drive day -> chase the team
+      var tone=st==='done'?'ok':(delayed?'dng':'warn');
+      var label=st==='done'?'Done':(delayed?'Delayed · chase team':'In progress');
+      var edge=delayed?'var(--danger)':(st==='done'?'var(--brand)':'var(--warn)');
+      var foot=delayed?'Not started — chase the team ›':(st==='done'?'View completed record ›':'View live status ›');
+      return '<div class="card shed tap" data-shedview="'+s.id+'" style="cursor:pointer;border-left:3px solid '+edge+'"><div class="sh"><span class="wh"><svg class="ic"><use href="#i-house"/></svg></span><div><b>'+s.name+' · '+s.park+'</b><div class="s">'+s.cohort+' · '+s.inShed+' in shed</div></div><span class="sp"></span><span class="pill '+tone+'">'+label+'</span></div>'+vchips(s)+'<div class="nums"><div><b>'+s.inShed+'</b><span>in shed</span></div><div><b>'+t+'</b><span>due</span></div><div><b>'+d+'</b><span>done</span></div></div><div class="barp" style="margin-top:12px"><i style="width:'+pc+'%"></i></div><div class="viewrec" data-shedview="'+s.id+'" style="color:'+(delayed?'var(--danger)':'var(--brand-d)')+'">'+foot+'</div></div>';
+    }).join('');
+  }
+
   /* ---------- leadership: today's sheds (scope-filtered, read-only) ---------- */
   function renderTodaySheds(scope){
     var box=D.getElementById('todaySheds'); if(!box)return;
@@ -950,7 +994,7 @@
   function renderSubmit(){var s=curShed;if(!s)return;var eb=$('#subEb');if(eb)eb.textContent='Vaccination · '+s.name;var box=$('#subVac');if(box)box.innerHTML='<div class="fgrp">'+s.groups.map(function(g){return '<div class="frow"><span class="fk"><svg class="ic"><use href="#i-syringe"/></svg> '+g.v+'</span><span class="fv">'+g.dose+' · <span class="mono">'+g.batch+'</span></span></div>';}).join('')+'<div class="frow" style="border:0"><span class="fk"><svg class="ic"><use href="#i-snow"/></svg> Cold chain</span><span class="fv" style="color:var(--brand-d)">2–8°C ✓</span></div></div>';var sc=$('#subcount');if(sc)sc.textContent=done+' / '+T;var fs=$('#finalsubmit');if(fs)fs.textContent='Submit shed record — '+done+' animals';}
   /* ---------- shed record (read-only: done sheds + leadership) ---------- */
   var srArr=[];
-  function openShedRec(id){var s=shedById(id);if(!s)return;var d=shedDone(s);var t=$('#srTtl');if(t)t.textContent=s.name+' · '+s.cohort;var c=$('#srCount');if(c)c.textContent=d;var sum=$('#srSum');if(sum)sum.innerHTML=s.groups.map(function(g){return '<div class="frow"><span class="fk"><svg class="ic"><use href="#i-syringe"/></svg> '+g.v+'</span><span class="fv">'+g.done+' / '+g.due+' · '+g.dose+'</span></div>';}).join('')+'<div class="frow"><span class="fk">Operator · backup</span><span class="fv">Arun Kumar · Indradev Kumar</span></div><div class="frow" style="border:0"><span class="fk">Window · proof</span><span class="fv">08:12–09:40 · video ✓</span></div>';srArr=[];s.groups.forEach(function(g){for(var i=0;i<g.done;i++)srArr.push({id:rid(),tag2:(i%2===0?rid():null),v:g.v,dose:g.dose});});var inp=$('#srInput');if(inp)inp.value='';renderShedRec();openOvl('shedrec');}
+  function openShedRec(id){var s=shedById(id);if(!s)return;var d=shedDone(s);var t=$('#srTtl');if(t)t.textContent=s.name+' · '+s.cohort;var c=$('#srCount');if(c)c.textContent=d;var sum=$('#srSum');if(sum)sum.innerHTML=s.groups.map(function(g){return '<div class="frow"><span class="fk"><svg class="ic"><use href="#i-syringe"/></svg> '+g.v+'</span><span class="fv">'+g.done+' / '+g.due+' · '+g.dose+'</span></div>';}).join('')+'<div class="frow"><span class="fk">Operator · backup</span><span class="fv">Arun Kumar · Indradev Kumar</span></div>'+(d>0?'<div class="frow" style="border:0"><span class="fk">Window · proof</span><span class="fv">08:12–09:40 · video ✓</span></div>':'<div class="frow" style="border:0"><span class="fk">Status</span><span class="fv" style="color:var(--danger)">Delayed · not started</span></div>');srArr=[];s.groups.forEach(function(g){for(var i=0;i<g.done;i++)srArr.push({id:rid(),tag2:(i%2===0?rid():null),v:g.v,dose:g.dose});});var inp=$('#srInput');if(inp)inp.value='';renderShedRec();openOvl('shedrec');}
   function renderShedRec(){var q=($('#srInput')&&$('#srInput').value||'').toLowerCase();var rows=srArr.filter(function(x){return !q||x.id.toLowerCase().indexOf(q)>=0||(x.tag2&&x.tag2.toLowerCase().indexOf(q)>=0);});var box=$('#srList');if(box)box.innerHTML=rows.map(function(x){return '<div class="slrow"><span class="tk ok"><svg class="ic"><use href="#i-check"/></svg></span><span class="id">'+x.id+' '+tagHtml(x.tag2)+(x.tag2?'<div class="id2">tag 2 · '+x.tag2+'</div>':'')+'</span><span class="vx">'+x.v+' · '+x.dose+'</span></div>';}).join('');}
   var srInp=$('#srInput'); if(srInp)srInp.addEventListener('input',renderShedRec);
   /* ---------- shed navigation (delegated: dynamic cards + rows) ---------- */
@@ -997,7 +1041,9 @@
     {v:'PPR',iv:'every 3 years',next:'10 Jul 2029'}
   ];
   function evtCard(dr){var head='<div class="t"><span class="pill '+dr.pill+'">'+dr.pl+'</span><span style="flex:1"></span><span class="pill mut">Vaccination</span></div><div class="nm"><svg class="ic" style="color:var(--brand)"><use href="#i-syringe"/></svg>'+dr.n+'</div><div class="mt"><span>'+dr.sub+'</span></div>';
-    return dr.go?('<div class="card evt" data-go="v-sheds">'+head+'<div class="clk">'+(TXT.opendrive?TXT.opendrive[curLang]||TXT.opendrive.en:'Open drive')+' <svg class="ic" style="width:13px;height:13px"><use href="#i-chev"/></svg></div></div>'):('<div class="card evt dim">'+head+'</div>');}
+    var clkKey=(role==='operator')?'opendrive':'viewstatus';
+    var clkTxt=TXT[clkKey]?(TXT[clkKey][curLang]||TXT[clkKey].en):(role==='operator'?'Open drive':'View drive status');
+    return dr.go?('<div class="card evt" data-go="v-sheds">'+head+'<div class="clk">'+clkTxt+' <svg class="ic" style="width:13px;height:13px"><use href="#i-chev"/></svg></div></div>'):('<div class="card evt dim">'+head+'</div>');}
   function renderWeek(){
     var strip=$('#weekStrip'); if(strip)strip.innerHTML=[6,7,8,9,10,11,12].map(function(d){var cls='d'+(d===sel?' today':'')+((DR[d]&&DR[d].length&&d!==sel)?' has':'');return '<div class="'+cls+'" data-day="'+d+'"><div class="dn">'+WD[d][0]+'</div><div class="dd">'+d+'</div></div>';}).join('');
     var lab=$('#dayLabel'); if(lab)lab.textContent=(sel===7?'Today · ':'')+WD[sel]+' '+sel+' Jul';

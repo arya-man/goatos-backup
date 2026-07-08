@@ -7,7 +7,7 @@ role visibility, and key states. Backend owns nav/labels/filters/disabled reason
 
 Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ceo/coo.
 
-## Operator surface
+## Shared entry (all roles)
 
 ### Login  (`v-login`)
 - Module: `feature-auth`. Work **email + OTP** (not phone). Language sheet
@@ -15,26 +15,40 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 - Backend: auth token endpoint (Firebase Auth adapter) → then mobile bootstrap.
 - States: idle, code-sent, verifying, error, version-gate-block.
 
-### Calendar  (`v-calendar`: week / month / history)  — O (week); PM/D/C (month+history)
-- Module: `feature-calendar`. Segmented week/month/history.
-  - **Week**: today's entry = "Today · N sheds · M due" → opens Today's sheds.
-    Other days = scheduled shed markers.
+### Calendar  (`v-calendar`: week / month / history)  — **universal landing, all roles**
+- Module: `feature-calendar`. The Calendar is where **every** role lands after
+  login (Manju, 2026-07-08). Segmented week/month/history.
+  - **Week**: today's entry = "Today · N sheds · M due" → the **role-branched
+    drill** (operator → execute; leadership → drive-status follow-up). Other days
+    = scheduled shed markers.
   - **Month**: drive-day dots; tap day → `ovl-day` sheet (that day's sheds +
     status). Done day → opens the shed/drive record.
   - **History**: past shed/drive records → record sheet.
 - Backend: `GET calendar?scope&range` (Asia/Kolkata day buckets); day/record reads.
+- CTA label by role: operator "Open drive"; leadership "View drive status".
 - Note: operator sees week only (`calMode` hidden for operator in mock);
   month/history are leadership.
 
-### Today's sheds  (`v-sheds`)  — O (own park); PM/D/C read-only
-- Module: `feature-sheds`. Header: date · window · shed count · due total. Day
-  progress bar. **Shed cards**, each: cohort · in-shed, status pill,
-  **vaccine-group chips (mix-and-match)**, in-shed/due/done nums, progress,
-  action (Start / Resume / View records). Roster-change cards + kernel info box.
-- Backend: `GET sheds?scope=<park>` → shed_day/shed_group/roster_animal (cached
-  in Room). Shed-first: a shed can have several due vaccine groups.
+## Role-branched drill (from the calendar card)
+
+### Today's sheds / Drive status  (`v-sheds`)  — O execute (own park); PM read-only (own park); D/C read-only (all parks)
+- Module: `feature-sheds`. Same route, role-branched lens. Header: date · window ·
+  shed count · due total. Day progress bar. **Shed cards**, each: cohort · in-shed,
+  status pill, **vaccine-group chips (mix-and-match)**, in-shed/due/done nums,
+  progress. Roster-change cards + kernel info box.
+  - **Operator (execute)**: eyebrow "Vaccination · CBE", title "Today's sheds",
+    action per shed (Start / Resume / View records).
+  - **Leadership (read-only follow-up)**: eyebrow scope label ("All parks · 2" for
+    director/ceo, "CBE" for parkmgr), title "Drive status". No Start/scan. Per-shed
+    status colour: **done = green, in-progress = amber, delayed / not-started =
+    red** (left-border + "Delayed · chase team" / "Not started — chase the team ›").
+    Card → shed record (a delayed shed shows "Delayed · not started", not a fake
+    proof window).
+- Backend: `GET sheds?scope=<park|all>` → shed_day/shed_group/roster_animal (cached
+  in Room) + per-drive follow-up status. Scope = own park (operator/parkmgr) or all
+  parks (director/ceo). Shed-first: a shed can have several due vaccine groups.
 - States: ready / in-progress / done per shed; leadership rows are read-only
-  (no Start; rolenote).
+  (no Start; rolenote) with the red-on-delay treatment.
 
 ### Scan  (`v-scan`)  — O only (leadership tap blocked server-side)
 - Module: `feature-scan`. Header: shed · cohort. **Progress ring** = shed total
@@ -64,15 +78,18 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 
 ## Leadership surface
 
-### Overview  (`v-dhome`)  — PM/D/C
+### Overview  (`v-dhome`)  — PM/D/C, reached via the **Home** nav tab (not the landing)
 - Module: `feature-leadership`. **Coverage hero** (dose coverage %, doses line),
-  pills: **park scope picker** (`ovl-scope`, CEO only), animals, **data gaps**
-  (`ovl-gaps`). **KPI tiles**: Doses given → `ovl-given` (per-vaccine drill),
-  Pending → overdue list. **Today's sheds** (per-shed vaccine mix + assign).
-  **Backlog by vaccine**. **Needs a decision** (overdue → reschedule).
-  **Coverage by park** (CEO; tap re-scopes).
+  pills: **park scope picker** (`ovl-scope`, director + CEO/COO), animals,
+  **data gaps** (`ovl-gaps`). **KPI tiles**: Doses given → `ovl-given` (per-vaccine
+  drill), Pending → overdue list. **Today's sheds** (per-shed vaccine mix +
+  assign). **Backlog by vaccine**. **Needs a decision** (overdue → reschedule).
+  **Coverage by park** (director + CEO/COO; tap re-scopes).
+- Default scope: parkmgr = own park; **director + CEO/COO = all parks** (drill via
+  picker).
 - Backend: `GET rollup/backlog/gaps?scope`; scope filters everything.
-- Role gates: park picker + coverage-by-park = CEO; assign = CEO/PM; scan absent.
+- Role gates: park picker + coverage-by-park = director + CEO/COO; assign =
+  CEO/COO + PM; scan absent.
 
 ### Overdue  (`v-overdue`)  — PM/D/C
 - Module: `feature-leadership`. Missed (past buffer) vs in-buffer, with color
@@ -97,7 +114,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 |---|---|---|
 | `ovl-drawer` | `NavDrawer` | module registry (built + "Soon"), profile, settings |
 | `ovl-lang` | language `GoatBottomSheet` | DataStore locale |
-| `ovl-scope` | park picker | scope → re-scopes overview (CEO) |
+| `ovl-scope` | park picker | scope → re-scopes overview + follow-up (director + CEO/COO) |
 | `ovl-gaps` | data-gaps sheet | animals excluded from coverage + reason |
 | `ovl-given` | doses-given drill | per-vaccine given + coverage bars (scope-aware) |
 | `ovl-driverec`/`ovl-shedrec` | record sheets | per-vaccine breakdown + animals |

@@ -45,8 +45,10 @@ launch → splash
   → version gate: incompatible? ─▶ blocking "update app" screen
   → persist bootstrap to DataStore (revision-checked); build nav from module
     registry filtered by grants
-  → route to role home:  operator → Calendar/Today's sheds ;
-                         parkmgr/director/ceo → Overview
+  → route to role home:  ALL roles → Calendar (common entry point).
+       calendar-card tap then branches: operator → Today's sheds (execute);
+       parkmgr → drive-status follow-up (own park); director/ceo → follow-up
+       (all parks). Leadership Overview is the Home nav tab, not the landing.
 ```
 
 The app must **block business UI until bootstrap succeeds** (no local-default

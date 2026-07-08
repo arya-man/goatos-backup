@@ -14,14 +14,25 @@ what is overdue, and whether coverage numbers are trustworthy.
 
 ## 2. Goal
 
-One Android app, **role-aware** (login decides content), that:
+One Android app, **role-aware** (login decides content), built on one shared
+entry point.
 
-1. Lets a field operator run a vaccination drive **shed by shed**, tap-scanning
-   each animal by RFID, recording the due vaccine(s) per animal with video proof,
-   fully **offline-first**, then syncs to the backend as verifiable shed records.
-2. Lets leadership (Park Manager, Director, CEO/COO) see the **same app** in a
-   read-only command view: live coverage, today's sheds, per-vaccine backlog,
-   data gaps, overdue decisions, and assign teams to sheds.
+**Calendar is the common vaccination entry point for every role** (CEO decision,
+Manju, 2026-07-08). After login, operator and leadership both land on the
+Calendar. Tapping a calendar drive card then **branches by role**:
+
+- **Operator** (Health Asst Mgr / field) → execution: enter shed → tap-scan each
+  animal by RFID → record the due vaccine(s) with video proof, fully
+  **offline-first**, then sync to the backend as verifiable shed records.
+- **Park Head / Park Manager** → read-only **drive-status follow-up** for their
+  park. A delayed / not-started drive turns **red** so they can chase the team.
+- **Director** → the same read-only follow-up **across all parks**, not one park.
+- **COO / CEO** → like Director for now (company-wide, per-park rollup + data
+  gaps), with more control later.
+
+Leadership keeps a richer command **Overview** (coverage, per-vaccine backlog,
+data gaps, overdue decisions, assign) one tap away via the Home nav tab — but the
+Calendar, not the Overview, is where **every** role starts.
 
 It is the mobile renderer on the **same backend contracts** as admin-web — not a
 separate product.
@@ -43,27 +54,41 @@ separate product.
 ## 4. Users & roles
 
 Single app; `GET <mobile bootstrap>` returns the principal's role, park/shed
-scope, grants, and visible navigation. Four role lenses (mock `data-role`):
+scope, grants, and visible navigation. Every role lands on the **Calendar**; the
+calendar-card drill and scope differ by role. Four role lenses (mock `data-role`):
 
-| Role | In app | Primary job |
-|------|--------|-------------|
-| **operator** (Health Asst Mgr / field) | executes drives | enter shed → scan animals → record + proof → submit |
-| **parkmgr** (Health Manager) | read-only + assign | monitor park sheds, assign operator/backup, reschedule |
-| **director** (Health Director) | read-only | park-scoped coverage, backlog, overdue |
-| **ceo/coo** | read-only + park picker + assign | company-wide + per-park rollup, backlog, data gaps, assign |
+| Role | In app | Scope | Primary job |
+|------|--------|-------|-------------|
+| **operator** (Health Asst Mgr / field) | executes drives | own park | enter shed → scan animals → record + proof → submit |
+| **parkmgr** (Health Manager) | read-only follow-up + assign | own park | monitor park sheds, chase delays, assign operator/backup, reschedule |
+| **director** (Health Director) | read-only follow-up + **park picker** | **all parks** | company-wide coverage/backlog/overdue; drill into any park |
+| **ceo/coo** | read-only follow-up + park picker + assign | **all parks** | company-wide + per-park rollup, backlog, data gaps, assign |
 
-Server RBAC is authoritative. `canAssign = ceo | parkmgr`. Operator scan/submit
-is operator-only; leadership tapping scan is blocked server-side.
+Scope rule: operator & park manager are locked to their own park; **director and
+CEO/COO default to all parks** and can drill into one via the park picker (Manju,
+2026-07-08 — director was previously park-locked, now company-wide).
+
+Server RBAC is authoritative. `canAssign = ceo | parkmgr`. **Execution
+(scan/submit) is the field operator (Health Asst Mgr) only** — the Health Manager
+(Park Manager) and every tier above are read-only follow-up; leadership tapping
+scan is blocked server-side. "Health Manager" is the park-manager tier, not an
+executor.
 
 ## 5. Scope — screens (from the mock)
 
-Operator surface:
+Shared entry (all roles):
 
 - **Login** — work-email + OTP (not phone).
-- **Calendar** — week (today's shed entry), month (drive-day dots + day sheet),
-  history (past shed records).
-- **Today's sheds** — the day's sheds for the operator's park, each shed showing
-  its own mix of due vaccine groups (shed-first, several vaccines per shed).
+- **Calendar** — the universal landing for every role. Week (today's drive card),
+  month (drive-day dots + day sheet), history (past shed records). Operator sees
+  week only; leadership also gets month + history. Tapping the day's drive card is
+  the **role-branched drill** below.
+
+Operator drill (execution):
+
+- **Today's sheds** (`v-sheds`) — the day's sheds for the operator's park, each
+  shed showing its own mix of due vaccine groups (shed-first, several vaccines per
+  shed), with Start / Resume / View-records actions.
 - **Scan** — per shed: progress ring (shed total), per-vaccine-group progress
   chips, tap-to-scan roster where each animal shows its own due vaccine; Done /
   Pending / Skipped lists.
@@ -71,12 +96,18 @@ Operator surface:
   cold-chain, animal count, operator+backup, video proof, remarks).
 - **You / settings**, **RFID reader** pairing, **Alerts**.
 
-Leadership surface:
+Leadership drill (read-only follow-up):
 
-- **Overview** — dose-coverage hero, **park picker** (CEO), **doses-given**
-  drill (per vaccine), **pending** drill, **data-gaps** drill, **today's sheds**
-  (per-shed vaccine mix, assign), **backlog by vaccine**, **needs-a-decision**
-  (overdue → reschedule), **coverage by park** (CEO).
+- **Drive status** (same `v-sheds` route, read-only lens) — the drive's sheds as
+  live-status cards, scope-filtered (park manager = own park; director & CEO/COO =
+  all parks). Per-shed status: **done = green, in-progress = amber, delayed /
+  not-started = red** ("chase the team"). No Start/scan. A card opens the shed
+  record. This is what a calendar-card tap opens for non-operators.
+- **Overview** (`v-dhome`, reached via the Home nav tab — not the landing) —
+  dose-coverage hero, **park picker** (director + CEO/COO), **doses-given** drill
+  (per vaccine), **pending** drill, **data-gaps** drill, **today's sheds** (per-
+  shed vaccine mix, assign), **backlog by vaccine**, **needs-a-decision** (overdue
+  → reschedule), **coverage by park** (director + CEO/COO).
 - **Overdue list**, **Reschedule** (buffer-aware date + assign primary/backup),
   **shed record** (per-vaccine breakdown, searchable animals).
 
@@ -87,6 +118,15 @@ Full per-screen contract in [screens.md](screens.md).
 
 ## 6. Key product rules (already validated on the mock)
 
+- **Calendar-universal, role-branched drill**: the Calendar is the single entry
+  point for all roles. Tapping a drive card runs the **execution** flow for the
+  field operator (Health Asst Mgr) and a **read-only status follow-up** for
+  leadership (Park Manager, Director, CEO/COO) — same card, different drill.
+- **Red-on-delay follow-up**: in the leadership follow-up, a not-started / delayed
+  drive renders **red** ("chase the team"); in-progress is amber, done is green.
+  This is the signal leadership acts on to chase the ground team.
+- **Scope by role**: operator and park manager see their own park; director and
+  CEO/COO see all parks and can drill into any single park via the picker.
 - **Shed-first**: the unit of work is the shed, not the vaccine. A shed's cohort
   can have several due vaccines at once (mix-and-match). A drive is a day of shed
   visits, not "one vaccine across sheds".

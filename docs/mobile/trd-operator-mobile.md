@@ -45,7 +45,7 @@ the app README with the reason, matching the admin-web pinning discipline.
 | RFID/BLE | Vendor `.aar` behind a `RfidReaderPort` | Chainway-class UHF; adapter isolates SDK |
 | Media upload | WorkManager + signed-URL uploader | resumable, retryable |
 | Background | WorkManager | sync, upload, retry, reminders |
-| Firebase | Analytics, Performance, Crashlytics, Messaging (FCM) | India region; see firebase doc |
+| Firebase | Analytics, Performance, Crashlytics, Messaging (FCM) | `asia-south1` where selectable; GA4/Crashlytics/Perf/FCM are global — see firebase doc |
 | i18n | Android resources per-locale + backend contract copy | en/hi/kn/te |
 | Testing | JUnit5, Turbine, MockK, Compose UI test, Room in-memory, Robolectric, Maestro (E2E), Macrobenchmark | see §11 |
 
@@ -75,7 +75,7 @@ apps/operator-android/
   feature/
     feature-auth/              # login (email + OTP), session boot
     feature-calendar/          # week / month / history
-    feature-sheds/             # today's sheds (operator) + leadership today's sheds
+    feature-sheds/             # calendar-card drill: operator execution list + leadership read-only drive-status follow-up (scope-filtered, red-on-delay)
     feature-scan/              # per-shed scan, RFID, groups, done/pending/skipped
     feature-submit/            # shed submit form (SOP/forms-runner render)
     feature-leadership/        # overview, coverage, backlog, data gaps, overdue, reschedule, assign
@@ -122,14 +122,32 @@ Compose screen (stateless) ── observes ─▶ ViewModel (StateFlow<UiState>,
 - The app talks **only** to the Goat OS app-api through the **generated Kotlin
   client**. No Firestore/GCS/BigQuery/Postgres/Sheets access from the app (repo
   non-negotiable).
-- **Mobile bootstrap contract** (first backend task — spec as OpenAPI): the
-  mobile equivalent of `/admin-web/bootstrap`. Returns: principal + role lens,
-  park/shed scope, grants/capabilities, visible navigation + labels, disabled
-  reasons, compatible app-version gate, pinned SOP/form versions, and scoped
+- **Extend the existing app-api; this is not a green-field contract set.**
+  `contracts/openapi/app-api.yaml` already ships `/app/bootstrap` (Android
+  bootstrap manifest), `/app/devices/register` + heartbeat, the `/app/proofs/*`
+  signed-upload flow, `/app/tasks` + `/app/tasks/{task_id}/submissions`,
+  `/vaccination/execution` + `/vaccination/execution/sheds/{shed_id}`,
+  `/calendar/vaccination/events`, and leadership reads
+  (`/vaccination/action-center`, `/vaccination/adherence`,
+  `/control-tower/vaccination`, `/action-center/obligations`). Mobile backend work
+  is an **additive pass** on these, not a rebuild.
+- **Bootstrap**: reuse/extend `/app/bootstrap` for the mobile role lens —
+  principal + role, park/shed scope, grants/capabilities, visible navigation +
+  labels, disabled reasons, app-version gate, pinned SOP/form versions, scoped
   option caches. The app is a **renderer**; visible nav/labels/filters/disabled
   reasons/summary-vs-detail come from this contract, not hardcoded (golden
   frontend rule).
-- **Reads**: today's sheds, shed roster + due vaccine groups, coverage/backlog
+- **Gap = the mock-shaped shed-first mobile flow.** New/extended endpoints the
+  current contracts don't cover in shed-first shape: **today's-sheds-for-a-drive**
+  (scope-filtered — operator/parkmgr park, director/ceo all parks), **per-shed
+  scan roster** (animal + its due vaccine group + tag[s] + skip reason),
+  **shed-level submit** (one record across a shed's due vaccine groups),
+  **reschedule**, **assign** primary/backup, and the **role-scoped leadership
+  follow-up status** that backs the calendar-card drill (per-shed live status for
+  a drive: done / in-progress / delayed).
+- **Reads**: today's sheds (scope = operator/parkmgr own park, director/ceo all
+  parks), per-shed roster + due vaccine groups, the **per-drive follow-up status**
+  (done / in-progress / delayed for the leadership drill), coverage/backlog
   rollups, overdue list, records — all paginated/shaped by backend; no full-herd
   scans. Cursor pagination, no `COUNT(*)` on hot tables (million-animal rule).
 - **Writes** (shed submit, reschedule, assign) go through app-api commands, each
@@ -144,7 +162,8 @@ State lives in Room; a WorkManager-driven engine reconciles.
 
 ```text
 Local tables (Room):
-  shed_day            cached today's sheds for the operator's scope
+  shed_day            cached today's sheds for the caller's role scope
+                      (operator/parkmgr = own park; director/ceo = all parks or picked park)
   shed_group          due vaccine groups per shed (vaccine, dose, batch, due, done)
   roster_animal       per-shed animals + their due vaccine + tag(s) + state
   scan_event          each tap: given / skipped(reason) + timestamp + operator
@@ -200,14 +219,20 @@ Rules:
   added). No cleartext traffic (`usesCleartextTraffic=false`).
 - Media: uploaded via signed URLs, never through the API body.
 
-## 8. Firebase (India region)
+## 8. Firebase (India data residency where selectable)
 
 - Analytics (product events), **Performance Monitoring** (cold start, screen
   render, network traces, custom scan-tap trace), **Crashlytics** (crash-free
   rate), **FCM** (push for drive reminders/escalations).
-- Region: `asia-south1` (Mumbai) primary; data-residency + project/org boundary
-  and the exact create steps in [firebase-india-setup.md](firebase-india-setup.md).
-  **The Firebase app is not created yet** — gated on org verification + explicit go.
+- **Region — read this carefully.** Firebase has **no global project- or app-level
+  location setting**; location is chosen **per product/resource**, and some
+  products don't support location selection at all. Use `asia-south1` (Mumbai) for
+  the **selectable** GCP/Firebase resources that back the app (default GCP resource
+  location, and Firestore/Storage if/when introduced). **Analytics (GA4),
+  Crashlytics, Performance Monitoring, and FCM are global services** and are not
+  region-pinned. Data-residency scope, org/project boundary, and exact create
+  steps: [firebase-india-setup.md](firebase-india-setup.md). **The Firebase app is
+  not created yet** — gated on org verification + explicit go.
 - FCM push must still pass through the backend `NotificationGateway` (FCM
   adapter). The app registers its token via the mobile bootstrap/register
   endpoint; it does not own notification policy. Reminder/escalation timing is
@@ -262,9 +287,13 @@ Idempotency tests are mandatory (repo contract).
 
 ## 13. Implementation order (first tasks, before feature code)
 
-1. Backend: author **mobile bootstrap + shed-read + shed-submit + reschedule +
-   assign** OpenAPI contracts (reuse existing vaccination-execution + obligation
-   read models; add mobile bootstrap). Generate Kotlin client.
+1. Backend: **extend the existing app-api** with the mock-shaped shed-first flow —
+   today's-sheds-for-a-drive (scope-filtered), per-shed scan roster, shed-level
+   submit, reschedule, assign, and the role-scoped leadership follow-up status —
+   reusing `/app/bootstrap`, `/vaccination/execution/sheds/{shed_id}`,
+   `/calendar/vaccination/events`, `/app/proofs/*`, `/app/tasks/*/submissions`,
+   and the obligation read models. Regenerate the Kotlin client. (Additive pass,
+   not a green-field contract set.)
 2. Firebase India project/app create (gated runbook) → `google-services.json`
    per flavor.
 3. `apps/operator-android` Gradle skeleton: modules, theme from design tokens,
@@ -285,5 +314,6 @@ Idempotency tests are mandatory (repo contract).
 - Offline capture always works; failures surface as visible error states.
 - `Asia/Kolkata` for all business-time meaning.
 - Mock is the only UI source of truth; match its structure, not a plainer copy.
-- Firebase in the India region under the correct org; nothing created before the
+- Firebase: `asia-south1` for location-selectable resources under the correct org
+  (telemetry/push are global services); nothing created before the
   org-verification checklist passes.

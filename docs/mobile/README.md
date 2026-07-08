@@ -17,7 +17,7 @@ this is the pre-implementation design set the maintainer asked for.
 | [design-system.md](design-system.md) | Design tokens, Compose theme, component inventory (ported from the mock), motion, dark/light, accessibility, i18n |
 | [screens.md](screens.md) | Screen-by-screen spec: every mock view/overlay → Compose destination, state, backend contract, role visibility |
 | [performance-and-memory.md](performance-and-memory.md) | Low-end-device budgets, Compose performance rules, memory-leak prevention checklist, profiling gates |
-| [firebase-india-setup.md](firebase-india-setup.md) | Runbook to create the Firebase app in the India region (Analytics, Performance, Crashlytics, FCM push) under the correct org — **gated, not yet executed** |
+| [firebase-india-setup.md](firebase-india-setup.md) | Runbook to set up Firebase (Analytics, Performance, Crashlytics, FCM push) under the correct org, using `asia-south1` for location-selectable resources — GA4/Crashlytics/Perf/FCM are global — **gated, not yet executed** |
 | [extensibility-future-modules.md](extensibility-future-modules.md) | How new modules/verticals plug in without a rewrite; module registry + navigation contract |
 
 Decision record: [`docs/decisions/mobile-native-kotlin.md`](../decisions/mobile-native-kotlin.md).
