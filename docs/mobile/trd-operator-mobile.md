@@ -26,16 +26,13 @@ AGP / Gradle        AGP 8.13.x / Gradle 8.14.x, Gradle version catalog (libs.ver
 Jetpack Compose     BOM 2026.06.00 (androidx.compose:compose-bom) + Material 3
 compileSdk          36   (Android 16)
 targetSdk           36
-minSdk              31   (Android 12)   ⚠ see note
+minSdk              31   (Android 12 — locked)
 JDK                 17   (toolchain)
 ```
 
-> ⚠ **minSdk = 31 is a maintainer decision (2026-07)** and is a *change* from the
-> prior `minSdk 24`. It drops Android 8–11 devices. The field fleet is "cheap
-> low-end Android" — confirm every operator/leadership phone is **Android 12+**
-> before locking, or the drive can't be run on an excluded device. If any active
-> field phone is < 12, revisit. compileSdk/targetSdk = 36 is the latest stable
-> (Android 16); bump only when a newer stable ships and CI is green.
+**minSdk = 31 is locked** (maintainer decision, 2026-07). Android 12+ only; the
+field fleet is Android 12+. compileSdk/targetSdk = 36 is the latest stable
+(Android 16); bump only when a newer stable ships and CI is green.
 
 The **Compose BOM governs all `androidx.compose:*` versions** — never pin those
 individually (override only via the BOM escape hatch when strictly needed).

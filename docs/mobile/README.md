@@ -67,8 +67,8 @@ firebase app   : NOT created (gated on org verification + explicit go)
 android app    : NOT started (apps/goatos-android does not exist yet)
 app id         : sg.mesha.goatos (prod) · .dev · .stg — env-only flavors, roles
                  are runtime from /app/bootstrap (see app-id + flavors ADR)
-sdk / toolchain: minSdk 31 (Android 12 — maintainer decision; ⚠ drops <12, confirm
-                 field fleet) · compileSdk/targetSdk 36 (Android 16) · JDK 17
+sdk / toolchain: minSdk 31 (Android 12 — locked) · compileSdk/targetSdk 36
+                 (Android 16) · JDK 17
 versions       : Kotlin 2.2.20 · AGP 8.13 / Gradle 8.14 · Compose BOM 2026.06.00
                  (verified via Context7) · Room 2.8 · Coroutines 1.10 · Hilt 2.57 ·
                  WorkManager 2.10 · Nav-Compose 2.9 — pin in the version catalog (TRD §1/§2)
