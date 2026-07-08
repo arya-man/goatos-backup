@@ -83,7 +83,7 @@ and interaction states — a bare substitute is a defect.
 | Pill/badge (`.pill ok/warn/dng/mut`) | `StatusPill` | tone variants |
 | Segmented (`.segc`/`.seg`) | `SegmentedControl` | week/month/history, given/pending/skipped, primary/backup |
 | Toast | `GoatToast` | icon + title + subtitle, auto-dismiss |
-| Drawer (`.draw`) | `NavDrawer` | profile header, module list (built ones + "Soon"), settings |
+| Drawer (`.draw`) | `NavDrawer` | profile header, module list (built ones + "Soon"), settings — **shown only when the backend chrome has ≥2 modules**; single-feature roles are bottom-bar-only (drawer extras fold into You/Settings) |
 | Buffer/info boxes | `InfoBox` / `BufferBanner` | dumb text containers for **backend-provided** explainer / disabled-reason copy — no baked buffer wording |
 | Roster-change cards | `ChangeCard` | tagged reason rows; reason vocabulary is **backend-provided** (examples: quarantine/death/shift/birth) |
 

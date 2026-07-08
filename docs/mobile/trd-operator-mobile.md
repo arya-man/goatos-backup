@@ -115,7 +115,11 @@ Dependency rule (enforced in CI): `feature-* → core-*`, `feature-*` never impo
 another `feature-*`; `core-model`/`core-common` depend on nothing Android; vendor
 SDKs only in `device-*`/adapter modules. Navigation between features goes through
 the app module's nav host + a route contract in `core-model` (module registry,
-extensibility doc).
+extensibility doc). The nav chrome — bottom bar always, plus a drawer/sidebar
+**only when the backend returns ≥2 visible modules** — is backend-driven; the app
+never counts modules or checks role to decide whether to show a sidebar, and a
+single-feature principal's language/RFID/notifications/sign-out live in the
+You/Settings bottom-bar screen, not a drawer.
 
 ## 4. Architecture layers (Clean Architecture + MVI)
 
@@ -217,7 +221,11 @@ budgets: [performance-and-memory.md](performance-and-memory.md).
   `/app/bootstrap` for the mobile role lens in **three blocks**: (1)
   **`presentationConfig`** — principal + role, park/shed scope, grants/capabilities
   (as data the app maps to routes/actions, not a client role predicate), visible
-  navigation + labels + disabled reasons, module registry (kill-switch), feature
+  navigation + **nav chrome/style** (bottom-bar-only vs bottom-bar+drawer — a
+  drawer/sidebar only when the principal has ≥2 visible modules; single-feature
+  roles are bottom-bar-only and fold the drawer's extras into You/Settings; the app
+  never counts modules or checks role to decide) + labels + disabled reasons,
+  module registry (kill-switch), feature
   flags, app-version gate, pinned SOP/form versions, scoped option caches, and a
   monotonic **`revision` + HTTP `ETag`**; (2) **`clientRuntimeConfig`** — bounded
   client operational knobs (page sizes, sync backoff/jitter, refresh cadence, cache

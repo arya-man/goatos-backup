@@ -37,9 +37,13 @@ interface MobileModule {
 ```
 
 - The **app module** collects registered modules (Hilt multibinding
-  `@IntoSet`) and builds the nav host + drawer, but **shows a module only if the
-  backend returned its `id` in the bootstrap visible-module set** — the app does
-  not run a client `isEnabled(role/grants)` predicate. It lands on the
+  `@IntoSet`) and builds the nav host, plus a **drawer/sidebar only when the backend
+  chrome has ≥2 visible modules** (a single-feature principal is bottom-bar-only,
+  with the drawer's extras — language, RFID reader, notifications, sign out — folded
+  into You/Settings), but **shows a module only if the backend returned its `id` in
+  the bootstrap visible-module set** — the app does not run a client
+  `isEnabled(role/grants)` predicate and never counts modules or checks role to
+  decide the nav chrome. It lands on the
   **backend-provided home route ID** and maps every route/action ID the backend
   sends to a screen via `routes`. Adding a vertical = adding a new `feature-*`
   module + its registration; **no shell edits, no cross-module deep imports**

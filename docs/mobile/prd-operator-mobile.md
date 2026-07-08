@@ -132,8 +132,10 @@ Leadership drill (read-only follow-up):
   state + labels; assign primary/backup),
   **shed record** (per-vaccine breakdown, searchable animals).
 
-Shared overlays: drawer, language, park scope, data gaps, doses given, drive/shed
-record, date picker, assign team, scan list, day sheet, **sync status**, toast.
+Shared overlays: drawer (only when the backend chrome has ≥2 modules — see the
+navigation-chrome rule; single-feature roles have no drawer), language, park
+scope, data gaps, doses given, drive/shed record, date picker, assign team, scan
+list, day sheet, **sync status**, toast.
 
 Always-on **sync/connectivity bar**: a slim strip on every signed-in screen shows
 Online/Offline and the sync state (All synced · Syncing N… with progress ·
@@ -151,6 +153,17 @@ Full per-screen contract in [screens.md](screens.md).
   backend returns for the principal — today the **execution** flow for the field
   operator (Health Asst Mgr) and a **read-only status follow-up** for leadership
   (Park Manager, Director, CEO/COO) — same card, backend-decided target.
+- **Navigation chrome is backend-driven (no client sidebar heuristic)**: the
+  bootstrap `presentationConfig` returns the nav chrome for the principal. A
+  **single-feature** principal (today: the vaccination-only operator and leadership
+  roles — vaccination and nothing else) gets the **bottom bar only, no
+  sidebar/drawer**; the drawer's extra affordances (language, RFID reader,
+  notifications/alerts, sign out) live in the **You / Settings** bottom-bar screen
+  that already exists, so nothing is lost. The sidebar/drawer appears **only when
+  the principal handles ≥2 modules/features** (the backend returns the multi-module
+  chrome + module list). The app renders whatever chrome the backend specifies — it
+  never counts modules or checks role to decide whether to draw a sidebar
+  (Manju/CEO decision, 2026-07-09).
 - **Red-on-delay follow-up**: in the leadership follow-up, a not-started / delayed
   drive renders **red** ("chase the team"); in-progress is amber, done is green.
   This is the signal leadership acts on to chase the ground team.

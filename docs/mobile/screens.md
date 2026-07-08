@@ -93,7 +93,10 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 ### You / Settings  (`v-you`), RFID reader  (`v-rfid`), Alerts  (`v-alerts`)  — visible sections/actions come from bootstrap (today: operator gets settings/RFID/alerts, leadership gets profile only)
 - Module: `feature-profile`. Profile (name/role/scope from bootstrap), language,
   RFID reader pairing (Chainway-class, battery/paired state), notifications
-  (FCM), sign out.
+  (FCM), sign out. For **single-feature (bottom-bar-only) principals** this screen
+  is the home for the affordances a drawer would otherwise hold (language, RFID
+  reader, notifications/alerts, sign out) — no sidebar/drawer is shown for them
+  (backend nav chrome; see TRD §5 + extensibility §2).
 - Backend/device: `RfidReaderPort` pairing; FCM token register; profile from
   bootstrap.
 
@@ -140,7 +143,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 
 | Overlay | Component | Feeds |
 |---|---|---|
-| `ovl-drawer` | `NavDrawer` | module registry (backend-flagged built + non-tappable "Soon" placeholders), profile, settings |
+| `ovl-drawer` | `NavDrawer` | **rendered only when the backend chrome has ≥2 visible modules** (single-feature roles = bottom bar only, no drawer); module registry (backend-flagged built + non-tappable "Soon" placeholders), profile, settings |
 | `ovl-lang` | language `GoatBottomSheet` | DataStore locale |
 | `ovl-scope` | park picker | sends selected **backend scope token** → backend re-scopes overview + follow-up (director + CEO/COO) |
 | `ovl-gaps` | data-gaps sheet | animals excluded from coverage + reason |
