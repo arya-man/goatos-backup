@@ -244,6 +244,25 @@ budgets: [performance-and-memory.md](performance-and-memory.md).
   **reschedule**, **assign** primary/backup, and the **role-scoped leadership
   follow-up status** that backs the calendar-card drill (per-shed live status for
   a drive: done / in-progress / delayed).
+- **Contract grounding (verified against `contracts/openapi/app-api.yaml`).** The
+  additive pass follows patterns the contract **already ships**, so each mobile
+  rule points at an existing precedent rather than a new invention:
+  - backend-computed percentages — `adherence_percent` exists; add `coverage_percent`
+    the same way (never divide on device);
+  - per-view presentation — `CalendarRhythmDay` hands the client `label`/`tone`/
+    `enabled`/**`query`** (a backend filter, not raw data to sort);
+  - authoritative dates — `CalendarEvent.due_at`/`window_start`/`window_end`
+    (the fingerprint `business_date` derives from these, never the device clock);
+  - route/action IDs — `route_id` + `action_id` (reuse `action_id` as the
+    notification deep-link target);
+  - `IdempotencyKey` is a **header** parameter (already in the contract).
+
+  Fields the shed-first pass must **ADD** (not yet in the contract): `scope_token`,
+  `coverage_percent`, `business_date` on the shed read, `in_buffer`/`out_of_buffer`
+  + `date_options`, and the mobile `presentationConfig`/`clientRuntimeConfig`
+  bootstrap blocks. Treat every `scope_token`/`in_buffer`/`presentationConfig`
+  reference in these docs as a **target** for the additive pass, not an
+  already-shipped field.
 - **Reads**: today's sheds (via the selected **backend-issued scope token**;
   today's examples: operator/parkmgr own park, director/ceo all parks), per-shed
   roster + due vaccine groups, the **per-drive follow-up status**
@@ -287,8 +306,10 @@ enter shed → pinned form_version renders (forms-runner) offline
   → proof captured via CameraCapturePort → media_pending
   → submit writes ONE submission row with a stable idempotency_key + semantic
     fingerprint (shed_id + form_version + animal set + operator + the
-    **backend-provided `business_date`** carried on the shed read — NOT
-    `LocalDate.now()`; the app never derives the business day from the device clock,
+    **backend-provided `business_date`** carried on the shed/calendar read (derive
+    from `CalendarEvent.due_at`/`window_start`/`window_end`, already in the
+    contract) — NOT `LocalDate.now()`; the app never derives the business day from
+    the device clock,
     and the server recomputes/verifies the canonical business date on submit)
   → outbox row enqueued
   → WorkManager sync worker: upload media via signed URLs, then POST submit

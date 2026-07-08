@@ -107,8 +107,9 @@ Operator drill (execution):
   locally-captured, unsynced scans on the backend total), per-vaccine-group progress
   chips (grouped by the **backend-tagged** vaccine group on each roster animal),
   tap-to-scan roster where each animal shows its own backend-provided due vaccine;
-  Done / Pending / Skipped lists (derived from local `scan_event` over the backend
-  roster — no client eligibility or aggregation).
+  Done / Pending / Skipped lists (render the backend roster/status with a local
+  unsynced-scan overlay for draft UX; backend revalidates final truth — no client
+  eligibility or aggregation).
 - **Submit** — one shed record covering all its due vaccines (dose, the
   **backend-selected/reserved lot** — the operator scans/confirms the physical vial
   against it; the app does **not** pick FEFO/expiry — cold-chain, animal count,

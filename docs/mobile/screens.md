@@ -90,7 +90,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
   verification + outbox). Form rendered via forms-runner + pinned form_version.
 - States: draft → queued → syncing → acked / conflict / dead-letter.
 
-### You / Settings  (`v-you`), RFID reader  (`v-rfid`), Alerts  (`v-alerts`)  — O (leadership: profile only)
+### You / Settings  (`v-you`), RFID reader  (`v-rfid`), Alerts  (`v-alerts`)  — visible sections/actions come from bootstrap (today: operator gets settings/RFID/alerts, leadership gets profile only)
 - Module: `feature-profile`. Profile (name/role/scope from bootstrap), language,
   RFID reader pairing (Chainway-class, battery/paired state), notifications
   (FCM), sign out.
@@ -99,7 +99,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 
 ## Leadership surface
 
-### Overview  (`v-dhome`)  — PM/D/C, reached via the **Home** nav tab (not the landing)
+### Overview  (`v-dhome`)  — visible when the backend returns the Overview/Home route (today's examples: PM/D/C), reached via the **Home** nav tab (not the landing)
 - Module: `feature-leadership`. **Coverage hero** (dose coverage %, doses line — from the backend rollup, not client-aggregated),
   pills: **park scope picker** (`ovl-scope`, director + CEO/COO), animals,
   **data gaps** (`ovl-gaps`). **KPI tiles**: Doses given → `ovl-given` (per-vaccine
@@ -122,7 +122,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
   `status`; it does not classify).
 - Backend: `GET overdue?scope_token=<token>` — backend does the Asia/Kolkata buffer/lateness math.
 
-### Reschedule (`v-reschedule`) — PM/C (assign)
+### Reschedule (`v-reschedule`) — visible when the backend returns the reschedule/assign route + actions (today's examples: PM/C)
 - Module: `feature-leadership`. Segmented reschedule / mark-scheduled; **date
   picker** (`ovl-date`) over **backend-provided allowed date options**, each with a
   precomputed in/out-of-buffer state + label — the app renders the option list, it
