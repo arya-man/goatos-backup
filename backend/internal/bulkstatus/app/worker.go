@@ -83,10 +83,30 @@ func (p *PassStats) add(other PassStats) {
 }
 
 // DrainStats is the accumulated tally across a full drain plus the final job counts.
+// Jobs carries the per-job final state so tenant-wide runs (which drain many jobs)
+// never collapse a failed job into a single overwritten FinalCounts.
 type DrainStats struct {
 	Iterations int
 	PassStats
 	FinalCounts JobCounts
+	Jobs        []JobDrainResult
+}
+
+// JobDrainResult is the final state of one drained job.
+type JobDrainResult struct {
+	JobID       string
+	FinalCounts JobCounts
+}
+
+// FailedJobs returns the drained jobs that settled to the 'failed' state.
+func (d DrainStats) FailedJobs() []JobDrainResult {
+	var out []JobDrainResult
+	for _, j := range d.Jobs {
+		if j.FinalCounts.State == JobStateFailed {
+			out = append(out, j)
+		}
+	}
+	return out
 }
 
 // WorkerService claims and applies bulk_status_job_row rows.
@@ -254,6 +274,7 @@ func (w *WorkerService) RunUntilDrained(ctx context.Context, tenantID, jobID str
 		return drain, mapRepoErr(err)
 	}
 	drain.FinalCounts = counts
+	drain.Jobs = []JobDrainResult{{JobID: jobID, FinalCounts: counts}}
 	return drain, nil
 }
 
@@ -276,6 +297,7 @@ func (w *WorkerService) RunTenant(ctx context.Context, tenantID string, maxJobs 
 		total.Iterations += drain.Iterations
 		total.PassStats.add(drain.PassStats)
 		total.FinalCounts = drain.FinalCounts
+		total.Jobs = append(total.Jobs, drain.Jobs...)
 		if err != nil {
 			return total, err
 		}

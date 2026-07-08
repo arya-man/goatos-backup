@@ -522,6 +522,79 @@ func extractGooseUpSQL(sqlText string) string {
 	return strings.Join(out, "\n")
 }
 
+// TestRunTenantRediscoversCrashOrphanAndReportsFailures covers the two paths the
+// 1M scale gate (job-specific RunUntilDrained) does not: (P1) the tenant-wide
+// worker rediscovers a job whose last rows were left 'claimed' by a crashed
+// worker, and (P2) tenant-wide mode surfaces a failed job instead of hiding it
+// behind a later completed one.
+func TestRunTenantRediscoversCrashOrphanAndReportsFailures(t *testing.T) {
+	requirePool(t)
+	ctx := context.Background()
+	tenant := newTenant(t, ctx)
+
+	// Job 1 (goats): a completable job whose rows are stuck 'claimed' with a stale
+	// lease — the signature of a worker that crashed after claiming the last rows.
+	// Without the 'claimed' clause in ListJobIDsWithClaimableRows, RunTenant would
+	// never rediscover it.
+	copyGoats(t, ctx, tenant, "goat", reproStart, 5)
+	var job1 string
+	if err := itPool.QueryRow(ctx, `
+INSERT INTO bulk_status_job (tenant_id, actor_id, axis, params, total_rows, state, idempotency_key)
+VALUES ($1::uuid, $2::uuid, 'reproductive', '{}'::jsonb, 5, 'running', $3)
+RETURNING bulk_status_job_id::text`, tenant, itActor, "it-"+t.Name()+"-orphan").Scan(&job1); err != nil {
+		t.Fatalf("insert job1: %v", err)
+	}
+	if _, err := itPool.Exec(ctx, `
+INSERT INTO bulk_status_job_row (tenant_id, job_id, goat_id, axis, target, expected_row_version, row_state, claimed_at)
+SELECT tenant_id, $1::uuid, goat_id, 'reproductive', $2, row_version, 'claimed', now() - interval '2 minutes'
+FROM goats WHERE tenant_id=$3::uuid AND species='goat'`, job1, reproTarget, tenant); err != nil {
+		t.Fatalf("insert job1 rows: %v", err)
+	}
+
+	// Job 2 (sheep, separate goats so no row_version interaction): rows with an
+	// invalid reproductive target -> apply is a permanent bad reference -> rows
+	// settle 'error' -> job drains to 'failed'.
+	copyGoats(t, ctx, tenant, "sheep", reproStart, 3)
+	var job2 string
+	if err := itPool.QueryRow(ctx, `
+INSERT INTO bulk_status_job (tenant_id, actor_id, axis, params, total_rows, state, idempotency_key)
+VALUES ($1::uuid, $2::uuid, 'reproductive', '{}'::jsonb, 3, 'pending', $3)
+RETURNING bulk_status_job_id::text`, tenant, itActor, "it-"+t.Name()+"-fail").Scan(&job2); err != nil {
+		t.Fatalf("insert job2: %v", err)
+	}
+	if _, err := itPool.Exec(ctx, `
+INSERT INTO bulk_status_job_row (tenant_id, job_id, goat_id, axis, target, expected_row_version, row_state)
+SELECT tenant_id, $1::uuid, goat_id, 'reproductive', 'not_a_reproductive_status', row_version, 'pending'
+FROM goats WHERE tenant_id=$2::uuid AND species='sheep'`, job2, tenant); err != nil {
+		t.Fatalf("insert job2 rows: %v", err)
+	}
+
+	drain, err := buildWorker(drainSettings()).RunTenant(ctx, tenant, 100)
+	if err != nil {
+		t.Fatalf("RunTenant: %v", err)
+	}
+
+	// Both jobs must have been discovered + drained (the orphan proves P1).
+	if len(drain.Jobs) != 2 {
+		t.Fatalf("RunTenant should report 2 jobs, got %d: %+v", len(drain.Jobs), drain.Jobs)
+	}
+	byID := make(map[string]bulkapp.JobCounts, len(drain.Jobs))
+	for _, j := range drain.Jobs {
+		byID[j.JobID] = j.FinalCounts
+	}
+	if c := byID[job1]; c.State != bulkapp.JobStateCompleted || c.Applied != 5 || c.Remaining != 0 {
+		t.Fatalf("orphan job1 not completed cleanly: %+v", c)
+	}
+	if c := byID[job2]; c.State != bulkapp.JobStateFailed || c.Failed != 3 {
+		t.Fatalf("job2 not reported failed with 3 error rows: %+v", c)
+	}
+	// The failed job must surface (P2: tenant mode must not hide it).
+	failed := drain.FailedJobs()
+	if len(failed) != 1 || failed[0].JobID != job2 {
+		t.Fatalf("expected exactly job2 (%s) reported failed, got %+v", job2, failed)
+	}
+}
+
 func itRepoRoot() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {

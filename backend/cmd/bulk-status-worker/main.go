@@ -102,10 +102,26 @@ func run(args []string) error {
 			slog.String("error", err.Error()))
 		return err
 	}
-	fmt.Printf("bulk-status-worker tenant=%s job=%s started=%s iterations=%d claimed=%d applied=%d skipped=%d retried=%d errored=%d final_state=%s remaining=%d\n",
-		cfg.TenantID, cfg.JobID, started.Format(time.RFC3339),
-		drain.Iterations, drain.Claimed, drain.Applied, drain.Skipped, drain.Retried, drain.Errored,
-		drain.FinalCounts.State, drain.FinalCounts.Remaining)
+	fmt.Printf("bulk-status-worker tenant=%s started=%s iterations=%d claimed=%d applied=%d skipped=%d retried=%d errored=%d jobs=%d\n",
+		cfg.TenantID, started.Format(time.RFC3339),
+		drain.Iterations, drain.Claimed, drain.Applied, drain.Skipped, drain.Retried, drain.Errored, len(drain.Jobs))
+	for _, j := range drain.Jobs {
+		fmt.Printf("  job=%s state=%s total=%d applied=%d skipped=%d failed=%d remaining=%d\n",
+			j.JobID, j.FinalCounts.State, j.FinalCounts.Total, j.FinalCounts.Applied,
+			j.FinalCounts.Skipped, j.FinalCounts.Failed, j.FinalCounts.Remaining)
+	}
+	// Tenant-wide mode drains many jobs; never exit 0 while any job settled 'failed'.
+	if failed := drain.FailedJobs(); len(failed) > 0 {
+		ids := make([]string, len(failed))
+		for i, j := range failed {
+			ids[i] = j.JobID
+		}
+		log.Error("bulk_status_worker_jobs_failed",
+			slog.String("tenant_id", cfg.TenantID),
+			slog.Int("failed_jobs", len(failed)),
+			slog.String("job_ids", strings.Join(ids, ",")))
+		return fmt.Errorf("bulk-status-worker: %d job(s) drained with row failures: %s", len(failed), strings.Join(ids, ", "))
+	}
 	return nil
 }
 

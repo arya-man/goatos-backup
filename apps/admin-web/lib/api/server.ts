@@ -76,6 +76,10 @@ export type AdminGoatBulkSummary = AdminApiComponents["schemas"]["AdminGoatBulkS
 export type GenerationStatus = AdminApiComponents["schemas"]["GenerationStatus"];
 export type StageGoatRequest = AdminApiComponents["schemas"]["StageGoatRequest"];
 export type ReproductiveGoatRequest = AdminApiComponents["schemas"]["ReproductiveGoatRequest"];
+export type BulkStatusPreviewRequest = AdminApiComponents["schemas"]["BulkStatusPreviewRequest"];
+export type BulkStatusPreviewResponse = AdminApiComponents["schemas"]["BulkStatusPreviewResponse"];
+export type BulkStatusCommitRequest = AdminApiComponents["schemas"]["BulkStatusCommitRequest"];
+export type BulkStatusCommitResponse = AdminApiComponents["schemas"]["BulkStatusCommitResponse"];
 export type CreateLocationRequest = AdminApiComponents["schemas"]["CreateLocationRequest"];
 export type LocationSummary = AdminApiComponents["schemas"]["LocationSummary"];
 export type LocationListResponse = AdminApiComponents["schemas"]["LocationListResponse"];
@@ -919,6 +923,41 @@ export async function reproductiveGoat(
 
 // Health status writes intentionally have no admin-web wrapper yet. Add one only with a backend-owned
 // Goat Passport/Herd action contract that carries labels, options, disabled reasons, and authority copy.
+
+// Bulk status-update write path. Spans reproductive/health/exit axes, requires dual write grants.
+// Preview is a pure read (no idempotency key, no state mutation) that returns per-row decisions
+// and a signed preview_token. Commit is idempotent on Idempotency-Key and enqueues a durable job.
+export async function previewBulkStatusUpdate(
+  body: BulkStatusPreviewRequest,
+): Promise<ApiResult<BulkStatusPreviewResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<BulkStatusPreviewResponse>("/admin/goats/bulk-status/preview", {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function commitBulkStatusUpdate(
+  body: BulkStatusCommitRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<BulkStatusCommitResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<BulkStatusCommitResponse>("/admin/goats/bulk-status/commit", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
 
 // Counts -> Herd Register write path. Each create/commit carries an Idempotency-Key so a double-submit or
 // retry replays the original result instead of writing a second goat. The backend derives the actor from the

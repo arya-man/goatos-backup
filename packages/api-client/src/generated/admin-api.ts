@@ -823,6 +823,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats/bulk-status/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview bulk goat status changes without applying them.
+         * @description Validates requested status changes against goat state and business rules, returning per-row decisions (apply, noop, not_found, blocked, requires_review) and a signed preview_token for commit. Does not mutate state.
+         */
+        post: operations["previewBulkStatusUpdate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/bulk-status/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Commit a bulk goat status update to durable job queue.
+         * @description Accepts the preview_token and row set from preview, re-derives the fingerprint for validation, and enqueues a durable bulk_status_job. Idempotent on (tenant_id, Idempotency-Key); exact replays return the original job without re-enqueueing.
+         */
+        post: operations["commitBulkStatusUpdate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/manual-campaigns": {
         parameters: {
             query?: never;
@@ -2933,6 +2973,99 @@ export interface components {
         ProcurementHealthState: "pending" | "passed" | "failed" | "deferred";
         /** @enum {unknown} */
         ProcurementArrivalState: "matched" | "missing" | "extra_unresolved" | "health_flag" | "weight_flag" | "accepted" | "rejected" | "deferred" | "blocked";
+        BulkStatusPreviewRequest: {
+            /**
+             * @description Status dimension being bulk-updated.
+             * @enum {string}
+             */
+            axis: "reproductive" | "health" | "exit";
+            /** @description Per-goat requested changes. */
+            rows: components["schemas"]["BulkStatusRow"][];
+        };
+        BulkStatusRow: {
+            /**
+             * Format: uuid
+             * @description Goat identifier.
+             */
+            goat_id: string;
+            /** @description Target status code (e.g. a reproductive_status_definition code). */
+            target: string;
+            /** @description Optional operator reason for the change. */
+            reason?: string;
+        };
+        BulkStatusPreviewResponse: {
+            /** @description Status dimension being updated. */
+            axis: string;
+            summary: components["schemas"]["BulkStatusSummary"];
+            /** @description Per-row decisions and validation details. */
+            rows: components["schemas"]["BulkStatusRowResult"][];
+            /** @description Signed token binding (tenant, axis, fingerprint, count); required for commit. */
+            preview_token: string;
+            /** @description Unique trace identifier for this request. */
+            trace_id: string;
+        };
+        BulkStatusSummary: {
+            /** @description Total rows in request. */
+            total: number;
+            /** @description Rows that will transition on commit. */
+            apply: number;
+            /** @description Rows already at target; will skip. */
+            noop: number;
+            /** @description Rows with missing/exited/merged goats. */
+            not_found: number;
+            /** @description Rows requiring critical-action guardrail path. */
+            blocked: number;
+            /** @description Rows with invalid target or malformed data. */
+            requires_review: number;
+        };
+        BulkStatusRowResult: {
+            /** Format: uuid */
+            goat_id: string;
+            /**
+             * @description Per-row decision outcome.
+             * @enum {string}
+             */
+            decision: "apply" | "noop" | "not_found" | "blocked" | "requires_review";
+            /** @description Current goat status on this axis (present if decision is not not_found). */
+            current_state?: string;
+            /** @description Target status requested. */
+            target: string;
+            /** @description Goat row version at preview time (for optimistic concurrency check). */
+            row_version?: number;
+            /** @description Optional detail message (e.g. validation error reason). */
+            message?: string;
+        };
+        BulkStatusCommitRequest: {
+            /**
+             * @description Status dimension (must match preview request).
+             * @enum {string}
+             */
+            axis: "reproductive" | "health" | "exit";
+            /** @description Row set (must match preview request exactly). */
+            rows: components["schemas"]["BulkStatusRow"][];
+            /** @description Signed preview token from preview response. */
+            preview_token: string;
+        };
+        BulkStatusCommitResponse: {
+            /**
+             * Format: uuid
+             * @description Durable bulk_status_job identifier.
+             */
+            job_id: string;
+            /** @description Status dimension enqueued. */
+            axis: string;
+            /** @description Total rows in job. */
+            total_rows: number;
+            /**
+             * @description Current job state.
+             * @enum {string}
+             */
+            state: "pending" | "running" | "completed" | "failed" | "canceled";
+            /** @description True if this was an idempotent replay (same Idempotency-Key and fingerprint). */
+            replayed: boolean;
+            /** @description Unique trace identifier for this request. */
+            trace_id: string;
+        };
     };
     responses: {
         /** @description Validation error. */
@@ -4792,6 +4925,65 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+        };
+    };
+    previewBulkStatusUpdate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkStatusPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Preview completed; no state changed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkStatusPreviewResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    commitBulkStatusUpdate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkStatusCommitRequest"];
+            };
+        };
+        responses: {
+            /** @description Job enqueued or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkStatusCommitResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
         };
     };
     runVaccinationManualCampaign: {

@@ -1725,6 +1725,66 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/goats/bulk-status/preview:
+    post:
+      tags:
+        - Admin Goats
+      operationId: previewBulkStatusUpdate
+      summary: Preview bulk goat status changes without applying them.
+      description: Validates requested status changes against goat state and business rules, returning per-row decisions (apply, noop, not_found, blocked, requires_review) and a signed preview_token for commit. Does not mutate state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkStatusPreviewRequest"
+      responses:
+        "200":
+          description: Preview completed; no state changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkStatusPreviewResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/goats/bulk-status/commit:
+    post:
+      tags:
+        - Admin Goats
+      operationId: commitBulkStatusUpdate
+      summary: Commit a bulk goat status update to durable job queue.
+      description: Accepts the preview_token and row set from preview, re-derives the fingerprint for validation, and enqueues a durable bulk_status_job. Idempotent on (tenant_id, Idempotency-Key); exact replays return the original job without re-enqueueing.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkStatusCommitRequest"
+      responses:
+        "200":
+          description: Job enqueued or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkStatusCommitResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/manual-campaigns:
     post:
       tags:
@@ -7876,3 +7936,190 @@ components:
         - rejected
         - deferred
         - blocked
+    BulkStatusPreviewRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - axis
+        - rows
+      properties:
+        axis:
+          type: string
+          enum:
+            - reproductive
+            - health
+            - exit
+          description: Status dimension being bulk-updated.
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkStatusRow"
+          minItems: 1
+          description: Per-goat requested changes.
+    BulkStatusRow:
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - target
+      properties:
+        goat_id:
+          type: string
+          format: uuid
+          description: Goat identifier.
+        target:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Target status code (e.g. a reproductive_status_definition code).
+        reason:
+          type: string
+          maxLength: 500
+          description: Optional operator reason for the change.
+    BulkStatusPreviewResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - axis
+        - summary
+        - rows
+        - preview_token
+        - trace_id
+      properties:
+        axis:
+          type: string
+          description: Status dimension being updated.
+        summary:
+          $ref: "#/components/schemas/BulkStatusSummary"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkStatusRowResult"
+          description: Per-row decisions and validation details.
+        preview_token:
+          type: string
+          description: Signed token binding (tenant, axis, fingerprint, count); required for commit.
+        trace_id:
+          type: string
+          description: Unique trace identifier for this request.
+    BulkStatusSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - total
+        - apply
+        - noop
+        - not_found
+        - blocked
+        - requires_review
+      properties:
+        total:
+          type: integer
+          description: Total rows in request.
+        apply:
+          type: integer
+          description: Rows that will transition on commit.
+        noop:
+          type: integer
+          description: Rows already at target; will skip.
+        not_found:
+          type: integer
+          description: Rows with missing/exited/merged goats.
+        blocked:
+          type: integer
+          description: Rows requiring critical-action guardrail path.
+        requires_review:
+          type: integer
+          description: Rows with invalid target or malformed data.
+    BulkStatusRowResult:
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - decision
+        - target
+      properties:
+        goat_id:
+          type: string
+          format: uuid
+        decision:
+          type: string
+          enum:
+            - apply
+            - noop
+            - not_found
+            - blocked
+            - requires_review
+          description: Per-row decision outcome.
+        current_state:
+          type: string
+          description: Current goat status on this axis (present if decision is not not_found).
+        target:
+          type: string
+          description: Target status requested.
+        row_version:
+          type: integer
+          description: Goat row version at preview time (for optimistic concurrency check).
+        message:
+          type: string
+          description: Optional detail message (e.g. validation error reason).
+    BulkStatusCommitRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - axis
+        - rows
+        - preview_token
+      properties:
+        axis:
+          type: string
+          enum:
+            - reproductive
+            - health
+            - exit
+          description: Status dimension (must match preview request).
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkStatusRow"
+          minItems: 1
+          description: Row set (must match preview request exactly).
+        preview_token:
+          type: string
+          description: Signed preview token from preview response.
+    BulkStatusCommitResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - job_id
+        - axis
+        - total_rows
+        - state
+        - replayed
+        - trace_id
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          description: Durable bulk_status_job identifier.
+        axis:
+          type: string
+          description: Status dimension enqueued.
+        total_rows:
+          type: integer
+          description: Total rows in job.
+        state:
+          type: string
+          enum:
+            - pending
+            - running
+            - completed
+            - failed
+            - canceled
+          description: Current job state.
+        replayed:
+          type: boolean
+          description: True if this was an idempotent replay (same Idempotency-Key and fingerprint).
+        trace_id:
+          type: string
+          description: Unique trace identifier for this request.

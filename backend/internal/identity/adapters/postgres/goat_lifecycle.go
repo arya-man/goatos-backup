@@ -511,7 +511,11 @@ func (r *Repository) ReproductiveGoat(ctx context.Context, cmd ports.Reproductiv
 	if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
 		return nil, ports.ErrWriteConflict
 	}
-	if state.ReproductiveStatus == cmd.ReproductiveStatus {
+	// Reject only a true no-op: same status AND no date fact supplied. Pregnancy
+	// timing depends on breeding_date / last_delivery_date, so setting a date on an
+	// already-'pregnant' (or already-'mother') goat must be allowed and must emit
+	// the event so obligations recompute.
+	if state.ReproductiveStatus == cmd.ReproductiveStatus && cmd.BreedingDate == nil && cmd.LastDeliveryDate == nil {
 		return nil, ports.ErrWriteConflict
 	}
 	if _, err := tx.Exec(ctx, `

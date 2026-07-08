@@ -103,6 +103,22 @@ func (s *Service) Preview(ctx context.Context, input PreviewInput) (*PreviewResp
 		return nil, mapRepoErr(err)
 	}
 
+	// Classify each DISTINCT target once. Reproductive validation hits the DB, so
+	// per-row classification would be an N+1 (up to 20k identical EXISTS at the
+	// request cap); the distinct-target set is tiny.
+	type targetClass struct{ ok, blocked bool }
+	targetClasses := make(map[string]targetClass, 4)
+	for _, row := range rows {
+		if _, seen := targetClasses[row.Target]; seen {
+			continue
+		}
+		ok, blocked, tErr := s.classifyTarget(ctx, axis, row.Target)
+		if tErr != nil {
+			return nil, mapRepoErr(tErr)
+		}
+		targetClasses[row.Target] = targetClass{ok: ok, blocked: blocked}
+	}
+
 	resp := &PreviewResponse{
 		Axis:    axis,
 		Rows:    make([]PreviewRowResult, 0, len(rows)),
@@ -110,15 +126,12 @@ func (s *Service) Preview(ctx context.Context, input PreviewInput) (*PreviewResp
 	}
 	for _, row := range rows {
 		result := PreviewRowResult{GoatID: row.GoatID, Target: row.Target}
-		targetOK, blocked, tErr := s.classifyTarget(ctx, axis, row.Target)
-		if tErr != nil {
-			return nil, mapRepoErr(tErr)
-		}
+		tc := targetClasses[row.Target]
 		switch {
-		case !targetOK:
+		case !tc.ok:
 			result.Decision = DecisionRequiresReview
 			result.Message = fmt.Sprintf("unsupported %s target %q", axis, row.Target)
-		case blocked:
+		case tc.blocked:
 			result.Decision = DecisionBlocked
 			result.Message = "target requires the critical-action guardrail path and cannot run as a bulk update"
 		default:
