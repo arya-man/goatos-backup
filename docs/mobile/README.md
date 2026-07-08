@@ -56,8 +56,10 @@ verbatim:
 - Ports/adapters, OpenAPI REST/JSON, signed-media upload, outbox, idempotency,
   server-authoritative RBAC, `Asia/Kolkata` business time, operational-kernel
   semantics.
-- The mock is the **only UI/UX source of truth**; port its structure, not a
-  plainer substitute.
+- The mock is the **visual/layout/interaction** source of truth (port its
+  structure, not a plainer substitute) — but the **backend contract owns data,
+  labels, actions, statuses, and options**; never copy the mock's sample
+  state/labels/actions as implementation truth.
 
 ## Status
 

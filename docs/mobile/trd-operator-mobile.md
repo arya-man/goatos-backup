@@ -54,14 +54,14 @@ are BOM-managed, so no per-lib Compose version.
 | Concern | Choice | Version | Notes |
 |---|---|---|---|
 | UI | Compose + Material 3 | BOM 2026.06.01 | custom theme from design-system tokens; M3 `material3` + `material3-adaptive` |
-| Compose↔lifecycle/activity | `lifecycle-*-compose`, `activity-compose` | lifecycle 2.10.0 · activity 1.13.0 | `collectAsStateWithLifecycle`, `viewModelScope` |
+| Compose↔lifecycle/activity | `lifecycle-*-compose`, `activity-compose` | lifecycle 2.11.0 · activity 1.13.0 | `collectAsStateWithLifecycle`, `viewModelScope` |
 | Navigation | Navigation-Compose (type-safe routes) | 2.9.x | module registry drives destinations |
-| DI | Hilt | 2.60.1 (+ hilt-navigation-compose 1.2.x) | constructor injection; no service locators |
+| DI | Hilt | 2.60.1 (+ hilt-navigation-compose 1.4.0) | constructor injection; no service locators |
 | Async | Coroutines + Flow | kotlinx-coroutines 1.11.0 | structured concurrency; no `GlobalScope` |
-| Stability | kotlinx-collections-immutable | 0.4.x | `ImmutableList`/`PersistentList` for skippable composables (§4a) |
+| Stability | kotlinx-collections-immutable | 0.5.1 | `ImmutableList`/`PersistentList` for skippable composables (§4a) |
 | Local DB | **Room** (SQLite) | 2.8.x (+ KSP) | tasks/sheds/roster/scan/submission/outbox/config cache; expose `Flow` |
-| Key-value | DataStore (Proto) | 1.1.x | session flags, language, device/reader state, bootstrap revision |
-| Network | Retrofit + OkHttp + kotlinx.serialization | Retrofit 3.x · OkHttp 5.x · serialization-json 1.9.x | generated client (below); ETag/If-None-Match for config |
+| Key-value | DataStore (Proto) | 1.2.1 | session flags, language, device/reader state, bootstrap revision |
+| Network | Retrofit + OkHttp + kotlinx.serialization | Retrofit 3.x · OkHttp 5.x · serialization-json 1.11.0 | generated client (below); ETag/If-None-Match for config |
 | API client | **OpenAPI-generated Kotlin client** | — | from backend app-api contract; never hand-written DTOs |
 | Images/video | CameraX (video capture) + Coil 3 (thumbnails) | CameraX 1.6.1 · Coil 3.x | bounded bitmap sizes |
 | RFID/BLE | Vendor `.aar` behind a `RfidReaderPort` | vendor-pinned | Chainway-class UHF; adapter isolates SDK |
@@ -98,7 +98,7 @@ apps/goatos-android/
   feature/
     feature-auth/              # login (email + OTP), session boot
     feature-calendar/          # week / month / history
-    feature-sheds/             # calendar-card drill: operator execution list + leadership read-only drive-status follow-up (scope-filtered, red-on-delay)
+    feature-sheds/             # calendar-card drill: operator execution list + leadership read-only drive-status follow-up (backend-scoped read, red-on-delay)
     feature-scan/              # per-shed scan, RFID, groups, done/pending/skipped
     feature-submit/            # shed submit form (SOP/forms-runner render)
     feature-leadership/        # overview, coverage, backlog, data gaps, overdue, reschedule, assign
@@ -266,12 +266,17 @@ Local tables (Room):
                       (operator/parkmgr = own park; director/ceo = all parks or picked park)
   shed_group          due vaccine groups per shed (vaccine, dose, batch, due, done)
   roster_animal       per-shed animals + their due vaccine + tag(s) + state
-  scan_event          each tap: given / skipped(reason) + timestamp + operator
+  scan_event          each tap: given / skipped(reason) + captured_at_device (evidence time only — backend owns accepted/administered/business time) + operator
   submission          one per shed submit; carries idempotency_key + fingerprint
   media_pending       captured video/proof awaiting signed-URL upload
   outbox              ordered, at-least-once client outbox → app-api
   sync_meta           cursors, last-sync, app-version, bootstrap revision
 ```
+
+These Room tables are a **cache of backend fields + a local draft/scan overlay** —
+`due`/`done`/`state` are last-synced backend values and unsynced local scans overlay
+them. The backend remains the source of truth; the app never treats these columns
+as authoritative (they reconcile on sync).
 
 Submission flow (matches the existing arch doc, restated for Kotlin):
 
@@ -280,7 +285,10 @@ enter shed → pinned form_version renders (forms-runner) offline
   → tap-scan writes scan_event rows locally (idempotent per animal+shed+session)
   → proof captured via CameraCapturePort → media_pending
   → submit writes ONE submission row with a stable idempotency_key + semantic
-    fingerprint (shed_id + form_version + animal set + operator + business_date)
+    fingerprint (shed_id + form_version + animal set + operator + the
+    **backend-provided `business_date`** carried on the shed read — NOT
+    `LocalDate.now()`; the app never derives the business day from the device clock,
+    and the server recomputes/verifies the canonical business date on submit)
   → outbox row enqueued
   → WorkManager sync worker: upload media via signed URLs, then POST submit
   → app-api revalidates version + permissions + current state, runs one tx
@@ -436,7 +444,8 @@ LeakCanary in debug, bounded image/bitmap sizes, and a leak gate in CI.
   in DataStore and applied app-wide.
 - Backend-owned copy (nav/labels/disabled reasons) is localized server-side per
   the bootstrap contract locale; the app requests its locale.
-- Numerals/dates rendered in `Asia/Kolkata` business calendar. Layouts must
+- Format **backend-provided** date/time fields for display in `Asia/Kolkata` only;
+  the app never buckets or decides business time. Layouts must
   survive long strings (the mock already sizes for hi/kn/te); no clipping.
 
 ## 11. Testing strategy (target ≥ 80% on domain/data)
@@ -534,7 +543,10 @@ Idempotency tests are mandatory (repo contract).
   `Asia/Kolkata`; the app **formats and displays** backend date fields and uses
   `Asia/Kolkata` only for pure display formatting — it never buckets or decides
   business time itself.
-- Mock is the only UI source of truth; match its structure, not a plainer copy.
+- Mock is the **visual/layout/interaction** source of truth (match its structure,
+  not a plainer copy) — but the **backend contract owns data, labels, actions,
+  statuses, and options**. Never copy the mock's sample state/labels/actions as
+  implementation truth.
 - Firebase: `asia-south1` for location-selectable resources under the correct org
   (telemetry/push are global services); nothing created before the
   org-verification checklist passes.

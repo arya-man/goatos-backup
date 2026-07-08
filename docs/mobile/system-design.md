@@ -95,8 +95,11 @@ effects; same-key/different-payload is a conflict, not an overwrite.
 ## 5. Read data flow (shed-first)
 
 ```text
-scope = <park | all>  — operator/parkmgr resolve to their own park; director/ceo
-                        default to all parks and may drill to one via the picker.
+scope = <backend-issued token>  — the backend returns the scope options + default
+                        for the principal and filters every read by it. Today's
+                        returned example: operator/parkmgr = own park; director/ceo
+                        = all parks, drillable to one via the picker. The app sends
+                        the selected token; it does not resolve scope from role.
 
 Today's sheds  = GET sheds?scope=<park|all>  → cache shed_day/shed_group/roster
 Drive status   = per-shed follow-up status (done / in-progress / delayed) for the
@@ -145,7 +148,7 @@ scan_tap{shed_id, result: given|skipped, reason?, vaccine}
 shed_submitted{shed_id, animals, vaccines, offline_duration_ms}
 sync_result{submission_id, outcome: acked|conflict|dead_letter, attempts}
 leadership_view{screen, scope}
-scope_changed{from, to}          data_gaps_opened{scope, count}
+scope_changed{from, to}          data_gaps_opened{scope, count}   // count = backend-provided from the payload, never client-aggregated
 reschedule_confirmed{shed_id, in_buffer}   // in_buffer = backend-provided outcome, never client-computed
 assign_confirmed{shed_id, primary, backup}
 ```

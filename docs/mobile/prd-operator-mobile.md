@@ -1,7 +1,8 @@
 # PRD — Goat OS Mobile (Android)
 
 Status: draft for pre-implementation review · Owner: mobile · Surface:
-operator/device field surface · Source of truth UI: `mock/vaccination-mobile-mock.html`.
+operator/device field surface · UI reference (visual/layout/interaction only — the
+backend contract owns data, labels, actions, statuses, options): `mock/vaccination-mobile-mock.html`.
 
 ## 1. Problem
 
@@ -100,9 +101,12 @@ Operator drill (execution):
   shed), with Start / Resume / View-records actions (**local execution UX** driven
   by the operator's own scan progress; the backend revalidates and decides on
   submit).
-- **Scan** — per shed: progress ring (shed total), per-vaccine-group progress
-  chips, tap-to-scan roster where each animal shows its own due vaccine; Done /
-  Pending / Skipped lists.
+- **Scan** — per shed: progress ring (shed total **from backend**; the ring overlays
+  locally-captured, unsynced scans on the backend total), per-vaccine-group progress
+  chips (grouped by the **backend-tagged** vaccine group on each roster animal),
+  tap-to-scan roster where each animal shows its own backend-provided due vaccine;
+  Done / Pending / Skipped lists (derived from local `scan_event` over the backend
+  roster — no client eligibility or aggregation).
 - **Submit** — one shed record covering all its due vaccines (dose, the
   **backend-selected/reserved lot** — the operator scans/confirms the physical vial
   against it; the app does **not** pick FEFO/expiry — cold-chain, animal count,
@@ -112,8 +116,8 @@ Operator drill (execution):
 Leadership drill (read-only follow-up):
 
 - **Drive status** (same `v-sheds` route, read-only lens) — the drive's sheds as
-  live-status cards, scope-filtered (park manager = own park; director & CEO/COO =
-  all parks). Per-shed status: **done = green, in-progress = amber, delayed /
+  live-status cards, **backend-scoped** (today's returned example: park manager =
+  own park; director & CEO/COO = all parks). Per-shed status: **done = green, in-progress = amber, delayed /
   not-started = red** ("chase the team"). No Start/scan. A card opens the shed
   record. This is what a calendar-card tap opens for non-operators.
 - **Overview** (`v-dhome`, reached via the Home nav tab — not the landing) —

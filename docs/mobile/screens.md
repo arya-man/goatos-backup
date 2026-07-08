@@ -34,7 +34,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 ## Drill from the calendar card (backend-provided target)
 
 ### Today's sheds / Drive status  (`v-sheds`)  — O execute (own park); PM read-only (own park); D/C read-only (all parks)
-- Module: `feature-sheds`. Same route, role-branched lens. Header: date · window ·
+- Module: `feature-sheds`. Same route, **backend-scoped lens**. Header: date · window ·
   shed count · due total. Day progress bar (from backend totals). **Shed cards**, each: cohort · in-shed,
   status pill, **vaccine-group chips (mix-and-match)**, in-shed/due/done nums,
   progress. Roster-change cards + kernel info box.
@@ -51,13 +51,15 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
   in Room) + per-drive follow-up status. Scope = own park (operator/parkmgr) or all
   parks (director/ceo). Shed-first: a shed can have several due vaccine groups.
 - States: ready / in-progress / done per shed; leadership rows are read-only
-  (no Start; rolenote) with the red-on-delay treatment.
+  because the backend returned no Start/scan action for this principal (absence of
+  the action in the payload — not a client `role==` check), with the red-on-delay
+  treatment.
 
 ### Scan  (`v-scan`)  — O only (leadership tap blocked server-side)
 - Module: `feature-scan`. Header: shed · cohort. **Progress ring** = shed total
   `done/T` (**T + eligibility from backend**; the ring reflects backend totals plus
-  locally-captured, not-yet-synced scans — it is not a local source of truth). **Per-vaccine-group chips** (active group highlighted). Tap-to-scan
-  (RFID or ring). Done / Pending / Skipped tiles → `ovl-scanlist` sheet
+  locally-captured, not-yet-synced scans — it is not a local source of truth). **Per-vaccine-group chips** (filter by the **backend-tagged** vaccine group on each roster animal; active group highlighted). Tap-to-scan
+  (RFID or ring). Done / Pending / Skipped tiles (derived from local `scan_event` over the backend roster — no client eligibility/grouping) → `ovl-scanlist` sheet
   (searchable, per-animal vaccine). Live feed of last taps (each animal → its due
   vaccine, "2 tags" when double-tagged). Submit is **UX-disabled** from the
   backend-provided completion checklist + local draft scan state; the backend
@@ -101,7 +103,7 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
   **director + CEO/COO = all parks**, drill via picker) — the app renders the scope
   options + default, it does not resolve scope by role.
 - Backend: `GET rollup/backlog/gaps?scope`; scope filters everything.
-- Role gates (**backend-provided grants**, not client-hardcoded): park picker +
+- Backend-returned action visibility / disabled reasons (not client role gates): park picker +
   coverage-by-park, assign, and scan visibility all come from the principal's
   bootstrap grant set (today: picker/coverage-by-park = director + CEO/COO; assign
   = CEO/COO + PM; scan operator-only). The app shows a control only when its
