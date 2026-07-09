@@ -394,9 +394,14 @@ is not broadly satisfiable from `goatsDB.goats_db_clean` alone.
 
 Definition used for this feasibility check:
 
-- animal key: `COALESCE(goat_id, farm_goat_id, inp_goat_id)`
-- active candidate: latest event by `date` and lifecycle priority, excluding
-  `Sale`, `Death`, and `Abortion`
+- animal key:
+  `COALESCE(NULLIF(TRIM(goat_id), ''), NULLIF(TRIM(farm_goat_id), ''), NULLIF(TRIM(inp_goat_id), ''))`
+- latest event: one row per animal key ordered by `date DESC`, then event
+  priority `Death=5`, `Sale=4`, `Abortion=4`, `Shifting=3`, `Purchase=2`,
+  `Birth=1`, everything else `0`
+- active candidate: latest event excluding `Sale`, `Death`, and `Abortion`
+- DOB evidence: any non-empty `birth_time` in the native event spine for that
+  animal key
 - dashboard comparison date: `2026-07-08`
 
 Observed coverage:
@@ -412,7 +417,8 @@ Observed coverage:
 | Active candidates with no gender evidence anywhere in native event spine | `598` |
 | Active candidates missing both DOB and gender evidence | `597` |
 | Active candidates with native DOB and gender evidence present | `534` |
-| Active candidates missing all legacy event-spine identifiers | `0` |
+| Active candidates missing all legacy event-spine identifiers after no-id rows are dropped | `0` |
+| Raw event rows dropped before active-spine grouping because all three identifiers are empty | `27` |
 
 Implications:
 
@@ -421,14 +427,20 @@ Implications:
   cleanup lane, not incidental polish.
 - Do not seed `Animal_Master` by blindly taking the latest-event spine as active
   truth; reconcile it to dashboard/current-status sources first.
+- Treat the event-spine vs dashboard active gap as bidirectional. The event
+  spine is not simply a 512-animal superset; the two sources also disagree on
+  breed/species vocabulary and can contain populations missing from the other.
 
 Estimated DOB policy required before GREEN promotion:
 
 1. Use trusted birth evidence first: `goatsDB.mother_kid_facts`, `Birth` events,
-   or other source rows with explicit birth date/time.
+   or other source rows with explicit birth date/time. In `goatsDB.goats_db_clean`,
+   the current DOB-evidence test is non-empty `birth_time`; a `Birth` event with
+   blank `birth_time` is still missing DOB evidence.
 2. For purchase-origin or shifted animals with no birth evidence, derive DOB only
    through an approved `dob_estimated=true` policy using age class, event date,
-   source row, and owner approval. Record `dob_estimation_method` and evidence.
+   source row, and owner approval. The legacy `age` column is a weak AMBER proxy,
+   not a GREEN DOB by itself. Record `dob_estimation_method` and evidence.
 3. Rows with derived DOB remain AMBER until the policy is approved and Goat OS
    preview accepts the estimate. Rows with no derivable DOB remain RED.
 
@@ -748,6 +760,12 @@ Seed reconciliation rows:
   grain = `2659`.
 - The `512` gap must stay open until `Current_Location_Status` decides the
   active source-of-truth priority and row-level differences.
+- The gap is bidirectional and includes breed/species vocabulary mismatch, not
+  just extra event-spine animals. Seed breed rows include:
+  - event spine empty breed `468` vs dashboard empty breed `0`
+  - event spine `Anantapur Sheep` `153` vs dashboard `0`
+  - dashboard `Kenguri` `255` vs event spine `0`
+  - dashboard `Beetal` `688` vs event spine `463`
 
 ### 25. `Feed_Sales_Reconciliation`
 
@@ -855,12 +873,13 @@ These should be preloaded into `Issue_Queue` or `Audit_Findings`.
 | --- | --- | --- | --- |
 | Counting DB kid-stage rows need age-field source verification | P2 | ground/source team | Counting DB / `ceo_dashboard.counting_db_with_holding_dev`; audit reported 34 kid/fattening-stage goats not marked `age=Kid` |
 | Customized age-only risk signature needs UI regression coverage | P2 | data/dev | Strict Core + Adults + Female + Non-Pregnant source `0`; age-only risk signature `1622`; stage-aware would be `1656`; Core adult Non-Pregnant all gender `794` |
-| Procurement DB vs farm procured animal count mismatch | P1 | data/dev + ground/source team | `procurement_farm.procurement_dB_clean` purchase total `1670`; `goatsDB.goats_db_clean` purchase distinct `farm_goat_id`/audit-coalesced count `1822` gives headline delta `152`, while distinct global `goat_id` count `1738` gives delta `68`; resolve identity grain in `Identity_Grain_Audit` before treating rows as import blockers |
+| Procurement DB vs farm procured animal count mismatch | P1 | data/dev + ground/source team | `procurement_farm.procurement_dB_clean` purchase total `1670` means `Record_Type='Purchase'` only: Goat `805` + Sheep `865`. Do not use all-record-type sum `5755`. `goatsDB.goats_db_clean` purchase distinct `farm_goat_id`/audit-coalesced count `1822` gives headline delta `152`, while distinct global `goat_id` count `1738` gives delta `68`; resolve identity grain in `Identity_Grain_Audit` before treating rows as import blockers |
 | Procurement loadwise status rollup mismatch | P2 | data/dev + ground/source team | `procurement_farm.load_wise_procurement_with_status` vs `procurement_farm.loadwise_summary`; Goat/Sheep/Unknown status rows do not reconcile |
 | Fattening vs shiftings stage-source reconciliation | P2 | data/dev + ground/source team | CBE K2 `52` vs `57`; CBE K3 `10` vs `0` |
 | Animal import gate feasibility: DOB and sex coverage | P1 | data/dev + ground/source team | Latest-event active spine `2659`; no native DOB evidence `2124`; no native gender evidence `598`; native DOB+gender present only `534`; Drive RFID mapping and estimated-DOB policy are required before broad GREEN import |
 | Drive/Sheets credential blocker for RFID and sex source | P1 | data/dev | `goatsDB.goatsDB_rfid_mapping` is a Google Sheets external table with `RFID` and `Gender`; BigQuery query fails without Drive credentials, so animal-level import cannot rely on BQ-only extraction |
-| Event-spine active vs dashboard active gap | P1 | data/dev | `goatsDB.goats_db_clean` latest-event active `2659`; dashboard active total `2147`; delta `512`; do not seed `Animal_Master` from event spine until reconciled |
+| Event-spine active vs dashboard active gap | P1 | data/dev | `goatsDB.goats_db_clean` latest-event active `2659`; dashboard active total `2147`; delta `512`; do not seed `Animal_Master` from event spine until reconciled. Gap is bidirectional: event spine has empty breed `468` and `Anantapur Sheep` `153` missing from dashboard, while dashboard has `Kenguri` `255` and higher `Beetal` count `688` vs event `463` |
+| Dropped no-identifier event rows | P2 | data/dev + ground/source team | `27` raw `goatsDB.goats_db_clean` rows have empty `goat_id`, `farm_goat_id`, and `inp_goat_id`; active-spine "missing identifiers = 0" only holds after these rows are dropped before grouping |
 
 ## Sync And Cron Architecture
 
