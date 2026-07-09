@@ -1,0 +1,513 @@
+package sg.mesha.goatos.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bottom-sheet overlays (mock/vaccination-mobile-mock.html · screens.md "Overlays
+// → components"). Every sheet is a STATELESS dark-theme renderer: it takes its
+// callbacks as params and holds only inline FAKE data marked `TODO(backend)`. The
+// backend contract will own the real rows, statuses, labels, and options (golden
+// frontend rule) — these ports match the mock's structure so the wiring is real.
+//
+// No Material icons — text glyphs only (design-system §5 ports the mock's line-icon
+// set later). Bodies use foundation LazyColumn with a capped height + internal
+// scroll (design-system §4 "capped height + internal scroll" sheet fix).
+//
+// The five sheets:
+//   1. SyncSheet         (ovl-sync)  — connectivity + Room-outbox queue detail
+//   2. LanguageSheet     (ovl-lang)  — en/hi/kn/te with native labels
+//   3. ScopePickerSheet  (ovl-scope) — park picker → backend scope token
+//   4. DataGapsSheet     (ovl-gaps)  — animals excluded from coverage + reason
+//   5. DosesGivenSheet   (ovl-given) — per-vaccine doses-given breakdown
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Dark-first palette from docs/mobile/design-system.md (the mock CSS vars). */
+private object OverlayTokens {
+    val brandD = Color(0xFFB7EA8C)
+    val sheetBg = Color(0xFF131A15)
+    val surf2 = Color(0xFF1A241D)
+    val surf3 = Color(0xFF222E25)
+    val ink = Color(0xFFECF4EE)
+    val muted = Color(0xFF8FA497)
+    val faint = Color(0xFF5F7367)
+    val hair = Color(0xFF28352B)
+    val danger = Color(0xFFFB6F63)
+    val dangerX = Color(0x26FB6F63)
+    val warn = Color(0xFFF0B54B)
+    val warnX = Color(0x26F0B54B)
+    val ok = Color(0xFF8AD457)
+    val okX = Color(0x298AD457)
+}
+
+// region ── shared sheet scaffold ──────────────────────────────────────────────
+
+/**
+ * The shared bottom-sheet chrome every overlay wraps its content in: a
+ * [ModalBottomSheet] with a grip, a sticky header (title + optional subtitle), the
+ * caller's scrollable body, and an optional footer "more" line. `skipPartially
+ * Expanded` keeps the sheet at one height (mock sheets don't half-open).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OverlaySheet(
+    title: String,
+    subtitle: String?,
+    onDismiss: () -> Unit,
+    footer: String? = null,
+    body: @Composable ColumnScope.() -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = OverlayTokens.sheetBg,
+        shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+        dragHandle = { OverlayGrip() },
+    ) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 22.dp)) {
+            Column(Modifier.padding(horizontal = 20.dp)) {
+                Text(title, color = OverlayTokens.ink, fontSize = 16.sp, fontWeight = FontWeight.W700)
+                if (subtitle != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(subtitle, color = OverlayTokens.muted, fontSize = 12.sp)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            body()
+            if (footer != null) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    footer,
+                    color = OverlayTokens.faint,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OverlayGrip() {
+    Box(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .size(width = 38.dp, height = 4.dp)
+                .clip(CircleShape)
+                .background(OverlayTokens.surf3),
+        )
+    }
+}
+
+/** Picker row (mock `.popt`/`.lopt`): leading glyph/initials, name + sub, check when selected. */
+@Composable
+private fun OverlayPickerRow(
+    lead: String,
+    name: String,
+    sub: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .clickable { onClick() }
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(OverlayTokens.surf3),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(lead, color = OverlayTokens.brandD, fontSize = 12.sp, fontWeight = FontWeight.W700)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(name, color = OverlayTokens.ink, fontSize = 13.5.sp, fontWeight = FontWeight.W700)
+            Text(sub, color = OverlayTokens.muted, fontSize = 11.5.sp)
+        }
+        if (selected) {
+            Text("✓", color = OverlayTokens.ok, fontSize = 15.sp, fontWeight = FontWeight.W800)
+        }
+    }
+}
+
+/** Card container (mock `.card`): surf bg + hairline + 18 radius. */
+@Composable
+private fun OverlayCard(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(OverlayTokens.surf2)
+            .border(1.dp, OverlayTokens.hair, RoundedCornerShape(16.dp))
+            .padding(13.dp),
+        content = content,
+    )
+}
+
+@Composable
+private fun OverlayPill(text: String, fg: Color, bg: Color) {
+    Text(
+        text,
+        color = fg,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.W700,
+        modifier = Modifier.clip(CircleShape).background(bg).padding(horizontal = 10.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun OverlayBar(percent: Int, fill: Color) {
+    Box(
+        Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(OverlayTokens.surf3),
+    ) {
+        Box(
+            Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(percent.coerceIn(0, 100) / 100f)
+                .clip(CircleShape)
+                .background(fill),
+        )
+    }
+}
+
+@Composable
+private fun OverlayInfoBox(text: String) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(OverlayTokens.surf3)
+            .padding(13.dp),
+    ) {
+        Text(text, color = OverlayTokens.muted, fontSize = 12.sp, lineHeight = 17.sp)
+    }
+}
+
+// endregion
+
+// region ── 1. SyncSheet (ovl-sync) ─────────────────────────────────────────────
+
+private enum class SyncItemState { SYNCED, QUEUED, UPLOADING, SYNCING, FAILED }
+
+private data class SyncItem(
+    val shed: String,
+    val park: String,
+    val detail: String,
+    val state: SyncItemState,
+    val progress: Float,
+)
+
+/**
+ * Connectivity + sync-queue detail (screens.md `#netbar` → `ovl-sync`). Shows the
+ * online/offline state, the queue summary (All synced / N queued / Syncing N…),
+ * each queued shed record with its state + progress, and a retry-all affordance.
+ *
+ * TODO(backend): replace the fake list with the Room outbox + `SyncStatus` Flow
+ * (TRD §6) — local-first records that sync when online, no duplicates on retry.
+ */
+@Composable
+fun SyncSheet(onDismiss: () -> Unit) {
+    val items = listOf(
+        SyncItem("Gandhi 1", "CBE", "40 animals · shed record", SyncItemState.SYNCING, 0.66f),
+        SyncItem("Sumathi 1", "CBE", "32 animals · shed record", SyncItemState.QUEUED, 0f),
+        SyncItem("Castro 2", "CPT", "18 animals · shed record", SyncItemState.FAILED, 0f),
+        SyncItem("Mandela 1", "CBE", "40 animals · shed record", SyncItemState.SYNCED, 1f),
+    )
+    val online = true
+    val syncing = items.count { it.state == SyncItemState.SYNCING || it.state == SyncItemState.UPLOADING }
+    val pending = items.count { it.state == SyncItemState.QUEUED || it.state == SyncItemState.FAILED }
+    val summary = when {
+        syncing > 0 -> "Syncing $syncing…"
+        pending > 0 -> "$pending queued"
+        else -> "All synced"
+    }
+
+    OverlaySheet(
+        title = "Sync status",
+        subtitle = "Records save on the phone first, then sync when online",
+        onDismiss = onDismiss,
+        footer = "Offline-first: the outbox uploads video proof then the shed record, retries with backoff, and never creates a duplicate.",
+    ) {
+        // Connectivity + queue summary.
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(if (online) OverlayTokens.ok else OverlayTokens.danger))
+            Text(
+                "${if (online) "Online" else "Offline"} · $summary",
+                color = OverlayTokens.muted,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.W600,
+            )
+            Spacer(Modifier.weight(1f))
+            if (pending > 0) {
+                // TODO(backend): kick the sync engine to re-run all queued/failed items.
+                Text(
+                    "↻ Retry all",
+                    color = OverlayTokens.brandD,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.W700,
+                    modifier = Modifier.clip(CircleShape).clickable { }.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        LazyColumn(
+            Modifier.fillMaxWidth().heightIn(max = 340.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(items, key = { it.shed }) { item -> SyncRow(item) }
+        }
+    }
+}
+
+@Composable
+private fun SyncRow(item: SyncItem) {
+    val (glyph, fg, bg, label) = when (item.state) {
+        SyncItemState.SYNCED -> SyncVisual("✓", OverlayTokens.ok, OverlayTokens.okX, "Synced")
+        SyncItemState.QUEUED -> SyncVisual("◷", OverlayTokens.muted, OverlayTokens.surf3, "Queued")
+        SyncItemState.UPLOADING -> SyncVisual("↑", OverlayTokens.warn, OverlayTokens.warnX, "Uploading proof")
+        SyncItemState.SYNCING -> SyncVisual("↻", OverlayTokens.warn, OverlayTokens.warnX, "Syncing record")
+        SyncItemState.FAILED -> SyncVisual("✕", OverlayTokens.danger, OverlayTokens.dangerX, "Failed")
+    }
+    val showBar = item.state == SyncItemState.UPLOADING || item.state == SyncItemState.SYNCING
+    OverlayCard {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(bg), contentAlignment = Alignment.Center) {
+                Text(glyph, color = fg, fontSize = 15.sp, fontWeight = FontWeight.W800)
+            }
+            Column(Modifier.weight(1f)) {
+                Text("${item.shed} · ${item.park}", color = OverlayTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
+                Text(item.detail, color = OverlayTokens.muted, fontSize = 11.5.sp)
+                if (showBar) {
+                    Spacer(Modifier.height(6.dp))
+                    OverlayBar((item.progress * 100).toInt(), fg)
+                }
+            }
+            OverlayPill(label, fg, bg)
+        }
+    }
+}
+
+private data class SyncVisual(val glyph: String, val fg: Color, val bg: Color, val label: String)
+
+// endregion
+
+// region ── 2. LanguageSheet (ovl-lang) ─────────────────────────────────────────
+
+private data class LangOption(val code: String, val lead: String, val native: String, val english: String)
+
+/**
+ * Language picker (ovl-lang). The four supported locales with their native labels;
+ * [current] is the active language code (the checked row). [onSelect] hands the
+ * chosen code back so the caller can persist it via DataStore (design-system §7:
+ * locale is kept for every screen on this phone).
+ */
+@Composable
+fun LanguageSheet(current: String, onSelect: (code: String) -> Unit, onDismiss: () -> Unit) {
+    val langs = listOf(
+        LangOption("en", "EN", "English", "English"),
+        LangOption("hi", "हिं", "हिंदी", "Hindi"),
+        LangOption("kn", "ಕ", "ಕನ್ನಡ", "Kannada"),
+        LangOption("te", "తె", "తెలుగు", "Telugu"),
+    )
+    OverlaySheet(
+        title = "Choose language",
+        subtitle = "Kept for every screen on this phone",
+        onDismiss = onDismiss,
+        footer = "More languages added as teams grow",
+    ) {
+        Column {
+            langs.forEach { l ->
+                OverlayPickerRow(
+                    lead = l.lead,
+                    name = l.native,
+                    sub = l.english,
+                    selected = l.code == current,
+                    onClick = { onSelect(l.code) },
+                )
+            }
+        }
+    }
+}
+
+// endregion
+
+// region ── 3. ScopePickerSheet (ovl-scope) ─────────────────────────────────────
+
+private data class ScopeOption(val token: String, val lead: String, val name: String, val sub: String)
+
+/**
+ * Park scope picker (ovl-scope, director + CEO/COO). Each row maps to a backend
+ * **scope token**; [onSelect] returns the chosen human label. The caller sends the
+ * token to the backend, which re-scopes the overview rollup + backlog + follow-up
+ * reads (the app never filters by park itself).
+ *
+ * TODO(backend): source the park list + tokens from the bootstrap grant set.
+ */
+@Composable
+fun ScopePickerSheet(onSelect: (label: String) -> Unit, onDismiss: () -> Unit) {
+    // token = the backend scope token this row re-scopes to (all parks / one park).
+    val scopes = listOf(
+        ScopeOption("all", "◎", "All parks", "1,312 animals · company-wide"),
+        ScopeOption("cbe", "CB", "CBE · Coimbatore", "716 animals · 52% coverage"),
+        ScopeOption("cpt", "CP", "CPT · Channapatna", "596 animals · 42% coverage"),
+    )
+    OverlaySheet(
+        title = "View a park",
+        subtitle = "Company-wide, or drill into one park",
+        onDismiss = onDismiss,
+        footer = "Scope also filters the drives and backlog below",
+    ) {
+        Column {
+            scopes.forEachIndexed { index, scope ->
+                OverlayPickerRow(
+                    lead = scope.lead,
+                    name = scope.name,
+                    sub = scope.sub,
+                    selected = index == 0,
+                    onClick = { onSelect(scope.name) },
+                )
+            }
+        }
+    }
+}
+
+// endregion
+
+// region ── 4. DataGapsSheet (ovl-gaps) ─────────────────────────────────────────
+
+private data class GapRow(val title: String, val detail: String, val count: String)
+
+/**
+ * Data-gaps sheet (ovl-gaps). Animals the schedule can't evaluate until fixed —
+ * excluded from the coverage % with the reason.
+ *
+ * TODO(backend): `GET gaps?scope_token=<token>` → animals excluded + reason.
+ */
+@Composable
+fun DataGapsSheet(onDismiss: () -> Unit) {
+    val gaps = listOf(
+        GapRow("Missing weight", "Weight needed before a dose can be given", "18"),
+        GapRow("No date of birth", "Schedule can't evaluate the kid bundle", "7"),
+        GapRow("No breed on record", "Excluded from the coverage denominator", "3"),
+    )
+    OverlaySheet(
+        title = "Data gaps",
+        subtitle = "Animals the schedule can't evaluate until fixed",
+        onDismiss = onDismiss,
+        footer = "Fix on the web dashboard · Data Ops → Herd Register",
+    ) {
+        Column(
+            Modifier.padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            gaps.forEach { gap ->
+                OverlayCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(gap.title, color = OverlayTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
+                            Text(gap.detail, color = OverlayTokens.muted, fontSize = 11.5.sp)
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        OverlayPill("${gap.count} animals", OverlayTokens.warn, OverlayTokens.warnX)
+                    }
+                }
+            }
+            OverlayInfoBox(
+                "These animals are excluded from the coverage % until the missing data is filled. Everything else is fully tracked.",
+            )
+        }
+    }
+}
+
+// endregion
+
+// region ── 5. DosesGivenSheet (ovl-given) ──────────────────────────────────────
+
+private data class GivenRow(val vaccine: String, val given: String, val coverage: String, val percent: Int)
+
+/**
+ * Doses-given drill (ovl-given). Per-vaccine completed doses this cycle with a
+ * coverage bar (scope-aware).
+ *
+ * TODO(backend): per-vaccine given + coverage % from the scope-token rollup.
+ */
+@Composable
+fun DosesGivenSheet(onDismiss: () -> Unit) {
+    val rows = listOf(
+        GivenRow("PPR", "1,240 doses given", "62% coverage", 62),
+        GivenRow("FMD", "980 doses given", "48% coverage", 48),
+        GivenRow("ET + TT", "1,410 doses given", "71% coverage", 71),
+        GivenRow("HS", "760 doses given", "40% coverage", 40),
+        GivenRow("Goat Pox", "210 doses given", "18% coverage", 18),
+    )
+    OverlaySheet(
+        title = "Doses given",
+        subtitle = "Completed doses this cycle · by vaccine",
+        onDismiss = onDismiss,
+        footer = "Every dose is a verified shed record with video proof",
+    ) {
+        LazyColumn(
+            Modifier.fillMaxWidth().heightIn(max = 340.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(rows, key = { it.vaccine }) { row ->
+                val tone = if (row.percent >= 60) OverlayTokens.ok else OverlayTokens.warn
+                val toneBg = if (row.percent >= 60) OverlayTokens.okX else OverlayTokens.warnX
+                OverlayCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(row.vaccine, color = OverlayTokens.ink, fontSize = 13.5.sp, fontWeight = FontWeight.W700)
+                        Spacer(Modifier.width(8.dp))
+                        Text(row.given, color = OverlayTokens.muted, fontSize = 11.5.sp)
+                        Spacer(Modifier.weight(1f))
+                        OverlayPill(row.coverage, tone, toneBg)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OverlayBar(row.percent, tone)
+                }
+            }
+        }
+    }
+}
+
+// endregion

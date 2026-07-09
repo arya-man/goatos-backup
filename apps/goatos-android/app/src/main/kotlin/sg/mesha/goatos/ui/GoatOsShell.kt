@@ -23,7 +23,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +57,8 @@ fun GoatOsShell(navState: NavState) {
     val scope = rememberCoroutineScope()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    // The netbar taps into the outbox sync sheet (screens.md #netbar → ovl-sync).
+    var showSync by remember { mutableStateOf(false) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -98,8 +103,11 @@ fun GoatOsShell(navState: NavState) {
                 if (hasDrawer) {
                     ShellTopBar(onMenu = { scope.launch { drawerState.open() } })
                 }
-                NetBar()
+                NetBar(onClick = { showSync = true })
                 AppNavHost(navController = navController)
+            }
+            if (showSync) {
+                SyncSheet(onDismiss = { showSync = false })
             }
         }
     }
@@ -150,13 +158,15 @@ private fun ModuleDrawer(
 }
 
 /** Connectivity + sync bar shown on every signed-in screen (screens.md #netbar).
- *  Static baseline; a sync ViewModel drives Online/Offline + queued/syncing next. */
+ *  Tapping it opens the outbox sync sheet (ovl-sync). Static baseline; a sync
+ *  ViewModel drives Online/Offline + queued/syncing next. */
 @Composable
-private fun NetBar() {
+private fun NetBar(onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -165,6 +175,12 @@ private fun NetBar() {
         Text(
             text = "Online · All synced",
             fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = "›",
+            fontSize = 14.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

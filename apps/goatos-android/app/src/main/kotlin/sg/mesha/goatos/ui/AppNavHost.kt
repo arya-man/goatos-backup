@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -20,7 +23,9 @@ import sg.mesha.goatos.feature.leadership.RescheduleScreen
 import sg.mesha.goatos.feature.profile.AlertsScreen
 import sg.mesha.goatos.feature.profile.ProfileEvent
 import sg.mesha.goatos.feature.profile.ProfileScreen
+import sg.mesha.goatos.feature.profile.ProfileUiState
 import sg.mesha.goatos.feature.profile.RfidScreen
+import sg.mesha.goatos.feature.profile.SettingKind
 import sg.mesha.goatos.feature.record.RecordEvent
 import sg.mesha.goatos.feature.record.RecordScreen
 import sg.mesha.goatos.feature.scan.ScanEvent
@@ -136,23 +141,46 @@ fun AppNavHost(
             SubmitScreen(state = state, onEvent = vm::onEvent)
         }
 
-        // Leadership overview — a decision drills to reschedule; a KPI opens the overdue
-        // list; refresh + inert taps stay in the VM.
+        // Leadership overview — a decision drills to reschedule; the "doses given" KPI
+        // opens the per-vaccine drill sheet, other KPIs open the overdue list; the scope
+        // + data-gap pills open their sheets; refresh + inert taps stay in the VM.
         composable(Routes.LEADERSHIP) {
             val vm: LeadershipViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            var showScope by remember { mutableStateOf(false) }
+            var showGaps by remember { mutableStateOf(false) }
+            var showGiven by remember { mutableStateOf(false) }
             LeadershipScreen(
                 state = state,
                 onEvent = { event ->
                     when (event) {
                         is LeadershipEvent.DecisionTapped ->
                             navController.navigate(Routes.RESCHEDULE) { launchSingleTop = true }
+                        is LeadershipEvent.OpenScopePicker -> showScope = true
+                        is LeadershipEvent.OpenDataGaps -> showGaps = true
                         is LeadershipEvent.KpiTapped ->
-                            navController.navigate(Routes.OVERDUE) { launchSingleTop = true }
+                            if (event.id == "given") {
+                                showGiven = true
+                            } else {
+                                navController.navigate(Routes.OVERDUE) { launchSingleTop = true }
+                            }
                         else -> vm.onEvent(event)
                     }
                 },
             )
+            if (showScope) {
+                ScopePickerSheet(
+                    // TODO(backend): send the chosen scope token to re-scope the reads.
+                    onSelect = { showScope = false },
+                    onDismiss = { showScope = false },
+                )
+            }
+            if (showGaps) {
+                DataGapsSheet(onDismiss = { showGaps = false })
+            }
+            if (showGiven) {
+                DosesGivenSheet(onDismiss = { showGiven = false })
+            }
         }
 
         // Overdue list — a row drills to reschedule; Back pops; refresh stays in the VM.
@@ -202,11 +230,13 @@ fun AppNavHost(
             )
         }
 
-        // You / Settings — RFID + notifications drill to their surfaces; language cycles in
-        // the VM; sign out clears the session (MainActivity's gate then shows login).
+        // You / Settings — RFID + notifications drill to their surfaces; language opens the
+        // picker sheet (persisted via the VM); sign out clears the session (MainActivity's
+        // gate then shows login).
         composable(Routes.YOU) {
             val vm: ProfileViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            var showLanguage by remember { mutableStateOf(false) }
             ProfileScreen(
                 state = state,
                 onEvent = { event ->
@@ -215,11 +245,21 @@ fun AppNavHost(
                             navController.navigate(Routes.RFID) { launchSingleTop = true }
                         ProfileEvent.ToggleNotifications ->
                             navController.navigate(Routes.ALERTS) { launchSingleTop = true }
-                        ProfileEvent.OpenLanguage -> vm.cycleLanguage()
+                        ProfileEvent.OpenLanguage -> showLanguage = true
                         ProfileEvent.SignOut -> vm.signOut()
                     }
                 },
             )
+            if (showLanguage) {
+                LanguageSheet(
+                    current = currentLanguageCode(state),
+                    onSelect = { code ->
+                        vm.setLanguage(code)
+                        showLanguage = false
+                    },
+                    onDismiss = { showLanguage = false },
+                )
+            }
         }
 
         composable(Routes.RFID) {
@@ -240,3 +280,16 @@ fun AppNavHost(
 internal fun UnknownRoute(href: String) {
     Text(text = "Screen: $href", modifier = Modifier.padding(16.dp))
 }
+
+/**
+ * Reverse-maps the Language settings row's native-label value to a language code so
+ * [LanguageSheet] can check the active row. The label is the display value the VM
+ * persists; codes match the sheet's en/hi/kn/te options.
+ */
+private fun currentLanguageCode(state: ProfileUiState): String =
+    when (state.rows.firstOrNull { it.kind == SettingKind.LANGUAGE }?.value) {
+        "हिंदी", "हिन्दी" -> "hi"
+        "ಕನ್ನಡ" -> "kn"
+        "తెలుగు" -> "te"
+        else -> "en"
+    }
