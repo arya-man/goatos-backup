@@ -31,6 +31,8 @@ import sg.mesha.goatos.core.datastore.DeviceStore
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.NetworkFactory
+import sg.mesha.goatos.rfid.KeyboardWedgeRfidReader
+import sg.mesha.goatos.rfid.RfidReaderPort
 import javax.inject.Singleton
 
 /**
@@ -64,6 +66,11 @@ object AppModule {
     @Singleton
     fun provideDeviceStore(@ApplicationContext context: Context): DeviceStore =
         DataStoreDeviceStore(context)
+
+    @Provides
+    @Singleton
+    fun provideRfidReaderPort(@ApplicationContext context: Context): RfidReaderPort =
+        KeyboardWedgeRfidReader(context)
 
     @Provides
     @Singleton

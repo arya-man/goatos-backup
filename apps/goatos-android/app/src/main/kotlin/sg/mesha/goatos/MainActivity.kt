@@ -1,10 +1,16 @@
 package sg.mesha.goatos
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -31,7 +37,9 @@ import sg.mesha.goatos.boot.BootstrapViewModel
 import sg.mesha.goatos.boot.SessionViewModel
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.feature.auth.LoginScreen
+import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.ui.GoatOsShell
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -39,8 +47,18 @@ class MainActivity : ComponentActivity() {
     private val bootstrapViewModel: BootstrapViewModel by viewModels()
     private val sessionViewModel: SessionViewModel by viewModels()
 
+    /** V1 keyboard-wedge RFID reader — captures hardware tag reads at the activity layer. */
+    @Inject
+    lateinit var rfidReader: RfidReaderPort
+
+    private val requestBluetoothConnect =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            rfidReader.refreshStatus()
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ensureBluetoothConnectPermission()
         enableEdgeToEdge()
         setContent {
             GoatOsTheme {
@@ -63,6 +81,28 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        rfidReader.refreshStatus()
+    }
+
+    /**
+     * Route every hardware key event through the RFID capture first. A keyboard-wedge
+     * reader types the tag as key events + Enter; the capture consumes them only while an
+     * RFID-accepting screen enabled capture, so normal typing/navigation is unaffected.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        rfidReader.onKeyEvent(event) || super.dispatchKeyEvent(event)
+
+    private fun ensureBluetoothConnectPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.BLUETOOTH_CONNECT,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) requestBluetoothConnect.launch(Manifest.permission.BLUETOOTH_CONNECT)
     }
 }
 

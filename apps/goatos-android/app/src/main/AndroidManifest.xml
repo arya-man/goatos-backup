@@ -3,6 +3,22 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- RFID keyboard-wedge reader (docs/mobile/rfid-keyboard-reader.md). Android owns the
+         HID connection; these gate paired-device readiness + optional discovery. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+
     <application
         android:name=".GoatOsApplication"
         android:allowBackup="false"
