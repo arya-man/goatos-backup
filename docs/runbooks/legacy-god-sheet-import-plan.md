@@ -63,37 +63,37 @@ with `RFID` and `Gender` columns, and BigQuery queries against it fail without
 Drive credentials. The god sheet cannot reliably populate `animal_identifier_1`
 or complete sex backfill from BigQuery alone.
 
-## Current Dashboard Snapshot
+## Metric Ownership
 
-The scheduled dashboard audit at `2026-07-09 18:02:49 IST` reported:
+This Markdown file does not own live dashboard, BigQuery, or Google Sheets
+numbers. It defines source systems, query formulas, validation rules, cron
+cadence, and the target tabs where each run writes computed values.
 
-- Run id: `dashboard-audit-2026-07-09T12-31-48-057Z`
-- Dashboard run date: `2026-07-09`
-- Counts business date: `2026-07-08`
-- Checks run: 22
-- Passing checks: 17
-- Failing checks: 3
-- Warning checks: 2
-- Critical findings: 0
-- Open findings: 5
+Do not hand-maintain daily counts, weights, values, pass/fail totals, or
+business-date snapshots in this runbook. The implementation must calculate them
+on every sync run and write them into the god sheet:
 
-Verified dashboard count context for `2026-07-08`:
+- `Run_Log`: run id, run type, trigger, start/end timestamps, status, source
+  watermarks, and job/version metadata.
+- `Raw_Source_Snapshots`: source id, grain, business date, row/content hash,
+  read timestamp, and raw value payload or pointer.
+- `Counts_Snapshots`: source totals, canonical totals, deltas, and selected
+  source-of-truth decisions.
+- `Issue_Queue` / `Audit_Findings`: RED/AMBER/GREEN blockers with owner,
+  evidence refs, and resolution status.
+- Domain tabs such as `Animal_Master`, `Vaccination_History`,
+  `Current_Location_Status`, `Birth_Events`, and
+  `Procurement_Load_Reconciliation`: the current reconciled rows.
 
-- Total active goats: `2147`
-- Adults: `1317`
-- Kids: `830`
-- CBE total: `958`
-- CPT total: `734`
-- Holdings total: `455`
-- Total weight: `57187.2 kg`
-- Farm value: `33741807`
+Historical values found during planning are only evidence that a validation
+rule is needed. They are not canonical targets and should not be refreshed by
+editing this document.
 
 Important nuance: `/api/counts` uses `farm.daily_summary_dev` for top KPI
-numbers and same-row adult/kid breakdowns. The raw
-`ceo_dashboard.counting_db_with_holding_dev` rows for `2026-07-08` summed to
-`2148` in read-only verification, so raw source rows cannot be treated as
-canonical without reconciliation. The god sheet must store both the canonical
-chosen value and source evidence.
+numbers and same-row adult/kid breakdowns. Raw
+`ceo_dashboard.counting_db_with_holding_dev` rows are source-count evidence and
+cannot be treated as canonical without reconciliation. The god sheet must store
+both the canonical chosen value and source evidence for each run.
 
 Dashboard API and BigQuery reads can also differ by timestamp, rounding, or
 pipeline freshness. The workbook must store the observed value, source
@@ -108,25 +108,20 @@ record with a content hash and read timestamp. If the hash changes for the same
 key across runs, create a `business_date_row_hash_drift` issue before using the
 new value as import or audit truth.
 
-Other verified audit values:
+Audit metrics to calculate on every run:
 
-- Births total from `goatsDB.mother_kid_facts` where `is_birth = 1`: `1006`
-- Sales animals from `salesDB.salesDB_clean`: `544`
-- Sales value from `salesDB.salesDB_clean`: `7072579`
-- Mortality total from `ceo_dashboard.mortality_total_dev`: `310`
-- Procurement purchase total from `procurement_farm.procurement_dB_clean`:
-  `1670`
-- GOATS DB purchase identity counts from `goatsDB.goats_db_clean`:
-  - distinct `farm_goat_id`: `1822`
-  - distinct global `goat_id`: `1738`
-  - distinct `inp_goat_id`: `1617`
-  - audit coalesced/farm-scoped definition: `1822`
-- Procurement headline delta depends on chosen identity grain:
-  - `1822 - 1670 = 152` at farm-scoped/coalesced grain
-  - `1738 - 1670 = 68` at global `goat_id` grain
-- Fattening vs shifting source mismatch:
-  - CBE K2: fattening source `52`, current-stage source `57`
-  - CBE K3: fattening source `10`, current-stage source `0`
+- Births total from `goatsDB.mother_kid_facts` with `is_birth = 1`.
+- Sales animal count and sales value from `salesDB.salesDB_clean`.
+- Mortality total from `ceo_dashboard.mortality_total_dev`.
+- Procurement purchase total from `procurement_farm.procurement_dB_clean` with
+  `Record_Type = 'Purchase'`.
+- GOATS DB purchase identity counts from `goatsDB.goats_db_clean` at every
+  candidate grain: `farm_goat_id`, global `goat_id`, `inp_goat_id`, and the
+  chosen audit/coalesced definition.
+- Procurement headline deltas for each identity grain, written with the grain
+  name and query timestamp.
+- Fattening vs shifting source parity by farm/stage, comparing
+  `growth_farmwise_weighing` with `cbe/cpt_kids_current_stage_days`.
 
 ## What Powers `/counts/overall`
 
@@ -450,7 +445,12 @@ WHERE rn = 1
   AND COALESCE(event, '') NOT IN ('Death', 'Sale', 'Abortion');
 ```
 
-Observed coverage:
+Initial observed coverage, snapshot only:
+
+The sync job must recompute this coverage on every run and write the current
+values into `Counts_Snapshots` and `Issue_Queue`. The numbers below are not
+daily targets; they are the planning snapshot that proved these validation
+rules are needed.
 
 | Metric | Count |
 | --- | ---: |
@@ -814,7 +814,10 @@ Columns:
 `age_class`, `source_count`, `canonical_count`, `delta`, `source_link`,
 `verification_status`.
 
-Seed reconciliation rows:
+Initial reconciliation rows to seed, snapshot only:
+
+The sync job must regenerate these rows from live sources on every run. The
+values below are initial issue evidence, not values to maintain in Markdown.
 
 - `dashboard_active_total`: `farm.daily_summary_dev` for `2026-07-08` =
   `2147`.
