@@ -413,8 +413,9 @@ private fun BrandLockup() {
                 .border(2.dp, LoginTokens.Brand, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
+            // Mesha brand mark = Devanagari "मे" (mock `.logo`), NOT a Latin "M".
             Text(
-                text = "M",
+                text = "मे",
                 color = LoginTokens.Brand,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.W800,
@@ -426,8 +427,8 @@ private fun BrandLockup() {
                 text = "Mesha",
                 color = LoginTokens.Ink,
                 fontSize = 22.sp,
-                fontWeight = FontWeight.W800,
-                letterSpacing = (-0.5).sp,
+                fontWeight = FontWeight.W900,
+                letterSpacing = (-0.66).sp,
             )
             Text(
                 text = "Field operations",
