@@ -195,6 +195,7 @@ below, plus owner, grain, extractor, freshness SLA, and last successful sync.
 | GOATS DB cleaned events | `goatsDB.goats_db_clean` |
 | GOATS DB active shedwise details | `goatsDB.active-goats-list-shedwise-details` |
 | GOATS DB RFID mapping | `goatsDB.goatsDB_rfid_mapping` |
+| GOATS DB farm-id remap | `goatsDB.farm_goat_id_mapping` |
 | Mother/kid facts | `goatsDB.mother_kid_facts` |
 | Kids tag IDs | `goatsDB.kids_tag_ids` |
 | Shifting Reports | https://docs.google.com/spreadsheets/d/1QXhAbV0wAT739S84LfUhHMWPaGw-oUlbZLZHPxEr5G4/edit?resourcekey=&gid=589667268#gid=589667268 |
@@ -217,6 +218,9 @@ below, plus owner, grain, extractor, freshness SLA, and last successful sync.
 | Health DB | https://docs.google.com/spreadsheets/d/1uvDO_vipNsLcB4S0O7Bj-L8VCSMCd0eX5U9cJS8F-QE/edit?gid=474314888#gid=474314888 |
 | Health diagnosis tab | https://docs.google.com/spreadsheets/d/1uvDO_vipNsLcB4S0O7Bj-L8VCSMCd0eX5U9cJS8F-QE/edit?gid=515434741#gid=515434741 |
 | Health cleaned rows | `healthDB.health_db_clean_dev`, `healthDB.diagnosis_clean_table` |
+| Vaccination source sheet | https://docs.google.com/spreadsheets/d/1L1fZG37ZL9ZmPyOHZxoR6rSYqMrPrWbYbR4ppbRy-G4/edit?gid=0#gid=0 |
+| Vaccination source external rows | `ceo_dashboard.vaccination_external_table` |
+| Vaccination dashboard rollup | `ceo_dashboard.vaccination_dashboard` |
 | Feed DB | https://docs.google.com/spreadsheets/d/1HXaHFTEquc0iVxfC_ZeEm9pB3kAxE58-0oiGtiQpSp8/edit?gid=0#gid=0 |
 | Feed cleaned rows | `feedDB.feedDB_clean`, `feedDB.feedDirections_clean`, `feedDB.feed_daily_spend` |
 | Feed Directions | https://docs.google.com/spreadsheets/d/1OEr8j_9fYYWmQm0VkP6UgZ1YBcWIs-Km08XGs44W6Hg/edit?gid=723978225#gid=723978225 |
@@ -228,6 +232,8 @@ below, plus owner, grain, extractor, freshness SLA, and last successful sync.
 | Mortality monthly | `ceo_dashboard.monthly_mortality_rate` |
 | Breeding DB sheet | https://docs.google.com/spreadsheets/d/1h04WpLExJBdZ-J-H2YLGXyHnlWSdjtldiaB6n3x3rYg/edit?gid=0#gid=0 |
 | Breeding DB external table | `breedingDB.breedingDB_external_table` |
+| Parent stock view | `ceo_dashboard.parent_stock_table` |
+| Breeding total summary | `ceo_dashboard.total_summary_breeding` |
 | Delivery/Birth DB sheet | https://docs.google.com/spreadsheets/d/1bYNW8c6BMb6wgBXEIHkWO57nYRTkYc4mnPkDE14S2Yw/edit?gid=32106927#gid=32106927 |
 | Delivery/Birth DB raw external rows | `deliveryDB.birthDB_unclean` |
 | Delivery/Birth DB cleaned rows | `deliveryDB.delivery_db_clean_dev` |
@@ -239,10 +245,15 @@ below, plus owner, grain, extractor, freshness SLA, and last successful sync.
 | Milk feeding summary table | `ceo_dashboard.milk_feeding_summary` |
 | Alternate milk/lactation source sheet | https://docs.google.com/spreadsheets/d/1J3WWJbuFp3PPpj-UzB4zmzYA7g7G0-KvMonx9-cE9FE/edit?gid=0#gid=0 |
 | Alternate milk/lactation source table | `ceo_dashboard.milk_consumption_external_table` |
+| Milking goats/lactating mother view | `ceo_dashboard.milking_goats_list` |
 | Dashboard users/RBAC sheet | https://docs.google.com/spreadsheets/d/13TtoRv0pKYtatsuc3-YDZHcTdWALekBd-e-WMblrniY/edit |
 | Dashboard users/RBAC table | `ceo_dashboard.dashboard_users` |
 | History automation dataset | `historyAutomation` |
 | History automation complete history view | `historyAutomation.goat_history_complete` |
+
+Credential exclusion: never snapshot `ceo_dashboard.dashboard_user_password_overrides`
+or password-hash fields from `ceo_dashboard.dashboard_users_seed` into the god
+sheet. RBAC import is limited to role, owner, and escalation mapping fields.
 
 ### Known Workbook Tabs To Verify With Drive Scope
 
@@ -290,6 +301,9 @@ shared source workbooks. Known tabs and tab families to include:
   - `Diagnosis Form`
   - `Follow Up`
   - `Treatments-Schedule`
+- Vaccination source:
+  - shed/count-level vaccination rows
+  - vaccine, shed tag, age, animal type, dosage, count, and status columns
 - Feed DB and Feed Directions:
   - feed consumption rows
   - feed direction rows
@@ -464,6 +478,14 @@ Initial rows must include `goatsDB.goats_db_clean` purchase identity counts:
 - distinct `inp_goat_id`: `1617`
 - audit coalesced/farm-scoped definition: `1822`
 
+Executable resolver sources:
+
+- `goatsDB.goats_db_clean` carries `inp_goat_id`, global `goat_id`, and
+  `farm_goat_id` in the same event row.
+- `goatsDB.farm_goat_id_mapping` maps `old_farm_goat_id` to
+  `new_farm_goat_id`; use it to collapse retagged or renumbered farm IDs before
+  treating farm-scoped counts as distinct animals.
+
 Columns:
 
 `source_id`, `event_type`, `id_column`, `distinct_count`,
@@ -611,6 +633,12 @@ Columns:
 ### 22. `Vaccination_History`
 
 One row per actual vaccination evidence item. Do not use one column per vaccine.
+The legacy vaccination source
+`ceo_dashboard.vaccination_external_table` is shed/count grained (`Date`,
+`Farm`, `Vaccine`, `Shed_Tag`, `Shed`, `Age`, `Animal_Type`, `Dosage_Type`,
+`Total_Count`, `Status`) and has no animal identifier. It cannot seed
+animal-level `Vaccination_History`; treat it only as `untrusted_legacy_note`
+context and never let it suppress `Vaccination_Due_View` due work.
 
 Columns:
 
