@@ -782,6 +782,12 @@ Cloud Scheduler
 
 Recommended schedules in `Asia/Kolkata`:
 
+Operational assumption: farm/source teams may submit Slack forms or update
+source sheets during night operations, and current night-shift updates can land
+until about `01:00 IST`. The first full sync should therefore run after that
+window, with later pre-audit refreshes catching late corrections and same-date
+row drift.
+
 | Time | Job | Purpose |
 | --- | --- | --- |
 | 05:30 | `legacy-god-sheet-sync-full` | Pull previous business day's complete source snapshots after sheet automations settle. |
