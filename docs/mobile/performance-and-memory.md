@@ -76,8 +76,10 @@ Root causes we explicitly design out:
   WorkManager. No `GlobalScope`. Collectors cancel with the nav entry.
 - **Release hardware handles deterministically**:
   - CameraX: bind to lifecycle; unbind on stop; close `ImageCapture`/recorder.
-  - BLE/RFID: `RfidReaderPort.disconnect()` in `onStop`/scope cancellation;
-    unregister SDK callbacks; close the `callbackFlow` (`awaitClose`).
+  - RFID V1: unregister `InputManager` listeners and route-scoped keyboard
+    capture on stop/scope cancellation. Future SDK/BLE adapters must expose the
+    same cleanup through `RfidReaderPort`, unregister callbacks, and close any
+    `callbackFlow` (`awaitClose`).
 - **No static references** to Activities, Views, Bitmaps, or Fragments; no
   long-lived listeners without unregister.
 - **Bounded caches**: Coil memory cache capped; roster/scan lists bounded; live

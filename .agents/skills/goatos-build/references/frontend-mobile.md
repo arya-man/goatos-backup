@@ -13,6 +13,7 @@ Canonical docs:
 - `context/architecture/operational-kernel.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `context/execution/target-repo-structure.md`
+- `docs/mobile/rfid-keyboard-reader.md`
 - `docs/preventive-care-vaccination/PRD.md`
 - `docs/preventive-care-vaccination/TRD.md`
 - `docs/protocol-engine/IMPLEMENTATION-PLAN.md`

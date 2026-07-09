@@ -4,16 +4,18 @@ Status: draft for pre-implementation review. Pairs with [PRD](prd-operator-mobil
 [system-design](system-design.md), [design-system](design-system.md),
 [screens](screens.md), [performance-and-memory](performance-and-memory.md),
 [firebase-india-setup](firebase-india-setup.md),
-[extensibility](extensibility-future-modules.md).
+[extensibility](extensibility-future-modules.md),
+[rfid-keyboard-reader](rfid-keyboard-reader.md).
 
 ## 1. Technology decision
 
 - **Native Android, Kotlin, Jetpack Compose** (Material 3, custom Goat OS theme).
 - Rationale + rejected alternatives (RN, Flutter): [`docs/decisions/mobile-native-kotlin.md`](../decisions/mobile-native-kotlin.md).
   Short version: operators are Android-only on cheap phones; the app is
-  BLE-RFID + camera heavy; the RFID SDK ships as a native `.aar`, so any
-  cross-platform choice still requires Kotlin glue. Native wins on RAM, cold
-  start, battery, and jank on the exact low-end devices that matter.
+  camera + hardware-reader heavy. The current reader is a Bluetooth HID
+  keyboard-wedge device (see `rfid-keyboard-reader.md`), and future vendor SDKs
+  would still require Kotlin glue if we need richer reader control. Native wins
+  on RAM, cold start, battery, and jank on the exact low-end devices that matter.
 
 ### Baseline versions (tested baseline — verify at scaffold against official sources)
 
@@ -65,7 +67,7 @@ are BOM-managed, so no per-lib Compose version.
 | Network | Retrofit + OkHttp + kotlinx.serialization | Retrofit 3.x · OkHttp 5.x · serialization-json 1.11.0 | generated client (below); ETag/If-None-Match for config |
 | API client | **OpenAPI-generated Kotlin client** | — | from backend app-api contract; never hand-written DTOs |
 | Images/video | CameraX (video capture) + Coil 3 (thumbnails) | CameraX 1.6.1 · Coil 3.x | bounded bitmap sizes |
-| RFID/BLE | Vendor `.aar` behind a `RfidReaderPort` | vendor-pinned | Chainway-class UHF; adapter isolates SDK |
+| RFID reader | Bluetooth HID keyboard-wedge behind `RfidReaderPort` for V1; vendor `.aar` adapter only if a future reader needs SDK/BLE control | platform + optional vendor-pinned | Current reader types tag IDs as hardware key events; Android owns HID pairing/connection; no visible or hidden `EditText` on scan |
 | Haptics + sound | `Vibrator` + short tone (`ToneGenerator`/`SoundPool`) behind a `FeedbackPort` | platform | scan feedback; distinct not-due alert tone; fake in tests |
 | Media upload / background | WorkManager | 2.11.2 | resumable signed-URL upload, sync, retry, dead-letter — **not** reminder timing (kernel-owned via `NotificationGateway`/FCM; the app only renders received pushes) |
 | Firebase | Analytics, Performance, Crashlytics, Messaging (FCM), **Remote Config** | Firebase BOM 34.15.0 (verify at scaffold) | `asia-south1` where selectable; GA4/Crashlytics/Perf/FCM global — see firebase doc. Remote Config = kill-switch/flag fallback (bootstrap is primary — see backend-driven-config.md) |
@@ -104,9 +106,9 @@ apps/goatos-android/
     feature-submit/            # shed submit form (SOP/forms-runner render)
     feature-leadership/        # overview, coverage, backlog, data gaps, overdue, reschedule, assign
     feature-record/            # shed / drive record (read-only)
-    feature-profile/           # you/settings, RFID reader pairing, alerts
+    feature-profile/           # you/settings, RFID reader status/pairing guidance, alerts
   device/
-    device-rfid/               # RfidReaderPort + Chainway adapter + fake reader
+    device-rfid/               # RfidReaderPort + keyboard-wedge adapter + fake reader (+ future vendor SDK adapter)
     device-camera/             # CameraCapturePort + CameraX adapter + fake
     device-feedback/           # FeedbackPort (haptics + alert tones) + fake
   :buildSrc / gradle/libs.versions.toml
@@ -311,7 +313,7 @@ Submission flow (matches the existing arch doc, restated for Kotlin):
 
 ```text
 enter shed → pinned form_version renders (forms-runner) offline
-  → tap-scan writes scan_event rows locally (idempotent per animal+shed+session)
+  → RFID hardware-key read writes scan_event rows locally (idempotent per animal+shed+session)
   → proof captured via CameraCapturePort → media_pending
   → submit writes ONE submission row with a stable idempotency_key + semantic
     fingerprint (shed_id + form_version + animal set + operator + the
@@ -350,6 +352,29 @@ Rules:
   in-app tone/stream that stays audible under silent mode where policy allows).
 - Every adapter/port has a **fake** (in-memory queue, fake reader, fake camera)
   for tests and local dev.
+
+### RFID reader V1: Bluetooth HID keyboard-wedge, not SDK-first
+
+The current field reader is a Bluetooth HID keyboard-wedge device: Android pairs
+it as an input device and it types the scanned tag ID as hardware key events,
+usually ending with Enter. V1 therefore captures RFID through activity/screen
+key events behind `RfidReaderPort`.
+
+The scan screen must not add a visible keyboard, a tag entry field, or a hidden
+`EditText`. The UX remains the mock: open scan screen, tap reader to animal, row
+updates.
+
+Reader status is based primarily on `InputManager` seeing the external keyboard
+device, with Bluetooth bonded/ACL broadcasts as secondary refresh signals. The
+RFID/Bluetooth button shows green when ready; otherwise it requests needed
+permission or opens Android Bluetooth settings/pairing. A normal app does not
+force-connect a HID keyboard through hidden Android APIs.
+
+Android 10/11 use legacy `BLUETOOTH` for paired/ACL state; `BLUETOOTH_ADMIN` and
+`ACCESS_FINE_LOCATION` are only needed if the app actively scans/discovers
+devices. Android 12+ uses runtime `BLUETOOTH_CONNECT`, and `BLUETOOTH_SCAN` only
+if active scanning is added. Full details live in
+[`rfid-keyboard-reader.md`](rfid-keyboard-reader.md).
 
 ### Sync status surface (what the operator sees)
 
@@ -488,7 +513,7 @@ LeakCanary in debug, bounded image/bitmap sizes, and a leak gate in CI.
 | Repositories/sync | Room in-memory + fake api + Turbine | offline write → outbox → ack; retry; conflict; dedupe (first call, exact replay, same-key/different-payload, downstream dup) |
 | ViewModels | Turbine + fakes | MVI state transitions, effects |
 | Compose UI | Compose UI test + Robolectric | screen renders each state from **backend grant/action-target fixtures** (visible/hidden + disabled-with-reason) — no client role predicate |
-| Device adapters | fakes + instrumented | fake RFID reader emits tags; fake camera |
+| Device adapters | fakes + instrumented | fake RFID reader emits tags through the same port as keyboard-wedge reads; fake camera |
 | E2E | Maestro flows | login → today's sheds → scan → submit (offline) → sync |
 | Performance | Macrobenchmark | cold start, scroll jank, baseline profile |
 | Leaks | LeakCanary (debug) + CI leak assertion | no retained activities/VMs |

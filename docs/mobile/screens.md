@@ -71,8 +71,10 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
   vaccine, "2 tags" when double-tagged). Submit is **UX-disabled** from the
   backend-provided completion checklist + local draft scan state; the backend
   revalidates and decides on submit (the gate is a hint, not the authority).
-- Backend/device: `RfidReaderPort` (fake in dev); eligibility + roster from
-  backend; each tap writes `scan_event` (given / skipped+reason) locally.
+- Backend/device: `RfidReaderPort` (Bluetooth HID keyboard-wedge adapter in V1,
+  fake in dev); eligibility + roster from backend; each hardware tag read writes
+  `scan_event` (given / skipped+reason) locally. No visible keyboard, no tag
+  entry field, and no hidden `EditText` dependency on the scan screen.
 - States: scanning, not-due (from **backend-provided roster eligibility**, cached;
   red + double buzz **+ audible alert tone**), complete → submit enabled (local
   execution state; backend revalidates on submit); resume
@@ -92,13 +94,14 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 
 ### You / Settings  (`v-you`), RFID reader  (`v-rfid`), Alerts  (`v-alerts`)  — visible sections/actions come from bootstrap (today: operator gets settings/RFID/alerts, leadership gets profile only)
 - Module: `feature-profile`. Profile (name/role/scope from bootstrap), language,
-  RFID reader pairing (Chainway-class, battery/paired state), notifications
+  RFID reader readiness/pairing guidance (current V1 reader is a Bluetooth HID
+  keyboard-wedge; Android owns the HID connection), notifications
   (FCM), sign out. For **single-feature (bottom-bar-only) principals** this screen
   is the home for the affordances a drawer would otherwise hold (language, RFID
   reader, notifications/alerts, sign out) — no sidebar/drawer is shown for them
   (backend nav chrome; see TRD §5 + extensibility §2).
-- Backend/device: `RfidReaderPort` pairing; FCM token register; profile from
-  bootstrap.
+- Backend/device: `RfidReaderPort` status/readiness + system pairing handoff; FCM
+  token register; profile from bootstrap.
 
 ## Leadership surface
 

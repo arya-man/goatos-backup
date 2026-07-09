@@ -19,6 +19,7 @@ this is the pre-implementation design set the maintainer asked for.
 | [screens.md](screens.md) | Screen-by-screen spec: every mock view/overlay → Compose destination, state, backend contract, role visibility |
 | [performance-and-memory.md](performance-and-memory.md) | Low-end-device budgets, Compose recomposition-safety cheat sheet, memory-leak prevention checklist, profiling gates |
 | [backend-driven-config.md](backend-driven-config.md) | Bootstrap-as-live-config: nav/labels/flags/tunables/module kill-switch pushed on the fly (no APK), config API (ETag/revision), Room/DataStore cache, FCM config-ping |
+| [rfid-keyboard-reader.md](rfid-keyboard-reader.md) | RFID reader V1 rule: Bluetooth HID keyboard-wedge capture, Android 10+ permission/status matrix, no edit box/soft keyboard, SDK/BLE optional later |
 | [firebase-india-setup.md](firebase-india-setup.md) | Runbook to set up Firebase (Analytics, Performance, Crashlytics, FCM push, Remote Config) under the correct org, using `asia-south1` for location-selectable resources — GA4/Crashlytics/Perf/FCM are global — **gated, not yet executed** |
 | [extensibility-future-modules.md](extensibility-future-modules.md) | How new modules/verticals plug in without a rewrite; module registry + navigation contract |
 

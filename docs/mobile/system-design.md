@@ -15,7 +15,7 @@ Runtime architecture for the Android app. Pairs with the [TRD](trd-operator-mobi
 │                                          │  outbox / media_pending   │ (gen client)│
 │                                          ▼                            │            │
 │                                   WorkManager sync ──────────────────┘            │
-│   device-rfid (BLE adapter) ─▶ RfidReaderPort      device-camera ─▶ CameraPort     │
+│   device-rfid (HID keyboard adapter) ─▶ RfidReaderPort  device-camera ─▶ CameraPort│
 │   Firebase: Analytics · Performance · Crashlytics · FCM (all via ports/adapters)   │
 └───────────────────────────────────────────┬───────────────────────────────────────┘
                                              │ HTTPS (TLS)
@@ -67,11 +67,14 @@ with its revision; a newer revision refreshes nav/labels on reconnect.
 - **WorkManager**: sync, media upload, retry/dead-letter — survives process death.
   (Reminder *timing* is backend kernel-owned; WorkManager never schedules business
   reminders — it only delivers the app's own outbox to the backend.)
-- **BLE/RFID**: vendor SDK callbacks marshalled off the main thread into a Flow
-  (`callbackFlow`), debounced, then to `Default` for dedupe.
+- **RFID V1**: Bluetooth HID keyboard-wedge key events are captured at the
+  Activity/screen input boundary, buffered until Enter/Tab/newline, then emitted
+  through `RfidReaderPort` as tag reads. A future vendor SDK/BLE adapter may use
+  `callbackFlow`, but feature code still sees the same port.
 - Structured concurrency only; scopes tied to `viewModelScope` / `WorkManager` /
-  a lifecycle-bound reader scope. No `GlobalScope`. Cancellation releases BLE/
-  camera handles (see performance doc).
+  a lifecycle-bound reader/camera scope. No `GlobalScope`. Cancellation
+  unregisters input listeners / closes future SDK callbacks and camera handles
+  (see performance doc).
 
 ## 4. Sync state machine (per submission)
 

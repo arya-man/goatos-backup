@@ -174,7 +174,10 @@ Full per-screen contract in [screens.md](screens.md).
 - **Shed-first**: the unit of work is the shed, not the vaccine. A shed's cohort
   can have several due vaccines at once (mix-and-match). A drive is a day of shed
   visits, not "one vaccine across sheds".
-- **Both RFID tags**: animals may carry two RFID tags; scan matches either.
+- **Both RFID tags**: animals may carry two RFID tags; scan matches either. The
+  V1 reader is a Bluetooth HID keyboard-wedge device, so scans are captured as
+  hardware key events while the scan screen is active; the app does not show a
+  soft keyboard or tag entry box.
 - **Deterministic skips**: not-due animals in a shed are skipped with a
   **backend-provided** reason from a scoped option set (e.g. quarantine/ICU, not in
   today's set, under treatment, pregnant hold) and stay visible; eligibility + the
@@ -227,9 +230,11 @@ localized. See design-system i18n section.
   synced). Sync must be idempotent — retries and app restarts never create
   duplicate records. The operator always sees whether their work is saved locally
   vs synced to the server.
-- **Hardware**: Bluetooth UHF RFID handheld (Chainway-class), phone camera for
-  video proof, vibration motor **and speaker** — scan feedback is both haptic and
-  audible (a distinct alert tone on a not-due hit).
+- **Hardware**: Bluetooth UHF RFID handheld in HID keyboard-wedge mode for V1,
+  phone camera for video proof, vibration motor **and speaker** — scan feedback
+  is both haptic and audible (a distinct alert tone on a not-due hit). Vendor
+  SDK/BLE integration is optional later for battery/signal/config/trigger
+  control; it is not required to read tag IDs from the current reader.
 - **Auditability**: every recorded dose becomes a verifiable shed record with
   proof; every write is idempotent.
 
