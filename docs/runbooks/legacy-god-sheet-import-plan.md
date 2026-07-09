@@ -94,6 +94,14 @@ pipeline freshness. The workbook must store the observed value, source
 (`api`, `bq`, or `sheet`), query/run timestamp, and the selected canonical value
 instead of overwriting one source with another.
 
+The sync must also detect same-source drift. Some native BigQuery tables, such
+as `farm.daily_summary_dev`, can recompute the same `business_date` row in place
+without a row-level `updated_at`, ingestion timestamp, or version column. Every
+run must snapshot each stable `(source_id, business_date, grain, source_row_id)`
+record with a content hash and read timestamp. If the hash changes for the same
+key across runs, create a `business_date_row_hash_drift` issue before using the
+new value as import or audit truth.
+
 Other verified audit values:
 
 - Births total from `goatsDB.mother_kid_facts` where `is_birth = 1`: `1006`
@@ -397,8 +405,14 @@ per-source snapshot tabs/files.
 
 Required columns:
 
-`run_id`, `source_id`, `business_date`, `source_row_id`, `source_row_hash`,
-`raw_payload_json`, `snapshot_created_at`.
+`run_id`, `source_id`, `business_date`, `source_grain`, `source_row_id`,
+`source_row_key`, `source_row_hash`, `raw_payload_json`, `read_at`,
+`snapshot_created_at`.
+
+`source_row_key` must be stable for comparison across runs, for example
+`source_id|business_date|farm|stage|grain`. When a later run reads the same key
+with a different `source_row_hash`, the validation engine must raise
+`business_date_row_hash_drift`.
 
 ### 5. `Mapping_Crosswalks`
 
@@ -652,6 +666,12 @@ Columns:
 `rule_id`, `rule_name`, `severity`, `blocking`, `owner`, `source_family`,
 `description`, `check_type`, `sql_or_formula_ref`, `expected_result`,
 `failure_message`, `last_run_id`, `last_status`.
+
+Seed rules:
+
+| Rule id | Severity | Blocking | Owner | Purpose |
+| --- | --- | --- | --- | --- |
+| `business_date_row_hash_drift` | P1 | Yes, when the changed row affects import or canonical audit values | data/dev | Detect same-source same-key row mutation across sync runs by comparing `Raw_Source_Snapshots.source_row_hash` for the stable `(source_id, business_date, grain, source_row_id)` key. |
 
 ### 27. `Issue_Queue`
 
