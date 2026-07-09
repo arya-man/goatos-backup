@@ -6,16 +6,33 @@ import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.OwnedModule
+import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
+import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
+import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.TaskListResponseDto
+import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
+import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 
-// Wire DTOs for the nav slice of GET /app/bootstrap. The response carries many more
-// fields; with ignoreUnknownKeys the client only binds the ones it renders. These
-// hand-mapped DTOs are replaced 1:1 by the OpenAPI-generated client next. Defaults
-// keep deserialization lenient.
+// Wire DTOs for the nav slice of GET /app/bootstrap. The response (BootstrapResponse)
+// carries many more fields; with ignoreUnknownKeys the client only binds the ones it
+// renders. Defaults keep deserialization lenient. These hand-mapped DTOs are replaced
+// 1:1 by the OpenAPI-generated client next.
 @Serializable
 data class BootstrapDto(
     @SerialName("nav_chrome") val navChrome: String = "minimal",
     @SerialName("visible_navigation") val visibleNavigation: List<NavItemDto> = emptyList(),
     @SerialName("owned_modules") val ownedModules: List<OwnedModuleDto> = emptyList(),
+    // Extended bootstrap slice used by the shell beyond nav: identity, feature gates,
+    // and version/time. All optional with defaults so the cached-bootstrap decode and
+    // the original nav-only contract still succeed.
+    @SerialName("actor") val actor: BootstrapActorDto? = null,
+    @SerialName("operator_profile") val operatorProfile: BootstrapOperatorProfileDto? = null,
+    @SerialName("feature_flags") val featureFlags: Map<String, Boolean> = emptyMap(),
+    @SerialName("app_min_supported_version") val appMinSupportedVersion: String = "",
+    @SerialName("server_time") val serverTime: String = "",
+    @SerialName("trace_id") val traceId: String = "",
 )
 
 @Serializable
@@ -31,15 +48,104 @@ data class OwnedModuleDto(
     val module: String = "",
 )
 
-/** App API port. The real Retrofit/OpenAPI adapter lands behind this interface. */
+/** Identity of the bootstrapped principal (BootstrapActor). */
+@Serializable
+data class BootstrapActorDto(
+    @SerialName("actor_id") val actorId: String = "",
+    @SerialName("tenant_id") val tenantId: String = "",
+)
+
+/** Operator profile slice the shell shows (OperatorProfile). Fields the UI needs only. */
+@Serializable
+data class BootstrapOperatorProfileDto(
+    @SerialName("operator_id") val operatorId: String = "",
+    @SerialName("display_code") val displayCode: String = "",
+    @SerialName("display_name") val displayName: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("primary_role_hint") val primaryRoleHint: String = "",
+    @SerialName("primary_location") val primaryLocation: String? = null,
+)
+
+/**
+ * App API port. The real Retrofit adapter lands behind this interface so callers stay
+ * Retrofit-agnostic. One suspend method per consumed endpoint; optional query filters
+ * default to null (omitted from the request). Mapping DTO -> feature UiState happens in
+ * the :app layer, not here.
+ */
 interface AppApi {
     suspend fun bootstrap(): BootstrapDto
+
+    /** GET /vaccination/execution — execution rows grouped by park + shed. */
+    suspend fun listVaccinationExecution(
+        parkId: String? = null,
+        workState: String? = null,
+        asOf: String? = null,
+        dueBefore: String? = null,
+        limit: Int? = null,
+    ): VaccinationExecutionResponseDto
+
+    /** GET /vaccination/execution/sheds/{shed_id} — one shed's execution context. */
+    suspend fun getVaccinationExecutionShed(
+        shedId: String,
+        asOf: String? = null,
+        dueBefore: String? = null,
+        limit: Int? = null,
+    ): VaccinationExecutionShedDrilldownDto
+
+    /** GET /calendar/vaccination/events — presentation + bounded events. */
+    suspend fun listCalendarVaccinationEvents(
+        parkId: String? = null,
+        shedId: String? = null,
+        ownerKey: String? = null,
+        status: String? = null,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): CalendarEventListResponseDto
+
+    /** GET /control-tower/vaccination — summary + at-risk/broken alerts. */
+    suspend fun getVaccinationControlTower(
+        parkId: String? = null,
+        shedId: String? = null,
+        workState: String? = null,
+        severity: String? = null,
+        dueBefore: String? = null,
+        asOf: String? = null,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): ControlTowerResponseDto
+
+    /** GET /vaccination/adherence — expected-vs-actual protocol adherence rows. */
+    suspend fun getVaccinationAdherence(
+        parkId: String? = null,
+        shedId: String? = null,
+        workState: String? = null,
+        severity: String? = null,
+        dueBefore: String? = null,
+        asOf: String? = null,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): ProtocolAdherenceResponseDto
+
+    /** GET /app/tasks — assigned operator tasks. */
+    suspend fun listAppTasks(
+        state: String? = null,
+        limit: Int? = null,
+    ): TaskListResponseDto
+
+    /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. */
+    suspend fun submitAppTask(
+        taskId: String,
+        request: SubmitTaskRequestDto,
+    ): SubmissionResponseDto
 }
 
 /**
  * Canned bootstrap so the shell renders the backend-driven nav end-to-end before
  * auth/network are wired. `chrome` lets previews exercise both drawer + bottom-bar
- * states. This is test/dev scaffolding, NOT product truth.
+ * states. This is test/dev scaffolding, NOT product truth. Data methods return empty
+ * responses so previews/tests compile without a live backend.
  */
 class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun bootstrap(): BootstrapDto = BootstrapDto(
@@ -49,7 +155,67 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             NavItemDto(key = "vaccination", label = "Vaccination", href = "/vaccination"),
         ),
         ownedModules = listOf(OwnedModuleDto(vertical = "preventive_care", module = "pc.vaccination")),
+        featureFlags = mapOf("tasks" to true, "sop_runner" to true),
+        appMinSupportedVersion = "0.1.0",
     )
+
+    override suspend fun listVaccinationExecution(
+        parkId: String?,
+        workState: String?,
+        asOf: String?,
+        dueBefore: String?,
+        limit: Int?,
+    ): VaccinationExecutionResponseDto = VaccinationExecutionResponseDto()
+
+    override suspend fun getVaccinationExecutionShed(
+        shedId: String,
+        asOf: String?,
+        dueBefore: String?,
+        limit: Int?,
+    ): VaccinationExecutionShedDrilldownDto = VaccinationExecutionShedDrilldownDto(shedId = shedId)
+
+    override suspend fun listCalendarVaccinationEvents(
+        parkId: String?,
+        shedId: String?,
+        ownerKey: String?,
+        status: String?,
+        dateFrom: String?,
+        dateTo: String?,
+        cursor: String?,
+        limit: Int?,
+    ): CalendarEventListResponseDto = CalendarEventListResponseDto()
+
+    override suspend fun getVaccinationControlTower(
+        parkId: String?,
+        shedId: String?,
+        workState: String?,
+        severity: String?,
+        dueBefore: String?,
+        asOf: String?,
+        cursor: String?,
+        limit: Int?,
+    ): ControlTowerResponseDto = ControlTowerResponseDto()
+
+    override suspend fun getVaccinationAdherence(
+        parkId: String?,
+        shedId: String?,
+        workState: String?,
+        severity: String?,
+        dueBefore: String?,
+        asOf: String?,
+        cursor: String?,
+        limit: Int?,
+    ): ProtocolAdherenceResponseDto = ProtocolAdherenceResponseDto()
+
+    override suspend fun listAppTasks(
+        state: String?,
+        limit: Int?,
+    ): TaskListResponseDto = TaskListResponseDto()
+
+    override suspend fun submitAppTask(
+        taskId: String,
+        request: SubmitTaskRequestDto,
+    ): SubmissionResponseDto = SubmissionResponseDto()
 }
 
 /**

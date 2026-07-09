@@ -28,6 +28,7 @@ class ProfileViewModel @Inject constructor(
     private val sessionStore: SessionStore,
 ) : ViewModel() {
 
+    // TODO: wire when operator endpoints exist (profile renders from bootstrap/session only for now).
     private val _state = MutableStateFlow(sampleProfileState())
     val state: StateFlow<ProfileUiState> = _state.asStateFlow()
 

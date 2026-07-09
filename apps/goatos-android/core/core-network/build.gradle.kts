@@ -24,6 +24,7 @@ dependencies {
     implementation(libs.retrofit.serialization)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
+    testImplementation("junit:junit:4.13.2")
     // DTOs are hand-mapped to the current bootstrap slice for now; the full typed
     // client is generated from contracts/openapi/app-api.yaml (openapi-generator)
     // as the next step and replaces these DTOs 1:1.

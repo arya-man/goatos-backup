@@ -3,6 +3,7 @@ package sg.mesha.goatos.boot
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import sg.mesha.goatos.BuildConfig
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -28,7 +29,11 @@ class SessionViewModel @Inject constructor(
 
     fun signIn(email: String) {
         viewModelScope.launch {
-            sessionStore.setBearerToken("dev-session:$email")
+            // Dev: seed the injected HS256 dev token so the app authenticates against
+            // the local backend; falls back to a stub if none is configured. Prod
+            // replaces this with the Firebase-verified token (gated).
+            val token = BuildConfig.DEV_BEARER_TOKEN.ifBlank { "dev-session:$email" }
+            sessionStore.setBearerToken(token)
         }
     }
 

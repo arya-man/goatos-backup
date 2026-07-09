@@ -21,6 +21,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ScanViewModel @Inject constructor() : ViewModel() {
 
+    // TODO: wire when operator endpoints exist (no scoped operator read for the current user yet).
     private val _state = MutableStateFlow(sampleScanState())
     val state: StateFlow<ScanUiState> = _state.asStateFlow()
 

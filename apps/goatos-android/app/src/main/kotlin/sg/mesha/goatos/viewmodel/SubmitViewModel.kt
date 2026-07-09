@@ -26,6 +26,7 @@ import javax.inject.Inject
 @HiltViewModel
 class SubmitViewModel @Inject constructor() : ViewModel() {
 
+    // TODO: wire when operator endpoints exist (no scoped operator read for the current user yet).
     private val _state = MutableStateFlow(sampleSubmitState().copy(syncState = SyncState.DRAFT))
     val state: StateFlow<SubmitUiState> = _state.asStateFlow()
 

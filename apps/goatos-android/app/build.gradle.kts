@@ -15,23 +15,36 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+
+        // Local dev bearer token (a minted HS256 dev token), injected from a gradle
+        // property so it's NEVER committed: -PgoatosDevBearerToken=... or in
+        // ~/.gradle/gradle.properties / local.properties. Empty in prod (real
+        // Firebase token drives auth there). The dev flow seeds this as the session
+        // token so the app authenticates against the local backend.
+        val devToken = (project.findProperty("goatosDevBearerToken") as String?).orEmpty()
+        buildConfigField("String", "DEV_BEARER_TOKEN", "\"$devToken\"")
     }
 
     // One common app; env is a build flavor, roles are runtime (app-id ADR).
+    // API_BASE_URL is per-flavor: dev → local backend (10.0.2.2 = host from the
+    // Android emulator); stg/prod point at the deployed API (TBD).
     flavorDimensions += "env"
     productFlavors {
         create("dev") {
             dimension = "env"
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
+            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080/\"")
         }
         create("stg") {
             dimension = "env"
             applicationIdSuffix = ".stg"
             versionNameSuffix = "-stg"
+            buildConfigField("String", "API_BASE_URL", "\"https://stg.api.goatos.mesha.sg/\"")
         }
         create("prod") {
             dimension = "env"
+            buildConfigField("String", "API_BASE_URL", "\"https://api.goatos.mesha.sg/\"")
         }
     }
 
@@ -44,6 +57,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -58,6 +72,9 @@ dependencies {
     implementation(project(":core:core-common"))
     implementation(project(":core:core-network"))
     implementation(project(":core:core-data"))
+    // Calendar event `links` arrive as Map<String, JsonElement> from core-network's DTO;
+    // the ViewModel reads route hrefs off them via jsonPrimitive/contentOrNull.
+    implementation(libs.kotlinx.serialization.json)
     implementation(project(":core:core-datastore"))
     implementation(project(":feature:feature-auth"))
     implementation(project(":feature:feature-calendar"))

@@ -22,6 +22,7 @@ import javax.inject.Inject
 @HiltViewModel
 class RescheduleViewModel @Inject constructor() : ViewModel() {
 
+    // TODO: wire when operator endpoints exist (no reschedule write endpoint for the current user yet).
     private val _state = MutableStateFlow(sampleRescheduleState())
     val state: StateFlow<RescheduleUiState> = _state.asStateFlow()
 

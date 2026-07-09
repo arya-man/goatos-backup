@@ -1,34 +1,93 @@
 package sg.mesha.goatos.viewmodel
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.data.AdherenceRepository
+import sg.mesha.goatos.core.data.ControlTowerRepository
+import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
+import sg.mesha.goatos.feature.leadership.DecisionRow
+import sg.mesha.goatos.feature.leadership.KpiTile
 import sg.mesha.goatos.feature.leadership.LeadershipEvent
 import sg.mesha.goatos.feature.leadership.LeadershipUiState
+import sg.mesha.goatos.feature.leadership.Tone
 import sg.mesha.goatos.ui.sampleLeadershipState
 import javax.inject.Inject
 
 /**
- * Leadership overview state holder. Seeds the interim [sampleLeadershipState] fixture.
- * [LeadershipEvent.Refresh] re-emits the state; the drill events
- * ([LeadershipEvent.DecisionTapped] → reschedule, [LeadershipEvent.KpiTapped] → overdue)
- * are navigation, routed by the host. Remaining taps are inert until their reads land.
- *
- * TODO: replace the fake seed with the leadership scope_token reads via AppApi.
+ * Leadership overview state holder. Seeds the interim [sampleLeadershipState] fixture for
+ * an instant first frame, then loads real process-integrity data via
+ * [ControlTowerRepository.summary] (hero + KPIs + decisions) plus a real coverage % from
+ * [AdherenceRepository.adherence], mapped in [toLeadershipUiState]. On error the sample is
+ * kept. Drill events are navigation, routed by the host; [LeadershipEvent.Refresh] reloads.
  */
 @HiltViewModel
-class LeadershipViewModel @Inject constructor() : ViewModel() {
+class LeadershipViewModel @Inject constructor(
+    private val controlTower: ControlTowerRepository,
+    private val adherence: AdherenceRepository,
+) : ViewModel() {
 
     private val _state = MutableStateFlow(sampleLeadershipState())
     val state: StateFlow<LeadershipUiState> = _state.asStateFlow()
 
+    init {
+        load()
+    }
+
+    fun load() = viewModelScope.launch {
+        val summaryResult = runCatching { controlTower.summary() }
+        val adherenceResult = runCatching { adherence.adherence() }
+        summaryResult
+            .onSuccess { dto -> _state.value = dto.toLeadershipUiState(adherenceResult.getOrNull()) }
+            .onFailure { /* keep the sample so the screen is never blank */ }
+    }
+
     fun onEvent(event: LeadershipEvent) {
         when (event) {
-            LeadershipEvent.Refresh -> _state.value = sampleLeadershipState()
+            LeadershipEvent.Refresh -> load()
             // Everything else is either navigation (routed by the host) or not yet backed.
             else -> Unit
         }
     }
+
+    private fun ControlTowerResponseDto.toLeadershipUiState(
+        adherenceDto: ProtocolAdherenceResponseDto?,
+    ): LeadershipUiState {
+        val base = sampleLeadershipState()
+        val coverage = adherenceDto?.summary?.adherencePercent?.toInt()
+            ?: if (summary.processIntact) 100 else (100 - summary.openGapCount).coerceIn(0, 100)
+        val decisions = alerts.map { alert ->
+            DecisionRow(
+                id = alert.rowId,
+                title = alert.title,
+                subtitle = alert.detail,
+                actionLabel = alert.nextAction.ifBlank { "Review" },
+                tone = leadershipTone(alert.severity),
+            )
+        }
+        return base.copy(
+            hero = base.hero.copy(
+                coverageLabel = "Process integrity",
+                coveragePercent = coverage,
+            ),
+            kpis = listOf(
+                KpiTile("critical", summary.criticalCount.toString(), "Critical", Tone.DANGER),
+                KpiTile("warnings", summary.warningCount.toString(), "Warnings", Tone.WARN),
+                KpiTile("open_gaps", summary.openGapCount.toString(), "Open gaps", Tone.NEUTRAL),
+            ),
+            needsDecision = decisions.ifEmpty { base.needsDecision },
+        )
+    }
+}
+
+private fun leadershipTone(severity: String): Tone = when (severity.lowercase()) {
+    "critical", "high" -> Tone.DANGER
+    "warn", "warning" -> Tone.WARN
+    "ok" -> Tone.OK
+    else -> Tone.NEUTRAL
 }

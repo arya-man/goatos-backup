@@ -8,17 +8,161 @@ import okhttp3.Response
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.create
+import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.POST
+import retrofit2.http.Path
+import retrofit2.http.Query
+import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
+import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
+import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.TaskListResponseDto
+import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
+import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 
-/** Retrofit surface for the app API. One method per consumed endpoint. */
+/**
+ * Retrofit surface for the app API. One method per consumed endpoint. Paths are
+ * relative to the base URL (which ends in `/`). Nullable @Query params are omitted
+ * from the request when null.
+ */
 interface AppApiService {
     @GET("app/bootstrap")
     suspend fun bootstrap(): BootstrapDto
+
+    @GET("vaccination/execution")
+    suspend fun listVaccinationExecution(
+        @Query("park_id") parkId: String?,
+        @Query("work_state") workState: String?,
+        @Query("as_of") asOf: String?,
+        @Query("due_before") dueBefore: String?,
+        @Query("limit") limit: Int?,
+    ): VaccinationExecutionResponseDto
+
+    @GET("vaccination/execution/sheds/{shed_id}")
+    suspend fun getVaccinationExecutionShed(
+        @Path("shed_id") shedId: String,
+        @Query("as_of") asOf: String?,
+        @Query("due_before") dueBefore: String?,
+        @Query("limit") limit: Int?,
+    ): VaccinationExecutionShedDrilldownDto
+
+    @GET("calendar/vaccination/events")
+    suspend fun listCalendarVaccinationEvents(
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
+        @Query("owner_key") ownerKey: String?,
+        @Query("status") status: String?,
+        @Query("date_from") dateFrom: String?,
+        @Query("date_to") dateTo: String?,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): CalendarEventListResponseDto
+
+    @GET("control-tower/vaccination")
+    suspend fun getVaccinationControlTower(
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
+        @Query("work_state") workState: String?,
+        @Query("severity") severity: String?,
+        @Query("due_before") dueBefore: String?,
+        @Query("as_of") asOf: String?,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): ControlTowerResponseDto
+
+    @GET("vaccination/adherence")
+    suspend fun getVaccinationAdherence(
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
+        @Query("work_state") workState: String?,
+        @Query("severity") severity: String?,
+        @Query("due_before") dueBefore: String?,
+        @Query("as_of") asOf: String?,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): ProtocolAdherenceResponseDto
+
+    @GET("app/tasks")
+    suspend fun listAppTasks(
+        @Query("state") state: String?,
+        @Query("limit") limit: Int?,
+    ): TaskListResponseDto
+
+    @POST("app/tasks/{task_id}/submissions")
+    suspend fun submitAppTask(
+        @Path("task_id") taskId: String,
+        @Body request: SubmitTaskRequestDto,
+    ): SubmissionResponseDto
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic. */
 class RetrofitAppApi(private val service: AppApiService) : AppApi {
     override suspend fun bootstrap(): BootstrapDto = service.bootstrap()
+
+    override suspend fun listVaccinationExecution(
+        parkId: String?,
+        workState: String?,
+        asOf: String?,
+        dueBefore: String?,
+        limit: Int?,
+    ): VaccinationExecutionResponseDto =
+        service.listVaccinationExecution(parkId, workState, asOf, dueBefore, limit)
+
+    override suspend fun getVaccinationExecutionShed(
+        shedId: String,
+        asOf: String?,
+        dueBefore: String?,
+        limit: Int?,
+    ): VaccinationExecutionShedDrilldownDto =
+        service.getVaccinationExecutionShed(shedId, asOf, dueBefore, limit)
+
+    override suspend fun listCalendarVaccinationEvents(
+        parkId: String?,
+        shedId: String?,
+        ownerKey: String?,
+        status: String?,
+        dateFrom: String?,
+        dateTo: String?,
+        cursor: String?,
+        limit: Int?,
+    ): CalendarEventListResponseDto =
+        service.listCalendarVaccinationEvents(parkId, shedId, ownerKey, status, dateFrom, dateTo, cursor, limit)
+
+    override suspend fun getVaccinationControlTower(
+        parkId: String?,
+        shedId: String?,
+        workState: String?,
+        severity: String?,
+        dueBefore: String?,
+        asOf: String?,
+        cursor: String?,
+        limit: Int?,
+    ): ControlTowerResponseDto =
+        service.getVaccinationControlTower(parkId, shedId, workState, severity, dueBefore, asOf, cursor, limit)
+
+    override suspend fun getVaccinationAdherence(
+        parkId: String?,
+        shedId: String?,
+        workState: String?,
+        severity: String?,
+        dueBefore: String?,
+        asOf: String?,
+        cursor: String?,
+        limit: Int?,
+    ): ProtocolAdherenceResponseDto =
+        service.getVaccinationAdherence(parkId, shedId, workState, severity, dueBefore, asOf, cursor, limit)
+
+    override suspend fun listAppTasks(
+        state: String?,
+        limit: Int?,
+    ): TaskListResponseDto = service.listAppTasks(state, limit)
+
+    override suspend fun submitAppTask(
+        taskId: String,
+        request: SubmitTaskRequestDto,
+    ): SubmissionResponseDto = service.submitAppTask(taskId, request)
 }
 
 /**

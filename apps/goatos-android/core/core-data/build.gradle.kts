@@ -17,7 +17,10 @@ android {
 
 dependencies {
     api(project(":core:core-model"))
-    implementation(project(":core:core-network"))
+    // `api` (not `implementation`): the screen repositories below return core-network
+    // DTOs from their public methods, so those types must be on the consumer (:app)
+    // compile classpath.
+    api(project(":core:core-network"))
     implementation(project(":core:core-common"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)

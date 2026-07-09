@@ -23,6 +23,7 @@ import javax.inject.Inject
 @HiltViewModel
 class RfidViewModel @Inject constructor() : ViewModel() {
 
+    // TODO: wire when operator endpoints exist (no scoped operator read for the current user yet).
     private val _state = MutableStateFlow(sampleRfidState())
     val state: StateFlow<RfidUiState> = _state.asStateFlow()
 

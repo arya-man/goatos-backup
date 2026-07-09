@@ -1,0 +1,91 @@
+package sg.mesha.goatos.core.network.dto
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+/**
+ * GET /vaccination/execution -> VaccinationExecutionResponse and
+ * GET /vaccination/execution/sheds/{shed_id} -> VaccinationExecutionShedDrilldown.
+ *
+ * NOTE: this endpoint family serializes in camelCase on the wire (parkId, shedName,
+ * workState, ...), unlike the snake_case Calendar/Control-Tower/Adherence/Tasks
+ * endpoints. @SerialName is pinned explicitly so the binding survives any Json
+ * naming-strategy change. Only mobile-rendered fields are modeled; the rest are
+ * dropped by ignoreUnknownKeys.
+ */
+@Serializable
+data class VaccinationExecutionOwnerDto(
+    @SerialName("operatorName") val operatorName: String? = null,
+    @SerialName("parkHeadName") val parkHeadName: String? = null,
+    @SerialName("verifierName") val verifierName: String? = null,
+)
+
+@Serializable
+data class VaccinationExecutionRowDto(
+    @SerialName("parkId") val parkId: String = "",
+    @SerialName("parkName") val parkName: String = "",
+    @SerialName("shedId") val shedId: String = "",
+    @SerialName("shedName") val shedName: String = "",
+    @SerialName("animalStage") val animalStage: String = "",
+    @SerialName("driveId") val driveId: String? = null,
+    @SerialName("driveName") val driveName: String? = null,
+    @SerialName("dueDate") val dueDate: String? = null,
+    // Enums modeled as String (see VaccinationExecutionWorkState / *Severity / *SOPStatus /
+    // *ProofStatus / *VerificationStatus in app-api.yaml). Kept as String so an
+    // unknown/new enum value never breaks the mobile parse.
+    @SerialName("workState") val workState: String = "",
+    @SerialName("severity") val severity: String = "",
+    @SerialName("owner") val owner: VaccinationExecutionOwnerDto? = null,
+    @SerialName("blockerReason") val blockerReason: String? = null,
+    @SerialName("sopStatus") val sopStatus: String = "",
+    @SerialName("proofStatus") val proofStatus: String = "",
+    @SerialName("verificationStatus") val verificationStatus: String = "",
+    @SerialName("nextAction") val nextAction: String = "",
+    @SerialName("obligationId") val obligationId: String? = null,
+    @SerialName("batchId") val batchId: String? = null,
+    @SerialName("sopTaskId") val sopTaskId: String? = null,
+    @SerialName("sopVersionId") val sopVersionId: String? = null,
+    @SerialName("sopTaskRowVersion") val sopTaskRowVersion: Int? = null,
+    @SerialName("completionId") val completionId: String? = null,
+)
+
+@Serializable
+data class VaccinationExecutionResponseDto(
+    @SerialName("source") val source: String = "api",
+    @SerialName("rows") val rows: List<VaccinationExecutionRowDto> = emptyList(),
+)
+
+@Serializable
+data class VaccinationExecutionDriveSummaryDto(
+    @SerialName("driveId") val driveId: String? = null,
+    @SerialName("driveName") val driveName: String? = null,
+    @SerialName("workState") val workState: String = "",
+    @SerialName("severity") val severity: String = "",
+)
+
+@Serializable
+data class VaccinationExecutionShedSummaryDto(
+    @SerialName("total") val total: Int = 0,
+    @SerialName("due") val due: Int = 0,
+    @SerialName("overdue") val overdue: Int = 0,
+    @SerialName("proofPending") val proofPending: Int = 0,
+    @SerialName("verificationPending") val verificationPending: Int = 0,
+    @SerialName("rejected") val rejected: Int = 0,
+    @SerialName("deferred") val deferred: Int = 0,
+    @SerialName("missed") val missed: Int = 0,
+    @SerialName("blocked") val blocked: Int = 0,
+    @SerialName("ownerMissing") val ownerMissing: Int = 0,
+    @SerialName("completed") val completed: Int = 0,
+)
+
+@Serializable
+data class VaccinationExecutionShedDrilldownDto(
+    @SerialName("parkId") val parkId: String = "",
+    @SerialName("parkName") val parkName: String = "",
+    @SerialName("shedId") val shedId: String = "",
+    @SerialName("shedName") val shedName: String = "",
+    @SerialName("animalStages") val animalStages: List<String> = emptyList(),
+    @SerialName("drives") val drives: List<VaccinationExecutionDriveSummaryDto> = emptyList(),
+    @SerialName("rows") val rows: List<VaccinationExecutionRowDto> = emptyList(),
+    @SerialName("summary") val summary: VaccinationExecutionShedSummaryDto = VaccinationExecutionShedSummaryDto(),
+)
