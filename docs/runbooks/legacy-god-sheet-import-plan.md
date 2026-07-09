@@ -221,7 +221,8 @@ below, plus owner, grain, extractor, freshness SLA, and last successful sync.
 | Breeding DB sheet | https://docs.google.com/spreadsheets/d/1h04WpLExJBdZ-J-H2YLGXyHnlWSdjtldiaB6n3x3rYg/edit?gid=0#gid=0 |
 | Breeding DB external table | `breedingDB.breedingDB_external_table` |
 | Delivery/Birth DB sheet | https://docs.google.com/spreadsheets/d/1bYNW8c6BMb6wgBXEIHkWO57nYRTkYc4mnPkDE14S2Yw/edit?gid=32106927#gid=32106927 |
-| Delivery/Birth DB table | `deliveryDB.birthDB_unclean` |
+| Delivery/Birth DB raw external rows | `deliveryDB.birthDB_unclean` |
+| Delivery/Birth DB cleaned rows | `deliveryDB.delivery_db_clean_dev` |
 | Farmer network sheet | https://docs.google.com/spreadsheets/d/16bEJqIVZ4gFGSPFCPvTud8Z0dZEa8Wur5tUM0JNwJaM/edit?gid=0#gid=0 |
 | Farmer network table | `farmersDB.farmer_crops_db` |
 | Milk consumption sheet | https://docs.google.com/spreadsheets/d/1qJRQK2DDy2C4y359CHVBh1OhWBk0K7FJMMVvXCUqr0A/edit?gid=1263357772#gid=1263357772 |
@@ -233,6 +234,7 @@ below, plus owner, grain, extractor, freshness SLA, and last successful sync.
 | Dashboard users/RBAC sheet | https://docs.google.com/spreadsheets/d/13TtoRv0pKYtatsuc3-YDZHcTdWALekBd-e-WMblrniY/edit |
 | Dashboard users/RBAC table | `ceo_dashboard.dashboard_users` |
 | History automation dataset | `historyAutomation` |
+| History automation complete history view | `historyAutomation.goat_history_complete` |
 
 ### Known Workbook Tabs To Verify With Drive Scope
 
