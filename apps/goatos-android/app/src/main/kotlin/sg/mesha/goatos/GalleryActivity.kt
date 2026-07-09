@@ -58,6 +58,7 @@ class GalleryActivity : ComponentActivity() {
         val screen = intent.getStringExtra("screen")?.lowercase() ?: "calendar"
         setContent {
             GoatOsTheme {
+                sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale {
                 Box(Modifier.fillMaxSize().background(Color(0xFF0B100D))) {
                     when (screen) {
                         "login" -> LoginScreen(onSignIn = {})
@@ -75,6 +76,7 @@ class GalleryActivity : ComponentActivity() {
                         else -> Text("unknown screen: $screen", color = Color.White)
                     }
                 }
+                } // ProvideAppLocale
             }
         }
     }

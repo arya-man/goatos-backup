@@ -22,7 +22,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -31,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 // ---------------------------------------------------------------------------
 // RFID reader pairing surface (screens.md: v-rfid; mock #v-rfid `.device2`).
@@ -43,28 +43,6 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 // The only glue is mapping the (backend-provided) connection state to which
 // RfidEvent the primary button emits, analogous to a StatusPill tone.
 // ---------------------------------------------------------------------------
-
-private object RfidTokens {
-    val Bg = Color(0xFF0B100D)
-    val Surf = Color(0xFF131A15)
-    val Surf2 = Color(0xFF1A241D)
-    val Surf3 = Color(0xFF222E25)
-    val Hair = Color(0xFF28352B)
-    val Ink = Color(0xFFECF4EE)
-    val Muted = Color(0xFF8FA497)
-    val Faint = Color(0xFF5F7367)
-    val Brand = Color(0xFF8AD457)
-    val BrandD = Color(0xFFB7EA8C)
-    val Teal = Color(0xFF57C9B0)
-    val OnBrand = Color(0xFF08130B)
-
-    // pill.ok / pill.teal backgrounds (mock rgba() tokens).
-    val OkX = Color(0x298AD457)
-    val TealX = Color(0x2957C9B0)
-
-    // .device2 .big — gradient-soft rounded tile behind the reader glyph.
-    val GradSoft = Brush.linearGradient(listOf(Color(0x2993DA5E), Color(0x0D5FB531)))
-}
 
 /** Backend-surfaced connection state. Drives the glyph tint + status-pill tone only. */
 enum class RfidConnectionState { CONNECTED, DISCONNECTED, SCANNING }
@@ -108,16 +86,16 @@ private fun primaryEventFor(state: RfidConnectionState): RfidEvent =
     if (state == RfidConnectionState.CONNECTED) RfidEvent.TestRead else RfidEvent.Pair
 
 private fun glyphTint(state: RfidConnectionState): Color = when (state) {
-    RfidConnectionState.CONNECTED -> RfidTokens.Brand
-    RfidConnectionState.SCANNING -> RfidTokens.Teal
-    RfidConnectionState.DISCONNECTED -> RfidTokens.Muted
+    RfidConnectionState.CONNECTED -> MeshaColors.Brand
+    RfidConnectionState.SCANNING -> MeshaColors.Teal
+    RfidConnectionState.DISCONNECTED -> MeshaColors.Muted
 }
 
 /** Status-pill tone (bg, fg) per connection state — mirrors the mock's `.pill` variants. */
 private fun statusPillTone(state: RfidConnectionState): Pair<Color, Color> = when (state) {
-    RfidConnectionState.CONNECTED -> RfidTokens.OkX to RfidTokens.BrandD
-    RfidConnectionState.SCANNING -> RfidTokens.TealX to RfidTokens.Teal
-    RfidConnectionState.DISCONNECTED -> RfidTokens.Surf3 to RfidTokens.Muted
+    RfidConnectionState.CONNECTED -> MeshaColors.OkX to MeshaColors.BrandD
+    RfidConnectionState.SCANNING -> MeshaColors.TealX to MeshaColors.Teal
+    RfidConnectionState.DISCONNECTED -> MeshaColors.Surf3 to MeshaColors.Muted
 }
 
 @Composable
@@ -129,7 +107,7 @@ fun RfidScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(RfidTokens.Bg),
+            .background(MeshaColors.Bg),
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
         item { RfidHeader(state.title) }
@@ -150,7 +128,7 @@ fun RfidScreen(
 private fun RfidHeader(title: String) {
     Text(
         text = title,
-        color = RfidTokens.Ink,
+        color = MeshaColors.Ink,
         fontSize = 22.sp,
         fontWeight = FontWeight.W700,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
@@ -169,8 +147,8 @@ private fun RfidDeviceHero(state: RfidUiState) {
         Box(
             modifier = Modifier
                 .size(80.dp)
-                .background(RfidTokens.GradSoft, shape = RoundedCornerShape(24.dp))
-                .border(1.dp, RfidTokens.Hair, shape = RoundedCornerShape(24.dp)),
+                .background(MeshaColors.BrandGradientSoft, shape = RoundedCornerShape(24.dp))
+                .border(1.dp, MeshaColors.Hair, shape = RoundedCornerShape(24.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -183,7 +161,7 @@ private fun RfidDeviceHero(state: RfidUiState) {
         state.readerName?.let {
             Text(
                 text = it,
-                color = RfidTokens.Ink,
+                color = MeshaColors.Ink,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.W700,
                 modifier = Modifier.padding(top = 12.dp),
@@ -192,7 +170,7 @@ private fun RfidDeviceHero(state: RfidUiState) {
         state.readerDetail?.let {
             Text(
                 text = it,
-                color = RfidTokens.Muted,
+                color = MeshaColors.Muted,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(top = 3.dp),
             )
@@ -216,18 +194,18 @@ private fun DiscoveredReaderRow(row: RfidReaderRow, onEvent: (RfidEvent) -> Unit
             .padding(start = 16.dp, end = 16.dp, top = 9.dp)
             .fillMaxWidth()
             .heightIn(min = 52.dp)
-            .background(RfidTokens.Surf, shape = RoundedCornerShape(15.dp))
-            .border(1.dp, RfidTokens.Hair, shape = RoundedCornerShape(15.dp))
+            .background(MeshaColors.Surf, shape = RoundedCornerShape(15.dp))
+            .border(1.dp, MeshaColors.Hair, shape = RoundedCornerShape(15.dp))
             .clickable { onEvent(RfidEvent.SelectReader(row.id)) }
             .padding(horizontal = 15.dp, vertical = 11.dp),
     ) {
-        Icon(imageVector = MeshaIcons.Bluetooth, contentDescription = null, tint = RfidTokens.Faint, modifier = Modifier.size(16.dp))
+        Icon(imageVector = MeshaIcons.Bluetooth, contentDescription = null, tint = MeshaColors.Faint, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(11.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = row.name, color = RfidTokens.Ink, fontSize = 13.5.sp, fontWeight = FontWeight.W700)
+            Text(text = row.name, color = MeshaColors.Ink, fontSize = 13.5.sp, fontWeight = FontWeight.W700)
             Text(
                 text = row.detail,
-                color = RfidTokens.Muted,
+                color = MeshaColors.Muted,
                 fontSize = 11.sp,
                 modifier = Modifier.padding(top = 2.dp),
             )
@@ -235,7 +213,7 @@ private fun DiscoveredReaderRow(row: RfidReaderRow, onEvent: (RfidEvent) -> Unit
         Spacer(Modifier.width(10.dp))
         Text(
             text = row.signalLabel,
-            color = RfidTokens.Muted,
+            color = MeshaColors.Muted,
             fontSize = 12.sp,
             fontWeight = FontWeight.W700,
         )
@@ -251,14 +229,14 @@ private fun RfidPrimaryAction(state: RfidUiState, onEvent: (RfidEvent) -> Unit) 
             .padding(start = 16.dp, end = 16.dp, top = 16.dp)
             .fillMaxWidth()
             .heightIn(min = 52.dp)
-            .background(RfidTokens.Surf2, shape = RoundedCornerShape(15.dp))
-            .border(1.dp, RfidTokens.Hair, shape = RoundedCornerShape(15.dp))
+            .background(MeshaColors.Surf2, shape = RoundedCornerShape(15.dp))
+            .border(1.dp, MeshaColors.Hair, shape = RoundedCornerShape(15.dp))
             .clickable { onEvent(primaryEventFor(state.connectionState)) }
             .padding(15.dp),
     ) {
         Text(
             text = state.primaryActionLabel,
-            color = RfidTokens.BrandD,
+            color = MeshaColors.BrandD,
             fontSize = 15.sp,
             fontWeight = FontWeight.W700,
             fontFamily = FontFamily.Default,
@@ -274,15 +252,15 @@ private fun TestReadRow(label: String, onEvent: (RfidEvent) -> Unit) {
             .padding(start = 16.dp, end = 16.dp, top = 10.dp)
             .fillMaxWidth()
             .heightIn(min = 50.dp)
-            .background(RfidTokens.Surf, shape = RoundedCornerShape(14.dp))
-            .border(1.dp, RfidTokens.Hair, shape = RoundedCornerShape(14.dp))
+            .background(MeshaColors.Surf, shape = RoundedCornerShape(14.dp))
+            .border(1.dp, MeshaColors.Hair, shape = RoundedCornerShape(14.dp))
             .clickable { onEvent(RfidEvent.TestRead) }
             .padding(horizontal = 15.dp, vertical = 13.dp),
     ) {
-        Icon(imageVector = MeshaIcons.Search, contentDescription = null, tint = RfidTokens.Faint, modifier = Modifier.size(16.dp))
+        Icon(imageVector = MeshaIcons.Search, contentDescription = null, tint = MeshaColors.Faint, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(10.dp))
-        Text(text = label, color = RfidTokens.Ink, fontSize = 14.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
-        Icon(imageVector = MeshaIcons.Check, contentDescription = null, tint = RfidTokens.Brand, modifier = Modifier.size(16.dp))
+        Text(text = label, color = MeshaColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
+        Icon(imageVector = MeshaIcons.Check, contentDescription = null, tint = MeshaColors.Brand, modifier = Modifier.size(16.dp))
     }
 }
 

@@ -35,6 +35,11 @@ import dagger.hilt.android.AndroidEntryPoint
 import sg.mesha.goatos.boot.BootstrapUiState
 import sg.mesha.goatos.boot.BootstrapViewModel
 import sg.mesha.goatos.boot.SessionViewModel
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.first
+import sg.mesha.goatos.core.datastore.SessionStore
+import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
+import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.feature.auth.LoginScreen
 import sg.mesha.goatos.rfid.RfidReaderPort
@@ -51,6 +56,10 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var rfidReader: RfidReaderPort
 
+    /** Persisted app language — restored on launch, saved when the picker changes it. */
+    @Inject
+    lateinit var sessionStore: SessionStore
+
     private val requestBluetoothConnect =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
             rfidReader.refreshStatus()
@@ -62,6 +71,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             GoatOsTheme {
+                // Restore the saved language once, and persist any picker change app-wide.
+                LaunchedEffect(Unit) { runCatching { AppLocaleState.set(sessionStore.language.first()) } }
+                LaunchedEffect(AppLocaleState.tag) { runCatching { sessionStore.setLanguage(AppLocaleState.tag) } }
+                ProvideAppLocale {
                 val authed by sessionViewModel.isAuthed.collectAsStateWithLifecycle()
                 if (!authed) {
                     val signInError by sessionViewModel.signInError.collectAsStateWithLifecycle()
@@ -79,6 +92,7 @@ class MainActivity : ComponentActivity() {
                             BootstrapError(message = s.message, onRetry = bootstrapViewModel::load)
                     }
                 }
+                } // ProvideAppLocale
             }
         }
     }

@@ -2,7 +2,6 @@ package sg.mesha.goatos.feature.auth
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,30 +30,33 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.component.MeshaInputShell
+import sg.mesha.goatos.core.designsystem.component.MeshaLanguageSheet
 import sg.mesha.goatos.core.designsystem.component.MeshaPrimaryButton
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
+import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
+import sg.mesha.goatos.core.designsystem.locale.LocalAppLanguage
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 /**
- * Sign-in (`v-login`) — single-screen port of the mock's `v-login`. Everything visual comes
- * from the design system ([MeshaColors] / [MeshaDimens] / [MeshaType] and the shared
- * [MeshaPrimaryButton] / [MeshaInputShell]); this screen declares no colours, no raw dp/sp
- * spacing, and no local token object.
+ * Sign-in (`v-login`) — work-email + password. Everything visual comes from the design
+ * system ([MeshaColors] / [MeshaDimens] / [MeshaType] + [MeshaPrimaryButton] /
+ * [MeshaInputShell]); no colours, raw dp/sp, or local token object here.
  *
- * Pre-session screen: email/otp/language are LOCAL hoisted state; the only external contract
- * is [onSignIn]. OTP is stubbed (any 6 digits) until the Firebase/backend auth pass.
+ * Pre-session screen: email/password/language are LOCAL hoisted state; the only external
+ * contract is [onSignIn]. Real credential verification (Firebase/backend) lands with the
+ * auth pass; for now Sign-in is enabled once a valid email + a non-empty password are entered.
  */
 @Composable
 fun LoginScreen(
@@ -64,24 +65,18 @@ fun LoginScreen(
     errorMessage: String? = null,
 ) {
     var email by remember { mutableStateOf("") }
-    var otp by remember { mutableStateOf("") }
-    var language by remember { mutableStateOf(LANGUAGES.first()) }
+    var password by remember { mutableStateOf("") }
 
     LoginContent(
         email = email,
-        otp = otp,
-        language = language,
+        password = password,
         errorMessage = errorMessage,
         onEmailChange = { email = it },
-        onOtpChange = { next -> if (next.length <= OTP_LENGTH && next.all(Char::isDigit)) otp = next },
-        onSignIn = { if (isValidEmail(email) && otp.length == OTP_LENGTH) onSignIn(email.trim()) },
-        onCycleLanguage = { language = LANGUAGES[(LANGUAGES.indexOf(language) + 1) % LANGUAGES.size] },
+        onPasswordChange = { password = it },
+        onSignIn = { if (isValidEmail(email) && password.isNotBlank()) onSignIn(email.trim()) },
         modifier = modifier,
     )
 }
-
-private const val OTP_LENGTH = 6
-private val LANGUAGES = listOf("English", "हिन्दी", "ಕನ್ನಡ", "తెలుగు")
 
 private fun isValidEmail(raw: String): Boolean {
     val e = raw.trim()
@@ -92,16 +87,23 @@ private fun isValidEmail(raw: String): Boolean {
 @Composable
 private fun LoginContent(
     email: String,
-    otp: String,
-    language: String,
+    password: String,
     onEmailChange: (String) -> Unit,
-    onOtpChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
     onSignIn: () -> Unit,
-    onCycleLanguage: () -> Unit,
     modifier: Modifier = Modifier,
     errorMessage: String? = null,
 ) {
-    val canSignIn = isValidEmail(email) && otp.length == OTP_LENGTH
+    val canSignIn = isValidEmail(email) && password.isNotBlank()
+    val currentTag = LocalAppLanguage.current
+    var showLangSheet by remember { mutableStateOf(false) }
+    if (showLangSheet) {
+        MeshaLanguageSheet(
+            currentTag = currentTag,
+            onSelect = { AppLocaleState.set(it); showLangSheet = false },
+            onDismiss = { showLangSheet = false },
+        )
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -117,18 +119,18 @@ private fun LoginContent(
         EmailField(email = email, onEmailChange = onEmailChange)
 
         Spacer(Modifier.height(MeshaDimens.space4))
-        FieldLabel("One-time code")
-        OtpField(otp = otp, onOtpChange = onOtpChange, onDone = onSignIn)
+        FieldLabel("Password")
+        PasswordField(password = password, onPasswordChange = onPasswordChange, onDone = onSignIn)
 
         Spacer(Modifier.height(MeshaDimens.space5))
         MeshaPrimaryButton(text = "Sign in", enabled = canSignIn, onClick = onSignIn)
 
         Spacer(Modifier.height(MeshaDimens.space3))
-        Centered("6-digit code sent to your Mesha email")
+        Centered("Use your Mesha work email and password.")
 
         Spacer(Modifier.height(MeshaDimens.space6))
         FieldLabel("App language")
-        LanguageField(language = language, onClick = onCycleLanguage)
+        LanguageField(language = AppLocaleState.labelFor(currentTag), onClick = { showLangSheet = true })
 
         Spacer(Modifier.height(18.dp))
         Text(
@@ -202,22 +204,21 @@ private fun EmailField(email: String, onEmailChange: (String) -> Unit) {
 }
 
 @Composable
-private fun OtpField(otp: String, onOtpChange: (String) -> Unit, onDone: () -> Unit) {
+private fun PasswordField(password: String, onPasswordChange: (String) -> Unit, onDone: () -> Unit) {
     BasicTextField(
-        value = otp,
-        onValueChange = onOtpChange,
+        value = password,
+        onValueChange = onPasswordChange,
         singleLine = true,
-        textStyle = MeshaType.bodyStrong.copy(color = MeshaColors.Ink, fontFamily = FontFamily.Monospace, letterSpacing = 5.6.sp),
+        visualTransformation = PasswordVisualTransformation(),
+        textStyle = MeshaType.body.copy(color = MeshaColors.Ink),
         cursorBrush = SolidColor(MeshaColors.Brand),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { onDone() }),
         modifier = Modifier.fillMaxWidth(),
         decorationBox = { inner ->
             MeshaInputShell {
                 Box(Modifier.weight(1f)) {
-                    if (otp.isEmpty()) {
-                        Text("••••••", color = MeshaColors.Faint, style = MeshaType.bodyStrong.copy(fontFamily = FontFamily.Monospace, letterSpacing = 5.6.sp))
-                    }
+                    if (password.isEmpty()) Text("Your password", color = MeshaColors.Faint, style = MeshaType.body)
                     inner()
                 }
             }
@@ -273,12 +274,10 @@ private fun LoginPreview() {
     GoatOsTheme {
         LoginContent(
             email = "arun.kumar@mesha.sg",
-            otp = "4290",
-            language = "English",
+            password = "hunter2",
             onEmailChange = {},
-            onOtpChange = {},
+            onPasswordChange = {},
             onSignIn = {},
-            onCycleLanguage = {},
         )
     }
 }
