@@ -427,6 +427,11 @@ Implications:
   cleanup lane, not incidental polish.
 - Do not seed `Animal_Master` by blindly taking the latest-event spine as active
   truth; reconcile it to dashboard/current-status sources first.
+- Treat dashboard active totals as aggregate targets, not animal-grain proof.
+  `farm.daily_summary_dev` and `ceo_dashboard.counting_db_with_holding_dev`
+  do not carry animal identifiers, so they can expose count/taxonomy gaps but
+  cannot close row-level `Animal_Master` reconciliation without an
+  animal-identifier source.
 - Treat the event-spine vs dashboard active gap as bidirectional. The event
   spine is not simply a 512-animal superset; the two sources also disagree on
   breed/species vocabulary and can contain populations missing from the other.
@@ -760,6 +765,11 @@ Seed reconciliation rows:
   grain = `2659`.
 - The `512` gap must stay open until `Current_Location_Status` decides the
   active source-of-truth priority and row-level differences.
+- Dashboard rows are aggregate-only at source-count grain, so use them as
+  canonical aggregate targets and gap detectors. Do not use them as the
+  row-level join source for `Animal_Master`; row-level closure needs an
+  animal-identifier source such as Drive RFID mapping or another current-status
+  table with animal IDs.
 - The gap is bidirectional and includes breed/species vocabulary mismatch, not
   just extra event-spine animals. Seed breed rows include:
   - event spine empty breed `468` vs dashboard empty breed `0`
@@ -878,7 +888,7 @@ These should be preloaded into `Issue_Queue` or `Audit_Findings`.
 | Fattening vs shiftings stage-source reconciliation | P2 | data/dev + ground/source team | CBE K2 `52` vs `57`; CBE K3 `10` vs `0` |
 | Animal import gate feasibility: DOB and sex coverage | P1 | data/dev + ground/source team | Latest-event active spine `2659`; no native DOB evidence `2124`; no native gender evidence `598`; native DOB+gender present only `534`; Drive RFID mapping and estimated-DOB policy are required before broad GREEN import |
 | Drive/Sheets credential blocker for RFID and sex source | P1 | data/dev | `goatsDB.goatsDB_rfid_mapping` is a Google Sheets external table with `RFID` and `Gender`; BigQuery query fails without Drive credentials, so animal-level import cannot rely on BQ-only extraction |
-| Event-spine active vs dashboard active gap | P1 | data/dev | `goatsDB.goats_db_clean` latest-event active `2659`; dashboard active total `2147`; delta `512`; do not seed `Animal_Master` from event spine until reconciled. Gap is bidirectional: event spine has empty breed `468` and `Anantapur Sheep` `153` missing from dashboard, while dashboard has `Kenguri` `255` and higher `Beetal` count `688` vs event `463` |
+| Event-spine active vs dashboard active gap | P1 | data/dev | `goatsDB.goats_db_clean` latest-event active `2659`; dashboard active total `2147`; delta `512`; do not seed `Animal_Master` from event spine until reconciled. Dashboard sources are aggregate-only and have no animal IDs, so row-level closure needs an animal-identifier source/current-status source. Gap is bidirectional: event spine has empty breed `468` and `Anantapur Sheep` `153` missing from dashboard, while dashboard has `Kenguri` `255` and higher `Beetal` count `688` vs event `463` |
 | Dropped no-identifier event rows | P2 | data/dev + ground/source team | `27` raw `goatsDB.goats_db_clean` rows have empty `goat_id`, `farm_goat_id`, and `inp_goat_id`; active-spine "missing identifiers = 0" only holds after these rows are dropped before grouping |
 
 ## Sync And Cron Architecture
