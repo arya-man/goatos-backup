@@ -45,10 +45,13 @@ class ProfileViewModel @Inject constructor(
         val profile = runCatching { bootstrap.operatorProfile() }.getOrNull()
         val langCode = runCatching { sessionStore.language.first() }.getOrDefault("en")
         val name = profile?.displayName?.ifBlank { profile.displayCode }?.ifBlank { null } ?: "Signed in"
+        val role = profile?.primaryRoleHint?.ifBlank { "" } ?: ""
+        val location = profile?.primaryLocation?.ifBlank { "" } ?: ""
         _state.value = ProfileUiState(
             name = name,
-            roleLabel = profile?.primaryRoleHint?.ifBlank { "" } ?: "",
-            scopeLabel = profile?.primaryLocation?.ifBlank { "" } ?: "",
+            roleLabel = role,
+            // Mock subtitle is "role · location" (e.g. "Health Asst Mgr · CBE").
+            scopeLabel = listOf(role, location).filter { it.isNotBlank() }.joinToString(" · "),
             initials = initialsOf(name),
             rows = baseRows(langCode).withRfid(reader.status.value),
         )
@@ -91,7 +94,9 @@ class ProfileViewModel @Inject constructor(
     private fun baseRows(langCode: String): List<SettingRow> = listOf(
         SettingRow(SettingKind.LANGUAGE, "Language", value = LANGUAGES[langCode] ?: "English"),
         SettingRow(SettingKind.RFID, "RFID reader"),
-        SettingRow(SettingKind.NOTIFICATIONS, "Notifications", toggleOn = true),
+        // Mock renders Notifications as a chevron row (opens notification settings), not a
+        // toggle switch — keep the row a plain navigable entry.
+        SettingRow(SettingKind.NOTIFICATIONS, "Notifications"),
         SettingRow(SettingKind.SIGN_OUT, "Sign out"),
     )
 
