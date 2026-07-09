@@ -1028,6 +1028,21 @@ row links must be filled by the sync job in `Issue_Queue`, not maintained here.
 
 Use scheduled workers, not manual formulas, as the source of truth.
 
+Current executable bootstrap:
+
+```bash
+make legacy-god-sheet-sync-dry-run
+make legacy-god-sheet-sync-apply
+```
+
+The current implementation creates the managed workbook tabs, writes the
+control/source catalog rows, seeds validation rules and open issue categories,
+and appends `Sync_Runs`. It is idempotent: non-empty tabs are preserved unless
+`--replace-managed-tabs` is explicitly passed to `backend/cmd/legacy-god-sheet-sync`.
+Live source extraction and row-level normalization are the next implementation
+slice; Goat OS DB import remains blocked until the RFID/DOB/sex/species/location
+gates pass.
+
 Recommended control plane:
 
 ```text
