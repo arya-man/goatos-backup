@@ -35,5 +35,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- DEV-ONLY screenshot harness (GalleryActivity.kt). Not in launcher; adb-launched
+             to render one screen with mock fixture data for pixel-diffing against the mock. -->
+        <activity
+            android:name=".GalleryActivity"
+            android:exported="true"
+            android:theme="@style/Theme.GoatOs" />
     </application>
 </manifest>

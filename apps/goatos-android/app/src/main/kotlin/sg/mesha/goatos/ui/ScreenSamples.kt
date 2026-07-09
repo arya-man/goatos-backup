@@ -39,22 +39,36 @@ import sg.mesha.goatos.feature.submit.SyncState
 // screens are already stateless (dumb-renderer), so only the source changes.
 
 fun sampleCalendarState(): CalendarUiState = CalendarUiState(
-    eyebrow = "Mesha",
+    eyebrow = "Vaccination",
     title = "Calendar",
-    selectedDateLabel = "Thu 9 Jul",
+    selectedDateLabel = "Today · Tue 7 Jul",
     segments = listOf(
         CalendarSegment("week", "Week", CalendarSegmentKind.Week),
         CalendarSegment("month", "Month", CalendarSegmentKind.Month),
         CalendarSegment("history", "History", CalendarSegmentKind.History),
     ),
     selectedSegmentId = "week",
+    // Mock #weekStrip: Mon–Sun, single-letter day, date, dot on work days; today = Tue 7.
     weekDays = listOf(
-        CalendarWeekDay("d1", "MON", "7", "2 due", true),
-        CalendarWeekDay("d2", "TUE", "8", "", false, isToday = true),
-        CalendarWeekDay("d3", "WED", "9", "1 due", true),
+        CalendarWeekDay("d6", "M", "6", "", hasWork = false),
+        CalendarWeekDay("d7", "T", "7", "", hasWork = true, isToday = true, isSelected = true),
+        CalendarWeekDay("d8", "W", "8", "", hasWork = true),
+        CalendarWeekDay("d9", "T", "9", "", hasWork = false),
+        CalendarWeekDay("d10", "F", "10", "", hasWork = true),
+        CalendarWeekDay("d11", "S", "11", "", hasWork = false),
+        CalendarWeekDay("d12", "S", "12", "", hasWork = false),
     ),
     weekItems = listOf(
-        CalendarItem("i1", "Gandhi 1 · Milking", "PPR + FMD", "3 sheds due", CalendarTone.Warn, ctaLabel = "Open drive", target = "/vaccination"),
+        CalendarItem(
+            id = "i1",
+            title = "Today · 4 sheds",
+            subtitle = "77 animals due · CBE · Gandhi 1 · Castro 1 · Mandela 1 · Sumathi 1",
+            statusLabel = "Due now",
+            statusTone = CalendarTone.Ok,
+            categoryLabel = "Vaccination",
+            ctaLabel = "Open drive",
+            target = "/vaccination",
+        ),
     ),
     weekEmptyLabel = "No work today",
     monthLabel = "July 2026",

@@ -234,7 +234,8 @@ private fun WeekDayCell(
             .then(if (on) Modifier.background(CalTokens.BrandGradient) else Modifier.background(CalTokens.Surf))
             .border(1.dp, if (on) Color.Transparent else CalTokens.Hair, RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
+            // Mock: today's cell is a taller pill that pops below the row.
+            .padding(vertical = if (on) 18.dp else 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
