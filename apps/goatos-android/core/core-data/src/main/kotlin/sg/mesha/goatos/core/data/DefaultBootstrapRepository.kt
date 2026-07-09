@@ -5,6 +5,7 @@ import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.BootstrapDto
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
+import sg.mesha.goatos.core.network.HeartbeatDeviceRequestDto
 import sg.mesha.goatos.core.network.RegisterDeviceRequestDto
 import sg.mesha.goatos.core.network.toNavState
 
@@ -53,7 +54,19 @@ class DefaultBootstrapRepository(
 
         val known = dto.deviceState.device
         if (known != null) {
-            store.setDeviceId(known.deviceId.ifBlank { null })
+            val id = known.deviceId.ifBlank { null }
+            store.setDeviceId(id)
+            // Refresh liveness + current app/OS version for this known device. Best-effort:
+            // a failed heartbeat must not fail the nav load, so it is swallowed and the next
+            // bootstrap retries. This is the only heartbeat trigger — once per bootstrap.
+            if (id != null) {
+                runCatching {
+                    api.heartbeatDevice(
+                        id,
+                        HeartbeatDeviceRequestDto(appVersion = appVersion, osVersion = osVersion),
+                    )
+                }
+            }
             return
         }
 

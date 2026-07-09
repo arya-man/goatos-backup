@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
+import sg.mesha.goatos.core.network.dto.ValidationReportDto
 import sg.mesha.goatos.feature.submit.SubmitEvent
 import sg.mesha.goatos.feature.submit.SubmitUiState
 import sg.mesha.goatos.feature.submit.SyncState
@@ -31,9 +32,10 @@ import javax.inject.Inject
  * [SubmitEvent.Retry] re-attempts the same submission (reusing the idempotency key so
  * a retry is safe) or reloads the task when there is nothing to submit.
  *
- * NOTE: answers/proof payload mapping (form DSL + camera→signed-URL proof upload) is
- * not wired yet; the submission is sent with empty answers, so backend validation may
- * reject it — surfaced honestly as CONFLICT rather than a fabricated ACK.
+ * NOTE: answers/proof payload mapping (form DSL runner + camera→signed-URL proof upload) is
+ * not wired yet; the submission is sent with empty answers. A task whose form needs no
+ * answers ACKs; one that requires answers/proof is rejected — surfaced honestly via
+ * [rejectionReason] as "recording form lands in a later build", never a fabricated ACK.
  */
 @HiltViewModel
 class SubmitViewModel @Inject constructor(
@@ -112,11 +114,10 @@ class SubmitViewModel @Inject constructor(
                         )
                     }
                 } else {
-                    val reason = report.errors.firstOrNull()?.message ?: "Server rejected the submission."
                     _state.update {
                         it.copy(
                             syncState = SyncState.CONFLICT,
-                            syncLabel = reason,
+                            syncLabel = rejectionReason(report),
                             canSubmit = false,
                         )
                     }
@@ -130,6 +131,22 @@ class SubmitViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    // Turn a backend validation failure into an honest operator-facing line. When the ONLY
+    // errors are missing required answers/proof, the real blocker is that this build has no
+    // recording-form capture yet (form DSL runner + camera→proof upload land later) — say that
+    // plainly instead of leaking a raw field-error. Any other rejection is shown verbatim.
+    private fun rejectionReason(report: ValidationReportDto): String {
+        val codes = report.errors.map { it.code }
+        val onlyFormGaps = codes.isNotEmpty() && codes.all {
+            it == "required" || it == "proof_required" || it == "proof_subject_required"
+        }
+        return if (onlyFormGaps) {
+            "This drive needs the recording form before it can be submitted — form capture lands in a later build."
+        } else {
+            report.errors.firstOrNull()?.message ?: "Server rejected the submission."
         }
     }
 
