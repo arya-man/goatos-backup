@@ -18,12 +18,12 @@ import sg.mesha.goatos.ui.sampleRecordState
 import javax.inject.Inject
 
 /**
- * Read-only shed/drive record state holder. Seeds the interim [sampleRecordState] fixture
- * for an instant first frame. The shed to open is passed as the `shedId` nav arg (read from
- * [SavedStateHandle]); it loads THAT shed's drilldown via [ExecutionRepository.shed]. Only
- * when no shed id was supplied does it fall back to the first execution shed. Mapped in
- * [toRecordUiState]. On error/empty the sample is kept. The record is read-only; the only
- * event ([RecordEvent.Close]) is navigation.
+ * Read-only shed/drive record state holder. Shows a loading placeholder first, then loads the
+ * real drilldown for the `shedId` nav arg (read from [SavedStateHandle]) via
+ * [ExecutionRepository.shed]; only when no shed id was supplied does it fall back to the first
+ * execution shed. Mapped in [toRecordUiState]. An empty/failed load shows an honest empty/error
+ * state — the sample record is NEVER shown as if it were live data. The record is read-only;
+ * the only event ([RecordEvent.Close]) is navigation.
  */
 @HiltViewModel
 class RecordViewModel @Inject constructor(
@@ -33,7 +33,7 @@ class RecordViewModel @Inject constructor(
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")
 
-    private val _state = MutableStateFlow(sampleRecordState())
+    private val _state = MutableStateFlow(recordPlaceholder("Loading record…"))
     val state: StateFlow<RecordUiState> = _state.asStateFlow()
 
     init {
@@ -45,8 +45,10 @@ class RecordViewModel @Inject constructor(
             val id = shedId ?: repo.rows().rows.firstOrNull()?.shedId
             id?.let { repo.shed(it) }
         }
-            .onSuccess { drilldown -> drilldown?.toRecordUiState()?.let { _state.value = it } }
-            .onFailure { /* keep the sample so the screen is never blank */ }
+            .onSuccess { drilldown ->
+                _state.value = drilldown?.toRecordUiState() ?: recordPlaceholder("No record to show for this shed.")
+            }
+            .onFailure { _state.value = recordPlaceholder("Couldn't load this record right now.") }
     }
 
     fun onEvent(event: RecordEvent) {
@@ -69,10 +71,21 @@ class RecordViewModel @Inject constructor(
         return base.copy(
             title = "$shedName · record",
             subtitle = "${summary.completed} / ${summary.total} done",
-            groups = groups.ifEmpty { base.groups },
+            // Real drives only — a shed with no drives renders empty, never the sample rows.
+            groups = groups,
             countLabel = "${summary.completed} doses",
             statusLabel = if (complete) "Done" else "In progress",
             statusTone = if (complete) RecordTone.OK else RecordTone.WARN,
         )
     }
+
+    // Honest non-live state: reuse the sample only for stable chrome, clear the fabricated
+    // drive rows, and carry the real message in the subtitle.
+    private fun recordPlaceholder(message: String): RecordUiState = sampleRecordState().copy(
+        subtitle = message,
+        groups = emptyList(),
+        countLabel = "",
+        statusLabel = "",
+        statusTone = RecordTone.WARN,
+    )
 }
