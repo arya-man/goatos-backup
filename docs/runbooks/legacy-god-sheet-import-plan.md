@@ -60,8 +60,9 @@ spreadsheet through BigQuery external-table metadata.
 For animal-level import, Drive/Sheets read access is a hard prerequisite, not a
 nice-to-have. `goatsDB.goatsDB_rfid_mapping` is a Google Sheets external table
 with `RFID` and `Gender` columns, and BigQuery queries against it fail without
-Drive credentials. The god sheet cannot reliably populate `animal_identifier_1`
-or complete sex backfill from BigQuery alone.
+Drive credentials. The god sheet cannot reliably populate RFID-backed
+`animal_identifier_1` / `animal_identifier_2` or complete sex backfill from
+BigQuery alone.
 
 ## Metric Ownership
 
@@ -365,10 +366,20 @@ Goat OS requires stricter canonical animal identity than the legacy dashboard.
 
 Current creation/import requirements:
 
-- `animal_identifier_1` is required.
-- `animal_identifier_2` is optional until double RFID tagging is live.
+- `animal_identifier_1` is the primary RFID/tag identifier and is required.
+- `animal_identifier_2` is the secondary RFID/tag identifier and is optional
+  until double RFID tagging is live.
 - If both identifiers are present, they must be different.
 - Identifier values are globally single-use for life.
+- Legacy `goat_id`, `farm_goat_id`, and `inp_goat_id` columns are source
+  identifiers/crosswalk inputs only.
+- Legacy old-tag and new-tag columns are candidate RFID/tag inputs for
+  `animal_identifier_1` / `animal_identifier_2`. They may populate Goat OS
+  identifiers only when the source value is an actual RFID/tag value and passes
+  global uniqueness checks.
+- Legacy tag reuse is dirty data for Goat OS. A fallen/retired/reused RFID/tag
+  must be recorded in identifier history as broken/retired/disputed for the
+  original animal and must not be assigned to a different animal.
 - `species` is required and must be `goat` or `sheep`.
 - `sex` is required and must be `female` or `male`.
 - `dob` is required for current create/import contracts.
@@ -462,10 +473,11 @@ Coverage metrics to write each run:
 
 Implications:
 
-- Do not promote any row to strict GREEN until Drive RFID mapping or an
-  equivalent trusted identifier source is readable. The event spine has legacy
-  IDs, DOB, and gender signals, but not the RFID-backed
-  `animal_identifier_1` required for Goat OS import readiness.
+- Do not promote any row to strict GREEN until a trusted RFID/tag source for
+  `animal_identifier_1` is readable and globally unique. Valid sources include
+  the RFID mapping table and verified legacy old-tag/new-tag columns. The event
+  spine has legacy source IDs, DOB, and gender signals, but source IDs are not a
+  substitute for the RFID-backed Goat OS identifiers.
 - The vaccination demo must treat DOB, species, sex, RFID, and unresolved
   current-location rows as gating cleanup lanes, not incidental polish.
 - Estimated-DOB recovery is narrow, not broad. Only rows with approved age/date
@@ -896,8 +908,8 @@ Seed rules:
 | `active_spine_dashboard_reconcile` | P1 | Yes, for import; no, for source visibility | data/dev | Event-spine active total and dashboard aggregate total must either reconcile at the chosen grain or produce a blocking aggregate reconciliation issue with source rows attached. |
 | `dashboard_rows_are_aggregate_only` | P1 | Yes, for row-level import | data/dev | Aggregate dashboard rows must never be used as the row-level join source for `Animal_Master`. Any attempt to close animal rows from aggregate-only data fails validation. |
 | `raw_source_row_has_identifier` | P1 | Yes | data/dev + ground/source team | Every raw animal-event source row must have at least one usable candidate identifier before grouping. Rows missing all candidate identifiers create one RED `Issue_Queue` row per source row. |
-| `animal_identifier_1_present` | P1 | Yes | data/dev | Import candidate must have trusted `animal_identifier_1`, currently expected from Drive RFID mapping or another approved identifier source. |
-| `animal_identifier_uniqueness` | P1 | Yes | data/dev | Normalized identifiers must be unique across current and historical identifier sources. Duplicates create RED issues until resolved. |
+| `animal_identifier_1_present` | P1 | Yes | data/dev | Import candidate must have trusted primary RFID/tag `animal_identifier_1` from RFID mapping or validated old-tag/new-tag columns; legacy source IDs do not satisfy this. |
+| `animal_identifier_uniqueness` | P1 | Yes | data/dev | Normalized RFID/tag identifiers must be globally single-use across current and historical identifier sources. Reused fallen/retired tags create RED issues until resolved. |
 | `species_evidence_present` | P1 | Yes | data/dev + ground/source team | Import candidate must have trusted species from explicit source type or approved `Species_Taxonomy_Crosswalk`; blank/unmapped/ambiguous values create RED issues. |
 | `breed_species_taxonomy_reconcile` | P2 | Yes, when taxonomy affects import or canonical counts | data/dev + ground/source team | Breed/species vocabulary across event spine, dashboard counts, procurement, and crosswalk must reconcile or produce taxonomy issues with source refs. |
 | `dob_evidence_or_approved_estimate` | P1 | Yes | data/dev + ground/source team | Active import candidates must have trusted Birth-event `date` evidence or an approved estimated-DOB policy with source evidence. |
@@ -1103,16 +1115,16 @@ For demo readiness, prioritize:
 
 Demo boundary:
 
-- Until Drive/Sheets access can read `goatsDB.goatsDB_rfid_mapping` or another
-  approved `animal_identifier_1` source, the demo is a god-sheet readiness demo:
-  `Vaccination_Due_View`, RED/AMBER/GREEN status, and cleanup queue.
+- Until Drive/Sheets access can read `goatsDB.goatsDB_rfid_mapping` or verified
+  old-tag/new-tag source columns for `animal_identifier_1`, the demo is a
+  god-sheet readiness demo: `Vaccination_Due_View`, RED/AMBER/GREEN status, and
+  cleanup queue.
 - Goat OS DB import is not part of that demo unless `animal_identifier_1`,
   species, sex, DOB/approved estimated DOB, and current location all pass the
   import gate.
-- Do not create a demo-only provisional `animal_identifier_1` exception unless
-  it is explicitly approved as a temporary migration rule and Goat OS preview
-  accepts it. The current temporary identifier exception applies only to
-  `animal_identifier_2`.
+- Do not create a demo-only provisional `animal_identifier_1` from legacy
+  `goat_id`/`farm_goat_id`/`inp_goat_id`. The current temporary identifier
+  exception applies only to missing `animal_identifier_2`.
 
 Do not block the vaccination demo on closing every procurement/fattening
 aggregate issue. Instead:

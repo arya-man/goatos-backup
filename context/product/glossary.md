@@ -123,18 +123,19 @@ Build rule:
 ### Animal External Identifiers
 
 Every canonical herd animal has one internal immutable `animal_id` plus one
-required external field/business identifier and one optional second identifier
-until double RFID tagging is live:
+required external RFID/tag identifier and one optional second RFID/tag
+identifier until double RFID tagging is live:
 
 ```text
 animal_identifier_1
 animal_identifier_2
 ```
 
-These apply to goats, sheep, and future species. They are parallel identifiers,
-not old/new IDs. Product copy, APIs, canonical DB columns, imports after review,
-and vaccination matching must call them Animal ID 1 and Animal ID 2, or the exact
-snake-case field names above.
+These apply to goats, sheep, and future species. In legacy sheets, the same
+physical tag values may appear in columns named old tag and new tag. In Goat OS
+the canonical names remain Animal ID 1 and Animal ID 2, or the exact snake-case
+field names above, because both fields are current/importable RFID/tag slots
+after validation.
 
 Identifier values are globally single-use for life:
 
@@ -144,18 +145,26 @@ identifier_value -> exactly one animal_id ever
 
 No park, shed, source sheet, species, death, sale, transfer, tag breakage, or tag
 loss releases the value. If a value ever belonged to an animal, it remains tied
-to that animal in history forever and cannot be assigned to another animal.
+to that animal in history forever and cannot be assigned to another animal. Old
+legacy data may show fallen/broken tags reused on a different goat; Goat OS
+treats that as dirty source data, not as permission to reuse the identifier.
 
 Build rule:
 
 - Never merge by one external identifier value alone.
-- Every accepted/canonical herd animal must have `animal_identifier_1`.
+- Every accepted/canonical herd animal must have RFID/tag
+  `animal_identifier_1`.
   `animal_identifier_2` is optional for now; once double RFID tagging is live,
   make it mandatory in both application validation and a DB invariant.
 - When both identifiers are present, the two current values must be different.
 - Duplicate checks run against all current and historical identifier rows. Any
   match means the value is already owned by that animal; a new animal using it
   is invalid source data and must be rejected/fixed, not parked for later.
+- Legacy `goat_id`, `farm_goat_id`, and `inp_goat_id` columns are
+  crosswalk/provenance inputs only.
+- Legacy old-tag and new-tag columns are candidate RFID/tag inputs for
+  `animal_identifier_1` and `animal_identifier_2`. They can be imported only
+  after normalization, source-trust checks, and global single-use validation.
 - If a physical tag falls off or breaks, mark the old value as broken/retired in
   identifier history. The animal keeps operating through the surviving
   identifier while a replacement is pending.
