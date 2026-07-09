@@ -34,6 +34,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
 
 /**
  * Calendar — the universal landing for every role (screens.md). Renders the
@@ -55,7 +57,7 @@ fun CalendarScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(CalTokens.PageBg)
+            .background(MeshaColors.PageBg)
             .padding(horizontal = Gutter),
     ) {
         item { CalendarHeader(state, onEvent) }
@@ -94,7 +96,7 @@ private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> U
             if (state.eyebrow.isNotEmpty()) {
                 Text(
                     text = state.eyebrow.uppercase(),
-                    color = CalTokens.Faint,
+                    color = MeshaColors.Faint,
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.W700,
                     letterSpacing = 0.6.sp,
@@ -102,7 +104,7 @@ private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> U
             }
             Text(
                 text = state.title,
-                color = CalTokens.Ink,
+                color = MeshaColors.Ink,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.W700,
             )
@@ -115,7 +117,7 @@ private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> U
             if (line.isNotEmpty()) {
                 Text(
                     text = line,
-                    color = CalTokens.Muted,
+                    color = MeshaColors.Muted,
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.W600,
                     modifier = Modifier.padding(top = 4.dp),
@@ -134,14 +136,14 @@ private fun HeaderIconButton(onClick: () -> Unit) {
         Modifier
             .size(38.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(CalTokens.Surf2)
+            .background(MeshaColors.Surf2)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = MeshaIcons.Refresh,
             contentDescription = "Refresh",
-            tint = CalTokens.Muted,
+            tint = MeshaColors.Muted,
             modifier = Modifier.size(18.dp),
         )
     }
@@ -161,8 +163,8 @@ private fun SegmentedControl(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(13.dp))
-            .background(CalTokens.Surf)
-            .border(1.dp, CalTokens.Hair, RoundedCornerShape(13.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(13.dp))
             .padding(4.dp),
     ) {
         segments.forEach { seg ->
@@ -171,14 +173,14 @@ private fun SegmentedControl(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(9.dp))
-                    .then(if (on) Modifier.background(CalTokens.BrandGradient) else Modifier)
+                    .then(if (on) Modifier.background(MeshaColors.BrandGradient) else Modifier)
                     .clickable { onSelect(seg.id) }
                     .padding(vertical = 9.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = seg.label,
-                    color = if (on) CalTokens.OnBrand else CalTokens.Muted,
+                    color = if (on) MeshaColors.OnBrand else MeshaColors.Muted,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.W700,
                     maxLines = 1,
@@ -231,8 +233,8 @@ private fun WeekDayCell(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
-            .then(if (on) Modifier.background(CalTokens.BrandGradient) else Modifier.background(CalTokens.Surf))
-            .border(1.dp, if (on) Color.Transparent else CalTokens.Hair, RoundedCornerShape(14.dp))
+            .then(if (on) Modifier.background(MeshaColors.BrandGradient) else Modifier.background(MeshaColors.Surf))
+            .border(1.dp, if (on) Color.Transparent else MeshaColors.Hair, RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
             // Mock: today's cell is a taller pill that pops below the row.
             .padding(vertical = if (on) 18.dp else 10.dp),
@@ -240,13 +242,13 @@ private fun WeekDayCell(
     ) {
         Text(
             text = day.dayName.uppercase(),
-            color = if (on) CalTokens.OnBrand else CalTokens.Faint,
+            color = if (on) MeshaColors.OnBrand else MeshaColors.Faint,
             fontSize = 9.5.sp,
             fontWeight = FontWeight.W700,
         )
         Text(
             text = day.dayNumber,
-            color = if (on) CalTokens.OnBrand else CalTokens.Ink,
+            color = if (on) MeshaColors.OnBrand else MeshaColors.Ink,
             fontSize = 15.sp,
             fontWeight = FontWeight.W800,
             modifier = Modifier.padding(top = 4.dp),
@@ -254,7 +256,7 @@ private fun WeekDayCell(
         if (day.dueCountLabel.isNotEmpty()) {
             Text(
                 text = day.dueCountLabel,
-                color = if (on) CalTokens.OnBrand else CalTokens.Muted,
+                color = if (on) MeshaColors.OnBrand else MeshaColors.Muted,
                 fontSize = 9.5.sp,
                 fontWeight = FontWeight.W600,
                 maxLines = 1,
@@ -268,7 +270,7 @@ private fun WeekDayCell(
                     .padding(top = 4.dp)
                     .size(5.dp)
                     .clip(CircleShape)
-                    .background(if (on) CalTokens.OnBrand else CalTokens.Brand),
+                    .background(if (on) MeshaColors.OnBrand else MeshaColors.Brand),
             )
         }
     }
@@ -282,9 +284,9 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
             .fillMaxWidth()
             .padding(bottom = 11.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(CalTokens.Surf)
-            .border(1.dp, CalTokens.Hair, RoundedCornerShape(18.dp))
-            .leftAccent(CalTokens.Brand)
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+            .leftAccent(MeshaColors.Brand)
             .then(if (drillable) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(start = 16.dp, top = 15.dp, end = 16.dp, bottom = 15.dp),
     ) {
@@ -301,13 +303,13 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
             Icon(
                 imageVector = MeshaIcons.Syringe,
                 contentDescription = null,
-                tint = if (drillable) CalTokens.Brand else CalTokens.Faint,
+                tint = if (drillable) MeshaColors.Brand else MeshaColors.Faint,
                 modifier = Modifier.size(16.dp),
             )
             Spacer(Modifier.size(8.dp))
             Text(
                 text = item.title,
-                color = if (drillable) CalTokens.Ink else CalTokens.Muted,
+                color = if (drillable) MeshaColors.Ink else MeshaColors.Muted,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.W700,
             )
@@ -315,7 +317,7 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
         if (item.subtitle.isNotEmpty()) {
             Text(
                 text = item.subtitle,
-                color = CalTokens.Muted,
+                color = MeshaColors.Muted,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.W500,
                 modifier = Modifier.padding(top = 7.dp),
@@ -324,7 +326,7 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
         item.ctaLabel?.let { cta ->
             Text(
                 text = "$cta  ›",
-                color = CalTokens.Brand2,
+                color = MeshaColors.Brand2,
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.W700,
                 modifier = Modifier.padding(top = 11.dp),
@@ -344,7 +346,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
     item {
         Text(
             text = state.monthLabel,
-            color = CalTokens.Ink,
+            color = MeshaColors.Ink,
             fontSize = 14.sp,
             fontWeight = FontWeight.W700,
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -356,7 +358,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
                 state.monthWeekdayLabels.forEach { wd ->
                     Text(
                         text = wd,
-                        color = CalTokens.Faint,
+                        color = MeshaColors.Faint,
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.W700,
                         modifier = Modifier.weight(1f),
@@ -385,7 +387,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
         item {
             Text(
                 text = state.monthHint,
-                color = CalTokens.Faint,
+                color = MeshaColors.Faint,
                 fontSize = 10.5.sp,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 9.dp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -417,10 +419,10 @@ private fun MonthCell(
         modifier = modifier
             .aspectRatio(1f)
             .clip(RoundedCornerShape(10.dp))
-            .background(CalTokens.Surf)
+            .background(MeshaColors.Surf)
             .border(
                 1.dp,
-                if (cell.isSelected || cell.hasWork) CalTokens.Brand else CalTokens.Hair,
+                if (cell.isSelected || cell.hasWork) MeshaColors.Brand else MeshaColors.Hair,
                 RoundedCornerShape(10.dp),
             )
             .clickable(enabled = cell.dateKey != null, onClick = onClick),
@@ -429,7 +431,7 @@ private fun MonthCell(
     ) {
         Text(
             text = cell.dayNumber,
-            color = if (cell.hasWork) CalTokens.Ink else CalTokens.Muted,
+            color = if (cell.hasWork) MeshaColors.Ink else MeshaColors.Muted,
             fontSize = 12.sp,
             fontWeight = FontWeight.W600,
         )
@@ -460,8 +462,8 @@ fun DaySheet(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(CalTokens.Surf2)
-            .border(1.dp, CalTokens.Hair, RoundedCornerShape(20.dp))
+            .background(MeshaColors.Surf2)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(20.dp))
             .padding(top = 12.dp, bottom = 8.dp),
     ) {
         Box(
@@ -470,11 +472,11 @@ fun DaySheet(
                 .align(Alignment.CenterHorizontally)
                 .size(width = 34.dp, height = 4.dp)
                 .clip(CircleShape)
-                .background(CalTokens.Hair),
+                .background(MeshaColors.Hair),
         )
         Text(
             text = state.title,
-            color = CalTokens.Ink,
+            color = MeshaColors.Ink,
             fontSize = 16.sp,
             fontWeight = FontWeight.W800,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -482,7 +484,7 @@ fun DaySheet(
         if (state.items.isEmpty()) {
             Text(
                 text = state.emptyLabel,
-                color = CalTokens.Muted,
+                color = MeshaColors.Muted,
                 fontSize = 12.5.sp,
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -522,8 +524,8 @@ private fun HistoryRow(row: CalendarHistoryRow, onClick: () -> Unit) {
             .fillMaxWidth()
             .padding(bottom = 9.dp)
             .clip(RoundedCornerShape(15.dp))
-            .background(CalTokens.Surf)
-            .border(1.dp, CalTokens.Hair, RoundedCornerShape(15.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(15.dp))
             .clickable(enabled = row.target != null, onClick = onClick)
             .padding(horizontal = 15.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -532,21 +534,21 @@ private fun HistoryRow(row: CalendarHistoryRow, onClick: () -> Unit) {
             Modifier
                 .size(38.dp)
                 .clip(RoundedCornerShape(11.dp))
-                .background(CalTokens.OkX),
+                .background(MeshaColors.OkX),
             contentAlignment = Alignment.Center,
         ) {
             // Syringe = Vaccination module marker (mock icon set).
             Icon(
                 imageVector = MeshaIcons.Syringe,
                 contentDescription = null,
-                tint = CalTokens.Brand,
+                tint = MeshaColors.Brand,
                 modifier = Modifier.size(17.dp),
             )
         }
         Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
             Text(
                 text = row.title,
-                color = CalTokens.Ink,
+                color = MeshaColors.Ink,
                 fontSize = 13.5.sp,
                 fontWeight = FontWeight.W700,
                 maxLines = 1,
@@ -554,7 +556,7 @@ private fun HistoryRow(row: CalendarHistoryRow, onClick: () -> Unit) {
             )
             Text(
                 text = row.subtitle,
-                color = CalTokens.Muted,
+                color = MeshaColors.Muted,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.W500,
                 modifier = Modifier.padding(top = 2.dp),
@@ -573,7 +575,7 @@ private fun SectionLabel(text: String) {
     if (text.isEmpty()) return
     Text(
         text = text.uppercase(),
-        color = CalTokens.Faint,
+        color = MeshaColors.Faint,
         fontSize = 11.sp,
         fontWeight = FontWeight.W700,
         letterSpacing = 0.55.sp,
@@ -588,14 +590,14 @@ private fun EmptyCard(text: String) {
             .fillMaxWidth()
             .padding(bottom = 11.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(CalTokens.Surf)
-            .border(1.dp, CalTokens.Hair, RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
             .padding(22.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
-            color = CalTokens.Muted,
+            color = MeshaColors.Muted,
             fontSize = 12.5.sp,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
@@ -626,54 +628,28 @@ private fun Modifier.leftAccent(color: Color): Modifier = this.drawBehind {
 }
 
 private fun toneColor(tone: CalendarTone): Color = when (tone) {
-    CalendarTone.Ok -> CalTokens.Brand
-    CalendarTone.Warn -> CalTokens.Warn
-    CalendarTone.Danger -> CalTokens.Danger
-    CalendarTone.Muted -> CalTokens.Muted
-    CalendarTone.Neutral -> CalTokens.Faint
+    CalendarTone.Ok -> MeshaColors.Brand
+    CalendarTone.Warn -> MeshaColors.Warn
+    CalendarTone.Danger -> MeshaColors.Danger
+    CalendarTone.Muted -> MeshaColors.Muted
+    CalendarTone.Neutral -> MeshaColors.Faint
 }
 
 private fun toneBackground(tone: CalendarTone): Color = when (tone) {
-    CalendarTone.Ok -> CalTokens.OkX
-    CalendarTone.Warn -> CalTokens.WarnX
-    CalendarTone.Danger -> CalTokens.DangerX
-    CalendarTone.Muted, CalendarTone.Neutral -> CalTokens.Surf3
+    CalendarTone.Ok -> MeshaColors.OkX
+    CalendarTone.Warn -> MeshaColors.WarnX
+    CalendarTone.Danger -> MeshaColors.DangerX
+    CalendarTone.Muted, CalendarTone.Neutral -> MeshaColors.Surf3
 }
 
 private fun toneText(tone: CalendarTone): Color = when (tone) {
-    CalendarTone.Ok -> CalTokens.BrandD
-    CalendarTone.Warn -> CalTokens.Warn
-    CalendarTone.Danger -> CalTokens.Danger
-    CalendarTone.Muted, CalendarTone.Neutral -> CalTokens.Muted
+    CalendarTone.Ok -> MeshaColors.BrandD
+    CalendarTone.Warn -> MeshaColors.Warn
+    CalendarTone.Danger -> MeshaColors.Danger
+    CalendarTone.Muted, CalendarTone.Neutral -> MeshaColors.Muted
 }
 
-private val Gutter = 16.dp
-
-/**
- * Dark-theme tokens ported from the mock's CSS custom properties
- * (design-system.md §1). Kept local until core-designsystem exposes GoatOsColors;
- * they match the mock exactly so the screen is a faithful port, not a substitute.
- */
-private object CalTokens {
-    val Brand = Color(0xFF8AD457)
-    val Brand2 = Color(0xFF5FB531)
-    val BrandD = Color(0xFFB7EA8C)
-    val OnBrand = Color(0xFF08130B)
-    val PageBg = Color(0xFF0A0F0C)
-    val Surf = Color(0xFF131A15)
-    val Surf2 = Color(0xFF1A241D)
-    val Surf3 = Color(0xFF222E25)
-    val Hair = Color(0xFF28352B)
-    val Ink = Color(0xFFECF4EE)
-    val Muted = Color(0xFF8FA497)
-    val Faint = Color(0xFF5F7367)
-    val Warn = Color(0xFFF0B54B)
-    val WarnX = Color(0x26F0B54B)
-    val Danger = Color(0xFFFB6F63)
-    val DangerX = Color(0x26FB6F63)
-    val OkX = Color(0x298AD457)
-    val BrandGradient = Brush.linearGradient(listOf(Color(0xFF93DA5E), Color(0xFF5FB531)))
-}
+private val Gutter = MeshaDimens.gutter
 
 /* --------------------------------------------------------------------------- */
 /* Preview                                                                     */
