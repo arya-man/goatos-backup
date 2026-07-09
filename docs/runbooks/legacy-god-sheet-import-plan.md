@@ -835,6 +835,17 @@ Columns:
 `next_due_date`, `latest_safe_date`, `due_status`, `due_reason`,
 `blocking_issue_id`, `verification_status`.
 
+Due-date behavior:
+
+- Rows with trusted DOB or approved estimated DOB can compute `age_days`,
+  `next_due_date`, and `latest_safe_date`.
+- Rows without DOB evidence must stay visible in the view with
+  `blocking_issue_id` and `due_status` explaining the missing DOB blocker.
+- Legacy shed-count vaccination history may add context, but it must not
+  suppress due work without trusted animal-level evidence.
+- The demo should show both computable due rows and blocked rows honestly; a
+  sparse due schedule is a data-cleanup signal, not a view failure.
+
 ### 25. `Counts_Snapshots`
 
 Columns:
@@ -1089,6 +1100,19 @@ For demo readiness, prioritize:
 6. `Vaccination_History`.
 7. `Vaccination_Due_View`.
 8. `Issue_Queue`.
+
+Demo boundary:
+
+- Until Drive/Sheets access can read `goatsDB.goatsDB_rfid_mapping` or another
+  approved `animal_identifier_1` source, the demo is a god-sheet readiness demo:
+  `Vaccination_Due_View`, RED/AMBER/GREEN status, and cleanup queue.
+- Goat OS DB import is not part of that demo unless `animal_identifier_1`,
+  species, sex, DOB/approved estimated DOB, and current location all pass the
+  import gate.
+- Do not create a demo-only provisional `animal_identifier_1` exception unless
+  it is explicitly approved as a temporary migration rule and Goat OS preview
+  accepts it. The current temporary identifier exception applies only to
+  `animal_identifier_2`.
 
 Do not block the vaccination demo on closing every procurement/fattening
 aggregate issue. Instead:
