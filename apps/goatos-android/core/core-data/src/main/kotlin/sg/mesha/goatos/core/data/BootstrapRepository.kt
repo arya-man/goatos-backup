@@ -5,9 +5,9 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.toNavState
 
 /**
- * Reads the backend-driven nav state from the app bootstrap. The real impl caches
- * to Room/DataStore keyed by ETag/contract revision + refreshes on FCM config-ping
- * (backend-driven-config.md); the skeleton reads straight through the [AppApi].
+ * Reads the backend-driven nav state from the app bootstrap, offline-first: fetch
+ * fresh, cache it, and fall back to the cached bootstrap when the network fails.
+ * (ETag/contract-revision revalidation + Proto DataStore session land next.)
  */
 interface BootstrapRepository {
     suspend fun loadNavState(): NavState
@@ -15,6 +15,14 @@ interface BootstrapRepository {
 
 class DefaultBootstrapRepository(
     private val api: AppApi,
+    private val cache: BootstrapCache? = null,
 ) : BootstrapRepository {
-    override suspend fun loadNavState(): NavState = api.bootstrap().toNavState()
+    override suspend fun loadNavState(): NavState =
+        try {
+            val dto = api.bootstrap()
+            cache?.save(dto)
+            dto.toNavState()
+        } catch (t: Throwable) {
+            cache?.load()?.toNavState() ?: throw t
+        }
 }

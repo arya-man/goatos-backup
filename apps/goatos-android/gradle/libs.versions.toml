@@ -3,7 +3,12 @@
 # at scaffold. Bump only with a README note + reason.
 [versions]
 agp = "9.2.0"
-kotlin = "2.4.0"
+# Kotlin pinned to 2.3.x: KSP (Hilt/Room annotation processing) has no build for
+# Kotlin 2.4.0 yet (latest KSP is 2.3.9). "Verify at scaffold" wins over the doc's
+# 2.4.0 baseline — bump when KSP ships for the next Kotlin.
+kotlin = "2.3.21"
+ksp = "2.3.9"
+hilt = "2.60.1"
 composeBom = "2026.06.01"
 # androidx runtime libs pinned to the compileSdk-36-compatible line (TRD locks
 # compileSdk=36; the doc's 2.11.0/1.13.0 baselines require SDK 37 which is not the
@@ -17,6 +22,8 @@ navigation = "2.8.9"
 kotlinxSerialization = "1.11.0"
 retrofit = "3.0.0"
 okhttp = "5.1.0"
+datastore = "1.1.7"
+room = "2.8.4"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -37,6 +44,12 @@ retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = 
 retrofit-serialization = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
+hilt-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
+androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 
 [plugins]
 # AGP 9+ has built-in Kotlin: Android modules apply NO kotlin.android plugin.
@@ -45,3 +58,5 @@ android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }

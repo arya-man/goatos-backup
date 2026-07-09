@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.library)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -19,6 +20,10 @@ dependencies {
     implementation(project(":core:core-network"))
     implementation(project(":core:core-common"))
     implementation(libs.kotlinx.coroutines.core)
-    // Room + Proto DataStore + the sync/outbox engine (with fakes) land here in the
-    // data pass; repositories expose Flow and cache the bootstrap by ETag/revision.
+    implementation(libs.kotlinx.serialization.json)
+    api(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+    // Proto DataStore + the WorkManager sync/outbox engine land here next; the Room
+    // cache below gives offline-first bootstrap today.
 }

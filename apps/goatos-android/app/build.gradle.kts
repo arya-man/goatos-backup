@@ -1,6 +1,8 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.hilt)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -56,7 +58,11 @@ dependencies {
     implementation(project(":core:core-common"))
     implementation(project(":core:core-network"))
     implementation(project(":core:core-data"))
+    implementation(project(":core:core-datastore"))
     implementation(project(":feature:feature-calendar"))
+
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

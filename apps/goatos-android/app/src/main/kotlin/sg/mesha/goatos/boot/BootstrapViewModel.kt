@@ -1,20 +1,22 @@
 package sg.mesha.goatos.boot
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.model.nav.NavState
+import javax.inject.Inject
 
 /**
  * Loads the backend-driven nav state once at boot (MVI: a single observable
- * [StateFlow]). Hilt replaces the manual factory in the DI pass.
+ * [StateFlow]). Hilt injects the repository.
  */
-class BootstrapViewModel(
+@HiltViewModel
+class BootstrapViewModel @Inject constructor(
     private val repo: BootstrapRepository,
 ) : ViewModel() {
 
@@ -25,14 +27,5 @@ class BootstrapViewModel(
         viewModelScope.launch {
             runCatching { repo.loadNavState() }.getOrNull()?.let { _navState.value = it }
         }
-    }
-
-    companion object {
-        fun factory(repo: BootstrapRepository): ViewModelProvider.Factory =
-            object : ViewModelProvider.Factory {
-                @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    BootstrapViewModel(repo) as T
-            }
     }
 }

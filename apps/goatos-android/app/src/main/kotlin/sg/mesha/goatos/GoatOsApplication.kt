@@ -1,9 +1,8 @@
 package sg.mesha.goatos
 
 import android.app.Application
+import dagger.hilt.android.HiltAndroidApp
 
-/**
- * Application entry point. Kept thin (TRD §3): the DI graph, boot, and nav host
- * live here as the skeleton grows. Hilt is added in the core-data / DI phase.
- */
+/** Application entry point + Hilt DI root. Kept thin (TRD §3). */
+@HiltAndroidApp
 class GoatOsApplication : Application()
