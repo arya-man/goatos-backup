@@ -151,14 +151,14 @@ export async function createGoatAction(formData: FormData): Promise<void> {
     const idempotencyKey = optionalString(formData, "idempotency_key") ?? randomUUID();
 
     const animalIdentifier1 = requiredString(formData, "animal_identifier_1");
-    const animalIdentifier2 = requiredString(formData, "animal_identifier_2");
-    if (animalIdentifier1.trim().toUpperCase() === animalIdentifier2.trim().toUpperCase()) {
+    const animalIdentifier2 = optionalString(formData, "animal_identifier_2");
+    if (animalIdentifier2 && animalIdentifier1.trim().toUpperCase() === animalIdentifier2.trim().toUpperCase()) {
       throw new Error("Animal ID 1 and Animal ID 2 must be different.");
     }
 
     const body: CreateAdminGoatRequest = {
       animal_identifier_1: animalIdentifier1,
-      animal_identifier_2: animalIdentifier2,
+      ...(animalIdentifier2 ? { animal_identifier_2: animalIdentifier2 } : {}),
       species: inEnum(optionalString(formData, "species"), SPECIES, "species"),
       park_id: requiredString(formData, "park_id"),
       shed_id: requiredString(formData, "shed_id"),

@@ -1029,7 +1029,9 @@ Single create request fields:
 Minimum validation:
 
 - Require tenant, actor, idempotency key, and stable request fingerprint.
-- Require both Animal ID 1 and Animal ID 2 at accepted/canonical creation.
+- Current superseding rule: require Animal ID 1 at accepted/canonical creation;
+  Animal ID 2 stays optional until double RFID tagging is live, then must become
+  mandatory in both application validation and DB constraints.
 - Require park and current shed/location for the clean E2E trigger.
 - Reject unknown location, retired location, unusable vaccination location, bad
   sex, invalid DOB, negative weight, unknown breed if strict breed lookup exists.

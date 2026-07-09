@@ -39,7 +39,7 @@ not remain as the new architecture.
 | `species_catalog` | Tenant/configured species reference. Seed `goat` and `sheep`; support future species without DDL or code branches. |
 | `breeds` | Breed/reference rows belong to exactly one species through `species_id`; aliases map dirty legacy labels to reviewed breed rows. |
 | `herd_animals` | Canonical animal identity and current state. This replaces `goats` as the target entity. |
-| `animal_identifiers` | Current and historical identifier lookup for any species. Every canonical herd animal starts with two required current field/business identifier slots: `animal_identifier_1` and `animal_identifier_2`; both are mandatory and must be different on the same animal. Identifier values are globally single-use for life: one value maps to exactly one `animal_id` ever and is never reused after death, sale, transfer, tag breakage, or tag loss. Raw source column names are provenance only and must not leak into canonical DB/API/UI names as old/new identity. |
+| `animal_identifiers` | Current and historical identifier lookup for any species. Every canonical herd animal starts with required current field/business identifier `animal_identifier_1`; `animal_identifier_2` is optional until double RFID tagging is live. When both are present, they must be different on the same animal. Identifier values are globally single-use for life: one value maps to exactly one `animal_id` ever and is never reused after death, sale, transfer, tag breakage, or tag loss. Raw source column names are provenance only and must not leak into canonical DB/API/UI names as old/new identity. The double RFID rollout must make `animal_identifier_2` mandatory in both app validation and DB constraints. |
 | `animal_location_history` | Temporal movement history for any species. |
 | `animal_identity_events` | Identity/audit events for any species. |
 
@@ -49,7 +49,7 @@ not remain as the new architecture.
 |---|---|
 | `animal_id uuid` | Immutable internal ID. Replaces `goat_id`. |
 | `tenant_id uuid` | Mandatory tenant boundary. |
-| `animal_identifier_1 text`, `animal_identifier_2 text` | Required current external field/business IDs for every goat, sheep, and future species at creation/seed. They are parallel IDs, not old/new IDs; UI labels are Animal ID 1 and Animal ID 2. The two current values on one animal must be different, and every value must be globally unique across current and historical identifier tables. |
+| `animal_identifier_1 text`, `animal_identifier_2 text` | `animal_identifier_1` is the required current external field/business ID for every goat, sheep, and future species at creation/seed. `animal_identifier_2` is optional until double RFID tagging is live, then must be made mandatory in both app validation and DB constraints. They are parallel IDs, not old/new IDs; UI labels are Animal ID 1 and Animal ID 2. When both current values are present on one animal, they must be different, and every value must be globally unique across current and historical identifier tables. |
 | `display_id text` | Optional read/display label derived from `animal_identifier_1`/`animal_identifier_2`; it is not a third business identifier and must not imply goat-only identity. |
 | `species_id uuid` / `species_code text` | Required FK/reference to `species_catalog`; no goat-only CHECK. |
 | `breed_id uuid` / `breed text` | Breed belongs to the selected species; dirty text is alias/provenance only. |
@@ -700,8 +700,10 @@ Identifier lifetime/replacement rules:
   forever. The uniqueness check is against current identifiers plus all
   historical retired/broken/lost identifiers, including animals that are dead,
   sold, transferred, merged, or otherwise exited.
-- The two current identifier slots on the same accepted animal are required and
-  must contain two different values.
+- `animal_identifier_1` is required on the same accepted animal.
+  `animal_identifier_2` is optional until double RFID tagging is live; when
+  present, it must differ from `animal_identifier_1`. The double RFID rollout
+  must make it mandatory in both app validation and DB constraints.
 - Do not scope new identifiers by park, shed, source sheet, or species. If the
   same value appears anywhere in history, it already belongs to that animal and
   cannot be assigned to another one.
@@ -728,14 +730,16 @@ Local/dev/test reseed rules:
 - Seed at least goat and sheep. Species is derived from governed species/breed
   rules, e.g. Anantapur Sheep is sheep; goat breeds stay under goat; ambiguous
   labels go to seed review and must not silently default to goat.
-- Every seeded animal must have `animal_identifier_1` and
-  `animal_identifier_2`. These are two parallel animal IDs for every goat,
-  sheep, and future species, not old/new IDs. Local/dev/test may generate
-  deterministic fixture identifiers only with seed/test provenance; production
-  rows block until both real identifiers are known. Identifier fixture values
-  must still be globally unique and must never be reused across any seeded
-  current or historical animal. Raw legacy source column names stay in import
-  provenance only.
+- Every seeded animal must have `animal_identifier_1`.
+  `animal_identifier_2` is optional until double RFID tagging is live. These are
+  two parallel animal IDs for every goat, sheep, and future species, not old/new
+  IDs. Local/dev/test may generate deterministic fixture identifiers only with
+  seed/test provenance; production rows block only when Animal ID 1 is missing.
+  Once double RFID tagging is live, production rows must block until both real
+  identifiers are known and DB constraints enforce that invariant. Identifier
+  fixture values must still be globally unique and must never be reused across
+  any seeded current or historical animal. Raw legacy source column names stay
+  in import provenance only.
 - Every seeded animal must have `sex in ('female','male')`. If source sex is
   missing in a dev/test fixture row, choose a deterministic fixture value from
   a documented seed rule and mark seed/test provenance. Never store `unknown`,
@@ -753,7 +757,7 @@ Local/dev/test reseed rules:
 |---|---|
 | `species_catalog` migration | Add governed species reference data and seed at least `goat` and `sheep`; no static goat/sheep enum in code. |
 | `breed_species` migration | Ensure every breed belongs to one species; seed Anantapur Sheep as sheep and goat breeds under goat; add alias/review path for dirty source labels. |
-| `herd_animals_identity` migration | Create canonical `herd_animals` with `animal_id`, required `animal_identifier_1`, required `animal_identifier_2`; wipe/reseed local/dev/test herd data from verified sources through the clean-slate importer; replace `goats_species_check`; add DOB confidence, origin/entry, lifecycle/exit, current location/shed/tag fields, and merge target `merged_into_animal_id`. Do not copy dirty goat-only state forward as runtime truth. Identifier values remain reserved forever after animal exit. |
+| `herd_animals_identity` migration | Create canonical `herd_animals` with `animal_id`, required `animal_identifier_1`, and optional `animal_identifier_2` until double RFID tagging is live; wipe/reseed local/dev/test herd data from verified sources through the clean-slate importer; replace `goats_species_check`; add DOB confidence, origin/entry, lifecycle/exit, current location/shed/tag fields, and merge target `merged_into_animal_id`. Do not copy dirty goat-only state forward as runtime truth. Identifier values remain reserved forever after animal exit. A later double RFID migration must add the app and DB invariant requiring `animal_identifier_2`. |
 | `animal_identifiers_history` migration | Rename/create `animal_identifiers`, `animal_location_history`, and `animal_identity_events`; migrate FK references from goat names to animal names; map legacy source identifier columns into `animal_identifier_1`/`animal_identifier_2` or provenance aliases through a reviewed importer. Add global lifetime uniqueness over identifier value across active and historical rows; support replacement states for broken/fallen tags without making the animal operationally invalid. Canonical names must not be old/new identity. Tagging state stays derived, not stored. |
 | `old_dashboard_schema_removal` migration | Remove old dashboard/BQ-port schema and contracts from the final V1 database shape: no `legacy_import_*`, `legacy_sync_*`, BQ snapshot mirrors, sync freshness tables, goat identity counters, `identity_state`, `source_confidence`, old tag/sheet/external identifier types, or legacy BQ location source contexts. |
 | `shed_tag_age_policy` migration | Extend/seed `animal_stage_lookup` with source age range label, source day numbers, normalized age days, allowed species, max residence days, purpose, and status. |
@@ -792,8 +796,8 @@ Local/dev/test reseed rules:
   goat-only table shape. Unknown source values in test data must be resolved to
   rule-valid fixture values or blocked from the seed. Sex is always female/male;
   species is always resolved through the governed catalog; every animal has
-  `animal_identifier_1` and `animal_identifier_2`; vaccination history is linked
-  to `animal_id` and seeded only from source evidence or explicit synthetic
-  matrix scenarios.
+  `animal_identifier_1`, while `animal_identifier_2` is optional until double
+  RFID tagging is live; vaccination history is linked to `animal_id` and seeded
+  only from source evidence or explicit synthetic matrix scenarios.
 - Later production expansion changes the active matrix by publishing/activating
   a new scoped version. It must not create one top-level protocol per vaccine.

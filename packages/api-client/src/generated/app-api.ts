@@ -1545,7 +1545,7 @@ export interface components {
             goat_id: string;
             display_id: string;
             animal_identifier_1: string;
-            animal_identifier_2: string;
+            animal_identifier_2?: string | null;
             breed: string | null;
             /** @enum {string} */
             sex: "female" | "male";

@@ -310,9 +310,11 @@ func (s *Service) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) (do
 	if err := validateOptionalUUID("goat_id", in.GoatID); err != nil {
 		return domain.LoadGoat{}, err
 	}
-	if in.GoatID == nil && (blankPtr(in.AnimalIdentifier1) || blankPtr(in.AnimalIdentifier2)) {
-		return domain.LoadGoat{}, BadRequest("missing_animal_identifiers", "animal identifier 1 and animal identifier 2 are required")
+	if in.GoatID == nil && blankPtr(in.AnimalIdentifier1) {
+		return domain.LoadGoat{}, BadRequest("missing_animal_identifier_1", "animal identifier 1 is required")
 	}
+	// Animal ID 2 stays optional until double RFID tagging is live; that rollout
+	// must add both service validation and a DB invariant requiring the second tag.
 	if !blankPtr(in.AnimalIdentifier1) && !blankPtr(in.AnimalIdentifier2) && normalizeAnimalIdentifier(*in.AnimalIdentifier1) == normalizeAnimalIdentifier(*in.AnimalIdentifier2) {
 		return domain.LoadGoat{}, BadRequest("duplicate_animal_identifiers", "animal identifier 1 and animal identifier 2 must be different")
 	}

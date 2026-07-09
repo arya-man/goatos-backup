@@ -4136,7 +4136,6 @@ components:
         - management_stage
         - health_status
         - animal_identifier_1
-        - animal_identifier_2
         - location_path
         - warnings
       properties:
@@ -4150,7 +4149,9 @@ components:
           type: string
           maxLength: 200
         animal_identifier_2:
-          type: string
+          type:
+            - string
+            - "null"
           maxLength: 200
         breed:
           type:

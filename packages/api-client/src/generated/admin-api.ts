@@ -1720,7 +1720,7 @@ export interface components {
             goat_id: string;
             display_id: string;
             animal_identifier_1: string;
-            animal_identifier_2: string;
+            animal_identifier_2?: string | null;
             breed: string | null;
             /** @enum {string} */
             sex: "female" | "male";
@@ -1769,7 +1769,8 @@ export interface components {
         GenerationStatus: "queued" | "skipped_needs_review" | "skipped_ineligible" | "not_applicable";
         CreateAdminGoatRequest: {
             animal_identifier_1: string;
-            animal_identifier_2: string;
+            /** @description Optional until double RFID tagging is live; that rollout must make this mandatory in both app validation and DB constraints. */
+            animal_identifier_2?: string | null;
             /** @enum {string} */
             species: "goat" | "sheep";
             /** Format: uuid */
@@ -2421,7 +2422,7 @@ export interface components {
             /** Format: uuid */
             goat_id?: string | null;
             animal_identifier_1: string | null;
-            animal_identifier_2: string | null;
+            animal_identifier_2?: string | null;
             /** @enum {string} */
             species: "goat" | "sheep";
             /** @enum {string} */

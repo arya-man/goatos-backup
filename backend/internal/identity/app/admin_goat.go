@@ -388,9 +388,8 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	if normalized.AnimalIdentifier1 == nil {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "animal_identifier_1", Code: "required", Message: "Animal ID 1 is required"})
 	}
-	if normalized.AnimalIdentifier2 == nil {
-		errorsOut = append(errorsOut, domain.FieldError{Field: "animal_identifier_2", Code: "required", Message: "Animal ID 2 is required"})
-	}
+	// Animal ID 2 stays optional until the double RFID tagging rollout is live.
+	// That rollout must make it mandatory in app validation and with a DB invariant.
 	if normalized.AnimalIdentifier1 != nil && normalized.AnimalIdentifier2 != nil &&
 		normalizeIdentifier("animal_identifier_1", *normalized.AnimalIdentifier1) == normalizeIdentifier("animal_identifier_2", *normalized.AnimalIdentifier2) {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "animal_identifier_2", Code: "duplicate", Message: "Animal ID 1 and Animal ID 2 must be different"})

@@ -168,22 +168,22 @@ export function LoadWriteActions({
           <IdempotencyKeyField />
           <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="load_id" value={loadId} />
-	      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-	        <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-	          <label>{copy(pageContract, "field.animal_identifier_1")}</label>
-	          <input name="animal_identifier_1" placeholder={copy(pageContract, "placeholder.animal_identifier_1")} required />
-	        </div>
-	        <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-	          <label>{copy(pageContract, "field.animal_identifier_2")}</label>
-	          <input name="animal_identifier_2" placeholder={copy(pageContract, "placeholder.animal_identifier_2")} required />
-	        </div>
-	        <div className="fld" style={{ flex: 1, minWidth: 140 }}>
-	          <label>{copy(pageContract, "field.species")}</label>
-	          <select name="species" defaultValue="" required>
-	            <option value="" disabled>{copy(pageContract, "placeholder.species")}</option>
-	            <SelectOptions pageContract={pageContract} groupId="proc_species" />
-	          </select>
-	        </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div className="fld" style={{ flex: 1, minWidth: 150 }}>
+              <label>{copy(pageContract, "field.animal_identifier_1")}</label>
+              <input name="animal_identifier_1" placeholder={copy(pageContract, "placeholder.animal_identifier_1")} required />
+            </div>
+            <div className="fld" style={{ flex: 1, minWidth: 150 }}>
+              <label>{copy(pageContract, "field.animal_identifier_2")}</label>
+              <input name="animal_identifier_2" placeholder={copy(pageContract, "placeholder.animal_identifier_2")} />
+            </div>
+            <div className="fld" style={{ flex: 1, minWidth: 140 }}>
+              <label>{copy(pageContract, "field.species")}</label>
+              <select name="species" defaultValue="" required>
+                <option value="" disabled>{copy(pageContract, "placeholder.species")}</option>
+                <SelectOptions pageContract={pageContract} groupId="proc_species" />
+              </select>
+            </div>
             <div className="fld" style={{ flex: 1, minWidth: 140 }}>
               <label>{copy(pageContract, "field.sex")}</label>
               <select name="sex" defaultValue="" required>

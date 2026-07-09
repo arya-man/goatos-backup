@@ -158,12 +158,12 @@ export async function addSourceGoatAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
   let actionKey = "action.source_goat_added";
   const loadId = requiredString(formData, "load_id");
-	try {
-		const body: AddProcurementLoadGoatRequest = {
-			animal_identifier_1: optionalString(formData, "animal_identifier_1") ?? null,
-			animal_identifier_2: optionalString(formData, "animal_identifier_2") ?? null,
-			species: inEnum(optionalString(formData, "species"), SPECIES, "species"),
-			sex: inEnum(optionalString(formData, "sex"), SEXES, "sex"),
+  try {
+    const body: AddProcurementLoadGoatRequest = {
+      animal_identifier_1: optionalString(formData, "animal_identifier_1") ?? null,
+      animal_identifier_2: optionalString(formData, "animal_identifier_2") ?? null,
+      species: inEnum(optionalString(formData, "species"), SPECIES, "species"),
+      sex: inEnum(optionalString(formData, "sex"), SEXES, "sex"),
       selection_state: optionalString(formData, "selection_state")
         ? inEnum<ProcurementSelectionState>(optionalString(formData, "selection_state"), SELECTION_STATES, "selection_state")
         : undefined,
@@ -180,9 +180,9 @@ export async function addSourceGoatAction(formData: FormData): Promise<void> {
       warmup_days: optInt(formData, "warmup_days"),
       holding_location_id: optionalString(formData, "holding_location_id") ?? null,
     };
-		if (!body.animal_identifier_1 || !body.animal_identifier_2) {
-			throw new Error("Provide Animal ID 1 and Animal ID 2.");
-		}
+    if (!body.animal_identifier_1) {
+      throw new Error("Provide Animal ID 1.");
+    }
     const result = await addProcurementLoadGoat(loadId, body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";

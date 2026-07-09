@@ -354,6 +354,48 @@ func TestCreateAdminGoatPassesIdempotencyIntoValidation(t *testing.T) {
 	}
 }
 
+func TestCreateAdminGoatAllowsMissingAnimalIdentifier2(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.CreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-create-one-id",
+		TraceID:        testTrace,
+		RawBody: []byte(fmt.Sprintf(`{"animal_identifier_1":"A1-ONE-ID","species":"goat","park_id":%q,"shed_id":%q,"sex":"female","dob":"2026-05-20","dob_estimated":false,"origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`,
+			testPark, testShed)),
+	})
+	if err != nil {
+		t.Fatalf("CreateAdminGoat: %v", err)
+	}
+	if len(repo.validateAdminGoatCreateCmds) != 1 || len(repo.createAdminGoatCmds) != 1 {
+		t.Fatalf("repo calls validate=%d create=%d, want 1 each", len(repo.validateAdminGoatCreateCmds), len(repo.createAdminGoatCmds))
+	}
+	if got := repo.createAdminGoatCmds[0].Identifiers; len(got) != 1 || got[0].IdentifierType != "animal_identifier_1" || got[0].IdentifierValue != "A1-ONE-ID" {
+		t.Fatalf("create identifiers = %#v, want only Animal ID 1", got)
+	}
+}
+
+func TestCreateAdminGoatRejectsMissingAnimalIdentifier1(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.CreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-create-missing-id1",
+		TraceID:        testTrace,
+		RawBody: []byte(fmt.Sprintf(`{"animal_identifier_2":"A2-ONLY","species":"goat","park_id":%q,"shed_id":%q,"sex":"female","dob":"2026-05-20","dob_estimated":false,"origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`,
+			testPark, testShed)),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_goat_create" || appErr.Message != "Animal ID 1 is required" {
+		t.Fatalf("err = %v, want invalid_goat_create Animal ID 1 required", err)
+	}
+	if len(repo.validateAdminGoatCreateCmds) != 0 || len(repo.createAdminGoatCmds) != 0 {
+		t.Fatalf("missing Animal ID 1 must fail before repo calls, validate=%d create=%d", len(repo.validateAdminGoatCreateCmds), len(repo.createAdminGoatCmds))
+	}
+}
+
 func TestCreateAdminGoatRejectsMissingDOB(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

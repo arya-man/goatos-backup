@@ -59,7 +59,7 @@ Clean base contract:
 | Herd animal | Canonical target entity for vaccination, feed, counts, procurement, shifting, and passport/history. |
 | Species | Required animal fact from a governed `species_catalog`; seed at least goat and sheep, and allow future species without DDL/code branches. |
 | Breed | Belongs to exactly one species through governed breed/reference data and aliases. |
-| Animal identifiers | Every herd animal has the internal immutable `animal_id` plus two required species-neutral field/business identifiers: `animal_identifier_1` and `animal_identifier_2`. These are parallel identifiers, not old/new IDs. Both current values are required and must be different on the same animal. Each identifier value is globally single-use for life: one value can belong to exactly one animal ever, and is never reused after death, sale, transfer, tag breakage, or tag loss. UI/API/config/docs must call them Animal ID 1 and Animal ID 2; raw source column names stay import provenance only. |
+| Animal identifiers | Every herd animal has the internal immutable `animal_id` plus required species-neutral field/business identifier `animal_identifier_1`; `animal_identifier_2` is optional until double RFID tagging is live. These are parallel identifiers, not old/new IDs. When both current values are present, they must be different on the same animal. Each identifier value is globally single-use for life: one value can belong to exactly one animal ever, and is never reused after death, sale, transfer, tag breakage, or tag loss. UI/API/config/docs must call them Animal ID 1 and Animal ID 2; raw source column names stay import provenance only. The double RFID rollout must make Animal ID 2 mandatory in both application validation and DB constraints. |
 | Shed/tag | Shared operational cohort/location state with explicit `allowed_species`. Goat and sheep can share the same kid shed/tag where the source/park data says so, but tags are not automatically universal across species. |
 | Tag age policy | `animal_stage_lookup`/shed-tag policy stores source age range, normalized age days, purpose, allowed species, and max-stay/transition policy where known. |
 | Vaccination rule | Selector over `species + breed/breed group + shed_tag/stage + age days + sex + lifecycle/health/reproductive/procurement state`. |
@@ -419,11 +419,13 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    bad goat-only table state or patch existing dirty rows in place. The source
    rows are evidence for the reseed, not the runtime schema. Every seeded animal
    must be a mixed-species herd animal with species, breed, real sex
-   (`female`/`male` only), DOB/age, `animal_identifier_1`,
+   (`female`/`male` only), DOB/age, required `animal_identifier_1`, optional
    `animal_identifier_2`, current park, current shed/tag, health/reproductive/
    procurement state, and vaccination history/protocol facts attached to
-   `animal_id`. The two external identifiers are required for goats, sheep, and
-   future species; they must not be named or modeled as old/new identifiers.
+   `animal_id`. The second external identifier becomes required for goats,
+   sheep, and future species only after double RFID tagging is live and enforced
+   in both code and DB constraints; identifiers must not be named or modeled as
+   old/new identifiers.
    The seed/import duplicate check runs against all current and historical
    identifier values, not only active animals. If an identifier value has ever
    belonged to any animal, it cannot be assigned to another animal.
@@ -434,13 +436,15 @@ Coverage % within window (per vaccine/park/species/shed tag) · on-time drive ra
    be tested end to end. Missing sex must become either `female` or `male` by a
    documented seed rule; it must never become `unknown`. Missing species/breed/
    tag/identifier values must resolve through the governed goat/sheep species
-   catalog, breed aliases, Goats and Parks tag policy, and two-ID animal
-   identity rules or land in a blocked seed review bucket. For local/dev/test
-   only, missing identifier values may be deterministic fixture IDs with
-   seed/test provenance; production rows block until both real identifiers are
-   known. Vaccination fixture history is seeded only from known source evidence
-   or from explicit synthetic test scenarios derived from the active matrix; do
-   not invent production completions. These fixture assumptions are marked as
+   catalog, breed aliases, Goats and Parks tag policy, and current one-required/
+   one-optional animal identity rules or land in a blocked seed review bucket.
+   For local/dev/test only, missing identifier values may be deterministic
+   fixture IDs with seed/test provenance; production rows block when Animal ID 1
+   is missing. After double RFID tagging is live, production rows must also
+   block until Animal ID 2 is known and DB constraints enforce that invariant.
+   Vaccination fixture history is seeded only from known source evidence or from
+   explicit synthetic test scenarios derived from the active matrix; do not
+   invent production completions. These fixture assumptions are marked as
    seed/test provenance and are not production truth.
 7. **No old-dashboard or BQ-port runtime leftovers** — V1 is not a legacy
    dashboard mirror, import-review product, conflict-resolution queue, or

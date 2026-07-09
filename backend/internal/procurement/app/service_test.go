@@ -100,6 +100,45 @@ func TestSourceWarmupFortyFiveToSeventyDaysRemainsValid(t *testing.T) {
 	}
 }
 
+func TestAddGoatToLoadAllowsMissingAnimalIdentifier2(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.AddGoatToLoad(context.Background(), ports.AddGoatToLoad{
+		TenantID:          testTenant,
+		LoadID:            testLoad,
+		AnimalIdentifier1: strPtr("SRC-ONE-ID"),
+		Species:           "goat",
+		Sex:               "female",
+		IdempotencyKey:    "add-one-id",
+	})
+	if err != nil {
+		t.Fatalf("AddGoatToLoad() error = %v", err)
+	}
+	if repo.lastAdd.AnimalIdentifier2 != nil {
+		t.Fatalf("AnimalIdentifier2 = %#v, want nil", repo.lastAdd.AnimalIdentifier2)
+	}
+}
+
+func TestAddGoatToLoadRequiresAnimalIdentifier1ForNewGoat(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.AddGoatToLoad(context.Background(), ports.AddGoatToLoad{
+		TenantID:          testTenant,
+		LoadID:            testLoad,
+		AnimalIdentifier2: strPtr("SRC-ID2-ONLY"),
+		Species:           "goat",
+		Sex:               "female",
+		IdempotencyKey:    "add-missing-id1",
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "missing_animal_identifier_1" {
+		t.Fatalf("AddGoatToLoad() error = %v, want missing_animal_identifier_1", err)
+	}
+	if repo.lastAdd.LoadID != "" {
+		t.Fatalf("missing Animal ID 1 reached repository: %#v", repo.lastAdd)
+	}
+}
+
 func TestAddGoatToLoadRequiresRealSex(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

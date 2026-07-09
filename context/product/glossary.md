@@ -122,8 +122,9 @@ Build rule:
 
 ### Animal External Identifiers
 
-Every canonical herd animal has one internal immutable `animal_id` plus two
-required external field/business identifiers:
+Every canonical herd animal has one internal immutable `animal_id` plus one
+required external field/business identifier and one optional second identifier
+until double RFID tagging is live:
 
 ```text
 animal_identifier_1
@@ -148,8 +149,10 @@ to that animal in history forever and cannot be assigned to another animal.
 Build rule:
 
 - Never merge by one external identifier value alone.
-- Every accepted/canonical herd animal must have both `animal_identifier_1` and
-  `animal_identifier_2`, and those two current values must be different.
+- Every accepted/canonical herd animal must have `animal_identifier_1`.
+  `animal_identifier_2` is optional for now; once double RFID tagging is live,
+  make it mandatory in both application validation and a DB invariant.
+- When both identifiers are present, the two current values must be different.
 - Duplicate checks run against all current and historical identifier rows. Any
   match means the value is already owned by that animal; a new animal using it
   is invalid source data and must be rejected/fixed, not parked for later.

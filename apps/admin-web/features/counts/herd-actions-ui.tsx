@@ -313,7 +313,7 @@ function RegisterGoatDrawer({
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 200 }}>
             <label htmlFor="rg_animal_id_2">{copy(pageContract, "field.animal_identifier_2")}</label>
-            <input id="rg_animal_id_2" name="animal_identifier_2" required placeholder={copy(pageContract, "placeholder.animal_identifier_2")} />
+            <input id="rg_animal_id_2" name="animal_identifier_2" placeholder={copy(pageContract, "placeholder.animal_identifier_2")} />
           </div>
         </Row>
         <div className="note" style={{ marginBottom: 12 }}>{copy(pageContract, "note.identifier_required")}</div>
