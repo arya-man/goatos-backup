@@ -57,6 +57,12 @@ It must also capture Apps Script and other loader lineage for native BigQuery
 tables, because many `*_clean` and `*_dev` tables do not expose their upstream
 spreadsheet through BigQuery external-table metadata.
 
+For animal-level import, Drive/Sheets read access is a hard prerequisite, not a
+nice-to-have. `goatsDB.goatsDB_rfid_mapping` is a Google Sheets external table
+with `RFID` and `Gender` columns, and BigQuery queries against it fail without
+Drive credentials. The god sheet cannot reliably populate `animal_identifier_1`
+or complete sex backfill from BigQuery alone.
+
 ## Current Dashboard Snapshot
 
 The scheduled dashboard audit at `2026-07-09 18:02:49 IST` reported:
@@ -381,6 +387,59 @@ Current creation/import requirements:
 The god sheet should use the exact canonical field names above. Raw legacy
 column names must be stored as provenance only.
 
+## Live Import Gate Feasibility
+
+Read-only BigQuery verification on 2026-07-09 showed that the strict import gate
+is not broadly satisfiable from `goatsDB.goats_db_clean` alone.
+
+Definition used for this feasibility check:
+
+- animal key: `COALESCE(goat_id, farm_goat_id, inp_goat_id)`
+- active candidate: latest event by `date` and lifecycle priority, excluding
+  `Sale`, `Death`, and `Abortion`
+- dashboard comparison date: `2026-07-08`
+
+Observed coverage:
+
+| Metric | Count |
+| --- | ---: |
+| Active candidates from latest-event spine | `2659` |
+| Dashboard active total | `2147` |
+| Event-spine vs dashboard delta | `512` |
+| Active candidates with no DOB evidence anywhere in native event spine | `2124` |
+| Active candidates with no `Birth` event | `1898` |
+| Purchase-origin candidates with no `Birth` event | `1485` |
+| Active candidates with no gender evidence anywhere in native event spine | `598` |
+| Active candidates missing both DOB and gender evidence | `597` |
+| Active candidates with native DOB and gender evidence present | `534` |
+| Active candidates missing all legacy event-spine identifiers | `0` |
+
+Implications:
+
+- Expected strict-GREEN yield from native BigQuery event spine alone is small.
+- The 2026-07-11 vaccination demo must treat DOB and sex backfill as a gating
+  cleanup lane, not incidental polish.
+- Do not seed `Animal_Master` by blindly taking the latest-event spine as active
+  truth; reconcile it to dashboard/current-status sources first.
+
+Estimated DOB policy required before GREEN promotion:
+
+1. Use trusted birth evidence first: `goatsDB.mother_kid_facts`, `Birth` events,
+   or other source rows with explicit birth date/time.
+2. For purchase-origin or shifted animals with no birth evidence, derive DOB only
+   through an approved `dob_estimated=true` policy using age class, event date,
+   source row, and owner approval. Record `dob_estimation_method` and evidence.
+3. Rows with derived DOB remain AMBER until the policy is approved and Goat OS
+   preview accepts the estimate. Rows with no derivable DOB remain RED.
+
+Sex backfill policy required before GREEN promotion:
+
+1. Use non-empty native event-spine `gender` first.
+2. Use `goatsDB.goatsDB_rfid_mapping.Gender` after Drive/Sheets read access is
+   available.
+3. If both are missing or conflicting, require ground/source verification. Rows
+   with unresolved sex remain RED.
+
 ## Workbook Tabs
 
 ### 1. `README_Problem_Statement`
@@ -451,9 +510,9 @@ Columns:
 `origin_type`, `entry_date`, `current_status`, `current_farm`, `current_park`,
 `current_shed`, `current_stage`, `management_stage`, `health_status`,
 `reproductive_status`, `mother_identifier`, `sire_or_lot`, `current_weight_kg`,
-`photo_url`, `source_record_id`, `source_links`, `evidence_refs`,
-`verification_status`, `issue_reason`, `ground_owner`, `last_verified_at`,
-`ready_for_goat_os_import`.
+`photo_url`, `dob_estimation_method`, `sex_source`, `source_record_id`,
+`source_links`, `evidence_refs`, `verification_status`, `issue_reason`,
+`ground_owner`, `last_verified_at`, `ready_for_goat_os_import`.
 
 ### 7. `Animal_Identifier_History`
 
@@ -680,6 +739,16 @@ Columns:
 `age_class`, `source_count`, `canonical_count`, `delta`, `source_link`,
 `verification_status`.
 
+Seed reconciliation rows:
+
+- `dashboard_active_total`: `farm.daily_summary_dev` for `2026-07-08` =
+  `2147`.
+- `event_spine_active_total`: latest-event active candidates from
+  `goatsDB.goats_db_clean` at `COALESCE(goat_id, farm_goat_id, inp_goat_id)`
+  grain = `2659`.
+- The `512` gap must stay open until `Current_Location_Status` decides the
+  active source-of-truth priority and row-level differences.
+
 ### 25. `Feed_Sales_Reconciliation`
 
 Columns:
@@ -789,6 +858,9 @@ These should be preloaded into `Issue_Queue` or `Audit_Findings`.
 | Procurement DB vs farm procured animal count mismatch | P1 | data/dev + ground/source team | `procurement_farm.procurement_dB_clean` purchase total `1670`; `goatsDB.goats_db_clean` purchase distinct `farm_goat_id`/audit-coalesced count `1822` gives headline delta `152`, while distinct global `goat_id` count `1738` gives delta `68`; resolve identity grain in `Identity_Grain_Audit` before treating rows as import blockers |
 | Procurement loadwise status rollup mismatch | P2 | data/dev + ground/source team | `procurement_farm.load_wise_procurement_with_status` vs `procurement_farm.loadwise_summary`; Goat/Sheep/Unknown status rows do not reconcile |
 | Fattening vs shiftings stage-source reconciliation | P2 | data/dev + ground/source team | CBE K2 `52` vs `57`; CBE K3 `10` vs `0` |
+| Animal import gate feasibility: DOB and sex coverage | P1 | data/dev + ground/source team | Latest-event active spine `2659`; no native DOB evidence `2124`; no native gender evidence `598`; native DOB+gender present only `534`; Drive RFID mapping and estimated-DOB policy are required before broad GREEN import |
+| Drive/Sheets credential blocker for RFID and sex source | P1 | data/dev | `goatsDB.goatsDB_rfid_mapping` is a Google Sheets external table with `RFID` and `Gender`; BigQuery query fails without Drive credentials, so animal-level import cannot rely on BQ-only extraction |
+| Event-spine active vs dashboard active gap | P1 | data/dev | `goatsDB.goats_db_clean` latest-event active `2659`; dashboard active total `2147`; delta `512`; do not seed `Animal_Master` from event spine until reconciled |
 
 ## Sync And Cron Architecture
 
@@ -898,6 +970,8 @@ Minimum import gate:
 
 - Add every known sheet/table to `Source_Catalog`.
 - Add Drive/Sheets read credential with explicit scopes.
+- Block animal-level import preview until the sync can query
+  `goatsDB.goatsDB_rfid_mapping` and record RFID/Gender provenance.
 - Capture Apps Script and native BigQuery loader lineage for `*_clean` and
   `*_dev` tables.
 - Compute schema/header hashes.
