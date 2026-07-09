@@ -58,7 +58,7 @@ fun CalendarScreen(
             .background(CalTokens.PageBg)
             .padding(horizontal = Gutter),
     ) {
-        item { CalendarHeader(state) }
+        item { CalendarHeader(state, onEvent) }
         if (state.segments.isNotEmpty()) {
             item {
                 SegmentedControl(
@@ -85,38 +85,65 @@ fun CalendarScreen(
 /* --------------------------------------------------------------------------- */
 
 @Composable
-private fun CalendarHeader(state: CalendarUiState) {
-    Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp)) {
-        if (state.eyebrow.isNotEmpty()) {
+private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            if (state.eyebrow.isNotEmpty()) {
+                Text(
+                    text = state.eyebrow.uppercase(),
+                    color = CalTokens.Faint,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.W700,
+                    letterSpacing = 0.6.sp,
+                )
+            }
             Text(
-                text = state.eyebrow.uppercase(),
-                color = CalTokens.Faint,
-                fontSize = 10.5.sp,
+                text = state.title,
+                color = CalTokens.Ink,
+                fontSize = 22.sp,
                 fontWeight = FontWeight.W700,
-                letterSpacing = 0.6.sp,
             )
+            val window = state.windowLabel
+            val line = if (window.isNullOrEmpty()) {
+                state.selectedDateLabel
+            } else {
+                "${state.selectedDateLabel}  ·  $window"
+            }
+            if (line.isNotEmpty()) {
+                Text(
+                    text = line,
+                    color = CalTokens.Muted,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.W600,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
         }
-        Text(
-            text = state.title,
-            color = CalTokens.Ink,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.W700,
+        // Mock `.vhead` refresh affordance. (Menu/bell are omitted: single-module chrome has
+        // no drawer, and Alerts is already a bottom-nav tab — neither would be a live control.)
+        HeaderIconButton(onClick = { onEvent(CalendarEvent.Refresh) })
+    }
+}
+
+@Composable
+private fun HeaderIconButton(onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(38.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(CalTokens.Surf2)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = MeshaIcons.Refresh,
+            contentDescription = "Refresh",
+            tint = CalTokens.Muted,
+            modifier = Modifier.size(18.dp),
         )
-        val window = state.windowLabel
-        val line = if (window.isNullOrEmpty()) {
-            state.selectedDateLabel
-        } else {
-            "${state.selectedDateLabel}  ·  $window"
-        }
-        if (line.isNotEmpty()) {
-            Text(
-                text = line,
-                color = CalTokens.Muted,
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.W600,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
     }
 }
 
@@ -223,15 +250,17 @@ private fun WeekDayCell(
             fontWeight = FontWeight.W800,
             modifier = Modifier.padding(top = 4.dp),
         )
-        Text(
-            text = day.dueCountLabel,
-            color = if (on) CalTokens.OnBrand else CalTokens.Muted,
-            fontSize = 9.5.sp,
-            fontWeight = FontWeight.W600,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 3.dp),
-        )
+        if (day.dueCountLabel.isNotEmpty()) {
+            Text(
+                text = day.dueCountLabel,
+                color = if (on) CalTokens.OnBrand else CalTokens.Muted,
+                fontSize = 9.5.sp,
+                fontWeight = FontWeight.W600,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
         if (day.hasWork) {
             Box(
                 Modifier
@@ -263,13 +292,25 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
             Spacer(Modifier.weight(1f))
             item.categoryLabel?.let { StatusPill(it, CalendarTone.Muted) }
         }
-        Text(
-            text = item.title,
-            color = if (drillable) CalTokens.Ink else CalTokens.Muted,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.W700,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(top = 10.dp),
-        )
+        ) {
+            // Syringe = Vaccination module marker before the drive name (mock `.evt .nm` icon).
+            Icon(
+                imageVector = MeshaIcons.Syringe,
+                contentDescription = null,
+                tint = if (drillable) CalTokens.Brand else CalTokens.Faint,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.size(8.dp))
+            Text(
+                text = item.title,
+                color = if (drillable) CalTokens.Ink else CalTokens.Muted,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.W700,
+            )
+        }
         if (item.subtitle.isNotEmpty()) {
             Text(
                 text = item.subtitle,

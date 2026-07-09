@@ -109,4 +109,7 @@ sealed interface CalendarEvent {
     data class TapDay(val dateKey: String) : CalendarEvent
 
     data class TapItem(val itemId: String) : CalendarEvent
+
+    /** Header refresh — reloads the calendar (mock `.vhead` refresh affordance). */
+    data object Refresh : CalendarEvent
 }

@@ -21,8 +21,15 @@ import sg.mesha.goatos.feature.calendar.CalendarSegment
 import sg.mesha.goatos.feature.calendar.CalendarSegmentKind
 import sg.mesha.goatos.feature.calendar.CalendarTone
 import sg.mesha.goatos.feature.calendar.CalendarUiState
+import sg.mesha.goatos.feature.calendar.CalendarWeekDay
 import sg.mesha.goatos.ui.calendarPlaceholder
 import sg.mesha.goatos.ui.sampleCalendarState
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.TextStyle
+import java.util.Locale
 import javax.inject.Inject
 
 /**
@@ -54,6 +61,7 @@ class CalendarViewModel @Inject constructor(
         when (event) {
             is CalendarEvent.SelectSegment ->
                 _state.update { it.copy(selectedSegmentId = event.segmentId) }
+            CalendarEvent.Refresh -> load()
             // Day/item taps are navigation — handled by the nav host.
             is CalendarEvent.TapDay,
             is CalendarEvent.TapItem -> Unit
@@ -73,6 +81,10 @@ class CalendarViewModel @Inject constructor(
                     else -> CalendarSegmentKind.Week
                 },
             )
+        }
+        val weekDays = buildWeekDays(items)
+        val todayLabel = LocalDate.now(KOLKATA).let {
+            "Today · ${it.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} ${it.dayOfMonth} ${it.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)}"
         }
         val weekItems = items.map { it.toCalendarItem() }
         val historyRows = items.take(3).map { ev ->
@@ -97,7 +109,9 @@ class CalendarViewModel @Inject constructor(
             selectedSegmentId = presentation.viewTabs.firstOrNull { it.active }?.key
                 ?: segments.firstOrNull()?.id
                 ?: base.selectedSegmentId,
-            weekDays = emptyList(),
+            selectedDateLabel = todayLabel,
+            windowLabel = null,
+            weekDays = weekDays,
             weekItems = weekItems,
             weekEmptyLabel = presentation.emptyState.okMessage.ifBlank { "No drives scheduled" },
             historyRows = historyRows,
@@ -119,6 +133,35 @@ class CalendarViewModel @Inject constructor(
         )
     }
 }
+
+private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
+
+/**
+ * The Mon–Sun week containing today (India business calendar), with per-day due-work
+ * dots derived from the events' [CalendarEventDto.dueAt]. Mirrors the mock's `#weekStrip`:
+ * day letter + date + a dot on days that carry work; today is the highlighted cell.
+ */
+private fun buildWeekDays(items: List<CalendarEventDto>): List<CalendarWeekDay> {
+    val today = LocalDate.now(KOLKATA)
+    val monday = today.minusDays((today.dayOfWeek.value - 1).toLong())
+    val counts = items.mapNotNull { parseLocalDate(it.dueAt) }.groupingBy { it }.eachCount()
+    return (0..6).map { offset ->
+        val date = monday.plusDays(offset.toLong())
+        val n = counts[date] ?: 0
+        CalendarWeekDay(
+            dateKey = date.toString(),
+            dayName = date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.ENGLISH),
+            dayNumber = date.dayOfMonth.toString(),
+            dueCountLabel = if (n > 0) "$n due" else "",
+            hasWork = n > 0,
+            isToday = date == today,
+            isSelected = date == today,
+        )
+    }
+}
+
+private fun parseLocalDate(due: String): LocalDate? =
+    runCatching { OffsetDateTime.parse(due).atZoneSameInstant(KOLKATA).toLocalDate() }.getOrNull()
 
 /** The row-navigation route the backend attached to a calendar event ("drive" preferred). */
 private fun Map<String, JsonElement>.route(): String? =
