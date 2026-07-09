@@ -1,0 +1,53 @@
+pluginManagement {
+    repositories {
+        google {
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "goatos-android"
+
+// --- app (thin: Application, DI, nav host, theme, boot) ---
+include(":app")
+
+// --- core (feature-* depend only on core-*; core-model/core-common are Android-free) ---
+include(":core:core-model")
+include(":core:core-common")
+include(":core:core-designsystem")
+include(":core:core-ui")
+include(":core:core-network")
+include(":core:core-datastore")
+include(":core:core-data")
+include(":core:core-analytics")
+include(":core:core-notifications")
+include(":core:core-testing")
+
+// --- feature (feature-* -> core-* only, never feature -> feature) ---
+include(":feature:feature-auth")
+include(":feature:feature-calendar")
+include(":feature:feature-sheds")
+include(":feature:feature-scan")
+include(":feature:feature-submit")
+include(":feature:feature-leadership")
+include(":feature:feature-record")
+include(":feature:feature-profile")
+
+// --- device (vendor SDKs live ONLY here, behind ports; each ships a fake) ---
+include(":device:device-rfid")
+include(":device:device-camera")
+include(":device:device-feedback")

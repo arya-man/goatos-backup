@@ -66,7 +66,12 @@ verbatim:
 ```text
 docs           : authored (this set)
 firebase app   : NOT created (gated on org verification + explicit go)
-android app    : NOT started (apps/goatos-android does not exist yet)
+android app    : SKELETON (§13 step 3) — apps/goatos-android/ scaffolded &
+                 compiling: 22 Gradle modules, Clean-Arch boundaries, theme, and
+                 the backend-driven nav-chrome shell (FakeAppApi → bootstrap →
+                 GoatOsShell) build to an APK. Next: Hilt, Room+DataStore+sync,
+                 Retrofit/OpenAPI client, real screens, RFID/CameraX adapters,
+                 Firebase (gated). See apps/goatos-android/README.md + MODULE-MAP.md
 app id         : sg.mesha.goatos (prod) · .dev · .stg — env-only flavors, roles
                  are runtime from /app/bootstrap (see app-id + flavors ADR)
 sdk / toolchain: minSdk 31 (Android 12 — locked) · compileSdk/targetSdk 36
