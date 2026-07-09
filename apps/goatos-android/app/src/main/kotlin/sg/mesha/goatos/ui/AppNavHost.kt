@@ -33,6 +33,7 @@ import sg.mesha.goatos.feature.record.RecordEvent
 import sg.mesha.goatos.feature.record.RecordScreen
 import sg.mesha.goatos.feature.scan.ScanEvent
 import sg.mesha.goatos.feature.scan.ScanScreen
+import sg.mesha.goatos.feature.sheds.ShedStatus
 import sg.mesha.goatos.feature.sheds.ShedsEvent
 import sg.mesha.goatos.feature.sheds.ShedsScreen
 import sg.mesha.goatos.feature.submit.SubmitScreen
@@ -86,6 +87,11 @@ object Routes {
  */
 private fun calendarTargetRoute(target: String?): String {
     if (target.isNullOrBlank()) return Routes.VACCINATION
+    // Past-drive/history rows point at a read-only record.
+    if (target.contains("record/")) {
+        val id = target.substringAfter("record/").substringBefore('/').substringBefore('?')
+        return Routes.recordRoute(id.ifBlank { null })
+    }
     val shedId = shedIdFromTarget(target)
     return if (shedId != null) Routes.recordRoute(shedId) else Routes.VACCINATION
 }
@@ -157,8 +163,14 @@ fun AppNavHost(
                 state = state,
                 onEvent = { event ->
                     when (event) {
-                        is ShedsEvent.OpenShedRecord ->
-                            navController.navigate(Routes.scanRoute(event.shedId)) { launchSingleTop = true }
+                        is ShedsEvent.OpenShedRecord -> {
+                            // Done sheds open the read-only record; anything still due opens
+                            // the execute loop (Scan → Submit). Mirrors the mock's shed card
+                            // ("View completed record ›" vs "Start / scan").
+                            val done = state.rows.firstOrNull { it.id == event.shedId }?.status == ShedStatus.DONE
+                            val route = if (done) Routes.recordRoute(event.shedId) else Routes.scanRoute(event.shedId)
+                            navController.navigate(route) { launchSingleTop = true }
+                        }
                         else -> vm.onEvent(event)
                     }
                 },
@@ -204,6 +216,9 @@ fun AppNavHost(
                     when (event) {
                         is LeadershipEvent.DecisionTapped ->
                             navController.navigate(Routes.RESCHEDULE) { launchSingleTop = true }
+                        // Leadership taps a shed → the read-only record (their lens is follow-up).
+                        is LeadershipEvent.ShedTapped ->
+                            navController.navigate(Routes.recordRoute(event.shedId)) { launchSingleTop = true }
                         is LeadershipEvent.OpenScopePicker -> showScope = true
                         is LeadershipEvent.OpenDataGaps -> showGaps = true
                         is LeadershipEvent.KpiTapped ->
