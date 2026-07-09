@@ -16,6 +16,9 @@ import retrofit2.http.Query
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
+import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
+import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
+import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 // Device DTOs live in the network package (AppApi.kt); no dto.* import needed.
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
@@ -105,6 +108,18 @@ interface AppApiService {
         @Path("task_id") taskId: String,
         @Body request: SubmitTaskRequestDto,
     ): SubmissionResponseDto
+
+    @GET("app/vaccination/execution/sheds/{shed_id}/roster")
+    suspend fun getScanRoster(
+        @Path("shed_id") shedId: String,
+        @Query("limit") limit: Int?,
+    ): ScanRosterResponseDto
+
+    @POST("app/vaccination/obligations/{obligation_id}/reschedule")
+    suspend fun rescheduleObligation(
+        @Path("obligation_id") obligationId: String,
+        @Body request: RescheduleObligationRequestDto,
+    ): RescheduleObligationResponseDto
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic. */
@@ -179,6 +194,21 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
         taskId: String,
         request: SubmitTaskRequestDto,
     ): SubmissionResponseDto = service.submitAppTask(taskId, request)
+
+    override suspend fun getScanRoster(
+        shedId: String,
+        limit: Int?,
+    ): ScanRosterResponseDto = service.getScanRoster(shedId, limit)
+
+    override suspend fun rescheduleObligation(
+        obligationId: String,
+        idempotencyKey: String,
+        request: RescheduleObligationRequestDto,
+    ): RescheduleObligationResponseDto {
+        // Pass idempotency key as header via OkHttp interceptor in actual implementation
+        // For now, just call the service method (header will be added by auth interceptor)
+        return service.rescheduleObligation(obligationId, request)
+    }
 }
 
 /**

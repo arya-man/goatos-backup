@@ -9,6 +9,9 @@ import sg.mesha.goatos.core.model.nav.OwnedModule
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
+import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
+import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
+import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
@@ -194,6 +197,19 @@ interface AppApi {
         taskId: String,
         request: SubmitTaskRequestDto,
     ): SubmissionResponseDto
+
+    /** GET /app/vaccination/execution/sheds/{shed_id}/roster — per-animal scan roster with RFID tags. */
+    suspend fun getScanRoster(
+        shedId: String,
+        limit: Int? = null,
+    ): ScanRosterResponseDto
+
+    /** POST /app/vaccination/obligations/{obligation_id}/reschedule — reschedule obligation to new date. */
+    suspend fun rescheduleObligation(
+        obligationId: String,
+        idempotencyKey: String,
+        request: RescheduleObligationRequestDto,
+    ): RescheduleObligationResponseDto
 }
 
 /**
@@ -277,6 +293,17 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         taskId: String,
         request: SubmitTaskRequestDto,
     ): SubmissionResponseDto = SubmissionResponseDto()
+
+    override suspend fun getScanRoster(
+        shedId: String,
+        limit: Int?,
+    ): ScanRosterResponseDto = ScanRosterResponseDto(source = "fake", rows = emptyList())
+
+    override suspend fun rescheduleObligation(
+        obligationId: String,
+        idempotencyKey: String,
+        request: RescheduleObligationRequestDto,
+    ): RescheduleObligationResponseDto = RescheduleObligationResponseDto(obligationId = obligationId, idempotentReplay = false)
 }
 
 /**
