@@ -151,6 +151,13 @@ export function MeshaShell({
   const searchParams = useSearchParams();
   const primary = contract.navigation.primary;
   const groups = contract.navigation.groups;
+  // Nav chrome is 100% backend-owned: the department_module_grants → owned_modules
+  // count decides "expanded" (multi-module leader shell with the sidebar) vs
+  // "minimal" (single-feature shell, no sidebar column). The frontend NEVER counts
+  // modules, checks role, or computes chrome — it renders the enum only. Fail open:
+  // anything other than an explicit "minimal" keeps the sidebar, so a contract
+  // hiccup or an unknown future value never blanks a leader's navigation.
+  const showSidebar = contract.nav_chrome !== "minimal";
   const roleLenses = contract.role_lenses;
   const active = activeHref(pathname, contract);
   // Single top-bar scope contract: parse the URL scope params (scope_mode/park/range/as_of) once and render
@@ -315,16 +322,18 @@ export function MeshaShell({
   return (
     <>
       <div className="top">
-        <button
-          type="button"
-          className="iconbtn hamb"
-          onClick={toggleNav}
-          title={rail ? shellCopy(contract, "nav.expand") : shellCopy(contract, "nav.collapse")}
-          aria-label={rail ? shellCopy(contract, "nav.expand") : shellCopy(contract, "nav.collapse")}
-          aria-expanded={!rail}
-        >
-          <Menu className="ic" />
-        </button>
+        {showSidebar ? (
+          <button
+            type="button"
+            className="iconbtn hamb"
+            onClick={toggleNav}
+            title={rail ? shellCopy(contract, "nav.expand") : shellCopy(contract, "nav.collapse")}
+            aria-label={rail ? shellCopy(contract, "nav.expand") : shellCopy(contract, "nav.collapse")}
+            aria-expanded={!rail}
+          >
+            <Menu className="ic" />
+          </button>
+        ) : null}
         <div className="brand">
           <span className="logo">{contract.top_bar.logo_text}</span>
           <b style={{ fontSize: 16, letterSpacing: "-.3px" }}>{contract.top_bar.product_name}</b>
@@ -525,8 +534,9 @@ export function MeshaShell({
         </div>
       </div>
 
-      <div className={`navscrim ${navOpen ? "on" : ""}`} onClick={() => setNavOpen(false)} />
+      {showSidebar ? <div className={`navscrim ${navOpen ? "on" : ""}`} onClick={() => setNavOpen(false)} /> : null}
       <div className={`layout ${rail ? "rail" : ""}`}>
+        {showSidebar ? (
         <aside className={`side ${navOpen ? "open" : ""}`} id="side">
           {primary.map((n) => {
             const Icon = iconByToken[n.icon] ?? TowerControl;
@@ -617,6 +627,7 @@ export function MeshaShell({
           <div className="grow" />
           <div className="sidefoot">{contract.navigation.footer}</div>
         </aside>
+        ) : null}
 
         <main className="main">
           {navTrail.length ? (
