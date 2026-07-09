@@ -257,7 +257,10 @@
   .footnote a{color:var(--brand-2)}
 
   /* net + sync status (offline-first · Room outbox) */
-  .netbar{display:flex;align-items:center;gap:8px;padding:6px 16px;font-size:11px;font-weight:750;background:var(--surf);border-bottom:1px solid var(--hair);flex:none;cursor:pointer;position:relative;z-index:4}
+  /* Connectivity/sync: quiet by design — hidden when online + all synced (see renderSync),
+     and a slim rounded chip only when there's something to act on (syncing/offline/failed). */
+  .netbar{display:flex;align-items:center;gap:8px;margin:8px 16px 0;padding:8px 12px;font-size:11.5px;font-weight:700;background:var(--surf2);border:1px solid var(--hair);border-radius:12px;flex:none;cursor:pointer;position:relative;z-index:4;overflow:hidden}
+  .netbar.sync{border-color:rgba(240,181,75,.32)} .netbar.off{border-color:rgba(95,115,103,.4)} .netbar.err{border-color:rgba(251,111,99,.4)}
   .netbar .ndot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--okx);flex:none}
   .netbar.off .ndot{background:var(--faint);box-shadow:0 0 0 3px var(--surf3)}
   .netbar .nstate{color:var(--muted)}
@@ -691,7 +694,7 @@
     if(isBack)el.classList.add('back'); el.classList.add('on');
     el.scrollTop=0; var sc=$('.vscroll',el); if(sc)sc.scrollTop=0;
     renderNav();
-    var nb=D.getElementById('netbar'); if(nb)nb.style.display=(id==='v-login')?'none':'flex';
+    var nb=D.getElementById('netbar'); if(nb){var quiet=nb.classList.contains('ok')&&!nb.classList.contains('off');nb.style.display=(id==='v-login'||quiet)?'none':'flex';}
     if(id==='v-calendar'&&typeof calMode==='function')calMode('week');
     // v-scan is set up by enterShed (reset + any pre-done); don't wipe it on show/back.
   }
@@ -1175,8 +1178,10 @@
     var bar=D.getElementById('netbar');
     if(bar){
       var s=syncSummary();
-      bar.className='netbar '+s.cls+(netOnline?'':' off')+(bar.style.display==='none'?'':'');
-      if(bar.style.display==='none'){/* keep hidden on login */}
+      bar.className='netbar '+s.cls+(netOnline?'':' off');
+      // Modern: hide entirely on the happy path (online + all synced); surface only when actionable.
+      var onLogin=(D.querySelector('.view.on')||{}).id==='v-login';
+      bar.style.display=(onLogin||(netOnline&&s.cls==='ok'))?'none':'flex';
       var ns=D.getElementById('netState'); if(ns)ns.textContent=netOnline?'Online':'Offline';
       var ss=D.getElementById('syncState');
       if(ss){var ic=s.cls==='ok'?'i-check':(s.cls==='sync'?'i-refresh':(s.cls==='off'?'i-bt':'i-clock'));
