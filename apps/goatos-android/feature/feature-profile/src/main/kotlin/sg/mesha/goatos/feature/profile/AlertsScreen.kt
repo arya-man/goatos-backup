@@ -27,6 +27,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 // ---------------------------------------------------------------------------
 // Alerts / notifications surface (screens.md: v-alerts; mock #v-alerts `.notif`).
@@ -40,23 +41,21 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 // ---------------------------------------------------------------------------
 
 private object AlertsTokens {
-    val Bg = Color(0xFF0B100D)
-    val Surf2 = Color(0xFF1A241D)
-    val Surf3 = Color(0xFF222E25)
-    val Hair = Color(0xFF28352B)
-    val Ink = Color(0xFFECF4EE)
-    val Muted = Color(0xFF8FA497)
-    val Faint = Color(0xFF5F7367)
-    val Brand = Color(0xFF8AD457)
-    val BrandD = Color(0xFFB7EA8C)
-    val Teal = Color(0xFF57C9B0)
-    val Warn = Color(0xFFF0B54B)
-    val Danger = Color(0xFFFB6F63)
-
-    // pill backgrounds (mock rgba() tokens).
-    val TealX = Color(0x2957C9B0)
-    val WarnX = Color(0x26F0B54B)
-    val DangerX = Color(0x26FB6F63)
+    val Bg = MeshaColors.Bg
+    val Surf2 = MeshaColors.Surf2
+    val Surf3 = MeshaColors.Surf3
+    val Hair = MeshaColors.Hair
+    val Ink = MeshaColors.Ink
+    val Muted = MeshaColors.Muted
+    val Faint = MeshaColors.Faint
+    val Brand = MeshaColors.Brand
+    val BrandD = MeshaColors.BrandD
+    val Teal = MeshaColors.Teal
+    val Warn = MeshaColors.Warn
+    val Danger = MeshaColors.Danger
+    val TealX = MeshaColors.TealX
+    val WarnX = MeshaColors.WarnX
+    val DangerX = MeshaColors.DangerX
 }
 
 /** Backend-provided severity. Drives pill colour + short severity word + accent only. */

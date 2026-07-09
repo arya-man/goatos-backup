@@ -35,6 +35,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 // ---------------------------------------------------------------------------
 // You / Settings surface (screens.md: v-you, v-rfid, v-alerts).
@@ -51,21 +52,6 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 // for them (screens.md "You / Settings"; nav chrome is backend-driven).
 // ---------------------------------------------------------------------------
 
-private object ProfileTokens {
-    val Bg = Color(0xFF0B100D)
-    val Surf = Color(0xFF131A15)
-    val Surf2 = Color(0xFF1A241D)
-    val Hair = Color(0xFF28352B)
-    val Ink = Color(0xFFECF4EE)
-    val Muted = Color(0xFF8FA497)
-    val Faint = Color(0xFF5F7367)
-    val Brand = Color(0xFF8AD457)
-    val Brand2 = Color(0xFF5FB531)
-    val BrandD = Color(0xFFB7EA8C)
-    val Danger = Color(0xFFFB6F63)
-    val OnBrand = Color(0xFF08130B)
-    val Grad = Brush.linearGradient(listOf(Color(0xFF93DA5E), Color(0xFF5FB531)))
-}
 
 /** The kind drives both the leading glyph and which ProfileEvent a row emits. */
 enum class SettingKind { LANGUAGE, RFID, NOTIFICATIONS, SIGN_OUT }
@@ -135,14 +121,14 @@ fun ProfileScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(ProfileTokens.Bg),
+            .background(MeshaColors.Bg),
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
         item { ProfileHeader(state) }
         item {
             Text(
                 text = state.settingsTitle.uppercase(),
-                color = ProfileTokens.Faint,
+                color = MeshaColors.Faint,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.W700,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp),
@@ -163,13 +149,13 @@ private fun ProfileHeader(state: ProfileUiState) {
         Column(modifier = Modifier.padding(horizontal = 16.dp)) {
             Text(
                 text = state.roleLabel.uppercase(),
-                color = ProfileTokens.Faint,
+                color = MeshaColors.Faint,
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.W700,
             )
             Text(
                 text = state.screenTitle,
-                color = ProfileTokens.Ink,
+                color = MeshaColors.Ink,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.W700,
             )
@@ -181,12 +167,12 @@ private fun ProfileHeader(state: ProfileUiState) {
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .background(ProfileTokens.Grad, shape = androidx.compose.foundation.shape.RoundedCornerShape(15.dp)),
+                    .background(MeshaColors.BrandGradient, shape = androidx.compose.foundation.shape.RoundedCornerShape(15.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = state.initials,
-                    color = ProfileTokens.OnBrand,
+                    color = MeshaColors.OnBrand,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.W800,
                 )
@@ -195,13 +181,13 @@ private fun ProfileHeader(state: ProfileUiState) {
             Column {
                 Text(
                     text = state.name,
-                    color = ProfileTokens.Ink,
+                    color = MeshaColors.Ink,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.W700,
                 )
                 Text(
                     text = state.scopeLabel,
-                    color = ProfileTokens.Muted,
+                    color = MeshaColors.Muted,
                     fontSize = 12.sp,
                 )
             }
@@ -215,14 +201,14 @@ private fun SettingsCard(rows: List<SettingRow>, onEvent: (ProfileEvent) -> Unit
         modifier = Modifier
             .padding(horizontal = 16.dp)
             .fillMaxWidth()
-            .background(ProfileTokens.Surf, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-            .border(1.dp, ProfileTokens.Hair, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+            .background(MeshaColors.Surf, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+            .border(1.dp, MeshaColors.Hair, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
             .padding(horizontal = 15.dp),
     ) {
         rows.forEachIndexed { index, row ->
             SettingRowItem(row = row, onEvent = onEvent)
             if (index != rows.lastIndex) {
-                HorizontalDivider(thickness = 1.dp, color = ProfileTokens.Surf2)
+                HorizontalDivider(thickness = 1.dp, color = MeshaColors.Surf2)
             }
         }
     }
@@ -241,18 +227,18 @@ private fun SettingRowItem(row: SettingRow, onEvent: (ProfileEvent) -> Unit) {
         Icon(
             imageVector = iconFor(row.kind),
             contentDescription = null,
-            tint = ProfileTokens.Muted,
+            tint = MeshaColors.Muted,
             modifier = Modifier.size(18.dp),
         )
         Spacer(Modifier.width(9.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = row.title,
-                color = ProfileTokens.Muted,
+                color = MeshaColors.Muted,
                 fontSize = 13.sp,
             )
             row.subtitle?.let {
-                Text(text = it, color = ProfileTokens.Faint, fontSize = 11.sp)
+                Text(text = it, color = MeshaColors.Faint, fontSize = 11.sp)
             }
         }
         Spacer(Modifier.width(10.dp))
@@ -267,11 +253,11 @@ private fun SettingRowTrailing(row: SettingRow, onEvent: (ProfileEvent) -> Unit)
             checked = row.toggleOn,
             onCheckedChange = { onEvent(eventFor(row.kind)) },
             colors = SwitchDefaults.colors(
-                checkedThumbColor = ProfileTokens.OnBrand,
-                checkedTrackColor = ProfileTokens.Brand,
-                uncheckedThumbColor = ProfileTokens.Muted,
-                uncheckedTrackColor = ProfileTokens.Surf2,
-                uncheckedBorderColor = ProfileTokens.Hair,
+                checkedThumbColor = MeshaColors.OnBrand,
+                checkedTrackColor = MeshaColors.Brand,
+                uncheckedThumbColor = MeshaColors.Muted,
+                uncheckedTrackColor = MeshaColors.Surf2,
+                uncheckedBorderColor = MeshaColors.Hair,
             ),
         )
         return
@@ -280,13 +266,13 @@ private fun SettingRowTrailing(row: SettingRow, onEvent: (ProfileEvent) -> Unit)
         row.value?.let {
             Text(
                 text = it,
-                color = if (row.valueEmphasis) ProfileTokens.BrandD else ProfileTokens.Muted,
+                color = if (row.valueEmphasis) MeshaColors.BrandD else MeshaColors.Muted,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.W700,
             )
             Spacer(Modifier.width(6.dp))
         }
-        Text(text = "›", color = ProfileTokens.Faint, fontSize = 16.sp)
+        Text(text = "›", color = MeshaColors.Faint, fontSize = 16.sp)
     }
 }
 
@@ -299,21 +285,21 @@ private fun SignOutButton(row: SettingRow, onEvent: (ProfileEvent) -> Unit) {
             .padding(start = 16.dp, end = 16.dp, top = 16.dp)
             .fillMaxWidth()
             .heightIn(min = 52.dp)
-            .background(ProfileTokens.Surf2, shape = androidx.compose.foundation.shape.RoundedCornerShape(15.dp))
-            .border(1.dp, ProfileTokens.Hair, shape = androidx.compose.foundation.shape.RoundedCornerShape(15.dp))
+            .background(MeshaColors.Surf2, shape = androidx.compose.foundation.shape.RoundedCornerShape(15.dp))
+            .border(1.dp, MeshaColors.Hair, shape = androidx.compose.foundation.shape.RoundedCornerShape(15.dp))
             .clickable { onEvent(ProfileEvent.SignOut) }
             .padding(15.dp),
     ) {
         Icon(
             imageVector = iconFor(SettingKind.SIGN_OUT),
             contentDescription = null,
-            tint = ProfileTokens.Danger,
+            tint = MeshaColors.Danger,
             modifier = Modifier.size(18.dp),
         )
         Spacer(Modifier.width(9.dp))
         Text(
             text = row.title,
-            color = ProfileTokens.Danger,
+            color = MeshaColors.Danger,
             fontSize = 15.sp,
             fontWeight = FontWeight.W700,
             textAlign = TextAlign.Center,
