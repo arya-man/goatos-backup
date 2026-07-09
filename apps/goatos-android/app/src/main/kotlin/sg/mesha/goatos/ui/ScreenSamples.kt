@@ -9,7 +9,12 @@ import sg.mesha.goatos.feature.calendar.CalendarWeekDay
 import sg.mesha.goatos.feature.leadership.CoverageHeroState
 import sg.mesha.goatos.feature.leadership.DataGapPill
 import sg.mesha.goatos.feature.leadership.LeadershipUiState
+import sg.mesha.goatos.feature.profile.AlertRow
+import sg.mesha.goatos.feature.profile.AlertTone
+import sg.mesha.goatos.feature.profile.AlertsUiState
 import sg.mesha.goatos.feature.profile.ProfileUiState
+import sg.mesha.goatos.feature.profile.RfidConnectionState
+import sg.mesha.goatos.feature.profile.RfidUiState
 import sg.mesha.goatos.feature.profile.SettingKind
 import sg.mesha.goatos.feature.profile.SettingRow
 import sg.mesha.goatos.feature.record.RecordUiState
@@ -147,6 +152,26 @@ fun sampleRecordState(): RecordUiState = RecordUiState(
     ),
     countLabel = "78 doses",
     statusLabel = "Done",
+)
+
+fun sampleRfidState(): RfidUiState = RfidUiState(
+    title = "RFID reader",
+    statusLabel = "Paired",
+    connectionState = RfidConnectionState.CONNECTED,
+    readerName = "Chainway R3",
+    readerDetail = "Paired · battery 84%",
+    primaryActionLabel = "Disconnect",
+    testLabel = "Test read",
+)
+
+fun sampleAlertsState(): AlertsUiState = AlertsUiState(
+    title = "Alerts",
+    rows = listOf(
+        AlertRow("a1", "Overdue: Castro 2 not started", "Drive due 6:00 — no scans yet", "2h ago", AlertTone.CRITICAL, unread = true),
+        AlertRow("a2", "Coverage below target", "PPR at 78% vs 90% target", "5h ago", AlertTone.WARN, unread = false),
+    ),
+    emptyLabel = "No alerts",
+    markAllLabel = "Mark all read",
 )
 
 fun sampleProfileState(): ProfileUiState = ProfileUiState(

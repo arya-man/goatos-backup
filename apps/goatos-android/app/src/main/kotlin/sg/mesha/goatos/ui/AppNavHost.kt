@@ -10,7 +10,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import sg.mesha.goatos.feature.calendar.CalendarScreen
 import sg.mesha.goatos.feature.leadership.LeadershipScreen
+import sg.mesha.goatos.feature.profile.AlertsScreen
+import sg.mesha.goatos.feature.profile.ProfileEvent
 import sg.mesha.goatos.feature.profile.ProfileScreen
+import sg.mesha.goatos.feature.profile.RfidScreen
 import sg.mesha.goatos.feature.record.RecordScreen
 import sg.mesha.goatos.feature.scan.ScanScreen
 import sg.mesha.goatos.feature.sheds.ShedsScreen
@@ -26,6 +29,8 @@ object Routes {
     const val LEADERSHIP = "/leadership"
     const val RECORD = "/record"
     const val YOU = "you"
+    const val RFID = "/rfid"
+    const val ALERTS = "/alerts"
     const val START = CALENDAR
 }
 
@@ -52,7 +57,20 @@ fun AppNavHost(
         composable(Routes.SUBMIT) { SubmitScreen(state = sampleSubmitState()) }
         composable(Routes.LEADERSHIP) { LeadershipScreen(state = sampleLeadershipState()) }
         composable(Routes.RECORD) { RecordScreen(state = sampleRecordState()) }
-        composable(Routes.YOU) { ProfileScreen(state = sampleProfileState()) }
+        composable(Routes.YOU) {
+            ProfileScreen(
+                state = sampleProfileState(),
+                onEvent = { event ->
+                    when (event) {
+                        ProfileEvent.PairRfid -> navController.navigate(Routes.RFID) { launchSingleTop = true }
+                        ProfileEvent.ToggleNotifications -> navController.navigate(Routes.ALERTS) { launchSingleTop = true }
+                        else -> Unit // Language sheet + Sign out are handled by the shell/session layer.
+                    }
+                },
+            )
+        }
+        composable(Routes.RFID) { RfidScreen(state = sampleRfidState()) }
+        composable(Routes.ALERTS) { AlertsScreen(state = sampleAlertsState()) }
     }
 }
 
