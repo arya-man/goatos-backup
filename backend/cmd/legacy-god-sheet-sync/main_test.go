@@ -2,10 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"google.golang.org/api/googleapi"
+	"google.golang.org/api/sheets/v4"
 )
 
 func TestWorkbookTabsIncludeImportGateSheets(t *testing.T) {
@@ -141,6 +147,174 @@ func TestDefaultBusinessDateUsesISTYesterday(t *testing.T) {
 	}
 }
 
+func TestApplyWorkbookPreservesHumanTabsAndAppendsSyncRuns(t *testing.T) {
+	ctx := context.Background()
+	specs := []tabSpec{
+		tableSpec("Sync_Runs", syncRunColumns(), [][]string{{"run-2", "manual"}}),
+		tableSpec("Animal_Master", []string{"animal_identifier_1", "verification_status"}, nil),
+		tableSpec("Source_Catalog", sourceCatalogColumns(), [][]string{{"src-2"}}),
+	}
+	fake := newFakeSheets(specs)
+	fake.values["Sync_Runs"] = [][]any{stringRow(syncRunColumns()), {"run-1", "manual"}}
+	fake.values["Animal_Master"] = [][]any{{"animal_identifier_1", "verification_status"}, {"RFID-1", "GREEN"}}
+	fake.values["Source_Catalog"] = [][]any{stringRow(sourceCatalogColumns()), {"src-1"}}
+
+	summary, err := applyWorkbook(ctx, fake, config{SpreadsheetID: "sheet"}, specs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(summary.AppendedRows, "Sync_Runs") {
+		t.Fatalf("Sync_Runs should append, got %+v", summary)
+	}
+	for _, name := range []string{"Animal_Master", "Source_Catalog"} {
+		if !contains(summary.SkippedTabs, name) {
+			t.Fatalf("%s should be skipped, got %+v", name, summary)
+		}
+	}
+	if fake.countCall("clear:Animal_Master") != 0 || fake.countCall("update:Animal_Master") != 0 {
+		t.Fatalf("human tab was modified: %v", fake.calls)
+	}
+	if fake.countCall("append:Sync_Runs") != 1 {
+		t.Fatalf("Sync_Runs append calls=%d calls=%v", fake.countCall("append:Sync_Runs"), fake.calls)
+	}
+}
+
+func TestReplaceManagedTabsOnlyRefreshesSeedTabs(t *testing.T) {
+	ctx := context.Background()
+	specs := []tabSpec{
+		tableSpec("Sync_Runs", syncRunColumns(), [][]string{{"run-2", "manual"}}),
+		tableSpec("Animal_Master", []string{"animal_identifier_1", "verification_status"}, nil),
+		tableSpec("Source_Catalog", sourceCatalogColumns(), [][]string{{"src-2"}}),
+	}
+	fake := newFakeSheets(specs)
+	fake.values["Sync_Runs"] = [][]any{stringRow(syncRunColumns()), {"run-1", "manual"}}
+	fake.values["Animal_Master"] = [][]any{{"animal_identifier_1", "verification_status"}, {"RFID-1", "GREEN"}}
+	fake.values["Source_Catalog"] = [][]any{stringRow(sourceCatalogColumns()), {"src-1"}}
+
+	summary, err := applyWorkbook(ctx, fake, config{SpreadsheetID: "sheet", ReplaceManagedTabs: true}, specs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(summary.WrittenTabs, "Source_Catalog") {
+		t.Fatalf("Source_Catalog should be refreshed, got %+v", summary)
+	}
+	if !contains(summary.SkippedTabs, "Animal_Master") {
+		t.Fatalf("Animal_Master should be preserved, got %+v", summary)
+	}
+	if !contains(summary.AppendedRows, "Sync_Runs") {
+		t.Fatalf("Sync_Runs should append even during seed refresh, got %+v", summary)
+	}
+	if fake.countCall("clear:Source_Catalog") != 1 || fake.countCall("update:Source_Catalog") != 1 {
+		t.Fatalf("seed tab refresh calls wrong: %v", fake.calls)
+	}
+	if fake.countCall("clear:Animal_Master") != 0 || fake.countCall("update:Animal_Master") != 0 {
+		t.Fatalf("human tab was modified: %v", fake.calls)
+	}
+}
+
+func TestApplyWorkbookRejectsMalformedHumanTab(t *testing.T) {
+	ctx := context.Background()
+	specs := []tabSpec{tableSpec("Animal_Master", []string{"animal_identifier_1", "verification_status"}, nil)}
+	fake := newFakeSheets(specs)
+	fake.values["Animal_Master"] = [][]any{{"wrong_header"}, {"RFID-1"}}
+
+	_, err := applyWorkbook(ctx, fake, config{SpreadsheetID: "sheet"}, specs)
+	if err == nil || !strings.Contains(err.Error(), "header does not match") {
+		t.Fatalf("expected header mismatch error, got %v", err)
+	}
+	if fake.countCall("clear:Animal_Master") != 0 || fake.countCall("update:Animal_Master") != 0 {
+		t.Fatalf("malformed human tab should not be modified: %v", fake.calls)
+	}
+}
+
+func TestApplyWorkbookCanRefreshMalformedSeedTab(t *testing.T) {
+	ctx := context.Background()
+	specs := []tabSpec{tableSpec("Source_Catalog", sourceCatalogColumns(), [][]string{{"src-2"}})}
+	fake := newFakeSheets(specs)
+	fake.values["Source_Catalog"] = [][]any{{"wrong_header"}, {"src-1"}}
+
+	summary, err := applyWorkbook(ctx, fake, config{SpreadsheetID: "sheet", ReplaceManagedTabs: true}, specs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(summary.WrittenTabs, "Source_Catalog") {
+		t.Fatalf("Source_Catalog should be refreshed, got %+v", summary)
+	}
+	if fake.countCall("clear:Source_Catalog") != 1 || fake.countCall("update:Source_Catalog") != 1 {
+		t.Fatalf("seed tab refresh calls wrong: %v", fake.calls)
+	}
+}
+
+func TestSyncRunSchemaHashUsesWorkbookColumns(t *testing.T) {
+	cfg := config{SpreadsheetID: defaultSpreadsheetID, RunType: defaultRunType, BusinessDate: "2026-07-09"}
+	specs := workbookTabs(cfg, "run-test", sourceCatalogRows(), validationRuleRows(), issueSeedRows())
+	syncRun := findTab(t, specs, "Sync_Runs")
+	if len(syncRun.Rows) != 1 || len(syncRun.Rows[0]) < 13 {
+		t.Fatalf("bad Sync_Runs rows: %+v", syncRun.Rows)
+	}
+	gotHash := syncRun.Rows[0][12]
+	if want := workbookSchemaHash(specs); gotHash != want {
+		t.Fatalf("schema hash=%s, want %s", gotHash, want)
+	}
+	mutated := append([]tabSpec(nil), specs...)
+	mutated[0].Cols = append(append([]string(nil), mutated[0].Cols...), "new_column")
+	if gotHash == workbookSchemaHash(mutated) {
+		t.Fatal("schema hash should change when workbook columns change")
+	}
+}
+
+func TestValidateGoogleIdentity(t *testing.T) {
+	if err := validateGoogleIdentity(googleIdentity{Principal: "ravi@mesha.sg"}, "", "@mesha.sg"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateGoogleIdentity(googleIdentity{Principal: "writer@goatos-dev.iam.gserviceaccount.com"}, "", "@mesha.sg,@goatos-dev.iam.gserviceaccount.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateGoogleIdentity(googleIdentity{Principal: "ravi@mesha.sg"}, "ravi@mesha.sg", "@wrong"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateGoogleIdentity(googleIdentity{Principal: "bot@heva.sg"}, "", "@mesha.sg"); err == nil {
+		t.Fatal("expected wrong principal suffix to fail")
+	}
+}
+
+func TestNewRunIDIncludesUniqueSuffix(t *testing.T) {
+	first := newRunID()
+	second := newRunID()
+	if first == second {
+		t.Fatalf("run ids collided: %s", first)
+	}
+	if !strings.HasPrefix(first, "legacy-god-sheet-") || len(strings.Split(first, "-")) < 4 {
+		t.Fatalf("unexpected run id format: %s", first)
+	}
+}
+
+func TestWithSheetsRetryRetriesTransientErrors(t *testing.T) {
+	attempts := 0
+	got, err := withSheetsRetry(context.Background(), func() (string, error) {
+		attempts++
+		if attempts < 2 {
+			return "", &googleapi.Error{Code: 429, Message: "quota"}
+		}
+		return "ok", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "ok" || attempts != 2 {
+		t.Fatalf("got=%s attempts=%d", got, attempts)
+	}
+
+	attempts = 0
+	_, err = withSheetsRetry(context.Background(), func() (string, error) {
+		attempts++
+		return "", errors.New("not retryable")
+	})
+	if err == nil || attempts != 1 {
+		t.Fatalf("expected one non-retryable attempt, err=%v attempts=%d", err, attempts)
+	}
+}
+
 func contains(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
@@ -148,4 +322,154 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+type fakeSheets struct {
+	tabs   map[string]bool
+	values map[string][][]any
+	calls  []string
+}
+
+func newFakeSheets(specs []tabSpec) *fakeSheets {
+	fake := &fakeSheets{tabs: map[string]bool{}, values: map[string][][]any{}}
+	for _, spec := range specs {
+		fake.tabs[spec.Name] = true
+		fake.values[spec.Name] = [][]any{}
+	}
+	return fake
+}
+
+func (f *fakeSheets) GetSpreadsheet(ctx context.Context, spreadsheetID string) (*sheets.Spreadsheet, error) {
+	_ = ctx
+	_ = spreadsheetID
+	f.calls = append(f.calls, "get-spreadsheet")
+	resp := &sheets.Spreadsheet{}
+	for name := range f.tabs {
+		resp.Sheets = append(resp.Sheets, &sheets.Sheet{Properties: &sheets.SheetProperties{Title: name}})
+	}
+	return resp, nil
+}
+
+func (f *fakeSheets) BatchUpdateSpreadsheet(ctx context.Context, spreadsheetID string, request *sheets.BatchUpdateSpreadsheetRequest) (*sheets.BatchUpdateSpreadsheetResponse, error) {
+	_ = ctx
+	_ = spreadsheetID
+	f.calls = append(f.calls, "batch-update")
+	resp := &sheets.BatchUpdateSpreadsheetResponse{}
+	for _, req := range request.Requests {
+		if req.AddSheet == nil || req.AddSheet.Properties == nil {
+			continue
+		}
+		name := req.AddSheet.Properties.Title
+		f.tabs[name] = true
+		if _, ok := f.values[name]; !ok {
+			f.values[name] = [][]any{}
+		}
+		resp.Replies = append(resp.Replies, &sheets.Response{AddSheet: &sheets.AddSheetResponse{Properties: &sheets.SheetProperties{Title: name}}})
+	}
+	return resp, nil
+}
+
+func (f *fakeSheets) GetValues(ctx context.Context, spreadsheetID string, readRange string) (*sheets.ValueRange, error) {
+	_ = ctx
+	_ = spreadsheetID
+	tab, err := tabFromRange(readRange)
+	if err != nil {
+		return nil, err
+	}
+	f.calls = append(f.calls, "get:"+tab)
+	return &sheets.ValueRange{Values: f.values[tab]}, nil
+}
+
+func (f *fakeSheets) ClearValues(ctx context.Context, spreadsheetID string, writeRange string) (*sheets.ClearValuesResponse, error) {
+	_ = ctx
+	_ = spreadsheetID
+	tab, err := tabFromRange(writeRange)
+	if err != nil {
+		return nil, err
+	}
+	f.calls = append(f.calls, "clear:"+tab)
+	f.values[tab] = nil
+	return &sheets.ClearValuesResponse{}, nil
+}
+
+func (f *fakeSheets) UpdateValues(ctx context.Context, spreadsheetID string, writeRange string, values *sheets.ValueRange) (*sheets.UpdateValuesResponse, error) {
+	_ = ctx
+	_ = spreadsheetID
+	tab, err := tabFromRange(writeRange)
+	if err != nil {
+		return nil, err
+	}
+	f.calls = append(f.calls, "update:"+tab)
+	f.values[tab] = values.Values
+	return &sheets.UpdateValuesResponse{}, nil
+}
+
+func (f *fakeSheets) AppendValues(ctx context.Context, spreadsheetID string, writeRange string, values *sheets.ValueRange) (*sheets.AppendValuesResponse, error) {
+	_ = ctx
+	_ = spreadsheetID
+	tab, err := tabFromRange(writeRange)
+	if err != nil {
+		return nil, err
+	}
+	f.calls = append(f.calls, "append:"+tab)
+	f.values[tab] = append(f.values[tab], values.Values...)
+	return &sheets.AppendValuesResponse{}, nil
+}
+
+func (f *fakeSheets) countCall(call string) int {
+	count := 0
+	for _, got := range f.calls {
+		if got == call {
+			count++
+		}
+	}
+	return count
+}
+
+func tabFromRange(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, "'") {
+		if idx := strings.Index(value, "!"); idx >= 0 {
+			return value[:idx], nil
+		}
+		return value, nil
+	}
+	var b strings.Builder
+	for i := 1; i < len(value); i++ {
+		if value[i] == '\'' {
+			if i+1 < len(value) && value[i+1] == '\'' {
+				b.WriteByte('\'')
+				i++
+				continue
+			}
+			if i+1 < len(value) && value[i+1] == '!' {
+				return b.String(), nil
+			}
+			if i+1 == len(value) {
+				return b.String(), nil
+			}
+			return "", fmt.Errorf("bad range %q", value)
+		}
+		b.WriteByte(value[i])
+	}
+	return "", fmt.Errorf("bad range %q", value)
+}
+
+func stringRow(values []string) []any {
+	out := make([]any, len(values))
+	for i, value := range values {
+		out[i] = value
+	}
+	return out
+}
+
+func findTab(t *testing.T, specs []tabSpec, name string) tabSpec {
+	t.Helper()
+	for _, spec := range specs {
+		if spec.Name == name {
+			return spec
+		}
+	}
+	t.Fatalf("missing tab %s", name)
+	return tabSpec{}
 }

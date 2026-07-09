@@ -1037,11 +1037,18 @@ make legacy-god-sheet-sync-apply
 
 The current implementation creates the managed workbook tabs, writes the
 control/source catalog rows, seeds validation rules and open issue categories,
-and appends `Sync_Runs`. It is idempotent: non-empty tabs are preserved unless
-`--replace-managed-tabs` is explicitly passed to `backend/cmd/legacy-god-sheet-sync`.
-Live source extraction and row-level normalization are the next implementation
-slice; Goat OS DB import remains blocked until the RFID/DOB/sex/species/location
-gates pass.
+and appends `Sync_Runs`. It is idempotent: non-empty human/data tabs are always
+preserved. `--replace-managed-tabs` refreshes only seed/config tabs
+(`README_Problem_Statement`, `Source_Catalog`, `Validation_Rules`, and
+`Species_Taxonomy_Crosswalk`) and never clears `Animal_Master`, `Issue_Queue`,
+`Mapping_Crosswalks`, event/history tabs, raw snapshots, or import batches.
+Each run records a hash of the actual managed tab/column schema in
+`Sync_Runs.schema_hash`, not a static version string. Apply mode also verifies
+the Google ADC principal against Mesha/VGoats allowlists before writing and
+uses bounded retry/backoff for transient Sheets API `429`/`5xx` responses. Live
+source extraction and row-level normalization are the next implementation slice;
+Goat OS DB import remains blocked until the RFID/DOB/sex/species/location gates
+pass.
 
 Recommended control plane:
 
@@ -1086,7 +1093,7 @@ approved preview-and-commit flow for selected GREEN batches.
 
 Each run must:
 
-1. Verify account/project/org context before reading sources.
+1. Verify account/project/org context before reading or writing sources.
 2. Read the `Source_Catalog`.
 3. Pull BigQuery rows by explicit business date and source watermark.
 4. Pull Google Sheets tabs by spreadsheet id, gid, and header hash.
@@ -1099,7 +1106,8 @@ Each run must:
 10. Recompute all `Validation_Rules`.
 11. Update `Issue_Queue`.
 12. Update `Animal_Master` and domain tabs.
-13. Update `Sync_Runs`.
+13. Update `Sync_Runs` with source hash, actual schema hash, and Cloud
+    Run/BigQuery job ids; log and verify writer context before the write.
 14. Alert if sync failed, source schema changed, source is stale, or new RED
     blockers appear.
 

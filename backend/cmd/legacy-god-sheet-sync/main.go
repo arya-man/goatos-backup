@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,33 +15,41 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 )
 
 const (
-	defaultSpreadsheetID = "1QhW22Awg7WKGhYf7tCaj_pXE-9kwzPyfwhSwenDW2RM"
-	defaultTimeout       = 120 * time.Second
-	defaultRunType       = "manual_bootstrap"
-	defaultSheetURL      = "https://docs.google.com/spreadsheets/d/1QhW22Awg7WKGhYf7tCaj_pXE-9kwzPyfwhSwenDW2RM/edit"
+	defaultSpreadsheetID                  = "1QhW22Awg7WKGhYf7tCaj_pXE-9kwzPyfwhSwenDW2RM"
+	defaultTimeout                        = 120 * time.Second
+	defaultRunType                        = "manual_bootstrap"
+	defaultSheetURL                       = "https://docs.google.com/spreadsheets/d/1QhW22Awg7WKGhYf7tCaj_pXE-9kwzPyfwhSwenDW2RM/edit"
+	defaultAllowedGooglePrincipalSuffixes = "@mesha.sg,@goatos-sheets.iam.gserviceaccount.com,@goatos-dev.iam.gserviceaccount.com,@goatos-stg.iam.gserviceaccount.com,@goatos-prod.iam.gserviceaccount.com"
 )
 
 type config struct {
-	SpreadsheetID      string
-	RunType            string
-	BusinessDate       string
-	Actor              string
-	Apply              bool
-	ReplaceManagedTabs bool
-	OutputJSON         bool
-	Timeout            time.Duration
+	SpreadsheetID                  string
+	RunType                        string
+	BusinessDate                   string
+	Actor                          string
+	ExpectedGooglePrincipal        string
+	AllowedGooglePrincipalSuffixes string
+	SkipADCIdentityGuard           bool
+	Apply                          bool
+	ReplaceManagedTabs             bool
+	OutputJSON                     bool
+	Timeout                        time.Duration
 }
 
 type tabSpec struct {
@@ -122,6 +131,19 @@ type syncSummary struct {
 	AppendedRows       []string `json:"appended_rows,omitempty"`
 }
 
+type sheetsPort interface {
+	GetSpreadsheet(ctx context.Context, spreadsheetID string) (*sheets.Spreadsheet, error)
+	BatchUpdateSpreadsheet(ctx context.Context, spreadsheetID string, request *sheets.BatchUpdateSpreadsheetRequest) (*sheets.BatchUpdateSpreadsheetResponse, error)
+	GetValues(ctx context.Context, spreadsheetID string, readRange string) (*sheets.ValueRange, error)
+	ClearValues(ctx context.Context, spreadsheetID string, writeRange string) (*sheets.ClearValuesResponse, error)
+	UpdateValues(ctx context.Context, spreadsheetID string, writeRange string, values *sheets.ValueRange) (*sheets.UpdateValuesResponse, error)
+	AppendValues(ctx context.Context, spreadsheetID string, writeRange string, values *sheets.ValueRange) (*sheets.AppendValuesResponse, error)
+}
+
+type googleSheetsPort struct {
+	service *sheets.Service
+}
+
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -157,7 +179,7 @@ func run(args []string, stdout io.Writer) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
-	service, err := newSheetsService(ctx)
+	service, err := newSheetsClient(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -179,8 +201,11 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.RunType, "run-type", getenvDefault("GOATOS_LEGACY_GOD_SHEET_RUN_TYPE", defaultRunType), "sync run type")
 	fs.StringVar(&cfg.BusinessDate, "business-date", getenv("GOATOS_LEGACY_GOD_SHEET_BUSINESS_DATE"), "explicit business date YYYY-MM-DD; default yesterday IST")
 	fs.StringVar(&cfg.Actor, "actor", getenvDefault("GOATOS_LEGACY_GOD_SHEET_ACTOR", "codex"), "actor/source writing the run row")
+	fs.StringVar(&cfg.ExpectedGooglePrincipal, "expected-google-principal", getenv("GOATOS_LEGACY_GOD_SHEET_EXPECTED_GOOGLE_PRINCIPAL"), "exact Google ADC principal allowed to write")
+	fs.StringVar(&cfg.AllowedGooglePrincipalSuffixes, "allowed-google-principal-suffixes", getenvDefault("GOATOS_LEGACY_GOD_SHEET_ALLOWED_GOOGLE_PRINCIPAL_SUFFIXES", defaultAllowedGooglePrincipalSuffixes), "comma-separated Google ADC principal suffix allowlist")
+	fs.BoolVar(&cfg.SkipADCIdentityGuard, "skip-adc-identity-guard", boolEnv("GOATOS_LEGACY_GOD_SHEET_SKIP_ADC_IDENTITY_GUARD"), "disable Google ADC principal guard; emergency use only")
 	fs.BoolVar(&cfg.Apply, "apply", boolEnv("GOATOS_LEGACY_GOD_SHEET_APPLY"), "write to Google Sheets; default is dry-run only")
-	fs.BoolVar(&cfg.ReplaceManagedTabs, "replace-managed-tabs", boolEnv("GOATOS_LEGACY_GOD_SHEET_REPLACE_MANAGED_TABS"), "clear and rewrite managed tabs; default preserves non-empty tabs")
+	fs.BoolVar(&cfg.ReplaceManagedTabs, "replace-managed-tabs", boolEnv("GOATOS_LEGACY_GOD_SHEET_REPLACE_MANAGED_TABS"), "refresh seed/config tabs only; human/data tabs are always preserved")
 	fs.BoolVar(&cfg.OutputJSON, "json", boolEnv("GOATOS_LEGACY_GOD_SHEET_JSON"), "print machine-readable summary")
 	fs.DurationVar(&cfg.Timeout, "timeout", durationEnv("GOATOS_LEGACY_GOD_SHEET_TIMEOUT", defaultTimeout), "sync timeout")
 	if err := fs.Parse(args); err != nil {
@@ -190,6 +215,8 @@ func parseFlags(args []string) (config, error) {
 	cfg.RunType = defaultString(strings.TrimSpace(cfg.RunType), defaultRunType)
 	cfg.Actor = defaultString(strings.TrimSpace(cfg.Actor), "codex")
 	cfg.BusinessDate = strings.TrimSpace(cfg.BusinessDate)
+	cfg.ExpectedGooglePrincipal = strings.TrimSpace(cfg.ExpectedGooglePrincipal)
+	cfg.AllowedGooglePrincipalSuffixes = strings.TrimSpace(cfg.AllowedGooglePrincipalSuffixes)
 	if cfg.SpreadsheetID == "" {
 		return config{}, errors.New("spreadsheet-id is required")
 	}
@@ -212,20 +239,59 @@ type applySummary struct {
 	AppendedRows []string
 }
 
-func newSheetsService(ctx context.Context) (*sheets.Service, error) {
+func newSheetsClient(ctx context.Context, cfg config) (sheetsPort, error) {
 	creds, err := google.FindDefaultCredentials(ctx, sheets.SpreadsheetsScope)
 	if err != nil {
 		return nil, fmt.Errorf("find Google application default credentials with Sheets scope: %w", err)
+	}
+	if err := assertGoogleIdentity(ctx, creds, cfg); err != nil {
+		return nil, err
 	}
 	service, err := sheets.NewService(ctx, option.WithCredentials(creds))
 	if err != nil {
 		return nil, err
 	}
-	return service, nil
+	return googleSheetsPort{service: service}, nil
 }
 
-func applyWorkbook(ctx context.Context, service *sheets.Service, cfg config, specs []tabSpec) (applySummary, error) {
-	spreadsheet, err := service.Spreadsheets.Get(cfg.SpreadsheetID).Context(ctx).Do()
+func (p googleSheetsPort) GetSpreadsheet(ctx context.Context, spreadsheetID string) (*sheets.Spreadsheet, error) {
+	return withSheetsRetry(ctx, func() (*sheets.Spreadsheet, error) {
+		return p.service.Spreadsheets.Get(spreadsheetID).Context(ctx).Do()
+	})
+}
+
+func (p googleSheetsPort) BatchUpdateSpreadsheet(ctx context.Context, spreadsheetID string, request *sheets.BatchUpdateSpreadsheetRequest) (*sheets.BatchUpdateSpreadsheetResponse, error) {
+	return withSheetsRetry(ctx, func() (*sheets.BatchUpdateSpreadsheetResponse, error) {
+		return p.service.Spreadsheets.BatchUpdate(spreadsheetID, request).Context(ctx).Do()
+	})
+}
+
+func (p googleSheetsPort) GetValues(ctx context.Context, spreadsheetID string, readRange string) (*sheets.ValueRange, error) {
+	return withSheetsRetry(ctx, func() (*sheets.ValueRange, error) {
+		return p.service.Spreadsheets.Values.Get(spreadsheetID, readRange).Context(ctx).Do()
+	})
+}
+
+func (p googleSheetsPort) ClearValues(ctx context.Context, spreadsheetID string, writeRange string) (*sheets.ClearValuesResponse, error) {
+	return withSheetsRetry(ctx, func() (*sheets.ClearValuesResponse, error) {
+		return p.service.Spreadsheets.Values.Clear(spreadsheetID, writeRange, &sheets.ClearValuesRequest{}).Context(ctx).Do()
+	})
+}
+
+func (p googleSheetsPort) UpdateValues(ctx context.Context, spreadsheetID string, writeRange string, values *sheets.ValueRange) (*sheets.UpdateValuesResponse, error) {
+	return withSheetsRetry(ctx, func() (*sheets.UpdateValuesResponse, error) {
+		return p.service.Spreadsheets.Values.Update(spreadsheetID, writeRange, values).ValueInputOption("RAW").Context(ctx).Do()
+	})
+}
+
+func (p googleSheetsPort) AppendValues(ctx context.Context, spreadsheetID string, writeRange string, values *sheets.ValueRange) (*sheets.AppendValuesResponse, error) {
+	return withSheetsRetry(ctx, func() (*sheets.AppendValuesResponse, error) {
+		return p.service.Spreadsheets.Values.Append(spreadsheetID, writeRange, values).ValueInputOption("RAW").InsertDataOption("INSERT_ROWS").Context(ctx).Do()
+	})
+}
+
+func applyWorkbook(ctx context.Context, service sheetsPort, cfg config, specs []tabSpec) (applySummary, error) {
+	spreadsheet, err := service.GetSpreadsheet(ctx, cfg.SpreadsheetID)
 	if err != nil {
 		return applySummary{}, fmt.Errorf("read spreadsheet metadata: %w", err)
 	}
@@ -252,7 +318,7 @@ func applyWorkbook(ctx context.Context, service *sheets.Service, cfg config, spe
 		summary.CreatedTabs = append(summary.CreatedTabs, spec.Name)
 	}
 	if len(requests) > 0 {
-		resp, err := service.Spreadsheets.BatchUpdate(cfg.SpreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{Requests: requests}).Context(ctx).Do()
+		resp, err := service.BatchUpdateSpreadsheet(ctx, cfg.SpreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{Requests: requests})
 		if err != nil {
 			return applySummary{}, fmt.Errorf("create missing tabs: %w", err)
 		}
@@ -265,11 +331,24 @@ func applyWorkbook(ctx context.Context, service *sheets.Service, cfg config, spe
 	}
 
 	for _, spec := range specs {
-		populated, err := tabHasValues(ctx, service, cfg.SpreadsheetID, spec.Name)
+		state, err := readTabState(ctx, service, cfg.SpreadsheetID, spec)
 		if err != nil {
 			return applySummary{}, err
 		}
-		if populated && !cfg.ReplaceManagedTabs {
+		if state.Populated && !state.HeaderMatches {
+			if cfg.ReplaceManagedTabs && isReplaceableSeedTab(spec.Name) {
+				if err := clearTab(ctx, service, cfg.SpreadsheetID, spec.Name); err != nil {
+					return applySummary{}, err
+				}
+				if err := writeTab(ctx, service, cfg.SpreadsheetID, spec); err != nil {
+					return applySummary{}, err
+				}
+				summary.WrittenTabs = append(summary.WrittenTabs, spec.Name)
+				continue
+			}
+			return applySummary{}, fmt.Errorf("%s has data but its header does not match the managed schema; fix the header or refresh the seed/config tab explicitly", spec.Name)
+		}
+		if state.Populated {
 			if spec.Name == "Sync_Runs" {
 				if err := appendSyncRun(ctx, service, cfg.SpreadsheetID, spec); err != nil {
 					return applySummary{}, err
@@ -277,13 +356,18 @@ func applyWorkbook(ctx context.Context, service *sheets.Service, cfg config, spe
 				summary.AppendedRows = append(summary.AppendedRows, spec.Name)
 				continue
 			}
+			if cfg.ReplaceManagedTabs && isReplaceableSeedTab(spec.Name) {
+				if err := clearTab(ctx, service, cfg.SpreadsheetID, spec.Name); err != nil {
+					return applySummary{}, err
+				}
+				if err := writeTab(ctx, service, cfg.SpreadsheetID, spec); err != nil {
+					return applySummary{}, err
+				}
+				summary.WrittenTabs = append(summary.WrittenTabs, spec.Name)
+				continue
+			}
 			summary.SkippedTabs = append(summary.SkippedTabs, spec.Name)
 			continue
-		}
-		if populated && cfg.ReplaceManagedTabs {
-			if _, err := service.Spreadsheets.Values.Clear(cfg.SpreadsheetID, quoteSheet(spec.Name), &sheets.ClearValuesRequest{}).Context(ctx).Do(); err != nil {
-				return applySummary{}, fmt.Errorf("clear %s: %w", spec.Name, err)
-			}
 		}
 		if err := writeTab(ctx, service, cfg.SpreadsheetID, spec); err != nil {
 			return applySummary{}, err
@@ -296,44 +380,85 @@ func applyWorkbook(ctx context.Context, service *sheets.Service, cfg config, spe
 	return summary, nil
 }
 
-func tabHasValues(ctx context.Context, service *sheets.Service, spreadsheetID string, tab string) (bool, error) {
-	resp, err := service.Spreadsheets.Values.Get(spreadsheetID, quoteSheet(tab)+"!A1:Z2").Context(ctx).Do()
+type tabState struct {
+	Populated     bool
+	HeaderMatches bool
+}
+
+func readTabState(ctx context.Context, service sheetsPort, spreadsheetID string, spec tabSpec) (tabState, error) {
+	resp, err := service.GetValues(ctx, spreadsheetID, quoteSheet(spec.Name)+"!1:2")
 	if err != nil {
-		return false, fmt.Errorf("read %s: %w", tab, err)
+		return tabState{}, fmt.Errorf("read %s: %w", spec.Name, err)
 	}
+	state := tabState{HeaderMatches: len(spec.Cols) == 0}
 	for _, row := range resp.Values {
 		for _, cell := range row {
 			if strings.TrimSpace(fmt.Sprint(cell)) != "" {
-				return true, nil
+				state.Populated = true
+				break
 			}
 		}
+		if state.Populated {
+			break
+		}
 	}
-	return false, nil
+	if len(resp.Values) > 0 {
+		state.HeaderMatches = headerMatches(resp.Values[0], spec.Cols)
+	}
+	return state, nil
 }
 
-func writeTab(ctx context.Context, service *sheets.Service, spreadsheetID string, spec tabSpec) error {
+func headerMatches(row []any, cols []string) bool {
+	if len(row) < len(cols) {
+		return false
+	}
+	for i, col := range cols {
+		if strings.TrimSpace(fmt.Sprint(row[i])) != col {
+			return false
+		}
+	}
+	return true
+}
+
+func clearTab(ctx context.Context, service sheetsPort, spreadsheetID string, tab string) error {
+	if _, err := service.ClearValues(ctx, spreadsheetID, quoteSheet(tab)); err != nil {
+		return fmt.Errorf("clear %s: %w", tab, err)
+	}
+	return nil
+}
+
+func writeTab(ctx context.Context, service sheetsPort, spreadsheetID string, spec tabSpec) error {
 	values := tabValues(spec)
-	_, err := service.Spreadsheets.Values.Update(spreadsheetID, quoteSheet(spec.Name)+"!A1", &sheets.ValueRange{
+	_, err := service.UpdateValues(ctx, spreadsheetID, quoteSheet(spec.Name)+"!A1", &sheets.ValueRange{
 		Values: values,
-	}).ValueInputOption("RAW").Context(ctx).Do()
+	})
 	if err != nil {
 		return fmt.Errorf("write %s: %w", spec.Name, err)
 	}
 	return nil
 }
 
-func appendSyncRun(ctx context.Context, service *sheets.Service, spreadsheetID string, spec tabSpec) error {
+func appendSyncRun(ctx context.Context, service sheetsPort, spreadsheetID string, spec tabSpec) error {
 	values := tabValues(spec)
 	if len(values) <= 1 {
 		return nil
 	}
-	_, err := service.Spreadsheets.Values.Append(spreadsheetID, quoteSheet(spec.Name)+"!A1", &sheets.ValueRange{
+	_, err := service.AppendValues(ctx, spreadsheetID, quoteSheet(spec.Name)+"!A1", &sheets.ValueRange{
 		Values: values[1:],
-	}).ValueInputOption("RAW").InsertDataOption("INSERT_ROWS").Context(ctx).Do()
+	})
 	if err != nil {
 		return fmt.Errorf("append %s: %w", spec.Name, err)
 	}
 	return nil
+}
+
+func isReplaceableSeedTab(name string) bool {
+	switch name {
+	case "README_Problem_Statement", "Source_Catalog", "Validation_Rules", "Species_Taxonomy_Crosswalk":
+		return true
+	default:
+		return false
+	}
 }
 
 func tabValues(spec tabSpec) [][]any {
@@ -372,7 +497,7 @@ func workbookTabs(cfg config, runID string, sources []sourceCatalogRow, rules []
 			},
 		},
 		tableSpec("Source_Catalog", sourceCatalogColumns(), sourceCatalogValues(sources)),
-		tableSpec("Sync_Runs", syncRunColumns(), [][]string{syncRunValue(cfg, runID)}),
+		tableSpec("Sync_Runs", syncRunColumns(), nil),
 		tableSpec("Raw_Source_Snapshots", []string{"run_id", "source_id", "business_date", "source_grain", "source_row_id", "source_row_key", "source_row_hash", "raw_payload_json", "read_at", "snapshot_created_at"}, [][]string{manifestSnapshotRow(runID, cfg.BusinessDate, sources, rules, issues)}),
 		tableSpec("Mapping_Crosswalks", []string{"crosswalk_id", "source_id", "source_record_id", "raw_identifier_value", "normalized_identifier_value", "identifier_type_candidate", "animal_identifier_1", "animal_identifier_2", "goat_os_animal_id", "match_status", "match_confidence", "duplicate_group_id", "merge_blocker", "chosen_canonical_reason", "last_reviewed_by", "last_reviewed_at"}, nil),
 		tableSpec("Animal_Master", []string{"goat_os_animal_id", "animal_identifier_1", "animal_identifier_2", "legacy_ids", "species", "sex", "breed", "dob", "dob_estimated", "age_class", "origin_type", "entry_date", "current_status", "current_farm", "current_park", "current_shed", "current_stage", "management_stage", "health_status", "reproductive_status", "mother_identifier", "sire_or_lot", "current_weight_kg", "photo_url", "dob_estimation_method", "sex_source", "source_record_id", "source_links", "evidence_refs", "verification_status", "issue_reason", "ground_owner", "last_verified_at", "ready_for_goat_os_import"}, nil),
@@ -400,6 +525,13 @@ func workbookTabs(cfg config, runID string, sources []sourceCatalogRow, rules []
 		tableSpec("Issue_Queue", issueColumns(), issueValues(issues)),
 		tableSpec("Import_Batches", []string{"batch_id", "created_at", "created_by", "source_run_id", "row_count", "green_rows", "amber_rows", "red_rows", "preview_status", "goat_os_preview_request_id", "goat_os_import_request_id", "idempotency_key", "import_status", "imported_rows", "failed_rows", "failure_summary"}, nil),
 	}
+	schemaHash := workbookSchemaHash(specs)
+	for i := range specs {
+		if specs[i].Name == "Sync_Runs" {
+			specs[i].Rows = [][]string{syncRunValue(cfg, runID, sources, rules, issues, schemaHash)}
+			break
+		}
+	}
 	return specs
 }
 
@@ -423,9 +555,9 @@ func issueColumns() []string {
 	return []string{"issue_id", "issue_type", "severity", "blocking", "animal_identifier_1", "animal_identifier_2", "load_id", "source_id", "source_record_id", "evidence", "owner", "next_action", "sla_date", "status", "resolved_by", "resolved_at", "resolution_note"}
 }
 
-func syncRunValue(cfg config, runID string) []string {
+func syncRunValue(cfg config, runID string, sources []sourceCatalogRow, rules []validationRuleRow, issues []issueSeedRow, schemaHash string) []string {
 	now := time.Now().UTC().Format(time.RFC3339)
-	return []string{runID, cfg.RunType, "", now, now, "bootstrapped", cfg.BusinessDate, "manifest", "0", strconv.Itoa(len(sourceCatalogRows()) + len(validationRuleRows()) + len(issueSeedRows())), "0", manifestHash(sourceCatalogRows(), validationRuleRows(), issueSeedRows()), managedWorkbookSchemaHash(), "", "", "metadata/bootstrap only; no legacy source rows imported"}
+	return []string{runID, cfg.RunType, "", now, now, "bootstrapped", cfg.BusinessDate, "manifest", "0", strconv.Itoa(len(sources) + len(rules) + len(issues)), "0", manifestHash(sources, rules, issues), schemaHash, "", "", "metadata/bootstrap only; no legacy source rows imported"}
 }
 
 func manifestSnapshotRow(runID, businessDate string, sources []sourceCatalogRow, rules []validationRuleRow, issues []issueSeedRow) []string {
@@ -627,7 +759,18 @@ func defaultBusinessDate(now time.Time) string {
 }
 
 func newRunID() string {
-	return "legacy-god-sheet-" + time.Now().UTC().Format("20060102T150405Z")
+	return "legacy-god-sheet-" + time.Now().UTC().Format("20060102T150405000000000Z") + "-" + randomHexSuffix(4)
+}
+
+func randomHexSuffix(byteCount int) string {
+	if byteCount <= 0 {
+		byteCount = 4
+	}
+	buf := make([]byte, byteCount)
+	if _, err := cryptorand.Read(buf); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return hex.EncodeToString(buf)
 }
 
 func quoteSheet(name string) string {
@@ -653,10 +796,6 @@ func workbookSchemaHash(specs []tabSpec) string {
 		rows = append(rows, schemaRow{Name: spec.Name, Cols: spec.Cols})
 	}
 	return hashString(compactJSON(rows))
-}
-
-func managedWorkbookSchemaHash() string {
-	return hashString("legacy-god-sheet-sync-managed-schema-v1")
 }
 
 func compactJSON(v any) string {
@@ -704,4 +843,179 @@ func durationEnv(name string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return parsed
+}
+
+func withSheetsRetry[T any](ctx context.Context, op func() (T, error)) (T, error) {
+	var zero T
+	delays := []time.Duration{250 * time.Millisecond, 500 * time.Millisecond, time.Second}
+	for attempt := 0; ; attempt++ {
+		value, err := op()
+		if err == nil {
+			return value, nil
+		}
+		if attempt >= len(delays) || !isRetryableSheetsError(err) {
+			return zero, err
+		}
+		timer := time.NewTimer(delays[attempt])
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return zero, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func isRetryableSheetsError(err error) bool {
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == http.StatusTooManyRequests || apiErr.Code >= http.StatusInternalServerError
+	}
+	return false
+}
+
+type googleIdentity struct {
+	Principal string
+	ProjectID string
+	Source    string
+}
+
+func assertGoogleIdentity(ctx context.Context, creds *google.Credentials, cfg config) error {
+	identity, err := resolveGoogleIdentity(ctx, creds)
+	if err != nil {
+		return err
+	}
+	if cfg.SkipADCIdentityGuard {
+		fmt.Fprintf(os.Stderr, "legacy-god-sheet-sync warning: Google ADC identity guard skipped principal=%s project=%s source=%s\n", identity.Principal, identity.ProjectID, identity.Source)
+		return nil
+	}
+	if err := validateGoogleIdentity(identity, cfg.ExpectedGooglePrincipal, cfg.AllowedGooglePrincipalSuffixes); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "legacy-god-sheet-sync Google ADC principal=%s project=%s source=%s\n", identity.Principal, identity.ProjectID, identity.Source)
+	return nil
+}
+
+func resolveGoogleIdentity(ctx context.Context, creds *google.Credentials) (googleIdentity, error) {
+	identity := googleIdentity{ProjectID: strings.TrimSpace(creds.ProjectID)}
+	var file struct {
+		Type           string `json:"type"`
+		ClientEmail    string `json:"client_email"`
+		ClientID       string `json:"client_id"`
+		QuotaProjectID string `json:"quota_project_id"`
+	}
+	if len(creds.JSON) > 0 {
+		_ = json.Unmarshal(creds.JSON, &file)
+	}
+	if identity.ProjectID == "" {
+		identity.ProjectID = strings.TrimSpace(file.QuotaProjectID)
+	}
+	if file.ClientEmail != "" {
+		identity.Principal = strings.TrimSpace(file.ClientEmail)
+		identity.Source = "adc_client_email"
+		return identity, nil
+	}
+	email, err := tokenInfoEmail(ctx, creds)
+	if err == nil && email != "" {
+		identity.Principal = email
+		identity.Source = "oauth_tokeninfo_email"
+		return identity, nil
+	}
+	if account := gcloudConfigValue(ctx, "account"); account != "" && account != "(unset)" {
+		identity.Principal = account
+		identity.Source = "gcloud_config_account"
+		if identity.ProjectID == "" {
+			identity.ProjectID = gcloudConfigValue(ctx, "project")
+		}
+		return identity, nil
+	}
+	if file.ClientID != "" {
+		identity.Principal = strings.TrimSpace(file.ClientID)
+		identity.Source = "adc_client_id"
+		return identity, nil
+	}
+	if err != nil {
+		return googleIdentity{}, fmt.Errorf("resolve Google ADC principal: %w", err)
+	}
+	return googleIdentity{}, errors.New("resolve Google ADC principal: no client_email, tokeninfo email, or client_id found")
+}
+
+func tokenInfoEmail(ctx context.Context, creds *google.Credentials) (string, error) {
+	token, err := creds.TokenSource.Token()
+	if err != nil {
+		return "", fmt.Errorf("get Google ADC token: %w", err)
+	}
+	if token.AccessToken == "" {
+		return "", errors.New("Google ADC token has no access token")
+	}
+	endpoint := "https://oauth2.googleapis.com/tokeninfo?access_token=" + url.QueryEscape(token.AccessToken)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("read Google tokeninfo: %w", err)
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Email            string `json:"email"`
+		Error            string `json:"error"`
+		ErrorDescription string `json:"error_description"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", fmt.Errorf("decode Google tokeninfo: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		msg := strings.TrimSpace(body.ErrorDescription)
+		if msg == "" {
+			msg = strings.TrimSpace(body.Error)
+		}
+		if msg == "" {
+			msg = resp.Status
+		}
+		return "", fmt.Errorf("Google tokeninfo rejected ADC token: %s", msg)
+	}
+	return strings.TrimSpace(body.Email), nil
+}
+
+func gcloudConfigValue(ctx context.Context, key string) string {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "gcloud", "config", "get-value", key).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func validateGoogleIdentity(identity googleIdentity, expectedPrincipal string, allowedSuffixes string) error {
+	principal := strings.TrimSpace(identity.Principal)
+	if principal == "" {
+		return errors.New("Google ADC principal is empty")
+	}
+	if expected := strings.TrimSpace(expectedPrincipal); expected != "" {
+		if !strings.EqualFold(principal, expected) {
+			return fmt.Errorf("Google ADC principal %q does not match expected %q", principal, expected)
+		}
+		return nil
+	}
+	for _, suffix := range splitCSV(allowedSuffixes) {
+		if strings.HasSuffix(strings.ToLower(principal), strings.ToLower(suffix)) {
+			return nil
+		}
+	}
+	return fmt.Errorf("Google ADC principal %q is outside allowed suffixes %q; set GOATOS_LEGACY_GOD_SHEET_EXPECTED_GOOGLE_PRINCIPAL for the intended writer", principal, allowedSuffixes)
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
