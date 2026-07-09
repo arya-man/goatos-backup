@@ -105,6 +105,60 @@ func TestBootstrapPopulatesModuleDrivenNavAndChrome(t *testing.T) {
 	}
 }
 
+// TestBootstrapLeadershipGetsFixedNavRegardlessOfModules pins the leadership
+// loop: a leadership-tier grant (park_head here, but the role set below
+// covers every leadership tier) gets the fixed Calendar/Overview/Alerts nav
+// and minimal chrome even though it owns zero registry-mapped modules (so
+// the module-driven path alone would otherwise leave leadership with no
+// reachable nav item at all).
+func TestBootstrapLeadershipGetsFixedNavRegardlessOfModules(t *testing.T) {
+	svc := NewService(&fakeRepo{
+		profile: profile("active"),
+		grants:  []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)},
+	}, stubOwnership{})
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "trace-1")
+	if err != nil {
+		t.Fatalf("Bootstrap() error=%v", err)
+	}
+	wantNav := []domain.BootstrapNavigationItem{
+		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+		{Key: "leadership", Label: "Overview", Href: "/leadership"},
+		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+	}
+	if len(got.VisibleNavigation) != len(wantNav) {
+		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, wantNav)
+	}
+	for i := range wantNav {
+		if got.VisibleNavigation[i] != wantNav[i] {
+			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], wantNav[i])
+		}
+	}
+	if got.NavChrome != domain.NavChromeMinimal {
+		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
+	}
+}
+
+// TestBootstrapOperatorKeepsModuleDrivenNav is a regression guard: an
+// operator-role principal must keep the existing module-driven nav
+// (vaccination-only today) untouched by the new leadership branch.
+func TestBootstrapOperatorKeepsModuleDrivenNav(t *testing.T) {
+	svc := NewService(&fakeRepo{
+		profile: profile("active"),
+		grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
+	}, stubOwnership{mods: []permissions.OwnedModule{{Vertical: "pc", Module: "pc.vaccination"}}})
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "trace-1")
+	if err != nil {
+		t.Fatalf("Bootstrap() error=%v", err)
+	}
+	wantNav := []domain.BootstrapNavigationItem{{Key: "vaccination", Label: "Vaccination", Href: "/vaccination"}}
+	if len(got.VisibleNavigation) != 1 || got.VisibleNavigation[0] != wantNav[0] {
+		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, wantNav)
+	}
+	if got.NavChrome != domain.NavChromeMinimal {
+		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
+	}
+}
+
 func TestBootstrapOwnershipError(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile: profile("active"),
@@ -183,6 +237,131 @@ func TestNavChromeForModules(t *testing.T) {
 	}
 }
 
+// TestIsLeadershipPrincipal covers every valid workforce grant role (see
+// validRole in service.go): admin, park_head, pc_director, verifier, and
+// ceo_internal are leadership tiers (mirrors roleLensForRole in
+// internal/adminui/app/compiler.go); operator is the only non-leadership
+// role.
+func TestIsLeadershipPrincipal(t *testing.T) {
+	tests := []struct {
+		role string
+		want bool
+	}{
+		{role: permissions.RoleAdmin, want: true},
+		{role: permissions.RoleCEOInternal, want: true},
+		{role: permissions.RolePCDirector, want: true},
+		{role: permissions.RoleParkHead, want: true},
+		{role: permissions.RoleVerifier, want: true},
+		{role: permissions.RoleOperator, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.role, func(t *testing.T) {
+			got := isLeadershipPrincipal([]domain.GrantSummary{grantWithRole(tc.role)})
+			if got != tc.want {
+				t.Fatalf("isLeadershipPrincipal(role=%q)=%v want %v", tc.role, got, tc.want)
+			}
+		})
+	}
+	t.Run("no grants", func(t *testing.T) {
+		if isLeadershipPrincipal(nil) {
+			t.Fatal("isLeadershipPrincipal(nil) = true, want false")
+		}
+	})
+	t.Run("mixed grants any-leadership wins", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator), grantWithRole(permissions.RoleParkHead)}
+		if !isLeadershipPrincipal(grants) {
+			t.Fatal("isLeadershipPrincipal with a leadership grant among others = false, want true")
+		}
+	})
+}
+
+// TestVisibleNavigationFor pins that leadership always gets the fixed
+// Calendar/Overview/Alerts nav regardless of owned modules, and operator
+// keeps falling through to navigationForModules.
+func TestVisibleNavigationFor(t *testing.T) {
+	leadershipWant := []domain.BootstrapNavigationItem{
+		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+		{Key: "leadership", Label: "Overview", Href: "/leadership"},
+		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+	}
+	tests := []struct {
+		name   string
+		grants []domain.GrantSummary
+		mods   []permissions.OwnedModule
+		want   []domain.BootstrapNavigationItem
+	}{
+		{
+			name:   "leadership with no owned modules",
+			grants: []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)},
+			mods:   nil,
+			want:   leadershipWant,
+		},
+		{
+			name:   "leadership even with vaccination module owned",
+			grants: []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)},
+			mods:   []permissions.OwnedModule{{Vertical: "pc", Module: "pc.vaccination"}},
+			want:   leadershipWant,
+		},
+		{
+			name:   "operator falls back to module-driven nav",
+			grants: []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
+			mods:   []permissions.OwnedModule{{Vertical: "pc", Module: "pc.vaccination"}},
+			want:   []domain.BootstrapNavigationItem{{Key: "vaccination", Label: "Vaccination", Href: "/vaccination"}},
+		},
+		{
+			name:   "operator with no owned modules gets empty nav",
+			grants: []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
+			mods:   nil,
+			want:   []domain.BootstrapNavigationItem{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := visibleNavigationFor(tc.grants, tc.mods)
+			if len(got) != len(tc.want) {
+				t.Fatalf("visibleNavigationFor()=%#v want %#v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("item[%d]=%#v want %#v", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestNavChromeFor pins leadership to minimal chrome even when it owns 2+
+// modules (a hypothetical future case), and keeps the module-count-driven
+// chrome for operators.
+func TestNavChromeFor(t *testing.T) {
+	tests := []struct {
+		name   string
+		grants []domain.GrantSummary
+		mods   []permissions.OwnedModule
+		want   string
+	}{
+		{
+			name:   "leadership always minimal",
+			grants: []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)},
+			mods:   nil,
+			want:   domain.NavChromeMinimal,
+		},
+		{
+			name:   "operator single module minimal",
+			grants: []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
+			mods:   []permissions.OwnedModule{{Vertical: "pc", Module: "pc.vaccination"}},
+			want:   domain.NavChromeMinimal,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := navChromeFor(tc.grants, tc.mods); got != tc.want {
+				t.Fatalf("navChromeFor()=%q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestToDomainOwnedModules(t *testing.T) {
 	in := []permissions.OwnedModule{{Vertical: "pc", Module: "pc.vaccination"}, {Vertical: "admin", Module: "admin.config"}}
 	got := toDomainOwnedModules(in)
@@ -228,6 +407,15 @@ func grant() domain.GrantSummary {
 		ScopeID:   testTenant,
 		Status:    "active",
 	}
+}
+
+// grantWithRole builds an active tenant-scoped grant with the given role,
+// for exercising isLeadershipPrincipal/visibleNavigationFor/navChromeFor
+// across every workforce grant role.
+func grantWithRole(role string) domain.GrantSummary {
+	g := grant()
+	g.Role = role
+	return g
 }
 
 func device(status string) domain.DeviceSummary {

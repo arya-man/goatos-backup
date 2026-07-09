@@ -373,8 +373,8 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, tr
 			"proof_capture":  hasCapability(caps, "media.video_capture"),
 			"animal_id_scan": hasCapability(caps, "animal_id.scan"),
 		},
-		VisibleNavigation:       navigationForModules(ownedModules),
-		NavChrome:               navChromeForModules(ownedModules),
+		VisibleNavigation:       visibleNavigationFor(grants, ownedModules),
+		NavChrome:               navChromeFor(grants, ownedModules),
 		OwnedModules:            toDomainOwnedModules(ownedModules),
 		TaskQueueDescriptors:    queuesFor(caps),
 		PinnedSOPVersions:       []domain.BootstrapSOPVersion{},
@@ -608,6 +608,67 @@ func navChromeForModules(mods []permissions.OwnedModule) string {
 		return domain.NavChromeExpanded
 	}
 	return domain.NavChromeMinimal
+}
+
+// leadershipGrantRoles are the workforce grant roles that see the fixed
+// leadership mobile nav (Calendar / Overview / Alerts) instead of the
+// module-driven operator nav. Mirrors the role-lens tiers already used for
+// the admin-web bootstrap (see roleLensForRole in
+// internal/adminui/app/compiler.go): ceo_internal/admin fold to CEO/COO,
+// pc_director is the health director, park_head is the park manager, and
+// verifier is the (assigned-park) health manager. permissions.RoleOperator is
+// the only grant role that is never leadership.
+var leadershipGrantRoles = map[string]bool{
+	permissions.RoleAdmin:       true,
+	permissions.RoleCEOInternal: true,
+	permissions.RolePCDirector:  true,
+	permissions.RoleParkHead:    true,
+	permissions.RoleVerifier:    true,
+}
+
+// leadershipNavigation is the fixed backend-owned mobile nav for a leadership
+// principal. The client adds a "You" tab locally; the backend owns exactly
+// these three so Overview/Overdue/Reschedule stay reachable even though
+// leadership does not own the pc.vaccination module the operator nav is
+// built from.
+var leadershipNavigation = []domain.BootstrapNavigationItem{
+	{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+	{Key: "leadership", Label: "Overview", Href: "/leadership"},
+	{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+}
+
+// isLeadershipPrincipal reports whether any active grant carries a
+// leadership-tier role, regardless of the grant's scope (a park-scoped Park
+// Head or Health Manager is still leadership for their park, not an
+// operator). An actor with only operator grants is not leadership.
+func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
+	for _, g := range grants {
+		if leadershipGrantRoles[g.Role] {
+			return true
+		}
+	}
+	return false
+}
+
+// visibleNavigationFor picks the leadership nav for a leadership principal
+// and otherwise falls back to the existing module-driven operator nav.
+// Leadership nav is role-driven and independent of owned modules: leadership
+// does not need to own pc.vaccination to reach Calendar/Overview/Alerts.
+func visibleNavigationFor(grants []domain.GrantSummary, mods []permissions.OwnedModule) []domain.BootstrapNavigationItem {
+	if isLeadershipPrincipal(grants) {
+		return leadershipNavigation
+	}
+	return navigationForModules(mods)
+}
+
+// navChromeFor keeps leadership on minimal chrome (bottom-bar only, fixed
+// three-item nav) and preserves the existing module-count-driven chrome for
+// operators.
+func navChromeFor(grants []domain.GrantSummary, mods []permissions.OwnedModule) string {
+	if isLeadershipPrincipal(grants) {
+		return domain.NavChromeMinimal
+	}
+	return navChromeForModules(mods)
 }
 
 func toDomainOwnedModules(mods []permissions.OwnedModule) []domain.OwnedModule {
