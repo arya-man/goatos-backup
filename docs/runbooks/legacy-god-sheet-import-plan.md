@@ -62,7 +62,9 @@ nice-to-have. `goatsDB.goatsDB_rfid_mapping` is a Google Sheets external table
 with `RFID` and `Gender` columns, and BigQuery queries against it fail without
 Drive credentials. The god sheet cannot reliably populate RFID-backed
 `animal_identifier_1` / `animal_identifier_2` or complete sex backfill from
-BigQuery alone.
+BigQuery alone. Current old-tag/new-tag RFID sources are also Drive/Sheets
+gated; they are not a separate non-Drive unblock path. Do not treat native
+stage/location fields such as `dst_tag` as animal RFID/tag identifiers.
 
 ## Metric Ownership
 
@@ -474,10 +476,12 @@ Coverage metrics to write each run:
 Implications:
 
 - Do not promote any row to strict GREEN until a trusted RFID/tag source for
-  `animal_identifier_1` is readable and globally unique. Valid sources include
-  the RFID mapping table and verified legacy old-tag/new-tag columns. The event
-  spine has legacy source IDs, DOB, and gender signals, but source IDs are not a
-  substitute for the RFID-backed Goat OS identifiers.
+  `animal_identifier_1` is readable and globally unique. Valid values may come
+  from the RFID mapping table or verified legacy old-tag/new-tag columns, but
+  the current inventory makes those sources Drive/Sheets-gated. The event spine
+  has legacy source IDs, DOB, and gender signals, but source IDs and location
+  tags such as `dst_tag` are not substitutes for the RFID-backed Goat OS
+  identifiers.
 - The vaccination demo must treat DOB, species, sex, RFID, and unresolved
   current-location rows as gating cleanup lanes, not incidental polish.
 - Estimated-DOB recovery is narrow, not broad. Only rows with approved age/date
@@ -908,7 +912,7 @@ Seed rules:
 | `active_spine_dashboard_reconcile` | P1 | Yes, for import; no, for source visibility | data/dev | Event-spine active total and dashboard aggregate total must either reconcile at the chosen grain or produce a blocking aggregate reconciliation issue with source rows attached. |
 | `dashboard_rows_are_aggregate_only` | P1 | Yes, for row-level import | data/dev | Aggregate dashboard rows must never be used as the row-level join source for `Animal_Master`. Any attempt to close animal rows from aggregate-only data fails validation. |
 | `raw_source_row_has_identifier` | P1 | Yes | data/dev + ground/source team | Every raw animal-event source row must have at least one usable candidate identifier before grouping. Rows missing all candidate identifiers create one RED `Issue_Queue` row per source row. |
-| `animal_identifier_1_present` | P1 | Yes | data/dev | Import candidate must have trusted primary RFID/tag `animal_identifier_1` from RFID mapping or validated old-tag/new-tag columns; legacy source IDs do not satisfy this. |
+| `animal_identifier_1_present` | P1 | Yes | data/dev | Import candidate must have trusted primary RFID/tag `animal_identifier_1` from Drive-readable RFID mapping or validated old-tag/new-tag columns; legacy source IDs and stage/location tags such as `dst_tag` do not satisfy this. |
 | `animal_identifier_uniqueness` | P1 | Yes | data/dev | Normalized RFID/tag identifiers must be globally single-use across current and historical identifier sources. Reused fallen/retired tags create RED issues until resolved. |
 | `species_evidence_present` | P1 | Yes | data/dev + ground/source team | Import candidate must have trusted species from explicit source type or approved `Species_Taxonomy_Crosswalk`; blank/unmapped/ambiguous values create RED issues. |
 | `breed_species_taxonomy_reconcile` | P2 | Yes, when taxonomy affects import or canonical counts | data/dev + ground/source team | Breed/species vocabulary across event spine, dashboard counts, procurement, and crosswalk must reconcile or produce taxonomy issues with source refs. |
@@ -1115,10 +1119,10 @@ For demo readiness, prioritize:
 
 Demo boundary:
 
-- Until Drive/Sheets access can read `goatsDB.goatsDB_rfid_mapping` or verified
-  old-tag/new-tag source columns for `animal_identifier_1`, the demo is a
-  god-sheet readiness demo: `Vaccination_Due_View`, RED/AMBER/GREEN status, and
-  cleanup queue.
+- Until Drive/Sheets access can read `goatsDB.goatsDB_rfid_mapping` and any
+  verified old-tag/new-tag source columns for `animal_identifier_1`, the demo
+  is a god-sheet readiness demo: `Vaccination_Due_View`, RED/AMBER/GREEN
+  status, and cleanup queue.
 - Goat OS DB import is not part of that demo unless `animal_identifier_1`,
   species, sex, DOB/approved estimated DOB, and current location all pass the
   import gate.
@@ -1154,8 +1158,9 @@ Minimum import gate:
 
 - Add every known sheet/table to `Source_Catalog`.
 - Add Drive/Sheets read credential with explicit scopes.
-- Block animal-level import preview until the sync can query
-  `goatsDB.goatsDB_rfid_mapping` and record RFID/Gender provenance.
+- Block animal-level import preview until the sync can query the Drive/Sheets
+  RFID/tag sources, including `goatsDB.goatsDB_rfid_mapping`, and record
+  RFID/Gender/tag provenance.
 - Capture Apps Script and native BigQuery loader lineage for `*_clean` and
   `*_dev` tables.
 - Compute schema/header hashes.
