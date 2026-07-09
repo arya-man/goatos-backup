@@ -74,6 +74,27 @@ object MeshaIcons {
         "M21 12a9 9 0 1 1 -18 0 9 9 0 0 1 18 0z",
         "M3.5 12h17M12 3c3.4 3.5 3.4 14.5 0 18M12 3c-3.4 3.5-3.4 14.5 0 18",
     )
+    val ChevronLeft: ImageVector = strokeIcon("chevl", "M15 5l-7 7 7 7")
+    val Plus: ImageVector = strokeIcon("plus", "M12 5v14M5 12h14")
+    val Video: ImageVector = strokeIcon(
+        "video",
+        "M4 7.5h9a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1 -1.5 1.5h-9a1.5 1.5 0 0 1 -1.5 -1.5v-6a1.5 1.5 0 0 1 1.5 -1.5z",
+        "M14.5 11 20.5 8v8l-6 -3",
+    )
+    val Vaccine: ImageVector = strokeIcon(
+        "vial",
+        "M9 3.5h6M10 3.5v6.5l-3 8a2 2 0 0 0 2 2.5h6a2 2 0 0 0 2 -2.5l-3 -8V3.5M8 13.5h8",
+    )
+    val Search: ImageVector = strokeIcon(
+        "search",
+        "M18 11a7 7 0 1 1 -14 0 7 7 0 0 1 14 0z",
+        "M20 20l-4 -4",
+    )
+    val Clock: ImageVector = strokeIcon(
+        "clock",
+        "M21 12a9 9 0 1 1 -18 0 9 9 0 0 1 18 0z",
+        "M12 7.5V12l3.5 2.2",
+    )
 
     /** Maps a backend nav-item key to its mock icon. */
     fun forNavKey(key: String): ImageVector = when (key.lowercase()) {

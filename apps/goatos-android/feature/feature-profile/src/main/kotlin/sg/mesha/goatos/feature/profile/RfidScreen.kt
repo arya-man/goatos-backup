@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -28,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 
 // ---------------------------------------------------------------------------
@@ -169,7 +171,12 @@ private fun RfidDeviceHero(state: RfidUiState) {
                 .border(1.dp, RfidTokens.Hair, shape = RoundedCornerShape(24.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(text = "◉", color = glyphTint(state.connectionState), fontSize = 32.sp)
+            Icon(
+                imageVector = MeshaIcons.Bluetooth,
+                contentDescription = null,
+                tint = glyphTint(state.connectionState),
+                modifier = Modifier.size(34.dp),
+            )
         }
         state.readerName?.let {
             Text(
@@ -212,7 +219,7 @@ private fun DiscoveredReaderRow(row: RfidReaderRow, onEvent: (RfidEvent) -> Unit
             .clickable { onEvent(RfidEvent.SelectReader(row.id)) }
             .padding(horizontal = 15.dp, vertical = 11.dp),
     ) {
-        Text(text = "◉", color = RfidTokens.Faint, fontSize = 14.sp)
+        Icon(imageVector = MeshaIcons.Bluetooth, contentDescription = null, tint = RfidTokens.Faint, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(11.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(text = row.name, color = RfidTokens.Ink, fontSize = 13.5.sp, fontWeight = FontWeight.W700)
@@ -270,10 +277,10 @@ private fun TestReadRow(label: String, onEvent: (RfidEvent) -> Unit) {
             .clickable { onEvent(RfidEvent.TestRead) }
             .padding(horizontal = 15.dp, vertical = 13.dp),
     ) {
-        Text(text = "↳", color = RfidTokens.Faint, fontSize = 15.sp)
+        Icon(imageVector = MeshaIcons.Search, contentDescription = null, tint = RfidTokens.Faint, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(10.dp))
         Text(text = label, color = RfidTokens.Ink, fontSize = 14.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
-        Text(text = "✓", color = RfidTokens.Brand, fontSize = 15.sp)
+        Icon(imageVector = MeshaIcons.Check, contentDescription = null, tint = RfidTokens.Brand, modifier = Modifier.size(16.dp))
     }
 }
 

@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -26,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -152,7 +154,7 @@ private fun BufferBanner(message: String) {
             .padding(13.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("⚠", color = LeadTokens.warn, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Icon(imageVector = MeshaIcons.Warn, contentDescription = null, tint = LeadTokens.warn, modifier = Modifier.size(16.dp))
         Text(message, color = LeadTokens.muted, fontSize = 12.sp, lineHeight = 17.sp)
     }
 }
@@ -232,7 +234,7 @@ private fun DateOptionRow(opt: DateOption, selected: Boolean, onClick: () -> Uni
             Text(opt.sub, color = subColor, fontSize = 11.5.sp)
         }
         if (selected) {
-            Text("✓", color = LeadTokens.brand, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Icon(imageVector = MeshaIcons.Check, contentDescription = null, tint = LeadTokens.brand, modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -255,7 +257,7 @@ private fun AssignField(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("◔", color = LeadTokens.muted, fontSize = 15.sp)
+        Icon(imageVector = MeshaIcons.User, contentDescription = null, tint = LeadTokens.muted, modifier = Modifier.size(16.dp))
         Text(
             primary,
             color = if (enabled) LeadTokens.ink else LeadTokens.faint,
@@ -270,7 +272,7 @@ private fun AssignField(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.clip(CircleShape).background(LeadTokens.surf3).padding(horizontal = 9.dp, vertical = 4.dp),
         )
-        Text("›", color = LeadTokens.faint, fontSize = 13.sp)
+        Icon(imageVector = MeshaIcons.Chevron, contentDescription = null, tint = LeadTokens.faint, modifier = Modifier.size(14.dp))
     }
 }
 

@@ -21,10 +21,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -329,7 +332,7 @@ private fun HeroPill(
     ) {
         Text(label, color = LeadTokens.heroInk, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
         if (trailingChevron) {
-            Text("›", color = LeadTokens.heroInk, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Icon(imageVector = MeshaIcons.Chevron, contentDescription = null, tint = LeadTokens.heroInk, modifier = Modifier.size(13.dp))
         }
     }
 }
@@ -412,7 +415,7 @@ private fun ShedSummaryRow(shed: ShedSummary, onEvent: (LeadershipEvent) -> Unit
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text("+", color = LeadTokens.brandD, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Icon(imageVector = MeshaIcons.Plus, contentDescription = null, tint = LeadTokens.brandD, modifier = Modifier.size(13.dp))
                         Text(shed.assignLabel, color = LeadTokens.brandD, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
@@ -438,7 +441,7 @@ private fun VaccineChip(g: VaccineGroupChip) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("⚕", color = LeadTokens.brandD, fontSize = 11.sp)
+        Icon(imageVector = MeshaIcons.Syringe, contentDescription = null, tint = LeadTokens.brandD, modifier = Modifier.size(12.dp))
         Text(
             g.vaccine,
             color = if (full) LeadTokens.muted else LeadTokens.ink,
@@ -481,7 +484,7 @@ private fun DecisionRowView(row: DecisionRow, onEvent: (LeadershipEvent) -> Unit
         borderColor = tone.fg.copy(alpha = 0.3f),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            GlyphBadge("⚠", tone)
+            GlyphBadge(MeshaIcons.Warn, tone)
             Column(Modifier.weight(1f)) {
                 Text(row.title, color = LeadTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 Text(row.subtitle, color = LeadTokens.muted, fontSize = 12.sp)
@@ -496,7 +499,7 @@ private fun ParkCoverageRowView(park: ParkCoverageRow, onEvent: (LeadershipEvent
     val tone = park.tone.colors()
     Card(onClick = { onEvent(LeadershipEvent.ParkTapped(park.code)) }) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            GlyphBadge("⌂", tone)
+            GlyphBadge(MeshaIcons.Home, tone)
             Column(Modifier.weight(1f)) {
                 Text("${park.code} · ${park.name}", color = LeadTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 Text(park.subtitle, color = LeadTokens.muted, fontSize = 12.sp)
@@ -530,13 +533,13 @@ internal fun LeadTopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        IconButton(if (leading == TopBarLeading.MENU) "☰" else "‹", onClick = onLeading)
+        IconButton(if (leading == TopBarLeading.MENU) MeshaIcons.Menu else MeshaIcons.ChevronLeft, onClick = onLeading)
         Column(Modifier.weight(1f)) {
             Text(eyebrow, color = LeadTokens.brandD, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Text(title, color = LeadTokens.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
         if (onRefresh != null) {
-            IconButton("↻", onClick = onRefresh)
+            IconButton(MeshaIcons.Refresh, onClick = onRefresh)
         }
         if (avatarInitial != null) {
             Box(
@@ -554,7 +557,7 @@ internal fun LeadTopBar(
 }
 
 @Composable
-internal fun IconButton(glyph: String, onClick: () -> Unit) {
+internal fun IconButton(icon: ImageVector, onClick: () -> Unit) {
     Box(
         Modifier
             .size(40.dp)
@@ -564,7 +567,7 @@ internal fun IconButton(glyph: String, onClick: () -> Unit) {
             .clickable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        Text(glyph, color = LeadTokens.ink, fontSize = 16.sp)
+        Icon(imageVector = icon, contentDescription = null, tint = LeadTokens.ink, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -614,7 +617,7 @@ internal fun StatusPill(text: String, tone: Tone) {
 }
 
 @Composable
-internal fun GlyphBadge(glyph: String, tone: ToneColors) {
+internal fun GlyphBadge(icon: ImageVector, tone: ToneColors) {
     Box(
         Modifier
             .size(38.dp)
@@ -622,7 +625,7 @@ internal fun GlyphBadge(glyph: String, tone: ToneColors) {
             .background(tone.bg),
         contentAlignment = Alignment.Center,
     ) {
-        Text(glyph, color = tone.fg, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Icon(imageVector = icon, contentDescription = null, tint = tone.fg, modifier = Modifier.size(18.dp))
     }
 }
 

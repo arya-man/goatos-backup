@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -120,7 +121,7 @@ private fun OverdueRowView(row: OverdueRow, onEvent: (LeadershipEvent) -> Unit) 
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            GlyphBadge("⚠", tone.colors())
+            GlyphBadge(MeshaIcons.Warn, tone.colors())
             Column(Modifier.weight(1f)) {
                 Text(row.title, color = LeadTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 Text(row.subtitle, color = LeadTokens.muted, fontSize = 12.sp)

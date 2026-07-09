@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +45,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 
 /**
@@ -464,7 +466,7 @@ private fun ChangeEmailAffordance(onClick: () -> Unit) {
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 6.dp),
     ) {
-        Text("‹", color = LoginTokens.Muted, fontSize = 18.sp, fontWeight = FontWeight.W700)
+        Icon(imageVector = MeshaIcons.ChevronLeft, contentDescription = null, tint = LoginTokens.Muted, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(4.dp))
         Text(
             text = "Change email",

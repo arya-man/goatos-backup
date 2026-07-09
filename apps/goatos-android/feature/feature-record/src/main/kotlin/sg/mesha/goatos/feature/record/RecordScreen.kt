@@ -17,8 +17,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -175,7 +177,12 @@ private fun RecordHeader(state: RecordUiState, onEvent: (RecordEvent) -> Unit) {
                 .clickable { onEvent(RecordEvent.Close) },
             contentAlignment = Alignment.Center,
         ) {
-            Text(text = "✕", color = RecordTokens.Muted, fontSize = 15.sp)
+            Icon(
+                imageVector = MeshaIcons.Close,
+                contentDescription = "Close",
+                tint = RecordTokens.Muted,
+                modifier = Modifier.size(16.dp),
+            )
         }
     }
 }
@@ -216,8 +223,13 @@ private fun VaccineGroupItem(group: VaccineGroupRow) {
             .padding(vertical = 11.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-            // Syringe = Vaccination module marker (text glyph; no material icons).
-            Text(text = "✚", color = RecordTokens.BrandD, fontSize = 13.sp)
+            // Syringe = Vaccination module marker (mock icon set).
+            Icon(
+                imageVector = MeshaIcons.Syringe,
+                contentDescription = null,
+                tint = RecordTokens.BrandD,
+                modifier = Modifier.size(15.dp),
+            )
             Spacer(Modifier.width(7.dp))
             Text(text = group.vaccine, color = RecordTokens.Muted, fontSize = 13.sp)
         }

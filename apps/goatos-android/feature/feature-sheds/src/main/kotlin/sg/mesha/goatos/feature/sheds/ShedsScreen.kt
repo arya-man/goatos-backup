@@ -25,8 +25,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -241,7 +243,12 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit) {
                 .clickable(onClick = onRefresh),
             contentAlignment = Alignment.Center,
         ) {
-            Text(text = "⟳", color = Muted, fontSize = 18.sp)
+            Icon(
+                imageVector = MeshaIcons.Refresh,
+                contentDescription = "Refresh",
+                tint = Muted,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }

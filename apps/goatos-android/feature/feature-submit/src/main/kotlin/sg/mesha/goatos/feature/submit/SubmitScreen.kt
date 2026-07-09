@@ -18,9 +18,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -266,7 +268,12 @@ private fun ProofPill(label: String) {
             .padding(horizontal = 10.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("▶", color = T.warn, fontSize = 10.sp) // play glyph = video proof
+        Icon(
+            imageVector = MeshaIcons.Video,
+            contentDescription = null,
+            tint = T.warn,
+            modifier = Modifier.size(13.dp),
+        ) // video proof
         Spacer(Modifier.width(6.dp))
         Text(label, color = T.warn, fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }

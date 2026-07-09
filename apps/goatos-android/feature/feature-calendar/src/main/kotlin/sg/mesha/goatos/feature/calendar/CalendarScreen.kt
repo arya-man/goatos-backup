@@ -17,9 +17,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -491,8 +493,13 @@ private fun HistoryRow(row: CalendarHistoryRow, onClick: () -> Unit) {
                 .background(CalTokens.OkX),
             contentAlignment = Alignment.Center,
         ) {
-            // Syringe glyph belongs to the Vaccination module (taxonomy rule).
-            Text(text = "💉", fontSize = 15.sp)
+            // Syringe = Vaccination module marker (mock icon set).
+            Icon(
+                imageVector = MeshaIcons.Syringe,
+                contentDescription = null,
+                tint = CalTokens.Brand,
+                modifier = Modifier.size(17.dp),
+            )
         }
         Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
             Text(
