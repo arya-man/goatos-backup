@@ -44,14 +44,15 @@ fun AppNavHost(
         startDestination = Routes.START,
         modifier = modifier,
     ) {
-        composable(Routes.CALENDAR) { CalendarScreen() }
+        // Interim sample states; each screen's ViewModel feeds live bootstrap data next.
+        composable(Routes.CALENDAR) { CalendarScreen(state = sampleCalendarState()) }
         // Vaccination execution surfaces as the shed-first flow (screens.md).
-        composable(Routes.VACCINATION) { ShedsScreen() }
-        composable(Routes.SCAN) { ScanScreen() }
-        composable(Routes.SUBMIT) { SubmitScreen() }
-        composable(Routes.LEADERSHIP) { LeadershipScreen() }
-        composable(Routes.RECORD) { RecordScreen() }
-        composable(Routes.YOU) { ProfileScreen() }
+        composable(Routes.VACCINATION) { ShedsScreen(state = sampleShedsState()) }
+        composable(Routes.SCAN) { ScanScreen(state = sampleScanState()) }
+        composable(Routes.SUBMIT) { SubmitScreen(state = sampleSubmitState()) }
+        composable(Routes.LEADERSHIP) { LeadershipScreen(state = sampleLeadershipState()) }
+        composable(Routes.RECORD) { RecordScreen(state = sampleRecordState()) }
+        composable(Routes.YOU) { ProfileScreen(state = sampleProfileState()) }
     }
 }
 

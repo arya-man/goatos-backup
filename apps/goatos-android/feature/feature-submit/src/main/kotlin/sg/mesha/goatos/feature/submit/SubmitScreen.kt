@@ -1,9 +1,420 @@
 package sg.mesha.goatos.feature.submit
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+
+// ---------------------------------------------------------------------------
+// Submit (v-submit) — ONE shed record covering every due vaccine in a shed.
+//
+// TRD §14 dumb-renderer: this screen renders backend-provided data only. It
+// never counts, never derives eligibility/grouping, never role-checks. Every
+// visible label / count / status / action arrives as a field on SubmitUiState;
+// a later ViewModel fills it from the app-api. The write lifecycle (draft →
+// queued → syncing → acked / conflict / dead-letter) is likewise a backend-fed
+// SyncState — the banner only paints what it is told.
+// ---------------------------------------------------------------------------
+
+/** Write-path lifecycle of the shed record in the Room outbox / sync engine. */
+enum class SyncState { DRAFT, QUEUED, SYNCING, ACKED, CONFLICT, DEAD_LETTER }
+
+/**
+ * One due vaccine group inside the shed record. All values are backend-owned:
+ * the app renders [given]/[due], the [dose] string, and a proof pill only when
+ * the backend marks [proofRequired].
+ */
+data class VaccineGroup(
+    val name: String,
+    val given: Int,
+    val due: Int,
+    val dose: String,
+    val proofRequired: Boolean,
+    val proofLabel: String = "Video proof required",
+)
+
+/** Hoisted state for [SubmitScreen]. Every visible string is a field. */
+data class SubmitUiState(
+    val eyebrow: String,
+    val title: String,
+    val shed: String,
+    val cohort: String,
+    val date: String,
+    val dueSectionLabel: String,
+    val groups: List<VaccineGroup>,
+    val syncState: SyncState,
+    val syncLabel: String,
+    val submitLabel: String,
+    val canSubmit: Boolean,
+    /** 0f..1f, rendered as a bar while [syncState] is [SyncState.SYNCING]. */
+    val syncProgress: Float = 0f,
+    val retryLabel: String = "Retry",
+)
+
+/** User intents. The ViewModel layer maps these to sync-engine commands. */
+sealed interface SubmitEvent {
+    data object Submit : SubmitEvent
+    data object Retry : SubmitEvent
+}
+
+// --- Goat OS dark tokens (exact values from docs/mobile/design-system.md). ---
+// The shared theme currently exposes only M3 slots; these are the mock's field
+// palette used for the status banner / pills / bars until core-designsystem
+// surfaces them as GoatOsTokens.
+private object T {
+    val bg = Color(0xFF0B100D)
+    val surf = Color(0xFF131A15)
+    val surf2 = Color(0xFF1A241D)
+    val surf3 = Color(0xFF222E25)
+    val ink = Color(0xFFECF4EE)
+    val muted = Color(0xFF8FA497)
+    val faint = Color(0xFF5F7367)
+    val hair = Color(0xFF28352B)
+    val brand = Color(0xFF8AD457)
+    val brandD = Color(0xFFB7EA8C)
+    val danger = Color(0xFFFB6F63)
+    val dangerX = Color(0x26FB6F63) // rgba(251,111,99,.15)
+    val warn = Color(0xFFF0B54B)
+    val warnX = Color(0x26F0B54B) // rgba(240,181,75,.15)
+    val ok = Color(0xFF8AD457)
+    val okX = Color(0x298AD457) // rgba(138,212,87,.16)
+}
+
+private data class BannerTone(val fg: Color, val bg: Color)
+
+private fun SyncState.tone(): BannerTone = when (this) {
+    SyncState.ACKED -> BannerTone(T.ok, T.okX)
+    SyncState.SYNCING -> BannerTone(T.warn, T.warnX)
+    SyncState.CONFLICT, SyncState.DEAD_LETTER -> BannerTone(T.danger, T.dangerX)
+    SyncState.DRAFT, SyncState.QUEUED -> BannerTone(T.muted, T.surf2)
+}
 
 @Composable
-fun SubmitScreen() {
-    Text("Submit")
+fun SubmitScreen(
+    state: SubmitUiState,
+    onEvent: (SubmitEvent) -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(T.bg),
+    ) {
+        SubmitHeader(state)
+        SyncBanner(state)
+
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                RecordSummary(state)
+            }
+            item {
+                Text(
+                    text = state.dueSectionLabel,
+                    color = T.faint,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                )
+            }
+            items(state.groups) { group ->
+                VaccineGroupCard(group)
+            }
+        }
+
+        SubmitFooter(state, onEvent)
+    }
+}
+
+@Composable
+private fun SubmitHeader(state: SubmitUiState) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(T.surf)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Text(state.eyebrow, color = T.brandD, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(2.dp))
+        Text(state.title, color = T.ink, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun SyncBanner(state: SubmitUiState) {
+    val tone = state.syncState.tone()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(tone.bg)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(tone.fg, RoundedCornerShape(50)),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = state.syncLabel,
+                color = tone.fg,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        if (state.syncState == SyncState.SYNCING) {
+            Spacer(Modifier.height(8.dp))
+            ProgressBar(fraction = state.syncProgress, color = tone.fg)
+        }
+    }
+}
+
+@Composable
+private fun RecordSummary(state: SubmitUiState) {
+    GoatCard {
+        SummaryRow("Shed", state.shed)
+        HairLine()
+        SummaryRow("Cohort", state.cohort)
+        HairLine()
+        SummaryRow("Date", state.date)
+    }
+}
+
+@Composable
+private fun SummaryRow(key: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(key, color = T.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.weight(1f))
+        Text(value, color = T.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun VaccineGroupCard(group: VaccineGroup) {
+    GoatCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(group.name, color = T.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(2.dp))
+                Text("Dose · ${group.dose}", color = T.muted, fontSize = 12.sp)
+            }
+            Text(
+                text = "${group.given} / ${group.due}",
+                color = if (group.given >= group.due) T.brandD else T.warn,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        ProgressBar(
+            fraction = if (group.due > 0) group.given.toFloat() / group.due else 0f,
+            color = T.brand,
+        )
+        if (group.proofRequired) {
+            Spacer(Modifier.height(10.dp))
+            ProofPill(group.proofLabel)
+        }
+    }
+}
+
+@Composable
+private fun ProofPill(label: String) {
+    Row(
+        modifier = Modifier
+            .background(T.warnX, RoundedCornerShape(999.dp))
+            .border(1.dp, T.warn, RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("▶", color = T.warn, fontSize = 10.sp) // play glyph = video proof
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = T.warn, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun SubmitFooter(state: SubmitUiState, onEvent: (SubmitEvent) -> Unit) {
+    val needsRetry = state.syncState == SyncState.CONFLICT || state.syncState == SyncState.DEAD_LETTER
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(T.surf)
+            .padding(16.dp),
+    ) {
+        Button(
+            onClick = { onEvent(SubmitEvent.Submit) },
+            enabled = state.canSubmit,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = T.brand,
+                contentColor = Color(0xFF06210F),
+                disabledContainerColor = T.surf3,
+                disabledContentColor = T.faint,
+            ),
+        ) {
+            Text(state.submitLabel, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        }
+        if (needsRetry) {
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = { onEvent(SubmitEvent.Retry) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = T.danger),
+            ) {
+                Text(state.retryLabel, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+// --- small private primitives (mock .card / .barp / hairline) ---------------
+
+@Composable
+private fun GoatCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(T.surf, RoundedCornerShape(18.dp))
+            .border(1.dp, T.hair, RoundedCornerShape(18.dp))
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        content = content,
+    )
+}
+
+@Composable
+private fun HairLine() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(T.hair),
+    )
+}
+
+@Composable
+private fun ProgressBar(fraction: Float, color: Color) {
+    val clamped = fraction.coerceIn(0f, 1f)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(6.dp)
+            .background(T.surf3, RoundedCornerShape(999.dp)),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(clamped)
+                .height(6.dp)
+                .background(color, RoundedCornerShape(999.dp)),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Preview — fake backend-shaped state: a proof-required group + a SYNCING banner.
+// ---------------------------------------------------------------------------
+
+private val previewState = SubmitUiState(
+    eyebrow = "Vaccination · Gandhi 1",
+    title = "Submit shed record",
+    shed = "Gandhi 1",
+    cohort = "Adult does · 50 in shed",
+    date = "Thu, 9 Jul 2026",
+    dueSectionLabel = "Due in this shed",
+    groups = listOf(
+        VaccineGroup(
+            name = "FMD",
+            given = 50,
+            due = 50,
+            dose = "2 ml S/C",
+            proofRequired = true,
+        ),
+        VaccineGroup(
+            name = "HS",
+            given = 48,
+            due = 50,
+            dose = "2 ml S/C",
+            proofRequired = false,
+        ),
+        VaccineGroup(
+            name = "PPR · Booster",
+            given = 50,
+            due = 50,
+            dose = "1 ml S/C",
+            proofRequired = false,
+        ),
+    ),
+    syncState = SyncState.SYNCING,
+    syncLabel = "Syncing shed record… 2 of 3 records",
+    submitLabel = "Submit shed record",
+    canSubmit = true,
+    syncProgress = 0.66f,
+)
+
+@Preview(name = "Submit — syncing", showBackground = true, backgroundColor = 0xFF0B100D)
+@Composable
+private fun SubmitScreenPreview() {
+    GoatOsTheme {
+        SubmitScreen(state = previewState, onEvent = {})
+    }
+}
+
+@Preview(name = "Submit — conflict", showBackground = true, backgroundColor = 0xFF0B100D)
+@Composable
+private fun SubmitScreenConflictPreview() {
+    GoatOsTheme {
+        SubmitScreen(
+            state = previewState.copy(
+                syncState = SyncState.CONFLICT,
+                syncLabel = "Conflict — server has a newer record",
+                canSubmit = false,
+            ),
+            onEvent = {},
+        )
+    }
 }
