@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -18,7 +19,12 @@ dependencies {
     api(project(":core:core-model"))
     implementation(project(":core:core-common"))
     implementation(libs.kotlinx.coroutines.core)
-    // Retrofit 3 / OkHttp 5 + kotlinx.serialization + the OpenAPI-generated Kotlin
-    // client land here in the network pass; the AppApi port + FakeAppApi below keep
-    // the shell running without a live backend or auth.
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.serialization)
+    implementation(libs.okhttp)
+    implementation(libs.okhttp.logging)
+    // DTOs are hand-mapped to the current bootstrap slice for now; the full typed
+    // client is generated from contracts/openapi/app-api.yaml (openapi-generator)
+    // as the next step and replaces these DTOs 1:1.
 }

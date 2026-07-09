@@ -1,22 +1,35 @@
 package sg.mesha.goatos.core.network
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.OwnedModule
 
-// Wire DTOs mirroring the backend GET /app/bootstrap (nav_chrome + visible_navigation
-// + owned_modules). @Serializable + the Retrofit/OpenAPI-generated client are added
-// in the network pass; the DTOs stay the same shape.
+// Wire DTOs for the nav slice of GET /app/bootstrap. The response carries many more
+// fields; with ignoreUnknownKeys the client only binds the ones it renders. These
+// hand-mapped DTOs are replaced 1:1 by the OpenAPI-generated client next. Defaults
+// keep deserialization lenient.
+@Serializable
 data class BootstrapDto(
-    val navChrome: String, // "expanded" | "minimal"
-    val visibleNavigation: List<NavItemDto>,
-    val ownedModules: List<OwnedModuleDto>,
+    @SerialName("nav_chrome") val navChrome: String = "minimal",
+    @SerialName("visible_navigation") val visibleNavigation: List<NavItemDto> = emptyList(),
+    @SerialName("owned_modules") val ownedModules: List<OwnedModuleDto> = emptyList(),
 )
 
-data class NavItemDto(val key: String, val label: String, val href: String)
+@Serializable
+data class NavItemDto(
+    val key: String = "",
+    val label: String = "",
+    val href: String = "",
+)
 
-data class OwnedModuleDto(val vertical: String, val module: String)
+@Serializable
+data class OwnedModuleDto(
+    val vertical: String = "",
+    val module: String = "",
+)
 
 /** App API port. The real Retrofit/OpenAPI adapter lands behind this interface. */
 interface AppApi {
