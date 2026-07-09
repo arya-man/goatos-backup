@@ -3,21 +3,42 @@ package sg.mesha.goatos.ui
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import sg.mesha.goatos.feature.calendar.CalendarEvent
 import sg.mesha.goatos.feature.calendar.CalendarScreen
+import sg.mesha.goatos.feature.leadership.LeadershipEvent
 import sg.mesha.goatos.feature.leadership.LeadershipScreen
+import sg.mesha.goatos.feature.leadership.OverdueScreen
+import sg.mesha.goatos.feature.leadership.RescheduleScreen
 import sg.mesha.goatos.feature.profile.AlertsScreen
 import sg.mesha.goatos.feature.profile.ProfileEvent
 import sg.mesha.goatos.feature.profile.ProfileScreen
 import sg.mesha.goatos.feature.profile.RfidScreen
+import sg.mesha.goatos.feature.record.RecordEvent
 import sg.mesha.goatos.feature.record.RecordScreen
+import sg.mesha.goatos.feature.scan.ScanEvent
 import sg.mesha.goatos.feature.scan.ScanScreen
+import sg.mesha.goatos.feature.sheds.ShedsEvent
 import sg.mesha.goatos.feature.sheds.ShedsScreen
 import sg.mesha.goatos.feature.submit.SubmitScreen
+import sg.mesha.goatos.viewmodel.AlertsViewModel
+import sg.mesha.goatos.viewmodel.CalendarViewModel
+import sg.mesha.goatos.viewmodel.LeadershipViewModel
+import sg.mesha.goatos.viewmodel.OverdueViewModel
+import sg.mesha.goatos.viewmodel.ProfileViewModel
+import sg.mesha.goatos.viewmodel.RecordViewModel
+import sg.mesha.goatos.viewmodel.RescheduleViewModel
+import sg.mesha.goatos.viewmodel.RfidViewModel
+import sg.mesha.goatos.viewmodel.ScanViewModel
+import sg.mesha.goatos.viewmodel.ShedsViewModel
+import sg.mesha.goatos.viewmodel.SubmitViewModel
 
 // Route ids. The backend nav item hrefs map onto these; unknown hrefs fall through
 // to a placeholder rather than crashing (robust static graph).
@@ -28,6 +49,8 @@ object Routes {
     const val SUBMIT = "/submit"
     const val LEADERSHIP = "/leadership"
     const val RECORD = "/record"
+    const val OVERDUE = "/overdue"
+    const val RESCHEDULE = "/reschedule"
     const val YOU = "you"
     const val RFID = "/rfid"
     const val ALERTS = "/alerts"
@@ -38,6 +61,11 @@ object Routes {
  * Static navigation graph of every known screen. The graph is fixed; the backend
  * nav (bottom bar + chrome) decides which destinations are *reachable/visible* —
  * the app doesn't invent routes. Calendar is the universal landing (screens.md).
+ *
+ * Each destination binds a `@HiltViewModel` via [hiltViewModel]; the screen renders
+ * the VM's reactive [state] and its `onEvent` splits into two: LOCAL events go to the
+ * VM (which does the copy-with-changed-field on the StateFlow), NAVIGATION events
+ * drive the [navController]. The feature screens stay stateless dumb-renderers.
  */
 @Composable
 fun AppNavHost(
@@ -49,28 +77,162 @@ fun AppNavHost(
         startDestination = Routes.START,
         modifier = modifier,
     ) {
-        // Interim sample states; each screen's ViewModel feeds live bootstrap data next.
-        composable(Routes.CALENDAR) { CalendarScreen(state = sampleCalendarState()) }
-        // Vaccination execution surfaces as the shed-first flow (screens.md).
-        composable(Routes.VACCINATION) { ShedsScreen(state = sampleShedsState()) }
-        composable(Routes.SCAN) { ScanScreen(state = sampleScanState()) }
-        composable(Routes.SUBMIT) { SubmitScreen(state = sampleSubmitState()) }
-        composable(Routes.LEADERSHIP) { LeadershipScreen(state = sampleLeadershipState()) }
-        composable(Routes.RECORD) { RecordScreen(state = sampleRecordState()) }
-        composable(Routes.YOU) {
-            ProfileScreen(
-                state = sampleProfileState(),
+        // Calendar — universal landing. Segment switch is local; day/item taps drill
+        // into the vaccination execution flow.
+        composable(Routes.CALENDAR) {
+            val vm: CalendarViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            CalendarScreen(
+                state = state,
                 onEvent = { event ->
                     when (event) {
-                        ProfileEvent.PairRfid -> navController.navigate(Routes.RFID) { launchSingleTop = true }
-                        ProfileEvent.ToggleNotifications -> navController.navigate(Routes.ALERTS) { launchSingleTop = true }
-                        else -> Unit // Language sheet + Sign out are handled by the shell/session layer.
+                        is CalendarEvent.TapItem,
+                        is CalendarEvent.TapDay ->
+                            navController.navigate(Routes.VACCINATION) { launchSingleTop = true }
+                        else -> vm.onEvent(event)
                     }
                 },
             )
         }
-        composable(Routes.RFID) { RfidScreen(state = sampleRfidState()) }
-        composable(Routes.ALERTS) { AlertsScreen(state = sampleAlertsState()) }
+
+        // Vaccination execution surfaces as the shed-first flow (screens.md). Opening
+        // a shed record drills to the read-only record sheet; refresh stays in the VM.
+        composable(Routes.VACCINATION) {
+            val vm: ShedsViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            ShedsScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is ShedsEvent.OpenShedRecord ->
+                            navController.navigate(Routes.RECORD) { launchSingleTop = true }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // Scan — Submit drills to the shed-record submit; Back pops; group/tile/tap stay local.
+        composable(Routes.SCAN) {
+            val vm: ScanViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            ScanScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        ScanEvent.Submit ->
+                            navController.navigate(Routes.SUBMIT) { launchSingleTop = true }
+                        ScanEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // Submit — stays put; the VM advances the sync lifecycle (draft → syncing → acked).
+        composable(Routes.SUBMIT) {
+            val vm: SubmitViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            SubmitScreen(state = state, onEvent = vm::onEvent)
+        }
+
+        // Leadership overview — a decision drills to reschedule; a KPI opens the overdue
+        // list; refresh + inert taps stay in the VM.
+        composable(Routes.LEADERSHIP) {
+            val vm: LeadershipViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            LeadershipScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is LeadershipEvent.DecisionTapped ->
+                            navController.navigate(Routes.RESCHEDULE) { launchSingleTop = true }
+                        is LeadershipEvent.KpiTapped ->
+                            navController.navigate(Routes.OVERDUE) { launchSingleTop = true }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // Overdue list — a row drills to reschedule; Back pops; refresh stays in the VM.
+        composable(Routes.OVERDUE) {
+            val vm: OverdueViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            OverdueScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is LeadershipEvent.OverdueRowTapped ->
+                            navController.navigate(Routes.RESCHEDULE) { launchSingleTop = true }
+                        LeadershipEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // Reschedule form — segment/date selection stays local; Confirm + Back pop back.
+        composable(Routes.RESCHEDULE) {
+            val vm: RescheduleViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            RescheduleScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        LeadershipEvent.ConfirmReschedule,
+                        LeadershipEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // Record — read-only; Close pops back.
+        composable(Routes.RECORD) {
+            val vm: RecordViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            RecordScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        RecordEvent.Close -> navController.popBackStack()
+                    }
+                },
+            )
+        }
+
+        // You / Settings — RFID + notifications drill to their surfaces; language cycles in
+        // the VM; sign out clears the session (MainActivity's gate then shows login).
+        composable(Routes.YOU) {
+            val vm: ProfileViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            ProfileScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        ProfileEvent.PairRfid ->
+                            navController.navigate(Routes.RFID) { launchSingleTop = true }
+                        ProfileEvent.ToggleNotifications ->
+                            navController.navigate(Routes.ALERTS) { launchSingleTop = true }
+                        ProfileEvent.OpenLanguage -> vm.cycleLanguage()
+                        ProfileEvent.SignOut -> vm.signOut()
+                    }
+                },
+            )
+        }
+
+        composable(Routes.RFID) {
+            val vm: RfidViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            RfidScreen(state = state, onEvent = vm::onEvent)
+        }
+
+        composable(Routes.ALERTS) {
+            val vm: AlertsViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            AlertsScreen(state = state, onEvent = vm::onEvent)
+        }
     }
 }
 

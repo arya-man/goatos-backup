@@ -8,7 +8,14 @@ import sg.mesha.goatos.feature.calendar.CalendarUiState
 import sg.mesha.goatos.feature.calendar.CalendarWeekDay
 import sg.mesha.goatos.feature.leadership.CoverageHeroState
 import sg.mesha.goatos.feature.leadership.DataGapPill
+import sg.mesha.goatos.feature.leadership.DateOption
 import sg.mesha.goatos.feature.leadership.LeadershipUiState
+import sg.mesha.goatos.feature.leadership.OverdueClassification
+import sg.mesha.goatos.feature.leadership.OverdueLegendItem
+import sg.mesha.goatos.feature.leadership.OverdueRow
+import sg.mesha.goatos.feature.leadership.OverdueUiState
+import sg.mesha.goatos.feature.leadership.RescheduleSegment
+import sg.mesha.goatos.feature.leadership.RescheduleUiState
 import sg.mesha.goatos.feature.profile.AlertRow
 import sg.mesha.goatos.feature.profile.AlertTone
 import sg.mesha.goatos.feature.profile.AlertsUiState
@@ -185,4 +192,57 @@ fun sampleProfileState(): ProfileUiState = ProfileUiState(
         SettingRow(SettingKind.NOTIFICATIONS, "Notifications", toggleOn = true),
         SettingRow(SettingKind.SIGN_OUT, "Sign out"),
     ),
+)
+
+// Overdue + Reschedule live in feature-leadership; their in-module samples are
+// `internal`, so :app carries its own interim seeds for OverdueViewModel /
+// RescheduleViewModel until the leadership scope_token reads land.
+
+fun sampleOverdueState(): OverdueUiState = OverdueUiState(
+    eyebrow = "Vaccination",
+    title = "Overdue · 38 animals",
+    sectionTitle = "Needs rescheduling",
+    legend = listOf(
+        OverdueLegendItem(OverdueClassification.MISSED, "Missed · past buffer"),
+        OverdueLegendItem(OverdueClassification.IN_BUFFER, "In buffer · recoverable"),
+    ),
+    rows = listOf(
+        OverdueRow("o1", "Goat Pox · Yashoda 5", "CBE · 9 days late · past buffer · 24 animals", "Missed", OverdueClassification.MISSED),
+        OverdueRow("o2", "Sheep Pox · Castro 1", "CPT · 3 days late · in buffer · 8 animals", "In buffer", OverdueClassification.IN_BUFFER),
+        OverdueRow("o3", "FMD · Booster · Mandela 1", "CBE · 2 days late · in buffer · 6 animals", "In buffer", OverdueClassification.IN_BUFFER),
+    ),
+    explainerTitle = "What the colours mean",
+    explainer = "Red · Missed — the dose window closed and the animal wasn't recovered into a " +
+        "compatible drive in time. Amber · In buffer — overdue but still recoverable by reschedule " +
+        "into a compatible drive, no dose missed. In/out-of-buffer is computed by backend policy.",
+)
+
+fun sampleRescheduleState(): RescheduleUiState = RescheduleUiState(
+    eyebrow = "Vaccination",
+    title = "Goat Pox · overdue",
+    bufferMessage = "Reschedule into a compatible drive while the animal is still recoverable. " +
+        "The in-buffer window is computed by backend policy; past it the dose is missed.",
+    actionTitle = "Action",
+    segments = listOf(
+        RescheduleSegment("reschedule", "Reschedule"),
+        RescheduleSegment("mark", "Mark scheduled"),
+    ),
+    selectedSegmentId = "reschedule",
+    dateFieldLabel = "New date",
+    dateOptionsTitle = "Within the backend-computed buffer window from the due date",
+    dateOptions = listOf(
+        DateOption("d8", "8", "Wed, 8 Jul", "Tomorrow · in buffer", inBuffer = true),
+        DateOption("d9", "9", "Thu, 9 Jul", "In buffer", inBuffer = true),
+        DateOption("d10", "10", "Fri, 10 Jul", "In buffer", inBuffer = true),
+        DateOption("d11", "11", "Sat, 11 Jul", "Last day in buffer", inBuffer = true),
+        DateOption("d13", "13", "Mon, 13 Jul", "Out of buffer · counts as missed", inBuffer = false),
+    ),
+    selectedDateId = null,
+    assignFieldLabel = "Assign to",
+    assignPrimary = "Arun Kumar",
+    assignBackupLabel = "+ backup Indradev",
+    assignEnabled = true,
+    confirmLabel = "Confirm — notify team",
+    confirmEnabled = false,
+    channelsNote = "Team gets a phone call, push, Slack alert and email — 2 days before, and again the morning of.",
 )
