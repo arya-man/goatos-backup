@@ -451,10 +451,13 @@ Coverage metrics to write each run:
 | `event_spine_dashboard_delta` | `active_spine_candidates - dashboard_active_total` at the selected canonical grain | `Counts_Snapshots`, `Issue_Queue` when non-zero |
 | `active_with_birth_date` | Active-spine rows with Birth-event `date` evidence | `Counts_Snapshots` |
 | `active_missing_birth_date` | Active-spine rows without Birth-event `date` evidence | `Issue_Queue` as RED unless approved estimated DOB evidence exists |
+| `active_missing_species` | Active-spine rows without trusted `species` from source `Animal_Type` or approved breed/species crosswalk | `Issue_Queue` as RED |
 | `purchase_no_birth_has_age` | Purchase-origin/no-Birth active rows with legacy `age` evidence | `Issue_Queue` as AMBER candidate for estimated-DOB review |
 | `purchase_no_birth_no_age` | Purchase-origin/no-Birth active rows without Birth `date` or `age` evidence | `Issue_Queue` as RED |
 | `active_missing_gender` | Active-spine rows without trusted sex evidence | `Issue_Queue` as RED unless Drive/source backfill supplies evidence |
 | `active_birth_date_and_gender_present` | Active-spine rows with native Birth `date` and trusted sex evidence | `Counts_Snapshots`; still not GREEN unless RFID and location gates pass |
+| `current_location_source_coverage` | Active-spine rows resolved from latest-event `farm` plus latest Shifting `dst_shed`/`dst_tag`, with fallback to other animal-grain shed evidence | `Counts_Snapshots`, `Issue_Queue` for unresolved rows |
+| `breed_species_taxonomy_reconcile` | Compare normalized breed/species vocabulary across event spine, dashboard count rows, procurement `Animal_Type`, and crosswalk entries | `Counts_Snapshots`, `Issue_Queue` for one-sided or unmapped taxonomy values |
 | `dropped_no_identifier_rows` | Raw source rows with all candidate identifiers blank before active-spine grouping | `Issue_Queue` as one RED issue per source row |
 
 Implications:
@@ -463,14 +466,19 @@ Implications:
   equivalent trusted identifier source is readable. The event spine has legacy
   IDs, DOB, and gender signals, but not the RFID-backed
   `animal_identifier_1` required for Goat OS import readiness.
-- The vaccination demo must treat DOB, sex, RFID, and current-location backfill
-  as gating cleanup lanes, not incidental polish.
+- The vaccination demo must treat DOB, species, sex, RFID, and unresolved
+  current-location rows as gating cleanup lanes, not incidental polish.
 - Estimated-DOB recovery is narrow, not broad. Only rows with approved age/date
   evidence can become AMBER estimated-DOB candidates; rows with neither Birth
   `date` nor usable age evidence remain RED until source or ground verification
   supplies DOB evidence.
 - Do not seed `Animal_Master` by blindly taking the latest-event spine as active
   truth; reconcile it to dashboard/current-status sources first.
+- Resolve current location from animal-grain sources first. Latest-event `farm`
+  plus latest Shifting `dst_shed`/`dst_tag` is the primary location evidence
+  when present; other event-spine shed evidence may be fallback evidence. The
+  RED gap is the unresolved remainder and any missing shed-to-park mapping, not
+  every active animal.
 - Treat dashboard active totals as aggregate targets, not animal-grain proof.
   `farm.daily_summary_dev` and `ceo_dashboard.counting_db_with_holding_dev`
   do not carry animal identifiers, so they can expose count/taxonomy gaps but
@@ -631,18 +639,50 @@ Columns:
 `is_holding`, `is_quarantine`, `is_icu`, `usable_for_vaccination`,
 `source_link`, `verification_status`.
 
-### 10. `Current_Location_Status`
+### 10. `Species_Taxonomy_Crosswalk`
+
+Controlled species derivation for Goat OS import. `goatsDB.goats_db_clean` does
+not expose a dedicated `species` column, so the sync must never infer species
+from free text without this approved crosswalk.
+
+Columns:
+
+`source_system`, `source_field`, `raw_value`, `normalized_value`,
+`canonical_species`, `confidence`, `mapping_rule`, `approved_by`,
+`approved_at`, `source_link`, `verification_status`.
+
+Seed behavior:
+
+- Prefer explicit source species/type fields such as procurement
+  `Animal_Type` when present.
+- Use breed-to-species mapping only through this crosswalk.
+- Treat blank, unmapped, or ambiguous breed/species values as RED for import.
+- Keep sheep/goat breed vocabulary separate from dashboard display labels so
+  taxonomy mismatches do not silently become count mismatches.
+
+### 11. `Current_Location_Status`
 
 Animal-level current location and current status resolution.
 
 Columns:
 
 `animal_identifier_1`, `animal_identifier_2`, `current_farm`, `current_park`,
-`current_shed`, `current_stage`, `source_priority_used`, `counting_db_status`,
-`goats_db_status`, `shiftings_status`, `procurement_status`,
+`current_shed`, `current_stage`, `source_priority_used`, `latest_event_farm`,
+`latest_shifting_dst_shed`, `latest_shifting_dst_tag`, `fallback_shed_evidence`,
+`counting_db_status`, `goats_db_status`, `shiftings_status`, `procurement_status`,
 `resolved_status`, `resolution_reason`, `verification_status`.
 
-### 11. `Birth_Events`
+Source priority:
+
+1. Latest active event's animal-grain `farm`.
+2. Latest Shifting event's animal-grain `dst_shed` and `dst_tag`.
+3. Other event-spine animal-grain shed evidence.
+4. `Location_Profile` shed-to-park/stage mapping.
+
+Aggregate dashboard count rows may validate totals but cannot resolve
+animal-level location by themselves.
+
+### 12. `Birth_Events`
 
 Columns:
 
@@ -650,7 +690,7 @@ Columns:
 `shed`, `breed`, `kid_status`, `source_system`, `source_record_id`,
 `source_link`, `evidence_refs`, `verification_status`.
 
-### 12. `Breeding_Delivery_History`
+### 13. `Breeding_Delivery_History`
 
 Tracks breeding, mating, delivery, and related medicine/source evidence that may
 affect birth provenance, dam/lactation status, and future Goat OS reproductive
@@ -663,7 +703,7 @@ Columns:
 `medicine_or_protocol`, `source_system`, `source_record_id`, `source_link`,
 `verification_status`.
 
-### 13. `Death_Events`
+### 14. `Death_Events`
 
 Columns:
 
@@ -671,7 +711,7 @@ Columns:
 `cause`, `farm`, `source_system`, `source_record_id`, `source_link`,
 `verified_by`, `verification_status`.
 
-### 14. `Sale_Events`
+### 15. `Sale_Events`
 
 Columns:
 
@@ -679,7 +719,7 @@ Columns:
 `buyer_or_vendor`, `sale_amount`, `sale_weight_kg`, `sales_id`,
 `source_record_id`, `source_link`, `verification_status`.
 
-### 15. `Procurement_Source_Entry`
+### 16. `Procurement_Source_Entry`
 
 One row per procurement source/load candidate.
 
@@ -691,7 +731,7 @@ Columns:
 `current_state`, `ownership_state`, `health_state`, `warmup_started_at`,
 `warmup_ended_at`, `holding_location`, `proof_refs`, `verification_status`.
 
-### 16. `Procurement_Load_Reconciliation`
+### 17. `Procurement_Load_Reconciliation`
 
 Used to close the current procurement mismatch. Do not assume the procurement
 purchase total vs GOATS DB purchase total is a clean animal-level delta until
@@ -708,7 +748,7 @@ Columns:
 `unmatched_procurement_ids`, `unmatched_goats_db_ids`, `owner`, `next_action`,
 `verification_status`.
 
-### 17. `Movement_Stage_History`
+### 18. `Movement_Stage_History`
 
 Columns:
 
@@ -717,7 +757,7 @@ Columns:
 `stage_entry_date`, `days_in_stage`, `source_system`, `source_record_id`,
 `source_link`, `verification_status`.
 
-### 18. `Fattening_Shifting_Reconciliation`
+### 19. `Fattening_Shifting_Reconciliation`
 
 Columns:
 
@@ -725,7 +765,7 @@ Columns:
 `delta`, `candidate_animal_ids`, `candidate_load_ids`, `source_decision`,
 `owner`, `next_action`, `verification_status`.
 
-### 19. `Weight_History`
+### 20. `Weight_History`
 
 Columns:
 
@@ -733,7 +773,7 @@ Columns:
 `weight_kg`, `farm`, `shed`, `stage`, `source_system`, `source_record_id`,
 `source_link`, `verification_status`.
 
-### 20. `Health_Treatment_History`
+### 21. `Health_Treatment_History`
 
 Columns:
 
@@ -741,7 +781,7 @@ Columns:
 `diagnosis`, `treatment`, `medicine`, `dose`, `follow_up_date`, `vet_or_staff`,
 `source_system`, `source_record_id`, `source_link`, `verification_status`.
 
-### 21. `Milk_Lactation_History`
+### 22. `Milk_Lactation_History`
 
 Tracks milk consumption, feeding summaries, milking-mother rows, and lactation
 signals needed for Goat OS reproductive and nutrition history.
@@ -753,7 +793,7 @@ Columns:
 `feeding_quantity_l`, `kid_identifier`, `source_system`, `source_record_id`,
 `source_link`, `verification_status`.
 
-### 22. `Vaccination_History`
+### 23. `Vaccination_History`
 
 One row per actual vaccination evidence item. Do not use one column per vaccine.
 The legacy vaccination source
@@ -783,7 +823,7 @@ Trust classes:
 
 Only trusted, reviewed evidence may suppress Goat OS due work.
 
-### 23. `Vaccination_Due_View`
+### 24. `Vaccination_Due_View`
 
 This is the demo-critical view.
 
@@ -795,7 +835,7 @@ Columns:
 `next_due_date`, `latest_safe_date`, `due_status`, `due_reason`,
 `blocking_issue_id`, `verification_status`.
 
-### 24. `Counts_Snapshots`
+### 25. `Counts_Snapshots`
 
 Columns:
 
@@ -822,14 +862,14 @@ Required reconciliation rows to compute each run:
   just extra event-spine animals. The sync must write breed/species-level delta
   rows for each side instead of hardcoding example counts here.
 
-### 25. `Feed_Sales_Reconciliation`
+### 26. `Feed_Sales_Reconciliation`
 
 Columns:
 
 `month`, `farm`, `sales_animals`, `sales_value`, `feed_spend`, `source_sales`,
 `source_feed`, `delta`, `verification_status`.
 
-### 26. `Validation_Rules`
+### 27. `Validation_Rules`
 
 Columns:
 
@@ -847,17 +887,19 @@ Seed rules:
 | `raw_source_row_has_identifier` | P1 | Yes | data/dev + ground/source team | Every raw animal-event source row must have at least one usable candidate identifier before grouping. Rows missing all candidate identifiers create one RED `Issue_Queue` row per source row. |
 | `animal_identifier_1_present` | P1 | Yes | data/dev | Import candidate must have trusted `animal_identifier_1`, currently expected from Drive RFID mapping or another approved identifier source. |
 | `animal_identifier_uniqueness` | P1 | Yes | data/dev | Normalized identifiers must be unique across current and historical identifier sources. Duplicates create RED issues until resolved. |
+| `species_evidence_present` | P1 | Yes | data/dev + ground/source team | Import candidate must have trusted species from explicit source type or approved `Species_Taxonomy_Crosswalk`; blank/unmapped/ambiguous values create RED issues. |
+| `breed_species_taxonomy_reconcile` | P2 | Yes, when taxonomy affects import or canonical counts | data/dev + ground/source team | Breed/species vocabulary across event spine, dashboard counts, procurement, and crosswalk must reconcile or produce taxonomy issues with source refs. |
 | `dob_evidence_or_approved_estimate` | P1 | Yes | data/dev + ground/source team | Active import candidates must have trusted Birth-event `date` evidence or an approved estimated-DOB policy with source evidence. |
 | `birth_time_not_dob` | P1 | Yes | data/dev | `birth_time` must never satisfy DOB evidence; it is stored only as time-of-day provenance. |
 | `purchase_no_birth_no_age_red` | P2 | Yes, for import | ground/source team | Purchase-origin candidates with no Birth `date` and no usable age evidence remain RED until source/ground DOB evidence is supplied. |
 | `sex_evidence_present` | P1 | Yes | data/dev + ground/source team | Active import candidates must have trusted sex evidence from native events, Drive RFID mapping, or another approved source. |
-| `current_location_status_resolved` | P1 | Yes | data/dev + ground/source team | Active import candidates must have current farm/park/shed/stage resolved from an animal-grain source. Aggregate dashboard rows alone cannot pass this rule. |
+| `current_location_status_resolved` | P1 | Yes | data/dev + ground/source team | Active import candidates must have current farm/park/shed/stage resolved from latest event/Shifting animal-grain evidence plus `Location_Profile` mapping. Aggregate dashboard rows alone cannot pass this rule. |
 | `vaccination_legacy_count_not_suppressing_due` | P1 | Yes | data/dev | Legacy shed-count vaccination rows may be stored as notes but must not suppress animal-level Goat OS due work unless trusted animal-level evidence exists. |
 | `procurement_identity_grain_resolved` | P1 | Yes, for procurement import | data/dev + ground/source team | Procurement and GOATS DB purchase deltas must be evaluated at each candidate identity grain; unresolved grain mismatch creates a blocking issue. |
 | `fattening_shiftings_stage_parity` | P2 | No, unless attributable to import row | data/dev + ground/source team | Fattening and current-stage sources must be compared by farm/stage. Differences produce reconciliation issues with both source refs. |
 | `source_stale_past_sla` | P1 | Yes, when source affects import or canonical audit values | data/dev | Source watermark must be within configured SLA for its source family. Stale source creates a RED issue for dependent rows. |
 
-### 27. `Issue_Queue`
+### 28. `Issue_Queue`
 
 The real cleanup control center. One row per issue.
 
@@ -868,7 +910,7 @@ Columns:
 `evidence`, `owner`, `next_action`, `sla_date`, `status`, `resolved_by`,
 `resolved_at`, `resolution_note`.
 
-### 28. `Import_Batches`
+### 29. `Import_Batches`
 
 Columns:
 
@@ -948,7 +990,8 @@ row links must be filled by the sync job in `Issue_Queue`, not maintained here.
 | Procurement DB vs farm procured animal count mismatch | P1 | data/dev + ground/source team | `procurement_identity_grain_resolved`; procurement source must use `Record_Type='Purchase'` and compare against GOATS DB purchase counts at each candidate identity grain |
 | Procurement loadwise status rollup mismatch | P2 | data/dev + ground/source team | `procurement_farm.load_wise_procurement_with_status` vs `procurement_farm.loadwise_summary` |
 | Fattening vs shiftings stage-source reconciliation | P2 | data/dev + ground/source team | `fattening_shiftings_stage_parity`; compare `growth_farmwise_weighing` with current-stage source tables by farm/stage |
-| Animal import gate feasibility: DOB, sex, RFID, and location coverage | P1 | data/dev + ground/source team | `animal_identifier_1_present`, `dob_evidence_or_approved_estimate`, `sex_evidence_present`, `current_location_status_resolved` |
+| Animal import gate feasibility: species, DOB, sex, RFID, and location coverage | P1 | data/dev + ground/source team | `animal_identifier_1_present`, `species_evidence_present`, `dob_evidence_or_approved_estimate`, `sex_evidence_present`, `current_location_status_resolved` |
+| Breed/species taxonomy reconciliation | P2 | data/dev + ground/source team | `breed_species_taxonomy_reconcile`; compare event-spine breed values, dashboard count breed values, procurement animal types, and approved species crosswalk mappings |
 | Drive/Sheets credential blocker for RFID and sex source | P1 | data/dev | `goatsDB.goatsDB_rfid_mapping`; source requires Drive/Sheets credentials before RFID/Gender extraction can pass |
 | Event-spine active vs dashboard active gap | P1 | data/dev | `active_spine_dashboard_reconcile`; dashboard sources are aggregate-only and cannot close row-level `Animal_Master` reconciliation |
 | Dropped no-identifier event rows | P2 | data/dev + ground/source team | `raw_source_row_has_identifier`; emit one RED issue per raw source row missing all candidate identifiers |
@@ -1041,10 +1084,11 @@ For demo readiness, prioritize:
 1. `Animal_Master` for active animals.
 2. `Mapping_Crosswalks` for identifiers.
 3. `Identity_Grain_Audit` for procurement/GOATS DB identity-grain decisions.
-4. `Location_Profile` for farm/park/shed/stage.
-5. `Vaccination_History`.
-6. `Vaccination_Due_View`.
-7. `Issue_Queue`.
+4. `Species_Taxonomy_Crosswalk` for Goat OS `species`.
+5. `Location_Profile` and `Current_Location_Status` for farm/park/shed/stage.
+6. `Vaccination_History`.
+7. `Vaccination_Due_View`.
+8. `Issue_Queue`.
 
 Do not block the vaccination demo on closing every procurement/fattening
 aggregate issue. Instead:
