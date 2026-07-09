@@ -3,6 +3,7 @@ package sg.mesha.goatos.ui
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,12 +73,12 @@ object Routes {
     fun recordRoute(shedId: String?): String =
         if (shedId.isNullOrBlank()) RECORD else "$RECORD?$RECORD_SHED_ARG=${Uri.encode(shedId)}"
 
-    /**
-     * Scan (execute) entry for a shed. The shed id is reserved for the per-shed scan
-     * roster (not yet consumed by ScanViewModel, which still seeds a sample roster), so
-     * this currently resolves to the base route.
-     */
-    fun scanRoute(shedId: String?): String = SCAN
+    const val SCAN_SHED_ARG = "shedId"
+
+    /** Scan (execute) entry for a shed — threads the shed id so ScanViewModel loads that
+     *  shed's per-animal roster from the backend. */
+    fun scanRoute(shedId: String?): String =
+        if (shedId.isNullOrBlank()) SCAN else "$SCAN?$SCAN_SHED_ARG=${Uri.encode(shedId)}"
 }
 
 /**
@@ -178,9 +179,25 @@ fun AppNavHost(
         }
 
         // Scan — Submit drills to the shed-record submit; Back pops; group/tile/tap stay local.
-        composable(Routes.SCAN) {
+        // The shed id arg feeds the per-shed roster; capture is enabled only while this
+        // screen is composed (disabled on navigate-away) so keyboard-wedge reads never
+        // land off-screen (e.g. while Submit is on top of the back stack).
+        composable(
+            route = "${Routes.SCAN}?${Routes.SCAN_SHED_ARG}={${Routes.SCAN_SHED_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.SCAN_SHED_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
             val vm: ScanViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            DisposableEffect(vm) {
+                vm.setCaptureActive(true)
+                onDispose { vm.setCaptureActive(false) }
+            }
             ScanScreen(
                 state = state,
                 onEvent = { event ->

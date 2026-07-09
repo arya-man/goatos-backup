@@ -102,8 +102,10 @@ sealed interface RfidEvent {
 }
 
 /** UI glue: which event the primary button emits for the backend-provided state. */
+// A ready/connected reader's primary action is a test read (Android owns the HID
+// connection, so there is no in-app "disconnect"); otherwise it opens system pairing.
 private fun primaryEventFor(state: RfidConnectionState): RfidEvent =
-    if (state == RfidConnectionState.CONNECTED) RfidEvent.Disconnect else RfidEvent.Pair
+    if (state == RfidConnectionState.CONNECTED) RfidEvent.TestRead else RfidEvent.Pair
 
 private fun glyphTint(state: RfidConnectionState): Color = when (state) {
     RfidConnectionState.CONNECTED -> RfidTokens.Brand

@@ -1,6 +1,7 @@
 package sg.mesha.goatos.core.data
 
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 
@@ -23,6 +24,12 @@ interface ExecutionRepository {
         dueBefore: String? = null,
         limit: Int? = null,
     ): VaccinationExecutionShedDrilldownDto
+
+    /** Per-animal scan roster (RFID tags + due vaccine) for a shed. */
+    suspend fun scanRoster(
+        shedId: String,
+        limit: Int? = null,
+    ): ScanRosterResponseDto
 }
 
 class DefaultExecutionRepository(
@@ -44,4 +51,9 @@ class DefaultExecutionRepository(
         limit: Int?,
     ): VaccinationExecutionShedDrilldownDto =
         api.getVaccinationExecutionShed(shedId, asOf, dueBefore, limit)
+
+    override suspend fun scanRoster(
+        shedId: String,
+        limit: Int?,
+    ): ScanRosterResponseDto = api.getScanRoster(shedId, limit)
 }

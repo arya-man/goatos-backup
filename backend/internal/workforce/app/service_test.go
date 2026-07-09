@@ -93,9 +93,18 @@ func TestBootstrapPopulatesModuleDrivenNavAndChrome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
-	wantNav := []domain.BootstrapNavigationItem{{Key: "vaccination", Label: "Vaccination", Href: "/vaccination"}}
-	if len(got.VisibleNavigation) != 1 || got.VisibleNavigation[0] != wantNav[0] {
+	wantNav := []domain.BootstrapNavigationItem{
+		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+	}
+	if len(got.VisibleNavigation) != len(wantNav) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, wantNav)
+	}
+	for i := range wantNav {
+		if got.VisibleNavigation[i] != wantNav[i] {
+			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], wantNav[i])
+		}
 	}
 	if got.NavChrome != domain.NavChromeMinimal {
 		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
@@ -121,8 +130,8 @@ func TestBootstrapLeadershipGetsFixedNavRegardlessOfModules(t *testing.T) {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
 	wantNav := []domain.BootstrapNavigationItem{
-		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "leadership", Label: "Overview", Href: "/leadership"},
+		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
@@ -150,9 +159,18 @@ func TestBootstrapOperatorKeepsModuleDrivenNav(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
-	wantNav := []domain.BootstrapNavigationItem{{Key: "vaccination", Label: "Vaccination", Href: "/vaccination"}}
-	if len(got.VisibleNavigation) != 1 || got.VisibleNavigation[0] != wantNav[0] {
+	wantNav := []domain.BootstrapNavigationItem{
+		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+	}
+	if len(got.VisibleNavigation) != len(wantNav) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, wantNav)
+	}
+	for i := range wantNav {
+		if got.VisibleNavigation[i] != wantNav[i] {
+			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], wantNav[i])
+		}
 	}
 	if got.NavChrome != domain.NavChromeMinimal {
 		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
@@ -280,8 +298,8 @@ func TestIsLeadershipPrincipal(t *testing.T) {
 // keeps falling through to navigationForModules.
 func TestVisibleNavigationFor(t *testing.T) {
 	leadershipWant := []domain.BootstrapNavigationItem{
-		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "leadership", Label: "Overview", Href: "/leadership"},
+		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 	}
 	tests := []struct {
@@ -303,10 +321,14 @@ func TestVisibleNavigationFor(t *testing.T) {
 			want:   leadershipWant,
 		},
 		{
-			name:   "operator falls back to module-driven nav",
+			name:   "operator owning vaccination gets the fixed operator nav",
 			grants: []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			mods:   []permissions.OwnedModule{{Vertical: "pc", Module: "pc.vaccination"}},
-			want:   []domain.BootstrapNavigationItem{{Key: "vaccination", Label: "Vaccination", Href: "/vaccination"}},
+			want: []domain.BootstrapNavigationItem{
+				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+			},
 		},
 		{
 			name:   "operator with no owned modules gets empty nav",

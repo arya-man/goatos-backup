@@ -32,7 +32,11 @@ class DefaultBootstrapRepository(
             cache?.save(dto)
             reconcileDevice(dto)
             dto.toNavState()
-        } catch (t: Throwable) {
+        } catch (t: java.io.IOException) {
+            // Offline-first fallback is ONLY for transport/connectivity failures. An
+            // auth/permission failure (401/403 arrives as retrofit HttpException, NOT an
+            // IOException) and any other error propagate — so a stale cached shell can
+            // never mask a rejected token / revoked device / missing grant / switched user.
             cache?.load()?.toNavState() ?: throw t
         }
 
