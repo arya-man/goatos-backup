@@ -4,38 +4,48 @@ package http
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
-	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
+	vaccexecd "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 // Reader is the vaccination execution read slice required by this handler.
 type Reader interface {
-	VaccinationExecution(ctx context.Context, q domain.ExecutionQuery) ([]domain.ExecutionRow, error)
-	ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (domain.ShedDrilldown, bool, error)
-	VaccinationOperations(ctx context.Context, q domain.OperationsQuery) (domain.OperationsResponse, error)
+	VaccinationExecution(ctx context.Context, q vaccexecd.ExecutionQuery) ([]vaccexecd.ExecutionRow, error)
+	ShedDrilldown(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ShedDrilldown, bool, error)
+	VaccinationOperations(ctx context.Context, q vaccexecd.OperationsQuery) (vaccexecd.OperationsResponse, error)
+	ScanRoster(ctx context.Context, q vaccexecd.ScanRosterQuery) ([]vaccexecd.ScanRosterRow, error)
+}
+
+// Writer is the obligation write interface needed for reschedule operations.
+type Writer interface {
+	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *domain.RecoveryReschedule) (string, bool, error)
 }
 
 // Handler serves vaccination execution endpoints (park/shed execution context for PC Vaccination).
 type Handler struct {
 	reader Reader
+	writer Writer
 	log    *slog.Logger
 }
 
 // NewHandler constructs the vaccination execution handler.
-func NewHandler(reader Reader, log ...*slog.Logger) *Handler {
+func NewHandler(reader Reader, writer Writer, log ...*slog.Logger) *Handler {
 	l := slog.Default()
 	if len(log) > 0 && log[0] != nil {
 		l = log[0]
 	}
-	return &Handler{reader: reader, log: l}
+	return &Handler{reader: reader, writer: writer, log: l}
 }
 
 // Register mounts the vaccination execution routes (owned by PC Vaccination, park/shed scope).
@@ -43,6 +53,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /vaccination/operations", h.VaccinationOperations)
+	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}/roster", h.ScanRoster)
+	mux.HandleFunc("POST /app/vaccination/obligations/{obligation_id}/reschedule", h.RescheduleObligation)
 }
 
 // VaccinationOperations serves the source-backed cohort × protocol matrix + per-cohort detail for the
@@ -50,7 +62,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 func (h *Handler) VaccinationOperations(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	asOf := time.Now().In(biztime.DefaultLocation())
-	q := domain.OperationsQuery{
+	q := vaccexecd.OperationsQuery{
 		TenantID:  tenantID(r),
 		AsOf:      asOf,
 		DueBefore: asOf.Add(defaultExecutionHorizonDays * 24 * time.Hour),
@@ -106,19 +118,19 @@ const (
 	defaultExecutionHorizonDays = 30
 )
 
-var allowedWorkStates = map[domain.WorkState]bool{
-	domain.WorkStateDue:                 true,
-	domain.WorkStateOverdue:             true,
-	domain.WorkStateScheduled:           true,
-	domain.WorkStateInProgress:          true,
-	domain.WorkStateProofPending:        true,
-	domain.WorkStateVerificationPending: true,
-	domain.WorkStateRejected:            true,
-	domain.WorkStateDeferred:            true,
-	domain.WorkStateMissed:              true,
-	domain.WorkStateBlocked:             true,
-	domain.WorkStateOwnerMissing:        true,
-	domain.WorkStateCompleted:           true,
+var allowedWorkStates = map[vaccexecd.WorkState]bool{
+	vaccexecd.WorkStateDue:                 true,
+	vaccexecd.WorkStateOverdue:             true,
+	vaccexecd.WorkStateScheduled:           true,
+	vaccexecd.WorkStateInProgress:          true,
+	vaccexecd.WorkStateProofPending:        true,
+	vaccexecd.WorkStateVerificationPending: true,
+	vaccexecd.WorkStateRejected:            true,
+	vaccexecd.WorkStateDeferred:            true,
+	vaccexecd.WorkStateMissed:              true,
+	vaccexecd.WorkStateBlocked:             true,
+	vaccexecd.WorkStateOwnerMissing:        true,
+	vaccexecd.WorkStateCompleted:           true,
 }
 
 type errorEnvelope struct {
@@ -138,7 +150,7 @@ func (h *Handler) ListVaccinationExecution(w http.ResponseWriter, r *http.Reques
 		h.internal(w, r, err)
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows})
+	httpresponse.WriteJSON(w, http.StatusOK, vaccexecd.ExecutionResponse{Source: vaccexecd.SourceAPI, Rows: rows})
 }
 
 // GetShedDrilldown returns the vaccination execution context for a single shed.
@@ -166,10 +178,10 @@ func (h *Handler) GetShedDrilldown(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, detail)
 }
 
-func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, defaultLimit int) (domain.ExecutionQuery, bool) {
+func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, defaultLimit int) (vaccexecd.ExecutionQuery, bool) {
 	query := r.URL.Query()
 	asOf := time.Now().In(biztime.DefaultLocation())
-	q := domain.ExecutionQuery{
+	q := vaccexecd.ExecutionQuery{
 		TenantID:  tenantID(r),
 		AsOf:      asOf,
 		DueBefore: asOf.Add(defaultExecutionHorizonDays * 24 * time.Hour),
@@ -180,7 +192,7 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		parsed, err := time.Parse(time.RFC3339, asOfRaw)
 		if err != nil {
 			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
-			return domain.ExecutionQuery{}, false
+			return vaccexecd.ExecutionQuery{}, false
 		}
 		q.AsOf = parsed.In(biztime.DefaultLocation())
 		// Re-anchor the default horizon to as_of; an explicit due_before below still wins.
@@ -189,15 +201,15 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 	if parkID := query.Get("park_id"); parkID != "" {
 		if !uuidutil.IsUUIDString(parkID) {
 			h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
-			return domain.ExecutionQuery{}, false
+			return vaccexecd.ExecutionQuery{}, false
 		}
 		q.ParkID = &parkID
 	}
 	if state := query.Get("work_state"); state != "" {
-		workState := domain.WorkState(state)
+		workState := vaccexecd.WorkState(state)
 		if !allowedWorkStates[workState] {
 			h.badRequest(w, r, "invalid_work_state", "work_state must be a vaccination execution work state")
-			return domain.ExecutionQuery{}, false
+			return vaccexecd.ExecutionQuery{}, false
 		}
 		q.WorkState = &workState
 	}
@@ -205,7 +217,7 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		parsed, err := time.Parse(time.RFC3339, dueBefore)
 		if err != nil {
 			h.badRequest(w, r, "invalid_due_before", "due_before must be RFC3339")
-			return domain.ExecutionQuery{}, false
+			return vaccexecd.ExecutionQuery{}, false
 		}
 		q.DueBefore = parsed.In(biztime.DefaultLocation())
 	}
@@ -213,7 +225,7 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		n, err := strconv.Atoi(limit)
 		if err != nil || n <= 0 {
 			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
-			return domain.ExecutionQuery{}, false
+			return vaccexecd.ExecutionQuery{}, false
 		}
 		if n > maxExecutionLimit {
 			n = maxExecutionLimit
@@ -225,6 +237,112 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 
 func tenantID(r *http.Request) string {
 	return httpmiddleware.TenantIDFromContext(r.Context())
+}
+
+// ScanRoster returns per-animal vaccination obligations for a shed, with RFID tags and vaccine labels.
+// Supports mobile scan screen keyboard-wedge tag matching.
+func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
+	shedID := r.PathValue("shed_id")
+	if !uuidutil.IsUUIDString(shedID) {
+		h.badRequest(w, r, "invalid_shed_id", "shed_id must be a UUID")
+		return
+	}
+	query := r.URL.Query()
+	limit := 500
+	if limitRaw := query.Get("limit"); limitRaw != "" {
+		n, err := strconv.Atoi(limitRaw)
+		if err != nil || n <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		if n > 5000 {
+			n = 5000
+		}
+		limit = n
+	}
+	q := vaccexecd.ScanRosterQuery{
+		TenantID: tenantID(r),
+		ShedID:   shedID,
+		Limit:    limit,
+	}
+	rows, err := h.reader.ScanRoster(r.Context(), q)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"source": "api",
+		"rows":   rows,
+	})
+}
+
+type rescheduleRequest struct {
+	DueAt       time.Time `json:"due_at"`
+	WindowStart *time.Time `json:"window_start,omitempty"`
+	WindowEnd   *time.Time `json:"window_end,omitempty"`
+}
+
+type rescheduleResponse struct {
+	ObligationID   string `json:"obligation_id"`
+	IdempotentReplay bool `json:"idempotent_replay"`
+}
+
+// RescheduleObligation reschedules (or marks scheduled) a vaccination obligation to a new date.
+// Honors existing buffer/re-scope rules. Idempotent via Idempotency-Key header.
+func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
+	obligationID := r.PathValue("obligation_id")
+	if !uuidutil.IsUUIDString(obligationID) {
+		h.badRequest(w, r, "invalid_obligation_id", "obligation_id must be a UUID")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 8*1024)
+	defer r.Body.Close()
+	var req rescheduleRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil && err != io.EOF {
+		h.badRequest(w, r, "invalid_body", "request body must be JSON")
+		return
+	}
+
+	if req.DueAt.IsZero() {
+		h.badRequest(w, r, "invalid_due_at", "due_at is required and must be RFC3339")
+		return
+	}
+	if req.DueAt.Before(time.Now()) {
+		h.badRequest(w, r, "due_at_in_past", "due_at must be in the future")
+		return
+	}
+
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+	if idempotencyKey == "" {
+		h.badRequest(w, r, "missing_idempotency_key", "Idempotency-Key header is required")
+		return
+	}
+
+	windowStart := req.DueAt
+	if req.WindowStart != nil {
+		windowStart = *req.WindowStart
+	}
+
+	reschedule := &domain.RecoveryReschedule{
+		DueAt:       req.DueAt,
+		WindowStart: windowStart,
+		WindowEnd:   req.WindowEnd,
+		AlignReason: "mobile_reschedule",
+	}
+
+	id, isReplay, err := h.writer.ReopenDeferredObligationByIdempotencyKey(r.Context(), tenantID(r), idempotencyKey, time.Now().UTC(), reschedule)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+
+	httpresponse.WriteJSON(w, http.StatusOK, rescheduleResponse{
+		ObligationID:    id,
+		IdempotentReplay: isReplay,
+	})
 }
 
 func traceID(r *http.Request) string {

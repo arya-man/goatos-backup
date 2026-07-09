@@ -11,7 +11,15 @@ import (
 type fakeRepo struct {
 	rows    []domain.ExecutionProjection
 	opsRows []domain.OperationsRow
+	roster  []domain.ScanRosterRow
 	err     error
+}
+
+func (r fakeRepo) ScanRoster(_ context.Context, _ domain.ScanRosterQuery) ([]domain.ScanRosterRow, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.roster, nil
 }
 
 func (r fakeRepo) VaccinationOperations(_ context.Context, _ domain.OperationsQuery) ([]domain.OperationsRow, error) {

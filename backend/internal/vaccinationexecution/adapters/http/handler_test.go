@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	obligationdomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
@@ -19,6 +20,10 @@ type fakeReader struct {
 	last    domain.ExecutionQuery
 	ops     domain.OperationsResponse
 	lastOps domain.OperationsQuery
+	roster  []domain.ScanRosterRow
+}
+
+type fakeWriter struct {
 }
 
 func (f *fakeReader) VaccinationOperations(_ context.Context, q domain.OperationsQuery) (domain.OperationsResponse, error) {
@@ -36,10 +41,19 @@ func (f *fakeReader) ShedDrilldown(_ context.Context, q domain.ExecutionQuery) (
 	return f.detail, f.found, nil
 }
 
+func (f *fakeReader) ScanRoster(_ context.Context, q domain.ScanRosterQuery) ([]domain.ScanRosterRow, error) {
+	return f.roster, nil
+}
+
+func (w *fakeWriter) ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obligationdomain.RecoveryReschedule) (string, bool, error) {
+	return "obligation-id", false, nil
+}
+
 func TestListVaccinationExecutionParsesQueryAndResponds(t *testing.T) {
 	reader := &fakeReader{rows: []domain.ExecutionRow{sampleRow()}}
+	writer := &fakeWriter{}
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(reader))
+	Register(mux, NewHandler(reader, writer))
 
 	req := httptest.NewRequest(http.MethodGet, "/vaccination/execution?park_id=30000000-0000-4000-8000-000000000001&work_state=missed&due_before=2026-07-01T00:00:00Z&limit=9000", nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
@@ -72,7 +86,7 @@ func TestListVaccinationExecutionParsesQueryAndResponds(t *testing.T) {
 
 func TestListVaccinationExecutionRejectsInvalidQuery(t *testing.T) {
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(&fakeReader{}))
+	Register(mux, NewHandler(&fakeReader{}, &fakeWriter{}))
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution?work_state=not_a_state", nil))
@@ -96,7 +110,7 @@ func TestListVaccinationExecutionRejectsInvalidQuery(t *testing.T) {
 func TestExecutionParsesAsOf(t *testing.T) {
 	reader := &fakeReader{rows: []domain.ExecutionRow{sampleRow()}}
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(reader))
+	Register(mux, NewHandler(reader, &fakeWriter{}))
 
 	// Valid as_of flows into the query (so the top-bar date actually scopes execution/shed reads).
 	req := httptest.NewRequest(http.MethodGet, "/vaccination/execution?as_of=2026-06-24T12:00:00Z", nil)
@@ -121,7 +135,7 @@ func TestExecutionParsesAsOf(t *testing.T) {
 
 func TestGetShedDrilldownValidatesPathAndNotFound(t *testing.T) {
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(&fakeReader{}))
+	Register(mux, NewHandler(&fakeReader{}, &fakeWriter{}))
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution/sheds/not-a-uuid", nil))
@@ -151,7 +165,7 @@ func TestGetShedDrilldownReturnsDetail(t *testing.T) {
 		found: true,
 	}
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(reader))
+	Register(mux, NewHandler(reader, &fakeWriter{}))
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001?limit=10", nil))

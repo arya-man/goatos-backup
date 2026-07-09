@@ -454,3 +454,9 @@ func nextAction(p domain.ExecutionProjection, workState domain.WorkState) string
 		return "Monitor scheduled drive"
 	}
 }
+
+// ScanRoster returns per-animal vaccination obligations for a shed with RFID tags and vaccine labels.
+// Used by the mobile scan screen to match keyboard-wedge tag captures.
+func (s *Service) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) ([]domain.ScanRosterRow, error) {
+	return s.repo.ScanRoster(ctx, q)
+}

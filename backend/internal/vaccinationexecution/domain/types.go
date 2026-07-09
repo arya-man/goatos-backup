@@ -227,6 +227,22 @@ type OperationsQuery struct {
 	Limit     int
 }
 
+// ScanRosterRow represents a single per-animal vaccination obligation for mobile scan screen.
+// primaryTag and secondaryTag are RFID identifiers; vaccineLabel is the vaccine name and schedule position.
+type ScanRosterRow struct {
+	PrimaryTag    string `json:"primaryTag"`
+	SecondaryTag  *string `json:"secondaryTag,omitempty"`
+	VaccineLabel  string `json:"vaccineLabel"`
+	Status        string `json:"status"`
+	ObligationID  string `json:"obligationId"`
+}
+
+type ScanRosterQuery struct {
+	TenantID string
+	ShedID   string
+	Limit    int
+}
+
 type ExecutionProjection struct {
 	ParkID               string
 	ParkName             string

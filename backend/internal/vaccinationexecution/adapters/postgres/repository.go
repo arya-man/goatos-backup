@@ -791,3 +791,89 @@ GROUP BY effective.park_uuid, park.name, effective.shed_uuid, shed.name, effecti
 ORDER BY park.name ASC, shed.name ASC, effective.stage ASC, effective.protocol_name ASC
 LIMIT $5;
 `
+
+// ScanRoster returns per-animal vaccination obligations scoped by shed, with RFID tags and vaccine labels.
+// Used by the mobile scan screen to match keyboard-wedge tag captures against due animals.
+func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) ([]domain.ScanRosterRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 500
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	rows, err := r.pool.Query(ctx, scanRosterSQL, q.TenantID, q.ShedID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: scan roster: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.ScanRosterRow{}
+	for rows.Next() {
+		var row domain.ScanRosterRow
+		var secondaryTag pgtype.Text
+		if err := rows.Scan(
+			&row.PrimaryTag,
+			&secondaryTag,
+			&row.VaccineLabel,
+			&row.Status,
+			&row.ObligationID,
+		); err != nil {
+			return nil, fmt.Errorf("vaccination execution: scan roster scan: %w", err)
+		}
+		row.SecondaryTag = textPtr(secondaryTag)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: scan roster iterate: %w", err)
+	}
+	return out, nil
+}
+
+const scanRosterSQL = `
+SELECT
+  COALESCE(aid1.identifier_value, '') AS primary_tag,
+  aid2.identifier_value AS secondary_tag,
+  CONCAT(pr.name, ' · ', pr.dose_code) AS vaccine_label,
+  CASE
+    WHEN oi.status = 'due' OR (oi.due_at < now() AND oi.status = 'scheduled') THEN 'due'
+    WHEN oi.status = 'in_progress' THEN 'in_progress'
+    WHEN oi.status = 'completed' THEN 'completed'
+    WHEN oi.status IN ('deferred', 'missed', 'waived') THEN 'deferred'
+    ELSE 'pending'
+  END AS status,
+  oi.obligation_id::text
+FROM obligation_instances oi
+JOIN protocol_versions pv
+  ON pv.tenant_id = oi.tenant_id
+ AND pv.protocol_version_id = oi.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+ AND pd.category = 'vaccination'
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+JOIN goats g
+  ON g.tenant_id = oi.tenant_id
+ AND g.goat_id = oi.target_id
+ AND oi.target_type = 'goat'
+ AND g.merged_into_goat_id IS NULL
+ AND g.lifecycle_status = 'alive'
+LEFT JOIN goat_identifiers aid1
+  ON aid1.tenant_id = g.tenant_id
+ AND aid1.goat_id = g.goat_id
+ AND aid1.identifier_type = 'animal_identifier_1'
+ AND aid1.status = 'active'
+LEFT JOIN goat_identifiers aid2
+  ON aid2.tenant_id = g.tenant_id
+ AND aid2.goat_id = g.goat_id
+ AND aid2.identifier_type = 'animal_identifier_2'
+ AND aid2.status = 'active'
+WHERE oi.tenant_id = $1::uuid
+  AND g.shed_id = $2::uuid
+  AND oi.status NOT IN ('waived', 'canceled', 'superseded')
+ORDER BY g.goat_id ASC
+LIMIT $3;
+`

@@ -632,9 +632,28 @@ var leadershipGrantRoles = map[string]bool{
 // leadership does not own the pc.vaccination module the operator nav is
 // built from.
 var leadershipNavigation = []domain.BootstrapNavigationItem{
-	{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 	{Key: "leadership", Label: "Overview", Href: "/leadership"},
+	{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 	{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+}
+
+// operatorNavigation is the fixed backend-owned mobile nav for a field operator
+// who owns the vaccination module: Drives (the shed execution flow) first, then
+// Calendar, then Alerts. The client adds "You" locally and lands on Calendar.
+// There is no Overview/Home for operators — they execute, they don't oversee.
+var operatorNavigation = []domain.BootstrapNavigationItem{
+	{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+	{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+	{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+}
+
+func ownsModule(mods []permissions.OwnedModule, module string) bool {
+	for _, m := range mods {
+		if m.Module == module {
+			return true
+		}
+	}
+	return false
 }
 
 // isLeadershipPrincipal reports whether any active grant carries a
@@ -657,6 +676,11 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 func visibleNavigationFor(grants []domain.GrantSummary, mods []permissions.OwnedModule) []domain.BootstrapNavigationItem {
 	if isLeadershipPrincipal(grants) {
 		return leadershipNavigation
+	}
+	// A vaccination operator gets the fixed operator nav (Drives · Calendar ·
+	// Alerts); other principals fall back to the module-driven list.
+	if ownsModule(mods, "pc.vaccination") {
+		return operatorNavigation
 	}
 	return navigationForModules(mods)
 }
