@@ -4,6 +4,7 @@ import sg.mesha.goatos.core.datastore.DeviceStore
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.BootstrapDto
+import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.network.RegisterDeviceRequestDto
 import sg.mesha.goatos.core.network.toNavState
 
@@ -34,6 +35,12 @@ class DefaultBootstrapRepository(
         } catch (t: Throwable) {
             cache?.load()?.toNavState() ?: throw t
         }
+
+    override suspend fun operatorProfile(): BootstrapOperatorProfileDto? =
+        (
+            cache?.load()
+                ?: runCatching { api.bootstrap(deviceStore?.deviceId()).also { cache?.save(it) } }.getOrNull()
+        )?.operatorProfile
 
     /** Remember a known device id, or register this install when the backend needs it. */
     private suspend fun reconcileDevice(dto: BootstrapDto) {
