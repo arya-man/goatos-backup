@@ -7,7 +7,7 @@ android {
     namespace = "sg.mesha.goatos.core.network"
     compileSdk = 36
     defaultConfig {
-        minSdk = 31
+        minSdk = 29
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

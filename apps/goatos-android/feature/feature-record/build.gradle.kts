@@ -7,7 +7,7 @@ android {
     namespace = "sg.mesha.goatos.feature.record"
     compileSdk = 36
     defaultConfig {
-        minSdk = 31
+        minSdk = 29
     }
     buildFeatures {
         compose = true

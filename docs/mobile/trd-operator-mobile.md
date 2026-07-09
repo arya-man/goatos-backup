@@ -29,12 +29,13 @@ AGP / Gradle        AGP 9.2.x / Gradle 9.6.1, Gradle version catalog (libs.versi
 Jetpack Compose     BOM 2026.06.01 (androidx.compose:compose-bom) + Material 3
 compileSdk          36   (Android 16)
 targetSdk           36
-minSdk              31   (Android 12 — locked)
+minSdk              29   (Android 10 — locked)
 JDK                 17   (toolchain; 17+)
 ```
 
-**minSdk = 31 is locked** (maintainer decision, 2026-07): Android 12+ only.
-Procurement/support must ensure operator/leadership devices are Android 12+.
+**minSdk = 29 is locked** (maintainer decision, 2026-07-09 — widened from the
+earlier 31): Android 10+ only. Procurement/support must ensure operator/leadership
+devices are Android 10+.
 compileSdk/targetSdk = 36 is the latest stable (Android 16); bump only when a newer
 stable ships and CI is green.
 

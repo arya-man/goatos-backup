@@ -74,7 +74,7 @@ android app    : SKELETON (§13 step 3) — apps/goatos-android/ scaffolded &
                  Firebase (gated). See apps/goatos-android/README.md + MODULE-MAP.md
 app id         : sg.mesha.goatos (prod) · .dev · .stg — env-only flavors, roles
                  are runtime from /app/bootstrap (see app-id + flavors ADR)
-sdk / toolchain: minSdk 31 (Android 12 — locked) · compileSdk/targetSdk 36
+sdk / toolchain: minSdk 29 (Android 10 — locked) · compileSdk/targetSdk 36
                  (Android 16) · JDK 17
 versions       : Kotlin 2.4.0 · AGP 9.2 / Gradle 9.6.1 · Compose BOM 2026.06.01 ·
                  Room 2.8 · Coroutines 1.11 · Hilt 2.60.1 · WorkManager 2.11.2 ·

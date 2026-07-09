@@ -39,7 +39,7 @@ cd apps/goatos-android
 | Gradle | 9.6.1 (wrapper committed) |
 | AGP | 9.2.0 — **built-in Kotlin** (no `org.jetbrains.kotlin.android` plugin) |
 | Kotlin | 2.4.0 (compose + jvm plugins); serialization via AGP-managed KGP |
-| compileSdk / minSdk / targetSdk | 36 / 31 / 36 (minSdk 31 locked) |
+| compileSdk / minSdk / targetSdk | 36 / 29 / 36 (minSdk 29 = Android 10) |
 | Compose | BOM 2026.06.01 |
 
 **Version note:** the TRD's `lifecycle 2.11.0` / `activity 1.13.0` baselines require
