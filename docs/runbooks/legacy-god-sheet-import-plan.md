@@ -888,12 +888,24 @@ until about `01:00 IST`. The first full sync should therefore run after that
 window, with later pre-audit refreshes catching late corrections and same-date
 row drift.
 
+During cleanup and demo preparation, run frequent validation. The `05:30` job is
+the complete daily fill. Hourly/daytime jobs are lighter refreshes that detect
+changed rows, source freshness, drift, and issue status without treating the
+source day as newly closed.
+
 | Time | Job | Purpose |
 | --- | --- | --- |
-| 05:30 | `legacy-god-sheet-sync-full` | Pull previous business day's complete source snapshots after sheet automations settle. |
-| 11:30 | `legacy-god-sheet-pre-audit-check` | Refresh validation before the noon dashboard audit. |
-| 17:30 | `legacy-god-sheet-pre-evening-check` | Refresh validation before the 18:00 dashboard audit. |
+| 05:30 | `legacy-god-sheet-sync-full` | Full daily fill. Pull previous business day's complete source snapshots after night updates and sheet automations settle. |
+| 06:00-23:30, every 60 minutes | `legacy-god-sheet-validate-hourly` | Light validation refresh. Re-read source watermarks/hashes, refresh changed source slices, recompute RED/AMBER/GREEN, and catch late source corrections or same-date row drift. |
+| 11:30 | `legacy-god-sheet-pre-audit-check` | Forced validation before the noon dashboard audit; fail loudly if source access, drift, or P1 import blockers changed. |
+| 17:30 | `legacy-god-sheet-pre-evening-check` | Forced validation before the 18:00 dashboard audit; catch same-day fixes and prevent stale Slack reporting. |
+| Event-triggered, debounced 5-10 minutes | `legacy-god-sheet-source-change-refresh` | Optional trigger from Slack form/App Script/Sheet write events. Refresh only affected source families, then recompute dependent validation and issues. |
 | Manual | `legacy-god-sheet-sync-on-demand` | Re-run after ground/source fixes or before import preview. |
+
+Frequent validation jobs may update the god sheet's snapshots, normalized rows,
+status columns, and `Issue_Queue`. They must not edit legacy source sheets, and
+they must not commit data into Goat OS. Goat OS import remains a separate
+approved preview-and-commit flow for selected GREEN batches.
 
 Each run must:
 
