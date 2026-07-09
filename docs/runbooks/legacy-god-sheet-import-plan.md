@@ -53,6 +53,9 @@ on:
 
 Future implementation must add an explicit Drive/Sheets inventory step using a
 service account or OAuth credential with Drive and Sheets read scopes.
+It must also capture Apps Script and other loader lineage for native BigQuery
+tables, because many `*_clean` and `*_dev` tables do not expose their upstream
+spreadsheet through BigQuery external-table metadata.
 
 ## Current Dashboard Snapshot
 
@@ -86,16 +89,27 @@ numbers and same-row adult/kid breakdowns. The raw
 canonical without reconciliation. The god sheet must store both the canonical
 chosen value and source evidence.
 
+Dashboard API and BigQuery reads can also differ by timestamp, rounding, or
+pipeline freshness. The workbook must store the observed value, source
+(`api`, `bq`, or `sheet`), query/run timestamp, and the selected canonical value
+instead of overwriting one source with another.
+
 Other verified audit values:
 
-- Births total from `goatsDB.mother_kid_facts`: `1006`
+- Births total from `goatsDB.mother_kid_facts` where `is_birth = 1`: `1006`
 - Sales animals from `salesDB.salesDB_clean`: `544`
 - Sales value from `salesDB.salesDB_clean`: `7072579`
 - Mortality total from `ceo_dashboard.mortality_total_dev`: `310`
 - Procurement purchase total from `procurement_farm.procurement_dB_clean`:
   `1670`
-- GOATS DB purchase distinct animals from `goatsDB.goats_db_clean`: `1822`
-- Procurement delta: `152`
+- GOATS DB purchase identity counts from `goatsDB.goats_db_clean`:
+  - distinct `farm_goat_id`: `1822`
+  - distinct global `goat_id`: `1738`
+  - distinct `inp_goat_id`: `1617`
+  - audit coalesced/farm-scoped definition: `1822`
+- Procurement headline delta depends on chosen identity grain:
+  - `1822 - 1670 = 152` at farm-scoped/coalesced grain
+  - `1738 - 1670 = 68` at global `goat_id` grain
 - Fattening vs shifting source mismatch:
   - CBE K2: fattening source `52`, current-stage source `57`
   - CBE K3: fattening source `10`, current-stage source `0`
@@ -159,6 +173,7 @@ below, plus owner, grain, extractor, freshness SLA, and last successful sync.
 | `scripts/ceo-dashboard-audit.mjs` | Audit run | Posts scheduled Slack reports to `#dashboard-audit-alerts`. Audit runner is read-only. |
 | `https://dashboard--goatos-sheets.us-central1.hosted.app` | Dashboard API | Live legacy dashboard API host. |
 | `goatos-sheets` | BigQuery project | Legacy project under `vgoats.com`; read-only for migration planning. |
+| Apps Script/native-table loaders | Sheet-to-BigQuery lineage | Required for native `*_clean` and `*_dev` tables whose upstream sheets are invisible to BigQuery external metadata. |
 
 ### Key Google Sheets And BigQuery Tables
 
@@ -203,6 +218,21 @@ below, plus owner, grain, extractor, freshness SLA, and last successful sync.
 | Holding farm details | https://docs.google.com/spreadsheets/d/1dygPv9l0CLGIlauWcuH38SCNhtzh2tHo8Gu3CI-XP_w/edit?gid=212783005#gid=212783005 |
 | Mortality total | `ceo_dashboard.mortality_total_dev` |
 | Mortality monthly | `ceo_dashboard.monthly_mortality_rate` |
+| Breeding DB sheet | https://docs.google.com/spreadsheets/d/1h04WpLExJBdZ-J-H2YLGXyHnlWSdjtldiaB6n3x3rYg/edit?gid=0#gid=0 |
+| Breeding DB external table | `breedingDB.breedingDB_external_table` |
+| Delivery/Birth DB sheet | https://docs.google.com/spreadsheets/d/1bYNW8c6BMb6wgBXEIHkWO57nYRTkYc4mnPkDE14S2Yw/edit?gid=32106927#gid=32106927 |
+| Delivery/Birth DB table | `deliveryDB.birthDB_unclean` |
+| Farmer network sheet | https://docs.google.com/spreadsheets/d/16bEJqIVZ4gFGSPFCPvTud8Z0dZEa8Wur5tUM0JNwJaM/edit?gid=0#gid=0 |
+| Farmer network table | `farmersDB.farmer_crops_db` |
+| Milk consumption sheet | https://docs.google.com/spreadsheets/d/1qJRQK2DDy2C4y359CHVBh1OhWBk0K7FJMMVvXCUqr0A/edit?gid=1263357772#gid=1263357772 |
+| Milk consumption table | `ceo_dashboard.milk_consumption_db` |
+| Milk feeding summary sheet | https://docs.google.com/spreadsheets/d/1qJRQK2DDy2C4y359CHVBh1OhWBk0K7FJMMVvXCUqr0A/edit?gid=1556648101#gid=1556648101 |
+| Milk feeding summary table | `ceo_dashboard.milk_feeding_summary` |
+| Alternate milk/lactation source sheet | https://docs.google.com/spreadsheets/d/1J3WWJbuFp3PPpj-UzB4zmzYA7g7G0-KvMonx9-cE9FE/edit?gid=0#gid=0 |
+| Alternate milk/lactation source table | `ceo_dashboard.milk_consumption_external_table` |
+| Dashboard users/RBAC sheet | https://docs.google.com/spreadsheets/d/13TtoRv0pKYtatsuc3-YDZHcTdWALekBd-e-WMblrniY/edit |
+| Dashboard users/RBAC table | `ceo_dashboard.dashboard_users` |
+| History automation dataset | `historyAutomation` |
 
 ### Known Workbook Tabs To Verify With Drive Scope
 
@@ -263,6 +293,21 @@ shared source workbooks. Known tabs and tab families to include:
 - Holding farm:
   - holding details rows
   - procurement holding rows
+- Breeding DB:
+  - breeding event rows
+  - mating medicine rows
+  - sponge medicine rows
+  - kid lifecycle enrichment rows
+- Delivery/Birth DB:
+  - delivery rows
+  - birth-event source rows
+- Milk and lactation:
+  - milk consumption rows
+  - milk feeding summary rows
+  - milking goat/lactation rows
+- Dashboard users/RBAC:
+  - dashboard users
+  - owner, role, and escalation mapping rows
 
 If a tab is missing, renamed, protected, or stale, the sync must create a RED
 `source_schema_or_access` issue before any import preview runs.
@@ -284,6 +329,9 @@ At minimum:
 - `weights`
 - `holding_farm`
 - `breedingDB`
+- `deliveryDB`
+- `farmersDB`
+- `historyAutomation`
 - `crop_season`
 
 ## Goat OS Import Contract
@@ -387,7 +435,30 @@ Columns:
 `animal_identifier_2`, `goat_os_animal_id`, `status`, `valid_from`, `valid_to`,
 `source_system`, `source_record_id`, `reason`, `approved_by`, `review_status`.
 
-### 8. `Location_Profile`
+### 8. `Identity_Grain_Audit`
+
+This tab prevents aggregate reconciliation from hiding identifier-grain
+problems. It records every major source's available identifier columns and the
+canonical animal-grain decision before a mismatch is treated as data truth.
+
+Initial rows must include `goatsDB.goats_db_clean` purchase identity counts:
+
+- distinct `farm_goat_id`: `1822`
+- distinct global `goat_id`: `1738`
+- distinct `inp_goat_id`: `1617`
+- audit coalesced/farm-scoped definition: `1822`
+
+Columns:
+
+`source_id`, `event_type`, `id_column`, `distinct_count`,
+`coalesced_definition`, `canonical_candidate`, `delta_vs_procurement`,
+`example_duplicate_group_ids`, `decision_owner`, `decision_status`,
+`decision_note`.
+
+Goat OS import must choose the canonical identifier strategy before treating
+procurement purchase deltas as row-level import blockers.
+
+### 9. `Location_Profile`
 
 Canonical location mapping for farms, parks, sheds, shed tags, capacity, and
 aliases.
@@ -399,7 +470,7 @@ Columns:
 `is_holding`, `is_quarantine`, `is_icu`, `usable_for_vaccination`,
 `source_link`, `verification_status`.
 
-### 9. `Current_Location_Status`
+### 10. `Current_Location_Status`
 
 Animal-level current location and current status resolution.
 
@@ -410,7 +481,7 @@ Columns:
 `goats_db_status`, `shiftings_status`, `procurement_status`,
 `resolved_status`, `resolution_reason`, `verification_status`.
 
-### 10. `Birth_Events`
+### 11. `Birth_Events`
 
 Columns:
 
@@ -418,7 +489,20 @@ Columns:
 `shed`, `breed`, `kid_status`, `source_system`, `source_record_id`,
 `source_link`, `evidence_refs`, `verification_status`.
 
-### 11. `Death_Events`
+### 12. `Breeding_Delivery_History`
+
+Tracks breeding, mating, delivery, and related medicine/source evidence that may
+affect birth provenance, dam/lactation status, and future Goat OS reproductive
+history.
+
+Columns:
+
+`event_id`, `animal_identifier_1`, `animal_identifier_2`, `event_type`,
+`event_date`, `farm`, `shed`, `mate_or_sire_identifier`, `delivery_outcome`,
+`medicine_or_protocol`, `source_system`, `source_record_id`, `source_link`,
+`verification_status`.
+
+### 13. `Death_Events`
 
 Columns:
 
@@ -426,7 +510,7 @@ Columns:
 `cause`, `farm`, `source_system`, `source_record_id`, `source_link`,
 `verified_by`, `verification_status`.
 
-### 12. `Sale_Events`
+### 14. `Sale_Events`
 
 Columns:
 
@@ -434,7 +518,7 @@ Columns:
 `buyer_or_vendor`, `sale_amount`, `sale_weight_kg`, `sales_id`,
 `source_record_id`, `source_link`, `verification_status`.
 
-### 13. `Procurement_Source_Entry`
+### 15. `Procurement_Source_Entry`
 
 One row per procurement source/load candidate.
 
@@ -446,18 +530,24 @@ Columns:
 `current_state`, `ownership_state`, `health_state`, `warmup_started_at`,
 `warmup_ended_at`, `holding_location`, `proof_refs`, `verification_status`.
 
-### 14. `Procurement_Load_Reconciliation`
+### 16. `Procurement_Load_Reconciliation`
 
-Used to close the current `1670` vs `1822` mismatch.
+Used to close the current procurement mismatch. Do not assume the headline
+`1670` vs `1822` is a clean animal-level delta until `Identity_Grain_Audit` and
+`Mapping_Crosswalks` decide the canonical grain.
 
 Columns:
 
-`load_id`, `procurement_db_count`, `goats_db_purchase_distinct_count`,
-`loadwise_status_rows`, `loadwise_summary_accounted_count`, `delta`,
+`load_id`, `procurement_db_count`,
+`goats_db_purchase_distinct_farm_goat_id`,
+`goats_db_purchase_distinct_goat_id`,
+`goats_db_purchase_distinct_inp_goat_id`,
+`goats_db_purchase_distinct_coalesced`, `loadwise_status_rows`,
+`loadwise_summary_accounted_count`, `delta_by_canonical_id`,
 `unmatched_procurement_ids`, `unmatched_goats_db_ids`, `owner`, `next_action`,
 `verification_status`.
 
-### 15. `Movement_Stage_History`
+### 17. `Movement_Stage_History`
 
 Columns:
 
@@ -466,7 +556,7 @@ Columns:
 `stage_entry_date`, `days_in_stage`, `source_system`, `source_record_id`,
 `source_link`, `verification_status`.
 
-### 16. `Fattening_Shifting_Reconciliation`
+### 18. `Fattening_Shifting_Reconciliation`
 
 Columns:
 
@@ -474,7 +564,7 @@ Columns:
 `delta`, `candidate_animal_ids`, `candidate_load_ids`, `source_decision`,
 `owner`, `next_action`, `verification_status`.
 
-### 17. `Weight_History`
+### 19. `Weight_History`
 
 Columns:
 
@@ -482,7 +572,7 @@ Columns:
 `weight_kg`, `farm`, `shed`, `stage`, `source_system`, `source_record_id`,
 `source_link`, `verification_status`.
 
-### 18. `Health_Treatment_History`
+### 20. `Health_Treatment_History`
 
 Columns:
 
@@ -490,7 +580,19 @@ Columns:
 `diagnosis`, `treatment`, `medicine`, `dose`, `follow_up_date`, `vet_or_staff`,
 `source_system`, `source_record_id`, `source_link`, `verification_status`.
 
-### 19. `Vaccination_History`
+### 21. `Milk_Lactation_History`
+
+Tracks milk consumption, feeding summaries, milking-mother rows, and lactation
+signals needed for Goat OS reproductive and nutrition history.
+
+Columns:
+
+`event_id`, `animal_identifier_1`, `animal_identifier_2`, `event_type`,
+`event_date`, `farm`, `shed`, `lactation_status`, `milk_quantity_l`,
+`feeding_quantity_l`, `kid_identifier`, `source_system`, `source_record_id`,
+`source_link`, `verification_status`.
+
+### 22. `Vaccination_History`
 
 One row per actual vaccination evidence item. Do not use one column per vaccine.
 
@@ -514,7 +616,7 @@ Trust classes:
 
 Only trusted, reviewed evidence may suppress Goat OS due work.
 
-### 20. `Vaccination_Due_View`
+### 23. `Vaccination_Due_View`
 
 This is the demo-critical view.
 
@@ -526,7 +628,7 @@ Columns:
 `next_due_date`, `latest_safe_date`, `due_status`, `due_reason`,
 `blocking_issue_id`, `verification_status`.
 
-### 21. `Counts_Snapshots`
+### 24. `Counts_Snapshots`
 
 Columns:
 
@@ -534,14 +636,14 @@ Columns:
 `age_class`, `source_count`, `canonical_count`, `delta`, `source_link`,
 `verification_status`.
 
-### 22. `Feed_Sales_Reconciliation`
+### 25. `Feed_Sales_Reconciliation`
 
 Columns:
 
 `month`, `farm`, `sales_animals`, `sales_value`, `feed_spend`, `source_sales`,
 `source_feed`, `delta`, `verification_status`.
 
-### 23. `Validation_Rules`
+### 26. `Validation_Rules`
 
 Columns:
 
@@ -549,7 +651,7 @@ Columns:
 `description`, `check_type`, `sql_or_formula_ref`, `expected_result`,
 `failure_message`, `last_run_id`, `last_status`.
 
-### 24. `Issue_Queue`
+### 27. `Issue_Queue`
 
 The real cleanup control center. One row per issue.
 
@@ -560,7 +662,7 @@ Columns:
 `evidence`, `owner`, `next_action`, `sla_date`, `status`, `resolved_by`,
 `resolved_at`, `resolution_note`.
 
-### 25. `Import_Batches`
+### 28. `Import_Batches`
 
 Columns:
 
@@ -634,7 +736,7 @@ These should be preloaded into `Issue_Queue` or `Audit_Findings`.
 | --- | --- | --- | --- |
 | Counting DB kid-stage rows need age-field source verification | P2 | ground/source team | Counting DB / `ceo_dashboard.counting_db_with_holding_dev`; audit reported 34 kid/fattening-stage goats not marked `age=Kid` |
 | Customized age-only risk signature needs UI regression coverage | P2 | data/dev | Strict Core + Adults + Female + Non-Pregnant source `0`; age-only risk signature `1622`; stage-aware would be `1656`; Core adult Non-Pregnant all gender `794` |
-| Procurement DB vs farm procured animal count mismatch | P1 | data/dev + ground/source team | `procurement_farm.procurement_dB_clean` purchase total `1670`; `goatsDB.goats_db_clean` purchase distinct animals `1822`; delta `152` |
+| Procurement DB vs farm procured animal count mismatch | P1 | data/dev + ground/source team | `procurement_farm.procurement_dB_clean` purchase total `1670`; `goatsDB.goats_db_clean` purchase distinct `farm_goat_id`/audit-coalesced count `1822` gives headline delta `152`, while distinct global `goat_id` count `1738` gives delta `68`; resolve identity grain in `Identity_Grain_Audit` before treating rows as import blockers |
 | Procurement loadwise status rollup mismatch | P2 | data/dev + ground/source team | `procurement_farm.load_wise_procurement_with_status` vs `procurement_farm.loadwise_summary`; Goat/Sheep/Unknown status rows do not reconcile |
 | Fattening vs shiftings stage-source reconciliation | P2 | data/dev + ground/source team | CBE K2 `52` vs `57`; CBE K3 `10` vs `0` |
 
@@ -671,14 +773,17 @@ Each run must:
 2. Read the `Source_Catalog`.
 3. Pull BigQuery rows by explicit business date and source watermark.
 4. Pull Google Sheets tabs by spreadsheet id, gid, and header hash.
-5. Write raw snapshots with `run_id`, `source_row_id`, and `source_row_hash`.
-6. Normalize records into staging/domain tabs.
-7. Recompute `Mapping_Crosswalks`.
-8. Recompute all `Validation_Rules`.
-9. Update `Issue_Queue`.
-10. Update `Animal_Master` and domain tabs.
-11. Update `Sync_Runs`.
-12. Alert if sync failed, source schema changed, source is stale, or new RED
+5. Pull Apps Script/native-table loader lineage so native BigQuery tables have
+   sheet/job provenance.
+6. Write raw snapshots with `run_id`, `source_row_id`, and `source_row_hash`.
+7. Normalize records into staging/domain tabs.
+8. Recompute `Identity_Grain_Audit`.
+9. Recompute `Mapping_Crosswalks`.
+10. Recompute all `Validation_Rules`.
+11. Update `Issue_Queue`.
+12. Update `Animal_Master` and domain tabs.
+13. Update `Sync_Runs`.
+14. Alert if sync failed, source schema changed, source is stale, or new RED
     blockers appear.
 
 ## Import Policy
@@ -703,10 +808,11 @@ For the demo by 2026-07-11, prioritize:
 
 1. `Animal_Master` for active animals.
 2. `Mapping_Crosswalks` for identifiers.
-3. `Location_Profile` for farm/park/shed/stage.
-4. `Vaccination_History`.
-5. `Vaccination_Due_View`.
-6. `Issue_Queue`.
+3. `Identity_Grain_Audit` for procurement/GOATS DB identity-grain decisions.
+4. `Location_Profile` for farm/park/shed/stage.
+5. `Vaccination_History`.
+6. `Vaccination_Due_View`.
+7. `Issue_Queue`.
 
 Do not block the vaccination demo on closing every procurement/fattening
 aggregate issue. Instead:
@@ -736,6 +842,8 @@ Minimum import gate:
 
 - Add every known sheet/table to `Source_Catalog`.
 - Add Drive/Sheets read credential with explicit scopes.
+- Capture Apps Script and native BigQuery loader lineage for `*_clean` and
+  `*_dev` tables.
 - Compute schema/header hashes.
 - Confirm source owners and freshness SLA.
 
