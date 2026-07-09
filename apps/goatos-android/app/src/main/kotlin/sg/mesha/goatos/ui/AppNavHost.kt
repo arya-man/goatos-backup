@@ -11,9 +11,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.net.Uri
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import sg.mesha.goatos.feature.calendar.CalendarEvent
 import sg.mesha.goatos.feature.calendar.CalendarScreen
 import sg.mesha.goatos.feature.leadership.LeadershipEvent
@@ -60,6 +63,45 @@ object Routes {
     const val RFID = "/rfid"
     const val ALERTS = "/alerts"
     const val START = CALENDAR
+
+    /** Optional shed-id arg on the record route so a tapped shed opens ITS record. */
+    const val RECORD_SHED_ARG = "shedId"
+
+    /** Record route for a specific shed (null → generic first-shed record). */
+    fun recordRoute(shedId: String?): String =
+        if (shedId.isNullOrBlank()) RECORD else "$RECORD?$RECORD_SHED_ARG=${Uri.encode(shedId)}"
+
+    /**
+     * Scan (execute) entry for a shed. The shed id is reserved for the per-shed scan
+     * roster (not yet consumed by ScanViewModel, which still seeds a sample roster), so
+     * this currently resolves to the base route.
+     */
+    fun scanRoute(shedId: String?): String = SCAN
+}
+
+/**
+ * Maps a backend calendar deep-link ([CalendarItem.target]/[CalendarHistoryRow.target])
+ * to an app route. A shed-scoped target opens that shed's record; anything else drills
+ * into the vaccination execution list. The row's context is no longer discarded.
+ */
+private fun calendarTargetRoute(target: String?): String {
+    if (target.isNullOrBlank()) return Routes.VACCINATION
+    val shedId = shedIdFromTarget(target)
+    return if (shedId != null) Routes.recordRoute(shedId) else Routes.VACCINATION
+}
+
+/** Extracts a shed id from a backend href, supporting `.../sheds/{id}` and `?shed_id={id}`. */
+private fun shedIdFromTarget(target: String): String? {
+    val marker = "sheds/"
+    val idx = target.indexOf(marker)
+    if (idx >= 0) {
+        val id = target.substring(idx + marker.length).substringBefore('/').substringBefore('?')
+        if (id.isNotBlank()) return id
+    }
+    Regex("[?&]shed_id=([^&]+)").find(target)?.groupValues?.getOrNull(1)?.let {
+        if (it.isNotBlank()) return it
+    }
+    return null
 }
 
 /**
@@ -91,7 +133,12 @@ fun AppNavHost(
                 state = state,
                 onEvent = { event ->
                     when (event) {
-                        is CalendarEvent.TapItem,
+                        is CalendarEvent.TapItem -> {
+                            // Honour the backend-attached drill target instead of always /vaccination.
+                            val target = state.weekItems.firstOrNull { it.id == event.itemId }?.target
+                                ?: state.historyRows.firstOrNull { it.id == event.itemId }?.target
+                            navController.navigate(calendarTargetRoute(target)) { launchSingleTop = true }
+                        }
                         is CalendarEvent.TapDay ->
                             navController.navigate(Routes.VACCINATION) { launchSingleTop = true }
                         else -> vm.onEvent(event)
@@ -100,8 +147,9 @@ fun AppNavHost(
             )
         }
 
-        // Vaccination execution surfaces as the shed-first flow (screens.md). Opening
-        // a shed record drills to the read-only record sheet; refresh stays in the VM.
+        // Vaccination execution surfaces as the shed-first flow (screens.md). Tapping a
+        // shed opens the execute loop (Scan → Submit) — the operator's core task — with
+        // the tapped shed threaded through. Refresh stays in the VM.
         composable(Routes.VACCINATION) {
             val vm: ShedsViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
@@ -110,7 +158,7 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         is ShedsEvent.OpenShedRecord ->
-                            navController.navigate(Routes.RECORD) { launchSingleTop = true }
+                            navController.navigate(Routes.scanRoute(event.shedId)) { launchSingleTop = true }
                         else -> vm.onEvent(event)
                     }
                 },
@@ -216,8 +264,18 @@ fun AppNavHost(
             )
         }
 
-        // Record — read-only; Close pops back.
-        composable(Routes.RECORD) {
+        // Record — read-only; Close pops back. Optional shedId arg selects WHICH shed's
+        // record loads (RecordViewModel reads it from SavedStateHandle).
+        composable(
+            route = "${Routes.RECORD}?${Routes.RECORD_SHED_ARG}={${Routes.RECORD_SHED_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.RECORD_SHED_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
             val vm: RecordViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             RecordScreen(

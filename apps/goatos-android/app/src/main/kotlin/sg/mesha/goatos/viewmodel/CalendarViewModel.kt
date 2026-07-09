@@ -21,22 +21,23 @@ import sg.mesha.goatos.feature.calendar.CalendarSegment
 import sg.mesha.goatos.feature.calendar.CalendarSegmentKind
 import sg.mesha.goatos.feature.calendar.CalendarTone
 import sg.mesha.goatos.feature.calendar.CalendarUiState
+import sg.mesha.goatos.ui.calendarPlaceholder
 import sg.mesha.goatos.ui.sampleCalendarState
 import javax.inject.Inject
 
 /**
- * Calendar screen state holder. Seeds the interim [sampleCalendarState] fixture for an
- * instant first frame, then loads the real PC vaccination calendar via
- * [CalendarRepository.events] and maps it in [toCalendarUiState]. On error/empty the
- * sample is kept so the screen is never blank. Segment switch is purely local; day/item
- * taps are navigation, routed by the nav host.
+ * Calendar screen state holder. Shows a loading placeholder first, then loads the real PC
+ * vaccination calendar via [CalendarRepository.events] and maps it in [toCalendarUiState].
+ * An empty real response shows an honest empty state and a failure shows an honest error
+ * state — a fabricated sample calendar is NEVER shown as if it were live. Segment switch is
+ * purely local; day/item taps are navigation, routed by the nav host.
  */
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
     private val repo: CalendarRepository,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(sampleCalendarState())
+    private val _state = MutableStateFlow(calendarPlaceholder("Loading…"))
     val state: StateFlow<CalendarUiState> = _state.asStateFlow()
 
     init {
@@ -45,8 +46,8 @@ class CalendarViewModel @Inject constructor(
 
     fun load() = viewModelScope.launch {
         runCatching { repo.events() }
-            .onSuccess { dto -> dto.toCalendarUiState()?.let { _state.value = it } }
-            .onFailure { /* keep the sample so the screen is never blank */ }
+            .onSuccess { dto -> _state.value = dto.toCalendarUiState() ?: calendarPlaceholder("No drives scheduled") }
+            .onFailure { _state.value = calendarPlaceholder("Couldn't load the calendar right now.") }
     }
 
     fun onEvent(event: CalendarEvent) {
@@ -85,14 +86,22 @@ class CalendarViewModel @Inject constructor(
             )
         }
         return base.copy(
-            eyebrow = presentation.pageSubtitle.ifBlank { base.eyebrow },
+            // Mock eyebrow is a short module label, NOT the verbose page description —
+            // the backend pageSubtitle is a paragraph and must not be dumped as an eyebrow.
+            eyebrow = "Vaccination",
             title = presentation.pageTitle.ifBlank { base.title },
+            // Segments are app-standard chrome (Week/Month/History); fall back to the
+            // default tabs only. Content lists are NEVER back-filled from the sample —
+            // an empty real response must render as genuinely empty, not fabricated.
             segments = segments.ifEmpty { base.segments },
             selectedSegmentId = presentation.viewTabs.firstOrNull { it.active }?.key
                 ?: segments.firstOrNull()?.id
                 ?: base.selectedSegmentId,
-            weekItems = weekItems.ifEmpty { base.weekItems },
-            historyRows = historyRows.ifEmpty { base.historyRows },
+            weekDays = emptyList(),
+            weekItems = weekItems,
+            weekEmptyLabel = presentation.emptyState.okMessage.ifBlank { "No drives scheduled" },
+            historyRows = historyRows,
+            historyEmptyLabel = presentation.emptyState.okMessage.ifBlank { "No past drives" },
         )
     }
 

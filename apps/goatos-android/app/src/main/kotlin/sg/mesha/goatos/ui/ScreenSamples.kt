@@ -246,3 +246,69 @@ fun sampleRescheduleState(): RescheduleUiState = RescheduleUiState(
     confirmEnabled = false,
     channelsNote = "Team gets a phone call, push, Slack alert and email — 2 days before, and again the morning of.",
 )
+
+// ---------------------------------------------------------------------------
+// Honest load / empty / error placeholders.
+//
+// These carry NO fabricated operational data (no fake rows, counts, coverage, or
+// day-progress). A ViewModel shows a placeholder while loading, on an empty real
+// response, and on failure — so a backend outage or empty data can never masquerade
+// as valid field data. Only stable chrome labels (screen title) survive; every
+// operational field is cleared and the caller-supplied [message] explains the state.
+// ---------------------------------------------------------------------------
+
+fun alertsPlaceholder(message: String): AlertsUiState =
+    sampleAlertsState().copy(rows = emptyList(), emptyLabel = message, markAllLabel = null)
+
+fun calendarPlaceholder(message: String): CalendarUiState =
+    sampleCalendarState().copy(
+        weekDays = emptyList(),
+        weekItems = emptyList(),
+        historyRows = emptyList(),
+        weekEmptyLabel = message,
+        historyEmptyLabel = message,
+    )
+
+fun shedsPlaceholder(message: String): ShedsUiState =
+    sampleShedsState().copy(
+        scopeLabel = "",
+        date = "",
+        window = "",
+        shedCountLabel = "",
+        dueLabel = "",
+        dayProgressLabel = "",
+        dayProgressFraction = 0f,
+        daySummary = "",
+        caption = message,
+        roleNote = null,
+        rows = emptyList(),
+        rosterChanges = emptyList(),
+        kernelInfo = null,
+    )
+
+fun leadershipPlaceholder(message: String): LeadershipUiState {
+    val base = sampleLeadershipState()
+    return base.copy(
+        hero = base.hero.copy(
+            coverageLabel = "Process integrity",
+            coveragePercent = 0,
+            dosesLine = message,
+            dosesTrend = emptyList(),
+            animalsLabel = "",
+            dataGapPill = DataGapPill("", hasGaps = false),
+        ),
+        kpis = emptyList(),
+        todaySheds = emptyList(),
+        backlog = emptyList(),
+        needsDecision = emptyList(),
+        coverageByParkTitle = null,
+        coverageByPark = emptyList(),
+    )
+}
+
+fun overduePlaceholder(message: String): OverdueUiState =
+    sampleOverdueState().copy(
+        title = "Overdue",
+        sectionTitle = message,
+        rows = emptyList(),
+    )

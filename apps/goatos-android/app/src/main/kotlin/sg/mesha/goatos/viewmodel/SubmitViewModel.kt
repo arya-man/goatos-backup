@@ -4,78 +4,170 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.data.TasksRepository
+import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 import sg.mesha.goatos.feature.submit.SubmitEvent
 import sg.mesha.goatos.feature.submit.SubmitUiState
 import sg.mesha.goatos.feature.submit.SyncState
 import sg.mesha.goatos.ui.sampleSubmitState
+import java.util.UUID
 import javax.inject.Inject
 
 /**
- * Shed-record submit state holder. Seeds the interim [sampleSubmitState] fixture and
- * drives the write-path lifecycle locally so the sync banner animates: [SubmitEvent.Submit]
- * advances DRAFT → SYNCING (progress ramp) → ACKED; [SubmitEvent.Retry] resets to DRAFT.
+ * Shed-record submit state holder. Loads the operator's assigned task from
+ * [TasksRepository.tasks] and, on [SubmitEvent.Submit], performs a REAL idempotent
+ * write via [TasksRepository.submit] (POST /app/tasks/{task_id}/submissions). The
+ * banner reflects the actual outcome: SYNCING → ACKED on an accepted submission,
+ * CONFLICT on a server-rejected one, DEAD_LETTER on a network/transport failure.
  *
- * TODO: replace the simulated sync with the Room outbox / sync-engine writes via AppApi.
+ * When no task is assigned to the current principal (e.g. a leadership user), submit
+ * is disabled and the banner says so — the screen NEVER reports a fake success.
+ * [SubmitEvent.Retry] re-attempts the same submission (reusing the idempotency key so
+ * a retry is safe) or reloads the task when there is nothing to submit.
+ *
+ * NOTE: answers/proof payload mapping (form DSL + camera→signed-URL proof upload) is
+ * not wired yet; the submission is sent with empty answers, so backend validation may
+ * reject it — surfaced honestly as CONFLICT rather than a fabricated ACK.
  */
 @HiltViewModel
-class SubmitViewModel @Inject constructor() : ViewModel() {
+class SubmitViewModel @Inject constructor(
+    private val repo: TasksRepository,
+) : ViewModel() {
 
-    // TODO: wire when operator endpoints exist (no scoped operator read for the current user yet).
-    private val _state = MutableStateFlow(sampleSubmitState().copy(syncState = SyncState.DRAFT))
+    private val _state = MutableStateFlow(loadingState())
     val state: StateFlow<SubmitUiState> = _state.asStateFlow()
 
+    private var task: TaskSummaryDto? = null
+    private var idempotencyKey: String? = null
     private var syncJob: Job? = null
+
+    init {
+        load()
+    }
+
+    fun load() = viewModelScope.launch {
+        runCatching { repo.tasks(limit = 1) }
+            .onSuccess { response ->
+                val next = response.items.firstOrNull()
+                if (next == null) {
+                    task = null
+                    idempotencyKey = null
+                    _state.value = blockedState("No task assigned to you to submit.")
+                } else {
+                    task = next
+                    idempotencyKey = UUID.randomUUID().toString()
+                    _state.value = draftState(next)
+                }
+            }
+            .onFailure {
+                task = null
+                idempotencyKey = null
+                _state.value = errorState("Couldn't load your task. Tap retry.")
+            }
+    }
 
     fun onEvent(event: SubmitEvent) {
         when (event) {
-            SubmitEvent.Submit -> startSync()
-            SubmitEvent.Retry -> reset()
+            SubmitEvent.Submit -> submit()
+            SubmitEvent.Retry -> if (task != null) submit() else load()
         }
     }
 
-    private fun startSync() {
+    private fun submit() {
+        val current = task ?: return
+        val key = idempotencyKey ?: UUID.randomUUID().toString().also { idempotencyKey = it }
         syncJob?.cancel()
         syncJob = viewModelScope.launch {
             _state.update {
                 it.copy(
                     syncState = SyncState.SYNCING,
-                    syncLabel = "Syncing shed record…",
-                    syncProgress = 0f,
+                    syncLabel = "Submitting shed record…",
+                    syncProgress = 0.5f,
                     canSubmit = false,
                 )
             }
-            val steps = listOf(0.25f, 0.5f, 0.75f, 1f)
-            for (p in steps) {
-                delay(250)
-                _state.update { it.copy(syncProgress = p) }
-            }
-            delay(200)
-            _state.update {
-                it.copy(
-                    syncState = SyncState.ACKED,
-                    syncLabel = "Synced · record on file",
-                    syncProgress = 1f,
-                    canSubmit = false,
+            runCatching {
+                repo.submit(
+                    taskId = current.taskId,
+                    request = SubmitTaskRequestDto(
+                        sopVersionId = current.sopVersionId,
+                        idempotencyKey = key,
+                    ),
                 )
+            }.onSuccess { response ->
+                val report = response.submission.validationReport
+                if (report.valid) {
+                    _state.update {
+                        it.copy(
+                            syncState = SyncState.ACKED,
+                            syncLabel = "Synced · record on file",
+                            syncProgress = 1f,
+                            canSubmit = false,
+                        )
+                    }
+                } else {
+                    val reason = report.errors.firstOrNull()?.message ?: "Server rejected the submission."
+                    _state.update {
+                        it.copy(
+                            syncState = SyncState.CONFLICT,
+                            syncLabel = reason,
+                            canSubmit = false,
+                        )
+                    }
+                }
+            }.onFailure {
+                _state.update {
+                    it.copy(
+                        syncState = SyncState.DEAD_LETTER,
+                        syncLabel = "Sync failed — tap retry.",
+                        canSubmit = false,
+                    )
+                }
             }
         }
     }
 
-    private fun reset() {
-        syncJob?.cancel()
-        _state.update {
-            it.copy(
-                syncState = SyncState.DRAFT,
-                syncLabel = "Ready to submit",
-                syncProgress = 0f,
-                canSubmit = true,
-            )
-        }
-    }
+    // Interim state builders: reuse the sample only for stable chrome labels (eyebrow/
+    // title). No fabricated vaccine groups — the due-group breakdown needs the form
+    // contract, which isn't wired yet, so groups stay empty until it is.
+    private fun loadingState(): SubmitUiState = sampleSubmitState().copy(
+        groups = emptyList(),
+        syncState = SyncState.DRAFT,
+        syncLabel = "Loading…",
+        canSubmit = false,
+        syncProgress = 0f,
+    )
+
+    private fun draftState(t: TaskSummaryDto): SubmitUiState = sampleSubmitState().copy(
+        shed = t.title.ifBlank { t.sopCode },
+        cohort = t.description,
+        date = t.dueAt.orEmpty(),
+        groups = emptyList(),
+        syncState = SyncState.DRAFT,
+        syncLabel = "Ready to submit",
+        canSubmit = true,
+        syncProgress = 0f,
+    )
+
+    private fun blockedState(message: String): SubmitUiState = sampleSubmitState().copy(
+        groups = emptyList(),
+        syncState = SyncState.DRAFT,
+        syncLabel = message,
+        canSubmit = false,
+        syncProgress = 0f,
+    )
+
+    private fun errorState(message: String): SubmitUiState = sampleSubmitState().copy(
+        groups = emptyList(),
+        syncState = SyncState.DEAD_LETTER,
+        syncLabel = message,
+        canSubmit = false,
+        syncProgress = 0f,
+    )
 }

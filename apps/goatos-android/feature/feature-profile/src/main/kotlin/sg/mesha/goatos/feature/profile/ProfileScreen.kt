@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -25,6 +26,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -113,11 +116,11 @@ private fun eventFor(kind: SettingKind): ProfileEvent = when (kind) {
     SettingKind.SIGN_OUT -> ProfileEvent.SignOut
 }
 
-private fun glyphFor(kind: SettingKind): String = when (kind) {
-    SettingKind.LANGUAGE -> "文"
-    SettingKind.RFID -> "◉"
-    SettingKind.NOTIFICATIONS -> "◈"
-    SettingKind.SIGN_OUT -> "⏻"
+private fun iconFor(kind: SettingKind): ImageVector = when (kind) {
+    SettingKind.LANGUAGE -> MeshaIcons.Globe
+    SettingKind.RFID -> MeshaIcons.Bluetooth
+    SettingKind.NOTIFICATIONS -> MeshaIcons.Bell
+    SettingKind.SIGN_OUT -> MeshaIcons.Logout
 }
 
 @Composable
@@ -235,10 +238,11 @@ private fun SettingRowItem(row: SettingRow, onEvent: (ProfileEvent) -> Unit) {
             .clickable { onEvent(eventFor(row.kind)) }
             .padding(vertical = 11.dp),
     ) {
-        Text(
-            text = glyphFor(row.kind),
-            color = ProfileTokens.Muted,
-            fontSize = 14.sp,
+        Icon(
+            imageVector = iconFor(row.kind),
+            contentDescription = null,
+            tint = ProfileTokens.Muted,
+            modifier = Modifier.size(18.dp),
         )
         Spacer(Modifier.width(9.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -300,7 +304,12 @@ private fun SignOutButton(row: SettingRow, onEvent: (ProfileEvent) -> Unit) {
             .clickable { onEvent(ProfileEvent.SignOut) }
             .padding(15.dp),
     ) {
-        Text(text = glyphFor(SettingKind.SIGN_OUT), color = ProfileTokens.Danger, fontSize = 15.sp)
+        Icon(
+            imageVector = iconFor(SettingKind.SIGN_OUT),
+            contentDescription = null,
+            tint = ProfileTokens.Danger,
+            modifier = Modifier.size(18.dp),
+        )
         Spacer(Modifier.width(9.dp))
         Text(
             text = row.title,

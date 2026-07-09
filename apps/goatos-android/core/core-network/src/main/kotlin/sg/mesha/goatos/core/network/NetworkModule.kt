@@ -17,6 +17,7 @@ import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
+// Device DTOs live in the network package (AppApi.kt); no dto.* import needed.
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
@@ -29,7 +30,16 @@ import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
  */
 interface AppApiService {
     @GET("app/bootstrap")
-    suspend fun bootstrap(): BootstrapDto
+    suspend fun bootstrap(@Query("device_id") deviceId: String?): BootstrapDto
+
+    @POST("app/devices/register")
+    suspend fun registerDevice(@Body request: RegisterDeviceRequestDto): DeviceResponseDto
+
+    @POST("app/devices/{device_id}/heartbeat")
+    suspend fun heartbeatDevice(
+        @Path("device_id") deviceId: String,
+        @Body request: HeartbeatDeviceRequestDto,
+    ): DeviceResponseDto
 
     @GET("vaccination/execution")
     suspend fun listVaccinationExecution(
@@ -99,7 +109,13 @@ interface AppApiService {
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic. */
 class RetrofitAppApi(private val service: AppApiService) : AppApi {
-    override suspend fun bootstrap(): BootstrapDto = service.bootstrap()
+    override suspend fun bootstrap(deviceId: String?): BootstrapDto = service.bootstrap(deviceId)
+
+    override suspend fun registerDevice(request: RegisterDeviceRequestDto): DeviceResponseDto =
+        service.registerDevice(request)
+
+    override suspend fun heartbeatDevice(deviceId: String, request: HeartbeatDeviceRequestDto): DeviceResponseDto =
+        service.heartbeatDevice(deviceId, request)
 
     override suspend fun listVaccinationExecution(
         parkId: String?,

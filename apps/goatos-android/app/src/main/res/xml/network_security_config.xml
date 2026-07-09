@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network security policy for the Goat OS app.
+
+  Cleartext HTTP is blocked everywhere by default (base-config) so the stg/prod
+  HTTPS APIs are never downgraded. The dev flavor talks to the local backend over
+  http://10.0.2.2:8080/ (the Android emulator's alias for the host machine), so
+  cleartext is permitted ONLY for the emulator-host loopback aliases used in local
+  development. Prod never resolves these hosts, so this is safe for all flavors.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

@@ -64,6 +64,7 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 fun LoginScreen(
     onSignIn: (email: String) -> Unit,
     modifier: Modifier = Modifier,
+    errorMessage: String? = null,
 ) {
     var step by remember { mutableStateOf(LoginStep.Email) }
     var email by remember { mutableStateOf("") }
@@ -73,6 +74,7 @@ fun LoginScreen(
         step = step,
         email = email,
         otp = otp,
+        errorMessage = errorMessage,
         onEmailChange = { email = it },
         onOtpChange = { otp = it },
         onSendCode = {
@@ -124,6 +126,7 @@ private fun LoginContent(
     onChangeEmail: () -> Unit,
     onResend: () -> Unit,
     modifier: Modifier = Modifier,
+    errorMessage: String? = null,
 ) {
     Column(
         modifier = modifier
@@ -160,6 +163,19 @@ private fun LoginContent(
                 onOtpChange = onOtpChange,
                 onVerify = onVerify,
                 onResend = onResend,
+            )
+        }
+
+        if (!errorMessage.isNullOrBlank()) {
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = errorMessage,
+                color = LoginTokens.Danger,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.W600,
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -396,7 +412,7 @@ private fun BrandLockup() {
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = "G",
+                text = "M",
                 color = LoginTokens.Brand,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.W800,
@@ -405,7 +421,7 @@ private fun BrandLockup() {
         Spacer(Modifier.width(13.dp))
         Column {
             Text(
-                text = "Goat OS",
+                text = "Mesha",
                 color = LoginTokens.Ink,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.W800,
@@ -502,6 +518,7 @@ private object LoginTokens {
     val Ink = Color(0xFFECF4EE)
     val Muted = Color(0xFF8FA497)
     val Faint = Color(0xFF5F7367)
+    val Danger = Color(0xFFFB6F63)
     val BrandGradient: Brush = Brush.linearGradient(
         listOf(Color(0xFF93DA5E), Color(0xFF5FB531)),
     )

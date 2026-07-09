@@ -22,6 +22,9 @@ dependencies {
     // compile classpath.
     api(project(":core:core-network"))
     implementation(project(":core:core-common"))
+    // `api`: DefaultBootstrapRepository's public constructor exposes DeviceStore, so the
+    // core-datastore type is part of core-data's ABI and must be on the consumer classpath.
+    api(project(":core:core-datastore"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     api(libs.androidx.room.runtime)

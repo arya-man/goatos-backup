@@ -1,6 +1,7 @@
 package sg.mesha.goatos.di
 
 import android.content.Context
+import android.os.Build
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -24,7 +25,9 @@ import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.buildGoatDatabase
+import sg.mesha.goatos.core.datastore.DataStoreDeviceStore
 import sg.mesha.goatos.core.datastore.DataStoreSessionStore
+import sg.mesha.goatos.core.datastore.DeviceStore
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.NetworkFactory
@@ -59,6 +62,11 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideDeviceStore(@ApplicationContext context: Context): DeviceStore =
+        DataStoreDeviceStore(context)
+
+    @Provides
+    @Singleton
     fun provideAppApi(sessionStore: SessionStore): AppApi =
         NetworkFactory.appApi(BuildConfig.API_BASE_URL) {
             // Interceptor runs off the main thread; a blocking token read is safe here.
@@ -67,8 +75,18 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideBootstrapRepository(api: AppApi, cache: BootstrapCache): BootstrapRepository =
-        DefaultBootstrapRepository(api, cache)
+    fun provideBootstrapRepository(
+        api: AppApi,
+        cache: BootstrapCache,
+        deviceStore: DeviceStore,
+    ): BootstrapRepository =
+        DefaultBootstrapRepository(
+            api = api,
+            cache = cache,
+            deviceStore = deviceStore,
+            appVersion = BuildConfig.VERSION_NAME,
+            osVersion = Build.VERSION.RELEASE.orEmpty(),
+        )
 
     @Provides
     @Singleton

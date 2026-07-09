@@ -14,22 +14,24 @@ import sg.mesha.goatos.feature.profile.AlertRow
 import sg.mesha.goatos.feature.profile.AlertTone
 import sg.mesha.goatos.feature.profile.AlertsEvent
 import sg.mesha.goatos.feature.profile.AlertsUiState
+import sg.mesha.goatos.ui.alertsPlaceholder
 import sg.mesha.goatos.ui.sampleAlertsState
 import javax.inject.Inject
 
 /**
- * Alerts / notifications state holder. Seeds the interim [sampleAlertsState] fixture for an
- * instant first frame, then loads the real process-integrity alerts via
- * [ControlTowerRepository.summary], mapped in [toAlertsUiState]. On error/empty the sample
- * is kept. Rows are marked read locally so the list feels live: [AlertsEvent.MarkAllRead]
- * clears every unread flag, [AlertsEvent.OpenAlert] clears the tapped row.
+ * Alerts / notifications state holder. Shows a loading placeholder first, then loads the
+ * real process-integrity alerts via [ControlTowerRepository.summary], mapped in
+ * [toAlertsUiState]. An empty real response shows an honest empty state and a failure shows
+ * an honest error state — sample/fake alerts are NEVER shown as if they were live data.
+ * Rows are marked read locally so the list feels live: [AlertsEvent.MarkAllRead] clears
+ * every unread flag, [AlertsEvent.OpenAlert] clears the tapped row.
  */
 @HiltViewModel
 class AlertsViewModel @Inject constructor(
     private val repo: ControlTowerRepository,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(sampleAlertsState())
+    private val _state = MutableStateFlow(alertsPlaceholder("Loading alerts…"))
     val state: StateFlow<AlertsUiState> = _state.asStateFlow()
 
     init {
@@ -38,8 +40,8 @@ class AlertsViewModel @Inject constructor(
 
     fun load() = viewModelScope.launch {
         runCatching { repo.summary() }
-            .onSuccess { dto -> dto.toAlertsUiState()?.let { _state.value = it } }
-            .onFailure { /* keep the sample so the screen is never blank */ }
+            .onSuccess { dto -> _state.value = dto.toAlertsUiState() ?: alertsPlaceholder("No alerts") }
+            .onFailure { _state.value = alertsPlaceholder("Couldn't load alerts right now.") }
     }
 
     fun onEvent(event: AlertsEvent) {

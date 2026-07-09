@@ -29,9 +29,56 @@ data class BootstrapDto(
     // the original nav-only contract still succeed.
     @SerialName("actor") val actor: BootstrapActorDto? = null,
     @SerialName("operator_profile") val operatorProfile: BootstrapOperatorProfileDto? = null,
+    @SerialName("device_state") val deviceState: BootstrapDeviceStateDto = BootstrapDeviceStateDto(),
     @SerialName("feature_flags") val featureFlags: Map<String, Boolean> = emptyMap(),
     @SerialName("app_min_supported_version") val appMinSupportedVersion: String = "",
     @SerialName("server_time") val serverTime: String = "",
+    @SerialName("trace_id") val traceId: String = "",
+)
+
+/**
+ * Android device registration state the backend returns on bootstrap
+ * (BootstrapDeviceState). When [required] is true and no [device] is registered
+ * (status typically `not_registered`), the client registers the device.
+ */
+@Serializable
+data class BootstrapDeviceStateDto(
+    @SerialName("required") val required: Boolean = false,
+    @SerialName("device") val device: DeviceSummaryDto? = null,
+    @SerialName("status") val status: String = "",
+    @SerialName("reason") val reason: String? = null,
+)
+
+/** Device record (DeviceSummary). Only the mobile-consumed fields are modeled. */
+@Serializable
+data class DeviceSummaryDto(
+    @SerialName("device_id") val deviceId: String = "",
+    @SerialName("operator_id") val operatorId: String = "",
+    @SerialName("app_install_id") val appInstallId: String = "",
+    @SerialName("status") val status: String = "",
+)
+
+/** Request body for POST /app/devices/register (RegisterDeviceRequest). */
+@Serializable
+data class RegisterDeviceRequestDto(
+    @SerialName("app_install_id") val appInstallId: String,
+    @SerialName("app_version") val appVersion: String,
+    @SerialName("os_version") val osVersion: String = "",
+    @SerialName("push_token_hash") val pushTokenHash: String? = null,
+)
+
+/** Request body for POST /app/devices/{device_id}/heartbeat (HeartbeatDeviceRequest). */
+@Serializable
+data class HeartbeatDeviceRequestDto(
+    @SerialName("app_version") val appVersion: String = "",
+    @SerialName("os_version") val osVersion: String = "",
+    @SerialName("push_token_hash") val pushTokenHash: String? = null,
+)
+
+/** Response for register/heartbeat (DeviceResponse). */
+@Serializable
+data class DeviceResponseDto(
+    @SerialName("device") val device: DeviceSummaryDto = DeviceSummaryDto(),
     @SerialName("trace_id") val traceId: String = "",
 )
 
@@ -73,7 +120,15 @@ data class BootstrapOperatorProfileDto(
  * the :app layer, not here.
  */
 interface AppApi {
-    suspend fun bootstrap(): BootstrapDto
+    /** GET /app/bootstrap — nav + identity + device state. [deviceId] identifies a
+     *  previously-registered device so the backend can return its device_state. */
+    suspend fun bootstrap(deviceId: String? = null): BootstrapDto
+
+    /** POST /app/devices/register — register this Android install as a device. */
+    suspend fun registerDevice(request: RegisterDeviceRequestDto): DeviceResponseDto
+
+    /** POST /app/devices/{device_id}/heartbeat — refresh device liveness + app version. */
+    suspend fun heartbeatDevice(deviceId: String, request: HeartbeatDeviceRequestDto): DeviceResponseDto
 
     /** GET /vaccination/execution — execution rows grouped by park + shed. */
     suspend fun listVaccinationExecution(
@@ -148,7 +203,7 @@ interface AppApi {
  * responses so previews/tests compile without a live backend.
  */
 class FakeAppApi(private val chrome: String = "expanded") : AppApi {
-    override suspend fun bootstrap(): BootstrapDto = BootstrapDto(
+    override suspend fun bootstrap(deviceId: String?): BootstrapDto = BootstrapDto(
         navChrome = chrome,
         visibleNavigation = listOf(
             NavItemDto(key = "calendar", label = "Calendar", href = "/calendar"),
@@ -158,6 +213,12 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         featureFlags = mapOf("tasks" to true, "sop_runner" to true),
         appMinSupportedVersion = "0.1.0",
     )
+
+    override suspend fun registerDevice(request: RegisterDeviceRequestDto): DeviceResponseDto =
+        DeviceResponseDto(device = DeviceSummaryDto(deviceId = "fake-device", status = "active"))
+
+    override suspend fun heartbeatDevice(deviceId: String, request: HeartbeatDeviceRequestDto): DeviceResponseDto =
+        DeviceResponseDto(device = DeviceSummaryDto(deviceId = deviceId, status = "active"))
 
     override suspend fun listVaccinationExecution(
         parkId: String?,

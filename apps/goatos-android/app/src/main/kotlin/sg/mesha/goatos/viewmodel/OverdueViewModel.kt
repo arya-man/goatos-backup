@@ -13,22 +13,24 @@ import sg.mesha.goatos.feature.leadership.LeadershipEvent
 import sg.mesha.goatos.feature.leadership.OverdueClassification
 import sg.mesha.goatos.feature.leadership.OverdueRow
 import sg.mesha.goatos.feature.leadership.OverdueUiState
+import sg.mesha.goatos.ui.overduePlaceholder
 import sg.mesha.goatos.ui.sampleOverdueState
 import javax.inject.Inject
 
 /**
- * Overdue-list state holder (leadership follow-up). Seeds the interim [sampleOverdueState]
- * fixture for an instant first frame, then loads the real process-integrity alerts via
- * [ControlTowerRepository.summary] and maps them to overdue rows in [toOverdueUiState],
- * classifying each by backend severity. On error/empty the sample is kept.
- * [LeadershipEvent.Refresh] reloads; row taps / back are navigation, routed by the host.
+ * Overdue-list state holder (leadership follow-up). Shows a loading placeholder first, then
+ * loads the real process-integrity alerts via [ControlTowerRepository.summary] and maps
+ * them to overdue rows in [toOverdueUiState], classifying each by backend severity. An
+ * empty real response shows an honest empty state and a failure shows an honest error state
+ * — the sample list is NEVER shown as if it were live. [LeadershipEvent.Refresh] reloads;
+ * row taps / back are navigation, routed by the host.
  */
 @HiltViewModel
 class OverdueViewModel @Inject constructor(
     private val repo: ControlTowerRepository,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(sampleOverdueState())
+    private val _state = MutableStateFlow(overduePlaceholder("Loading…"))
     val state: StateFlow<OverdueUiState> = _state.asStateFlow()
 
     init {
@@ -37,8 +39,8 @@ class OverdueViewModel @Inject constructor(
 
     fun load() = viewModelScope.launch {
         runCatching { repo.summary() }
-            .onSuccess { dto -> dto.toOverdueUiState()?.let { _state.value = it } }
-            .onFailure { /* keep the sample so the screen is never blank */ }
+            .onSuccess { dto -> _state.value = dto.toOverdueUiState() ?: overduePlaceholder("No overdue animals") }
+            .onFailure { _state.value = overduePlaceholder("Couldn't load the overdue list. Tap refresh to retry.") }
     }
 
     fun onEvent(event: LeadershipEvent) {
@@ -64,7 +66,7 @@ class OverdueViewModel @Inject constructor(
                 },
             )
         }
-        return base.copy(rows = rows)
+        return base.copy(title = "Overdue · ${rows.size}", rows = rows)
     }
 
     private fun isMissed(severity: String): Boolean =

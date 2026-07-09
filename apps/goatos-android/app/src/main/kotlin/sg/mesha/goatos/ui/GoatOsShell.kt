@@ -1,8 +1,6 @@
 package sg.mesha.goatos.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,44 +8,44 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.model.nav.NavChrome
+import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavState
 
 /**
- * The role-aware app shell. TRD §14 dumb-renderer: it renders the backend-computed
- * [NavState] and never counts modules or checks role. The backend already decided:
- *  - [NavState.chrome] EXPANDED  → a module-switcher DRAWER is available (the
- *    principal owns >=2 visible modules); MINIMAL → bottom-bar only, no drawer, and
- *    the drawer extras live in You/Settings.
- *  - [NavState.items] → the bottom-bar destinations (per role/department).
- * The role lens is thus entirely data-driven — one shell serves operator + leadership.
+ * The role-aware app shell — Material 3 (Expressive) chrome on the mock's dark palette.
+ * TRD §14 dumb-renderer: renders the backend-computed [NavState] and never counts
+ * modules or checks role.
+ *  - EXPANDED chrome → a module-switcher drawer (>=2 owned modules); MINIMAL → bottom
+ *    bar only.
+ *  - [NavState.items] → M3 [NavigationBar] destinations, each with its mock icon and the
+ *    M3 active-indicator pill; a trailing "You" tab is always present.
  */
 @Composable
 fun GoatOsShell(navState: NavState) {
@@ -57,8 +55,6 @@ fun GoatOsShell(navState: NavState) {
     val scope = rememberCoroutineScope()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    // The netbar taps into the outbox sync sheet (screens.md #netbar → ovl-sync).
-    var showSync by remember { mutableStateOf(false) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -77,39 +73,75 @@ fun GoatOsShell(navState: NavState) {
         },
     ) {
         Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                NavigationBar {
-                    navState.items.forEach { item ->
-                        NavigationBarItem(
-                            selected = currentRoute == item.href,
-                            onClick = {
-                                navController.navigate(item.href) { launchSingleTop = true; restoreState = true }
-                            },
-                            icon = { Text("•") },
-                            label = { Text(item.label) },
-                        )
-                    }
-                    NavigationBarItem(
-                        selected = currentRoute == Routes.YOU,
-                        onClick = { navController.navigate(Routes.YOU) { launchSingleTop = true; restoreState = true } },
-                        icon = { Text("•") },
-                        label = { Text("You") },
-                    )
-                }
+                MeshaNavBar(
+                    items = navState.items,
+                    currentRoute = currentRoute,
+                    onSelect = { href ->
+                        navController.navigate(href) { launchSingleTop = true; restoreState = true }
+                    },
+                    onYou = {
+                        navController.navigate(Routes.YOU) { launchSingleTop = true; restoreState = true }
+                    },
+                )
             },
         ) { padding ->
             Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-                // Menu affordance exists only for a multi-module principal.
                 if (hasDrawer) {
                     ShellTopBar(onMenu = { scope.launch { drawerState.open() } })
                 }
-                NetBar(onClick = { showSync = true })
                 AppNavHost(navController = navController)
             }
-            if (showSync) {
-                SyncSheet(onDismiss = { showSync = false })
-            }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bottom navigation — M3 NavigationBar with the active-indicator pill. Icons are
+// the mock's stroked set; colours come from the themed (mock-palette) scheme.
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun MeshaNavBar(
+    items: List<NavItem>,
+    currentRoute: String?,
+    onSelect: (String) -> Unit,
+    onYou: () -> Unit,
+) {
+    val itemColors = NavigationBarItemDefaults.colors(
+        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        selectedTextColor = MaterialTheme.colorScheme.onSurface,
+        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    NavigationBar(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 0.dp,
+    ) {
+        items.forEach { item ->
+            NavigationBarItem(
+                selected = currentRoute == item.href,
+                onClick = { onSelect(item.href) },
+                icon = {
+                    Icon(
+                        imageVector = MeshaIcons.forNavKey(item.key),
+                        contentDescription = item.label,
+                        modifier = Modifier.size(24.dp),
+                    )
+                },
+                label = { Text(item.label, fontWeight = FontWeight.SemiBold) },
+                colors = itemColors,
+            )
+        }
+        NavigationBarItem(
+            selected = currentRoute == Routes.YOU,
+            onClick = onYou,
+            icon = { Icon(MeshaIcons.User, contentDescription = "You", modifier = Modifier.size(24.dp)) },
+            label = { Text("You", fontWeight = FontWeight.SemiBold) },
+            colors = itemColors,
+        )
     }
 }
 
@@ -119,69 +151,51 @@ private fun ShellTopBar(onMenu: () -> Unit) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "☰",
-            fontSize = 22.sp,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.clip(CircleShape).clickable(onClick = onMenu).padding(6.dp),
+        Icon(
+            imageVector = MeshaIcons.Menu,
+            contentDescription = "Menu",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(onClick = onMenu)
+                .padding(8.dp),
         )
-        Spacer(Modifier.size(8.dp))
-        Text("Goat OS", fontWeight = FontWeight.W700, color = MaterialTheme.colorScheme.onBackground)
+        Spacer(Modifier.size(10.dp))
+        Text("Mesha", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
     }
 }
 
-/** The module switcher (drawer/sidebar). Lists the backend-visible modules; the
- *  registry can also mark not-yet-built modules as non-tappable "Soon". */
+/** Module switcher (drawer). Lists the backend-visible modules with their mock icons. */
 @Composable
 private fun ModuleDrawer(
     navState: NavState,
     currentRoute: String?,
     onSelect: (String) -> Unit,
 ) {
-    ModalDrawerSheet {
+    ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surfaceContainer) {
         Text(
-            text = "GOAT OS",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.W800,
+            text = "MESHA",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.ExtraBold,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(20.dp),
         )
         navState.items.forEach { item ->
             NavigationDrawerItem(
+                icon = {
+                    Icon(
+                        imageVector = MeshaIcons.forNavKey(item.key),
+                        contentDescription = item.label,
+                        modifier = Modifier.size(24.dp),
+                    )
+                },
                 label = { Text(item.label) },
                 selected = currentRoute == item.href,
                 onClick = { onSelect(item.href) },
-                modifier = Modifier.padding(horizontal = 12.dp),
+                colors = NavigationDrawerItemDefaults.colors(),
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
             )
         }
-    }
-}
-
-/** Connectivity + sync bar shown on every signed-in screen (screens.md #netbar).
- *  Tapping it opens the outbox sync sheet (ovl-sync). Static baseline; a sync
- *  ViewModel drives Online/Offline + queued/syncing next. */
-@Composable
-private fun NetBar(onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF3DA35D)))
-        Spacer(Modifier.size(8.dp))
-        Text(
-            text = "Online · All synced",
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.weight(1f))
-        Text(
-            text = "›",
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }

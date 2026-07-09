@@ -248,6 +248,15 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit) {
 
 @Composable
 private fun DriveMeta(state: ShedsUiState) {
+    // Only render segments the backend actually populated — a blank field must not
+    // leave an orphaned "·" separator (loading/empty/error states clear these).
+    val parts = listOfNotNull(
+        state.date.takeIf { it.isNotBlank() }?.let { it to true },
+        state.window.takeIf { it.isNotBlank() }?.let { it to false },
+        state.shedCountLabel.takeIf { it.isNotBlank() }?.let { it to true },
+        state.dueLabel.takeIf { it.isNotBlank() }?.let { it to true },
+    )
+    if (parts.isEmpty()) return
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -258,13 +267,10 @@ private fun DriveMeta(state: ShedsUiState) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        MetaStrong(state.date)
-        Dot()
-        MetaMuted(state.window)
-        Dot()
-        MetaStrong(state.shedCountLabel)
-        Dot()
-        MetaStrong(state.dueLabel)
+        parts.forEachIndexed { index, (text, strong) ->
+            if (index > 0) Dot()
+            if (strong) MetaStrong(text) else MetaMuted(text)
+        }
     }
 }
 
