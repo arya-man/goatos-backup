@@ -197,6 +197,9 @@
   .tab{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9.5px;font-weight:700;color:var(--faint);padding:2px 10px;border-radius:12px;cursor:pointer;background:none;border:0;font-family:inherit}
   .tab{min-width:0} .tab span{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
   .tab .ic{width:22px;height:22px} .tab.on{color:var(--brand)} .tab.on .ic{stroke-width:2.3}
+  /* Material 3 active-indicator pill behind the selected tab's icon. */
+  .tabind{display:flex;align-items:center;justify-content:center;padding:4px 18px;border-radius:999px;transition:background .18s ease}
+  .tab.on .tabind{background:color-mix(in srgb,var(--brand) 20%,transparent)}
 
   /* overlays */
   .ovl{position:absolute;inset:0;z-index:30;opacity:0;visibility:hidden;transition:opacity .2s,visibility .2s}
@@ -768,7 +771,7 @@
     var set=NAV[role]||NAV.operator;
     $all('.vnav').forEach(function(nav){
       var cur=nav.closest('.view').id;
-      nav.innerHTML=set.map(function(t){var on=t[0]===cur?' on':'';return '<button class="tab'+on+'" data-go="'+t[0]+'"><svg class="ic"><use href="#'+t[1]+'"/></svg><span data-t="'+t[2]+'">'+(TXT[t[2]]?TXT[t[2]][curLang]||TXT[t[2]].en:t[2])+'</span></button>';}).join('');
+      nav.innerHTML=set.map(function(t){var on=t[0]===cur?' on':'';return '<button class="tab'+on+'" data-go="'+t[0]+'"><span class="tabind"><svg class="ic"><use href="#'+t[1]+'"/></svg></span><span data-t="'+t[2]+'">'+(TXT[t[2]]?TXT[t[2]][curLang]||TXT[t[2]].en:t[2])+'</span></button>';}).join('');
     });
   }
 
