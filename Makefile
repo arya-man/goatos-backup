@@ -153,7 +153,7 @@ seed-calendar-vaccination-dev:
 	cd backend && go run ./cmd/seed-calendar-vaccination-dev
 
 seed-dev-email-grants:
-	cd backend && go run ./cmd/seed-dev-email-grants -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -role ceo_internal -source goatos_dev_dashboard_admins $(foreach email,$(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS),-email $(email))
+	cd backend && go run ./cmd/seed-dev-email-grants -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -role ceo_internal -department leadership -source goatos_dev_dashboard_admins $(foreach email,$(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS),-email $(email))
 
 verify-google-dev-seed-fixtures:
 	python3 tools/dev/verify-google-dev-seed-fixtures.py

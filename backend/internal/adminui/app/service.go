@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/adminui/domain"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
 type Service struct {
 	repo            ReferenceRepository
+	ownership       permissions.ModuleOwnershipSource
 	mu              sync.Mutex
 	cache           map[string]cacheEntry
 	cacheTTL        time.Duration
@@ -32,8 +34,39 @@ func NewService(repo ...ReferenceRepository) *Service {
 	}
 }
 
+// WithModuleOwnership injects the shared department-driven module-ownership read
+// used to hide unowned nav and set nav chrome. It is optional: without it the
+// service fails open (full nav, expanded chrome), preserving the pre-ownership
+// behavior for callers/tests that construct NewService() with no ownership.
+func (s *Service) WithModuleOwnership(src permissions.ModuleOwnershipSource) *Service {
+	s.ownership = src
+	return s
+}
+
 func (s *Service) Bootstrap(ctx context.Context, input BootstrapInput) domain.BootstrapResponse {
+	input = s.resolveOwnership(ctx, input)
 	return s.bootstrapCached(ctx, input)
+}
+
+// resolveOwnership loads the actor's owned modules and marks the input resolved
+// so downstream compilation can filter nav + set chrome. It fails open: when no
+// ownership source is wired, or the read errors, ownership stays unresolved and
+// the full nav is kept (expanded chrome, empty owned set). Ownership is visibility
+// only; a transient read error must never lock a principal out of nav — RBAC stays
+// authoritative on every command elsewhere.
+func (s *Service) resolveOwnership(ctx context.Context, input BootstrapInput) BootstrapInput {
+	if s.ownership == nil {
+		return input
+	}
+	mods, err := s.ownership.ListActiveModuleGrantsForActor(ctx, input.ActorID, input.TenantID)
+	if err != nil {
+		input.OwnedModules = nil
+		input.OwnershipResolved = false
+		return input
+	}
+	input.OwnedModules = mods
+	input.OwnershipResolved = true
+	return input
 }
 
 func baseBootstrap() domain.BootstrapResponse {
@@ -48,7 +81,11 @@ func baseBootstrap() domain.BootstrapResponse {
 			RedisTTLHintSec: redisTTLHintSeconds,
 			RevisionSource:  "tenant-role-family-hashes",
 		},
-		Navigation:   navigation(),
+		Navigation: navigation(),
+		// Base template defaults; compileRequestContext recomputes NavChrome +
+		// OwnedModules per principal from department ownership (see compiler.go).
+		NavChrome:    domain.NavChromeExpanded,
+		OwnedModules: []domain.OwnedModule{},
 		RouteLabels:  routeLabels(),
 		TopBar:       topBar(),
 		RoleLenses:   roleLenses(),
@@ -69,6 +106,15 @@ func navLeaf(id, label, href string, extra map[string]string) domain.NavigationI
 	return domain.NavigationItem{ID: id, Label: label, Href: href, Enabled: true, Extra: extra}
 }
 
+// navLeafDomain stamps a leaf with its owning product module. Only modeled/built
+// modules carry a Domain; ownership filtering hides a stamped leaf when its module
+// is not owned. Leaves with an empty Domain (procurement/counts) are never filtered.
+func navLeafDomain(id, label, href, module string, extra map[string]string) domain.NavigationItem {
+	item := navLeaf(id, label, href, extra)
+	item.Domain = module
+	return item
+}
+
 func navigation() domain.NavigationContract {
 	return domain.NavigationContract{
 		Primary: []domain.NavigationItem{
@@ -81,7 +127,7 @@ func navigation() domain.NavigationContract {
 		Groups: []domain.NavigationGroup{
 			{
 				ID: "pc", Label: "Preventive Care (PC)", Icon: "heart-pulse", DefaultOpen: true, BadgeKey: "pc_open_work",
-				Leaves: []domain.NavigationItem{navLeaf("preventive-care-vaccination", "Vaccination", "/vaccination", nil)},
+				Leaves: []domain.NavigationItem{navLeafDomain("preventive-care-vaccination", "Vaccination", "/vaccination", "pc.vaccination", nil)},
 			},
 			{
 				ID: "procurement", Label: "Procurement", Icon: "truck", DefaultOpen: false,
@@ -94,10 +140,10 @@ func navigation() domain.NavigationContract {
 			{
 				ID: "admin-data", Label: "Admin / Data Ops", Icon: "edit-3", DefaultOpen: true,
 				Leaves: []domain.NavigationItem{
-					navLeaf("config", "Config", "/config", map[string]string{"category": "vaccination"}),
-					navLeaf("audit-log", "Audit Log", "/operations/audit", nil),
-					navLeaf("dlq-center", "DLQ Center", "/operations/dlq", nil),
-					navLeaf("sop-library", "SOP Library", "/sops", nil),
+					navLeafDomain("config", "Config", "/config", "admin.config", map[string]string{"category": "vaccination"}),
+					navLeafDomain("audit-log", "Audit Log", "/operations/audit", "admin.audit", nil),
+					navLeafDomain("dlq-center", "DLQ Center", "/operations/dlq", "admin.audit", nil),
+					navLeafDomain("sop-library", "SOP Library", "/sops", "admin.sop", nil),
 				},
 			},
 		},

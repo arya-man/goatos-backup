@@ -234,7 +234,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	locationsService := locationsapp.NewService(locationsRepo)
 	locationsHandler := locationshttp.NewHandler(locationsService, log)
 	workforceRepo := workforcepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	workforceService := workforceapp.NewService(workforceRepo)
+	moduleOwnership := permissionspg.NewModuleOwnershipSource(pool, cfg.Postgres.QueryTimeout)
+	workforceService := workforceapp.NewService(workforceRepo, moduleOwnership)
 	workforceHandler := workforcehttp.NewHandler(workforceService, log)
 	proofStorage, err := buildProofStorage()
 	if err != nil {
@@ -259,7 +260,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, log)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
-	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout)))
+	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithModuleOwnership(moduleOwnership))
 	countsService := countsapp.NewService(countspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	feedService := feedapp.NewService(feedpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
 		WithCountsReadiness(countsService).

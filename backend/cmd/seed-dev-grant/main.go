@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,18 +17,28 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 )
 
+// departmentCodePattern mirrors departments_code_check.
+var departmentCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
 func main() {
 	var tenantID string
 	var userID string
 	var externalSubject string
 	var authIssuer string
 	var role string
+	var department string
 	flag.StringVar(&tenantID, "tenant-id", "", "tenant UUID for the tenant-scope grant")
 	flag.StringVar(&userID, "user-id", "", "user UUID for the grant")
 	flag.StringVar(&externalSubject, "external-subject", "", "non-UUID IdP subject to map into the grant user UUID")
 	flag.StringVar(&authIssuer, "auth-issuer", os.Getenv("GOATOS_AUTH_ISSUER"), "issuer used when mapping an external IdP subject")
 	flag.StringVar(&role, "role", "", "required role: admin, verifier, park_head, pc_director, operator, or ceo_internal")
+	flag.StringVar(&department, "department", "", "optional HR department code; provisions/attaches a workforce_member so department-driven nav works for this dev identity")
 	flag.Parse()
+
+	department = strings.TrimSpace(department)
+	if department != "" && !departmentCodePattern.MatchString(department) {
+		fail("invalid department code: %q (must match ^[a-z][a-z0-9_]*$)", department)
+	}
 
 	var err error
 	userID, err = resolveGrantUserID(userID, externalSubject, authIssuer)
@@ -55,6 +66,7 @@ func main() {
 	defer pool.Close()
 
 	var grantID string
+	existing := false
 	if err := pool.QueryRow(ctx, `
 SELECT grant_id::text
 FROM user_scope_grants
@@ -70,19 +82,88 @@ ORDER BY valid_from DESC, grant_id DESC
 LIMIT 1
 `, tenantID, userID, role).Scan(&grantID); err == nil {
 		fmt.Printf("dev grant already active %s for user %s role %s tenant %s\n", grantID, userID, role, tenantID)
-		return
+		existing = true
 	} else if !isNoRows(err) {
 		fail("query dev grant: %v", err)
 	}
 
-	if err := pool.QueryRow(ctx, `
+	if !existing {
+		if err := pool.QueryRow(ctx, `
 INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
 VALUES ($1, $2, $3, 'tenant', $1, 'active', now())
 RETURNING grant_id::text
 `, tenantID, userID, role).Scan(&grantID); err != nil {
-		fail("insert local dev grant: %v", err)
+			fail("insert local dev grant: %v", err)
+		}
+		fmt.Printf("seeded tenant grant %s for user %s role %s tenant %s\n", grantID, userID, role, tenantID)
 	}
-	fmt.Printf("seeded tenant grant %s for user %s role %s tenant %s\n", grantID, userID, role, tenantID)
+
+	if department != "" {
+		if err := provisionDevDepartmentMember(ctx, pool, tenantID, userID, role, department); err != nil {
+			fail("provision dev department member: %v", err)
+		}
+		fmt.Printf("dev workforce_member for user %s attached to department %s\n", userID, department)
+	}
+}
+
+// provisionDevDepartmentMember mirrors the sign-in email-claim provisioning for
+// the dev identity (which is seeded directly, not via the email-claim path):
+// resolve the department by (tenant, code), then upsert a workforce_member for
+// the user, filling a NULL department_id but never overriding an HR assignment.
+func provisionDevDepartmentMember(ctx context.Context, pool *pgxpool.Pool, tenantID, userID, role, departmentCode string) error {
+	var departmentID string
+	err := pool.QueryRow(ctx, `
+SELECT department_id::text FROM departments
+WHERE tenant_id = $1 AND code = $2 AND status = 'active'`, tenantID, departmentCode).Scan(&departmentID)
+	if isNoRows(err) {
+		return fmt.Errorf("department %q not found for tenant %s (run migrations/seed first)", departmentCode, tenantID)
+	}
+	if err != nil {
+		return err
+	}
+
+	var memberID string
+	var existingDepartment *string
+	err = pool.QueryRow(ctx, `
+SELECT workforce_member_id::text, department_id::text
+FROM workforce_members
+WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'
+ORDER BY created_at DESC, workforce_member_id DESC
+LIMIT 1`, tenantID, userID).Scan(&memberID, &existingDepartment)
+	if err == nil {
+		if existingDepartment != nil {
+			return nil
+		}
+		_, err = pool.Exec(ctx, `
+UPDATE workforce_members
+SET department_id = $3, updated_at = now(), row_version = row_version + 1
+WHERE workforce_member_id = $1 AND tenant_id = $2 AND department_id IS NULL`, memberID, tenantID, departmentID)
+		return err
+	}
+	if !isNoRows(err) {
+		return err
+	}
+
+	_, err = pool.Exec(ctx, `
+INSERT INTO workforce_members (tenant_id, user_id, display_code, display_name, status, primary_role_hint, department_id)
+VALUES ($1, $2, $3, $4, 'active', $5, $6)`,
+		tenantID, userID, "auth:"+userID, "dev-"+role, devMemberRoleHint(role), departmentID)
+	return err
+}
+
+func devMemberRoleHint(role string) string {
+	switch role {
+	case permissions.RoleOperator:
+		return "operator"
+	case permissions.RoleParkHead:
+		return "park_head"
+	case permissions.RoleVerifier:
+		return "verifier"
+	case permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RolePCDirector:
+		return "admin"
+	default:
+		return "other"
+	}
 }
 
 func validateLocalTarget(env, databaseURL string) error {

@@ -115,6 +115,25 @@ type ActiveGrant struct {
 	ScopeID   string
 }
 
+// OwnedModule is a product module a principal owns through their HR department
+// (department_module_grants). The owned-module set drives visible-nav filtering
+// and the nav-chrome threshold on both bootstraps; it never widens access.
+// See docs/decisions/user-module-ownership-and-nav-chrome.md.
+type OwnedModule struct {
+	Vertical string
+	Module   string
+}
+
+// ModuleOwnershipSource resolves the active product modules a principal owns via
+// their department: workforce_members.department_id -> department_module_grants
+// (active, in valid window). It is the single shared read behind visible-module
+// filtering + nav chrome on /app/bootstrap and /admin-web/bootstrap. Ownership
+// only hides/shows nav and sets chrome; RBAC stays server-authoritative on every
+// command.
+type ModuleOwnershipSource interface {
+	ListActiveModuleGrantsForActor(ctx context.Context, userID, tenantID string) ([]OwnedModule, error)
+}
+
 type PendingEmailGrantClaim struct {
 	TenantID        string
 	UserID          string

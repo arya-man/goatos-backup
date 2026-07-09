@@ -1240,6 +1240,8 @@ export interface components {
                 [key: string]: boolean;
             };
             visible_navigation: components["schemas"]["BootstrapNavigationItem"][];
+            nav_chrome: components["schemas"]["NavChrome"];
+            owned_modules: components["schemas"]["OwnedModule"][];
             task_queue_descriptors: components["schemas"]["BootstrapTaskQueue"][];
             pinned_sop_versions: components["schemas"]["BootstrapSOPVersion"][];
             supported_field_types: string[];
@@ -1261,6 +1263,8 @@ export interface components {
             };
             cache_policy: components["schemas"]["AdminWebContractCachePolicy"];
             navigation: components["schemas"]["AdminWebNavigationContract"];
+            nav_chrome: components["schemas"]["NavChrome"];
+            owned_modules: components["schemas"]["OwnedModule"][];
             route_labels: components["schemas"]["AdminWebRouteLabelRule"][];
             top_bar: components["schemas"]["AdminWebTopBarContract"];
             role_lenses: components["schemas"]["AdminWebRoleLens"][];
@@ -1459,6 +1463,16 @@ export interface components {
             key: string;
             label: string;
             href: string;
+        };
+        /**
+         * @description Backend-computed navigation chrome, shared by both bootstraps. `expanded` shows the module switcher (mobile drawer / admin-web sidebar) because the principal owns >=2 active visible modules; `minimal` hides it (mobile bottom-bar-only with drawer extras folded into You/Settings, admin-web no-sidebar). The client renders this value; it never counts modules or checks role to decide chrome.
+         * @enum {string}
+         */
+        NavChrome: "expanded" | "minimal";
+        /** @description A product module the principal owns via their HR department (department_module_grants). The owned-module set drives visible-nav filtering and the nav_chrome threshold; it never widens access. */
+        OwnedModule: {
+            vertical: string;
+            module: string;
         };
         BootstrapTaskQueue: {
             key: string;

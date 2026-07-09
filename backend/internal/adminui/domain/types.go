@@ -8,12 +8,30 @@ type BootstrapResponse struct {
 	FamilyHashes     map[string]string   `json:"family_hashes"`
 	CachePolicy      ContractCachePolicy `json:"cache_policy"`
 	Navigation       NavigationContract  `json:"navigation"`
+	NavChrome        string              `json:"nav_chrome"`
+	OwnedModules     []OwnedModule       `json:"owned_modules"`
 	RouteLabels      []RouteLabelRule    `json:"route_labels"`
 	TopBar           TopBarContract      `json:"top_bar"`
 	RoleLenses       []RoleLensContract  `json:"role_lenses"`
 	Pages            []PageContract      `json:"pages"`
 	Copy             map[string]string   `json:"copy"`
 	DisplayRules     []DisplayRule       `json:"display_rules"`
+}
+
+// Nav chrome states shared by both bootstraps (contract schema NavChrome).
+// expanded = show the sidebar (>=2 owned visible modules); minimal = no sidebar
+// for single/zero-module principals.
+const (
+	NavChromeExpanded = "expanded"
+	NavChromeMinimal  = "minimal"
+)
+
+// OwnedModule is a product module the principal owns via their HR department;
+// the set drives visible-nav filtering + the nav_chrome threshold and never
+// widens access.
+type OwnedModule struct {
+	Vertical string `json:"vertical"`
+	Module   string `json:"module"`
 }
 
 type ContractCachePolicy struct {

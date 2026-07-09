@@ -3196,6 +3196,8 @@ components:
         - app_min_supported_version
         - feature_flags
         - visible_navigation
+        - nav_chrome
+        - owned_modules
         - task_queue_descriptors
         - pinned_sop_versions
         - supported_field_types
@@ -3232,6 +3234,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/BootstrapNavigationItem"
+        nav_chrome:
+          $ref: "#/components/schemas/NavChrome"
+        owned_modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnedModule"
         task_queue_descriptors:
           type: array
           items:
@@ -3275,6 +3283,8 @@ components:
         - family_hashes
         - cache_policy
         - navigation
+        - nav_chrome
+        - owned_modules
         - route_labels
         - top_bar
         - role_lenses
@@ -3299,6 +3309,12 @@ components:
           $ref: "#/components/schemas/AdminWebContractCachePolicy"
         navigation:
           $ref: "#/components/schemas/AdminWebNavigationContract"
+        nav_chrome:
+          $ref: "#/components/schemas/NavChrome"
+        owned_modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnedModule"
         route_labels:
           type: array
           items:
@@ -3823,6 +3839,37 @@ components:
           minLength: 1
           maxLength: 120
         href:
+          type: string
+          minLength: 1
+          maxLength: 120
+    NavChrome:
+      type: string
+      description: >-
+        Backend-computed navigation chrome, shared by both bootstraps. `expanded`
+        shows the module switcher (mobile drawer / admin-web sidebar) because the
+        principal owns >=2 active visible modules; `minimal` hides it (mobile
+        bottom-bar-only with drawer extras folded into You/Settings, admin-web
+        no-sidebar). The client renders this value; it never counts modules or
+        checks role to decide chrome.
+      enum:
+        - expanded
+        - minimal
+    OwnedModule:
+      type: object
+      additionalProperties: false
+      description: >-
+        A product module the principal owns via their HR department
+        (department_module_grants). The owned-module set drives visible-nav
+        filtering and the nav_chrome threshold; it never widens access.
+      required:
+        - vertical
+        - module
+      properties:
+        vertical:
+          type: string
+          minLength: 1
+          maxLength: 80
+        module:
           type: string
           minLength: 1
           maxLength: 120

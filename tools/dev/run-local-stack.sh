@@ -92,7 +92,8 @@ mkdir -p "$api_log_dir"
   go run ./cmd/seed-dev-grant \
     -tenant-id "$GOATOS_TENANT_ID" \
     -user-id "$local_user_id" \
-    -role "$local_role"
+    -role "$local_role" \
+    -department "${GOATOS_LOCAL_DEPARTMENT:-leadership}"
 )
 
 if api_ready; then

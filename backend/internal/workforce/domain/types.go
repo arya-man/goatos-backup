@@ -219,6 +219,8 @@ type BootstrapResponse struct {
 	AppMinSupportedVersion  string                    `json:"app_min_supported_version"`
 	FeatureFlags            map[string]bool           `json:"feature_flags"`
 	VisibleNavigation       []BootstrapNavigationItem `json:"visible_navigation"`
+	NavChrome               string                    `json:"nav_chrome"`
+	OwnedModules            []OwnedModule             `json:"owned_modules"`
 	TaskQueueDescriptors    []BootstrapTaskQueue      `json:"task_queue_descriptors"`
 	PinnedSOPVersions       []BootstrapSOPVersion     `json:"pinned_sop_versions"`
 	SupportedFieldTypes     []string                  `json:"supported_field_types"`
@@ -246,6 +248,22 @@ type BootstrapNavigationItem struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
 	Href  string `json:"href"`
+}
+
+// Nav chrome states shared by both bootstraps (see contract schema NavChrome).
+// expanded = show the module switcher (>=2 owned visible modules); minimal =
+// bottom-bar-only / no-sidebar for single/zero-module principals.
+const (
+	NavChromeExpanded = "expanded"
+	NavChromeMinimal  = "minimal"
+)
+
+// OwnedModule is a product module the principal owns via their HR department.
+// The set drives visible-nav filtering + the nav_chrome threshold; it never
+// widens access.
+type OwnedModule struct {
+	Vertical string `json:"vertical"`
+	Module   string `json:"module"`
 }
 
 type BootstrapTaskQueue struct {

@@ -101,7 +101,8 @@ function navLeavesForGroup(sourceFile, text, groupId) {
   if (!body) return null;
 
   if (sourceFile.endsWith(".go")) {
-    return [...body.matchAll(/navLeaf\(\s*"[^"]+"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"/g)]
+    // Match both navLeaf(id, label, href, ...) and navLeafDomain(id, label, href, module, ...).
+    return [...body.matchAll(/navLeaf(?:Domain)?\(\s*"[^"]+"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"/g)]
       .map((m) => ({ label: m[1], href: m[2] }));
   }
 
