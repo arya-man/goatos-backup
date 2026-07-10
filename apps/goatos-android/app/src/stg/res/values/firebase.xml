@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Generated-equivalent Firebase options for the goatos-stg Android client. -->
+    <string name="google_app_id" translatable="false">1:514832198871:android:0cb898377ba4f7f7f19492</string>
+    <string name="google_api_key" translatable="false">AIzaSyA8RmTTxegtjFO0z0ewZJ5ckyDxKguvHEk</string>
+    <string name="gcm_defaultSenderId" translatable="false">514832198871</string>
+    <string name="project_id" translatable="false">goatos-stg</string>
+    <string name="google_storage_bucket" translatable="false">goatos-stg.firebasestorage.app</string>
+    <string name="default_web_client_id" translatable="false">514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com</string>
+</resources>

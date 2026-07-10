@@ -13,6 +13,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import sg.mesha.goatos.BuildConfig
+import sg.mesha.goatos.auth.currentFirebaseIdTokenBlocking
 import sg.mesha.goatos.core.data.BootstrapCache
 import sg.mesha.goatos.core.data.BootstrapCacheDao
 import sg.mesha.goatos.core.data.AdherenceRepository
@@ -97,10 +98,18 @@ object AppModule {
     @Provides
     @Singleton
     fun provideAppApi(sessionStore: SessionStore): AppApi =
-        NetworkFactory.appApi(BuildConfig.API_BASE_URL) {
-            // Interceptor runs off the main thread; a blocking token read is safe here.
-            runBlocking { sessionStore.currentToken() }
-        }
+        NetworkFactory.appApi(
+            baseUrl = BuildConfig.API_BASE_URL,
+            tokenProvider = {
+                // Interceptor runs off the main thread; a blocking token read is safe here.
+                if (BuildConfig.FLAVOR == "dev") {
+                    runBlocking { sessionStore.currentToken() }
+                } else {
+                    currentFirebaseIdTokenBlocking()
+                }
+            },
+            tenantIdProvider = { BuildConfig.TENANT_ID },
+        )
 
     @Provides
     @Singleton

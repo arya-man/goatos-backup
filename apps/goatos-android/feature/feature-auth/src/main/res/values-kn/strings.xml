@@ -4,11 +4,28 @@
     <string name="login_tagline">ಕ್ಷೇತ್ರ ಕಾರ್ಯಾಚರಣೆ</string>
     <string name="login_field_work_email">ಕೆಲಸದ ಇಮೇಲ್</string>
     <string name="login_email_hint">you@mesha.sg</string>
+    <string name="login_field_password">ಪಾಸ್‌ವರ್ಡ್</string>
+    <string name="login_password_hint">ನಿಮ್ಮ ಪಾಸ್‌ವರ್ಡ್</string>
     <string name="login_sign_in">ಸೈನ್ ಇನ್</string>
-    <string name="login_use_email_password">ನಿಮ್ಮ Mesha ಕೆಲಸದ ಇಮೇಲ್ ಬಳಸಿ. ಈ build configured backend session ಬಳಸುತ್ತದೆ.</string>
+    <string name="login_use_email_password">ನಿಮ್ಮ Mesha ಕೆಲಸದ ಇಮೇಲ್ ಮತ್ತು ಪಾಸ್‌ವರ್ಡ್ ಬಳಸಿ</string>
     <string name="login_app_language">ಆ್ಯಪ್ ಭಾಷೆ</string>
     <string name="login_change">ಬದಲಿಸಿ</string>
     <string name="login_role_note">ನಿಮ್ಮ ಪಾತ್ರ HR ಡೈರೆಕ್ಟರಿಯಿಂದ — ನಿಮ್ಮ ಕೆಲಸದ ಪರದೆ ಸಿಗುತ್ತದೆ. ಫೀಲ್ಡ್ ಆಪರೇಟರ್ ಲಸಿಕೆ ಹಾಕುತ್ತಾರೆ; ಮ್ಯಾನೇಜರ್ ಮತ್ತು ಡೈರೆಕ್ಟರ್ ಟ್ರ್ಯಾಕ್ ಮಾಡುತ್ತಾರೆ.</string>
+
+    <string name="login_continue_with_google">Google ಮೂಲಕ ಮುಂದುವರಿಸಿ</string>
+    <string name="login_or_divider">ಅಥವಾ</string>
+    <string name="login_forgot_password">ಪಾಸ್‌ವರ್ಡ್ ಮರೆತಿರಾ?</string>
+    <string name="login_signing_in">ಸೈನ್ ಇನ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="login_reset_sent">ಮರುಹೊಂದಿಸುವ ಲಿಂಕ್ %1$s ಗೆ ಕಳುಹಿಸಲಾಗಿದೆ</string>
+    <string name="login_show_password">ಪಾಸ್‌ವರ್ಡ್ ತೋರಿಸಿ</string>
+    <string name="login_hide_password">ಪಾಸ್‌ವರ್ಡ್ ಮರೆಮಾಡಿ</string>
+    <string name="login_error_invalid_credentials">ಇಮೇಲ್ ಅಥವಾ ಪಾಸ್‌ವರ್ಡ್ ತಪ್ಪಾಗಿದೆ.</string>
+    <string name="login_error_network">ನೆಟ್‌ವರ್ಕ್ ದೋಷ. ನಿಮ್ಮ ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="login_error_too_many_requests">ಹಲವು ಪ್ರಯತ್ನಗಳು. ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="login_error_google_cancelled">Google ಸೈನ್-ಇನ್ ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ.</string>
+    <string name="login_error_no_google_account">ಈ ಸಾಧನದಲ್ಲಿ Google ಖಾತೆ ಕಂಡುಬಂದಿಲ್ಲ.</string>
+    <string name="login_error_no_dev_backend">ಈ ಬಿಲ್ಡ್‌ನಲ್ಲಿ ಬ್ಯಾಕೆಂಡ್ ಸೆಶನ್ ಕಾನ್ಫಿಗರ್ ಆಗಿಲ್ಲ. goatosDevBearerToken ಸೆಟ್ ಆಗಿರುವ ಡೆವ್ ಬಿಲ್ಡ್ ಅಥವಾ Firebase-ಪರಿಶೀಲಿತ ಬಿಲ್ಡ್ ಸ್ಥಾಪಿಸಿ.</string>
+    <string name="login_error_generic">ಸೈನ್-ಇನ್ ವಿಫಲವಾಗಿದೆ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
 
     <string name="perm_gate_title">ಸಾಧನ ಅನುಮತಿಗಳು</string>
     <string name="perm_gate_subtitle">ಸ್ಕ್ಯಾನ್, ಅಲರ್ಟ್ ಮತ್ತು ಪುರಾವೆ ಫೋಟೋಗಳಿಗಾಗಿ ಒಮ್ಮೆ ಅನುಮತಿಸಿ.</string>

@@ -57,7 +57,7 @@ class ScreenshotTest {
     }
 
     @Test
-    fun login() = shot("login") { LoginScreen(onSignIn = {}) }
+    fun login() = shot("login") { LoginScreen(onSignInEmail = { _, _ -> }, onGoogle = {}, onForgotPassword = {}) }
 
     @Test
     fun calendar() = shot("calendar") { CalendarScreen(state = sampleCalendarState()) }

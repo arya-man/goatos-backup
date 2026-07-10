@@ -60,7 +60,7 @@ class GalleryActivity : ComponentActivity() {
                 ProvideAppLocale {
                     Box(Modifier.fillMaxSize().background(MeshaColors.Bg)) {
                         when (screen) {
-                            "login" -> LoginScreen(onSignIn = {})
+                            "login" -> LoginScreen(onSignInEmail = { _, _ -> }, onGoogle = {}, onForgotPassword = {})
                             "calendar" -> CalendarScreen(state = sampleCalendarState())
                             "calendar_coverage" -> CalendarScreen(state = sampleCalendarWithCoverageState())
                             "sheds" -> ShedsScreen(state = sampleShedsState())

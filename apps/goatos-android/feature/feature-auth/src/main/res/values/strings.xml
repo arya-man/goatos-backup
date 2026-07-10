@@ -10,11 +10,28 @@
     <string name="login_tagline">Field operations</string> <!-- mock: tagline -->
     <string name="login_field_work_email">Work email</string> <!-- mock: email -->
     <string name="login_email_hint">you@mesha.sg</string>
+    <string name="login_field_password">Password</string>
+    <string name="login_password_hint">Your password</string>
     <string name="login_sign_in">Sign in</string> <!-- mock: signin -->
-    <string name="login_use_email_password">Use your Mesha work email. This build uses the configured backend session.</string> <!-- mock: otpnote -->
+    <string name="login_use_email_password">Use your Mesha work email and password.</string> <!-- mock: otpnote -->
     <string name="login_app_language">App language</string> <!-- mock: applang -->
     <string name="login_change">Change</string> <!-- mock: change -->
     <string name="login_role_note">Your role comes from the HR directory — you land on the screen for your job. The field operator executes; managers and directors track.</string> <!-- mock: rbac -->
+
+    <string name="login_continue_with_google">Continue with Google</string>
+    <string name="login_or_divider">or</string>
+    <string name="login_forgot_password">Forgot password?</string>
+    <string name="login_signing_in">Signing in…</string>
+    <string name="login_reset_sent">Reset link sent to %1$s</string>
+    <string name="login_show_password">Show password</string>
+    <string name="login_hide_password">Hide password</string>
+    <string name="login_error_invalid_credentials">Email or password is incorrect.</string>
+    <string name="login_error_network">Network error. Check your connection and try again.</string>
+    <string name="login_error_too_many_requests">Too many attempts. Try again later.</string>
+    <string name="login_error_google_cancelled">Google sign-in was cancelled.</string>
+    <string name="login_error_no_google_account">No Google account found on this device.</string>
+    <string name="login_error_no_dev_backend">This build has no backend session configured. Install a dev build with goatosDevBearerToken set, or a Firebase-verified build, to sign in.</string>
+    <string name="login_error_generic">Sign-in failed. Try again.</string>
 
     <!-- Login-time device-permission gate (docs/mobile/rfid-keyboard-reader.md +
          trd-operator-mobile.md §7). Every permission here is optional: denying one

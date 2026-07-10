@@ -66,14 +66,19 @@ class MainActivity : ComponentActivity() {
                 ProvideAppLocale {
                 val authed by sessionViewModel.isAuthed.collectAsStateWithLifecycle()
                 if (!authed) {
-                    val signInError by sessionViewModel.signInError.collectAsStateWithLifecycle()
-                    // Email-always sign-in; real OTP/Firebase verification is gated.
+                    val uiState by sessionViewModel.uiState.collectAsStateWithLifecycle()
+                    // dev flavor: local HS256 bearer; stg/prod: real Firebase Auth.
                     // LoginScreen itself renders the login-time device-permission gate
                     // (Camera/Bluetooth/Notifications — core-permissions + rationale UI);
                     // it supersedes the old onCreate-time silent BLUETOOTH_CONNECT request.
                     LoginScreen(
-                        onSignIn = sessionViewModel::signIn,
-                        errorMessage = signInError,
+                        onSignInEmail = sessionViewModel::signInWithEmail,
+                        onGoogle = { sessionViewModel.signInWithGoogle(this@MainActivity) },
+                        onForgotPassword = sessionViewModel::sendPasswordReset,
+                        isLoading = uiState.isLoading,
+                        errorReason = uiState.errorReason,
+                        errorDetail = uiState.errorDetail,
+                        resetEmailSent = uiState.resetEmailSent,
                     )
                 } else {
                     val bootstrap by bootstrapViewModel.state.collectAsStateWithLifecycle()

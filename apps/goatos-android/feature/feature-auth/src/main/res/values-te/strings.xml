@@ -4,11 +4,28 @@
     <string name="login_tagline">క్షేత్ర కార్యకలాపాలు</string>
     <string name="login_field_work_email">పని ఇమెయిల్</string>
     <string name="login_email_hint">you@mesha.sg</string>
+    <string name="login_field_password">పాస్‌వర్డ్</string>
+    <string name="login_password_hint">మీ పాస్‌వర్డ్</string>
     <string name="login_sign_in">సైన్ ఇన్</string>
-    <string name="login_use_email_password">మీ Mesha పని ఇమెయిల్ వాడండి. ఈ build configured backend session ఉపయోగిస్తుంది.</string>
+    <string name="login_use_email_password">మీ Mesha పని ఇమెయిల్ మరియు పాస్‌వర్డ్ వాడండి</string>
     <string name="login_app_language">యాప్ భాష</string>
     <string name="login_change">మార్చు</string>
     <string name="login_role_note">మీ పాత్ర HR డైరెక్టరీ నుండి — మీ పని స్క్రీన్ కనిపిస్తుంది. ఫీల్డ్ ఆపరేటర్ టీకా వేస్తారు; మేనేజర్‌లు, డైరెక్టర్‌లు ట్రాక్ చేస్తారు.</string>
+
+    <string name="login_continue_with_google">Google తో కొనసాగించండి</string>
+    <string name="login_or_divider">లేదా</string>
+    <string name="login_forgot_password">పాస్‌వర్డ్ మర్చిపోయారా?</string>
+    <string name="login_signing_in">సైన్ ఇన్ అవుతోంది…</string>
+    <string name="login_reset_sent">రీసెట్ లింక్ %1$sకి పంపబడింది</string>
+    <string name="login_show_password">పాస్‌వర్డ్ చూపించు</string>
+    <string name="login_hide_password">పాస్‌వర్డ్ దాచు</string>
+    <string name="login_error_invalid_credentials">ఇమెయిల్ లేదా పాస్‌వర్డ్ తప్పు.</string>
+    <string name="login_error_network">నెట్‌వర్క్ లోపం. మీ కనెక్షన్ తనిఖీ చేసి మళ్లీ ప్రయత్నించండి.</string>
+    <string name="login_error_too_many_requests">చాలా ప్రయత్నాలు. తర్వాత మళ్లీ ప్రయత్నించండి.</string>
+    <string name="login_error_google_cancelled">Google సైన్-ఇన్ రద్దు చేయబడింది.</string>
+    <string name="login_error_no_google_account">ఈ పరికరంలో Google ఖాతా కనుగొనబడలేదు.</string>
+    <string name="login_error_no_dev_backend">ఈ బిల్డ్‌లో బ్యాకెండ్ సెషన్ కాన్ఫిగర్ చేయలేదు. goatosDevBearerToken సెట్ చేసిన డెవ్ బిల్డ్ లేదా Firebase-ధృవీకరించిన బిల్డ్‌ను ఇన్‌స్టాల్ చేయండి.</string>
+    <string name="login_error_generic">సైన్-ఇన్ విఫలమైంది. మళ్లీ ప్రయత్నించండి.</string>
 
     <string name="perm_gate_title">పరికర అనుమతులు</string>
     <string name="perm_gate_subtitle">స్కాన్, అలర్ట్‌లు, రుజువు ఫోటోల కోసం ఒకసారి అనుమతించండి.</string>

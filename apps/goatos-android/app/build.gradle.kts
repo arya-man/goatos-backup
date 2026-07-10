@@ -23,7 +23,10 @@ android {
         // Firebase token drives auth there). The dev flow seeds this as the session
         // token so the app authenticates against the local backend.
         val devToken = (project.findProperty("goatosDevBearerToken") as String?).orEmpty()
+        val tenantId = (project.findProperty("goatosTenantId") as String?)
+            ?: "00000000-0000-4000-8000-000000000001"
         buildConfigField("String", "DEV_BEARER_TOKEN", "\"$devToken\"")
+        buildConfigField("String", "TENANT_ID", "\"$tenantId\"")
     }
 
     // One common app; env is a build flavor, roles are runtime (app-id ADR).
@@ -41,7 +44,7 @@ android {
             dimension = "env"
             applicationIdSuffix = ".stg"
             versionNameSuffix = "-stg"
-            buildConfigField("String", "API_BASE_URL", "\"https://stg.api.goatos.mesha.sg/\"")
+            buildConfigField("String", "API_BASE_URL", "\"https://goatos-api-stg-514832198871.asia-south1.run.app/\"")
         }
         create("prod") {
             dimension = "env"
@@ -109,6 +112,14 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
+
+    // Firebase Auth + Credential Manager for stg/prod mobile SSO. Firebase options for
+    // stg are committed as generated-equivalent string resources under src/stg/res.
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

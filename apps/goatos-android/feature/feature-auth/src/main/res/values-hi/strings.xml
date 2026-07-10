@@ -4,11 +4,28 @@
     <string name="login_tagline">फ़ील्ड ऑपरेशंस</string>
     <string name="login_field_work_email">कार्य ईमेल</string>
     <string name="login_email_hint">you@mesha.sg</string>
+    <string name="login_field_password">पासवर्ड</string>
+    <string name="login_password_hint">आपका पासवर्ड</string>
     <string name="login_sign_in">साइन इन</string>
-    <string name="login_use_email_password">अपना Mesha कार्य ईमेल उपयोग करें। यह बिल्ड कॉन्फ़िगर किए गए backend session का उपयोग करता है।</string>
+    <string name="login_use_email_password">अपना Mesha कार्य ईमेल और पासवर्ड उपयोग करें</string>
     <string name="login_app_language">ऐप भाषा</string>
     <string name="login_change">बदलें</string>
     <string name="login_role_note">आपकी भूमिका HR डायरेक्टरी से आती है — आपको अपने काम की स्क्रीन मिलती है। फ़ील्ड ऑपरेटर टीका करता है; मैनेजर और डायरेक्टर ट्रैक करते हैं।</string>
+
+    <string name="login_continue_with_google">Google से जारी रखें</string>
+    <string name="login_or_divider">या</string>
+    <string name="login_forgot_password">पासवर्ड भूल गए?</string>
+    <string name="login_signing_in">साइन इन हो रहा है…</string>
+    <string name="login_reset_sent">रीसेट लिंक %1$s पर भेजा गया</string>
+    <string name="login_show_password">पासवर्ड दिखाएं</string>
+    <string name="login_hide_password">पासवर्ड छुपाएं</string>
+    <string name="login_error_invalid_credentials">ईमेल या पासवर्ड गलत है।</string>
+    <string name="login_error_network">नेटवर्क त्रुटि। अपना कनेक्शन जांचें और पुनः प्रयास करें।</string>
+    <string name="login_error_too_many_requests">बहुत अधिक प्रयास। बाद में पुनः प्रयास करें।</string>
+    <string name="login_error_google_cancelled">Google साइन-इन रद्द कर दिया गया।</string>
+    <string name="login_error_no_google_account">इस डिवाइस पर कोई Google खाता नहीं मिला।</string>
+    <string name="login_error_no_dev_backend">इस बिल्ड में कोई बैकएंड सेशन कॉन्फ़िगर नहीं है। goatosDevBearerToken सेट के साथ डेव बिल्ड, या Firebase-सत्यापित बिल्ड इंस्टॉल करें।</string>
+    <string name="login_error_generic">साइन-इन विफल रहा। पुनः प्रयास करें।</string>
 
     <string name="perm_gate_title">डिवाइस अनुमतियाँ</string>
     <string name="perm_gate_subtitle">स्कैन, अलर्ट और प्रमाण फ़ोटो के लिए एक बार अनुमति दें।</string>

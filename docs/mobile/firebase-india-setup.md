@@ -116,7 +116,108 @@ flavors (dev/stg/prod)      → each reads its own google-services.json + app-ap
 - Analytics collection respects a consent/enable flag from bootstrap (can be
   turned off per environment via the port's fake/no-op).
 
-## 7. Definition of done for this runbook
+## 7. Mobile SSO debug checklist
+
+Validated on 2026-07-11 against `sg.mesha.goatos.stg` on a physical Android
+device. Use this checklist when Google SSO appears to succeed but the mobile app
+shows "Couldn't load your workspace", returns to login, or crashes immediately
+after login.
+
+### Required mobile request context
+
+Firebase ID tokens authenticate the Google/Firebase subject, but Goat OS tenant
+authorization still needs the tenant context header. Mobile API calls must send
+both:
+
+```text
+Authorization: Bearer <firebase-id-token>
+X-GoatOS-Tenant-ID: 00000000-0000-4000-8000-000000000001
+```
+
+The staging Android flavor must point at the staging Cloud Run API host, not the
+old DNS alias:
+
+```text
+https://goatos-api-stg-514832198871.asia-south1.run.app/
+```
+
+Relevant code paths:
+
+```text
+apps/goatos-android/app/build.gradle.kts
+apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/di/AppModule.kt
+apps/goatos-android/core/core-network/src/main/kotlin/sg/mesha/goatos/core/network/NetworkModule.kt
+```
+
+Expected no-token probe from a device or local shell:
+
+```bash
+curl -i \
+  -H 'X-GoatOS-Tenant-ID: 00000000-0000-4000-8000-000000000001' \
+  https://goatos-api-stg-514832198871.asia-south1.run.app/app/bootstrap
+```
+
+Expected response is `401 missing_bearer_token`. That proves the API host is
+reachable and the tenant header is accepted; it does not prove login is done.
+
+### Post-login crash guard
+
+If the app crashes after `/app/bootstrap -> 200`, check the crash buffer:
+
+```bash
+adb -s <device> logcat -b crash -d
+```
+
+This crash means Compose `LocalContext` was replaced with a detached
+`ContextImpl`, so Hilt cannot create shell-level ViewModels:
+
+```text
+IllegalStateException: Expected an activity context for creating a HiltViewModelFactory
+```
+
+`ProvideAppLocale` must keep an activity-backed context:
+
+```text
+apps/goatos-android/core/core-designsystem/src/main/kotlin/sg/mesha/goatos/core/designsystem/locale/AppLocale.kt
+```
+
+Use `ContextThemeWrapper(base, base.theme).apply { applyOverrideConfiguration(cfg) }`
+instead of `base.createConfigurationContext(cfg)` when providing `LocalContext`.
+
+### End-to-end verification
+
+Do not ask the maintainer to manually confirm SSO. Verify it from ADB:
+
+```bash
+adb -s <device> shell am get-current-user
+adb -s <device> shell cmd package install-existing --user <active-user> sg.mesha.goatos.stg
+adb -s <device> shell logcat -c
+adb -s <device> shell am start --user <active-user> \
+  -n sg.mesha.goatos.stg/sg.mesha.goatos.MainActivity
+adb -s <device> shell uiautomator dump /sdcard/goatos-ui.xml
+adb -s <device> pull /sdcard/goatos-ui.xml /tmp/goatos-ui.xml
+adb -s <device> logcat -d -t 2500 | rg -i 'MESHA_HTTP|AndroidRuntime|FATAL'
+```
+
+Passing result:
+
+```text
+GET /app/bootstrap -> 200
+POST /app/devices/<device-id>/heartbeat -> 200
+GET /calendar/vaccination/events -> 200
+GET /app/roster/my-coverage -> 200
+```
+
+The UI tree should show an authenticated shell such as `Vaccination · Director`
+and `Overview`, not the Google login button or the workspace-error screen. The
+crash buffer must have no new `AndroidRuntime` crash for `sg.mesha.goatos.stg`.
+
+Known non-SSO follow-ups are route-level backend gaps such as
+`403 route_not_registered` for `/app/config` or `/app/vaccination/gaps`, and
+data-shape gaps such as `400 invalid_shed_id` for mock shed ids like `castro1`.
+Those do not mean Google SSO failed.
+
+## 8. Definition of done for this runbook
 
 ```text
 [ ] §1 checklist verified + stated

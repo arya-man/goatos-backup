@@ -39,6 +39,8 @@ import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
 
+const val TENANT_CONTEXT_HEADER: String = "X-GoatOS-Tenant-ID"
+
 /**
  * Retrofit surface for the app API. One method per consumed endpoint. Paths are
  * relative to the base URL (which ends in `/`). Nullable @Query params are omitted
@@ -303,17 +305,19 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
  */
 class BearerAuthInterceptor(
     private val tokenProvider: () -> String?,
+    private val tenantIdProvider: () -> String? = { null },
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val token = tokenProvider()
-        val request = if (token.isNullOrBlank()) {
-            chain.request()
-        } else {
-            chain.request().newBuilder()
-                .addHeader("Authorization", "Bearer $token")
-                .build()
+        val tenantId = tenantIdProvider()
+        val builder = chain.request().newBuilder()
+        if (!token.isNullOrBlank()) {
+            builder.header("Authorization", "Bearer $token")
         }
-        return chain.proceed(request)
+        if (!tenantId.isNullOrBlank()) {
+            builder.header(TENANT_CONTEXT_HEADER, tenantId)
+        }
+        return chain.proceed(builder.build())
     }
 }
 
@@ -325,9 +329,12 @@ object NetworkFactory {
         encodeDefaults = true
     }
 
-    fun okHttp(tokenProvider: () -> String?): OkHttpClient =
+    fun okHttp(
+        tokenProvider: () -> String?,
+        tenantIdProvider: () -> String? = { null },
+    ): OkHttpClient =
         OkHttpClient.Builder()
-            .addInterceptor(BearerAuthInterceptor(tokenProvider))
+            .addInterceptor(BearerAuthInterceptor(tokenProvider, tenantIdProvider))
             // Explicit bounds — never rely on the platform/OkHttp defaults (a stuck socket on a
             // field 2G link must fail and let the outbox back off, not hang the drain coroutine).
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -344,6 +351,10 @@ object NetworkFactory {
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
 
-    fun appApi(baseUrl: String, tokenProvider: () -> String?): AppApi =
-        RetrofitAppApi(retrofit(baseUrl, okHttp(tokenProvider)).create())
+    fun appApi(
+        baseUrl: String,
+        tokenProvider: () -> String?,
+        tenantIdProvider: () -> String? = { null },
+    ): AppApi =
+        RetrofitAppApi(retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider)).create())
 }
