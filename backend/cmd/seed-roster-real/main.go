@@ -14,7 +14,9 @@
 //     confidence, notes. This CSV is the SOURCE OF TRUTH for timetable-slot assignments --
 //     replaces fuzzy matching. The jun26_candidate column names the person in the Jun-26
 //     sheet who holds each roster position. UNRESOLVED confidence slot leaves
-//     grade/member-link null and logs it.
+//     grade/member-link null and logs it. MANUAL_SEED confidence creates a
+//     seed-only member from the CSV row when the person is intentionally not
+//     present in Jun-26 yet.
 //   - <source>/timetable-goats-team-v1.json   Staff-Timetable Goats-Team-v1 tab,
 //     used for recurring week-off days by fixed operational position.
 //   - <source>/attendance-jun-26.json (optional)   per-calendar-day attendance grid
@@ -108,13 +110,16 @@ var positionDefs = map[string]positionDef{
 type memberSource string
 
 const (
-	sourceJun26 memberSource = "jun26"
+	sourceJun26      memberSource = "jun26"
+	sourceManualSeed memberSource = "manual_seed"
 )
 
 // memberRec is one normalized staff member keyed by June-26 sheet name.
 type memberRec struct {
 	seqNo           int    // position in Jun-26 sheet (1-based), used for deterministic UUID
 	name            string // Jun-26 sheet name; NEVER logged
+	source          memberSource
+	sourceKey       string // deterministic non-PII import key
 	designationType string // Designation Type from Jun-26: CXO | Director | Manager | Assistant Manager
 	designation     string // Designation from Jun-26
 	location        string // Location from Jun-26: Bangalore | CBE | CPT
@@ -154,6 +159,7 @@ type stats struct {
 	AttendanceUnmatched    int
 	LeaveWindowsEmitted    int
 	LeaveDaysTotal         int
+	ManualMembersCreated   int
 	MembersInserted        int
 	PositionsInserted      int
 	LeavesInserted         int
@@ -214,10 +220,10 @@ func run(args []string) error {
 
 	fmt.Printf("normalized real roster:\n"+
 		"  jun26_rows=%d mapping_rows=%d assignments_filled=%d unresolved=%d\n"+
-		"  members_with_grade=%d backup_groups_by_center=%v\n"+
+		"  members_with_grade=%d manual_seed_members=%d backup_groups_by_center=%v\n"+
 		"  attendance_rows=%d matched_members=%d unmatched_names=%d leave_windows=%d leave_days=%d\n",
 		st.Jun26Rows, st.MappingRows, st.AssignmentsFilled, st.AssignmentsUnresolved,
-		st.MembersWithGradeMapped, st.BackupGroupsByCenter,
+		st.MembersWithGradeMapped, st.ManualMembersCreated, st.BackupGroupsByCenter,
 		st.AttendanceRowsTotal, st.AttendanceMatchedNames, st.AttendanceUnmatched, st.LeaveWindowsEmitted, st.LeaveDaysTotal)
 
 	// Log unresolved slots if any
@@ -325,6 +331,8 @@ func loadJun26Keyed(sourcePath string) (map[string]*memberRec, error) {
 		m := &memberRec{
 			seqNo:           seqNo + 2, // 1-based, row 1 is header
 			name:            name,
+			source:          sourceJun26,
+			sourceKey:       strconv.Itoa(seqNo + 2),
 			designationType: desigType,
 			designation:     desig,
 			location:        location,
@@ -355,11 +363,14 @@ func mapDesignationTypeToGrade(desigType string) string {
 
 // rosterMappingRow represents one row from the reviewed CSV.
 type rosterMappingRow struct {
-	center      string
-	position    string // timetable_position
-	jun26Name   string // jun26_candidate
-	confidence  string // HIGH | REVIEW | UNRESOLVED
-	designation string // for notes
+	rowNo           int
+	center          string
+	position        string // timetable_position
+	jun26Name       string // jun26_candidate
+	confidence      string // HIGH | REVIEW | UNRESOLVED | MANUAL_SEED
+	designationType string
+	designation     string // for notes/member seeding
+	location        string
 }
 
 // loadRosterMappingCSV loads the authoritative roster-to-person join.
@@ -382,14 +393,16 @@ func loadRosterMappingCSV(sourcePath string) ([]rosterMappingRow, error) {
 
 	// Header: center, timetable_position, timetable_name, jun26_candidate, designation_type, designation, location, confidence, notes
 	var out []rosterMappingRow
-	for _, row := range rows[1:] {
+	for i, row := range rows[1:] {
 		if len(row) < 8 {
 			continue
 		}
 		center := strings.TrimSpace(row[0])
 		position := strings.TrimSpace(row[1])
 		jun26Name := strings.TrimSpace(row[3])
+		desigType := strings.TrimSpace(row[4])
 		desig := strings.TrimSpace(row[5])
+		location := strings.TrimSpace(row[6])
 		confidence := strings.TrimSpace(row[7])
 
 		if center == "" || position == "" {
@@ -397,11 +410,14 @@ func loadRosterMappingCSV(sourcePath string) ([]rosterMappingRow, error) {
 		}
 
 		out = append(out, rosterMappingRow{
-			center:      center,
-			position:    position,
-			jun26Name:   jun26Name,
-			confidence:  confidence,
-			designation: desig,
+			rowNo:           i + 2,
+			center:          center,
+			position:        position,
+			jun26Name:       jun26Name,
+			confidence:      confidence,
+			designationType: desigType,
+			designation:     desig,
+			location:        location,
 		})
 	}
 	return out, nil
@@ -565,17 +581,40 @@ func normalizeAssignments(jun26Members map[string]*memberRec, csvMappings []rost
 			if m, ok := jun26Members[mapping.jun26Name]; ok {
 				member = m
 				resolved = true
+			} else if isManualSeed(mapping.confidence) {
+				location := mapping.location
+				if location == "" {
+					location = mapping.center
+				}
+				member = &memberRec{
+					seqNo:           9000 + mapping.rowNo,
+					name:            mapping.jun26Name,
+					source:          sourceManualSeed,
+					sourceKey:       fmt.Sprintf("%s:%s", mapping.center, def.code),
+					designationType: mapping.designationType,
+					designation:     mapping.designation,
+					location:        location,
+					grade:           mapDesignationTypeToGrade(mapping.designationType),
+				}
+				resolved = true
+			}
+			if resolved {
 				st.AssignmentsFilled++
-				if _, exists := members[mapping.jun26Name]; !exists {
-					members[mapping.jun26Name] = m
-					if m.grade != "" {
+				if existing, exists := members[mapping.jun26Name]; exists {
+					member = existing
+				} else {
+					members[mapping.jun26Name] = member
+					if member.grade != "" {
 						st.MembersWithGradeMapped++
 					}
+					if member.source == sourceManualSeed {
+						st.ManualMembersCreated++
+					}
 				}
-			} else {
+			}
+			if !resolved {
 				// CSV references a name not in Jun-26 (shouldn't happen with maintained CSV)
 				st.AssignmentsUnresolved++
-				resolved = false
 			}
 		}
 
@@ -622,6 +661,10 @@ func normalizeAssignments(jun26Members map[string]*memberRec, csvMappings []rost
 	st.PositionSlotsVacant = 0 // CSV has no vacant slots
 
 	return members, assignments, st
+}
+
+func isManualSeed(confidence string) bool {
+	return strings.EqualFold(strings.TrimSpace(confidence), "MANUAL_SEED")
 }
 
 func tierRank(tier string) int {
@@ -750,8 +793,19 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 
 	for _, key := range keys {
 		m := members[key]
-		id := detUUID("workforce_member", "jun26", tenantID, strconv.Itoa(m.seqNo))
+		source := m.source
+		if source == "" {
+			source = sourceJun26
+		}
+		sourceKey := m.sourceKey
+		if sourceKey == "" {
+			sourceKey = strconv.Itoa(m.seqNo)
+		}
+		id := detUUID("workforce_member", string(source), tenantID, sourceKey)
 		displayCode := fmt.Sprintf("HRMS-JUN26-%03d", m.seqNo)
+		if source == sourceManualSeed {
+			displayCode = fmt.Sprintf("HRMS-MANUAL-%03d", m.seqNo)
+		}
 		memberID[key] = id
 
 		var grade *string
