@@ -4,6 +4,11 @@ into one self-contained static HTML gallery page (item 7), for CI publishing (Gi
 job summary). Images are embedded as base64 data URIs so the page has zero external references
 and can be opened standalone or hosted as-is.
 
+Two sections are rendered:
+  - "Screens"              — one image per ScreenshotTest method (every screen, once).
+  - "Role chrome coverage" — one image per RoleChromeScreenshotTest method (every role tier's
+    nav chrome + landing screen, once — CEO/Director/Park Head/Park Manager/Operator).
+
 Usage:
     python3 tools/android/build-screenshot-gallery.py [output_dir]
 
@@ -36,8 +41,35 @@ SCREEN_META: dict[str, tuple[str, str]] = {
     "reschedule": ("Reschedule", "New-date + assign-to form"),
 }
 
-# Matches Paparazzi's default snapshot filename: <package>_<ClassName>_<testMethod>_<snapshotName>.png
-FILENAME_RE = re.compile(r"^.+_ScreenshotTest_([a-zA-Z0-9]+)_[a-zA-Z0-9]+\.png$")
+# RoleChromeScreenshotTest method name -> (display title, one-line description).
+ROLE_META: dict[str, tuple[str, str]] = {
+    "role_ceo": ("CEO / superuser", "EXPANDED chrome, all 4 modules, landing Overview"),
+    "role_ceo_drawer": ("CEO / superuser · drawer open", "Module switcher (EXPANDED-only chrome)"),
+    "role_director": ("Director", "EXPANDED chrome, >=2 modules, landing Overview"),
+    "role_park_head": ("Park Head", "EXPANDED chrome, >=2 modules for the park, landing Overview"),
+    "role_park_manager": ("Park Manager", "MINIMAL bottom-bar, single vaccination module, landing Calendar"),
+    "role_operator": ("Operator", "MINIMAL bottom-bar, single vaccination module, landing Calendar"),
+}
+
+# Matches Paparazzi's default snapshot filename:
+#   <package>_<ClassName>_<testMethod>_<snapshotName>.png
+# Our shot(name) helper always calls the test method and the snapshot the same string, so the
+# suffix after "_<ClassName>_" is "<key>_<key>" — captured whole here (group 2 may itself
+# contain underscores, e.g. "role_ceo_drawer") and split via _split_doubled_key below rather
+# than parsed by a second regex group, which would be ambiguous for underscore-containing keys.
+FILENAME_RE = re.compile(r"^.+_(ScreenshotTest|RoleChromeScreenshotTest)_(.+)\.png$")
+
+
+def _split_doubled_key(mid: str) -> str:
+    """mid is "<key>_<key>" (method name + snapshot name, always identical by convention).
+    Recovers <key> by position rather than by a second regex group, so keys containing
+    underscores (e.g. "role_ceo_drawer") split correctly."""
+    n = len(mid)
+    half = (n - 1) // 2
+    if n % 2 == 1 and mid[half] == "_" and mid[:half] == mid[half + 1 :]:
+        return mid[:half]
+    return mid  # fallback: unrecognized shape, show the raw string rather than guessing
+
 
 HTML_TEMPLATE = """<!doctype html>
 <html lang="en">
@@ -52,6 +84,7 @@ HTML_TEMPLATE = """<!doctype html>
     background: #0a0f0c; color: #e7ede9;
   }}
   h1 {{ font-size: 20px; margin: 0 0 4px; }}
+  h2 {{ font-size: 16px; margin: 28px 0 10px; color: #cddbd3; }}
   p.meta {{ color: #8aa196; font-size: 13px; margin: 0 0 22px; }}
   .grid {{
     display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px;
@@ -69,11 +102,19 @@ HTML_TEMPLATE = """<!doctype html>
 <body>
   <h1>Goat OS Android — screenshot gallery</h1>
   <p class="meta">Generated {generated_at} from Paparazzi golden images
-  (app/src/test/snapshots/images), one per ScreenshotTest method. Regenerate with
+  (app/src/test/snapshots/images). Regenerate with
   <code>./gradlew :app:recordPaparazziDevDebug</code> then
-  <code>python3 tools/android/build-screenshot-gallery.py</code>. {count} screens.</p>
+  <code>python3 tools/android/build-screenshot-gallery.py</code>.
+  {screen_count} screens, {role_count} role-chrome variants.</p>
+  <h2>Screens</h2>
   <div class="grid">
-{cards}
+{screen_cards}
+  </div>
+  <h2>Role chrome coverage</h2>
+  <p class="meta">Nav chrome (drawer/module-switcher vs bottom-bar-only) + landing screen, one
+  per role tier — see RoleChromeScreenshotTest.kt.</p>
+  <div class="grid">
+{role_cards}
   </div>
 </body>
 </html>
@@ -83,6 +124,31 @@ CARD_TEMPLATE = """    <div class="card">
       <img src="data:image/png;base64,{data}" alt="{title}">
       <div class="body"><h3>{title}</h3><p>{description}</p></div>
     </div>"""
+
+
+def _collect(pngs: list[Path], class_name: str, meta: dict[str, tuple[str, str]]) -> list[str]:
+    order = list(meta.keys())
+
+    def sort_key(png: Path) -> tuple[int, str]:
+        m = FILENAME_RE.match(png.name)
+        key = _split_doubled_key(m.group(2)) if m else png.stem
+        return (order.index(key) if key in order else len(order), png.name)
+
+    cards = []
+    seen = set()
+    matching = [
+        png for png in pngs if (m := FILENAME_RE.match(png.name)) is not None and m.group(1) == class_name
+    ]
+    for png in sorted(matching, key=sort_key):
+        m = FILENAME_RE.match(png.name)
+        key = _split_doubled_key(m.group(2)) if m else png.stem
+        if key in seen:
+            continue
+        seen.add(key)
+        title, description = meta.get(key, (key, ""))
+        data = base64.b64encode(png.read_bytes()).decode("ascii")
+        cards.append(CARD_TEMPLATE.format(data=data, title=title, description=description))
+    return cards
 
 
 def main() -> None:
@@ -98,32 +164,18 @@ def main() -> None:
         print(f"No PNGs in {SNAPSHOTS_DIR}.")
         sys.exit(1)
 
-    cards = []
-    seen = set()
-    order = list(SCREEN_META.keys())
-
-    def sort_key(png: Path) -> tuple[int, str]:
-        m = FILENAME_RE.match(png.name)
-        key = m.group(1) if m else png.stem
-        return (order.index(key) if key in order else len(order), png.name)
-
-    for png in sorted(pngs, key=sort_key):
-        m = FILENAME_RE.match(png.name)
-        key = m.group(1) if m else png.stem
-        if key in seen:
-            continue
-        seen.add(key)
-        title, description = SCREEN_META.get(key, (key, ""))
-        data = base64.b64encode(png.read_bytes()).decode("ascii")
-        cards.append(CARD_TEMPLATE.format(data=data, title=title, description=description))
+    screen_cards = _collect(pngs, "ScreenshotTest", SCREEN_META)
+    role_cards = _collect(pngs, "RoleChromeScreenshotTest", ROLE_META)
 
     html = HTML_TEMPLATE.format(
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-        count=len(cards),
-        cards="\n".join(cards),
+        screen_count=len(screen_cards),
+        role_count=len(role_cards),
+        screen_cards="\n".join(screen_cards),
+        role_cards="\n".join(role_cards),
     )
     (out_dir / "index.html").write_text(html, encoding="utf-8")
-    print(f"Wrote {out_dir / 'index.html'} ({len(cards)} screens)")
+    print(f"Wrote {out_dir / 'index.html'} ({len(screen_cards)} screens, {len(role_cards)} role variants)")
 
 
 if __name__ == "__main__":

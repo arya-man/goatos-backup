@@ -2,6 +2,7 @@ name: pages
 
 # Publishes three CI-generated reports to GitHub Pages, combined under one site:
 #   /screenshot-gallery/  Paparazzi golden images for every mobile screen (:app ScreenshotTest)
+#                         plus every role's nav chrome + landing (:app RoleChromeScreenshotTest)
 #   /nav-graph/           Compose Navigation routes + navigate() edges (Mermaid)
 #   /e2e-report/          Backend vaccination kernel-story E2E report (19 stories, HTML)
 # Runs on every push to main that touches the relevant paths, AND on a daily cron so the
@@ -51,7 +52,7 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" || true
-      - name: Render every screen's Paparazzi golden (fresh, not just verify)
+      - name: Render every screen's + role's Paparazzi golden (fresh, not just verify)
         working-directory: apps/goatos-android
         run: ./gradlew :app:recordPaparazziDevDebug --no-configuration-cache --stacktrace
       - name: Build the screenshot gallery HTML
@@ -60,7 +61,7 @@ jobs:
         run: |
           {
             echo "### Mobile screenshot gallery"
-            echo "12 screens rendered — see the Pages artifact \`screenshot-gallery\` below once deployed."
+            echo "12 screens + 6 role-chrome variants (CEO, CEO w/ drawer, Director, Park Head, Park Manager, Operator) rendered — see the Pages artifact \`screenshot-gallery\` below once deployed."
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:

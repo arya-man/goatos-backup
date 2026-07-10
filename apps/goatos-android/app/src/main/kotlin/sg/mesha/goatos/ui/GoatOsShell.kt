@@ -50,11 +50,36 @@ import sg.mesha.goatos.core.model.nav.NavState
 @Composable
 fun GoatOsShell(navState: NavState) {
     val navController = rememberNavController()
-    val hasDrawer = navState.chrome == NavChrome.EXPANDED
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
     val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = backStackEntry?.destination?.route
+
+    GoatOsShellChrome(
+        navState = navState,
+        currentRoute = backStackEntry?.destination?.route,
+        onNavigate = { href -> navController.navigate(href) { launchSingleTop = true; restoreState = true } },
+    ) {
+        AppNavHost(navController = navController)
+    }
+}
+
+/**
+ * The shell's chrome (drawer/module-switcher + bottom bar + Scaffold) around an arbitrary
+ * [content] slot, factored out of [GoatOsShell] so it can be driven by a static [NavState]
+ * fixture and a static landing composable — no [androidx.navigation.NavHostController] or Hilt
+ * ViewModel required. [GoatOsShell] is the real app entry (content = [AppNavHost]);
+ * `RoleChromeScreenshotTest` is the other caller (content = one role's landing screen), so every
+ * role's nav chrome renders through the exact same code path a device would use.
+ */
+@Composable
+fun GoatOsShellChrome(
+    navState: NavState,
+    currentRoute: String?,
+    onNavigate: (String) -> Unit,
+    initialDrawerValue: DrawerValue = DrawerValue.Closed,
+    content: @Composable () -> Unit,
+) {
+    val hasDrawer = navState.chrome == NavChrome.EXPANDED
+    val drawerState = rememberDrawerState(initialDrawerValue)
+    val scope = rememberCoroutineScope()
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -66,7 +91,7 @@ fun GoatOsShell(navState: NavState) {
                     currentRoute = currentRoute,
                     onSelect = { href ->
                         scope.launch { drawerState.close() }
-                        navController.navigate(href) { launchSingleTop = true; restoreState = true }
+                        onNavigate(href)
                     },
                 )
             }
@@ -78,12 +103,8 @@ fun GoatOsShell(navState: NavState) {
                 MeshaNavBar(
                     items = navState.items,
                     currentRoute = currentRoute,
-                    onSelect = { href ->
-                        navController.navigate(href) { launchSingleTop = true; restoreState = true }
-                    },
-                    onYou = {
-                        navController.navigate(Routes.YOU) { launchSingleTop = true; restoreState = true }
-                    },
+                    onSelect = onNavigate,
+                    onYou = { onNavigate(Routes.YOU) },
                 )
             },
         ) { padding ->
@@ -91,7 +112,7 @@ fun GoatOsShell(navState: NavState) {
                 if (hasDrawer) {
                     ShellTopBar(onMenu = { scope.launch { drawerState.open() } })
                 }
-                AppNavHost(navController = navController)
+                content()
             }
         }
     }
