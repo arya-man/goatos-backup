@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -17,10 +16,6 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
-
-// departmentCodePattern mirrors departments_code_check so a seeded department
-// hint can resolve departments.code at claim time.
-var departmentCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 type emailFlags []string
 
@@ -42,19 +37,12 @@ func main() {
 	var tenantID string
 	var role string
 	var source string
-	var department string
 	var emails emailFlags
 	flag.StringVar(&tenantID, "tenant-id", "", "tenant UUID for the tenant-scope pending email grants")
 	flag.StringVar(&role, "role", permissions.RoleCEOInternal, "role: admin, verifier, park_head, pc_director, operator, or ceo_internal")
 	flag.StringVar(&source, "source", "manual_dev_seed", "audit/source label for the pending email grants")
-	flag.StringVar(&department, "department", "", "optional HR department code (e.g. leadership, admin_data, vaccination); on sign-in a workforce_member is provisioned into it")
 	flag.Var(&emails, "email", "approved email; may be repeated or comma-separated")
 	flag.Parse()
-
-	department = strings.TrimSpace(department)
-	if department != "" && !departmentCodePattern.MatchString(department) {
-		fail("invalid department code: %q (must match ^[a-z][a-z0-9_]*$)", department)
-	}
 
 	normalizedEmails, err := normalizeEmails(emails)
 	if err != nil {
@@ -92,8 +80,7 @@ INSERT INTO auth_pending_email_grants (
   scope_id,
   status,
   valid_from,
-  source,
-  department_code
+  source
 ) VALUES (
   $1,
   $2,
@@ -103,24 +90,18 @@ INSERT INTO auth_pending_email_grants (
   $1,
   'active',
   now(),
-  $4,
-  NULLIF($5, '')
+  $4
 )
 ON CONFLICT (tenant_id, normalized_email, role, scope_type, scope_id)
   WHERE status = 'active' AND valid_to IS NULL
 DO UPDATE SET
   email = EXCLUDED.email,
   source = EXCLUDED.source,
-  department_code = EXCLUDED.department_code,
   updated_at = now()
-RETURNING pending_grant_id::text`, tenantID, email, role, source, department).Scan(&pendingGrantID); err != nil {
+RETURNING pending_grant_id::text`, tenantID, email, role, source).Scan(&pendingGrantID); err != nil {
 			fail("upsert pending email grant for %s: %v", email, err)
 		}
-		departmentNote := "none"
-		if department != "" {
-			departmentNote = department
-		}
-		fmt.Printf("pending email grant %s active for %s role %s department %s tenant %s\n", pendingGrantID, email, role, departmentNote, tenantID)
+		fmt.Printf("pending email grant %s active for %s role %s tenant %s\n", pendingGrantID, email, role, tenantID)
 	}
 }
 

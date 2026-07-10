@@ -24,10 +24,10 @@ import (
 //   - Temporary execution permission: workforce_member_capabilities (000050)
 //     via the injected CapabilityGranter (S4.6) -- a normal time-bounded
 //     capability row for the backup holder, no new grants table.
-//   - Department ownership / CEO superuser tier / escalation target: reused
-//     as-is (department_module_grants, user_scope_grants.ceo_internal,
-//     workforce_roster_assignments.escalation_owner_user_id / the scope's
-//     park_head position) -- not modeled here.
+//   - CEO superuser tier / escalation target: reused as-is
+//     (user_scope_grants.ceo_internal, workforce_roster_assignments.
+//     escalation_owner_user_id / the scope's park_head position) -- not
+//     modeled here.
 //
 // Cross-cover rejection ("a Feed Manager never vaccinates") is structural,
 // not a runtime check: effectiveBackup only ever resolves an

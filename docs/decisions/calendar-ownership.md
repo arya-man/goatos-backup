@@ -178,7 +178,7 @@ Vaccination data that must not create Calendar events:
 - static status-matrix cells.
 - coverage percentages, overdue counts, and KPI cards.
 - Goat Passport vaccination history.
-- owner-missing gaps; these stay in Action Center / Control Tower until an owner
+- blocked gaps; these stay in Action Center / Control Tower until an owner
   exists.
 - background sweepers/replays/generation jobs with no human owner.
 - trusted procurement holding-park vaccination evidence by itself; it affects

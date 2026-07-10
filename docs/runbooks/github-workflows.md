@@ -146,7 +146,7 @@ Purpose:
 
 ```text
 Install ripgrep for boundary checks that scan secrets, direct data-source
-access, forbidden logging patterns, and module ownership violations.
+access, forbidden logging patterns, and module boundary violations.
 ```
 
 `check-boundaries.sh` fails closed when `rg` is missing. If this step fails, the

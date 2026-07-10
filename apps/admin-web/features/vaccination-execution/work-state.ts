@@ -32,7 +32,6 @@ export const WORK_STATE_META: Record<VaccinationExecutionWorkState, StateMeta> =
   deferred: { label: "Deferred", tone: "mut" },
   missed: { label: "Missed", tone: "warn" },
   blocked: { label: "Blocked", tone: "dng" },
-  owner_missing: { label: "Owner missing", tone: "dng" },
   completed: { label: "Completed", tone: "ok" },
 };
 
@@ -71,7 +70,6 @@ export const WORK_STATE_ORDER: VaccinationExecutionWorkState[] = [
   "overdue",
   "missed",
   "blocked",
-  "owner_missing",
   "rejected",
   "proof_pending",
   "verification_pending",

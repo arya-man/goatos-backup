@@ -212,7 +212,7 @@ WHERE tenant_id=$1::uuid
 
 	exceptions, err := feedService.ListCountsProjectionExceptions(ctx, feeddomain.CountsProjectionExceptionQuery{
 		TenantID: feedTenant, Status: "open", ExceptionType: stringPtr("destination_shortage"),
-		Severity: stringPtr("critical"), WorkState: stringPtr("owner_missing"), Limit: 10,
+		Severity: stringPtr("critical"), WorkState: stringPtr("blocked"), Limit: 10,
 	})
 	if err != nil {
 		t.Fatalf("list feed counts projection exceptions: %v", err)
@@ -358,7 +358,7 @@ func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t 
 	}
 	shortages, err := feedService.ListCountsProjectionExceptions(ctx, feeddomain.CountsProjectionExceptionQuery{
 		TenantID: feedTenant, Status: "open", ExceptionType: stringPtr("destination_shortage"),
-		Severity: stringPtr("critical"), WorkState: stringPtr("owner_missing"), Limit: 10,
+		Severity: stringPtr("critical"), WorkState: stringPtr("blocked"), Limit: 10,
 	})
 	if err != nil {
 		t.Fatalf("list destination shortages: %v", err)

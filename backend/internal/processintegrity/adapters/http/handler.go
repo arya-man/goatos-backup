@@ -63,7 +63,6 @@ var allowedWorkStates = map[domain.WorkState]bool{
 	domain.WorkStateDeferred:            true,
 	domain.WorkStateMissed:              true,
 	domain.WorkStateBlocked:             true,
-	domain.WorkStateOwnerMissing:        true,
 	domain.WorkStateCompleted:           true,
 }
 

@@ -10,7 +10,7 @@ Android-free; vendor SDKs live only in `device-*` behind ports.
   └─ :core:core-data → :core:core-network → :core:core-model
 
 core/
-  core-model         (pure JVM)  nav contract: NavChrome / NavItem / OwnedModule / NavState  ← mirrors /app/bootstrap
+  core-model         (pure JVM)  nav contract: NavChrome / NavItem / NavState  ← mirrors /app/bootstrap
   core-common        (pure JVM)  DispatcherProvider, AppResult
   core-designsystem  (compose)   GoatOsTheme (dark-default, tokens from design-system.md)
   core-ui            (compose)   shared stateless components

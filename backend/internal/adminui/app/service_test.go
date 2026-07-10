@@ -373,9 +373,6 @@ func TestBootstrapAppliesDBBackedStableUIConfigEntries(t *testing.T) {
 	if labels := tableLabels(actionCenter, "work-board"); len(labels) < 2 || labels[1] != "Responsible" {
 		t.Fatalf("work-board labels were not config-overridden: %#v", labels)
 	}
-	if got := optionLabelFromPage(t, actionCenter, "work_state_filter_chips", "owner_missing"); got != "Needs owner" {
-		t.Fatalf("work_state owner_missing label = %q", got)
-	}
 	if got := optionLabelFromPage(t, actionCenter, "park_display_chips", "park-1"); got != "P1" {
 		t.Fatalf("live park chip label must remain DB-owned, got %q", got)
 	}
@@ -521,182 +518,27 @@ func TestBootstrapCacheIsBoundedAndSweepsExpiredEntries(t *testing.T) {
 	}
 }
 
-const (
-	ownershipTenantID = "00000000-0000-4000-8000-000000000001"
-	ownershipActorID  = "00000000-0000-4000-8000-000000000099"
-)
-
-func adminOwnershipGrant() []permissions.ActiveGrant {
-	return []permissions.ActiveGrant{{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: ownershipTenantID}}
-}
-
-type stubOwnership struct {
-	modules []permissions.OwnedModule
-	err     error
-}
-
-func (s stubOwnership) ListActiveModuleGrantsForActor(context.Context, string, string) ([]permissions.OwnedModule, error) {
-	return s.modules, s.err
-}
-
-func ownedModules(modules ...string) []permissions.OwnedModule {
-	out := make([]permissions.OwnedModule, 0, len(modules))
-	for _, module := range modules {
-		vertical := "pc"
-		if strings.HasPrefix(module, "admin.") {
-			vertical = "admin"
-		}
-		out = append(out, permissions.OwnedModule{Vertical: vertical, Module: module})
-	}
-	return out
-}
-
-func navGroupByID(groups []domain.NavigationGroup, id string) (domain.NavigationGroup, bool) {
-	for _, group := range groups {
-		if group.ID == id {
-			return group, true
-		}
-	}
-	return domain.NavigationGroup{}, false
-}
-
-func TestBootstrapLeadershipOwnershipKeepsAllModeledNav(t *testing.T) {
-	resp := NewService(fakeFamilies{}).
-		WithModuleOwnership(stubOwnership{modules: ownedModules("pc.vaccination", "admin.config", "admin.sop", "admin.audit", "admin.people")}).
-		Bootstrap(context.Background(), BootstrapInput{TenantID: ownershipTenantID, ActorID: ownershipActorID, Grants: adminOwnershipGrant()})
+func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleOperator, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
 
 	if len(resp.Navigation.Primary) != 5 {
-		t.Fatalf("primary command-lens items must never be filtered, got %d", len(resp.Navigation.Primary))
+		t.Fatalf("primary command-lens items must stay present, got %d", len(resp.Navigation.Primary))
 	}
-	for _, groupID := range []string{"pc", "procurement", "counts", "admin-data"} {
-		if _, ok := navGroupByID(resp.Navigation.Groups, groupID); !ok {
-			t.Fatalf("group %q must be present for leadership ownership", groupID)
-		}
-	}
-	adminData, _ := navGroupByID(resp.Navigation.Groups, "admin-data")
-	if len(adminData.Leaves) != 5 {
-		t.Fatalf("admin-data must keep all 5 owned leaves, got %d: %#v", len(adminData.Leaves), adminData.Leaves)
-	}
-	if resp.NavChrome != domain.NavChromeExpanded {
-		t.Fatalf("nav chrome must be expanded for >=2 owned modeled modules, got %q", resp.NavChrome)
-	}
-	if len(resp.OwnedModules) != 5 {
-		t.Fatalf("owned modules must reflect all 5 department grants, got %#v", resp.OwnedModules)
-	}
-}
-
-func TestBootstrapPCOnlyOwnershipDropsAdminDataGroup(t *testing.T) {
-	resp := NewService(fakeFamilies{}).
-		WithModuleOwnership(stubOwnership{modules: ownedModules("pc.vaccination")}).
-		Bootstrap(context.Background(), BootstrapInput{TenantID: ownershipTenantID, ActorID: ownershipActorID, Grants: adminOwnershipGrant()})
-
-	if _, ok := navGroupByID(resp.Navigation.Groups, "pc"); !ok {
-		t.Fatal("pc group must be present when pc.vaccination is owned")
-	}
-	if _, ok := navGroupByID(resp.Navigation.Groups, "admin-data"); ok {
-		t.Fatal("admin-data group must be dropped when no admin.* module is owned")
-	}
-	for _, groupID := range []string{"procurement", "counts"} {
-		if _, ok := navGroupByID(resp.Navigation.Groups, groupID); !ok {
-			t.Fatalf("group %q with empty-domain leaves must always stay present", groupID)
-		}
-	}
-	if len(resp.Navigation.Primary) != 5 {
-		t.Fatalf("primary items must stay present, got %d", len(resp.Navigation.Primary))
-	}
-	if resp.NavChrome != domain.NavChromeMinimal {
-		t.Fatalf("nav chrome must be minimal for a single owned module, got %q", resp.NavChrome)
-	}
-}
-
-func TestBootstrapSingleAdminModuleKeepsOnlyOwnedLeaf(t *testing.T) {
-	resp := NewService(fakeFamilies{}).
-		WithModuleOwnership(stubOwnership{modules: ownedModules("admin.config")}).
-		Bootstrap(context.Background(), BootstrapInput{TenantID: ownershipTenantID, ActorID: ownershipActorID, Grants: adminOwnershipGrant()})
-
-	if _, ok := navGroupByID(resp.Navigation.Groups, "pc"); ok {
-		t.Fatal("pc group must be dropped when pc.vaccination is not owned")
-	}
-	adminData, ok := navGroupByID(resp.Navigation.Groups, "admin-data")
-	if !ok {
-		t.Fatal("admin-data group must survive when admin.config is owned")
-	}
-	if len(adminData.Leaves) != 1 || adminData.Leaves[0].ID != "config" {
-		t.Fatalf("admin-data must keep only the owned config leaf, got %#v", adminData.Leaves)
-	}
-	if resp.NavChrome != domain.NavChromeMinimal {
-		t.Fatalf("nav chrome must be minimal for a single owned module, got %q", resp.NavChrome)
-	}
-}
-
-func TestBootstrapUnresolvedOwnershipFailsOpen(t *testing.T) {
-	// No ownership source: unresolved -> full nav, expanded chrome (guards golden behavior).
-	nilResp := NewService(fakeFamilies{}).
-		Bootstrap(context.Background(), BootstrapInput{TenantID: ownershipTenantID, ActorID: ownershipActorID, Grants: adminOwnershipGrant()})
-	// Ownership read error: also unresolved -> fail open, never lock out.
-	errResp := NewService(fakeFamilies{}).
-		WithModuleOwnership(stubOwnership{err: fmt.Errorf("boom")}).
-		Bootstrap(context.Background(), BootstrapInput{TenantID: ownershipTenantID, ActorID: ownershipActorID, Grants: adminOwnershipGrant()})
-
-	for _, resp := range []domain.BootstrapResponse{nilResp, errResp} {
-		for _, groupID := range []string{"pc", "procurement", "counts", "admin-data"} {
-			if _, ok := navGroupByID(resp.Navigation.Groups, groupID); !ok {
-				t.Fatalf("fail-open must keep group %q in full nav", groupID)
-			}
-		}
-		adminData, _ := navGroupByID(resp.Navigation.Groups, "admin-data")
-		if len(adminData.Leaves) != 5 {
-			t.Fatalf("fail-open must keep all admin-data leaves, got %d", len(adminData.Leaves))
-		}
-		if resp.NavChrome != domain.NavChromeExpanded {
-			t.Fatalf("fail-open nav chrome must be expanded, got %q", resp.NavChrome)
-		}
-		if len(resp.OwnedModules) != 0 {
-			t.Fatalf("fail-open owned modules must be empty, got %#v", resp.OwnedModules)
-		}
-	}
-}
-
-func TestBootstrapOwnershipFilterDoesNotOverrideRBACDisable(t *testing.T) {
-	// Operator lacks obligation.read/vaccination.read for the vaccination leaf, but
-	// owns pc.vaccination. Ownership keeps the leaf visible; RBAC still disables it.
-	resp := NewService(fakeFamilies{}).
-		WithModuleOwnership(stubOwnership{modules: ownedModules("pc.vaccination")}).
-		Bootstrap(context.Background(), BootstrapInput{
-			TenantID: ownershipTenantID,
-			ActorID:  ownershipActorID,
-			Grants:   []permissions.ActiveGrant{{Role: permissions.RoleOperator, ScopeType: "tenant", ScopeID: ownershipTenantID}},
-		})
-
 	leaf := navLeafByID(t, resp.Navigation.Groups, "preventive-care-vaccination")
 	if leaf.Enabled {
-		t.Fatalf("owned-but-unauthorized leaf must stay RBAC-disabled: %#v", leaf)
+		t.Fatalf("unauthorized leaf must stay RBAC-disabled: %#v", leaf)
 	}
 	if leaf.DisabledReason == "" {
-		t.Fatalf("RBAC disable reason must survive ownership filtering: %#v", leaf)
+		t.Fatalf("RBAC disable reason must be published: %#v", leaf)
 	}
-}
-
-func TestBootstrapCacheKeyIncludesOwnedModules(t *testing.T) {
-	service := NewService()
-	families := ReferenceFamilies{RevisionInputs: map[string]string{}}
-	base := BootstrapInput{TenantID: ownershipTenantID, ActorID: ownershipActorID, Grants: adminOwnershipGrant(), OwnershipResolved: true}
-
-	pcOnly := base
-	pcOnly.OwnedModules = ownedModules("pc.vaccination")
-	pcAndConfig := base
-	pcAndConfig.OwnedModules = ownedModules("pc.vaccination", "admin.config")
-	if service.cacheKey(pcOnly, families, nil) == service.cacheKey(pcAndConfig, families, nil) {
-		t.Fatal("cache key must differ when owned modules differ for identical grants")
-	}
-
-	// Resolved-empty (nav filtered) must not collide with unresolved (full nav).
-	resolvedEmpty := base
-	resolvedEmpty.OwnedModules = nil
-	unresolved := base
-	unresolved.OwnershipResolved = false
-	if service.cacheKey(resolvedEmpty, families, nil) == service.cacheKey(unresolved, families, nil) {
-		t.Fatal("cache key must distinguish resolved-empty ownership from an unresolved read")
+	if resp.NavChrome != domain.NavChromeExpanded {
+		t.Fatalf("admin web nav chrome should stay expanded, got %q", resp.NavChrome)
 	}
 }
 
@@ -733,7 +575,6 @@ func (fakeUIConfigFamilies) LoadContractFamilies(ctx context.Context, tenantID s
 		{Key: "page.action-center.subtitle", Value: "Backend queue subtitle"},
 		{RouteID: "action-center", Key: "copy.empty.work_board", Value: "No backend work for this scope."},
 		{RouteID: "action-center", Key: "table.work-board.column.owner.label", Value: "Responsible"},
-		{RouteID: "action-center", Key: "option.work_state_filter_chips.owner_missing.label", Value: "Needs owner"},
 		{RouteID: "action-center", Key: "option.park_display_chips.park-1.label", Value: "Wrong park label"},
 		{RouteID: "config", Key: "option.rule_scopes.park:park-1.label", Value: "Wrong park scope"},
 		{RouteID: "config", Key: "option.rule_breeds.DB Breed.label", Value: "Wrong breed"},

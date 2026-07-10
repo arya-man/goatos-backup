@@ -28,7 +28,7 @@ admin-web / mobile / optional Slack
 
 This feature follows the Goat OS phase rules:
 
-- Go backend remains a modular monolith with strict module ownership.
+- Go backend remains a modular monolith with strict module boundaries.
 - Domain logic talks through ports/interfaces, not vendor SDKs directly.
 - Vendor adapters wrap LLMs, embeddings, vector stores, Slack, Google, and
   analytics tools.

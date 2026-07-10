@@ -14,7 +14,6 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavState
-import sg.mesha.goatos.core.model.nav.OwnedModule
 import sg.mesha.goatos.feature.calendar.CalendarScreen
 import sg.mesha.goatos.feature.leadership.LeadershipScreen
 
@@ -25,13 +24,9 @@ import sg.mesha.goatos.feature.leadership.LeadershipScreen
  * that gap.
  *
  * TRD §14 dumb-renderer rule (NavContract.kt): [sg.mesha.goatos.core.model.nav.NavChrome]
- * is backend-computed truth — EXPANDED iff the principal owns >=2 visible modules, else
- * MINIMAL (bottom-bar only). Each test below constructs an explicit [NavState] fixture for
- * one role tier — mirroring the seeded HR departments in
- * `docs/decisions/user-module-ownership-and-nav-chrome.md` / `docs/hr/roster-rbac-design.md`
- * (`vaccination` = 1 module -> MINIMAL, `admin_data` = 3 modules -> EXPANDED, `leadership` = 4
- * modules -> EXPANDED) — and renders [GoatOsShellChrome] directly with that role's landing
- * screen as content.
+ * is backend-computed truth. Each test below constructs an explicit [NavState] fixture for
+ * one role tier and renders [GoatOsShellChrome] directly with that role's landing screen as
+ * content.
  *
  * Renders [GoatOsShellChrome] rather than the full [GoatOsShell]/[AppNavHost] so no
  * NavHostController or Hilt-injected ViewModel is needed in a plain Paparazzi JVM test — only
@@ -77,27 +72,13 @@ class RoleChromeScreenshotTest {
         NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
     )
 
-    // The seeded `leadership` department: all 4 built modules (admin_data's 3 + vaccination's 1)
-    // -> EXPANDED. See docs/decisions/user-module-ownership-and-nav-chrome.md.
-    private val leadershipFourModules = listOf(
-        OwnedModule("pc", "vaccination"),
-        OwnedModule("admin", "config"),
-        OwnedModule("admin", "sop"),
-        OwnedModule("admin", "audit"),
-    )
-
-    // The seeded `vaccination` department: its 1 module -> MINIMAL.
-    private val vaccinationOnlyModule = listOf(OwnedModule("pc", "vaccination"))
-
-    // CEO / superuser (role `ceo_internal`, tenant-scoped, department `leadership`): owns all 4
-    // built modules -> EXPANDED, landing Overview.
+    // CEO / superuser (role `ceo_internal`, tenant-scoped): EXPANDED, landing Overview.
     @Test
     fun role_ceo() = shot("role_ceo") {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.EXPANDED,
                 items = leadershipNavItems(),
-                ownedModules = leadershipFourModules,
             ),
             currentRoute = Routes.LEADERSHIP,
             onNavigate = {},
@@ -106,7 +87,7 @@ class RoleChromeScreenshotTest {
         }
     }
 
-    // Same CEO/superuser fixture with the drawer forced OPEN, so the EXPANDED-only module
+    // Same CEO/superuser fixture with the drawer forced OPEN, so the EXPANDED chrome
     // switcher (invisible in role_ceo's closed-drawer golden) is actually visible for review.
     @Test
     fun role_ceo_drawer() = shot("role_ceo_drawer") {
@@ -114,10 +95,9 @@ class RoleChromeScreenshotTest {
             navState = NavState(
                 chrome = NavChrome.EXPANDED,
                 items = leadershipNavItems(),
-                ownedModules = leadershipFourModules,
             ),
             // Vaccination active so the golden shows the mock's active-module state (green rail +
-            // check) alongside the owned modules, Soon rows, Settings, and Sign-out.
+            // check) alongside the visible modules, Soon rows, Settings, and Sign-out.
             currentRoute = Routes.VACCINATION,
             onNavigate = {},
             initialDrawerValue = DrawerValue.Open,
@@ -127,24 +107,13 @@ class RoleChromeScreenshotTest {
         }
     }
 
-    // Director (HR Designation grade, roster-rbac-design.md §0.2 axis (a)) — EXPANDED, owns
-    // >=2 modules, landing Overview.
-    //
-    // OPEN QUESTION (flagged, not guessed past): only 3 departments are seeded today
-    // (`vaccination`=1 module, `admin_data`=3, `leadership`=4 — see
-    // docs/decisions/user-module-ownership-and-nav-chrome.md). There is no committed
-    // "Director" department/module-ownership row, and roster-rbac-design.md keeps HR grade,
-    // Operational Position, and Department ownership as three independent axes — a Director's
-    // grade does not by itself imply which modules they own. This fixture's 2-module set
-    // (Preventive Care execution + SOP policy) is an illustrative EXPANDED shape for chrome
-    // coverage, not a backend-verified seed.
+    // Director (HR Designation grade) — EXPANDED, landing Overview.
     @Test
     fun role_director() = shot("role_director") {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.EXPANDED,
                 items = leadershipNavItems(),
-                ownedModules = listOf(OwnedModule("pc", "vaccination"), OwnedModule("admin", "sop")),
             ),
             currentRoute = Routes.LEADERSHIP,
             onNavigate = {},
@@ -153,17 +122,13 @@ class RoleChromeScreenshotTest {
         }
     }
 
-    // Park Head (Operational Position, roster-rbac-design.md §0.2 axis (b); oversees a whole
-    // park/center) — EXPANDED, owns >=2 modules scoped to that park, landing Overview.
-    // Same illustrative-fixture caveat as role_director above — no committed Park-Head-specific
-    // department row exists yet.
+    // Park Head (Operational Position; oversees a whole park/center) — EXPANDED, landing Overview.
     @Test
     fun role_park_head() = shot("role_park_head") {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.EXPANDED,
                 items = leadershipNavItems(),
-                ownedModules = listOf(OwnedModule("pc", "vaccination"), OwnedModule("admin", "sop")),
             ),
             currentRoute = Routes.LEADERSHIP,
             onNavigate = {},
@@ -173,22 +138,13 @@ class RoleChromeScreenshotTest {
     }
 
     // Park Manager (Operational Position, Manager-tier per roster-rbac-design.md §0.1 — e.g.
-    // "Preventive Care Manager") — the realistic single-vertical case: today's seeded model owns
-    // only the `vaccination` department's 1 module -> MINIMAL bottom-bar, landing Calendar.
-    //
-    // This is intentionally IDENTICAL chrome to role_operator below: nav_chrome is computed from
-    // department module-count, not HR/operational grade (TRD §14), so a Manager and an
-    // Operator who both sit in the single-module `vaccination` department render the same
-    // chrome today. Not judged to own >=2 modules under the current seed, so no additional
-    // EXPANDED variant is added — see the OPEN QUESTION above re: Director/Park Head for the
-    // related ambiguity this shares.
+    // "Preventive Care Manager") — MINIMAL bottom-bar, landing Calendar.
     @Test
     fun role_park_manager() = shot("role_park_manager") {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.MINIMAL,
                 items = operationalNavItems(),
-                ownedModules = vaccinationOnlyModule,
             ),
             currentRoute = Routes.CALENDAR,
             onNavigate = {},
@@ -206,7 +162,6 @@ class RoleChromeScreenshotTest {
             navState = NavState(
                 chrome = NavChrome.MINIMAL,
                 items = operationalNavItems(),
-                ownedModules = vaccinationOnlyModule,
             ),
             currentRoute = Routes.CALENDAR,
             onNavigate = {},

@@ -360,7 +360,7 @@ ordered around the vaccination process-integrity slice:
 
 4. Action Center Work-State Model
    Due, overdue, blocked, proof-pending, verification-pending, rejected,
-   deferred, owner-missing, and completed/recent states exposed from real
+   deferred, blocked, and completed/recent states exposed from real
    workflow sources.
 
 5. Control Tower Summary

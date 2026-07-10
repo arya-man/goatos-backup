@@ -22,7 +22,6 @@ const (
 	WorkStateDeferred            WorkState = "deferred"
 	WorkStateMissed              WorkState = "missed"
 	WorkStateBlocked             WorkState = "blocked"
-	WorkStateOwnerMissing        WorkState = "owner_missing"
 	WorkStateCompleted           WorkState = "completed"
 )
 
@@ -235,7 +234,6 @@ type ControlTowerSummary struct {
 	WarningCount        int  `json:"warning_count"`
 	OpenGapCount        int  `json:"open_gap_count"`
 	VerificationBacklog int  `json:"verification_backlog"`
-	OwnerMissingCount   int  `json:"owner_missing_count"`
 	ConfigOrSOPBlockers int  `json:"config_or_sop_blockers"`
 }
 

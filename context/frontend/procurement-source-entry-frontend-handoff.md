@@ -277,8 +277,8 @@ nested procurement routes or nav entries for them.
 
 | Top-level screen | Procurement lens behavior | Must not do |
 | --- | --- | --- |
-| Control Tower `/` | Exception-only procurement gaps: aged warmup, high rejection, missing proof, unresolved arrival mismatch, owner missing | Do not create `/procurement/source-entry/control-tower`; do not show normal loads or procurement inventory metrics as alerts |
-| Action Center `/action-center?domain=procurement` | Due/overdue source SOP, missing proof, identity conflict, aged warmup, deferred, owner missing, arrival mismatch | Do not create `/procurement/source-entry/action-center`; do not mix generic all-domain cards into the current vaccination Action Center |
+| Control Tower `/` | Exception-only procurement gaps: aged warmup, high rejection, missing proof, unresolved arrival mismatch, blocked | Do not create `/procurement/source-entry/control-tower`; do not show normal loads or procurement inventory metrics as alerts |
+| Action Center `/action-center?domain=procurement` | Due/overdue source SOP, missing proof, identity conflict, aged warmup, deferred, blocked, arrival mismatch | Do not create `/procurement/source-entry/action-center`; do not mix generic all-domain cards into the current vaccination Action Center |
 | Protocol Adherence `/protocol-adherence?domain=procurement` | Expected vs actual for source health, tagging, dispatch proof, transit proof, arrival review, accepted intake | Do not create `/procurement/source-entry/adherence` or `/procurement/source-entry/protocol-adherence`; do not show vague KPI cards without row-level evidence |
 | Workflows `/workflows?domain=procurement` and `/workflows/{row_id}?domain=procurement` | Chain map from load creation to intake with blocked/current/completed steps | Do not create `/procurement/source-entry/workflows` or `/procurement/source-entry/workflows/{row_id}`; do not replace the mock workflow chain with a simple table |
 
@@ -373,7 +373,7 @@ rejected_before_truck
 deferred_health
 deferred_identity
 blocked_missing_proof
-blocked_owner_missing
+blocked
 ```
 
 ### Arrival Gate
@@ -418,7 +418,7 @@ Control Tower:
   only broken/at-risk procurement source-entry process.
 
 Action Center:
-  exact due/overdue/blocked/rejected/deferred/owner-missing work.
+  exact due/overdue/blocked/rejected/deferred/blocked work.
 
 Protocol Adherence:
   expected vs actual evidence table for source health, dispatch, transit,

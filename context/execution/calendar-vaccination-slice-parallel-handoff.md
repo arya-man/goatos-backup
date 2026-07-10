@@ -765,7 +765,7 @@ Docker volume.
    - draft protocol version has no event
    - reminder ping is not a second event
    - system sweeper is excluded
-   - owner-missing gap is excluded until owner exists
+   - blocked gap is excluded until owner exists
    - stock readiness maps to `inventory`
    - source/config approval maps to `admin_data_ops`
    - Preventive Care (PC) proof/rework/drive maps to `pc`

@@ -1543,7 +1543,6 @@ paths:
             type: string
             enum:
               - blocked
-              - owner_missing
               - resolved
               - dismissed
         - name: cursor
@@ -3434,7 +3433,6 @@ components:
         - feature_flags
         - visible_navigation
         - nav_chrome
-        - owned_modules
         - task_queue_descriptors
         - pinned_sop_versions
         - supported_field_types
@@ -3473,10 +3471,6 @@ components:
             $ref: "#/components/schemas/BootstrapNavigationItem"
         nav_chrome:
           $ref: "#/components/schemas/NavChrome"
-        owned_modules:
-          type: array
-          items:
-            $ref: "#/components/schemas/OwnedModule"
         task_queue_descriptors:
           type: array
           items:
@@ -3521,7 +3515,6 @@ components:
         - cache_policy
         - navigation
         - nav_chrome
-        - owned_modules
         - route_labels
         - top_bar
         - role_lenses
@@ -3548,10 +3541,6 @@ components:
           $ref: "#/components/schemas/AdminWebNavigationContract"
         nav_chrome:
           $ref: "#/components/schemas/NavChrome"
-        owned_modules:
-          type: array
-          items:
-            $ref: "#/components/schemas/OwnedModule"
         route_labels:
           type: array
           items:
@@ -4082,34 +4071,12 @@ components:
     NavChrome:
       type: string
       description: >-
-        Backend-computed navigation chrome, shared by both bootstraps. `expanded`
-        shows the module switcher (mobile drawer / admin-web sidebar) because the
-        principal owns >=2 active visible modules; `minimal` hides it (mobile
-        bottom-bar-only with drawer extras folded into You/Settings, admin-web
-        no-sidebar). The client renders this value; it never counts modules or
-        checks role to decide chrome.
+        Backend-computed navigation chrome, shared by both bootstraps. The
+        client renders this value; it never counts modules or checks role to
+        decide chrome.
       enum:
         - expanded
         - minimal
-    OwnedModule:
-      type: object
-      additionalProperties: false
-      description: >-
-        A product module the principal owns via their HR department
-        (department_module_grants). The owned-module set drives visible-nav
-        filtering and the nav_chrome threshold; it never widens access.
-      required:
-        - vertical
-        - module
-      properties:
-        vertical:
-          type: string
-          minLength: 1
-          maxLength: 80
-        module:
-          type: string
-          minLength: 1
-          maxLength: 120
     BootstrapTaskQueue:
       type: object
       additionalProperties: false
@@ -5451,7 +5418,6 @@ components:
         - rejected
         - deferred
         - missed
-        - owner_missing
         - blocked
         - completed
     ProcessIntegritySeverity:
@@ -5821,7 +5787,6 @@ components:
         - warning_count
         - open_gap_count
         - verification_backlog
-        - owner_missing_count
         - config_or_sop_blockers
       properties:
         process_intact:
@@ -5836,9 +5801,6 @@ components:
           type: integer
           minimum: 0
         verification_backlog:
-          type: integer
-          minimum: 0
-        owner_missing_count:
           type: integer
           minimum: 0
         config_or_sop_blockers:
@@ -5976,7 +5938,6 @@ components:
         - deferred
         - missed
         - blocked
-        - owner_missing
         - completed
     VaccinationExecutionSeverity:
       type: string
@@ -6266,7 +6227,6 @@ components:
         - deferred
         - missed
         - blocked
-        - ownerMissing
         - completed
       properties:
         total:
@@ -6286,8 +6246,6 @@ components:
         missed:
           type: integer
         blocked:
-          type: integer
-        ownerMissing:
           type: integer
         completed:
           type: integer
@@ -7040,7 +6998,6 @@ components:
           type: string
           enum:
             - blocked
-            - owner_missing
             - resolved
             - dismissed
         due_at:
@@ -7749,7 +7706,6 @@ components:
         - revision
         - cachePolicy
         - featureFlags
-        - ownedModules
         - clientRuntimeConfig
         - policyRevision
       properties:
@@ -7766,10 +7722,6 @@ components:
           type: object
           additionalProperties:
             type: boolean
-        ownedModules:
-          type: array
-          items:
-            $ref: "#/components/schemas/OwnedModule"
         clientRuntimeConfig:
           $ref: "#/components/schemas/AppClientRuntimeConfig"
         policyRevision:

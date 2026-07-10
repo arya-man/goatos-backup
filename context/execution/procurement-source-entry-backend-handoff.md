@@ -251,9 +251,9 @@ screen without frontend guessing.
 | Load Detail | Timeline from purchase -> holding stay -> SOP/proof -> pre-dispatch decision -> loading -> transit -> arrival -> intake |
 | Pre-Dispatch Decision | Per-goat decision contract with accept/reject/defer/block, reason, proof, owner, audit |
 | Arrival Gate | Expected/loaded/arrived/matched/missing/extra counts, identity/health/weight flags, media proof, review status |
-| Top-level Action Center lens | Exact procurement work: overdue health SOP, missing proof, identity conflict, deferred, rejected review, arrival mismatch, owner missing |
+| Top-level Action Center lens | Exact procurement work: overdue health SOP, missing proof, identity conflict, deferred, rejected review, arrival mismatch, blocked |
 | Top-level Protocol Adherence lens | Expected vs actual for source health, tagging, dispatch proof, transit proof, arrival review, intake acceptance |
-| Top-level Control Tower lens | Exception-only procurement gaps: aged warmup, high rejection, missing proof, unresolved arrival mismatch, owner missing |
+| Top-level Control Tower lens | Exception-only procurement gaps: aged warmup, high rejection, missing proof, unresolved arrival mismatch, blocked |
 | Top-level Workflows lens | Chain nodes from load creation to accepted intake with current/blocked/completed state |
 | SOP Library | Source health, pre-dispatch, truck loading, transit handoff, arrival gate SOP definitions/versions |
 | Preventive Care (PC) Vaccination | Only accepted-intake outputs: origin, entry/intake date, defer signal, trusted vaccination history |

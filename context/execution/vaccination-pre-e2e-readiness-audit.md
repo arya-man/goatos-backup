@@ -67,7 +67,7 @@ source-backed vaccination protocol published
   -> Control Tower, Action Center, Protocol Adherence, Workflows, /vaccination, shed drilldown, and Goat Passport read the same Postgres truth
 ```
 
-Rejected-before-truck, source-only, owner-missing, extra-unknown, unresolved, arrival-rejected, dead, sold, lost, and blocked goats must never appear as active Preventive Care (PC) vaccination or vaccination execution work.
+Rejected-before-truck, source-only, blocked, extra-unknown, unresolved, arrival-rejected, dead, sold, lost, and blocked goats must never appear as active Preventive Care (PC) vaccination or vaccination execution work.
 
 ## Current Green Checks
 

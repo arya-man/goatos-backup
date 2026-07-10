@@ -744,7 +744,7 @@ stateful AS (
       WHEN enriched.missed_count > 0 THEN 'missed'
       WHEN enriched.conducted_by IS NULL
        AND enriched.assigned_to IS NULL
-       AND enriched.completed_count < enriched.expected_count THEN 'owner_missing'
+       AND enriched.completed_count < enriched.expected_count THEN 'blocked'
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
       WHEN enriched.completion_recorded > 0
         OR enriched.task_state IN ('submitted', 'needs_review') THEN 'verification_pending'
@@ -782,7 +782,6 @@ derived AS (
       WHEN 'overdue' THEN 'overdue'
       WHEN 'rejected' THEN 'proof_rejected'
       WHEN 'blocked' THEN CASE WHEN stateful.missed_count > 0 THEN 'missed' ELSE 'blocked' END
-      WHEN 'owner_missing' THEN 'owner_missing'
       ELSE stateful.work_state
     END AS gap_type,
     CASE
@@ -800,15 +799,14 @@ derived AS (
     CASE stateful.work_state
       WHEN 'rejected' THEN 0
       WHEN 'blocked' THEN 1
-      WHEN 'owner_missing' THEN 2
-      WHEN 'overdue' THEN 3
-      WHEN 'proof_pending' THEN 4
-      WHEN 'verification_pending' THEN 5
-      WHEN 'due' THEN 6
-      WHEN 'in_progress' THEN 7
-      WHEN 'deferred' THEN 8
-      WHEN 'scheduled' THEN 9
-      WHEN 'completed' THEN 10
+      WHEN 'overdue' THEN 2
+      WHEN 'proof_pending' THEN 3
+      WHEN 'verification_pending' THEN 4
+      WHEN 'due' THEN 5
+      WHEN 'in_progress' THEN 6
+      WHEN 'deferred' THEN 7
+      WHEN 'scheduled' THEN 8
+      WHEN 'completed' THEN 9
       ELSE 11
     END AS sort_priority,
     CASE
@@ -817,7 +815,7 @@ derived AS (
       WHEN stateful.is_quarantine THEN 'Shed is quarantine; PC defer/approval required'
       WHEN stateful.health_deferred_count > 0 THEN 'Some goats are sick, under treatment, quarantined, or in ICU'
       WHEN stateful.missed_count > 0 THEN 'Missed dose escalation required'
-      WHEN stateful.conducted_by IS NULL AND stateful.assigned_to IS NULL AND stateful.completed_count < stateful.expected_count THEN 'Owner chain awaiting assignment'
+      WHEN stateful.conducted_by IS NULL AND stateful.assigned_to IS NULL AND stateful.completed_count < stateful.expected_count THEN 'Operator assignment required before execution'
       ELSE NULL
     END AS blocker_reason,
     CASE stateful.work_state
@@ -825,7 +823,6 @@ derived AS (
       WHEN 'rejected' THEN 'Review rejection and request rework'
       WHEN 'blocked' THEN CASE WHEN stateful.missed_count > 0 THEN 'Escalate missed dose to PC' ELSE 'Resolve blocker before execution' END
       WHEN 'deferred' THEN 'Confirm defer reason with PC'
-      WHEN 'owner_missing' THEN 'Assign operator / owner chain'
       WHEN 'verification_pending' THEN 'Verifier to accept or reject proof'
       WHEN 'proof_pending' THEN 'Upload required SOP proof'
       WHEN 'in_progress' THEN 'Complete drive and submit proof'
@@ -921,7 +918,7 @@ filtered AS (
     AND ($12::text = '' OR row_id = $12::text)
     AND (
       NOT $13::boolean
-      OR work_state IN ('rejected', 'blocked', 'owner_missing', 'overdue', 'proof_pending', 'verification_pending')
+      OR work_state IN ('rejected', 'blocked', 'overdue', 'proof_pending', 'verification_pending')
     )
 )
 `
@@ -932,7 +929,6 @@ feed_exception_rows AS (
     CASE
       WHEN e.status IN ('resolved', 'dismissed') THEN 10
       WHEN e.work_state = 'blocked' THEN 1
-      WHEN e.work_state = 'owner_missing' THEN 2
       ELSE 3
     END AS sort_priority,
     'feed_projection_exception:' || e.count_projection_exception_id::text AS row_id,
@@ -1040,7 +1036,7 @@ feed_exception_rows AS (
     AND ($12::text = '' OR 'feed_projection_exception:' || e.count_projection_exception_id::text = $12::text)
     AND (
       NOT $13::boolean
-      OR CASE WHEN e.status IN ('resolved', 'dismissed') THEN 'completed' ELSE e.work_state END IN ('blocked', 'owner_missing')
+      OR CASE WHEN e.status IN ('resolved', 'dismissed') THEN 'completed' ELSE e.work_state END IN ('blocked')
     )
 )
 `

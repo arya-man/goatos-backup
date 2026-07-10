@@ -233,7 +233,6 @@ type AuthPendingEmailGrant struct {
 	LastClaimedAt              pgtype.Timestamptz
 	ClaimCount                 int64
 	Metadata                   []byte
-	DepartmentCode             pgtype.Text
 }
 
 type Breed struct {
@@ -593,19 +592,7 @@ type Department struct {
 	Label        string
 	Status       string
 	CreatedAt    pgtype.Timestamptz
-}
-
-type DepartmentModuleGrant struct {
-	GrantID      pgtype.UUID
-	TenantID     pgtype.UUID
-	DepartmentID pgtype.UUID
-	Vertical     string
-	Module       string
-	Status       string
-	ValidFrom    pgtype.Timestamptz
-	ValidTo      pgtype.Timestamptz
-	CreatedBy    pgtype.UUID
-	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
 }
 
 type DomainEventProcessedEvent struct {
@@ -2069,21 +2056,22 @@ type VwProcurementVaccinationExcludedGoat struct {
 }
 
 type WorkforceAbsence struct {
-	AbsenceID           pgtype.UUID
-	TenantID            pgtype.UUID
-	WorkforceMemberID   pgtype.UUID
-	ScopeType           string
-	ScopeID             pgtype.UUID
-	StartsAt            pgtype.Timestamptz
-	EndsAt              pgtype.Timestamptz
-	ReasonCode          string
-	Status              string
-	ReplacementMemberID pgtype.UUID
-	CreatedBy           pgtype.UUID
-	ApprovedBy          pgtype.UUID
-	CreatedAt           pgtype.Timestamptz
-	UpdatedAt           pgtype.Timestamptz
-	RowVersion          int32
+	AbsenceID              pgtype.UUID
+	TenantID               pgtype.UUID
+	WorkforceMemberID      pgtype.UUID
+	ScopeType              string
+	ScopeID                pgtype.UUID
+	StartsAt               pgtype.Timestamptz
+	EndsAt                 pgtype.Timestamptz
+	ReasonCode             string
+	Status                 string
+	ReplacementMemberID    pgtype.UUID
+	CreatedBy              pgtype.UUID
+	ApprovedBy             pgtype.UUID
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+	RowVersion             int32
+	CoverageOverrideReason pgtype.Text
 }
 
 type WorkforceCapability struct {
@@ -2120,20 +2108,21 @@ type WorkforceExternalIdentity struct {
 }
 
 type WorkforceMember struct {
-	WorkforceMemberID pgtype.UUID
-	TenantID          pgtype.UUID
-	UserID            pgtype.UUID
-	DisplayCode       string
-	DisplayName       string
-	Status            string
-	PrimaryRoleHint   string
-	PrimaryLocationID pgtype.UUID
-	Metadata          []byte
-	CreatedBy         pgtype.UUID
-	CreatedAt         pgtype.Timestamptz
-	UpdatedAt         pgtype.Timestamptz
-	RowVersion        int32
-	DepartmentID      pgtype.UUID
+	WorkforceMemberID  pgtype.UUID
+	TenantID           pgtype.UUID
+	UserID             pgtype.UUID
+	DisplayCode        string
+	DisplayName        string
+	Status             string
+	PrimaryRoleHint    string
+	PrimaryLocationID  pgtype.UUID
+	Metadata           []byte
+	CreatedBy          pgtype.UUID
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+	RowVersion         int32
+	DepartmentID       pgtype.UUID
+	HrDesignationGrade pgtype.Text
 }
 
 type WorkforceMemberAppSession struct {
@@ -2184,6 +2173,26 @@ type WorkforceMemberDevice struct {
 	RevokedAt           pgtype.Timestamptz
 	Metadata            []byte
 	RowVersion          int32
+}
+
+type WorkforcePosition struct {
+	PositionID        pgtype.UUID
+	TenantID          pgtype.UUID
+	WorkforceMemberID pgtype.UUID
+	ScopeType         string
+	ScopeID           pgtype.UUID
+	PositionCode      string
+	PositionTier      string
+	IsBackupSlot      bool
+	BackupGroupCode   pgtype.Text
+	WeekOffWeekday    pgtype.Text
+	Status            string
+	ValidFrom         pgtype.Timestamptz
+	ValidTo           pgtype.Timestamptz
+	CreatedBy         pgtype.UUID
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	RowVersion        int32
 }
 
 type WorkforceRosterAssignment struct {

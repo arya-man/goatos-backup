@@ -64,7 +64,7 @@ Rules:
   validation, proof, authority, obligations, escalation, audit, and read-model
   visibility. When replacing a legacy workflow, preserve the useful legacy
   controls as capability parity, but close known legacy gaps in the same
-  production scope. Use that doc's vertical/module ownership map before placing
+  production scope. Use that doc's vertical/module access map before placing
   guardrail work under Preventive Care (PC), Counts, Procurement, Feed, Sales, or a shared kernel
   module.
 - Permission namespaces follow product ownership: dashboard/report permissions

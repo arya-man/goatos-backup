@@ -24,11 +24,11 @@ func (f fakeRepo) GetRow(context.Context, domain.Query, string) (domain.Row, boo
 
 func TestControlTowerUsesFilteredCountsAndAlerts(t *testing.T) {
 	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
-	row := processRow("r1", domain.WorkStateOwnerMissing, domain.SeverityBroken, due)
+	row := processRow("r1", domain.WorkStateBlocked, domain.SeverityBroken, due)
 	svc := NewService(fakeRepo{result: domain.ListResult{
 		Rows: []domain.Row{row},
 		CountsByWorkState: []domain.CountByWorkState{
-			{WorkState: domain.WorkStateOwnerMissing, Count: 2},
+			{WorkState: domain.WorkStateBlocked, Count: 2},
 			{WorkState: domain.WorkStateVerificationPending, Count: 3},
 		},
 	}}).WithClock(func() time.Time { return due })
@@ -40,7 +40,7 @@ func TestControlTowerUsesFilteredCountsAndAlerts(t *testing.T) {
 	if got.Summary.ProcessIntact {
 		t.Fatal("summary should not be intact when open gaps exist")
 	}
-	if got.Summary.CriticalCount != 2 || got.Summary.WarningCount != 3 || got.Summary.VerificationBacklog != 3 || got.Summary.OwnerMissingCount != 2 {
+	if got.Summary.CriticalCount != 2 || got.Summary.WarningCount != 3 || got.Summary.VerificationBacklog != 3 || got.Summary.ConfigOrSOPBlockers != 2 {
 		t.Fatalf("summary counts = %+v", got.Summary)
 	}
 	if len(got.Alerts) != 1 || got.Alerts[0].EvidenceLink != "/workflows/r1" {
@@ -189,7 +189,7 @@ func processRow(rowID string, state domain.WorkState, severity domain.Severity, 
 		GapType:           string(state),
 		Severity:          severity,
 		OwnerState:        domain.OwnerStateMissing,
-		NextAction:        "Assign operator / owner chain",
+		NextAction:        "Resolve blocker before execution",
 		ProcessIntact:     state == domain.WorkStateDue || state == domain.WorkStateDeferred,
 		Evidence:          domain.Evidence{ProofIDs: []string{}},
 	}

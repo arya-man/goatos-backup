@@ -92,7 +92,7 @@ These words have fixed meanings in Goat OS:
   Network.
 - **Module** = a concrete workflow/product inside a vertical. Examples:
   Preventive Care (PC) -> Vaccination, Preventive Care (PC) -> future Treatment/Deworming, Procurement -> Source
-  Entry, or future Parks-owned modules. Parks is a scope/context dimension for
+  Entry, or future Parks modules. Parks is a scope/context dimension for
   vaccination execution, not the owner of a vaccination module.
 - **Operational module screen** = the page where that module's work happens.
   Examples: `/vaccination` for Preventive Care (PC) -> Vaccination, including operations, status
@@ -233,7 +233,7 @@ Admin-web is built around the vaccination process-integrity slice:
   requires. Do not add nested procurement command-room routes.
 
 The status model underneath every screen is the same: due, overdue, blocked,
-proof-pending, verification-pending, rejected, deferred, and owner-missing.
+proof-pending, verification-pending, rejected, deferred, and blocked.
 
 ## Backend-Driven UI Contract Rule
 

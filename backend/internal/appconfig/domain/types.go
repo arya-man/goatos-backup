@@ -8,8 +8,6 @@
 // the client, per the same doc.
 package domain
 
-import "github.com/vgoats/goatos/backend/internal/permissions"
-
 // SourceAPI marks every response as backend-computed (matches the `source: api`
 // convention used by the other app-tier read models in this repo).
 const SourceAPI = "api"
@@ -41,19 +39,15 @@ type ClientRuntimeConfig struct {
 	JankSamplingRate  float64 `json:"jankSamplingRate"`
 }
 
-// Response is the full /app/config payload. FeatureFlags + OwnedModules are the
-// presentationConfig slice this endpoint owns (module kill-switch / flag surface);
-// OwnedModules is the same real, department-sourced module-ownership read that
-// /app/bootstrap and /admin-web/bootstrap already use
-// (permissions.ModuleOwnershipSource) — not fabricated data. PolicyRevision is a
-// read-only traceability echo (the governing business-rule doc name), never a raw
-// threshold the client could compute from.
+// Response is the full /app/config payload. FeatureFlags are the presentation
+// config slice this endpoint owns; PolicyRevision is a read-only traceability
+// echo (the governing business-rule doc name), never a raw threshold the client
+// could compute from.
 type Response struct {
-	Source              string                    `json:"source"`
-	Revision            string                    `json:"revision"`
-	CachePolicy         CachePolicy               `json:"cachePolicy"`
-	FeatureFlags        map[string]bool           `json:"featureFlags"`
-	OwnedModules        []permissions.OwnedModule `json:"ownedModules"`
-	ClientRuntimeConfig ClientRuntimeConfig       `json:"clientRuntimeConfig"`
-	PolicyRevision      string                    `json:"policyRevision"`
+	Source              string              `json:"source"`
+	Revision            string              `json:"revision"`
+	CachePolicy         CachePolicy         `json:"cachePolicy"`
+	FeatureFlags        map[string]bool     `json:"featureFlags"`
+	ClientRuntimeConfig ClientRuntimeConfig `json:"clientRuntimeConfig"`
+	PolicyRevision      string              `json:"policyRevision"`
 }

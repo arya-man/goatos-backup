@@ -352,19 +352,19 @@ func TestAcceptedIntakeRejectsInvalidTransition(t *testing.T) {
 	}
 }
 
-func TestWorkDefaultsAcceptsOwnerMissingContractState(t *testing.T) {
-	ownerMissing := "owner_missing"
+func TestWorkDefaultsAcceptsBlockedContractState(t *testing.T) {
+	blocked := "blocked"
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 	_, err := svc.ActionCenter(context.Background(), domain.WorkQuery{
 		TenantID:  testTenant,
-		WorkState: &ownerMissing,
+		WorkState: &blocked,
 	})
 	if err != nil {
-		t.Fatalf("ActionCenter(owner_missing) error = %v", err)
+		t.Fatalf("ActionCenter(blocked) error = %v", err)
 	}
-	if repo.lastWorkQuery.WorkState == nil || *repo.lastWorkQuery.WorkState != ownerMissing {
-		t.Fatalf("work_state query = %#v, want owner_missing", repo.lastWorkQuery.WorkState)
+	if repo.lastWorkQuery.WorkState == nil || *repo.lastWorkQuery.WorkState != blocked {
+		t.Fatalf("work_state query = %#v, want blocked", repo.lastWorkQuery.WorkState)
 	}
 }
 
@@ -384,7 +384,7 @@ func TestControlTowerOnlyIncludesExceptionRows(t *testing.T) {
 			RowID:      "load_goat:10000000-0000-4000-8000-000000000011",
 			LoadID:     testLoad,
 			WorkType:   "ownership",
-			WorkState:  "owner_missing",
+			WorkState:  "blocked",
 			Severity:   "watch",
 			Title:      "Resolve source ownership",
 			Detail:     "ownership pending",
@@ -420,9 +420,9 @@ func TestControlTowerOnlyIncludesExceptionRows(t *testing.T) {
 		t.Fatal("ControlTower() did not request exception-only work rows")
 	}
 	if len(response.Alerts) != 2 {
-		t.Fatalf("alerts = %#v, want owner_missing and proof_pending only", response.Alerts)
+		t.Fatalf("alerts = %#v, want blocked and proof_pending only", response.Alerts)
 	}
-	if response.Summary.OpenGapCount != 2 || response.Summary.OwnerMissingCount != 1 || response.Summary.MissingProofCount != 1 {
+	if response.Summary.OpenGapCount != 2 || response.Summary.MissingProofCount != 1 {
 		t.Fatalf("summary = %#v, want exception-only counts", response.Summary)
 	}
 	for _, alert := range response.Alerts {

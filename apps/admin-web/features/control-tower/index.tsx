@@ -291,7 +291,6 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
           <AlertTriangle className="ic" style={{ color: "var(--amber)" }} aria-hidden="true" />
           <h3>{copy(pageContract, "section.open_gaps.title")}</h3>
           <div className="sp" style={{ flex: 1 }} />
-          {summary && summary.owner_missing_count > 0 ? <Tag tone="dng">{summary.owner_missing_count} {copy(pageContract, "label.owner_missing")}</Tag> : null}
         </div>
         <div className="tbar">
           <VaccinationFilterButton

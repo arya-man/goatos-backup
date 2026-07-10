@@ -104,7 +104,7 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 	summary := domain.ControlTowerSummary{ProcessIntact: true}
 	for _, c := range summaryResult.CountsByWorkState {
 		switch c.WorkState {
-		case domain.WorkStateRejected, domain.WorkStateBlocked, domain.WorkStateOwnerMissing:
+		case domain.WorkStateRejected, domain.WorkStateBlocked:
 			summary.CriticalCount += int(c.Count)
 			summary.OpenGapCount += int(c.Count)
 		case domain.WorkStateOverdue, domain.WorkStateMissed, domain.WorkStateProofPending, domain.WorkStateVerificationPending:
@@ -113,9 +113,6 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 		}
 		if c.WorkState == domain.WorkStateVerificationPending {
 			summary.VerificationBacklog += int(c.Count)
-		}
-		if c.WorkState == domain.WorkStateOwnerMissing {
-			summary.OwnerMissingCount += int(c.Count)
 		}
 		if c.WorkState == domain.WorkStateBlocked {
 			summary.ConfigOrSOPBlockers += int(c.Count)

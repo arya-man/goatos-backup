@@ -116,6 +116,24 @@ reviewing a new environment. Add `--continue-url http://localhost:3300/login`
 for local testing or `--continue-url https://stg.dashboard.mesha.sg/login` once
 the staging custom domain is live.
 
+The same five emails must also exist as Goat OS pending email grants with
+tenant-scoped `ceo_internal` RBAC. That platform-owner cohort must have every
+built visible module available, including `admin.people`. Do not seed these
+accounts as department-scoped vaccination/admin operators.
+
+```bash
+GOATOS_ENV=stg DATABASE_URL="$DATABASE_URL" go run ./backend/cmd/seed-dev-email-grants \
+  -tenant-id 00000000-0000-4000-8000-000000000001 \
+  -role ceo_internal \
+  -scope-type tenant \
+  -scope-id 00000000-0000-4000-8000-000000000001 \
+  -email ravi@mesha.sg \
+  -email manohark@mesha.sg \
+  -email manju@mesha.sg \
+  -email abhishek@mesha.sg \
+  -email aryaman@mesha.sg
+```
+
 For localhost Firebase testing, run the admin web app in the shared-env mode,
 not through `dev:local`. `dev:local` intentionally enables the local bearer
 shortcut and hides Firebase sign-in. Example:

@@ -64,8 +64,6 @@ func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (d
 			summary.Missed++
 		case domain.WorkStateBlocked:
 			summary.Blocked++
-		case domain.WorkStateOwnerMissing:
-			summary.OwnerMissing++
 		case domain.WorkStateCompleted:
 			summary.Completed++
 		}
@@ -274,7 +272,7 @@ func workState(p domain.ExecutionProjection, q domain.ExecutionQuery) domain.Wor
 		return domain.WorkStateMissed
 	}
 	if p.OperatorName == nil && p.CompletedCount < p.ObligationCount {
-		return domain.WorkStateOwnerMissing
+		return domain.WorkStateBlocked
 	}
 	if p.CompletionRecorded > 0 || taskStateIs(p, "submitted", "needs_review") {
 		return domain.WorkStateVerificationPending
@@ -417,8 +415,8 @@ func blockerReason(p domain.ExecutionProjection, workState domain.WorkState) *st
 		reason = "Some goats are sick, under treatment, quarantined, or in ICU"
 	case p.MissedCount > 0:
 		reason = "Missed dose escalation required"
-	case workState == domain.WorkStateOwnerMissing:
-		reason = "Owner chain awaiting assignment"
+	case workState == domain.WorkStateBlocked && p.OperatorName == nil && p.CompletedCount < p.ObligationCount:
+		reason = "Operator assignment required before execution"
 	}
 	if reason == "" {
 		return nil
@@ -438,8 +436,6 @@ func nextAction(p domain.ExecutionProjection, workState domain.WorkState) string
 		return "Resolve blocker before execution"
 	case domain.WorkStateDeferred:
 		return "Confirm defer reason with PC"
-	case domain.WorkStateOwnerMissing:
-		return "Assign operator / owner chain"
 	case domain.WorkStateVerificationPending:
 		return "Verifier to accept or reject proof"
 	case domain.WorkStateProofPending:

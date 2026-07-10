@@ -2,7 +2,6 @@ package sg.mesha.goatos.core.network.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import sg.mesha.goatos.core.network.OwnedModuleDto
 
 /**
  * GET /app/config -> AppConfigResponse.
@@ -33,7 +32,6 @@ data class AppConfigResponseDto(
     @SerialName("revision") val revision: String = "",
     @SerialName("cachePolicy") val cachePolicy: AppCachePolicyDto = AppCachePolicyDto(),
     @SerialName("featureFlags") val featureFlags: Map<String, Boolean> = emptyMap(),
-    @SerialName("ownedModules") val ownedModules: List<OwnedModuleDto> = emptyList(),
     @SerialName("clientRuntimeConfig") val clientRuntimeConfig: AppClientRuntimeConfigDto = AppClientRuntimeConfigDto(),
     @SerialName("policyRevision") val policyRevision: String = "",
 )

@@ -15,7 +15,6 @@ data class ControlTowerSummaryDto(
     @SerialName("warning_count") val warningCount: Int = 0,
     @SerialName("open_gap_count") val openGapCount: Int = 0,
     @SerialName("verification_backlog") val verificationBacklog: Int = 0,
-    @SerialName("owner_missing_count") val ownerMissingCount: Int = 0,
     @SerialName("config_or_sop_blockers") val configOrSopBlockers: Int = 0,
 )
 

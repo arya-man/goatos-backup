@@ -11,7 +11,7 @@ import { fmtDate } from "@/lib/format";
 
 // SLA tint for the due chip, mapped from the server-computed work state (no client date math).
 function slaClass(state: WorkState): string {
-  if (state === "overdue" || state === "rejected" || state === "blocked" || state === "owner_missing") return "brk";
+  if (state === "overdue" || state === "rejected" || state === "blocked") return "brk";
   if (state === "due" || state === "proof_pending" || state === "verification_pending") return "run";
   if (state === "completed") return "ok";
   return "";
@@ -66,7 +66,7 @@ export function actionDriveLabel(pageContract: AdminUiPageContract, row: Pick<Ac
 
 export function actionWorkTitle(pageContract: AdminUiPageContract, row: ActionCenterObligation): string {
   const shed = row.shed_name || copy(pageContract, "label.shed_fallback");
-  if (row.work_state === "owner_missing" || row.owner_state === "missing" || !row.owner?.operator_name) {
+  if (row.owner_state === "missing" || !row.owner?.operator_name) {
     return `${copy(pageContract, "action.assign_owner_chain")} — ${shed}`;
   }
   if (row.proof_state === "missing") return `${copy(pageContract, "action.capture_vaccination_proof")} — ${shed}`;
@@ -77,13 +77,13 @@ export function actionWorkTitle(pageContract: AdminUiPageContract, row: ActionCe
 
 // One mock-shaped task card for a single Action Center obligation (ported from the mock taskCard2).
 function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContract; row: ActionCenterObligation; href: string }) {
-  const ownerMissing = row.owner_state === "missing" || !row.owner?.operator_name;
+  const operatorMissing = row.owner_state === "missing" || !row.owner?.operator_name;
   const blocker = displayBlocker(row.blocker_reason);
   const drive = actionDriveLabel(pageContract, row);
   const title = actionWorkTitle(pageContract, row);
-  const ownerLabel = ownerMissing ? copy(pageContract, "label.owner_chain_assign") : row.owner?.operator_name;
+  const ownerLabel = operatorMissing ? copy(pageContract, "label.owner_chain_assign") : row.owner?.operator_name;
   const progress = row.expected_count > 0 ? `${row.completed_count}/${row.expected_count} ${copy(pageContract, "label.done_suffix")}` : null;
-  const showBlocker = blocker && !ownerMissing;
+  const showBlocker = blocker && !operatorMissing;
   const fallbackEvent = copy(pageContract, "label.vaccination");
   const openLabel = `${copy(pageContract, "label.open_work_item_for")} ${row.shed_name || copy(pageContract, "label.shed_fallback")}`;
   const parkDisplay = optionalOption(pageContract, "park_display_chips", row.park_id);
@@ -133,7 +133,7 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
       ) : null}
       <div className="who">
         <span className="av xs">{initials(row.owner?.operator_name)}</span>
-        <span className="cliptext" title={ownerLabel} style={ownerMissing ? { color: "var(--danger)" } : undefined} data-truncate>
+        <span className="cliptext" title={ownerLabel} style={operatorMissing ? { color: "var(--danger)" } : undefined} data-truncate>
           {ownerLabel}
         </span>
         <ArrowRight className="ic" style={{ width: 13, marginLeft: "auto", flexShrink: 0 }} aria-hidden="true" />
@@ -152,7 +152,7 @@ type BoardColumn = {
 // The mock Action Center is a six-lane status board. Vaccination has richer backend work states, so the
 // visual lanes stay mock-shaped while each card still carries the exact server-computed work state.
 const BOARD_COLUMN_STATES: Record<string, WorkState[]> = {
-  pending: ["owner_missing", "due", "scheduled", "proof_pending", "verification_pending", "in_progress"],
+  pending: ["due", "scheduled", "proof_pending", "verification_pending", "in_progress"],
   ontime: ["completed"],
   late: ["overdue"],
   skipped: ["rejected", "deferred"],

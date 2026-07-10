@@ -404,7 +404,6 @@ type ControlTowerSummary struct {
 	OpenGapCount            int  `json:"open_gap_count"`
 	MissingProofCount       int  `json:"missing_proof_count"`
 	ArrivalMismatchCount    int  `json:"arrival_mismatch_count"`
-	OwnerMissingCount       int  `json:"owner_missing_count"`
 	SourceEntryBlockedCount int  `json:"source_entry_blocked_count"`
 }
 

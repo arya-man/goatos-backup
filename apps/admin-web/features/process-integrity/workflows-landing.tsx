@@ -49,8 +49,7 @@ function chainStates(w: ActionCenterObligation | undefined, stepCount: number): 
   ];
   let doneThrough = 0;
   while (doneThrough < done.length && done[doneThrough]) doneThrough++;
-  const blocked =
-    Boolean(w.blocker_reason) || w.owner_state === "missing" || ["blocked", "rejected", "owner_missing"].includes(w.work_state);
+  const blocked = Boolean(w.blocker_reason) || w.owner_state === "missing" || ["blocked", "rejected"].includes(w.work_state);
   return pending.map((_, i) => {
     if (i < doneThrough) return "done";
     if (i === doneThrough) return blocked ? "blocked" : "cur";
@@ -83,7 +82,7 @@ function Kpi({ label, value, sub, tone, icon }: { label: string; value: React.Re
 }
 
 const ACTIVE_STATES: WorkState[] = ["in_progress", "scheduled"];
-const BLOCKED_STATES: WorkState[] = ["blocked", "proof_pending", "owner_missing", "rejected"];
+const BLOCKED_STATES: WorkState[] = ["blocked", "proof_pending", "rejected"];
 
 export async function VaccinationWorkflowsPage({
   searchParams,

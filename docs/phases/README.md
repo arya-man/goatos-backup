@@ -26,7 +26,7 @@ Every phase PRD/TRD must repeat the non-negotiable architecture invariants.
 This prevents the core design from depending on memory or chat history.
 
 ```text
-Go backend = modular monolith with strict module ownership.
+Go backend = modular monolith with strict module boundaries.
 Domain logic follows SOLID dependency inversion: it talks through
 ports/interfaces, not vendor SDKs directly.
 Adapters wrap replaceable tools: auth, storage, analytics, media, devices,

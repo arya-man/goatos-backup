@@ -7504,7 +7504,6 @@ components:
         - open_gap_count
         - missing_proof_count
         - arrival_mismatch_count
-        - owner_missing_count
         - source_entry_blocked_count
       properties:
         process_intact:
@@ -7522,9 +7521,6 @@ components:
           type: integer
           minimum: 0
         arrival_mismatch_count:
-          type: integer
-          minimum: 0
-        owner_missing_count:
           type: integer
           minimum: 0
         source_entry_blocked_count:
@@ -8268,7 +8264,6 @@ components:
         - proof_pending
         - deferred
         - blocked
-        - owner_missing
         - rejected
         - completed
     ProcurementSeverity:

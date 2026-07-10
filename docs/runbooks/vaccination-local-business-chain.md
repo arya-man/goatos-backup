@@ -132,7 +132,7 @@ It completed:
 - vaccination chain proof: `CLOSED`, with Workflows, Passport, shed drilldown,
   Control Tower, Adherence, and Operations surfaces hit.
 - procurement four-goat matrix: accepted clean goat generated Preventive Care (PC) vaccination
-  work; rejected, owner-missing, and extra/unmatched paths did not create
+  work; rejected, blocked, and extra/unmatched paths did not create
   vaccination work.
 - browser visual/click smoke: `/login`, `/`, `/action-center`, `/calendar`,
   `/protocol-adherence`, `/workflows`, `/vaccination`,

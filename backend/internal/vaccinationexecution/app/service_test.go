@@ -72,7 +72,7 @@ func TestVaccinationExecutionMapsProcessStates(t *testing.T) {
 			p.OperatorName = &operator
 			p.DueCount = 1
 		}),
-		projection("shed-owner-missing", dueTomorrow, 1, func(p *domain.ExecutionProjection) {
+		projection("shed-unassigned", dueTomorrow, 1, func(p *domain.ExecutionProjection) {
 			p.DueCount = 1
 		}),
 		projection("shed-proof", dueTomorrow, 1, func(p *domain.ExecutionProjection) {
@@ -107,7 +107,7 @@ func TestVaccinationExecutionMapsProcessStates(t *testing.T) {
 	}
 	wantStates := []domain.WorkState{
 		domain.WorkStateOverdue,
-		domain.WorkStateOwnerMissing,
+		domain.WorkStateBlocked,
 		domain.WorkStateVerificationPending,
 		domain.WorkStateBlocked,
 		domain.WorkStateMissed,

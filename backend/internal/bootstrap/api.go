@@ -236,8 +236,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	locationsService := locationsapp.NewService(locationsRepo)
 	locationsHandler := locationshttp.NewHandler(locationsService, log)
 	workforceRepo := workforcepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	moduleOwnership := permissionspg.NewModuleOwnershipSource(pool, cfg.Postgres.QueryTimeout)
-	workforceService := workforceapp.NewService(workforceRepo, moduleOwnership)
+	workforceService := workforceapp.NewService(workforceRepo)
 	workforceHandler := workforcehttp.NewHandler(workforceService, log)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	rosterHandler := workforcehttp.NewRosterHandler(rosterService, log)
@@ -264,8 +263,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
-	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithModuleOwnership(moduleOwnership))
-	appConfigHandler := appconfighttp.NewHandler(appconfigapp.NewService(moduleOwnership, appconfigapp.ConfigFromEnv()), log)
+	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout)))
+	appConfigHandler := appconfighttp.NewHandler(appconfigapp.NewService(appconfigapp.ConfigFromEnv()), log)
 	countsService := countsapp.NewService(countspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	feedService := feedapp.NewService(feedpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
 		WithCountsReadiness(countsService).

@@ -42,7 +42,7 @@ func (c *PendingEmailGrantClaimer) ClaimPendingEmailGrant(ctx context.Context, c
 	}()
 
 	rows, err := tx.Query(ctx, `
-SELECT pending_grant_id::text, role, scope_type, scope_id::text, department_code
+SELECT pending_grant_id::text, role, scope_type, scope_id::text
 FROM auth_pending_email_grants
 WHERE tenant_id = $1
   AND normalized_email = $2
@@ -63,18 +63,10 @@ FOR UPDATE`, claim.TenantID, normalizedEmail)
 		scopeID        string
 	}
 	var pending []pendingRow
-	// departmentCode is the HR department the approved email belongs to (nullable,
-	// non-PII code). It drives one-time member provisioning below; the first
-	// non-empty value wins if multiple grants disagree.
-	var departmentCode string
 	for rows.Next() {
 		var row pendingRow
-		var deptCode *string
-		if err := rows.Scan(&row.pendingGrantID, &row.role, &row.scopeType, &row.scopeID, &deptCode); err != nil {
+		if err := rows.Scan(&row.pendingGrantID, &row.role, &row.scopeType, &row.scopeID); err != nil {
 			return permissions.PendingEmailGrantResult{}, err
-		}
-		if departmentCode == "" && deptCode != nil && strings.TrimSpace(*deptCode) != "" {
-			departmentCode = strings.TrimSpace(*deptCode)
 		}
 		pending = append(pending, row)
 	}
@@ -101,93 +93,10 @@ FOR UPDATE`, claim.TenantID, normalizedEmail)
 		}
 		result.ExistingGrants = append(result.ExistingGrants, grant)
 	}
-	// Email-sign-in department provisioning: make the member->department->grants
-	// ownership chain real for this actor so department-driven nav works on both
-	// bootstraps. Opt-in: only when the approved email grant carries a
-	// department_code. Idempotent and non-destructive (never overrides an
-	// HR-assigned department).
-	if departmentCode != "" {
-		primaryRole := ""
-		if len(pending) > 0 {
-			primaryRole = pending[0].role
-		}
-		if err := c.provisionDepartmentMember(ctx, tx, claim, normalizedEmail, primaryRole, departmentCode); err != nil {
-			return permissions.PendingEmailGrantResult{}, err
-		}
-	}
 	if err := tx.Commit(ctx); err != nil {
 		return permissions.PendingEmailGrantResult{}, err
 	}
 	return result, nil
-}
-
-// provisionDepartmentMember upserts a workforce_member for the claiming actor
-// into the given HR department. It resolves the department by (tenant, code),
-// then: if an active member for the actor exists, it only fills a NULL
-// department_id (never overrides an HR assignment); otherwise it inserts a new
-// member keyed by the actor's user_id. No-op if the department code is unknown.
-// Runs inside the claim transaction so provisioning and the grant claim commit
-// atomically.
-func (c *PendingEmailGrantClaimer) provisionDepartmentMember(ctx context.Context, tx pgx.Tx, claim permissions.PendingEmailGrantClaim, normalizedEmail, primaryRole, departmentCode string) error {
-	var departmentID string
-	err := tx.QueryRow(ctx, `
-SELECT department_id::text
-FROM departments
-WHERE tenant_id = $1 AND code = $2 AND status = 'active'`, claim.TenantID, departmentCode).Scan(&departmentID)
-	if err == pgx.ErrNoRows {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-
-	var memberID string
-	var existingDepartment *string
-	err = tx.QueryRow(ctx, `
-SELECT workforce_member_id::text, department_id::text
-FROM workforce_members
-WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'
-ORDER BY created_at DESC, workforce_member_id DESC
-LIMIT 1`, claim.TenantID, claim.UserID).Scan(&memberID, &existingDepartment)
-	if err == nil {
-		if existingDepartment != nil {
-			return nil // already in a department; do not override HR assignment
-		}
-		_, err = tx.Exec(ctx, `
-UPDATE workforce_members
-SET department_id = $3, updated_at = now(), row_version = row_version + 1
-WHERE workforce_member_id = $1 AND tenant_id = $2 AND department_id IS NULL`, memberID, claim.TenantID, departmentID)
-		return err
-	}
-	if err != pgx.ErrNoRows {
-		return err
-	}
-
-	// No existing member: provision one keyed by user_id. display_code is a stable
-	// non-colliding auth code; display_name carries the verified email (runtime
-	// operational data, never committed).
-	_, err = tx.Exec(ctx, `
-INSERT INTO workforce_members (tenant_id, user_id, display_code, display_name, status, primary_role_hint, department_id)
-VALUES ($1, $2, $3, $4, 'active', $5, $6)`,
-		claim.TenantID, claim.UserID, "auth:"+claim.UserID, normalizedEmail, memberRoleHint(primaryRole), departmentID)
-	return err
-}
-
-// memberRoleHint maps an RBAC grant role to a workforce_members.primary_role_hint
-// value (the allowed set differs; pc_director/ceo_internal fold to admin).
-func memberRoleHint(role string) string {
-	switch role {
-	case permissions.RoleOperator:
-		return "operator"
-	case permissions.RoleParkHead:
-		return "park_head"
-	case permissions.RoleVerifier:
-		return "verifier"
-	case permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RolePCDirector:
-		return "admin"
-	default:
-		return "other"
-	}
 }
 
 func (c *PendingEmailGrantClaimer) ensureUserGrant(ctx context.Context, tx pgx.Tx, claim permissions.PendingEmailGrantClaim, normalizedEmail string, row struct {

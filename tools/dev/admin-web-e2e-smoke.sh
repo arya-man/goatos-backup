@@ -297,7 +297,7 @@ assert_open_vaccination_owner_chain_ready() {
   execution_state="$(echo "$execution" | jq_py '(lambda rows: rows[0].get("workState", "") if rows else "")([r for r in d.get("rows", []) if r.get("batchId") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
   execution_operator="$(echo "$execution" | jq_py '(lambda rows: ((rows[0].get("owner") or {}).get("operatorName") or "") if rows else "")([r for r in d.get("rows", []) if r.get("batchId") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
   execution_next="$(echo "$execution" | jq_py '(lambda rows: rows[0].get("nextAction", "") if rows else "")([r for r in d.get("rows", []) if r.get("batchId") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
-  [ "$execution_state" != "owner_missing" ] || fail "open vaccination execution batch $batch_id regressed to owner_missing"
+  [ "$execution_state" != "blocked" ] || fail "open vaccination execution batch $batch_id regressed to blocked"
   [ -n "$execution_operator" ] || fail "open vaccination execution batch $batch_id has no seeded operator"
   case "$execution_next" in
     *"Assign operator"*|*"Assign owner"*) fail "open vaccination execution batch $batch_id still routes to owner assignment: $execution_next" ;;
@@ -315,7 +315,7 @@ assert_open_vaccination_owner_chain_ready() {
   action_owner_state="$(echo "$action" | jq_py '(lambda rows: rows[0].get("owner_state", "") if rows else "")([r for r in (d.get("items") or d.get("rows") or []) if r.get("batch_id") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
   action_operator="$(echo "$action" | jq_py '(lambda rows: ((rows[0].get("owner") or {}).get("operator_name") or (rows[0].get("owner") or {}).get("operatorName") or "") if rows else "")([r for r in (d.get("items") or d.get("rows") or []) if r.get("batch_id") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
   action_next="$(echo "$action" | jq_py '(lambda rows: rows[0].get("next_action", "") if rows else "")([r for r in (d.get("items") or d.get("rows") or []) if r.get("batch_id") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
-  [ "$action_state" != "owner_missing" ] || fail "open vaccination action-center batch $batch_id regressed to owner_missing"
+  [ "$action_state" != "blocked" ] || fail "open vaccination action-center batch $batch_id regressed to blocked"
   [ "$action_owner_state" = "assigned" ] || fail "open vaccination action-center batch $batch_id owner_state=$action_owner_state, want assigned"
   [ -n "$action_operator" ] || fail "open vaccination action-center batch $batch_id has no seeded operator"
   case "$action_next" in

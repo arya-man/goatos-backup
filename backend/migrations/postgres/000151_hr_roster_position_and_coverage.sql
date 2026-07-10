@@ -4,8 +4,9 @@
 -- doc's "what already exists -- do not re-build" section (S1), this migration
 -- is deliberately small: `workforce_positions` is the ONLY new table. Every
 -- other roster concept REUSES an already-committed table:
---   1) Permanent department/module ownership -> departments +
---      department_module_grants + workforce_members.department_id (000148).
+--   1) Functional department membership -> departments +
+--      workforce_members.department_id (000148). This is HR grouping only; it
+--      never drives navigation or access.
 --   2) Fixed operational position (this file's new table).
 --   3) Leave/absence -> workforce_absences (000050), extended below with the
 --      escalation_required status value + a coverage_override_reason column.
@@ -16,8 +17,8 @@
 --   5) Temporary execution permission -> workforce_member_capabilities
 --      (000050), a normal time-bounded row for the backup holder; NOT a new
 --      grants table.
---   CEO superuser tier -> the existing user_scope_grants.role='ceo_internal'
---      + the existing 'leadership' department (000149); NOT modeled here.
+--   CEO superuser tier -> the existing user_scope_grants.role='ceo_internal';
+--      NOT modeled here.
 --   Escalation target -> workforce_roster_assignments.escalation_owner_user_id
 --      (000050) / the scope's park_head position row; delivery channel is the
 --      kernel's existing notification path, not built in this migration.
@@ -29,7 +30,7 @@
 --      (S4.4): must never drive nav, permission, or CEO-superuser status.
 --   b) Operational position (this file's workforce_positions) -- fixed,
 --      center-scoped, never mutated by leave/week-off.
---   c) Department ownership (existing, untouched).
+--   c) Functional department membership (existing, untouched).
 --
 -- Scope unit is the CENTER (S0.2, S7.2 resolved): HQ-tier (CXO/Director) staff
 -- are scope_type='tenant'; CBE/CPT staff are scope_type='center' with
@@ -65,8 +66,7 @@ CREATE TABLE workforce_positions (
   CONSTRAINT workforce_positions_row_version_check CHECK (row_version >= 1)
 );
 
--- Exactly one ACTIVE holder per (scope, position_code) -- mirrors
--- department_module_grants_active_unique's partial-unique pattern (000148).
+-- Exactly one ACTIVE holder per (scope, position_code).
 -- This alone does not force "exactly one Backup Manager"; that emerges from
 -- the generalized backup_group_code resolution below (design doc S4.3),
 -- which the coverage engine (app.RosterService) resolves generically for

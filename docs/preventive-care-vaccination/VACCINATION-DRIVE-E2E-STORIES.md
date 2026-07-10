@@ -168,14 +168,14 @@ Proof:
 Scenario:
 
 Purchased animals arrive through Procurement Source Entry. Some animals are
-accepted as canonical herd animals; others are rejected, owner-missing, or
+accepted as canonical herd animals; others are rejected, blocked, or
 source-only.
 
 Expected behavior:
 
 1. Accepted intake creates canonical herd animals that can enter Preventive Care
    vaccination.
-2. Rejected/source-only/owner-missing rows do not create normal vaccination
+2. Rejected/source-only/blocked rows do not create normal vaccination
    obligations.
 3. Sex is always male/female; unknown sex is invalid and never accepted into the
    herd.
@@ -190,7 +190,7 @@ Proof:
   - load: `47133cbb-5601-427c-9b4b-fdfa4e07fdfb`
   - clean accepted animal: `7c8e0a38-a58b-411a-83ae-5eabae61314d`
   - rejected animal: `edd63fff-84af-4ca7-9a0b-955a658125ed`
-  - owner-missing row: `65f69398-bca5-40b6-8e0f-27d0275e2d7a`
+  - blocked row: `65f69398-bca5-40b6-8e0f-27d0275e2d7a`
   - generated obligation: `e3356447-ec04-4c7e-aa73-d5faa2da13e1`
   - generated batch: `5d92fb34-a751-42f9-8462-007ef9673a78`
   - generated task: `00acb897-796b-4dd6-a1b4-194917aed8af`
