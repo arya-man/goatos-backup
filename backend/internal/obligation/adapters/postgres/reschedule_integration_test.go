@@ -217,3 +217,93 @@ func TestRescheduleObligationByIDRejectsDeferredObligation(t *testing.T) {
 		t.Fatalf("deferred obligation must stay deferred, got %s", got)
 	}
 }
+
+// TestRescheduleObligationByIDCreatesNewObligationForMissed is the regression guard for the P0 kernel
+// bug this file's other tests were written alongside: 'missed' is immutable closed history
+// (docs/protocol-engine/state-machines.md, "Conventions" — completed/waived/canceled/superseded/missed
+// rows are never rewritten; a later policy correction creates new work). Rescheduling a missed
+// obligation must NOT flip its status back to 'scheduled' in place; it must insert a brand-new
+// obligation for the new due date and leave the missed row's status/due_at/row_version untouched.
+func TestRescheduleObligationByIDCreatesNewObligationForMissed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obA := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	originalDue := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC) // matches seed()'s DueAt
+	if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET status='missed' WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, obA); err != nil {
+		t.Fatalf("mark seed obligation missed: %v", err)
+	}
+
+	newDue := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
+	newID, isReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-missed-1", newDue, newDue, nil, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("reschedule missed obligation: %v", err)
+	}
+	if isReplay {
+		t.Fatalf("first call must not be flagged as a replay")
+	}
+	if newID == "" || newID == obA {
+		t.Fatalf("newID = %q, want a fresh id distinct from the missed obligation %q", newID, obA)
+	}
+
+	if got := scanStatus(t, ctx, pool, obA); got != "missed" {
+		t.Fatalf("missed obligation status = %q, want unchanged 'missed'", got)
+	}
+	var origDueAt time.Time
+	var origRowVersion int
+	if err := pool.QueryRow(ctx, `SELECT due_at, row_version FROM obligation_instances WHERE obligation_id=$1`, obA).Scan(&origDueAt, &origRowVersion); err != nil {
+		t.Fatalf("read missed row: %v", err)
+	}
+	if !origDueAt.Equal(originalDue) {
+		t.Fatalf("missed obligation due_at = %s, want unchanged %s", origDueAt, originalDue)
+	}
+	if origRowVersion != 1 {
+		t.Fatalf("missed obligation row_version = %d, want unchanged 1 (never mutated)", origRowVersion)
+	}
+
+	if got := scanStatus(t, ctx, pool, newID); got != "scheduled" {
+		t.Fatalf("new obligation status = %q, want 'scheduled'", got)
+	}
+	var newDueAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT due_at FROM obligation_instances WHERE obligation_id=$1`, newID).Scan(&newDueAt); err != nil {
+		t.Fatalf("read new obligation: %v", err)
+	}
+	if !newDueAt.Equal(newDue) {
+		t.Fatalf("new obligation due_at = %s, want %s", newDueAt, newDue)
+	}
+
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='scheduled' AND payload->>'reason'='mobile_reschedule_of_missed' AND payload->>'superseded_missed_obligation_id'=$3`,
+		tenantID, newID, obA); got != 1 {
+		t.Fatalf("want 1 rework-scheduled event linking new obligation back to missed one, got %d", got)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2`,
+		tenantID, obA); got != 0 {
+		t.Fatalf("missed obligation must have zero new status events (never touched), got %d", got)
+	}
+
+	// Idempotent redelivery: same idempotency key + same payload must replay without a second insert.
+	replayID, replayIsReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-missed-1", newDue, newDue, nil, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("replay reschedule missed obligation: %v", err)
+	}
+	if !replayIsReplay {
+		t.Fatalf("replay call must be flagged as a replay")
+	}
+	if replayID != newID {
+		t.Fatalf("replay id = %q, want the same new obligation id %q", replayID, newID)
+	}
+	if got := scanStatus(t, ctx, pool, obA); got != "missed" {
+		t.Fatalf("missed obligation status after replay = %q, want unchanged 'missed'", got)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND protocol_version_id=(SELECT protocol_version_id FROM obligation_instances WHERE obligation_id=$2) AND rule_id=(SELECT rule_id FROM obligation_instances WHERE obligation_id=$2) AND target_id=(SELECT target_id FROM obligation_instances WHERE obligation_id=$2) AND due_at=$3`,
+		tenantID, obA, newDue); got != 1 {
+		t.Fatalf("want exactly 1 obligation at the new due date after replay (no duplicate insert), got %d", got)
+	}
+}

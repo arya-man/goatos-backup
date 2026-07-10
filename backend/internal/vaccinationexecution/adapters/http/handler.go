@@ -38,10 +38,14 @@ type Writer interface {
 	// recoveryRescheduleForRule) and other Writer implementations may still need to satisfy it.
 	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *domain.RecoveryReschedule) (string, bool, error)
 
-	// RescheduleObligationByID reschedules an OPEN (scheduled/due/missed) obligation to a new due date,
-	// targeted directly by obligation_id. This is the mobile "reschedule an overdue obligation" write
-	// path and is deliberately separate from ReopenDeferredObligationByIdempotencyKey above, which
-	// remains the only path that can reopen a health-held 'deferred' obligation (SM-2 recovery).
+	// RescheduleObligationByID reschedules an open (scheduled/due) obligation to a new due date in
+	// place, targeted directly by obligation_id. This is the mobile "reschedule an overdue obligation"
+	// write path and is deliberately separate from ReopenDeferredObligationByIdempotencyKey above,
+	// which remains the only path that can reopen a health-held 'deferred' obligation (SM-2 recovery).
+	// A 'missed' target is NOT mutated in place — missed is immutable closed history — instead a
+	// brand-new obligation is created for the new due date and its id is returned; the missed row is
+	// left untouched. Callers should treat the returned obligation_id as authoritative rather than
+	// assuming it always equals the path's obligation_id.
 	RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error)
 }
 
@@ -300,12 +304,14 @@ type rescheduleResponse struct {
 	IdempotentReplay bool   `json:"idempotent_replay"`
 }
 
-// RescheduleObligation reschedules an OPEN (scheduled/due/missed) vaccination obligation to a new due
-// date, targeted by obligation_id (not idempotency_key — the obligation_id path value is the actual
+// RescheduleObligation reschedules an open (scheduled/due) vaccination obligation to a new due date,
+// targeted by obligation_id (not idempotency_key — the obligation_id path value is the actual
 // write target). Idempotent via the Idempotency-Key header: an exact replay (same key + same
 // due_at/window body) returns the original result without re-running the write; a same-key/
 // different-payload replay is rejected with 409. A health-held ('deferred') obligation can never be
 // reached through this endpoint — that recovery-reopen path stays exclusively owned by the SM-2 flow.
+// A 'missed' target is immutable closed history: this endpoint reworks it onto a brand-new obligation
+// for the new due date (a new obligation_id in the response) rather than mutating the missed row.
 func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
 	obligationID := r.PathValue("obligation_id")
 	if !uuidutil.IsUUIDString(obligationID) {

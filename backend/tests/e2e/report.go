@@ -9,6 +9,7 @@
 package e2e
 
 import (
+	"bytes"
 	"fmt"
 	"html/template"
 	"os"
@@ -93,15 +94,27 @@ func (r *Report) WriteHTML(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("e2e report: mkdir: %w", err)
 	}
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("e2e report: create: %w", err)
-	}
-	defer f.Close()
-	if err := reportTemplate.Execute(f, view); err != nil {
+	var buf bytes.Buffer
+	if err := reportTemplate.Execute(&buf, view); err != nil {
 		return fmt.Errorf("e2e report: render: %w", err)
 	}
+	if err := os.WriteFile(path, stripTrailingWhitespace(buf.Bytes()), 0o644); err != nil {
+		return fmt.Errorf("e2e report: write: %w", err)
+	}
 	return nil
+}
+
+// stripTrailingWhitespace trims trailing spaces/tabs from every line of the rendered report. The HTML
+// template below indents nested {{range}}/{{if}} blocks for source readability, which otherwise leaves
+// whitespace-only lines in the rendered output wherever one of those actions sits alone on its own
+// line. A committed report with such lines fails `git diff --check`; stripping trailing whitespace here
+// keeps the template readable while keeping the rendered file clean.
+func stripTrailingWhitespace(b []byte) []byte {
+	lines := bytes.Split(b, []byte("\n"))
+	for i, line := range lines {
+		lines[i] = bytes.TrimRight(line, " \t")
+	}
+	return bytes.Join(lines, []byte("\n"))
 }
 
 type reportView struct {

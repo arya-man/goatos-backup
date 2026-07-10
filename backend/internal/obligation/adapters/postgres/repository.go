@@ -572,22 +572,38 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 	return obligationID, true, nil
 }
 
-// RescheduleObligationByID reschedules a still-OPEN (scheduled/due/missed) obligation to a new due date,
-// targeting the obligation directly by id rather than by idempotency_key. This is the mobile "reschedule
-// an overdue vaccination obligation" write path; it is deliberately separate from
+// RescheduleObligationByID reschedules a still-open (scheduled/due) obligation to a new due date in
+// place, targeting the obligation directly by id rather than by idempotency_key. This is the mobile
+// "reschedule an overdue vaccination obligation" write path; it is deliberately separate from
 // ReopenDeferredObligationByIdempotencyKey above, which remains the ONLY path that can reopen a
 // health-held 'deferred' obligation (SM-2 recovery) — a 'deferred' row can never match here (see
 // RescheduleOpenObligationByID's status filter), so this endpoint can never widen that recovery-only
-// path. Request-level idempotency is enforced via the shared idempotency_keys table (scope
+// path.
+//
+// A 'missed' target is handled differently, on purpose: state-machines.md's "Conventions" section is
+// explicit that `missed` (alongside completed/waived/canceled/superseded) is immutable closed history,
+// and "a later policy correction creates new work or a rework/correction record; it does not rewrite the
+// closed row." So rescheduling a MISSED obligation never flips its status back to 'scheduled' in place —
+// insertReworkObligationForMissed below inserts a brand-new obligation_instances row (fresh id, status
+// 'scheduled', the requested new due date, unbatched) via the exact same InsertObligationInstance query
+// the SM-1 generator uses, and records a 'scheduled' status event on that NEW row whose payload carries
+// `superseded_missed_obligation_id` pointing back at the untouched missed row. (obligation_instances has
+// no parent_obligation_id column, so this JSONB back-reference — not a schema FK — is the established
+// traceability mechanism already used elsewhere in this file for "why did this row become scheduled";
+// see the payload `reason` field on the plain-reschedule and reopenTerminalObligationForInsert paths.)
+// The missed row's status/due_at/row_version/batch_id are left completely untouched and it receives no
+// new obligation_status_events row of its own.
+//
+// Request-level idempotency is enforced via the shared idempotency_keys table (scope
 // "obligation.reschedule", see idempotency.go): a first call performs the write; an exact replay (same
 // key + same due_at/window payload) returns the original result without re-running the write; a
 // same-key/different-payload replay returns ports.ErrIdempotencyConflict without mutating anything.
-// If the obligation was still attached to a 'planned' batch, batch_id is cleared (mirrors
-// DeferOpenObligationByIdempotencyKey's detachPlannedBatch pattern above) so the SM-4 sweeper re-attaches
-// it to a drive that actually matches the new due date, and the old batch's estimated_targets is
-// decremented. Unlike the defer/cancel flows, this intentionally does NOT also write the
-// context->'*_repair' stock-reconciliation JSONB bookkeeping those flows use — see the inline comment at
-// the detach site for why that was judged out of scope here.
+// If a still-open (scheduled/due) obligation was attached to a 'planned' batch, batch_id is cleared
+// (mirrors DeferOpenObligationByIdempotencyKey's detachPlannedBatch pattern above) so the SM-4 sweeper
+// re-attaches it to a drive that actually matches the new due date, and the old batch's
+// estimated_targets is decremented. Unlike the defer/cancel flows, this intentionally does NOT also
+// write the context->'*_repair' stock-reconciliation JSONB bookkeeping those flows use — see the inline
+// comment at the detach site for why that was judged out of scope here.
 func (r *Repository) RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -624,10 +640,21 @@ func (r *Repository) RescheduleObligationByID(ctx context.Context, tenantID, obl
 		return reservation.resultID, true, nil
 	}
 
-	var lockedBatchID, lockedBatchStatus string
+	var lockedStatus, lockedBatchID, lockedBatchStatus string
+	var srcProtocolVersionID, srcRuleID, srcTargetType, srcTargetID, srcScopeType, srcScopeID, srcTrigger string
+	var srcSequence int32
 	err = tx.QueryRow(ctx, `
-SELECT COALESCE(oi.batch_id::text, '')::text AS batch_id,
-       COALESCE(ob.status, '')::text AS batch_status
+SELECT oi.status,
+       COALESCE(oi.batch_id::text, '')::text AS batch_id,
+       COALESCE(ob.status, '')::text AS batch_status,
+       oi.protocol_version_id::text,
+       oi.rule_id::text,
+       oi.target_type,
+       oi.target_id::text,
+       oi.scope_type,
+       oi.scope_id::text,
+       oi."sequence",
+       COALESCE(oi.generated_by_trigger_id::text, '')::text AS generated_by_trigger_id
 FROM obligation_instances oi
 LEFT JOIN obligation_batches ob
   ON ob.tenant_id = oi.tenant_id
@@ -635,7 +662,10 @@ LEFT JOIN obligation_batches ob
 WHERE oi.tenant_id = $1
   AND oi.obligation_id = $2
   AND oi.status IN ('scheduled', 'due', 'missed')
-FOR UPDATE OF oi`, tenant, obligation).Scan(&lockedBatchID, &lockedBatchStatus)
+FOR UPDATE OF oi`, tenant, obligation).Scan(
+		&lockedStatus, &lockedBatchID, &lockedBatchStatus,
+		&srcProtocolVersionID, &srcRuleID, &srcTargetType, &srcTargetID,
+		&srcScopeType, &srcScopeID, &srcSequence, &srcTrigger)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, ports.ErrNotFound
 	}
@@ -643,97 +673,109 @@ FOR UPDATE OF oi`, tenant, obligation).Scan(&lockedBatchID, &lockedBatchStatus)
 		return "", false, fmt.Errorf("obligation: lock reschedule target: %w", err)
 	}
 
-	newID, err := qtx.RescheduleOpenObligationByID(ctx, obligationdb.RescheduleOpenObligationByIDParams{
-		DueAt:        pgconv.Timestamptz(dueAt),
-		WindowStart:  pgconv.Timestamptz(windowStart),
-		WindowEnd:    pgconv.NullableTimestamptz(windowEnd),
-		TenantID:     tenant,
-		ObligationID: obligation,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		// Raced with a concurrent status transition between the lock read above and this update.
-		return "", false, ports.ErrNotFound
-	}
-	if err != nil {
-		return "", false, fmt.Errorf("obligation: reschedule obligation: %w", err)
-	}
+	var newID string
+	if lockedStatus == "missed" {
+		// Immutable closed history: create new work instead of mutating the closed row. See this
+		// function's doc comment and insertReworkObligationForMissed's doc comment.
+		newID, err = r.insertReworkObligationForMissed(ctx, qtx, tenant, obligationID,
+			srcProtocolVersionID, srcRuleID, srcTargetType, srcTargetID, srcScopeType, srcScopeID,
+			srcTrigger, srcSequence, dueAt, windowStart, windowEnd, occurredAt)
+		if err != nil {
+			return "", false, err
+		}
+	} else {
+		newID, err = qtx.RescheduleOpenObligationByID(ctx, obligationdb.RescheduleOpenObligationByIDParams{
+			DueAt:        pgconv.Timestamptz(dueAt),
+			WindowStart:  pgconv.Timestamptz(windowStart),
+			WindowEnd:    pgconv.NullableTimestamptz(windowEnd),
+			TenantID:     tenant,
+			ObligationID: obligation,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Raced with a concurrent status transition between the lock read above and this update.
+			return "", false, ports.ErrNotFound
+		}
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: reschedule obligation: %w", err)
+		}
 
-	if detachPlannedBatch := lockedBatchID != "" && lockedBatchStatus == "planned"; detachPlannedBatch {
-		if _, err := tx.Exec(ctx, `
+		if detachPlannedBatch := lockedBatchID != "" && lockedBatchStatus == "planned"; detachPlannedBatch {
+			if _, err := tx.Exec(ctx, `
 UPDATE obligation_instances
 SET batch_id = NULL, updated_at = now()
 WHERE tenant_id = $1 AND obligation_id = $2::uuid`, tenant, newID); err != nil {
-			return "", false, fmt.Errorf("obligation: detach rescheduled obligation from planned batch: %w", err)
-		}
-		// Known incompleteness (documented, not accidental): the defer/cancel flows above also write a
-		// context->'defer_repair'/'cancel_repair' JSONB note plus a matching stock-reservation release
-		// amount, computed by a shared "pending_release" CTE that sums across defer_repair/shift_repair/
-		// cancel_repair/missed_repair keys. Reusing one of those keys here would misrepresent the actual
-		// reschedule reason in stock-reconciliation/audit views; adding a new 'reschedule_repair' key would
-		// require updating that shared CTE (and its 3 existing call sites) to include it in the sum — a
-		// materially larger, riskier change than this focused bug fix. So only estimated_targets is
-		// decremented (still correct for "how many targets remain on this drive"); the reserved-inventory
-		// release for the vacated slot is left for manual stock reconciliation, same as it would be if this
-		// detach did not happen at all.
-		if _, err := tx.Exec(ctx, `
+				return "", false, fmt.Errorf("obligation: detach rescheduled obligation from planned batch: %w", err)
+			}
+			// Known incompleteness (documented, not accidental): the defer/cancel flows above also write a
+			// context->'defer_repair'/'cancel_repair' JSONB note plus a matching stock-reservation release
+			// amount, computed by a shared "pending_release" CTE that sums across defer_repair/shift_repair/
+			// cancel_repair/missed_repair keys. Reusing one of those keys here would misrepresent the actual
+			// reschedule reason in stock-reconciliation/audit views; adding a new 'reschedule_repair' key would
+			// require updating that shared CTE (and its 3 existing call sites) to include it in the sum — a
+			// materially larger, riskier change than this focused bug fix. So only estimated_targets is
+			// decremented (still correct for "how many targets remain on this drive"); the reserved-inventory
+			// release for the vacated slot is left for manual stock reconciliation, same as it would be if this
+			// detach did not happen at all.
+			if _, err := tx.Exec(ctx, `
 UPDATE obligation_batches
 SET estimated_targets = GREATEST(0, estimated_targets - 1),
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1 AND batch_id = $2::uuid`, tenant, lockedBatchID); err != nil {
-			return "", false, fmt.Errorf("obligation: update rescheduled planned batch: %w", err)
+				return "", false, fmt.Errorf("obligation: update rescheduled planned batch: %w", err)
+			}
 		}
-	}
 
-	eventKey := newID + ":rescheduled:" + occurredAt.UTC().Format(time.RFC3339Nano)
-	_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
-		IdempotencyKey: eventKey,
-		TenantID:       tenant,
-		Scope:          "obligation.status_event",
-		RequestHash:    "rescheduled:" + dueAt.UTC().Format(time.RFC3339),
-	})
-	if reserveErr != nil && !errors.Is(reserveErr, pgx.ErrNoRows) {
-		return "", false, fmt.Errorf("obligation: reserve rescheduled event key: %w", reserveErr)
-	}
-	if reserveErr == nil {
-		oblUUID, err := pgconv.UUID(newID)
-		if err != nil {
-			return "", false, fmt.Errorf("obligation: rescheduled obligation id: %w", err)
-		}
-		payload, _ := json.Marshal(map[string]string{
-			"reason":     "mobile_reschedule",
-			"new_due_at": dueAt.UTC().Format(time.RFC3339),
-		})
-		// EventType "scheduled" (not a new "rescheduled" type) deliberately matches the established
-		// convention used by ReopenDeferredObligationByIdempotencyKey and reopenTerminalObligationForInsert
-		// above: any transition INTO 'scheduled' status records event_type='scheduled', with the "why"
-		// captured in the payload's reason field (and mirrored into the idempotency key suffix below for
-		// easy filtering) — not a new event_type per reason. This also avoids widening the
-		// obligation_status_events_type_check CHECK constraint, which validate-hot-index-migrations.sh
-		// (part of `make validate-migrations`) rejects for hot tables past the enforcement floor unless
-		// done via a NOT VALID + VALIDATE CONSTRAINT + no-lock DROP CONSTRAINT rollout — unnecessary
-		// ceremony when the existing 'scheduled' type already fits.
-		eventID, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+		eventKey := newID + ":rescheduled:" + occurredAt.UTC().Format(time.RFC3339Nano)
+		_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
+			IdempotencyKey: eventKey,
 			TenantID:       tenant,
-			ObligationID:   oblUUID,
-			EventType:      "scheduled",
-			OccurredAt:     pgconv.Timestamptz(occurredAt),
-			Payload:        pgconv.JSONB(payload),
-			IdempotencyKey: eventKey,
+			Scope:          "obligation.status_event",
+			RequestHash:    "rescheduled:" + dueAt.UTC().Format(time.RFC3339),
 		})
-		if err != nil {
-			return "", false, fmt.Errorf("obligation: insert rescheduled event: %w", err)
+		if reserveErr != nil && !errors.Is(reserveErr, pgx.ErrNoRows) {
+			return "", false, fmt.Errorf("obligation: reserve rescheduled event key: %w", reserveErr)
 		}
-		eventUUID, err := pgconv.UUID(eventID)
-		if err != nil {
-			return "", false, fmt.Errorf("obligation: rescheduled event id: %w", err)
-		}
-		if err := qtx.CompleteIdempotencyKey(ctx, obligationdb.CompleteIdempotencyKeyParams{
-			ResultType:     pgconv.Text("obligation_status_event"),
-			ResultID:       eventUUID,
-			IdempotencyKey: eventKey,
-		}); err != nil {
-			return "", false, fmt.Errorf("obligation: complete rescheduled event key: %w", err)
+		if reserveErr == nil {
+			oblUUID, err := pgconv.UUID(newID)
+			if err != nil {
+				return "", false, fmt.Errorf("obligation: rescheduled obligation id: %w", err)
+			}
+			payload, _ := json.Marshal(map[string]string{
+				"reason":     "mobile_reschedule",
+				"new_due_at": dueAt.UTC().Format(time.RFC3339),
+			})
+			// EventType "scheduled" (not a new "rescheduled" type) deliberately matches the established
+			// convention used by ReopenDeferredObligationByIdempotencyKey and reopenTerminalObligationForInsert
+			// above: any transition INTO 'scheduled' status records event_type='scheduled', with the "why"
+			// captured in the payload's reason field (and mirrored into the idempotency key suffix below for
+			// easy filtering) — not a new event_type per reason. This also avoids widening the
+			// obligation_status_events_type_check CHECK constraint, which validate-hot-index-migrations.sh
+			// (part of `make validate-migrations`) rejects for hot tables past the enforcement floor unless
+			// done via a NOT VALID + VALIDATE CONSTRAINT + no-lock DROP CONSTRAINT rollout — unnecessary
+			// ceremony when the existing 'scheduled' type already fits.
+			eventID, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+				TenantID:       tenant,
+				ObligationID:   oblUUID,
+				EventType:      "scheduled",
+				OccurredAt:     pgconv.Timestamptz(occurredAt),
+				Payload:        pgconv.JSONB(payload),
+				IdempotencyKey: eventKey,
+			})
+			if err != nil {
+				return "", false, fmt.Errorf("obligation: insert rescheduled event: %w", err)
+			}
+			eventUUID, err := pgconv.UUID(eventID)
+			if err != nil {
+				return "", false, fmt.Errorf("obligation: rescheduled event id: %w", err)
+			}
+			if err := qtx.CompleteIdempotencyKey(ctx, obligationdb.CompleteIdempotencyKeyParams{
+				ResultType:     pgconv.Text("obligation_status_event"),
+				ResultID:       eventUUID,
+				IdempotencyKey: eventKey,
+			}); err != nil {
+				return "", false, fmt.Errorf("obligation: complete rescheduled event key: %w", err)
+			}
 		}
 	}
 
@@ -745,6 +787,125 @@ WHERE tenant_id = $1 AND batch_id = $2::uuid`, tenant, lockedBatchID); err != ni
 		return "", false, fmt.Errorf("obligation: commit reschedule: %w", err)
 	}
 	return newID, false, nil
+}
+
+// insertReworkObligationForMissed reschedules a 'missed' obligation by creating a brand-new
+// obligation_instances row rather than mutating the closed one — see RescheduleObligationByID's doc
+// comment for why. It reuses InsertObligationInstance, the exact same INSERT the SM-1 generator uses
+// (via InsertObligation/reopenTerminalObligationForInsert above), so this is not a second, parallel
+// "create an obligation" code path; it is called with qtx so the insert lands in the SAME transaction as
+// the reschedule request's idempotency reservation, keeping the whole reschedule atomic.
+//
+// The new row copies the missed row's protocol_version/rule/target/scope/sequence (it is the same
+// logical dose, just moved to a new date) and is left unbatched (batch_id NULL) so the SM-4 sweeper
+// attaches it to whichever drive actually matches the new due date — mirroring the batch-detach behavior
+// the plain scheduled/due reschedule path applies explicitly. Its idempotency_key is deterministically
+// derived from the missed obligation's id and the new due date, distinct from (and independent of) the
+// caller's own request-level idempotency key already reserved by RescheduleObligationByID above.
+//
+// A 'scheduled' status event is recorded on the NEW row with payload `superseded_missed_obligation_id`
+// pointing at the old, untouched missed row — obligation_instances has no parent_obligation_id column,
+// so this JSONB back-reference is the established traceability mechanism (see the payload `reason`
+// field elsewhere in this file). The missed row itself is never written to: no column mutation, no new
+// obligation_status_events row.
+func (r *Repository) insertReworkObligationForMissed(
+	ctx context.Context,
+	qtx *obligationdb.Queries,
+	tenant pgtype.UUID,
+	missedObligationID string,
+	protocolVersionID, ruleID, targetType, targetID, scopeType, scopeID, generatedByTriggerID string,
+	sequence int32,
+	dueAt, windowStart time.Time, windowEnd *time.Time,
+	occurredAt time.Time,
+) (string, error) {
+	protocolVersion, err := pgconv.UUID(protocolVersionID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: rework protocol version id: %w", err)
+	}
+	rule, err := pgconv.UUID(ruleID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: rework rule id: %w", err)
+	}
+	target, err := pgconv.UUID(targetID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: rework target id: %w", err)
+	}
+	scope, err := pgconv.UUID(scopeID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: rework scope id: %w", err)
+	}
+	trigger, err := pgconv.UUID(generatedByTriggerID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: rework trigger id: %w", err)
+	}
+
+	newIdempotencyKey := "rescheduled_missed:" + missedObligationID + ":" + dueAt.UTC().Format(time.RFC3339Nano)
+	newID, err := qtx.InsertObligationInstance(ctx, obligationdb.InsertObligationInstanceParams{
+		TenantID:             tenant,
+		ProtocolVersionID:    protocolVersion,
+		RuleID:               rule,
+		BatchID:              pgconv.NullableUUID(nil),
+		TargetType:           targetType,
+		TargetID:             target,
+		ScopeType:            scopeType,
+		ScopeID:              scope,
+		DueAt:                pgconv.Timestamptz(dueAt),
+		WindowStart:          pgconv.Timestamptz(windowStart),
+		WindowEnd:            pgconv.NullableTimestamptz(windowEnd),
+		Status:               "scheduled",
+		IdempotencyKey:       newIdempotencyKey,
+		GeneratedByTriggerID: trigger,
+		Sequence:             sequence,
+	})
+	if err != nil {
+		return "", fmt.Errorf("obligation: insert rework obligation for missed %s: %w", missedObligationID, err)
+	}
+
+	newObligation, err := pgconv.UUID(newID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: rework obligation id: %w", err)
+	}
+	eventKey := newID + ":rescheduled_missed:" + occurredAt.UTC().Format(time.RFC3339Nano)
+	_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
+		IdempotencyKey: eventKey,
+		TenantID:       tenant,
+		Scope:          "obligation.status_event",
+		RequestHash:    "rescheduled_missed:" + dueAt.UTC().Format(time.RFC3339),
+	})
+	if reserveErr != nil && !errors.Is(reserveErr, pgx.ErrNoRows) {
+		return "", fmt.Errorf("obligation: reserve rework event key: %w", reserveErr)
+	}
+	if reserveErr == nil {
+		payload, _ := json.Marshal(map[string]string{
+			"reason":                          "mobile_reschedule_of_missed",
+			"new_due_at":                      dueAt.UTC().Format(time.RFC3339),
+			"superseded_missed_obligation_id": missedObligationID,
+		})
+		eventID, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+			TenantID:       tenant,
+			ObligationID:   newObligation,
+			EventType:      "scheduled",
+			OccurredAt:     pgconv.Timestamptz(occurredAt),
+			Payload:        pgconv.JSONB(payload),
+			IdempotencyKey: eventKey,
+		})
+		if err != nil {
+			return "", fmt.Errorf("obligation: insert rework scheduled event: %w", err)
+		}
+		eventUUID, err := pgconv.UUID(eventID)
+		if err != nil {
+			return "", fmt.Errorf("obligation: rework event id: %w", err)
+		}
+		if err := qtx.CompleteIdempotencyKey(ctx, obligationdb.CompleteIdempotencyKeyParams{
+			ResultType:     pgconv.Text("obligation_status_event"),
+			ResultID:       eventUUID,
+			IdempotencyKey: eventKey,
+		}); err != nil {
+			return "", fmt.Errorf("obligation: complete rework event key: %w", err)
+		}
+	}
+
+	return newID, nil
 }
 
 // FindNearestPlannedBatchDate returns the earliest compatible planned drive date in the goat's shed or

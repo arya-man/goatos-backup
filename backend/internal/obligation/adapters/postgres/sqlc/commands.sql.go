@@ -445,7 +445,7 @@ SET due_at = $1,
     updated_at = now()
 WHERE oi.tenant_id = $4
   AND oi.obligation_id = $5
-  AND oi.status IN ('scheduled', 'due', 'missed')
+  AND oi.status IN ('scheduled', 'due')
 RETURNING oi.obligation_id::text AS obligation_id
 `
 
@@ -457,15 +457,20 @@ type RescheduleOpenObligationByIDParams struct {
 	ObligationID pgtype.UUID
 }
 
-// Mobile "reschedule this obligation" write path: moves an OPEN obligation (scheduled/due/missed) to a
-// new due date, scoped by obligation_id rather than by idempotency_key like the health-recovery reopen
-// queries above. 'deferred' (health hold) is deliberately excluded — that status stays exclusively owned
-// by ReopenDeferredObligationForKey(WithDue); this path can never reach a health-held row. Terminal/
-// in-flight statuses (completed, in_progress, proof_pending, verification_pending, rejected, blocked,
-// owner_missing, canceled) are excluded too — none of those are reschedulable from the mobile app. The
-// caller (Repository.RescheduleObligationByID) separately locks the row first and detaches batch_id when
-// the obligation is still attached to a 'planned' batch, mirroring DeferOpenObligationByIdempotencyKey's
-// detachPlannedBatch pattern, since a moved due date may no longer belong to that drive.
+// Mobile "reschedule this obligation" write path: moves a still-OPEN, not-yet-closed obligation
+// (scheduled/due) to a new due date, scoped by obligation_id rather than by idempotency_key like the
+// health-recovery reopen queries above. 'deferred' (health hold) is deliberately excluded — that status
+// stays exclusively owned by ReopenDeferredObligationForKey(WithDue); this path can never reach a
+// health-held row. 'missed' is deliberately excluded too (state-machines.md §"Conventions": missed is
+// immutable closed history, alongside completed/waived/canceled/superseded — a later policy correction
+// must create new work, never rewrite the closed row): Repository.RescheduleObligationByID branches a
+// 'missed' target to insertReworkObligationForMissed (a fresh INSERT via InsertObligationInstance)
+// instead of calling this UPDATE. Terminal/in-flight statuses (completed, in_progress, proof_pending,
+// verification_pending, rejected, blocked, owner_missing, canceled) are excluded too — none of those are
+// reschedulable from the mobile app. The caller separately locks the row first and detaches batch_id
+// when the obligation is still attached to a 'planned' batch, mirroring
+// DeferOpenObligationByIdempotencyKey's detachPlannedBatch pattern, since a moved due date may no longer
+// belong to that drive.
 func (q *Queries) RescheduleOpenObligationByID(ctx context.Context, arg RescheduleOpenObligationByIDParams) (string, error) {
 	row := q.db.QueryRow(ctx, rescheduleOpenObligationByID,
 		arg.DueAt,

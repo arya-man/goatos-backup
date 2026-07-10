@@ -85,38 +85,75 @@ func TestKernelStoryA_MissedBufferReschedule(t *testing.T) {
 		bufferDue.Before(sweepAsOf) && bufferWindowEnd.After(sweepAsOf),
 		"due_at=%s window_end=%s asOf=%s", bufferDue.Format("2006-01-02"), bufferWindowEnd.Format("2006-01-02"), sweepAsOf.Format("2006-01-02"))
 
-	// --- Reschedule the missed dose back onto the calendar. ---
+	// --- Rework the missed dose onto a new calendar date. ---
 	//
-	// The parallel worktree fix mentioned in this task's brief -- a real RescheduleObligationByID
-	// repository method for the mobile "reschedule an overdue/missed obligation" write path, meant to
-	// replace internal/vaccinationexecution/adapters/http/handler.go's RescheduleObligation handler
-	// (which previously misused ReopenDeferredObligationByIdempotencyKey, a defer-recovery method, for
-	// this) -- landed in this same worktree while this test suite was being written. It had NOT landed
-	// yet when Story A was first implemented (repository.go had no method whose name contained
-	// "Reschedule" at that point, only the HTTP route registration), so this call replaced an earlier
-	// raw-SQL + RecordStatusEvent stand-in once RescheduleObligationByID appeared. It targets the
-	// obligation directly by id, explicitly supports rescheduling a 'missed' row back to 'scheduled',
-	// and writes its own durable 'rescheduled' audit event.
+	// Kernel state-machine rule (docs/protocol-engine/state-machines.md, "Conventions"): missed is
+	// immutable closed history, same as completed/waived/canceled/superseded. A later policy
+	// correction must create new work or a rework/correction record -- it must never rewrite the
+	// closed row. So RescheduleObligationByID on a 'missed' target does NOT flip the missed row back
+	// to 'scheduled' in place: it inserts a brand-new obligation (fresh id, status 'scheduled', the
+	// new due date, unbatched) via the same InsertObligationInstance path the SM-1 generator uses, and
+	// leaves G-Missed's original row completely untouched (status, due_at, row_version, and its own
+	// event history all unchanged). The new row's audit event carries
+	// `superseded_missed_obligation_id` pointing back at G-Missed's obligation -- there is no
+	// parent_obligation_id column on obligation_instances, so this JSONB back-reference is the
+	// established traceability mechanism.
 	newDue := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
 	newWindowEnd := newDue.AddDate(0, 0, 14)
-	story.Step("Reschedule the missed dose",
-		"Call the real RescheduleObligationByID repository method to put G-Missed's dose back on the "+
-			"calendar for 2026-07-15.")
-	_, isReplay, err := fx.Obl.RescheduleObligationByID(fx.Ctx, fxTenant, missedObl, "e2e-story-a-reschedule", newDue, newDue, &newWindowEnd, newDue.AddDate(0, 0, -14))
+	story.Step("Rework the missed dose onto a new calendar date",
+		"Call the real RescheduleObligationByID repository method on G-Missed's obligation. It must "+
+			"create a brand-new obligation for 2026-07-15 and leave the missed row untouched, never "+
+			"mutate the missed row back to scheduled.")
+	newObl, isReplay, err := fx.Obl.RescheduleObligationByID(fx.Ctx, fxTenant, missedObl, "e2e-story-a-reschedule", newDue, newDue, &newWindowEnd, newDue.AddDate(0, 0, -14))
 	story.Assert("RescheduleObligationByID ran without error", err == nil, "err=%v", err)
 	story.Assert("this was a first-time apply, not an idempotent replay", !isReplay, "isReplay=%v", isReplay)
+	story.Assert("a brand-new obligation was created rather than the missed row being reused",
+		newObl != "" && newObl != missedObl, "newObl=%q missedObl=%q", newObl, missedObl)
 
-	rescheduledStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, missedObl)
-	story.Assert("G-Missed's dose is scheduled again", rescheduledStatus == "scheduled", "status=%q", rescheduledStatus)
+	missedStatusAfter := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, missedObl)
+	story.Assert("G-Missed's original dose is STILL missed -- immutable closed history is never rewritten",
+		missedStatusAfter == "missed", "status=%q", missedStatusAfter)
 
-	rescheduledDue := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, missedObl)
-	story.Assert("its due date moved to the new calendar date", rescheduledDue.Equal(newDue), "due_at=%s want=%s", rescheduledDue.Format("2006-01-02"), newDue.Format("2006-01-02"))
+	missedDueAfter := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, missedObl)
+	story.Assert("G-Missed's original due date is untouched", missedDueAfter.Equal(missedDue),
+		"due_at=%s want=%s", missedDueAfter.Format("2006-01-02"), missedDue.Format("2006-01-02"))
+
+	newStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, newObl)
+	story.Assert("the new obligation is scheduled", newStatus == "scheduled", "status=%q", newStatus)
+
+	newDueAt := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, newObl)
+	story.Assert("the new obligation carries the new calendar date", newDueAt.Equal(newDue),
+		"due_at=%s want=%s", newDueAt.Format("2006-01-02"), newDue.Format("2006-01-02"))
 
 	// RescheduleObligationByID deliberately records event_type='scheduled' (not a new
-	// 'rescheduled' enum value) — obligation_status_events is a hot table and
+	// 'rescheduled' enum value) on the NEW obligation -- obligation_status_events is a hot table and
 	// validate-hot-index-migrations.sh rejects widening its CHECK constraint past the
-	// enforcement floor; the "why" lives in the payload's reason field instead (see the
-	// doc comment above InsertObligationStatusEvent's call site in repository.go).
-	events := fx.countRows(`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='scheduled' AND payload->>'reason'='mobile_reschedule'`, fxTenant, missedObl)
-	story.Assert("a durable 'scheduled' audit event (reason=mobile_reschedule) was recorded", events == 1, "events=%d", events)
+	// enforcement floor; the "why" (and the back-reference to the missed row it reworks) lives in the
+	// payload's reason/superseded_missed_obligation_id fields instead (see the doc comment above
+	// insertReworkObligationForMissed in repository.go).
+	events := fx.countRows(`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='scheduled' AND payload->>'reason'='mobile_reschedule_of_missed' AND payload->>'superseded_missed_obligation_id'=$3`,
+		fxTenant, newObl, missedObl)
+	story.Assert("a durable 'scheduled' audit event linking the new obligation back to the missed one was recorded",
+		events == 1, "events=%d", events)
+
+	missedOwnNewEvents := fx.countRows(`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='scheduled'`, fxTenant, missedObl)
+	story.Assert("the missed row itself recorded no new 'scheduled' event -- it was never touched",
+		missedOwnNewEvents == 0, "events=%d", missedOwnNewEvents)
+
+	story.Step("Idempotent redelivery of the same reschedule request no-ops",
+		"Calling RescheduleObligationByID again with the exact same idempotency key and payload must "+
+			"replay the original result (same new obligation id) without creating a second obligation "+
+			"or touching the missed row again.")
+	replayObl, replayIsReplay, err := fx.Obl.RescheduleObligationByID(fx.Ctx, fxTenant, missedObl, "e2e-story-a-reschedule", newDue, newDue, &newWindowEnd, newDue.AddDate(0, 0, -14))
+	story.Assert("replay ran without error", err == nil, "err=%v", err)
+	story.Assert("replay is flagged as a replay, not a fresh apply", replayIsReplay, "isReplay=%v", replayIsReplay)
+	story.Assert("replay returns the same new obligation id, not a second new one", replayObl == newObl,
+		"replayObl=%q newObl=%q", replayObl, newObl)
+
+	replayEvents := fx.countRows(`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='scheduled' AND payload->>'reason'='mobile_reschedule_of_missed'`, fxTenant, newObl)
+	story.Assert("replay did not duplicate the scheduled audit event", replayEvents == 1, "events=%d", replayEvents)
+
+	missedStatusAfterReplay := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, missedObl)
+	story.Assert("G-Missed's original dose is still untouched after the idempotent replay",
+		missedStatusAfterReplay == "missed", "status=%q", missedStatusAfterReplay)
 }

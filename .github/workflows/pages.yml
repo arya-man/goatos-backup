@@ -4,7 +4,9 @@ name: pages
 #   /screenshot-gallery/  Paparazzi golden images for every mobile screen (:app ScreenshotTest)
 #                         plus every role's nav chrome + landing (:app RoleChromeScreenshotTest)
 #   /nav-graph/           Compose Navigation routes + navigate() edges (Mermaid)
-#   /e2e-report/          Backend vaccination kernel-story E2E report (19 stories, HTML)
+#   /e2e-report/          Backend vaccination kernel-story E2E report (story count grows over time —
+#                         read from the generated report itself, never hardcoded here; see e2e-report
+#                         job's "Compute story count from the generated report" step)
 # Runs on every push to main that touches the relevant paths, AND on a daily cron so the
 # screenshot gallery and E2E report stay fresh even without a code change (data/timing drift,
 # flaky-test detection). See docs/runbooks/github-workflows.md.
@@ -91,6 +93,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
+    outputs:
+      total: ${{ steps.story_count.outputs.total }}
+      passed: ${{ steps.story_count.outputs.passed }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
@@ -100,11 +105,22 @@ jobs:
       - name: Run the vaccination kernel-story E2E harness
         working-directory: backend
         run: go test ./tests/e2e/... -run TestKernelStor -v
+      - name: Compute story count from the generated report
+        id: story_count
+        # Never hardcode the story count here -- read it from the report's own summary tiles
+        # (rendered by backend/tests/e2e/report.go) so this workflow can't drift stale as stories
+        # are added or removed.
+        run: |
+          report="backend/tests/e2e/report/index.html"
+          total=$(grep -oE '<div class="tile"><span class="n">[0-9]+</span>stories</div>' "$report" | grep -oE '[0-9]+')
+          passed=$(grep -oE '<div class="tile pass"><span class="n">[0-9]+</span>stories passed</div>' "$report" | grep -oE '[0-9]+')
+          echo "total=$total" >> "$GITHUB_OUTPUT"
+          echo "passed=$passed" >> "$GITHUB_OUTPUT"
       - name: Job summary
         run: |
           {
             echo "### Vaccination kernel-story E2E report"
-            echo "19/19 stories (core kernel behavior A-N plus event-driven-chain + edge-dataset stories O/P/Q/R/T) — see the Pages artifact \`e2e-report\` below once deployed."
+            echo "${{ steps.story_count.outputs.passed }}/${{ steps.story_count.outputs.total }} stories — see the Pages artifact \`e2e-report\` below once deployed."
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
@@ -143,7 +159,7 @@ jobs:
           <a class="card" href="nav-graph/index.html"><b>Mobile nav-graph</b>
             <p>Compose Navigation routes + navigate() edges.</p></a>
           <a class="card" href="e2e-report/index.html"><b>Vaccination kernel-story E2E report</b>
-            <p>19 stories: core kernel behavior plus event-driven-chain + edge-dataset coverage.</p></a>
+            <p>${{ needs.e2e-report.outputs.passed }}/${{ needs.e2e-report.outputs.total }} stories: core kernel behavior plus event-driven-chain + edge-dataset coverage.</p></a>
           </body></html>
           HTML
       - uses: actions/download-artifact@v4
