@@ -6,6 +6,7 @@ import (
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	pidomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
@@ -15,6 +16,13 @@ import (
 // scale contract (see AGENTS.md "million-animal scale"): per-shed drive grouping is exact, and the
 // control-tower read path is keyset-paginated/bounded -- a page returns at most Limit rows with a
 // cursor to the next page, never a full-herd dump.
+//
+// Extended (docs/architecture/event-driven-kernel.md "Cross-cutting rules... at 1M-goat scale"): after
+// the static generate/sweep/paginate proof above, this story also drives two DYNAMIC events across the
+// same multi-shed cohort -- a sick-defer sweep over one shed's goats, and a death cancellation of two
+// goats in a different shed -- and asserts each stays bounded to exactly the goats/sheds it targets,
+// never touching the rest of the herd, and that the control-tower read path stays bounded afterward.
+
 func TestKernelStoryN_Scale(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-n", "Scale: multi-shed drive, bounded/indexed read path",
@@ -28,7 +36,10 @@ func TestKernelStoryN_Scale(t *testing.T) {
 	const goatsPerShed = 8
 	const totalGoats = shedCount * goatsPerShed
 
-	versionID, _ := fx.PublishSimpleProtocol("vaccination.e2e.story_n", 21, 0, nil)
+	// defer_states enable the dynamic-events-at-scale extension later in this story (sick-defer one
+	// shed's cohort, death-cancel two goats in another) without affecting the static generation/sweep/
+	// pagination proof above, since no goat is sick/dead during that first pass.
+	versionID, _ := fx.PublishSimpleProtocol("vaccination.e2e.story_n", 21, 0, []string{"sick", "quarantine", "icu"})
 
 	now := time.Now().UTC()
 	dob := now.AddDate(0, 0, -53) // 53d old, 21-day rule => past due, ready to sweep into a drive
@@ -127,4 +138,67 @@ func TestKernelStoryN_Scale(t *testing.T) {
 		}
 		story.Assert("pages are disjoint (no row appears on both pages)", !overlap, "overlap=%v", overlap)
 	}
+
+	story.Step("Dynamic event at scale: sick-defer one shed's whole cohort, bounded to that shed only",
+		"Mark every goat in shed 0 sick and re-run generation over the whole version. The recheck must "+
+			"defer exactly that shed's goats and touch no others -- a dynamic event at scale is still a "+
+			"per-goat decision, not a per-shed or per-herd rewrite.")
+	sickShedID := shedIDs[0]
+	fx.exec("mark shed 0's goats sick",
+		`UPDATE goats SET health_status='sick' WHERE tenant_id=$1 AND shed_id=$2`, fxTenant, sickShedID)
+	recheckAsOf := now.AddDate(0, 0, 2)
+	recheckRes, err := gen.GenerateForVersion(fx.Ctx, fxTenant, versionID, recheckAsOf)
+	story.Assert("cohort recheck ran without error", err == nil, "err=%v", err)
+	story.Assert(fmt.Sprintf("exactly the sick shed's %d goats were deferred", goatsPerShed), recheckRes.Deferred == goatsPerShed, "deferred=%d", recheckRes.Deferred)
+	story.Assert("the recheck created no new obligations (all 48 already existed)", recheckRes.Generated == 0, "generated=%d", recheckRes.Generated)
+
+	sickShedScheduled := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND scope_type='shed' AND scope_id=$2 AND status='scheduled'`, fxTenant, sickShedID)
+	story.Assert("the sick shed now has zero scheduled (all deferred)", sickShedScheduled == 0, "scheduled=%d", sickShedScheduled)
+	sickShedDeferred := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND scope_type='shed' AND scope_id=$2 AND status='deferred'`, fxTenant, sickShedID)
+	story.Assert(fmt.Sprintf("the sick shed has exactly %d deferred obligations", goatsPerShed), sickShedDeferred == goatsPerShed, "deferred=%d", sickShedDeferred)
+
+	otherShedsUntouched := true
+	for _, shedID := range shedIDs[1:] {
+		n := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND scope_type='shed' AND scope_id=$2 AND status='scheduled'`, fxTenant, shedID)
+		if n != goatsPerShed {
+			otherShedsUntouched = false
+		}
+	}
+	story.Assert(fmt.Sprintf("every other shed still has exactly %d scheduled goats, untouched by the sick shed's defer", goatsPerShed), otherShedsUntouched, "expected %d per shed", goatsPerShed)
+
+	story.Step("Dynamic event at scale: death cancels only the exited goats, bounded per goat",
+		"Two goats in a different shed die. The real SM-3 handler must cancel only those two goats' "+
+			"obligations -- the rest of that shed's cohort, and every other shed, must be untouched.")
+	deathShedID := shedIDs[1]
+	deadGoat1 := fmt.Sprintf("ee000000-0000-4000-8000-00000004%02d%02d", 1, 0)
+	deadGoat2 := fmt.Sprintf("ee000000-0000-4000-8000-00000004%02d%02d", 1, 1)
+	exitHandler := oblapp.NewGoatExitedHandler(fx.Obl)
+	exitAt := recheckAsOf.AddDate(0, 0, 1)
+	for _, deadGoat := range []string{deadGoat1, deadGoat2} {
+		fx.exec("mark goat dead", `UPDATE goats SET lifecycle_status='dead' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, deadGoat)
+		err := exitHandler.HandleEvent(fx.Ctx, eventbus.Event{
+			ID: "e2e-story-n-exit-" + deadGoat, Type: oblapp.EventGoatExited, TenantID: fxTenant, Key: deadGoat, OccurredAt: exitAt,
+		})
+		story.Assert(fmt.Sprintf("death handler for %s ran without error", deadGoat), err == nil, "err=%v", err)
+	}
+
+	deathShedScheduled := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND scope_type='shed' AND scope_id=$2 AND status='scheduled'`, fxTenant, deathShedID)
+	story.Assert(fmt.Sprintf("the death shed now has %d scheduled goats left (2 exited)", goatsPerShed-2), deathShedScheduled == goatsPerShed-2, "scheduled=%d", deathShedScheduled)
+	canceledTotal := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id IN ($2,$3) AND status='canceled'`, fxTenant, deadGoat1, deadGoat2)
+	story.Assert("exactly the 2 exited goats' obligations are cancelled", canceledTotal == 2, "cancelled=%d", canceledTotal)
+
+	deferredTotal := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND protocol_version_id=$2 AND status='deferred'`, fxTenant, versionID)
+	story.Assert(fmt.Sprintf("herd-wide deferred count is still exactly %d (only the sick shed)", goatsPerShed), deferredTotal == goatsPerShed, "deferred=%d", deferredTotal)
+	scheduledTotal := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND protocol_version_id=$2 AND status='scheduled'`, fxTenant, versionID)
+	story.Assert(fmt.Sprintf("herd-wide scheduled count reflects both dynamic events: %d - %d sick - 2 dead = %d", totalGoats, goatsPerShed, totalGoats-goatsPerShed-2),
+		scheduledTotal == totalGoats-goatsPerShed-2, "scheduled=%d", scheduledTotal)
+
+	story.Step("Control-tower read stays bounded after mixed dynamic events at scale",
+		"Re-query the same control-tower page after the sick-defer and death mutations above. It must "+
+			"still return at most the page size -- the read model does not need a full-herd rescan just "+
+			"because some goats deferred or exited.",
+	)
+	page1Again, err := fx.PI.ListRows(fx.Ctx, pidomain.Query{TenantID: fxTenant, AsOf: time.Now().UTC().Add(2 * time.Hour), DueBefore: now.AddDate(0, 0, 1), Limit: pageSize})
+	story.Assert("control-tower query after dynamic events ran without error", err == nil, "err=%v", err)
+	story.Assert(fmt.Sprintf("the page still returns at most the page size (%d) after mutations", pageSize), len(page1Again.Rows) <= pageSize, "rows=%d", len(page1Again.Rows))
 }

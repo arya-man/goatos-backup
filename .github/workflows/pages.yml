@@ -3,7 +3,7 @@ name: pages
 # Publishes three CI-generated reports to GitHub Pages, combined under one site:
 #   /screenshot-gallery/  Paparazzi golden images for every mobile screen (:app ScreenshotTest)
 #   /nav-graph/           Compose Navigation routes + navigate() edges (Mermaid)
-#   /e2e-report/          Backend vaccination kernel-story E2E report (3 stories, HTML)
+#   /e2e-report/          Backend vaccination kernel-story E2E report (19 stories, HTML)
 # Runs on every push to main that touches the relevant paths, AND on a daily cron so the
 # screenshot gallery and E2E report stay fresh even without a code change (data/timing drift,
 # flaky-test detection). See docs/runbooks/github-workflows.md.
@@ -103,7 +103,7 @@ jobs:
         run: |
           {
             echo "### Vaccination kernel-story E2E report"
-            echo "3/3 stories (missed/in-buffer/reschedule, quarantine recovery, batch drive + control tower) — see the Pages artifact \`e2e-report\` below once deployed."
+            echo "19/19 stories (core kernel behavior A-N plus event-driven-chain + edge-dataset stories O/P/Q/R/T) — see the Pages artifact \`e2e-report\` below once deployed."
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
@@ -142,7 +142,7 @@ jobs:
           <a class="card" href="nav-graph/index.html"><b>Mobile nav-graph</b>
             <p>Compose Navigation routes + navigate() edges.</p></a>
           <a class="card" href="e2e-report/index.html"><b>Vaccination kernel-story E2E report</b>
-            <p>Missed/in-buffer/reschedule, quarantine recovery, batch drive + control tower.</p></a>
+            <p>19 stories: core kernel behavior plus event-driven-chain + edge-dataset coverage.</p></a>
           </body></html>
           HTML
       - uses: actions/download-artifact@v4

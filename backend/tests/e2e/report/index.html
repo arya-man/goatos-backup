@@ -82,13 +82,13 @@
 </head>
 <body>
   <h1>Vaccination Kernel Story Report</h1>
-  <p class="subtitle">Generated 2026-07-10 08:58:39 UTC &middot; backend/tests/e2e</p>
+  <p class="subtitle">Generated 2026-07-10 09:54:59 UTC &middot; backend/tests/e2e</p>
 
   <div class="summary">
-    <div class="tile"><span class="n">14</span>stories</div>
-    <div class="tile pass"><span class="n">14</span>stories passed</div>
+    <div class="tile"><span class="n">19</span>stories</div>
+    <div class="tile pass"><span class="n">19</span>stories passed</div>
     <div class="tile fail"><span class="n">0</span>stories failed</div>
-    <div class="tile"><span class="n">149</span>assertions checked</div>
+    <div class="tile"><span class="n">256</span>assertions checked</div>
     <div class="tile pass"><span class="n">0</span>assertions failed</div>
   </div>
 
@@ -452,7 +452,7 @@
           <tr class="ok">
             <td>the shed drive appears in the execution rollup</td>
             <td>PASS</td>
-            <td class="detail">batch=1e548340-0985-454a-9e38-9b22633cb611 rows=1</td>
+            <td class="detail">batch=55332d41-0345-4fce-b41e-56d9f13c1830 rows=1</td>
           </tr>
         
           <tr class="ok">
@@ -1317,7 +1317,7 @@
           <tr class="ok">
             <td>first administration recorded</td>
             <td>PASS</td>
-            <td class="detail">cid=&#34;0087c7bb-fbbf-452f-9caf-071286141cca&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid=&#34;54eecc1b-b509-403c-8f81-2223720a6b09&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
         
         </tbody>
@@ -1385,7 +1385,7 @@
           <tr class="ok">
             <td>rework administration recorded under a new key</td>
             <td>PASS</td>
-            <td class="detail">cid2=&#34;e7065a91-a7cb-4462-a5eb-ffe343bd27ba&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid2=&#34;384002d1-dd19-40a2-85a0-6f1f97b1f29e&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
         
         </tbody>
@@ -1465,7 +1465,7 @@
           <tr class="ok">
             <td>first submit recorded a completion</td>
             <td>PASS</td>
-            <td class="detail">cid=&#34;1e9d288e-89a3-4780-bf3f-cc46e76e72e7&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid=&#34;ebce4646-687c-43e4-ac15-6551e5cde706&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
         
           <tr class="ok">
@@ -1681,7 +1681,7 @@
           <tr class="ok">
             <td>a next-page cursor is returned (keyset pagination, bounded reads)</td>
             <td>PASS</td>
-            <td class="detail">next_cursor=0x1400036acb0</td>
+            <td class="detail">next_cursor=0x14000048400</td>
           </tr>
         
         </tbody>
@@ -1719,6 +1719,1074 @@
             <td>pages are disjoint (no row appears on both pages)</td>
             <td>PASS</td>
             <td class="detail">overlap=false</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Dynamic event at scale: sick-defer one shed&#39;s whole cohort, bounded to that shed only</h3>
+      <p class="narrative">Mark every goat in shed 0 sick and re-run generation over the whole version. The recheck must defer exactly that shed&#39;s goats and touch no others -- a dynamic event at scale is still a per-goat decision, not a per-shed or per-herd rewrite.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>cohort recheck ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>exactly the sick shed&#39;s 8 goats were deferred</td>
+            <td>PASS</td>
+            <td class="detail">deferred=8</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the recheck created no new obligations (all 48 already existed)</td>
+            <td>PASS</td>
+            <td class="detail">generated=0</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the sick shed now has zero scheduled (all deferred)</td>
+            <td>PASS</td>
+            <td class="detail">scheduled=0</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the sick shed has exactly 8 deferred obligations</td>
+            <td>PASS</td>
+            <td class="detail">deferred=8</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>every other shed still has exactly 8 scheduled goats, untouched by the sick shed&#39;s defer</td>
+            <td>PASS</td>
+            <td class="detail">expected 8 per shed</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Dynamic event at scale: death cancels only the exited goats, bounded per goat</h3>
+      <p class="narrative">Two goats in a different shed die. The real SM-3 handler must cancel only those two goats&#39; obligations -- the rest of that shed&#39;s cohort, and every other shed, must be untouched.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>death handler for ee000000-0000-4000-8000-000000040100 ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>death handler for ee000000-0000-4000-8000-000000040101 ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the death shed now has 6 scheduled goats left (2 exited)</td>
+            <td>PASS</td>
+            <td class="detail">scheduled=6</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>exactly the 2 exited goats&#39; obligations are cancelled</td>
+            <td>PASS</td>
+            <td class="detail">cancelled=2</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>herd-wide deferred count is still exactly 8 (only the sick shed)</td>
+            <td>PASS</td>
+            <td class="detail">deferred=8</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>herd-wide scheduled count reflects both dynamic events: 48 - 8 sick - 2 dead = 38</td>
+            <td>PASS</td>
+            <td class="detail">scheduled=38</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Control-tower read stays bounded after mixed dynamic events at scale</h3>
+      <p class="narrative">Re-query the same control-tower page after the sick-defer and death mutations above. It must still return at most the page size -- the read model does not need a full-herd rescan just because some goats deferred or exited.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>control-tower query after dynamic events ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the page still returns at most the page size (3) after mutations</td>
+            <td>PASS</td>
+            <td class="detail">rows=3</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+  </section>
+  
+  <section class="story pass">
+    <h2>Birth: full predefined schedule &#43; 24-hour tagging buffer <span class="badge pass">PASS</span></h2>
+    <p class="narrative">A kid is born and registered almost immediately (generation runs the same day, a few hours after birth -- the intake/tagging moment). The generation engine must materialize the full standard kid schedule (4w/7w/12w/16w/20w) from DOB, and every generated dose&#39;s due date must respect the 24-hour tagging buffer: no dose may ever be due before DOB &#43; 24h, since a kid cannot be RFID-tagged and enrolled until a day after birth.</p>
+    
+    <div class="step">
+      <h3>Register the newborn kid and publish the full kid schedule</h3>
+      <p class="narrative">One kid born 2026-04-01. The published protocol version carries the same five birth-age rows as the standard kid bundle: 28d (ET&#43;TT #1, 4w), 49d (ET&#43;TT #2, 7w), 84d (FMD/HS, 12w), 112d (PPR, 16w), and 140d (Goat Pox, 20w).</p>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Generate the schedule at the tagging/intake moment (DOB &#43; a few hours)</h3>
+      <p class="narrative">Run the real GenerationService.GenerateForGoat at DOB &#43; 3 hours -- as early as generation could plausibly run (intake/tagging time), not days later. All five doses must still materialize.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>generation ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>all five kid doses were generated at intake time</td>
+            <td>PASS</td>
+            <td class="detail">generated=5</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>exactly five scheduled obligations for the kid</td>
+            <td>PASS</td>
+            <td class="detail">count=5</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Every generated dose respects the 24-hour tagging buffer</h3>
+      <p class="narrative">For every kid row, the generated due date must be at DOB &#43; the row&#39;s offset, and -- the buffer invariant -- strictly no earlier than DOB &#43; 24h. The earliest row (ET&#43;TT #1, 28d) clears the buffer by 27 full days, proving the floor holds with wide margin under the current schedule.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>ettt_1: due at DOB&#43;28d (4w)</td>
+            <td>PASS</td>
+            <td class="detail">got_due=2026-04-29 want_due=2026-04-29</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>ettt_1: due date is not before DOB &#43; 24h tagging buffer</td>
+            <td>PASS</td>
+            <td class="detail">due-DOB=660h30m0s buffer=24h0m0s</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>ettt_2: due at DOB&#43;49d (7w)</td>
+            <td>PASS</td>
+            <td class="detail">got_due=2026-05-20 want_due=2026-05-20</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>ettt_2: due date is not before DOB &#43; 24h tagging buffer</td>
+            <td>PASS</td>
+            <td class="detail">due-DOB=1164h30m0s buffer=24h0m0s</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>fmd_hs: due at DOB&#43;84d (12w)</td>
+            <td>PASS</td>
+            <td class="detail">got_due=2026-06-24 want_due=2026-06-24</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>fmd_hs: due date is not before DOB &#43; 24h tagging buffer</td>
+            <td>PASS</td>
+            <td class="detail">due-DOB=2004h30m0s buffer=24h0m0s</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>ppr: due at DOB&#43;112d (16w)</td>
+            <td>PASS</td>
+            <td class="detail">got_due=2026-07-22 want_due=2026-07-22</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>ppr: due date is not before DOB &#43; 24h tagging buffer</td>
+            <td>PASS</td>
+            <td class="detail">due-DOB=2676h30m0s buffer=24h0m0s</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>goat_pox: due at DOB&#43;140d (20w)</td>
+            <td>PASS</td>
+            <td class="detail">got_due=2026-08-19 want_due=2026-08-19</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>goat_pox: due date is not before DOB &#43; 24h tagging buffer</td>
+            <td>PASS</td>
+            <td class="detail">due-DOB=3348h30m0s buffer=24h0m0s</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>The earliest obligation overall is not before DOB &#43; 24h</h3>
+      <p class="narrative">Across the whole generated schedule, the single earliest due date (the first ET&#43;TT dose) is the binding case for the buffer invariant -- if it clears 24h, every later dose clears it too.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>earliest dose across the full schedule clears the 24h buffer</td>
+            <td>PASS</td>
+            <td class="detail">earliest_due=2026-04-29T00:00:00&#43;05:30 dob=2026-04-01T06:00:00Z margin=660h30m0s</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the buffer is cleared with wide margin (&gt;=27 days), not a near-miss</td>
+            <td>PASS</td>
+            <td class="detail">margin=660h30m0s</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+  </section>
+  
+  <section class="story pass">
+    <h2>Death mid-course: scheduled &#43; deferred &#43; missed &#43; batched all cancel forever <span class="badge pass">PASS</span></h2>
+    <p class="narrative">A goat dies while its open vaccination doses are spread across every open status the kernel recognizes: one still attached to a planned drive batch, one deferred (it was mid-quarantine when the goat died), and one already missed (its window had crossed with nobody acting). The real SM-3 death handler must cancel all three forever -- not just the plainly-scheduled one -- release the batch&#39;s reservation count, write a durable outbox event, leave the animal&#39;s completed history alone, and be a clean no-op on redelivery.</p>
+    
+    <div class="step">
+      <h3>Seed one drive batch and four obligations spanning every open status, plus a bystander</h3>
+      <p class="narrative">goatDies gets: (1) a scheduled dose attached to a planned drive batch, (2) a deferred dose (mid-quarantine), (3) a missed dose (window closed with no action), and (4) a completed historical dose. A second goat (goatLives) has its own open dose that must not be touched.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>dying goat starts with 3 open doses across scheduled/deferred/missed</td>
+            <td>PASS</td>
+            <td class="detail">open=3</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the batch starts with estimated_targets=2</td>
+            <td>PASS</td>
+            <td class="detail">estimated_targets=2</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Goat dies: fire the real goat.exited handler (SM-3)</h3>
+      <p class="narrative">Mark the goat dead and dispatch a goat.exited event through the real oblapp.GoatExitedHandler. It must cancel all three open doses regardless of which open status they are in.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>goat.exited handler ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>All three open statuses (scheduled/deferred/missed) are cancelled forever</h3>
+      <p class="narrative">Not just the batched scheduled dose -- the deferred (mid-quarantine) and missed doses must also be cancelled. This is the gap Story I&#39;s death coverage did not exercise.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>no open doses of any status remain for the dead goat</td>
+            <td>PASS</td>
+            <td class="detail">open=0</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>all 3 open doses (scheduled&#43;deferred&#43;missed) were cancelled</td>
+            <td>PASS</td>
+            <td class="detail">cancelled=3</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the batched scheduled dose is cancelled</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;canceled&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the deferred (mid-quarantine) dose is cancelled</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;canceled&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the missed dose is cancelled</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;canceled&#34;</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Completed history survives; the batch&#39;s reservation count is repaired; bystander untouched</h3>
+      <p class="narrative">Death never rewrites the completed dose. The drive batch that lost obligation 1 has its estimated_targets reduced by the cancellation repair. The second goat&#39;s own open dose is unaffected.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>the completed historical dose is still completed</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;completed&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the batch&#39;s estimated_targets dropped by 1 (repair for the 1 cancelled obligation it held)</td>
+            <td>PASS</td>
+            <td class="detail">estimated_targets=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the bystander goat&#39;s open dose is untouched</td>
+            <td>PASS</td>
+            <td class="detail">open=1</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>A durable outbox event was recorded for the cancellation (audit &#43; outbox kernel step)</h3>
+      <p class="narrative">Each cancelled obligation writes an outbox_messages row (event_type=&#39;goat.obligations_canceled&#39;) in the same transaction as the status change -- the kernel&#39;s golden rule step downstream consumers (batch repair, future notification adapters) rely on, not just a status flip.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>an outbox row exists for each of the 3 cancelled obligations</td>
+            <td>PASS</td>
+            <td class="detail">outbox_rows=3</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Re-deliver the death event: idempotent no-op</h3>
+      <p class="narrative">SM-3 runs under at-least-once delivery. Re-dispatching the same goat.exited event must not error and must not re-cancel, double-write outbox rows, or corrupt the batch repair counters.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>re-delivered death event is a clean no-op</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>still exactly 3 cancelled doses after replay</td>
+            <td>PASS</td>
+            <td class="detail">cancelled=3</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the batch&#39;s estimated_targets is unchanged by the replay</td>
+            <td>PASS</td>
+            <td class="detail">estimated_targets=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>no duplicate outbox rows were written by the replay</td>
+            <td>PASS</td>
+            <td class="detail">outbox_rows=3</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+  </section>
+  
+  <section class="story pass">
+    <h2>Dynamic defer: health_status=&#39;sick&#39; and location-flagged ICU <span class="badge pass">PASS</span></h2>
+    <p class="narrative">Two goats hit two different dynamic defer paths. G-Sick&#39;s own health_status flips to &#39;sick&#39; -- the next recheck must defer its open dose. G-ICU-Shed&#39;s health_status never changes (it stays &#39;healthy&#39;), but it is moved into a shed flagged is_icu=true -- the recheck must defer it purely from the location flag. Both doses reopen and realign once the goat is healthy/relocated again.</p>
+    
+    <div class="step">
+      <h3>G-Sick: generate the primary dose</h3>
+      <p class="narrative">Generate obligations for G-Sick as of 2026-06-23 (53 days after birth, 21-day-offset rule): one scheduled obligation.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>G-Sick generation ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Sick: exactly one obligation was generated</td>
+            <td>PASS</td>
+            <td class="detail">generated=1</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>G-Sick becomes sick; the next recheck defers the open dose</h3>
+      <p class="narrative">Flip health_status=&#39;sick&#39; and recheck the next day. defer_states includes &#39;sick&#39;, so the open dose must be held (deferred), with a durable event recording defer_status=&#39;sick&#39;.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>G-Sick recheck (sick) ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Sick recheck deferred the open obligation</td>
+            <td>PASS</td>
+            <td class="detail">deferred=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Sick&#39;s obligation is now deferred</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;deferred&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the durable defer event records defer_status=&#39;sick&#39; (not quarantine/icu)</td>
+            <td>PASS</td>
+            <td class="detail">defer_status=&#34;sick&#34;</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>G-Sick recovers; recovery-repair reopens and realigns the dose</h3>
+      <p class="narrative">Flip health_status=&#39;healthy&#39; and run the real GenerateRecoveryRepairForGoat recheck. It must reopen the deferred dose and realign its due date onto the recovery-time calendar.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>G-Sick recovery recheck ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Sick recovery recheck reopened the obligation</td>
+            <td>PASS</td>
+            <td class="detail">reopened=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Sick&#39;s obligation is scheduled again</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;scheduled&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Sick&#39;s due date was realigned forward, not left stale</td>
+            <td>PASS</td>
+            <td class="detail">original_due=2026-05-22 recovered_due=2026-06-27</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>G-ICU-Shed: generate the primary dose while healthy in the normal shed</h3>
+      <p class="narrative">Generate obligations for G-ICU-Shed as of 2026-06-23, same rule. One scheduled obligation, health_status=&#39;healthy&#39; throughout -- only its shed will change.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>G-ICU-Shed generation ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-ICU-Shed: exactly one obligation was generated</td>
+            <td>PASS</td>
+            <td class="detail">generated=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-ICU-Shed&#39;s own health_status is &#39;healthy&#39; before the shed move</td>
+            <td>PASS</td>
+            <td class="detail">health_status=&#34;healthy&#34;</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>G-ICU-Shed is moved into the ICU-flagged shed; the recheck defers it from the location alone</h3>
+      <p class="narrative">Move the goat&#39;s shed_id AND current_location_id to the ICU shed (is_icu=true). health_status is NOT touched -- it must still read &#39;healthy&#39;. The recheck must defer the open dose purely because the goat&#39;s current location is ICU-flagged (deferredReason&#39;s g.LocationIsICU branch), recording defer_status=&#39;location_icu&#39;.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>G-ICU-Shed recheck ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-ICU-Shed recheck deferred the open obligation from the location flag alone</td>
+            <td>PASS</td>
+            <td class="detail">deferred=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-ICU-Shed&#39;s obligation is now deferred</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;deferred&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the durable defer event records defer_status=&#39;location_icu&#39; (location-flag path, not a health_status value)</td>
+            <td>PASS</td>
+            <td class="detail">defer_status=&#34;location_icu&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-ICU-Shed&#39;s own health_status is STILL &#39;healthy&#39; -- the defer came from the shed, not the goat&#39;s health field</td>
+            <td>PASS</td>
+            <td class="detail">health_status=&#34;healthy&#34;</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>G-ICU-Shed is moved back to a normal shed; recovery-repair reopens and realigns</h3>
+      <p class="narrative">Move the goat back to the normal (non-ICU) shed and run GenerateRecoveryRepairForGoat. It must reopen the held dose and realign due_at forward, exactly like a health recovery.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>G-ICU-Shed recovery recheck ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-ICU-Shed recovery recheck reopened the obligation</td>
+            <td>PASS</td>
+            <td class="detail">reopened=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-ICU-Shed&#39;s obligation is scheduled again</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;scheduled&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-ICU-Shed&#39;s due date was realigned forward, not left stale</td>
+            <td>PASS</td>
+            <td class="detail">original_due=2026-05-22 recovered_due=2026-06-27</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+  </section>
+  
+  <section class="story pass">
+    <h2>Dynamic defer: pregnancy month 4-5 hold and milking-window hold <span class="badge pass">PASS</span></h2>
+    <p class="narrative">Two goats hit the two reproductive-state defers. G-Pregnant enters pregnancy month 4 (inside the configured months 4-5 hold) -- the recheck must defer its open dose with reason &#39;late_pregnancy_hold&#39;; once the pregnancy month passes the hold window, scheduling resumes on its own. G-Milking enters the milking reproductive state -- the recheck must defer its open dose with reason &#39;milking_window_hold&#39;, regardless of the pregnancy policy; leaving milking resumes scheduling.</p>
+    
+    <div class="step">
+      <h3>G-Pregnant: generate the primary dose before pregnancy is recorded</h3>
+      <p class="narrative">Generate obligations for G-Pregnant as of 2025-10-22 (21 days after birth). One scheduled obligation, reproductive_status not yet pregnant.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>G-Pregnant generation ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Pregnant: exactly one obligation was generated</td>
+            <td>PASS</td>
+            <td class="detail">generated=1</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>G-Pregnant enters pregnancy month 4; the recheck defers with late_pregnancy_hold</h3>
+      <p class="narrative">Set reproductive_status=&#39;pregnant&#39; with a breeding_date exactly 100 days before the recheck date -- pregnancyMonth(breeding_date, asOf) computes to month 4, inside the configured skip_from=4/skip_through=5 window. The recheck must defer the open dose.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>G-Pregnant recheck (month 4) ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Pregnant recheck deferred the open obligation</td>
+            <td>PASS</td>
+            <td class="detail">deferred=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Pregnant&#39;s obligation is now deferred</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;deferred&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the durable defer event records defer_status=&#39;late_pregnancy_hold&#39;</td>
+            <td>PASS</td>
+            <td class="detail">defer_status=&#34;late_pregnancy_hold&#34;</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>G-Pregnant&#39;s pregnancy month passes the hold window; recovery-repair resumes scheduling</h3>
+      <p class="narrative">Recheck 51 days later (breeding_date &#43; 151 days =&gt; pregnancy month 6, past skip_through=5). With no more hold in force, the recovery-repair recheck must reopen the dose and realign due_at forward -- pregnancy resuming reuses the exact same reopen path as a health recovery.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>G-Pregnant recovery recheck ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Pregnant recovery recheck reopened the obligation</td>
+            <td>PASS</td>
+            <td class="detail">reopened=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Pregnant&#39;s obligation is scheduled again</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;scheduled&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Pregnant&#39;s due date was realigned forward, not left stale</td>
+            <td>PASS</td>
+            <td class="detail">original_due=2025-10-22 recovered_due=2026-07-22</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>G-Milking: generate the primary dose before entering the milking state</h3>
+      <p class="narrative">Generate obligations for G-Milking as of 2025-10-22, same rule. One scheduled obligation, reproductive_status not yet milking.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>G-Milking generation ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Milking: exactly one obligation was generated</td>
+            <td>PASS</td>
+            <td class="detail">generated=1</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>G-Milking enters the milking reproductive state; the recheck defers with milking_window_hold</h3>
+      <p class="narrative">Set reproductive_status=&#39;milking&#39;. The recheck must defer the open dose with reason &#39;milking_window_hold&#39; -- this fires independently of the pregnancy_policy configured on this same version, per vaccination-rules.md&#39;s &#39;do not vaccinate milking-department animals during milking&#39;.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>G-Milking recheck (milking) ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Milking recheck deferred the open obligation</td>
+            <td>PASS</td>
+            <td class="detail">deferred=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Milking&#39;s obligation is now deferred</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;deferred&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the durable defer event records defer_status=&#39;milking_window_hold&#39;</td>
+            <td>PASS</td>
+            <td class="detail">defer_status=&#34;milking_window_hold&#34;</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>G-Milking leaves the milking state; recovery-repair resumes scheduling</h3>
+      <p class="narrative">Clear reproductive_status back to empty and run the recovery-repair recheck. It must reopen the dose and realign due_at forward.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>G-Milking recovery recheck ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Milking recovery recheck reopened the obligation</td>
+            <td>PASS</td>
+            <td class="detail">reopened=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Milking&#39;s obligation is scheduled again</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;scheduled&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Milking&#39;s due date was realigned forward, not left stale</td>
+            <td>PASS</td>
+            <td class="detail">original_due=2025-10-22 recovered_due=2025-12-06</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+  </section>
+  
+  <section class="story pass">
+    <h2>Full chain: birth -&gt; schedule -&gt; sick-defer -&gt; recover -&gt; shift -&gt; death <span class="badge pass">PASS</span></h2>
+    <p class="narrative">One kid is born and given the full standard kid schedule. It falls sick mid-course (its entire open schedule pauses), recovers (every held dose reopens and realigns), is moved to a new shed (its open doses re-scope to follow it), and finally dies (every still-open dose is cancelled forever). The obligation set is asserted at each step so the whole chain, not just one transition, is proven to compose correctly on a single goat.</p>
+    
+    <div class="step">
+      <h3>1. Birth: the full standard kid schedule is generated</h3>
+      <p class="narrative">The kid is registered with DOB 2026-03-01, living in Shed-Old. Generation materializes the full 5-row kid bundle (4w/7w/12w/16w/20w) as scheduled obligations, all scoped to Shed-Old.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>birth generation ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>all 5 kid doses were generated at birth</td>
+            <td>PASS</td>
+            <td class="detail">generated=5</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>obligation set after birth: 5 scheduled, 0 deferred, 0 cancelled</td>
+            <td>PASS</td>
+            <td class="detail">scheduled=5 deferred=0 canceled=0</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>all 5 doses are scoped to Shed-Old</td>
+            <td>PASS</td>
+            <td class="detail">shed_old_scheduled=5</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>2. Sick: the entire open schedule pauses</h3>
+      <p class="narrative">The kid falls sick. The next recheck must defer every still-open dose at once -- sickness is a goat-level fact, not a per-dose one -- leaving nothing scheduled.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>sick recheck ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>all 5 doses were deferred by the sick recheck</td>
+            <td>PASS</td>
+            <td class="detail">deferred=5</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>obligation set after sick: 0 scheduled, 5 deferred, 0 cancelled</td>
+            <td>PASS</td>
+            <td class="detail">scheduled=0 deferred=5 canceled=0</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>3. Recover: every held dose reopens and realigns</h3>
+      <p class="narrative">The kid recovers. The real recovery-repair recheck must reopen all 5 held doses back to scheduled, realigning due dates onto the recovery-time calendar.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>recovery recheck ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>all 5 doses were reopened by the recovery recheck</td>
+            <td>PASS</td>
+            <td class="detail">reopened=5</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>obligation set after recovery: 5 scheduled, 0 deferred, 0 cancelled</td>
+            <td>PASS</td>
+            <td class="detail">scheduled=5 deferred=0 canceled=0</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>4. Shed-shift: the open doses follow the goat to its new shed</h3>
+      <p class="narrative">The kid is moved from Shed-Old to Shed-New. The real SM-2 shift handler must re-scope all 5 still-open doses to Shed-New; Shed-Old must no longer count any of them.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>shift payload marshalled</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>shift handler ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>obligation set after shift: still 5 scheduled, 0 deferred, 0 cancelled (only scope moved)</td>
+            <td>PASS</td>
+            <td class="detail">scheduled=5 deferred=0 canceled=0</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>Shed-Old no longer counts any of the goat&#39;s doses</td>
+            <td>PASS</td>
+            <td class="detail">shed_old_scheduled=0</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>Shed-New now counts all 5 of the goat&#39;s doses</td>
+            <td>PASS</td>
+            <td class="detail">shed_new_scheduled=5</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>5. Death: every still-open dose is cancelled forever</h3>
+      <p class="narrative">The kid dies. The real SM-3 death handler must cancel all 5 still-open (scheduled) doses forever, regardless of which shed they were scoped to.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>death handler ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>obligation set after death: 0 scheduled, 0 deferred, 5 cancelled</td>
+            <td>PASS</td>
+            <td class="detail">scheduled=0 deferred=0 canceled=5</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Death event redelivery is a clean no-op</h3>
+      <p class="narrative">Re-dispatching the same goat.exited event must not error and must not change the final obligation set -- the full chain ends in a stable, idempotent terminal state.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>redelivered death event ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>final obligation set is unchanged by replay: 0 scheduled, 0 deferred, 5 cancelled</td>
+            <td>PASS</td>
+            <td class="detail">scheduled=0 deferred=0 canceled=5</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>all 5 obligations from the version total exactly 5 across the whole chain</td>
+            <td>PASS</td>
+            <td class="detail">total=5</td>
           </tr>
         
         </tbody>

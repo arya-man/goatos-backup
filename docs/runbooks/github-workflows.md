@@ -508,7 +508,9 @@ Publishes three CI-generated reports to GitHub Pages as one combined site:
 ```text
 /screenshot-gallery/  every mobile screen, rendered fresh via Paparazzi
 /nav-graph/           Compose Navigation routes + navigate() edges (Mermaid)
-/e2e-report/          vaccination kernel-story E2E report (3 stories)
+/e2e-report/          vaccination kernel-story E2E report (19 stories: A-N
+                      core kernel behavior plus event-driven-chain + edge-
+                      dataset stories O/P/Q/R/T)
 ```
 
 Runs on:
@@ -551,7 +553,7 @@ A failure in `mobile-screenshots` almost always means a Paparazzi golden
 mismatch (a real visual regression) or an Android SDK/AGP version drift on
 the runner — check the uploaded `screenshot-gallery` artifact and the
 `recordPaparazziDevDebug` log first. A failure in `e2e-report` means one of
-the three kernel-story assertions broke — read the failing `story.Assert`
+the kernel-story assertions broke — read the failing `story.Assert`
 message, it is written to explain the business expectation in plain English,
 not just the SQL/Go that checked it.
 
