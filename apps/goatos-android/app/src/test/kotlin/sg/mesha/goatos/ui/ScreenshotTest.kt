@@ -20,6 +20,7 @@ import sg.mesha.goatos.feature.profile.ProfileScreen
 import sg.mesha.goatos.feature.profile.RfidScreen
 import sg.mesha.goatos.feature.record.RecordScreen
 import sg.mesha.goatos.feature.sheds.ShedsScreen
+import sg.mesha.goatos.feature.submit.FormRunner
 import sg.mesha.goatos.feature.submit.SubmitScreen
 import sg.mesha.goatos.feature.scan.ScanScreen
 import sg.mesha.goatos.feature.timetable.TimetableScreen
@@ -101,4 +102,12 @@ class ScreenshotTest {
 
     @Test
     fun offline_banner() = shot("offline_banner") { OfflineBanner(visible = true, onOpenDetails = {}) }
+
+    @Test
+    fun form_runner() = shot("form_runner") {
+        FormRunner(
+            state = sampleFormRunnerState(),
+            onToggle = { _, _ -> }, onText = { _, _ -> }, onScan = {}, onPick = {}, onCaptureVideo = {}, onSubmit = {},
+        )
+    }
 }

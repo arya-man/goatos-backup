@@ -41,6 +41,9 @@ import sg.mesha.goatos.feature.scan.ScanUiState
 import sg.mesha.goatos.feature.sheds.ShedRow
 import sg.mesha.goatos.feature.sheds.ShedStatus
 import sg.mesha.goatos.feature.sheds.ShedsUiState
+import sg.mesha.goatos.feature.submit.FieldKindUi
+import sg.mesha.goatos.feature.submit.FormFieldUi
+import sg.mesha.goatos.feature.submit.FormRunnerState
 import sg.mesha.goatos.feature.submit.SubmitUiState
 import sg.mesha.goatos.feature.submit.SyncState
 import sg.mesha.goatos.feature.timetable.PositionTier
@@ -480,4 +483,21 @@ fun sampleTimetableState(): TimetableUiState = TimetableUiState(
 // dedicated "calendar_coverage_banner" test uses this one.
 fun sampleCalendarWithCoverageState(): CalendarUiState = sampleCalendarState().copy(
     coverageBanner = CoverageBannerUiState(text = "Covering Vaccination until Fri 11 Jul"),
+)
+
+/** Mock-accurate drive form (mirrors the backend `goatos.sop-form.v1` fixture): a vaccine-lot
+ *  picker, cold-chain toggle, goat scan, dose, and the administration video — video not yet
+ *  captured, so submit is blocked with the reason. Shared by the runner Paparazzi golden. */
+fun sampleFormRunnerState(): FormRunnerState = FormRunnerState(
+    title = "Record drive",
+    subtitle = "Gandhi 1 · CBE · FMD + HS",
+    fields = listOf(
+        FormFieldUi("vaccine_lot_id", "Vaccine lot", FieldKindUi.PICKER, required = true, selectedLabel = "FMD-2026-014"),
+        FormFieldUi("cold_chain_verified", "Cold chain verified", FieldKindUi.BOOLEAN, required = true, checked = true),
+        FormFieldUi("goat_ids", "Goats", FieldKindUi.GOAT_SCAN, required = true, scannedCount = 11),
+        FormFieldUi("dose_ml_given", "Dose (ml)", FieldKindUi.NUMBER, required = true, text = "2"),
+        FormFieldUi("administration_video", "Administration video", FieldKindUi.VIDEO_PROOF, required = true, proofCaptured = false),
+    ),
+    submitLabel = "Submit drive",
+    blockedReason = "Record the administration video before submitting.",
 )
