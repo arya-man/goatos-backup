@@ -228,6 +228,12 @@ func validateStagingCloudSQLTarget(commandName, env, databaseURL, host string) e
 	return nil
 }
 
+// isExpectedStagingConnectionName intentionally does NOT apply looksSharedUnsafeTarget the way
+// isExpectedDevConnectionName does: the staging instance's own connection name (goatos-stg:...)
+// contains the "goatos-stg"/"stage" tokens that guard blocks, so running it here would reject
+// every legitimate staging target. Safety comes instead from the exact goatos-stg project+region
+// prefix here plus the exact-match against GOATOS_STG_CLOUDSQL_CONNECTION_NAME in
+// validateStagingCloudSQLTarget, which keeps the target pinned inside the goatos-stg project.
 func isExpectedStagingConnectionName(value string) bool {
 	return isExpectedConnectionName(value, stgCloudSQLProjectID, stgCloudSQLRegion)
 }

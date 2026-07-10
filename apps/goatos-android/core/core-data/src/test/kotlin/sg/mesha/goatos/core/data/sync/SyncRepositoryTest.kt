@@ -87,6 +87,22 @@ class SyncRepositoryTest {
     }
 
     @Test
+    fun `re-enqueuing the SAME idempotency key with a different payload is rejected`() = runBlocking {
+        val store = FakeOutboxStore()
+        val api = ScriptedAppApi()
+        val repo = repository(store = store, api = api)
+
+        val first = repo.enqueueShedSubmit("task-1", "shed-1", "key-1", submitRequest("key-1"))
+        val changedPayload = SubmitTaskRequestDto(sopVersionId = "sop-2", idempotencyKey = "key-1")
+        val second = repo.enqueueShedSubmit("task-1", "shed-1", "key-1", changedPayload)
+
+        assertTrue(first is AppResult.Ok)
+        assertTrue(second is AppResult.Err)
+        assertEquals(1, repo.observeStatus().value.items.size)
+        assertEquals(1, api.submitCalls.size)
+    }
+
+    @Test
     fun `retry re-arms a failed item and reuses the same idempotency key`() = runBlocking {
         val store = FakeOutboxStore()
         val api = ScriptedAppApi()

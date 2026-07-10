@@ -1,24 +1,18 @@
 package sg.mesha.goatos.core.data
 
 import sg.mesha.goatos.core.network.AppApi
-import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
-import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 
 /**
- * Operator Tasks screen area: the assigned-task queue and idempotent SOP task
- * submission. Thin pass-through over [AppApi]; DTO -> UiState mapping in :app.
+ * Operator Tasks screen area: assigned-task reads only. Mutating task submissions must go
+ * through SyncRepository's durable outbox; keep this repository free of a direct submit escape
+ * hatch so callers cannot bypass offline replay, idempotency checks, or sync-status reporting.
  */
 interface TasksRepository {
     suspend fun tasks(
         state: String? = null,
         limit: Int? = null,
     ): TaskListResponseDto
-
-    suspend fun submit(
-        taskId: String,
-        request: SubmitTaskRequestDto,
-    ): SubmissionResponseDto
 }
 
 class DefaultTasksRepository(
@@ -28,9 +22,4 @@ class DefaultTasksRepository(
         state: String?,
         limit: Int?,
     ): TaskListResponseDto = api.listAppTasks(state, limit)
-
-    override suspend fun submit(
-        taskId: String,
-        request: SubmitTaskRequestDto,
-    ): SubmissionResponseDto = api.submitAppTask(taskId, request.idempotencyKey, request)
 }

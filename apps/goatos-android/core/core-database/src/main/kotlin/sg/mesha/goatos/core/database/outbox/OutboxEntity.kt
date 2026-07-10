@@ -24,8 +24,9 @@ const val DEFAULT_MAX_ATTEMPTS = 8
 
 /**
  * A single queued, at-least-once write to the backend app-api. Rows are never mutated
- * to point at a different [idempotencyKey] or [payloadJson] after insert — a retry
- * (automatic backoff or manual [OutboxStatus.FAILED] retry) reuses this exact row.
+ * to point at a different [idempotencyKey], [requestFingerprint], or [payloadJson] after
+ * insert — a retry (automatic backoff or manual [OutboxStatus.FAILED] retry) reuses this
+ * exact row.
  *
  * [groupKey] is the ordering/concurrency partition (e.g. a shed id): the sync engine
  * drains items within the same [groupKey] strictly oldest-first by [createdAt] (TRD:
@@ -63,4 +64,8 @@ data class OutboxEntity(
     /** Raw JSON of the last successful app-api response — lets the UI layer decode the
      *  original server result on an idempotent-replay read without a second network call. */
     val resultJson: String? = null,
+    /** SHA-256 over the semantic request envelope (op type + group key + payload JSON).
+     *  Exact same-key replays return this row; same-key/different-payload attempts are
+     *  rejected before the old row can hide a changed write. */
+    val requestFingerprint: String = "",
 )

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Debug-only screenshot harness. It is exported for adb-driven pixel captures, but it is
+             declared only in the debug source set so release APKs never ship the activity. -->
+        <activity
+            android:name=".GalleryActivity"
+            android:exported="true"
+            android:theme="@style/Theme.GoatOs" />
+    </application>
+</manifest>

@@ -18,6 +18,7 @@ import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import java.security.MessageDigest
 import java.util.UUID
 
 /**
@@ -42,9 +43,12 @@ import java.util.UUID
  * (not just in a local var that a ViewModel recreation would lose) so the SAME key is passed
  * to `enqueue*` on every resend.
  * This port never mints a new key internally:
- * - a repeat `enqueue*` call with a key that already has a row is an idempotent no-op — the
- *   EXISTING row's id is returned, never a duplicate insert (enforced by a unique index on
- *   `idempotencyKey`, see `core-database`'s `OutboxEntity`);
+ * - a repeat `enqueue*` call with a key that already has a row is an idempotent no-op ONLY
+ *   when the operation, group, and payload fingerprint match — the EXISTING row's id is
+ *   returned, never a duplicate insert (enforced by a unique index on `idempotencyKey`, see
+ *   `core-database`'s `OutboxEntity`);
+ * - a same-key/different-payload attempt is rejected before it can hide a changed write behind
+ *   an older queued/synced row;
  * - [retry] re-arms an existing row for another attempt using its already-stored key and
  *   payload; it never takes or generates a new key;
  * - [SyncEngine] reuses the stored key on every automatic backoff retry too.
@@ -160,7 +164,8 @@ class DefaultSyncRepository(
         payloadJson: String,
     ): AppResult<String> = withContext(dispatchers.io) {
         try {
-            val id = insertOrExistingRow(opType, groupKey, idempotencyKey, payloadJson)
+            val fingerprint = requestFingerprint(opType, groupKey, payloadJson)
+            val id = insertOrExistingRow(opType, groupKey, idempotencyKey, payloadJson, fingerprint)
             triggerDrainAsync()
             AppResult.Ok(id)
         } catch (cancellation: CancellationException) {
@@ -172,17 +177,18 @@ class DefaultSyncRepository(
         }
     }
 
-    /** Idempotent-enqueue: returns the existing row's id if this key is already queued, else
-     *  inserts a new row. Handles the concurrent-insert race — if two callers pass the unique
-     *  key at once, the loser's unique-index violation is turned back into the winner's row id
-     *  instead of a user-facing failure. */
+    /** Idempotent-enqueue: returns the existing row's id if this exact request is already queued,
+     *  else inserts a new row. Handles the concurrent-insert race — if two callers pass the unique
+     *  key at once, the loser's unique-index violation is turned back into the winner's row id only
+     *  after proving the winning row is the same semantic request. */
     private suspend fun insertOrExistingRow(
         opType: OutboxOpType,
         groupKey: String,
         idempotencyKey: String,
         payloadJson: String,
+        fingerprint: String,
     ): String {
-        store.findByIdempotencyKey(idempotencyKey)?.let { return it.id }
+        store.findByIdempotencyKey(idempotencyKey)?.let { return existingReplayIdOrThrow(it, opType, groupKey, payloadJson, fingerprint) }
         val now = clock()
         val id = UUID.randomUUID().toString()
         try {
@@ -193,6 +199,7 @@ class DefaultSyncRepository(
                     groupKey = groupKey,
                     idempotencyKey = idempotencyKey,
                     payloadJson = payloadJson,
+                    requestFingerprint = fingerprint,
                     status = OutboxStatus.QUEUED.name,
                     attemptCount = 0,
                     maxAttempts = DEFAULT_MAX_ATTEMPTS,
@@ -207,10 +214,29 @@ class DefaultSyncRepository(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (e: Throwable) {
-            // A concurrent enqueue of the same key won the unique-index race — return its row.
-            return store.findByIdempotencyKey(idempotencyKey)?.id ?: throw e
+            // A concurrent enqueue of the same key won the unique-index race. Return its row only
+            // for an exact replay; same-key/different-payload is still a conflict.
+            return store.findByIdempotencyKey(idempotencyKey)?.let {
+                existingReplayIdOrThrow(it, opType, groupKey, payloadJson, fingerprint)
+            } ?: throw e
         }
         return id
+    }
+
+    private fun existingReplayIdOrThrow(
+        existing: OutboxEntity,
+        opType: OutboxOpType,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+    ): String {
+        val fingerprintMatches = existing.requestFingerprint.isNotBlank() && existing.requestFingerprint == fingerprint
+        val legacyPayloadMatches = existing.requestFingerprint.isBlank() &&
+            existing.opType == opType.name &&
+            existing.groupKey == groupKey &&
+            existing.payloadJson == payloadJson
+        if (fingerprintMatches || legacyPayloadMatches) return existing.id
+        throw IllegalStateException("Idempotency key already belongs to a different queued write.")
     }
 
     override suspend fun retry(itemId: String): AppResult<Unit> = withContext(dispatchers.io) {
@@ -235,4 +261,10 @@ class DefaultSyncRepository(
     private fun triggerDrainAsync() {
         appScope.launch { engine.drainOnce() }
     }
+}
+
+private fun requestFingerprint(opType: OutboxOpType, groupKey: String, payloadJson: String): String {
+    val envelope = "${opType.name}\u0000$groupKey\u0000$payloadJson"
+    val bytes = MessageDigest.getInstance("SHA-256").digest(envelope.toByteArray(Charsets.UTF_8))
+    return bytes.joinToString(separator = "") { "%02x".format(it.toInt() and 0xff) }
 }

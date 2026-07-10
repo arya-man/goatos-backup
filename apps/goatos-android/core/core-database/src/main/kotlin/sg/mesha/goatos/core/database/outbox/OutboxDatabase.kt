@@ -10,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /** The local outbox database — separate from `core-data`'s `GoatDatabase` (bootstrap cache)
  *  by design: the outbox is a distinct, small, high-write-frequency schema and this keeps it
  *  independently testable/migratable without touching the bootstrap cache schema. */
-@Database(entities = [OutboxEntity::class], version = 2, exportSchema = false)
+@Database(entities = [OutboxEntity::class], version = 3, exportSchema = false)
 abstract class OutboxDatabase : RoomDatabase() {
     abstract fun outboxDao(): OutboxDao
 }
@@ -25,8 +25,17 @@ val OUTBOX_MIGRATION_1_2: Migration = object : Migration(1, 2) {
     }
 }
 
+/** v2 -> v3: persists a request fingerprint so same-key/different-payload attempts are
+ *  rejected instead of being mistaken for an exact idempotent replay. Existing rows get an
+ *  empty legacy value; core-data falls back to op/group/payload comparison for those rows. */
+val OUTBOX_MIGRATION_2_3: Migration = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `outbox` ADD COLUMN `requestFingerprint` TEXT NOT NULL DEFAULT ''")
+    }
+}
+
 /** Builds the outbox database. Callers (DI) supply the application context. */
 fun buildOutboxDatabase(context: Context): OutboxDatabase =
     Room.databaseBuilder(context, OutboxDatabase::class.java, "goatos-outbox.db")
-        .addMigrations(OUTBOX_MIGRATION_1_2)
+        .addMigrations(OUTBOX_MIGRATION_1_2, OUTBOX_MIGRATION_2_3)
         .build()

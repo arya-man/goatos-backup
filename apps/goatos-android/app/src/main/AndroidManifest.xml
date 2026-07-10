@@ -48,13 +48,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <!-- DEV-ONLY screenshot harness (GalleryActivity.kt). Not in launcher; adb-launched
-             to render one screen with mock fixture data for pixel-diffing against the mock. -->
-        <activity
-            android:name=".GalleryActivity"
-            android:exported="true"
-            android:theme="@style/Theme.GoatOs" />
-
         <!-- Disable WorkManager's default on-startup initializer: GoatOsApplication implements
              Configuration.Provider to supply a Hilt HiltWorkerFactory (on-demand init), so the
              default initializer must NOT run first with a factory that can't build @HiltWorker. -->
