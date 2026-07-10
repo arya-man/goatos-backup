@@ -134,7 +134,7 @@ Purpose:
     Network. A vertical owns operational context.
   - **Module** = a concrete workflow/product inside a vertical, such as
     Preventive Care (PC) -> Vaccination, Preventive Care (PC) -> future Treatment/Deworming, Procurement -> Source
-    Entry, or future Parks-owned modules. Parks is a scope/context dimension for
+    Entry, or future Parks modules. Parks is a scope/context dimension for
     vaccination execution, not the owner of a vaccination module.
   - **Command lens** = top-level cross-module screen, not a vertical or module:
     Control Tower, Action Center, Calendar, Protocol Adherence, and Workflows.
@@ -361,6 +361,15 @@ Do not:
   sessions that block the final response; use the service wrapper/supervisor and
   logs. Status/final updates must name what is running plus the URL/port. If a
   service cannot be kept running, state the blocker and the exact restore command.
+- Founder/builder visibility invariant: `ravi@mesha.sg`, `manohark@mesha.sg`,
+  `manju@mesha.sg`, `abhishek@mesha.sg`, and `aryaman@mesha.sg` are the
+  platform-owner leadership cohort. In local, staging, and production seed/
+  provisioning paths they must be granted `role='ceo_internal'`,
+  tenant scope, and the RBAC grants needed for every built visible module.
+  New features or visible route changes are incomplete until leadership
+  seed commands, bootstrap/nav tests, and docs include the module. RBAC-based
+  route visibility applies to non-founder operators, not to these five builder
+  accounts.
 - Do not reintroduce old staging labels as architecture.
 - Do not commit generated Graphify/CRG graphs. `graphify-out/graph.json`,
   `manifest.json`, `GRAPH_REPORT.md`, `graph.html`, `cost.json` and the
@@ -375,7 +384,8 @@ Do not:
 - Do not duplicate architecture decisions across random docs.
 - Do not put individual staff/founder/vendor names into PRDs, TRDs, runbooks,
   prompts committed as docs, status files, or skill references when a role label
-  is enough.
+  is enough. The founder/builder visibility invariant above is the narrow
+  exception because those exact accounts are provisioning seed truth.
 
 Validation expectation:
 

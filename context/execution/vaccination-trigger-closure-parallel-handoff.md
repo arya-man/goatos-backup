@@ -1508,7 +1508,7 @@ Source Entry board must include the minimal supplier warmup panel/table:
 - Table columns map to backend fields: load, holding farm/supplier, animals,
   warmup week/days, tagging, vaccination at HF, health/selection, status.
 - Status chips cover warming, cleared to ship, review, partial reject, rejected,
-  owner missing, blocked, overdue/at-risk, and accepted intake where returned.
+  blocked, blocked, overdue/at-risk, and accepted intake where returned.
 - Vaccination-at-HF chips distinguish complete/evidence, due, pending review,
   conflict, and not trusted.
 - Row click opens Load Detail; if the generated Load Detail route/client is
@@ -1633,7 +1633,7 @@ path. A visual screenshot without click classification is not enough.
   rules, boosters, quarantine, or on-arrival obligations.
 - Quarantine, ICU, sick, pregnant/lactating, or blocked animals -> visible
   deferred/explained obligation when rules say defer; no silent skip.
-- Rejected-before-truck, owner-missing, arrival-rejected, unresolved, extra
+- Rejected-before-truck, blocked, arrival-rejected, unresolved, extra
   unknown goats -> procurement history only; never active Preventive Care (PC) vaccination.
 - Partial source load reject -> accepted goats proceed independently; rejected
   goats remain procurement history and supplier-credit/audit metadata where

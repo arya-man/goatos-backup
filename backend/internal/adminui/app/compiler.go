@@ -25,13 +25,6 @@ type BootstrapInput struct {
 	ActorID  string
 	Grants   []permissions.ActiveGrant
 	TraceID  string
-	// OwnedModules is the actor's department-owned product module set; it drives
-	// visible-nav filtering and the nav-chrome threshold. OwnershipResolved
-	// distinguishes a resolved-empty read (filter, hides modeled groups) from an
-	// unresolved/nil/error read (fail-open, keep full nav). Ownership never widens
-	// access — RBAC stays authoritative on every command.
-	OwnedModules      []permissions.OwnedModule
-	OwnershipResolved bool
 }
 
 type ReferenceRepository interface {
@@ -113,30 +106,9 @@ func (s *Service) cacheKey(input BootstrapInput, families ReferenceFamilies, fam
 		strings.TrimSpace(input.TenantID),
 		strings.Join(roles, ","),
 		strings.Join(grantParts, ","),
-		ownershipCacheSegment(input),
 		strings.Join(revisionParts, ","),
 		errPart,
 	}, "::")
-}
-
-// ownershipCacheSegment keys the cache on the actor's department ownership so two
-// principals with identical grants but different owned-module sets never share a
-// cache entry. It also distinguishes a resolved-empty read (nav filtered) from an
-// unresolved read (full nav), which produce different contracts for the same grants.
-func ownershipCacheSegment(input BootstrapInput) string {
-	if !input.OwnershipResolved {
-		return "own=unresolved"
-	}
-	return "own=resolved:" + strings.Join(canonicalOwnedModuleParts(input.OwnedModules), ",")
-}
-
-func canonicalOwnedModuleParts(owned []permissions.OwnedModule) []string {
-	parts := make([]string, 0, len(owned))
-	for _, m := range owned {
-		parts = append(parts, m.Vertical+"|"+m.Module)
-	}
-	sort.Strings(parts)
-	return parts
 }
 
 func (s *Service) cached(key string, now time.Time) (domain.BootstrapResponse, bool) {
@@ -258,11 +230,8 @@ func (s *Service) loadFamilyRevisions(ctx context.Context, tenantID string) (map
 func compileRequestContext(resp domain.BootstrapResponse, input BootstrapInput, families ReferenceFamilies) domain.BootstrapResponse {
 	resp.TopBar = compileTopBar(resp.TopBar, input, families)
 	resp.RoleLenses = compileRoleLenses(input)
-	// Capture the full modeled-module set before filtering removes leaves so the
-	// nav-chrome threshold counts against every built module, not the surviving nav.
-	modeledDomains := modeledNavDomains(resp.Navigation)
 	resp.Navigation = compileNavigation(resp.Navigation, input)
-	resp.NavChrome, resp.OwnedModules = compileNavOwnership(input, modeledDomains)
+	resp.NavChrome = domain.NavChromeExpanded
 	resp.Pages = compilePages(resp.Pages, families, input)
 	return resp
 }
@@ -755,96 +724,14 @@ func compileRoleLenses(input BootstrapInput) []domain.RoleLensContract {
 }
 
 func compileNavigation(nav domain.NavigationContract, input BootstrapInput) domain.NavigationContract {
-	// RBAC enable/disable (unchanged): disables unauthorized items in place when the
-	// actor carries grants. Ownership filtering below is additive — RBAC disables
-	// items, ownership removes them; neither widens access.
+	// RBAC enable/disable: disables unauthorized items in place when the actor carries grants.
 	if len(input.Grants) > 0 {
 		nav.Primary = compileNavItems(nav.Primary, input)
 		for i := range nav.Groups {
 			nav.Groups[i].Leaves = compileNavItems(nav.Groups[i].Leaves, input)
 		}
 	}
-	// Department-driven visibility filtering. Only runs when the ownership read
-	// resolved; an unresolved/nil/error read fails open and keeps the full nav.
-	if input.OwnershipResolved {
-		nav = filterNavByOwnership(nav, input.OwnedModules)
-	}
 	return nav
-}
-
-// filterNavByOwnership hides modeled leaves the actor's department does not own.
-// Primary command-lens items are never filtered. Within each group, a leaf with a
-// non-empty Domain is dropped when its module is not owned; leaves with an empty
-// Domain (procurement/counts) are always kept. A group is dropped only when it has
-// no remaining leaves.
-func filterNavByOwnership(nav domain.NavigationContract, owned []permissions.OwnedModule) domain.NavigationContract {
-	ownedSet := ownedModuleSet(owned)
-	groups := make([]domain.NavigationGroup, 0, len(nav.Groups))
-	for _, group := range nav.Groups {
-		leaves := make([]domain.NavigationItem, 0, len(group.Leaves))
-		for _, leaf := range group.Leaves {
-			if leaf.Domain != "" {
-				if _, ok := ownedSet[leaf.Domain]; !ok {
-					continue
-				}
-			}
-			leaves = append(leaves, leaf)
-		}
-		if len(leaves) == 0 {
-			continue
-		}
-		group.Leaves = leaves
-		groups = append(groups, group)
-	}
-	nav.Groups = groups
-	return nav
-}
-
-// compileNavOwnership sets nav chrome + the response owned-module set. Chrome is
-// expanded when the actor owns >= 2 distinct modeled modules (i.e. owned modules
-// that appear as a stamped nav Domain), else minimal. Fail-open: an unresolved
-// read yields expanded chrome and an empty owned set, guarding the pre-ownership
-// golden behavior.
-func compileNavOwnership(input BootstrapInput, modeledDomains map[string]struct{}) (string, []domain.OwnedModule) {
-	if !input.OwnershipResolved {
-		return domain.NavChromeExpanded, []domain.OwnedModule{}
-	}
-	owned := make([]domain.OwnedModule, 0, len(input.OwnedModules))
-	modeledOwned := make(map[string]struct{}, len(input.OwnedModules))
-	for _, m := range input.OwnedModules {
-		owned = append(owned, domain.OwnedModule{Vertical: m.Vertical, Module: m.Module})
-		module := strings.TrimSpace(m.Module)
-		if _, ok := modeledDomains[module]; ok {
-			modeledOwned[module] = struct{}{}
-		}
-	}
-	chrome := domain.NavChromeMinimal
-	if len(modeledOwned) >= 2 {
-		chrome = domain.NavChromeExpanded
-	}
-	return chrome, owned
-}
-
-func modeledNavDomains(nav domain.NavigationContract) map[string]struct{} {
-	set := map[string]struct{}{}
-	for _, group := range nav.Groups {
-		for _, leaf := range group.Leaves {
-			if module := strings.TrimSpace(leaf.Domain); module != "" {
-				set[module] = struct{}{}
-			}
-		}
-	}
-	return set
-}
-
-func ownedModuleSet(owned []permissions.OwnedModule) map[string]struct{} {
-	set := make(map[string]struct{}, len(owned))
-	for _, m := range owned {
-		if module := strings.TrimSpace(m.Module); module != "" {
-			set[module] = struct{}{}
-		}
-	}
-	return set
 }
 
 func compileNavItems(items []domain.NavigationItem, input BootstrapInput) []domain.NavigationItem {

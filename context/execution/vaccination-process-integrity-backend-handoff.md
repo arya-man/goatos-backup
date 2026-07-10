@@ -155,7 +155,7 @@ built / in progress:
   removed (now route_not_registered); do not reintroduce them.
   execution WorkState already includes due, overdue, scheduled, in_progress,
   proof_pending, verification_pending, rejected, deferred, blocked,
-  owner_missing, completed.
+  blocked, completed.
   /admin/sops and SOP version/dry-run/publish/retire contracts exist.
   proof APIs exist with local backend-owned storage and GCS adapter selection.
   vaccination verification queue and accept/reject completion endpoints exist.
@@ -224,7 +224,7 @@ Graphify/source checks found recurring source concepts, not new runtime scope:
 
 ```text
 Mesha director/handbook graph:
-  Director -> Manager -> Park Head ownership chain.
+  Director -> Manager -> Park Head operator assignment chain.
 
 Visual graph:
   Video Verification Team, executive strategy dashboard, action/status UI.
@@ -375,7 +375,7 @@ verification_pending
 rejected
 deferred
 blocked
-owner_missing
+blocked
 completed
 ```
 
@@ -394,7 +394,7 @@ verification_pending:
 proof_pending:
   SOP task/submission exists or obligation is in progress, but required proof is missing/incomplete.
 
-owner_missing:
+blocked:
   execution owner cannot be resolved from task assignment, shed owner, park owner, or capability scope.
 
 blocked:
@@ -488,7 +488,7 @@ summary:
   warning_count
   open_gap_count
   verification_backlog
-  owner_missing_count
+  blocked_count
   config_or_sop_blockers
 
 alerts:
@@ -649,7 +649,7 @@ verification_pending
 rejected / rework
 deferred
 blocked
-owner_missing
+blocked
 completed
 ```
 

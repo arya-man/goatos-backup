@@ -58,7 +58,7 @@ rejected before purchase/load
 rejected before truck
 pre-dispatch deferred
 blocked missing proof
-blocked owner missing
+blocked blocked
 identity conflict
 not loaded
 missing from load
@@ -179,7 +179,7 @@ Use four goats so every critical branch is visible.
 | --- | --- | --- |
 | `SRC-A-CLEAN` | source warmup -> source health pass -> pre-dispatch accepted -> dispatched with proof -> arrived -> accepted intake | Appears in Preventive Care (PC) vaccination, Action Center, vaccination execution context, SOP/proof/verification/completion |
 | `SRC-B-REJECT-BEFORE-TRUCK` | source health fail or pre-dispatch rejected | Procurement history/gap only; never Preventive Care (PC) vaccination or vaccination execution work |
-| `SRC-C-OWNER-MISSING` | source health pass but ownership unresolved or owner missing | Procurement Action Center/Control Tower only; no Preventive Care (PC) vaccination or vaccination execution work |
+| `SRC-C-OWNER-MISSING` | source health pass but ownership unresolved or blocked | Procurement Action Center/Control Tower only; no Preventive Care (PC) vaccination or vaccination execution work |
 | `SRC-D-EXTRA-UNKNOWN` | appears during arrival as extra unknown goat | Arrival Gate/identity review only; no accepted intake until resolved |
 
 Optional fifth goat for a broader pass:
@@ -198,11 +198,11 @@ Run these as API or integration assertions before relying on frontend clicks.
 3. Record source health:
    - clean goat passes
    - reject goat fails or is rejected
-   - owner-missing goat remains blocked
+   - blocked goat remains blocked
 4. Record pre-dispatch decisions:
    - clean goat accepted_for_truck
    - reject goat rejected_before_truck
-   - owner-missing goat blocked_owner_missing
+   - blocked goat blocked
 5. Dispatch load:
    - succeeds only with eligible accepted goats
    - fails if proof exists but zero eligible accepted goats
@@ -214,7 +214,7 @@ Run these as API or integration assertions before relying on frontend clicks.
    - does not auto-convert pending health, identity, or ownership truth
 8. Generate/publish vaccination obligations:
    - clean goat becomes eligible
-   - rejected, owner-missing, and extra-unknown goats stay excluded
+   - rejected, blocked, and extra-unknown goats stay excluded
 9. Execute vaccination SOP/proof/verification:
    - proof uses backend proof API
    - verifier approve creates vaccination_completion

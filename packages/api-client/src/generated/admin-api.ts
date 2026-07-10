@@ -2790,7 +2790,6 @@ export interface components {
             open_gap_count: number;
             missing_proof_count: number;
             arrival_mismatch_count: number;
-            owner_missing_count: number;
             source_entry_blocked_count: number;
         };
         ProcurementControlTowerAlert: {
@@ -3109,7 +3108,7 @@ export interface components {
             summary?: string;
         };
         /** @enum {unknown} */
-        ProcurementWorkState: "due" | "overdue" | "proof_pending" | "deferred" | "blocked" | "owner_missing" | "rejected" | "completed";
+        ProcurementWorkState: "due" | "overdue" | "proof_pending" | "deferred" | "blocked" | "rejected" | "completed";
         /** @enum {unknown} */
         ProcurementSeverity: "ok" | "watch" | "at_risk" | "critical" | "broken";
         /** @enum {unknown} */

@@ -232,7 +232,7 @@ top summary:
   critical gaps
   warning/at-risk gaps
   verification backlog
-  owner missing
+  blocked
 
 critical alert band:
   vaccination process gaps only
@@ -253,7 +253,7 @@ open gaps table/list:
 Allowed examples:
 
 ```text
-PPR drive overdue - CBE / K2 - owner missing - assign operator
+PPR drive overdue - CBE / K2 - blocked - assign operator
 Proof rejected - Yashoda 10 - verifier requested rework
 Cold-chain proof missing - Gandhi 2 - request proof
 No source-backed protocol published - Config action required
@@ -287,7 +287,7 @@ verification_pending
 rejected / rework
 deferred
 blocked
-owner_missing
+blocked
 completed
 ```
 
@@ -583,7 +583,7 @@ context/execution/procurement-vaccination-e2e-plan.md
 ```
 
 This confirms Preventive Care (PC) / Parks screens show accepted-intake goats only, while
-rejected-before-truck, owner-missing, and extra-unknown source goats remain in
+rejected-before-truck, blocked, and extra-unknown source goats remain in
 procurement surfaces.
 
 Preflight:

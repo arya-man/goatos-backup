@@ -54,7 +54,6 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavState
-import sg.mesha.goatos.core.model.nav.OwnedModule
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.SyncStatusViewModel
 
@@ -65,8 +64,7 @@ data class DrawerProfile(val name: String, val role: String, val initials: Strin
  * The role-aware app shell — Material 3 (Expressive) chrome on the mock's dark palette.
  * TRD §14 dumb-renderer: renders the backend-computed [NavState] and never counts
  * modules or checks role.
- *  - EXPANDED chrome → a module-switcher drawer (>=2 owned modules); MINIMAL → bottom
- *    bar only.
+ *  - EXPANDED chrome → a module-switcher drawer; MINIMAL → bottom bar only.
  *  - [NavState.items] → M3 [NavigationBar] destinations, each with its mock icon and the
  *    M3 active-indicator pill; a trailing "You" tab is always present.
  */
@@ -268,17 +266,16 @@ private fun ShellTopBar(onMenu: () -> Unit) {
 
 // ---------------------------------------------------------------------------
 // Module-switcher drawer — ports the mock's `ovl-drawer` (`mock/vaccination-mobile-
-// mock.html`): a profile header, a scrollable MODULES group (owned = active with a
+// mock.html`): a profile header, a scrollable MODULES group (active route with a
 // check + green rail, not-yet-built = a "Soon" badge) and SETTINGS group, then a
-// Sign-out footer. Backend-driven: the owned rows come straight from
-// [NavState.ownedModules]; only the coming-soon rows are fixed product roadmap.
+// Sign-out footer. Backend-driven: live rows come from [NavState.items]; only the
+// coming-soon rows are fixed product roadmap.
 // ---------------------------------------------------------------------------
 
 /**
  * Modules that actually have a MOBILE screen today, keyed by backend module key → mobile route.
- * The backend's [NavState.ownedModules] can include web-only authority modules a leadership user
- * owns (Config / SOP / Audit) that the mobile app has NO screen for — those must NEVER appear in
- * the mobile module switcher (they'd be dead rows going nowhere). Mobile ships Vaccination only.
+ * Backend nav can include web-only destinations that the mobile app has NO screen for — those
+ * must NEVER appear in the mobile module switcher (they'd be dead rows going nowhere).
  */
 private val MOBILE_MODULE_ROUTES: Map<String, String> = mapOf(
     "vaccination" to Routes.VACCINATION,
@@ -315,15 +312,14 @@ private fun ModuleDrawer(
                     .verticalScroll(rememberScrollState()),
             ) {
                 DrawerGroupLabel("Modules")
-                // Only owned modules that have a real mobile screen — web-only modules
-                // (Config/SOP/Audit) are dropped so the drawer never lists a dead row.
-                val mobileModules = navState.ownedModules
-                    .mapNotNull { module -> MOBILE_MODULE_ROUTES[module.module.lowercase()]?.let { module to it } }
-                mobileModules.forEach { (module, route) ->
+                // Only backend nav items that have a real mobile screen are shown.
+                val mobileModules = navState.items
+                    .mapNotNull { item -> MOBILE_MODULE_ROUTES[item.key.lowercase()]?.let { item to it } }
+                mobileModules.forEach { (item, route) ->
                     val active = route == currentRoute
                     DrawerRow(
-                        icon = MeshaIcons.forNavKey(module.module),
-                        label = moduleLabel(module),
+                        icon = MeshaIcons.forNavKey(item.key),
+                        label = item.label,
                         active = active,
                         // Mock `.di.on`: the active module carries the check; others are plain.
                         trailing = if (active) ({ DrawerCheck() }) else null,
@@ -472,12 +468,6 @@ private fun DrawerFooter(onSignOut: () -> Unit) {
         Text("Sign out", color = MeshaColors.Danger, fontSize = 14.5.sp, fontWeight = FontWeight.W600)
     }
 }
-
-/** Owned-module label from its backend key (e.g. `vaccination` → "Vaccination"). */
-private fun moduleLabel(module: OwnedModule): String =
-    module.module.replace('_', ' ').split(' ').joinToString(" ") { part ->
-        part.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-    }
 
 private fun languageLabel(tag: String): String = when (tag.lowercase()) {
     "hi" -> "हिंदी"

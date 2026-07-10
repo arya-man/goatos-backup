@@ -4,25 +4,10 @@ import (
 	"context"
 	"os"
 	"testing"
-
-	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
-type fakeOwnership struct {
-	owned []permissions.OwnedModule
-	err   error
-}
-
-func (f fakeOwnership) ListActiveModuleGrantsForActor(_ context.Context, _, _ string) ([]permissions.OwnedModule, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.owned, nil
-}
-
 func TestCompileIsDeterministicForSameInput(t *testing.T) {
-	owned := []permissions.OwnedModule{{Vertical: "preventive_care", Module: "vaccination"}}
-	svc := NewService(fakeOwnership{owned: owned}, ConfigFromEnv())
+	svc := NewService(ConfigFromEnv())
 
 	first, err := svc.Compile(context.Background(), Input{TenantID: "tenant-1", ActorID: "actor-1"})
 	if err != nil {
@@ -43,50 +28,8 @@ func TestCompileIsDeterministicForSameInput(t *testing.T) {
 	}
 }
 
-func TestCompileRevisionChangesWithOwnedModules(t *testing.T) {
-	svcEmpty := NewService(fakeOwnership{owned: nil}, ConfigFromEnv())
-	empty, err := svcEmpty.Compile(context.Background(), Input{TenantID: "tenant-1", ActorID: "actor-1"})
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-
-	svcOwned := NewService(fakeOwnership{owned: []permissions.OwnedModule{{Vertical: "preventive_care", Module: "vaccination"}}}, ConfigFromEnv())
-	owned, err := svcOwned.Compile(context.Background(), Input{TenantID: "tenant-1", ActorID: "actor-1"})
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-	if empty.Revision == owned.Revision {
-		t.Fatalf("revision must change when owned modules differ: %q", empty.Revision)
-	}
-	if len(owned.OwnedModules) != 1 || owned.OwnedModules[0].Module != "vaccination" {
-		t.Fatalf("owned modules = %#v", owned.OwnedModules)
-	}
-	if len(empty.OwnedModules) != 0 {
-		t.Fatalf("empty owned modules = %#v want empty slice not nil", empty.OwnedModules)
-	}
-}
-
-func TestCompileFailsOpenOnMissingActorContext(t *testing.T) {
-	svc := NewService(fakeOwnership{owned: []permissions.OwnedModule{{Vertical: "x", Module: "y"}}}, ConfigFromEnv())
-	resp, err := svc.Compile(context.Background(), Input{})
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-	if len(resp.OwnedModules) != 0 {
-		t.Fatalf("owned modules with no tenant/actor = %#v want empty (ownership read skipped)", resp.OwnedModules)
-	}
-}
-
-func TestCompilePropagatesOwnershipReadError(t *testing.T) {
-	svc := NewService(fakeOwnership{err: assertError("boom")}, ConfigFromEnv())
-	_, err := svc.Compile(context.Background(), Input{TenantID: "tenant-1", ActorID: "actor-1"})
-	if err == nil {
-		t.Fatal("Compile() error = nil want propagated ownership read error")
-	}
-}
-
 func TestCompileClientRuntimeConfigIsBoundedAndFeatureFlagsPresent(t *testing.T) {
-	svc := NewService(fakeOwnership{}, ConfigFromEnv())
+	svc := NewService(ConfigFromEnv())
 	resp, err := svc.Compile(context.Background(), Input{TenantID: "tenant-1", ActorID: "actor-1"})
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
@@ -123,7 +66,3 @@ func TestConfigFromEnvClampsOutOfRangeOverrides(t *testing.T) {
 		t.Fatalf("jank sampling rate = %v want clamped to %v", cfg.JankSamplingRate, maxJankSamplingRate)
 	}
 }
-
-type assertError string
-
-func (e assertError) Error() string { return string(e) }

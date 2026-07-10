@@ -508,7 +508,7 @@ function ActionCenterRowDrawer({
   pageContract: AdminUiPageContract;
 }) {
   const blocker = row.blocker_reason;
-  const ownerMissing = row.owner_state === "missing" || !row.owner?.operator_name;
+  const operatorMissing = row.owner_state === "missing" || !row.owner?.operator_name;
   const ownerName = row.owner?.operator_name ?? row.owner?.park_head_name ?? copy(pageContract, "label.unassigned");
   const title = actionWorkTitle(pageContract, row);
   const priority = PRIORITY_BY_SEVERITY[row.severity];
@@ -555,7 +555,7 @@ function ActionCenterRowDrawer({
             <div>
               <div className="k">{copy(pageContract, "drawer.owner_chain_label")}</div>
               <div className="v">
-                {ownerMissing ? <Tag tone="dng">{copy(pageContract, "drawer.owner_missing")}</Tag> : ownerName}
+                {operatorMissing ? <Tag tone="dng">{copy(pageContract, "label.owner_chain_assign")}</Tag> : ownerName}
               </div>
             </div>
             <div>

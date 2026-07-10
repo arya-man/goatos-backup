@@ -74,7 +74,6 @@ data class VaccinationExecutionShedSummaryDto(
     @SerialName("deferred") val deferred: Int = 0,
     @SerialName("missed") val missed: Int = 0,
     @SerialName("blocked") val blocked: Int = 0,
-    @SerialName("ownerMissing") val ownerMissing: Int = 0,
     @SerialName("completed") val completed: Int = 0,
 )
 

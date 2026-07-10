@@ -53,8 +53,6 @@ function copyOr(pageContract: AdminUiPageContract, key: string, fallback: string
 
 function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string {
   switch (row.gap) {
-    case "owner_missing":
-      return copyOr(pageContract, "gap.owner_missing", "owner chain missing");
     case "proof_missing":
       return copyOr(pageContract, "gap.proof_missing", "proof missing");
     case "verification_pending":

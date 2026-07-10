@@ -13,7 +13,7 @@ ALTER TABLE count_projection_exceptions
   ADD CONSTRAINT count_projection_exceptions_work_type_check
     CHECK (work_type IN ('counts_projection_exception')),
   ADD CONSTRAINT count_projection_exceptions_work_state_check
-    CHECK (work_state IN ('blocked', 'owner_missing', 'resolved', 'dismissed')),
+    CHECK (work_state IN ('blocked', 'resolved', 'dismissed')),
   ADD CONSTRAINT count_projection_exceptions_next_action_check
     CHECK (btrim(next_action) <> ''),
   ADD CONSTRAINT count_projection_exceptions_evidence_link_check

@@ -748,7 +748,7 @@ from a clean tenant/state, not isolated page checks.
 - [ ] Seed or create verifier user.
 - [ ] Map operator, park head, and verifier to the relevant park/scope.
 - [ ] E2E verifies missing user/role mappings produce clear setup errors, not
-  silent owner-missing rows.
+  silent blocked rows.
 
 ### 2. Park and shed setup
 

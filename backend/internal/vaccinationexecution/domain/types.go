@@ -18,7 +18,6 @@ const (
 	WorkStateDeferred            WorkState = "deferred"
 	WorkStateMissed              WorkState = "missed"
 	WorkStateBlocked             WorkState = "blocked"
-	WorkStateOwnerMissing        WorkState = "owner_missing"
 	WorkStateCompleted           WorkState = "completed"
 )
 
@@ -113,7 +112,6 @@ type ShedDrilldownSummary struct {
 	Deferred            int `json:"deferred"`
 	Missed              int `json:"missed"`
 	Blocked             int `json:"blocked"`
-	OwnerMissing        int `json:"ownerMissing"`
 	Completed           int `json:"completed"`
 }
 

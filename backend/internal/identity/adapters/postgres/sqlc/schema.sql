@@ -1954,8 +1954,6 @@ CREATE TABLE public.auth_pending_email_grants (
     last_claimed_at timestamp with time zone,
     claim_count bigint DEFAULT 0 NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    department_code text,
-    CONSTRAINT auth_pending_email_grants_department_code_check CHECK (((department_code IS NULL) OR (department_code ~ '^[a-z][a-z0-9_]*$'::text))),
     CONSTRAINT auth_pending_email_grants_email_check CHECK (((normalized_email = lower(btrim(email))) AND (normalized_email <> ''::text) AND (normalized_email !~~ '%,%'::text) AND (normalized_email !~~ '% %'::text) AND (POSITION(('@'::text) IN (normalized_email)) > 1))),
     CONSTRAINT auth_pending_email_grants_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'park_head'::text, 'pc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text]))),
     CONSTRAINT auth_pending_email_grants_scope_check CHECK (((scope_type = 'tenant'::text) AND (scope_id = tenant_id))),
@@ -2311,7 +2309,7 @@ CREATE TABLE public.count_projection_exceptions (
     CONSTRAINT count_projection_exceptions_source_key_check CHECK ((btrim(source_key) <> ''::text)),
     CONSTRAINT count_projection_exceptions_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text, 'dismissed'::text]))),
     CONSTRAINT count_projection_exceptions_type_check CHECK ((exception_type = ANY (ARRAY['missing_base_count'::text, 'missing_structured_impact'::text, 'unreported_shifting'::text, 'count_mismatch'::text, 'alias_conflict'::text, 'ration_context_unresolved'::text, 'destination_shortage'::text, 'unsafe_surplus'::text, 'query_plan_unproven'::text, 'missing_projection_snapshot'::text, 'stale_projection'::text]))),
-    CONSTRAINT count_projection_exceptions_work_state_check CHECK ((work_state = ANY (ARRAY['blocked'::text, 'owner_missing'::text, 'resolved'::text, 'dismissed'::text]))),
+    CONSTRAINT count_projection_exceptions_work_state_check CHECK ((work_state = ANY (ARRAY['blocked'::text, 'resolved'::text, 'dismissed'::text]))),
     CONSTRAINT count_projection_exceptions_work_type_check CHECK ((work_type = 'counts_projection_exception'::text))
 );
 
@@ -2491,28 +2489,6 @@ CREATE TABLE public.counts_shifting_readiness_subgates (
 
 
 --
--- Name: department_module_grants; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.department_module_grants (
-    grant_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    department_id uuid NOT NULL,
-    vertical text NOT NULL,
-    module text NOT NULL,
-    status text NOT NULL,
-    valid_from timestamp with time zone DEFAULT now() NOT NULL,
-    valid_to timestamp with time zone,
-    created_by uuid,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT department_module_grants_module_check CHECK ((module ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'::text)),
-    CONSTRAINT department_module_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'revoked'::text]))),
-    CONSTRAINT department_module_grants_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from))),
-    CONSTRAINT department_module_grants_vertical_check CHECK ((vertical ~ '^[a-z][a-z0-9_]*$'::text))
-);
-
-
---
 -- Name: departments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2523,6 +2499,7 @@ CREATE TABLE public.departments (
     label text NOT NULL,
     status text DEFAULT 'active'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT departments_code_check CHECK ((code ~ '^[a-z][a-z0-9_]*$'::text)),
     CONSTRAINT departments_label_check CHECK ((btrim(label) <> ''::text)),
     CONSTRAINT departments_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))
@@ -3530,7 +3507,8 @@ CREATE TABLE public.obligation_instances (
     CONSTRAINT obligation_instances_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT obligation_instances_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
     CONSTRAINT obligation_instances_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'deferred'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'canceled'::text, 'superseded'::text]))),
-    CONSTRAINT obligation_instances_target_type_check CHECK ((target_type = ANY (ARRAY['goat'::text, 'cohort'::text, 'shed'::text, 'park'::text, 'tenant'::text])))
+    CONSTRAINT obligation_instances_target_type_check CHECK ((target_type = ANY (ARRAY['goat'::text, 'cohort'::text, 'shed'::text, 'park'::text, 'tenant'::text]))),
+    CONSTRAINT obligation_instances_window_check CHECK (((window_end IS NULL) OR (window_start IS NULL) OR (window_end >= window_start)))
 );
 
 
@@ -4739,9 +4717,10 @@ CREATE TABLE public.workforce_absences (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
+    coverage_override_reason text,
     CONSTRAINT workforce_absences_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT workforce_absences_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
-    CONSTRAINT workforce_absences_status_check CHECK ((status = ANY (ARRAY['reported'::text, 'approved'::text, 'rejected'::text, 'canceled'::text]))),
+    CONSTRAINT workforce_absences_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text, 'center'::text]))),
+    CONSTRAINT workforce_absences_status_check CHECK ((status = ANY (ARRAY['reported'::text, 'approved'::text, 'escalation_required'::text, 'rejected'::text, 'canceled'::text]))),
     CONSTRAINT workforce_absences_window_check CHECK ((ends_at > starts_at))
 );
 
@@ -4837,7 +4816,7 @@ CREATE TABLE public.workforce_member_capabilities (
     assigned_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT workforce_member_capabilities_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
+    CONSTRAINT workforce_member_capabilities_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text, 'center'::text]))),
     CONSTRAINT workforce_member_capabilities_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'revoked'::text]))),
     CONSTRAINT workforce_member_capabilities_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
 );
@@ -4892,11 +4871,46 @@ CREATE TABLE public.workforce_members (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
     department_id uuid,
+    hr_designation_grade text,
     CONSTRAINT workforce_members_display_code_check CHECK ((btrim(display_code) <> ''::text)),
     CONSTRAINT workforce_members_display_name_check CHECK ((btrim(display_name) <> ''::text)),
+    CONSTRAINT workforce_members_hr_designation_grade_check CHECK (((hr_designation_grade IS NULL) OR (hr_designation_grade = ANY (ARRAY['cxo'::text, 'director'::text, 'manager'::text, 'assistant_manager'::text])))),
     CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'pc_director'::text, 'verifier'::text, 'supervisor'::text, 'admin'::text, 'other'::text]))),
     CONSTRAINT workforce_members_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT workforce_members_status_check CHECK ((status = ANY (ARRAY['candidate'::text, 'active'::text, 'inactive'::text, 'suspended'::text, 'left'::text])))
+);
+
+
+--
+-- Name: workforce_positions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workforce_positions (
+    position_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    workforce_member_id uuid NOT NULL,
+    scope_type text NOT NULL,
+    scope_id uuid NOT NULL,
+    position_code text NOT NULL,
+    position_tier text NOT NULL,
+    is_backup_slot boolean DEFAULT false NOT NULL,
+    backup_group_code text,
+    week_off_weekday text,
+    status text DEFAULT 'active'::text NOT NULL,
+    valid_from timestamp with time zone DEFAULT now() NOT NULL,
+    valid_to timestamp with time zone,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT workforce_positions_backup_group_check CHECK (((backup_group_code IS NULL) OR (backup_group_code ~ '^[a-z][a-z0-9_]*$'::text))),
+    CONSTRAINT workforce_positions_position_code_check CHECK ((position_code ~ '^[a-z][a-z0-9_]*$'::text)),
+    CONSTRAINT workforce_positions_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT workforce_positions_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'center'::text]))),
+    CONSTRAINT workforce_positions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'ended'::text]))),
+    CONSTRAINT workforce_positions_tier_check CHECK ((position_tier = ANY (ARRAY['assistant'::text, 'manager'::text, 'head'::text, 'director'::text, 'cxo'::text]))),
+    CONSTRAINT workforce_positions_week_off_check CHECK (((week_off_weekday IS NULL) OR (week_off_weekday = ANY (ARRAY['monday'::text, 'tuesday'::text, 'wednesday'::text, 'thursday'::text, 'friday'::text, 'saturday'::text, 'sunday'::text])))),
+    CONSTRAINT workforce_positions_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
 );
 
 
@@ -5372,14 +5386,6 @@ ALTER TABLE ONLY public.counts_shifting_readiness_evidence
 
 ALTER TABLE ONLY public.counts_shifting_readiness_subgates
     ADD CONSTRAINT counts_shifting_readiness_subgates_pkey PRIMARY KEY (tenant_id, subgate_id);
-
-
---
--- Name: department_module_grants department_module_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.department_module_grants
-    ADD CONSTRAINT department_module_grants_pkey PRIMARY KEY (grant_id);
 
 
 --
@@ -6623,6 +6629,14 @@ ALTER TABLE ONLY public.workforce_members
 
 
 --
+-- Name: workforce_positions workforce_positions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_positions
+    ADD CONSTRAINT workforce_positions_pkey PRIMARY KEY (position_id);
+
+
+--
 -- Name: workforce_roster_assignments workforce_roster_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7503,20 +7517,6 @@ CREATE INDEX counts_shifting_readiness_evidence_subgate_idx ON public.counts_shi
 --
 
 CREATE INDEX counts_shifting_readiness_status_idx ON public.counts_shifting_readiness_subgates USING btree (tenant_id, status, updated_at DESC);
-
-
---
--- Name: department_module_grants_active_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX department_module_grants_active_unique ON public.department_module_grants USING btree (tenant_id, department_id, module) WHERE (status = 'active'::text);
-
-
---
--- Name: department_module_grants_dept_active_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX department_module_grants_dept_active_idx ON public.department_module_grants USING btree (tenant_id, department_id, status);
 
 
 --
@@ -9431,6 +9431,27 @@ CREATE INDEX workforce_members_user_idx ON public.workforce_members USING btree 
 
 
 --
+-- Name: workforce_positions_active_seat_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX workforce_positions_active_seat_unique ON public.workforce_positions USING btree (tenant_id, scope_type, scope_id, position_code) WHERE (status = 'active'::text);
+
+
+--
+-- Name: workforce_positions_backup_group_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_positions_backup_group_idx ON public.workforce_positions USING btree (tenant_id, scope_type, scope_id, backup_group_code, is_backup_slot, status) WHERE (backup_group_code IS NOT NULL);
+
+
+--
+-- Name: workforce_positions_member_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_positions_member_idx ON public.workforce_positions USING btree (tenant_id, workforce_member_id, status);
+
+
+--
 -- Name: workforce_roster_assignments_member_date_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10411,20 +10432,6 @@ CREATE CONSTRAINT TRIGGER admin_ui_config_family_change_queue_flush_trg AFTER IN
 
 
 --
--- Name: department_module_grants admin_ui_department_module_grants_revision_trg; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER admin_ui_department_module_grants_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.department_module_grants FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('permissions');
-
-
---
--- Name: departments admin_ui_departments_revision_trg; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER admin_ui_departments_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.departments FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('permissions');
-
-
---
 -- Name: inventory_items admin_ui_inventory_feed_items_revision_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -10499,13 +10506,6 @@ CREATE TRIGGER admin_ui_status_definitions_revision_trg AFTER INSERT OR DELETE O
 --
 
 CREATE TRIGGER admin_ui_user_scope_grants_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.user_scope_grants FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('permissions');
-
-
---
--- Name: workforce_members admin_ui_workforce_members_department_revision_trg; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER admin_ui_workforce_members_department_revision_trg AFTER INSERT OR DELETE OR UPDATE OF department_id ON public.workforce_members FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('permissions');
 
 
 --
@@ -11282,22 +11282,6 @@ ALTER TABLE ONLY public.counts_shifting_readiness_evidence
 
 ALTER TABLE ONLY public.counts_shifting_readiness_subgates
     ADD CONSTRAINT counts_shifting_readiness_subgates_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: department_module_grants department_module_grants_department_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.department_module_grants
-    ADD CONSTRAINT department_module_grants_department_tenant_fk FOREIGN KEY (tenant_id, department_id) REFERENCES public.departments(tenant_id, department_id);
-
-
---
--- Name: department_module_grants department_module_grants_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.department_module_grants
-    ADD CONSTRAINT department_module_grants_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -13522,6 +13506,22 @@ ALTER TABLE ONLY public.workforce_members
 
 ALTER TABLE ONLY public.workforce_members
     ADD CONSTRAINT workforce_members_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: workforce_positions workforce_positions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_positions
+    ADD CONSTRAINT workforce_positions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: workforce_positions workforce_positions_workforce_member_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_positions
+    ADD CONSTRAINT workforce_positions_workforce_member_id_fkey FOREIGN KEY (workforce_member_id) REFERENCES public.workforce_members(workforce_member_id);
 
 
 --

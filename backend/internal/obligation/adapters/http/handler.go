@@ -56,7 +56,6 @@ var allowedWorkStates = map[string]bool{
 	"verification_pending": true,
 	"rejected":             true,
 	"deferred":             true,
-	"owner_missing":        true,
 	"blocked":              true,
 	"missed":               true,
 	"completed":            true,

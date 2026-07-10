@@ -458,7 +458,7 @@ verification_pending
 rejected
 deferred
 blocked
-owner_missing
+blocked
 completed
 ```
 
@@ -600,7 +600,7 @@ Read models/status
   [ ] Vaccination execution context must show SOP/proof/verification status from
       real DB rows only.
   [ ] Preventive Care (PC) / adherence must reflect completed, rejected, missed, deferred, blocked,
-      proof_pending, verification_pending, owner_missing.
+      proof_pending, verification_pending, blocked.
   [ ] Do not count canceled/dead/sold obligations as actionable.
 
 Scale and tests

@@ -37,7 +37,7 @@ import {
 import { ShedEventActions } from "./shed-event-actions";
 
 // Work states that mean "someone must act now" — used for the per-park attention count.
-const ATTENTION_STATES = new Set<VaccinationExecutionWorkState>(["overdue", "missed", "blocked", "owner_missing", "rejected"]);
+const ATTENTION_STATES = new Set<VaccinationExecutionWorkState>(["overdue", "missed", "blocked", "rejected"]);
 
 interface ParkGroup {
   parkId: string;
@@ -110,7 +110,6 @@ function executionDriveLabel(row: VaccinationExecutionRow): string {
 }
 
 function executionActionTitle(pageContract: AdminUiPageContract, row: VaccinationExecutionRow): string {
-  if (row.workState === "owner_missing") return `${copy(pageContract, "action.assign_owner_chain")} — ${row.shedName}`;
   if (row.proofStatus === "missing") return `${copy(pageContract, "action.capture_vaccination_proof")} — ${row.shedName}`;
   if (row.verificationStatus === "pending") return `${copy(pageContract, "action.verify_vaccination_proof")} — ${row.shedName}`;
   if (row.workState === "overdue") return `${executionDriveLabel(row)} ${copy(pageContract, "label.overdue")} — ${row.shedName}`;

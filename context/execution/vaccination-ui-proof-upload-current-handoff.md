@@ -188,7 +188,7 @@ Still pending after the P0 render bug is fixed:
    search/filter control, row count, sort affordance, cursor/pager footer where
    applicable, compact density, aligned tags, and correct hover/active states.
 4. Correct action routing:
-   - owner-missing rows open owner-assignment controls or route to the matching
+   - blocked rows open owner-assignment controls or route to the matching
      Action Center row;
    - proof/record/verify rows open the vaccination proof/record/verify drawer;
    - completed/read-only rows open history/detail, not a fake write form.

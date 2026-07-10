@@ -9,7 +9,7 @@ Date: 2026-06-08
 Goat OS needs Spring-grade layering and operational rigor, but the Go backend
 should not depend on a large application framework to create those layers.
 Architecture boundaries are enforced through packages, interfaces, contracts,
-database constraints, tests, and module ownership.
+database constraints, tests, and module boundaries.
 
 This decision applies to Goat OS backend implementation unless a later ADR
 explicitly replaces it.

@@ -212,7 +212,7 @@ func TestListCountsProjectionExceptionsForwardsFilters(t *testing.T) {
 			Severity:              "critical",
 			Status:                "open",
 			WorkType:              "counts_projection_exception",
-			WorkState:             "owner_missing",
+			WorkState:             "blocked",
 			DueAt:                 time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC),
 			NextAction:            "Resolve destination ration context before Feed generation",
 			EvidenceLink:          "/feed-direction/counts-projection/exceptions/shift-key-1",
@@ -225,7 +225,7 @@ func TestListCountsProjectionExceptionsForwardsFilters(t *testing.T) {
 	}}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(service))
-	req := httptest.NewRequest(http.MethodGet, "/feed-direction/counts-projection/exceptions?status=open&park_id=10000000-0000-4000-8000-000000000001&severity=critical&work_state=owner_missing&limit=25", nil)
+	req := httptest.NewRequest(http.MethodGet, "/feed-direction/counts-projection/exceptions?status=open&park_id=10000000-0000-4000-8000-000000000001&severity=critical&work_state=blocked&limit=25", nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	rec := httptest.NewRecorder()
 
@@ -238,7 +238,7 @@ func TestListCountsProjectionExceptionsForwardsFilters(t *testing.T) {
 		service.listQuery.Status != "open" ||
 		service.listQuery.ParkID == nil || *service.listQuery.ParkID != "10000000-0000-4000-8000-000000000001" ||
 		service.listQuery.Severity == nil || *service.listQuery.Severity != "critical" ||
-		service.listQuery.WorkState == nil || *service.listQuery.WorkState != "owner_missing" ||
+		service.listQuery.WorkState == nil || *service.listQuery.WorkState != "blocked" ||
 		service.listQuery.Limit != 25 {
 		t.Fatalf("query=%+v", service.listQuery)
 	}

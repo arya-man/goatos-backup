@@ -5,7 +5,6 @@ import kotlinx.serialization.Serializable
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavState
-import sg.mesha.goatos.core.model.nav.OwnedModule
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
@@ -34,7 +33,6 @@ import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
 data class BootstrapDto(
     @SerialName("nav_chrome") val navChrome: String = "minimal",
     @SerialName("visible_navigation") val visibleNavigation: List<NavItemDto> = emptyList(),
-    @SerialName("owned_modules") val ownedModules: List<OwnedModuleDto> = emptyList(),
     // Extended bootstrap slice used by the shell beyond nav: identity, feature gates,
     // and version/time. All optional with defaults so the cached-bootstrap decode and
     // the original nav-only contract still succeed.
@@ -98,12 +96,6 @@ data class NavItemDto(
     val key: String = "",
     val label: String = "",
     val href: String = "",
-)
-
-@Serializable
-data class OwnedModuleDto(
-    val vertical: String = "",
-    val module: String = "",
 )
 
 /** Identity of the bootstrapped principal (BootstrapActor). */
@@ -290,7 +282,6 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             NavItemDto(key = "calendar", label = "Calendar", href = "/calendar"),
             NavItemDto(key = "vaccination", label = "Vaccination", href = "/vaccination"),
         ),
-        ownedModules = listOf(OwnedModuleDto(vertical = "preventive_care", module = "pc.vaccination")),
         featureFlags = mapOf("tasks" to true, "sop_runner" to true),
         appMinSupportedVersion = "0.1.0",
     )
@@ -400,12 +391,10 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 }
 
 /**
- * DTO -> domain. The backend already computed the chrome (drawer iff >=2 owned
- * visible modules); the client only parses the enum. It NEVER recomputes chrome
- * from the module count (TRD §14 dumb-renderer).
+ * DTO -> domain. The backend already computed the chrome; the client only
+ * parses the enum and visible nav items (TRD §14 dumb-renderer).
  */
 fun BootstrapDto.toNavState(): NavState = NavState(
     chrome = if (navChrome.equals("expanded", ignoreCase = true)) NavChrome.EXPANDED else NavChrome.MINIMAL,
     items = visibleNavigation.map { NavItem(key = it.key, label = it.label, href = it.href) },
-    ownedModules = ownedModules.map { OwnedModule(vertical = it.vertical, module = it.module) },
 )

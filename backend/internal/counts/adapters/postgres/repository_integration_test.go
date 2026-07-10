@@ -139,7 +139,7 @@ WHERE tenant_id=$1::uuid
   AND exception_type='unreported_shifting'
   AND source_key=$2
   AND status='open'
-  AND work_state='owner_missing'
+  AND work_state='blocked'
   AND count_projection_snapshot_id IS NULL`, countsTenant, "base_count_anchor:"+currentID); got != 1 {
 		t.Fatalf("unreported shifting exceptions=%d, want 1", got)
 	}
@@ -525,7 +525,7 @@ func TestRepositoryCreatesBlockedProjectionSnapshotAndReadiness(t *testing.T) {
 		t.Fatalf("projection exceptions=%+v, want destination_shortage", projection.Exceptions)
 	}
 	ex := projection.Exceptions[0]
-	if ex.WorkType != "counts_projection_exception" || ex.WorkState != "owner_missing" || ex.DueAt.IsZero() ||
+	if ex.WorkType != "counts_projection_exception" || ex.WorkState != "blocked" || ex.DueAt.IsZero() ||
 		ex.NextAction == "" || ex.EvidenceLink == "" {
 		t.Fatalf("exception work fields not populated: %+v", ex)
 	}
@@ -806,7 +806,7 @@ func TestRepositoryRelinksRepeatedOpenExceptionToLatestSnapshot(t *testing.T) {
 	if len(projection.Exceptions) != 1 || projection.Exceptions[0].ExceptionType != "destination_shortage" {
 		t.Fatalf("projection exceptions=%+v, want relinked destination_shortage", projection.Exceptions)
 	}
-	if projection.Exceptions[0].WorkState != "owner_missing" || projection.Exceptions[0].EvidenceLink == "" {
+	if projection.Exceptions[0].WorkState != "blocked" || projection.Exceptions[0].EvidenceLink == "" {
 		t.Fatalf("exception work fields=%+v", projection.Exceptions[0])
 	}
 	exceptionID := projectionExceptionID(t, ctx, pool, "destination_shortage", "shift-key-relink")

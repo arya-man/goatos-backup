@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/appconfig/domain"
-	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
 // Config is the backend-bounded, env-configurable ClientRuntimeConfig defaults. Every
@@ -110,14 +109,7 @@ func clampFloat(v, min, max float64) float64 {
 	return v
 }
 
-// ModuleOwnershipReader resolves the actor's owned product modules from the same
-// real, department-sourced read /app/bootstrap and /admin-web/bootstrap already use
-// (backend/internal/permissions/adapters/postgres.ModuleOwnershipSource). Depending
-// on the permissions package's own interface here keeps this package out of Postgres
-// directly and out of the workforce/adminui module boundaries.
-type ModuleOwnershipReader = permissions.ModuleOwnershipSource
-
-// Input identifies the actor whose owned-module set this compile call resolves.
+// Input identifies the actor whose config bundle this compile call resolves.
 type Input struct {
 	TenantID string
 	ActorID  string
@@ -125,15 +117,14 @@ type Input struct {
 
 // Service compiles the mobile remote-config bundle.
 type Service struct {
-	ownership ModuleOwnershipReader
-	runtime   Config
-	flags     map[string]bool
+	runtime Config
+	flags   map[string]bool
 }
 
 // NewService constructs the config-compile service with the curated, bounded
 // feature-flag registry (defaultFeatureFlags).
-func NewService(ownership ModuleOwnershipReader, runtime Config) *Service {
-	return &Service{ownership: ownership, runtime: runtime, flags: defaultFeatureFlags()}
+func NewService(runtime Config) *Service {
+	return &Service{runtime: runtime, flags: defaultFeatureFlags()}
 }
 
 // defaultFeatureFlags is the initial curated mobile feature-flag registry: real
@@ -152,19 +143,16 @@ func defaultFeatureFlags() map[string]bool {
 // themselves (Revision, CachePolicy).
 type hashInput struct {
 	FeatureFlags        map[string]bool            `json:"featureFlags"`
-	OwnedModules        []permissions.OwnedModule  `json:"ownedModules"`
 	ClientRuntimeConfig domain.ClientRuntimeConfig `json:"clientRuntimeConfig"`
 	PolicyRevision      string                     `json:"policyRevision"`
 }
 
-// Compile resolves the actor's owned modules and assembles the config bundle,
-// stamping a content-hash revision + ETag (mirrors the adminui bootstrap compile
+// Compile assembles the config bundle, stamping a content-hash revision + ETag
+// (mirrors the adminui bootstrap compile
 // pattern: hash the canonical payload, format `W/"<hash>"`, no DB write involved).
 func (s *Service) Compile(ctx context.Context, in Input) (domain.Response, error) {
-	owned, err := s.ownedModules(ctx, in)
-	if err != nil {
-		return domain.Response{}, err
-	}
+	_ = ctx
+	_ = in
 	runtimeConfig := domain.ClientRuntimeConfig{
 		PageSizeDefault:   s.runtime.PageSizeDefault,
 		SyncBackoffBaseMs: s.runtime.SyncBackoffBaseMs,
@@ -177,7 +165,6 @@ func (s *Service) Compile(ctx context.Context, in Input) (domain.Response, error
 
 	revision := hashRevision(hashInput{
 		FeatureFlags:        s.flags,
-		OwnedModules:        owned,
 		ClientRuntimeConfig: runtimeConfig,
 		PolicyRevision:      policyRevision,
 	})
@@ -186,30 +173,15 @@ func (s *Service) Compile(ctx context.Context, in Input) (domain.Response, error
 		Source:       domain.SourceAPI,
 		Revision:     revision,
 		FeatureFlags: s.flags,
-		OwnedModules: owned,
 		CachePolicy: domain.CachePolicy{
 			ETag:            `W/"` + revision + `"`,
 			InProcessTTLSec: s.runtime.CacheTTLSec,
 			RedisTTLHintSec: s.runtime.CacheTTLSec * 10,
-			RevisionSource:  "feature-flags+owned-modules+client-runtime-config",
+			RevisionSource:  "feature-flags+client-runtime-config",
 		},
 		ClientRuntimeConfig: runtimeConfig,
 		PolicyRevision:      policyRevision,
 	}, nil
-}
-
-func (s *Service) ownedModules(ctx context.Context, in Input) ([]permissions.OwnedModule, error) {
-	if s.ownership == nil || strings.TrimSpace(in.TenantID) == "" || strings.TrimSpace(in.ActorID) == "" {
-		return []permissions.OwnedModule{}, nil
-	}
-	owned, err := s.ownership.ListActiveModuleGrantsForActor(ctx, in.ActorID, in.TenantID)
-	if err != nil {
-		return nil, err
-	}
-	if owned == nil {
-		owned = []permissions.OwnedModule{}
-	}
-	return owned, nil
 }
 
 func hashRevision(in hashInput) string {

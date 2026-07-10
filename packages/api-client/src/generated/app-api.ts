@@ -1355,7 +1355,6 @@ export interface components {
             };
             visible_navigation: components["schemas"]["BootstrapNavigationItem"][];
             nav_chrome: components["schemas"]["NavChrome"];
-            owned_modules: components["schemas"]["OwnedModule"][];
             task_queue_descriptors: components["schemas"]["BootstrapTaskQueue"][];
             pinned_sop_versions: components["schemas"]["BootstrapSOPVersion"][];
             supported_field_types: string[];
@@ -1378,7 +1377,6 @@ export interface components {
             cache_policy: components["schemas"]["AdminWebContractCachePolicy"];
             navigation: components["schemas"]["AdminWebNavigationContract"];
             nav_chrome: components["schemas"]["NavChrome"];
-            owned_modules: components["schemas"]["OwnedModule"][];
             route_labels: components["schemas"]["AdminWebRouteLabelRule"][];
             top_bar: components["schemas"]["AdminWebTopBarContract"];
             role_lenses: components["schemas"]["AdminWebRoleLens"][];
@@ -1579,15 +1577,10 @@ export interface components {
             href: string;
         };
         /**
-         * @description Backend-computed navigation chrome, shared by both bootstraps. `expanded` shows the module switcher (mobile drawer / admin-web sidebar) because the principal owns >=2 active visible modules; `minimal` hides it (mobile bottom-bar-only with drawer extras folded into You/Settings, admin-web no-sidebar). The client renders this value; it never counts modules or checks role to decide chrome.
+         * @description Backend-computed navigation chrome, shared by both bootstraps. The client renders this value; it never counts modules or checks role to decide chrome.
          * @enum {string}
          */
         NavChrome: "expanded" | "minimal";
-        /** @description A product module the principal owns via their HR department (department_module_grants). The owned-module set drives visible-nav filtering and the nav_chrome threshold; it never widens access. */
-        OwnedModule: {
-            vertical: string;
-            module: string;
-        };
         BootstrapTaskQueue: {
             key: string;
             label: string;
@@ -1988,7 +1981,7 @@ export interface components {
             idempotent_replay: boolean;
         };
         /** @enum {string} */
-        WorkState: "scheduled" | "due" | "overdue" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "missed" | "owner_missing" | "blocked" | "completed";
+        WorkState: "scheduled" | "due" | "overdue" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "missed" | "blocked" | "completed";
         /** @enum {string} */
         ProcessIntegritySeverity: "ok" | "watch" | "at_risk" | "broken";
         /** @enum {string} */
@@ -2130,7 +2123,6 @@ export interface components {
             warning_count: number;
             open_gap_count: number;
             verification_backlog: number;
-            owner_missing_count: number;
             config_or_sop_blockers: number;
         };
         ControlTowerAlert: {
@@ -2181,7 +2173,7 @@ export interface components {
             nodes: components["schemas"]["WorkflowNode"][];
         };
         /** @enum {string} */
-        VaccinationExecutionWorkState: "due" | "overdue" | "scheduled" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "missed" | "blocked" | "owner_missing" | "completed";
+        VaccinationExecutionWorkState: "due" | "overdue" | "scheduled" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "missed" | "blocked" | "completed";
         /** @enum {string} */
         VaccinationExecutionSeverity: "ok" | "watch" | "at_risk" | "broken";
         /** @enum {string} */
@@ -2301,7 +2293,6 @@ export interface components {
             deferred: number;
             missed: number;
             blocked: number;
-            ownerMissing: number;
             completed: number;
         };
         VaccinationExecutionShedDrilldown: {
@@ -2597,7 +2588,7 @@ export interface components {
             /** @enum {string} */
             work_type: "counts_projection_exception";
             /** @enum {string} */
-            work_state: "blocked" | "owner_missing" | "resolved" | "dismissed";
+            work_state: "blocked" | "resolved" | "dismissed";
             /** Format: date-time */
             due_at: string;
             next_action: string;
@@ -2799,7 +2790,7 @@ export interface components {
             window_start?: string | null;
             /**
              * Format: date-time
-             * @description Optional window end for the obligation.
+             * @description Optional window end for the obligation. When provided, it must be greater than or equal to window_start.
              */
             window_end?: string | null;
         };
@@ -2876,7 +2867,6 @@ export interface components {
             featureFlags: {
                 [key: string]: boolean;
             };
-            ownedModules: components["schemas"]["OwnedModule"][];
             clientRuntimeConfig: components["schemas"]["AppClientRuntimeConfig"];
             /** @description Read-only traceability echo (the governing business-rule doc, e.g. vaccination-rules.md) — never a raw threshold the client could compute from. */
             policyRevision: string;
@@ -4069,7 +4059,7 @@ export interface operations {
                 exception_type?: "missing_base_count" | "missing_structured_impact" | "unreported_shifting" | "count_mismatch" | "alias_conflict" | "ration_context_unresolved" | "destination_shortage" | "unsafe_surplus" | "query_plan_unproven";
                 severity?: "warning" | "blocking" | "critical";
                 owner_ref?: string;
-                work_state?: "blocked" | "owner_missing" | "resolved" | "dismissed";
+                work_state?: "blocked" | "resolved" | "dismissed";
                 /** @description Opaque keyset cursor returned by the previous page. */
                 cursor?: string;
                 /** @description Defaults to 50. */

@@ -152,7 +152,6 @@ var allowedWorkStates = map[vaccexecd.WorkState]bool{
 	vaccexecd.WorkStateDeferred:            true,
 	vaccexecd.WorkStateMissed:              true,
 	vaccexecd.WorkStateBlocked:             true,
-	vaccexecd.WorkStateOwnerMissing:        true,
 	vaccexecd.WorkStateCompleted:           true,
 }
 

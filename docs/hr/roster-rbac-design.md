@@ -106,8 +106,7 @@ A second correction, after pulling the real sheets more closely:
 - **Scope unit is the center**, not an abstract park/shed: **Bangalore (HQ —
   CXOs and Directors), CBE, and CPT.** Roster, position, and coverage are all
   scoped by center.
-- Keep **three separate axes** distinct in the model (this reinforces
-  "ownership ≠ position" from §0.1, taken one step further):
+- Keep **three separate axes** distinct in the model:
   - **(a) HR Designation grade** — the coarse pay-grade tier from the
     Attendance DB's Employee Master `Designation` column: `CXO`, `Director`,
     `Manager`, `Assistant Manager`.
@@ -116,12 +115,12 @@ A second correction, after pulling the real sheets more closely:
     `Health/Kidding Manager`, `Backup Manager`, `Goats Head`, `Park Head`,
     `Feeding AM1/AM2/AM3`, `Cleaning AM1/AM2`, `Milk AM1/AM2`, `Backup
     AM1/AM2`, `Trainer AM1/AM2/AM3`, and so on.
-  - **(c) Department ownership** — the existing `departments`/
-    `department_module_grants` chain (§1): `Procurement`, `Preventive Care`,
+  - **(c) Department vocabulary** — the existing `departments` catalogue (§1):
+    `Procurement`, `Preventive Care`,
     `Breeding`, `Health`, `Growth`, `Infrastructure`, `Feed`, `Milk`, `Sales`.
   - These three axes are **independent**: a person's Designation grade does
-    not imply a Position, and a Position does not imply which department owns
-    which product modules. §4.1 keeps them as separate fields/tables rather
+    not imply a Position, and a Position does not imply product access. §4.1
+    keeps them as separate fields/tables rather
     than folding Position into Department (an earlier draft's mistake).
 - **CEO-superuser is an explicit config superset, not derived from grade.** A
   person whose HR Designation is `Director` (or any other grade) may or may
@@ -137,9 +136,9 @@ proposal in §4 is deliberately small because it reuses the following
 
 | Existing capability | Table / doc | What it gives us |
 | --- | --- | --- |
-| Department vocabulary + module ownership | `departments`, `department_module_grants` (migration `000148`), seeded in `000149` | `workforce_members.department_id → departments → department_module_grants` already drives which product modules/verticals a person's department owns, and compiles into `nav_chrome` (sidebar iff ≥2 owned modules) on both admin-web and mobile bootstraps. See `docs/decisions/user-module-ownership-and-nav-chrome.md`. Seeded departments today: `vaccination` (1 module → no sidebar), `admin_data` (3 modules → sidebar), `leadership` (4 modules, all built modules → full command room). This is axis (c) only — the real org has 9 departments (§0.2); only the built-module subset is seeded, by scope-lock. |
+| Department vocabulary | `departments` (migration `000148`), seeded in `000149` | `workforce_members.department_id → departments` records HR/operating vocabulary only. It does not drive product navigation, module filtering, or sidebar chrome. Access stays in RBAC grants and each bootstrap derives chrome from the visible routes it is already allowed to return. |
 | Coarse RBAC role + scope | `user_scope_grants` (migration `000001`) | `role IN ('admin','park_head','operator','verifier','ceo_internal')` + `scope_type`/`scope_id` + `valid_from`/`valid_to`. The **CEO-superuser tier already has a real role value: `ceo_internal`.** This document does not invent a new superuser concept — it grants existing `ceo_internal` at `scope_type='tenant'` to the founder/CEO cohort, independently of any HR Designation grade (§0.2). |
-| Email-based provisioning | `auth_pending_email_grants` (migration `000023`, extended in `000150`) | An approved email carries `role` + `scope_type`/`scope_id` + (as of `000150`) a nullable `department_code`. On claim, the permissions layer upserts a `workforce_member` into that department, making the department→module ownership chain real for leadership/admin actors who never get a roster row otherwise. |
+| Email-based provisioning | `auth_pending_email_grants` (migration `000023`) | An approved email carries `role` + `scope_type`/`scope_id`. On claim, the permissions layer grants app access through RBAC only; it no longer provisions department/module relationships. |
 | Staff roster identity | `workforce_members` (migration `000050`) | `display_code`, `display_name`, `status`, `primary_role_hint` (coarse: operator/park_head/verifier/supervisor/admin/other — an app-permission hint, NOT the same as HR Designation grade or Operational Position), `primary_location_id`, `department_id`. This is the person row every table below hangs off. |
 | Skills / capabilities, scope + time-bounded | `workforce_capabilities`, `workforce_member_capabilities` (migration `000050`) | Already scope-bounded (`scope_type`/`scope_id`) and time-bounded (`valid_from`/`valid_to`, one active row per member+capability+scope via a partial unique index). This is the exact shape a **temporary execution grant** needs — see §4.6, which reuses this table rather than inventing a new one. |
 | Shift roster | `workforce_roster_assignments` (migration `000050`) | Per-member, per-scope, per-shift-date rows with `shift_start_at`/`shift_end_at`, `task_type`, `status`, and an `escalation_owner_user_id` — this is where the Park-Head escalation target for a shift already lives structurally. |
@@ -147,7 +146,7 @@ proposal in §4 is deliberately small because it reuses the following
 
 **Consequence for this design:** the only genuinely new concepts below are (1)
 the **fixed Operational Position** (axis b) as its own standing-title concept,
-kept separate from Designation grade and Department ownership, and (2) the
+kept separate from Designation grade and Department vocabulary, and (2) the
 **generalized backup-group** resolution that covers both the manager tier and
 the assistant tier's parallel AM1/AM2 split. Leave, coverage-pointer, and
 temporary execution permission all reuse existing tables.
@@ -223,42 +222,38 @@ thing.
 - Uses the **existing** `user_scope_grants.role='ceo_internal'` at
   `scope_type='tenant'`. This role already exists in the committed CHECK
   constraint; nothing new is required to express "sees and does everything."
-- Also placed in the **existing** `leadership` department (migration `000149`
-  seeds `leadership` owning all four built modules: `pc.vaccination`,
-  `admin.config`, `admin.sop`, `admin.audit`) so the nav-chrome module-count
-  rule naturally gives this tier the full sidebar/command-room chrome — no
-  special-case nav logic needed.
+- Also placed in the **existing** `leadership` department (migrations `000149`
+  and `000153` seed `leadership` owning every built module: `pc.vaccination`,
+  `admin.config`, `admin.sop`, `admin.audit`, `admin.people`, plus future built
+  modules as they ship) so the normal visible-route chrome gives this tier the
+  full sidebar/command-room experience — no special-case nav logic needed.
 - **This is an explicit config superset over HR Designation grade, never
   derived from it** (§0.2). A person graded `Director` in the Employee Master
   is not automatically a CEO-superuser; conversely, being a CEO-superuser does
   not require being graded `CXO`. The two lists are seeded/maintained
   independently.
 - Provisioning path: an approved row in `auth_pending_email_grants` with
-  `role='ceo_internal'`, `scope_type='tenant'`, `department_code='leadership'`.
-  On claim, the existing permissions layer upserts the `workforce_member` into
-  `leadership`, making the ownership chain real. This is a **data/config
-  action against existing schema** (approve N email rows), not a migration.
-- **Initial cohort size:** 5 accounts (the founder/CEO/COO tier named in the
-  task brief). The exact identities are an operational seed decision for the
-  maintainer to action via the existing email-grant flow — this document
-  intentionally does not list them, per the role-based-not-person-based repo
-  convention.
+  `role='ceo_internal'`, `scope_type='tenant'`, and no department/module
+  side effects. This is a **data/config action against existing schema**
+  (approve N email rows), not a migration.
+- **Initial cohort size:** 5 accounts. The exact emails are operational seed
+  truth in `AGENTS.md` and `docs/runbooks/auth.md`; they must stay in the
+  `leadership` department with all built modules visible at all times.
 
 ### 3.2 Single-vertical operators (no sidebar)
 
-- Unchanged from the existing ADR (`docs/decisions/user-module-ownership-and-nav-chrome.md`):
-  a department owning exactly one built module (today: `vaccination` →
-  `pc.vaccination`) gets bottom-bar-only / no-sidebar chrome; extras fold into
-  You/Settings. A department owning ≥2 modules gets the sidebar/drawer. This
-  document does not change that rule — it only adds the position/coverage
-  layer on top of the same department-driven ownership.
+- Operators receive the routes their RBAC grants allow. Single-vertical
+  operators naturally get the compact bottom-bar experience when the bootstrap
+  returns one visible module; broader roles get sidebar/drawer chrome from the
+  same visible-route list. This document adds the position/coverage layer on
+  top of RBAC, not on top of department-driven navigation.
 
 ## 4. Position & Coverage model (proposal)
 
 Renamed from "Role Assignment" per the maintainer correction — this is not
 about reassigning roles, it is about a fixed position plus a bounded,
 reversible work-coverage window, kept as its own axis (b) separate from HR
-Designation grade (axis a) and Department ownership (axis c).
+Designation grade (axis a) and Department vocabulary (axis c).
 
 ### 4.1 Three axes, modeled as three separate fields/tables
 
@@ -266,7 +261,7 @@ Designation grade (axis a) and Department ownership (axis c).
 | --- | --- | --- |
 | (a) HR Designation grade | CXO, Director, Manager, Assistant Manager | Proposed: a small lookup + `workforce_members.hr_designation_grade` (or an equivalent lookup table) sourced from the Employee Master `Designation` column. Distinct from `primary_role_hint` (existing, coarse app-permission hint) and from Operational Position below. |
 | (b) Operational Position | Preventive Care Manager, Breeding Manager, Feeding Manager, Health/Kidding Manager, Backup Manager, Goats Head, Park Head, Feeding AM1/2/3, Cleaning AM1/2, Milk AM1/2, Backup AM1/AM2, Trainer AM1/2/3 | Proposed: `workforce_positions` (§4.2) — center-scoped, fixed, never mutated by leave. |
-| (c) Department ownership | Procurement, Preventive Care, Breeding, Health, Growth, Infrastructure, Feed, Milk, Sales | **Existing:** `departments` + `department_module_grants` + `workforce_members.department_id` (migration `000148`/`000149`). Not touched by this proposal. |
+| (c) Department vocabulary | Procurement, Preventive Care, Breeding, Health, Growth, Infrastructure, Feed, Milk, Sales | **Existing:** `departments` + `workforce_members.department_id` (migration `000148`/`000149`). Used for HR/org context only; route access stays in RBAC. |
 
 `workforce_positions` deliberately carries **no** `department_id` foreign key.
 The real timetable shows a Backup Manager covering managers across multiple
@@ -310,7 +305,7 @@ workforce_positions (PROPOSED)
   -- exactly one ACTIVE holder per (scope, position_code):
   UNIQUE (tenant_id, scope_type, scope_id, position_code)
     WHERE status = 'active'
-  -- mirrors department_module_grants_active_unique's partial-unique pattern (000148)
+  -- mirrors the existing active-row partial-unique patterns used elsewhere
 ```
 
 This single partial-unique index is what makes "exactly one holder of a given
@@ -353,11 +348,11 @@ applies — it never falls back to picking an unrelated position.
 
 Axis (a) (`workforce_positions`' sibling, the proposed `hr_designation_grade`)
 is read-only context (badges, org-chart display, payroll-adjacent reporting)
-in this proposal. It does not drive nav-chrome (that's Department ownership,
-§1), does not drive execute permission (that's Position + the temporary grant
-in §4.6), and does not drive CEO-superuser status (that's the explicit
-allow-list in §3.1). Keeping it inert avoids the exact conflation §0.2
-corrected — grade, position, and department stay three independent reads.
+in this proposal. It does not drive nav-chrome (the bootstrap derives chrome
+from RBAC-visible routes), does not drive execute permission (that's Position +
+the temporary grant in §4.6), and does not drive CEO-superuser status (that's
+the explicit allow-list in §3.1). Keeping it inert avoids the exact conflation
+§0.2 corrected — grade, position, and department stay three independent reads.
 
 ### 4.5 Coverage triggers: recurring week-off AND ad-hoc leave
 
@@ -387,13 +382,12 @@ Two distinct triggers feed the same `effective_backup` resolution (§4.3), and
   FK must equal the result of a lookup query." The invariant belongs in the
   same service that approves `workforce_absences` rows.
 
-Ownership itself never changes under either trigger: the covered position's
-`workforce_positions` row stays `active` throughout. Nothing in
-`department_module_grants` or `workforce_positions` is touched by a week-off
-or an absence — only a `workforce_absences` row is written/approved for the
-ad-hoc case (the recurring case writes nothing at all), exactly matching
-"absence/backfill creates a reassignment record; it does not overwrite
-original ownership."
+Accountability itself never changes under either trigger: the covered position's
+`workforce_positions` row stays `active` throughout. No access grants or
+position rows are touched by a week-off or an absence — only a
+`workforce_absences` row is written/approved for the ad-hoc case (the recurring
+case writes nothing at all), exactly matching "absence/backfill creates a
+coverage record; it does not overwrite the standing position."
 
 ### 4.6 Temporary execution permission (reuses `workforce_member_capabilities`)
 
@@ -467,7 +461,7 @@ Per the maintainer corrections, the admin UI section for this proposal is:
 1. Each staff member's **three axes are shown as three separate fields**: HR
    Designation grade (read-only context), Operational Position (title +
    center + week-off day, editable only by admin/CEO tier, never mutated by a
-   leave/week-off event), and Department ownership (unchanged, existing UI).
+   leave/week-off event), and Department vocabulary (read-only HR context).
 2. **The configured backup per (center, backup group)** is shown explicitly —
    one slot per group (e.g. Backup Manager, Backup AM1, Backup AM2 for a
    center), not a free list, and a group may show "not configured" rather than

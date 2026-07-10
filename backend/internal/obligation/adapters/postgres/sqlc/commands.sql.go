@@ -466,7 +466,7 @@ type RescheduleOpenObligationByIDParams struct {
 // must create new work, never rewrite the closed row): Repository.RescheduleObligationByID branches a
 // 'missed' target to insertReworkObligationForMissed (a fresh INSERT via InsertObligationInstance)
 // instead of calling this UPDATE. Terminal/in-flight statuses (completed, in_progress, proof_pending,
-// verification_pending, rejected, blocked, owner_missing, canceled) are excluded too — none of those are
+// verification_pending, rejected, blocked, canceled) are excluded too — none of those are
 // reschedulable from the mobile app. The caller separately locks the row first and detaches batch_id
 // when the obligation is still attached to a 'planned' batch, mirroring
 // DeferOpenObligationByIdempotencyKey's detachPlannedBatch pattern, since a moved due date may no longer

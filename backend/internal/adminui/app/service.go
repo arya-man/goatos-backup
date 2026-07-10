@@ -7,12 +7,10 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/adminui/domain"
-	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
 type Service struct {
 	repo            ReferenceRepository
-	ownership       permissions.ModuleOwnershipSource
 	mu              sync.Mutex
 	cache           map[string]cacheEntry
 	cacheTTL        time.Duration
@@ -34,39 +32,8 @@ func NewService(repo ...ReferenceRepository) *Service {
 	}
 }
 
-// WithModuleOwnership injects the shared department-driven module-ownership read
-// used to hide unowned nav and set nav chrome. It is optional: without it the
-// service fails open (full nav, expanded chrome), preserving the pre-ownership
-// behavior for callers/tests that construct NewService() with no ownership.
-func (s *Service) WithModuleOwnership(src permissions.ModuleOwnershipSource) *Service {
-	s.ownership = src
-	return s
-}
-
 func (s *Service) Bootstrap(ctx context.Context, input BootstrapInput) domain.BootstrapResponse {
-	input = s.resolveOwnership(ctx, input)
 	return s.bootstrapCached(ctx, input)
-}
-
-// resolveOwnership loads the actor's owned modules and marks the input resolved
-// so downstream compilation can filter nav + set chrome. It fails open: when no
-// ownership source is wired, or the read errors, ownership stays unresolved and
-// the full nav is kept (expanded chrome, empty owned set). Ownership is visibility
-// only; a transient read error must never lock a principal out of nav — RBAC stays
-// authoritative on every command elsewhere.
-func (s *Service) resolveOwnership(ctx context.Context, input BootstrapInput) BootstrapInput {
-	if s.ownership == nil {
-		return input
-	}
-	mods, err := s.ownership.ListActiveModuleGrantsForActor(ctx, input.ActorID, input.TenantID)
-	if err != nil {
-		input.OwnedModules = nil
-		input.OwnershipResolved = false
-		return input
-	}
-	input.OwnedModules = mods
-	input.OwnershipResolved = true
-	return input
 }
 
 func baseBootstrap() domain.BootstrapResponse {
@@ -81,11 +48,8 @@ func baseBootstrap() domain.BootstrapResponse {
 			RedisTTLHintSec: redisTTLHintSeconds,
 			RevisionSource:  "tenant-role-family-hashes",
 		},
-		Navigation: navigation(),
-		// Base template defaults; compileRequestContext recomputes NavChrome +
-		// OwnedModules per principal from department ownership (see compiler.go).
+		Navigation:   navigation(),
 		NavChrome:    domain.NavChromeExpanded,
-		OwnedModules: []domain.OwnedModule{},
 		RouteLabels:  routeLabels(),
 		TopBar:       topBar(),
 		RoleLenses:   roleLenses(),
@@ -106,9 +70,8 @@ func navLeaf(id, label, href string, extra map[string]string) domain.NavigationI
 	return domain.NavigationItem{ID: id, Label: label, Href: href, Enabled: true, Extra: extra}
 }
 
-// navLeafDomain stamps a leaf with its owning product module. Only modeled/built
-// modules carry a Domain; ownership filtering hides a stamped leaf when its module
-// is not owned. Leaves with an empty Domain (procurement/counts) are never filtered.
+// navLeafDomain stamps a leaf with its product module for analytics and stable
+// backend contract metadata. It does not filter navigation.
 func navLeafDomain(id, label, href, module string, extra map[string]string) domain.NavigationItem {
 	item := navLeaf(id, label, href, extra)
 	item.Domain = module
@@ -249,7 +212,7 @@ func pages() []domain.PageContract {
 			}),
 		page("calendar", "/calendar", "/calendar", "Calendar", "Vaccination due work by time, owner lane, park, shed, and date.", "command-lens",
 			[]domain.TableContract{table("calendar-events", "Due work", "/calendar/vaccination/events", []string{"due_at", "owner", "title", "status", "severity"}, "cal_event")}),
-		page("protocol-adherence", "/protocol-adherence", "/protocol-adherence", "Protocol Adherence", "Expected vs actual vaccination ledger, evidence, owner chain, and next action.", "command-lens",
+		page("protocol-adherence", "/protocol-adherence", "/protocol-adherence", "Protocol Adherence", "Expected vs actual vaccination ledger, evidence, operator assignment, and next action.", "command-lens",
 			[]domain.TableContract{table("adherence-ledger", "Vaccination", "/vaccination/adherence", []string{"expected", "actual", "gap", "severity", "owner_chain", "next_action", "evidence"}, "adh_row")}),
 		page("workflows", "/workflows", "/workflows", "Workflows", "Config → obligation → SOP → proof → verification → completion workflow records.", "command-lens",
 			[]domain.TableContract{table("workflow-catalog", "Workflow catalog", "/vaccination/action-center", []string{"workflow", "stage", "owner", "next_action", "status"}, "wf_row")}),
@@ -448,8 +411,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.at_risk":                    "at risk",
 			"label.all_severity":               "All severity",
 			"label.all_states":                 "All states",
-			"label.owner_missing":              "owner-missing",
-			"label.owner_unassigned":           "owner: unassigned",
+			"label.owner_unassigned":           "operator: unassigned",
 			"label.process_intact":             "Intact",
 			"label.process_not_intact":         "Not intact",
 			"label.process_at_risk":            "At risk",
@@ -507,9 +469,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.work_item.eyebrow":            "ACTION",
 			"drawer.adherence_status_label":       "Adherence status (computed)",
 			"drawer.adherence_status_help":        "computed from obligation + SOP submission + proof + timing — not manually editable",
-			"drawer.owner_chain_label":            "Owner chain",
-			"drawer.owner_chain_disabled":         "Owner chain is assigned from the workflow record, not edited here",
-			"drawer.owner_missing":                "owner chain missing",
+			"drawer.owner_chain_label":            "Operator assignment",
+			"drawer.owner_chain_disabled":         "Operator assignment is computed from the workflow record, not edited here",
 			"drawer.due_label":                    "Due",
 			"drawer.due_date_disabled":            "Due date is set by the published protocol schedule",
 			"drawer.priority_label":               "Priority",
@@ -547,7 +508,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.success_tag":                  "done",
 			"action.success_message":              "Action completed.",
 			"action.failed_title":                 "Action failed",
-			"action.assign_owner_chain":           "Assign owner chain",
+			"action.assign_owner_chain":           "Assign operator",
 			"action.capture_vaccination_proof":    "Capture vaccination proof",
 			"action.verify_vaccination_proof":     "Verify vaccination proof",
 			"note.board_explainer":                "Every vaccination obligation, grouped by computed work state. Open a card to inspect the computed next action, SOP/proof gates, linked workflow record, and available controls. Disabled controls are read-only until their backing workflow handle exists. Live actions write the audit trail and ripple into",
@@ -564,7 +525,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"reason.no_recorded_dose_rework":      "No recorded dose to rework yet.",
 			"reason.no_sop_review_handle":         "SOP review handle required before verification can be reviewed.",
 			"label.unassigned":                    "unassigned",
-			"label.owner_chain_assign":            "owner chain: assign",
+			"label.owner_chain_assign":            "operator: assign",
 			"label.vaccination":                   "Vaccination",
 			"label.vaccination_drive":             "Vaccination drive",
 			"label.shed_fallback":                 "shed",
@@ -585,10 +546,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.ledger.aria":       "Vaccination adherence ledger",
 			"section.ledger.note":       "expected vs actual + SOP proof",
 			"filter.drawer.title":       "Filter — Protocol Adherence",
-			"filter.search_reason":      "Search expected, actual, owner chain, next action, evidence...",
+			"filter.search_reason":      "Search expected, actual, operator assignment, next action, evidence...",
 			"filter.reason":             "Use severity and gap-state chips for backend filters; drawer search narrows visible rows.",
 			"filter.search_label":       "Search adherence rows",
-			"filter.rows_suffix":        "expected, actual, gap, owner chain, evidence",
+			"filter.rows_suffix":        "expected, actual, gap, operator assignment, evidence",
 			"filter.click_row":          "click a row → adherence record",
 			"drawer.record.aria":        "Protocol adherence record",
 			"drawer.record.close_label": "Close adherence record",
@@ -610,7 +571,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.rejected":            "rejected",
 			"label.proof_singular":      "proof",
 			"label.proof_plural":        "proofs",
-			"gap.owner_missing":         "owner chain missing",
 			"gap.proof_missing":         "proof missing",
 			"gap.verification_pending":  "verify pending",
 			"gap.deferred_explained":    "deferred / explained",
@@ -647,7 +607,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.open_record":               "Open workflow detail",
 			"action.open_action_center":        "Open Action Center",
 			"action.back_to_list":              "Back to list",
-			"action.assign_owner_chain":        "Assign owner chain",
+			"action.assign_owner_chain":        "Assign operator",
 			"action.capture_vaccination_proof": "Capture vaccination proof",
 			"action.verify_vaccination_proof":  "Verify vaccination proof",
 			"empty.catalog":                    "No live workflows yet. A workflow starts when a published protocol generates an obligation — publish a governed rule in Config and a vaccination SOP.",
@@ -659,7 +619,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.avg_progress":               "Avg progress",
 			"label.vaccination_chain":          "vaccination chain",
 			"label.scheduled_in_progress":      "scheduled + in progress",
-			"label.awaiting_proof_owner":       "awaiting proof / owner",
+			"label.awaiting_proof_owner":       "awaiting proof / assignment",
 			"label.across_shown":               "across shown",
 			"label.done":                       "done",
 			"label.current":                    "current (you are here)",
@@ -682,7 +642,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"note.engine":                      "Every node maps to the engine: event → obligation → SOP task → verification → closure. The SOP is the step template; the engine gates each next step on verified proof. See live work in the",
 			"note.paging":                      "Showing the first 200 workflows. Filter by park, or narrow in the Action Center, to see the rest.",
 			"label.unassigned":                 "unassigned",
-			"label.owner_chain_assign":         "owner chain: assign",
+			"label.owner_chain_assign":         "operator: assign",
 			"label.vaccination":                "Vaccination",
 			"label.vaccination_drive":          "Vaccination drive",
 			"label.shed_fallback":              "shed",
@@ -713,12 +673,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.shed_execution":            "Shed execution detail",
 			"action.action_center":             "Action Center",
 			"action.protocol_adherence":        "Protocol Adherence",
-			"action.assign_owner_chain":        "Assign owner chain",
+			"action.assign_owner_chain":        "Assign operator",
 			"action.capture_vaccination_proof": "Capture vaccination proof",
 			"action.verify_vaccination_proof":  "Verify vaccination proof",
 			"label.done":                       "done",
 			"label.unassigned":                 "unassigned",
-			"label.owner_chain_assign":         "owner chain: assign",
+			"label.owner_chain_assign":         "operator: assign",
 			"label.vaccination":                "Vaccination",
 			"label.vaccination_drive":          "Vaccination drive",
 			"label.shed_fallback":              "shed",
@@ -845,7 +805,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.cohort_detail.unavailable":           "Cohort detail is unavailable until the service responds; resolve the error above and reload.",
 			"section.shed_events.title":                   "Drive — shed events",
 			"section.shed_events.aria":                    "Vaccination shed events",
-			"section.shed_events.note":                    "park → shed → drive · owner · stock · proof · verify",
+			"section.shed_events.note":                    "park → shed → drive · stock · proof · verify",
 			"section.shed_events.row_hint":                "click a row → shed execution detail",
 			"section.shed_events.empty_unavailable_title": "Park/shed execution is unavailable",
 			"section.shed_events.empty_unavailable_body":  "The vaccination execution service did not return data. Resolve the error above, then reload.",
@@ -948,7 +908,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.open_protocol_adherence":              "Protocol Adherence",
 			"action.reset_filters":                        "Reset filters",
 			"action.shed_detail":                          "Shed detail",
-			"action.assign_owner_chain":                   "Assign owner chain",
+			"action.assign_owner_chain":                   "Assign operator",
 			"action.capture_vaccination_proof":            "Capture vaccination proof",
 			"action.verify_vaccination_proof":             "Verify vaccination proof",
 			"action.record_verify":                        "Record + verify",
@@ -983,7 +943,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.new_drive.generation_title":           "2 · Generation",
 			"drawer.new_drive.generation_body":            "Obligations materialize per eligible goat; the sweeper batches them into a per-shed drive + SOP task.",
 			"drawer.new_drive.assign_title":               "3 · Assign / act",
-			"drawer.new_drive.assign_body":                "Owner gaps and execution work surface in the Action Center.",
+			"drawer.new_drive.assign_body":                "Assignment gaps and execution work surface in the Action Center.",
 			"drawer.sop.button_title":                     "Vaccination SOP policy",
 			"drawer.sop.button":                           "SOP",
 			"drawer.sop.aria":                             "Vaccination Drive SOP",
@@ -1012,7 +972,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.operator_unassigned":                   "operator: unassigned",
 			"label.park_head_unassigned":                  "park head: unassigned",
 			"label.verifier_default":                      "Video Verification Team",
-			"label.owner_chain_to_assign":                 "owner chain to assign",
+			"label.owner_chain_to_assign":                 "operator to assign",
 			"label.stock_resolved_action_center":          "resolved in Action Center",
 			"label.shed_event_noun":                       "shed event",
 			"label.last_dose":                             "last dose",
@@ -1035,7 +995,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"fallback.body":              "Shed returned no vaccination execution context. It may be outside the current drive scope, or the service is unavailable.",
 			"section.work_state.title":   "Work state",
 			"section.drives.title":       "Drives at this shed",
-			"section.owner_chain.title":  "Owner chain",
+			"section.owner_chain.title":  "Operator assignment",
 			"section.blocked.title":      "Blocked / deferred",
 			"section.drive_rows.title":   "Drive rows",
 			"table.drive_rows.aria":      "drive rows",
@@ -2244,7 +2204,6 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 					option("deferred", "deferred", "", "mut"),
 					option("missed", "missed", "", "warn"),
 					option("blocked", "blocked", "", "dng"),
-					option("owner_missing", "owner missing", "", "dng"),
 				},
 			},
 			{
@@ -2453,7 +2412,6 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 					option("overdue", "Overdue", "", "dng"),
 					option("missed", "Missed", "", "warn"),
 					option("blocked", "Blocked", "", "dng"),
-					option("owner_missing", "Owner missing", "", "dng"),
 					option("rejected", "Rejected", "", "dng"),
 					option("proof_pending", "Proof pending", "", "warn"),
 					option("verification_pending", "Verification pending", "", "pur"),
@@ -3572,7 +3530,6 @@ func processIntegrityOptionGroups() []domain.OptionGroup {
 				option("overdue", "Overdue", "", "dng"),
 				option("missed", "Missed", "", "warn"),
 				option("blocked", "Blocked", "", "dng"),
-				option("owner_missing", "Owner missing", "", "dng"),
 				option("rejected", "Rejected", "", "dng"),
 				option("proof_pending", "Proof pending", "", "warn"),
 				option("verification_pending", "Verification pending", "", "pur"),
@@ -3660,7 +3617,7 @@ func humanLabel(key string) string {
 	case "work_state":
 		return "Work state"
 	case "owner_chain":
-		return "Owner chain"
+		return "Operator assignment"
 	case "sop_proof_verify":
 		return "SOP · proof · verify"
 	case "animal_stage":

@@ -13,13 +13,12 @@ import (
 )
 
 type Service struct {
-	repo      ports.Repository
-	ownership permissions.ModuleOwnershipSource
-	now       func() time.Time
+	repo ports.Repository
+	now  func() time.Time
 }
 
-func NewService(repo ports.Repository, ownership permissions.ModuleOwnershipSource) *Service {
-	return &Service{repo: repo, ownership: ownership, now: time.Now}
+func NewService(repo ports.Repository) *Service {
+	return &Service{repo: repo, now: time.Now}
 }
 
 func (s *Service) ListOperators(ctx context.Context, params ports.ListOperatorsParams, traceID string) (*domain.OperatorListResponse, error) {
@@ -340,10 +339,6 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, tr
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
-	ownedModules, err := s.ownership.ListActiveModuleGrantsForActor(ctx, actorID, tenantID)
-	if err != nil {
-		return nil, err
-	}
 	var device *domain.DeviceSummary
 	deviceState := domain.BootstrapDeviceState{Required: true, Status: "not_registered"}
 	deviceID = strings.TrimSpace(deviceID)
@@ -373,9 +368,8 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, tr
 			"proof_capture":  hasCapability(caps, "media.video_capture"),
 			"animal_id_scan": hasCapability(caps, "animal_id.scan"),
 		},
-		VisibleNavigation:       visibleNavigationFor(grants, ownedModules),
-		NavChrome:               navChromeFor(grants, ownedModules),
-		OwnedModules:            toDomainOwnedModules(ownedModules),
+		VisibleNavigation:       visibleNavigationFor(grants),
+		NavChrome:               navChromeFor(grants),
 		TaskQueueDescriptors:    queuesFor(caps),
 		PinnedSOPVersions:       []domain.BootstrapSOPVersion{},
 		SupportedFieldTypes:     []string{"text", "number", "date_time", "boolean", "select", "multiselect", "goat_scan", "animal_id_scan", "goat_lookup", "shed_picker", "photo_proof", "video_proof"},
@@ -574,49 +568,9 @@ func hasCapability(items []domain.CapabilityAssignment, code string) bool {
 	return false
 }
 
-// moduleNavRegistry maps an owned product module to its backend-owned mobile
-// nav item. Only BUILT modules appear (scope-lock); an owned module absent
-// here is not yet surfaced.
-var moduleNavRegistry = map[string]domain.BootstrapNavigationItem{
-	"pc.vaccination": {Key: "vaccination", Label: "Vaccination", Href: "/vaccination"},
-}
-
-// navigationForModules resolves the module-driven mobile nav from the owned
-// module set. The client renders exactly this list — it never counts modules or
-// role-checks. Unmapped (not-yet-built) modules and duplicates are dropped.
-func navigationForModules(mods []permissions.OwnedModule) []domain.BootstrapNavigationItem {
-	items := make([]domain.BootstrapNavigationItem, 0, len(mods))
-	seen := map[string]bool{}
-	for _, m := range mods {
-		item, ok := moduleNavRegistry[m.Module]
-		if !ok || seen[m.Module] {
-			continue
-		}
-		seen[m.Module] = true
-		items = append(items, item)
-	}
-	return items
-}
-
-// navChromeForModules: sidebar/drawer iff the principal owns >=2 visible
-// (registry-mapped) modules; else minimal. Counted server-side, never on device.
-func navChromeForModules(mods []permissions.OwnedModule) string {
-	seen := map[string]bool{}
-	for _, m := range mods {
-		if _, ok := moduleNavRegistry[m.Module]; ok {
-			seen[m.Module] = true
-		}
-	}
-	if len(seen) >= 2 {
-		return domain.NavChromeExpanded
-	}
-	return domain.NavChromeMinimal
-}
-
 // leadershipGrantRoles are the workforce grant roles that see the fixed
-// leadership mobile nav (Calendar / Overview / Alerts) instead of the
-// module-driven operator nav. Mirrors the role-lens tiers already used for
-// the admin-web bootstrap (see roleLensForRole in
+// leadership mobile nav (Calendar / Overview / Alerts). Mirrors the role-lens
+// tiers already used for the admin-web bootstrap (see roleLensForRole in
 // internal/adminui/app/compiler.go): ceo_internal/admin fold to CEO/COO,
 // pc_director is the health director, park_head is the park manager, and
 // verifier is the (assigned-park) health manager. permissions.RoleOperator is
@@ -631,32 +585,21 @@ var leadershipGrantRoles = map[string]bool{
 
 // leadershipNavigation is the fixed backend-owned mobile nav for a leadership
 // principal. The client adds a "You" tab locally; the backend owns exactly
-// these three so Overview/Overdue/Reschedule stay reachable even though
-// leadership does not own the pc.vaccination module the operator nav is
-// built from.
+// these three so Overview/Overdue/Reschedule stay reachable.
 var leadershipNavigation = []domain.BootstrapNavigationItem{
 	{Key: "leadership", Label: "Overview", Href: "/leadership"},
 	{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 	{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 }
 
-// operatorNavigation is the fixed backend-owned mobile nav for a field operator
-// who owns the vaccination module: Drives (the shed execution flow) first, then
-// Calendar, then Alerts. The client adds "You" locally and lands on Calendar.
+// operatorNavigation is the fixed backend-owned mobile nav for a field operator:
+// Drives (the shed execution flow) first, then Calendar, then Alerts. The client
+// adds "You" locally and lands on Calendar.
 // There is no Overview/Home for operators — they execute, they don't oversee.
 var operatorNavigation = []domain.BootstrapNavigationItem{
 	{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
 	{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 	{Key: "alerts", Label: "Alerts", Href: "/alerts"},
-}
-
-func ownsModule(mods []permissions.OwnedModule, module string) bool {
-	for _, m := range mods {
-		if m.Module == module {
-			return true
-		}
-	}
-	return false
 }
 
 // isLeadershipPrincipal reports whether any active grant carries a
@@ -672,38 +615,20 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 	return false
 }
 
-// visibleNavigationFor picks the leadership nav for a leadership principal
-// and otherwise falls back to the existing module-driven operator nav.
-// Leadership nav is role-driven and independent of owned modules: leadership
-// does not need to own pc.vaccination to reach Calendar/Overview/Alerts.
-func visibleNavigationFor(grants []domain.GrantSummary, mods []permissions.OwnedModule) []domain.BootstrapNavigationItem {
+// visibleNavigationFor picks the leadership nav for a leadership principal and
+// otherwise returns the fixed field-operator nav.
+func visibleNavigationFor(grants []domain.GrantSummary) []domain.BootstrapNavigationItem {
 	if isLeadershipPrincipal(grants) {
 		return leadershipNavigation
 	}
-	// A vaccination operator gets the fixed operator nav (Drives · Calendar ·
-	// Alerts); other principals fall back to the module-driven list.
-	if ownsModule(mods, "pc.vaccination") {
-		return operatorNavigation
-	}
-	return navigationForModules(mods)
+	return operatorNavigation
 }
 
-// navChromeFor keeps leadership on minimal chrome (bottom-bar only, fixed
-// three-item nav) and preserves the existing module-count-driven chrome for
-// operators.
-func navChromeFor(grants []domain.GrantSummary, mods []permissions.OwnedModule) string {
-	if isLeadershipPrincipal(grants) {
-		return domain.NavChromeMinimal
-	}
-	return navChromeForModules(mods)
-}
-
-func toDomainOwnedModules(mods []permissions.OwnedModule) []domain.OwnedModule {
-	out := make([]domain.OwnedModule, 0, len(mods))
-	for _, m := range mods {
-		out = append(out, domain.OwnedModule{Vertical: m.Vertical, Module: m.Module})
-	}
-	return out
+// navChromeFor keeps mobile on bottom-bar chrome; module boundaries no longer
+// drives a drawer/sidebar threshold.
+func navChromeFor(grants []domain.GrantSummary) string {
+	_ = grants
+	return domain.NavChromeMinimal
 }
 
 func queuesFor(caps []domain.CapabilityAssignment) []domain.BootstrapTaskQueue {

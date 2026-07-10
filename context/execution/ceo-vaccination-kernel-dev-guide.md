@@ -45,7 +45,7 @@ Use this path for a first review.
 | --- | --- | --- |
 | 1 | Control Tower | Overall vaccination health, top broken items, owner, next action. |
 | 2 | Preventive Care (PC) -> Vaccination | Cohort matrix, per-cohort detail, supplier warmup, and park drive rows with shed/tag breakdowns. |
-| 3 | Action Center | Due, overdue, proof-pending, verification-pending, rejected, blocked, and owner-missing work. |
+| 3 | Action Center | Due, overdue, proof-pending, verification-pending, rejected, blocked, and blocked work. |
 | 4 | Calendar | The date view of vaccination due work, reminders, snoozes, and escalations. |
 | 5 | Protocol Adherence | Expected vs actual work, adherence percent, proof count, and gaps by rule/shed. |
 | 6 | Workflows | The step-by-step chain for one vaccination item: config, work created, drive, SOP, proof, verify, close. |
@@ -103,7 +103,7 @@ Use Action Center when something needs action.
 Expected review:
 
 - Status Board groups work by state: scheduled, due, overdue, proof pending,
-  verification pending, rejected, blocked, owner missing, missed, deferred, and
+  verification pending, rejected, blocked, blocked, missed, deferred, and
   completed.
 - Click a card to open the work drawer.
 - The drawer shows owner, due date, SOP progress, proof state, verification

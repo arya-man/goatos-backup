@@ -23,7 +23,7 @@ These words are not interchangeable:
   Network.
 - **Module** = a concrete workflow/product inside a vertical. Examples:
   Preventive Care (PC) -> Vaccination, Preventive Care (PC) -> future Treatment/Deworming, Procurement -> Source
-  Entry, or future Parks-owned modules. Parks is only a scope/context dimension
+  Entry, or future Parks modules. Parks is only a scope/context dimension
   for Vaccination, not the owner of Vaccination execution.
 - **Operational module screen** = where module work happens. Examples:
   `/vaccination` for Preventive Care (PC) -> Vaccination, including operations, status matrix,
@@ -287,7 +287,7 @@ This means:
   is NOT a vaccination product route.
 - **Action Center** is the top-level work board at `/action-center` (mock board
   density/shape, vaccination rows only): due, overdue, blocked, proof-pending,
-  verification-pending, rejected, deferred, owner-missing. It is not a Preventive Care (PC) tab.
+  verification-pending, rejected, deferred, blocked. It is not a Preventive Care (PC) tab.
 - **Preventive Care (PC) / Vaccination** (`/vaccination`) is the module surface: SOP / Import
   sheet / New drive actions, Target -> Group -> Route -> Execute chain,
   vaccination status matrix, per-cohort detail, drive/shed-event execution, and
@@ -370,7 +370,7 @@ verification/rework, and directly supporting dated human actions such as vaccine
 stock readiness, cold-chain, reorder/expiry, Preventive Care (PC) anti-misuse review, or
 source-review tasks under their proper `owner_key` values (`pc`, `inventory`,
 or `admin_data_ops`). Label-only vaccines, status-matrix cells, coverage KPIs,
-Goat Passport history, owner-missing gaps, reminder pings, and pure system
+Goat Passport history, blocked gaps, reminder pings, and pure system
 sweepers/replays do not create Calendar events.
 
 For backend/frontend handoff details, read:

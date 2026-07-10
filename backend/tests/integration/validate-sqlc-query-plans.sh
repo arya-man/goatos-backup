@@ -725,7 +725,7 @@ stateful AS (
         OR enriched.is_icu THEN 'deferred'
       WHEN enriched.missed_count > 0 THEN 'blocked'
       WHEN enriched.operator_name IS NULL
-       AND enriched.completed_count < enriched.obligation_count THEN 'owner_missing'
+       AND enriched.completed_count < enriched.obligation_count THEN 'blocked'
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
       WHEN enriched.completion_recorded > 0
         OR enriched.task_state IN ('submitted', 'needs_review') THEN 'verification_pending'
@@ -931,7 +931,7 @@ stateful AS (
       WHEN enriched.missed_count > 0 THEN 'blocked'
       WHEN enriched.conducted_by IS NULL
        AND enriched.assigned_to IS NULL
-       AND enriched.completed_count < enriched.expected_count THEN 'owner_missing'
+       AND enriched.completed_count < enriched.expected_count THEN 'blocked'
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
       WHEN enriched.completion_recorded > 0
         OR enriched.task_state IN ('submitted', 'needs_review') THEN 'verification_pending'
@@ -995,12 +995,12 @@ SELECT
   park_head_name,
   verifier_name
 FROM with_owners
-WHERE work_state IN ('rejected', 'blocked', 'owner_missing', 'overdue', 'proof_pending', 'verification_pending')
+WHERE work_state IN ('rejected', 'blocked', 'blocked', 'overdue', 'proof_pending', 'verification_pending')
 ORDER BY
   CASE work_state
     WHEN 'rejected' THEN 0
     WHEN 'blocked' THEN 1
-    WHEN 'owner_missing' THEN 2
+    WHEN 'blocked' THEN 2
     WHEN 'overdue' THEN 3
     WHEN 'proof_pending' THEN 4
     WHEN 'verification_pending' THEN 5

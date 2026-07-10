@@ -433,7 +433,7 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 		}
 	})
 
-	t.Run("exception-only work rows include owner missing and exclude normal due", func(t *testing.T) {
+	t.Run("exception-only work rows include blocked and exclude normal due", func(t *testing.T) {
 		load := createProcurementLoad(t, ctx, repo, "exception-only-work-load", 2)
 		dueGoat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
 			TenantID:          testTenant,
@@ -444,14 +444,14 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 			HealthState:       domain.HealthPassed,
 			IdempotencyKey:    "work-due-goat",
 		})
-		ownerMissingGoat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
+		blockedGoat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
 			TenantID:          testTenant,
 			LoadID:            load.LoadID,
 			AnimalIdentifier1: strPtr("WORK-OWNER-MISSING"),
 			SourceEntryState:  "accepted",
 			OwnershipState:    "shared_pending",
 			HealthState:       domain.HealthPassed,
-			IdempotencyKey:    "work-owner-missing-goat",
+			IdempotencyKey:    "work-blocked-goat",
 		})
 		result, err := repo.ListWorkRows(ctx, domain.WorkQuery{
 			TenantID:      testTenant,
@@ -462,24 +462,24 @@ WHERE tenant_id=$1 AND load_id=$2 AND goat_id=$3`, testTenant, load.LoadID, goat
 			t.Fatalf("ListWorkRows(exception only): %v", err)
 		}
 		dueRowID := "load_goat:" + dueGoat.LoadGoatID
-		ownerMissingRowID := "load_goat:" + ownerMissingGoat.LoadGoatID
-		foundOwnerMissing := false
+		blockedRowID := "load_goat:" + blockedGoat.LoadGoatID
+		foundBlocked := false
 		for _, row := range result.Rows {
 			if row.RowID == dueRowID {
 				t.Fatalf("normal due row leaked into exception-only work rows: %#v", row)
 			}
-			if row.RowID == ownerMissingRowID {
-				foundOwnerMissing = true
-				if row.WorkState != "owner_missing" || row.WorkType != "ownership" {
-					t.Fatalf("owner missing row = %#v", row)
+			if row.RowID == blockedRowID {
+				foundBlocked = true
+				if row.WorkState != "blocked" || row.WorkType != "ownership" {
+					t.Fatalf("blocked row = %#v", row)
 				}
 			}
 			if !isProcurementExceptionRow(row) {
 				t.Fatalf("non-exception row leaked into exception-only work rows: %#v", row)
 			}
 		}
-		if !foundOwnerMissing {
-			t.Fatalf("owner_missing row %s not returned in exception-only work rows: %#v", ownerMissingRowID, result.Rows)
+		if !foundBlocked {
+			t.Fatalf("blocked row %s not returned in exception-only work rows: %#v", blockedRowID, result.Rows)
 		}
 	})
 
@@ -1404,7 +1404,7 @@ func countRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string
 
 func isProcurementExceptionRow(row domain.WorkRow) bool {
 	switch row.WorkState {
-	case "blocked", "owner_missing", "overdue":
+	case "blocked", "overdue":
 		return true
 	case "proof_pending":
 		return row.WorkType == "dispatch_proof"

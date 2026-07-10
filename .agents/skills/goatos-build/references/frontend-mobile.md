@@ -104,7 +104,7 @@ Vaccination operations module only; it must not contain Action Center,
 Protocol Adherence, Workflows, Config, or SOP Library as tabs, nested pages, or
 large shortcut cards. The shared status model must power Preventive Care (PC), Parks, and Control
 Tower: due, overdue, blocked, proof-pending, verification-pending, rejected,
-deferred, owner-missing, and completed. These are read-model/UI statuses; do not
+deferred, blocked, and completed. These are read-model/UI statuses; do not
 ask backend to mutate canonical `obligation_instances.status` just to match a
 Calendar or dashboard label.
 

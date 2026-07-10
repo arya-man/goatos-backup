@@ -631,7 +631,7 @@ stateful AS (
         OR enriched.is_icu THEN 'deferred'
       WHEN enriched.missed_count > 0 THEN 'missed'
       WHEN enriched.operator_name IS NULL
-       AND enriched.completed_count < enriched.obligation_count THEN 'owner_missing'
+       AND enriched.completed_count < enriched.obligation_count THEN 'blocked'
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
       WHEN enriched.completion_recorded > 0
         OR enriched.task_state IN ('submitted', 'needs_review') THEN 'verification_pending'
@@ -713,15 +713,14 @@ ORDER BY
   CASE grouped.work_state
     WHEN 'rejected' THEN 0
     WHEN 'blocked' THEN 1
-    WHEN 'owner_missing' THEN 2
-    WHEN 'overdue' THEN 3
-    WHEN 'proof_pending' THEN 4
-    WHEN 'verification_pending' THEN 5
-    WHEN 'due' THEN 6
-    WHEN 'in_progress' THEN 7
-    WHEN 'deferred' THEN 8
-    WHEN 'scheduled' THEN 9
-    WHEN 'completed' THEN 10
+    WHEN 'overdue' THEN 2
+    WHEN 'proof_pending' THEN 3
+    WHEN 'verification_pending' THEN 4
+    WHEN 'due' THEN 5
+    WHEN 'in_progress' THEN 6
+    WHEN 'deferred' THEN 7
+    WHEN 'scheduled' THEN 8
+    WHEN 'completed' THEN 9
     ELSE 11
   END,
   CASE WHEN grouped.work_state = 'completed' THEN grouped.due_at END DESC NULLS LAST,

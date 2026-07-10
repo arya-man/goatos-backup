@@ -150,10 +150,8 @@ export function MeshaShell({
   const searchParams = useSearchParams();
   const primary = contract.navigation.primary;
   const groups = contract.navigation.groups;
-  // Nav chrome is 100% backend-owned: the department_module_grants → owned_modules
-  // count decides "expanded" (multi-module leader shell with the sidebar) vs
-  // "minimal" (single-feature shell, no sidebar column). The frontend NEVER counts
-  // modules, checks role, or computes chrome — it renders the enum only. Fail open:
+  // Nav chrome is 100% backend-owned. The frontend NEVER counts modules, checks
+  // role, or computes chrome — it renders the enum only. Fail open:
   // anything other than an explicit "minimal" keeps the sidebar, so a contract
   // hiccup or an unknown future value never blanks a leader's navigation.
   const showSidebar = contract.nav_chrome !== "minimal";

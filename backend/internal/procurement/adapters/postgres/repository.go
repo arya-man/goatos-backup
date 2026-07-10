@@ -1951,8 +1951,7 @@ WITH goat_rows AS (
     CASE
       WHEN plg.current_state = 'accepted_herd_intake' THEN 'completed'
       WHEN plg.current_state IN ('pre_dispatch_rejected', 'arrival_rejected', 'source_rejected', 'dead', 'sold', 'lost') OR plg.health_state = 'failed' THEN 'rejected'
-      WHEN plg.source_entry_state = 'blocked' OR plg.ownership_state IN ('blocked', 'not_owned') OR plg.current_state IN ('pre_dispatch_blocked', 'arrival_review_pending') THEN 'blocked'
-      WHEN plg.ownership_state IN ('pending', 'shared_pending') THEN 'owner_missing'
+      WHEN plg.source_entry_state = 'blocked' OR plg.ownership_state IN ('pending', 'shared_pending', 'blocked', 'not_owned') OR plg.current_state IN ('pre_dispatch_blocked', 'arrival_review_pending') THEN 'blocked'
       WHEN plg.current_state IN ('pre_dispatch_deferred') OR plg.health_state = 'deferred' THEN 'deferred'
       WHEN plg.current_state = 'pre_dispatch_accepted' THEN 'proof_pending'
 	      WHEN plg.warmup_started_at IS NOT NULL
@@ -2060,7 +2059,7 @@ WHERE ($2::text = '' OR work_state = $2::text)
   AND ($4::text = '' OR row_id = $4::text)
   AND (
     NOT $8::boolean
-    OR work_state IN ('blocked', 'owner_missing', 'overdue')
+    OR work_state IN ('blocked', 'overdue')
     OR (work_state = 'proof_pending' AND work_type = 'dispatch_proof')
     OR (work_state IN ('rejected', 'deferred') AND severity IN ('at_risk', 'critical', 'broken'))
   )
@@ -2079,7 +2078,7 @@ WHERE ($2::text = '' OR work_state = $2::text)
   AND ($4::text = '' OR row_id = $4::text)
   AND (
     NOT $5::boolean
-    OR work_state IN ('blocked', 'owner_missing', 'overdue')
+    OR work_state IN ('blocked', 'overdue')
     OR (work_state = 'proof_pending' AND work_type = 'dispatch_proof')
     OR (work_state IN ('rejected', 'deferred') AND severity IN ('at_risk', 'critical', 'broken'))
   )

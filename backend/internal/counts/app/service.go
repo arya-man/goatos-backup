@@ -485,11 +485,7 @@ func normalizeProjectionExceptionWork(exception *domain.ProjectionException, anc
 	exception.Severity = defaultString(exception.Severity, "blocking")
 	exception.WorkType = defaultString(exception.WorkType, "counts_projection_exception")
 	if strings.TrimSpace(exception.WorkState) == "" {
-		if exception.OwnerRef == nil || strings.TrimSpace(*exception.OwnerRef) == "" {
-			exception.WorkState = "owner_missing"
-		} else {
-			exception.WorkState = "blocked"
-		}
+		exception.WorkState = "blocked"
 	}
 	if anchor.IsZero() {
 		anchor = time.Now().In(biztime.DefaultLocation())
@@ -634,7 +630,7 @@ func normalizeProjectionExceptionQuery(req domain.ProjectionExceptionQuery) (dom
 	if req.Severity != nil && !oneOf(*req.Severity, "warning", "blocking", "critical") {
 		return domain.ProjectionExceptionQuery{}, ErrInvalidExceptionFilter
 	}
-	if req.WorkState != nil && !oneOf(*req.WorkState, "blocked", "owner_missing", "resolved", "dismissed") {
+	if req.WorkState != nil && !oneOf(*req.WorkState, "blocked", "resolved", "dismissed") {
 		return domain.ProjectionExceptionQuery{}, ErrInvalidExceptionFilter
 	}
 	if req.Limit == 0 {

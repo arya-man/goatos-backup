@@ -264,7 +264,7 @@ func TestListCountsProjectionExceptionsBuildsBoundedCountsQuery(t *testing.T) {
 			Severity:              "critical",
 			Status:                "open",
 			WorkType:              "counts_projection_exception",
-			WorkState:             "owner_missing",
+			WorkState:             "blocked",
 			DueAt:                 time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC),
 			NextAction:            "Resolve destination ration context before Feed generation",
 			EvidenceLink:          "/feed-direction/counts-projection/exceptions/shift-key-1",

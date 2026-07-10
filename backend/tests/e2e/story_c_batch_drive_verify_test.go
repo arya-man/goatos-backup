@@ -84,7 +84,7 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 	story.Assert("both obligations were attached to that drive", sweepRes.Obligations == 2, "obligations=%d", sweepRes.Obligations)
 
 	batchID := fx.scanText(`SELECT batch_id::text FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2`, fxTenant, versionID)
-	// Assign an operator so the row reads as owned (not "owner_missing") once execution starts --
+	// Assign an operator so the row reads as owned (not "blocked") once execution starts --
 	// the same conducted_by assignment the real vaccination-execution UI records when a drive starts.
 	fx.exec("assign operator to drive", `UPDATE obligation_batches SET conducted_by=$3 WHERE tenant_id=$1 AND batch_id=$2`, fxTenant, batchID, operatorID)
 

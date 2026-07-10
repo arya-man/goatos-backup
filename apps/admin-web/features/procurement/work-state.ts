@@ -30,7 +30,6 @@ export const PROC_WORK_STATE_META: Record<ProcurementWorkState, Meta> = {
   proof_pending: { label: "Proof pending", tone: "warn" },
   deferred: { label: "Deferred", tone: "mut" },
   blocked: { label: "Blocked", tone: "dng" },
-  owner_missing: { label: "Owner missing", tone: "dng" },
   rejected: { label: "Rejected", tone: "dng" },
   completed: { label: "Completed", tone: "ok" },
 };
@@ -39,7 +38,6 @@ export const PROC_WORK_STATE_META: Record<ProcurementWorkState, Meta> = {
 export const PROC_WORK_STATE_ORDER: ProcurementWorkState[] = [
   "overdue",
   "blocked",
-  "owner_missing",
   "rejected",
   "proof_pending",
   "due",

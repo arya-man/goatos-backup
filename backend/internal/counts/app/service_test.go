@@ -255,7 +255,7 @@ func TestCreateProjectionSnapshotDefaultsExceptionWorkFields(t *testing.T) {
 		t.Fatalf("exceptions=%d, want 1", len(repo.snap.Exceptions))
 	}
 	ex := repo.snap.Exceptions[0]
-	if ex.WorkType != "counts_projection_exception" || ex.WorkState != "owner_missing" {
+	if ex.WorkType != "counts_projection_exception" || ex.WorkState != "blocked" {
 		t.Fatalf("work defaults=%+v", ex)
 	}
 	if !ex.DueAt.Equal(asOf) {
@@ -334,7 +334,7 @@ func TestProjectedCountForDefaultsLimitAndRejectsUnboundedLimit(t *testing.T) {
 func TestListProjectionExceptionsDefaultsAndValidatesFilters(t *testing.T) {
 	repo := &fakeRepo{}
 	severity := " CRITICAL "
-	workState := " OWNER_MISSING "
+	workState := " BLOCKED "
 	out, err := NewService(repo).ListProjectionExceptions(context.Background(), domain.ProjectionExceptionQuery{
 		TenantID: " tenant ", Severity: &severity, WorkState: &workState,
 	})
@@ -346,7 +346,7 @@ func TestListProjectionExceptionsDefaultsAndValidatesFilters(t *testing.T) {
 	}
 	if repo.query.TenantID != "tenant" || repo.query.Status != "open" ||
 		repo.query.Severity == nil || *repo.query.Severity != "critical" ||
-		repo.query.WorkState == nil || *repo.query.WorkState != "owner_missing" ||
+		repo.query.WorkState == nil || *repo.query.WorkState != "blocked" ||
 		repo.query.Limit != defaultProjectionExceptionLimit {
 		t.Fatalf("normalized query=%+v", repo.query)
 	}

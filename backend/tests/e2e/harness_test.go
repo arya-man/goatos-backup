@@ -147,7 +147,7 @@ func (f *Fixture) SeedShed(shedID, shedCode, stageID string) {
 
 // SeedWorkforce seeds one operator (at the shed), one park head, and one verifier (at the park) --
 // the minimal workforce roster the process-integrity/execution read models join against for
-// owner/verifier display and the "owner_missing" work-state gate.
+// owner/verifier display and the "blocked" work-state gate.
 func (f *Fixture) SeedWorkforce(operatorID, parkHeadID, verifierID, shedID string) {
 	f.T.Helper()
 	f.exec("operator",

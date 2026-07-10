@@ -154,14 +154,14 @@ seed-calendar-vaccination-dev:
 	cd backend && go run ./cmd/seed-calendar-vaccination-dev
 
 seed-dev-email-grants:
-	cd backend && go run ./cmd/seed-dev-email-grants -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -role ceo_internal -department leadership -source goatos_dev_dashboard_admins $(foreach email,$(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS),-email $(email))
+	cd backend && go run ./cmd/seed-dev-email-grants -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -role ceo_internal -source goatos_dev_dashboard_admins $(foreach email,$(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS),-email $(email))
 
 # Sets GOATOS_ENV=stg so the seed routes to the staging Cloud SQL validator (a clear
 # "needs GOATOS_ALLOW_STG_CLOUDSQL_TARGET/…_CONNECTION_NAME + a Cloud SQL DATABASE_URL"
 # error) instead of the local validator silently rejecting the staging URL. The operator
 # still exports DATABASE_URL + the two guard vars; this only fixes the env routing.
 seed-stg-email-grants:
-	cd backend && GOATOS_ENV=stg go run ./cmd/seed-dev-email-grants -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -role ceo_internal -department leadership -source goatos_stg_dashboard_admins $(foreach email,$(GOATOS_STG_DASHBOARD_ADMIN_EMAILS),-email $(email))
+	cd backend && GOATOS_ENV=stg go run ./cmd/seed-dev-email-grants -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -role ceo_internal -source goatos_stg_dashboard_admins $(foreach email,$(GOATOS_STG_DASHBOARD_ADMIN_EMAILS),-email $(email))
 
 legacy-god-sheet-sync-dry-run:
 	cd backend && go run ./cmd/legacy-god-sheet-sync --json

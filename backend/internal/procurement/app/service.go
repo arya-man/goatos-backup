@@ -137,8 +137,6 @@ func (s *Service) ControlTower(ctx context.Context, q domain.WorkQuery) (domain.
 			summary.MissingProofCount++
 		case "arrival_mismatch":
 			summary.ArrivalMismatchCount++
-		case "ownership":
-			summary.OwnerMissingCount++
 		case "source_entry":
 			summary.SourceEntryBlockedCount++
 		}
@@ -162,7 +160,7 @@ func (s *Service) ControlTower(ctx context.Context, q domain.WorkQuery) (domain.
 
 func isControlTowerException(row domain.WorkRow) bool {
 	switch row.WorkState {
-	case "blocked", "owner_missing", "overdue":
+	case "blocked", "overdue":
 		return true
 	case "proof_pending":
 		return row.WorkType == "dispatch_proof"
@@ -195,7 +193,7 @@ func (s *Service) workDefaults(q domain.WorkQuery) (domain.WorkQuery, error) {
 	if err := validateTenant(q.TenantID); err != nil {
 		return domain.WorkQuery{}, err
 	}
-	if q.WorkState != nil && !oneOf(*q.WorkState, "due", "overdue", "proof_pending", "deferred", "blocked", "owner_missing", "rejected", "completed") {
+	if q.WorkState != nil && !oneOf(*q.WorkState, "due", "overdue", "proof_pending", "deferred", "blocked", "rejected", "completed") {
 		return domain.WorkQuery{}, BadRequest("invalid_work_state", "work_state must be a procurement work state")
 	}
 	if q.Severity != nil && !oneOf(*q.Severity, "ok", "watch", "at_risk", "critical", "broken") {

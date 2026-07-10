@@ -152,7 +152,7 @@ func (s *Service) ListCountsProjectionExceptions(ctx context.Context, in domain.
 		(in.ShedID != nil && !countsdomain.IsUUIDString(*in.ShedID)) ||
 		(in.ExceptionType != nil && !oneOf(*in.ExceptionType, "missing_base_count", "missing_structured_impact", "unreported_shifting", "count_mismatch", "alias_conflict", "ration_context_unresolved", "destination_shortage", "unsafe_surplus", "query_plan_unproven")) ||
 		(in.Severity != nil && !oneOf(*in.Severity, "warning", "blocking", "critical")) ||
-		(in.WorkState != nil && !oneOf(*in.WorkState, "blocked", "owner_missing", "resolved", "dismissed")) {
+		(in.WorkState != nil && !oneOf(*in.WorkState, "blocked", "resolved", "dismissed")) {
 		return domain.CountsProjectionExceptionList{}, ErrInvalidExceptionFilter
 	}
 	if in.Limit == 0 {
