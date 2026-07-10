@@ -1,5 +1,6 @@
 package sg.mesha.goatos.feature.auth
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,7 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -419,16 +420,14 @@ private fun CenteredBrand() {
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(
-            modifier = Modifier
-                .size(60.dp)
-                .clip(CircleShape)
-                .background(MeshaColors.BrandTint)
-                .border(2.dp, MeshaColors.Brand, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(text = "मे", color = MeshaColors.Brand, fontSize = 24.sp, fontWeight = FontWeight.W800)
-        }
+        // Brand mark = the exact web `.logo` PNG (green ring + tint fill + centered "मे"),
+        // shared with the launcher/splash icon. Image (not Compose Text) so the glyph is
+        // pixel-identical to web and centered by construction — no baseline drift.
+        Image(
+            painter = painterResource(R.drawable.mesha_logo),
+            contentDescription = "Mesha",
+            modifier = Modifier.size(60.dp),
+        )
         Spacer(Modifier.height(MeshaDimens.space4))
         Text(
             text = stringResource(R.string.login_brand_name),

@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Adaptive-icon background tile = Mesha dark-green. Fills the entire 108dp layer
-         (including the bleed zone) so any mask crop shows the same dark-green, never a gap. -->
-    <color name="ic_launcher_background">#1C2C15</color>
+    <!-- Adaptive-icon background tile = the web login page bg (token bg = #0E1512). Fills the
+         entire 108dp layer (incl. bleed zone) so any mask crop shows the same near-black,
+         never a gap. The foreground is the web `.logo` mark (green ring + translucent
+         rgba(124,203,69,.15) fill + centered "मे"); its transparent corners and .15 fill
+         composite over this exact bg to reproduce the web logo pixel-for-pixel. -->
+    <color name="ic_launcher_background">#0E1512</color>
 </resources>
