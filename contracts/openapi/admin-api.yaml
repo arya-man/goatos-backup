@@ -19,6 +19,7 @@ tags:
   - name: Tasks
   - name: Procurement Source Entry
   - name: Operations Audit
+  - name: HR Roster
 paths:
   /auth/session-events:
     post:
@@ -2358,6 +2359,312 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /admin/roster/positions:
+    get:
+      tags:
+        - HR Roster
+      operationId: listStaffPositions
+      summary: List fixed operational positions (design doc docs/hr/roster-rbac-design.md).
+      parameters:
+        - name: workforce_member_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: scope_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - tenant
+              - center
+        - name: scope_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: position_code
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 80
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - active
+              - inactive
+              - ended
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Position seats.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PositionListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - HR Roster
+      operationId: createStaffPosition
+      summary: Assign a member to a fixed named position seat at a scope.
+      description: Replace semantics -- assigning a new holder to an already-occupied (scope, position_code) seat
+        ends the prior holder's row and creates a new active one. is_backup_slot + backup_group_code express the
+        confirmed two-tier backup shape -- manager-tier positions share one center-wide Backup Manager group;
+        assistant-tier positions each have their own parallel backup group (e.g. Backup AM1).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePositionRequest"
+      responses:
+        "200":
+          description: Created/reassigned position seat.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PositionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/roster/leave:
+    get:
+      tags:
+        - HR Roster
+      operationId: listStaffLeave
+      summary: List staff leave/absence (workforce_absences reuse).
+      parameters:
+        - name: workforce_member_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: scope_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - tenant
+              - center
+        - name: scope_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - reported
+              - approved
+              - escalation_required
+              - rejected
+              - canceled
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Leave rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffLeaveListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - HR Roster
+      operationId: applyStaffLeave
+      summary: Apply for leave/absence for a staff member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyStaffLeaveRequest"
+      responses:
+        "200":
+          description: Reported leave.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffLeaveResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/roster/leave/{absence_id}:
+    get:
+      tags:
+        - HR Roster
+      operationId: getStaffLeave
+      summary: Get a staff leave/absence row.
+      parameters:
+        - $ref: "#/components/parameters/AbsenceId"
+      responses:
+        "200":
+          description: Leave row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffLeaveResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/roster/leave/{absence_id}/approve:
+    post:
+      tags:
+        - HR Roster
+      operationId: approveStaffLeave
+      summary: Approve a leave/absence and auto-resolve its coverage.
+      description: Immediately resolves effective_backup (design doc S4.3/S4.5) for the leave-taker's position (if
+        any) and fills workforce_absences.replacement_member_id automatically, or marks the leave
+        escalation_required (S4.7) when no backup can be resolved or the backup is itself unavailable. Ownership
+        (workforce_positions) is never touched.
+      parameters:
+        - $ref: "#/components/parameters/AbsenceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveStaffLeaveRequest"
+      responses:
+        "200":
+          description: Approved (and coverage-resolved) leave.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffLeaveResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/roster/leave/{absence_id}/resolve-coverage:
+    post:
+      tags:
+        - HR Roster
+      operationId: resolveStaffLeaveCoverage
+      summary: Re-resolve or CEO-override the coverage for an approved/escalated leave.
+      description: Omitting replacement_member_id re-runs auto-resolution (useful once a backup is configured after
+        initial approval). An explicit replacement_member_id is a CEO-tier override and MUST equal the position's
+        current effective_backup holder (design doc S5.4 -- never a free pick of any manager/assistant); any other
+        value is rejected with cross_cover_rejected.
+      parameters:
+        - $ref: "#/components/parameters/AbsenceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveLeaveCoverageRequest"
+      responses:
+        "200":
+          description: Coverage-resolved leave.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffLeaveResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/roster/vaccination-owner:
+    get:
+      tags:
+        - HR Roster
+      operationId: resolveVaccinationOwner
+      summary: Resolve who owns vaccination work for a scope on a date (design doc S4.8 effective_owner).
+      description: Returns the permanent Preventive Care Manager holder, the resolved ad-hoc-leave replacement, or
+        the recurring week-off backup. When nobody can be resolved, reason and escalation_park_head_member_id
+        identify the escalation target. A week-off resolution grants the backup a just-in-time temporary
+        vaccination.execute capability for that single day (design doc S4.6), deduplicated across repeat calls for
+        the same day.
+      parameters:
+        - name: scope_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - tenant
+              - center
+        - name: scope_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Resolved vaccination owner for the date.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationOwnerResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 components:
   securitySchemes:
     bearerAuth:
@@ -2415,6 +2722,13 @@ components:
         format: uuid
     OperatorId:
       name: operator_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AbsenceId:
+      name: absence_id
       in: path
       required: true
       schema:
@@ -8127,3 +8441,420 @@ components:
         trace_id:
           type: string
           description: Unique trace identifier for this request.
+    Position:
+      type: object
+      additionalProperties: false
+      required:
+        - position_id
+        - workforce_member_id
+        - scope_type
+        - scope_id
+        - position_code
+        - position_tier
+        - is_backup_slot
+        - backup_group_code
+        - week_off_weekday
+        - status
+        - valid_from
+        - valid_to
+        - row_version
+        - created_at
+        - updated_at
+      properties:
+        position_id:
+          type: string
+          format: uuid
+        workforce_member_id:
+          type: string
+          format: uuid
+        scope_type:
+          type: string
+          enum:
+            - tenant
+            - center
+        scope_id:
+          type: string
+          format: uuid
+        position_code:
+          type: string
+          minLength: 1
+          maxLength: 80
+        position_tier:
+          type: string
+          enum:
+            - assistant
+            - manager
+            - head
+            - director
+            - cxo
+        is_backup_slot:
+          type: boolean
+        backup_group_code:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        week_off_weekday:
+          type:
+            - string
+            - "null"
+          enum:
+            - monday
+            - tuesday
+            - wednesday
+            - thursday
+            - friday
+            - saturday
+            - sunday
+            - null
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+            - ended
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date-time
+        row_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    PositionListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/Position"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    PositionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - position
+        - trace_id
+      properties:
+        position:
+          $ref: "#/components/schemas/Position"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    CreatePositionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - workforce_member_id
+        - scope_type
+        - scope_id
+        - position_code
+        - position_tier
+      properties:
+        workforce_member_id:
+          type: string
+          format: uuid
+        scope_type:
+          type: string
+          enum:
+            - tenant
+            - center
+        scope_id:
+          type: string
+          format: uuid
+        position_code:
+          type: string
+          minLength: 1
+          maxLength: 80
+        position_tier:
+          type: string
+          enum:
+            - assistant
+            - manager
+            - head
+            - director
+            - cxo
+        is_backup_slot:
+          type: boolean
+          default: false
+        backup_group_code:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        week_off_weekday:
+          type:
+            - string
+            - "null"
+          enum:
+            - monday
+            - tuesday
+            - wednesday
+            - thursday
+            - friday
+            - saturday
+            - sunday
+            - null
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date-time
+    StaffLeave:
+      type: object
+      additionalProperties: false
+      required:
+        - absence_id
+        - workforce_member_id
+        - scope_type
+        - scope_id
+        - reason_code
+        - status
+        - starts_at
+        - ends_at
+        - replacement_member_id
+        - coverage_override_reason
+        - created_by
+        - approved_by
+        - row_version
+        - created_at
+        - updated_at
+      properties:
+        absence_id:
+          type: string
+          format: uuid
+        workforce_member_id:
+          type: string
+          format: uuid
+        scope_type:
+          type: string
+          enum:
+            - tenant
+            - custodian_party
+            - farm
+            - park
+            - shed
+            - cohort
+            - center
+        scope_id:
+          type: string
+          format: uuid
+        reason_code:
+          type: string
+          minLength: 1
+          maxLength: 200
+        status:
+          type: string
+          enum:
+            - reported
+            - approved
+            - escalation_required
+            - rejected
+            - canceled
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        replacement_member_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        coverage_override_reason:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        created_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        approved_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        row_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    StaffLeaveListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/StaffLeave"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    StaffLeaveResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - leave
+        - trace_id
+      properties:
+        leave:
+          $ref: "#/components/schemas/StaffLeave"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    ApplyStaffLeaveRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - workforce_member_id
+        - scope_type
+        - scope_id
+        - reason_code
+        - starts_on
+        - ends_on
+      properties:
+        workforce_member_id:
+          type: string
+          format: uuid
+        scope_type:
+          type: string
+          enum:
+            - tenant
+            - center
+        scope_id:
+          type: string
+          format: uuid
+        reason_code:
+          type: string
+          minLength: 1
+          maxLength: 200
+        starts_on:
+          type: string
+          format: date
+        ends_on:
+          type: string
+          format: date
+    ApproveStaffLeaveRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - row_version
+      properties:
+        row_version:
+          type: integer
+          minimum: 1
+    ResolveLeaveCoverageRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        replacement_member_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: Omit/null to auto-resolve via effective_backup. A non-null value is a CEO override and must
+            equal the position's current effective_backup holder.
+        override_reason:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+    VaccinationOwner:
+      type: object
+      additionalProperties: false
+      required:
+        - scope_type
+        - scope_id
+        - date
+        - position_id
+        - owner_workforce_member_id
+        - owner_source
+        - reason
+        - escalation_park_head_member_id
+      properties:
+        scope_type:
+          type: string
+          enum:
+            - tenant
+            - center
+        scope_id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        position_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        owner_workforce_member_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        owner_source:
+          type: string
+          enum:
+            - position_holder
+            - replacement
+            - week_off_backup
+            - none
+        reason:
+          type:
+            - string
+            - "null"
+          enum:
+            - no_holder_assigned
+            - escalation_required
+            - no_backup_configured
+            - null
+        escalation_park_head_member_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    VaccinationOwnerResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - owner
+        - trace_id
+      properties:
+        owner:
+          $ref: "#/components/schemas/VaccinationOwner"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200

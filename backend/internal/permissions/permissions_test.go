@@ -218,6 +218,14 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"POST", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/escalation/resolve"},
 		{"GET", "/vaccination/verification-queue"},
 		{"GET", "/goats/10000000-0000-4000-8000-000000000001/passport"},
+		{"GET", "/admin/roster/positions"},
+		{"POST", "/admin/roster/positions"},
+		{"GET", "/admin/roster/leave"},
+		{"POST", "/admin/roster/leave"},
+		{"GET", "/admin/roster/leave/87000000-0000-4000-8000-000000000001"},
+		{"POST", "/admin/roster/leave/87000000-0000-4000-8000-000000000001/approve"},
+		{"POST", "/admin/roster/leave/87000000-0000-4000-8000-000000000001/resolve-coverage"},
+		{"GET", "/admin/roster/vaccination-owner"},
 	}
 	for _, route := range implemented {
 		if _, ok := Match(route.method, route.path); !ok {

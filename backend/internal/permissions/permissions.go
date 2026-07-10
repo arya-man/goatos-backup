@@ -47,6 +47,8 @@ const (
 	ProcurementRead           = "procurement.read"
 	ProcurementWrite          = "procurement.write"
 	ProcurementReview         = "procurement.review"
+	RosterRead                = "roster.read"
+	RosterManage              = "roster.manage"
 )
 
 var rolePermissions = map[string]map[string]struct{}{
@@ -60,6 +62,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
+		RosterRead: {}, RosterManage: {},
 	},
 	RoleVerifier: {
 		GoatRead: {}, GoatWriteIdentity: {},
@@ -69,6 +72,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
 		CalendarRead:    {},
 		ProcurementRead: {}, ProcurementReview: {},
+		RosterRead: {},
 	},
 	RoleParkHead: {
 		GoatRead:      {},
@@ -78,6 +82,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
+		RosterRead: {}, RosterManage: {},
 	},
 	RolePCDirector: {
 		GoatRead: {}, GoatWriteHealth: {},
@@ -87,6 +92,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {},
+		RosterRead:      {}, RosterManage: {},
 	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, ProcurementRead: {}, ProcurementWrite: {},
@@ -101,6 +107,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
+		RosterRead: {}, RosterManage: {},
 	},
 }
 

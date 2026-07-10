@@ -154,6 +154,17 @@ var protectedRoutes = []Route{
 	{OperationID: "resolveCalendarVaccinationEscalation", Method: "POST", Pattern: "/calendar/vaccination/events/{event_id}/escalation/resolve", Permissions: []string{CalendarAction, VaccinationRead, ObligationRead}},
 	{OperationID: "vaccinationVerificationQueue", Method: "GET", Pattern: "/vaccination/verification-queue", Permissions: []string{VaccinationRead}},
 	{OperationID: "getGoatVaccinationPassport", Method: "GET", Pattern: "/goats/{goat_id}/passport", Permissions: []string{GoatRead}},
+
+	// HR roster: staff positions (concept #2), leave/absence (#3), temporary
+	// task coverage (#4), and the vaccination-ownership resolution read.
+	{OperationID: "listStaffPositions", Method: "GET", Pattern: "/admin/roster/positions", Permissions: []string{RosterRead}},
+	{OperationID: "createStaffPosition", Method: "POST", Pattern: "/admin/roster/positions", Permissions: []string{RosterManage}},
+	{OperationID: "applyStaffLeave", Method: "POST", Pattern: "/admin/roster/leave", Permissions: []string{RosterManage}},
+	{OperationID: "approveStaffLeave", Method: "POST", Pattern: "/admin/roster/leave/{absence_id}/approve", Permissions: []string{RosterManage}},
+	{OperationID: "resolveStaffLeaveCoverage", Method: "POST", Pattern: "/admin/roster/leave/{absence_id}/resolve-coverage", Permissions: []string{RosterManage}},
+	{OperationID: "getStaffLeave", Method: "GET", Pattern: "/admin/roster/leave/{absence_id}", Permissions: []string{RosterRead}},
+	{OperationID: "listStaffLeave", Method: "GET", Pattern: "/admin/roster/leave", Permissions: []string{RosterRead}},
+	{OperationID: "resolveVaccinationOwner", Method: "GET", Pattern: "/admin/roster/vaccination-owner", Permissions: []string{RosterRead}},
 }
 
 func ProtectedRoutes() []Route {

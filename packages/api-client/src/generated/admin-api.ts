@@ -1199,6 +1199,122 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/roster/positions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List fixed operational positions (design doc docs/hr/roster-rbac-design.md). */
+        get: operations["listStaffPositions"];
+        put?: never;
+        /**
+         * Assign a member to a fixed named position seat at a scope.
+         * @description Replace semantics -- assigning a new holder to an already-occupied (scope, position_code) seat ends the prior holder's row and creates a new active one. is_backup_slot + backup_group_code express the confirmed two-tier backup shape -- manager-tier positions share one center-wide Backup Manager group; assistant-tier positions each have their own parallel backup group (e.g. Backup AM1).
+         */
+        post: operations["createStaffPosition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/roster/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List staff leave/absence (workforce_absences reuse). */
+        get: operations["listStaffLeave"];
+        put?: never;
+        /** Apply for leave/absence for a staff member. */
+        post: operations["applyStaffLeave"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/roster/leave/{absence_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a staff leave/absence row. */
+        get: operations["getStaffLeave"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/roster/leave/{absence_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a leave/absence and auto-resolve its coverage.
+         * @description Immediately resolves effective_backup (design doc S4.3/S4.5) for the leave-taker's position (if any) and fills workforce_absences.replacement_member_id automatically, or marks the leave escalation_required (S4.7) when no backup can be resolved or the backup is itself unavailable. Ownership (workforce_positions) is never touched.
+         */
+        post: operations["approveStaffLeave"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/roster/leave/{absence_id}/resolve-coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-resolve or CEO-override the coverage for an approved/escalated leave.
+         * @description Omitting replacement_member_id re-runs auto-resolution (useful once a backup is configured after initial approval). An explicit replacement_member_id is a CEO-tier override and MUST equal the position's current effective_backup holder (design doc S5.4 -- never a free pick of any manager/assistant); any other value is rejected with cross_cover_rejected.
+         */
+        post: operations["resolveStaffLeaveCoverage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/roster/vaccination-owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resolve who owns vaccination work for a scope on a date (design doc S4.8 effective_owner).
+         * @description Returns the permanent Preventive Care Manager holder, the resolved ad-hoc-leave replacement, or the recurring week-off backup. When nobody can be resolved, reason and escalation_park_head_member_id identify the escalation target. A week-off resolution grants the backup a just-in-time temporary vaccination.execute capability for that single day (design doc S4.6), deduplicated across repeat calls for the same day.
+         */
+        get: operations["resolveVaccinationOwner"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3067,6 +3183,143 @@ export interface components {
             /** @description Unique trace identifier for this request. */
             trace_id: string;
         };
+        Position: {
+            /** Format: uuid */
+            position_id: string;
+            /** Format: uuid */
+            workforce_member_id: string;
+            /** @enum {string} */
+            scope_type: "tenant" | "center";
+            /** Format: uuid */
+            scope_id: string;
+            position_code: string;
+            /** @enum {string} */
+            position_tier: "assistant" | "manager" | "head" | "director" | "cxo";
+            is_backup_slot: boolean;
+            backup_group_code: string | null;
+            /** @enum {string|null} */
+            week_off_weekday: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday" | null;
+            /** @enum {string} */
+            status: "active" | "inactive" | "ended";
+            /** Format: date-time */
+            valid_from: string;
+            /** Format: date-time */
+            valid_to: string | null;
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        PositionListResponse: {
+            items: components["schemas"]["Position"][];
+            trace_id: string;
+        };
+        PositionResponse: {
+            position: components["schemas"]["Position"];
+            trace_id: string;
+        };
+        CreatePositionRequest: {
+            /** Format: uuid */
+            workforce_member_id: string;
+            /** @enum {string} */
+            scope_type: "tenant" | "center";
+            /** Format: uuid */
+            scope_id: string;
+            position_code: string;
+            /** @enum {string} */
+            position_tier: "assistant" | "manager" | "head" | "director" | "cxo";
+            /** @default false */
+            is_backup_slot: boolean;
+            backup_group_code?: string | null;
+            /** @enum {string|null} */
+            week_off_weekday?: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday" | null;
+            /** Format: date-time */
+            valid_to?: string | null;
+        };
+        StaffLeave: {
+            /** Format: uuid */
+            absence_id: string;
+            /** Format: uuid */
+            workforce_member_id: string;
+            /** @enum {string} */
+            scope_type: "tenant" | "custodian_party" | "farm" | "park" | "shed" | "cohort" | "center";
+            /** Format: uuid */
+            scope_id: string;
+            reason_code: string;
+            /** @enum {string} */
+            status: "reported" | "approved" | "escalation_required" | "rejected" | "canceled";
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: uuid */
+            replacement_member_id: string | null;
+            coverage_override_reason: string | null;
+            /** Format: uuid */
+            created_by: string | null;
+            /** Format: uuid */
+            approved_by: string | null;
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        StaffLeaveListResponse: {
+            items: components["schemas"]["StaffLeave"][];
+            trace_id: string;
+        };
+        StaffLeaveResponse: {
+            leave: components["schemas"]["StaffLeave"];
+            trace_id: string;
+        };
+        ApplyStaffLeaveRequest: {
+            /** Format: uuid */
+            workforce_member_id: string;
+            /** @enum {string} */
+            scope_type: "tenant" | "center";
+            /** Format: uuid */
+            scope_id: string;
+            reason_code: string;
+            /** Format: date */
+            starts_on: string;
+            /** Format: date */
+            ends_on: string;
+        };
+        ApproveStaffLeaveRequest: {
+            row_version: number;
+        };
+        ResolveLeaveCoverageRequest: {
+            /**
+             * Format: uuid
+             * @description Omit/null to auto-resolve via effective_backup. A non-null value is a CEO override and must equal the position's current effective_backup holder.
+             */
+            replacement_member_id?: string | null;
+            override_reason?: string | null;
+        };
+        VaccinationOwner: {
+            /** @enum {string} */
+            scope_type: "tenant" | "center";
+            /** Format: uuid */
+            scope_id: string;
+            /** Format: date */
+            date: string;
+            /** Format: uuid */
+            position_id: string | null;
+            /** Format: uuid */
+            owner_workforce_member_id: string | null;
+            /** @enum {string} */
+            owner_source: "position_holder" | "replacement" | "week_off_backup" | "none";
+            /** @enum {string|null} */
+            reason: "no_holder_assigned" | "escalation_required" | "no_backup_configured" | null;
+            /** Format: uuid */
+            escalation_park_head_member_id: string | null;
+        };
+        VaccinationOwnerResponse: {
+            owner: components["schemas"]["VaccinationOwner"];
+            trace_id: string;
+        };
     };
     responses: {
         /** @description Validation error. */
@@ -3187,6 +3440,7 @@ export interface components {
         ProcurementCursor: string;
         LocationId: string;
         OperatorId: string;
+        AbsenceId: string;
         SOPId: string;
         SOPVersionId: string;
         TaskId: string;
@@ -5593,6 +5847,232 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProcurementIntakeHandoffResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listStaffPositions: {
+        parameters: {
+            query?: {
+                workforce_member_id?: string;
+                scope_type?: "tenant" | "center";
+                scope_id?: string;
+                position_code?: string;
+                status?: "active" | "inactive" | "ended";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Position seats. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PositionListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createStaffPosition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePositionRequest"];
+            };
+        };
+        responses: {
+            /** @description Created/reassigned position seat. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PositionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    listStaffLeave: {
+        parameters: {
+            query?: {
+                workforce_member_id?: string;
+                scope_type?: "tenant" | "center";
+                scope_id?: string;
+                status?: "reported" | "approved" | "escalation_required" | "rejected" | "canceled";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Leave rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffLeaveListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    applyStaffLeave: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyStaffLeaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Reported leave. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffLeaveResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getStaffLeave: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                absence_id: components["parameters"]["AbsenceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Leave row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffLeaveResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    approveStaffLeave: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                absence_id: components["parameters"]["AbsenceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveStaffLeaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Approved (and coverage-resolved) leave. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffLeaveResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    resolveStaffLeaveCoverage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                absence_id: components["parameters"]["AbsenceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveLeaveCoverageRequest"];
+            };
+        };
+        responses: {
+            /** @description Coverage-resolved leave. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffLeaveResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    resolveVaccinationOwner: {
+        parameters: {
+            query: {
+                scope_type: "tenant" | "center";
+                scope_id: string;
+                date: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resolved vaccination owner for the date. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOwnerResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

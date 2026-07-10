@@ -237,6 +237,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	moduleOwnership := permissionspg.NewModuleOwnershipSource(pool, cfg.Postgres.QueryTimeout)
 	workforceService := workforceapp.NewService(workforceRepo, moduleOwnership)
 	workforceHandler := workforcehttp.NewHandler(workforceService, log)
+	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
+	rosterHandler := workforcehttp.NewRosterHandler(rosterService, log)
 	proofStorage, err := buildProofStorage()
 	if err != nil {
 		pool.Close()
@@ -325,6 +327,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	bulkstatushttp.Register(protectedMux, bulkStatusHandler)
 	locationshttp.Register(protectedMux, locationsHandler)
 	workforcehttp.Register(protectedMux, workforceHandler)
+	workforcehttp.RegisterRoster(protectedMux, rosterHandler)
 	proofhttp.Register(protectedMux, proofHandler)
 	sophttp.Register(protectedMux, sopHandler)
 	protocolhttp.Register(protectedMux, protocolHandler)

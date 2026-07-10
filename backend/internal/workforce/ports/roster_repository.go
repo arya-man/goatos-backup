@@ -1,0 +1,112 @@
+package ports
+
+import (
+	"context"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/workforce/domain"
+)
+
+type CreatePositionCommand struct {
+	TenantID string
+	ActorID  string
+	Body     domain.CreatePositionRequest
+}
+
+type ListPositionsParams struct {
+	TenantID          string
+	WorkforceMemberID string
+	ScopeType         string
+	ScopeID           string
+	PositionCode      string
+	Status            string
+	Limit             int
+}
+
+type ApplyLeaveCommand struct {
+	TenantID string
+	ActorID  string
+	Body     domain.ApplyStaffLeaveRequest
+	// StartsAt/EndsAt are the resolved Asia/Kolkata business-day window for
+	// Body.StartsOn/EndsOn, computed by the service so the repository stays
+	// timezone-agnostic.
+	StartsAt time.Time
+	EndsAt   time.Time
+}
+
+type ApproveLeaveCommand struct {
+	TenantID   string
+	ActorID    string
+	AbsenceID  string
+	RowVersion int
+}
+
+// ResolveLeaveCoverageCommand persists the roster service's effective_backup
+// resolution (or CEO override) onto an already-approved absence: Status is
+// 'approved' (replacement resolved or none needed) or 'escalation_required'
+// (no backup resolvable / backup unavailable) -- see design doc S4.5/S4.7.
+type ResolveLeaveCoverageCommand struct {
+	TenantID            string
+	ActorID             string
+	AbsenceID           string
+	Status              string
+	ReplacementMemberID *string
+	OverrideReason      *string
+}
+
+type ListLeaveParams struct {
+	TenantID          string
+	WorkforceMemberID string
+	ScopeType         string
+	ScopeID           string
+	Status            string
+	Limit             int
+}
+
+// RosterRepository is the HR roster read/write surface: the fixed position
+// seat catalog (workforce_positions) and leave/absence (workforce_absences
+// reuse). Kept separate from Repository (operator/device/grant CRUD) for file
+// cohesion; both live in the same workforce module and share its Postgres
+// pool/adapters package. Temporary execution permission (design doc S4.6)
+// reuses the EXISTING ports.Repository.AssignCapability/ListCapabilities
+// (workforce_member_capabilities) instead of a method here -- see
+// app.RosterService's CapabilityGranter dependency.
+type RosterRepository interface {
+	CreatePosition(ctx context.Context, cmd CreatePositionCommand) (domain.Position, error)
+	ListPositions(ctx context.Context, params ListPositionsParams) ([]domain.Position, error)
+	// GetActivePositionByCode returns the active seat holder for
+	// (scope, position_code) valid at `at`, or ErrNotFound if the seat is
+	// currently empty.
+	GetActivePositionByCode(ctx context.Context, tenantID, scopeType, scopeID, positionCode string, at time.Time) (domain.Position, error)
+	// GetActiveBackupSlot resolves effective_backup (design doc S4.3): the
+	// active is_backup_slot=true seat sharing backupGroupCode in the same
+	// scope, or ErrNotFound if none is configured.
+	GetActiveBackupSlot(ctx context.Context, tenantID, scopeType, scopeID, backupGroupCode string, at time.Time) (domain.Position, error)
+	// GetActivePositionForMember returns the (single) active seat a member
+	// currently holds, used to resolve coverage on leave approval. Returns
+	// ErrNotFound when the member holds no fixed position.
+	GetActivePositionForMember(ctx context.Context, tenantID, workforceMemberID string) (domain.Position, error)
+
+	ApplyLeave(ctx context.Context, cmd ApplyLeaveCommand) (domain.StaffLeave, error)
+	ApproveLeave(ctx context.Context, cmd ApproveLeaveCommand) (domain.StaffLeave, error)
+	ResolveLeaveCoverage(ctx context.Context, cmd ResolveLeaveCoverageCommand) (domain.StaffLeave, error)
+	GetLeave(ctx context.Context, tenantID, absenceID string) (domain.StaffLeave, error)
+	ListLeave(ctx context.Context, params ListLeaveParams) ([]domain.StaffLeave, error)
+	// IsMemberOnApprovedLeave reports whether the member has an in-effect
+	// absence (status 'approved' OR 'escalation_required' -- the latter is
+	// still a granted absence, just one whose OWN coverage could not be
+	// resolved; being away is a separate fact from whether their coverage
+	// resolved) whose [starts_at, ends_at) window contains `at`, and that
+	// row's id.
+	IsMemberOnApprovedLeave(ctx context.Context, tenantID, workforceMemberID string, at time.Time) (bool, string, error)
+}
+
+// CapabilityGranter is the slice of the existing ports.Repository the roster
+// coverage engine needs to grant/inspect the backup holder's temporary
+// execution permission (design doc S4.6) via workforce_member_capabilities.
+// Satisfied directly by *postgres.Repository alongside ports.Repository --
+// no new table, no new repository.
+type CapabilityGranter interface {
+	AssignCapability(ctx context.Context, cmd CapabilityCommand) (domain.CapabilityAssignment, error)
+	ListCapabilities(ctx context.Context, tenantID, operatorID string) ([]domain.CapabilityAssignment, error)
+}
