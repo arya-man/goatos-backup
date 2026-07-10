@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Goat OS Android — navigation graph</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root { color-scheme: dark light; }
+  body {
+    margin: 0; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0a0f0c; color: #e7ede9;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.meta { color: #8aa196; font-size: 13px; margin: 0 0 20px; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 18px; font-size: 12.5px; color: #c9d6cf; }
+  .legend span.dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+  .graph-wrap { background: #0d1310; border: 1px solid #232b26; border-radius: 14px; padding: 20px; overflow: auto; }
+  a { color: #8ad457; }
+  code { font-size: 11px; }
+</style>
+</head>
+<body>
+  <h1>Goat OS Android — navigation graph</h1>
+  <p class="meta">Generated 2026-07-10 05:55 UTC from AppNavHost.kt (routes + navigate() edges). Dashed
+  nodes are local bottom-sheet overlays, not navigation-graph destinations. Regenerate with
+  <code>python3 tools/android/generate-nav-graph.py</code> after routing changes.</p>
+  <div class="legend">
+    <span><span class="dot" style="background:#8ad457"></span>Start destination (Calendar)</span>
+    <span><span class="dot" style="background:#232b26;border:1px dashed #3a453e"></span>Back / pop</span>
+    <span><span class="dot" style="background:#182019;border:1px dashed #3a453e"></span>Local overlay (sheet, not a route)</span>
+  </div>
+  <div class="graph-wrap">
+    <pre class="mermaid">
+flowchart TD
+    r_calendar(["Calendar<br/><code>/calendar</code>"]):::start
+    r_vaccination["Sheds (vaccination execution)<br/><code>/vaccination</code>"]
+    r_scan["Scan<br/><code>/scan?shedId={shedId}</code>"]
+    r_submit["Submit<br/><code>/submit</code>"]
+    r_leadership["Overview (leadership)<br/><code>/leadership</code>"]
+    r_record["Record (read-only)<br/><code>/record?shedId={shedId}</code>"]
+    r_overdue["Overdue<br/><code>/overdue</code>"]
+    r_reschedule["Reschedule<br/><code>/reschedule</code>"]
+    r_you["You / Settings<br/><code>you</code>"]
+    r_rfid["RFID reader<br/><code>/rfid</code>"]
+    r_alerts["Alerts<br/><code>/alerts</code>"]
+    back((Back / pop)):::back
+    r_calendar -->|"tap history/week item → history target is a past record"| r_record
+    r_calendar -->|"tap week item (no record target) or tap a day"| r_vaccination
+    r_vaccination -->|"tap a DONE shed → read-only record"| r_record
+    r_vaccination -->|"tap an open shed → execute (Scan → Submit)"| r_scan
+    r_scan -->|"Submit"| r_submit
+    r_scan -->|"Back"| back
+    r_leadership -->|"Decision tapped"| r_reschedule
+    r_leadership -->|"Shed tapped (leadership = read-only follow-up)"| r_record
+    r_leadership -->|"KPI tapped (not 'given')"| r_overdue
+    r_overdue -->|"Row tapped"| r_reschedule
+    r_overdue -->|"Back"| back
+    r_reschedule -->|"Confirm or Back"| back
+    r_record -->|"Close"| back
+    r_you -->|"Pair RFID"| r_rfid
+    r_you -->|"Toggle notifications"| r_alerts
+    sheet_leadership_scopepickersheet(["ScopePickerSheet (overlay)"]):::sheet
+    r_leadership -.-> sheet_leadership_scopepickersheet
+    sheet_leadership_datagapssheet(["DataGapsSheet (overlay)"]):::sheet
+    r_leadership -.-> sheet_leadership_datagapssheet
+    sheet_leadership_dosesgivensheet(["DosesGivenSheet (overlay)"]):::sheet
+    r_leadership -.-> sheet_leadership_dosesgivensheet
+    sheet_you_languagesheet(["LanguageSheet (overlay)"]):::sheet
+    r_you -.-> sheet_you_languagesheet
+    classDef start fill:#8ad457,stroke:#5f9c37,color:#0a0f0c,font-weight:bold;
+    classDef back fill:#232b26,stroke:#3a453e,color:#c9d6cf,stroke-dasharray: 3 3;
+    classDef sheet fill:#182019,stroke:#3a453e,color:#9db3a7,stroke-dasharray: 2 2;
+    </pre>
+  </div>
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'dark' });
+  </script>
+</body>
+</html>
