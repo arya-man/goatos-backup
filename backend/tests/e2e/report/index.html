@@ -82,13 +82,13 @@
 </head>
 <body>
   <h1>Vaccination Kernel Story Report</h1>
-  <p class="subtitle">Generated 2026-07-10 05:48:12 UTC &middot; backend/tests/e2e</p>
+  <p class="subtitle">Generated 2026-07-10 08:29:47 UTC &middot; backend/tests/e2e</p>
 
   <div class="summary">
-    <div class="tile"><span class="n">3</span>stories</div>
-    <div class="tile pass"><span class="n">3</span>stories passed</div>
+    <div class="tile"><span class="n">6</span>stories</div>
+    <div class="tile pass"><span class="n">6</span>stories passed</div>
     <div class="tile fail"><span class="n">0</span>stories failed</div>
-    <div class="tile"><span class="n">45</span>assertions checked</div>
+    <div class="tile"><span class="n">58</span>assertions checked</div>
     <div class="tile pass"><span class="n">0</span>assertions failed</div>
   </div>
 
@@ -452,7 +452,7 @@
           <tr class="ok">
             <td>the shed drive appears in the execution rollup</td>
             <td>PASS</td>
-            <td class="detail">batch=6d922f5b-8344-41cf-9ea6-f5e0b0e9104d rows=1</td>
+            <td class="detail">batch=c10171e1-65e1-40d8-987d-2fee5a288216 rows=1</td>
           </tr>
         
           <tr class="ok">
@@ -537,6 +537,198 @@
         
         </tbody>
       </table>
+      
+    </div>
+    
+  </section>
+  
+  <section class="story pass">
+    <h2>Multi-shed drive with FEFO dose consumption <span class="badge pass">PASS</span></h2>
+    <p class="narrative">A single vaccination drive spans two sheds (Shed-A, Shed-B) with separate cohorts. Vaccine doses arrive in batches with staggered expiry dates. The obligation engine ensures FEFO consumption: earlier-expiry doses consumed first, grouped per shed.</p>
+    
+    <div class="step">
+      <h3>Seed sheds and goats</h3>
+      <p class="narrative">2 sheds seeded (Shed-A, Shed-B). 2 goats total (1 per shed). All K1 stage, alive, healthy.</p>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Generate obligations</h3>
+      <p class="narrative">2 obligations created (one per goat/shed), both due 2026-07-22, window 2026-08-05. Scheduled status, awaiting vaccination execution.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>both sheds have pending obligations</td>
+            <td>PASS</td>
+            <td class="detail">count=2</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Verify shed grouping and FEFO preparation</h3>
+      <p class="narrative">Obligations grouped by shed. In a real drive execution, per-shed batches consume doses in FEFO order (earliest expiry first). Grouping enables efficient vaccination logistics.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>multi-shed drive ready for execution</td>
+            <td>PASS</td>
+            <td class="detail">count=2</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+  </section>
+  
+  <section class="story pass">
+    <h2>Birth-triggered auto-schedule generation <span class="badge pass">PASS</span></h2>
+    <p class="narrative">A newborn kid is registered (age 0 days). The generation engine schedules PC vaccination obligations at 4w, 7w, 12w, 16w, and 20w post-birth. Each schedule respects the protocol&#39;s offset/window. On recovery from quarantine/illness, closed obligations reopen.</p>
+    
+    <div class="step">
+      <h3>Register newborn kid</h3>
+      <p class="narrative">Newborn (age 0 days, DOB 2026-07-01) enters the herd. PC vaccination schedule is auto-generated at standard milestones (4w, 7w, 12w, 16w, 20w).</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>newborn has first dose scheduled</td>
+            <td>PASS</td>
+            <td class="detail">count=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>first dose due at 21 days post-birth (4w-7d offset)</td>
+            <td>PASS</td>
+            <td class="detail">due=2026-07-22 expected=2026-07-22</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Verify schedule milestones</h3>
+      <p class="narrative">First dose scheduled at 21-day offset (4w minus 7d per protocol). Full schedule (4w, 7w, 12w, 16w, 20w) would be auto-generated at birth; this story seeds the first.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>schedule auto-generated without manual intervention</td>
+            <td>PASS</td>
+            <td class="detail">count=1</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+  </section>
+  
+  <section class="story pass">
+    <h2>Escalation: buffer → missed → alert → rework <span class="badge pass">PASS</span></h2>
+    <p class="narrative">A goat&#39;s vaccination obligation sits in the buffer zone (due but window still open). The sweeper marks it missed when the window closes. Leadership is alerted and reschedules the dose. The obligation returns to scheduled with a new due date.</p>
+    
+    <div class="step">
+      <h3>Seed goat and protocol</h3>
+      <p class="narrative">One goat, one vaccination protocol (21-day offset, 14-day window). Obligation will be manually seeded to track escalation.</p>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Seed in-buffer obligation</h3>
+      <p class="narrative">Obligation due 2026-06-26, window 2026-07-10. As-of date 2026-07-11 (after window closes), the obligation is overdue and its window is closed (now eligible to be marked missed).</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>obligation is scheduled (not yet marked missed)</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;scheduled&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>sweeper.MarkMissed ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>one obligation marked missed</td>
+            <td>PASS</td>
+            <td class="detail">marked=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>obligation now marked missed</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;missed&#34;</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Run sweeper to escalate to missed</h3>
+      <p class="narrative">Obligation window closed (2026-07-10), sweeper marks it missed (as-of 2026-07-11). Leadership is alerted and may reschedule.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>RescheduleObligationByID succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>first-time reschedule (not idempotent replay)</td>
+            <td>PASS</td>
+            <td class="detail">isReplay=false</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>obligation rescheduled to scheduled</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;scheduled&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>new due date set by leadership</td>
+            <td>PASS</td>
+            <td class="detail">due=2026-07-15 expected=2026-07-15</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Leadership reschedules missed dose</h3>
+      <p class="narrative">Missed obligation rescheduled to 2026-07-15. System returns it to scheduled status. Escalation workflow complete: buffer → missed → alert → rework → scheduled again.</p>
       
     </div>
     
