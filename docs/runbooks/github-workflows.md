@@ -11,6 +11,8 @@ what a failure usually means.
 
 ```text
 .github/workflows/ci.yml
+.github/workflows/android-quality.yml
+.github/workflows/pages.yml
 ```
 
 This is the main CI guardrail workflow.
@@ -486,6 +488,72 @@ If the docs change agent/build behavior, also run:
 ```text
 ./tools/agent-hooks/check-boundaries.sh
 ```
+
+## android-quality.yml
+
+Runs on `pull_request` and `push to main` when `apps/goatos-android/**`,
+`tools/android/**`, or the workflow file itself changes.
+
+One job, `design-system-guard`: installs ripgrep and runs
+`tools/android/check-no-hardcoded-design.sh`, which fails the build if any
+`Color(0x…)` literal or inline `TextStyle(…)` shows up in app/feature UI code
+— color and type must come from `MeshaColors`/`MeshaType` only. A failure here
+means a change introduced a hardcoded design value instead of using (or
+adding, if genuinely missing) a design-system token.
+
+## pages.yml
+
+Publishes three CI-generated reports to GitHub Pages as one combined site:
+
+```text
+/screenshot-gallery/  every mobile screen, rendered fresh via Paparazzi
+/nav-graph/           Compose Navigation routes + navigate() edges (Mermaid)
+/e2e-report/          vaccination kernel-story E2E report (3 stories)
+```
+
+Runs on:
+
+```text
+push to main touching apps/goatos-android/**, backend/tests/e2e/**,
+  backend/internal/**, the nav-graph/gallery generator scripts, or this
+  workflow file
+a daily cron at 03:00 UTC (the screenshot gallery and E2E report are meant
+  to stay fresh even with no code change that day)
+workflow_dispatch (manual run from the Actions tab)
+```
+
+Four jobs:
+
+```text
+mobile-screenshots  installs a JDK + the Android SDK platform for
+                     compileSdk 36, runs
+                     ./gradlew :app:recordPaparazziDevDebug (fresh render,
+                     not a verify-only check), then
+                     tools/android/build-screenshot-gallery.py
+nav-graph            tools/android/generate-nav-graph.py — no Android build
+                     needed, this one is fast
+e2e-report           starts Docker-based ephemeral Postgres (same pgtest
+                     harness the backend integration tests use) via
+                     go test ./backend/tests/e2e/... -run TestKernelStor -v
+publish              downloads all three artifacts, assembles _site/ with a
+                     linking index page, and deploys via
+                     actions/deploy-pages
+```
+
+**One-time repo setting required**: Settings -> Pages -> Build and
+deployment -> Source must be set to **"GitHub Actions"** (not "Deploy from a
+branch"). Until that is set, the three report-building jobs still succeed and
+their artifacts are downloadable from the run's Summary/Artifacts panel, but
+the `publish` job fails at the `actions/deploy-pages` step because there is no
+configured Pages environment to deploy into.
+
+A failure in `mobile-screenshots` almost always means a Paparazzi golden
+mismatch (a real visual regression) or an Android SDK/AGP version drift on
+the runner — check the uploaded `screenshot-gallery` artifact and the
+`recordPaparazziDevDebug` log first. A failure in `e2e-report` means one of
+the three kernel-story assertions broke — read the failing `story.Assert`
+message, it is written to explain the business expectation in plain English,
+not just the SQL/Go that checked it.
 
 ## Maintenance Rule
 
