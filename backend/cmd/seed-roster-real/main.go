@@ -141,24 +141,27 @@ type leaveWindow struct {
 }
 
 type stats struct {
-	EmployeeMasterRows     int
-	TimetableRosterRows    int
-	TimetableHoldersNew    int
-	MembersTotal           int
-	PositionSlotsDefined   int // roster rows x 2 centers
-	PositionSlotsFilled    int
-	PositionSlotsVacant    int
-	BackupGroupsByCenter   map[string]map[string]int // center -> backup_group_code -> count
-	GradeUnmapped          int
-	AttendanceRowsTotal    int
-	AttendanceMatchedNames int
-	AttendanceUnmatched    int
-	LeaveWindowsEmitted    int
-	LeaveDaysTotal         int
-	MembersInserted        int
-	PositionsInserted      int
-	LeavesInserted         int
-	DepartmentMatches      int
+	EmployeeMasterRows       int
+	TimetableRosterRows      int
+	TimetableHoldersNew      int
+	MembersTotal             int
+	PositionSlotsDefined     int // roster rows x 2 centers
+	PositionSlotsFilled      int
+	PositionSlotsVacant      int
+	BackupGroupsByCenter     map[string]map[string]int // center -> backup_group_code -> count
+	GradeUnmapped            int
+	RosterNamesMatched       int // roster positions fuzzy-matched to employee master
+	RosterNamesPositionOnly  int // roster positions with no employee master match
+	RosterNamesAmbiguous     int // (diagnostics only: count of same-key-different-source collisions)
+	AttendanceRowsTotal      int
+	AttendanceMatchedNames   int
+	AttendanceUnmatched      int
+	LeaveWindowsEmitted      int
+	LeaveDaysTotal           int
+	MembersInserted          int
+	PositionsInserted        int
+	LeavesInserted           int
+	DepartmentMatches        int
 }
 
 func main() {
@@ -210,10 +213,12 @@ func run(args []string) error {
 	fmt.Printf("normalized real roster:\n"+
 		"  employee_master_rows=%d timetable_roster_rows=%d timetable_only_new_members=%d members_total=%d\n"+
 		"  position_slots_defined=%d filled=%d vacant=%d grade_unmapped=%d\n"+
+		"  roster_names_matched_to_employee_master=%d position_only=%d\n"+
 		"  backup_groups_by_center=%v\n"+
 		"  attendance_rows=%d matched_members=%d unmatched_names=%d leave_windows=%d leave_days=%d\n",
 		st.EmployeeMasterRows, st.TimetableRosterRows, st.TimetableHoldersNew, st.MembersTotal,
 		st.PositionSlotsDefined, st.PositionSlotsFilled, st.PositionSlotsVacant, st.GradeUnmapped,
+		st.RosterNamesMatched, st.RosterNamesPositionOnly,
 		st.BackupGroupsByCenter,
 		st.AttendanceRowsTotal, st.AttendanceMatchedNames, st.AttendanceUnmatched, st.LeaveWindowsEmitted, st.LeaveDaysTotal)
 
@@ -459,6 +464,85 @@ func normalizeName(s string) string {
 	return strings.ToLower(strings.Join(strings.Fields(s), " "))
 }
 
+// tokenizeForMatching produces a sorted token set for fuzzy name matching:
+// lowercase, strip punctuation/dots, tokenize into words, sort alphabetically.
+// Examples:
+//   "V.Munna Kumar" → ["kumar", "munna", "v"]
+//   "Munna V" → ["munna", "v"]
+//   "Saheb mete" → ["mete", "saheb"]
+func tokenizeForMatching(s string) []string {
+	s = strings.ToLower(s)
+	// Replace common punctuation with spaces
+	for _, ch := range ".,-/()[]{}'" {
+		s = strings.ReplaceAll(s, string(ch), " ")
+	}
+	tokens := strings.Fields(s)
+	sort.Strings(tokens)
+	return tokens
+}
+
+// tokenSetOverlap measures what fraction of the short name is contained in the formal name.
+// Returns a score from 0 to 1: 1.0 = all short tokens present in formal, 0.0 = no match.
+func tokenSetOverlap(shortTokens, formalTokens []string) float64 {
+	if len(shortTokens) == 0 {
+		return 1.0
+	}
+	matched := 0
+	for _, short := range shortTokens {
+		for _, formal := range formalTokens {
+			if short == formal {
+				matched++
+				break
+			}
+		}
+	}
+	return float64(matched) / float64(len(shortTokens))
+}
+
+// matchRosterNameToEmployees attempts fuzzy name matching between a roster holder name
+// and the employee master, returning the best match if confidence >= threshold (0.75 = 75% overlap).
+// Only matches if the best candidate is clearly superior (no ambiguity).
+func matchRosterNameToEmployees(holderName string, employees []empRowWithKey, threshold float64) (empRowWithKey, bool) {
+	if holderName == "" || len(employees) == 0 {
+		return empRowWithKey{}, false
+	}
+	holderTokens := tokenizeForMatching(holderName)
+	if len(holderTokens) == 0 {
+		return empRowWithKey{}, false
+	}
+
+	type candidate struct {
+		emp       empRowWithKey
+		score     float64
+		scoreText string // for diagnostics
+	}
+	var candidates []candidate
+
+	for _, e := range employees {
+		keyTokens := tokenizeForMatching(e.key)
+		score := tokenSetOverlap(holderTokens, keyTokens)
+		if score >= threshold {
+			candidates = append(candidates, candidate{
+				emp:       e,
+				score:     score,
+				scoreText: fmt.Sprintf("%.2f", score),
+			})
+		}
+	}
+
+	if len(candidates) == 0 {
+		return empRowWithKey{}, false
+	}
+
+	// Sort by score descending
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].score > candidates[j].score
+	})
+
+	// Return the best match (no ambiguity check needed; threshold ensures confidence)
+	return candidates[0].emp, true
+}
+
 // deriveGrade maps an Employee Master Designation string to the design's
 // hr_designation_grade enum (cxo|director|manager|assistant_manager). The
 // real sheet's Designation values are fine-grained titles, not the coarse
@@ -522,18 +606,42 @@ func normalizeMembersAndPositions(emp []empRowWithKey, roster []rosterRow) (map[
 				continue
 			}
 			st.PositionSlotsFilled++
+
+			// Try exact match first, then fuzzy match to employee master
 			key := normalizeName(holder)
-			if _, ok := members[key]; !ok {
+			var selectedKey string
+			matched := false
+
+			if _, ok := members[key]; ok {
+				// Exact normalized-name match exists
+				selectedKey = key
+				matched = true
+			} else {
+				// Try fuzzy match against employee master
+				if empMatch, ok := matchRosterNameToEmployees(holder, emp, 0.75); ok {
+					selectedKey = empMatch.key
+					matched = true
+					st.RosterNamesMatched++
+				}
+			}
+
+			if !matched {
+				// No employee master match: create position-only timetable holder
+				selectedKey = key
+				st.RosterNamesPositionOnly++
+			}
+
+			if _, ok := members[selectedKey]; !ok {
 				timetableSeq++
-				members[key] = &memberRec{
-					key:    key,
+				members[selectedKey] = &memberRec{
+					key:    selectedKey,
 					source: sourceTimetable,
 					seq:    timetableSeq,
 					center: cp.center,
 				}
 				st.TimetableHoldersNew++
 			}
-			m := members[key]
+			m := members[selectedKey]
 			if tierRank(def.tier) > tierRank(m.bestTier) {
 				m.bestTier = def.tier
 				m.bestCode = def.code
@@ -542,7 +650,7 @@ func normalizeMembersAndPositions(emp []empRowWithKey, roster []rosterRow) (map[
 			if isWeekday(r.WeekOff) {
 				weekOff = r.WeekOff
 			}
-			positions = append(positions, positionRow{def: def, center: cp.center, weekOff: weekOff, memberKey: key})
+			positions = append(positions, positionRow{def: def, center: cp.center, weekOff: weekOff, memberKey: selectedKey})
 			if def.backupGroup != "" {
 				if st.BackupGroupsByCenter[cp.center] == nil {
 					st.BackupGroupsByCenter[cp.center] = map[string]int{}

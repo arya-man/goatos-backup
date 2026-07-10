@@ -189,13 +189,17 @@ var _ ports.CapabilityGranter = (*fakeCapabilityGranter)(nil)
 
 func (f *fakeCapabilityGranter) AssignCapability(_ context.Context, cmd ports.CapabilityCommand) (domain.CapabilityAssignment, error) {
 	f.assignCalls++
+	validFrom := time.Now().UTC().Format(time.RFC3339)
+	if cmd.Body.ValidFrom != nil {
+		validFrom = *cmd.Body.ValidFrom
+	}
 	item := domain.CapabilityAssignment{
 		MemberCapabilityID: fmt.Sprintf("cap-%d", f.assignCalls),
 		CapabilityCode:     cmd.Body.CapabilityCode,
 		ScopeType:          cmd.Body.ScopeType,
 		ScopeID:            cmd.Body.ScopeID,
 		Status:             "active",
-		ValidFrom:          time.Now().UTC().Format(time.RFC3339),
+		ValidFrom:          validFrom,
 		ValidTo:            cmd.Body.ValidTo,
 	}
 	f.grants[cmd.OperatorID] = append(f.grants[cmd.OperatorID], item)

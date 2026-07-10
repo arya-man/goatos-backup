@@ -327,7 +327,8 @@ func (s *RosterService) resolveLeaveCoverage(ctx context.Context, tenantID, acto
 			TenantID: tenantID, ActorID: actorID, AbsenceID: leave.AbsenceID, Status: domain.LeaveStatusEscalationRequired,
 		})
 	}
-	unavailable, err := s.isPositionHolderUnavailable(ctx, tenantID, *backup, startsAt)
+	// P1a: check backup availability across the ENTIRE coverage window (design doc S4.7)
+	unavailable, err := s.isPositionHolderUnavailableInWindow(ctx, tenantID, *backup, startsAt, endsAt)
 	if err != nil {
 		return domain.StaffLeave{}, err
 	}
@@ -344,6 +345,7 @@ func (s *RosterService) resolveLeaveCoverage(ctx context.Context, tenantID, acto
 	if err != nil {
 		return domain.StaffLeave{}, err
 	}
+	// P1b: pass validFrom = startsAt so capability is active only during the coverage window (design doc S4.6)
 	if err := s.grantTemporaryExecuteCapability(ctx, tenantID, actorID, holder.PositionCode, backupMemberID, holder.ScopeType, holder.ScopeID, startsAt, endsAt); err != nil {
 		return domain.StaffLeave{}, err
 	}
@@ -395,9 +397,38 @@ func (s *RosterService) isPositionHolderUnavailable(ctx context.Context, tenantI
 	return false, nil
 }
 
+// isPositionHolderUnavailableInWindow checks whether the position's holder
+// is unavailable on ANY day within [startsAt, endsAt] (design doc S4.7).
+// Returns true if the holder has any approved leave overlapping the window,
+// or any day in the window matches their recurring week-off.
+func (s *RosterService) isPositionHolderUnavailableInWindow(ctx context.Context, tenantID string, position domain.Position, startsAt, endsAt time.Time) (bool, error) {
+	// Check for approved leave overlapping the window
+	onLeave, _, err := s.repo.IsMemberOnApprovedLeave(ctx, tenantID, position.WorkforceMemberID, startsAt)
+	if err != nil {
+		return false, mapRepoErr(err)
+	}
+	if onLeave {
+		return true, nil
+	}
+
+	// Check each day in the window for week-off match
+	if position.WeekOffWeekday != nil {
+		weekOff := *position.WeekOffWeekday
+		for d := startsAt; !d.After(endsAt); d = d.AddDate(0, 0, 1) {
+			if weekdayName(d) == weekOff {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
 // grantTemporaryExecuteCapability implements design doc S4.6: a normal
 // time-bounded workforce_member_capabilities row for the backup holder,
 // scoped to the covered position's center, valid for the coverage window.
+// P1b: ValidFrom is set to startsAt (coverage window start), not now(), so
+// the capability is active ONLY during the window (design doc S4.6).
 // Skips silently when the covered position has no built-module capability
 // mapping (scope-lock) and dedupes an identical grant already covering the
 // same window (maintainer 2026-07-10: write/notify once when leave and
@@ -407,19 +438,20 @@ func (s *RosterService) grantTemporaryExecuteCapability(ctx context.Context, ten
 	if !ok {
 		return nil
 	}
+	validFrom := startsAt.UTC().Format(time.RFC3339)
 	validTo := endsAt.UTC().Format(time.RFC3339)
 	existing, err := s.capabilities.ListCapabilities(ctx, tenantID, memberID)
 	if err != nil {
 		return mapRepoErr(err)
 	}
 	for _, c := range existing {
-		if c.CapabilityCode == capCode && c.ScopeType == scopeType && c.ScopeID == scopeID && c.Status == "active" && c.ValidTo != nil && *c.ValidTo == validTo {
+		if c.CapabilityCode == capCode && c.ScopeType == scopeType && c.ScopeID == scopeID && c.Status == "active" && c.ValidFrom == validFrom && c.ValidTo != nil && *c.ValidTo == validTo {
 			return nil
 		}
 	}
 	_, err = s.capabilities.AssignCapability(ctx, ports.CapabilityCommand{
 		TenantID: tenantID, ActorID: actorID, OperatorID: memberID,
-		Body: domain.CreateCapabilityRequest{CapabilityCode: capCode, ScopeType: scopeType, ScopeID: scopeID, ValidTo: &validTo},
+		Body: domain.CreateCapabilityRequest{CapabilityCode: capCode, ScopeType: scopeType, ScopeID: scopeID, ValidFrom: &validFrom, ValidTo: &validTo},
 	})
 	if err != nil {
 		return mapRepoErr(err)

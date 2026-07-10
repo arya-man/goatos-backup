@@ -41,6 +41,8 @@ type PositionResponse struct {
 // and its single center-wide Backup Manager share one backup_group_code
 // (e.g. "manager_backup"); each assistant-tier parallel group (e.g. Feeding
 // AM1/2/3 + Cleaning AM1/2 -> Backup AM1) shares its OWN backup_group_code.
+// idempotency_key enables request-level dedup: exact replay returns the original
+// result without re-running side effects (repo mandatory rule, see AGENTS.md).
 type CreatePositionRequest struct {
 	WorkforceMemberID string  `json:"workforce_member_id"`
 	ScopeType         string  `json:"scope_type"`
@@ -51,6 +53,7 @@ type CreatePositionRequest struct {
 	BackupGroupCode   *string `json:"backup_group_code"`
 	WeekOffWeekday    *string `json:"week_off_weekday"`
 	ValidTo           *string `json:"valid_to"`
+	IdempotencyKey    *string `json:"idempotency_key"`
 }
 
 // StaffLeave is the HR roster leave/absence concept -- backed entirely by the
@@ -88,16 +91,18 @@ type StaffLeaveResponse struct {
 }
 
 type ApplyStaffLeaveRequest struct {
-	WorkforceMemberID string `json:"workforce_member_id"`
-	ScopeType         string `json:"scope_type"`
-	ScopeID           string `json:"scope_id"`
-	ReasonCode        string `json:"reason_code"`
-	StartsOn          string `json:"starts_on"`
-	EndsOn            string `json:"ends_on"`
+	WorkforceMemberID string  `json:"workforce_member_id"`
+	ScopeType         string  `json:"scope_type"`
+	ScopeID           string  `json:"scope_id"`
+	ReasonCode        string  `json:"reason_code"`
+	StartsOn          string  `json:"starts_on"`
+	EndsOn            string  `json:"ends_on"`
+	IdempotencyKey    *string `json:"idempotency_key"`
 }
 
 type ApproveStaffLeaveRequest struct {
-	RowVersion int `json:"row_version"`
+	RowVersion     int     `json:"row_version"`
+	IdempotencyKey *string `json:"idempotency_key"`
 }
 
 // ResolveLeaveCoverageRequest re-runs (or CEO-overrides) the effective_backup
@@ -106,10 +111,11 @@ type ApproveStaffLeaveRequest struct {
 // equal the position's current effective_backup holder (design doc S5.4: the
 // picker "never a free list of all managers/assistants") -- the service
 // rejects any other value. OverrideReason is recorded on
-// coverage_override_reason for audit.
+// coverage_override_reason for audit. idempotency_key enables request-level dedup.
 type ResolveLeaveCoverageRequest struct {
 	ReplacementMemberID *string `json:"replacement_member_id"`
 	OverrideReason      *string `json:"override_reason"`
+	IdempotencyKey      *string `json:"idempotency_key"`
 }
 
 // VaccinationOwner answers "who owns vaccination work for scope X on date D"

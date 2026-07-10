@@ -108,10 +108,15 @@ type CapabilityResponse struct {
 	TraceID    string               `json:"trace_id"`
 }
 
+// CreateCapabilityRequest creates a time-bounded capability grant for a member.
+// ValidFrom defaults to now() if omitted; ValidTo must be after ValidFrom.
+// For roster coverage (design doc S4.6), ValidFrom should be set to the coverage
+// window start, not now(), so the capability is active ONLY during the window.
 type CreateCapabilityRequest struct {
 	CapabilityCode string  `json:"capability_code"`
 	ScopeType      string  `json:"scope_type"`
 	ScopeID        string  `json:"scope_id"`
+	ValidFrom      *string `json:"valid_from"`
 	ValidTo        *string `json:"valid_to"`
 }
 

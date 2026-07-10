@@ -8,10 +8,11 @@ import (
 )
 
 var (
-	ErrNotFound      = errors.New("not found")
-	ErrConflict      = errors.New("write conflict")
-	ErrInvalidFilter = errors.New("invalid filter")
-	ErrDenied        = errors.New("denied")
+	ErrNotFound              = errors.New("not found")
+	ErrConflict              = errors.New("write conflict")
+	ErrInvalidFilter         = errors.New("invalid filter")
+	ErrDenied                = errors.New("denied")
+	ErrIdempotencyConflict   = errors.New("idempotency key conflict: same key with different payload")
 )
 
 type ListOperatorsParams struct {
