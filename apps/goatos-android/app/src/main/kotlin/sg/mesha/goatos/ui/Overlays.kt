@@ -33,8 +33,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import androidx.compose.ui.text.font.FontWeight
-import sg.mesha.goatos.core.data.sync.SyncRepository
-import sg.mesha.goatos.core.data.sync.SyncStatus
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -229,6 +229,7 @@ private fun OverlayInfoBox(text: String) {
 private enum class SyncItemState { SYNCED, QUEUED, UPLOADING, SYNCING, FAILED }
 
 private data class SyncItem(
+    val id: String,
     val shed: String,
     val park: String,
     val detail: String,
@@ -241,15 +242,16 @@ private data class SyncItem(
  * online/offline state, the queue summary (All synced / N queued / Syncing N…),
  * each queued shed record with its state + progress, and a retry-all affordance.
  *
- * TODO(M3): Wire to SyncRepository.observeStatus() and map SyncQueueItem to SyncItem.
- * The SyncRepository provides a hot StateFlow of SyncStatus with live queue detail.
- * Currently renders with empty/sample data as a placeholder.
+ * Wired to `SyncRepository.observeStatus()` (via `SyncStatusViewModel` at the shell): the caller
+ * passes the live `isOnline` + counts + the [queue] of `SyncQueueItem`s, mapped here to the
+ * renderer's [SyncItem]. `onRetryAll` re-arms the failed/dead-letter rows.
  */
 @Composable
 fun SyncSheet(
     isOnline: Boolean = false,
     syncingCount: Int = 0,
     queuedCount: Int = 0,
+    queue: List<SyncQueueItem> = emptyList(),
     onRetryAll: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
@@ -260,7 +262,7 @@ fun SyncSheet(
         pending > 0 -> "$pending queued"
         else -> "All synced"
     }
-    val items = emptyList<SyncItem>()
+    val items = queue.map { it.toSyncItem() }
 
     OverlaySheet(
         title = "Sync status",
@@ -300,7 +302,7 @@ fun SyncSheet(
             contentPadding = PaddingValues(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(items, key = { it.shed }) { item -> SyncRow(item) }
+            items(items, key = { it.id }) { item -> SyncRow(item) }
         }
     }
 }
@@ -334,6 +336,42 @@ private fun SyncRow(item: SyncItem) {
 }
 
 private data class SyncVisual(val glyph: String, val fg: Color, val bg: Color, val label: String)
+
+/** Maps a durable outbox row ([SyncQueueItem]) to the sheet's renderer row ([SyncItem]). The
+ *  outbox only knows the scope id ([SyncQueueItem.groupKey]) + op kind, so the shed/park labels
+ *  the mock shows come from those until the backend attaches richer per-item labels. */
+private fun SyncQueueItem.toSyncItem(): SyncItem {
+    val itemState = when {
+        status == SyncItemStatus.SUCCEEDED -> SyncItemState.SYNCED
+        status == SyncItemStatus.QUEUED -> SyncItemState.QUEUED
+        status == SyncItemStatus.IN_FLIGHT && opType == "PROOF_UPLOAD" -> SyncItemState.UPLOADING
+        status == SyncItemStatus.IN_FLIGHT -> SyncItemState.SYNCING
+        else -> SyncItemState.FAILED
+    }
+    val detail = lastError ?: when (itemState) {
+        SyncItemState.QUEUED -> "Waiting to sync"
+        SyncItemState.SYNCING -> "Submitting…"
+        SyncItemState.UPLOADING -> "Uploading proof…"
+        SyncItemState.SYNCED -> "On file"
+        SyncItemState.FAILED -> "Attempt $attemptCount of $maxAttempts"
+    }
+    val inProgress = itemState == SyncItemState.UPLOADING || itemState == SyncItemState.SYNCING
+    return SyncItem(
+        id = id,
+        shed = groupKey,
+        park = opTypeLabel(opType),
+        detail = detail,
+        state = itemState,
+        progress = if (inProgress) 0.6f else 0f,
+    )
+}
+
+private fun opTypeLabel(opType: String): String = when (opType) {
+    "SHED_SUBMIT" -> "Shed record"
+    "PROOF_UPLOAD" -> "Video proof"
+    "RESCHEDULE" -> "Reschedule"
+    else -> opType
+}
 
 // endregion
 

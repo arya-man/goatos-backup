@@ -24,7 +24,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +42,7 @@ import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.viewmodel.SyncStatusViewModel
 
 /**
  * The role-aware app shell — Material 3 (Expressive) chrome on the mock's dark palette.
@@ -52,12 +58,32 @@ fun GoatOsShell(navState: NavState) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
 
+    // Shell-level connectivity/outbox status. Feeds the passive offline banner (debounced) and
+    // the on-demand sync sheet — both read the one live SyncRepository flow, no polling.
+    val syncVm: SyncStatusViewModel = hiltViewModel()
+    val showOffline by syncVm.showOfflineBanner.collectAsStateWithLifecycle()
+    val syncStatus by syncVm.status.collectAsStateWithLifecycle()
+    var showSyncSheet by remember { mutableStateOf(false) }
+
     GoatOsShellChrome(
         navState = navState,
         currentRoute = backStackEntry?.destination?.route,
         onNavigate = { href -> navController.navigate(href) { launchSingleTop = true; restoreState = true } },
     ) {
+        // Pinned above screen content on every route; non-blocking, auto-hides on reconnect.
+        OfflineBanner(visible = showOffline, onOpenDetails = { showSyncSheet = true })
         AppNavHost(navController = navController)
+    }
+
+    if (showSyncSheet) {
+        SyncSheet(
+            isOnline = syncStatus.online,
+            syncingCount = syncStatus.inFlightCount,
+            queuedCount = syncStatus.pendingCount,
+            queue = syncStatus.items,
+            onRetryAll = syncVm::retryAll,
+            onDismiss = { showSyncSheet = false },
+        )
     }
 }
 
