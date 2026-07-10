@@ -145,7 +145,10 @@ For `goatos-stg`, the Google Auth Platform web client is
 `514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com`,
 with origins for `https://stg.dashboard.mesha.sg`, the raw stg Cloud Run hosts,
 and local ports `3000`, `3300`, and `3311`. The Identity Platform Google
-provider must use the same client ID and secret.
+provider must use the same client ID and secret. The `goatos-stg` OAuth app is
+External / In production so approved dashboard users do not need separate
+Google test-user entries; Firebase users and Goat OS DB grants still enforce
+who can enter the dashboard.
 Set `GOATOS_CANONICAL_DASHBOARD_HOST` on admin-web once a custom host is live so
 raw Cloud Run dashboard URLs redirect to the registered OAuth host instead of
 creating a second sign-in origin.

@@ -158,7 +158,7 @@ Cloudflare:  mesha.sg zone, Manju@flokx.io Cloudflare account
 DNS record:  A stg.dashboard -> 8.233.143.24, DNS-only
 LB IP name:  goatos-stg-dashboard-ip
 LB IP:       8.233.143.24
-Certificate: goatos-stg-dashboard-cert for stg.dashboard.mesha.sg
+Certificate: goatos-stg-dashboard-cert, ACTIVE for stg.dashboard.mesha.sg
 Backend:     goatos-admin-web-stg through serverless NEG goatos-admin-web-stg-neg
 ```
 
@@ -189,6 +189,9 @@ Google OAuth web client authorized JavaScript origins:
 Google Auth Platform Branding:
 - App name: Mesha
 - App name: Goat OS Staging (`goatos-stg`)
+- `goatos-stg` audience: External, In production. Goat OS backend/Firebase
+  grants remain the access boundary; do not rely on Google's test-user list for
+  staging access control.
 ```
 
 The Firebase authorized domain was updated through the Identity Toolkit API.

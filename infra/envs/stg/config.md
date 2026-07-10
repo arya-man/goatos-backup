@@ -36,6 +36,8 @@ Raw URL:     https://goatos-admin-web-stg-awtrpmn4za-el.a.run.app
 LB IP:       8.233.143.24
 LB IP name:  goatos-stg-dashboard-ip
 Certificate: goatos-stg-dashboard-cert
+Certificate status: ACTIVE
+Canonical host env: GOATOS_CANONICAL_DASHBOARD_HOST=stg.dashboard.mesha.sg
 ```
 
 DNS lives in Cloudflare, not Google Cloud DNS:
@@ -71,7 +73,8 @@ IAM OAuth UUID-style client must not be used for Google Identity Services.
 OAuth client display name: goatos-stg-admin-web
 OAuth client id: 514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com
 Google Auth Platform app name: Goat OS Staging
-Audience: Internal
+Audience: External
+Publishing status: In production
 Support/contact email: ravi@mesha.sg
 Secret Manager: goatos-stg-google-oauth-web-credential
 ```

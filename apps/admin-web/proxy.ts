@@ -50,10 +50,12 @@ function canonicalHostRedirect(request: NextRequest): NextResponse | null {
   }
   const redirectUrl = request.nextUrl.clone();
   redirectUrl.protocol = "https:";
-  redirectUrl.host = canonicalHost;
+  redirectUrl.hostname = canonicalHost;
+  redirectUrl.port = "";
   return NextResponse.redirect(redirectUrl, 308);
 }
 
 function normalizeHost(value: string | null | undefined): string {
-  return (value ?? "").trim().toLowerCase().replace(/\/+$/, "");
+  const host = (value ?? "").trim().toLowerCase().replace(/\/+$/, "");
+  return host.replace(/:(443|80)$/, "");
 }
