@@ -37,6 +37,22 @@ GOATOS_AUTH_ALLOWED_ALGS=RS256,ES256
 GOATOS_AUTH_ALLOWED_EMAILS=<approved admin email>[,<approved admin email>...]
 ```
 
+Firebase App Check is a second, app-attestation layer for shared Android
+traffic. It is off by default and applies only to protected bearer-auth routes:
+
+```text
+GOATOS_APPCHECK_ENFORCE=off|monitor|enforce
+GOATOS_APPCHECK_ISSUER=https://firebaseappcheck.googleapis.com/<firebase project number>
+GOATOS_APPCHECK_AUDIENCE=projects/<firebase project number>
+GOATOS_APPCHECK_JWKS_URL=https://firebaseappcheck.googleapis.com/v1/jwks  # optional default
+GOATOS_APPCHECK_CLOCK_SKEW=60s                                             # optional
+GOATOS_APPCHECK_JWKS_CACHE_TTL=5m                                          # optional
+```
+
+Use `monitor` after the Android app sends `X-Firebase-AppCheck`; it logs
+missing/invalid/pass without blocking old clients. Use `enforce` only after the
+Firebase App Check console registration and Android rollout are healthy.
+
 Authorization still comes from active `user_scope_grants` rows in Goat OS; token
 claims authenticate the subject but do not grant product roles by themselves.
 `GOATOS_AUTH_ALLOWED_EMAILS` is required in JWKS mode; the API fails closed at
@@ -51,15 +67,18 @@ Current access-control layers:
    Shared dashboard login supports both Google SSO and Firebase
    email/password. Goat OS never stores raw Google, password, or Firebase tokens
    in the database.
-2. `GOATOS_AUTH_ALLOWED_EMAILS` is the deploy-time email allowlist. It blocks
+2. Firebase App Check, when enabled, verifies `X-Firebase-AppCheck` against
+   Firebase App Check JWKS before RBAC grant lookup. App Check attests the app;
+   it does not identify or authorize the user.
+3. `GOATOS_AUTH_ALLOWED_EMAILS` is the deploy-time email allowlist. It blocks
    unapproved verified emails before a session cookie is created.
-3. `auth_pending_email_grants` is the approved-email grant policy table. On a
+4. `auth_pending_email_grants` is the approved-email grant policy table. On a
    verified `auth.sign_in`, the backend converts a matching email policy into a
    real active `user_scope_grants` row for the Firebase/JWKS subject. Raw
    tokens are never stored.
-4. `user_scope_grants` is the database authorization table that protected APIs
+5. `user_scope_grants` is the database authorization table that protected APIs
    actually check.
-5. `audit_log` records sign-in, refresh, sign-out, failed sign-in, and
+6. `audit_log` records sign-in, refresh, sign-out, failed sign-in, and
    `auth.pending_email_grant_claimed` events
    with metadata such as verified email and Firebase UID; raw tokens are never
    written.

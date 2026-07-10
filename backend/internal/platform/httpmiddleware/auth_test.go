@@ -277,6 +277,82 @@ func TestBearerAuthDeniesMissingMalformedAndMissingGrant(t *testing.T) {
 	}
 }
 
+func TestBearerAuthEnforcesFirebaseAppCheckHeader(t *testing.T) {
+	appCheckVerifier := verifierFunc(func(token string) (platformauth.Claims, error) {
+		if token == "valid-app-check" {
+			return platformauth.Claims{Subject: "1:514832198871:android:abc123"}, nil
+		}
+		return platformauth.Claims{}, platformauth.ErrInvalidToken
+	})
+	mw := testBearerMiddlewareWithAppCheck(t, AppCheckModeEnforce, appCheckVerifier, fakeGrantSource{
+		roles: map[string][]string{authTestUser + "|" + authTestTenant: {permissions.RoleOperator}},
+	})
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+
+	tests := []struct {
+		name           string
+		appCheckHeader string
+		wantCode       int
+		wantErr        string
+	}{
+		{name: "missing", wantCode: http.StatusUnauthorized, wantErr: "missing_app_check"},
+		{name: "invalid", appCheckHeader: "not-valid", wantCode: http.StatusUnauthorized, wantErr: "invalid_app_check"},
+		{name: "valid", appCheckHeader: "valid-app-check", wantCode: http.StatusNoContent},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=10", nil)
+			req.Header.Set("Authorization", "Bearer "+testTokenStatic(authTestUser, authTestTenant, nil))
+			if tt.appCheckHeader != "" {
+				req.Header.Set(FirebaseAppCheckHeader, tt.appCheckHeader)
+			}
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != tt.wantCode {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			if tt.wantErr != "" {
+				assertAuthErrorCode(t, rec, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestBearerAuthAppCheckMonitorDoesNotBlockRequests(t *testing.T) {
+	appCheckVerifier := verifierFunc(func(string) (platformauth.Claims, error) {
+		return platformauth.Claims{}, platformauth.ErrInvalidToken
+	})
+	mw := testBearerMiddlewareWithAppCheck(t, AppCheckModeMonitor, appCheckVerifier, fakeGrantSource{
+		roles: map[string][]string{authTestUser + "|" + authTestTenant: {permissions.RoleOperator}},
+	})
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+
+	for _, tt := range []struct {
+		name           string
+		appCheckHeader string
+	}{
+		{name: "missing"},
+		{name: "invalid", appCheckHeader: "not-valid"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=10", nil)
+			req.Header.Set("Authorization", "Bearer "+testTokenStatic(authTestUser, authTestTenant, nil))
+			if tt.appCheckHeader != "" {
+				req.Header.Set(FirebaseAppCheckHeader, tt.appCheckHeader)
+			}
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("monitor blocked request: status=%d body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestBearerAuthIgnoresForgedRoleClaim(t *testing.T) {
 	mw := testBearerMiddleware(t, fakeGrantSource{roles: map[string][]string{authTestUser + "|" + authTestTenant: {permissions.RoleOperator}}})
 	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -409,6 +485,27 @@ func TestDevHeadersRequireExplicitLocalOptIn(t *testing.T) {
 	if _, err := NewAuthMiddleware(AuthConfig{Mode: AuthModeDevHeaders, Environment: "test", DevHeadersAllowed: true}, nil, grantAdapter{fakeGrantSource{}}, slog.Default()); err != nil {
 		t.Fatalf("dev_headers test opt-in rejected: %v", err)
 	}
+	if _, err := NewAuthMiddleware(AuthConfig{
+		Mode:              AuthModeDevHeaders,
+		Environment:       "local",
+		DevHeadersAllowed: true,
+		AppCheckMode:      AppCheckModeMonitor,
+		AppCheckVerifier:  staticVerifier{},
+	}, nil, grantAdapter{fakeGrantSource{}}, slog.Default()); err == nil {
+		t.Fatal("app check accepted with dev header auth")
+	}
+	if _, err := NewAuthMiddleware(AuthConfig{
+		Mode:         AuthModeBearer,
+		AppCheckMode: "surprise",
+	}, staticVerifier{}, grantAdapter{fakeGrantSource{}}, slog.Default()); err == nil {
+		t.Fatal("unknown app check mode accepted")
+	}
+	if _, err := NewAuthMiddleware(AuthConfig{
+		Mode:         AuthModeBearer,
+		AppCheckMode: AppCheckModeEnforce,
+	}, staticVerifier{}, grantAdapter{fakeGrantSource{}}, slog.Default()); err == nil {
+		t.Fatal("app check enforcement accepted without verifier")
+	}
 }
 
 func TestHealthRoutesBypassAuth(t *testing.T) {
@@ -464,6 +561,30 @@ func testBearerMiddleware(t *testing.T, grants fakeGrantSource) *AuthMiddleware 
 
 func testBearerMiddlewareWithTTL(t *testing.T, grants fakeGrantSource, maxTTL time.Duration) *AuthMiddleware {
 	t.Helper()
+	verifier := testHS256Verifier(t, maxTTL)
+	mw, err := NewAuthMiddleware(AuthConfig{Mode: AuthModeBearer}, verifier, grantAdapter{grants}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("NewAuthMiddleware: %v", err)
+	}
+	return mw
+}
+
+func testBearerMiddlewareWithAppCheck(t *testing.T, appCheckMode string, appCheckVerifier TokenVerifier, grants fakeGrantSource) *AuthMiddleware {
+	t.Helper()
+	mw, err := NewAuthMiddleware(
+		AuthConfig{Mode: AuthModeBearer, AppCheckMode: appCheckMode, AppCheckVerifier: appCheckVerifier},
+		testHS256Verifier(t, 24*time.Hour),
+		grantAdapter{grants},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthMiddleware: %v", err)
+	}
+	return mw
+}
+
+func testHS256Verifier(t *testing.T, maxTTL time.Duration) *platformauth.HS256Verifier {
+	t.Helper()
 	verifier, err := platformauth.NewHS256Verifier(platformauth.Config{
 		Issuer:   authTestIssuer,
 		Audience: authTestAudience,
@@ -474,11 +595,7 @@ func testBearerMiddlewareWithTTL(t *testing.T, grants fakeGrantSource, maxTTL ti
 	if err != nil {
 		t.Fatalf("verifier: %v", err)
 	}
-	mw, err := NewAuthMiddleware(AuthConfig{Mode: AuthModeBearer}, verifier, grantAdapter{grants}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err != nil {
-		t.Fatalf("NewAuthMiddleware: %v", err)
-	}
-	return mw
+	return verifier
 }
 
 type grantAdapter struct {
@@ -503,6 +620,12 @@ func (s staticVerifier) Verify(string) (platformauth.Claims, error) {
 		return platformauth.Claims{}, s.err
 	}
 	return s.claims, nil
+}
+
+type verifierFunc func(string) (platformauth.Claims, error)
+
+func (f verifierFunc) Verify(token string) (platformauth.Claims, error) {
+	return f(token)
 }
 
 func testToken(t *testing.T, sub, tenant string, extra map[string]any) string {

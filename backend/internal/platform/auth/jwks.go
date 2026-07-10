@@ -49,6 +49,9 @@ type JWKSConfig struct {
 	HTTPClient *http.Client
 	// Now is the clock function. Defaults to time.Now.
 	Now func() time.Time
+	// RequireTokenTypeJWT rejects tokens whose JOSE header typ is not JWT. This
+	// is required by Firebase App Check but remains opt-in for generic JWKS IDPs.
+	RequireTokenTypeJWT bool
 }
 
 // JWKSVerifier verifies RS256 and ES256 bearer tokens against a remote JWKS
@@ -63,6 +66,7 @@ type JWKSVerifier struct {
 	cacheTTL    time.Duration
 	client      *http.Client
 	now         func() time.Time
+	requireTyp  bool
 
 	mu             sync.RWMutex
 	cachedKeys     map[string]parsedJWK // kid → key
@@ -141,6 +145,7 @@ func NewJWKSVerifier(cfg JWKSConfig) (*JWKSVerifier, error) {
 		cacheTTL:    cacheTTL,
 		client:      client,
 		now:         now,
+		requireTyp:  cfg.RequireTokenTypeJWT,
 		cachedKeys:  map[string]parsedJWK{},
 	}, nil
 }
@@ -157,8 +162,12 @@ func (v *JWKSVerifier) Verify(token string) (Claims, error) {
 	var header struct {
 		Alg string `json:"alg"`
 		Kid string `json:"kid"`
+		Typ string `json:"typ"`
 	}
 	if err := decodeSegment(parts[0], &header, false); err != nil {
+		return Claims{}, ErrInvalidToken
+	}
+	if v.requireTyp && !strings.EqualFold(strings.TrimSpace(header.Typ), "JWT") {
 		return Claims{}, ErrInvalidToken
 	}
 

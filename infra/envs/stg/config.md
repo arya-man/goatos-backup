@@ -12,6 +12,10 @@ GOATOS_AUTH_MODE=jwks            # staging uses a real IdP; HS256 is not a stagi
 GOATOS_AUTH_ISSUER=https://securetoken.google.com/goatos-stg
 GOATOS_AUTH_AUDIENCE=goatos-stg
 GOATOS_AUTH_JWKS_URL=https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com
+GOATOS_APPCHECK_ENFORCE=off       # switch to monitor, then enforce, after Android/App Check rollout
+GOATOS_APPCHECK_ISSUER=https://firebaseappcheck.googleapis.com/514832198871
+GOATOS_APPCHECK_AUDIENCE=projects/514832198871
+GOATOS_APPCHECK_JWKS_URL=https://firebaseappcheck.googleapis.com/v1/jwks
 DATABASE_URL=<Cloud SQL goatos-stg, 1M synthetic baseline>
 GOATOS_OBS_SINK=gcm
 ```

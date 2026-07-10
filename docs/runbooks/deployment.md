@@ -227,6 +227,12 @@ GOATOS_AUTH_MAX_TOKEN_TTL=24h         # optional ceiling
 GOATOS_AUTH_ALLOWED_EMAILS=<approved admin email>[,<approved admin email>...]
 GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS=<tenant uuid>[,<tenant uuid>...]
 GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE=120  # default; 0 disables for controlled local smoke
+GOATOS_APPCHECK_ENFORCE=off|monitor|enforce     # default off; monitor before enforce
+GOATOS_APPCHECK_ISSUER=https://firebaseappcheck.googleapis.com/<firebase project number>
+GOATOS_APPCHECK_AUDIENCE=projects/<firebase project number>
+GOATOS_APPCHECK_JWKS_URL=https://firebaseappcheck.googleapis.com/v1/jwks  # optional default
+GOATOS_APPCHECK_CLOCK_SKEW=60s                                             # optional
+GOATOS_APPCHECK_JWKS_CACHE_TTL=5m                                          # optional
 
 # Environment + observability
 GOATOS_ENV=stg|prod                    # NOT local/dev/test for shared envs
@@ -253,6 +259,12 @@ it is required in JWKS mode, and the API fails closed at startup if it is empty.
 Sign-in/session audit and protected API requests reject tokens whose verified
 email is not present in the list. Google Workspace `hd` hints are not sufficient
 access control by themselves.
+
+Firebase App Check is a separate app-attestation layer for Android/backend
+traffic. Keep `GOATOS_APPCHECK_ENFORCE=off` until the Android client sends
+`X-Firebase-AppCheck` and Firebase Console App Check registration is complete.
+Use `monitor` to log missing/invalid/pass without blocking old app versions,
+then flip to `enforce` when rollout is healthy.
 
 Admin-web supports canonical-host redirects:
 

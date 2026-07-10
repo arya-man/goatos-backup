@@ -18,6 +18,12 @@ import (
 const (
 	AuthModeBearer     = "bearer"
 	AuthModeDevHeaders = "dev_headers"
+
+	AppCheckModeOff     = "off"
+	AppCheckModeMonitor = "monitor"
+	AppCheckModeEnforce = "enforce"
+
+	FirebaseAppCheckHeader = "X-Firebase-AppCheck"
 )
 
 var (
@@ -29,18 +35,23 @@ type TokenVerifier interface {
 }
 
 type AuthConfig struct {
-	Mode              string
+	Mode             string
+	AppCheckMode     string
+	AppCheckVerifier TokenVerifier
+
 	DevHeadersAllowed bool
 	Environment       string
 	AllowedEmails     []string
 }
 
 type AuthMiddleware struct {
-	mode          string
-	verifier      TokenVerifier
-	grants        permissions.GrantSource
-	log           *slog.Logger
-	allowedEmails authallow.EmailSet
+	mode             string
+	verifier         TokenVerifier
+	appCheckMode     string
+	appCheckVerifier TokenVerifier
+	grants           permissions.GrantSource
+	log              *slog.Logger
+	allowedEmails    authallow.EmailSet
 }
 
 func NewAuthMiddleware(cfg AuthConfig, verifier TokenVerifier, grants permissions.GrantSource, log *slog.Logger) (*AuthMiddleware, error) {
@@ -50,6 +61,13 @@ func NewAuthMiddleware(cfg AuthConfig, verifier TokenVerifier, grants permission
 	}
 	if log == nil {
 		log = slog.Default()
+	}
+	appCheckMode, err := normalizeAppCheckMode(cfg.AppCheckMode)
+	if err != nil {
+		return nil, err
+	}
+	if appCheckMode != AppCheckModeOff && cfg.AppCheckVerifier == nil {
+		return nil, fmt.Errorf("%w: app check verifier is required", ErrInvalidAuthConfig)
 	}
 	if grants == nil {
 		return nil, ErrInvalidAuthConfig
@@ -67,11 +85,22 @@ func NewAuthMiddleware(cfg AuthConfig, verifier TokenVerifier, grants permission
 		if !cfg.DevHeadersAllowed || !DevHeadersEnvironmentAllowed(cfg.Environment) {
 			return nil, ErrInvalidAuthConfig
 		}
+		if appCheckMode != AppCheckModeOff {
+			return nil, fmt.Errorf("%w: app check requires bearer auth mode", ErrInvalidAuthConfig)
+		}
 		log.Warn("dev header auth enabled; never use outside local development")
 	default:
 		return nil, ErrInvalidAuthConfig
 	}
-	return &AuthMiddleware{mode: mode, verifier: verifier, grants: grants, log: log, allowedEmails: allowedEmails}, nil
+	return &AuthMiddleware{
+		mode:             mode,
+		verifier:         verifier,
+		appCheckMode:     appCheckMode,
+		appCheckVerifier: cfg.AppCheckVerifier,
+		grants:           grants,
+		log:              log,
+		allowedEmails:    allowedEmails,
+	}, nil
 }
 
 func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
@@ -125,6 +154,9 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 			writeAuthError(w, r, http.StatusUnauthorized, "invalid_bearer_token", "bearer token is invalid")
 			return r.Context(), "", "", false
 		}
+		if !a.verifyAppCheck(w, r) {
+			return r.Context(), "", "", false
+		}
 		if !a.allowedEmails.Allows(claims.Email, claims.EmailVerified) {
 			writeAuthError(w, r, http.StatusForbidden, "email_not_allowed", "this Google account is not allowed for Mesha Admin")
 			return r.Context(), "", "", false
@@ -152,6 +184,70 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 		writeAuthError(w, r, http.StatusUnauthorized, "invalid_auth_mode", "auth mode is invalid")
 		return r.Context(), "", "", false
 	}
+}
+
+func normalizeAppCheckMode(mode string) (string, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		mode = AppCheckModeOff
+	}
+	switch mode {
+	case AppCheckModeOff, AppCheckModeMonitor, AppCheckModeEnforce:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("%w: GOATOS_APPCHECK_ENFORCE must be off, monitor, or enforce", ErrInvalidAuthConfig)
+	}
+}
+
+func (a *AuthMiddleware) verifyAppCheck(w http.ResponseWriter, r *http.Request) bool {
+	switch a.appCheckMode {
+	case AppCheckModeOff:
+		return true
+	case AppCheckModeMonitor, AppCheckModeEnforce:
+	default:
+		writeAuthError(w, r, http.StatusUnauthorized, "invalid_auth_mode", "auth mode is invalid")
+		return false
+	}
+
+	token := strings.TrimSpace(r.Header.Get(FirebaseAppCheckHeader))
+	if token == "" {
+		if a.appCheckMode == AppCheckModeEnforce {
+			writeAuthError(w, r, http.StatusUnauthorized, "missing_app_check", FirebaseAppCheckHeader+" header is required")
+			return false
+		}
+		a.logAppCheckMonitor(r, "missing", nil)
+		return true
+	}
+	if _, err := a.appCheckVerifier.Verify(token); err != nil {
+		if a.appCheckMode == AppCheckModeEnforce {
+			writeAuthError(w, r, http.StatusUnauthorized, "invalid_app_check", "Firebase App Check token is invalid")
+			return false
+		}
+		a.logAppCheckMonitor(r, "invalid", err)
+		return true
+	}
+	if a.appCheckMode == AppCheckModeMonitor {
+		a.logAppCheckMonitor(r, "pass", nil)
+	}
+	return true
+}
+
+func (a *AuthMiddleware) logAppCheckMonitor(r *http.Request, result string, err error) {
+	args := []any{
+		slog.String("request_id", RequestIDFromContext(r.Context())),
+		slog.String("trace_id", TraceIDFromContext(r.Context())),
+		slog.String("method", r.Method),
+		slog.String("path", r.URL.Path),
+		slog.String("result", result),
+	}
+	if err != nil {
+		args = append(args, slog.String("error", err.Error()))
+	}
+	if result == "pass" {
+		a.log.InfoContext(r.Context(), "app_check_monitor", args...)
+		return
+	}
+	a.log.WarnContext(r.Context(), "app_check_monitor", args...)
 }
 
 func bearerToken(value string) (string, bool) {

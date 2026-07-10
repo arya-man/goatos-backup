@@ -101,6 +101,35 @@ func TestBuildAuthVerifierJWKSMode(t *testing.T) {
 	}
 }
 
+func TestBuildAppCheckVerifier(t *testing.T) {
+	if verifier, err := buildAppCheckVerifier(AuthConfig{}); err != nil || verifier != nil {
+		t.Fatalf("default app check = (%T, %v), want nil nil", verifier, err)
+	}
+	if _, err := buildAppCheckVerifier(AuthConfig{AppCheckMode: "surprise"}); err == nil {
+		t.Fatal("unknown app check mode accepted")
+	}
+	for _, mode := range []string{httpmiddleware.AppCheckModeMonitor, httpmiddleware.AppCheckModeEnforce} {
+		t.Run(mode+"/missing-project", func(t *testing.T) {
+			if _, err := buildAppCheckVerifier(AuthConfig{AppCheckMode: mode}); err == nil {
+				t.Fatal("enabled app check accepted missing issuer/audience")
+			}
+		})
+		t.Run(mode+"/valid", func(t *testing.T) {
+			verifier, err := buildAppCheckVerifier(AuthConfig{
+				AppCheckMode:     mode,
+				AppCheckIssuer:   "https://firebaseappcheck.googleapis.com/514832198871",
+				AppCheckAudience: "projects/514832198871",
+			})
+			if err != nil {
+				t.Fatalf("valid app check config rejected: %v", err)
+			}
+			if verifier == nil {
+				t.Fatal("valid app check config returned nil verifier")
+			}
+		})
+	}
+}
+
 func TestAuthMaxTokenTTLFromEnv(t *testing.T) {
 	t.Setenv("GOATOS_AUTH_MAX_TOKEN_TTL", "")
 	if got := authMaxTokenTTLFromEnv(); got != 24*time.Hour {
@@ -292,5 +321,34 @@ func TestConfigFromEnvParsesAuthAllowedEmails(t *testing.T) {
 		if cfg.Auth.AllowedEmails[i] != want[i] {
 			t.Fatalf("emails=%v want %v", cfg.Auth.AllowedEmails, want)
 		}
+	}
+}
+
+func TestConfigFromEnvParsesAppCheckConfig(t *testing.T) {
+	t.Setenv("GOATOS_APPCHECK_ENFORCE", httpmiddleware.AppCheckModeMonitor)
+	t.Setenv("GOATOS_APPCHECK_ISSUER", "https://firebaseappcheck.googleapis.com/514832198871")
+	t.Setenv("GOATOS_APPCHECK_AUDIENCE", "projects/514832198871")
+	t.Setenv("GOATOS_APPCHECK_JWKS_URL", "https://example.test/jwks")
+	t.Setenv("GOATOS_APPCHECK_CLOCK_SKEW", "30s")
+	t.Setenv("GOATOS_APPCHECK_JWKS_CACHE_TTL", "2m")
+
+	cfg := ConfigFromEnv()
+	if cfg.Auth.AppCheckMode != httpmiddleware.AppCheckModeMonitor {
+		t.Fatalf("app check mode=%q", cfg.Auth.AppCheckMode)
+	}
+	if cfg.Auth.AppCheckIssuer != "https://firebaseappcheck.googleapis.com/514832198871" {
+		t.Fatalf("app check issuer=%q", cfg.Auth.AppCheckIssuer)
+	}
+	if cfg.Auth.AppCheckAudience != "projects/514832198871" {
+		t.Fatalf("app check audience=%q", cfg.Auth.AppCheckAudience)
+	}
+	if cfg.Auth.AppCheckJWKSUrl != "https://example.test/jwks" {
+		t.Fatalf("app check jwks=%q", cfg.Auth.AppCheckJWKSUrl)
+	}
+	if cfg.Auth.AppCheckClockSkew != 30*time.Second {
+		t.Fatalf("app check skew=%s", cfg.Auth.AppCheckClockSkew)
+	}
+	if cfg.Auth.AppCheckJWKSCacheTTL != 2*time.Minute {
+		t.Fatalf("app check cache ttl=%s", cfg.Auth.AppCheckJWKSCacheTTL)
 	}
 }

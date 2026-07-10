@@ -96,7 +96,10 @@ type Config struct {
 // GOATOS_AUTH_ISSUER, GOATOS_AUTH_AUDIENCE, and GOATOS_AUTH_JWKS_URL.
 const AuthModeJWKS = "jwks"
 
-const defaultAuthSessionRateLimitPerMinute = 120
+const (
+	defaultAuthSessionRateLimitPerMinute = 120
+	defaultAppCheckJWKSURL               = "https://firebaseappcheck.googleapis.com/v1/jwks"
+)
 
 type AuthConfig struct {
 	Mode                             string
@@ -110,6 +113,12 @@ type AuthConfig struct {
 	AuthSessionAllowedTenantIDs      []string
 	AuthSessionRateLimitPerMinute    int
 	AuthSessionRateLimitInvalidValue bool
+	AppCheckMode                     string
+	AppCheckIssuer                   string
+	AppCheckAudience                 string
+	AppCheckJWKSUrl                  string
+	AppCheckClockSkew                time.Duration
+	AppCheckJWKSCacheTTL             time.Duration
 	// JWKS mode fields.
 	JWKSUrl      string
 	ClockSkew    time.Duration
@@ -143,6 +152,12 @@ func ConfigFromEnv() Config {
 			AuthSessionAllowedTenantIDs:      authStringListFromEnv("GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS"),
 			AuthSessionRateLimitPerMinute:    authSessionRateLimitFromEnv(),
 			AuthSessionRateLimitInvalidValue: authSessionRateLimitInvalidFromEnv(),
+			AppCheckMode:                     os.Getenv("GOATOS_APPCHECK_ENFORCE"),
+			AppCheckIssuer:                   os.Getenv("GOATOS_APPCHECK_ISSUER"),
+			AppCheckAudience:                 os.Getenv("GOATOS_APPCHECK_AUDIENCE"),
+			AppCheckJWKSUrl:                  os.Getenv("GOATOS_APPCHECK_JWKS_URL"),
+			AppCheckClockSkew:                authDurationFromEnv("GOATOS_APPCHECK_CLOCK_SKEW"),
+			AppCheckJWKSCacheTTL:             authDurationFromEnv("GOATOS_APPCHECK_JWKS_CACHE_TTL"),
 			// JWKS mode env vars.
 			JWKSUrl:      os.Getenv("GOATOS_AUTH_JWKS_URL"),
 			ClockSkew:    authDurationFromEnv("GOATOS_AUTH_CLOCK_SKEW"),
@@ -213,6 +228,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		return nil, err
 	}
 	verifier, err := buildAuthVerifier(cfg.Auth, log)
+	if err != nil {
+		return nil, err
+	}
+	appCheckVerifier, err := buildAppCheckVerifier(cfg.Auth)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +324,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		permissionspg.NewPendingEmailGrantClaimer(pool, cfg.Postgres.QueryTimeout),
 	))
 	authAuditHandler := authaudit.NewHandler(verifier, authAuditRecorder, log, authAuditOptions...)
-	authz, err := buildAuthMiddleware(cfg.Auth, verifier, grantSource, log)
+	authz, err := buildAuthMiddleware(cfg.Auth, verifier, appCheckVerifier, grantSource, log)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -426,7 +445,40 @@ func buildAuthVerifier(cfg AuthConfig, log *slog.Logger) (httpmiddleware.TokenVe
 	}
 }
 
-func buildAuthMiddleware(cfg AuthConfig, verifier httpmiddleware.TokenVerifier, grants permissions.GrantSource, log *slog.Logger) (*httpmiddleware.AuthMiddleware, error) {
+func buildAppCheckVerifier(cfg AuthConfig) (httpmiddleware.TokenVerifier, error) {
+	mode := strings.ToLower(strings.TrimSpace(cfg.AppCheckMode))
+	if mode == "" {
+		mode = httpmiddleware.AppCheckModeOff
+	}
+	switch mode {
+	case httpmiddleware.AppCheckModeOff:
+		return nil, nil
+	case httpmiddleware.AppCheckModeMonitor, httpmiddleware.AppCheckModeEnforce:
+	default:
+		return nil, fmt.Errorf("%w: GOATOS_APPCHECK_ENFORCE must be off, monitor, or enforce", httpmiddleware.ErrInvalidAuthConfig)
+	}
+
+	issuer := strings.TrimSpace(cfg.AppCheckIssuer)
+	audience := strings.TrimSpace(cfg.AppCheckAudience)
+	if issuer == "" || audience == "" {
+		return nil, fmt.Errorf("%w: GOATOS_APPCHECK_ISSUER and GOATOS_APPCHECK_AUDIENCE are required when App Check is enabled", httpmiddleware.ErrInvalidAuthConfig)
+	}
+	jwksURL := strings.TrimSpace(cfg.AppCheckJWKSUrl)
+	if jwksURL == "" {
+		jwksURL = defaultAppCheckJWKSURL
+	}
+	return platformauth.NewJWKSVerifier(platformauth.JWKSConfig{
+		JWKSURL:             jwksURL,
+		Issuer:              issuer,
+		Audience:            audience,
+		AllowedAlgs:         []string{platformauth.AlgorithmRS256},
+		ClockSkew:           cfg.AppCheckClockSkew,
+		CacheTTL:            cfg.AppCheckJWKSCacheTTL,
+		RequireTokenTypeJWT: true,
+	})
+}
+
+func buildAuthMiddleware(cfg AuthConfig, verifier, appCheckVerifier httpmiddleware.TokenVerifier, grants permissions.GrantSource, log *slog.Logger) (*httpmiddleware.AuthMiddleware, error) {
 	mode := strings.TrimSpace(cfg.Mode)
 	if mode == "" {
 		mode = httpmiddleware.AuthModeBearer
@@ -441,7 +493,10 @@ func buildAuthMiddleware(cfg AuthConfig, verifier httpmiddleware.TokenVerifier, 
 		mode = httpmiddleware.AuthModeBearer
 	}
 	return httpmiddleware.NewAuthMiddleware(httpmiddleware.AuthConfig{
-		Mode:              mode,
+		Mode:             mode,
+		AppCheckMode:     cfg.AppCheckMode,
+		AppCheckVerifier: appCheckVerifier,
+
 		DevHeadersAllowed: cfg.DevHeadersAllowed,
 		Environment:       cfg.Environment,
 		AllowedEmails:     cfg.AllowedEmails,

@@ -113,6 +113,11 @@ func jwksServer(t *testing.T, entriesPtr *atomic.Pointer[[]jwkEntry]) *httptest.
 func mintRS256Token(t *testing.T, kid string, key *rsa.PrivateKey, payload map[string]any) string {
 	t.Helper()
 	header := map[string]any{"alg": "RS256", "typ": "JWT", "kid": kid}
+	return mintRS256TokenWithHeader(t, key, header, payload)
+}
+
+func mintRS256TokenWithHeader(t *testing.T, key *rsa.PrivateKey, header, payload map[string]any) string {
+	t.Helper()
 	h := encodeJSONSegment(t, header)
 	p := encodeJSONSegment(t, payload)
 	sigInput := h + "." + p
@@ -519,6 +524,29 @@ func TestJWKSVerifierAcceptsAudienceArray(t *testing.T) {
 	token := mintRS256Token(t, "kid-1", key, payload)
 	if _, err := v.Verify(token); err != nil {
 		t.Fatalf("array aud containing configured audience should be accepted: %v", err)
+	}
+}
+
+func TestJWKSVerifierCanRequireJWTHeaderType(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	key := generateRSAKey(t)
+	entries := []jwkEntry{rsaJWKEntry("kid-1", &key.PublicKey)}
+	var ep atomic.Pointer[[]jwkEntry]
+	ep.Store(&entries)
+	srv := jwksServer(t, &ep)
+
+	v := newTestJWKSVerifier(t, srv, now, func(c *JWKSConfig) {
+		c.RequireTokenTypeJWT = true
+	})
+	if _, err := v.Verify(mintRS256Token(t, "kid-1", key, validPayload(now))); err != nil {
+		t.Fatalf("typ=JWT token should be accepted: %v", err)
+	}
+	missingType := mintRS256TokenWithHeader(t, key, map[string]any{
+		"alg": "RS256",
+		"kid": "kid-1",
+	}, validPayload(now))
+	if _, err := v.Verify(missingType); err == nil {
+		t.Fatal("missing typ header accepted when RequireTokenTypeJWT is enabled")
 	}
 }
 
