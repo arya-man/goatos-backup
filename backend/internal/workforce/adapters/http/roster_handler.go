@@ -61,6 +61,9 @@ func (h *RosterHandler) CreatePosition(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	if key := idempotencyKeyHeader(r); key != "" {
+		body.IdempotencyKey = &key
+	}
 	result, err := h.service.CreatePosition(r.Context(), ports.CreatePositionCommand{
 		TenantID: tenantID(r),
 		ActorID:  actorID(r),
@@ -74,6 +77,9 @@ func (h *RosterHandler) ApplyLeave(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	if key := idempotencyKeyHeader(r); key != "" {
+		body.IdempotencyKey = &key
+	}
 	result, err := h.service.ApplyLeave(r.Context(), tenantID(r), actorID(r), body, traceID(r))
 	h.respond(w, r, result, err)
 }
@@ -83,6 +89,9 @@ func (h *RosterHandler) ApproveLeave(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	if key := idempotencyKeyHeader(r); key != "" {
+		body.IdempotencyKey = &key
+	}
 	result, err := h.service.ApproveLeave(r.Context(), tenantID(r), actorID(r), r.PathValue("absence_id"), body, traceID(r))
 	h.respond(w, r, result, err)
 }
@@ -91,6 +100,9 @@ func (h *RosterHandler) ResolveLeaveCoverage(w http.ResponseWriter, r *http.Requ
 	var body domain.ResolveLeaveCoverageRequest
 	if !decodeJSON(w, r, &body) {
 		return
+	}
+	if key := idempotencyKeyHeader(r); key != "" {
+		body.IdempotencyKey = &key
 	}
 	result, err := h.service.ResolveLeaveCoverage(r.Context(), tenantID(r), actorID(r), r.PathValue("absence_id"), body, traceID(r))
 	h.respond(w, r, result, err)

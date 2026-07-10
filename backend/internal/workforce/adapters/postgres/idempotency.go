@@ -43,14 +43,6 @@ func requestFingerprint(parts ...string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// fpStrPtr safely renders an optional string for fingerprinting.
-func fpStrPtr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
 // reserveIdempotency claims (scope:key) for this write inside tx. On first claim it returns proceed=true.
 // On replay with a matching fingerprint it returns proceed=false plus the stored result id so the caller
 // can re-read and return the original result. On replay with a DIFFERENT fingerprint it returns

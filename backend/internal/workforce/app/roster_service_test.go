@@ -20,10 +20,24 @@ type fakeRosterRepo struct {
 	leaves              map[string]domain.StaffLeave
 	createPositionCalls int
 	nextSeq             int
+	// idem simulates the shared idempotency_keys store so service-level replay
+	// behavior (return original, skip downstream side effects, reject
+	// same-key/different-payload) is unit-testable without Postgres. Keyed by
+	// "scope:key"; value pairs the semantic fingerprint with the stored result id.
+	idem map[string]fakeIdem
+}
+
+type fakeIdem struct {
+	fingerprint string
+	resultID    string
 }
 
 func newFakeRosterRepo() *fakeRosterRepo {
-	return &fakeRosterRepo{positions: map[string]domain.Position{}, leaves: map[string]domain.StaffLeave{}}
+	return &fakeRosterRepo{
+		positions: map[string]domain.Position{},
+		leaves:    map[string]domain.StaffLeave{},
+		idem:      map[string]fakeIdem{},
+	}
 }
 
 var _ ports.RosterRepository = (*fakeRosterRepo)(nil)
@@ -32,7 +46,50 @@ func fakeUUID(seq int) string {
 	return fmt.Sprintf("%08x-0000-4000-8000-%012x", seq, seq)
 }
 
+// reserveFakeIdem mirrors the real reserveIdempotency contract: empty key =>
+// proceed (non-idempotent); first claim => proceed=true; exact replay =>
+// proceed=false + stored resultID; same-key/different-payload => conflict.
+func (f *fakeRosterRepo) reserveFakeIdem(scope, key, fingerprint string) (proceed bool, resultID string, err error) {
+	if key == "" {
+		return true, "", nil
+	}
+	scoped := scope + ":" + key
+	rec, ok := f.idem[scoped]
+	if !ok {
+		return true, "", nil
+	}
+	if rec.fingerprint != fingerprint {
+		return false, "", ports.ErrIdempotencyConflict
+	}
+	return false, rec.resultID, nil
+}
+
+func (f *fakeRosterRepo) completeFakeIdem(scope, key, fingerprint, resultID string) {
+	if key == "" {
+		return
+	}
+	f.idem[scope+":"+key] = fakeIdem{fingerprint: fingerprint, resultID: resultID}
+}
+
+func fakePtr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func (f *fakeRosterRepo) CreatePosition(_ context.Context, cmd ports.CreatePositionCommand) (domain.Position, error) {
+	key := fakePtr(cmd.Body.IdempotencyKey)
+	fp := "position.create|" + cmd.Body.WorkforceMemberID + "|" + cmd.Body.ScopeType + "|" + cmd.Body.ScopeID + "|" +
+		cmd.Body.PositionCode + "|" + cmd.Body.PositionTier + "|" + fmt.Sprintf("%t", cmd.Body.IsBackupSlot) + "|" +
+		fakePtr(cmd.Body.BackupGroupCode) + "|" + fakePtr(cmd.Body.WeekOffWeekday) + "|" + fakePtr(cmd.Body.ValidTo)
+	proceed, resultID, err := f.reserveFakeIdem("position.create", key, fp)
+	if err != nil {
+		return domain.Position{}, err
+	}
+	if !proceed {
+		return f.positions[resultID], nil
+	}
 	f.createPositionCalls++
 	for id, p := range f.positions {
 		if p.ScopeType == cmd.Body.ScopeType && p.ScopeID == cmd.Body.ScopeID && p.PositionCode == cmd.Body.PositionCode && p.Status == "active" {
@@ -50,6 +107,7 @@ func (f *fakeRosterRepo) CreatePosition(_ context.Context, cmd ports.CreatePosit
 		ValidFrom: now, RowVersion: 1, CreatedAt: now, UpdatedAt: now,
 	}
 	f.positions[id] = item
+	f.completeFakeIdem("position.create", key, fp, id)
 	return item, nil
 }
 
@@ -98,6 +156,16 @@ func (f *fakeRosterRepo) GetActivePositionForMember(_ context.Context, _ string,
 }
 
 func (f *fakeRosterRepo) ApplyLeave(_ context.Context, cmd ports.ApplyLeaveCommand) (domain.StaffLeave, error) {
+	key := fakePtr(cmd.Body.IdempotencyKey)
+	fp := "leave.apply|" + cmd.Body.WorkforceMemberID + "|" + cmd.Body.ScopeType + "|" + cmd.Body.ScopeID + "|" +
+		cmd.Body.ReasonCode + "|" + cmd.StartsAt.UTC().Format(time.RFC3339Nano) + "|" + cmd.EndsAt.UTC().Format(time.RFC3339Nano)
+	proceed, resultID, err := f.reserveFakeIdem("leave.apply", key, fp)
+	if err != nil {
+		return domain.StaffLeave{}, err
+	}
+	if !proceed {
+		return f.leaves[resultID], nil
+	}
 	f.nextSeq++
 	id := fakeUUID(f.nextSeq)
 	leave := domain.StaffLeave{
@@ -106,24 +174,43 @@ func (f *fakeRosterRepo) ApplyLeave(_ context.Context, cmd ports.ApplyLeaveComma
 		StartsAt: cmd.StartsAt.UTC().Format(time.RFC3339), EndsAt: cmd.EndsAt.UTC().Format(time.RFC3339), RowVersion: 1,
 	}
 	f.leaves[id] = leave
+	f.completeFakeIdem("leave.apply", key, fp, id)
 	return leave, nil
 }
 
-func (f *fakeRosterRepo) ApproveLeave(_ context.Context, cmd ports.ApproveLeaveCommand) (domain.StaffLeave, error) {
+func (f *fakeRosterRepo) ApproveLeave(_ context.Context, cmd ports.ApproveLeaveCommand) (domain.StaffLeave, bool, error) {
+	fp := "leave.approve|" + cmd.AbsenceID + "|" + fmt.Sprintf("%d", cmd.RowVersion)
+	proceed, resultID, err := f.reserveFakeIdem("leave.approve", cmd.IdempotencyKey, fp)
+	if err != nil {
+		return domain.StaffLeave{}, false, err
+	}
+	if !proceed {
+		// Exact replay: return the (already approved + resolved) original leave.
+		return f.leaves[resultID], true, nil
+	}
 	leave, ok := f.leaves[cmd.AbsenceID]
 	if !ok || leave.RowVersion != cmd.RowVersion || leave.Status != domain.LeaveStatusReported {
-		return domain.StaffLeave{}, ports.ErrConflict
+		return domain.StaffLeave{}, false, ports.ErrConflict
 	}
 	leave.Status = domain.LeaveStatusApproved
 	leave.RowVersion++
 	f.leaves[cmd.AbsenceID] = leave
-	return leave, nil
+	f.completeFakeIdem("leave.approve", cmd.IdempotencyKey, fp, cmd.AbsenceID)
+	return leave, false, nil
 }
 
-func (f *fakeRosterRepo) ResolveLeaveCoverage(_ context.Context, cmd ports.ResolveLeaveCoverageCommand) (domain.StaffLeave, error) {
+func (f *fakeRosterRepo) ResolveLeaveCoverage(_ context.Context, cmd ports.ResolveLeaveCoverageCommand) (domain.StaffLeave, bool, error) {
+	fp := "leave.resolve|" + cmd.AbsenceID + "|" + cmd.Status + "|" + fakePtr(cmd.ReplacementMemberID) + "|" + fakePtr(cmd.OverrideReason)
+	proceed, resultID, err := f.reserveFakeIdem("leave.resolve", cmd.IdempotencyKey, fp)
+	if err != nil {
+		return domain.StaffLeave{}, false, err
+	}
+	if !proceed {
+		return f.leaves[resultID], true, nil
+	}
 	leave, ok := f.leaves[cmd.AbsenceID]
 	if !ok {
-		return domain.StaffLeave{}, ports.ErrNotFound
+		return domain.StaffLeave{}, false, ports.ErrNotFound
 	}
 	leave.Status = cmd.Status
 	leave.ReplacementMemberID = cmd.ReplacementMemberID
@@ -132,7 +219,8 @@ func (f *fakeRosterRepo) ResolveLeaveCoverage(_ context.Context, cmd ports.Resol
 	}
 	leave.RowVersion++
 	f.leaves[cmd.AbsenceID] = leave
-	return leave, nil
+	f.completeFakeIdem("leave.resolve", cmd.IdempotencyKey, fp, cmd.AbsenceID)
+	return leave, false, nil
 }
 
 func (f *fakeRosterRepo) GetLeave(_ context.Context, _ string, absenceID string) (domain.StaffLeave, error) {
@@ -463,4 +551,130 @@ func TestRosterHasNoHolderWhenPositionUnassigned(t *testing.T) {
 	if owner.Owner.OwnerSource != domain.OwnerSourceNone || owner.Owner.Reason == nil || *owner.Owner.Reason != domain.OwnerReasonNoHolder {
 		t.Fatalf("unexpected owner for an unassigned position: %#v", owner.Owner)
 	}
+}
+
+// ---- request-level idempotency (service layer, DB-free) --------------------
+
+// applyLeaveOnly applies a leave and returns it in the reported state.
+func applyLeaveOnly(t *testing.T, svc *RosterService, memberID string) domain.StaffLeave {
+	t.Helper()
+	applied, err := svc.ApplyLeave(context.Background(), testTenant, testActor, domain.ApplyStaffLeaveRequest{
+		WorkforceMemberID: memberID, ScopeType: "center", ScopeID: rosterCenter,
+		ReasonCode: "personal", StartsOn: "2026-08-03", EndsOn: "2026-08-05",
+	}, "trace-apply")
+	if err != nil {
+		t.Fatalf("ApplyLeave(%s): %v", memberID, err)
+	}
+	return applied.Leave
+}
+
+func TestRosterApproveLeaveIdempotentReplaySkipsCoverageSideEffects(t *testing.T) {
+	svc, _, caps := rosterFixture(t)
+	ctx := context.Background()
+	leave := applyLeaveOnly(t, svc, memberPCM)
+	key := "approve-key-1"
+
+	// First approve: transitions + auto-resolves the backup + grants ONE capability.
+	first, err := svc.ApproveLeave(ctx, testTenant, testActor, leave.AbsenceID,
+		domain.ApproveStaffLeaveRequest{RowVersion: 1, IdempotencyKey: &key}, "t1")
+	if err != nil {
+		t.Fatalf("first ApproveLeave: %v", err)
+	}
+	if first.Leave.Status != domain.LeaveStatusApproved ||
+		first.Leave.ReplacementMemberID == nil || *first.Leave.ReplacementMemberID != memberBackupManager {
+		t.Fatalf("first approve: status=%q replacement=%v", first.Leave.Status, first.Leave.ReplacementMemberID)
+	}
+	if got := len(caps.grants[memberBackupManager]); got != 1 {
+		t.Fatalf("capability grants after first approve = %d, want 1", got)
+	}
+
+	// Exact replay with the SAME key + row_version. WITHOUT idempotency this
+	// would fail optimistic concurrency (the row is now approved at a higher
+	// version); WITH it, the original result is returned and NO new capability
+	// grant is created (downstream duplicate prevention).
+	replay, err := svc.ApproveLeave(ctx, testTenant, testActor, leave.AbsenceID,
+		domain.ApproveStaffLeaveRequest{RowVersion: 1, IdempotencyKey: &key}, "t2")
+	if err != nil {
+		t.Fatalf("replay ApproveLeave: %v", err)
+	}
+	if replay.Leave.Status != domain.LeaveStatusApproved ||
+		replay.Leave.ReplacementMemberID == nil || *replay.Leave.ReplacementMemberID != memberBackupManager {
+		t.Fatalf("replay approve returned unexpected leave: %#v", replay.Leave)
+	}
+	if got := len(caps.grants[memberBackupManager]); got != 1 {
+		t.Fatalf("capability grants after approve replay = %d, want 1 (no duplicate)", got)
+	}
+
+	// Same key, different payload (row_version) -> idempotency conflict.
+	_, err = svc.ApproveLeave(ctx, testTenant, testActor, leave.AbsenceID,
+		domain.ApproveStaffLeaveRequest{RowVersion: 2, IdempotencyKey: &key}, "t3")
+	assertAppCode(t, err, "idempotency_conflict")
+}
+
+func TestRosterResolveLeaveCoverageIdempotentReplay(t *testing.T) {
+	svc, _, caps := rosterFixture(t)
+	ctx := context.Background()
+	leave := applyLeaveOnly(t, svc, memberPCM)
+	// Approve first (no key) so the leave is approved + backup resolved.
+	if _, err := svc.ApproveLeave(ctx, testTenant, testActor, leave.AbsenceID,
+		domain.ApproveStaffLeaveRequest{RowVersion: 1}, "approve"); err != nil {
+		t.Fatalf("ApproveLeave: %v", err)
+	}
+	grantsAfterApprove := len(caps.grants[memberBackupManager])
+
+	// Explicit CEO override to the SAME backup, with an idempotency key.
+	key := "resolve-key-1"
+	first, err := svc.ResolveLeaveCoverage(ctx, testTenant, testActor, leave.AbsenceID,
+		domain.ResolveLeaveCoverageRequest{ReplacementMemberID: stringPtr(memberBackupManager), IdempotencyKey: &key}, "r1")
+	if err != nil {
+		t.Fatalf("first ResolveLeaveCoverage: %v", err)
+	}
+	if first.Leave.ReplacementMemberID == nil || *first.Leave.ReplacementMemberID != memberBackupManager {
+		t.Fatalf("resolve replacement = %v, want %q", first.Leave.ReplacementMemberID, memberBackupManager)
+	}
+	rvAfter := first.Leave.RowVersion
+
+	// Exact replay: no re-write (row_version stays), no duplicate capability.
+	replay, err := svc.ResolveLeaveCoverage(ctx, testTenant, testActor, leave.AbsenceID,
+		domain.ResolveLeaveCoverageRequest{ReplacementMemberID: stringPtr(memberBackupManager), IdempotencyKey: &key}, "r2")
+	if err != nil {
+		t.Fatalf("replay ResolveLeaveCoverage: %v", err)
+	}
+	if replay.Leave.RowVersion != rvAfter {
+		t.Fatalf("replay resolve row_version = %d, want unchanged %d", replay.Leave.RowVersion, rvAfter)
+	}
+	if got := len(caps.grants[memberBackupManager]); got != grantsAfterApprove {
+		t.Fatalf("capability grants after resolve replay = %d, want unchanged %d", got, grantsAfterApprove)
+	}
+
+	// Same key, different payload (escalate) -> idempotency conflict.
+	_, err = svc.ResolveLeaveCoverage(ctx, testTenant, testActor, leave.AbsenceID,
+		domain.ResolveLeaveCoverageRequest{ReplacementMemberID: stringPtr(""), IdempotencyKey: &key}, "r3")
+	assertAppCode(t, err, "idempotency_conflict")
+}
+
+func TestRosterCreatePositionIdempotentReplay(t *testing.T) {
+	svc, _, _ := rosterFixture(t)
+	ctx := context.Background()
+	key := "create-key-1"
+	body := domain.CreatePositionRequest{
+		WorkforceMemberID: memberFeedingAM1, ScopeType: "center", ScopeID: rosterCenter,
+		PositionCode: "trainer_am3", PositionTier: domain.PositionTierAssistant, IdempotencyKey: &key,
+	}
+	first, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: testTenant, ActorID: testActor, Body: body}, "t1")
+	if err != nil {
+		t.Fatalf("first CreatePosition: %v", err)
+	}
+	replay, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: testTenant, ActorID: testActor, Body: body}, "t2")
+	if err != nil {
+		t.Fatalf("replay CreatePosition: %v", err)
+	}
+	if replay.Position.PositionID != first.Position.PositionID {
+		t.Fatalf("replay position_id = %s, want original %s", replay.Position.PositionID, first.Position.PositionID)
+	}
+	// Same key, different payload -> conflict.
+	diff := body
+	diff.PositionTier = domain.PositionTierManager
+	_, err = svc.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: testTenant, ActorID: testActor, Body: diff}, "t3")
+	assertAppCode(t, err, "idempotency_conflict")
 }

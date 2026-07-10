@@ -320,6 +320,14 @@ func parseLimit(raw string) int {
 	return limit
 }
 
+// idempotencyKeyHeader reads the client's request-level replay key from the
+// standard Idempotency-Key header, or "" when absent. The header is the
+// authoritative source (matching the procurement/obligation write paths); a
+// same-name body field is only a fallback carrier.
+func idempotencyKeyHeader(r *http.Request) string {
+	return strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+}
+
 func tenantID(r *http.Request) string {
 	return httpmiddleware.TenantIDFromContext(r.Context())
 }

@@ -513,6 +513,9 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrConflict) {
 		return Conflict("write_conflict", "row changed or conflicts with an existing active record")
 	}
+	if errors.Is(err, ports.ErrIdempotencyConflict) {
+		return Conflict("idempotency_conflict", "Idempotency-Key was reused with a different request payload")
+	}
 	if errors.Is(err, ports.ErrInvalidFilter) {
 		return BadRequest("invalid_filter", "one or more filters are invalid")
 	}

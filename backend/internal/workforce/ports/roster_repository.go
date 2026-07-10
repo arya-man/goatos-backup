@@ -39,12 +39,21 @@ type ApproveLeaveCommand struct {
 	ActorID    string
 	AbsenceID  string
 	RowVersion int
+	// IdempotencyKey is the client-supplied request-level replay key (repo
+	// mandatory write-path contract). Empty means non-idempotent (skip
+	// reservation). Reserved + completed in the same tx as the status
+	// transition; an exact replay returns the original result without re-running
+	// the approval or its downstream coverage resolution.
+	IdempotencyKey string
 }
 
 // ResolveLeaveCoverageCommand persists the roster service's effective_backup
 // resolution (or CEO override) onto an already-approved absence: Status is
 // 'approved' (replacement resolved or none needed) or 'escalation_required'
 // (no backup resolvable / backup unavailable) -- see design doc S4.5/S4.7.
+// IdempotencyKey is set only on the EXPLICIT resolve-coverage endpoint path
+// (approve-driven auto-resolution is already guarded by the approve key);
+// empty means non-idempotent.
 type ResolveLeaveCoverageCommand struct {
 	TenantID            string
 	ActorID             string
@@ -52,6 +61,7 @@ type ResolveLeaveCoverageCommand struct {
 	Status              string
 	ReplacementMemberID *string
 	OverrideReason      *string
+	IdempotencyKey      string
 }
 
 type ListLeaveParams struct {
@@ -88,8 +98,15 @@ type RosterRepository interface {
 	GetActivePositionForMember(ctx context.Context, tenantID, workforceMemberID string) (domain.Position, error)
 
 	ApplyLeave(ctx context.Context, cmd ApplyLeaveCommand) (domain.StaffLeave, error)
-	ApproveLeave(ctx context.Context, cmd ApproveLeaveCommand) (domain.StaffLeave, error)
-	ResolveLeaveCoverage(ctx context.Context, cmd ResolveLeaveCoverageCommand) (domain.StaffLeave, error)
+	// ApproveLeave transitions reported->approved. The returned bool is true on
+	// an exact idempotent replay (the original result is returned without
+	// re-running the transition); the service then MUST NOT re-run coverage
+	// resolution / capability grants, avoiding downstream duplicates.
+	ApproveLeave(ctx context.Context, cmd ApproveLeaveCommand) (domain.StaffLeave, bool, error)
+	// ResolveLeaveCoverage persists a coverage resolution. The returned bool is
+	// true on an exact idempotent replay (explicit endpoint only); the service
+	// then MUST NOT re-run the temporary capability grant.
+	ResolveLeaveCoverage(ctx context.Context, cmd ResolveLeaveCoverageCommand) (domain.StaffLeave, bool, error)
 	GetLeave(ctx context.Context, tenantID, absenceID string) (domain.StaffLeave, error)
 	ListLeave(ctx context.Context, params ListLeaveParams) ([]domain.StaffLeave, error)
 	// IsMemberOnApprovedLeave reports whether the member has an in-effect

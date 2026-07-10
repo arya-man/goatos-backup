@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -142,5 +143,258 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 	}
 	if owner.Owner.OwnerWorkforceMemberID == nil || *owner.Owner.OwnerWorkforceMemberID != rosterBackupMember {
 		t.Fatalf("owner = %v, want %s", owner.Owner.OwnerWorkforceMemberID, rosterBackupMember)
+	}
+}
+
+// ---- Request-level idempotency (repo mandatory write-path contract) --------
+//
+// These exercise the REAL shared idempotency_keys table (migration 000001) via
+// the roster write paths, covering the four mandated cases per endpoint: first
+// call, exact replay (original result, NO new side effects), same-key/
+// different-payload rejection, and downstream duplicate prevention (no duplicate
+// coverage/capability rows on replay of approve + resolve-coverage).
+
+func strptr(s string) *string { return &s }
+
+func countActiveVaccExecCaps(t *testing.T, repo *Repository, tenantID, memberID, scopeID string) int {
+	t.Helper()
+	caps, err := repo.ListCapabilities(context.Background(), tenantID, memberID)
+	if err != nil {
+		t.Fatalf("ListCapabilities: %v", err)
+	}
+	n := 0
+	for _, c := range caps {
+		if c.CapabilityCode == "vaccination.execute" && c.ScopeType == "center" && c.ScopeID == scopeID && c.Status == "active" {
+			n++
+		}
+	}
+	return n
+}
+
+func TestRosterCreatePositionIdempotencyWithDockerPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint) VALUES
+  ($2, $1, 'ROSTER-PCM-01', 'Preventive Care Manager', 'active', 'other')`,
+		rosterTenant, rosterPCMMember); err != nil {
+		t.Fatalf("seed workforce_members: %v", err)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+	svc := workforceapp.NewRosterService(repo, repo)
+
+	key := "idem-create-001"
+	body := domain.CreatePositionRequest{
+		WorkforceMemberID: rosterPCMMember, ScopeType: "center", ScopeID: rosterCenterScope,
+		PositionCode: "preventive_care_manager", PositionTier: "manager", IdempotencyKey: &key,
+	}
+
+	// First call.
+	first, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: rosterTenant, ActorID: rosterActor, Body: body}, "t1")
+	if err != nil {
+		t.Fatalf("first CreatePosition: %v", err)
+	}
+
+	// Exact replay: same key + same payload returns the ORIGINAL position and
+	// inserts no second row.
+	replay, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: rosterTenant, ActorID: rosterActor, Body: body}, "t2")
+	if err != nil {
+		t.Fatalf("replay CreatePosition: %v", err)
+	}
+	if replay.Position.PositionID != first.Position.PositionID {
+		t.Fatalf("replay position_id = %s, want original %s", replay.Position.PositionID, first.Position.PositionID)
+	}
+	var rows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM workforce_positions WHERE tenant_id=$1 AND scope_id=$2 AND position_code=$3`,
+		rosterTenant, rosterCenterScope, "preventive_care_manager").Scan(&rows); err != nil {
+		t.Fatalf("count positions: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("workforce_positions rows after replay = %d, want 1 (no duplicate insert / no spurious replace)", rows)
+	}
+
+	// Same key, different payload -> idempotency conflict.
+	diff := body
+	diff.PositionTier = "head"
+	if _, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: rosterTenant, ActorID: rosterActor, Body: diff}, "t3"); err == nil {
+		t.Fatal("same-key/different-payload CreatePosition must be rejected, got nil error")
+	} else {
+		var appErr *workforceapp.Error
+		if !errors.As(err, &appErr) || appErr.Code != "idempotency_conflict" {
+			t.Fatalf("expected idempotency_conflict app error, got %v", err)
+		}
+	}
+}
+
+func TestRosterApplyLeaveIdempotencyWithDockerPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint) VALUES
+  ($2, $1, 'ROSTER-PCM-01', 'Preventive Care Manager', 'active', 'other')`,
+		rosterTenant, rosterPCMMember); err != nil {
+		t.Fatalf("seed workforce_members: %v", err)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+	svc := workforceapp.NewRosterService(repo, repo)
+
+	key := "idem-apply-001"
+	body := domain.ApplyStaffLeaveRequest{
+		WorkforceMemberID: rosterPCMMember, ScopeType: "center", ScopeID: rosterCenterScope,
+		ReasonCode: "personal", StartsOn: "2026-08-03", EndsOn: "2026-08-05", IdempotencyKey: &key,
+	}
+
+	first, err := svc.ApplyLeave(ctx, rosterTenant, rosterActor, body, "t1")
+	if err != nil {
+		t.Fatalf("first ApplyLeave: %v", err)
+	}
+	replay, err := svc.ApplyLeave(ctx, rosterTenant, rosterActor, body, "t2")
+	if err != nil {
+		t.Fatalf("replay ApplyLeave: %v", err)
+	}
+	if replay.Leave.AbsenceID != first.Leave.AbsenceID {
+		t.Fatalf("replay absence_id = %s, want original %s", replay.Leave.AbsenceID, first.Leave.AbsenceID)
+	}
+	var rows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM workforce_absences WHERE tenant_id=$1 AND workforce_member_id=$2`,
+		rosterTenant, rosterPCMMember).Scan(&rows); err != nil {
+		t.Fatalf("count absences: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("workforce_absences rows after replay = %d, want 1 (no duplicate leave)", rows)
+	}
+
+	diff := body
+	diff.EndsOn = "2026-08-06"
+	if _, err := svc.ApplyLeave(ctx, rosterTenant, rosterActor, diff, "t3"); err == nil {
+		t.Fatal("same-key/different-payload ApplyLeave must be rejected, got nil error")
+	} else {
+		var appErr *workforceapp.Error
+		if !errors.As(err, &appErr) || appErr.Code != "idempotency_conflict" {
+			t.Fatalf("expected idempotency_conflict app error, got %v", err)
+		}
+	}
+}
+
+func TestRosterApproveAndResolveCoverageIdempotencyWithDockerPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint) VALUES
+  ($2, $1, 'ROSTER-PCM-01', 'Preventive Care Manager', 'active', 'other'),
+  ($3, $1, 'ROSTER-BKP-01', 'Backup Manager', 'active', 'other')`,
+		rosterTenant, rosterPCMMember, rosterBackupMember); err != nil {
+		t.Fatalf("seed workforce_members: %v", err)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+	svc := workforceapp.NewRosterService(repo, repo)
+
+	backupGroup := "manager_backup"
+	if _, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: rosterTenant, ActorID: rosterActor,
+		Body: domain.CreatePositionRequest{WorkforceMemberID: rosterPCMMember, ScopeType: "center", ScopeID: rosterCenterScope,
+			PositionCode: "preventive_care_manager", PositionTier: "manager", BackupGroupCode: &backupGroup}}, "c1"); err != nil {
+		t.Fatalf("create pcm position: %v", err)
+	}
+	if _, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: rosterTenant, ActorID: rosterActor,
+		Body: domain.CreatePositionRequest{WorkforceMemberID: rosterBackupMember, ScopeType: "center", ScopeID: rosterCenterScope,
+			PositionCode: "backup_manager", PositionTier: "manager", IsBackupSlot: true, BackupGroupCode: &backupGroup}}, "c2"); err != nil {
+		t.Fatalf("create backup position: %v", err)
+	}
+
+	applied, err := svc.ApplyLeave(ctx, rosterTenant, rosterActor, domain.ApplyStaffLeaveRequest{
+		WorkforceMemberID: rosterPCMMember, ScopeType: "center", ScopeID: rosterCenterScope,
+		ReasonCode: "personal", StartsOn: "2026-08-03", EndsOn: "2026-08-05",
+	}, "apply")
+	if err != nil {
+		t.Fatalf("ApplyLeave: %v", err)
+	}
+	absenceID := applied.Leave.AbsenceID
+
+	// ---- Approve: first call auto-resolves the backup + grants ONE capability.
+	approveKey := "idem-approve-001"
+	approved, err := svc.ApproveLeave(ctx, rosterTenant, rosterActor, absenceID,
+		domain.ApproveStaffLeaveRequest{RowVersion: 1, IdempotencyKey: &approveKey}, "approve-1")
+	if err != nil {
+		t.Fatalf("first ApproveLeave: %v", err)
+	}
+	if approved.Leave.Status != domain.LeaveStatusApproved ||
+		approved.Leave.ReplacementMemberID == nil || *approved.Leave.ReplacementMemberID != rosterBackupMember {
+		t.Fatalf("first approve: status=%q replacement=%v", approved.Leave.Status, approved.Leave.ReplacementMemberID)
+	}
+	if n := countActiveVaccExecCaps(t, repo, rosterTenant, rosterBackupMember, rosterCenterScope); n != 1 {
+		t.Fatalf("capability rows after first approve = %d, want 1", n)
+	}
+	rvAfterApprove := approved.Leave.RowVersion
+
+	// ---- Exact replay of approve: returns the ORIGINAL resolved leave, runs NO
+	// side effects (no status re-write, no duplicate capability). Note: without
+	// idempotency this same-row_version replay would fail optimistic-concurrency.
+	replayApprove, err := svc.ApproveLeave(ctx, rosterTenant, rosterActor, absenceID,
+		domain.ApproveStaffLeaveRequest{RowVersion: 1, IdempotencyKey: &approveKey}, "approve-2")
+	if err != nil {
+		t.Fatalf("replay ApproveLeave: %v", err)
+	}
+	if replayApprove.Leave.RowVersion != rvAfterApprove {
+		t.Fatalf("replay approve row_version = %d, want unchanged %d (no re-run)", replayApprove.Leave.RowVersion, rvAfterApprove)
+	}
+	if n := countActiveVaccExecCaps(t, repo, rosterTenant, rosterBackupMember, rosterCenterScope); n != 1 {
+		t.Fatalf("capability rows after approve replay = %d, want 1 (downstream duplicate prevention)", n)
+	}
+
+	// ---- Same approve key, different payload (row_version) -> conflict.
+	if _, err := svc.ApproveLeave(ctx, rosterTenant, rosterActor, absenceID,
+		domain.ApproveStaffLeaveRequest{RowVersion: 2, IdempotencyKey: &approveKey}, "approve-3"); err == nil {
+		t.Fatal("same-key/different-payload ApproveLeave must be rejected, got nil error")
+	} else {
+		var appErr *workforceapp.Error
+		if !errors.As(err, &appErr) || appErr.Code != "idempotency_conflict" {
+			t.Fatalf("expected idempotency_conflict, got %v", err)
+		}
+	}
+
+	// ---- Explicit resolve-coverage (CEO override to the SAME backup): first
+	// call, then exact replay must not add a duplicate capability nor re-write.
+	resolveKey := "idem-resolve-001"
+	resolved, err := svc.ResolveLeaveCoverage(ctx, rosterTenant, rosterActor, absenceID,
+		domain.ResolveLeaveCoverageRequest{ReplacementMemberID: strptr(rosterBackupMember), IdempotencyKey: &resolveKey}, "resolve-1")
+	if err != nil {
+		t.Fatalf("first ResolveLeaveCoverage: %v", err)
+	}
+	if resolved.Leave.ReplacementMemberID == nil || *resolved.Leave.ReplacementMemberID != rosterBackupMember {
+		t.Fatalf("resolve replacement = %v, want %s", resolved.Leave.ReplacementMemberID, rosterBackupMember)
+	}
+	rvAfterResolve := resolved.Leave.RowVersion
+	capsAfterResolve := countActiveVaccExecCaps(t, repo, rosterTenant, rosterBackupMember, rosterCenterScope)
+
+	replayResolve, err := svc.ResolveLeaveCoverage(ctx, rosterTenant, rosterActor, absenceID,
+		domain.ResolveLeaveCoverageRequest{ReplacementMemberID: strptr(rosterBackupMember), IdempotencyKey: &resolveKey}, "resolve-2")
+	if err != nil {
+		t.Fatalf("replay ResolveLeaveCoverage: %v", err)
+	}
+	if replayResolve.Leave.RowVersion != rvAfterResolve {
+		t.Fatalf("replay resolve row_version = %d, want unchanged %d (no re-run)", replayResolve.Leave.RowVersion, rvAfterResolve)
+	}
+	if n := countActiveVaccExecCaps(t, repo, rosterTenant, rosterBackupMember, rosterCenterScope); n != capsAfterResolve {
+		t.Fatalf("capability rows after resolve replay = %d, want unchanged %d (downstream duplicate prevention)", n, capsAfterResolve)
+	}
+
+	// ---- Same resolve key, different payload (escalate) -> conflict.
+	if _, err := svc.ResolveLeaveCoverage(ctx, rosterTenant, rosterActor, absenceID,
+		domain.ResolveLeaveCoverageRequest{ReplacementMemberID: strptr(""), IdempotencyKey: &resolveKey}, "resolve-3"); err == nil {
+		t.Fatal("same-key/different-payload ResolveLeaveCoverage must be rejected, got nil error")
+	} else {
+		var appErr *workforceapp.Error
+		if !errors.As(err, &appErr) || appErr.Code != "idempotency_conflict" {
+			t.Fatalf("expected idempotency_conflict, got %v", err)
+		}
 	}
 }

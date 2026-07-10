@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -23,6 +24,17 @@ import (
 
 var _ ports.RosterRepository = (*Repository)(nil)
 var _ ports.CapabilityGranter = (*Repository)(nil)
+
+// Request-level idempotency scopes for the roster write paths (repo mandatory
+// write-path contract, see idempotency.go). Each namespaces the shared
+// idempotency_keys table so the same client key cannot collide across roster
+// operations.
+const (
+	idemScopePositionCreate = "position.create"
+	idemScopeLeaveApply     = "leave.apply"
+	idemScopeLeaveApprove   = "leave.approve"
+	idemScopeLeaveResolve   = "leave.resolve_coverage"
+)
 
 // ---- Positions --------------------------------------------------------
 
@@ -86,6 +98,28 @@ func (r *Repository) CreatePosition(ctx context.Context, cmd ports.CreatePositio
 	}
 	defer rollback(ctx, tx)
 
+	// Request-level idempotency: reserve the client key + a semantic fingerprint
+	// in the SAME tx as the insert. Exact replay returns the original position
+	// without re-running the replace/insert; same-key/different-payload rejects.
+	idemKey := ptrValue(cmd.Body.IdempotencyKey)
+	fingerprint := requestFingerprint(
+		cmd.Body.WorkforceMemberID, cmd.Body.ScopeType, cmd.Body.ScopeID, cmd.Body.PositionCode,
+		cmd.Body.PositionTier, fmt.Sprintf("%t", cmd.Body.IsBackupSlot),
+		ptrValue(cmd.Body.BackupGroupCode), ptrValue(cmd.Body.WeekOffWeekday), ptrValue(cmd.Body.ValidTo),
+	)
+	reservation, err := reserveIdempotency(ctx, tx, cmd.TenantID, idemScopePositionCreate, idemKey, fingerprint)
+	if err != nil {
+		return domain.Position{}, err
+	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.Position{}, err
+		}
+		return r.queryOnePosition(contextWithoutCancel(ctx), `
+WHERE tenant_id = $1::uuid AND position_id = $2::uuid
+LIMIT 1`, cmd.TenantID, reservation.resultID)
+	}
+
 	// Replace semantics: end the current active holder of this named seat (if
 	// any) before inserting the new one, so the partial unique index (at most
 	// one active holder per seat) is always satisfiable on reassignment.
@@ -116,6 +150,9 @@ RETURNING position_id::text`,
 	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "roster.position.assign", "workforce_position", positionID, &cmd.Body.ScopeType, map[string]any{
 		"position_code": cmd.Body.PositionCode, "workforce_member_id": cmd.Body.WorkforceMemberID, "scope_id": cmd.Body.ScopeID,
 	}); err != nil {
+		return domain.Position{}, err
+	}
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopePositionCreate, idemKey, "workforce_position", positionID); err != nil {
 		return domain.Position{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -208,6 +245,25 @@ func (r *Repository) ApplyLeave(ctx context.Context, cmd ports.ApplyLeaveCommand
 		return domain.StaffLeave{}, err
 	}
 	defer rollback(ctx, tx)
+
+	// Request-level idempotency in the same tx as the insert. Exact replay
+	// returns the original absence without inserting a second reported leave.
+	idemKey := ptrValue(cmd.Body.IdempotencyKey)
+	fingerprint := requestFingerprint(
+		cmd.Body.WorkforceMemberID, cmd.Body.ScopeType, cmd.Body.ScopeID, cmd.Body.ReasonCode,
+		cmd.StartsAt.UTC().Format(time.RFC3339Nano), cmd.EndsAt.UTC().Format(time.RFC3339Nano),
+	)
+	reservation, err := reserveIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApply, idemKey, fingerprint)
+	if err != nil {
+		return domain.StaffLeave{}, err
+	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.StaffLeave{}, err
+		}
+		return r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, reservation.resultID)
+	}
+
 	var absenceID string
 	err = tx.QueryRow(ctx, `
 INSERT INTO workforce_absences (
@@ -225,48 +281,95 @@ RETURNING absence_id::text`,
 	}); err != nil {
 		return domain.StaffLeave{}, err
 	}
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApply, idemKey, "workforce_absence", absenceID); err != nil {
+		return domain.StaffLeave{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.StaffLeave{}, err
 	}
 	return r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, absenceID)
 }
 
-func (r *Repository) ApproveLeave(ctx context.Context, cmd ports.ApproveLeaveCommand) (domain.StaffLeave, error) {
+func (r *Repository) ApproveLeave(ctx context.Context, cmd ports.ApproveLeaveCommand) (domain.StaffLeave, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return domain.StaffLeave{}, err
+		return domain.StaffLeave{}, false, err
 	}
 	defer rollback(ctx, tx)
+
+	// Request-level idempotency in the same tx as the status transition. Exact
+	// replay returns the original (already-approved-and-resolved) leave without
+	// re-running the transition -- the service uses the replay flag to also skip
+	// re-running coverage resolution / the capability grant (downstream dup
+	// prevention).
+	idemKey := cmd.IdempotencyKey
+	fingerprint := requestFingerprint(cmd.AbsenceID, fmt.Sprintf("%d", cmd.RowVersion))
+	reservation, err := reserveIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApprove, idemKey, fingerprint)
+	if err != nil {
+		return domain.StaffLeave{}, false, err
+	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.StaffLeave{}, false, err
+		}
+		leave, err := r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, cmd.AbsenceID)
+		return leave, true, err
+	}
+
 	tag, err := tx.Exec(ctx, `
 UPDATE workforce_absences
 SET status = 'approved', approved_by = $4::uuid, updated_at = now(), row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND absence_id = $2::uuid AND row_version = $3 AND status = 'reported'`,
 		cmd.TenantID, cmd.AbsenceID, cmd.RowVersion, cmd.ActorID)
 	if err != nil {
-		return domain.StaffLeave{}, mapWriteErr(err)
+		return domain.StaffLeave{}, false, mapWriteErr(err)
 	}
 	if tag.RowsAffected() == 0 {
-		return domain.StaffLeave{}, ports.ErrConflict
+		return domain.StaffLeave{}, false, ports.ErrConflict
 	}
 	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "roster.leave.approve", "workforce_absence", cmd.AbsenceID, nil, map[string]any{"row_version": cmd.RowVersion}); err != nil {
-		return domain.StaffLeave{}, err
+		return domain.StaffLeave{}, false, err
+	}
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApprove, idemKey, "workforce_absence", cmd.AbsenceID); err != nil {
+		return domain.StaffLeave{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return domain.StaffLeave{}, err
+		return domain.StaffLeave{}, false, err
 	}
-	return r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, cmd.AbsenceID)
+	leave, err := r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, cmd.AbsenceID)
+	return leave, false, err
 }
 
-func (r *Repository) ResolveLeaveCoverage(ctx context.Context, cmd ports.ResolveLeaveCoverageCommand) (domain.StaffLeave, error) {
+func (r *Repository) ResolveLeaveCoverage(ctx context.Context, cmd ports.ResolveLeaveCoverageCommand) (domain.StaffLeave, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return domain.StaffLeave{}, err
+		return domain.StaffLeave{}, false, err
 	}
 	defer rollback(ctx, tx)
+
+	// Request-level idempotency (explicit resolve-coverage endpoint only; the
+	// approve-driven auto path passes an empty key and is guarded by the approve
+	// key instead). Reserved in the same tx as the coverage UPDATE; exact replay
+	// returns the original resolved leave without re-writing, and the service
+	// uses the replay flag to skip re-granting the temporary capability.
+	idemKey := cmd.IdempotencyKey
+	fingerprint := requestFingerprint(cmd.AbsenceID, cmd.Status, ptrValue(cmd.ReplacementMemberID), ptrValue(cmd.OverrideReason))
+	reservation, err := reserveIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveResolve, idemKey, fingerprint)
+	if err != nil {
+		return domain.StaffLeave{}, false, err
+	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.StaffLeave{}, false, err
+		}
+		leave, err := r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, cmd.AbsenceID)
+		return leave, true, err
+	}
+
 	tag, err := tx.Exec(ctx, `
 UPDATE workforce_absences
 SET status = $3,
@@ -276,10 +379,10 @@ SET status = $3,
 WHERE tenant_id = $1::uuid AND absence_id = $2::uuid AND status IN ('approved', 'escalation_required')`,
 		cmd.TenantID, cmd.AbsenceID, cmd.Status, ptrValue(cmd.ReplacementMemberID), ptrValue(cmd.OverrideReason))
 	if err != nil {
-		return domain.StaffLeave{}, mapWriteErr(err)
+		return domain.StaffLeave{}, false, mapWriteErr(err)
 	}
 	if tag.RowsAffected() == 0 {
-		return domain.StaffLeave{}, ports.ErrConflict
+		return domain.StaffLeave{}, false, ports.ErrConflict
 	}
 	action := "roster.leave.coverage_resolved"
 	if cmd.Status == domain.LeaveStatusEscalationRequired {
@@ -288,12 +391,16 @@ WHERE tenant_id = $1::uuid AND absence_id = $2::uuid AND status IN ('approved', 
 	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, action, "workforce_absence", cmd.AbsenceID, nil, map[string]any{
 		"status": cmd.Status, "replacement_member_id": ptrValue(cmd.ReplacementMemberID),
 	}); err != nil {
-		return domain.StaffLeave{}, err
+		return domain.StaffLeave{}, false, err
+	}
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveResolve, idemKey, "workforce_absence", cmd.AbsenceID); err != nil {
+		return domain.StaffLeave{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return domain.StaffLeave{}, err
+		return domain.StaffLeave{}, false, err
 	}
-	return r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, cmd.AbsenceID)
+	leave, err := r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, cmd.AbsenceID)
+	return leave, false, err
 }
 
 func (r *Repository) GetLeave(ctx context.Context, tenantID, absenceID string) (domain.StaffLeave, error) {

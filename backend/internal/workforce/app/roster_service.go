@@ -185,16 +185,23 @@ func (s *RosterService) ApproveLeave(ctx context.Context, tenantID, actorID, abs
 	if body.RowVersion <= 0 {
 		return nil, BadRequest("invalid_row_version", "row_version is required")
 	}
-	leave, err := s.repo.ApproveLeave(ctx, ports.ApproveLeaveCommand{
-		TenantID:   tenantID,
-		ActorID:    actorID,
-		AbsenceID:  absenceID,
-		RowVersion: body.RowVersion,
+	leave, replayed, err := s.repo.ApproveLeave(ctx, ports.ApproveLeaveCommand{
+		TenantID:       tenantID,
+		ActorID:        actorID,
+		AbsenceID:      absenceID,
+		RowVersion:     body.RowVersion,
+		IdempotencyKey: ptrString(body.IdempotencyKey),
 	})
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
-	resolved, err := s.resolveLeaveCoverage(ctx, tenantID, actorID, leave, nil, nil)
+	if replayed {
+		// Exact idempotent replay: the first call already ran coverage
+		// resolution + any capability grant. Return the original resolved leave
+		// without re-running side effects (downstream duplicate prevention).
+		return &domain.StaffLeaveResponse{Leave: leave, TraceID: traceID}, nil
+	}
+	resolved, err := s.resolveLeaveCoverage(ctx, tenantID, actorID, leave, nil, nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +237,7 @@ func (s *RosterService) ResolveLeaveCoverage(ctx context.Context, tenantID, acto
 		}
 		explicit = &v
 	}
-	resolved, err := s.resolveLeaveCoverage(ctx, tenantID, actorID, leave, explicit, body.OverrideReason)
+	resolved, err := s.resolveLeaveCoverage(ctx, tenantID, actorID, leave, explicit, body.OverrideReason, ptrString(body.IdempotencyKey))
 	if err != nil {
 		return nil, err
 	}
@@ -268,8 +275,12 @@ func (s *RosterService) ListLeave(ctx context.Context, params ports.ListLeavePar
 // resolution and ResolveLeaveCoverage's re-resolution/override. explicitReplacement
 // nil means "auto-resolve via effectiveBackup"; non-nil (even "") means a
 // human is setting/clearing the replacement directly, which is validated
-// against the SAME effectiveBackup result -- never a free pick.
-func (s *RosterService) resolveLeaveCoverage(ctx context.Context, tenantID, actorID string, leave domain.StaffLeave, explicitReplacement, overrideReason *string) (domain.StaffLeave, error) {
+// against the SAME effectiveBackup result -- never a free pick. idempotencyKey
+// is non-empty ONLY on the explicit resolve-coverage endpoint path (the
+// approve-driven auto path is guarded by the approve key instead): it is
+// reserved in the repo write's tx, and when the write replays, the temporary
+// capability grant is skipped so a replay creates no duplicate capability row.
+func (s *RosterService) resolveLeaveCoverage(ctx context.Context, tenantID, actorID string, leave domain.StaffLeave, explicitReplacement, overrideReason *string, idempotencyKey string) (domain.StaffLeave, error) {
 	startsAt, err := time.Parse(time.RFC3339, leave.StartsAt)
 	if err != nil {
 		return domain.StaffLeave{}, Internal("leave has an invalid starts_at")
@@ -282,9 +293,11 @@ func (s *RosterService) resolveLeaveCoverage(ctx context.Context, tenantID, acto
 	holder, err := s.repo.GetActivePositionForMember(ctx, tenantID, leave.WorkforceMemberID)
 	if errors.Is(err, ports.ErrNotFound) || (err == nil && (holder.ScopeType != leave.ScopeType || holder.ScopeID != leave.ScopeID)) {
 		// No fixed position at this leave's scope -- nothing to cover.
-		return s.repo.ResolveLeaveCoverage(ctx, ports.ResolveLeaveCoverageCommand{
+		resolvedLeave, _, err := s.repo.ResolveLeaveCoverage(ctx, ports.ResolveLeaveCoverageCommand{
 			TenantID: tenantID, ActorID: actorID, AbsenceID: leave.AbsenceID, Status: domain.LeaveStatusApproved,
+			IdempotencyKey: idempotencyKey,
 		})
+		return resolvedLeave, mapRepoErr(err)
 	}
 	if err != nil {
 		return domain.StaffLeave{}, mapRepoErr(err)
@@ -293,10 +306,12 @@ func (s *RosterService) resolveLeaveCoverage(ctx context.Context, tenantID, acto
 	if explicitReplacement != nil {
 		if *explicitReplacement == "" {
 			// Explicit clear/escalate.
-			return s.repo.ResolveLeaveCoverage(ctx, ports.ResolveLeaveCoverageCommand{
+			resolvedLeave, _, err := s.repo.ResolveLeaveCoverage(ctx, ports.ResolveLeaveCoverageCommand{
 				TenantID: tenantID, ActorID: actorID, AbsenceID: leave.AbsenceID,
 				Status: domain.LeaveStatusEscalationRequired, OverrideReason: overrideReason,
+				IdempotencyKey: idempotencyKey,
 			})
+			return resolvedLeave, mapRepoErr(err)
 		}
 		backup, err := s.effectiveBackup(ctx, tenantID, holder, startsAt)
 		if err != nil {
@@ -305,12 +320,18 @@ func (s *RosterService) resolveLeaveCoverage(ctx context.Context, tenantID, acto
 		if backup == nil || backup.WorkforceMemberID != *explicitReplacement {
 			return domain.StaffLeave{}, Conflict("cross_cover_rejected", "replacement_member_id must be the configured backup for this position's group")
 		}
-		resolvedLeave, err := s.repo.ResolveLeaveCoverage(ctx, ports.ResolveLeaveCoverageCommand{
+		resolvedLeave, replayed, err := s.repo.ResolveLeaveCoverage(ctx, ports.ResolveLeaveCoverageCommand{
 			TenantID: tenantID, ActorID: actorID, AbsenceID: leave.AbsenceID,
 			Status: domain.LeaveStatusApproved, ReplacementMemberID: explicitReplacement, OverrideReason: overrideReason,
+			IdempotencyKey: idempotencyKey,
 		})
 		if err != nil {
-			return domain.StaffLeave{}, err
+			return domain.StaffLeave{}, mapRepoErr(err)
+		}
+		if replayed {
+			// Exact replay: the temporary capability grant already ran on the
+			// first call -- do not re-grant (downstream duplicate prevention).
+			return resolvedLeave, nil
 		}
 		if err := s.grantTemporaryExecuteCapability(ctx, tenantID, actorID, holder.PositionCode, *explicitReplacement, holder.ScopeType, holder.ScopeID, startsAt, endsAt); err != nil {
 			return domain.StaffLeave{}, err
@@ -323,9 +344,11 @@ func (s *RosterService) resolveLeaveCoverage(ctx context.Context, tenantID, acto
 		return domain.StaffLeave{}, err
 	}
 	if backup == nil {
-		return s.repo.ResolveLeaveCoverage(ctx, ports.ResolveLeaveCoverageCommand{
+		resolvedLeave, _, err := s.repo.ResolveLeaveCoverage(ctx, ports.ResolveLeaveCoverageCommand{
 			TenantID: tenantID, ActorID: actorID, AbsenceID: leave.AbsenceID, Status: domain.LeaveStatusEscalationRequired,
+			IdempotencyKey: idempotencyKey,
 		})
+		return resolvedLeave, mapRepoErr(err)
 	}
 	// P1a: check backup availability across the ENTIRE coverage window (design doc S4.7)
 	unavailable, err := s.isPositionHolderUnavailableInWindow(ctx, tenantID, *backup, startsAt, endsAt)
@@ -333,17 +356,24 @@ func (s *RosterService) resolveLeaveCoverage(ctx context.Context, tenantID, acto
 		return domain.StaffLeave{}, err
 	}
 	if unavailable {
-		return s.repo.ResolveLeaveCoverage(ctx, ports.ResolveLeaveCoverageCommand{
+		resolvedLeave, _, err := s.repo.ResolveLeaveCoverage(ctx, ports.ResolveLeaveCoverageCommand{
 			TenantID: tenantID, ActorID: actorID, AbsenceID: leave.AbsenceID, Status: domain.LeaveStatusEscalationRequired,
+			IdempotencyKey: idempotencyKey,
 		})
+		return resolvedLeave, mapRepoErr(err)
 	}
 	backupMemberID := backup.WorkforceMemberID
-	resolvedLeave, err := s.repo.ResolveLeaveCoverage(ctx, ports.ResolveLeaveCoverageCommand{
+	resolvedLeave, replayed, err := s.repo.ResolveLeaveCoverage(ctx, ports.ResolveLeaveCoverageCommand{
 		TenantID: tenantID, ActorID: actorID, AbsenceID: leave.AbsenceID,
 		Status: domain.LeaveStatusApproved, ReplacementMemberID: &backupMemberID,
+		IdempotencyKey: idempotencyKey,
 	})
 	if err != nil {
-		return domain.StaffLeave{}, err
+		return domain.StaffLeave{}, mapRepoErr(err)
+	}
+	if replayed {
+		// Exact replay: capability already granted on the first call; skip.
+		return resolvedLeave, nil
 	}
 	// P1b: pass validFrom = startsAt so capability is active only during the coverage window (design doc S4.6)
 	if err := s.grantTemporaryExecuteCapability(ctx, tenantID, actorID, holder.PositionCode, backupMemberID, holder.ScopeType, holder.ScopeID, startsAt, endsAt); err != nil {
@@ -583,6 +613,16 @@ func (s *RosterService) escalate(ctx context.Context, tenantID, scopeType, scope
 }
 
 // ---- shared roster helpers ------------------------------------------------
+
+// ptrString dereferences an optional string, returning "" when nil. Used to
+// pass optional client idempotency keys through to the repository as plain
+// strings (empty means "non-idempotent, skip reservation").
+func ptrString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return strings.TrimSpace(*s)
+}
 
 func validRosterScope(tenantID, scopeType, scopeID string) bool {
 	switch scopeType {
