@@ -167,8 +167,12 @@ var protectedRoutes = []Route{
 	{OperationID: "resolveVaccinationOwner", Method: "GET", Pattern: "/admin/roster/vaccination-owner", Permissions: []string{RosterRead}},
 	{OperationID: "listBackupConfig", Method: "GET", Pattern: "/admin/roster/backup-config", Permissions: []string{RosterRead}},
 	{OperationID: "listCoverage", Method: "GET", Pattern: "/admin/roster/coverage", Permissions: []string{RosterRead}},
-	{OperationID: "getOperatorTimetable", Method: "GET", Pattern: "/app/roster/timetable", Permissions: []string{RosterRead}},
-	{OperationID: "getMyCoverage", Method: "GET", Pattern: "/app/roster/my-coverage", Permissions: []string{}}, // All authenticated actors
+	// App-tier operator-facing roster reads: gated on AppBootstrap = any authenticated
+	// app user (operators + leadership all hold it), NOT the admin-tier RosterRead.
+	// RolesAuthorize DENIES an empty required set, so "all authenticated" must name a
+	// permission every app principal has — AppBootstrap is exactly that.
+	{OperationID: "getOperatorTimetable", Method: "GET", Pattern: "/app/roster/timetable", Permissions: []string{AppBootstrap}},
+	{OperationID: "getMyCoverage", Method: "GET", Pattern: "/app/roster/my-coverage", Permissions: []string{AppBootstrap}},
 }
 
 func ProtectedRoutes() []Route {
