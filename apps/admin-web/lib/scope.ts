@@ -4,7 +4,7 @@
 // screens.
 //
 // URL params:
-//   scope_mode = company | park        (company = all parks)
+//   scope_mode = company | park        (park without `park` = all parks as park/shed breakdown)
 //   park       = <location uuid>        (omitted/`all` = company-wide)
 //   range      = last_7_days | last_30_days | custom
 //   as_of      = YYYY-MM-DD             (compute state as-of this date; default today)
@@ -36,7 +36,8 @@ export function parseScope(sp: RouteSearchParams | undefined): Scope {
   const params = sp ?? {};
   const parkRaw = one(params, "park");
   const parkId = parkRaw && parkRaw !== "all" ? parkRaw : undefined;
-  const mode: ScopeMode = parkId ? "park" : "company";
+  const modeRaw = one(params, "scope_mode");
+  const mode: ScopeMode = parkId || modeRaw === "park" ? "park" : "company";
   const range = (RANGES.find((r) => r === one(params, "range")) ?? "last_30_days") as RangeKey;
   const domainRaw = one(params, "domain");
   return {
@@ -92,9 +93,9 @@ export function scopeHref(
   const range = overrides.range ?? scope.range;
   const asOf = overrides.asOf ?? scope.asOf;
   const domain = "domain" in overrides ? overrides.domain : scope.domain ?? null;
-  if (mode === "park" && park) {
+  if (mode === "park") {
     p.set("scope_mode", "park");
-    p.set("park", park);
+    if (park) p.set("park", park);
   } else {
     p.set("scope_mode", "company");
   }

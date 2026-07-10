@@ -162,6 +162,7 @@ export function MeshaShell({
   // HUMAN labels (the park dropdown writes the backend-safe location UUID). Every screen reads the same
   // params, so the bar can never disagree with a page body.
   const scope = parseScope(Object.fromEntries((searchParams ?? new URLSearchParams()).entries()));
+  const searchKey = searchParams?.toString() ?? "";
   const defaultPark = parks[0] ?? null;
   const activeParkId = scope.parkId;
   const renderedScope = activeParkId ? { ...scope, mode: "park" as const, parkId: activeParkId } : scope;
@@ -172,9 +173,12 @@ export function MeshaShell({
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
   const [rangeMenuOpen, setRangeMenuOpen] = useState(false);
+  const [routePending, setRoutePending] = useState(false);
   const [navCounts, setNavCounts] = useState<NavCounts>({ actionCenter: null, pc: null });
   const [navTrail, setNavTrail] = useState<TrailItem[]>([]);
   const trailRef = useRef<TrailItem[]>([]);
+  const pendingAnchorRef = useRef<HTMLAnchorElement | null>(null);
+  const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     for (const g of groups) {
@@ -215,16 +219,54 @@ export function MeshaShell({
     }
   }, [applyNavTrail]);
 
+  const clearRoutePending = useCallback(() => {
+    if (pendingTimerRef.current) {
+      clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = null;
+    }
+    pendingAnchorRef.current?.removeAttribute("data-route-pending");
+    pendingAnchorRef.current?.removeAttribute("aria-busy");
+    pendingAnchorRef.current = null;
+    document.documentElement.classList.remove("route-busy");
+    setRoutePending(false);
+  }, []);
+
+  const startRoutePending = useCallback((anchor?: HTMLAnchorElement | null) => {
+    pendingAnchorRef.current?.removeAttribute("data-route-pending");
+    pendingAnchorRef.current?.removeAttribute("aria-busy");
+    if (anchor) {
+      anchor.setAttribute("data-route-pending", "true");
+      anchor.setAttribute("aria-busy", "true");
+      pendingAnchorRef.current = anchor;
+    } else {
+      pendingAnchorRef.current = null;
+    }
+    document.documentElement.classList.add("route-busy");
+    setRoutePending(true);
+    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    pendingTimerRef.current = setTimeout(clearRoutePending, 8000);
+  }, [clearRoutePending]);
+
+  useEffect(() => {
+    const id = window.setTimeout(clearRoutePending, 0);
+    return () => window.clearTimeout(id);
+  }, [pathname, searchKey, clearRoutePending]);
+
+  useEffect(() => clearRoutePending, [clearRoutePending]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     function onClick(event: MouseEvent) {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const target = event.target as Element | null;
       const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
-      if (!anchor || anchor.target || anchor.hasAttribute("download") || anchor.closest(".navback")) return;
+      if (!anchor || anchor.target || anchor.hasAttribute("download")) return;
+      if (anchor.getAttribute("aria-disabled") === "true") return;
       const nextUrl = new URL(anchor.href, window.location.href);
       if (nextUrl.origin !== window.location.origin) return;
-      if (nextUrl.pathname === window.location.pathname) return;
+      if (nextUrl.pathname === window.location.pathname && nextUrl.search === window.location.search) return;
+      startRoutePending(anchor);
+      if (anchor.closest(".navback")) return;
 
       if (anchor.closest(".side")) {
         applyNavTrail([]);
@@ -248,7 +290,7 @@ export function MeshaShell({
       document.removeEventListener("click", onClick, true);
       window.removeEventListener("popstate", onPop);
     };
-  }, [applyNavTrail, contract, popTrailForPath]);
+  }, [applyNavTrail, contract, popTrailForPath, startRoutePending]);
 
   useEffect(() => {
     let cancelled = false;
@@ -339,9 +381,8 @@ export function MeshaShell({
         {/* Topbar owns park/date scope only. The active module (Preventive Care (PC) › Vaccination) is shown by the sidebar
             nav + the page crumb, so no module badge belongs here. Vaccination is a module under Preventive Care (PC), not
             an app-wide scope. */}
-        {/* Scope mode toggle — Company-wide (rollup) vs Park-wise (park/shed breakdown). Bare URLs stay
-            company-wide; choosing Park-wise writes the first backend-returned tenant park when available,
-            using the same backend-safe scope params as the park picker. */}
+        {/* Scope mode toggle — Company-wide (rollup) vs Park-wise (park/shed breakdown). Park-wise does
+            not force a park filter; users choose a concrete park separately from the park picker. */}
         <div className="parkpick" style={{ marginRight: 6 }}>
           <Link
             href={scopeHref(pathname, scope, { park: null, mode: "company" })}
@@ -353,7 +394,7 @@ export function MeshaShell({
             {companyScopeOption?.label}
           </Link>
           <Link
-            href={defaultPark ? scopeHref(pathname, scope, { park: activeParkId ?? defaultPark.id, mode: "park" }) : scopeHref(pathname, scope, { mode: "park" })}
+            href={defaultPark ? scopeHref(pathname, scope, { park: activeParkId ?? null, mode: "park" }) : scopeHref(pathname, scope)}
             replace
             scroll={false}
             className={renderedScope.mode === "park" ? "on" : ""}
@@ -391,14 +432,17 @@ export function MeshaShell({
             <div className="pm-label">{contract.top_bar.park_selector.label}</div>
             <div className="pm-list">
               <Link
-                href={scopeHref(pathname, scope, { park: null, mode: "company" })}
+                href={scopeHref(pathname, scope, { park: null, mode: renderedScope.mode })}
                 replace
                 scroll={false}
                 onClick={closeMenus}
                 className={`pm-item ${!activeParkId ? "on" : ""}`}
               >
                 <span className="pn">
-                  {shellCopy(contract, "scope.all_parks")} <span className="muted" style={{ fontWeight: 400 }}>· {shellCopy(contract, "scope.company_wide")}</span>
+                  {shellCopy(contract, "scope.all_parks")}{" "}
+                  <span className="muted" style={{ fontWeight: 400 }}>
+                    · {renderedScope.mode === "park" ? (parkScopeOption?.label ?? shellCopy(contract, "scope.company_wide")) : shellCopy(contract, "scope.company_wide")}
+                  </span>
                 </span>
                 {!activeParkId ? <Check className="ic tick" style={{ width: 14 }} aria-hidden="true" /> : null}
               </Link>
@@ -514,9 +558,12 @@ export function MeshaShell({
           </div>
         </div>
       </div>
+      <div className={`routebar ${routePending ? "on" : ""}`} aria-hidden="true">
+        <span />
+      </div>
 
       {showSidebar ? <div className={`navscrim ${navOpen ? "on" : ""}`} onClick={() => setNavOpen(false)} /> : null}
-      <div className={`layout ${rail ? "rail" : ""}`}>
+      <div className={`layout ${rail ? "rail" : ""} ${routePending ? "route-pending" : ""}`}>
         {showSidebar ? (
         <aside className={`side ${navOpen ? "open" : ""}`} id="side">
           {primary.map((n) => {
@@ -617,6 +664,7 @@ export function MeshaShell({
                 type="button"
                 className="nbback"
                 onClick={() => {
+                  startRoutePending();
                   applyNavTrail(navTrail.slice(0, -1));
                   router.back();
                 }}

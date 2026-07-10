@@ -1,19 +1,31 @@
-import { getSop, getVaccinationOperations, isAuthRequiredError, listSops } from "@/lib/api/server";
-import type { VaccinationOperationsResponse } from "@/lib/api/server";
+import {
+  getSop,
+  getVaccinationExecution,
+  getVaccinationOperations,
+  isAuthRequiredError,
+  listSops,
+  type VaccinationOperationsResponse,
+} from "@/lib/api/server";
 import { isVaccinationSop, toSopView, type SopCardView } from "@/features/sops";
-import { type RouteSearchParams } from "@/lib/search-params";
+import { one, type RouteSearchParams } from "@/lib/search-params";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { backendScope, parseScope } from "@/lib/scope";
+import type { VaccinationExecutionWorkState } from "@/lib/api/vaccination-execution";
 import { VaccinationExecutionSection } from "./execution-section";
 import { VaccinationStatusMatrix } from "./status-matrix";
 import { VaccinationCohortDetail } from "./cohort-detail";
 import { VaccinationSopButton } from "./sop-quick-view";
 import { VaccinationHeaderActions } from "./vaccination-action-dialogs";
+import { WORK_STATE_ORDER } from "@/features/vaccination-execution/work-state";
 
 // Linked vaccination SOP for the header quick-view. Derived from the REAL /admin/sops data (same source as
 // /sops), filtered to the vaccination slice and reduced to the primary (active preferred) SOP + its latest
 // version. Errors/auth are surfaced in the modal rather than swallowed into a fake "no SOP" state.
 type LinkedSop = { view: SopCardView | null; error?: { code?: string; message: string } | null; authRequired?: boolean };
+
+function executionWorkState(sp: RouteSearchParams): VaccinationExecutionWorkState | undefined {
+  return WORK_STATE_ORDER.find((state) => state === one(sp, "state"));
+}
 
 async function loadLinkedVaccinationSop(): Promise<LinkedSop> {
   const listed = await listSops({ limit: 200 });
@@ -52,9 +64,10 @@ export async function VaccinationOperationsPage({
   const scope = parseScope(sp);
   const { parkId, asOf } = backendScope(scope);
 
-  const [operations, linkedSop] = await Promise.all([
+  const [operations, linkedSop, execution] = await Promise.all([
     getVaccinationOperations({ parkId, asOf }),
     loadLinkedVaccinationSop(),
+    getVaccinationExecution({ parkId, asOf, workState: executionWorkState(sp), limit: 500 }),
   ]);
   const ops: VaccinationOperationsResponse | null = operations.ok ? operations.data : null;
   const driveSteps = optionGroup(pageContract, "drive_steps").map((step) => {
@@ -106,7 +119,7 @@ export async function VaccinationOperationsPage({
 
       {/* Shed-event execution — the per-shed drive events (park/shed/owner/stock/status/next action).
           A NORMAL stacked section (mock "drive — shed events"), not a tab. Anchor id for deep links. */}
-      <VaccinationExecutionSection searchParams={sp} pageContract={pageContract} />
+      <VaccinationExecutionSection searchParams={sp} pageContract={pageContract} executionResult={execution} />
     </div>
   );
 }

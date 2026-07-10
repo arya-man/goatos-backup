@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Ban, ChevronRight, Layers, MapPin, ShieldCheck, Syringe, UserRound, Warehouse, X } from "lucide-react";
-import { getVaccinationExecution } from "@/lib/api/server";
+import { getVaccinationExecution, type ApiResult } from "@/lib/api/server";
 import type {
+  VaccinationExecutionResponse,
   VaccinationExecutionRow,
   VaccinationExecutionSeverity,
   VaccinationExecutionWorkState,
@@ -194,12 +195,14 @@ export async function VaccinationExecutionBoard({
   basePath = "/vaccination",
   baseParams = {},
   pageContract,
+  executionResult,
 }: {
   searchParams?: RouteSearchParams;
   basePath?: string;
   // Query params always kept on filter/reset links (e.g. {section:"execution"}) so the embedding tab stays selected.
   baseParams?: Record<string, string>;
   pageContract: AdminUiPageContract;
+  executionResult?: ApiResult<VaccinationExecutionResponse>;
 }) {
   const sp = searchParams ?? {};
   const stateFilter = (WORK_STATE_ORDER.find((s) => s === one(sp, "state")) ?? "all") as VaccinationExecutionWorkState | "all";
@@ -207,12 +210,14 @@ export async function VaccinationExecutionBoard({
   const scope = parseScope(sp);
   const { parkId, asOf } = backendScope(scope);
 
-  const result = await getVaccinationExecution({
-    parkId,
-    asOf,
-    workState: stateFilter === "all" ? undefined : stateFilter,
-    limit: 500,
-  });
+  const result =
+    executionResult ??
+    (await getVaccinationExecution({
+      parkId,
+      asOf,
+      workState: stateFilter === "all" ? undefined : stateFilter,
+      limit: 500,
+    }));
   const allRows: VaccinationExecutionRow[] = result.ok ? result.data.rows : [];
 
   let rows = allRows;
