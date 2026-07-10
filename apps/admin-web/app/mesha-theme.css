@@ -871,3 +871,30 @@
     .builderwrap{grid-template-columns:1fr}
     .builderside{position:static}
   }
+
+  /* ===== Sign-in (split-screen) ===== */
+  .login-shell{min-height:100vh;display:grid;grid-template-columns:1.05fr .95fr;background:var(--bg);color:var(--ink)}
+  .login-brand{position:relative;display:flex;flex-direction:column;justify-content:space-between;gap:34px;padding:48px 54px;background:var(--sidebar);border-right:1px solid var(--line);overflow:hidden}
+  .login-brand::before{content:"";position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--brand) 7%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--brand) 7%,transparent) 1px,transparent 1px);background-size:36px 36px;-webkit-mask-image:radial-gradient(130% 95% at 12% 18%,#000 38%,transparent 100%);mask-image:radial-gradient(130% 95% at 12% 18%,#000 38%,transparent 100%);pointer-events:none}
+  .login-brand>*{position:relative;z-index:1}
+  .login-brand .brand .logo{width:38px;height:38px;font-size:18px}
+  .login-brand .brand b{font-size:22px}
+  .login-brand .brand small{display:block;color:var(--brand);font-weight:800;font-size:10.5px;letter-spacing:.24em;margin-top:2px}
+  .login-brand-mid{display:flex;flex-direction:column;align-items:flex-start;gap:20px;max-width:540px}
+  .login-badge{display:inline-flex;align-items:center;gap:7px;border:1px solid color-mix(in srgb,var(--brand) 45%,var(--line));background:var(--brand-soft);color:var(--brand);border-radius:999px;padding:6px 13px;font-size:10.5px;font-weight:800;letter-spacing:.18em;text-transform:uppercase}
+  .login-hero{margin:0;font-size:46px;line-height:1.05;letter-spacing:-1.3px;font-weight:800;color:var(--ink)}
+  .login-sub{margin:0;font-size:15px;line-height:1.7;max-width:450px}
+  .login-brand-foot{margin:0}
+  .login-panel{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:48px 34px}
+  .login-card{width:100%;max-width:430px}
+  .login-forgot{background:none;border:0;padding:0;font:inherit;font-size:12px;font-weight:700;color:var(--brand-d);cursor:pointer;letter-spacing:-.1px}
+  .login-forgot:hover{text-decoration:underline}
+  .login-forgot:disabled{opacity:.5;cursor:default;text-decoration:none}
+  @media(max-width:900px){
+    .login-shell{grid-template-columns:1fr}
+    .login-brand{border-right:0;border-bottom:1px solid var(--line);padding:30px 26px;gap:22px}
+    .login-brand::before{-webkit-mask-image:none;mask-image:none;opacity:.5}
+    .login-hero{font-size:31px;letter-spacing:-.6px}
+    .login-brand-foot{display:none}
+    .login-panel{padding:26px 20px 40px}
+  }

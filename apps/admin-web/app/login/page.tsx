@@ -10,10 +10,17 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
   const sp = (await searchParams) ?? {};
   const nextPath = safeNextPath(firstSearchParam(sp.next));
   const runtimeStatus = getAdminRuntimeStatus();
+  // Local-only preview: `/login?preview=signin` forces the SSO + email/password
+  // form instead of the one-click local-dashboard shortcut, so the real sign-in
+  // UI can be inspected on this machine. Guarded to GOATOS_ENV=local; no effect
+  // on staging/production, where the form already shows.
+  const previewSignIn =
+    process.env.GOATOS_ENV === "local" && firstSearchParam(sp.preview) === "signin";
   const shouldCheckLocalDashboard =
     process.env.GOATOS_ENV === "local" &&
     process.env.GOATOS_AUTH_MODE === "bearer" &&
-    runtimeStatus.hasLocalBearerFallback;
+    runtimeStatus.hasLocalBearerFallback &&
+    !previewSignIn;
   const localDashboardCheck = shouldCheckLocalDashboard ? await searchGoats({ limit: 1 }) : null;
   const showLocalDashboardShortcut = localDashboardCheck?.ok === true;
   const showLocalAuthRepair =
@@ -24,14 +31,29 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
     : "Use the local dashboard shortcut on this machine.";
 
   return (
-    <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "var(--bg)", color: "var(--ink)", padding: 24 }}>
-      <div style={{ width: "100%", maxWidth: 430 }}>
-        <div className="brand" style={{ justifyContent: "center", marginBottom: 18 }}>
+    <main className="login-shell">
+      <aside className="login-brand">
+        <div className="brand">
           <span className="logo">मे</span>
-          <b style={{ fontSize: 22, letterSpacing: "-.3px" }}>Mesha</b>
+          <div style={{ display: "flex", flexDirection: "column", lineHeight: 1 }}>
+            <b>Mesha</b>
+            <small>Admin</small>
+          </div>
         </div>
 
-        <section className="card">
+        <div className="login-brand-mid">
+          <span className="login-badge">Internal access</span>
+          <h1 className="login-hero">Sign in to run herd operations.</h1>
+          <p className="login-sub muted">
+            Secure entry for goat passports, import review, data quality queues, and operational dashboards.
+          </p>
+        </div>
+
+        <p className="login-brand-foot small muted">Access is limited to approved Mesha accounts.</p>
+      </aside>
+
+      <section className="login-panel">
+        <div className="login-card card">
           <div className="bd" style={{ padding: "26px 28px 30px" }}>
             <div className="crumb">
               Mesha <b>Admin</b>
@@ -81,12 +103,8 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
               </div>
             ) : null}
           </div>
-        </section>
-
-        <p className="muted small" style={{ textAlign: "center", marginTop: 14 }}>
-          Access is limited to approved Mesha accounts.
-        </p>
-      </div>
+        </div>
+      </section>
     </main>
   );
 }

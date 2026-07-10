@@ -58,6 +58,7 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
   const [password, setPassword] = useState("");
   const [scriptReady, setScriptReady] = useState(false);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+  const [googleAvailable, setGoogleAvailable] = useState(true);
   const buttonContainerRef = useRef<HTMLDivElement | null>(null);
   const renderedButton = useRef(false);
   const mounted = useRef(false);
@@ -150,10 +151,12 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
         if (!mounted.current) return;
         setGoogleClientId(runtime.googleClientId);
       })
-      .catch((error: unknown) => {
+      .catch(() => {
         if (!mounted.current) return;
-        setStatus("error");
-        setMessage(error instanceof Error ? error.message : "Google sign-in is not configured.");
+        // Google SSO unavailable (not configured / unreachable). Degrade quietly
+        // to the email + password form instead of raising a red error on load.
+        setGoogleAvailable(false);
+        setStatus("ready");
       });
     return () => {
       mounted.current = false;
@@ -167,8 +170,9 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
     const googleID = window.google?.accounts?.id;
     if (!googleID) {
       window.setTimeout(() => {
-        setStatus("error");
-        setMessage("Google sign-in could not load in this browser.");
+        if (!mounted.current) return;
+        setGoogleAvailable(false);
+        setStatus("ready");
       }, 0);
       return;
     }
@@ -211,74 +215,84 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
         strategy="afterInteractive"
         onLoad={() => setScriptReady(true)}
         onError={() => {
-          setStatus("error");
-          setMessage("Google sign-in script failed to load. Check the network and reload.");
+          if (!mounted.current) return;
+          setGoogleAvailable(false);
+          setStatus("ready");
         }}
       />
-      <div className="min-h-11 w-full">
-        <div ref={buttonContainerRef} aria-hidden={status !== "ready"} />
-        {status === "loading" || status === "error" ? (
-          <button
-            type="button"
-            disabled
-            className="flex h-11 w-full items-center justify-center rounded border border-[#dadce0] bg-[#f1f3f4] px-4 text-[14px] font-semibold text-[#5f6368]"
-          >
-            Continue with Google
-          </button>
-        ) : null}
-      </div>
-      <div className="my-5 flex items-center gap-3">
-        <span className="h-px flex-1" style={{ background: "var(--line)" }} />
-        <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
-          or
-        </span>
-        <span className="h-px flex-1" style={{ background: "var(--line)" }} />
-      </div>
-      <form className="grid gap-3" onSubmit={handleEmailPasswordSubmit}>
-        <label className="grid gap-1.5 text-[12px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
+      {googleAvailable ? (
+        <>
+          <div className="min-h-11 w-full">
+            <div ref={buttonContainerRef} aria-hidden={status !== "ready"} />
+            {status === "loading" ? (
+              <div
+                className="flex h-11 w-full items-center justify-center rounded-[10px] border"
+                style={{ borderColor: "var(--line)", background: "var(--card)", color: "var(--muted)" }}
+              >
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              </div>
+            ) : null}
+          </div>
+          <div className="my-5 flex items-center gap-3">
+            <span className="h-px flex-1" style={{ background: "var(--line)" }} />
+            <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
+              or
+            </span>
+            <span className="h-px flex-1" style={{ background: "var(--line)" }} />
+          </div>
+        </>
+      ) : null}
+      <form className="grid gap-3.5" onSubmit={handleEmailPasswordSubmit}>
+        <label
+          htmlFor="login-email"
+          className="grid gap-1.5 text-[12px] font-bold uppercase tracking-[0.14em]"
+          style={{ color: "var(--muted)" }}
+        >
           Email
           <input
+            id="login-email"
             autoComplete="email"
             inputMode="email"
             type="email"
             value={email}
             onChange={(event) => setEmail(event.currentTarget.value)}
             disabled={isBusy}
-            className="h-11 rounded border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
+            className="h-11 rounded-[10px] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
             style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--card)" }}
           />
         </label>
-        <label className="grid gap-1.5 text-[12px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
-          Password
+        <div className="grid gap-1.5">
+          <div className="flex items-center justify-between gap-3">
+            <label
+              htmlFor="login-password"
+              className="text-[12px] font-bold uppercase tracking-[0.14em]"
+              style={{ color: "var(--muted)" }}
+            >
+              Password
+            </label>
+            <button type="button" onClick={handleForgotPassword} disabled={isBusy} className="login-forgot">
+              Forgot password?
+            </button>
+          </div>
           <input
+            id="login-password"
             autoComplete="current-password"
             type="password"
             value={password}
             onChange={(event) => setPassword(event.currentTarget.value)}
             disabled={isBusy}
-            className="h-11 rounded border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
+            className="h-11 rounded-[10px] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
             style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--card)" }}
           />
-        </label>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="submit"
-            disabled={isBusy}
-            className="btn p"
-            style={{ flex: "1 1 180px", justifyContent: "center", height: 46 }}
-          >
-            Continue
-          </button>
-          <button
-            type="button"
-            disabled={isBusy}
-            onClick={handleForgotPassword}
-            className="btn"
-            style={{ flex: "1 1 140px", justifyContent: "center", height: 46 }}
-          >
-            Forgot password
-          </button>
         </div>
+        <button
+          type="submit"
+          disabled={isBusy}
+          className="btn p"
+          style={{ marginTop: 2, width: "100%", justifyContent: "center", height: 46 }}
+        >
+          {status === "signing_in" ? "Signing in…" : "Sign in"}
+        </button>
       </form>
       <div className="mt-3 min-h-7">
         {message ? (
