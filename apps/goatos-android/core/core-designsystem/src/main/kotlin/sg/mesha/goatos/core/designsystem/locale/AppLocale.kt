@@ -1,6 +1,7 @@
 package sg.mesha.goatos.core.designsystem.locale
 
 import android.content.res.Configuration
+import android.view.ContextThemeWrapper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
@@ -52,10 +53,12 @@ val LocalAppLanguage = compositionLocalOf { "en" }
 fun ProvideAppLocale(content: @Composable () -> Unit) {
     val tag = AppLocaleState.tag
     val base = LocalContext.current
-    val localized = remember(tag) {
+    val localized = remember(base, tag) {
         val cfg = Configuration(base.resources.configuration)
         cfg.setLocale(Locale.forLanguageTag(tag))
-        base.createConfigurationContext(cfg)
+        ContextThemeWrapper(base, base.theme).apply {
+            applyOverrideConfiguration(cfg)
+        }
     }
     CompositionLocalProvider(
         LocalContext provides localized,
