@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vaccination Kernel Story Report</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 32px 20px 80px;
+    line-height: 1.5;
+    color: #1a1f24;
+    background: #f5f7f9;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e6e9ec; background: #14181c; }
+  }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  .subtitle { color: #5b6770; margin-top: 0; }
+  @media (prefers-color-scheme: dark) { .subtitle { color: #9aa7b0; } }
+  .summary {
+    display: flex; gap: 16px; flex-wrap: wrap; margin: 20px 0 32px;
+  }
+  .summary .tile {
+    flex: 1 1 140px;
+    border-radius: 10px;
+    padding: 14px 16px;
+    background: #ffffff;
+    border: 1px solid #e1e6ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    .summary .tile { background: #1d2328; border-color: #2b333a; }
+  }
+  .summary .tile .n { font-size: 1.6rem; font-weight: 700; display: block; }
+  .summary .tile.pass .n { color: #1f8a4c; }
+  .summary .tile.fail .n { color: #c62828; }
+  section.story {
+    background: #ffffff;
+    border: 1px solid #e1e6ea;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 28px;
+  }
+  @media (prefers-color-scheme: dark) {
+    section.story { background: #1d2328; border-color: #2b333a; }
+  }
+  section.story.fail { border-left: 5px solid #c62828; }
+  section.story.pass { border-left: 5px solid #1f8a4c; }
+  .story h2 { margin: 0 0 6px; font-size: 1.25rem; display: flex; align-items: center; gap: 10px; }
+  .badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    color: #fff;
+  }
+  .badge.pass { background: #1f8a4c; }
+  .badge.fail { background: #c62828; }
+  .story .narrative { color: #444d54; margin-top: 0; }
+  @media (prefers-color-scheme: dark) { .story .narrative { color: #b7c0c7; } }
+  .step { margin-top: 18px; padding-top: 14px; border-top: 1px dashed #dfe4e8; }
+  @media (prefers-color-scheme: dark) { .step { border-top-color: #2b333a; } }
+  .step h3 { margin: 0 0 4px; font-size: 1rem; }
+  .step .narrative { margin: 0 0 10px; color: #5b6770; font-size: 0.92rem; }
+  @media (prefers-color-scheme: dark) { .step .narrative { color: #9aa7b0; } }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 6px 8px; vertical-align: top; }
+  thead th { color: #5b6770; font-weight: 600; border-bottom: 1px solid #e1e6ea; }
+  @media (prefers-color-scheme: dark) {
+    thead th { color: #9aa7b0; border-bottom-color: #2b333a; }
+  }
+  tr.ok td:first-child::before { content: "\2713  "; color: #1f8a4c; font-weight: 700; }
+  tr.bad td:first-child::before { content: "\2717  "; color: #c62828; font-weight: 700; }
+  tr.bad { background: rgba(198,40,40,0.06); }
+  td.detail { color: #5b6770; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; }
+  @media (prefers-color-scheme: dark) { td.detail { color: #9aa7b0; } }
+  footer { color: #8a949c; font-size: 0.8rem; margin-top: 40px; }
+</style>
+</head>
+<body>
+  <h1>Vaccination Kernel Story Report</h1>
+  <p class="subtitle">Generated 2026-07-10 05:48:12 UTC &middot; backend/tests/e2e</p>
+
+  <div class="summary">
+    <div class="tile"><span class="n">3</span>stories</div>
+    <div class="tile pass"><span class="n">3</span>stories passed</div>
+    <div class="tile fail"><span class="n">0</span>stories failed</div>
+    <div class="tile"><span class="n">45</span>assertions checked</div>
+    <div class="tile pass"><span class="n">0</span>assertions failed</div>
+  </div>
+
+  
+  <section class="story pass">
+    <h2>Missed vs in-buffer vs reschedule <span class="badge pass">PASS</span></h2>
+    <p class="narrative">Two goats share one PC vaccination rule with a 14-day due window. G-Missed&#39;s dose crossed its due window with nobody acting on it, so the obligation sweeper must mark it missed. G-Buffer&#39;s dose is overdue but still inside its window, so the sweeper must leave it alone. The missed dose is then put back on the calendar.</p>
+    
+    <div class="step">
+      <h3>Seed one stale dose and one in-buffer dose</h3>
+      <p class="narrative">G-Missed&#39;s dose was due 2026-05-22 with its 14-day window closing 2026-06-05 (long since crossed). G-Buffer&#39;s dose was due 2026-06-26 with its window closing 2026-07-10 (overdue, but still open). Both obligations are inserted directly against the obligation repository, mirroring sweeper_integration_test.go&#39;s own seeding pattern.</p>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Run the obligation sweeper&#39;s missed-dose pass</h3>
+      <p class="narrative">Run the real oblapp.SweeperService.MarkMissed pass as of 2026-07-01: any obligation whose window_end (falling back to due_at) is before that date is marked missed.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>sweeper&#39;s MarkMissed pass ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>exactly one obligation crossed into missed</td>
+            <td>PASS</td>
+            <td class="detail">marked=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Missed&#39;s dose is now missed</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;missed&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Buffer&#39;s dose is NOT missed (still inside its due window)</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;scheduled&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Buffer&#39;s dose reads as overdue/due (due_at already passed, window still open)</td>
+            <td>PASS</td>
+            <td class="detail">due_at=2026-06-26 window_end=2026-07-10 asOf=2026-07-01</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Reschedule the missed dose</h3>
+      <p class="narrative">Call the real RescheduleObligationByID repository method to put G-Missed&#39;s dose back on the calendar for 2026-07-15.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>RescheduleObligationByID ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>this was a first-time apply, not an idempotent replay</td>
+            <td>PASS</td>
+            <td class="detail">isReplay=false</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>G-Missed&#39;s dose is scheduled again</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;scheduled&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>its due date moved to the new calendar date</td>
+            <td>PASS</td>
+            <td class="detail">due_at=2026-07-15 want=2026-07-15</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>a durable &#39;scheduled&#39; audit event (reason=mobile_reschedule) was recorded</td>
+            <td>PASS</td>
+            <td class="detail">events=1</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+  </section>
+  
+  <section class="story pass">
+    <h2>Quarantine defer &#43; health recovery reschedule <span class="badge pass">PASS</span></h2>
+    <p class="narrative">A goat&#39;s PC vaccination dose is generated on schedule. The goat then enters quarantine, and the next recheck must hold (defer) its open dose rather than let it slip past due. The goat recovers, and the next recheck must reopen the held dose and realign its due date onto the recovery-time calendar -- the real SM-2 health-recovery path, not a stand-in.</p>
+    
+    <div class="step">
+      <h3>Generate the goat&#39;s primary dose</h3>
+      <p class="narrative">Generate obligations for this goat as of 2026-06-23 (53 days after birth, 21-day-offset rule): one scheduled obligation due 2026-05-22.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>generation ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>exactly one obligation was generated</td>
+            <td>PASS</td>
+            <td class="detail">generated=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the generated obligation starts scheduled</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;scheduled&#34;</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Goat enters quarantine; the next recheck defers the open dose</h3>
+      <p class="narrative">Flip the goat&#39;s health_status to &#39;quarantine&#39; and recheck generation the next day. The rule&#39;s defer_states include quarantine, so the recheck must hold (defer) the already-open obligation instead of leaving it due.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>recheck (quarantine) ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>recheck deferred the open obligation</td>
+            <td>PASS</td>
+            <td class="detail">deferred=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the obligation is now deferred</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;deferred&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>a durable &#39;deferred&#39; audit event was recorded</td>
+            <td>PASS</td>
+            <td class="detail">events=1</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Goat recovers; the next recovery-repair recheck reopens and realigns the dose</h3>
+      <p class="narrative">Flip the goat&#39;s health_status back to &#39;healthy&#39; and run the real GenerateRecoveryRepairForGoat recheck. It must call the real ReopenDeferredObligationByIdempotencyKey recovery path, flip the obligation back to scheduled, and realign its due date onto the recovery-time calendar (SM-2 health recovery) -- not leave it at its stale pre-quarantine date.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>recheck (recovered) ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>recheck reopened the deferred obligation</td>
+            <td>PASS</td>
+            <td class="detail">reopened=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the obligation is scheduled again</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;scheduled&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the due date was realigned onto the recovery-time calendar, not left at the stale pre-quarantine date</td>
+            <td>PASS</td>
+            <td class="detail">original_due=2026-05-22T00:00:00&#43;05:30 recovered_due=2026-06-27T05:30:00&#43;05:30 recover_asOf=2026-06-27T00:00:00Z</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>a durable &#39;scheduled&#39; audit event was recorded for the reopen</td>
+            <td>PASS</td>
+            <td class="detail">events=1</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+  </section>
+  
+  <section class="story pass">
+    <h2>Batch drive &#43; per-shed execution &#43; proof/verify &#43; control-tower clears <span class="badge pass">PASS</span></h2>
+    <p class="narrative">Two goats in the same shed become due for the same PC vaccination dose. The sweeper combines them into one shed-scoped drive. Both doses are administered and a proof video is captured for the drive. Before the verifier reviews the proof, the control tower shows an open verification-pending alert (not process-intact). Once the verifier accepts both doses, the control tower shows the drive completed and the alert cleared.</p>
+    
+    <div class="step">
+      <h3>Seed the shed, workforce, protocol, and two goats sharing a shed</h3>
+      <p class="narrative">One park/shed/stage topology (with an operator, park head, and verifier), one published PC vaccination rule, and two goats born the same day in the same shed.</p>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Generate &#43; batch: the sweeper combines both goats into one shed drive</h3>
+      <p class="narrative">Run the real generation service for the whole protocol version (both goats are eligible), then run the real obligation sweeper (SM-4) with stock reservation wired -- it must combine both goats&#39; obligations into exactly ONE batch scoped to their shared shed.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>generation ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>both goats&#39; doses were generated</td>
+            <td>PASS</td>
+            <td class="detail">generated=2</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>sweep ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>one shed = one drive: both obligations combined into a single batch</td>
+            <td>PASS</td>
+            <td class="detail">batches=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>both obligations were attached to that drive</td>
+            <td>PASS</td>
+            <td class="detail">obligations=2</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Capture proof for the drive</h3>
+      <p class="narrative">Upload and complete a real proof artifact (video) scoped to the batch/shed via the standalone proof kernel component -- the same CreateProof/CompleteProof path SOP submissions use.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>proof upload was created</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>proof upload was completed</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the completed proof artifact is durable (upload_state=completed)</td>
+            <td>PASS</td>
+            <td class="detail">upload_state=&#34;completed&#34;</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Execute the drive: administer both doses</h3>
+      <p class="narrative">Record both goats&#39; completions against the drive batch and the reserved vaccine lot (status &#39;recorded&#39; -- administered, awaiting verification).</p>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Control tower shows the open verification-pending alert</h3>
+      <p class="narrative">Before the verifier reviews anything, the process-integrity control tower must show this shed/rule row as verification_pending and NOT process-intact -- the real open gap a director would see on Control Tower.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>control tower query ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>exactly one control-tower row for this shed/rule/batch</td>
+            <td>PASS</td>
+            <td class="detail">rows=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>work_state is verification_pending</td>
+            <td>PASS</td>
+            <td class="detail">work_state=&#34;verification_pending&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>process_intact is false (this IS the open alert)</td>
+            <td>PASS</td>
+            <td class="detail">process_intact=false</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Per-shed execution rollup also shows both doses awaiting verification</h3>
+      <p class="narrative">The vaccination-execution read model (the per-shed drilldown behind /vaccination/execution/sheds/{shed_id}) must show both obligations recorded and none yet completed.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>execution rollup query ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>the shed drive appears in the execution rollup</td>
+            <td>PASS</td>
+            <td class="detail">batch=6d922f5b-8344-41cf-9ea6-f5e0b0e9104d rows=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>both obligations are recorded, none completed yet</td>
+            <td>PASS</td>
+            <td class="detail">obligations=2 recorded=2 completed=0</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Verifier accepts both doses</h3>
+      <p class="narrative">The verifier reviews and accepts both recorded completions -- consuming the reserved doses and completing both obligations.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>accept goat 1&#39;s dose ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>goat 1&#39;s dose was accepted and its obligation completed</td>
+            <td>PASS</td>
+            <td class="detail">applied=true completed=true</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>accept goat 2&#39;s dose ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>goat 2&#39;s dose was accepted and its obligation completed</td>
+            <td>PASS</td>
+            <td class="detail">applied=true completed=true</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+    <div class="step">
+      <h3>Control tower alert clears</h3>
+      <p class="narrative">After both doses are verified, the same control-tower row must now read as completed and process-intact -- the alert has cleared with no manual dismissal.</p>
+      
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+        
+          <tr class="ok">
+            <td>control tower re-query ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>still exactly one control-tower row for this shed/rule/batch</td>
+            <td>PASS</td>
+            <td class="detail">rows=1</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>work_state is completed</td>
+            <td>PASS</td>
+            <td class="detail">work_state=&#34;completed&#34;</td>
+          </tr>
+        
+          <tr class="ok">
+            <td>process_intact is true (the alert cleared)</td>
+            <td>PASS</td>
+            <td class="detail">process_intact=true</td>
+          </tr>
+        
+        </tbody>
+      </table>
+      
+    </div>
+    
+  </section>
+  
+
+  <footer>Generated by backend/tests/e2e &mdash; run via <code>backend/tests/e2e/run.sh</code> or <code>go test ./backend/tests/e2e/... -run TestKernelStor -v</code>.</footer>
+</body>
+</html>
