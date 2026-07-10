@@ -98,4 +98,7 @@ class ScreenshotTest {
     fun calendar_coverage_banner() = shot("calendar_coverage_banner") {
         CalendarScreen(state = sampleCalendarWithCoverageState())
     }
+
+    @Test
+    fun offline_banner() = shot("offline_banner") { OfflineBanner(visible = true, onOpenDetails = {}) }
 }
