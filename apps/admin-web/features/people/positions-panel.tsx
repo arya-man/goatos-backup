@@ -33,7 +33,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
 
   // Contract-driven labels (from pageContract, fallback to defaults)
   // Note: /people page contract copy/labels are being moved to backend; falling back to sensible defaults until complete
-  const positionsTableLabel = pageContract?.tables?.find((t) => t.id === 'positions')?.label ?? 'Position & Coverage';
+  const positionsTableLabel = pageContract?.tables?.find((t) => t.id === 'positions')?.title ?? 'Position & Coverage';
   const pageTitle = pageContract?.title ?? 'People / HRMS';
   const pageSubtitle = pageContract?.subtitle ?? 'Staff positions, coverage, timetable';
 

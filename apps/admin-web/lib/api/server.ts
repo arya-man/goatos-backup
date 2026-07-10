@@ -1204,6 +1204,64 @@ export async function discardOutboxDLQ(
   );
 }
 
+// Workforce / HR roster — staff positions, backup configurations, and coverage windows.
+// Used by the /people page to display operational staffing, coverage, and timetable.
+export type Position = AdminApiComponents["schemas"]["Position"];
+export type BackupConfig = AdminApiComponents["schemas"]["BackupConfig"];
+export type Coverage = AdminApiComponents["schemas"]["Coverage"];
+
+export type PositionListResponse = AdminApiComponents["schemas"]["PositionListResponse"];
+export type BackupConfigListResponse = {
+  items: BackupConfig[];
+  trace_id: string;
+};
+export type CoverageListResponse = {
+  items: Coverage[];
+  trace_id: string;
+};
+
+export async function listStaffPositions(
+  params: { limit?: number } = {},
+): Promise<ApiResult<PositionListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<PositionListResponse>("/admin/roster/positions", {
+      cache: "no-store",
+      query: compactQuery({ limit: params.limit ?? 500 }),
+    }),
+  );
+}
+
+export async function listBackupConfig(
+  params: { limit?: number } = {},
+): Promise<ApiResult<BackupConfigListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<BackupConfigListResponse>("/admin/roster/backup-config", {
+      cache: "no-store",
+      query: compactQuery({ limit: params.limit ?? 500 }),
+    }),
+  );
+}
+
+export async function listCoverage(
+  params: { limit?: number } = {},
+): Promise<ApiResult<CoverageListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CoverageListResponse>("/admin/roster/coverage", {
+      cache: "no-store",
+      query: compactQuery({ limit: params.limit ?? 500 }),
+    }),
+  );
+}
+
 export async function request<T>(fn: () => Promise<T>): Promise<ApiResult<T>> {
   try {
     return { ok: true, data: await fn() };

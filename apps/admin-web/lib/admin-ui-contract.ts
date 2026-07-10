@@ -89,8 +89,8 @@ export function copy(page: AdminUiPageContract, key: string): string {
   return value;
 }
 
-export function optionalCopy(page: AdminUiPageContract, key: string): string | undefined {
-  return page.copy[key];
+export function optionalCopy(page: AdminUiPageContract | undefined, key: string): string | undefined {
+  return page?.copy[key];
 }
 
 export function actionFeedbackCopy(page: AdminUiPageContract, status: string | undefined, key: string | undefined): string {

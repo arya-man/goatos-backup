@@ -1,5 +1,7 @@
 'use client';
 
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { PositionsPanel } from './positions-panel';
 import { TimetablePanel } from './timetable-panel';
 import { type RouteSearchParams } from '@/lib/search-params';
@@ -11,10 +13,27 @@ interface HRMSPageProps {
   pageContract?: AdminUiPageContract;
 }
 
-export function HRMSPage({ tab, pageContract }: HRMSPageProps) {
+export function HRMSPage({ tab: initialTab, pageContract }: HRMSPageProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  // Sync activeTab with URL search param whenever it changes
+  useEffect(() => {
+    const tabParam = searchParams.get('tab') ?? 'positions';
+    setActiveTab(tabParam);
+  }, [searchParams]);
+
+  const handleTabChange = (newTab: string) => {
+    setActiveTab(newTab);
+    const params = new URLSearchParams(searchParams);
+    params.set('tab', newTab);
+    router.push(`?${params.toString()}`);
+  };
+
   // Render tabs from pageContract.tables, with fallback to defaults
-  const positionsLabel = pageContract?.tables?.find((t) => t.id === 'positions')?.label ?? 'Position & Coverage';
-  const timetableLabel = pageContract?.tables?.find((t) => t.id === 'timetable')?.label ?? 'Timetable';
+  const positionsLabel = pageContract?.tables?.find((t) => t.id === 'positions')?.title ?? 'Position & Coverage';
+  const timetableLabel = pageContract?.tables?.find((t) => t.id === 'timetable')?.title ?? 'Timetable';
 
   return (
     <section className="screen" data-screen="people">
@@ -22,31 +41,23 @@ export function HRMSPage({ tab, pageContract }: HRMSPageProps) {
         <button
           data-screen="people"
           data-sub="positions"
-          className={tab === 'positions' ? 'on' : ''}
-          onClick={() => {
-            const url = new URL(window.location.href);
-            url.searchParams.set('tab', 'positions');
-            window.history.pushState({}, '', url);
-          }}
+          className={activeTab === 'positions' ? 'on' : ''}
+          onClick={() => handleTabChange('positions')}
         >
           {positionsLabel}
         </button>
         <button
           data-screen="people"
           data-sub="timetable"
-          className={tab === 'timetable' ? 'on' : ''}
-          onClick={() => {
-            const url = new URL(window.location.href);
-            url.searchParams.set('tab', 'timetable');
-            window.history.pushState({}, '', url);
-          }}
+          className={activeTab === 'timetable' ? 'on' : ''}
+          onClick={() => handleTabChange('timetable')}
         >
           {timetableLabel}
         </button>
       </div>
 
-      {tab === 'positions' && <PositionsPanel pageContract={pageContract} />}
-      {tab === 'timetable' && <TimetablePanel pageContract={pageContract} />}
+      {activeTab === 'positions' && <PositionsPanel pageContract={pageContract} />}
+      {activeTab === 'timetable' && <TimetablePanel pageContract={pageContract} />}
     </section>
   );
 }
