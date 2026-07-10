@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mesha adaptive launcher icon. Foreground = brand-green "मे" glyph kept inside the
+     inner 66% adaptive safe zone (foreground PNG art bbox ~31%–76% of canvas), so no
+     launcher/splash mask (circle, squircle, rounded-square, teardrop) can clip it. The
+     old ring-at-90%-diameter art fragmented under the Android-12 circular splash mask. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

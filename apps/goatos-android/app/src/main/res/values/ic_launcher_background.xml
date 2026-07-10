@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Adaptive-icon background tile = Mesha dark-green. Fills the entire 108dp layer
+         (including the bleed zone) so any mask crop shows the same dark-green, never a gap. -->
+    <color name="ic_launcher_background">#1C2C15</color>
+</resources>
