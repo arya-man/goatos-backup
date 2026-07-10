@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -56,12 +57,23 @@ private object AlertsTokens {
     val TealX = MeshaColors.TealX
     val WarnX = MeshaColors.WarnX
     val DangerX = MeshaColors.DangerX
+    val Ok = MeshaColors.Ok
+    val OkX = MeshaColors.OkX
 }
 
 /** Backend-provided severity. Drives pill colour + short severity word + accent only. */
 enum class AlertTone { INFO, WARN, CRITICAL }
 
-/** One notification row. Every field is backend-provided; the app renders it verbatim. */
+/** Delivery-channel chip tone (mock `.pill.ok` / `.pill.mut` / `.pill.teal`). */
+enum class AlertChannelTone { SENT, PENDING, TEAL }
+
+/** One delivery-channel chip on a notification (mock `.chans` — Call/Push/Slack/Email). */
+data class AlertChannel(val label: String, val tone: AlertChannelTone)
+
+/** One notification row. Every field is backend-provided; the app renders it verbatim.
+ *  @Immutable: channels: List<AlertChannel> otherwise marks this unstable (item 6,
+ *  perf/stability pass). */
+@Immutable
 data class AlertRow(
     val id: String,
     val title: String,
@@ -69,6 +81,8 @@ data class AlertRow(
     val timeLabel: String,
     val tone: AlertTone,
     val unread: Boolean = false,
+    /** Empty when the backend has no delivery-channel breakdown for this row (mock omits `.chans` too). */
+    val channels: List<AlertChannel> = emptyList(),
 )
 
 /**
@@ -76,6 +90,8 @@ data class AlertRow(
  * copy, and the mark-all label are all backend-provided (dumb renderer). A null
  * [markAllLabel] means the backend surfaced no mark-all action for this principal.
  */
+// @Immutable: rows: List<AlertRow> otherwise marks this unstable (item 6, perf/stability pass).
+@Immutable
 data class AlertsUiState(
     val title: String,
     val rows: List<AlertRow> = emptyList(),
@@ -100,6 +116,13 @@ private fun toneLabel(tone: AlertTone): String = when (tone) {
     AlertTone.INFO -> "Info"
     AlertTone.WARN -> "Warn"
     AlertTone.CRITICAL -> "Critical"
+}
+
+/** Channel-chip pill colours (mock `.pill.ok` / `.pill.mut` / `.pill.teal`). */
+private fun channelPill(tone: AlertChannelTone): Pair<Color, Color> = when (tone) {
+    AlertChannelTone.SENT -> AlertsTokens.OkX to AlertsTokens.Ok
+    AlertChannelTone.PENDING -> AlertsTokens.Surf3 to AlertsTokens.Muted
+    AlertChannelTone.TEAL -> AlertsTokens.TealX to AlertsTokens.Teal
 }
 
 /** Title tint follows the tone when unread; read rows dim to muted. */
@@ -209,6 +232,23 @@ private fun AlertCard(row: AlertRow, onEvent: (AlertsEvent) -> Unit) {
             fontSize = 12.sp,
             modifier = Modifier.padding(top = 3.dp),
         )
+        if (row.channels.isNotEmpty()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(top = 9.dp),
+            ) {
+                row.channels.forEach { channel ->
+                    val (bg, fg) = channelPill(channel.tone)
+                    Box(
+                        modifier = Modifier
+                            .background(bg, shape = RoundedCornerShape(999.dp))
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                    ) {
+                        Text(text = channel.label, color = fg, fontSize = 10.5.sp, fontWeight = FontWeight.W700)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -246,6 +286,12 @@ private fun AlertsScreenPreview() {
                         timeLabel = "now",
                         tone = AlertTone.INFO,
                         unread = true,
+                        channels = listOf(
+                            AlertChannel("Call", AlertChannelTone.SENT),
+                            AlertChannel("Push", AlertChannelTone.PENDING),
+                            AlertChannel("Slack", AlertChannelTone.TEAL),
+                            AlertChannel("Email", AlertChannelTone.PENDING),
+                        ),
                     ),
                     AlertRow(
                         id = "a2",

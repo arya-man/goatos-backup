@@ -6,16 +6,26 @@ import sg.mesha.goatos.feature.calendar.CalendarSegmentKind
 import sg.mesha.goatos.feature.calendar.CalendarTone
 import sg.mesha.goatos.feature.calendar.CalendarUiState
 import sg.mesha.goatos.feature.calendar.CalendarWeekDay
+import sg.mesha.goatos.feature.leadership.BacklogRow
 import sg.mesha.goatos.feature.leadership.CoverageHeroState
 import sg.mesha.goatos.feature.leadership.DataGapPill
 import sg.mesha.goatos.feature.leadership.DateOption
+import sg.mesha.goatos.feature.leadership.DecisionRow
+import sg.mesha.goatos.feature.leadership.KpiTile
 import sg.mesha.goatos.feature.leadership.LeadershipUiState
 import sg.mesha.goatos.feature.leadership.OverdueClassification
 import sg.mesha.goatos.feature.leadership.OverdueLegendItem
 import sg.mesha.goatos.feature.leadership.OverdueRow
 import sg.mesha.goatos.feature.leadership.OverdueUiState
+import sg.mesha.goatos.feature.leadership.ParkCoverageRow
 import sg.mesha.goatos.feature.leadership.RescheduleSegment
 import sg.mesha.goatos.feature.leadership.RescheduleUiState
+import sg.mesha.goatos.feature.leadership.ScopePill
+import sg.mesha.goatos.feature.leadership.ShedSummary
+import sg.mesha.goatos.feature.leadership.Tone
+import sg.mesha.goatos.feature.leadership.VaccineGroupChip
+import sg.mesha.goatos.feature.profile.AlertChannel
+import sg.mesha.goatos.feature.profile.AlertChannelTone
 import sg.mesha.goatos.feature.profile.AlertRow
 import sg.mesha.goatos.feature.profile.AlertTone
 import sg.mesha.goatos.feature.profile.AlertsUiState
@@ -143,25 +153,94 @@ fun sampleSubmitState(): SubmitUiState = SubmitUiState(
     syncProgress = 0.66f,
 )
 
+// Mock-exact snapshot of mock/vaccination-mobile-mock.html #v-dhome (Director role, "All
+// parks" scope): hero %, both KPI tiles, every SHEDS[] row rendered by renderTodaySheds(),
+// every vaxr backlog row, the one needsdec row, and the CBE/CPT coverage-by-park rows from
+// the scope sheet.
 fun sampleLeadershipState(): LeadershipUiState = LeadershipUiState(
-    eyebrow = "Mesha · Leadership",
+    eyebrow = "Vaccination · Director",
     title = "Overview",
-    avatarInitial = "R",
+    avatarInitial = "A",
     hero = CoverageHeroState(
-        coverageLabel = "Dose coverage",
-        coveragePercent = 78,
-        dosesLine = "1,842 doses this week",
-        dosesTrend = listOf(0.4f, 0.5f, 0.55f, 0.62f, 0.7f, 0.78f),
-        animalsLabel = "2,567 animals",
-        dataGapPill = DataGapPill("2 data gaps", true),
+        coverageLabel = "Dose coverage · all vaccines",
+        coveragePercent = 48,
+        dosesLine = "4,650 of 9,698 scheduled doses given",
+        dosesTrend = listOf(12f, 18f, 15f, 24f, 30f, 28f, 39f, 46f, 48f),
+        scopePill = ScopePill("All parks · 2"),
+        animalsLabel = "1,312 animals",
+        dataGapPill = DataGapPill("no data gaps", hasGaps = false),
     ),
-    kpis = emptyList(),
-    todayShedsTitle = "Today's sheds",
-    todaySheds = emptyList(),
-    backlogTitle = "Backlog by vaccine",
-    backlog = emptyList(),
+    kpis = listOf(
+        KpiTile("given", "4,650", "Doses given · tap", Tone.OK),
+        KpiTile("pending", "5,048", "Pending · tap", Tone.WARN),
+    ),
+    todayShedsTitle = "Today's sheds · live",
+    todaySheds = listOf(
+        ShedSummary(
+            shedId = "gandhi1", name = "Gandhi 1", park = "CBE", cohort = "Milking does",
+            coveragePercent = 0, done = 0, total = 11,
+            vaccineGroups = listOf(
+                VaccineGroupChip("FMD + HS", 0, 8),
+                VaccineGroupChip("ET + TT", 0, 3),
+            ),
+            assignLabel = "Assign team",
+        ),
+        ShedSummary(
+            shedId = "castro1", name = "Castro 1", park = "CBE", cohort = "Breeding does",
+            coveragePercent = 35, done = 6, total = 17,
+            vaccineGroups = listOf(
+                VaccineGroupChip("PPR · Booster", 6, 12),
+                VaccineGroupChip("Goat Pox", 0, 5),
+            ),
+            assignLabel = "Assign team",
+        ),
+        ShedSummary(
+            shedId = "mandela1", name = "Mandela 1", park = "CBE", cohort = "K2 kids",
+            coveragePercent = 100, done = 40, total = 40,
+            vaccineGroups = listOf(VaccineGroupChip("FMD + HS", 40, 40)),
+            assignLabel = "Assign team",
+        ),
+        ShedSummary(
+            shedId = "sumathi1", name = "Sumathi 1", park = "CBE", cohort = "Pregnant does",
+            coveragePercent = 0, done = 0, total = 9,
+            vaccineGroups = listOf(VaccineGroupChip("ET + TT · Booster", 0, 9)),
+            assignLabel = "Assign team",
+        ),
+        ShedSummary(
+            shedId = "sumathi2", name = "Sumathi 2", park = "CPT", cohort = "Yearling does",
+            coveragePercent = 0, done = 0, total = 38,
+            vaccineGroups = listOf(VaccineGroupChip("PPR · Booster", 0, 38)),
+            assignLabel = "Assign team",
+        ),
+        ShedSummary(
+            shedId = "godel1", name = "Godel 1", park = "CPT", cohort = "Dry does",
+            coveragePercent = 0, done = 0, total = 16,
+            vaccineGroups = listOf(
+                VaccineGroupChip("Goat Pox", 0, 10),
+                VaccineGroupChip("HS", 0, 6),
+            ),
+            assignLabel = "Assign team",
+        ),
+    ),
+    backlogTitle = "Backlog by vaccine · pending doses",
+    backlog = listOf(
+        BacklogRow("PPR", "largest backlog", "989", Tone.DANGER, 25),
+        BacklogRow("FMD", "first + booster", "1,406", Tone.DANGER, 46),
+        BacklogRow("ET + TT", "first + booster", "726", Tone.WARN, 72),
+        BacklogRow("HS", null, "542", Tone.WARN, 59),
+        BacklogRow("Goat Pox", "goat-only", "417", Tone.WARN, 47),
+        BacklogRow("Sheep Pox", "sheep-only", "447", Tone.DANGER, 14),
+        BacklogRow("Blue Tongue", "sheep-only", "521", Tone.DANGER, 0),
+    ),
     needsDecisionTitle = "Needs a decision",
-    needsDecision = emptyList(),
+    needsDecision = listOf(
+        DecisionRow("d1", "Goat Pox · overdue", "Yashoda 5 · 5 days late", "Reschedule", Tone.DANGER),
+    ),
+    coverageByParkTitle = "Coverage by park",
+    coverageByPark = listOf(
+        ParkCoverageRow("CBE", "Coimbatore", "716 animals · dose coverage", "52%", Tone.OK),
+        ParkCoverageRow("CPT", "Channapatna", "596 animals · dose coverage", "42%", Tone.WARN),
+    ),
 )
 
 fun sampleRecordState(): RecordUiState = RecordUiState(
@@ -185,11 +264,32 @@ fun sampleRfidState(): RfidUiState = RfidUiState(
     testLabel = "Test read",
 )
 
+// Mock-exact snapshot of mock/vaccination-mobile-mock.html #v-alerts `.notif` cards.
 fun sampleAlertsState(): AlertsUiState = AlertsUiState(
     title = "Alerts",
     rows = listOf(
-        AlertRow("a1", "Overdue: Castro 2 not started", "Drive due 6:00 — no scans yet", "2h ago", AlertTone.CRITICAL, unread = true),
-        AlertRow("a2", "Coverage below target", "PPR at 78% vs 90% target", "5h ago", AlertTone.WARN, unread = false),
+        AlertRow(
+            id = "a1",
+            title = "Vaccination drive in 2 days",
+            body = "FMD + HS · Thu 9 Jul · Sheds Gandhi 1, Castro 1, Mandela 1 · 118 animals. Confirm stock & staffing.",
+            timeLabel = "now",
+            tone = AlertTone.INFO,
+            unread = true,
+            channels = listOf(
+                AlertChannel("Call", AlertChannelTone.SENT),
+                AlertChannel("Push", AlertChannelTone.PENDING),
+                AlertChannel("Slack", AlertChannelTone.TEAL),
+                AlertChannel("Email", AlertChannelTone.PENDING),
+            ),
+        ),
+        AlertRow(
+            id = "a2",
+            title = "Submit today's drive",
+            body = "Shed Gandhi 1 · 50/50 done but not submitted. Reminder call in 30 min if not sent.",
+            timeLabel = "8:00",
+            tone = AlertTone.WARN,
+            unread = true,
+        ),
     ),
     emptyLabel = "No alerts",
     markAllLabel = "Mark all read",
@@ -308,6 +408,7 @@ fun leadershipPlaceholder(message: String): LeadershipUiState {
             coveragePercent = 0,
             dosesLine = message,
             dosesTrend = emptyList(),
+            scopePill = null,
             animalsLabel = "",
             dataGapPill = DataGapPill("", hasGaps = false),
         ),
