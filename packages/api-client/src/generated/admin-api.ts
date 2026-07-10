@@ -1315,6 +1315,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/roster/backup-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List backup group configurations by center. */
+        get: operations["listBackupConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/roster/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List active or historical coverage (leave, week-off, escalation). */
+        get: operations["listCoverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3319,6 +3353,35 @@ export interface components {
         VaccinationOwnerResponse: {
             owner: components["schemas"]["VaccinationOwner"];
             trace_id: string;
+        };
+        BackupConfig: {
+            /** Format: uuid */
+            center_id: string;
+            center_label?: string | null;
+            backup_group_code: string;
+            backup_position_code: string;
+            backup_position_title?: string | null;
+            /** Format: uuid */
+            configured_holder_id?: string | null;
+            configured_holder_name?: string | null;
+            status: string;
+        };
+        Coverage: {
+            /** Format: uuid */
+            position_id: string;
+            covered_position_code: string;
+            covered_position_title?: string | null;
+            /** Format: uuid */
+            covering_member_id?: string | null;
+            covering_member_name?: string | null;
+            /** Format: date-time */
+            start_date: string;
+            /** Format: date-time */
+            end_date: string;
+            /** @enum {string} */
+            source: "leave" | "week_off" | "escalation";
+            escalation_state?: string | null;
+            status: string;
         };
     };
     responses: {
@@ -6073,6 +6136,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VaccinationOwnerResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listBackupConfig: {
+        parameters: {
+            query?: {
+                scope_type?: "tenant" | "center";
+                scope_id?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of backup configurations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["BackupConfig"][];
+                        /** Format: uuid */
+                        trace_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listCoverage: {
+        parameters: {
+            query?: {
+                scope_type?: "tenant" | "center";
+                scope_id?: string;
+                active?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of coverage records. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["Coverage"][];
+                        /** Format: uuid */
+                        trace_id?: string;
+                    };
                 };
             };
             400: components["responses"]["BadRequest"];

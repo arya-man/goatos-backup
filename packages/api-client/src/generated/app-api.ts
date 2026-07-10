@@ -862,6 +862,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/roster/timetable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the operator's center timetable with enriched position and coverage data. */
+        get: operations["getOperatorTimetable"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/roster/my-coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the authenticated operator's current coverage status. */
+        get: operations["getMyCoverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2630,6 +2664,48 @@ export interface components {
             last_accepted: components["schemas"]["LastAcceptedVaccinationDose"] | null;
             vaccination_history: components["schemas"]["VaccinationPassportHistoryItem"][];
         };
+        EnrichedPosition: {
+            /** Format: uuid */
+            position_id: string;
+            /** Format: uuid */
+            workforce_member_id?: string;
+            position_code: string;
+            position_title?: string | null;
+            position_tier: string;
+            /** @enum {string} */
+            scope_type: "tenant" | "center";
+            /** Format: uuid */
+            scope_id: string;
+            center_label?: string | null;
+            person_display_name?: string | null;
+            hr_designation_grade?: string | null;
+            tier?: string | null;
+            week_off?: string | null;
+            backup_group?: string | null;
+            is_backup_slot?: boolean;
+            status: string;
+            /** Format: date-time */
+            valid_from?: string;
+            /** Format: date-time */
+            valid_to?: string | null;
+        };
+        MyCoverage: {
+            has_coverage: boolean;
+            /** Format: uuid */
+            position_id?: string | null;
+            covering_person_name?: string | null;
+            covering_position_title?: string | null;
+            /** Format: date-time */
+            window_start?: string | null;
+            /** Format: date-time */
+            window_end?: string | null;
+            banner_text?: string | null;
+            timezone: string;
+        };
+        MyCoverageResponse: {
+            coverage: components["schemas"]["MyCoverage"];
+            trace_id: string;
+        };
     };
     responses: {
         /** @description Validation error. */
@@ -4218,6 +4294,60 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getOperatorTimetable: {
+        parameters: {
+            query: {
+                center_id: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operator timetable. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["EnrichedPosition"][];
+                        /** Format: uuid */
+                        trace_id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getMyCoverage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operator's current coverage. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyCoverageResponse"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
