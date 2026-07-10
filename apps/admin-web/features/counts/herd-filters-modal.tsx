@@ -58,9 +58,9 @@ export function HerdFiltersModal({ open, pageContract, searchParams = {}, onClos
   // Preserve the top-bar scope (scope_mode/park/as_of) on every navigation so the bar never disagrees.
   const scopeParams = () => {
     const params = new URLSearchParams();
-    if (scope.mode === "park" && scope.parkId) {
+    if (scope.mode === "park") {
       params.set("scope_mode", "park");
-      params.set("park", scope.parkId);
+      if (scope.parkId) params.set("park", scope.parkId);
     } else {
       params.set("scope_mode", "company");
     }
