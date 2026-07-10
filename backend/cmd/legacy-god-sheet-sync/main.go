@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"golang.org/x/oauth2/google"
+	bq "google.golang.org/api/bigquery/v2"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
@@ -35,6 +36,7 @@ const (
 	defaultTimeout                        = 120 * time.Second
 	defaultRunType                        = "manual_bootstrap"
 	defaultSheetURL                       = "https://docs.google.com/spreadsheets/d/1QhW22Awg7WKGhYf7tCaj_pXE-9kwzPyfwhSwenDW2RM/edit"
+	defaultBigQueryProject                = "goatos-sheets"
 	defaultAllowedGooglePrincipalSuffixes = "@mesha.sg,@goatos-sheets.iam.gserviceaccount.com,@goatos-dev.iam.gserviceaccount.com,@goatos-stg.iam.gserviceaccount.com,@goatos-prod.iam.gserviceaccount.com"
 )
 
@@ -45,9 +47,11 @@ type config struct {
 	Actor                          string
 	ExpectedGooglePrincipal        string
 	AllowedGooglePrincipalSuffixes string
+	BigQueryProject                string
 	SkipADCIdentityGuard           bool
 	Apply                          bool
 	ReplaceManagedTabs             bool
+	PopulateLiveAnimalMaster       bool
 	OutputJSON                     bool
 	Timeout                        time.Duration
 }
@@ -115,20 +119,27 @@ type issueSeedRow struct {
 }
 
 type syncSummary struct {
-	RunID              string   `json:"run_id"`
-	SpreadsheetID      string   `json:"spreadsheet_id"`
-	BusinessDate       string   `json:"business_date"`
-	RunType            string   `json:"run_type"`
-	Apply              bool     `json:"apply"`
-	ReplaceManagedTabs bool     `json:"replace_managed_tabs"`
-	Tabs               int      `json:"tabs"`
-	SourceCatalogRows  int      `json:"source_catalog_rows"`
-	ValidationRules    int      `json:"validation_rules"`
-	IssueSeeds         int      `json:"issue_seeds"`
-	CreatedTabs        []string `json:"created_tabs,omitempty"`
-	WrittenTabs        []string `json:"written_tabs,omitempty"`
-	SkippedTabs        []string `json:"skipped_tabs,omitempty"`
-	AppendedRows       []string `json:"appended_rows,omitempty"`
+	RunID              string         `json:"run_id"`
+	SpreadsheetID      string         `json:"spreadsheet_id"`
+	BusinessDate       string         `json:"business_date"`
+	RunType            string         `json:"run_type"`
+	Apply              bool           `json:"apply"`
+	ReplaceManagedTabs bool           `json:"replace_managed_tabs"`
+	Tabs               int            `json:"tabs"`
+	SourceCatalogRows  int            `json:"source_catalog_rows"`
+	ValidationRules    int            `json:"validation_rules"`
+	IssueSeeds         int            `json:"issue_seeds"`
+	CreatedTabs        []string       `json:"created_tabs,omitempty"`
+	DeletedTabs        []string       `json:"deleted_tabs,omitempty"`
+	ReorderedTabs      []string       `json:"reordered_tabs,omitempty"`
+	WrittenTabs        []string       `json:"written_tabs,omitempty"`
+	SkippedTabs        []string       `json:"skipped_tabs,omitempty"`
+	AppendedRows       []string       `json:"appended_rows,omitempty"`
+	LiveAnimalRows     int            `json:"live_animal_rows,omitempty"`
+	GreenRows          int            `json:"green_rows,omitempty"`
+	AmberRows          int            `json:"amber_rows,omitempty"`
+	RedRows            int            `json:"red_rows,omitempty"`
+	LiveCoverage       map[string]int `json:"live_coverage,omitempty"`
 }
 
 type sheetsPort interface {
@@ -142,6 +153,11 @@ type sheetsPort interface {
 
 type googleSheetsPort struct {
 	service *sheets.Service
+}
+
+type sheetInfo struct {
+	ID    int64
+	Index int64
 }
 
 func main() {
@@ -188,9 +204,31 @@ func run(args []string, stdout io.Writer) error {
 		return err
 	}
 	summary.CreatedTabs = applied.CreatedTabs
+	summary.DeletedTabs = applied.DeletedTabs
+	summary.ReorderedTabs = applied.ReorderedTabs
 	summary.WrittenTabs = applied.WrittenTabs
 	summary.SkippedTabs = applied.SkippedTabs
 	summary.AppendedRows = applied.AppendedRows
+	if cfg.PopulateLiveAnimalMaster {
+		bqService, err := newBigQueryClient(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		population, err := buildLiveAnimalPopulation(ctx, service, bqService, cfg, sourceRows, ruleRows, issueRows)
+		if err != nil {
+			return err
+		}
+		if err := writeLivePopulation(ctx, service, cfg.SpreadsheetID, population); err != nil {
+			return err
+		}
+		summary.LiveAnimalRows = len(population.AnimalMaster.Rows)
+		summary.GreenRows = population.GreenRows
+		summary.AmberRows = population.AmberRows
+		summary.RedRows = population.RedRows
+		summary.LiveCoverage = population.Coverage
+		summary.WrittenTabs = append(summary.WrittenTabs, population.WrittenTabs...)
+		sort.Strings(summary.WrittenTabs)
+	}
 	return printSummary(stdout, summary, cfg.OutputJSON, "legacy god sheet sync applied")
 }
 
@@ -203,9 +241,11 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.Actor, "actor", getenvDefault("GOATOS_LEGACY_GOD_SHEET_ACTOR", "codex"), "actor/source writing the run row")
 	fs.StringVar(&cfg.ExpectedGooglePrincipal, "expected-google-principal", getenv("GOATOS_LEGACY_GOD_SHEET_EXPECTED_GOOGLE_PRINCIPAL"), "exact Google ADC principal allowed to write")
 	fs.StringVar(&cfg.AllowedGooglePrincipalSuffixes, "allowed-google-principal-suffixes", getenvDefault("GOATOS_LEGACY_GOD_SHEET_ALLOWED_GOOGLE_PRINCIPAL_SUFFIXES", defaultAllowedGooglePrincipalSuffixes), "comma-separated Google ADC principal suffix allowlist")
+	fs.StringVar(&cfg.BigQueryProject, "bigquery-project", getenvDefault("GOATOS_LEGACY_GOD_SHEET_BIGQUERY_PROJECT", defaultBigQueryProject), "legacy BigQuery project id")
 	fs.BoolVar(&cfg.SkipADCIdentityGuard, "skip-adc-identity-guard", boolEnv("GOATOS_LEGACY_GOD_SHEET_SKIP_ADC_IDENTITY_GUARD"), "disable Google ADC principal guard; emergency use only")
 	fs.BoolVar(&cfg.Apply, "apply", boolEnv("GOATOS_LEGACY_GOD_SHEET_APPLY"), "write to Google Sheets; default is dry-run only")
 	fs.BoolVar(&cfg.ReplaceManagedTabs, "replace-managed-tabs", boolEnv("GOATOS_LEGACY_GOD_SHEET_REPLACE_MANAGED_TABS"), "refresh seed/config tabs only; human/data tabs are always preserved")
+	fs.BoolVar(&cfg.PopulateLiveAnimalMaster, "populate-live-animal-master", boolEnv("GOATOS_LEGACY_GOD_SHEET_POPULATE_LIVE_ANIMAL_MASTER"), "read live legacy sources and rewrite generated animal import staging tabs")
 	fs.BoolVar(&cfg.OutputJSON, "json", boolEnv("GOATOS_LEGACY_GOD_SHEET_JSON"), "print machine-readable summary")
 	fs.DurationVar(&cfg.Timeout, "timeout", durationEnv("GOATOS_LEGACY_GOD_SHEET_TIMEOUT", defaultTimeout), "sync timeout")
 	if err := fs.Parse(args); err != nil {
@@ -217,6 +257,7 @@ func parseFlags(args []string) (config, error) {
 	cfg.BusinessDate = strings.TrimSpace(cfg.BusinessDate)
 	cfg.ExpectedGooglePrincipal = strings.TrimSpace(cfg.ExpectedGooglePrincipal)
 	cfg.AllowedGooglePrincipalSuffixes = strings.TrimSpace(cfg.AllowedGooglePrincipalSuffixes)
+	cfg.BigQueryProject = defaultString(strings.TrimSpace(cfg.BigQueryProject), defaultBigQueryProject)
 	if cfg.SpreadsheetID == "" {
 		return config{}, errors.New("spreadsheet-id is required")
 	}
@@ -233,16 +274,18 @@ func parseFlags(args []string) (config, error) {
 }
 
 type applySummary struct {
-	CreatedTabs  []string
-	WrittenTabs  []string
-	SkippedTabs  []string
-	AppendedRows []string
+	CreatedTabs   []string
+	DeletedTabs   []string
+	ReorderedTabs []string
+	WrittenTabs   []string
+	SkippedTabs   []string
+	AppendedRows  []string
 }
 
 func newSheetsClient(ctx context.Context, cfg config) (sheetsPort, error) {
-	creds, err := google.FindDefaultCredentials(ctx, sheets.SpreadsheetsScope)
+	creds, err := google.FindDefaultCredentials(ctx, sheets.SpreadsheetsScope, bq.BigqueryScope)
 	if err != nil {
-		return nil, fmt.Errorf("find Google application default credentials with Sheets scope: %w", err)
+		return nil, fmt.Errorf("find Google application default credentials with Sheets/BigQuery scope: %w", err)
 	}
 	if err := assertGoogleIdentity(ctx, creds, cfg); err != nil {
 		return nil, err
@@ -252,6 +295,21 @@ func newSheetsClient(ctx context.Context, cfg config) (sheetsPort, error) {
 		return nil, err
 	}
 	return googleSheetsPort{service: service}, nil
+}
+
+func newBigQueryClient(ctx context.Context, cfg config) (*bq.Service, error) {
+	creds, err := google.FindDefaultCredentials(ctx, bq.BigqueryScope)
+	if err != nil {
+		return nil, fmt.Errorf("find Google application default credentials with BigQuery scope: %w", err)
+	}
+	if err := assertGoogleIdentity(ctx, creds, cfg); err != nil {
+		return nil, err
+	}
+	service, err := bq.NewService(ctx, option.WithCredentials(creds))
+	if err != nil {
+		return nil, err
+	}
+	return service, nil
 }
 
 func (p googleSheetsPort) GetSpreadsheet(ctx context.Context, spreadsheetID string) (*sheets.Spreadsheet, error) {
@@ -295,12 +353,7 @@ func applyWorkbook(ctx context.Context, service sheetsPort, cfg config, specs []
 	if err != nil {
 		return applySummary{}, fmt.Errorf("read spreadsheet metadata: %w", err)
 	}
-	existing := map[string]int64{}
-	for _, sheet := range spreadsheet.Sheets {
-		if sheet.Properties != nil {
-			existing[sheet.Properties.Title] = sheet.Properties.SheetId
-		}
-	}
+	existing := sheetInfoByTitle(spreadsheet)
 	summary := applySummary{}
 	requests := []*sheets.Request{}
 	for _, spec := range specs {
@@ -324,11 +377,34 @@ func applyWorkbook(ctx context.Context, service sheetsPort, cfg config, specs []
 		}
 		for _, reply := range resp.Replies {
 			if reply.AddSheet != nil && reply.AddSheet.Properties != nil {
-				existing[reply.AddSheet.Properties.Title] = reply.AddSheet.Properties.SheetId
+				existing[reply.AddSheet.Properties.Title] = sheetInfo{ID: reply.AddSheet.Properties.SheetId, Index: reply.AddSheet.Properties.Index}
 			}
 		}
 		sort.Strings(summary.CreatedTabs)
 	}
+	if len(requests) > 0 {
+		existing, err = refreshSheetInfo(ctx, service, cfg.SpreadsheetID)
+		if err != nil {
+			return applySummary{}, err
+		}
+	}
+
+	deletedTabs, err := deleteEmptyDefaultSheet(ctx, service, cfg.SpreadsheetID, existing)
+	if err != nil {
+		return applySummary{}, err
+	}
+	if len(deletedTabs) > 0 {
+		summary.DeletedTabs = deletedTabs
+		existing, err = refreshSheetInfo(ctx, service, cfg.SpreadsheetID)
+		if err != nil {
+			return applySummary{}, err
+		}
+	}
+	reorderedTabs, err := reorderManagedTabs(ctx, service, cfg.SpreadsheetID, existing, specs)
+	if err != nil {
+		return applySummary{}, err
+	}
+	summary.ReorderedTabs = reorderedTabs
 
 	for _, spec := range specs {
 		state, err := readTabState(ctx, service, cfg.SpreadsheetID, spec)
@@ -378,6 +454,84 @@ func applyWorkbook(ctx context.Context, service sheetsPort, cfg config, specs []
 	sort.Strings(summary.SkippedTabs)
 	sort.Strings(summary.AppendedRows)
 	return summary, nil
+}
+
+func sheetInfoByTitle(spreadsheet *sheets.Spreadsheet) map[string]sheetInfo {
+	existing := map[string]sheetInfo{}
+	for _, sheet := range spreadsheet.Sheets {
+		if sheet.Properties == nil {
+			continue
+		}
+		existing[sheet.Properties.Title] = sheetInfo{ID: sheet.Properties.SheetId, Index: sheet.Properties.Index}
+	}
+	return existing
+}
+
+func refreshSheetInfo(ctx context.Context, service sheetsPort, spreadsheetID string) (map[string]sheetInfo, error) {
+	spreadsheet, err := service.GetSpreadsheet(ctx, spreadsheetID)
+	if err != nil {
+		return nil, fmt.Errorf("refresh spreadsheet metadata: %w", err)
+	}
+	return sheetInfoByTitle(spreadsheet), nil
+}
+
+func deleteEmptyDefaultSheet(ctx context.Context, service sheetsPort, spreadsheetID string, existing map[string]sheetInfo) ([]string, error) {
+	info, ok := existing["Sheet1"]
+	if !ok || len(existing) <= 1 {
+		return nil, nil
+	}
+	empty, err := isSheetEmpty(ctx, service, spreadsheetID, "Sheet1")
+	if err != nil {
+		return nil, err
+	}
+	if !empty {
+		return nil, nil
+	}
+	_, err = service.BatchUpdateSpreadsheet(ctx, spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{Requests: []*sheets.Request{
+		{DeleteSheet: &sheets.DeleteSheetRequest{SheetId: info.ID}},
+	}})
+	if err != nil {
+		return nil, fmt.Errorf("delete empty default Sheet1: %w", err)
+	}
+	return []string{"Sheet1"}, nil
+}
+
+func isSheetEmpty(ctx context.Context, service sheetsPort, spreadsheetID string, tab string) (bool, error) {
+	resp, err := service.GetValues(ctx, spreadsheetID, quoteSheet(tab))
+	if err != nil {
+		return false, fmt.Errorf("read %s before default-tab cleanup: %w", tab, err)
+	}
+	for _, row := range resp.Values {
+		for _, cell := range row {
+			if strings.TrimSpace(fmt.Sprint(cell)) != "" {
+				return false, nil
+			}
+		}
+	}
+	return true, nil
+}
+
+func reorderManagedTabs(ctx context.Context, service sheetsPort, spreadsheetID string, existing map[string]sheetInfo, specs []tabSpec) ([]string, error) {
+	requests := []*sheets.Request{}
+	reordered := []string{}
+	for index, spec := range specs {
+		info, ok := existing[spec.Name]
+		if !ok || info.Index == int64(index) {
+			continue
+		}
+		requests = append(requests, &sheets.Request{UpdateSheetProperties: &sheets.UpdateSheetPropertiesRequest{
+			Properties: &sheets.SheetProperties{SheetId: info.ID, Index: int64(index)},
+			Fields:     "index",
+		}})
+		reordered = append(reordered, spec.Name)
+	}
+	if len(requests) == 0 {
+		return nil, nil
+	}
+	if _, err := service.BatchUpdateSpreadsheet(ctx, spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{Requests: requests}); err != nil {
+		return nil, fmt.Errorf("reorder managed tabs: %w", err)
+	}
+	return reordered, nil
 }
 
 type tabState struct {
@@ -496,11 +650,11 @@ func workbookTabs(cfg config, runID string, sources []sourceCatalogRow, rules []
 				{"rfid_gate", "animal_identifier_1 is the primary RFID/tag and is required. goat_id, farm_goat_id, inp_goat_id, and dst_tag do not satisfy it. Reused fallen/retired RFID tags are RED dirty data."},
 			},
 		},
+		tableSpec("Animal_Master", animalMasterColumns(), nil),
 		tableSpec("Source_Catalog", sourceCatalogColumns(), sourceCatalogValues(sources)),
 		tableSpec("Sync_Runs", syncRunColumns(), nil),
 		tableSpec("Raw_Source_Snapshots", []string{"run_id", "source_id", "business_date", "source_grain", "source_row_id", "source_row_key", "source_row_hash", "raw_payload_json", "read_at", "snapshot_created_at"}, [][]string{manifestSnapshotRow(runID, cfg.BusinessDate, sources, rules, issues)}),
 		tableSpec("Mapping_Crosswalks", []string{"crosswalk_id", "source_id", "source_record_id", "raw_identifier_value", "normalized_identifier_value", "identifier_type_candidate", "animal_identifier_1", "animal_identifier_2", "goat_os_animal_id", "match_status", "match_confidence", "duplicate_group_id", "merge_blocker", "chosen_canonical_reason", "last_reviewed_by", "last_reviewed_at"}, nil),
-		tableSpec("Animal_Master", []string{"goat_os_animal_id", "animal_identifier_1", "animal_identifier_2", "legacy_ids", "species", "sex", "breed", "dob", "dob_estimated", "age_class", "origin_type", "entry_date", "current_status", "current_farm", "current_park", "current_shed", "current_stage", "management_stage", "health_status", "reproductive_status", "mother_identifier", "sire_or_lot", "current_weight_kg", "photo_url", "dob_estimation_method", "sex_source", "source_record_id", "source_links", "evidence_refs", "verification_status", "issue_reason", "ground_owner", "last_verified_at", "ready_for_goat_os_import"}, nil),
 		tableSpec("Animal_Identifier_History", []string{"animal_identifier", "identifier_type", "animal_identifier_1", "animal_identifier_2", "goat_os_animal_id", "status", "valid_from", "valid_to", "source_system", "source_record_id", "reason", "approved_by", "review_status"}, nil),
 		tableSpec("Identity_Grain_Audit", []string{"source_id", "event_type", "id_column", "distinct_count", "coalesced_definition", "canonical_candidate", "delta_vs_procurement", "example_duplicate_group_ids", "decision_owner", "decision_status", "decision_note"}, identitySeedRows()),
 		tableSpec("Location_Profile", []string{"location_key", "farm", "park_code", "shed_code", "shed_name", "shed_tag", "stage_profile", "capacity", "species_allowed", "sex_grouping", "is_holding", "is_quarantine", "is_icu", "usable_for_vaccination", "source_link", "verification_status"}, nil),
@@ -539,6 +693,10 @@ func tableSpec(name string, cols []string, rows [][]string) tabSpec {
 	return tabSpec{Name: name, Cols: cols, Rows: rows}
 }
 
+func animalMasterColumns() []string {
+	return []string{"goat_os_animal_id", "animal_identifier_1", "animal_identifier_2", "legacy_ids", "species", "sex", "breed", "dob", "dob_estimated", "age_class", "origin_type", "entry_date", "current_status", "current_farm", "current_park", "current_shed", "current_stage", "management_stage", "health_status", "reproductive_status", "mother_identifier", "sire_or_lot", "current_weight_kg", "photo_url", "dob_estimation_method", "sex_source", "source_record_id", "source_links", "evidence_refs", "verification_status", "issue_reason", "ground_owner", "last_verified_at", "ready_for_goat_os_import"}
+}
+
 func sourceCatalogColumns() []string {
 	return []string{"source_id", "source_family", "source_system", "dataset", "table_name", "sheet_url", "tab_name", "grain", "primary_keys", "owner", "extractor", "freshness_sla", "watermark_field", "last_successful_watermark", "last_schema_hash", "last_row_count", "notes"}
 }
@@ -558,6 +716,750 @@ func issueColumns() []string {
 func syncRunValue(cfg config, runID string, sources []sourceCatalogRow, rules []validationRuleRow, issues []issueSeedRow, schemaHash string) []string {
 	now := time.Now().UTC().Format(time.RFC3339)
 	return []string{runID, cfg.RunType, "", now, now, "bootstrapped", cfg.BusinessDate, "manifest", "0", strconv.Itoa(len(sources) + len(rules) + len(issues)), "0", manifestHash(sources, rules, issues), schemaHash, "", "", "metadata/bootstrap only; no legacy source rows imported"}
+}
+
+type livePopulation struct {
+	AnimalMaster          tabSpec
+	MappingCrosswalks     tabSpec
+	CurrentLocationStatus tabSpec
+	CountsSnapshots       tabSpec
+	IssueQueue            tabSpec
+	WrittenTabs           []string
+	GreenRows             int
+	AmberRows             int
+	RedRows               int
+	Coverage              map[string]int
+}
+
+type activeAnimal struct {
+	AnimalKey       string
+	GoatID          string
+	FarmGoatID      string
+	InputGoatID     string
+	ParentID        string
+	FarmParentID    string
+	InputParentID   string
+	LatestEvent     string
+	LatestEventDate string
+	OriginEvent     string
+	OriginDate      string
+	Farm            string
+	Breed           string
+	Gender          string
+	Age             string
+	BirthTime       string
+	ShiftingID      string
+	SourceShed      string
+	DestinationShed string
+	DestinationTag  string
+	Weight          string
+	DOB             string
+}
+
+type rfidRecord struct {
+	SourceID string
+	RowID    string
+	Farm     string
+	OldTag   string
+	RFID     string
+	Breed    string
+	Gender   string
+	Shed     string
+	ShedTag  string
+	Age      string
+}
+
+type matchedRFID struct {
+	Record    rfidRecord
+	Ambiguous bool
+}
+
+func buildLiveAnimalPopulation(ctx context.Context, sheetService sheetsPort, bqService *bq.Service, cfg config, sources []sourceCatalogRow, rules []validationRuleRow, seedIssues []issueSeedRow) (livePopulation, error) {
+	active, err := readActiveAnimals(ctx, bqService, cfg.BigQueryProject)
+	if err != nil {
+		return livePopulation{}, err
+	}
+	rfidRows, err := readRFIDRecords(ctx, sheetService)
+	if err != nil {
+		return livePopulation{}, err
+	}
+	rfidByKey := indexRFIDRecords(rfidRows)
+	matches := map[string]matchedRFID{}
+	primaryCounts := map[string]int{}
+	for _, animal := range active {
+		match := matchRFID(animal, rfidByKey)
+		matches[animal.AnimalKey] = match
+		if match.Ambiguous {
+			continue
+		}
+		primary := strings.TrimSpace(match.Record.RFID)
+		if primary != "" {
+			primaryCounts[normalizeKey(primary)]++
+		}
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	issueRows := append([]issueSeedRow{}, seedIssues...)
+	animalRows := make([][]string, 0, len(active))
+	crosswalkRows := make([][]string, 0, len(active))
+	locationRows := make([][]string, 0, len(active))
+	counts := liveCounts{TotalActive: len(active), BusinessDate: cfg.BusinessDate}
+
+	for _, animal := range active {
+		match := matches[animal.AnimalKey]
+		row, issues := animalMasterRow(animal, match, primaryCounts, now)
+		animalRows = append(animalRows, row)
+		status := row[29]
+		switch status {
+		case "GREEN":
+			counts.Green++
+		case "AMBER":
+			counts.Amber++
+		default:
+			counts.Red++
+		}
+		updateCoverageCounts(&counts, row)
+		if len(issues) > 0 {
+			issueRows = append(issueRows, issueSeedRow{
+				IssueID:           "animal-" + safeIssueID(animal.AnimalKey),
+				IssueType:         "animal_import_gate",
+				Severity:          "P1",
+				Blocking:          "yes",
+				AnimalIdentifier1: row[1],
+				AnimalIdentifier2: row[2],
+				SourceID:          "goats_db_clean",
+				SourceRecordID:    animal.AnimalKey,
+				Evidence:          strings.Join(issues, "; "),
+				Owner:             "data/dev + ground/source team",
+				NextAction:        "Resolve missing/duplicate identifier, DOB, sex, species, or current location before Goat OS import.",
+				Status:            "open",
+			})
+		}
+		crosswalkRows = append(crosswalkRows, crosswalkRow(animal, match, row))
+		locationRows = append(locationRows, locationRow(animal, match, row))
+	}
+
+	population := livePopulation{
+		AnimalMaster:          tableSpec("Animal_Master", animalMasterColumns(), animalRows),
+		MappingCrosswalks:     tableSpec("Mapping_Crosswalks", []string{"crosswalk_id", "source_id", "source_record_id", "raw_identifier_value", "normalized_identifier_value", "identifier_type_candidate", "animal_identifier_1", "animal_identifier_2", "goat_os_animal_id", "match_status", "match_confidence", "duplicate_group_id", "merge_blocker", "chosen_canonical_reason", "last_reviewed_by", "last_reviewed_at"}, crosswalkRows),
+		CurrentLocationStatus: tableSpec("Current_Location_Status", []string{"animal_identifier_1", "animal_identifier_2", "current_farm", "current_park", "current_shed", "current_stage", "source_priority_used", "latest_event_farm", "latest_shifting_dst_shed", "latest_shifting_dst_tag", "fallback_shed_evidence", "counting_db_status", "goats_db_status", "shiftings_status", "procurement_status", "resolved_status", "resolution_reason", "verification_status"}, locationRows),
+		CountsSnapshots:       tableSpec("Counts_Snapshots", []string{"business_date", "source_id", "farm", "park", "shed", "stage", "breed", "age_class", "source_count", "canonical_count", "delta", "source_link", "verification_status"}, liveCountRows(counts)),
+		IssueQueue:            tableSpec("Issue_Queue", issueColumns(), issueValues(issueRows)),
+		WrittenTabs:           []string{"Animal_Master", "Mapping_Crosswalks", "Current_Location_Status", "Counts_Snapshots", "Issue_Queue"},
+		GreenRows:             counts.Green,
+		AmberRows:             counts.Amber,
+		RedRows:               counts.Red,
+		Coverage:              counts.toMap(),
+	}
+	_ = sources
+	_ = rules
+	return population, nil
+}
+
+func writeLivePopulation(ctx context.Context, service sheetsPort, spreadsheetID string, population livePopulation) error {
+	for _, spec := range []tabSpec{population.AnimalMaster, population.MappingCrosswalks, population.CurrentLocationStatus, population.CountsSnapshots, population.IssueQueue} {
+		if err := clearTab(ctx, service, spreadsheetID, spec.Name); err != nil {
+			return err
+		}
+		if err := writeTab(ctx, service, spreadsheetID, spec); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readActiveAnimals(ctx context.Context, service *bq.Service, project string) ([]activeAnimal, error) {
+	sql := fmt.Sprintf(`
+WITH base AS (
+  SELECT
+    *,
+    COALESCE(NULLIF(TRIM(CAST(goat_id AS STRING)), ''),
+             NULLIF(TRIM(CAST(farm_goat_id AS STRING)), ''),
+             NULLIF(TRIM(CAST(inp_goat_id AS STRING)), '')) AS animal_key
+  FROM %s
+),
+births AS (
+  SELECT animal_key, MIN(date) AS dob
+  FROM base
+  WHERE animal_key IS NOT NULL AND event = 'Birth' AND date IS NOT NULL
+  GROUP BY animal_key
+),
+origins AS (
+  SELECT animal_key, event AS origin_event, date AS origin_date
+  FROM base
+  WHERE animal_key IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY animal_key
+    ORDER BY date ASC,
+      CASE event WHEN 'Birth' THEN 1 WHEN 'Purchase' THEN 2 WHEN 'Shifting' THEN 3 ELSE 4 END ASC,
+      event ASC
+  ) = 1
+),
+ranked AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (
+      PARTITION BY animal_key
+      ORDER BY date DESC,
+        CASE event
+          WHEN 'Death' THEN 5
+          WHEN 'Sale' THEN 4
+          WHEN 'Abortion' THEN 4
+          WHEN 'Shifting' THEN 3
+          WHEN 'Purchase' THEN 2
+          WHEN 'Birth' THEN 1
+          ELSE 0
+        END DESC,
+        event DESC,
+        COALESCE(shifting_id, '') DESC,
+        COALESCE(goat_id, '') DESC,
+        COALESCE(farm_goat_id, '') DESC,
+        COALESCE(inp_goat_id, '') DESC
+    ) AS rn
+  FROM base
+  WHERE animal_key IS NOT NULL
+)
+SELECT
+  CAST(r.animal_key AS STRING) AS animal_key,
+  CAST(COALESCE(r.goat_id, '') AS STRING) AS goat_id,
+  CAST(COALESCE(r.farm_goat_id, '') AS STRING) AS farm_goat_id,
+  CAST(COALESCE(r.inp_goat_id, '') AS STRING) AS inp_goat_id,
+  CAST(COALESCE(r.parent_id, '') AS STRING) AS parent_id,
+  CAST(COALESCE(r.farm_parent_id, '') AS STRING) AS farm_parent_id,
+  CAST(COALESCE(r.inp_parent_id, '') AS STRING) AS inp_parent_id,
+  CAST(COALESCE(r.event, '') AS STRING) AS latest_event,
+  CAST(COALESCE(CAST(r.date AS STRING), '') AS STRING) AS latest_event_date,
+  CAST(COALESCE(o.origin_event, '') AS STRING) AS origin_event,
+  CAST(COALESCE(CAST(o.origin_date AS STRING), '') AS STRING) AS origin_date,
+  CAST(COALESCE(r.farm, '') AS STRING) AS farm,
+  CAST(COALESCE(r.breed, '') AS STRING) AS breed,
+  CAST(COALESCE(r.gender, '') AS STRING) AS gender,
+  CAST(COALESCE(r.age, '') AS STRING) AS age,
+  CAST(COALESCE(r.birth_time, '') AS STRING) AS birth_time,
+  CAST(COALESCE(r.shifting_id, '') AS STRING) AS shifting_id,
+  CAST(COALESCE(r.src_shed, '') AS STRING) AS src_shed,
+  CAST(COALESCE(r.dst_shed, '') AS STRING) AS dst_shed,
+  CAST(COALESCE(r.dst_tag, '') AS STRING) AS dst_tag,
+  CAST(COALESCE(r.weight, '') AS STRING) AS weight,
+  CAST(COALESCE(CAST(b.dob AS STRING), '') AS STRING) AS dob
+FROM ranked r
+LEFT JOIN births b USING (animal_key)
+LEFT JOIN origins o USING (animal_key)
+WHERE r.rn = 1
+  AND COALESCE(r.event, '') NOT IN ('Death', 'Sale', 'Abortion')
+ORDER BY r.farm, SAFE_CAST(REGEXP_EXTRACT(r.animal_key, r'(\d+)') AS INT64), r.animal_key`, bqTable(project, "goatsDB", "goats_db_clean"))
+	rows, err := queryBigQuery(ctx, service, project, sql)
+	if err != nil {
+		return nil, fmt.Errorf("query active animal spine: %w", err)
+	}
+	out := make([]activeAnimal, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, activeAnimal{
+			AnimalKey:       row["animal_key"],
+			GoatID:          row["goat_id"],
+			FarmGoatID:      row["farm_goat_id"],
+			InputGoatID:     row["inp_goat_id"],
+			ParentID:        row["parent_id"],
+			FarmParentID:    row["farm_parent_id"],
+			InputParentID:   row["inp_parent_id"],
+			LatestEvent:     row["latest_event"],
+			LatestEventDate: row["latest_event_date"],
+			OriginEvent:     row["origin_event"],
+			OriginDate:      row["origin_date"],
+			Farm:            row["farm"],
+			Breed:           row["breed"],
+			Gender:          row["gender"],
+			Age:             row["age"],
+			BirthTime:       row["birth_time"],
+			ShiftingID:      row["shifting_id"],
+			SourceShed:      row["src_shed"],
+			DestinationShed: row["dst_shed"],
+			DestinationTag:  row["dst_tag"],
+			Weight:          row["weight"],
+			DOB:             row["dob"],
+		})
+	}
+	return out, nil
+}
+
+func readRFIDRecords(ctx context.Context, service sheetsPort) ([]rfidRecord, error) {
+	rows := []rfidRecord{}
+	cbeValues, err := readFirstAvailableRange(ctx, service, "1R648AutCSXS247DZb7dc07dDgyue6_R4mZDd93oW3M8", []string{quoteSheet(" RFID DB") + "!A:I", quoteSheet("RFID DB") + "!A:I"})
+	if err == nil {
+		rows = append(rows, parseRFIDSheet("goats_db_rfid_mapping", cbeValues, map[string]string{
+			"farm": "Farm", "old": "Old_Tag_ID", "rfid": "RFID", "breed": "Breed", "gender": "Gender", "shed": "Shed", "shed_tag": "Shed_Tag", "age": "Age",
+		})...)
+	}
+	cptValues, err := readFirstAvailableRange(ctx, service, "1cCiVV3DuA_AEpuRD7NqavfEc-oTx364W7MBpjnhNQ18", []string{quoteSheet("DB") + "!A:C"})
+	if err == nil {
+		rows = append(rows, parseRFIDSheet("cpt_rfid_beetal", cptValues, map[string]string{
+			"old": "Old_Rtag", "rfid": "RFID",
+		})...)
+	}
+	return rows, nil
+}
+
+func readFirstAvailableRange(ctx context.Context, service sheetsPort, spreadsheetID string, ranges []string) ([][]any, error) {
+	var lastErr error
+	for _, readRange := range ranges {
+		resp, err := service.GetValues(ctx, spreadsheetID, readRange)
+		if err == nil {
+			return resp.Values, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func parseRFIDSheet(sourceID string, values [][]any, aliases map[string]string) []rfidRecord {
+	if len(values) == 0 {
+		return nil
+	}
+	headers := map[string]int{}
+	for i, cell := range values[0] {
+		headers[normalizeHeader(fmt.Sprint(cell))] = i
+	}
+	get := func(row []any, key string) string {
+		idx, ok := headers[normalizeHeader(aliases[key])]
+		if !ok || idx >= len(row) {
+			return ""
+		}
+		return strings.TrimSpace(fmt.Sprint(row[idx]))
+	}
+	rows := make([]rfidRecord, 0, len(values)-1)
+	for i, row := range values[1:] {
+		rec := rfidRecord{
+			SourceID: sourceID,
+			RowID:    strconv.Itoa(i + 2),
+			Farm:     get(row, "farm"),
+			OldTag:   get(row, "old"),
+			RFID:     get(row, "rfid"),
+			Breed:    get(row, "breed"),
+			Gender:   get(row, "gender"),
+			Shed:     get(row, "shed"),
+			ShedTag:  get(row, "shed_tag"),
+			Age:      get(row, "age"),
+		}
+		if rec.OldTag == "" && rec.RFID == "" {
+			continue
+		}
+		rows = append(rows, rec)
+	}
+	return rows
+}
+
+func queryBigQuery(ctx context.Context, service *bq.Service, project string, sql string) ([]map[string]string, error) {
+	resp, err := service.Jobs.Query(project, &bq.QueryRequest{
+		Query:        sql,
+		UseLegacySql: boolPtr(false),
+		MaxResults:   10000,
+		TimeoutMs:    60000,
+	}).Context(ctx).Do()
+	if err != nil {
+		return nil, err
+	}
+	out := bqRows(resp.Schema, resp.Rows)
+	pageToken := resp.PageToken
+	jobID := ""
+	location := ""
+	if resp.JobReference != nil {
+		jobID = resp.JobReference.JobId
+		location = resp.JobReference.Location
+	}
+	for jobID != "" && (!resp.JobComplete || pageToken != "") {
+		call := service.Jobs.GetQueryResults(project, jobID).Context(ctx).MaxResults(10000)
+		if location != "" {
+			call = call.Location(location)
+		}
+		if pageToken != "" {
+			call = call.PageToken(pageToken)
+		}
+		next, err := call.Do()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, bqRows(next.Schema, next.Rows)...)
+		resp.JobComplete = next.JobComplete
+		pageToken = next.PageToken
+	}
+	return out, nil
+}
+
+func bqRows(schema *bq.TableSchema, rows []*bq.TableRow) []map[string]string {
+	if schema == nil {
+		return nil
+	}
+	out := make([]map[string]string, 0, len(rows))
+	for _, row := range rows {
+		item := map[string]string{}
+		for i, field := range schema.Fields {
+			if i >= len(row.F) || row.F[i] == nil || row.F[i].V == nil {
+				item[field.Name] = ""
+				continue
+			}
+			item[field.Name] = strings.TrimSpace(fmt.Sprint(row.F[i].V))
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func bqTable(project, dataset, table string) string {
+	for _, part := range []string{project, dataset, table} {
+		for _, r := range part {
+			if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' && r != '-' {
+				panic("invalid BigQuery identifier: " + part)
+			}
+		}
+	}
+	return fmt.Sprintf("`%s.%s.%s`", project, dataset, table)
+}
+
+func indexRFIDRecords(rows []rfidRecord) map[string][]rfidRecord {
+	out := map[string][]rfidRecord{}
+	for _, row := range rows {
+		for _, raw := range []string{row.OldTag, row.RFID, row.Farm + row.OldTag, row.Farm + row.RFID} {
+			key := normalizeKey(raw)
+			if key == "" {
+				continue
+			}
+			out[key] = append(out[key], row)
+		}
+	}
+	return out
+}
+
+func matchRFID(animal activeAnimal, byKey map[string][]rfidRecord) matchedRFID {
+	seen := map[string]rfidRecord{}
+	for _, raw := range []string{
+		animal.FarmGoatID,
+		animal.GoatID,
+		animal.InputGoatID,
+		animal.Farm + animal.GoatID,
+		animal.Farm + animal.InputGoatID,
+		animal.Farm + animal.FarmGoatID,
+	} {
+		for _, rec := range byKey[normalizeKey(raw)] {
+			seen[rec.SourceID+"|"+rec.RowID] = rec
+		}
+	}
+	if len(seen) == 0 {
+		return matchedRFID{}
+	}
+	if len(seen) > 1 {
+		return matchedRFID{Ambiguous: true}
+	}
+	for _, rec := range seen {
+		return matchedRFID{Record: rec}
+	}
+	return matchedRFID{}
+}
+
+func animalMasterRow(animal activeAnimal, match matchedRFID, primaryCounts map[string]int, now string) ([]string, []string) {
+	primary := ""
+	secondary := ""
+	rfidSource := ""
+	if !match.Ambiguous {
+		primary = strings.TrimSpace(match.Record.RFID)
+		secondary = strings.TrimSpace(match.Record.OldTag)
+		if normalizeKey(primary) == normalizeKey(secondary) {
+			secondary = ""
+		}
+		if primary != "" || secondary != "" {
+			rfidSource = match.Record.SourceID + ":" + match.Record.RowID
+		}
+	}
+	breed := firstNonEmpty(animal.Breed, match.Record.Breed)
+	sex, sexSource := normalizeSex(firstNonEmpty(animal.Gender, match.Record.Gender)), ""
+	if sex != "" {
+		if strings.TrimSpace(animal.Gender) != "" {
+			sexSource = "goats_db_clean.gender"
+		} else {
+			sexSource = "rfid_mapping.gender"
+		}
+	}
+	species := deriveSpecies(breed)
+	originType := normalizeOriginType(animal.OriginEvent)
+	currentShed := firstNonEmpty(animal.DestinationShed, match.Record.Shed)
+	currentStage := firstNonEmpty(animal.DestinationTag, match.Record.ShedTag)
+	currentFarm := firstNonEmpty(animal.Farm, match.Record.Farm)
+	dobEstimated := "false"
+	dobMethod := ""
+	if animal.DOB == "" && numericString(firstNonEmpty(animal.Age, match.Record.Age)) {
+		dobMethod = "legacy_age_candidate_needs_approval"
+	}
+
+	legacyIDs := compactJoin([]string{
+		labelValue("goat_id", animal.GoatID),
+		labelValue("farm_goat_id", animal.FarmGoatID),
+		labelValue("inp_goat_id", animal.InputGoatID),
+	}, ";")
+	evidence := compactJoin([]string{"goats_db_clean:" + animal.AnimalKey, rfidSource}, "|")
+	sourceLinks := compactJoin([]string{
+		"https://docs.google.com/spreadsheets/d/1R648AutCSXS247DZb7dc07dDgyue6_R4mZDd93oW3M8/edit?gid=0#gid=0",
+	}, "|")
+	issues := []string{}
+	if match.Ambiguous {
+		issues = append(issues, "ambiguous_rfid_mapping")
+	}
+	if primary == "" {
+		issues = append(issues, "missing_animal_identifier_1")
+	} else if primaryCounts[normalizeKey(primary)] > 1 {
+		issues = append(issues, "duplicate_animal_identifier_1")
+	}
+	if primary != "" && secondary != "" && normalizeKey(primary) == normalizeKey(secondary) {
+		issues = append(issues, "animal_identifier_1_equals_2")
+	}
+	if species == "" {
+		issues = append(issues, "missing_or_unmapped_species")
+	}
+	if sex == "" {
+		issues = append(issues, "missing_sex")
+	}
+	if animal.DOB == "" {
+		issues = append(issues, "missing_dob")
+	}
+	if originType == "" {
+		issues = append(issues, "missing_origin_type")
+	}
+	if animal.OriginDate == "" {
+		issues = append(issues, "missing_entry_date")
+	}
+	if currentFarm == "" {
+		issues = append(issues, "missing_current_farm")
+	}
+	if currentShed == "" {
+		issues = append(issues, "missing_current_shed")
+	}
+	if currentStage == "" {
+		issues = append(issues, "missing_current_stage")
+	}
+	currentPark := ""
+	if currentPark == "" {
+		issues = append(issues, "missing_current_park_mapping")
+	}
+	if evidence == "" {
+		issues = append(issues, "missing_evidence_refs")
+	}
+	status := "GREEN"
+	ready := "yes"
+	if len(issues) > 0 {
+		status = "RED"
+		ready = "no"
+	}
+	return []string{
+		"legacy-" + animal.AnimalKey,
+		primary,
+		secondary,
+		legacyIDs,
+		species,
+		sex,
+		breed,
+		animal.DOB,
+		dobEstimated,
+		firstNonEmpty(animal.Age, match.Record.Age),
+		originType,
+		animal.OriginDate,
+		"active",
+		currentFarm,
+		currentPark,
+		currentShed,
+		currentStage,
+		currentStage,
+		"",
+		reproductiveStatus(currentStage),
+		firstNonEmpty(animal.ParentID, animal.FarmParentID, animal.InputParentID),
+		"",
+		animal.Weight,
+		"",
+		dobMethod,
+		sexSource,
+		animal.AnimalKey,
+		sourceLinks,
+		evidence,
+		status,
+		strings.Join(issues, ";"),
+		ownerForIssues(issues),
+		now,
+		ready,
+	}, issues
+}
+
+func crosswalkRow(animal activeAnimal, match matchedRFID, master []string) []string {
+	matchStatus := "unmatched"
+	confidence := "0"
+	if match.Ambiguous {
+		matchStatus = "ambiguous"
+	} else if master[1] != "" || master[2] != "" {
+		matchStatus = "matched"
+		confidence = "0.8"
+	}
+	return []string{
+		"crosswalk-" + safeIssueID(animal.AnimalKey),
+		"goats_db_clean",
+		animal.AnimalKey,
+		compactJoin([]string{animal.GoatID, animal.FarmGoatID, animal.InputGoatID, match.Record.OldTag, match.Record.RFID}, "|"),
+		normalizeKey(compactJoin([]string{animal.GoatID, animal.FarmGoatID, animal.InputGoatID}, "|")),
+		"legacy_event_spine_to_rfid",
+		master[1],
+		master[2],
+		master[0],
+		matchStatus,
+		confidence,
+		"",
+		boolString(match.Ambiguous),
+		"Generated by live animal-master sync; review before import.",
+		"",
+		"",
+	}
+}
+
+func locationRow(animal activeAnimal, match matchedRFID, master []string) []string {
+	status := "resolved"
+	reason := "latest_event_or_rfid_mapping"
+	verification := "GREEN"
+	if master[14] == "" || master[15] == "" || master[16] == "" {
+		status = "unresolved"
+		reason = "missing current_park/current_shed/current_stage"
+		verification = "RED"
+	}
+	return []string{
+		master[1],
+		master[2],
+		master[13],
+		master[14],
+		master[15],
+		master[16],
+		"latest_event_then_rfid_mapping",
+		animal.Farm,
+		animal.DestinationShed,
+		animal.DestinationTag,
+		match.Record.Shed,
+		"",
+		animal.LatestEvent,
+		"",
+		"",
+		status,
+		reason,
+		verification,
+	}
+}
+
+type liveCounts struct {
+	BusinessDate   string
+	TotalActive    int
+	Green          int
+	Amber          int
+	Red            int
+	WithID1        int
+	WithID2        int
+	WithDOB        int
+	WithSex        int
+	WithSpecies    int
+	WithFarm       int
+	WithPark       int
+	WithShed       int
+	WithStage      int
+	DuplicateID1   int
+	MissingDOB     int
+	MissingID1     int
+	MissingPark    int
+	MissingShed    int
+	MissingSex     int
+	MissingSpecies int
+}
+
+func updateCoverageCounts(counts *liveCounts, row []string) {
+	if row[1] != "" {
+		counts.WithID1++
+	} else {
+		counts.MissingID1++
+	}
+	if row[2] != "" {
+		counts.WithID2++
+	}
+	if row[4] != "" {
+		counts.WithSpecies++
+	} else {
+		counts.MissingSpecies++
+	}
+	if row[5] != "" {
+		counts.WithSex++
+	} else {
+		counts.MissingSex++
+	}
+	if row[7] != "" {
+		counts.WithDOB++
+	} else {
+		counts.MissingDOB++
+	}
+	if row[13] != "" {
+		counts.WithFarm++
+	}
+	if row[14] != "" {
+		counts.WithPark++
+	} else {
+		counts.MissingPark++
+	}
+	if row[15] != "" {
+		counts.WithShed++
+	} else {
+		counts.MissingShed++
+	}
+	if row[16] != "" {
+		counts.WithStage++
+	}
+	if strings.Contains(row[30], "duplicate_animal_identifier_1") {
+		counts.DuplicateID1++
+	}
+}
+
+func (counts liveCounts) toMap() map[string]int {
+	return map[string]int{
+		"total_active":                  counts.TotalActive,
+		"green":                         counts.Green,
+		"amber":                         counts.Amber,
+		"red":                           counts.Red,
+		"with_animal_identifier_1":      counts.WithID1,
+		"with_animal_identifier_2":      counts.WithID2,
+		"with_birth_date":               counts.WithDOB,
+		"with_sex":                      counts.WithSex,
+		"with_species":                  counts.WithSpecies,
+		"with_current_farm":             counts.WithFarm,
+		"with_current_park":             counts.WithPark,
+		"with_current_shed":             counts.WithShed,
+		"with_current_stage":            counts.WithStage,
+		"duplicate_animal_identifier_1": counts.DuplicateID1,
+		"missing_animal_identifier_1":   counts.MissingID1,
+		"missing_birth_date":            counts.MissingDOB,
+		"missing_sex":                   counts.MissingSex,
+		"missing_species":               counts.MissingSpecies,
+		"missing_current_park":          counts.MissingPark,
+		"missing_current_shed":          counts.MissingShed,
+	}
+}
+
+func liveCountRows(counts liveCounts) [][]string {
+	return [][]string{
+		countRow(counts.BusinessDate, "active_spine_candidates", counts.TotalActive, counts.TotalActive, 0, "goatsDB.goats_db_clean", "computed"),
+		countRow(counts.BusinessDate, "animal_master_green_rows", counts.Green, counts.Green, 0, "Animal_Master", "computed"),
+		countRow(counts.BusinessDate, "animal_master_amber_rows", counts.Amber, counts.Amber, 0, "Animal_Master", "computed"),
+		countRow(counts.BusinessDate, "animal_master_red_rows", counts.Red, counts.Red, 0, "Animal_Master", "computed"),
+		countRow(counts.BusinessDate, "active_with_animal_identifier_1", counts.WithID1, counts.TotalActive, counts.WithID1-counts.TotalActive, "RFID sheets", "computed"),
+		countRow(counts.BusinessDate, "active_with_animal_identifier_2", counts.WithID2, counts.TotalActive, counts.WithID2-counts.TotalActive, "RFID sheets", "computed"),
+		countRow(counts.BusinessDate, "active_with_birth_date", counts.WithDOB, counts.TotalActive, counts.WithDOB-counts.TotalActive, "goatsDB.goats_db_clean", "computed"),
+		countRow(counts.BusinessDate, "active_with_sex", counts.WithSex, counts.TotalActive, counts.WithSex-counts.TotalActive, "goats_db_clean + RFID sheets", "computed"),
+		countRow(counts.BusinessDate, "active_with_species", counts.WithSpecies, counts.TotalActive, counts.WithSpecies-counts.TotalActive, "breed/species crosswalk", "computed"),
+		countRow(counts.BusinessDate, "active_with_current_farm", counts.WithFarm, counts.TotalActive, counts.WithFarm-counts.TotalActive, "goatsDB.goats_db_clean", "computed"),
+		countRow(counts.BusinessDate, "active_with_current_park", counts.WithPark, counts.TotalActive, counts.WithPark-counts.TotalActive, "Location_Profile", "computed"),
+		countRow(counts.BusinessDate, "active_with_current_shed", counts.WithShed, counts.TotalActive, counts.WithShed-counts.TotalActive, "goats_db_clean + RFID sheets", "computed"),
+		countRow(counts.BusinessDate, "active_with_current_stage", counts.WithStage, counts.TotalActive, counts.WithStage-counts.TotalActive, "goats_db_clean + RFID sheets", "computed"),
+		countRow(counts.BusinessDate, "active_duplicate_animal_identifier_1", counts.DuplicateID1, 0, counts.DuplicateID1, "RFID sheets", "computed"),
+	}
+}
+
+func countRow(businessDate, sourceID string, sourceCount, canonicalCount, delta int, link, status string) []string {
+	return []string{businessDate, sourceID, "", "", "", "", "", "", strconv.Itoa(sourceCount), strconv.Itoa(canonicalCount), strconv.Itoa(delta), link, status}
 }
 
 func manifestSnapshotRow(runID, businessDate string, sources []sourceCatalogRow, rules []validationRuleRow, issues []issueSeedRow) []string {
@@ -744,8 +1646,15 @@ func printSummary(stdout io.Writer, summary syncSummary, jsonOut bool, label str
 		summary.SourceCatalogRows, summary.ValidationRules, summary.IssueSeeds,
 		summary.Apply, summary.ReplaceManagedTabs)
 	if summary.Apply {
-		fmt.Fprintf(stdout, "created_tabs=%d written_tabs=%d skipped_tabs=%d appended_rows=%d\n",
-			len(summary.CreatedTabs), len(summary.WrittenTabs), len(summary.SkippedTabs), len(summary.AppendedRows))
+		fmt.Fprintf(stdout, "created_tabs=%d deleted_tabs=%d reordered_tabs=%d written_tabs=%d skipped_tabs=%d appended_rows=%d\n",
+			len(summary.CreatedTabs), len(summary.DeletedTabs), len(summary.ReorderedTabs), len(summary.WrittenTabs), len(summary.SkippedTabs), len(summary.AppendedRows))
+	}
+	if summary.LiveAnimalRows > 0 || summary.GreenRows > 0 || summary.AmberRows > 0 || summary.RedRows > 0 {
+		fmt.Fprintf(stdout, "live_animal_rows=%d green_rows=%d amber_rows=%d red_rows=%d\n",
+			summary.LiveAnimalRows, summary.GreenRows, summary.AmberRows, summary.RedRows)
+		if len(summary.LiveCoverage) > 0 {
+			fmt.Fprintf(stdout, "coverage=%s\n", compactJSON(summary.LiveCoverage))
+		}
 	}
 	return nil
 }
@@ -804,6 +1713,133 @@ func compactJSON(v any) string {
 		return "{}"
 	}
 	return string(b)
+}
+
+func normalizeHeader(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	replacer := strings.NewReplacer(" ", "_", "-", "_", "/", "_")
+	return replacer.Replace(value)
+}
+
+func normalizeKey(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	var b strings.Builder
+	for _, r := range value {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func compactJoin(values []string, sep string) string {
+	out := []string{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return strings.Join(out, sep)
+}
+
+func labelValue(label, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return label + "=" + value
+}
+
+func normalizeSex(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "male", "m", "buck":
+		return "male"
+	case "female", "f", "doe":
+		return "female"
+	default:
+		return ""
+	}
+}
+
+func deriveSpecies(breed string) string {
+	switch strings.ToLower(strings.TrimSpace(breed)) {
+	case "anantapur sheep", "sojat":
+		return "sheep"
+	case "anantapur", "beetal", "boer", "malai", "osmanabadi", "sirohi":
+		return "goat"
+	default:
+		return ""
+	}
+}
+
+func normalizeOriginType(event string) string {
+	switch strings.ToLower(strings.TrimSpace(event)) {
+	case "birth":
+		return "born_on_farm"
+	case "purchase":
+		return "procured"
+	default:
+		if strings.TrimSpace(event) == "" {
+			return ""
+		}
+		return "legacy_" + strings.ToLower(strings.ReplaceAll(strings.TrimSpace(event), " ", "_"))
+	}
+}
+
+func numericString(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	_, err := strconv.ParseFloat(value, 64)
+	return err == nil
+}
+
+func reproductiveStatus(stage string) string {
+	switch strings.ToLower(strings.TrimSpace(stage)) {
+	case "pregnant", "icu-non-pregnant", "non-pregnant", "mother", "milking":
+		return strings.ToLower(strings.TrimSpace(stage))
+	default:
+		return ""
+	}
+}
+
+func ownerForIssues(issues []string) string {
+	for _, issue := range issues {
+		if strings.Contains(issue, "park") || strings.Contains(issue, "shed") || strings.Contains(issue, "dob") || strings.Contains(issue, "sex") || strings.Contains(issue, "species") {
+			return "data/dev + ground/source team"
+		}
+	}
+	return "data/dev"
+}
+
+func safeIssueID(value string) string {
+	key := strings.ToLower(normalizeKey(value))
+	if key == "" {
+		return "unknown"
+	}
+	return key
+}
+
+func boolString(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func getenv(name string) string {

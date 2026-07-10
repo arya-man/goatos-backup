@@ -147,6 +147,34 @@ func TestDefaultBusinessDateUsesISTYesterday(t *testing.T) {
 	}
 }
 
+func TestApplyWorkbookDeletesEmptySheet1AndOrdersManagedTabs(t *testing.T) {
+	ctx := context.Background()
+	specs := []tabSpec{
+		tableSpec("README_Problem_Statement", []string{"section", "content"}, nil),
+		tableSpec("Animal_Master", []string{"animal_identifier_1", "verification_status"}, nil),
+		tableSpec("Source_Catalog", sourceCatalogColumns(), [][]string{{"src-1"}}),
+	}
+	fake := newFakeSheets(nil)
+	fake.addTab("Sheet1", nil)
+	fake.addTab("Source_Catalog", [][]any{stringRow(sourceCatalogColumns())})
+	fake.addTab("README_Problem_Statement", [][]any{{"section", "content"}})
+	fake.addTab("Animal_Master", [][]any{{"animal_identifier_1", "verification_status"}})
+
+	summary, err := applyWorkbook(ctx, fake, config{SpreadsheetID: "sheet"}, specs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(summary.DeletedTabs, "Sheet1") {
+		t.Fatalf("Sheet1 should be deleted when empty, got %+v", summary)
+	}
+	if fake.tabs["Sheet1"] {
+		t.Fatalf("Sheet1 still present; order=%v", fake.order)
+	}
+	if got, want := fake.order[:3], []string{"README_Problem_Statement", "Animal_Master", "Source_Catalog"}; strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("managed tabs not ordered: got %v want %v", got, want)
+	}
+}
+
 func TestApplyWorkbookPreservesHumanTabsAndAppendsSyncRuns(t *testing.T) {
 	ctx := context.Background()
 	specs := []tabSpec{
@@ -327,16 +355,30 @@ func contains(values []string, target string) bool {
 type fakeSheets struct {
 	tabs   map[string]bool
 	values map[string][][]any
+	ids    map[string]int64
+	order  []string
+	nextID int64
 	calls  []string
 }
 
 func newFakeSheets(specs []tabSpec) *fakeSheets {
-	fake := &fakeSheets{tabs: map[string]bool{}, values: map[string][][]any{}}
+	fake := &fakeSheets{tabs: map[string]bool{}, values: map[string][][]any{}, ids: map[string]int64{}, nextID: 1}
 	for _, spec := range specs {
-		fake.tabs[spec.Name] = true
-		fake.values[spec.Name] = [][]any{}
+		fake.addTab(spec.Name, [][]any{})
 	}
 	return fake
+}
+
+func (f *fakeSheets) addTab(name string, values [][]any) {
+	if f.tabs[name] {
+		f.values[name] = values
+		return
+	}
+	f.tabs[name] = true
+	f.values[name] = values
+	f.ids[name] = f.nextID
+	f.nextID++
+	f.order = append(f.order, name)
 }
 
 func (f *fakeSheets) GetSpreadsheet(ctx context.Context, spreadsheetID string) (*sheets.Spreadsheet, error) {
@@ -344,8 +386,11 @@ func (f *fakeSheets) GetSpreadsheet(ctx context.Context, spreadsheetID string) (
 	_ = spreadsheetID
 	f.calls = append(f.calls, "get-spreadsheet")
 	resp := &sheets.Spreadsheet{}
-	for name := range f.tabs {
-		resp.Sheets = append(resp.Sheets, &sheets.Sheet{Properties: &sheets.SheetProperties{Title: name}})
+	for index, name := range f.order {
+		if !f.tabs[name] {
+			continue
+		}
+		resp.Sheets = append(resp.Sheets, &sheets.Sheet{Properties: &sheets.SheetProperties{Title: name, SheetId: f.ids[name], Index: int64(index)}})
 	}
 	return resp, nil
 }
@@ -356,17 +401,61 @@ func (f *fakeSheets) BatchUpdateSpreadsheet(ctx context.Context, spreadsheetID s
 	f.calls = append(f.calls, "batch-update")
 	resp := &sheets.BatchUpdateSpreadsheetResponse{}
 	for _, req := range request.Requests {
-		if req.AddSheet == nil || req.AddSheet.Properties == nil {
-			continue
+		switch {
+		case req.AddSheet != nil && req.AddSheet.Properties != nil:
+			name := req.AddSheet.Properties.Title
+			f.addTab(name, [][]any{})
+			resp.Replies = append(resp.Replies, &sheets.Response{AddSheet: &sheets.AddSheetResponse{Properties: &sheets.SheetProperties{Title: name, SheetId: f.ids[name], Index: int64(len(f.order) - 1)}}})
+		case req.DeleteSheet != nil:
+			name := f.nameByID(req.DeleteSheet.SheetId)
+			if name == "" {
+				continue
+			}
+			delete(f.tabs, name)
+			delete(f.values, name)
+			delete(f.ids, name)
+			f.removeFromOrder(name)
+		case req.UpdateSheetProperties != nil && req.UpdateSheetProperties.Properties != nil:
+			name := f.nameByID(req.UpdateSheetProperties.Properties.SheetId)
+			if name == "" {
+				continue
+			}
+			f.moveTab(name, int(req.UpdateSheetProperties.Properties.Index))
 		}
-		name := req.AddSheet.Properties.Title
-		f.tabs[name] = true
-		if _, ok := f.values[name]; !ok {
-			f.values[name] = [][]any{}
-		}
-		resp.Replies = append(resp.Replies, &sheets.Response{AddSheet: &sheets.AddSheetResponse{Properties: &sheets.SheetProperties{Title: name}}})
 	}
 	return resp, nil
+}
+
+func (f *fakeSheets) nameByID(id int64) string {
+	for name, got := range f.ids {
+		if got == id {
+			return name
+		}
+	}
+	return ""
+}
+
+func (f *fakeSheets) removeFromOrder(name string) {
+	out := f.order[:0]
+	for _, got := range f.order {
+		if got != name {
+			out = append(out, got)
+		}
+	}
+	f.order = out
+}
+
+func (f *fakeSheets) moveTab(name string, index int) {
+	f.removeFromOrder(name)
+	if index < 0 {
+		index = 0
+	}
+	if index > len(f.order) {
+		index = len(f.order)
+	}
+	f.order = append(f.order, "")
+	copy(f.order[index+1:], f.order[index:])
+	f.order[index] = name
 }
 
 func (f *fakeSheets) GetValues(ctx context.Context, spreadsheetID string, readRange string) (*sheets.ValueRange, error) {
