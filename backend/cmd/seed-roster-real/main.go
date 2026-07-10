@@ -9,13 +9,15 @@
 //     Manager / Assistant Manager) are read directly and map to hr_designation_grade
 //     (cxo | director | manager | assistant_manager), lowercased+underscored.
 //   - <source>/roster-name-mapping.jun26-review.csv   maintainer-reviewed authoritative
-//     roster-to-person join (31 filled slots). Columns: center, timetable_position,
+//     roster-to-person join. Columns: center, timetable_position,
 //     timetable_name, jun26_candidate, designation_type, designation, location,
 //     confidence, notes. This CSV is the SOURCE OF TRUTH for timetable-slot assignments --
 //     replaces fuzzy matching. The jun26_candidate column names the person in the Jun-26
 //     sheet who holds each roster position. UNRESOLVED confidence slot leaves
 //     grade/member-link null and logs it.
-//   - <source>/attendance-june-<day>.json (optional)   per-calendar-day attendance grid
+//   - <source>/timetable-goats-team-v1.json   Staff-Timetable Goats-Team-v1 tab,
+//     used for recurring week-off days by fixed operational position.
+//   - <source>/attendance-jun-26.json (optional)   per-calendar-day attendance grid
 //     for derived leave windows; day columns "1".."30" (June has 30 days). Cell value
 //     "0" = explicit marked absence, "1" = present, "" = no-data (not counted as absence).
 //
@@ -122,12 +124,13 @@ type memberRec struct {
 }
 
 type rosterAssignment struct {
-	center      string        // CBE | CPT
-	position    positionDef
-	jun26Name   string        // person's Jun-26 name; "" if UNRESOLVED
-	isResolved  bool          // false for UNRESOLVED slots
-	unresolved  bool          // true if confidence was UNRESOLVED
-	designation string        // Jun-26 Designation (for diagnostics/notes only)
+	center         string // CBE | CPT
+	position       positionDef
+	jun26Name      string // person's Jun-26 name; "" if UNRESOLVED
+	isResolved     bool   // false for UNRESOLVED slots
+	unresolved     bool   // true if confidence was UNRESOLVED
+	designation    string // Jun-26 Designation (for diagnostics/notes only)
+	weekOffWeekday string
 }
 
 type leaveWindow struct {
@@ -191,12 +194,17 @@ func run(args []string) error {
 		return fmt.Errorf("load roster mapping CSV: %w", err)
 	}
 
+	weekOffs, err := loadRosterWeekOffs(*sourcePath)
+	if err != nil {
+		return fmt.Errorf("load roster week-offs: %w", err)
+	}
+
 	grid, err := loadAttendanceGrid(*sourcePath)
 	if err != nil {
 		return fmt.Errorf("load attendance grid: %w", err)
 	}
 
-	members, assignments, st := normalizeAssignments(jun26Members, rosterMappings)
+	members, assignments, st := normalizeAssignments(jun26Members, rosterMappings, weekOffs)
 	leaves, st2 := normalizeLeaveWindows(grid, members, *attendanceYear, *attendanceMonth, loc)
 	st.AttendanceRowsTotal = st2.AttendanceRowsTotal
 	st.AttendanceMatchedNames = st2.AttendanceMatchedNames
@@ -404,13 +412,40 @@ type attendanceRow struct {
 	days map[int]string
 }
 
-// loadAttendanceGrid loads attendance grid keyed by June name.
-// If attendance-june.json does not exist, returns empty grid (optional).
-func loadAttendanceGrid(sourcePath string) ([]attendanceRow, error) {
-	// Try to load June attendance grid; if not found, proceed with empty grid
-	values, err := readSheet(sourcePath + "/attendance-june.json")
+func loadRosterWeekOffs(sourcePath string) (map[string]string, error) {
+	values, err := readSheet(sourcePath + "/timetable-goats-team-v1.json")
 	if err != nil {
-		// File not found or unreadable; this is optional, so return empty grid
+		return map[string]string{}, nil
+	}
+	if len(values) < 2 {
+		return map[string]string{}, nil
+	}
+
+	out := make(map[string]string)
+	for _, row := range values[1:] {
+		position := normalizeLabel(cell(row, 0))
+		if position == "" {
+			continue
+		}
+		if weekday := normalizeWeekday(cell(row, 4)); weekday != "" {
+			out[position] = weekday
+		}
+	}
+	return out, nil
+}
+
+// loadAttendanceGrid loads attendance grid keyed by June name.
+// If no supported attendance grid exists, returns empty grid (optional).
+func loadAttendanceGrid(sourcePath string) ([]attendanceRow, error) {
+	var values [][]interface{}
+	var err error
+	for _, name := range []string{"/attendance-jun-26.json", "/attendance-june.json"} {
+		values, err = readSheet(sourcePath + name)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
 		return []attendanceRow{}, nil
 	}
 
@@ -487,9 +522,18 @@ func normalizeLabel(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
+func normalizeWeekday(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday":
+		return strings.ToLower(strings.TrimSpace(s))
+	default:
+		return ""
+	}
+}
+
 // normalizeAssignments builds the roster assignments from the maintainer's reviewed CSV
 // and Jun-26 member data, handling UNRESOLVED slots.
-func normalizeAssignments(jun26Members map[string]*memberRec, csvMappings []rosterMappingRow) (map[string]*memberRec, []rosterAssignment, stats) {
+func normalizeAssignments(jun26Members map[string]*memberRec, csvMappings []rosterMappingRow, weekOffs map[string]string) (map[string]*memberRec, []rosterAssignment, stats) {
 	var st stats
 	st.Jun26Rows = len(jun26Members)
 	st.MappingRows = len(csvMappings)
@@ -506,6 +550,7 @@ func normalizeAssignments(jun26Members map[string]*memberRec, csvMappings []rost
 		if !ok {
 			continue // unmapped position (shouldn't happen with reviewed CSV)
 		}
+		weekOffWeekday := weekOffs[posName]
 
 		st.PositionSlotsDefined++
 
@@ -537,22 +582,24 @@ func normalizeAssignments(jun26Members map[string]*memberRec, csvMappings []rost
 		if !resolved {
 			// Unresolved: create position without member link
 			assignments = append(assignments, rosterAssignment{
-				center:      mapping.center,
-				position:    def,
-				jun26Name:   "",
-				isResolved:  false,
-				unresolved:  true,
-				designation: mapping.designation,
+				center:         mapping.center,
+				position:       def,
+				jun26Name:      "",
+				isResolved:     false,
+				unresolved:     true,
+				designation:    mapping.designation,
+				weekOffWeekday: weekOffWeekday,
 			})
 		} else {
 			// Resolved: normal assignment
 			assignments = append(assignments, rosterAssignment{
-				center:      mapping.center,
-				position:    def,
-				jun26Name:   mapping.jun26Name,
-				isResolved:  true,
-				unresolved:  false,
-				designation: mapping.designation,
+				center:         mapping.center,
+				position:       def,
+				jun26Name:      mapping.jun26Name,
+				isResolved:     true,
+				unresolved:     false,
+				designation:    mapping.designation,
+				weekOffWeekday: weekOffWeekday,
 			})
 
 			// Update member's best tier/code
@@ -687,9 +734,9 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 	// Insert members
 	type memberIns struct {
 		id, displayCode, name, roleHint, status string
-		grade                             *string
-		locationID                        *string
-		deptID                            *string
+		grade                                   *string
+		locationID                              *string
+		deptID                                  *string
 	}
 	var memberRows []memberIns
 	memberID := map[string]string{}
@@ -749,7 +796,15 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 			INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status,
 				primary_role_hint, primary_location_id, department_id, hr_designation_grade, updated_at)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
-			ON CONFLICT (workforce_member_id) DO NOTHING`,
+			ON CONFLICT (workforce_member_id) DO UPDATE SET
+				display_code = EXCLUDED.display_code,
+				display_name = EXCLUDED.display_name,
+				status = EXCLUDED.status,
+				primary_role_hint = EXCLUDED.primary_role_hint,
+				primary_location_id = EXCLUDED.primary_location_id,
+				department_id = EXCLUDED.department_id,
+				hr_designation_grade = EXCLUDED.hr_designation_grade,
+				updated_at = now()`,
 			m.id, tenantID, m.displayCode, m.name, m.status, m.roleHint, m.locationID, m.deptID, m.grade)
 	}); err != nil {
 		return ist, fmt.Errorf("insert members: %w", err)
@@ -758,10 +813,11 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 
 	// Insert positions (skip unresolved; they remain vacant)
 	var positionRows []struct {
-		posID   string
-		mID     string
-		center  string
-		def     positionDef
+		posID          string
+		mID            string
+		center         string
+		def            positionDef
+		weekOffWeekday string
 	}
 
 	for _, a := range assignments {
@@ -774,31 +830,49 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 		mID := memberID[a.jun26Name]
 
 		positionRows = append(positionRows, struct {
-			posID   string
-			mID     string
-			center  string
-			def     positionDef
-		}{posID: posID, mID: mID, center: a.center, def: a.position})
+			posID          string
+			mID            string
+			center         string
+			def            positionDef
+			weekOffWeekday string
+		}{posID: posID, mID: mID, center: a.center, def: a.position, weekOffWeekday: a.weekOffWeekday})
 	}
 
 	if err := batch(ctx, tx, positionRows, 200, func(b *pgx.Batch, p struct {
-		posID   string
-		mID     string
-		center  string
-		def     positionDef
+		posID          string
+		mID            string
+		center         string
+		def            positionDef
+		weekOffWeekday string
 	}) {
 		var backupGroup *string
 		if p.def.backupGroup != "" {
 			bg := p.def.backupGroup
 			backupGroup = &bg
 		}
+		var weekOff *string
+		if p.weekOffWeekday != "" {
+			w := p.weekOffWeekday
+			weekOff = &w
+		}
 
 		b.Queue(`
 			INSERT INTO workforce_positions (position_id, tenant_id, workforce_member_id, scope_type, scope_id,
 				position_code, position_tier, is_backup_slot, backup_group_code, week_off_weekday, status, valid_from, updated_at)
-			VALUES ($1,$2,$3,'center',$4,$5,$6,$7,$8,NULL,'active',now(),now())
-			ON CONFLICT (position_id) DO NOTHING`,
-			p.posID, tenantID, p.mID, centerLocationID[p.center], p.def.code, p.def.tier, p.def.isBackupSlot, backupGroup)
+			VALUES ($1,$2,$3,'center',$4,$5,$6,$7,$8,$9,'active',now(),now())
+			ON CONFLICT (position_id) DO UPDATE SET
+				workforce_member_id = EXCLUDED.workforce_member_id,
+				scope_type = EXCLUDED.scope_type,
+				scope_id = EXCLUDED.scope_id,
+				position_code = EXCLUDED.position_code,
+				position_tier = EXCLUDED.position_tier,
+				is_backup_slot = EXCLUDED.is_backup_slot,
+				backup_group_code = EXCLUDED.backup_group_code,
+				week_off_weekday = EXCLUDED.week_off_weekday,
+				status = EXCLUDED.status,
+				valid_to = NULL,
+				updated_at = now()`,
+			p.posID, tenantID, p.mID, centerLocationID[p.center], p.def.code, p.def.tier, p.def.isBackupSlot, backupGroup, weekOff)
 	}); err != nil {
 		return ist, fmt.Errorf("insert positions: %w", err)
 	}
