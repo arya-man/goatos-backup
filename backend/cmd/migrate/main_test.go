@@ -79,6 +79,17 @@ func TestValidateMigrationTargetRejectsStagingLookingTarget(t *testing.T) {
 	}
 }
 
+func TestValidateMigrationTargetRequiresExplicitStagingCloudSQL(t *testing.T) {
+	t.Setenv("GOATOS_ENV", "stg")
+	t.Setenv("GOATOS_ALLOW_STG_CLOUDSQL_TARGET", "true")
+	t.Setenv("GOATOS_STG_CLOUDSQL_CONNECTION_NAME", "goatos-stg:asia-south1:goatos-stg-core-db")
+
+	validURL := "user=goatos_app password=goatos dbname=goatos host=/cloudsql/goatos-stg:asia-south1:goatos-stg-core-db sslmode=disable"
+	if err := validateMigrationTarget(validURL); err != nil {
+		t.Fatalf("valid stg Cloud SQL target rejected: %v", err)
+	}
+}
+
 func TestValidateLocalChecksumDriftTargetOnlyAllowsLocalLoopback(t *testing.T) {
 	localURL := "postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable"
 

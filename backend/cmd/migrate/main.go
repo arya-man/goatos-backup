@@ -82,7 +82,11 @@ func run(ctx context.Context, args []string, log *slog.Logger) error {
 }
 
 func validateMigrationTarget(databaseURL string) error {
-	return localtarget.ValidateLocalDatabaseTarget("migrate", os.Getenv("GOATOS_ENV"), databaseURL, "local", "dev")
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("GOATOS_ENV")))
+	if env == "stg" {
+		return localtarget.ValidateStagingCloudSQLDatabaseTarget("migrate", env, databaseURL)
+	}
+	return localtarget.ValidateLocalDatabaseTarget("migrate", env, databaseURL, "local", "dev")
 }
 
 func validateLocalChecksumDriftTarget(databaseURL string) error {

@@ -152,6 +152,9 @@ func normalizeEmails(emails []string) ([]string, error) {
 }
 
 func validateTarget(env, databaseURL string) error {
+	if strings.EqualFold(strings.TrimSpace(env), "stg") {
+		return localtarget.ValidateStagingCloudSQLDatabaseTarget("seed-dev-email-grants", env, databaseURL)
+	}
 	return localtarget.ValidateLocalDatabaseTarget("seed-dev-email-grants", env, databaseURL, "local", "dev", "test")
 }
 

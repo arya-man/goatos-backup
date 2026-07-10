@@ -1,0 +1,204 @@
+package sg.mesha.goatos.feature.auth
+
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import sg.mesha.goatos.core.designsystem.component.MeshaCard
+import sg.mesha.goatos.core.designsystem.component.MeshaPrimaryButton
+import sg.mesha.goatos.core.designsystem.component.MeshaSectionLabel
+import sg.mesha.goatos.core.designsystem.component.MeshaStatusPill
+import sg.mesha.goatos.core.designsystem.component.MeshaTone
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.permissions.AppPermission
+import sg.mesha.goatos.core.permissions.PermissionGrantResolver
+import sg.mesha.goatos.core.permissions.PermissionGrantState
+import sg.mesha.goatos.core.permissions.isPermissionGranted
+import sg.mesha.goatos.core.permissions.shouldShowRationale
+
+/**
+ * Login-time, OS-version-aware device-permission gate
+ * (docs/mobile/rfid-keyboard-reader.md permission matrix +
+ * docs/mobile/trd-operator-mobile.md §7). Field operators grant Camera / Bluetooth
+ * "nearby devices" / Notifications up front on the login screen — not mid-task on the
+ * scan or submit screens. Every permission here is OPTIONAL (TRD §14: the phone is a
+ * dumb renderer, never a gatekeeper): denying one degrades a capability with an honest
+ * reason (design-system.md InfoBox pattern) — it never blocks sign-in.
+ *
+ * This is DEVICE permission UX only. Server-authoritative RBAC (TRD §7/§14) is
+ * completely unaffected — no permission state here changes what the backend allows.
+ *
+ * Renders nothing once every OS-required permission is already granted, so a returning
+ * operator's login screen stays uncluttered (no dead/static UI — repo standing rule).
+ */
+@Composable
+fun PermissionGateCard(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val required = remember { AppPermission.requiredForSdkInt() }
+    if (required.isEmpty()) return
+
+    // Only knowable as "permanently denied" AFTER a real request this session — before
+    // that, shouldShowRationale is also false but just means "never asked" (see
+    // PermissionGrantResolver's kdoc).
+    var hasRequestedOnce by rememberSaveable { mutableStateOf(false) }
+    var grantedSnapshot by remember {
+        mutableStateOf(required.associateWith { isPermissionGranted(context, it) })
+    }
+
+    // rememberLauncherForActivityResult needs a real ActivityResultRegistryOwner (the
+    // running app Activity). Non-Activity composition hosts — a Paparazzi screenshot
+    // test or a static Studio @Preview — don't provide one; in the real app this is
+    // never null, so the interactive grant flow always runs there. Falling back to a
+    // read-only matrix (no launcher) keeps those hosts from crashing instead of hiding
+    // the gate outright.
+    val registryOwner = LocalActivityResultRegistryOwner.current
+    val launcher: ActivityResultLauncher<Array<String>>? = if (registryOwner != null) {
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            hasRequestedOnce = true
+            grantedSnapshot = required.associateWith { permission -> isPermissionGranted(context, permission) }
+        }
+    } else {
+        null
+    }
+
+    val statuses = required.map { permission ->
+        val granted = grantedSnapshot[permission] ?: isPermissionGranted(context, permission)
+        val rationaleOk = activity?.let { shouldShowRationale(it, permission) } ?: true
+        permission to PermissionGrantResolver.resolve(
+            isGranted = granted,
+            hasRequestedOnce = hasRequestedOnce,
+            shouldShowRationale = rationaleOk,
+        )
+    }
+
+    if (statuses.all { it.second == PermissionGrantState.GRANTED }) return
+
+    val needsRequest = statuses.filter { it.second == PermissionGrantState.DENIED }.map { it.first }
+
+    MeshaCard(modifier = modifier) {
+        MeshaSectionLabel(text = stringResource(R.string.perm_gate_title))
+        Spacer(Modifier.height(MeshaDimens.space2))
+        Text(
+            text = stringResource(R.string.perm_gate_subtitle),
+            color = MeshaColors.Muted,
+            style = MeshaType.cardSubtitle,
+        )
+        Spacer(Modifier.height(MeshaDimens.space4))
+
+        statuses.forEachIndexed { index, (permission, state) ->
+            PermissionRow(
+                permission = permission,
+                state = state,
+                onOpenSettings = { context.startActivity(appSettingsIntent(context.packageName)) },
+            )
+            if (index != statuses.lastIndex) Spacer(Modifier.height(MeshaDimens.space3))
+        }
+
+        if (needsRequest.isNotEmpty() && launcher != null) {
+            Spacer(Modifier.height(MeshaDimens.space4))
+            MeshaPrimaryButton(
+                text = stringResource(R.string.perm_gate_grant_access),
+                enabled = true,
+                onClick = { launcher.launch(needsRequest.map { it.manifestPermission }.toTypedArray()) },
+            )
+        }
+
+        Spacer(Modifier.height(MeshaDimens.space3))
+        Text(
+            text = stringResource(R.string.perm_gate_footer),
+            color = MeshaColors.Faint,
+            style = MeshaType.caption,
+        )
+    }
+}
+
+@Composable
+private fun PermissionRow(
+    permission: AppPermission,
+    state: PermissionGrantState,
+    onOpenSettings: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            iconFor(permission),
+            contentDescription = null,
+            tint = MeshaColors.Muted,
+            modifier = Modifier.size(MeshaDimens.iconMd),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = labelFor(permission), color = MeshaColors.Ink, style = MeshaType.body.copy(fontWeight = FontWeight.W600))
+            Text(text = rationaleFor(permission), color = MeshaColors.Faint, style = MeshaType.caption)
+        }
+        Spacer(Modifier.width(8.dp))
+        when (state) {
+            PermissionGrantState.GRANTED ->
+                MeshaStatusPill(label = stringResource(R.string.perm_status_granted), tone = MeshaTone.Ok)
+            PermissionGrantState.DENIED ->
+                MeshaStatusPill(label = stringResource(R.string.perm_status_needed), tone = MeshaTone.Warn)
+            PermissionGrantState.PERMANENTLY_DENIED ->
+                Text(
+                    text = stringResource(R.string.perm_status_open_settings),
+                    color = MeshaColors.Danger,
+                    style = MeshaType.caption.copy(fontWeight = FontWeight.W700),
+                    modifier = Modifier.clickable(onClick = onOpenSettings),
+                )
+        }
+    }
+}
+
+private fun appSettingsIntent(packageName: String): Intent =
+    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = Uri.fromParts("package", packageName, null)
+    }
+
+@Composable
+private fun iconFor(permission: AppPermission): ImageVector = when (permission) {
+    AppPermission.CAMERA -> MeshaIcons.Video
+    AppPermission.BLUETOOTH_CONNECT -> MeshaIcons.Bluetooth
+    AppPermission.NOTIFICATIONS -> MeshaIcons.Bell
+}
+
+@Composable
+private fun labelFor(permission: AppPermission): String = when (permission) {
+    AppPermission.CAMERA -> stringResource(R.string.perm_label_camera)
+    AppPermission.BLUETOOTH_CONNECT -> stringResource(R.string.perm_label_bluetooth)
+    AppPermission.NOTIFICATIONS -> stringResource(R.string.perm_label_notifications)
+}
+
+@Composable
+private fun rationaleFor(permission: AppPermission): String = when (permission) {
+    AppPermission.CAMERA -> stringResource(R.string.perm_rationale_camera)
+    AppPermission.BLUETOOTH_CONNECT -> stringResource(R.string.perm_rationale_bluetooth)
+    AppPermission.NOTIFICATIONS -> stringResource(R.string.perm_rationale_notifications)
+}

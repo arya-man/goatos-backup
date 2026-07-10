@@ -17,4 +17,21 @@
     <string name="login_app_language">App language</string> <!-- mock: applang -->
     <string name="login_change">Change</string> <!-- mock: change -->
     <string name="login_role_note">Your role comes from the HR directory — you land on the screen for your job. The field operator executes; managers and directors track.</string> <!-- mock: rbac -->
+
+    <!-- Login-time device-permission gate (docs/mobile/rfid-keyboard-reader.md +
+         trd-operator-mobile.md §7). Every permission here is optional: denying one
+         degrades a capability, it never blocks sign-in. -->
+    <string name="perm_gate_title">Device permissions</string>
+    <string name="perm_gate_subtitle">Grant these once so scanning, alerts, and proof photos work in the field.</string>
+    <string name="perm_gate_footer">You can still sign in without these — the app will tell you what\'s off until they\'re granted.</string>
+    <string name="perm_gate_grant_access">Grant access</string>
+    <string name="perm_label_camera">Camera</string>
+    <string name="perm_rationale_camera">Captures shed record proof photos and video.</string>
+    <string name="perm_label_bluetooth">Nearby devices</string>
+    <string name="perm_rationale_bluetooth">Reads the paired RFID reader\'s connection status.</string>
+    <string name="perm_label_notifications">Notifications</string>
+    <string name="perm_rationale_notifications">Delivers vaccination due/overdue alerts.</string>
+    <string name="perm_status_granted">Granted</string>
+    <string name="perm_status_needed">Needed</string>
+    <string name="perm_status_open_settings">Open Settings</string>
 </resources>

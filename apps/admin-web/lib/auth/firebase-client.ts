@@ -5,7 +5,9 @@ import {
   GoogleAuthProvider,
   browserLocalPersistence,
   getAuth,
+  sendPasswordResetEmail,
   setPersistence,
+  signInWithEmailAndPassword,
   signInWithCredential,
   signOut,
   type Auth,
@@ -55,13 +57,29 @@ export async function signInWithGoogleIdToken(googleIdToken: string): Promise<Us
   const auth = await getFirebaseAuth();
   const credential = GoogleAuthProvider.credential(googleIdToken);
   const result = await signInWithCredential(auth, credential);
+  return syncSignedInUser(result.user);
+}
+
+export async function signInWithEmailPassword(email: string, password: string): Promise<User> {
+  const auth = await getFirebaseAuth();
+  const result = await signInWithEmailAndPassword(auth, email, password);
+  return syncSignedInUser(result.user);
+}
+
+export async function sendPasswordReset(email: string): Promise<void> {
+  const auth = await getFirebaseAuth();
+  await sendPasswordResetEmail(auth, email);
+}
+
+async function syncSignedInUser(user: User): Promise<User> {
+  const auth = await getFirebaseAuth();
   try {
-    await syncFirebaseSession(result.user, true, "auth.sign_in");
+    await syncFirebaseSession(user, true, "auth.sign_in");
   } catch (error) {
     await signOut(auth).catch(() => undefined);
     throw error;
   }
-  return result.user;
+  return user;
 }
 
 export async function clearFirebaseSession(): Promise<void> {
@@ -135,13 +153,13 @@ async function sessionRouteErrorCode(response: Response): Promise<string> {
 function messageForSessionRouteError(code: string): string {
   switch (code) {
     case "email_not_allowed":
-      return "This Google account is not allowed for Mesha Admin.";
+      return "This account is not allowed for Mesha Admin.";
     case "tenant_not_allowed":
     case "tenant_config_missing":
       return "Mesha Admin sign-in is misconfigured for this environment.";
     case "invalid_bearer_token":
     case "invalid_or_expired_id_token":
-      return "Google sign-in did not return a valid Mesha session. Try again.";
+      return "Sign-in did not return a valid Mesha session. Try again.";
     default:
       return "The admin session could not be refreshed.";
   }

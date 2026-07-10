@@ -140,23 +140,31 @@ stg.dashboard.mesha.sg -> goatos-stg
 dashboard.mesha.sg     -> goatos-prod
 ```
 
-Current live dev hostname:
+Current live dashboard hostnames:
 
 ```text
 URL:         https://dev.dashboard.mesha.sg/
 Project:     goatos-dev
-Cloudflare:  mesha.sg zone
+Cloudflare:  mesha.sg zone, Manju@flokx.io Cloudflare account
 DNS record:  A dev.dashboard -> 8.232.140.161, DNS-only
 LB IP name:  goatos-nonprod-dashboard-ip
 LB IP:       8.232.140.161
 Certificate: goatos-nonprod-dashboard-cert, ACTIVE for dev.dashboard.mesha.sg
 Backend:     goatos-admin-web-dev through serverless NEG goatos-admin-web-dev-neg
+
+URL:         https://stg.dashboard.mesha.sg/
+Project:     goatos-stg
+Cloudflare:  mesha.sg zone, Manju@flokx.io Cloudflare account
+DNS record:  A stg.dashboard -> 8.233.143.24, DNS-only
+LB IP name:  goatos-stg-dashboard-ip
+LB IP:       8.233.143.24
+Certificate: goatos-stg-dashboard-cert for stg.dashboard.mesha.sg
+Backend:     goatos-admin-web-stg through serverless NEG goatos-admin-web-stg-neg
 ```
 
-Dev and staging may share the non-prod IP because they are low-traffic internal
-environments, but do not point `stg.dashboard.mesha.sg` at the non-prod IP until
-there is a stg Cloud Run service, certificate SAN, and URL-map route. Production
-must use a separate prod IP/LB and must not reuse the dev/stg non-prod IP.
+Dev and staging are separate Google projects and separate load balancers.
+Production must use a separate prod IP/LB and must not reuse the dev/stg
+non-prod IPs.
 
 Cloudflare records for Google-managed certificates should start as DNS-only
 while Google provisions or renews the certificate. Do not orange-cloud/proxy the
@@ -168,12 +176,19 @@ Custom-host auth has two independent allowlists:
 ```text
 Firebase/Auth Platform authorized domains:
 - dev.dashboard.mesha.sg
+- stg.dashboard.mesha.sg
+- localhost
 
 Google OAuth web client authorized JavaScript origins:
 - https://dev.dashboard.mesha.sg
+- https://stg.dashboard.mesha.sg
+- http://localhost:3000
+- http://localhost:3300
+- http://localhost:3311
 
 Google Auth Platform Branding:
 - App name: Mesha
+- App name: Goat OS Staging (`goatos-stg`)
 ```
 
 The Firebase authorized domain was updated through the Identity Toolkit API.
@@ -223,6 +238,11 @@ Firebase is auth only; do not use Firebase Hosting or Firebase App Hosting. For
 dev Firebase tokens, set issuer `https://securetoken.google.com/goatos-dev`,
 audience `goatos-dev`, and JWKS URL
 `https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com`.
+Staging uses the same Firebase/Auth Platform pattern with issuer
+`https://securetoken.google.com/goatos-stg` and audience `goatos-stg`.
+Dashboard login supports both Google SSO and Firebase email/password, including
+password-reset email; both paths still rely on backend
+`GOATOS_AUTH_ALLOWED_EMAILS` and DB grants for access.
 The admin-web proxy only redirects missing, malformed, or expired Firebase
 ID-token cookies; backend JWKS verification remains the trust boundary.
 `GOATOS_AUTH_ALLOWED_EMAILS` is the environment-level dashboard email allowlist:

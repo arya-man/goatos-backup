@@ -115,6 +115,13 @@ private fun LoginContent(
         Spacer(Modifier.height(MeshaDimens.space7))
         BrandLockup()
 
+        // Login-time device-permission gate (docs/mobile/rfid-keyboard-reader.md +
+        // trd-operator-mobile.md §7): field operators grant Camera/Bluetooth/
+        // Notifications up front here, not mid-task. Every permission is optional —
+        // it never blocks the sign-in flow below. Renders nothing once all granted.
+        Spacer(Modifier.height(MeshaDimens.space6))
+        PermissionGateCard()
+
         Spacer(Modifier.height(MeshaDimens.space8))
         FieldLabel(stringResource(R.string.login_field_work_email))
         EmailField(email = email, onEmailChange = onEmailChange)

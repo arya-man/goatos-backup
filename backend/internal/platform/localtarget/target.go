@@ -16,6 +16,10 @@ const (
 	devCloudSQLConnectionNameEnv = "GOATOS_DEV_CLOUDSQL_CONNECTION_NAME"
 	devCloudSQLProjectID         = "goatos-dev"
 	devCloudSQLRegion            = "asia-south1"
+	stgCloudSQLAllowEnv          = "GOATOS_ALLOW_STG_CLOUDSQL_TARGET"
+	stgCloudSQLConnectionNameEnv = "GOATOS_STG_CLOUDSQL_CONNECTION_NAME"
+	stgCloudSQLProjectID         = "goatos-stg"
+	stgCloudSQLRegion            = "asia-south1"
 )
 
 // ValidateLocalDatabaseTarget rejects DB targets that are not safe local/dev
@@ -71,6 +75,28 @@ func ValidateDevCloudSQLDatabaseTarget(commandName, env, databaseURL string) err
 		return fmt.Errorf("refusing %s against non-Cloud SQL database host %q", commandName, cfg.ConnConfig.Host)
 	}
 	return validateDevCloudSQLTarget(commandName, env, databaseURL, cfg.ConnConfig.Host)
+}
+
+// ValidateStagingCloudSQLDatabaseTarget rejects every target except the
+// explicitly opted-in goatos-stg Cloud SQL instance. Use it for shared staging
+// bring-up jobs that must never silently point at local/dev/prod.
+func ValidateStagingCloudSQLDatabaseTarget(commandName, env, databaseURL string) error {
+	commandName = normalizedCommandName(commandName)
+	env = strings.ToLower(strings.TrimSpace(env))
+	if env != "stg" {
+		return fmt.Errorf("GOATOS_ENV must be stg for %s", commandName)
+	}
+	if strings.TrimSpace(databaseURL) == "" {
+		return fmt.Errorf("DATABASE_URL is required for %s", commandName)
+	}
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return fmt.Errorf("parse DATABASE_URL for %s: %w", commandName, err)
+	}
+	if !isCloudSQLTarget(databaseURL, cfg.ConnConfig.Host) {
+		return fmt.Errorf("refusing %s against non-Cloud SQL database host %q", commandName, cfg.ConnConfig.Host)
+	}
+	return validateStagingCloudSQLTarget(commandName, env, databaseURL, cfg.ConnConfig.Host)
 }
 
 // IsLocalHost allows loopback TCP hosts and known local Postgres socket dirs.
@@ -171,15 +197,50 @@ func validateDevCloudSQLTarget(commandName, env, databaseURL, host string) error
 }
 
 func isExpectedDevConnectionName(value string) bool {
+	return isExpectedConnectionName(value, devCloudSQLProjectID, devCloudSQLRegion) &&
+		!looksSharedUnsafeTarget(value)
+}
+
+func validateStagingCloudSQLTarget(commandName, env, databaseURL, host string) error {
+	if env != "stg" {
+		return fmt.Errorf("refusing %s against Cloud SQL target without GOATOS_ENV=stg", commandName)
+	}
+	if !truthy(os.Getenv(stgCloudSQLAllowEnv)) {
+		return fmt.Errorf("refusing %s against Cloud SQL target without %s=true", commandName, stgCloudSQLAllowEnv)
+	}
+	expected := strings.TrimSpace(os.Getenv(stgCloudSQLConnectionNameEnv))
+	if expected == "" {
+		return fmt.Errorf("refusing %s against Cloud SQL target without %s=goatos-stg:asia-south1:<instance>", commandName, stgCloudSQLConnectionNameEnv)
+	}
+	if !isExpectedStagingConnectionName(expected) {
+		return fmt.Errorf("refusing %s against Cloud SQL target because %s must be goatos-stg:asia-south1:<instance>", commandName, stgCloudSQLConnectionNameEnv)
+	}
+	actual, ok := cloudSQLConnectionNameFromHost(host)
+	if !ok {
+		actual, ok = cloudSQLConnectionNameFromText(databaseURL)
+	}
+	if !ok {
+		return fmt.Errorf("refusing %s against Cloud SQL target without exact %s or /cloudsql/%s socket path", commandName, expected, expected)
+	}
+	if actual != expected {
+		return fmt.Errorf("refusing %s against Cloud SQL target %q; expected exact %s", commandName, actual, expected)
+	}
+	return nil
+}
+
+func isExpectedStagingConnectionName(value string) bool {
+	return isExpectedConnectionName(value, stgCloudSQLProjectID, stgCloudSQLRegion)
+}
+
+func isExpectedConnectionName(value, projectID, region string) bool {
 	parts := strings.Split(strings.TrimSpace(value), ":")
 	if len(parts) != 3 {
 		return false
 	}
-	return parts[0] == devCloudSQLProjectID &&
-		parts[1] == devCloudSQLRegion &&
+	return parts[0] == projectID &&
+		parts[1] == region &&
 		strings.TrimSpace(parts[2]) != "" &&
-		!strings.Contains(parts[2], "/") &&
-		!looksSharedUnsafeTarget(value)
+		!strings.Contains(parts[2], "/")
 }
 
 func cloudSQLConnectionNameFromHost(host string) (string, bool) {
@@ -211,7 +272,13 @@ func cloudSQLConnectionNameFromPath(value string) (string, bool) {
 func cloudSQLConnectionNameFromText(value string) (string, bool) {
 	for _, field := range strings.Fields(value) {
 		if idx := strings.Index(field, "/cloudsql/"); idx >= 0 {
-			if connectionName, ok := cloudSQLConnectionNameFromPath(field[idx:]); ok {
+			candidate := field[idx:]
+			for _, delimiter := range []string{"&", "?", "#"} {
+				if cut := strings.Index(candidate, delimiter); cut >= 0 {
+					candidate = candidate[:cut]
+				}
+			}
+			if connectionName, ok := cloudSQLConnectionNameFromPath(candidate); ok {
 				return connectionName, true
 			}
 		}

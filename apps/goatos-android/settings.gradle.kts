@@ -33,8 +33,10 @@ include(":core:core-ui")
 include(":core:core-network")
 include(":core:core-datastore")
 include(":core:core-data")
+include(":core:core-database")
 include(":core:core-analytics")
 include(":core:core-notifications")
+include(":core:core-permissions")
 include(":core:core-testing")
 
 // --- feature (feature-* -> core-* only, never feature -> feature) ---

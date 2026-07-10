@@ -11,4 +11,18 @@
     <string name="login_app_language">ऐप भाषा</string>
     <string name="login_change">बदलें</string>
     <string name="login_role_note">आपकी भूमिका HR डायरेक्टरी से आती है — आपको अपने काम की स्क्रीन मिलती है। फ़ील्ड ऑपरेटर टीका करता है; मैनेजर और डायरेक्टर ट्रैक करते हैं।</string>
+
+    <string name="perm_gate_title">डिवाइस अनुमतियाँ</string>
+    <string name="perm_gate_subtitle">स्कैन, अलर्ट और प्रमाण फ़ोटो के लिए एक बार अनुमति दें।</string>
+    <string name="perm_gate_footer">आप इनके बिना भी साइन इन कर सकते हैं — अनुमति मिलने तक ऐप बताएगा कि क्या बंद है।</string>
+    <string name="perm_gate_grant_access">अनुमति दें</string>
+    <string name="perm_label_camera">कैमरा</string>
+    <string name="perm_rationale_camera">शेड रिकॉर्ड का प्रमाण फ़ोटो/वीडियो लेता है।</string>
+    <string name="perm_label_bluetooth">नज़दीकी डिवाइस</string>
+    <string name="perm_rationale_bluetooth">जुड़े RFID रीडर की स्थिति पढ़ता है।</string>
+    <string name="perm_label_notifications">सूचनाएं</string>
+    <string name="perm_rationale_notifications">टीकाकरण की देय/बकाया सूचनाएं भेजता है।</string>
+    <string name="perm_status_granted">स्वीकृत</string>
+    <string name="perm_status_needed">आवश्यक</string>
+    <string name="perm_status_open_settings">सेटिंग्स खोलें</string>
 </resources>

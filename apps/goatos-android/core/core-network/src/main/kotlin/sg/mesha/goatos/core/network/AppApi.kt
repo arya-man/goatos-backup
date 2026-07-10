@@ -10,6 +10,8 @@ import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
+import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
+import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
@@ -19,6 +21,9 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
+import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
+import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
+import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
 
 // Wire DTOs for the nav slice of GET /app/bootstrap. The response (BootstrapResponse)
 // carries many more fields; with ignoreUnknownKeys the client only binds the ones it
@@ -232,6 +237,34 @@ interface AppApi {
      *  server-composed `banner_text` verbatim, it never derives its own wording or
      *  identity bridge (TRD §14 dumb-renderer). */
     suspend fun getMyCoverage(): MyCoverageResponseDto
+
+    /** POST /app/proofs — registers a captured proof (signed-upload metadata/confirm step;
+     *  see [ProofUploadRequestDto]). The offline sync engine's outbox drains this with an
+     *  idempotency key exactly like [submitAppTask] / [rescheduleObligation]. */
+    suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto
+
+    /** GET /app/vaccination/gaps — animals excluded from vaccination coverage with reasons.
+     *  Backs the mobile "Data gaps" overlay. */
+    suspend fun getVaccinationGaps(
+        parkId: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): VaccinationGapsResponseDto
+
+    /** GET /app/vaccination/coverage — per-vaccine given-dose count + coverage % rollup.
+     *  Backs the mobile "Doses given" overlay. */
+    suspend fun getVaccinationCoverage(
+        parkId: String? = null,
+        asOf: String? = null,
+        dueBefore: String? = null,
+        limit: Int? = null,
+    ): VaccinationCoverageResponseDto
+
+    /** GET /app/config — mobile live-config bundle (nav labels, flags, tunables, kill-switch).
+     *  Supports conditional GET via If-None-Match header; 304 means config unchanged. */
+    suspend fun getAppConfig(
+        eTag: String? = null,
+    ): AppConfigResponseDto
 }
 
 /**
@@ -333,6 +366,24 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     ): EnrichedPositionListResponseDto = EnrichedPositionListResponseDto()
 
     override suspend fun getMyCoverage(): MyCoverageResponseDto = MyCoverageResponseDto()
+
+    override suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto =
+        ProofUploadResponseDto()
+
+    override suspend fun getVaccinationGaps(
+        parkId: String?,
+        limit: Int?,
+        cursor: String?,
+    ): VaccinationGapsResponseDto = VaccinationGapsResponseDto()
+
+    override suspend fun getVaccinationCoverage(
+        parkId: String?,
+        asOf: String?,
+        dueBefore: String?,
+        limit: Int?,
+    ): VaccinationCoverageResponseDto = VaccinationCoverageResponseDto()
+
+    override suspend fun getAppConfig(eTag: String?): AppConfigResponseDto = AppConfigResponseDto()
 }
 
 /**

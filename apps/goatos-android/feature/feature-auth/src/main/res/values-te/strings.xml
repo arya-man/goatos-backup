@@ -11,4 +11,18 @@
     <string name="login_app_language">యాప్ భాష</string>
     <string name="login_change">మార్చు</string>
     <string name="login_role_note">మీ పాత్ర HR డైరెక్టరీ నుండి — మీ పని స్క్రీన్ కనిపిస్తుంది. ఫీల్డ్ ఆపరేటర్ టీకా వేస్తారు; మేనేజర్‌లు, డైరెక్టర్‌లు ట్రాక్ చేస్తారు.</string>
+
+    <string name="perm_gate_title">పరికర అనుమతులు</string>
+    <string name="perm_gate_subtitle">స్కాన్, అలర్ట్‌లు, రుజువు ఫోటోల కోసం ఒకసారి అనుమతించండి.</string>
+    <string name="perm_gate_footer">వీటి లేకుండా కూడా మీరు సైన్ ఇన్ చేయవచ్చు — అనుమతి వచ్చే వరకు ఏమి పనిచేయదో యాప్ తెలియజేస్తుంది.</string>
+    <string name="perm_gate_grant_access">అనుమతించు</string>
+    <string name="perm_label_camera">కెమెరా</string>
+    <string name="perm_rationale_camera">షెడ్ రికార్డు రుజువు ఫోటో/వీడియో తీస్తుంది.</string>
+    <string name="perm_label_bluetooth">సమీప పరికరాలు</string>
+    <string name="perm_rationale_bluetooth">జత చేసిన RFID రీడర్ స్థితిని చదువుతుంది.</string>
+    <string name="perm_label_notifications">నోటిఫికేషన్‌లు</string>
+    <string name="perm_rationale_notifications">టీకా గడువు/ఆలస్యం అలర్ట్‌లు పంపుతుంది.</string>
+    <string name="perm_status_granted">మంజూరైంది</string>
+    <string name="perm_status_needed">అవసరం</string>
+    <string name="perm_status_open_settings">సెట్టింగ్‌లు తెరవండి</string>
 </resources>

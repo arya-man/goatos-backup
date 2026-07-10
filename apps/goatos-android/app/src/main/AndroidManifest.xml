@@ -3,6 +3,18 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- CameraX proof capture (docs/mobile/trd-operator-mobile.md §2/§7). Needed on every
+         supported OS version (minSdk 29) — always requested, never SDK-gated.
+         required="false": proof capture is an optional capability (TRD §14 renderer,
+         never a gatekeeper) — a camera-less device must still be installable. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
+    <!-- Obligation/escalation alert notifications rendered from FCM
+         (docs/mobile/trd-operator-mobile.md §8). Runtime-requestable only on Android 13+
+         (TIRAMISU); declaring it on older OS versions is a documented no-op. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- RFID keyboard-wedge reader (docs/mobile/rfid-keyboard-reader.md). Android owns the
          HID connection; these gate paired-device readiness + optional discovery. -->
     <uses-permission

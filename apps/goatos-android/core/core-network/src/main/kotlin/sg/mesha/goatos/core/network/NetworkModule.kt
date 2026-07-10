@@ -10,6 +10,7 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.create
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -17,6 +18,8 @@ import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
+import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
+import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
@@ -27,6 +30,9 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
+import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
+import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
+import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
 
 /**
  * Retrofit surface for the app API. One method per consumed endpoint. Paths are
@@ -120,6 +126,7 @@ interface AppApiService {
     @POST("app/vaccination/obligations/{obligation_id}/reschedule")
     suspend fun rescheduleObligation(
         @Path("obligation_id") obligationId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: RescheduleObligationRequestDto,
     ): RescheduleObligationResponseDto
 
@@ -131,6 +138,32 @@ interface AppApiService {
 
     @GET("app/roster/my-coverage")
     suspend fun getMyCoverage(): MyCoverageResponseDto
+
+    @POST("app/proofs")
+    suspend fun registerProof(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ProofUploadRequestDto,
+    ): ProofUploadResponseDto
+
+    @GET("app/vaccination/gaps")
+    suspend fun getVaccinationGaps(
+        @Query("park_id") parkId: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): VaccinationGapsResponseDto
+
+    @GET("app/vaccination/coverage")
+    suspend fun getVaccinationCoverage(
+        @Query("park_id") parkId: String?,
+        @Query("as_of") asOf: String?,
+        @Query("due_before") dueBefore: String?,
+        @Query("limit") limit: Int?,
+    ): VaccinationCoverageResponseDto
+
+    @GET("app/config")
+    suspend fun getAppConfig(
+        @Header("If-None-Match") eTag: String?,
+    ): AppConfigResponseDto
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic. */
@@ -215,11 +248,8 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
         obligationId: String,
         idempotencyKey: String,
         request: RescheduleObligationRequestDto,
-    ): RescheduleObligationResponseDto {
-        // Pass idempotency key as header via OkHttp interceptor in actual implementation
-        // For now, just call the service method (header will be added by auth interceptor)
-        return service.rescheduleObligation(obligationId, request)
-    }
+    ): RescheduleObligationResponseDto =
+        service.rescheduleObligation(obligationId, idempotencyKey, request)
 
     override suspend fun getOperatorTimetable(
         centerId: String,
@@ -227,6 +257,24 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
     ): EnrichedPositionListResponseDto = service.getOperatorTimetable(centerId, limit)
 
     override suspend fun getMyCoverage(): MyCoverageResponseDto = service.getMyCoverage()
+
+    override suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto =
+        service.registerProof(idempotencyKey, request)
+
+    override suspend fun getVaccinationGaps(
+        parkId: String?,
+        limit: Int?,
+        cursor: String?,
+    ): VaccinationGapsResponseDto = service.getVaccinationGaps(parkId, limit, cursor)
+
+    override suspend fun getVaccinationCoverage(
+        parkId: String?,
+        asOf: String?,
+        dueBefore: String?,
+        limit: Int?,
+    ): VaccinationCoverageResponseDto = service.getVaccinationCoverage(parkId, asOf, dueBefore, limit)
+
+    override suspend fun getAppConfig(eTag: String?): AppConfigResponseDto = service.getAppConfig(eTag)
 }
 
 /**

@@ -7,6 +7,10 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.data.BootstrapCache
@@ -27,6 +31,17 @@ import sg.mesha.goatos.core.data.DefaultRosterRepository
 import sg.mesha.goatos.core.data.RosterRepository
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.buildGoatDatabase
+import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
+import sg.mesha.goatos.core.data.sync.ConnectivityGate
+import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
+import sg.mesha.goatos.core.data.sync.DefaultSyncRepository
+import sg.mesha.goatos.core.data.sync.OutboxStore
+import sg.mesha.goatos.core.data.sync.RoomOutboxStore
+import sg.mesha.goatos.core.data.sync.SyncEngine
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.database.outbox.OutboxDao
+import sg.mesha.goatos.core.database.outbox.OutboxDatabase
+import sg.mesha.goatos.core.database.outbox.buildOutboxDatabase
 import sg.mesha.goatos.core.datastore.DataStoreDeviceStore
 import sg.mesha.goatos.core.datastore.DataStoreSessionStore
 import sg.mesha.goatos.core.datastore.DeviceStore
@@ -120,4 +135,71 @@ object AppModule {
     @Provides
     @Singleton
     fun provideRosterRepository(api: AppApi): RosterRepository = DefaultRosterRepository(api)
+
+    // --- Offline sync engine (outbox) --------------------------------------------------
+    // WorkManager is NOT used here — androidx.work has no version alias in
+    // gradle/libs.versions.toml (see SyncEngine's KDoc for the full rationale). The
+    // engine instead runs on this Hilt-provided, app-lifetime CoroutineScope — a
+    // Singleton, never GlobalScope — triggered on enqueue and on reconnect.
+
+    @Provides
+    @Singleton
+    fun provideOutboxDatabase(@ApplicationContext context: Context): OutboxDatabase =
+        buildOutboxDatabase(context)
+
+    @Provides
+    fun provideOutboxDao(db: OutboxDatabase): OutboxDao = db.outboxDao()
+
+    @Provides
+    @Singleton
+    fun provideOutboxStore(dao: OutboxDao): OutboxStore = RoomOutboxStore(dao)
+
+    @Provides
+    @Singleton
+    fun provideAppScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    @Provides
+    @Singleton
+    fun provideConnectivityGate(@ApplicationContext context: Context): ConnectivityGate =
+        AndroidConnectivityGate(context)
+
+    @Provides
+    @Singleton
+    fun provideSyncEngine(
+        store: OutboxStore,
+        api: AppApi,
+        connectivityGate: ConnectivityGate,
+    ): SyncEngine = SyncEngine(store = store, api = api, connectivityGate = connectivityGate)
+
+    @Provides
+    @Singleton
+    fun provideSyncRepository(
+        store: OutboxStore,
+        engine: SyncEngine,
+        connectivityGate: ConnectivityGate,
+        appScope: CoroutineScope,
+    ): SyncRepository = DefaultSyncRepository(
+        store = store,
+        engine = engine,
+        connectivityGate = connectivityGate,
+        appScope = appScope,
+    )
+
+    // Reads back the concrete DefaultSyncRepository (same @Singleton instance returned
+    // above) purely to forward connectivity changes into its display flag — this cast
+    // never leaks past DI wiring; SyncRepository callers only ever see the port.
+    @Provides
+    @Singleton
+    fun provideConnectivitySyncTrigger(
+        @ApplicationContext context: Context,
+        appScope: CoroutineScope,
+        engine: SyncEngine,
+        syncRepository: SyncRepository,
+    ): ConnectivitySyncTrigger {
+        val repo = syncRepository as? DefaultSyncRepository
+        return ConnectivitySyncTrigger(context = context) { online ->
+            repo?.notifyConnectivityChanged(online)
+            if (online) appScope.launch { engine.drainOnce() }
+        }
+    }
 }

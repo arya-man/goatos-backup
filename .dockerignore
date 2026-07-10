@@ -1,6 +1,7 @@
 .git
 .gitignore
 .codex-goatos-render
+.claude/worktrees
 .DS_Store
 
 **/node_modules
@@ -10,6 +11,7 @@
 **/coverage
 **/*.tsbuildinfo
 **/*.log
+backend/seed-roster-real
 
 *.env
 *.env.*

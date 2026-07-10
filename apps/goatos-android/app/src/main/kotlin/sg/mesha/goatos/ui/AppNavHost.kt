@@ -263,16 +263,29 @@ fun AppNavHost(
             )
             if (showScope) {
                 ScopePickerSheet(
-                    // TODO(backend): send the chosen scope token to re-scope the reads.
-                    onSelect = { showScope = false },
+                    scopes = defaultScopeOptions(),
+                    onSelect = { label, token ->
+                        // TODO(backend): send the chosen scope token to re-scope the reads.
+                        showScope = false
+                    },
                     onDismiss = { showScope = false },
                 )
             }
             if (showGaps) {
-                DataGapsSheet(onDismiss = { showGaps = false })
+                DataGapsSheet(
+                    gapsData = emptyList(),
+                    isLoading = false,
+                    errorMessage = null,
+                    onDismiss = { showGaps = false },
+                )
             }
             if (showGiven) {
-                DosesGivenSheet(onDismiss = { showGiven = false })
+                DosesGivenSheet(
+                    rows = emptyList(),
+                    isLoading = false,
+                    errorMessage = null,
+                    onDismiss = { showGiven = false },
+                )
             }
         }
 

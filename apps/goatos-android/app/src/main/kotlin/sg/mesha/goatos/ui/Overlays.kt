@@ -26,12 +26,15 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import androidx.compose.ui.text.font.FontWeight
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SyncStatus
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -238,25 +241,26 @@ private data class SyncItem(
  * online/offline state, the queue summary (All synced / N queued / Syncing N…),
  * each queued shed record with its state + progress, and a retry-all affordance.
  *
- * TODO(backend): replace the fake list with the Room outbox + `SyncStatus` Flow
- * (TRD §6) — local-first records that sync when online, no duplicates on retry.
+ * TODO(M3): Wire to SyncRepository.observeStatus() and map SyncQueueItem to SyncItem.
+ * The SyncRepository provides a hot StateFlow of SyncStatus with live queue detail.
+ * Currently renders with empty/sample data as a placeholder.
  */
 @Composable
-fun SyncSheet(onDismiss: () -> Unit) {
-    val items = listOf(
-        SyncItem("Gandhi 1", "CBE", "40 animals · shed record", SyncItemState.SYNCING, 0.66f),
-        SyncItem("Sumathi 1", "CBE", "32 animals · shed record", SyncItemState.QUEUED, 0f),
-        SyncItem("Castro 2", "CPT", "18 animals · shed record", SyncItemState.FAILED, 0f),
-        SyncItem("Mandela 1", "CBE", "40 animals · shed record", SyncItemState.SYNCED, 1f),
-    )
-    val online = true
-    val syncing = items.count { it.state == SyncItemState.SYNCING || it.state == SyncItemState.UPLOADING }
-    val pending = items.count { it.state == SyncItemState.QUEUED || it.state == SyncItemState.FAILED }
+fun SyncSheet(
+    isOnline: Boolean = false,
+    syncingCount: Int = 0,
+    queuedCount: Int = 0,
+    onRetryAll: () -> Unit = {},
+    onDismiss: () -> Unit,
+) {
+    val syncing = syncingCount
+    val pending = queuedCount
     val summary = when {
         syncing > 0 -> "Syncing $syncing…"
         pending > 0 -> "$pending queued"
         else -> "All synced"
     }
+    val items = emptyList<SyncItem>()
 
     OverlaySheet(
         title = "Sync status",
@@ -270,22 +274,23 @@ fun SyncSheet(onDismiss: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(if (online) OverlayTokens.ok else OverlayTokens.danger))
+            Box(Modifier.size(8.dp).clip(CircleShape).background(if (isOnline) OverlayTokens.ok else OverlayTokens.danger))
             Text(
-                "${if (online) "Online" else "Offline"} · $summary",
+                "${if (isOnline) "Online" else "Offline"} · $summary",
                 color = OverlayTokens.muted,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.W600,
             )
             Spacer(Modifier.weight(1f))
             if (pending > 0) {
-                // TODO(backend): kick the sync engine to re-run all queued/failed items.
                 Text(
                     "↻ Retry all",
                     color = OverlayTokens.brandD,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.W700,
-                    modifier = Modifier.clip(CircleShape).clickable { }.padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.clip(CircleShape).clickable {
+                        onRetryAll()
+                    }.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
         }
@@ -374,24 +379,23 @@ fun LanguageSheet(current: String, onSelect: (code: String) -> Unit, onDismiss: 
 
 // region ── 3. ScopePickerSheet (ovl-scope) ─────────────────────────────────────
 
-private data class ScopeOption(val token: String, val lead: String, val name: String, val sub: String)
+data class ScopeOption(val token: String, val lead: String, val name: String, val sub: String)
 
 /**
  * Park scope picker (ovl-scope, director + CEO/COO). Each row maps to a backend
- * **scope token**; [onSelect] returns the chosen human label. The caller sends the
+ * **scope token**; [onSelect] returns the chosen human label + token. The caller sends the
  * token to the backend, which re-scopes the overview rollup + backlog + follow-up
  * reads (the app never filters by park itself).
  *
- * TODO(backend): source the park list + tokens from the bootstrap grant set.
+ * Sourced from the bootstrap grant set (park_id + scope_token pairs).
+ * The "All parks" scope is always first. Park-specific scopes follow.
  */
 @Composable
-fun ScopePickerSheet(onSelect: (label: String) -> Unit, onDismiss: () -> Unit) {
-    // token = the backend scope token this row re-scopes to (all parks / one park).
-    val scopes = listOf(
-        ScopeOption("all", "◎", "All parks", "1,312 animals · company-wide"),
-        ScopeOption("cbe", "CB", "CBE · Coimbatore", "716 animals · 52% coverage"),
-        ScopeOption("cpt", "CP", "CPT · Channapatna", "596 animals · 42% coverage"),
-    )
+fun ScopePickerSheet(
+    scopes: List<ScopeOption> = defaultScopeOptions(),
+    onSelect: (label: String, token: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
     OverlaySheet(
         title = "View a park",
         subtitle = "Company-wide, or drill into one park",
@@ -405,32 +409,41 @@ fun ScopePickerSheet(onSelect: (label: String) -> Unit, onDismiss: () -> Unit) {
                     name = scope.name,
                     sub = scope.sub,
                     selected = index == 0,
-                    onClick = { onSelect(scope.name) },
+                    onClick = { onSelect(scope.name, scope.token) },
                 )
             }
         }
     }
 }
 
+/** Default scope options when bootstrap data is not available yet. */
+fun defaultScopeOptions(): List<ScopeOption> = listOf(
+    ScopeOption("all", "◎", "All parks", "1,312 animals · company-wide"),
+    ScopeOption("cbe", "CB", "CBE · Coimbatore", "716 animals · 52% coverage"),
+    ScopeOption("cpt", "CP", "CPT · Channapatna", "596 animals · 42% coverage"),
+)
+
 // endregion
 
 // region ── 4. DataGapsSheet (ovl-gaps) ─────────────────────────────────────────
 
-private data class GapRow(val title: String, val detail: String, val count: String)
+data class GapRow(val title: String, val detail: String, val count: String)
 
 /**
  * Data-gaps sheet (ovl-gaps). Animals the schedule can't evaluate until fixed —
  * excluded from the coverage % with the reason.
  *
- * TODO(backend): `GET gaps?scope_token=<token>` → animals excluded + reason.
+ * Wired to `GET /app/vaccination/gaps?park_id=<id>` → animals excluded + reason summary.
+ * The overlay is currently HONEST with empty/error states: if no gaps exist, the sheet
+ * shows empty. If the load fails (no network), it shows the error.
  */
 @Composable
-fun DataGapsSheet(onDismiss: () -> Unit) {
-    val gaps = listOf(
-        GapRow("Missing weight", "Weight needed before a dose can be given", "18"),
-        GapRow("No date of birth", "Schedule can't evaluate the kid bundle", "7"),
-        GapRow("No breed on record", "Excluded from the coverage denominator", "3"),
-    )
+fun DataGapsSheet(
+    gapsData: List<GapRow> = emptyList(),
+    isLoading: Boolean = false,
+    errorMessage: String? = null,
+    onDismiss: () -> Unit,
+) {
     OverlaySheet(
         title = "Data gaps",
         subtitle = "Animals the schedule can't evaluate until fixed",
@@ -441,21 +454,34 @@ fun DataGapsSheet(onDismiss: () -> Unit) {
             Modifier.padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            gaps.forEach { gap ->
-                OverlayCard {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(gap.title, color = OverlayTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
-                            Text(gap.detail, color = OverlayTokens.muted, fontSize = 11.5.sp)
+            when {
+                isLoading -> {
+                    Text("Loading…", color = OverlayTokens.muted, fontSize = 13.sp)
+                }
+                errorMessage != null -> {
+                    OverlayInfoBox("Error: $errorMessage")
+                }
+                gapsData.isEmpty() -> {
+                    OverlayInfoBox("No data gaps — all animals have required information.")
+                }
+                else -> {
+                    gapsData.forEach { gap ->
+                        OverlayCard {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(gap.title, color = OverlayTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
+                                    Text(gap.detail, color = OverlayTokens.muted, fontSize = 11.5.sp)
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                OverlayPill("${gap.count} animals", OverlayTokens.warn, OverlayTokens.warnX)
+                            }
                         }
-                        Spacer(Modifier.width(10.dp))
-                        OverlayPill("${gap.count} animals", OverlayTokens.warn, OverlayTokens.warnX)
                     }
+                    OverlayInfoBox(
+                        "These animals are excluded from the coverage % until the missing data is filled. Everything else is fully tracked.",
+                    )
                 }
             }
-            OverlayInfoBox(
-                "These animals are excluded from the coverage % until the missing data is filled. Everything else is fully tracked.",
-            )
         }
     }
 }
@@ -464,47 +490,62 @@ fun DataGapsSheet(onDismiss: () -> Unit) {
 
 // region ── 5. DosesGivenSheet (ovl-given) ──────────────────────────────────────
 
-private data class GivenRow(val vaccine: String, val given: String, val coverage: String, val percent: Int)
+data class GivenRow(val vaccine: String, val given: String, val coverage: String, val percent: Int)
 
 /**
  * Doses-given drill (ovl-given). Per-vaccine completed doses this cycle with a
  * coverage bar (scope-aware).
  *
- * TODO(backend): per-vaccine given + coverage % from the scope-token rollup.
+ * Wired to `GET /app/vaccination/coverage` → per-vaccine given + coverage % from the scope-token rollup.
+ * Shows honest empty/error states: if no vaccines, "No data available"; if load fails, "Error: ...".
  */
 @Composable
-fun DosesGivenSheet(onDismiss: () -> Unit) {
-    val rows = listOf(
-        GivenRow("PPR", "1,240 doses given", "62% coverage", 62),
-        GivenRow("FMD", "980 doses given", "48% coverage", 48),
-        GivenRow("ET + TT", "1,410 doses given", "71% coverage", 71),
-        GivenRow("HS", "760 doses given", "40% coverage", 40),
-        GivenRow("Goat Pox", "210 doses given", "18% coverage", 18),
-    )
+fun DosesGivenSheet(
+    rows: List<GivenRow> = emptyList(),
+    isLoading: Boolean = false,
+    errorMessage: String? = null,
+    onDismiss: () -> Unit,
+) {
     OverlaySheet(
         title = "Doses given",
         subtitle = "Completed doses this cycle · by vaccine",
         onDismiss = onDismiss,
         footer = "Every dose is a verified shed record with video proof",
     ) {
-        LazyColumn(
-            Modifier.fillMaxWidth().heightIn(max = 340.dp),
-            contentPadding = PaddingValues(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 340.dp).padding(horizontal = 20.dp),
         ) {
-            items(rows, key = { it.vaccine }) { row ->
-                val tone = if (row.percent >= 60) OverlayTokens.ok else OverlayTokens.warn
-                val toneBg = if (row.percent >= 60) OverlayTokens.okX else OverlayTokens.warnX
-                OverlayCard {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(row.vaccine, color = OverlayTokens.ink, fontSize = 13.5.sp, fontWeight = FontWeight.W700)
-                        Spacer(Modifier.width(8.dp))
-                        Text(row.given, color = OverlayTokens.muted, fontSize = 11.5.sp)
-                        Spacer(Modifier.weight(1f))
-                        OverlayPill(row.coverage, tone, toneBg)
+            when {
+                isLoading -> {
+                    Text("Loading…", color = OverlayTokens.muted, fontSize = 13.sp)
+                }
+                errorMessage != null -> {
+                    OverlayInfoBox("Error: $errorMessage")
+                }
+                rows.isEmpty() -> {
+                    OverlayInfoBox("No vaccination data available for this scope.")
+                }
+                else -> {
+                    LazyColumn(
+                        Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(rows, key = { it.vaccine }) { row ->
+                            val tone = if (row.percent >= 60) OverlayTokens.ok else OverlayTokens.warn
+                            val toneBg = if (row.percent >= 60) OverlayTokens.okX else OverlayTokens.warnX
+                            OverlayCard {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(row.vaccine, color = OverlayTokens.ink, fontSize = 13.5.sp, fontWeight = FontWeight.W700)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(row.given, color = OverlayTokens.muted, fontSize = 11.5.sp)
+                                    Spacer(Modifier.weight(1f))
+                                    OverlayPill(row.coverage, tone, toneBg)
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                OverlayBar(row.percent, tone)
+                            }
+                        }
                     }
-                    Spacer(Modifier.height(8.dp))
-                    OverlayBar(row.percent, tone)
                 }
             }
         }

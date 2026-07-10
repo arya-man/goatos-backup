@@ -1,10 +1,12 @@
 "use client";
 
 import Script from "next/script";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   getFirebaseClientRuntimeConfig,
+  sendPasswordReset,
+  signInWithEmailPassword,
   signInWithGoogleIdToken,
 } from "@/lib/auth/firebase-client";
 
@@ -49,8 +51,11 @@ declare global {
 }
 
 export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: string }) {
-  const [status, setStatus] = useState<"loading" | "ready" | "signing_in" | "redirecting" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "signing_in" | "sending_reset" | "redirecting" | "error">("loading");
   const [message, setMessage] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [scriptReady, setScriptReady] = useState(false);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
   const buttonContainerRef = useRef<HTMLDivElement | null>(null);
@@ -72,6 +77,7 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
       }
       setStatus("signing_in");
       setMessage(null);
+      setNotice(null);
       void signInWithGoogleIdToken(googleIdToken)
         .then(() => {
           if (!mounted.current) return;
@@ -80,11 +86,62 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
         .catch((error: unknown) => {
           if (!mounted.current) return;
           setStatus("ready");
-          setMessage(messageForGoogleSignInError(error));
+          setMessage(messageForSignInError(error));
         });
     },
     [navigateToNext],
   );
+
+  const handleEmailPasswordSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const trimmedEmail = email.trim();
+      if (!trimmedEmail || !password) {
+        setStatus("ready");
+        setNotice(null);
+        setMessage("Enter email and password.");
+        return;
+      }
+      setStatus("signing_in");
+      setMessage(null);
+      setNotice(null);
+      void signInWithEmailPassword(trimmedEmail, password)
+        .then(() => {
+          if (!mounted.current) return;
+          navigateToNext();
+        })
+        .catch((error: unknown) => {
+          if (!mounted.current) return;
+          setStatus("ready");
+          setMessage(messageForSignInError(error));
+        });
+    },
+    [email, navigateToNext, password],
+  );
+
+  const handleForgotPassword = useCallback(() => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setStatus("ready");
+      setNotice(null);
+      setMessage("Enter your email first.");
+      return;
+    }
+    setStatus("sending_reset");
+    setMessage(null);
+    setNotice(null);
+    void sendPasswordReset(trimmedEmail)
+      .then(() => {
+        if (!mounted.current) return;
+        setStatus("ready");
+        setNotice("Password reset email sent.");
+      })
+      .catch((error: unknown) => {
+        if (!mounted.current) return;
+        setStatus("ready");
+        setMessage(messageForSignInError(error));
+      });
+  }, [email]);
 
   useEffect(() => {
     mounted.current = true;
@@ -137,9 +194,15 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
     window.setTimeout(() => setStatus("ready"), 0);
   }, [googleClientId, handleCredential, scriptReady]);
 
-  const isBusy = status === "loading" || status === "signing_in" || status === "redirecting";
+  const isBusy = status === "loading" || status === "signing_in" || status === "sending_reset" || status === "redirecting";
   const statusText =
-    status === "loading" ? "Loading Google sign-in" : status === "redirecting" ? "Opening dashboard" : "Signing in";
+    status === "loading"
+      ? "Loading sign-in"
+      : status === "redirecting"
+        ? "Opening dashboard"
+        : status === "sending_reset"
+          ? "Sending reset email"
+          : "Signing in";
 
   return (
     <div className="mt-8">
@@ -152,7 +215,7 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
           setMessage("Google sign-in script failed to load. Check the network and reload.");
         }}
       />
-      <div className="min-h-11 w-full max-w-[340px]">
+      <div className="min-h-11 w-full">
         <div ref={buttonContainerRef} aria-hidden={status !== "ready"} />
         {status === "loading" || status === "error" ? (
           <button
@@ -164,6 +227,59 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
           </button>
         ) : null}
       </div>
+      <div className="my-5 flex items-center gap-3">
+        <span className="h-px flex-1" style={{ background: "var(--line)" }} />
+        <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
+          or
+        </span>
+        <span className="h-px flex-1" style={{ background: "var(--line)" }} />
+      </div>
+      <form className="grid gap-3" onSubmit={handleEmailPasswordSubmit}>
+        <label className="grid gap-1.5 text-[12px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
+          Email
+          <input
+            autoComplete="email"
+            inputMode="email"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.currentTarget.value)}
+            disabled={isBusy}
+            className="h-11 rounded border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
+            style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--card)" }}
+          />
+        </label>
+        <label className="grid gap-1.5 text-[12px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
+          Password
+          <input
+            autoComplete="current-password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.currentTarget.value)}
+            disabled={isBusy}
+            className="h-11 rounded border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
+            style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--card)" }}
+          />
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="submit"
+            disabled={isBusy}
+            className="btn p"
+            style={{ flex: "1 1 180px", justifyContent: "center", height: 46 }}
+          >
+            Continue
+          </button>
+          <button
+            type="button"
+            disabled={isBusy}
+            onClick={handleForgotPassword}
+            className="btn"
+            style={{ flex: "1 1 140px", justifyContent: "center", height: 46 }}
+          >
+            Forgot password
+          </button>
+        </div>
+      </form>
       <div className="mt-3 min-h-7">
         {message ? (
           <p
@@ -179,6 +295,20 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
           >
             {message}
           </p>
+        ) : notice ? (
+          <p
+            style={{
+              borderRadius: 9,
+              border: "1px solid color-mix(in srgb, var(--ok) 36%, transparent)",
+              background: "var(--okx)",
+              color: "var(--ok)",
+              padding: "8px 12px",
+              fontSize: 13,
+              lineHeight: 1.6,
+            }}
+          >
+            {notice}
+          </p>
         ) : isBusy ? (
           <p
             className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em]"
@@ -193,7 +323,7 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
   );
 }
 
-function messageForGoogleSignInError(error: unknown): string {
+function messageForSignInError(error: unknown): string {
   if (isFirebaseAuthError(error)) {
     if (error.code === "auth/popup-closed-by-user" || error.code === "auth/cancelled-popup-request") {
       return "Google sign-in was cancelled.";
@@ -202,10 +332,22 @@ function messageForGoogleSignInError(error: unknown): string {
       return "This dashboard host is not authorized for Google sign-in.";
     }
     if (error.code === "auth/invalid-credential" || error.code === "auth/account-exists-with-different-credential") {
-      return "Google sign-in did not return a valid Mesha session. Try again.";
+      return "Sign-in did not return a valid Mesha session. Try again.";
+    }
+    if (error.code === "auth/user-not-found" || error.code === "auth/wrong-password") {
+      return "Email or password is incorrect.";
+    }
+    if (error.code === "auth/operation-not-allowed") {
+      return "Email/password sign-in is not enabled for this deployment.";
+    }
+    if (error.code === "auth/invalid-email") {
+      return "Enter a valid email address.";
+    }
+    if (error.code === "auth/too-many-requests") {
+      return "Too many attempts. Try again later.";
     }
   }
-  return error instanceof Error ? error.message : "Google sign-in failed.";
+  return error instanceof Error ? error.message : "Sign-in failed.";
 }
 
 function isFirebaseAuthError(error: unknown): error is { code: string } {

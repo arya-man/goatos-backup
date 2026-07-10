@@ -7,12 +7,18 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.TasksRepository
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
+import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
-import sg.mesha.goatos.core.network.dto.ValidationReportDto
 import sg.mesha.goatos.feature.submit.SubmitEvent
 import sg.mesha.goatos.feature.submit.SubmitUiState
 import sg.mesha.goatos.feature.submit.SyncState
@@ -22,24 +28,33 @@ import javax.inject.Inject
 
 /**
  * Shed-record submit state holder. Loads the operator's assigned task from
- * [TasksRepository.tasks] and, on [SubmitEvent.Submit], performs a REAL idempotent
- * write via [TasksRepository.submit] (POST /app/tasks/{task_id}/submissions). The
- * banner reflects the actual outcome: SYNCING → ACKED on an accepted submission,
- * CONFLICT on a server-rejected one, DEAD_LETTER on a network/transport failure.
+ * [TasksRepository.tasks], then on [SubmitEvent.Submit] ENQUEUES the write to the offline
+ * sync engine (see [SyncRepository]) instead of calling the app-api inline: the outbox
+ * durably persists it and returns immediately (optimistic UI), and [SyncEngine]
+ * (`:core:core-data`) performs the actual `POST /app/tasks/{task_id}/submissions` in the
+ * background — surviving process restarts, retrying with backoff, never duplicating the
+ * write (same idempotency key on every attempt).
  *
- * When no task is assigned to the current principal (e.g. a leadership user), submit
- * is disabled and the banner says so — the screen NEVER reports a fake success.
- * [SubmitEvent.Retry] re-attempts the same submission (reusing the idempotency key so
- * a retry is safe) or reloads the task when there is nothing to submit.
+ * The banner reflects the REAL outbox item status, observed via [SyncRepository.observeStatus]
+ * filtered to this submission's enqueued id: QUEUED → SYNCING (in-flight or auto-retrying) →
+ * ACKED (accepted) / CONFLICT (server rejected — e.g. missing required answers/proof) /
+ * DEAD_LETTER (transport retries exhausted). It never reports a fake success.
+ *
+ * When no task is assigned to the current principal (e.g. a leadership user), submit is
+ * disabled and the banner says so. [SubmitEvent.Retry] re-arms the SAME outbox row (same
+ * idempotency key, same payload) rather than minting a new one.
  *
  * NOTE: answers/proof payload mapping (form DSL runner + camera→signed-URL proof upload) is
  * not wired yet; the submission is sent with empty answers. A task whose form needs no
- * answers ACKs; one that requires answers/proof is rejected — surfaced honestly via
- * [rejectionReason] as "recording form lands in a later build", never a fabricated ACK.
+ * answers ACKs; one that requires answers/proof is rejected — the sync engine substitutes
+ * an honest "recording form lands in a later build" message (see
+ * `SyncEngine.rejectionReason`) rather than leaking a raw field-error code, and
+ * [decodeRejectionReason] just renders it verbatim — never a fabricated ACK.
  */
 @HiltViewModel
 class SubmitViewModel @Inject constructor(
     private val repo: TasksRepository,
+    private val syncRepository: SyncRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(loadingState())
@@ -47,7 +62,8 @@ class SubmitViewModel @Inject constructor(
 
     private var task: TaskSummaryDto? = null
     private var idempotencyKey: String? = null
-    private var syncJob: Job? = null
+    private var outboxItemId: String? = null
+    private var statusJob: Job? = null
 
     init {
         load()
@@ -77,59 +93,111 @@ class SubmitViewModel @Inject constructor(
     fun onEvent(event: SubmitEvent) {
         when (event) {
             SubmitEvent.Submit -> submit()
-            SubmitEvent.Retry -> if (task != null) submit() else load()
+            SubmitEvent.Retry -> retry()
         }
     }
 
     private fun submit() {
         val current = task ?: return
         val key = idempotencyKey ?: UUID.randomUUID().toString().also { idempotencyKey = it }
-        syncJob?.cancel()
-        syncJob = viewModelScope.launch {
+        statusJob?.cancel()
+        viewModelScope.launch {
             _state.update {
                 it.copy(
-                    syncState = SyncState.SYNCING,
-                    syncLabel = "Submitting shed record…",
-                    syncProgress = 0.5f,
+                    syncState = SyncState.QUEUED,
+                    syncLabel = "Queued — will sync…",
+                    syncProgress = 0.2f,
                     canSubmit = false,
                 )
             }
-            runCatching {
-                repo.submit(
+            // groupKey = the shed/scope this submission belongs to, so the outbox drains all
+            // of a shed's writes in order (TRD: outbox is "ordered per shed").
+            val groupKey = current.scopeId.ifBlank { current.taskId }
+            val request = SubmitTaskRequestDto(sopVersionId = current.sopVersionId, idempotencyKey = key)
+            when (
+                val result = syncRepository.enqueueShedSubmit(
                     taskId = current.taskId,
-                    request = SubmitTaskRequestDto(
-                        sopVersionId = current.sopVersionId,
-                        idempotencyKey = key,
-                    ),
+                    groupKey = groupKey,
+                    idempotencyKey = key,
+                    request = request,
                 )
-            }.onSuccess { response ->
-                val report = response.submission.validationReport
-                if (report.valid) {
+            ) {
+                is AppResult.Ok -> {
+                    outboxItemId = result.value
+                    observeOutboxItem(result.value)
+                }
+                is AppResult.Err -> {
+                    // Keep it honest: a write that can't even be queued is a visible error,
+                    // never a silent drop.
                     _state.update {
                         it.copy(
-                            syncState = SyncState.ACKED,
-                            syncLabel = "Synced · record on file",
-                            syncProgress = 1f,
-                            canSubmit = false,
-                        )
-                    }
-                } else {
-                    _state.update {
-                        it.copy(
-                            syncState = SyncState.CONFLICT,
-                            syncLabel = rejectionReason(report),
+                            syncState = SyncState.DEAD_LETTER,
+                            syncLabel = "Couldn't queue the submission — tap retry.",
                             canSubmit = false,
                         )
                     }
                 }
-            }.onFailure {
-                _state.update {
-                    it.copy(
-                        syncState = SyncState.DEAD_LETTER,
-                        syncLabel = "Sync failed — tap retry.",
-                        canSubmit = false,
-                    )
+            }
+        }
+    }
+
+    private fun retry() {
+        val itemId = outboxItemId
+        when {
+            itemId != null -> viewModelScope.launch {
+                when (syncRepository.retry(itemId)) {
+                    is AppResult.Ok -> observeOutboxItem(itemId)
+                    is AppResult.Err -> _state.update {
+                        it.copy(syncLabel = "Couldn't retry — tap retry again.", syncState = SyncState.DEAD_LETTER)
+                    }
                 }
+            }
+            task != null -> submit()
+            else -> load()
+        }
+    }
+
+    private fun observeOutboxItem(itemId: String) {
+        statusJob?.cancel()
+        statusJob = viewModelScope.launch {
+            syncRepository.observeStatus()
+                .map { status -> status.items.firstOrNull { it.id == itemId } }
+                .filterNotNull()
+                .distinctUntilChanged()
+                .collect { item -> applyItemStatus(item) }
+        }
+    }
+
+    private fun applyItemStatus(item: SyncQueueItem) {
+        when {
+            item.status == SyncItemStatus.QUEUED -> _state.update {
+                it.copy(syncState = SyncState.QUEUED, syncLabel = "Queued — will sync…", syncProgress = 0.2f, canSubmit = false)
+            }
+            item.status == SyncItemStatus.IN_FLIGHT -> _state.update {
+                it.copy(syncState = SyncState.SYNCING, syncLabel = "Submitting shed record…", syncProgress = 0.6f, canSubmit = false)
+            }
+            item.status == SyncItemStatus.SUCCEEDED -> _state.update {
+                it.copy(syncState = SyncState.ACKED, syncLabel = "Synced · record on file", syncProgress = 1f, canSubmit = false)
+            }
+            item.conflict -> _state.update {
+                it.copy(syncState = SyncState.CONFLICT, syncLabel = decodeRejectionReason(item), canSubmit = false)
+            }
+            item.isDeadLetter -> _state.update {
+                it.copy(
+                    syncState = SyncState.DEAD_LETTER,
+                    syncLabel = "Sync failed after ${item.attemptCount} attempts — tap retry.",
+                    canSubmit = false,
+                )
+            }
+            else -> _state.update {
+                // FAILED but still inside its retry budget — SyncEngine will auto-retry with
+                // backoff; render this as still-syncing, not a hard failure.
+                it.copy(
+                    syncState = SyncState.SYNCING,
+                    syncLabel = "Retrying… (attempt ${item.attemptCount}/${item.maxAttempts})",
+                    syncProgress = 0.4f,
+                    canSubmit = false,
+                )
             }
         }
     }
@@ -138,17 +206,8 @@ class SubmitViewModel @Inject constructor(
     // errors are missing required answers/proof, the real blocker is that this build has no
     // recording-form capture yet (form DSL runner + camera→proof upload land later) — say that
     // plainly instead of leaking a raw field-error. Any other rejection is shown verbatim.
-    private fun rejectionReason(report: ValidationReportDto): String {
-        val codes = report.errors.map { it.code }
-        val onlyFormGaps = codes.isNotEmpty() && codes.all {
-            it == "required" || it == "proof_required" || it == "proof_subject_required"
-        }
-        return if (onlyFormGaps) {
-            "This drive needs the recording form before it can be submitted — form capture lands in a later build."
-        } else {
-            report.errors.firstOrNull()?.message ?: "Server rejected the submission."
-        }
-    }
+    private fun decodeRejectionReason(item: SyncQueueItem): String =
+        item.lastError ?: "Server rejected the submission."
 
     // Interim state builders: reuse the sample only for stable chrome labels (eyebrow/
     // title). No fabricated vaccine groups — the due-group breakdown needs the form

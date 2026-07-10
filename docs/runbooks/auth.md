@@ -47,8 +47,10 @@ protected API request before RBAC grant lookup.
 
 Current access-control layers:
 
-1. Firebase/Auth Platform verifies the Google identity and returns a Firebase ID
-   token; Goat OS never stores raw Google or Firebase tokens in the database.
+1. Firebase/Auth Platform verifies the identity and returns a Firebase ID token.
+   Shared dashboard login supports both Google SSO and Firebase
+   email/password. Goat OS never stores raw Google, password, or Firebase tokens
+   in the database.
 2. `GOATOS_AUTH_ALLOWED_EMAILS` is the deploy-time email allowlist. It blocks
    unapproved verified emails before a session cookie is created.
 3. `auth_pending_email_grants` is the approved-email grant policy table. On a
@@ -67,12 +69,12 @@ until the product has a real admin user-management screen. Do not treat Google
 Workspace membership or the Google provider `hd` hint as sufficient access
 control.
 
-## goatos-dev IdP
+## Firebase Dashboard Sign-In
 
-`goatos-dev` uses Google Identity Platform / Firebase Auth as the real IdP for
-JWKS verification. Firebase is auth only for Goat OS dev bring-up: do not use
-Firebase Hosting or Firebase App Hosting, and do not introduce an external OIDC
-provider or static dev JWKS.
+`goatos-dev` and `goatos-stg` use Google Identity Platform / Firebase Auth as
+the real IdP for JWKS verification. Firebase is auth only for Goat OS bring-up:
+do not use Firebase Hosting or Firebase App Hosting, and do not introduce an
+external OIDC provider or static dev JWKS.
 
 Admin-web login uses Google Identity Services for the browser account chooser,
 then exchanges the returned Google ID token with Firebase Auth using
@@ -83,17 +85,74 @@ testing. Keep `auto_select=false` and `hd=mesha.sg`; do not enable One Tap for
 this internal dashboard without proving account-picker behavior on
 `https://dev.dashboard.mesha.sg`.
 
+Admin-web also supports Firebase email/password sign-in and password-reset
+email from the same login page. This is still Firebase Auth, not a Goat OS
+password table. Operators must enable the Firebase email/password provider in
+the target Google project before deploy, create users in Firebase/Auth Platform,
+and keep `GOATOS_AUTH_ALLOWED_EMAILS` plus `auth_pending_email_grants` aligned
+with approved dashboard users.
+
+For initial seed users, do not create or share a common password. Use the admin
+seed script to create or verify the approved Firebase/Auth Platform users and
+send each person a password-reset email:
+
+```bash
+npm --prefix apps/admin-web run auth:seed-password-users -- \
+  --project goatos-stg \
+  --user ravi@mesha.sg=Ravi \
+  --user manohark@mesha.sg=Manohar \
+  --user manju@mesha.sg=Manju \
+  --user abhishek@mesha.sg=Abhishek \
+  --user aryaman@mesha.sg=Aryaman \
+  --send-reset-email
+```
+
+The script uses the active `gcloud` OAuth credential for Identity Platform
+admin APIs, refuses to run if the active project differs from `--project`, never
+prints the generated temporary password, marks approved seed emails verified so
+Goat OS JWKS email verification passes, and sends Firebase password-reset
+emails so every user chooses their own password. Use `--dry-run` first when
+reviewing a new environment. Add `--continue-url http://localhost:3300/login`
+for local testing or `--continue-url https://stg.dashboard.mesha.sg/login` once
+the staging custom domain is live.
+
+For localhost Firebase testing, run the admin web app in the shared-env mode,
+not through `dev:local`. `dev:local` intentionally enables the local bearer
+shortcut and hides Firebase sign-in. Example:
+
+```bash
+export GOATOS_FIREBASE_WEB_CONFIG="$(
+  gcloud secrets versions access latest \
+    --project=goatos-stg \
+    --secret=goatos-stg-firebase-web-config
+)"
+export GOATOS_ENV=stg
+export GOATOS_API_BASE_URL=https://goatos-api-stg-awtrpmn4za-el.a.run.app
+export GOATOS_TENANT_ID=00000000-0000-4000-8000-000000000001
+export GOATOS_GOOGLE_SIGN_IN_CLIENT_ID=514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com
+npm --prefix apps/admin-web run dev -- -H 127.0.0.1 -p 3311
+```
+
+`localhost` is an authorized Firebase/Auth Platform domain for stg, so
+email/password and password reset can be tested locally with the same approved
+emails after those users set their password from the reset email.
+
 Custom admin-web hosts must be registered in Firebase/Auth Platform authorized
 domains. The same host origin must also be registered on the Google OAuth web
 client as an authorized JavaScript origin because Google Identity Services runs
 in the browser.
+For `goatos-stg`, the Google Auth Platform web client is
+`514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com`,
+with origins for `https://stg.dashboard.mesha.sg`, the raw stg Cloud Run hosts,
+and local ports `3000`, `3300`, and `3311`. The Identity Platform Google
+provider must use the same client ID and secret.
 Set `GOATOS_CANONICAL_DASHBOARD_HOST` on admin-web once a custom host is live so
 raw Cloud Run dashboard URLs redirect to the registered OAuth host instead of
 creating a second sign-in origin.
 
-Firebase ID tokens use issuer `https://securetoken.google.com/goatos-dev`,
-audience `goatos-dev`, and Google's SecureToken JWKS endpoint. Firebase UIDs are
-external IdP subjects, not Goat OS UUIDs; the backend maps a non-UUID token
+Firebase ID tokens use issuer `https://securetoken.google.com/<project-id>`,
+audience `<project-id>`, and Google's SecureToken JWKS endpoint. Firebase UIDs
+are external IdP subjects, not Goat OS UUIDs; the backend maps a non-UUID token
 subject to a stable internal actor UUID before checking `user_scope_grants`.
 Admin-web forwards `X-GoatOS-Tenant-ID` from `GOATOS_TENANT_ID`; roles still
 come only from active DB grant rows for that internal actor UUID and tenant.

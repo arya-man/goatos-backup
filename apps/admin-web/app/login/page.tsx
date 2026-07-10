@@ -17,7 +17,7 @@ export default async function LoginPage() {
     shouldCheckLocalDashboard && localDashboardCheck !== null && localDashboardCheck.ok === false;
   const showGoogleLogin = !shouldCheckLocalDashboard;
   const loginInstruction = showGoogleLogin
-    ? "Use your Mesha Workspace account to continue."
+    ? "Use Google SSO or email/password to continue."
     : "Use the local dashboard shortcut on this machine.";
 
   return (
@@ -81,7 +81,7 @@ export default async function LoginPage() {
         </section>
 
         <p className="muted small" style={{ textAlign: "center", marginTop: 14 }}>
-          Access is limited to Mesha Workspace accounts.
+          Access is limited to approved Mesha accounts.
         </p>
       </div>
     </main>

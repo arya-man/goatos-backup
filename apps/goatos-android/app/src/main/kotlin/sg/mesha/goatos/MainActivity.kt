@@ -1,16 +1,11 @@
 package sg.mesha.goatos
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -60,14 +55,8 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var sessionStore: SessionStore
 
-    private val requestBluetoothConnect =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-            rfidReader.refreshStatus()
-        }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        ensureBluetoothConnectPermission()
         enableEdgeToEdge()
         setContent {
             GoatOsTheme {
@@ -79,6 +68,9 @@ class MainActivity : ComponentActivity() {
                 if (!authed) {
                     val signInError by sessionViewModel.signInError.collectAsStateWithLifecycle()
                     // Email-always sign-in; real OTP/Firebase verification is gated.
+                    // LoginScreen itself renders the login-time device-permission gate
+                    // (Camera/Bluetooth/Notifications — core-permissions + rationale UI);
+                    // it supersedes the old onCreate-time silent BLUETOOTH_CONNECT request.
                     LoginScreen(
                         onSignIn = sessionViewModel::signIn,
                         errorMessage = signInError,
@@ -109,15 +101,6 @@ class MainActivity : ComponentActivity() {
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean =
         rfidReader.onKeyEvent(event) || super.dispatchKeyEvent(event)
-
-    private fun ensureBluetoothConnectPermission() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-        val granted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.BLUETOOTH_CONNECT,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!granted) requestBluetoothConnect.launch(Manifest.permission.BLUETOOTH_CONNECT)
-    }
 }
 
 @Composable

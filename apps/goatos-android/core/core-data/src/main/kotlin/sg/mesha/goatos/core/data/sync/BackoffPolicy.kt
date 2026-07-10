@@ -1,0 +1,29 @@
+package sg.mesha.goatos.core.data.sync
+
+/** How long [SyncEngine] waits before retrying attempt number [delayMillis]'s `attempt`
+ *  (1-based: the value passed is the attempt that JUST failed, so `delayMillis(1)` is the
+ *  wait before the 2nd try). */
+fun interface BackoffPolicy {
+    fun delayMillis(attempt: Int): Long
+
+    companion object {
+        /** Exponential backoff with a cap and jitter: base, 2x base, 4x base, ... capped, plus
+         *  up to [jitterFraction] extra so many devices retrying at once don't thunder-herd. */
+        fun exponential(
+            baseMillis: Long = 1_000L,
+            capMillis: Long = 15 * 60 * 1_000L,
+            jitterFraction: Double = 0.2,
+            random: () -> Double = Math::random,
+        ): BackoffPolicy = BackoffPolicy { attempt ->
+            val shift = (attempt - 1).coerceIn(0, 20)
+            val exponential = baseMillis * (1L shl shift)
+            val capped = exponential.coerceAtMost(capMillis)
+            val jitter = (capped * jitterFraction * random()).toLong()
+            capped + jitter
+        }
+
+        /** 1s, 2s, 4s, 8s, ... capped at 15 min, +0-20% jitter. Used by [SyncEngine] unless a
+         *  test overrides it for determinism. */
+        val Default: BackoffPolicy = exponential()
+    }
+}

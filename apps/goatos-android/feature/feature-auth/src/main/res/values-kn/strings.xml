@@ -11,4 +11,18 @@
     <string name="login_app_language">ಆ್ಯಪ್ ಭಾಷೆ</string>
     <string name="login_change">ಬದಲಿಸಿ</string>
     <string name="login_role_note">ನಿಮ್ಮ ಪಾತ್ರ HR ಡೈರೆಕ್ಟರಿಯಿಂದ — ನಿಮ್ಮ ಕೆಲಸದ ಪರದೆ ಸಿಗುತ್ತದೆ. ಫೀಲ್ಡ್ ಆಪರೇಟರ್ ಲಸಿಕೆ ಹಾಕುತ್ತಾರೆ; ಮ್ಯಾನೇಜರ್ ಮತ್ತು ಡೈರೆಕ್ಟರ್ ಟ್ರ್ಯಾಕ್ ಮಾಡುತ್ತಾರೆ.</string>
+
+    <string name="perm_gate_title">ಸಾಧನ ಅನುಮತಿಗಳು</string>
+    <string name="perm_gate_subtitle">ಸ್ಕ್ಯಾನ್, ಅಲರ್ಟ್ ಮತ್ತು ಪುರಾವೆ ಫೋಟೋಗಳಿಗಾಗಿ ಒಮ್ಮೆ ಅನುಮತಿಸಿ.</string>
+    <string name="perm_gate_footer">ಇವಿಲ್ಲದೆಯೂ ನೀವು ಸೈನ್ ಇನ್ ಮಾಡಬಹುದು — ಅನುಮತಿ ಸಿಗುವವರೆಗೆ ಏನು ಕೆಲಸ ಮಾಡುವುದಿಲ್ಲ ಎಂದು ಆ್ಯಪ್ ತಿಳಿಸುತ್ತದೆ.</string>
+    <string name="perm_gate_grant_access">ಅನುಮತಿಸಿ</string>
+    <string name="perm_label_camera">ಕ್ಯಾಮೆರಾ</string>
+    <string name="perm_rationale_camera">ಶೆಡ್ ದಾಖಲೆಯ ಪುರಾವೆ ಫೋಟೋ/ವೀಡಿಯೊ ಸೆರೆಹಿಡಿಯುತ್ತದೆ.</string>
+    <string name="perm_label_bluetooth">ಹತ್ತಿರದ ಸಾಧನಗಳು</string>
+    <string name="perm_rationale_bluetooth">ಜೋಡಿಸಿದ RFID ರೀಡರ್‌ನ ಸ್ಥಿತಿ ಓದುತ್ತದೆ.</string>
+    <string name="perm_label_notifications">ಅಧಿಸೂಚನೆಗಳು</string>
+    <string name="perm_rationale_notifications">ಲಸಿಕೆ ಬಾಕಿ/ವಿಳಂಬ ಎಚ್ಚರಿಕೆಗಳನ್ನು ಕಳುಹಿಸುತ್ತದೆ.</string>
+    <string name="perm_status_granted">ಅನುಮತಿಸಲಾಗಿದೆ</string>
+    <string name="perm_status_needed">ಅಗತ್ಯವಿದೆ</string>
+    <string name="perm_status_open_settings">ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ</string>
 </resources>

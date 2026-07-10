@@ -22,12 +22,17 @@ dependencies {
     implementation(project(":core:core-designsystem"))
     implementation(project(":core:core-model"))
     implementation(project(":core:core-ui"))
+    // Login-time permission gate (docs/mobile/rfid-keyboard-reader.md permission matrix +
+    // trd-operator-mobile.md §7): OS-version-aware required-permission list + grant-state model.
+    implementation(project(":core:core-permissions"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.compose.ui.tooling.preview)
+    // rememberLauncherForActivityResult(RequestMultiplePermissions()) for the permission gate.
+    implementation(libs.androidx.activity.compose)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
 

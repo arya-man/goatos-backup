@@ -122,6 +122,80 @@ func TestValidateDevCloudSQLDatabaseTargetRejectsLocalAndUnsafeTargets(t *testin
 	}
 }
 
+func TestValidateStagingCloudSQLDatabaseTargetAllowsOnlyExplicitStagingCloudSQL(t *testing.T) {
+	t.Setenv("GOATOS_ALLOW_STG_CLOUDSQL_TARGET", "true")
+	t.Setenv("GOATOS_STG_CLOUDSQL_CONNECTION_NAME", "goatos-stg:asia-south1:goatos-stg-core-db")
+
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{
+			name: "socket path",
+			url:  "user=goatos_app password=goatos dbname=goatos host=/cloudsql/goatos-stg:asia-south1:goatos-stg-core-db sslmode=disable",
+		},
+		{
+			name: "connection name",
+			url:  "user=goatos_app password=goatos dbname=goatos host=goatos-stg:asia-south1:goatos-stg-core-db sslmode=disable",
+		},
+		{
+			name: "url socket path with query",
+			url:  "postgres://goatos_app:goatos@/goatos?host=/tmp/cloudsql/goatos-stg:asia-south1:goatos-stg-core-db&sslmode=disable",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateStagingCloudSQLDatabaseTarget("migrate", "stg", tc.url); err != nil {
+				t.Fatalf("explicit goatos-stg Cloud SQL target rejected: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateStagingCloudSQLDatabaseTargetRejectsWrongTargets(t *testing.T) {
+	t.Setenv("GOATOS_ALLOW_STG_CLOUDSQL_TARGET", "true")
+	t.Setenv("GOATOS_STG_CLOUDSQL_CONNECTION_NAME", "goatos-stg:asia-south1:goatos-stg-core-db")
+
+	cases := []struct {
+		name string
+		env  string
+		url  string
+	}{
+		{
+			name: "local postgres",
+			env:  "stg",
+			url:  "postgres://postgres:goatos@localhost:5432/goatos?sslmode=disable",
+		},
+		{
+			name: "dev cloud sql",
+			env:  "stg",
+			url:  "user=goatos_app password=goatos dbname=goatos host=/cloudsql/goatos-dev:asia-south1:goatos-dev-core-db sslmode=disable",
+		},
+		{
+			name: "prod cloud sql",
+			env:  "stg",
+			url:  "user=goatos_app password=goatos dbname=goatos host=/cloudsql/goatos-prod:asia-south1:goatos-prod-core-db sslmode=disable",
+		},
+		{
+			name: "wrong env",
+			env:  "dev",
+			url:  "user=goatos_app password=goatos dbname=goatos host=/cloudsql/goatos-stg:asia-south1:goatos-stg-core-db sslmode=disable",
+		},
+		{
+			name: "spoof substring",
+			env:  "stg",
+			url:  "user=goatos_app password=goatos dbname=goatos host=/cloudsql/goatos-stg:asia-south1:goatos-stg-core-db-spoof sslmode=disable",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateStagingCloudSQLDatabaseTarget("migrate", tc.env, tc.url); err == nil {
+				t.Fatal("unsafe target accepted")
+			}
+		})
+	}
+}
+
 func TestValidateLocalDatabaseTargetRejectsCloudSQLWithoutFullDevOptIn(t *testing.T) {
 	devURL := "user=postgres password=goatos dbname=goatos host=/cloudsql/goatos-dev:asia-south1:goatos-dev-core-db sslmode=disable"
 	if err := ValidateLocalDatabaseTarget("api", "dev", devURL); err == nil {

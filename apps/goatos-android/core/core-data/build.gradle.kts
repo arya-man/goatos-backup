@@ -1,6 +1,12 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.ksp)
+    // Needed to generate serializers for the outbox's own @Serializable payload models
+    // (sg.mesha.goatos.core.data.sync.SyncPayloads) — this module already USES
+    // kotlinx.serialization.json.Json (BootstrapCache) but never applied the compiler
+    // plugin itself (the @Serializable types it decoded were all defined in core-network,
+    // which already applies this plugin).
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -25,11 +31,18 @@ dependencies {
     // `api`: DefaultBootstrapRepository's public constructor exposes DeviceStore, so the
     // core-datastore type is part of core-data's ABI and must be on the consumer classpath.
     api(project(":core:core-datastore"))
+    // `api`: AppModule's @Provides functions (in :app) construct/return OutboxDatabase /
+    // OutboxDao directly (mirrors the GoatDatabase/BootstrapCacheDao pattern above), so
+    // core-database's Room types must be on the consumer (:app) compile classpath.
+    api(project(":core:core-database"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     api(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
-    // Proto DataStore + the WorkManager sync/outbox engine land here next; the Room
-    // cache below gives offline-first bootstrap today.
+    // Proto DataStore lands next. The outbox/sync engine (SyncEngine, SyncRepository,
+    // OutboxStore — sg.mesha.goatos.core.data.sync) is wired below; WorkManager itself is
+    // NOT used — see the KDoc on SyncEngine for why (androidx.work has no version alias in
+    // gradle/libs.versions.toml).
+    testImplementation("junit:junit:4.13.2")
 }

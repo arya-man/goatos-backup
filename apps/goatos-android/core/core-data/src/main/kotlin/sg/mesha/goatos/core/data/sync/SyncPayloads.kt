@@ -1,0 +1,36 @@
+package sg.mesha.goatos.core.data.sync
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
+import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
+import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+
+/** Shared JSON codec for outbox payload/result blobs — lenient so a field added later never
+ *  breaks decode of an already-queued row (mirrors [sg.mesha.goatos.core.data.BootstrapCache]). */
+internal val syncJson = Json {
+    ignoreUnknownKeys = true
+    explicitNulls = false
+}
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.SHED_SUBMIT]. Reuses
+ *  the existing wire DTO directly rather than duplicating its shape. */
+@Serializable
+data class ShedSubmitPayload(
+    @SerialName("task_id") val taskId: String,
+    @SerialName("request") val request: SubmitTaskRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.RESCHEDULE]. */
+@Serializable
+data class ReschedulePayload(
+    @SerialName("obligation_id") val obligationId: String,
+    @SerialName("request") val request: RescheduleObligationRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.PROOF_UPLOAD]. */
+@Serializable
+data class ProofUploadPayload(
+    @SerialName("request") val request: ProofUploadRequestDto,
+)
