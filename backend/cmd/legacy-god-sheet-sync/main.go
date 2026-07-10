@@ -132,6 +132,7 @@ type syncSummary struct {
 	CreatedTabs        []string       `json:"created_tabs,omitempty"`
 	DeletedTabs        []string       `json:"deleted_tabs,omitempty"`
 	ReorderedTabs      []string       `json:"reordered_tabs,omitempty"`
+	HeaderDriftTabs    []string       `json:"header_drift_tabs,omitempty"`
 	WrittenTabs        []string       `json:"written_tabs,omitempty"`
 	SkippedTabs        []string       `json:"skipped_tabs,omitempty"`
 	AppendedRows       []string       `json:"appended_rows,omitempty"`
@@ -206,6 +207,7 @@ func run(args []string, stdout io.Writer) error {
 	summary.CreatedTabs = applied.CreatedTabs
 	summary.DeletedTabs = applied.DeletedTabs
 	summary.ReorderedTabs = applied.ReorderedTabs
+	summary.HeaderDriftTabs = applied.HeaderDriftTabs
 	summary.WrittenTabs = applied.WrittenTabs
 	summary.SkippedTabs = applied.SkippedTabs
 	summary.AppendedRows = applied.AppendedRows
@@ -228,6 +230,11 @@ func run(args []string, stdout io.Writer) error {
 		summary.LiveCoverage = population.Coverage
 		summary.WrittenTabs = append(summary.WrittenTabs, population.WrittenTabs...)
 		sort.Strings(summary.WrittenTabs)
+	}
+	if len(applied.HeaderDriftTabs) > 0 {
+		if err := appendHeaderDriftIssues(ctx, service, cfg.SpreadsheetID, runID, applied.HeaderDriftTabs); err != nil {
+			return err
+		}
 	}
 	return printSummary(stdout, summary, cfg.OutputJSON, "legacy god sheet sync applied")
 }
@@ -274,12 +281,13 @@ func parseFlags(args []string) (config, error) {
 }
 
 type applySummary struct {
-	CreatedTabs   []string
-	DeletedTabs   []string
-	ReorderedTabs []string
-	WrittenTabs   []string
-	SkippedTabs   []string
-	AppendedRows  []string
+	CreatedTabs     []string
+	DeletedTabs     []string
+	ReorderedTabs   []string
+	HeaderDriftTabs []string
+	WrittenTabs     []string
+	SkippedTabs     []string
+	AppendedRows    []string
 }
 
 func newSheetsClient(ctx context.Context, cfg config) (sheetsPort, error) {
@@ -343,9 +351,7 @@ func (p googleSheetsPort) UpdateValues(ctx context.Context, spreadsheetID string
 }
 
 func (p googleSheetsPort) AppendValues(ctx context.Context, spreadsheetID string, writeRange string, values *sheets.ValueRange) (*sheets.AppendValuesResponse, error) {
-	return withSheetsRetry(ctx, func() (*sheets.AppendValuesResponse, error) {
-		return p.service.Spreadsheets.Values.Append(spreadsheetID, writeRange, values).ValueInputOption("RAW").InsertDataOption("INSERT_ROWS").Context(ctx).Do()
-	})
+	return p.service.Spreadsheets.Values.Append(spreadsheetID, writeRange, values).ValueInputOption("RAW").InsertDataOption("INSERT_ROWS").Context(ctx).Do()
 }
 
 func applyWorkbook(ctx context.Context, service sheetsPort, cfg config, specs []tabSpec) (applySummary, error) {
@@ -422,14 +428,19 @@ func applyWorkbook(ctx context.Context, service sheetsPort, cfg config, specs []
 				summary.WrittenTabs = append(summary.WrittenTabs, spec.Name)
 				continue
 			}
-			return applySummary{}, fmt.Errorf("%s has data but its header does not match the managed schema; fix the header or refresh the seed/config tab explicitly", spec.Name)
+			summary.HeaderDriftTabs = append(summary.HeaderDriftTabs, spec.Name)
+			summary.SkippedTabs = append(summary.SkippedTabs, spec.Name)
+			continue
 		}
 		if state.Populated {
 			if spec.Name == "Sync_Runs" {
-				if err := appendSyncRun(ctx, service, cfg.SpreadsheetID, spec); err != nil {
+				appended, err := appendSyncRun(ctx, service, cfg.SpreadsheetID, spec)
+				if err != nil {
 					return applySummary{}, err
 				}
-				summary.AppendedRows = append(summary.AppendedRows, spec.Name)
+				if appended {
+					summary.AppendedRows = append(summary.AppendedRows, spec.Name)
+				}
 				continue
 			}
 			if cfg.ReplaceManagedTabs && isReplaceableSeedTab(spec.Name) {
@@ -453,6 +464,7 @@ func applyWorkbook(ctx context.Context, service sheetsPort, cfg config, specs []
 	sort.Strings(summary.WrittenTabs)
 	sort.Strings(summary.SkippedTabs)
 	sort.Strings(summary.AppendedRows)
+	sort.Strings(summary.HeaderDriftTabs)
 	return summary, nil
 }
 
@@ -592,16 +604,75 @@ func writeTab(ctx context.Context, service sheetsPort, spreadsheetID string, spe
 	return nil
 }
 
-func appendSyncRun(ctx context.Context, service sheetsPort, spreadsheetID string, spec tabSpec) error {
+func appendSyncRun(ctx context.Context, service sheetsPort, spreadsheetID string, spec tabSpec) (bool, error) {
 	values := tabValues(spec)
 	if len(values) <= 1 {
-		return nil
+		return false, nil
+	}
+	runID := strings.TrimSpace(fmt.Sprint(values[1][0]))
+	if runID != "" {
+		exists, err := firstColumnContains(ctx, service, spreadsheetID, spec.Name, runID)
+		if err != nil {
+			return false, err
+		}
+		if exists {
+			return false, nil
+		}
 	}
 	_, err := service.AppendValues(ctx, spreadsheetID, quoteSheet(spec.Name)+"!A1", &sheets.ValueRange{
 		Values: values[1:],
 	})
 	if err != nil {
-		return fmt.Errorf("append %s: %w", spec.Name, err)
+		if runID != "" && isRetryableSheetsError(err) {
+			exists, readErr := firstColumnContains(ctx, service, spreadsheetID, spec.Name, runID)
+			if readErr == nil && exists {
+				return false, nil
+			}
+		}
+		return false, fmt.Errorf("append %s: %w", spec.Name, err)
+	}
+	return true, nil
+}
+
+func firstColumnContains(ctx context.Context, service sheetsPort, spreadsheetID string, tab string, needle string) (bool, error) {
+	resp, err := service.GetValues(ctx, spreadsheetID, quoteSheet(tab)+"!A:A")
+	if err != nil {
+		return false, fmt.Errorf("read %s first column: %w", tab, err)
+	}
+	for _, row := range resp.Values {
+		if len(row) == 0 {
+			continue
+		}
+		if strings.TrimSpace(fmt.Sprint(row[0])) == needle {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func appendHeaderDriftIssues(ctx context.Context, service sheetsPort, spreadsheetID string, runID string, tabs []string) error {
+	rows := make([][]any, 0, len(tabs))
+	for _, tab := range tabs {
+		issue := issueSeedRow{
+			IssueID:        "header-drift-" + safeIssueID(tab) + "-" + safeIssueID(runID),
+			IssueType:      "header_drift",
+			Severity:       "P1",
+			Blocking:       "yes",
+			SourceID:       "god_sheet",
+			SourceRecordID: tab,
+			Evidence:       tab + " header does not match the managed schema; tab was skipped, not overwritten.",
+			Owner:          "data/dev",
+			NextAction:     "Restore managed header order/columns or move human notes to right-side columns.",
+			Status:         "open",
+		}
+		rows = append(rows, stringSliceToAny(issueValues([]issueSeedRow{issue})[0]))
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	_, err := service.AppendValues(ctx, spreadsheetID, quoteSheet("Issue_Queue")+"!A1", &sheets.ValueRange{Values: rows})
+	if err != nil {
+		return fmt.Errorf("append header drift issues: %w", err)
 	}
 	return nil
 }
@@ -634,6 +705,14 @@ func tabValues(spec tabSpec) [][]any {
 		values = append(values, out)
 	}
 	return values
+}
+
+func stringSliceToAny(values []string) []any {
+	out := make([]any, len(values))
+	for i, value := range values {
+		out[i] = value
+	}
+	return out
 }
 
 func workbookTabs(cfg config, runID string, sources []sourceCatalogRow, rules []validationRuleRow, issues []issueSeedRow) []tabSpec {

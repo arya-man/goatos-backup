@@ -240,18 +240,39 @@ func TestReplaceManagedTabsOnlyRefreshesSeedTabs(t *testing.T) {
 	}
 }
 
-func TestApplyWorkbookRejectsMalformedHumanTab(t *testing.T) {
+func TestApplyWorkbookRecordsMalformedHumanTabAsHeaderDrift(t *testing.T) {
 	ctx := context.Background()
 	specs := []tabSpec{tableSpec("Animal_Master", []string{"animal_identifier_1", "verification_status"}, nil)}
 	fake := newFakeSheets(specs)
 	fake.values["Animal_Master"] = [][]any{{"wrong_header"}, {"RFID-1"}}
 
-	_, err := applyWorkbook(ctx, fake, config{SpreadsheetID: "sheet"}, specs)
-	if err == nil || !strings.Contains(err.Error(), "header does not match") {
-		t.Fatalf("expected header mismatch error, got %v", err)
+	summary, err := applyWorkbook(ctx, fake, config{SpreadsheetID: "sheet"}, specs)
+	if err != nil {
+		t.Fatalf("header drift should not abort the workbook apply: %v", err)
+	}
+	if !contains(summary.HeaderDriftTabs, "Animal_Master") {
+		t.Fatalf("header drift should be tracked, got %+v", summary)
 	}
 	if fake.countCall("clear:Animal_Master") != 0 || fake.countCall("update:Animal_Master") != 0 {
 		t.Fatalf("malformed human tab should not be modified: %v", fake.calls)
+	}
+}
+
+func TestApplyWorkbookDoesNotAppendDuplicateSyncRun(t *testing.T) {
+	ctx := context.Background()
+	specs := []tabSpec{tableSpec("Sync_Runs", syncRunColumns(), [][]string{{"run-2", "manual"}})}
+	fake := newFakeSheets(specs)
+	fake.values["Sync_Runs"] = [][]any{stringRow(syncRunColumns()), {"run-2", "manual"}}
+
+	summary, err := applyWorkbook(ctx, fake, config{SpreadsheetID: "sheet"}, specs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(summary.AppendedRows, "Sync_Runs") {
+		t.Fatalf("duplicate run should not append, got %+v", summary)
+	}
+	if fake.countCall("append:Sync_Runs") != 0 {
+		t.Fatalf("duplicate run appended: %v", fake.calls)
 	}
 }
 
