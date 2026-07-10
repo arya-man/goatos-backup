@@ -467,7 +467,7 @@ func (r *Repository) ListBackupConfig(ctx context.Context, params ports.ListBack
 	rows, err := r.pool.Query(ctx, `
 SELECT
   p.scope_id::text as center_id,
-  l.center_label,
+  l.name as center_label,
   p.backup_group_code,
   p.position_code,
   p.position_code as position_title,
