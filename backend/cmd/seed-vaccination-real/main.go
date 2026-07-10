@@ -366,26 +366,22 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 		st.ShedsCreated++
 	}
 
-	// 3. Protocol: ONE stable vaccination.matrix protocol with all vaccines in rule_dsl.
-	//    All vaccines and doses expand to protocol_rules from the SAME protocol_version.
-	versionByVaccine := map[string]string{}  // vaccine header -> protocol_version_id (same for all)
+	// 3. Protocols: 7 vaccine protocols, each draft -> per-dose rules -> published.
+	versionByVaccine := map[string]string{}  // vaccine header -> protocol_version_id
 	ruleByVaccineDose := map[string]string{} // vaccine|doseCode -> rule_id
-
-	protocolID := detUUID("protocol", tenantID, "vaccination.matrix")
-	versionID := detUUID("protocol_version", tenantID, "vaccination.matrix")
-
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
-		VALUES ($1,$2,'vaccination.matrix','Vaccination Matrix','vaccination','active')
-		ON CONFLICT (tenant_id, code) DO UPDATE SET name=EXCLUDED.name, status='active', updated_at=now()`,
-		protocolID, tenantID); err != nil {
-		return st, fmt.Errorf("protocol def vaccination.matrix: %w", err)
-	}
-
-	// Build inventory items for all vaccines.
 	for _, vaccName := range vaccineOrder {
 		def := vaccines[vaccName]
+		protocolID := detUUID("protocol", tenantID, def.Code)
+		versionID := detUUID("protocol_version", tenantID, def.Code)
 		itemID := detUUID("inventory_item", tenantID, def.Code)
+
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+			VALUES ($1,$2,$3,$4,'vaccination','active')
+			ON CONFLICT (protocol_id) DO UPDATE SET name=EXCLUDED.name, status='active', updated_at=now()`,
+			protocolID, tenantID, "vaccination."+def.Code, def.Name); err != nil {
+			return st, fmt.Errorf("protocol def %s: %w", vaccName, err)
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit, status)
 			VALUES ($1,$2,$3,$4,'vaccine','dose','active')
@@ -393,25 +389,20 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 			itemID, tenantID, def.ItemCode, def.Name+" vaccine"); err != nil {
 			return st, fmt.Errorf("inventory item %s: %w", vaccName, err)
 		}
-	}
 
-	// Only (re)build config while the version is new; published config is immutable.
-	var status string
-	qerr := tx.QueryRow(ctx, `SELECT status FROM protocol_versions WHERE protocol_version_id=$1`, versionID).Scan(&status)
-	if qerr == pgx.ErrNoRows {
-		// Build the unified vaccination matrix rule_dsl with all vaccines.
-		ruleDSL := buildVaccinationMatrixDSL(vaccines, vaccineOrder)
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
-				version_label, status, effective_from, effective_to, rule_dsl, proof_policy)
-			VALUES ($1,$2,$3,'tenant',NULL,1,'Real herd import (unified matrix)','draft',DATE '2024-01-01',NULL,$4::jsonb,'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb)`,
-			versionID, tenantID, protocolID, ruleDSL); err != nil {
-			return st, fmt.Errorf("protocol version vaccination.matrix: %w", err)
-		}
-
-		// Create protocol_rules for ALL vaccines and doses from the ONE protocol_version.
-		for _, vaccName := range vaccineOrder {
-			def := vaccines[vaccName]
+		// Only (re)build config while the version is new; published config is immutable.
+		var status string
+		qerr := tx.QueryRow(ctx, `SELECT status FROM protocol_versions WHERE protocol_version_id=$1`, versionID).Scan(&status)
+		if qerr == pgx.ErrNoRows {
+			ruleDSL := fmt.Sprintf(`{"vaccine":{"code":%q,"name":%q,"type":%q,"disease":%q,"dose_ml":%g,"vial_doses":%d},"reference":"docs/preventive-care-vaccination/vaccination-rules.md"}`,
+				def.Code, def.Name, def.Type, def.Disease, def.DoseML, def.VialDoses)
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
+					version_label, status, effective_from, effective_to, rule_dsl, proof_policy)
+				VALUES ($1,$2,$3,'tenant',NULL,1,'Real herd import','draft',DATE '2024-01-01',NULL,$4::jsonb,'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb)`,
+				versionID, tenantID, protocolID, ruleDSL); err != nil {
+				return st, fmt.Errorf("protocol version %s: %w", vaccName, err)
+			}
 			for _, dt := range doseTypesFor(vaccName) {
 				ruleID := detUUID("protocol_rule", tenantID, def.Code, doseCode(dt))
 				if _, err := tx.Exec(ctx, `
@@ -424,30 +415,21 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 					return st, fmt.Errorf("protocol rule %s/%s: %w", vaccName, dt, err)
 				}
 			}
+			if _, err := tx.Exec(ctx, `
+				UPDATE protocol_versions SET status='published', published_at=now(), updated_at=now()
+				WHERE protocol_version_id=$1 AND status='draft'`, versionID); err != nil {
+				return st, fmt.Errorf("publish version %s: %w", vaccName, err)
+			}
+		} else if qerr != nil {
+			return st, fmt.Errorf("lookup version %s: %w", vaccName, qerr)
 		}
 
-		if _, err := tx.Exec(ctx, `
-			UPDATE protocol_versions SET status='published', published_at=now(), updated_at=now()
-			WHERE protocol_version_id=$1 AND status='draft'`, versionID); err != nil {
-			return st, fmt.Errorf("publish version vaccination.matrix: %w", err)
-		}
-	} else if qerr != nil {
-		return st, fmt.Errorf("lookup version vaccination.matrix: %w", qerr)
-	}
-
-	// All vaccines point to the SAME protocol_version (whether new or pre-existing).
-	for _, vaccName := range vaccineOrder {
 		versionByVaccine[vaccName] = versionID
-	}
-	// Populate rule lookups for all vaccines (deterministic generation).
-	for _, vaccName := range vaccineOrder {
-		def := vaccines[vaccName]
 		for _, dt := range doseTypesFor(vaccName) {
-			ruleID := detUUID("protocol_rule", tenantID, def.Code, doseCode(dt))
-			ruleByVaccineDose[vaccName+"|"+doseCode(dt)] = ruleID
+			ruleByVaccineDose[vaccName+"|"+doseCode(dt)] = detUUID("protocol_rule", tenantID, def.Code, doseCode(dt))
 		}
+		st.Protocols++
 	}
-	st.Protocols = 1 // ONE unified protocol now, not 7
 
 	// 4. Animals: import each goat with shed_id + park_id (the read model groups on these).
 	goatIDByRFID := map[string]string{}
@@ -1069,78 +1051,4 @@ func doseTypesFor(vaccName string) []string {
 
 func startOfDay(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
-}
-
-// buildVaccinationMatrixDSL constructs the unified vaccination matrix rule_dsl
-// containing all vaccines and their dose cells. Returns a JSON string to be
-// stored in protocol_versions.rule_dsl.
-func buildVaccinationMatrixDSL(vaccines map[string]vaccineDef, order []string) string {
-	type doseCellJSON struct {
-		DoseCode    string `json:"dose_code"`
-		Sequence    int    `json:"sequence"`
-		TriggerType string `json:"trigger_type"`
-		OffsetDays  int    `json:"offset_days"`
-		DueWindow   int    `json:"due_window_days"`
-		MinGap      int    `json:"min_gap_days"`
-		Repeat      string `json:"repeat"`
-		CatchUp     string `json:"catch_up"`
-	}
-	type vaccineRowJSON struct {
-		VaccineCode string          `json:"vaccine_code"`
-		VaccineName string          `json:"vaccine_name"`
-		Disease     string          `json:"disease"`
-		VaccineType string          `json:"vaccine_type"`
-		DoseML      float64         `json:"dose_ml"`
-		VialDoses   int             `json:"vial_doses"`
-		ItemCode    string          `json:"item_code"`
-		DoseCells   []doseCellJSON  `json:"dose_cells"`
-	}
-	type matrixJSON struct {
-		Vaccines  []vaccineRowJSON `json:"vaccines"`
-		Reference string           `json:"reference"`
-	}
-
-	matrix := matrixJSON{
-		Vaccines:  make([]vaccineRowJSON, 0, len(order)),
-		Reference: "docs/preventive-care-vaccination/vaccination-rules.md",
-	}
-
-	for _, vaccName := range order {
-		def := vaccines[vaccName]
-		vrow := vaccineRowJSON{
-			VaccineCode: def.Code,
-			VaccineName: def.Name,
-			Disease:     def.Disease,
-			VaccineType: def.Type,
-			DoseML:      def.DoseML,
-			VialDoses:   def.VialDoses,
-			ItemCode:    def.ItemCode,
-			DoseCells:   make([]doseCellJSON, 0),
-		}
-
-		// Add dose cells for each vaccine.
-		for _, dt := range doseTypesFor(vaccName) {
-			cell := doseCellJSON{
-				DoseCode:    doseCode(dt),
-				Sequence:    doseSequence(dt),
-				TriggerType: "birth_age",
-				OffsetDays:  28, // Standard offset; can be refined per vaccine/dose later
-				DueWindow:   7,
-				MinGap:      0,
-				Repeat:      "none",
-				CatchUp:     "immediate",
-			}
-			vrow.DoseCells = append(vrow.DoseCells, cell)
-		}
-
-		matrix.Vaccines = append(matrix.Vaccines, vrow)
-	}
-
-	// Marshal to JSON
-	data, err := json.Marshal(matrix)
-	if err != nil {
-		// Fallback: return a minimal valid JSON if marshalling fails (should not happen)
-		return `{"vaccines":[],"reference":"docs/preventive-care-vaccination/vaccination-rules.md"}`
-	}
-	return string(data)
 }
