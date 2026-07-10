@@ -33,6 +33,7 @@ import (
 
 const (
 	defaultSpreadsheetID                  = "1QhW22Awg7WKGhYf7tCaj_pXE-9kwzPyfwhSwenDW2RM"
+	rfidSourceOfTruthSpreadsheetID        = "1FulMrlb8_AGwL5nFwoORACnbDstSFMg-GCPaKIZnnF8"
 	defaultTimeout                        = 120 * time.Second
 	defaultRunType                        = "manual_bootstrap"
 	defaultSheetURL                       = "https://docs.google.com/spreadsheets/d/1QhW22Awg7WKGhYf7tCaj_pXE-9kwzPyfwhSwenDW2RM/edit"
@@ -157,8 +158,9 @@ type googleSheetsPort struct {
 }
 
 type sheetInfo struct {
-	ID    int64
-	Index int64
+	ID                     int64
+	Index                  int64
+	ConditionalFormatRules int
 }
 
 func main() {
@@ -474,7 +476,11 @@ func sheetInfoByTitle(spreadsheet *sheets.Spreadsheet) map[string]sheetInfo {
 		if sheet.Properties == nil {
 			continue
 		}
-		existing[sheet.Properties.Title] = sheetInfo{ID: sheet.Properties.SheetId, Index: sheet.Properties.Index}
+		existing[sheet.Properties.Title] = sheetInfo{
+			ID:                     sheet.Properties.SheetId,
+			Index:                  sheet.Properties.Index,
+			ConditionalFormatRules: len(sheet.ConditionalFormats),
+		}
 	}
 	return existing
 }
@@ -944,7 +950,70 @@ func writeLivePopulation(ctx context.Context, service sheetsPort, spreadsheetID 
 			return err
 		}
 	}
+	if err := applyVerificationStatusFormatting(ctx, service, spreadsheetID, []tabSpec{population.AnimalMaster, population.CurrentLocationStatus, population.CountsSnapshots}); err != nil {
+		return err
+	}
 	return nil
+}
+
+func applyVerificationStatusFormatting(ctx context.Context, service sheetsPort, spreadsheetID string, specs []tabSpec) error {
+	existing, err := refreshSheetInfo(ctx, service, spreadsheetID)
+	if err != nil {
+		return err
+	}
+	requests := []*sheets.Request{}
+	for _, spec := range specs {
+		info, ok := existing[spec.Name]
+		if !ok {
+			continue
+		}
+		statusIndex := indexOf(spec.Cols, "verification_status")
+		if statusIndex < 0 {
+			continue
+		}
+		for i := info.ConditionalFormatRules - 1; i >= 0; i-- {
+			requests = append(requests, &sheets.Request{DeleteConditionalFormatRule: &sheets.DeleteConditionalFormatRuleRequest{
+				SheetId: info.ID,
+				Index:   int64(i),
+			}})
+		}
+		statusColumn := columnLetter(statusIndex + 1)
+		requests = append(requests,
+			statusFormatRequest(info.ID, len(spec.Cols), statusColumn, "RED", &sheets.Color{Red: 0.96, Green: 0.80, Blue: 0.80}),
+			statusFormatRequest(info.ID, len(spec.Cols), statusColumn, "AMBER", &sheets.Color{Red: 1.0, Green: 0.92, Blue: 0.70}),
+			statusFormatRequest(info.ID, len(spec.Cols), statusColumn, "GREEN", &sheets.Color{Red: 0.80, Green: 0.94, Blue: 0.82}),
+		)
+	}
+	if len(requests) == 0 {
+		return nil
+	}
+	if _, err := service.BatchUpdateSpreadsheet(ctx, spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{Requests: requests}); err != nil {
+		return fmt.Errorf("apply verification-status formatting: %w", err)
+	}
+	return nil
+}
+
+func statusFormatRequest(sheetID int64, columnCount int, statusColumn string, status string, color *sheets.Color) *sheets.Request {
+	return &sheets.Request{AddConditionalFormatRule: &sheets.AddConditionalFormatRuleRequest{
+		Rule: &sheets.ConditionalFormatRule{
+			Ranges: []*sheets.GridRange{{
+				SheetId:          sheetID,
+				StartRowIndex:    1,
+				StartColumnIndex: 0,
+				EndColumnIndex:   int64(columnCount),
+			}},
+			BooleanRule: &sheets.BooleanRule{
+				Condition: &sheets.BooleanCondition{
+					Type: "CUSTOM_FORMULA",
+					Values: []*sheets.ConditionValue{{
+						UserEnteredValue: fmt.Sprintf(`=$%s2="%s"`, statusColumn, status),
+					}},
+				},
+				Format: &sheets.CellFormat{BackgroundColor: color},
+			},
+		},
+		Index: 0,
+	}}
 }
 
 func readActiveAnimals(ctx context.Context, service *bq.Service, project string) ([]activeAnimal, error) {
@@ -1063,6 +1132,12 @@ ORDER BY r.farm, SAFE_CAST(REGEXP_EXTRACT(r.animal_key, r'(\d+)') AS INT64), r.a
 
 func readRFIDRecords(ctx context.Context, service sheetsPort) ([]rfidRecord, error) {
 	rows := []rfidRecord{}
+	sourceOfTruthValues, err := readFirstAvailableRange(ctx, service, rfidSourceOfTruthSpreadsheetID, []string{quoteSheet("Combined") + "!A:J"})
+	if err == nil {
+		rows = append(rows, parseRFIDSheet("rfid_source_of_truth_combined", sourceOfTruthValues, map[string]string{
+			"farm": "Farm", "old": "Old ID", "rfid": "RFID", "breed": "Breed", "gender": "Gender", "shed": "Shed", "shed_tag": "Tag", "age": "Age",
+		})...)
+	}
 	cbeValues, err := readFirstAvailableRange(ctx, service, "1R648AutCSXS247DZb7dc07dDgyue6_R4mZDd93oW3M8", []string{quoteSheet(" RFID DB") + "!A:I", quoteSheet("RFID DB") + "!A:I"})
 	if err == nil {
 		rows = append(rows, parseRFIDSheet("goats_db_rfid_mapping", cbeValues, map[string]string{
@@ -1225,13 +1300,38 @@ func matchRFID(animal activeAnimal, byKey map[string][]rfidRecord) matchedRFID {
 	if len(seen) == 0 {
 		return matchedRFID{}
 	}
-	if len(seen) > 1 {
+	records := make([]rfidRecord, 0, len(seen))
+	rfidValues := map[string]bool{}
+	for _, rec := range seen {
+		records = append(records, rec)
+		if key := normalizeKey(rec.RFID); key != "" {
+			rfidValues[key] = true
+		}
+	}
+	if len(rfidValues) > 1 {
 		return matchedRFID{Ambiguous: true}
 	}
-	for _, rec := range seen {
-		return matchedRFID{Record: rec}
+	sort.Slice(records, func(i, j int) bool {
+		left, right := rfidSourcePriority(records[i].SourceID), rfidSourcePriority(records[j].SourceID)
+		if left != right {
+			return left < right
+		}
+		return records[i].RowID < records[j].RowID
+	})
+	return matchedRFID{Record: records[0]}
+}
+
+func rfidSourcePriority(sourceID string) int {
+	switch sourceID {
+	case "rfid_source_of_truth_combined":
+		return 0
+	case "goats_db_rfid_mapping":
+		return 1
+	case "cpt_rfid_beetal":
+		return 2
+	default:
+		return 100
 	}
-	return matchedRFID{}
 }
 
 func animalMasterRow(animal activeAnimal, match matchedRFID, primaryCounts map[string]int, now string) ([]string, []string) {
@@ -1562,6 +1662,7 @@ func sourceCatalogRows() []sourceCatalogRow {
 		source("counting_kpis_daily", "counts", "bigquery", "ceo_dashboard", "counting_kpis_daily", "", "", "business_date", "date", "data/dev", "bigquery", "daily_after_0130_ist", "date", "", "", "", "Fallback age/gender/fattening KPI rows."),
 		source("goats_db_clean", "goats_db", "bigquery", "goatsDB", "goats_db_clean", "https://docs.google.com/spreadsheets/d/1R648AutCSXS247DZb7dc07dDgyue6_R4mZDd93oW3M8/edit?gid=0#gid=0", "DB", "animal_event", "goat_id,farm_goat_id,inp_goat_id,date,event", "data/dev", "bigquery", "hourly", "date", "", "", "", "Event spine; source IDs are crosswalk only, not animal_identifier_1."),
 		source("goats_db_active_shedwise_details", "goats_db", "bigquery", "goatsDB", "active-goats-list-shedwise-details", "", "", "animal_or_shed_detail", "", "data/dev", "bigquery", "hourly", "", "", "", "", "Active shedwise details where available."),
+		source("rfid_source_of_truth_combined", "identity", "google_sheet", "", "", "https://docs.google.com/spreadsheets/d/1FulMrlb8_AGwL5nFwoORACnbDstSFMg-GCPaKIZnnF8/edit?gid=0#gid=0", "Combined", "animal_identifier", "Farm,Old ID,RFID", "data/dev + ground/source team", "drive+sheets", "hourly", "", "", "", "", "Primary RFID source of truth for animal_identifier_1; Old ID is candidate animal_identifier_2. Read directly from Sheets, not through aggregate dashboard rows."),
 		source("goats_db_rfid_mapping", "identity", "drive_sheet_external_bigquery", "goatsDB", "goatsDB_rfid_mapping", "", "", "animal_identifier", "RFID,Old_Tag_ID", "data/dev", "drive+sheets", "hourly", "", "", "", "", "Drive/Sheets-gated RFID/Gender source required for animal_identifier_1 and sex backfill."),
 		source("cpt_rfid_beetal", "identity", "drive_sheet_external_bigquery", "goatsDB", "CPT_RFID_Beetal", "", "", "animal_identifier", "RFID,Old_Rtag", "data/dev", "drive+sheets", "hourly", "", "", "", "", "Drive/Sheets-gated old/new tag source; not an independent non-Drive path."),
 		source("farm_goat_id_mapping", "identity", "bigquery", "goatsDB", "farm_goat_id_mapping", "", "", "id_mapping", "old_farm_goat_id,new_farm_goat_id", "data/dev", "bigquery", "daily", "", "", "", "", "Retag/renumber resolver for farm-goat-id grain only."),
@@ -1763,6 +1864,28 @@ func randomHexSuffix(byteCount int) string {
 
 func quoteSheet(name string) string {
 	return "'" + strings.ReplaceAll(name, "'", "''") + "'"
+}
+
+func indexOf(values []string, target string) int {
+	for i, value := range values {
+		if value == target {
+			return i
+		}
+	}
+	return -1
+}
+
+func columnLetter(index int) string {
+	if index <= 0 {
+		return ""
+	}
+	var out []byte
+	for index > 0 {
+		index--
+		out = append([]byte{byte('A' + index%26)}, out...)
+		index /= 26
+	}
+	return string(out)
 }
 
 func hashString(s string) string {

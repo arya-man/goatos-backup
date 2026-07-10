@@ -92,6 +92,16 @@ func TestSourceCatalogHasDriveGatedRFIDSources(t *testing.T) {
 	for _, row := range rows {
 		byID[row.SourceID] = row
 	}
+	sourceOfTruth, ok := byID["rfid_source_of_truth_combined"]
+	if !ok {
+		t.Fatal("missing rfid_source_of_truth_combined source")
+	}
+	if sourceOfTruth.SheetURL == "" || !strings.Contains(sourceOfTruth.SheetURL, rfidSourceOfTruthSpreadsheetID) {
+		t.Fatalf("source-of-truth URL should point at %s, got %q", rfidSourceOfTruthSpreadsheetID, sourceOfTruth.SheetURL)
+	}
+	if sourceOfTruth.TabName != "Combined" {
+		t.Fatalf("source-of-truth tab=%q, want Combined", sourceOfTruth.TabName)
+	}
 	for _, id := range []string{"goats_db_rfid_mapping", "cpt_rfid_beetal"} {
 		row, ok := byID[id]
 		if !ok {
@@ -108,6 +118,52 @@ func TestSourceCatalogHasDriveGatedRFIDSources(t *testing.T) {
 		t.Fatal("missing shiftings_reports_clean source")
 	} else if strings.Contains(strings.ToLower(row.Notes), "rfid") {
 		t.Fatalf("shiftings dst_tag source should not be described as RFID: %q", row.Notes)
+	}
+}
+
+func TestReadRFIDRecordsIncludesCombinedSourceOfTruth(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeSheets(nil)
+	fake.values["Combined"] = [][]any{
+		{"Farm", "Old ID", "Old ID Suffix", "RFID", "Age", "Gender", "Breed", "Tag", "Shed", "Partition"},
+		{"CPT", "1388", "BLR", "RFID-1388", "Kid", "Male", "Beetal", "K2", "Yashoda", "2"},
+	}
+
+	rows, err := readRFIDRecords(ctx, fake)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows=%d, want 1: %+v", len(rows), rows)
+	}
+	got := rows[0]
+	if got.SourceID != "rfid_source_of_truth_combined" || got.OldTag != "1388" || got.RFID != "RFID-1388" || got.Gender != "Male" || got.ShedTag != "K2" {
+		t.Fatalf("bad parsed row: %+v", got)
+	}
+}
+
+func TestMatchRFIDPrefersSourceOfTruthWhenSameRFID(t *testing.T) {
+	records := []rfidRecord{
+		{SourceID: "goats_db_rfid_mapping", RowID: "4", Farm: "CPT", OldTag: "1388", RFID: "RFID-1388"},
+		{SourceID: "rfid_source_of_truth_combined", RowID: "2", Farm: "CPT", OldTag: "1388", RFID: "RFID-1388"},
+	}
+	match := matchRFID(activeAnimal{Farm: "CPT", FarmGoatID: "1388"}, indexRFIDRecords(records))
+	if match.Ambiguous {
+		t.Fatal("same RFID in multiple sources should not be ambiguous")
+	}
+	if match.Record.SourceID != "rfid_source_of_truth_combined" {
+		t.Fatalf("source=%s, want source of truth", match.Record.SourceID)
+	}
+}
+
+func TestMatchRFIDBlocksConflictingRFIDs(t *testing.T) {
+	records := []rfidRecord{
+		{SourceID: "goats_db_rfid_mapping", RowID: "4", Farm: "CPT", OldTag: "1388", RFID: "RFID-A"},
+		{SourceID: "rfid_source_of_truth_combined", RowID: "2", Farm: "CPT", OldTag: "1388", RFID: "RFID-B"},
+	}
+	match := matchRFID(activeAnimal{Farm: "CPT", FarmGoatID: "1388"}, indexRFIDRecords(records))
+	if !match.Ambiguous {
+		t.Fatalf("conflicting RFID records should be ambiguous: %+v", match)
 	}
 }
 

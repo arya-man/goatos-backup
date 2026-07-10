@@ -58,13 +58,13 @@ tables, because many `*_clean` and `*_dev` tables do not expose their upstream
 spreadsheet through BigQuery external-table metadata.
 
 For animal-level import, Drive/Sheets read access is a hard prerequisite, not a
-nice-to-have. `goatsDB.goatsDB_rfid_mapping` is a Google Sheets external table
-with `RFID` and `Gender` columns, and BigQuery queries against it fail without
-Drive credentials. The god sheet cannot reliably populate RFID-backed
-`animal_identifier_1` / `animal_identifier_2` or complete sex backfill from
-BigQuery alone. Current old-tag/new-tag RFID sources are also Drive/Sheets
-gated; they are not a separate non-Drive unblock path. Do not treat native
-stage/location fields such as `dst_tag` as animal RFID/tag identifiers.
+nice-to-have. The primary RFID source of truth is the `Combined` tab in
+https://docs.google.com/spreadsheets/d/1FulMrlb8_AGwL5nFwoORACnbDstSFMg-GCPaKIZnnF8/edit?gid=0#gid=0.
+`RFID` is the candidate `animal_identifier_1`; `Old ID` is the candidate
+`animal_identifier_2`. Older source-specific mappings such as
+`goatsDB.goatsDB_rfid_mapping` and `CPT_RFID_Beetal` remain fallback/provenance
+inputs, but they do not replace the primary source-of-truth sheet. Do not treat
+native stage/location fields such as `dst_tag` as animal RFID/tag identifiers.
 
 ## Metric Ownership
 
@@ -198,6 +198,7 @@ below, plus owner, grain, extractor, freshness SLA, and last successful sync.
 | GOATS DB / DB tab | https://docs.google.com/spreadsheets/d/1R648AutCSXS247DZb7dc07dDgyue6_R4mZDd93oW3M8/edit?gid=0#gid=0 |
 | GOATS DB cleaned events | `goatsDB.goats_db_clean` |
 | GOATS DB active shedwise details | `goatsDB.active-goats-list-shedwise-details` |
+| RFID source of truth | https://docs.google.com/spreadsheets/d/1FulMrlb8_AGwL5nFwoORACnbDstSFMg-GCPaKIZnnF8/edit?gid=0#gid=0, `Combined` tab |
 | GOATS DB RFID mapping | `goatsDB.goatsDB_rfid_mapping` |
 | GOATS DB farm-id remap | `goatsDB.farm_goat_id_mapping` |
 | Mother/kid facts | `goatsDB.mother_kid_facts` |
@@ -476,12 +477,11 @@ Coverage metrics to write each run:
 Implications:
 
 - Do not promote any row to strict GREEN until a trusted RFID/tag source for
-  `animal_identifier_1` is readable and globally unique. Valid values may come
-  from the RFID mapping table or verified legacy old-tag/new-tag columns, but
-  the current inventory makes those sources Drive/Sheets-gated. The event spine
-  has legacy source IDs, DOB, and gender signals, but source IDs and location
-  tags such as `dst_tag` are not substitutes for the RFID-backed Goat OS
-  identifiers.
+  `animal_identifier_1` is readable and globally unique. Valid values should
+  come first from the RFID source-of-truth `Combined` tab, with older
+  source-specific mappings retained as fallback/provenance. The event spine has
+  legacy source IDs, DOB, and gender signals, but source IDs and location tags
+  such as `dst_tag` are not substitutes for the RFID-backed Goat OS identifiers.
 - The vaccination demo must treat DOB, species, sex, RFID, and unresolved
   current-location rows as gating cleanup lanes, not incidental polish.
 - Estimated-DOB recovery is narrow, not broad. Only rows with approved age/date
@@ -1142,10 +1142,10 @@ For demo readiness, prioritize:
 
 Demo boundary:
 
-- Until Drive/Sheets access can read `goatsDB.goatsDB_rfid_mapping` and any
-  verified old-tag/new-tag source columns for `animal_identifier_1`, the demo
-  is a god-sheet readiness demo: `Vaccination_Due_View`, RED/AMBER/GREEN
-  status, and cleanup queue.
+- Until Drive/Sheets access can read the RFID source-of-truth `Combined` tab
+  plus any fallback old-tag/new-tag source columns for `animal_identifier_1`,
+  the demo is a god-sheet readiness demo: `Vaccination_Due_View`,
+  RED/AMBER/GREEN status, and cleanup queue.
 - Goat OS DB import is not part of that demo unless `animal_identifier_1`,
   species, sex, DOB/approved estimated DOB, and current location all pass the
   import gate.
@@ -1182,7 +1182,8 @@ Minimum import gate:
 - Add every known sheet/table to `Source_Catalog`.
 - Add Drive/Sheets read credential with explicit scopes.
 - Block animal-level import preview until the sync can query the Drive/Sheets
-  RFID/tag sources, including `goatsDB.goatsDB_rfid_mapping`, and record
+  RFID/tag sources, including the RFID source-of-truth `Combined` tab and
+  fallback mappings such as `goatsDB.goatsDB_rfid_mapping`, and record
   RFID/Gender/tag provenance.
 - Capture Apps Script and native BigQuery loader lineage for `*_clean` and
   `*_dev` tables.
