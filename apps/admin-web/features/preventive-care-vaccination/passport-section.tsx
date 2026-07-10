@@ -29,11 +29,13 @@ function workflowHref(rowId: string): string {
 function actionCenterHref(rowId: string): string {
   return `/action-center?ac_row=${encodeURIComponent(rowId)}`;
 }
-function dueRowId(item: VaccinationPassportDue): string {
-  return item.workflow_row_id || `obligation:${item.obligation_id}`;
+function realWorkflowRowId(rowId: string | undefined): string | null {
+  const trimmed = rowId?.trim();
+  if (!trimmed || trimmed.startsWith("obligation:")) return null;
+  return trimmed;
 }
-function historyRowId(item: VaccinationPassportHistoryItem): string {
-  return `obligation:${item.obligation_id}`;
+function sourceObligationLabel(obligationId: string): string {
+  return obligationId.slice(0, 8);
 }
 
 // VaccinationPassportSection renders a goat's vaccination passport: next due, open obligations, last
@@ -133,7 +135,7 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
               </thead>
               <tbody>
                 {open.map((due) => {
-                  const rowId = dueRowId(due);
+                  const rowId = realWorkflowRowId(due.workflow_row_id);
                   return (
                     <tr key={due.obligation_id}>
                       <td>{fmtDate(due.due_at)}</td>
@@ -142,14 +144,22 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
                         <Tag tone={statusTone(due.status)}>{due.status}</Tag>
                       </td>
                       <td>
-                        <Link href={workflowHref(rowId)} className="lk small">
-                          {copy(pageContract, "action.open_workflow")} →
-                        </Link>
+                        {rowId ? (
+                          <Link href={workflowHref(rowId)} className="lk small">
+                            {copy(pageContract, "action.open_workflow")} →
+                          </Link>
+                        ) : (
+                          <span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span>
+                        )}
                       </td>
                       <td>
-                        <Link href={actionCenterHref(rowId)} className="lk small">
-                          {copy(pageContract, "action.open_action_center")} →
-                        </Link>
+                        {rowId ? (
+                          <Link href={actionCenterHref(rowId)} className="lk small">
+                            {copy(pageContract, "action.open_action_center")} →
+                          </Link>
+                        ) : (
+                          <span className="muted small">—</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -201,9 +211,7 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
                       <span className="gid">{h.obligation_id.slice(0, 8)}</span>
                     </td>
                     <td>
-                      <Link href={workflowHref(historyRowId(h))} className="lk small">
-                        {copy(pageContract, "action.open_workflow")} →
-                      </Link>
+                      <span className="gid" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</span>
                     </td>
                   </tr>
                 ))}

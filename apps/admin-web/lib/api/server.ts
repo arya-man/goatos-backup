@@ -1219,9 +1219,12 @@ export type CoverageListResponse = {
   items: Coverage[];
   trace_id: string;
 };
+export type StaffPositionsQuery = NonNullable<AdminApiPaths["/admin/roster/positions"]["get"]["parameters"]["query"]>;
+export type BackupConfigQuery = NonNullable<AdminApiPaths["/admin/roster/backup-config"]["get"]["parameters"]["query"]>;
+export type CoverageQuery = NonNullable<AdminApiPaths["/admin/roster/coverage"]["get"]["parameters"]["query"]>;
 
 export async function listStaffPositions(
-  params: { limit?: number } = {},
+  params: StaffPositionsQuery = {},
 ): Promise<ApiResult<PositionListResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -1229,13 +1232,13 @@ export async function listStaffPositions(
   return request(() =>
     client.request<PositionListResponse>("/admin/roster/positions", {
       cache: "no-store",
-      query: compactQuery({ limit: params.limit ?? 500 }),
+      query: compactQuery({ ...params, limit: params.limit ?? 500 }),
     }),
   );
 }
 
 export async function listBackupConfig(
-  params: { limit?: number } = {},
+  params: BackupConfigQuery = {},
 ): Promise<ApiResult<BackupConfigListResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -1243,13 +1246,13 @@ export async function listBackupConfig(
   return request(() =>
     client.request<BackupConfigListResponse>("/admin/roster/backup-config", {
       cache: "no-store",
-      query: compactQuery({ limit: params.limit ?? 500 }),
+      query: compactQuery({ ...params, limit: params.limit ?? 500 }),
     }),
   );
 }
 
 export async function listCoverage(
-  params: { limit?: number } = {},
+  params: CoverageQuery = {},
 ): Promise<ApiResult<CoverageListResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -1257,7 +1260,7 @@ export async function listCoverage(
   return request(() =>
     client.request<CoverageListResponse>("/admin/roster/coverage", {
       cache: "no-store",
-      query: compactQuery({ limit: params.limit ?? 500 }),
+      query: compactQuery({ ...params, limit: params.limit ?? 500 }),
     }),
   );
 }

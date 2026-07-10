@@ -322,6 +322,15 @@ func TestRescheduleObligationValidatesRequest(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing idempotency key status = %d want 400", rec.Code)
 	}
+
+	futureStart := time.Now().Add(48 * time.Hour).UTC()
+	futureEndBeforeStart := futureStart.Add(-1 * time.Hour)
+	body := `{"due_at":"` + futureStart.Format(time.RFC3339) + `","window_start":"` + futureStart.Format(time.RFC3339) + `","window_end":"` + futureEndBeforeStart.Format(time.RFC3339) + `"}`
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, buildRescheduleRequest(t, rescheduleObligationID, "idem-window", body))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid window status = %d want 400 body=%s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestVaccinationGapsParsesQueryAndResponds(t *testing.T) {

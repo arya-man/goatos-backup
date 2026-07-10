@@ -209,11 +209,11 @@ Admin-web is built around the vaccination process-integrity slice:
   only concrete gaps. Backend work is verify-only unless the generated contract
   is missing data that the business Audit Log cannot derive from existing row
   metadata; any such contract change must be additive.
-- **Role preview**: the top-bar role preview is a CEO/COO/superadmin capability
-  for previewing role-scoped navigation, permissions, and Audit Log span. It is
-  local preview state only and must never bypass backend RBAC. Shell role-lens
-  text now comes from `GET /admin-web/bootstrap`. Keep Audit Log's `Viewing as`
-  roles in sync by consuming that same backend `role_lenses` contract; do not
+- **Role preview deferred**: the top-bar account menu currently shows only the
+  authenticated backend role/scope from `GET /admin-web/bootstrap` plus Sign out.
+  Do not reintroduce selectable role-preview choices until the selected lens is
+  round-tripped through backend bootstrap/read-model compilation and page content.
+  Future Audit Log `Viewing as` must stay synced to that backend contract; do not
   expand the old frontend-only helper or re-declare a separate Audit-only list.
 - **Audit ownership**: only one agent may edit `apps/admin-web/features/
   operations-audit`, `apps/admin-web/app/(admin)/operations/audit`,

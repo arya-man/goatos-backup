@@ -113,11 +113,12 @@ async function verifyShell(page) {
   }
 
   const roleButton = page.locator("button.me").first();
-  await expectCount("role preview button", roleButton, 1);
+  await expectCount("account menu button", roleButton, 1);
   await roleButton.click();
   await page.locator("#userMenu.parkmenu.on").waitFor({ state: "visible", timeout: 5_000 });
   const roleChoices = page.locator("#userMenu button.pm-item");
-  if ((await roleChoices.count()) > 1) await roleChoices.nth(1).click();
+  if ((await roleChoices.count()) !== 0) throw new Error("account menu should not expose role-preview choices");
+  await expectCount("account menu sign out", page.locator("#userMenu button.signout"), 1);
   await page.keyboard.press("Escape").catch(() => undefined);
 
   const notification = page.locator('button[disabled][aria-label*="Notification"], button[disabled][aria-label*="notification"]').first();

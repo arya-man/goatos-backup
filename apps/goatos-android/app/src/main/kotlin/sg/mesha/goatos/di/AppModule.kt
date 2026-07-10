@@ -25,11 +25,13 @@ import sg.mesha.goatos.core.data.DefaultCalendarRepository
 import sg.mesha.goatos.core.data.DefaultControlTowerRepository
 import sg.mesha.goatos.core.data.DefaultExecutionRepository
 import sg.mesha.goatos.core.data.DefaultTasksRepository
+import sg.mesha.goatos.core.data.DefaultVaccinationInsightsRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.DefaultRosterRepository
 import sg.mesha.goatos.core.data.RosterRepository
 import sg.mesha.goatos.core.data.TasksRepository
+import sg.mesha.goatos.core.data.VaccinationInsightsRepository
 import sg.mesha.goatos.core.data.buildGoatDatabase
 import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
 import sg.mesha.goatos.core.data.sync.AndroidConnectivitySource
@@ -134,6 +136,11 @@ object AppModule {
     @Provides
     @Singleton
     fun provideAdherenceRepository(api: AppApi): AdherenceRepository = DefaultAdherenceRepository(api)
+
+    @Provides
+    @Singleton
+    fun provideVaccinationInsightsRepository(api: AppApi): VaccinationInsightsRepository =
+        DefaultVaccinationInsightsRepository(api)
 
     @Provides
     @Singleton

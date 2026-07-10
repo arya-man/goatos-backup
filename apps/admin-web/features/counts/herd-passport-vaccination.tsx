@@ -37,8 +37,14 @@ function workflowHref(rowId: string): string {
   return `/workflows/${encodeURIComponent(rowId)}`;
 }
 
-function dueRowId(item: VaccinationPassportDue): string {
-  return item.workflow_row_id || `obligation:${item.obligation_id}`;
+function realWorkflowRowId(rowId: string | undefined): string | null {
+  const trimmed = rowId?.trim();
+  if (!trimmed || trimmed.startsWith("obligation:")) return null;
+  return trimmed;
+}
+
+function sourceObligationLabel(obligationId: string): string {
+  return obligationId.slice(0, 8);
 }
 
 const DRAWER_ROW_LIMIT = 5;
@@ -140,20 +146,27 @@ export async function HerdPassportVaccinationBlock({ goatId }: { goatId: string 
               </tr>
             </thead>
             <tbody>
-              {open.slice(0, DRAWER_ROW_LIMIT).map((due) => (
-                <tr key={due.obligation_id}>
-                  <td>{fmtDate(due.due_at)}</td>
-                  <td>{due.sequence}</td>
-                  <td>
-                    <Tag tone={obligationTone(due.status)}>{due.status}</Tag>
-                  </td>
-                  <td>
-                    <Link href={workflowHref(dueRowId(due))} className="lk small">
-                      {copy(pageContract, "action.open_workflow")} →
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+              {open.slice(0, DRAWER_ROW_LIMIT).map((due) => {
+                const rowId = realWorkflowRowId(due.workflow_row_id);
+                return (
+                  <tr key={due.obligation_id}>
+                    <td>{fmtDate(due.due_at)}</td>
+                    <td>{due.sequence}</td>
+                    <td>
+                      <Tag tone={obligationTone(due.status)}>{due.status}</Tag>
+                    </td>
+                    <td>
+                      {rowId ? (
+                        <Link href={workflowHref(rowId)} className="lk small">
+                          {copy(pageContract, "action.open_workflow")} →
+                        </Link>
+                      ) : (
+                        <span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {open.length > DRAWER_ROW_LIMIT ? (
@@ -191,9 +204,7 @@ export async function HerdPassportVaccinationBlock({ goatId }: { goatId: string 
                   </td>
                   <td>{proofLabel(h, pageContract)}</td>
                   <td>
-                    <Link href={workflowHref(`obligation:${h.obligation_id}`)} className="lk small">
-                      {copy(pageContract, "action.open_workflow")} →
-                    </Link>
+                    <span className="gid" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</span>
                   </td>
                 </tr>
               ))}

@@ -144,6 +144,7 @@ export async function HerdRegisterPage({
   const q = one(sp, "q");
   const breed = one(sp, "breed");
   const sex = one(sp, "sex");
+  const status = "alive";
   const pageSizeOptions = tablePageSizes(pageContract, "herd-register");
   const requestedLimit = Number(one(sp, "limit"));
   const pageSize = pageSizeOptions.includes(requestedLimit) ? requestedLimit : DEFAULT_PAGE_SIZE;
@@ -157,8 +158,8 @@ export async function HerdRegisterPage({
 
   // Real goats + real location options for the write drawers, in parallel.
   const [result, summaryResult, locations, stagesResult] = await Promise.all([
-    searchGoats({ limit: pageSize, cursor, q, breed, sex, park_id: parkId }),
-    searchAllGoats({ q, breed, sex, park_id: parkId }),
+    searchGoats({ limit: pageSize, cursor, q, breed, sex, park_id: parkId, status }),
+    searchAllGoats({ q, breed, sex, park_id: parkId, status }),
     getHerdRegisterLocations(),
     listAnimalStages(),
   ]);

@@ -107,7 +107,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
         <div>
           <div className="crumb">Team / <b>{positionsTableLabel}</b></div>
           <h1>{positionsTableLabel}</h1>
-          <div className="sub">Each person holds a <b>fixed operational position</b> — never mutated by a leave. When someone is off (ad-hoc leave <b>or</b> their weekly OFF day), that position's <b>configured backup</b> covers only their due work for that window; ownership never changes. Functional managers never cross-cover.</div>
+          <div className="sub">Each person holds a <b>fixed operational position</b> — never mutated by a leave. When someone is off (ad-hoc leave <b>or</b> their weekly OFF day), that position&apos;s <b>configured backup</b> covers only their due work for that window; ownership never changes. Functional managers never cross-cover.</div>
         </div>
         <div className="sp"></div>
         <button className="btn" title="How coverage works" disabled aria-label="How coverage works (backend contract pending)">
@@ -289,7 +289,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
               })
             )}
             <div className="note" style={{ marginTop: '8px' }}>
-              Each coverage grants the backup <b>execute permission for the window only</b> — it expires on its own. The absent person's ownership badge stays unchanged; only their due work reassigns.
+              Each coverage grants the backup <b>execute permission for the window only</b> — it expires on its own. The absent person&apos;s ownership badge stays unchanged; only their due work reassigns.
             </div>
           </div>
         </div>

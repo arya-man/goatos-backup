@@ -7566,7 +7566,7 @@ components:
             - string
             - "null"
           format: date-time
-          description: Optional window end for the obligation.
+          description: Optional window end for the obligation. When provided, it must be greater than or equal to window_start.
     RescheduleObligationResponse:
       type: object
       additionalProperties: false

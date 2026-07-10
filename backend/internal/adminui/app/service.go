@@ -231,7 +231,7 @@ func chromeCopy() map[string]string {
 		"date.disabled_badge":           "soon",
 		"theme.switch_to_dark":          "Switch to dark theme",
 		"theme.switch_to_light":         "Switch to light theme",
-		"role.open_preview":             "Open admin role preview",
+		"account.open_menu":             "Open account menu",
 		"state.fresh":                   "fresh",
 		"state.freshness_pending":       "freshness pending",
 		"state.days_old_suffix":         "d old",

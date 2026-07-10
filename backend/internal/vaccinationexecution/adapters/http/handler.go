@@ -354,6 +354,10 @@ func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
 	if req.WindowStart != nil {
 		windowStart = *req.WindowStart
 	}
+	if req.WindowEnd != nil && req.WindowEnd.Before(windowStart) {
+		h.badRequest(w, r, "invalid_window", "window_end must be greater than or equal to window_start")
+		return
+	}
 
 	id, isReplay, err := h.writer.RescheduleObligationByID(r.Context(), tenantID(r), obligationID, idempotencyKey, req.DueAt, windowStart, req.WindowEnd, time.Now().UTC())
 	if err != nil {

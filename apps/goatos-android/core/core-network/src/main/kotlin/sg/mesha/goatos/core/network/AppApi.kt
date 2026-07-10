@@ -241,7 +241,7 @@ interface AppApi {
      *  identity bridge (TRD §14 dumb-renderer). */
     suspend fun getMyCoverage(): MyCoverageResponseDto
 
-    /** POST /app/proofs — registers a captured proof (signed-upload metadata/confirm step;
+    /** POST /app/proofs/uploads — registers a captured proof (signed-upload metadata step;
      *  see [ProofUploadRequestDto]). The offline sync engine's outbox drains this with an
      *  idempotency key exactly like [submitAppTask] / [rescheduleObligation]. */
     suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto

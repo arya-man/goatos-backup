@@ -562,7 +562,7 @@ func navGroupByID(groups []domain.NavigationGroup, id string) (domain.Navigation
 
 func TestBootstrapLeadershipOwnershipKeepsAllModeledNav(t *testing.T) {
 	resp := NewService(fakeFamilies{}).
-		WithModuleOwnership(stubOwnership{modules: ownedModules("pc.vaccination", "admin.config", "admin.sop", "admin.audit")}).
+		WithModuleOwnership(stubOwnership{modules: ownedModules("pc.vaccination", "admin.config", "admin.sop", "admin.audit", "admin.people")}).
 		Bootstrap(context.Background(), BootstrapInput{TenantID: ownershipTenantID, ActorID: ownershipActorID, Grants: adminOwnershipGrant()})
 
 	if len(resp.Navigation.Primary) != 5 {
@@ -574,14 +574,14 @@ func TestBootstrapLeadershipOwnershipKeepsAllModeledNav(t *testing.T) {
 		}
 	}
 	adminData, _ := navGroupByID(resp.Navigation.Groups, "admin-data")
-	if len(adminData.Leaves) != 4 {
-		t.Fatalf("admin-data must keep all 4 owned leaves, got %d: %#v", len(adminData.Leaves), adminData.Leaves)
+	if len(adminData.Leaves) != 5 {
+		t.Fatalf("admin-data must keep all 5 owned leaves, got %d: %#v", len(adminData.Leaves), adminData.Leaves)
 	}
 	if resp.NavChrome != domain.NavChromeExpanded {
 		t.Fatalf("nav chrome must be expanded for >=2 owned modeled modules, got %q", resp.NavChrome)
 	}
-	if len(resp.OwnedModules) != 4 {
-		t.Fatalf("owned modules must reflect all 4 department grants, got %#v", resp.OwnedModules)
+	if len(resp.OwnedModules) != 5 {
+		t.Fatalf("owned modules must reflect all 5 department grants, got %#v", resp.OwnedModules)
 	}
 }
 
@@ -645,7 +645,7 @@ func TestBootstrapUnresolvedOwnershipFailsOpen(t *testing.T) {
 			}
 		}
 		adminData, _ := navGroupByID(resp.Navigation.Groups, "admin-data")
-		if len(adminData.Leaves) != 4 {
+		if len(adminData.Leaves) != 5 {
 			t.Fatalf("fail-open must keep all admin-data leaves, got %d", len(adminData.Leaves))
 		}
 		if resp.NavChrome != domain.NavChromeExpanded {

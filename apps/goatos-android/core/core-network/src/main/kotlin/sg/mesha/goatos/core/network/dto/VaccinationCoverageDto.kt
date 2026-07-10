@@ -10,16 +10,16 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class VaccinationCoverageProtocolDto(
-    @SerialName("protocol_id") val protocolId: String = "",
+    @SerialName("protocolId") val protocolId: String = "",
     @SerialName("name") val name: String = "",
-    @SerialName("given_count") val givenCount: Int = 0,
-    @SerialName("total_count") val totalCount: Int = 0,
-    @SerialName("coverage_percent") val coveragePercent: Int = 0,
+    @SerialName("givenCount") val givenCount: Int = 0,
+    @SerialName("totalCount") val totalCount: Int = 0,
+    @SerialName("coveragePercent") val coveragePercent: Int = 0,
 )
 
 @Serializable
 data class VaccinationCoverageResponseDto(
     @SerialName("source") val source: String = "api",
-    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("parkId") val parkId: String? = null,
     @SerialName("protocols") val protocols: List<VaccinationCoverageProtocolDto> = emptyList(),
 )

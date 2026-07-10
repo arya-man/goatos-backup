@@ -34,6 +34,7 @@ data class ControlTowerAlertDto(
     @SerialName("owner") val owner: ProcessIntegrityOwnerDto? = null,
     @SerialName("next_action") val nextAction: String = "",
     @SerialName("evidence_link") val evidenceLink: String? = null,
+    @SerialName("obligation_id") val obligationId: String = "",
 )
 
 @Serializable

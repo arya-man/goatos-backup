@@ -77,7 +77,7 @@ interface SyncRepository {
         request: RescheduleObligationRequestDto,
     ): AppResult<String>
 
-    /** Enqueues a captured-proof registration write (`POST /app/proofs`). */
+    /** Enqueues a captured-proof registration write (`POST /app/proofs/uploads`). */
     suspend fun enqueueProofUpload(
         groupKey: String,
         idempotencyKey: String,

@@ -154,7 +154,7 @@ export function TimetablePanel({ pageContract }: TimetablePanelProps) {
             </tbody>
           </table>
           <div className="note" style={{ margin: '12px 14px' }}>
-            <b>Backup column:</b> The backup group code (e.g., "backup_manager", "backup_am1") is a fixed <b>position assignment</b>, not a temporary leave pick — exactly as stored. A position's <b>Week OFF</b> auto-triggers same-day coverage from its backup group, no leave request needed. Mobile shows this table read-only plus "covering X" context when a coverage is active.
+            <b>Backup column:</b> The backup group code (e.g., &quot;backup_manager&quot;, &quot;backup_am1&quot;) is a fixed <b>position assignment</b>, not a temporary leave pick — exactly as stored. A position&apos;s <b>Week OFF</b> auto-triggers same-day coverage from its backup group, no leave request needed. Mobile shows this table read-only plus &quot;covering X&quot; context when a coverage is active.
           </div>
         </div>
       </div>

@@ -2,10 +2,13 @@ import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { GoogleLogin } from "@/components/auth/google-login";
 import { getAdminRuntimeStatus, searchGoats } from "@/lib/api/server";
+import { type RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
 
-export default async function LoginPage() {
+export default async function LoginPage({ searchParams }: { searchParams?: Promise<RouteSearchParams> }) {
+  const sp = (await searchParams) ?? {};
+  const nextPath = safeNextPath(firstSearchParam(sp.next));
   const runtimeStatus = getAdminRuntimeStatus();
   const shouldCheckLocalDashboard =
     process.env.GOATOS_ENV === "local" &&
@@ -38,11 +41,11 @@ export default async function LoginPage() {
               {loginInstruction}
             </p>
 
-            {showGoogleLogin ? <GoogleLogin /> : null}
+            {showGoogleLogin ? <GoogleLogin nextPath={nextPath} /> : null}
 
             {showLocalDashboardShortcut ? (
               <Link
-                href="/"
+                href={nextPath}
                 prefetch={false}
                 className="btn p"
                 style={{ marginTop: 18, width: "100%", justifyContent: "center", height: 46 }}
@@ -86,4 +89,15 @@ export default async function LoginPage() {
       </div>
     </main>
   );
+}
+
+function firstSearchParam(value: RouteSearchParams[string]): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function safeNextPath(value: string | undefined): string {
+  if (!value?.startsWith("/") || value.startsWith("//")) {
+    return "/";
+  }
+  return value;
 }

@@ -1,14 +1,26 @@
 package sg.mesha.goatos.viewmodel
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
+import sg.mesha.goatos.feature.leadership.DateOption
 import sg.mesha.goatos.feature.leadership.LeadershipEvent
 import sg.mesha.goatos.feature.leadership.RescheduleUiState
 import sg.mesha.goatos.ui.sampleRescheduleState
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 import javax.inject.Inject
 
 /**
@@ -16,18 +28,19 @@ import javax.inject.Inject
  * form interactions: [LeadershipEvent.SegmentSelected] switches the action segment and
  * [LeadershipEvent.DateSelected] picks a date. [LeadershipEvent.Back] is navigation.
  *
- * Confirm is deliberately DISABLED with a reason. The write path is not honestly available:
- * POST /app/vaccination/obligations/{obligation_id}/reschedule currently ignores the
- * obligation_id, keys off the Idempotency-Key header against health-DEFERRED obligations
- * only, and needs the obligation's original defer key (which the mobile client never holds).
- * The control-tower alert that drives this screen also carries no obligation_id yet. Rather
- * than fire a silent no-op that looks like a successful reschedule, Confirm stays off with a
- * plain reason until the backend exposes obligation-id targeting for an overdue obligation.
+ * Confirm is enabled only when a control-tower/overdue row supplied an obligation id and
+ * the operator selected a future due date. The write is queued through [SyncRepository],
+ * so retries reuse the same idempotency key and backend policy remains authoritative.
  */
 @HiltViewModel
-class RescheduleViewModel @Inject constructor() : ViewModel() {
+class RescheduleViewModel @Inject constructor(
+    private val syncRepository: SyncRepository,
+    savedStateHandle: SavedStateHandle,
+) : ViewModel() {
 
-    private val _state = MutableStateFlow(blockedReschedule())
+    private val obligationId: String? = savedStateHandle[ARG_OBLIGATION_ID]
+
+    private val _state = MutableStateFlow(initialState(obligationId))
     val state: StateFlow<RescheduleUiState> = _state.asStateFlow()
 
     fun onEvent(event: LeadershipEvent) {
@@ -35,17 +48,76 @@ class RescheduleViewModel @Inject constructor() : ViewModel() {
             is LeadershipEvent.SegmentSelected ->
                 _state.update { it.copy(selectedSegmentId = event.id) }
             is LeadershipEvent.DateSelected ->
-                // Selection is allowed for preview, but Confirm stays disabled — no fake write.
-                _state.update { it.copy(selectedDateId = event.id) }
+                _state.update {
+                    it.copy(
+                        selectedDateId = event.id,
+                        confirmEnabled = !obligationId.isNullOrBlank() && event.id.isNotBlank(),
+                    )
+                }
+            LeadershipEvent.ConfirmReschedule -> confirm()
             else -> Unit // navigation / inert — handled by the nav host.
         }
     }
 
-    // The form shell is the only source we have for this screen (no backend reschedule form
-    // contract), so it seeds the sample chrome — but Confirm is forced off with an honest reason.
-    private fun blockedReschedule(): RescheduleUiState = sampleRescheduleState().copy(
-        confirmEnabled = false,
-        confirmLabel = "Mobile reschedule — coming soon",
-        channelsNote = "Rescheduling from mobile isn't available yet — the backend needs obligation-id targeting for an overdue obligation. Use the web dashboard for now.",
-    )
+    private fun confirm() {
+        val target = obligationId
+        val dueAt = state.value.selectedDateId
+        if (target.isNullOrBlank() || dueAt.isNullOrBlank()) return
+        viewModelScope.launch {
+            _state.update { it.copy(confirmEnabled = false, channelsNote = "Queueing reschedule…") }
+            val request = RescheduleObligationRequestDto(dueAt = dueAt)
+            val key = "mobile-reschedule:$target:$dueAt"
+            when (
+                syncRepository.enqueueReschedule(
+                    obligationId = target,
+                    groupKey = target,
+                    idempotencyKey = key,
+                    request = request,
+                )
+            ) {
+                is AppResult.Ok -> _state.update {
+                    it.copy(confirmLabel = "Queued", channelsNote = "Reschedule queued — it will sync with the backend and notify the team after acceptance.")
+                }
+                is AppResult.Err -> _state.update {
+                    it.copy(confirmEnabled = true, channelsNote = "Couldn't queue reschedule — tap confirm to retry.")
+                }
+            }
+        }
+    }
+
+    private fun initialState(obligationId: String?): RescheduleUiState {
+        val options = dateOptions()
+        return sampleRescheduleState().copy(
+            dateOptions = options,
+            selectedDateId = null,
+            confirmEnabled = false,
+            confirmLabel = "Confirm — notify team",
+            channelsNote = if (obligationId.isNullOrBlank()) {
+                "This row does not include an obligation id, so mobile cannot target the backend reschedule endpoint."
+            } else {
+                "Select a future date. The backend validates the obligation window and idempotently queues notifications after acceptance."
+            },
+        )
+    }
+
+    private fun dateOptions(): List<DateOption> =
+        listOf(1L, 2L, 3L, 5L).map { days ->
+            val dueAt = OffsetDateTime.now(ZoneOffset.UTC)
+                .plusDays(days)
+                .withHour(9)
+                .withMinute(0)
+                .withSecond(0)
+                .withNano(0)
+            DateOption(
+                id = dueAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                dayLabel = dueAt.dayOfMonth.toString(),
+                label = "${dueAt.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)}, ${dueAt.dayOfMonth} ${dueAt.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)}",
+                sub = if (days == 1L) "Tomorrow · backend validates buffer" else "Backend validates buffer",
+                inBuffer = true,
+            )
+        }
+
+    private companion object {
+        const val ARG_OBLIGATION_ID = "obligationId"
+    }
 }

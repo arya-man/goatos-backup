@@ -23,6 +23,7 @@ import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
+import sg.mesha.goatos.core.network.dto.forCreateUpload
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
@@ -143,7 +144,7 @@ interface AppApiService {
     @GET("app/roster/my-coverage")
     suspend fun getMyCoverage(): MyCoverageResponseDto
 
-    @POST("app/proofs")
+    @POST("app/proofs/uploads")
     suspend fun registerProof(
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: ProofUploadRequestDto,
@@ -264,7 +265,7 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
     override suspend fun getMyCoverage(): MyCoverageResponseDto = service.getMyCoverage()
 
     override suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto =
-        service.registerProof(idempotencyKey, request)
+        service.registerProof(idempotencyKey, request.forCreateUpload())
 
     override suspend fun getVaccinationGaps(
         parkId: String?,
@@ -315,6 +316,7 @@ object NetworkFactory {
     val json: Json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
+        encodeDefaults = true
     }
 
     fun okHttp(tokenProvider: () -> String?): OkHttpClient =

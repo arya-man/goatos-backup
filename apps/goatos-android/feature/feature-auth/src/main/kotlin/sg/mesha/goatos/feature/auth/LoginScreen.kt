@@ -34,7 +34,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -51,13 +50,13 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 /**
- * Sign-in (`v-login`) — work-email + password. Everything visual comes from the design
+ * Sign-in (`v-login`) — work-email gate. Everything visual comes from the design
  * system ([MeshaColors] / [MeshaDimens] / [MeshaType] + [MeshaPrimaryButton] /
  * [MeshaInputShell]); no colours, raw dp/sp, or local token object here.
  *
- * Pre-session screen: email/password/language are LOCAL hoisted state; the only external
- * contract is [onSignIn]. Real credential verification (Firebase/backend) lands with the
- * auth pass; for now Sign-in is enabled once a valid email + a non-empty password are entered.
+ * Pre-session screen: email/language are LOCAL hoisted state; the only external
+ * contract is [onSignIn]. This build does not authenticate a password on device:
+ * real credential verification lands behind Firebase/backend token exchange.
  */
 @Composable
 fun LoginScreen(
@@ -66,15 +65,12 @@ fun LoginScreen(
     errorMessage: String? = null,
 ) {
     var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
 
     LoginContent(
         email = email,
-        password = password,
         errorMessage = errorMessage,
         onEmailChange = { email = it },
-        onPasswordChange = { password = it },
-        onSignIn = { if (isValidEmail(email) && password.isNotBlank()) onSignIn(email.trim()) },
+        onSignIn = { if (isValidEmail(email)) onSignIn(email.trim()) },
         modifier = modifier,
     )
 }
@@ -88,14 +84,12 @@ private fun isValidEmail(raw: String): Boolean {
 @Composable
 private fun LoginContent(
     email: String,
-    password: String,
     onEmailChange: (String) -> Unit,
-    onPasswordChange: (String) -> Unit,
     onSignIn: () -> Unit,
     modifier: Modifier = Modifier,
     errorMessage: String? = null,
 ) {
-    val canSignIn = isValidEmail(email) && password.isNotBlank()
+    val canSignIn = isValidEmail(email)
     val currentTag = LocalAppLanguage.current
     var showLangSheet by remember { mutableStateOf(false) }
     if (showLangSheet) {
@@ -124,11 +118,7 @@ private fun LoginContent(
 
         Spacer(Modifier.height(MeshaDimens.space8))
         FieldLabel(stringResource(R.string.login_field_work_email))
-        EmailField(email = email, onEmailChange = onEmailChange)
-
-        Spacer(Modifier.height(MeshaDimens.space4))
-        FieldLabel(stringResource(R.string.login_field_password))
-        PasswordField(password = password, onPasswordChange = onPasswordChange, onDone = onSignIn)
+        EmailField(email = email, onEmailChange = onEmailChange, onDone = onSignIn)
 
         Spacer(Modifier.height(MeshaDimens.space5))
         MeshaPrimaryButton(text = stringResource(R.string.login_sign_in), enabled = canSignIn, onClick = onSignIn)
@@ -189,43 +179,21 @@ private fun Centered(text: String) {
 }
 
 @Composable
-private fun EmailField(email: String, onEmailChange: (String) -> Unit) {
+private fun EmailField(email: String, onEmailChange: (String) -> Unit, onDone: () -> Unit) {
     BasicTextField(
         value = email,
         onValueChange = onEmailChange,
         singleLine = true,
         textStyle = MeshaType.body.copy(color = MeshaColors.Ink),
         cursorBrush = SolidColor(MeshaColors.Brand),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { onDone() }),
         modifier = Modifier.fillMaxWidth(),
         decorationBox = { inner ->
             MeshaInputShell {
                 Icon(MeshaIcons.User, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(MeshaDimens.iconMd))
                 Box(Modifier.weight(1f)) {
                     if (email.isEmpty()) Text(stringResource(R.string.login_email_hint), color = MeshaColors.Faint, style = MeshaType.body)
-                    inner()
-                }
-            }
-        },
-    )
-}
-
-@Composable
-private fun PasswordField(password: String, onPasswordChange: (String) -> Unit, onDone: () -> Unit) {
-    BasicTextField(
-        value = password,
-        onValueChange = onPasswordChange,
-        singleLine = true,
-        visualTransformation = PasswordVisualTransformation(),
-        textStyle = MeshaType.body.copy(color = MeshaColors.Ink),
-        cursorBrush = SolidColor(MeshaColors.Brand),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-        keyboardActions = KeyboardActions(onDone = { onDone() }),
-        modifier = Modifier.fillMaxWidth(),
-        decorationBox = { inner ->
-            MeshaInputShell {
-                Box(Modifier.weight(1f)) {
-                    if (password.isEmpty()) Text(stringResource(R.string.login_password_hint), color = MeshaColors.Faint, style = MeshaType.body)
                     inner()
                 }
             }
@@ -281,9 +249,7 @@ private fun LoginPreview() {
     GoatOsTheme {
         LoginContent(
             email = "arun.kumar@mesha.sg",
-            password = "hunter2",
             onEmailChange = {},
-            onPasswordChange = {},
             onSignIn = {},
         )
     }

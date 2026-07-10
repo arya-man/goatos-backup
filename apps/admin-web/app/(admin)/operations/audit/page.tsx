@@ -14,5 +14,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   }
   const pageContract = contract.data.pages.find((item) => item.route_id === "audit-log");
   if (!pageContract) throw new Error("admin-web page contract missing route_id=audit-log");
-  return <OperationsAuditPage searchParams={await searchParams} pageContract={pageContract} roleLenses={contract.data.role_lenses} />;
+  return <OperationsAuditPage searchParams={await searchParams} pageContract={pageContract} />;
 }

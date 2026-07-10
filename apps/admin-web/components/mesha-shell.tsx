@@ -31,7 +31,6 @@ import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
 import type { AdminWebBootstrapResponse } from "@/lib/api/server";
 
 type NavItem = AdminWebBootstrapResponse["navigation"]["primary"][number];
-type RoleLens = AdminWebBootstrapResponse["role_lenses"][number];
 type RouteLabelRule = AdminWebBootstrapResponse["route_labels"][number];
 type NavCounts = { actionCenter: number | null; pc: number | null };
 type TrailItem = { label: string; href: string };
@@ -158,7 +157,6 @@ export function MeshaShell({
   // anything other than an explicit "minimal" keeps the sidebar, so a contract
   // hiccup or an unknown future value never blanks a leader's navigation.
   const showSidebar = contract.nav_chrome !== "minimal";
-  const roleLenses = contract.role_lenses;
   const active = activeHref(pathname, contract);
   // Single top-bar scope contract: parse the URL scope params (scope_mode/park/range/as_of) once and render
   // HUMAN labels (the park dropdown writes the backend-safe location UUID). Every screen reads the same
@@ -174,7 +172,6 @@ export function MeshaShell({
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
   const [rangeMenuOpen, setRangeMenuOpen] = useState(false);
-  const [roleLens, setRoleLens] = useState<RoleLens>(roleLenses[0]!);
   const [navCounts, setNavCounts] = useState<NavCounts>({ actionCenter: null, pc: null });
   const [navTrail, setNavTrail] = useState<TrailItem[]>([]);
   const trailRef = useRef<TrailItem[]>([]);
@@ -492,7 +489,7 @@ export function MeshaShell({
           <button
             type="button"
             className="me"
-            aria-label={shellCopy(contract, "role.open_preview")}
+            aria-label={shellCopy(contract, "account.open_menu")}
             aria-expanded={roleMenuOpen}
             onClick={() => {
               setRoleMenuOpen((open) => !open);
@@ -503,7 +500,7 @@ export function MeshaShell({
             <span className="av">{actor.initials}</span>
             <span>
               <span className="nm">{actor.display_name}</span>
-              <span className="rl">{roleLens.superadmin ? roleLens.audit_short : roleLens.name}</span>
+              <span className="rl">{actor.subtitle}</span>
             </span>
             <ChevronRight className="ic" style={{ width: 14 }} />
           </button>
@@ -512,22 +509,6 @@ export function MeshaShell({
               <b>{actor.display_name}</b>
               <span>{actor.subtitle}</span>
             </div>
-            <div className="role-divider" />
-            {roleLenses.map((role) => (
-              <button
-                key={role.id}
-                type="button"
-                className={`pm-item ${roleLens.id === role.id ? "on" : ""}`}
-                onClick={() => {
-                  setRoleLens(role);
-                  setRoleMenuOpen(false);
-                }}
-              >
-                <span className="pn">{role.name}</span>
-                <span className="pr">{role.scope}</span>
-                {roleLens.id === role.id ? <Check className="ic tick" /> : null}
-              </button>
-            ))}
             <div className="role-divider" />
             <SignOutButton />
           </div>

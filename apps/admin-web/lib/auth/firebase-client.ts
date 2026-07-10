@@ -120,19 +120,24 @@ export function isFirebaseSessionError(error: unknown, code?: string): error is 
 
 async function loadFirebaseConfig(): Promise<FirebaseClientRuntimeConfig> {
   if (!configPromise) {
-    configPromise = fetch(FIREBASE_CONFIG_ROUTE, { cache: "no-store" }).then(async (response) => {
-      if (!response.ok) {
-        throw new Error("Firebase sign-in is not configured for this admin deployment.");
-      }
-      const payload = (await response.json()) as FirebaseClientRuntimeConfig;
-      if (!payload.config?.apiKey || !payload.config.authDomain || !payload.config.projectId || !payload.config.appId) {
-        throw new Error("Firebase sign-in config is incomplete.");
-      }
-      if (!payload.googleClientId) {
-        throw new Error("Google sign-in client ID is not configured for this admin deployment.");
-      }
-      return payload;
-    });
+    configPromise = fetch(FIREBASE_CONFIG_ROUTE, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Firebase sign-in is not configured for this admin deployment.");
+        }
+        const payload = (await response.json()) as FirebaseClientRuntimeConfig;
+        if (!payload.config?.apiKey || !payload.config.authDomain || !payload.config.projectId || !payload.config.appId) {
+          throw new Error("Firebase sign-in config is incomplete.");
+        }
+        if (!payload.googleClientId) {
+          throw new Error("Google sign-in client ID is not configured for this admin deployment.");
+        }
+        return payload;
+      })
+      .catch((error: unknown) => {
+        configPromise = null;
+        throw error;
+      });
   }
   return configPromise;
 }

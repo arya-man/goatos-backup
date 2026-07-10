@@ -5,7 +5,6 @@ import {
   ClipboardList,
   Clock,
   Database,
-  Eye,
   Filter,
   ScrollText,
   Search,
@@ -23,7 +22,6 @@ import {
   firstAuthRequiredError,
   getOperationsAuditSummary,
   listOperationsAudit,
-  type AdminWebBootstrapResponse,
   type OperationsAuditActorType,
   type OperationsAuditListParams,
   type OperationsAuditRow,
@@ -36,10 +34,9 @@ import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchPa
 const PATHNAME = "/operations/audit";
 const PAGE_SIZE = 25;
 const ACTOR_TYPES = ["human", "system", "worker", "service", "user"] as const;
-type RoleLens = AdminWebBootstrapResponse["role_lenses"][number];
 
-// Top-bar scope + role-preview state to keep when a user clears the page filters.
-const PRESERVE_ON_CLEAR = ["viewing_as", "scope_mode", "park", "as_of", "range", "from", "to"];
+// Top-bar scope state to keep when a user clears the page filters.
+const PRESERVE_ON_CLEAR = ["scope_mode", "park", "as_of", "range", "from", "to"];
 
 // Visible audit families stay locked to the current vaccination slice. Source Entry, Herd Register, and
 // Admin/SOP are shown only because they feed the vaccination evidence/config chain.
@@ -61,20 +58,14 @@ const STATUS_TABS: Array<{ key: string; status?: string; result?: string; proofG
 export async function OperationsAuditPage({
   searchParams,
   pageContract,
-  roleLenses,
 }: {
   searchParams?: RouteSearchParams;
   pageContract: AdminUiPageContract;
-  roleLenses: RoleLens[];
 }) {
   const sp = searchParams ?? {};
   const page = boundedInt(one(sp, "page"), 1, 1, 1_000_000);
   const filters = parseFilters(sp);
   const actorQ = one(sp, "actor_q")?.trim().toLowerCase() ?? "";
-  // `viewing_as` is a CEO/admin role-PREVIEW lens, synced to the shared role-lens model used by the top bar.
-  // It is label-only and never becomes a backend filter — backend RBAC governs the real audit span.
-  const lens = roleLensById(roleLenses, one(sp, "viewing_as"));
-
   const [listResult, summaryResult] = await Promise.all([
     listOperationsAudit({ ...filters, limit: PAGE_SIZE, cursor: one(sp, "cursor") }),
     getOperationsAuditSummary(filters),
@@ -122,28 +113,6 @@ export async function OperationsAuditPage({
 	        <KPI label={copy(pageContract, "label.awaiting_verification")} value={summary ? String(summary.awaiting_verification) : "—"} hint={copy(pageContract, "label.proof_signoff")} tone="warn" icon={Clock} href={hrefWithUpdates(sp, { status: "verification_pending", result: null, proof_gaps: null, cursor: null, page: null })} />
 	        <KPI label={copy(pageContract, "label.proof_coverage")} value={summary ? `${summary.proof_coverage_percent}%` : "—"} hint={copy(pageContract, "label.tap_proof_gaps")} tone="teal" icon={ShieldCheck} href={hrefWithUpdates(sp, { proof_gaps: filters.proofGaps ? null : "true", cursor: null, page: null })} />
 	        <KPI label={copy(pageContract, "label.flagged_anomalies")} value={summary ? String(summary.anomalies) : "—"} hint={copy(pageContract, "label.anomaly_sources")} tone="dng" icon={AlertTriangle} href={hrefWithUpdates(sp, { anomalies_only: filters.anomaliesOnly ? null : "true", proof_gaps: null, cursor: null, page: null })} />
-      </div>
-
-      {/* Viewing as — CEO/admin role-preview lens, mirrors the shared top-bar role lens. Preview only. */}
-      <div className="subtabs" style={{ marginBottom: 8 }}>
-        <span className="muted small" style={{ padding: "7px 8px 7px 4px", display: "inline-flex", alignItems: "center", gap: 6 }}>
-	          <Eye className="ic" style={{ width: 14 }} aria-hidden="true" /> {copy(pageContract, "label.viewing_as")}
-        </span>
-        {roleLenses.map((role) => (
-          <Link
-            key={role.id}
-            href={hrefWithUpdates(sp, { viewing_as: role.superadmin ? null : role.id, cursor: null, page: null })}
-            replace
-            scroll={false}
-            className={`${lens.id === role.id ? "on" : ""}`}
-            title={`${role.name} · ${role.scope}`}
-          >
-            {role.audit_short}
-          </Link>
-        ))}
-      </div>
-      <div className="note" style={{ marginBottom: 12 }}>
-	        {copy(pageContract, "label.previewing_as")} <b>{lens.name}</b> · {lens.scope}. {copy(pageContract, "label.role_preview_note")}
       </div>
 
       {/* Operation families — real backend `domain` filter for vaccination-supporting surfaces only. */}
@@ -550,13 +519,6 @@ function Pager({
       </span>
     </div>
   );
-}
-
-function roleLensById(roleLenses: RoleLens[], id?: string | null): RoleLens {
-  const [defaultLens] = roleLenses;
-  if (!defaultLens) throw new Error("admin-web bootstrap contract missing role_lenses");
-  if (!id) return defaultLens;
-  return roleLenses.find((lens) => lens.id === id) ?? defaultLens;
 }
 
 function parseFilters(params: RouteSearchParams): OperationsAuditListParams {

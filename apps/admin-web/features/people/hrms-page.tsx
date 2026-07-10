@@ -1,7 +1,6 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
 import { PositionsPanel } from './positions-panel';
 import { TimetablePanel } from './timetable-panel';
 import { type RouteSearchParams } from '@/lib/search-params';
@@ -16,16 +15,9 @@ interface HRMSPageProps {
 export function HRMSPage({ tab: initialTab, pageContract }: HRMSPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState(initialTab);
-
-  // Sync activeTab with URL search param whenever it changes
-  useEffect(() => {
-    const tabParam = searchParams.get('tab') ?? 'positions';
-    setActiveTab(tabParam);
-  }, [searchParams]);
+  const activeTab = searchParams.get('tab') ?? initialTab;
 
   const handleTabChange = (newTab: string) => {
-    setActiveTab(newTab);
     const params = new URLSearchParams(searchParams);
     params.set('tab', newTab);
     router.push(`?${params.toString()}`);

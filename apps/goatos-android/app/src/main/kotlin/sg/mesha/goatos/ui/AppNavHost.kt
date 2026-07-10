@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,6 +75,7 @@ object Routes {
 
     /** Optional shed-id arg on the record route so a tapped shed opens ITS record. */
     const val RECORD_SHED_ARG = "shedId"
+    const val RESCHEDULE_OBLIGATION_ARG = "obligationId"
 
     /** Record route for a specific shed (null → generic first-shed record). */
     fun recordRoute(shedId: String?): String =
@@ -85,6 +87,9 @@ object Routes {
      *  shed's per-animal roster from the backend. */
     fun scanRoute(shedId: String?): String =
         if (shedId.isNullOrBlank()) SCAN else "$SCAN?$SCAN_SHED_ARG=${Uri.encode(shedId)}"
+
+    fun rescheduleRoute(obligationId: String?): String =
+        if (obligationId.isNullOrBlank()) RESCHEDULE else "$RESCHEDULE?$RESCHEDULE_OBLIGATION_ARG=${Uri.encode(obligationId)}"
 }
 
 /**
@@ -237,15 +242,23 @@ fun AppNavHost(
         composable(Routes.LEADERSHIP) {
             val vm: LeadershipViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            val gapsState by vm.gapsState.collectAsStateWithLifecycle()
+            val dosesState by vm.dosesState.collectAsStateWithLifecycle()
             var showScope by remember { mutableStateOf(false) }
             var showGaps by remember { mutableStateOf(false) }
             var showGiven by remember { mutableStateOf(false) }
+            LaunchedEffect(showGaps) {
+                if (showGaps) vm.loadGaps()
+            }
+            LaunchedEffect(showGiven) {
+                if (showGiven) vm.loadDosesGiven()
+            }
             LeadershipScreen(
                 state = state,
                 onEvent = { event ->
                     when (event) {
                         is LeadershipEvent.DecisionTapped ->
-                            navController.navigate(Routes.RESCHEDULE) { launchSingleTop = true }
+                            navController.navigate(Routes.rescheduleRoute(event.id)) { launchSingleTop = true }
                         // Leadership taps a shed → the read-only record (their lens is follow-up).
                         is LeadershipEvent.ShedTapped ->
                             navController.navigate(Routes.recordRoute(event.shedId)) { launchSingleTop = true }
@@ -273,17 +286,17 @@ fun AppNavHost(
             }
             if (showGaps) {
                 DataGapsSheet(
-                    gapsData = emptyList(),
-                    isLoading = false,
-                    errorMessage = null,
+                    gapsData = gapsState.items,
+                    isLoading = gapsState.isLoading,
+                    errorMessage = gapsState.errorMessage,
                     onDismiss = { showGaps = false },
                 )
             }
             if (showGiven) {
                 DosesGivenSheet(
-                    rows = emptyList(),
-                    isLoading = false,
-                    errorMessage = null,
+                    rows = dosesState.items,
+                    isLoading = dosesState.isLoading,
+                    errorMessage = dosesState.errorMessage,
                     onDismiss = { showGiven = false },
                 )
             }
@@ -298,7 +311,7 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         is LeadershipEvent.OverdueRowTapped ->
-                            navController.navigate(Routes.RESCHEDULE) { launchSingleTop = true }
+                            navController.navigate(Routes.rescheduleRoute(event.id)) { launchSingleTop = true }
                         LeadershipEvent.Back -> navController.popBackStack()
                         else -> vm.onEvent(event)
                     }
@@ -307,14 +320,22 @@ fun AppNavHost(
         }
 
         // Reschedule form — segment/date selection stays local; Confirm + Back pop back.
-        composable(Routes.RESCHEDULE) {
+        composable(
+            route = "${Routes.RESCHEDULE}?${Routes.RESCHEDULE_OBLIGATION_ARG}={${Routes.RESCHEDULE_OBLIGATION_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.RESCHEDULE_OBLIGATION_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
             val vm: RescheduleViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             RescheduleScreen(
                 state = state,
                 onEvent = { event ->
                     when (event) {
-                        LeadershipEvent.ConfirmReschedule,
                         LeadershipEvent.Back -> navController.popBackStack()
                         else -> vm.onEvent(event)
                     }

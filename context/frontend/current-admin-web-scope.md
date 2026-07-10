@@ -526,20 +526,22 @@ is rendered inside /vaccination, not as a separate Parks nav item.
 
 - Real RBAC is server-enforced. The frontend only hides/shows permitted
   surfaces; it never grants authority.
-- CEO/COO/superadmin may get a role-preview lens. Staff roles do not get a role
-  switcher when they log in.
-- The top-bar role preview is part of the approved CEO/admin experience. It is
-  used by superadmin/CEO/COO to preview how role-scoped navigation,
-  permissions, and Audit Log span would look for other roles. It is not an
-  authority bypass and does not weaken backend RBAC.
-- Canonical preview lenses for this slice are: `Superadmin / CEO / COO`
+- Current top-bar account menu shows only the authenticated backend role/scope
+  from `GET /admin-web/bootstrap` plus Sign out. It must not expose selectable
+  role-preview choices until the preview flow is backend-backed end to end.
+- Pending role-preview work: CEO/COO/superadmin may later get a role-preview
+  lens for role-scoped navigation, permissions, page content, and Audit Log
+  span. That implementation must round-trip the selected lens through backend
+  bootstrap/read-model compilation, never bypass backend RBAC, and make the
+  preview state visible to pages that need it.
+- Canonical future preview lenses for this slice are: `Superadmin / CEO / COO`
   (all/deep), `Health Director` (health vertical, all parks),
   `Procurement Director` (procurement/source-entry, all parks), `HR Director`
   (people/HR, all parks), `Park Head - CBE` (all verticals, one park),
   `Health Mgr - CBE` (health vertical, one park), `Assist / Ground - CBE`
-  (tasks, one park), and `Investor` (read-only summary). The Audit Log
-  `Viewing as` control must mirror these lenses instead of maintaining a
-  separate hard-coded role list.
+  (tasks, one park), and `Investor` (read-only summary). Audit Log `Viewing as`
+  must stay aligned with that backend contract when the future preview is
+  implemented.
 - Config publish/raw edit remains backend-gated by protocol capabilities.
 - Preventive Care (PC) is a vertical and must not use the syringe/injection icon.
 - Vaccination may use the syringe/injection icon.

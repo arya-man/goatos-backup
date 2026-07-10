@@ -4,10 +4,8 @@
     <string name="login_tagline">फ़ील्ड ऑपरेशंस</string>
     <string name="login_field_work_email">कार्य ईमेल</string>
     <string name="login_email_hint">you@mesha.sg</string>
-    <string name="login_field_password">पासवर्ड</string>
-    <string name="login_password_hint">आपका पासवर्ड</string>
     <string name="login_sign_in">साइन इन</string>
-    <string name="login_use_email_password">अपना Mesha कार्य ईमेल और पासवर्ड उपयोग करें</string>
+    <string name="login_use_email_password">अपना Mesha कार्य ईमेल उपयोग करें। यह बिल्ड कॉन्फ़िगर किए गए backend session का उपयोग करता है।</string>
     <string name="login_app_language">ऐप भाषा</string>
     <string name="login_change">बदलें</string>
     <string name="login_role_note">आपकी भूमिका HR डायरेक्टरी से आती है — आपको अपने काम की स्क्रीन मिलती है। फ़ील्ड ऑपरेटर टीका करता है; मैनेजर और डायरेक्टर ट्रैक करते हैं।</string>

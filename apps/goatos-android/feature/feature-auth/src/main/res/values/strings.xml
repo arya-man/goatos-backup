@@ -10,10 +10,8 @@
     <string name="login_tagline">Field operations</string> <!-- mock: tagline -->
     <string name="login_field_work_email">Work email</string> <!-- mock: email -->
     <string name="login_email_hint">you@mesha.sg</string>
-    <string name="login_field_password">Password</string> <!-- mock: otp -->
-    <string name="login_password_hint">Your password</string>
     <string name="login_sign_in">Sign in</string> <!-- mock: signin -->
-    <string name="login_use_email_password">Use your Mesha work email and password.</string> <!-- mock: otpnote -->
+    <string name="login_use_email_password">Use your Mesha work email. This build uses the configured backend session.</string> <!-- mock: otpnote -->
     <string name="login_app_language">App language</string> <!-- mock: applang -->
     <string name="login_change">Change</string> <!-- mock: change -->
     <string name="login_role_note">Your role comes from the HR directory — you land on the screen for your job. The field operator executes; managers and directors track.</string> <!-- mock: rbac -->

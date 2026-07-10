@@ -298,7 +298,7 @@ class SyncEngineTest {
                 groupKey = "shed-1",
                 idempotencyKey = "proof-key-1",
                 payloadJson = syncJson.encodeToString(
-                    ProofUploadPayload(request = ProofUploadRequestDto(shedId = "shed-1", subjectType = "shed")),
+                    ProofUploadPayload(request = ProofUploadRequestDto(scopeType = "shed", scopeId = "shed-1", subjectType = "shed")),
                 ),
                 status = OutboxStatus.QUEUED.name,
                 attemptCount = 0,

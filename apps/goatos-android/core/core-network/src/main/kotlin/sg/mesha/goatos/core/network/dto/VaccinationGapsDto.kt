@@ -10,23 +10,28 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class VaccinationGapReasonSummaryDto(
-    @SerialName("reason") val reason: String = "",
+    @SerialName("reasonCode") val reasonCode: String = "",
+    @SerialName("reasonLabel") val reasonLabel: String = "",
     @SerialName("count") val count: Int = 0,
 )
 
 @Serializable
 data class VaccinationGapRowDto(
-    @SerialName("goat_id") val goatId: String = "",
-    @SerialName("rfid") val rfid: String? = null,
-    @SerialName("old_tag") val oldTag: String? = null,
-    @SerialName("reason") val reason: String = "",
+    @SerialName("goatId") val goatId: String = "",
+    @SerialName("displayId") val displayId: String = "",
+    @SerialName("parkId") val parkId: String = "",
+    @SerialName("parkName") val parkName: String = "",
+    @SerialName("shedId") val shedId: String? = null,
+    @SerialName("shedName") val shedName: String? = null,
+    @SerialName("reasonCode") val reasonCode: String = "",
+    @SerialName("reasonLabel") val reasonLabel: String = "",
 )
 
 @Serializable
 data class VaccinationGapsResponseDto(
     @SerialName("source") val source: String = "api",
-    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("parkId") val parkId: String? = null,
     @SerialName("reasons") val reasons: List<VaccinationGapReasonSummaryDto> = emptyList(),
     @SerialName("rows") val rows: List<VaccinationGapRowDto> = emptyList(),
-    @SerialName("next_cursor") val nextCursor: String? = null,
+    @SerialName("nextCursor") val nextCursor: String? = null,
 )

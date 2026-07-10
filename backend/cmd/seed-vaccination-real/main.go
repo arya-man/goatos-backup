@@ -62,16 +62,18 @@ var vaccines = map[string]vaccineDef{
 var vaccineOrder = []string{"ET+TT", "PPR", "Blue tongue", "FMD", "HS", "Goat Pox", "Sheep Pox"}
 
 type goatRecord struct {
-	RFID   string
-	Farm   string
-	Shed   string
-	Stage  string
-	Age    string
-	Breed  string
-	Gender string
-	DOB    string
-	Status string
-	Health string
+	RFID        string
+	OldID       string
+	OldIDSuffix string
+	Farm        string
+	Shed        string
+	Stage       string
+	Age         string
+	Breed       string
+	Gender      string
+	DOB         string
+	Status      string
+	Health      string
 }
 
 // vaccCell is one goat x vaccine x dose spreadsheet cell.
@@ -176,16 +178,18 @@ func loadGoats(sourcePath string) ([]goatRecord, error) {
 			continue
 		}
 		rec := goatRecord{
-			RFID:   cell(row, col["rfid"]),
-			Farm:   cell(row, col["farm"]),
-			Shed:   cell(row, col["shed"]),
-			Stage:  cell(row, col["stage"]),
-			Age:    cell(row, col["age"]),
-			Breed:  cell(row, col["breed"]),
-			Gender: cell(row, col["gender"]),
-			DOB:    cell(row, col["dob"]),
-			Status: cell(row, col["status"]),
-			Health: cell(row, col["health_status"]),
+			RFID:        cell(row, col["rfid"]),
+			OldID:       cell(row, col["old_id"]),
+			OldIDSuffix: cell(row, col["old_id_suffix"]),
+			Farm:        cell(row, col["farm"]),
+			Shed:        cell(row, col["shed"]),
+			Stage:       cell(row, col["stage"]),
+			Age:         cell(row, col["age"]),
+			Breed:       cell(row, col["breed"]),
+			Gender:      cell(row, col["gender"]),
+			DOB:         cell(row, col["dob"]),
+			Status:      cell(row, col["status"]),
+			Health:      cell(row, col["health_status"]),
 		}
 		if rec.RFID != "" && rec.Farm != "" {
 			out = append(out, rec)
@@ -435,8 +439,8 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 	goatIDByRFID := map[string]string{}
 	goatLifecycleByRFID := map[string]string{}
 	type goatIns struct {
-		goatID, displayID, breed, sex, lifecycle, stage, age, shedID, parkID, dob string
-		health                                                                    *string
+		goatID, rfid, animalIdentifier2, breed, sex, lifecycle, stage, age, shedID, parkID, dob string
+		health                                                                                  *string
 	}
 	var goatRows []goatIns
 	for _, g := range goats {
@@ -449,45 +453,56 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 		goatIDByRFID[g.RFID] = goatID
 		goatLifecycleByRFID[g.RFID] = normalizeLifecycle(g.Status)
 		goatRows = append(goatRows, goatIns{
-			goatID:    goatID,
-			displayID: "G-" + g.RFID,
-			breed:     normalizeBreed(g.Breed),
-			sex:       normalizeSex(g.Gender),
-			lifecycle: normalizeLifecycle(g.Status),
-			stage:     g.Stage,
-			age:       g.Age,
-			health:    normalizeHealth(g.Health),
-			shedID:    shedID,
-			parkID:    parkByFarm[g.Farm],
-			dob:       g.DOB,
+			goatID:            goatID,
+			rfid:              g.RFID,
+			animalIdentifier2: oldTagIdentifier(g.OldID, g.OldIDSuffix),
+			breed:             normalizeBreed(g.Breed),
+			sex:               normalizeSex(g.Gender),
+			lifecycle:         normalizeLifecycle(g.Status),
+			stage:             g.Stage,
+			age:               g.Age,
+			health:            normalizeHealth(g.Health),
+			shedID:            shedID,
+			parkID:            parkByFarm[g.Farm],
+			dob:               g.DOB,
 		})
 	}
 	if err := batch(ctx, tx, goatRows, 500, func(b *pgx.Batch, gi goatIns) {
 		b.Queue(`
-			INSERT INTO goats (goat_id, tenant_id, display_id, species, breed, sex, lifecycle_status,
+			INSERT INTO goats (goat_id, tenant_id, species, breed, sex, lifecycle_status,
 				health_status, origin_type, dob, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, updated_at)
-			VALUES ($1,$2,$3,'goat',$4,$5,$6,$7,'procured',$8,$9,$9,$10,$11,$12,$13,now())
+			VALUES ($1,$2,'goat',$3,$4,$5,$6,'procured',$7,$8,$8,$9,$10,$11,$12,now())
 			ON CONFLICT (goat_id) DO UPDATE SET breed=EXCLUDED.breed, sex=EXCLUDED.sex,
 				lifecycle_status=EXCLUDED.lifecycle_status, health_status=EXCLUDED.health_status,
 				shed_id=EXCLUDED.shed_id, park_id=EXCLUDED.park_id, current_location_id=EXCLUDED.current_location_id,
 				management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, updated_at=now()`,
-			gi.goatID, tenantID, gi.displayID, gi.breed, gi.sex, gi.lifecycle, gi.health,
+			gi.goatID, tenantID, gi.breed, gi.sex, gi.lifecycle, gi.health,
 			nullableDate(gi.dob), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID)
 	}); err != nil {
 		return st, fmt.Errorf("insert goats: %w", err)
 	}
 	st.Animals = len(goatRows)
 
-	// Identifiers (RFID as animal_identifier_1). Best-effort, dedup on value.
+	// Identifiers. RFID is animal_identifier_1; old source tag is animal_identifier_2 when present.
 	for _, gi := range goatRows {
-		rfid := strings.TrimPrefix(gi.displayID, "G-")
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO goat_identifiers (identifier_type, tenant_id, goat_id, identifier_value, normalized_value,
 				scope_key, valid_from, normalizer_version, status)
 			VALUES ('animal_identifier_1',$1,$2,$3,$4,'global',now()::date,'identifier_normalizer_v1','active')
 			ON CONFLICT (tenant_id, normalized_value) DO NOTHING`,
-			tenantID, gi.goatID, rfid, strings.ToLower(rfid)); err != nil {
-			return st, fmt.Errorf("insert identifier %s: %w", rfid, err)
+			tenantID, gi.goatID, gi.rfid, strings.ToLower(gi.rfid)); err != nil {
+			return st, fmt.Errorf("insert identifier %s: %w", gi.rfid, err)
+		}
+		if gi.animalIdentifier2 == "" || strings.EqualFold(gi.animalIdentifier2, gi.rfid) {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO goat_identifiers (identifier_type, tenant_id, goat_id, identifier_value, normalized_value,
+				scope_key, valid_from, normalizer_version, status)
+			VALUES ('animal_identifier_2',$1,$2,$3,$4,'global',now()::date,'identifier_normalizer_v1','active')
+			ON CONFLICT (tenant_id, normalized_value) DO NOTHING`,
+			tenantID, gi.goatID, gi.animalIdentifier2, strings.ToLower(gi.animalIdentifier2)); err != nil {
+			return st, fmt.Errorf("insert identifier %s: %w", gi.animalIdentifier2, err)
 		}
 	}
 
@@ -880,6 +895,18 @@ func stringAt(row []interface{}, idx int) string {
 		return strings.TrimSpace(s)
 	}
 	return ""
+}
+
+func oldTagIdentifier(oldID string, suffix string) string {
+	oldID = strings.TrimSpace(oldID)
+	suffix = strings.TrimSpace(suffix)
+	if oldID == "" || strings.EqualFold(oldID, "none") || strings.EqualFold(oldID, "na") {
+		return ""
+	}
+	if suffix == "" || strings.EqualFold(suffix, "none") || strings.EqualFold(suffix, "na") {
+		return oldID
+	}
+	return suffix + "-" + oldID
 }
 
 func getenv(key, fallback string) string {
