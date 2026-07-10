@@ -5,6 +5,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
+	obligationports "github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
@@ -29,7 +31,18 @@ type Reader interface {
 
 // Writer is the obligation write interface needed for reschedule operations.
 type Writer interface {
+	// ReopenDeferredObligationByIdempotencyKey is the SM-2 health-recovery reopen path (a goat recovers
+	// from a sick/ICU/quarantine defer). It is no longer called by this handler — RescheduleObligation
+	// below uses RescheduleObligationByID instead — but stays part of the interface since it remains a
+	// real, separately-used mechanism (backend/internal/vaccination/app/generation.go's
+	// recoveryRescheduleForRule) and other Writer implementations may still need to satisfy it.
 	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *domain.RecoveryReschedule) (string, bool, error)
+
+	// RescheduleObligationByID reschedules an OPEN (scheduled/due/missed) obligation to a new due date,
+	// targeted directly by obligation_id. This is the mobile "reschedule an overdue obligation" write
+	// path and is deliberately separate from ReopenDeferredObligationByIdempotencyKey above, which
+	// remains the only path that can reopen a health-held 'deferred' obligation (SM-2 recovery).
+	RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error)
 }
 
 // Handler serves vaccination execution endpoints (park/shed execution context for PC Vaccination).
@@ -277,18 +290,22 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 }
 
 type rescheduleRequest struct {
-	DueAt       time.Time `json:"due_at"`
+	DueAt       time.Time  `json:"due_at"`
 	WindowStart *time.Time `json:"window_start,omitempty"`
 	WindowEnd   *time.Time `json:"window_end,omitempty"`
 }
 
 type rescheduleResponse struct {
-	ObligationID   string `json:"obligation_id"`
-	IdempotentReplay bool `json:"idempotent_replay"`
+	ObligationID     string `json:"obligation_id"`
+	IdempotentReplay bool   `json:"idempotent_replay"`
 }
 
-// RescheduleObligation reschedules (or marks scheduled) a vaccination obligation to a new date.
-// Honors existing buffer/re-scope rules. Idempotent via Idempotency-Key header.
+// RescheduleObligation reschedules an OPEN (scheduled/due/missed) vaccination obligation to a new due
+// date, targeted by obligation_id (not idempotency_key — the obligation_id path value is the actual
+// write target). Idempotent via the Idempotency-Key header: an exact replay (same key + same
+// due_at/window body) returns the original result without re-running the write; a same-key/
+// different-payload replay is rejected with 409. A health-held ('deferred') obligation can never be
+// reached through this endpoint — that recovery-reopen path stays exclusively owned by the SM-2 flow.
 func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
 	obligationID := r.PathValue("obligation_id")
 	if !uuidutil.IsUUIDString(obligationID) {
@@ -326,21 +343,24 @@ func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
 		windowStart = *req.WindowStart
 	}
 
-	reschedule := &domain.RecoveryReschedule{
-		DueAt:       req.DueAt,
-		WindowStart: windowStart,
-		WindowEnd:   req.WindowEnd,
-		AlignReason: "mobile_reschedule",
-	}
-
-	id, isReplay, err := h.writer.ReopenDeferredObligationByIdempotencyKey(r.Context(), tenantID(r), idempotencyKey, time.Now().UTC(), reschedule)
+	id, isReplay, err := h.writer.RescheduleObligationByID(r.Context(), tenantID(r), obligationID, idempotencyKey, req.DueAt, windowStart, req.WindowEnd, time.Now().UTC())
 	if err != nil {
+		if errors.Is(err, obligationports.ErrNotFound) {
+			httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+				errorEnvelope{Code: "not_found", Message: "vaccination obligation was not found or is not open for reschedule", TraceID: traceID(r)}, nil)
+			return
+		}
+		if errors.Is(err, obligationports.ErrIdempotencyConflict) {
+			httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+				errorEnvelope{Code: "idempotency_conflict", Message: "Idempotency-Key was already used with a different request body", TraceID: traceID(r)}, nil)
+			return
+		}
 		h.internal(w, r, err)
 		return
 	}
 
 	httpresponse.WriteJSON(w, http.StatusOK, rescheduleResponse{
-		ObligationID:    id,
+		ObligationID:     id,
 		IdempotentReplay: isReplay,
 	})
 }

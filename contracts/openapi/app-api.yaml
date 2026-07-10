@@ -5623,6 +5623,7 @@ components:
         - owner
         - next_action
         - evidence_link
+        - obligation_id
       properties:
         row_id:
           type: string
@@ -5652,6 +5653,12 @@ components:
           type: string
         evidence_link:
           type: string
+        obligation_id:
+          type: string
+          format: uuid
+          description: >-
+            The obligation this alert is about. Lets the mobile app target
+            POST /app/vaccination/obligations/{obligation_id}/reschedule with a real id.
     ControlTowerResponse:
       type: object
       additionalProperties: false

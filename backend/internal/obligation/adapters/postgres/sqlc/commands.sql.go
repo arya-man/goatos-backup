@@ -435,6 +435,50 @@ func (q *Queries) ReopenDeferredObligationForKeyWithDue(ctx context.Context, arg
 	return obligation_id, err
 }
 
+const rescheduleOpenObligationByID = `-- name: RescheduleOpenObligationByID :one
+UPDATE obligation_instances oi
+SET due_at = $1,
+    window_start = $2,
+    window_end = $3,
+    status = 'scheduled',
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE oi.tenant_id = $4
+  AND oi.obligation_id = $5
+  AND oi.status IN ('scheduled', 'due', 'missed')
+RETURNING oi.obligation_id::text AS obligation_id
+`
+
+type RescheduleOpenObligationByIDParams struct {
+	DueAt        pgtype.Timestamptz
+	WindowStart  pgtype.Timestamptz
+	WindowEnd    pgtype.Timestamptz
+	TenantID     pgtype.UUID
+	ObligationID pgtype.UUID
+}
+
+// Mobile "reschedule this obligation" write path: moves an OPEN obligation (scheduled/due/missed) to a
+// new due date, scoped by obligation_id rather than by idempotency_key like the health-recovery reopen
+// queries above. 'deferred' (health hold) is deliberately excluded — that status stays exclusively owned
+// by ReopenDeferredObligationForKey(WithDue); this path can never reach a health-held row. Terminal/
+// in-flight statuses (completed, in_progress, proof_pending, verification_pending, rejected, blocked,
+// owner_missing, canceled) are excluded too — none of those are reschedulable from the mobile app. The
+// caller (Repository.RescheduleObligationByID) separately locks the row first and detaches batch_id when
+// the obligation is still attached to a 'planned' batch, mirroring DeferOpenObligationByIdempotencyKey's
+// detachPlannedBatch pattern, since a moved due date may no longer belong to that drive.
+func (q *Queries) RescheduleOpenObligationByID(ctx context.Context, arg RescheduleOpenObligationByIDParams) (string, error) {
+	row := q.db.QueryRow(ctx, rescheduleOpenObligationByID,
+		arg.DueAt,
+		arg.WindowStart,
+		arg.WindowEnd,
+		arg.TenantID,
+		arg.ObligationID,
+	)
+	var obligation_id string
+	err := row.Scan(&obligation_id)
+	return obligation_id, err
+}
+
 const reserveIdempotencyKey = `-- name: ReserveIdempotencyKey :one
 INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status)
 VALUES ($1, $2, $3, $4, 'started')

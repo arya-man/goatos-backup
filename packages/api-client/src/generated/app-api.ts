@@ -2035,6 +2035,11 @@ export interface components {
             owner: components["schemas"]["ProcessIntegrityOwner"];
             next_action: string;
             evidence_link: string;
+            /**
+             * Format: uuid
+             * @description The obligation this alert is about. Lets the mobile app target POST /app/vaccination/obligations/{obligation_id}/reschedule with a real id.
+             */
+            obligation_id: string;
         };
         ControlTowerResponse: {
             /** @enum {string} */

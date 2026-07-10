@@ -233,6 +233,7 @@ type AuthPendingEmailGrant struct {
 	LastClaimedAt              pgtype.Timestamptz
 	ClaimCount                 int64
 	Metadata                   []byte
+	DepartmentCode             pgtype.Text
 }
 
 type Breed struct {
@@ -252,6 +253,41 @@ type BreedAlias struct {
 	NormalizedAlias string
 	SourceSystem    pgtype.Text
 	CreatedAt       pgtype.Timestamptz
+}
+
+type BulkStatusJob struct {
+	BulkStatusJobID pgtype.UUID
+	TenantID        pgtype.UUID
+	ActorID         pgtype.UUID
+	Axis            string
+	Params          []byte
+	TotalRows       int32
+	AppliedRows     int32
+	SkippedRows     int32
+	FailedRows      int32
+	State           string
+	IdempotencyKey  pgtype.Text
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type BulkStatusJobRow struct {
+	BulkStatusJobRowID pgtype.UUID
+	TenantID           pgtype.UUID
+	JobID              pgtype.UUID
+	GoatID             pgtype.UUID
+	Axis               string
+	Target             string
+	Reason             pgtype.Text
+	ExpectedRowVersion pgtype.Int8
+	RowState           string
+	RetryCount         int32
+	FailureReason      pgtype.Text
+	EventID            pgtype.UUID
+	ClaimedAt          pgtype.Timestamptz
+	AppliedAt          pgtype.Timestamptz
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
 }
 
 type CalendarEventIdentity struct {
@@ -550,6 +586,28 @@ type CountsShiftingReadinessSubgate struct {
 	UpdatedAt         pgtype.Timestamptz
 }
 
+type Department struct {
+	DepartmentID pgtype.UUID
+	TenantID     pgtype.UUID
+	Code         string
+	Label        string
+	Status       string
+	CreatedAt    pgtype.Timestamptz
+}
+
+type DepartmentModuleGrant struct {
+	GrantID      pgtype.UUID
+	TenantID     pgtype.UUID
+	DepartmentID pgtype.UUID
+	Vertical     string
+	Module       string
+	Status       string
+	ValidFrom    pgtype.Timestamptz
+	ValidTo      pgtype.Timestamptz
+	CreatedBy    pgtype.UUID
+	CreatedAt    pgtype.Timestamptz
+}
+
 type DomainEventProcessedEvent struct {
 	TenantID        pgtype.UUID
 	SubscriptionID  string
@@ -634,6 +692,8 @@ type Goat struct {
 	EntryDate          pgtype.Date
 	ExitedAt           pgtype.Timestamptz
 	ExitReason         pgtype.Text
+	BreedingDate       pgtype.Date
+	LastDeliveryDate   pgtype.Date
 }
 
 type GoatCustodyHistory struct {
@@ -2073,6 +2133,7 @@ type WorkforceMember struct {
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
 	RowVersion        int32
+	DepartmentID      pgtype.UUID
 }
 
 type WorkforceMemberAppSession struct {

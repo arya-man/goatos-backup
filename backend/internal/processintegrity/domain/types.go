@@ -253,6 +253,11 @@ type ControlTowerAlert struct {
 	Owner        Owner     `json:"owner"`
 	NextAction   string    `json:"next_action"`
 	EvidenceLink string    `json:"evidence_link"`
+	// ObligationID lets the mobile app target a real obligation for the "reschedule this obligation"
+	// write path (POST /app/vaccination/obligations/{obligation_id}/reschedule). Propagated straight
+	// from Row.ObligationID, which is always populated (selected as a non-nullable oi.obligation_id
+	// column for every process-integrity category, not only vaccination).
+	ObligationID string `json:"obligation_id"`
 }
 
 type ControlTowerResponse struct {

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	obligationdomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	obligationports "github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
@@ -24,6 +26,12 @@ type fakeReader struct {
 }
 
 type fakeWriter struct {
+	rescheduleID          string
+	rescheduleReplay      bool
+	rescheduleErr         error
+	lastRescheduleTenant  string
+	lastRescheduleObl     string
+	lastRescheduleIdemKey string
 }
 
 func (f *fakeReader) VaccinationOperations(_ context.Context, q domain.OperationsQuery) (domain.OperationsResponse, error) {
@@ -47,6 +55,20 @@ func (f *fakeReader) ScanRoster(_ context.Context, q domain.ScanRosterQuery) ([]
 
 func (w *fakeWriter) ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obligationdomain.RecoveryReschedule) (string, bool, error) {
 	return "obligation-id", false, nil
+}
+
+func (w *fakeWriter) RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error) {
+	w.lastRescheduleTenant = tenantID
+	w.lastRescheduleObl = obligationID
+	w.lastRescheduleIdemKey = idempotencyKey
+	if w.rescheduleErr != nil {
+		return "", false, w.rescheduleErr
+	}
+	id := w.rescheduleID
+	if id == "" {
+		id = obligationID
+	}
+	return id, w.rescheduleReplay, nil
 }
 
 func TestListVaccinationExecutionParsesQueryAndResponds(t *testing.T) {
@@ -177,6 +199,114 @@ func TestGetShedDrilldownReturnsDetail(t *testing.T) {
 	}
 	if reader.last.Limit != 10 {
 		t.Fatalf("limit = %d want 10", reader.last.Limit)
+	}
+}
+
+const rescheduleObligationID = "70000000-0000-4000-8000-000000000001"
+
+func buildRescheduleRequest(t *testing.T, obligationID, idempotencyKey, body string) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/app/vaccination/obligations/"+obligationID+"/reschedule", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	return req
+}
+
+func TestRescheduleObligationSucceeds(t *testing.T) {
+	writer := &fakeWriter{rescheduleID: rescheduleObligationID}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{}, writer))
+
+	future := time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)
+	body := `{"due_at":"` + future + `"}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, buildRescheduleRequest(t, rescheduleObligationID, "idem-key-1", body))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	var resp rescheduleResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.ObligationID != rescheduleObligationID || resp.IdempotentReplay {
+		t.Fatalf("response = %#v", resp)
+	}
+	if writer.lastRescheduleObl != rescheduleObligationID {
+		t.Fatalf("writer obligation id = %q", writer.lastRescheduleObl)
+	}
+	if writer.lastRescheduleIdemKey != "idem-key-1" {
+		t.Fatalf("writer idempotency key = %q", writer.lastRescheduleIdemKey)
+	}
+}
+
+func TestRescheduleObligationMapsNotFoundTo404(t *testing.T) {
+	writer := &fakeWriter{rescheduleErr: obligationports.ErrNotFound}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{}, writer))
+
+	future := time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)
+	body := `{"due_at":"` + future + `"}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, buildRescheduleRequest(t, rescheduleObligationID, "idem-key-404", body))
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d want 404 body=%s", rec.Code, rec.Body.String())
+	}
+	var env errorEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&env); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if env.Code != "not_found" {
+		t.Fatalf("error code = %q want not_found", env.Code)
+	}
+}
+
+func TestRescheduleObligationMapsIdempotencyConflictTo409(t *testing.T) {
+	writer := &fakeWriter{rescheduleErr: obligationports.ErrIdempotencyConflict}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{}, writer))
+
+	future := time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)
+	body := `{"due_at":"` + future + `"}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, buildRescheduleRequest(t, rescheduleObligationID, "idem-key-409", body))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d want 409 body=%s", rec.Code, rec.Body.String())
+	}
+	var env errorEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&env); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if env.Code != "idempotency_conflict" {
+		t.Fatalf("error code = %q want idempotency_conflict", env.Code)
+	}
+}
+
+func TestRescheduleObligationValidatesRequest(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{}, &fakeWriter{}))
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, buildRescheduleRequest(t, "not-a-uuid", "idem-key", `{"due_at":"2027-01-01T00:00:00Z"}`))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid obligation_id status = %d want 400", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, buildRescheduleRequest(t, rescheduleObligationID, "idem-key", `{}`))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing due_at status = %d want 400", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, buildRescheduleRequest(t, rescheduleObligationID, "", `{"due_at":"2027-01-01T00:00:00Z"}`))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing idempotency key status = %d want 400", rec.Code)
 	}
 }
 

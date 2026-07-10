@@ -138,6 +138,7 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 			Owner:        row.Owner,
 			NextAction:   row.NextAction,
 			EvidenceLink: workflowLink(row),
+			ObligationID: row.ObligationID,
 		})
 	}
 	return domain.ControlTowerResponse{Source: domain.SourceAPI, Summary: summary, Alerts: alerts, TotalCount: result.TotalCount, NextCursor: result.NextCursor}, nil

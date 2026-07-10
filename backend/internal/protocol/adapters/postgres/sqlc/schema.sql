@@ -1111,7 +1111,8 @@ $$;
 CREATE FUNCTION public.next_goat_display_id() RETURNS text
     LANGUAGE sql
     AS $$
-  SELECT 'G-' || lpad(nextval('goat_display_id_seq')::text, 6, '0');
+  SELECT 'G-' || lpad(v::text, GREATEST(6, length(v::text)), '0')
+  FROM (SELECT nextval('goat_display_id_seq') AS v) s;
 $$;
 
 
@@ -1953,6 +1954,8 @@ CREATE TABLE public.auth_pending_email_grants (
     last_claimed_at timestamp with time zone,
     claim_count bigint DEFAULT 0 NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    department_code text,
+    CONSTRAINT auth_pending_email_grants_department_code_check CHECK (((department_code IS NULL) OR (department_code ~ '^[a-z][a-z0-9_]*$'::text))),
     CONSTRAINT auth_pending_email_grants_email_check CHECK (((normalized_email = lower(btrim(email))) AND (normalized_email <> ''::text) AND (normalized_email !~~ '%,%'::text) AND (normalized_email !~~ '% %'::text) AND (POSITION(('@'::text) IN (normalized_email)) > 1))),
     CONSTRAINT auth_pending_email_grants_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'park_head'::text, 'pc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text]))),
     CONSTRAINT auth_pending_email_grants_scope_check CHECK (((scope_type = 'tenant'::text) AND (scope_id = tenant_id))),
@@ -1988,6 +1991,55 @@ CREATE TABLE public.breeds (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT breeds_status_check CHECK ((status = ANY (ARRAY['active'::text, 'review'::text, 'inactive'::text])))
+);
+
+
+--
+-- Name: bulk_status_job; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.bulk_status_job (
+    bulk_status_job_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    actor_id uuid,
+    axis text NOT NULL,
+    params jsonb DEFAULT '{}'::jsonb NOT NULL,
+    total_rows integer DEFAULT 0 NOT NULL,
+    applied_rows integer DEFAULT 0 NOT NULL,
+    skipped_rows integer DEFAULT 0 NOT NULL,
+    failed_rows integer DEFAULT 0 NOT NULL,
+    state text DEFAULT 'pending'::text NOT NULL,
+    idempotency_key text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT bulk_status_job_axis_check CHECK ((axis = ANY (ARRAY['reproductive'::text, 'health'::text, 'exit'::text]))),
+    CONSTRAINT bulk_status_job_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text, 'canceled'::text])))
+);
+
+
+--
+-- Name: bulk_status_job_row; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.bulk_status_job_row (
+    bulk_status_job_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    job_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    axis text NOT NULL,
+    target text NOT NULL,
+    reason text,
+    expected_row_version bigint,
+    row_state text DEFAULT 'pending'::text NOT NULL,
+    retry_count integer DEFAULT 0 NOT NULL,
+    failure_reason text,
+    event_id uuid,
+    claimed_at timestamp with time zone,
+    applied_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT bulk_status_job_row_axis_check CHECK ((axis = ANY (ARRAY['reproductive'::text, 'health'::text, 'exit'::text]))),
+    CONSTRAINT bulk_status_job_row_state_check CHECK ((row_state = ANY (ARRAY['pending'::text, 'claimed'::text, 'applied'::text, 'skipped'::text, 'error'::text, 'retry'::text])))
 );
 
 
@@ -2439,6 +2491,45 @@ CREATE TABLE public.counts_shifting_readiness_subgates (
 
 
 --
+-- Name: department_module_grants; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.department_module_grants (
+    grant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    department_id uuid NOT NULL,
+    vertical text NOT NULL,
+    module text NOT NULL,
+    status text NOT NULL,
+    valid_from timestamp with time zone DEFAULT now() NOT NULL,
+    valid_to timestamp with time zone,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT department_module_grants_module_check CHECK ((module ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'::text)),
+    CONSTRAINT department_module_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'revoked'::text]))),
+    CONSTRAINT department_module_grants_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from))),
+    CONSTRAINT department_module_grants_vertical_check CHECK ((vertical ~ '^[a-z][a-z0-9_]*$'::text))
+);
+
+
+--
+-- Name: departments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.departments (
+    department_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    code text NOT NULL,
+    label text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT departments_code_check CHECK ((code ~ '^[a-z][a-z0-9_]*$'::text)),
+    CONSTRAINT departments_label_check CHECK ((btrim(label) <> ''::text)),
+    CONSTRAINT departments_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))
+);
+
+
+--
 -- Name: domain_event_processed_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2805,6 +2896,8 @@ CREATE TABLE public.goats (
     entry_date date,
     exited_at timestamp with time zone,
     exit_reason text,
+    breeding_date date,
+    last_delivery_date date,
     CONSTRAINT goats_display_id_format_check CHECK ((display_id ~ '^G-[0-9]{6,}$'::text)),
     CONSTRAINT goats_exit_reason_check CHECK (((exit_reason IS NULL) OR (exit_reason = ANY (ARRAY['sold'::text, 'died'::text, 'culled'::text, 'transferred'::text, 'lost'::text])))),
     CONSTRAINT goats_exited_lifecycle_check CHECK (((exited_at IS NULL) OR (lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])))),
@@ -3044,7 +3137,7 @@ CREATE TABLE public.identity_decisions (
     CONSTRAINT identity_decisions_confidence_check CHECK (((confidence IS NULL) OR ((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))),
     CONSTRAINT identity_decisions_decided_by_type_check CHECK ((decided_by_type = ANY (ARRAY['human'::text, 'system_rule'::text, 'import_policy'::text, 'ai_proposal'::text]))),
     CONSTRAINT identity_decisions_decision_state_check CHECK ((decision_state = ANY (ARRAY['proposed'::text, 'approved'::text, 'rejected'::text, 'needs_review'::text]))),
-    CONSTRAINT identity_decisions_decision_type_check CHECK ((decision_type = ANY (ARRAY['create_goat'::text, 'attach_identifier'::text, 'retire_identifier'::text, 'mark_identifier_disputed'::text, 'merge_goats'::text, 'batch_merge_goats'::text, 'reject_match'::text, 'request_field_verification'::text, 'resolve_correction_request'::text, 'move_goat'::text, 'exit_goat'::text, 'stage_goat'::text, 'health_goat'::text])))
+    CONSTRAINT identity_decisions_decision_type_check CHECK ((decision_type = ANY (ARRAY['create_goat'::text, 'attach_identifier'::text, 'retire_identifier'::text, 'mark_identifier_disputed'::text, 'merge_goats'::text, 'batch_merge_goats'::text, 'reject_match'::text, 'request_field_verification'::text, 'resolve_correction_request'::text, 'move_goat'::text, 'exit_goat'::text, 'stage_goat'::text, 'health_goat'::text, 'reproductive_goat'::text])))
 );
 
 
@@ -4798,6 +4891,7 @@ CREATE TABLE public.workforce_members (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
+    department_id uuid,
     CONSTRAINT workforce_members_display_code_check CHECK ((btrim(display_code) <> ''::text)),
     CONSTRAINT workforce_members_display_name_check CHECK ((btrim(display_name) <> ''::text)),
     CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'pc_director'::text, 'verifier'::text, 'supervisor'::text, 'admin'::text, 'other'::text]))),
@@ -5137,6 +5231,30 @@ ALTER TABLE ONLY public.breeds
 
 
 --
+-- Name: bulk_status_job bulk_status_job_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bulk_status_job
+    ADD CONSTRAINT bulk_status_job_pkey PRIMARY KEY (bulk_status_job_id);
+
+
+--
+-- Name: bulk_status_job_row bulk_status_job_row_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bulk_status_job_row
+    ADD CONSTRAINT bulk_status_job_row_pkey PRIMARY KEY (bulk_status_job_row_id);
+
+
+--
+-- Name: bulk_status_job_row bulk_status_job_row_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bulk_status_job_row
+    ADD CONSTRAINT bulk_status_job_row_unique UNIQUE (job_id, goat_id, axis);
+
+
+--
 -- Name: calendar_event_identities calendar_event_identities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5254,6 +5372,30 @@ ALTER TABLE ONLY public.counts_shifting_readiness_evidence
 
 ALTER TABLE ONLY public.counts_shifting_readiness_subgates
     ADD CONSTRAINT counts_shifting_readiness_subgates_pkey PRIMARY KEY (tenant_id, subgate_id);
+
+
+--
+-- Name: department_module_grants department_module_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.department_module_grants
+    ADD CONSTRAINT department_module_grants_pkey PRIMARY KEY (grant_id);
+
+
+--
+-- Name: departments departments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.departments
+    ADD CONSTRAINT departments_pkey PRIMARY KEY (department_id);
+
+
+--
+-- Name: departments departments_tenant_department_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.departments
+    ADD CONSTRAINT departments_tenant_department_key UNIQUE (tenant_id, department_id);
 
 
 --
@@ -7042,6 +7184,27 @@ CREATE INDEX auth_pending_email_grants_lookup_idx ON public.auth_pending_email_g
 
 
 --
+-- Name: bulk_status_job_row_claim_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX bulk_status_job_row_claim_idx ON public.bulk_status_job_row USING btree (tenant_id, job_id) WHERE (row_state = ANY (ARRAY['pending'::text, 'retry'::text, 'claimed'::text]));
+
+
+--
+-- Name: bulk_status_job_row_job_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX bulk_status_job_row_job_idx ON public.bulk_status_job_row USING btree (job_id);
+
+
+--
+-- Name: bulk_status_job_tenant_idem_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX bulk_status_job_tenant_idem_idx ON public.bulk_status_job USING btree (tenant_id, idempotency_key) WHERE (idempotency_key IS NOT NULL);
+
+
+--
 -- Name: calendar_event_projections_closed_prune_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7340,6 +7503,27 @@ CREATE INDEX counts_shifting_readiness_evidence_subgate_idx ON public.counts_shi
 --
 
 CREATE INDEX counts_shifting_readiness_status_idx ON public.counts_shifting_readiness_subgates USING btree (tenant_id, status, updated_at DESC);
+
+
+--
+-- Name: department_module_grants_active_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX department_module_grants_active_unique ON public.department_module_grants USING btree (tenant_id, department_id, module) WHERE (status = 'active'::text);
+
+
+--
+-- Name: department_module_grants_dept_active_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX department_module_grants_dept_active_idx ON public.department_module_grants USING btree (tenant_id, department_id, status);
+
+
+--
+-- Name: departments_tenant_code_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX departments_tenant_code_unique ON public.departments USING btree (tenant_id, code);
 
 
 --
@@ -9219,6 +9403,13 @@ CREATE UNIQUE INDEX workforce_members_code_unique_idx ON public.workforce_member
 
 
 --
+-- Name: workforce_members_department_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_members_department_idx ON public.workforce_members USING btree (tenant_id, department_id);
+
+
+--
 -- Name: workforce_members_location_status_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10220,6 +10411,20 @@ CREATE CONSTRAINT TRIGGER admin_ui_config_family_change_queue_flush_trg AFTER IN
 
 
 --
+-- Name: department_module_grants admin_ui_department_module_grants_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_department_module_grants_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.department_module_grants FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('permissions');
+
+
+--
+-- Name: departments admin_ui_departments_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_departments_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.departments FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('permissions');
+
+
+--
 -- Name: inventory_items admin_ui_inventory_feed_items_revision_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -10294,6 +10499,13 @@ CREATE TRIGGER admin_ui_status_definitions_revision_trg AFTER INSERT OR DELETE O
 --
 
 CREATE TRIGGER admin_ui_user_scope_grants_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.user_scope_grants FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('permissions');
+
+
+--
+-- Name: workforce_members admin_ui_workforce_members_department_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_workforce_members_department_revision_trg AFTER INSERT OR DELETE OR UPDATE OF department_id ON public.workforce_members FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('permissions');
 
 
 --
@@ -10662,6 +10874,14 @@ ALTER TABLE ONLY public.auth_pending_email_grants
 
 ALTER TABLE ONLY public.breed_aliases
     ADD CONSTRAINT breed_aliases_breed_id_fkey FOREIGN KEY (breed_id) REFERENCES public.breeds(breed_id);
+
+
+--
+-- Name: bulk_status_job_row bulk_status_job_row_job_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bulk_status_job_row
+    ADD CONSTRAINT bulk_status_job_row_job_id_fkey FOREIGN KEY (job_id) REFERENCES public.bulk_status_job(bulk_status_job_id) ON DELETE CASCADE;
 
 
 --
@@ -11062,6 +11282,30 @@ ALTER TABLE ONLY public.counts_shifting_readiness_evidence
 
 ALTER TABLE ONLY public.counts_shifting_readiness_subgates
     ADD CONSTRAINT counts_shifting_readiness_subgates_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: department_module_grants department_module_grants_department_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.department_module_grants
+    ADD CONSTRAINT department_module_grants_department_tenant_fk FOREIGN KEY (tenant_id, department_id) REFERENCES public.departments(tenant_id, department_id);
+
+
+--
+-- Name: department_module_grants department_module_grants_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.department_module_grants
+    ADD CONSTRAINT department_module_grants_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: departments departments_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.departments
+    ADD CONSTRAINT departments_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -13254,6 +13498,14 @@ ALTER TABLE ONLY public.workforce_member_devices
 
 ALTER TABLE ONLY public.workforce_member_devices
     ADD CONSTRAINT workforce_member_devices_workforce_member_id_fkey FOREIGN KEY (workforce_member_id) REFERENCES public.workforce_members(workforce_member_id);
+
+
+--
+-- Name: workforce_members workforce_members_department_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_members
+    ADD CONSTRAINT workforce_members_department_tenant_fk FOREIGN KEY (tenant_id, department_id) REFERENCES public.departments(tenant_id, department_id);
 
 
 --

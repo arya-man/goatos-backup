@@ -12,6 +12,11 @@ import (
 // ErrNotFound is returned when a requested obligation row does not exist.
 var ErrNotFound = errors.New("obligation: not found")
 
+// ErrIdempotencyConflict is returned when a client-supplied Idempotency-Key is replayed with a
+// different request payload than the one it was first reserved with (mirrors procurement's
+// ports.ErrIdempotencyConflict for the same shared idempotency_keys contract).
+var ErrIdempotencyConflict = errors.New("obligation: idempotency key reused with different payload")
+
 // Repository is the persistence boundary for the obligation (due-state) layer. Implementations
 // wrap generated sqlc queries; no hand-written SQL leaks above this interface.
 type Repository interface {
