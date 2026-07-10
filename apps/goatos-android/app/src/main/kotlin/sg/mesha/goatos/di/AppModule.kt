@@ -23,6 +23,8 @@ import sg.mesha.goatos.core.data.DefaultExecutionRepository
 import sg.mesha.goatos.core.data.DefaultTasksRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.GoatDatabase
+import sg.mesha.goatos.core.data.DefaultRosterRepository
+import sg.mesha.goatos.core.data.RosterRepository
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.buildGoatDatabase
 import sg.mesha.goatos.core.datastore.DataStoreDeviceStore
@@ -114,4 +116,8 @@ object AppModule {
     @Provides
     @Singleton
     fun provideAdherenceRepository(api: AppApi): AdherenceRepository = DefaultAdherenceRepository(api)
+
+    @Provides
+    @Singleton
+    fun provideRosterRepository(api: AppApi): RosterRepository = DefaultRosterRepository(api)
 }

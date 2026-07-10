@@ -46,6 +46,7 @@ include(":feature:feature-submit")
 include(":feature:feature-leadership")
 include(":feature:feature-record")
 include(":feature:feature-profile")
+include(":feature:feature-timetable")
 
 // --- device (vendor SDKs live ONLY here, behind ports; each ships a fake) ---
 include(":device:device-rfid")

@@ -55,7 +55,7 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 
 /** The kind drives both the leading glyph and which ProfileEvent a row emits. */
-enum class SettingKind { LANGUAGE, RFID, NOTIFICATIONS, SIGN_OUT }
+enum class SettingKind { LANGUAGE, RFID, NOTIFICATIONS, TIMETABLE, SIGN_OUT }
 
 /**
  * One backend-surfaced settings entry. Whether a row is present at all is the
@@ -95,6 +95,8 @@ sealed interface ProfileEvent {
     data object OpenLanguage : ProfileEvent
     data object PairRfid : ProfileEvent
     data object ToggleNotifications : ProfileEvent
+    /** Opens the read-only HRMS Timetable (shift roster) mirror — screens.md/docs/mobile. */
+    data object OpenTimetable : ProfileEvent
     data object SignOut : ProfileEvent
 }
 
@@ -102,6 +104,7 @@ private fun eventFor(kind: SettingKind): ProfileEvent = when (kind) {
     SettingKind.LANGUAGE -> ProfileEvent.OpenLanguage
     SettingKind.RFID -> ProfileEvent.PairRfid
     SettingKind.NOTIFICATIONS -> ProfileEvent.ToggleNotifications
+    SettingKind.TIMETABLE -> ProfileEvent.OpenTimetable
     SettingKind.SIGN_OUT -> ProfileEvent.SignOut
 }
 
@@ -109,6 +112,7 @@ private fun iconFor(kind: SettingKind): ImageVector = when (kind) {
     SettingKind.LANGUAGE -> MeshaIcons.Globe
     SettingKind.RFID -> MeshaIcons.Bluetooth
     SettingKind.NOTIFICATIONS -> MeshaIcons.Bell
+    SettingKind.TIMETABLE -> MeshaIcons.Clock
     SettingKind.SIGN_OUT -> MeshaIcons.Logout
 }
 
@@ -338,6 +342,11 @@ private fun ProfileScreenPreview() {
                         title = "Notifications",
                         subtitle = "Drive reminders · overdue alerts",
                         toggleOn = true,
+                    ),
+                    SettingRow(
+                        kind = SettingKind.TIMETABLE,
+                        title = "Timetable",
+                        subtitle = "Shift roster (read-only)",
                     ),
                     SettingRow(
                         kind = SettingKind.SIGN_OUT,

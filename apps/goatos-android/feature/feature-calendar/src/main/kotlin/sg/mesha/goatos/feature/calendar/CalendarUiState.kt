@@ -1,6 +1,7 @@
 package sg.mesha.goatos.feature.calendar
 
 import androidx.compose.runtime.Immutable
+import sg.mesha.goatos.core.ui.CoverageBannerUiState
 
 /**
  * Calendar screen state (TRD §14 dumb-renderer). Every visible label, status,
@@ -92,6 +93,10 @@ data class CalendarUiState(
     val title: String = "",
     val selectedDateLabel: String = "",
     val windowLabel: String? = null,
+    /** HRMS coverage banner (docs/hr/roster-rbac-design.md S4.6/S4.8) — non-null only
+     *  while the principal holds an active ad-hoc-leave/week-off coverage window for
+     *  another position. Null hides the banner entirely (CoverageBanner renders nothing). */
+    val coverageBanner: CoverageBannerUiState? = null,
     val segments: List<CalendarSegment> = emptyList(),
     val selectedSegmentId: String = "",
     // WEEK

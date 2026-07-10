@@ -8,15 +8,18 @@ import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.OwnedModule
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.PositionListResponseDto
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
+import sg.mesha.goatos.core.network.dto.StaffLeaveListResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
+import sg.mesha.goatos.core.network.dto.VaccinationOwnerResponseDto
 
 // Wire DTOs for the nav slice of GET /app/bootstrap. The response (BootstrapResponse)
 // carries many more fields; with ignoreUnknownKeys the client only binds the ones it
@@ -210,6 +213,39 @@ interface AppApi {
         idempotencyKey: String,
         request: RescheduleObligationRequestDto,
     ): RescheduleObligationResponseDto
+
+    /** GET /admin/roster/positions — fixed operational position seats (Timetable screen;
+     *  design doc docs/hr/roster-rbac-design.md). Mobile is READ-ONLY for HRMS: no
+     *  create/reassign call is exposed here — all roster CRUD stays web-only (TRD §14). */
+    suspend fun listStaffPositions(
+        workforceMemberId: String? = null,
+        scopeType: String? = null,
+        scopeId: String? = null,
+        positionCode: String? = null,
+        status: String? = null,
+        limit: Int? = null,
+    ): PositionListResponseDto
+
+    /** GET /admin/roster/leave — staff leave/absence rows. Read-only; used to resolve a
+     *  coverage window's end date (CoverageBanner "until <date>") from `ends_at` on the
+     *  approved leave whose `replacement_member_id` matches the covering principal. */
+    suspend fun listStaffLeave(
+        workforceMemberId: String? = null,
+        scopeType: String? = null,
+        scopeId: String? = null,
+        status: String? = null,
+        limit: Int? = null,
+    ): StaffLeaveListResponseDto
+
+    /** GET /admin/roster/vaccination-owner — resolves who owns vaccination work for a
+     *  scope on a date (design doc S4.8). Drives the coverage banner: the app renders
+     *  the resolved [sg.mesha.goatos.core.network.dto.VaccinationOwnerDto] fields, it
+     *  never re-derives ownership itself. */
+    suspend fun getVaccinationOwner(
+        scopeType: String,
+        scopeId: String,
+        date: String,
+    ): VaccinationOwnerResponseDto
 }
 
 /**
@@ -304,6 +340,29 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         idempotencyKey: String,
         request: RescheduleObligationRequestDto,
     ): RescheduleObligationResponseDto = RescheduleObligationResponseDto(obligationId = obligationId, idempotentReplay = false)
+
+    override suspend fun listStaffPositions(
+        workforceMemberId: String?,
+        scopeType: String?,
+        scopeId: String?,
+        positionCode: String?,
+        status: String?,
+        limit: Int?,
+    ): PositionListResponseDto = PositionListResponseDto()
+
+    override suspend fun listStaffLeave(
+        workforceMemberId: String?,
+        scopeType: String?,
+        scopeId: String?,
+        status: String?,
+        limit: Int?,
+    ): StaffLeaveListResponseDto = StaffLeaveListResponseDto()
+
+    override suspend fun getVaccinationOwner(
+        scopeType: String,
+        scopeId: String,
+        date: String,
+    ): VaccinationOwnerResponseDto = VaccinationOwnerResponseDto()
 }
 
 /**

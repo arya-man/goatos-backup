@@ -43,6 +43,10 @@ import sg.mesha.goatos.feature.sheds.ShedStatus
 import sg.mesha.goatos.feature.sheds.ShedsUiState
 import sg.mesha.goatos.feature.submit.SubmitUiState
 import sg.mesha.goatos.feature.submit.SyncState
+import sg.mesha.goatos.feature.timetable.PositionTier
+import sg.mesha.goatos.feature.timetable.TimetableRow
+import sg.mesha.goatos.feature.timetable.TimetableUiState
+import sg.mesha.goatos.core.ui.CoverageBannerUiState
 
 // Interim sample states so the nav host renders the real screens end-to-end. Each
 // screen's ViewModel will replace these with live /app/bootstrap-driven data — the
@@ -304,6 +308,7 @@ fun sampleProfileState(): ProfileUiState = ProfileUiState(
         SettingRow(SettingKind.LANGUAGE, "Language", value = "English"),
         SettingRow(SettingKind.RFID, "RFID reader", subtitle = "Chainway R3", value = "Paired", valueEmphasis = true),
         SettingRow(SettingKind.NOTIFICATIONS, "Notifications", toggleOn = true),
+        SettingRow(SettingKind.TIMETABLE, "Timetable", subtitle = "Shift roster (read-only)"),
         SettingRow(SettingKind.SIGN_OUT, "Sign out"),
     ),
 )
@@ -427,3 +432,52 @@ fun overduePlaceholder(message: String): OverdueUiState =
         sectionTitle = message,
         rows = emptyList(),
     )
+
+// Timetable (HRMS shift roster, docs/hr/roster-rbac-design.md) — mirrors the mock's People ->
+// Timetable rows (mock/goatos-dashboard-mock.html data-sub="timetable"), minus the fields the
+// Position contract does not expose yet (holder display name, shift time) — see
+// TimetableViewModel's KDoc for the gap write-up.
+fun sampleTimetableState(): TimetableUiState = TimetableUiState(
+    title = "Timetable",
+    subtitle = "Shift roster — the operational source for who executes each day.",
+    rows = listOf(
+        TimetableRow(
+            id = "p1",
+            positionLabel = "Feeding AM1",
+            tier = PositionTier.ASSISTANT,
+            holderId = "b7e1f2a0",
+            weekOffLabel = "Mon",
+            backupLabel = "Backup AM1",
+            statusLabel = "Active",
+            isActive = true,
+        ),
+        TimetableRow(
+            id = "p2",
+            positionLabel = "Health/Kidding AM1",
+            tier = PositionTier.ASSISTANT,
+            holderId = "4c109dd3",
+            weekOffLabel = "Wed",
+            backupLabel = "Backup AM2",
+            statusLabel = "Active",
+            isActive = true,
+        ),
+        TimetableRow(
+            id = "p3",
+            positionLabel = "Preventive Care Manager",
+            tier = PositionTier.MANAGER,
+            holderId = null,
+            weekOffLabel = "—",
+            backupLabel = "Backup Manager",
+            statusLabel = "Active",
+            isActive = true,
+        ),
+    ),
+    emptyLabel = "No positions configured",
+)
+
+// Calendar + coverage banner demo state — a separate sample (not folded into
+// sampleCalendarState()) so the existing "calendar" Paparazzi golden is untouched; only the
+// dedicated "calendar_coverage_banner" test uses this one.
+fun sampleCalendarWithCoverageState(): CalendarUiState = sampleCalendarState().copy(
+    coverageBanner = CoverageBannerUiState(text = "Covering Vaccination until Fri 11 Jul"),
+)

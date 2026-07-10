@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
+import sg.mesha.goatos.core.ui.CoverageBanner
 
 /**
  * Calendar — the universal landing for every role (screens.md). Renders the
@@ -61,6 +62,12 @@ fun CalendarScreen(
             .padding(horizontal = Gutter),
     ) {
         item { CalendarHeader(state, onEvent) }
+        if (state.coverageBanner != null) {
+            item {
+                CoverageBanner(state = state.coverageBanner, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.size(10.dp))
+            }
+        }
         if (state.segments.isNotEmpty()) {
             item {
                 SegmentedControl(

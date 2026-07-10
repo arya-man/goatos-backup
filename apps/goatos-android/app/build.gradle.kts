@@ -73,6 +73,8 @@ dependencies {
     implementation(project(":core:core-common"))
     implementation(project(":core:core-network"))
     implementation(project(":core:core-data"))
+    // CoverageBannerUiState (shared across feature-calendar + :app's CoverageBannerViewModel).
+    implementation(project(":core:core-ui"))
     // Calendar event `links` arrive as Map<String, JsonElement> from core-network's DTO;
     // the ViewModel reads route hrefs off them via jsonPrimitive/contentOrNull.
     implementation(libs.kotlinx.serialization.json)
@@ -85,6 +87,7 @@ dependencies {
     implementation(project(":feature:feature-leadership"))
     implementation(project(":feature:feature-record"))
     implementation(project(":feature:feature-profile"))
+    implementation(project(":feature:feature-timetable"))
 
     implementation(libs.hilt.android)
     implementation(libs.hilt.navigation.compose)

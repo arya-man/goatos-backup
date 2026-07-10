@@ -38,8 +38,10 @@ import sg.mesha.goatos.feature.sheds.ShedStatus
 import sg.mesha.goatos.feature.sheds.ShedsEvent
 import sg.mesha.goatos.feature.sheds.ShedsScreen
 import sg.mesha.goatos.feature.submit.SubmitScreen
+import sg.mesha.goatos.feature.timetable.TimetableScreen
 import sg.mesha.goatos.viewmodel.AlertsViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
+import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
 import sg.mesha.goatos.viewmodel.LeadershipViewModel
 import sg.mesha.goatos.viewmodel.OverdueViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
@@ -49,6 +51,7 @@ import sg.mesha.goatos.viewmodel.RfidViewModel
 import sg.mesha.goatos.viewmodel.ScanViewModel
 import sg.mesha.goatos.viewmodel.ShedsViewModel
 import sg.mesha.goatos.viewmodel.SubmitViewModel
+import sg.mesha.goatos.viewmodel.TimetableViewModel
 
 // Route ids. The backend nav item hrefs map onto these; unknown hrefs fall through
 // to a placeholder rather than crashing (robust static graph).
@@ -64,6 +67,9 @@ object Routes {
     const val YOU = "you"
     const val RFID = "/rfid"
     const val ALERTS = "/alerts"
+    /** Read-only HRMS shift roster mirror (docs/hr/roster-rbac-design.md) — TRD §14: mobile
+     *  never writes positions/leave/backups, all CRUD stays web-only. */
+    const val TIMETABLE = "/timetable"
     const val START = CALENDAR
 
     /** Optional shed-id arg on the record route so a tapped shed opens ITS record. */
@@ -136,8 +142,15 @@ fun AppNavHost(
         composable(Routes.CALENDAR) {
             val vm: CalendarViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            // Coverage banner (docs/hr/roster-rbac-design.md S4.6/S4.8) is resolved by a
+            // separate small VM and merged into CalendarUiState at this call site — see
+            // CoverageBannerViewModel's KDoc for why `load(...)` is not called yet (no bootstrap
+            // field carries the principal's HR workforce_member_id/scope_id today), so the
+            // banner stays hidden until that identity bridge exists.
+            val coverageVm: CoverageBannerViewModel = hiltViewModel()
+            val coverageState by coverageVm.state.collectAsStateWithLifecycle()
             CalendarScreen(
-                state = state,
+                state = state.copy(coverageBanner = coverageState),
                 onEvent = { event ->
                     when (event) {
                         is CalendarEvent.TapItem -> {
@@ -335,6 +348,8 @@ fun AppNavHost(
                             navController.navigate(Routes.RFID) { launchSingleTop = true }
                         ProfileEvent.ToggleNotifications ->
                             navController.navigate(Routes.ALERTS) { launchSingleTop = true }
+                        ProfileEvent.OpenTimetable ->
+                            navController.navigate(Routes.TIMETABLE) { launchSingleTop = true }
                         ProfileEvent.OpenLanguage -> showLanguage = true
                         ProfileEvent.SignOut -> vm.signOut()
                     }
@@ -362,6 +377,14 @@ fun AppNavHost(
             val vm: AlertsViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             AlertsScreen(state = state, onEvent = vm::onEvent)
+        }
+
+        // Timetable — read-only HRMS shift roster mirror; Back pops via system back (no
+        // explicit Back event, matching the RFID/Alerts routes' pattern).
+        composable(Routes.TIMETABLE) {
+            val vm: TimetableViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            TimetableScreen(state = state, onEvent = vm::onEvent)
         }
     }
 }

@@ -38,10 +38,14 @@ class RealBackendLinkTest {
             val calendar = api.listCalendarVaccinationEvents()
             assertTrue("calendar source should be api", calendar.source == "api")
 
+            // HRMS roster (Timetable + coverage banner) — read-only GETs only (TRD §14).
+            val positions = api.listStaffPositions()
+            assertTrue("positions trace_id should be present", positions.traceId.isNotBlank())
+
             println(
                 "MOBILE↔BACKEND LINK OK — nav_chrome=${boot.navChrome} " +
                     "execRows=${execution.rows.size} ctAlerts=${controlTower.alerts.size} " +
-                    "calendarEvents=${calendar.items.size}",
+                    "calendarEvents=${calendar.items.size} positions=${positions.items.size}",
             )
         }
     }

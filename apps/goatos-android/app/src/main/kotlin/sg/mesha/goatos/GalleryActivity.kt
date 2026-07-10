@@ -23,8 +23,10 @@ import sg.mesha.goatos.feature.record.RecordScreen
 import sg.mesha.goatos.feature.sheds.ShedsScreen
 import sg.mesha.goatos.feature.submit.SubmitScreen
 import sg.mesha.goatos.feature.scan.ScanScreen
+import sg.mesha.goatos.feature.timetable.TimetableScreen
 import sg.mesha.goatos.ui.sampleAlertsState
 import sg.mesha.goatos.ui.sampleCalendarState
+import sg.mesha.goatos.ui.sampleCalendarWithCoverageState
 import sg.mesha.goatos.ui.sampleLeadershipState
 import sg.mesha.goatos.ui.sampleOverdueState
 import sg.mesha.goatos.ui.sampleProfileState
@@ -34,6 +36,7 @@ import sg.mesha.goatos.ui.sampleRfidState
 import sg.mesha.goatos.ui.sampleScanState
 import sg.mesha.goatos.ui.sampleShedsState
 import sg.mesha.goatos.ui.sampleSubmitState
+import sg.mesha.goatos.ui.sampleTimetableState
 
 /**
  * DEV-ONLY screenshot harness. Renders any single screen with its mock-matching sample
@@ -43,7 +46,8 @@ import sg.mesha.goatos.ui.sampleSubmitState
  *
  *   adb shell am start -n sg.mesha.goatos.dev/sg.mesha.goatos.GalleryActivity -e screen calendar
  *
- * screen ∈ login|calendar|sheds|scan|submit|overview|record|rfid|alerts|you|overdue|reschedule
+ * screen ∈ login|calendar|calendar_coverage|sheds|scan|submit|overview|record|rfid|alerts|
+ *   you|overdue|reschedule|timetable
  */
 class GalleryActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,6 +67,7 @@ class GalleryActivity : ComponentActivity() {
                     when (screen) {
                         "login" -> LoginScreen(onSignIn = {})
                         "calendar" -> CalendarScreen(state = sampleCalendarState())
+                        "calendar_coverage" -> CalendarScreen(state = sampleCalendarWithCoverageState())
                         "sheds" -> ShedsScreen(state = sampleShedsState())
                         "scan" -> ScanScreen(state = sampleScanState())
                         "submit" -> SubmitScreen(state = sampleSubmitState())
@@ -73,6 +78,7 @@ class GalleryActivity : ComponentActivity() {
                         "you", "profile" -> ProfileScreen(state = sampleProfileState())
                         "overdue" -> OverdueScreen(state = sampleOverdueState())
                         "reschedule" -> RescheduleScreen(state = sampleRescheduleState())
+                        "timetable" -> TimetableScreen(state = sampleTimetableState())
                         else -> Text("unknown screen: $screen", color = Color.White)
                     }
                 }

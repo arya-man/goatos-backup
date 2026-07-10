@@ -22,6 +22,7 @@ import sg.mesha.goatos.feature.record.RecordScreen
 import sg.mesha.goatos.feature.sheds.ShedsScreen
 import sg.mesha.goatos.feature.submit.SubmitScreen
 import sg.mesha.goatos.feature.scan.ScanScreen
+import sg.mesha.goatos.feature.timetable.TimetableScreen
 
 /**
  * Screenshot tests for every screen in the gallery (item 7). Each test renders the EXACT same
@@ -89,4 +90,12 @@ class ScreenshotTest {
 
     @Test
     fun reschedule() = shot("reschedule") { RescheduleScreen(state = sampleRescheduleState()) }
+
+    @Test
+    fun timetable() = shot("timetable") { TimetableScreen(state = sampleTimetableState()) }
+
+    @Test
+    fun calendar_coverage_banner() = shot("calendar_coverage_banner") {
+        CalendarScreen(state = sampleCalendarWithCoverageState())
+    }
 }
