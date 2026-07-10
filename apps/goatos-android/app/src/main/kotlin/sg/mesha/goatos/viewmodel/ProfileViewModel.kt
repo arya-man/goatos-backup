@@ -108,6 +108,10 @@ class ProfileViewModel @Inject constructor(
         // Mock renders Notifications as a chevron row (opens notification settings), not a
         // toggle switch — keep the row a plain navigable entry.
         SettingRow(SettingKind.NOTIFICATIONS, "Notifications"),
+        // Read-only HRMS shift roster mirror (docs/hr/roster-rbac-design.md) — the route +
+        // handler already existed (AppNavHost Routes.TIMETABLE); this row was missing so the
+        // screen was unreachable from You/Settings (maintainer review finding).
+        SettingRow(SettingKind.TIMETABLE, "Timetable", subtitle = "Shift roster (read-only)"),
         SettingRow(SettingKind.SIGN_OUT, "Sign out"),
     )
 

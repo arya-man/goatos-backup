@@ -143,10 +143,10 @@ fun AppNavHost(
             val vm: CalendarViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             // Coverage banner (docs/hr/roster-rbac-design.md S4.6/S4.8) is resolved by a
-            // separate small VM and merged into CalendarUiState at this call site — see
-            // CoverageBannerViewModel's KDoc for why `load(...)` is not called yet (no bootstrap
-            // field carries the principal's HR workforce_member_id/scope_id today), so the
-            // banner stays hidden until that identity bridge exists.
+            // separate small VM and merged into CalendarUiState at this call site. The VM
+            // self-loads via GET /app/roster/my-coverage (no scope/identity params needed —
+            // the backend resolves the authenticated principal's own coverage) and stays
+            // hidden whenever has_coverage is false.
             val coverageVm: CoverageBannerViewModel = hiltViewModel()
             val coverageState by coverageVm.state.collectAsStateWithLifecycle()
             CalendarScreen(

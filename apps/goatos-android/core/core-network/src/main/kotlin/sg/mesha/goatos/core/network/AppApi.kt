@@ -8,18 +8,17 @@ import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.OwnedModule
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
-import sg.mesha.goatos.core.network.dto.PositionListResponseDto
+import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
+import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
-import sg.mesha.goatos.core.network.dto.StaffLeaveListResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
-import sg.mesha.goatos.core.network.dto.VaccinationOwnerResponseDto
 
 // Wire DTOs for the nav slice of GET /app/bootstrap. The response (BootstrapResponse)
 // carries many more fields; with ignoreUnknownKeys the client only binds the ones it
@@ -108,7 +107,10 @@ data class BootstrapActorDto(
     @SerialName("tenant_id") val tenantId: String = "",
 )
 
-/** Operator profile slice the shell shows (OperatorProfile). Fields the UI needs only. */
+/** Operator profile slice the shell shows (OperatorProfile). Fields the UI needs only.
+ *  [primaryLocationId] is the operator's HR center scope id — the `center_id` the
+ *  Timetable screen passes to `GET /app/roster/timetable` (distinct from
+ *  [primaryLocation], the display label). */
 @Serializable
 data class BootstrapOperatorProfileDto(
     @SerialName("operator_id") val operatorId: String = "",
@@ -116,6 +118,7 @@ data class BootstrapOperatorProfileDto(
     @SerialName("display_name") val displayName: String = "",
     @SerialName("status") val status: String = "",
     @SerialName("primary_role_hint") val primaryRoleHint: String = "",
+    @SerialName("primary_location_id") val primaryLocationId: String? = null,
     @SerialName("primary_location") val primaryLocation: String? = null,
 )
 
@@ -214,38 +217,21 @@ interface AppApi {
         request: RescheduleObligationRequestDto,
     ): RescheduleObligationResponseDto
 
-    /** GET /admin/roster/positions — fixed operational position seats (Timetable screen;
-     *  design doc docs/hr/roster-rbac-design.md). Mobile is READ-ONLY for HRMS: no
-     *  create/reassign call is exposed here — all roster CRUD stays web-only (TRD §14). */
-    suspend fun listStaffPositions(
-        workforceMemberId: String? = null,
-        scopeType: String? = null,
-        scopeId: String? = null,
-        positionCode: String? = null,
-        status: String? = null,
+    /** GET /app/roster/timetable — the operator's center's enriched position list
+     *  (Timetable screen; design doc docs/hr/roster-rbac-design.md). Operator-scoped —
+     *  mobile never reads the admin `/admin/roster` surface (RosterRead-gated, 403s
+     *  for operators). Mobile is READ-ONLY for HRMS: no create/reassign call is exposed
+     *  here — all roster CRUD stays web-only (TRD §14). */
+    suspend fun getOperatorTimetable(
+        centerId: String,
         limit: Int? = null,
-    ): PositionListResponseDto
+    ): EnrichedPositionListResponseDto
 
-    /** GET /admin/roster/leave — staff leave/absence rows. Read-only; used to resolve a
-     *  coverage window's end date (CoverageBanner "until <date>") from `ends_at` on the
-     *  approved leave whose `replacement_member_id` matches the covering principal. */
-    suspend fun listStaffLeave(
-        workforceMemberId: String? = null,
-        scopeType: String? = null,
-        scopeId: String? = null,
-        status: String? = null,
-        limit: Int? = null,
-    ): StaffLeaveListResponseDto
-
-    /** GET /admin/roster/vaccination-owner — resolves who owns vaccination work for a
-     *  scope on a date (design doc S4.8). Drives the coverage banner: the app renders
-     *  the resolved [sg.mesha.goatos.core.network.dto.VaccinationOwnerDto] fields, it
-     *  never re-derives ownership itself. */
-    suspend fun getVaccinationOwner(
-        scopeType: String,
-        scopeId: String,
-        date: String,
-    ): VaccinationOwnerResponseDto
+    /** GET /app/roster/my-coverage — the authenticated principal's own coverage status
+     *  (design doc S4.6/S4.8). Drives the coverage banner: the app renders the
+     *  server-composed `banner_text` verbatim, it never derives its own wording or
+     *  identity bridge (TRD §14 dumb-renderer). */
+    suspend fun getMyCoverage(): MyCoverageResponseDto
 }
 
 /**
@@ -341,28 +327,12 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         request: RescheduleObligationRequestDto,
     ): RescheduleObligationResponseDto = RescheduleObligationResponseDto(obligationId = obligationId, idempotentReplay = false)
 
-    override suspend fun listStaffPositions(
-        workforceMemberId: String?,
-        scopeType: String?,
-        scopeId: String?,
-        positionCode: String?,
-        status: String?,
+    override suspend fun getOperatorTimetable(
+        centerId: String,
         limit: Int?,
-    ): PositionListResponseDto = PositionListResponseDto()
+    ): EnrichedPositionListResponseDto = EnrichedPositionListResponseDto()
 
-    override suspend fun listStaffLeave(
-        workforceMemberId: String?,
-        scopeType: String?,
-        scopeId: String?,
-        status: String?,
-        limit: Int?,
-    ): StaffLeaveListResponseDto = StaffLeaveListResponseDto()
-
-    override suspend fun getVaccinationOwner(
-        scopeType: String,
-        scopeId: String,
-        date: String,
-    ): VaccinationOwnerResponseDto = VaccinationOwnerResponseDto()
+    override suspend fun getMyCoverage(): MyCoverageResponseDto = MyCoverageResponseDto()
 }
 
 /**

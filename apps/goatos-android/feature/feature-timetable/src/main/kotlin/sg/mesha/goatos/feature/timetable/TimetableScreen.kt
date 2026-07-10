@@ -33,34 +33,34 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
 // admin-web CRUD surface: "Operational position | Shift | CBE | CPT | Week OFF | Backup"
 // as a per-center pivot table, editable there. Mobile MIRRORS it READ-ONLY (the mock's
 // own copy: "The mobile app mirrors this read-only. Edited here (web CRUD) only.") — this
-// screen renders the backend `GET /admin/roster/positions` rows as a scrollable list (one
-// row = one position seat), not the 2-center pivot table, since the pivot is specific to
-// the CBE/CPT sample deployment and would not generalise past 2 centers.
+// screen renders the operator's center rows from `GET /app/roster/timetable` as a
+// scrollable list (one row = one position seat), not the 2-center pivot table, since the
+// pivot is specific to the CBE/CPT sample deployment and would not generalise past 2
+// centers.
 //
-// The mock's "Shift" (a shift TIME) and per-holder display name are NOT modeled here: the
-// Position contract (contracts/openapi/admin-api.yaml) exposes position_code, position_tier,
-// is_backup_slot/backup_group_code, week_off_weekday, status, and workforce_member_id (a raw
-// UUID) — but no shift-time field and no holder-display-name lookup. This screen renders
-// exactly what the contract gives it and never fabricates a name or a time (see
-// TimetableViewModel's KDoc for the full gap write-up). Every value below is backend-provided;
-// the client only glue-maps enums (tier/week-off day/status) to short labels — the same
-// allowance AlertRow's tone gets for its pill.
+// The mock's "Shift" (a shift TIME) is NOT modeled here: the EnrichedPosition contract
+// (contracts/openapi/app-api.yaml) has no shift-time field. The seat holder's display
+// name IS modeled (person_display_name) — this screen renders exactly what the contract
+// gives it and never fabricates a time. Every value below is backend-provided; the
+// client only glue-maps enums (tier/status) to short labels — the same allowance
+// AlertRow's tone gets for its pill.
 // ---------------------------------------------------------------------------
 
 /** Backend `position_tier` enum — glue-mapped to a short label only. */
 enum class PositionTier { ASSISTANT, MANAGER, HEAD, DIRECTOR, CXO, UNKNOWN }
 
 /**
- * One fixed operational position seat (mirrors the Position schema 1:1). [holderId] is
- * the raw `workforce_member_id` the contract exposes today — null when the seat is
- * unfilled. There is no display-name lookup yet, so the screen never invents one.
+ * One fixed operational position seat (mirrors the EnrichedPosition schema 1:1).
+ * [holderName] is the backend-resolved `person_display_name` — null when the seat is
+ * unfilled. Never a raw UUID: the screen renders "Unassigned" for a null holder, it
+ * never falls back to an id fragment.
  */
 @Immutable
 data class TimetableRow(
     val id: String,
     val positionLabel: String,
     val tier: PositionTier,
-    val holderId: String?,
+    val holderName: String?,
     val weekOffLabel: String,
     val backupLabel: String,
     val statusLabel: String,
@@ -153,7 +153,7 @@ private fun TimetableRowCard(row: TimetableRow) {
         }
         Spacer(Modifier.height(MeshaDimens.space2))
         Row(horizontalArrangement = Arrangement.spacedBy(MeshaDimens.space6)) {
-            MetaCell(label = "Holder", value = row.holderId?.take(8) ?: "Unassigned")
+            MetaCell(label = "Holder", value = row.holderName ?: "Unassigned")
             MetaCell(label = "Week OFF", value = row.weekOffLabel)
             MetaCell(label = "Backup", value = row.backupLabel)
         }
@@ -220,7 +220,7 @@ private fun TimetableScreenPreview() {
                         id = "p1",
                         positionLabel = "Feeding AM1",
                         tier = PositionTier.ASSISTANT,
-                        holderId = "b7e1f2a0",
+                        holderName = "Arun Kumar",
                         weekOffLabel = "Mon",
                         backupLabel = "Backup AM1",
                         statusLabel = "Active",
@@ -230,7 +230,7 @@ private fun TimetableScreenPreview() {
                         id = "p2",
                         positionLabel = "Preventive Care Manager",
                         tier = PositionTier.MANAGER,
-                        holderId = null,
+                        holderName = null,
                         weekOffLabel = "—",
                         backupLabel = "Backup Manager",
                         statusLabel = "Active",

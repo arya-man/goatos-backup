@@ -434,9 +434,9 @@ fun overduePlaceholder(message: String): OverdueUiState =
     )
 
 // Timetable (HRMS shift roster, docs/hr/roster-rbac-design.md) — mirrors the mock's People ->
-// Timetable rows (mock/goatos-dashboard-mock.html data-sub="timetable"), minus the fields the
-// Position contract does not expose yet (holder display name, shift time) — see
-// TimetableViewModel's KDoc for the gap write-up.
+// Timetable rows (mock/goatos-dashboard-mock.html data-sub="timetable"), minus the shift-TIME
+// field the EnrichedPosition contract does not expose (see TimetableViewModel's KDoc). The
+// seat holder's real name IS modeled (person_display_name) — never a raw UUID fragment.
 fun sampleTimetableState(): TimetableUiState = TimetableUiState(
     title = "Timetable",
     subtitle = "Shift roster — the operational source for who executes each day.",
@@ -445,7 +445,7 @@ fun sampleTimetableState(): TimetableUiState = TimetableUiState(
             id = "p1",
             positionLabel = "Feeding AM1",
             tier = PositionTier.ASSISTANT,
-            holderId = "b7e1f2a0",
+            holderName = "Arun Kumar",
             weekOffLabel = "Mon",
             backupLabel = "Backup AM1",
             statusLabel = "Active",
@@ -455,7 +455,7 @@ fun sampleTimetableState(): TimetableUiState = TimetableUiState(
             id = "p2",
             positionLabel = "Health/Kidding AM1",
             tier = PositionTier.ASSISTANT,
-            holderId = "4c109dd3",
+            holderName = "Priya S",
             weekOffLabel = "Wed",
             backupLabel = "Backup AM2",
             statusLabel = "Active",
@@ -465,7 +465,7 @@ fun sampleTimetableState(): TimetableUiState = TimetableUiState(
             id = "p3",
             positionLabel = "Preventive Care Manager",
             tier = PositionTier.MANAGER,
-            holderId = null,
+            holderName = null,
             weekOffLabel = "—",
             backupLabel = "Backup Manager",
             statusLabel = "Active",

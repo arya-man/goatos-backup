@@ -38,14 +38,16 @@ class RealBackendLinkTest {
             val calendar = api.listCalendarVaccinationEvents()
             assertTrue("calendar source should be api", calendar.source == "api")
 
-            // HRMS roster (Timetable + coverage banner) — read-only GETs only (TRD §14).
-            val positions = api.listStaffPositions()
-            assertTrue("positions trace_id should be present", positions.traceId.isNotBlank())
+            // HRMS roster (Timetable + coverage banner) — read-only GETs only (TRD §14),
+            // operator-scoped (never the admin `/admin/roster` surface, which 403s for
+            // operators). my-coverage takes no params, so it needs no center-id fixture.
+            val coverage = api.getMyCoverage()
+            assertTrue("coverage trace_id should be present", coverage.traceId.isNotBlank())
 
             println(
                 "MOBILE↔BACKEND LINK OK — nav_chrome=${boot.navChrome} " +
                     "execRows=${execution.rows.size} ctAlerts=${controlTower.alerts.size} " +
-                    "calendarEvents=${calendar.items.size} positions=${positions.items.size}",
+                    "calendarEvents=${calendar.items.size} hasCoverage=${coverage.coverage.hasCoverage}",
             )
         }
     }

@@ -15,19 +15,18 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
-import sg.mesha.goatos.core.network.dto.PositionListResponseDto
+import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
+import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
-import sg.mesha.goatos.core.network.dto.StaffLeaveListResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 // Device DTOs live in the network package (AppApi.kt); no dto.* import needed.
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
-import sg.mesha.goatos.core.network.dto.VaccinationOwnerResponseDto
 
 /**
  * Retrofit surface for the app API. One method per consumed endpoint. Paths are
@@ -124,31 +123,14 @@ interface AppApiService {
         @Body request: RescheduleObligationRequestDto,
     ): RescheduleObligationResponseDto
 
-    @GET("admin/roster/positions")
-    suspend fun listStaffPositions(
-        @Query("workforce_member_id") workforceMemberId: String?,
-        @Query("scope_type") scopeType: String?,
-        @Query("scope_id") scopeId: String?,
-        @Query("position_code") positionCode: String?,
-        @Query("status") status: String?,
+    @GET("app/roster/timetable")
+    suspend fun getOperatorTimetable(
+        @Query("center_id") centerId: String,
         @Query("limit") limit: Int?,
-    ): PositionListResponseDto
+    ): EnrichedPositionListResponseDto
 
-    @GET("admin/roster/leave")
-    suspend fun listStaffLeave(
-        @Query("workforce_member_id") workforceMemberId: String?,
-        @Query("scope_type") scopeType: String?,
-        @Query("scope_id") scopeId: String?,
-        @Query("status") status: String?,
-        @Query("limit") limit: Int?,
-    ): StaffLeaveListResponseDto
-
-    @GET("admin/roster/vaccination-owner")
-    suspend fun getVaccinationOwner(
-        @Query("scope_type") scopeType: String,
-        @Query("scope_id") scopeId: String,
-        @Query("date") date: String,
-    ): VaccinationOwnerResponseDto
+    @GET("app/roster/my-coverage")
+    suspend fun getMyCoverage(): MyCoverageResponseDto
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic. */
@@ -239,30 +221,12 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
         return service.rescheduleObligation(obligationId, request)
     }
 
-    override suspend fun listStaffPositions(
-        workforceMemberId: String?,
-        scopeType: String?,
-        scopeId: String?,
-        positionCode: String?,
-        status: String?,
+    override suspend fun getOperatorTimetable(
+        centerId: String,
         limit: Int?,
-    ): PositionListResponseDto =
-        service.listStaffPositions(workforceMemberId, scopeType, scopeId, positionCode, status, limit)
+    ): EnrichedPositionListResponseDto = service.getOperatorTimetable(centerId, limit)
 
-    override suspend fun listStaffLeave(
-        workforceMemberId: String?,
-        scopeType: String?,
-        scopeId: String?,
-        status: String?,
-        limit: Int?,
-    ): StaffLeaveListResponseDto =
-        service.listStaffLeave(workforceMemberId, scopeType, scopeId, status, limit)
-
-    override suspend fun getVaccinationOwner(
-        scopeType: String,
-        scopeId: String,
-        date: String,
-    ): VaccinationOwnerResponseDto = service.getVaccinationOwner(scopeType, scopeId, date)
+    override suspend fun getMyCoverage(): MyCoverageResponseDto = service.getMyCoverage()
 }
 
 /**
