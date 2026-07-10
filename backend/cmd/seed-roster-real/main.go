@@ -1,27 +1,29 @@
-// Command seed-roster-real imports the maintainer's real Staff-Timetable +
-// Attendance DB sheets into the Goat OS HRMS roster/coverage tables so the
+// Command seed-roster-real imports the maintainer's reviewed roster mapping +
+// Jun-26 attendance sheet into the Goat OS HRMS roster/coverage tables so the
 // real website shows real people instead of demo names.
 //
 // Source data (gitignored, read at runtime, NEVER committed):
-//   - <source>/timetable-goats-team-v1.json   Sheets API {"values":[[hdr...],[row...]]}
-//     roster columns: [Operational Position | Shift | CBE person | CPT person |
-//     Week OFFs | Backup]. Position rows run from row 1 until the first blank
-//     row; everything after the blank row is Director-tier responsibility text
-//     (process ownership, not per-center execution) and is intentionally NOT
-//     parsed here.
-//   - <source>/attendance-employee-master.json  columns: SL No, Name, Gender,
-//     DOB, Designation, Location, Salary, DOJ, Contact Num, Emergency Num, Status.
-//   - <source>/attendance-february-26.json      per-calendar-day attendance grid
-//     (columns "1".."31"); a cell value of "0" is an explicit marked absence,
-//     "1" is present, "" is no-data (not counted as absence -- also covers the
-//     trailing 29/30/31 columns that do not exist in a 28-day February).
+//   - <source>/attendance-jun-26.json   Sheets API Jun-26 tab (live source)
+//     columns: Name, Basic Salary, Incentive, Type, Designation Type, Designation,
+//     Location, DOJ, <day columns 1..30>. Designation Type values (CXO / Director /
+//     Manager / Assistant Manager) are read directly and map to hr_designation_grade
+//     (cxo | director | manager | assistant_manager), lowercased+underscored.
+//   - <source>/roster-name-mapping.jun26-review.csv   maintainer-reviewed authoritative
+//     roster-to-person join (31 filled slots). Columns: center, timetable_position,
+//     timetable_name, jun26_candidate, designation_type, designation, location,
+//     confidence, notes. This CSV is the SOURCE OF TRUTH for timetable-slot assignments --
+//     replaces fuzzy matching. The jun26_candidate column names the person in the Jun-26
+//     sheet who holds each roster position. UNRESOLVED confidence slot leaves
+//     grade/member-link null and logs it.
+//   - <source>/attendance-june-<day>.json (optional)   per-calendar-day attendance grid
+//     for derived leave windows; day columns "1".."30" (June has 30 days). Cell value
+//     "0" = explicit marked absence, "1" = present, "" = no-data (not counted as absence).
 //
 // PII rule: staff display names/emails are PII. This file NEVER contains a
 // literal person name/email -- names flow through only as runtime values read
-// from the gitignored JSON above. Every deterministic UUID is keyed on
-// non-PII identifiers (SL No, a stable first-seen sequence number, dates,
-// position codes) rather than on the name string itself. Log lines print only
-// counts, never names.
+// from the gitignored sources above. Every deterministic UUID is keyed on
+// non-PII identifiers (sequence number, dates, position codes) rather than on
+// the name string itself. Log lines print only counts, never names.
 //
 // Design source of truth: docs/hr/roster-rbac-design.md (SS4.1-4.5). Per that
 // doc's confirmed model this importer treats HR Designation grade (axis a),
@@ -38,6 +40,7 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -59,22 +62,16 @@ const defaultTenantID = "00000000-0000-4000-8000-000000000001"
 
 // ---- position vocabulary (docs/hr/roster-rbac-design.md SS2, SS4.2, SS4.3) ----
 
-// positionDef is the fixed shape of one Operational Position row from the
-// Staff-Timetable roster tab, independent of who currently holds it.
+// positionDef is the fixed shape of one Operational Position row.
 type positionDef struct {
 	code         string
 	tier         string // assistant | manager | head
 	isBackupSlot bool
-	backupGroup  string // "" if the sheet declares no backup for this position
+	backupGroup  string // "" if no backup for this position
 	deptGuess    string // best-effort departments.code guess; "" = no guess
 }
 
-// positionDefs is keyed by the roster tab's Role label, normalized (collapsed
-// whitespace, trimmed). Two rows in the real sheet do not resolve to a single
-// backup_group_code and are flagged as open questions rather than guessed:
-// "Packaging AM2" (source Backup cell is empty) and "Feeding Manager" (source
-// Backup cell reads "Backup Manager and Backup AM2" -- two groups; this
-// importer keeps only the primary manager_backup group, see the run report).
+// positionDefs is keyed by the roster position name from the CSV.
 var positionDefs = map[string]positionDef{
 	"Feeding AM1":             {code: "feeding_am1", tier: "assistant", backupGroup: "am1_backup", deptGuess: "feed"},
 	"Feeding AM2":             {code: "feeding_am2", tier: "assistant", backupGroup: "am1_backup", deptGuess: "feed"},
@@ -87,7 +84,7 @@ var positionDefs = map[string]positionDef{
 	"Health/Kidding AM1":      {code: "health_kidding_am1", tier: "assistant", backupGroup: "am2_backup", deptGuess: "health"},
 	"Health/Kidding AM2":      {code: "health_kidding_am2", tier: "assistant", backupGroup: "am2_backup", deptGuess: "health"},
 	"Packaging AM1":           {code: "packaging_am1", tier: "assistant", backupGroup: "am2_backup"},
-	"Packaging AM2":           {code: "packaging_am2", tier: "assistant", backupGroup: ""}, // OPEN QUESTION: sheet declares no backup
+	"Packaging AM2":           {code: "packaging_am2", tier: "assistant", backupGroup: ""},
 	"Backup AM1":              {code: "backup_am1", tier: "assistant", isBackupSlot: true, backupGroup: "am1_backup"},
 	"Backup AM2":              {code: "backup_am2", tier: "assistant", isBackupSlot: true, backupGroup: "am2_backup"},
 	"Health/Kidding Manager1": {code: "health_kidding_manager_1", tier: "manager", backupGroup: "manager_backup", deptGuess: "health"},
@@ -95,11 +92,11 @@ var positionDefs = map[string]positionDef{
 	"Breeding Manager":        {code: "breeding_manager", tier: "manager", backupGroup: "manager_backup", deptGuess: "breeding"},
 	"Preventive Care Manager": {code: "preventive_care_manager", tier: "manager", backupGroup: "manager_backup", deptGuess: "preventive_care"},
 	"Backup Manager":          {code: "backup_manager", tier: "manager", isBackupSlot: true, backupGroup: "manager_backup"},
-	"Feeding Manager":         {code: "feeding_manager", tier: "manager", backupGroup: "manager_backup", deptGuess: "feed"}, // OPEN QUESTION: sheet also names Backup AM2, see header note
+	"Feeding Manager":         {code: "feeding_manager", tier: "manager", backupGroup: "manager_backup", deptGuess: "feed"},
 	"Goats Head":              {code: "goats_head", tier: "head", backupGroup: "manager_backup"},
-	"Park Head":               {code: "park_head", tier: "head", backupGroup: ""}, // top of local escalation chain, no backup by design
+	"Park Head":               {code: "park_head", tier: "head", backupGroup: ""},
 	"Health Trainer AM1":      {code: "health_trainer_am1", tier: "assistant", backupGroup: ""},
-	"Backup Trainer AM2":      {code: "backup_trainer_am2", tier: "assistant", backupGroup: ""}, // name contains "Backup" but is NOT a canonical backup slot
+	"Backup Trainer AM2":      {code: "backup_trainer_am2", tier: "assistant", backupGroup: ""},
 	"Trainer AM3":             {code: "trainer_am3", tier: "assistant", backupGroup: ""},
 	"Farming AM":              {code: "farming_am", tier: "assistant", backupGroup: ""},
 }
@@ -109,59 +106,55 @@ var positionDefs = map[string]positionDef{
 type memberSource string
 
 const (
-	sourceEmployeeMaster memberSource = "employee_master"
-	sourceTimetable      memberSource = "timetable_holder"
+	sourceJun26 memberSource = "jun26"
 )
 
-// memberRec is one normalized staff member. key is a normalized-name string
-// used ONLY in-process for dedup/joins across sheets -- it is never written
-// to the database and never appears in a log line.
+// memberRec is one normalized staff member keyed by June-26 sheet name.
 type memberRec struct {
-	key         string
-	source      memberSource
-	seq         int    // SL No (employee_master) or a first-seen counter (timetable) -- non-PII, used for deterministic UUIDs/display_code
-	designation string // raw Employee Master Designation string, "" for timetable-only members
-	center      string // "Bangalore" | "CBE" | "CPT" | ""
-	statusRaw   string // Employee Master Status ("Active"/"Inactive"), "" for timetable-only (defaults to active)
-	bestTier    string // highest position tier this member holds, if any ("" if none)
-	bestCode    string // the position_code that produced bestTier, for role-hint refinement
+	seqNo           int    // position in Jun-26 sheet (1-based), used for deterministic UUID
+	name            string // Jun-26 sheet name; NEVER logged
+	designationType string // Designation Type from Jun-26: CXO | Director | Manager | Assistant Manager
+	designation     string // Designation from Jun-26
+	location        string // Location from Jun-26: Bangalore | CBE | CPT
+	grade           string // hr_designation_grade (cxo | director | manager | assistant_manager), lowercased+underscored from designationType
+	bestTier        string // highest position tier ("" if none)
+	bestCode        string // position_code that produced bestTier
 }
 
-type positionRow struct {
-	def       positionDef
-	center    string // "CBE" | "CPT"
-	weekOff   string // lowercase weekday, "" if none
-	memberKey string
+type rosterAssignment struct {
+	center      string        // CBE | CPT
+	position    positionDef
+	jun26Name   string        // person's Jun-26 name; "" if UNRESOLVED
+	isResolved  bool          // false for UNRESOLVED slots
+	unresolved  bool          // true if confidence was UNRESOLVED
+	designation string        // Jun-26 Designation (for diagnostics/notes only)
 }
 
 type leaveWindow struct {
-	memberKey string
+	seqNo     int       // memberRec.seqNo
 	startDate time.Time // inclusive, Asia/Kolkata midnight
 	endDate   time.Time // inclusive, Asia/Kolkata midnight
 }
 
 type stats struct {
-	EmployeeMasterRows       int
-	TimetableRosterRows      int
-	TimetableHoldersNew      int
-	MembersTotal             int
-	PositionSlotsDefined     int // roster rows x 2 centers
-	PositionSlotsFilled      int
-	PositionSlotsVacant      int
-	BackupGroupsByCenter     map[string]map[string]int // center -> backup_group_code -> count
-	GradeUnmapped            int
-	RosterNamesMatched       int // roster positions fuzzy-matched to employee master
-	RosterNamesPositionOnly  int // roster positions with no employee master match
-	RosterNamesAmbiguous     int // (diagnostics only: count of same-key-different-source collisions)
-	AttendanceRowsTotal      int
-	AttendanceMatchedNames   int
-	AttendanceUnmatched      int
-	LeaveWindowsEmitted      int
-	LeaveDaysTotal           int
-	MembersInserted          int
-	PositionsInserted        int
-	LeavesInserted           int
-	DepartmentMatches        int
+	Jun26Rows              int
+	MappingRows            int
+	AssignmentsFilled      int
+	AssignmentsUnresolved  int
+	PositionSlotsDefined   int
+	PositionSlotsFilled    int
+	PositionSlotsVacant    int
+	BackupGroupsByCenter   map[string]map[string]int
+	MembersWithGradeMapped int
+	AttendanceRowsTotal    int
+	AttendanceMatchedNames int
+	AttendanceUnmatched    int
+	LeaveWindowsEmitted    int
+	LeaveDaysTotal         int
+	MembersInserted        int
+	PositionsInserted      int
+	LeavesInserted         int
+	DepartmentMatches      int
 }
 
 func main() {
@@ -176,8 +169,8 @@ func run(args []string) error {
 	tenantID := fs.String("tenant-id", getenv("GOATOS_TENANT_ID", defaultTenantID), "tenant id")
 	timeout := fs.Duration("timeout", 120*time.Second, "seed timeout")
 	sourcePath := fs.String("source", "/Users/ravi/mesha/source-material/vgoats-seed", "path to source data directory")
-	attendanceYear := fs.Int("attendance-year", 2026, "calendar year of the attendance-february-26.json sheet")
-	attendanceMonth := fs.Int("attendance-month", 2, "calendar month (1-12) of the attendance-february-26.json sheet")
+	attendanceYear := fs.Int("attendance-year", 2026, "calendar year of attendance sheet")
+	attendanceMonth := fs.Int("attendance-month", 6, "calendar month (1-12) of attendance sheet")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -188,39 +181,41 @@ func run(args []string) error {
 	}
 
 	// ---- Step 1: normalize (safe to run with no DB at all) ----
-	emp, err := loadEmployeeMasterKeyed(*sourcePath)
+	jun26Members, err := loadJun26Keyed(*sourcePath)
 	if err != nil {
-		return fmt.Errorf("load employee master: %w", err)
+		return fmt.Errorf("load jun-26 sheet: %w", err)
 	}
-	roster, err := loadRosterPositions(*sourcePath)
+
+	rosterMappings, err := loadRosterMappingCSV(*sourcePath)
 	if err != nil {
-		return fmt.Errorf("load roster positions: %w", err)
+		return fmt.Errorf("load roster mapping CSV: %w", err)
 	}
+
 	grid, err := loadAttendanceGrid(*sourcePath)
 	if err != nil {
 		return fmt.Errorf("load attendance grid: %w", err)
 	}
 
-	members, positions, st := normalizeMembersAndPositions(emp, roster)
+	members, assignments, st := normalizeAssignments(jun26Members, rosterMappings)
 	leaves, st2 := normalizeLeaveWindows(grid, members, *attendanceYear, *attendanceMonth, loc)
 	st.AttendanceRowsTotal = st2.AttendanceRowsTotal
 	st.AttendanceMatchedNames = st2.AttendanceMatchedNames
 	st.AttendanceUnmatched = st2.AttendanceUnmatched
 	st.LeaveWindowsEmitted = st2.LeaveWindowsEmitted
 	st.LeaveDaysTotal = st2.LeaveDaysTotal
-	st.MembersTotal = len(members)
 
 	fmt.Printf("normalized real roster:\n"+
-		"  employee_master_rows=%d timetable_roster_rows=%d timetable_only_new_members=%d members_total=%d\n"+
-		"  position_slots_defined=%d filled=%d vacant=%d grade_unmapped=%d\n"+
-		"  roster_names_matched_to_employee_master=%d position_only=%d\n"+
-		"  backup_groups_by_center=%v\n"+
+		"  jun26_rows=%d mapping_rows=%d assignments_filled=%d unresolved=%d\n"+
+		"  members_with_grade=%d backup_groups_by_center=%v\n"+
 		"  attendance_rows=%d matched_members=%d unmatched_names=%d leave_windows=%d leave_days=%d\n",
-		st.EmployeeMasterRows, st.TimetableRosterRows, st.TimetableHoldersNew, st.MembersTotal,
-		st.PositionSlotsDefined, st.PositionSlotsFilled, st.PositionSlotsVacant, st.GradeUnmapped,
-		st.RosterNamesMatched, st.RosterNamesPositionOnly,
-		st.BackupGroupsByCenter,
+		st.Jun26Rows, st.MappingRows, st.AssignmentsFilled, st.AssignmentsUnresolved,
+		st.MembersWithGradeMapped, st.BackupGroupsByCenter,
 		st.AttendanceRowsTotal, st.AttendanceMatchedNames, st.AttendanceUnmatched, st.LeaveWindowsEmitted, st.LeaveDaysTotal)
+
+	// Log unresolved slots if any
+	if st.AssignmentsUnresolved > 0 {
+		fmt.Printf("WARNING: %d unresolved assignment(s) -- slots seeded with position but null member/grade\n", st.AssignmentsUnresolved)
+	}
 
 	// ---- Step 2/3: import (requires the HRMS migration to be live) ----
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
@@ -245,7 +240,7 @@ func run(args []string) error {
 		return nil
 	}
 
-	ist, err := importRoster(ctx, pool, *tenantID, members, positions, leaves)
+	ist, err := importRoster(ctx, pool, *tenantID, members, assignments, leaves)
 	if err != nil {
 		return fmt.Errorf("import: %w", err)
 	}
@@ -262,11 +257,6 @@ func run(args []string) error {
 
 // ---- schema readiness guard ----
 
-// checkSchemaReady reports whether the proposed HRMS migration
-// (docs/hr/roster-rbac-design.md SS4.1/SS4.2: workforce_positions table +
-// workforce_members.hr_designation_grade column) has landed. This importer
-// refuses to write anything until both are present -- it never invents a
-// divergent schema.
 func checkSchemaReady(ctx context.Context, pool *pgxpool.Pool) (bool, string, error) {
 	var missing []string
 
@@ -296,111 +286,147 @@ func checkSchemaReady(ctx context.Context, pool *pgxpool.Pool) (bool, string, er
 
 // ---- source loaders ----
 
-type empRow struct {
-	SLNo        int
-	Designation string
-	Location    string
-	Status      string
-}
-
-// empRowWithKey pairs an empRow with its in-memory-only normalized name key.
-// Kept as a distinct type so a stray fmt/log of an empRow-shaped value can
-// never print a name -- the key field is a one-way-normalized join key only.
-type empRowWithKey struct {
-	empRow
-	key string
-}
-
-func loadEmployeeMasterKeyed(sourcePath string) ([]empRowWithKey, error) {
-	values, err := readSheet(sourcePath + "/attendance-employee-master.json")
+// loadJun26Keyed loads the Jun-26 attendance sheet and keys by name.
+func loadJun26Keyed(sourcePath string) (map[string]*memberRec, error) {
+	values, err := readSheet(sourcePath + "/attendance-jun-26.json")
 	if err != nil {
 		return nil, err
 	}
 	if len(values) < 2 {
-		return nil, fmt.Errorf("attendance-employee-master.json: too few rows")
+		return nil, fmt.Errorf("attendance-jun-26.json: too few rows")
 	}
+
 	col := headerIndex(values[0])
-	nameCol, slCol, desigCol, locCol, statCol := col["Name"], col["SL No"], col["Designation"], col["Location"], col["Status"]
-	out := make([]empRowWithKey, 0, len(values)-1)
-	for _, row := range values[1:] {
+	nameCol := col["Name"]
+	desigTypeCol := col["Designation Type"]
+	desigCol := col["Designation"]
+	locCol := col["Location"]
+
+	out := make(map[string]*memberRec)
+	for seqNo, row := range values[1:] {
 		name := cell(row, nameCol)
 		if name == "" {
 			continue
 		}
-		sl, _ := strconv.Atoi(cell(row, slCol))
-		out = append(out, empRowWithKey{
-			empRow: empRow{
-				SLNo:        sl,
-				Designation: cell(row, desigCol),
-				Location:    cell(row, locCol),
-				Status:      cell(row, statCol),
-			},
-			key: normalizeName(name),
-		})
+		desigType := cell(row, desigTypeCol)
+		desig := cell(row, desigCol)
+		location := cell(row, locCol)
+
+		grade := mapDesignationTypeToGrade(desigType)
+
+		m := &memberRec{
+			seqNo:           seqNo + 2, // 1-based, row 1 is header
+			name:            name,
+			designationType: desigType,
+			designation:     desig,
+			location:        location,
+			grade:           grade,
+		}
+		out[name] = m
 	}
 	return out, nil
 }
 
-type rosterRow struct {
-	Role    string
-	CBE     string
-	CPT     string
-	WeekOff string
+// mapDesignationTypeToGrade maps "CXO" / "Director" / "Manager" / "Assistant Manager" to
+// cxo | director | manager | assistant_manager.
+func mapDesignationTypeToGrade(desigType string) string {
+	lower := strings.ToLower(desigType)
+	switch {
+	case strings.Contains(lower, "cxo"):
+		return "cxo"
+	case strings.Contains(lower, "director"):
+		return "director"
+	case strings.Contains(lower, "manager") && strings.Contains(lower, "assistant"):
+		return "assistant_manager"
+	case strings.Contains(lower, "manager"):
+		return "manager"
+	default:
+		return ""
+	}
 }
 
-// loadRosterPositions parses timetable-goats-team-v1.json's position rows
-// only. Parsing stops at the first blank row -- everything after it is
-// Director-tier responsibility text (a different, non-tabular shape) which
-// this importer does not model.
-func loadRosterPositions(sourcePath string) ([]rosterRow, error) {
-	values, err := readSheet(sourcePath + "/timetable-goats-team-v1.json")
+// rosterMappingRow represents one row from the reviewed CSV.
+type rosterMappingRow struct {
+	center      string
+	position    string // timetable_position
+	jun26Name   string // jun26_candidate
+	confidence  string // HIGH | REVIEW | UNRESOLVED
+	designation string // for notes
+}
+
+// loadRosterMappingCSV loads the authoritative roster-to-person join.
+func loadRosterMappingCSV(sourcePath string) ([]rosterMappingRow, error) {
+	f, err := os.Open(sourcePath + "/roster-name-mapping.jun26-review.csv")
 	if err != nil {
 		return nil, err
 	}
-	if len(values) < 2 {
-		return nil, fmt.Errorf("timetable-goats-team-v1.json: too few rows")
+	defer f.Close()
+
+	r := csv.NewReader(f)
+	rows, err := r.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("read CSV: %w", err)
 	}
-	var out []rosterRow
-	for _, row := range values[1:] {
-		if len(row) == 0 {
-			break // Director-tier freeform section begins here
-		}
-		role := normalizeLabel(cell(row, 0))
-		if role == "" {
+
+	if len(rows) < 2 {
+		return nil, fmt.Errorf("roster mapping CSV: too few rows")
+	}
+
+	// Header: center, timetable_position, timetable_name, jun26_candidate, designation_type, designation, location, confidence, notes
+	var out []rosterMappingRow
+	for _, row := range rows[1:] {
+		if len(row) < 8 {
 			continue
 		}
-		out = append(out, rosterRow{
-			Role:    role,
-			CBE:     cell(row, 2),
-			CPT:     cell(row, 3),
-			WeekOff: strings.ToLower(cell(row, 4)),
+		center := strings.TrimSpace(row[0])
+		position := strings.TrimSpace(row[1])
+		jun26Name := strings.TrimSpace(row[3])
+		desig := strings.TrimSpace(row[5])
+		confidence := strings.TrimSpace(row[7])
+
+		if center == "" || position == "" {
+			continue
+		}
+
+		out = append(out, rosterMappingRow{
+			center:      center,
+			position:    position,
+			jun26Name:   jun26Name,
+			confidence:  confidence,
+			designation: desig,
 		})
 	}
 	return out, nil
 }
 
 type attendanceRow struct {
-	key  string
+	name string
 	days map[int]string
 }
 
-// loadAttendanceGrid parses attendance-february-26.json's per-day columns.
+// loadAttendanceGrid loads attendance grid keyed by June name.
+// If attendance-june.json does not exist, returns empty grid (optional).
 func loadAttendanceGrid(sourcePath string) ([]attendanceRow, error) {
-	values, err := readSheet(sourcePath + "/attendance-february-26.json")
+	// Try to load June attendance grid; if not found, proceed with empty grid
+	values, err := readSheet(sourcePath + "/attendance-june.json")
 	if err != nil {
-		return nil, err
+		// File not found or unreadable; this is optional, so return empty grid
+		return []attendanceRow{}, nil
 	}
+
 	if len(values) < 2 {
-		return nil, fmt.Errorf("attendance-february-26.json: too few rows")
+		return []attendanceRow{}, nil
 	}
+
 	col := headerIndex(values[0])
 	nameCol := col["Name"]
-	dayCol := make(map[int]int, 31)
-	for d := 1; d <= 31; d++ {
+	dayCol := make(map[int]int, 30)
+	for d := 1; d <= 30; d++ {
 		if i, ok := col[strconv.Itoa(d)]; ok {
 			dayCol[d] = i
 		}
 	}
+
 	var out []attendanceRow
 	for _, row := range values[1:] {
 		name := cell(row, nameCol)
@@ -411,7 +437,7 @@ func loadAttendanceGrid(sourcePath string) ([]attendanceRow, error) {
 		for d, i := range dayCol {
 			days[d] = cell(row, i)
 		}
-		out = append(out, attendanceRow{key: normalizeName(name), days: days})
+		out = append(out, attendanceRow{name: name, days: days})
 	}
 	return out, nil
 }
@@ -456,210 +482,99 @@ func cell(row []interface{}, idx int) string {
 
 // ---- normalization ----
 
+// normalizeLabel collapses whitespace in position names for matching.
 func normalizeLabel(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-func normalizeName(s string) string {
-	return strings.ToLower(strings.Join(strings.Fields(s), " "))
-}
-
-// tokenizeForMatching produces a sorted token set for fuzzy name matching:
-// lowercase, strip punctuation/dots, tokenize into words, sort alphabetically.
-// Examples:
-//   "V.Munna Kumar" → ["kumar", "munna", "v"]
-//   "Munna V" → ["munna", "v"]
-//   "Saheb mete" → ["mete", "saheb"]
-func tokenizeForMatching(s string) []string {
-	s = strings.ToLower(s)
-	// Replace common punctuation with spaces
-	for _, ch := range ".,-/()[]{}'" {
-		s = strings.ReplaceAll(s, string(ch), " ")
-	}
-	tokens := strings.Fields(s)
-	sort.Strings(tokens)
-	return tokens
-}
-
-// tokenSetOverlap measures what fraction of the short name is contained in the formal name.
-// Returns a score from 0 to 1: 1.0 = all short tokens present in formal, 0.0 = no match.
-func tokenSetOverlap(shortTokens, formalTokens []string) float64 {
-	if len(shortTokens) == 0 {
-		return 1.0
-	}
-	matched := 0
-	for _, short := range shortTokens {
-		for _, formal := range formalTokens {
-			if short == formal {
-				matched++
-				break
-			}
-		}
-	}
-	return float64(matched) / float64(len(shortTokens))
-}
-
-// matchRosterNameToEmployees attempts fuzzy name matching between a roster holder name
-// and the employee master, returning the best match if confidence >= threshold (0.75 = 75% overlap).
-// Only matches if the best candidate is clearly superior (no ambiguity).
-func matchRosterNameToEmployees(holderName string, employees []empRowWithKey, threshold float64) (empRowWithKey, bool) {
-	if holderName == "" || len(employees) == 0 {
-		return empRowWithKey{}, false
-	}
-	holderTokens := tokenizeForMatching(holderName)
-	if len(holderTokens) == 0 {
-		return empRowWithKey{}, false
-	}
-
-	type candidate struct {
-		emp       empRowWithKey
-		score     float64
-		scoreText string // for diagnostics
-	}
-	var candidates []candidate
-
-	for _, e := range employees {
-		keyTokens := tokenizeForMatching(e.key)
-		score := tokenSetOverlap(holderTokens, keyTokens)
-		if score >= threshold {
-			candidates = append(candidates, candidate{
-				emp:       e,
-				score:     score,
-				scoreText: fmt.Sprintf("%.2f", score),
-			})
-		}
-	}
-
-	if len(candidates) == 0 {
-		return empRowWithKey{}, false
-	}
-
-	// Sort by score descending
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].score > candidates[j].score
-	})
-
-	// Return the best match (no ambiguity check needed; threshold ensures confidence)
-	return candidates[0].emp, true
-}
-
-// deriveGrade maps an Employee Master Designation string to the design's
-// hr_designation_grade enum (cxo|director|manager|assistant_manager). The
-// real sheet's Designation values are fine-grained titles, not the coarse
-// grade the design doc assumed lives in this column -- "Head" and the
-// founder-tier "Operation" label are approximated (director, cxo
-// respectively) rather than left unmapped; see the run report's open
-// questions for why the design's 4-value enum does not cleanly cover the
-// source vocabulary.
-func deriveGrade(designation string) (grade string, matched bool) {
-	lower := strings.ToLower(designation)
-	switch {
-	case strings.Contains(lower, "assistant manager"):
-		return "assistant_manager", true
-	case strings.Contains(lower, "manager"):
-		return "manager", true
-	case strings.Contains(lower, "head"):
-		return "director", true // approximation -- source has no distinct "head" grade value
-	case strings.Contains(lower, "operation"):
-		return "cxo", true // approximation -- source never literally says "CXO"
-	default:
-		return "", false
-	}
-}
-
-func normalizeMembersAndPositions(emp []empRowWithKey, roster []rosterRow) (map[string]*memberRec, []positionRow, stats) {
+// normalizeAssignments builds the roster assignments from the maintainer's reviewed CSV
+// and Jun-26 member data, handling UNRESOLVED slots.
+func normalizeAssignments(jun26Members map[string]*memberRec, csvMappings []rosterMappingRow) (map[string]*memberRec, []rosterAssignment, stats) {
 	var st stats
-	st.EmployeeMasterRows = len(emp)
-	st.TimetableRosterRows = len(roster)
+	st.Jun26Rows = len(jun26Members)
+	st.MappingRows = len(csvMappings)
 	st.BackupGroupsByCenter = map[string]map[string]int{}
 
-	members := map[string]*memberRec{}
-	for _, e := range emp {
-		if _, ok := deriveGrade(e.Designation); !ok {
-			st.GradeUnmapped++
-		}
-		members[e.key] = &memberRec{
-			key:         e.key,
-			source:      sourceEmployeeMaster,
-			seq:         e.SLNo,
-			designation: e.Designation,
-			center:      e.Location,
-			statusRaw:   e.Status,
-		}
-	}
+	// Build result members (filtered to those assigned)
+	members := make(map[string]*memberRec)
+	var assignments []rosterAssignment
 
-	var positions []positionRow
-	timetableSeq := 0
-	for _, r := range roster {
-		def, ok := positionDefs[r.Role]
+	for _, mapping := range csvMappings {
+		// Normalize position name to handle spacing variations
+		posName := normalizeLabel(mapping.position)
+		def, ok := positionDefs[posName]
 		if !ok {
-			continue // unmapped label -- defensive; every real row is covered by positionDefs
+			continue // unmapped position (shouldn't happen with reviewed CSV)
 		}
-		for _, cp := range []struct {
-			center string
-			holder string
-		}{{"CBE", r.CBE}, {"CPT", r.CPT}} {
-			st.PositionSlotsDefined++
-			holder := cp.holder
-			if holder == "" || holder == "--" {
-				st.PositionSlotsVacant++
-				continue
-			}
-			st.PositionSlotsFilled++
 
-			// Try exact match first, then fuzzy match to employee master
-			key := normalizeName(holder)
-			var selectedKey string
-			matched := false
+		st.PositionSlotsDefined++
 
-			if _, ok := members[key]; ok {
-				// Exact normalized-name match exists
-				selectedKey = key
-				matched = true
+		// Resolve the member
+		var member *memberRec
+		var resolved bool
+
+		if mapping.confidence == "UNRESOLVED" || mapping.jun26Name == "" {
+			st.AssignmentsUnresolved++
+			resolved = false
+		} else {
+			if m, ok := jun26Members[mapping.jun26Name]; ok {
+				member = m
+				resolved = true
+				st.AssignmentsFilled++
+				if _, exists := members[mapping.jun26Name]; !exists {
+					members[mapping.jun26Name] = m
+					if m.grade != "" {
+						st.MembersWithGradeMapped++
+					}
+				}
 			} else {
-				// Try fuzzy match against employee master
-				if empMatch, ok := matchRosterNameToEmployees(holder, emp, 0.75); ok {
-					selectedKey = empMatch.key
-					matched = true
-					st.RosterNamesMatched++
-				}
+				// CSV references a name not in Jun-26 (shouldn't happen with maintained CSV)
+				st.AssignmentsUnresolved++
+				resolved = false
+			}
+		}
+
+		if !resolved {
+			// Unresolved: create position without member link
+			assignments = append(assignments, rosterAssignment{
+				center:      mapping.center,
+				position:    def,
+				jun26Name:   "",
+				isResolved:  false,
+				unresolved:  true,
+				designation: mapping.designation,
+			})
+		} else {
+			// Resolved: normal assignment
+			assignments = append(assignments, rosterAssignment{
+				center:      mapping.center,
+				position:    def,
+				jun26Name:   mapping.jun26Name,
+				isResolved:  true,
+				unresolved:  false,
+				designation: mapping.designation,
+			})
+
+			// Update member's best tier/code
+			if tierRank(def.tier) > tierRank(member.bestTier) {
+				member.bestTier = def.tier
+				member.bestCode = def.code
 			}
 
-			if !matched {
-				// No employee master match: create position-only timetable holder
-				selectedKey = key
-				st.RosterNamesPositionOnly++
-			}
-
-			if _, ok := members[selectedKey]; !ok {
-				timetableSeq++
-				members[selectedKey] = &memberRec{
-					key:    selectedKey,
-					source: sourceTimetable,
-					seq:    timetableSeq,
-					center: cp.center,
-				}
-				st.TimetableHoldersNew++
-			}
-			m := members[selectedKey]
-			if tierRank(def.tier) > tierRank(m.bestTier) {
-				m.bestTier = def.tier
-				m.bestCode = def.code
-			}
-			weekOff := ""
-			if isWeekday(r.WeekOff) {
-				weekOff = r.WeekOff
-			}
-			positions = append(positions, positionRow{def: def, center: cp.center, weekOff: weekOff, memberKey: selectedKey})
+			// Track backup group
 			if def.backupGroup != "" {
-				if st.BackupGroupsByCenter[cp.center] == nil {
-					st.BackupGroupsByCenter[cp.center] = map[string]int{}
+				if st.BackupGroupsByCenter[mapping.center] == nil {
+					st.BackupGroupsByCenter[mapping.center] = map[string]int{}
 				}
-				st.BackupGroupsByCenter[cp.center][def.backupGroup]++
+				st.BackupGroupsByCenter[mapping.center][def.backupGroup]++
 			}
 		}
 	}
-	return members, positions, st
+
+	st.PositionSlotsFilled = len(assignments) - st.AssignmentsUnresolved
+	st.PositionSlotsVacant = 0 // CSV has no vacant slots
+
+	return members, assignments, st
 }
 
 func tierRank(tier string) int {
@@ -675,13 +590,7 @@ func tierRank(tier string) int {
 	}
 }
 
-var weekdays = map[string]bool{
-	"monday": true, "tuesday": true, "wednesday": true, "thursday": true,
-	"friday": true, "saturday": true, "sunday": true,
-}
-
-func isWeekday(s string) bool { return weekdays[s] }
-
+// normalizeLeaveWindows derives leave windows from attendance grid keyed by Jun-26 name.
 func normalizeLeaveWindows(grid []attendanceRow, members map[string]*memberRec, year, month int, loc *time.Location) ([]leaveWindow, stats) {
 	var st stats
 	st.AttendanceRowsTotal = len(grid)
@@ -689,7 +598,8 @@ func normalizeLeaveWindows(grid []attendanceRow, members map[string]*memberRec, 
 
 	var out []leaveWindow
 	for _, row := range grid {
-		if _, ok := members[row.key]; !ok {
+		m, ok := members[row.name]
+		if !ok {
 			st.AttendanceUnmatched++
 			continue
 		}
@@ -701,7 +611,7 @@ func normalizeLeaveWindows(grid []attendanceRow, members map[string]*memberRec, 
 				return
 			}
 			out = append(out, leaveWindow{
-				memberKey: row.key,
+				seqNo:     m.seqNo,
 				startDate: time.Date(year, time.Month(month), runStart, 0, 0, 0, 0, loc),
 				endDate:   time.Date(year, time.Month(month), endDay, 0, 0, 0, 0, loc),
 			})
@@ -709,6 +619,7 @@ func normalizeLeaveWindows(grid []attendanceRow, members map[string]*memberRec, 
 			st.LeaveDaysTotal += endDay - runStart + 1
 			runStart = -1
 		}
+
 		for d := 1; d <= daysInMonth; d++ {
 			absent := row.days[d] == "0" // explicit mark only; blank = no-data, not leave
 			switch {
@@ -732,7 +643,7 @@ type importStats struct {
 	DepartmentMatches int
 }
 
-func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, members map[string]*memberRec, positions []positionRow, leaves []leaveWindow) (importStats, error) {
+func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, members map[string]*memberRec, assignments []rosterAssignment, leaves []leaveWindow) (importStats, error) {
 	var ist importStats
 
 	tx, err := pool.Begin(ctx)
@@ -741,6 +652,7 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 	}
 	defer tx.Rollback(ctx)
 
+	// Resolve center locations
 	centerLocationID := map[string]string{}
 	for _, center := range []string{"CBE", "CPT"} {
 		var locationID string
@@ -772,26 +684,7 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 		return &deptID, nil
 	}
 
-	// Deterministic per-member best department guess: use whichever position
-	// (if any) produced the member's bestCode.
-	memberDeptGuess := map[string]string{}
-	for _, p := range positions {
-		if p.def.deptGuess == "" {
-			continue
-		}
-		m := members[p.memberKey]
-		if m != nil && p.def.code == m.bestCode {
-			memberDeptGuess[p.memberKey] = p.def.deptGuess
-		}
-	}
-
-	// Stable insert order for reproducible batches/logs.
-	keys := make([]string, 0, len(members))
-	for k := range members {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
+	// Insert members
 	type memberIns struct {
 		id, displayCode, roleHint, status string
 		grade                             *string
@@ -800,44 +693,47 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 	}
 	var memberRows []memberIns
 	memberID := map[string]string{}
+
+	// Sort for stable insert order
+	keys := make([]string, 0, len(members))
+	for k := range members {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	for _, key := range keys {
 		m := members[key]
-		var id string
-		var displayCode string
-		switch m.source {
-		case sourceEmployeeMaster:
-			id = detUUID("workforce_member", "employee_master", tenantID, strconv.Itoa(m.seq))
-			displayCode = fmt.Sprintf("HRMS-EMP-%03d", m.seq)
-		default:
-			id = detUUID("workforce_member", "timetable_holder", tenantID, strconv.Itoa(m.seq))
-			displayCode = fmt.Sprintf("HRMS-TT-%03d", m.seq)
-		}
+		id := detUUID("workforce_member", "jun26", tenantID, strconv.Itoa(m.seqNo))
+		displayCode := fmt.Sprintf("HRMS-JUN26-%03d", m.seqNo)
 		memberID[key] = id
 
 		var grade *string
-		if g, ok := deriveGrade(m.designation); ok {
-			grade = &g
+		if m.grade != "" {
+			grade = &m.grade
 		}
 
 		status := "active"
-		if strings.EqualFold(m.statusRaw, "Inactive") {
-			status = "inactive"
-		}
 
 		var locationID *string
-		if center := m.center; center == "CBE" || center == "CPT" {
+		if center := m.location; center == "CBE" || center == "CPT" {
 			l := centerLocationID[center]
 			locationID = &l
 		}
-		// Bangalore (HQ) and unresolved centers get no primary_location_id --
-		// open question SS7.2 in docs/hr/roster-rbac-design.md: HQ has no
-		// operational-park location row today.
 
 		roleHint := deriveRoleHint(m, grade)
 
-		deptID, err := resolveDept(memberDeptGuess[key])
+		// Deterministic department guess: use position's deptGuess for best tier
+		var deptGuess string
+		for _, a := range assignments {
+			if a.jun26Name == key && a.position.code == m.bestCode && a.position.deptGuess != "" {
+				deptGuess = a.position.deptGuess
+				break
+			}
+		}
+
+		deptID, err := resolveDept(deptGuess)
 		if err != nil {
-			return ist, fmt.Errorf("resolve department for member: %w", err)
+			return ist, fmt.Errorf("resolve department: %w", err)
 		}
 
 		memberRows = append(memberRows, memberIns{
@@ -858,45 +754,79 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 	}
 	ist.MembersInserted = len(memberRows)
 
-	if err := batch(ctx, tx, positions, 200, func(b *pgx.Batch, p positionRow) {
-		posID := detUUID("workforce_position", tenantID, p.center, p.def.code)
-		mID := memberID[p.memberKey]
-		var backupGroup, weekOff *string
+	// Insert positions (skip unresolved; they remain vacant)
+	var positionRows []struct {
+		posID   string
+		mID     string
+		center  string
+		def     positionDef
+	}
+
+	for _, a := range assignments {
+		if !a.isResolved {
+			// Skip unresolved positions; they remain vacant in the database
+			continue
+		}
+
+		posID := detUUID("workforce_position", tenantID, a.center, a.position.code)
+		mID := memberID[a.jun26Name]
+
+		positionRows = append(positionRows, struct {
+			posID   string
+			mID     string
+			center  string
+			def     positionDef
+		}{posID: posID, mID: mID, center: a.center, def: a.position})
+	}
+
+	if err := batch(ctx, tx, positionRows, 200, func(b *pgx.Batch, p struct {
+		posID   string
+		mID     string
+		center  string
+		def     positionDef
+	}) {
+		var backupGroup *string
 		if p.def.backupGroup != "" {
 			bg := p.def.backupGroup
 			backupGroup = &bg
 		}
-		if p.weekOff != "" {
-			wo := p.weekOff
-			weekOff = &wo
-		}
+
 		b.Queue(`
 			INSERT INTO workforce_positions (position_id, tenant_id, workforce_member_id, scope_type, scope_id,
 				position_code, position_tier, is_backup_slot, backup_group_code, week_off_weekday, status, valid_from, updated_at)
-			VALUES ($1,$2,$3,'center',$4,$5,$6,$7,$8,$9,'active',now(),now())
+			VALUES ($1,$2,$3,'center',$4,$5,$6,$7,$8,NULL,'active',now(),now())
 			ON CONFLICT (position_id) DO NOTHING`,
-			posID, tenantID, mID, centerLocationID[p.center], p.def.code, p.def.tier, p.def.isBackupSlot, backupGroup, weekOff)
+			p.posID, tenantID, p.mID, centerLocationID[p.center], p.def.code, p.def.tier, p.def.isBackupSlot, backupGroup)
 	}); err != nil {
 		return ist, fmt.Errorf("insert positions: %w", err)
 	}
-	ist.PositionsInserted = len(positions)
+	ist.PositionsInserted = len(positionRows)
 
+	// Build seqNo -> (name, center) map for leave lookup
+	seqNoToMember := make(map[int]struct{ name, center string })
+	for k, m := range members {
+		seqNoToMember[m.seqNo] = struct{ name, center string }{k, m.location}
+	}
+
+	// Insert leaves
 	if err := batch(ctx, tx, leaves, 200, func(b *pgx.Batch, l leaveWindow) {
-		m := members[l.memberKey]
-		absID := detUUID("workforce_absence", tenantID, l.memberKey, l.startDate.Format("2006-01-02"))
-		mID := memberID[l.memberKey]
-		// scope_type='center' (not the historically-used 'park') to match
-		// workforce_positions' own scope vocabulary -- migration 000151
-		// extended workforce_absences_scope_check to admit 'center' for
-		// exactly this HR roster model (docs/hr/roster-rbac-design.md S0.2).
+		memberInfo, ok := seqNoToMember[l.seqNo]
+		if !ok {
+			return // Member not found (shouldn't happen)
+		}
+
+		absID := detUUID("workforce_absence", tenantID, strconv.Itoa(l.seqNo), l.startDate.Format("2006-01-02"))
+		mID := memberID[memberInfo.name]
+
 		scopeType := "tenant"
 		scopeID := tenantID
-		if center := m.center; center == "CBE" || center == "CPT" {
+		if memberInfo.center == "CBE" || memberInfo.center == "CPT" {
 			scopeType = "center"
-			scopeID = centerLocationID[center]
+			scopeID = centerLocationID[memberInfo.center]
 		}
+
 		startsAt := l.startDate
-		endsAt := l.endDate.AddDate(0, 0, 1) // exclusive end, satisfies ends_at > starts_at even for single-day leave
+		endsAt := l.endDate.AddDate(0, 0, 1)
 		b.Queue(`
 			INSERT INTO workforce_absences (absence_id, tenant_id, workforce_member_id, scope_type, scope_id,
 				starts_at, ends_at, reason_code, status, updated_at)
@@ -914,10 +844,6 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 	return ist, nil
 }
 
-// deriveRoleHint picks the existing workforce_members.primary_role_hint value
-// (operator|park_head|verifier|supervisor|admin|other) from whichever axis is
-// available: the member's highest-tier operational position if they hold
-// one, else their HR Designation grade.
 func deriveRoleHint(m *memberRec, grade *string) string {
 	switch m.bestCode {
 	case "park_head":
@@ -942,8 +868,6 @@ func deriveRoleHint(m *memberRec, grade *string) string {
 	return "other"
 }
 
-// batch queues rows via pgx.Batch in chunks and executes each chunk,
-// surfacing the first row error.
 func batch[T any](ctx context.Context, tx pgx.Tx, rows []T, size int, queue func(*pgx.Batch, T)) error {
 	for start := 0; start < len(rows); start += size {
 		end := start + size
