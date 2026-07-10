@@ -274,6 +274,16 @@ private fun ShellTopBar(onMenu: () -> Unit) {
 // [NavState.ownedModules]; only the coming-soon rows are fixed product roadmap.
 // ---------------------------------------------------------------------------
 
+/**
+ * Modules that actually have a MOBILE screen today, keyed by backend module key → mobile route.
+ * The backend's [NavState.ownedModules] can include web-only authority modules a leadership user
+ * owns (Config / SOP / Audit) that the mobile app has NO screen for — those must NEVER appear in
+ * the mobile module switcher (they'd be dead rows going nowhere). Mobile ships Vaccination only.
+ */
+private val MOBILE_MODULE_ROUTES: Map<String, String> = mapOf(
+    "vaccination" to Routes.VACCINATION,
+)
+
 /** Not-yet-built verticals the mock lists as "Soon" (honest: they are NOT shipped). */
 private data class SoonModule(val key: String, val label: String, val icon: ImageVector)
 private val SOON_MODULES = listOf(
@@ -305,21 +315,22 @@ private fun ModuleDrawer(
                     .verticalScroll(rememberScrollState()),
             ) {
                 DrawerGroupLabel("Modules")
-                val owned = navState.ownedModules
-                owned.forEach { module ->
-                    val active = moduleRoute(module) == currentRoute
+                // Only owned modules that have a real mobile screen — web-only modules
+                // (Config/SOP/Audit) are dropped so the drawer never lists a dead row.
+                val mobileModules = navState.ownedModules
+                    .mapNotNull { module -> MOBILE_MODULE_ROUTES[module.module.lowercase()]?.let { module to it } }
+                mobileModules.forEach { (module, route) ->
+                    val active = route == currentRoute
                     DrawerRow(
                         icon = MeshaIcons.forNavKey(module.module),
                         label = moduleLabel(module),
                         active = active,
                         // Mock `.di.on`: the active module carries the check; others are plain.
                         trailing = if (active) ({ DrawerCheck() }) else null,
-                        onClick = { onSelect(moduleRoute(module)) },
+                        onClick = { onSelect(route) },
                     )
                 }
-                SOON_MODULES
-                    .filterNot { soon -> owned.any { it.module.equals(soon.key, ignoreCase = true) } }
-                    .forEach { soon -> DrawerSoonRow(soon) }
+                SOON_MODULES.forEach { soon -> DrawerSoonRow(soon) }
 
                 DrawerGroupLabel("Settings")
                 DrawerRow(
@@ -466,13 +477,6 @@ private fun DrawerFooter(onSignOut: () -> Unit) {
 private fun moduleLabel(module: OwnedModule): String =
     module.module.replace('_', ' ').split(' ').joinToString(" ") { part ->
         part.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-    }
-
-/** Home route for an owned module. Only vaccination ships today; others land on Calendar. */
-private fun moduleRoute(module: OwnedModule): String =
-    when (module.module.lowercase()) {
-        "vaccination" -> Routes.VACCINATION
-        else -> Routes.CALENDAR
     }
 
 private fun languageLabel(tag: String): String = when (tag.lowercase()) {
