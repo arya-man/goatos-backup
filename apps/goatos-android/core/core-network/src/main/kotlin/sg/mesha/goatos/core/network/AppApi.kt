@@ -18,6 +18,7 @@ import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.TaskDetailResponseDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
@@ -203,6 +204,10 @@ interface AppApi {
         limit: Int? = null,
     ): TaskListResponseDto
 
+    /** GET /app/tasks/{task_id} — the task PLUS its SOP version (`form_dsl`) so the operator
+     *  form runner can render the drive form. The list endpoint omits the form. */
+    suspend fun getAppTask(taskId: String): TaskDetailResponseDto
+
     /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. The offline
      *  sync engine's outbox drains this with a stable [idempotencyKey] (same key on every
      *  retry) so a server-committed-but-client-unrecorded replay never duplicates the write. */
@@ -348,6 +353,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         state: String?,
         limit: Int?,
     ): TaskListResponseDto = TaskListResponseDto()
+
+    override suspend fun getAppTask(taskId: String): TaskDetailResponseDto = TaskDetailResponseDto()
 
     override suspend fun submitAppTask(
         taskId: String,

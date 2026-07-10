@@ -31,6 +31,7 @@ import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 // Device DTOs live in the network package (AppApi.kt); no dto.* import needed.
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.TaskDetailResponseDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
@@ -114,6 +115,9 @@ interface AppApiService {
         @Query("state") state: String?,
         @Query("limit") limit: Int?,
     ): TaskListResponseDto
+
+    @GET("app/tasks/{task_id}")
+    suspend fun getAppTask(@Path("task_id") taskId: String): TaskDetailResponseDto
 
     @POST("app/tasks/{task_id}/submissions")
     suspend fun submitAppTask(
@@ -238,6 +242,8 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
         state: String?,
         limit: Int?,
     ): TaskListResponseDto = service.listAppTasks(state, limit)
+
+    override suspend fun getAppTask(taskId: String): TaskDetailResponseDto = service.getAppTask(taskId)
 
     override suspend fun submitAppTask(
         taskId: String,

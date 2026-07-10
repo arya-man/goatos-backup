@@ -91,6 +91,34 @@ data class SubmissionSummaryDto(
     @SerialName("row_version") val rowVersion: Int = 1,
 )
 
+/**
+ * SOP version slice returned inside [TaskDetailResponseDto] — carries the [formDsl] the operator
+ * form runner renders (schema_version + fields[] + rules[]) and the [proofPolicy]. Both are
+ * free-form JSON blobs (the backend owns the schema); the client walks them structurally.
+ */
+@Serializable
+data class SopVersionDto(
+    @SerialName("sop_version_id") val sopVersionId: String = "",
+    @SerialName("sop_id") val sopId: String = "",
+    @SerialName("version") val version: Int = 0,
+    @SerialName("status") val status: String = "",
+    @SerialName("form_dsl") val formDsl: Map<String, JsonElement> = emptyMap(),
+    @SerialName("proof_policy") val proofPolicy: Map<String, JsonElement> = emptyMap(),
+)
+
+/**
+ * GET /app/tasks/{task_id} — a task PLUS its SOP version (the form to render) and prior
+ * submissions. The mobile form runner needs [sopVersion].`form_dsl` to draw the drive form;
+ * the list endpoint (`GET /app/tasks`) omits it, so a task is opened via this detail fetch.
+ */
+@Serializable
+data class TaskDetailResponseDto(
+    @SerialName("task") val task: TaskSummaryDto = TaskSummaryDto(),
+    @SerialName("sop_version") val sopVersion: SopVersionDto? = null,
+    @SerialName("submissions") val submissions: List<SubmissionSummaryDto> = emptyList(),
+    @SerialName("trace_id") val traceId: String = "",
+)
+
 /** Request body for POST /app/tasks/{task_id}/submissions. */
 @Serializable
 data class SubmitTaskRequestDto(
