@@ -2,11 +2,17 @@
 
 Date: 2026-07-10
 
-Status: **PROPOSAL.** This document is design only. It does not create a
-migration, schema change, or app code. Everything under "Proposed schema" is a
-sketch for maintainer review, not a committed contract. Sections describing
-tables that already exist in committed migrations are marked **(existing)**
-and must not be re-built.
+Status: **IMPLEMENTED (2026-07-10).** This design has shipped. The model was
+maintainer-approved and built: migration `000151` (`workforce_positions` +
+additive columns), `RosterService` + `/admin/roster/*` API (`roster.read`/
+`roster.manage`), the real-roster seed (`cmd/seed-roster-real`), the admin-web
+`/people` pages, and the mobile read-only Timetable + coverage banner. Sections
+below marked **(existing)** reuse already-committed tables and were not
+rebuilt. Where the shipped contract differs from a "Proposed schema" sketch
+below, the migration + generated OpenAPI/client are the source of truth. Known
+follow-ups (roster person↔grade join review, holder display-name enrichment in
+roster responses, operator-readable timetable path, `/app/roster/my-coverage`)
+are tracked separately.
 
 Grounded in two real source registers pulled via the `goatos-dev` read-only
 Google Sheets path (raw JSON kept outside this repo at
