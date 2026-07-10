@@ -9,10 +9,26 @@ import (
 )
 
 type fakeRepo struct {
-	rows    []domain.ExecutionProjection
-	opsRows []domain.OperationsRow
-	roster  []domain.ScanRosterRow
-	err     error
+	rows       []domain.ExecutionProjection
+	opsRows    []domain.OperationsRow
+	roster     []domain.ScanRosterRow
+	gapsRows   []domain.GapProjectionRow
+	gapsCounts []domain.GapReasonCount
+	err        error
+}
+
+func (r fakeRepo) VaccinationGaps(_ context.Context, _ domain.GapsQuery) ([]domain.GapProjectionRow, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.gapsRows, nil
+}
+
+func (r fakeRepo) VaccinationGapsSummary(_ context.Context, _ domain.GapsQuery) ([]domain.GapReasonCount, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.gapsCounts, nil
 }
 
 func (r fakeRepo) ScanRoster(_ context.Context, _ domain.ScanRosterQuery) ([]domain.ScanRosterRow, error) {
@@ -159,6 +175,109 @@ func TestVaccinationExecutionFiltersWorkStateAndBuildsDrilldown(t *testing.T) {
 	}
 	if len(detail.AnimalStages) != 1 || detail.AnimalStages[0] != "K1" {
 		t.Fatalf("animal stages = %#v want [K1]", detail.AnimalStages)
+	}
+}
+
+func TestVaccinationGapsBuildsReasonLabelsAndCursor(t *testing.T) {
+	shedID := "shed-1"
+	gapsRows := []domain.GapProjectionRow{
+		{GoatID: "goat-1", DisplayID: "G-000001", ParkID: "park-1", ParkName: "CBE", ShedID: &shedID, ReasonCode: domain.GapReasonNoDateOfBirth},
+		{GoatID: "goat-2", DisplayID: "G-000002", ParkID: "park-1", ParkName: "CBE", ReasonCode: domain.GapReasonNoBreedOnRecord},
+	}
+	gapsCounts := []domain.GapReasonCount{
+		{ReasonCode: domain.GapReasonNoBreedOnRecord, Count: 3},
+		{ReasonCode: domain.GapReasonNoDateOfBirth, Count: 7},
+	}
+	svc := NewService(fakeRepo{gapsRows: gapsRows, gapsCounts: gapsCounts})
+
+	resp, err := svc.VaccinationGaps(context.Background(), domain.GapsQuery{TenantID: "tenant", Limit: len(gapsRows)})
+	if err != nil {
+		t.Fatalf("VaccinationGaps() error = %v", err)
+	}
+	if len(resp.Reasons) != 2 {
+		t.Fatalf("reasons = %#v want 2 entries", resp.Reasons)
+	}
+	// Reasons come back sorted by reason code: no_breed_on_record < no_date_of_birth lexically? verify labels attached.
+	for _, r := range resp.Reasons {
+		if r.ReasonLabel == "" {
+			t.Fatalf("reason %q missing label", r.ReasonCode)
+		}
+	}
+	if len(resp.Rows) != 2 {
+		t.Fatalf("rows = %#v want 2", resp.Rows)
+	}
+	if resp.Rows[0].ReasonLabel != "No date of birth" {
+		t.Fatalf("row 0 label = %q want %q", resp.Rows[0].ReasonLabel, "No date of birth")
+	}
+	if resp.Rows[1].ReasonLabel != "No breed on record" {
+		t.Fatalf("row 1 label = %q want %q", resp.Rows[1].ReasonLabel, "No breed on record")
+	}
+	// Response filled the full requested limit, so the service must signal a next cursor to keep paging.
+	if resp.NextCursor == nil || *resp.NextCursor != "goat-2" {
+		t.Fatalf("next cursor = %v want goat-2", resp.NextCursor)
+	}
+}
+
+func TestVaccinationGapsNoNextCursorWhenUnderLimit(t *testing.T) {
+	gapsRows := []domain.GapProjectionRow{
+		{GoatID: "goat-1", DisplayID: "G-000001", ParkID: "park-1", ParkName: "CBE", ReasonCode: domain.GapReasonNoDateOfBirth},
+	}
+	svc := NewService(fakeRepo{gapsRows: gapsRows})
+
+	resp, err := svc.VaccinationGaps(context.Background(), domain.GapsQuery{TenantID: "tenant", Limit: 200})
+	if err != nil {
+		t.Fatalf("VaccinationGaps() error = %v", err)
+	}
+	if resp.NextCursor != nil {
+		t.Fatalf("next cursor = %v want nil (fewer rows than limit)", *resp.NextCursor)
+	}
+}
+
+func TestCoverageRollupAggregatesByProtocolAcrossCohorts(t *testing.T) {
+	opsRows := []domain.OperationsRow{
+		{ParkID: "park-1", ShedID: "shed-1", Stage: "K1", ProtocolID: "ppr", ProtocolName: "PPR", AcceptedCount: 10, TotalCount: 20},
+		{ParkID: "park-1", ShedID: "shed-2", Stage: "K2", ProtocolID: "ppr", ProtocolName: "PPR", AcceptedCount: 5, TotalCount: 5},
+		{ParkID: "park-1", ShedID: "shed-1", Stage: "K1", ProtocolID: "fmd", ProtocolName: "FMD", AcceptedCount: 1, TotalCount: 4},
+	}
+	svc := NewService(fakeRepo{opsRows: opsRows})
+
+	resp, err := svc.CoverageRollup(context.Background(), domain.OperationsQuery{TenantID: "tenant"})
+	if err != nil {
+		t.Fatalf("CoverageRollup() error = %v", err)
+	}
+	if len(resp.Protocols) != 2 {
+		t.Fatalf("protocols = %#v want 2", resp.Protocols)
+	}
+	byID := map[string]domain.CoverageProtocol{}
+	for _, p := range resp.Protocols {
+		byID[p.ProtocolID] = p
+	}
+	ppr, ok := byID["ppr"]
+	if !ok {
+		t.Fatal("missing ppr protocol")
+	}
+	if ppr.GivenCount != 15 || ppr.TotalCount != 25 || ppr.CoveragePercent != 60 {
+		t.Fatalf("ppr = %#v want given=15 total=25 coverage=60", ppr)
+	}
+	fmd, ok := byID["fmd"]
+	if !ok {
+		t.Fatal("missing fmd protocol")
+	}
+	if fmd.GivenCount != 1 || fmd.TotalCount != 4 || fmd.CoveragePercent != 25 {
+		t.Fatalf("fmd = %#v want given=1 total=4 coverage=25", fmd)
+	}
+}
+
+func TestCoverageRollupZeroTotalIsZeroPercentNotDivideByZero(t *testing.T) {
+	svc := NewService(fakeRepo{opsRows: []domain.OperationsRow{
+		{ParkID: "park-1", ShedID: "shed-1", Stage: "K1", ProtocolID: "ppr", ProtocolName: "PPR", AcceptedCount: 0, TotalCount: 0},
+	}})
+	resp, err := svc.CoverageRollup(context.Background(), domain.OperationsQuery{TenantID: "tenant"})
+	if err != nil {
+		t.Fatalf("CoverageRollup() error = %v", err)
+	}
+	if len(resp.Protocols) != 1 || resp.Protocols[0].CoveragePercent != 0 {
+		t.Fatalf("protocols = %#v want single 0%% entry", resp.Protocols)
 	}
 }
 

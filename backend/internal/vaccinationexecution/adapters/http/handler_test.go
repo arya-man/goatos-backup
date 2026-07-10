@@ -16,13 +16,17 @@ import (
 )
 
 type fakeReader struct {
-	rows    []domain.ExecutionRow
-	detail  domain.ShedDrilldown
-	found   bool
-	last    domain.ExecutionQuery
-	ops     domain.OperationsResponse
-	lastOps domain.OperationsQuery
-	roster  []domain.ScanRosterRow
+	rows         []domain.ExecutionRow
+	detail       domain.ShedDrilldown
+	found        bool
+	last         domain.ExecutionQuery
+	ops          domain.OperationsResponse
+	lastOps      domain.OperationsQuery
+	roster       []domain.ScanRosterRow
+	gaps         domain.GapsResponse
+	lastGaps     domain.GapsQuery
+	coverage     domain.CoverageResponse
+	lastCoverage domain.OperationsQuery
 }
 
 type fakeWriter struct {
@@ -51,6 +55,16 @@ func (f *fakeReader) ShedDrilldown(_ context.Context, q domain.ExecutionQuery) (
 
 func (f *fakeReader) ScanRoster(_ context.Context, q domain.ScanRosterQuery) ([]domain.ScanRosterRow, error) {
 	return f.roster, nil
+}
+
+func (f *fakeReader) VaccinationGaps(_ context.Context, q domain.GapsQuery) (domain.GapsResponse, error) {
+	f.lastGaps = q
+	return f.gaps, nil
+}
+
+func (f *fakeReader) CoverageRollup(_ context.Context, q domain.OperationsQuery) (domain.CoverageResponse, error) {
+	f.lastCoverage = q
+	return f.coverage, nil
 }
 
 func (w *fakeWriter) ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obligationdomain.RecoveryReschedule) (string, bool, error) {
@@ -307,6 +321,115 @@ func TestRescheduleObligationValidatesRequest(t *testing.T) {
 	mux.ServeHTTP(rec, buildRescheduleRequest(t, rescheduleObligationID, "", `{"due_at":"2027-01-01T00:00:00Z"}`))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing idempotency key status = %d want 400", rec.Code)
+	}
+}
+
+func TestVaccinationGapsParsesQueryAndResponds(t *testing.T) {
+	reader := &fakeReader{gaps: domain.GapsResponse{
+		Source:  domain.SourceAPI,
+		Reasons: []domain.GapReasonSummary{{ReasonCode: domain.GapReasonNoDateOfBirth, ReasonLabel: "No date of birth", Count: 7}},
+		Rows:    []domain.GapRow{{GoatID: "goat-1", DisplayID: "G-000001", ParkID: "park-1", ParkName: "CBE", ReasonCode: domain.GapReasonNoDateOfBirth, ReasonLabel: "No date of birth"}},
+	}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/gaps?park_id=30000000-0000-4000-8000-000000000001&limit=9000", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.lastGaps.TenantID != "00000000-0000-4000-8000-000000000001" {
+		t.Fatalf("tenant = %q", reader.lastGaps.TenantID)
+	}
+	if reader.lastGaps.ParkID == nil || *reader.lastGaps.ParkID != "30000000-0000-4000-8000-000000000001" {
+		t.Fatalf("park id = %v", reader.lastGaps.ParkID)
+	}
+	if reader.lastGaps.Limit != maxExecutionLimit {
+		t.Fatalf("limit = %d want %d (clamped)", reader.lastGaps.Limit, maxExecutionLimit)
+	}
+	var resp domain.GapsResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Reasons) != 1 || resp.Reasons[0].Count != 7 {
+		t.Fatalf("response reasons = %#v", resp.Reasons)
+	}
+	if len(resp.Rows) != 1 || resp.Rows[0].DisplayID != "G-000001" {
+		t.Fatalf("response rows = %#v", resp.Rows)
+	}
+}
+
+func TestVaccinationGapsRejectsInvalidQuery(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{}, &fakeWriter{}))
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/app/vaccination/gaps?park_id=not-a-uuid", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid park_id status = %d want 400", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/app/vaccination/gaps?cursor=not-a-uuid", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid cursor status = %d want 400", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/app/vaccination/gaps?limit=0", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid limit status = %d want 400", rec.Code)
+	}
+}
+
+func TestVaccinationCoverageParsesQueryAndResponds(t *testing.T) {
+	reader := &fakeReader{coverage: domain.CoverageResponse{
+		Source:    domain.SourceAPI,
+		Protocols: []domain.CoverageProtocol{{ProtocolID: "ppr", Name: "PPR", GivenCount: 10, TotalCount: 20, CoveragePercent: 50}},
+	}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/coverage?park_id=30000000-0000-4000-8000-000000000001", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.lastCoverage.TenantID != "00000000-0000-4000-8000-000000000001" {
+		t.Fatalf("tenant = %q", reader.lastCoverage.TenantID)
+	}
+	if reader.lastCoverage.ParkID == nil || *reader.lastCoverage.ParkID != "30000000-0000-4000-8000-000000000001" {
+		t.Fatalf("park id = %v", reader.lastCoverage.ParkID)
+	}
+	var resp domain.CoverageResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Protocols) != 1 || resp.Protocols[0].CoveragePercent != 50 {
+		t.Fatalf("response protocols = %#v", resp.Protocols)
+	}
+}
+
+func TestVaccinationCoverageRejectsInvalidQuery(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{}, &fakeWriter{}))
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/app/vaccination/coverage?park_id=not-a-uuid", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid park_id status = %d want 400", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/app/vaccination/coverage?as_of=not-time", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid as_of status = %d want 400", rec.Code)
 	}
 }
 

@@ -274,6 +274,47 @@ func TestVaccinationBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 	}
 }
 
+// TestAppVaccinationExecutionRoutesAuthorizeOperator guards against
+// regressing the app-tier vaccination execution routes back onto admin-tier
+// permissions RoleOperator lacks (P1 fix mirroring commit 6c8962be's /app/roster/*
+// precedent): field operators must be able to scan a shed roster and reschedule
+// an obligation from the mobile app, while the admin /vaccination/* routes stay
+// admin-gated.
+func TestAppVaccinationExecutionRoutesAuthorizeOperator(t *testing.T) {
+	for _, item := range []struct {
+		method      string
+		path        string
+		operationID string
+	}{
+		{"GET", "/app/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001/roster", "appScanRoster"},
+		{"POST", "/app/vaccination/obligations/86000000-0000-4000-8000-000000001001/reschedule", "appRescheduleObligation"},
+	} {
+		route, ok := Match(item.method, item.path)
+		if !ok {
+			t.Fatalf("app vaccination route is not registered: %s %s", item.method, item.path)
+		}
+		if route.OperationID != item.operationID {
+			t.Fatalf("operation_id=%q, want %s", route.OperationID, item.operationID)
+		}
+		if len(route.Permissions) != 1 || route.Permissions[0] != AppBootstrap {
+			t.Fatalf("permissions=%v, want [%s] so any authenticated app user (operators + leadership) can execute", route.Permissions, AppBootstrap)
+		}
+		if !RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("operator must authorize app vaccination execution route: %s", item.path)
+		}
+	}
+
+	// The admin /vaccination/* routes must stay on their existing admin-tier
+	// perms -- this fix must not broaden them.
+	adminRoute, ok := Match("GET", "/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001")
+	if !ok {
+		t.Fatal("admin vaccination execution shed route is not registered")
+	}
+	if RolesAuthorize([]string{RoleOperator}, adminRoute.Permissions, adminRoute.AdminOnly) {
+		t.Fatal("operator must NOT authorize the admin vaccination execution shed route")
+	}
+}
+
 func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 	for _, item := range []struct {
 		path        string

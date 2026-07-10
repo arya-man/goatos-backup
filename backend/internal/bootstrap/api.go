@@ -14,6 +14,8 @@ import (
 	adminuihttp "github.com/vgoats/goatos/backend/internal/adminui/adapters/http"
 	adminuipg "github.com/vgoats/goatos/backend/internal/adminui/adapters/postgres"
 	adminuiapp "github.com/vgoats/goatos/backend/internal/adminui/app"
+	appconfighttp "github.com/vgoats/goatos/backend/internal/appconfig/adapters/http"
+	appconfigapp "github.com/vgoats/goatos/backend/internal/appconfig/app"
 	bulkstatushttp "github.com/vgoats/goatos/backend/internal/bulkstatus/adapters/http"
 	bulkstatuspg "github.com/vgoats/goatos/backend/internal/bulkstatus/adapters/postgres"
 	bulkstatusapp "github.com/vgoats/goatos/backend/internal/bulkstatus/app"
@@ -263,6 +265,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
 	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithModuleOwnership(moduleOwnership))
+	appConfigHandler := appconfighttp.NewHandler(appconfigapp.NewService(moduleOwnership, appconfigapp.ConfigFromEnv()), log)
 	countsService := countsapp.NewService(countspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	feedService := feedapp.NewService(feedpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
 		WithCountsReadiness(countsService).
@@ -339,6 +342,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccexechttp.Register(protectedMux, vaccExecHandler)
 	calendarhttp.Register(protectedMux, calendarHandler)
 	adminuihttp.Register(protectedMux, adminUIHandler)
+	appconfighttp.Register(protectedMux, appConfigHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	passporthttp.Register(protectedMux, passportHandler)
 

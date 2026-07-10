@@ -230,11 +230,11 @@ type OperationsQuery struct {
 // ScanRosterRow represents a single per-animal vaccination obligation for mobile scan screen.
 // primaryTag and secondaryTag are RFID identifiers; vaccineLabel is the vaccine name and schedule position.
 type ScanRosterRow struct {
-	PrimaryTag    string `json:"primaryTag"`
-	SecondaryTag  *string `json:"secondaryTag,omitempty"`
-	VaccineLabel  string `json:"vaccineLabel"`
-	Status        string `json:"status"`
-	ObligationID  string `json:"obligationId"`
+	PrimaryTag   string  `json:"primaryTag"`
+	SecondaryTag *string `json:"secondaryTag,omitempty"`
+	VaccineLabel string  `json:"vaccineLabel"`
+	Status       string  `json:"status"`
+	ObligationID string  `json:"obligationId"`
 }
 
 type ScanRosterQuery struct {
@@ -279,4 +279,95 @@ type ExecutionProjection struct {
 	SOPVersionID         *string
 	SOPTaskRowVersion    *int32
 	CompletionID         *string
+}
+
+// ---- Vaccination gaps read model (animals excluded from the coverage denominator because their
+// identity data is incomplete: no date of birth / no breed on record). Backs the mobile "Data gaps"
+// overlay (Overlays.kt DataGapsSheet TODO(backend): GET gaps?scope_token=<token>). Scoped by tenant +
+// optional park (the same park-scope mechanism /vaccination/execution and /vaccination/operations
+// already use), and paginated by a goat_id keyset cursor so a park with many gapped animals never
+// forces an unbounded full-herd scan. ----
+
+// GapReasonCode enumerates the real, DB-backed reasons a live goat is excluded. Both are derived
+// directly from nullable goats columns (dob — the canonical birth date backfilled from approx_dob in
+// migration 000070 and used by the actual vaccination generation age-eligibility query — and
+// breed/breed_id) that the vaccination generation engine's eligibility selectors (age_band, breed)
+// require to match a protocol rule; there is no "missing weight" reason here because this schema has
+// no live per-goat weight column yet.
+type GapReasonCode string
+
+const (
+	GapReasonNoDateOfBirth   GapReasonCode = "no_date_of_birth"
+	GapReasonNoBreedOnRecord GapReasonCode = "no_breed_on_record"
+)
+
+// GapProjectionRow is one excluded animal straight from SQL, before the service layer attaches a
+// human-readable reason label.
+type GapProjectionRow struct {
+	GoatID     string
+	DisplayID  string
+	ParkID     string
+	ParkName   string
+	ShedID     *string
+	ShedName   *string
+	ReasonCode GapReasonCode
+}
+
+// GapReasonCount is a cheap scoped aggregate (GROUP BY reason, at most two groups) — never a raw
+// full-herd COUNT(*).
+type GapReasonCount struct {
+	ReasonCode GapReasonCode
+	Count      int
+}
+
+type GapRow struct {
+	GoatID      string        `json:"goatId"`
+	DisplayID   string        `json:"displayId"`
+	ParkID      string        `json:"parkId"`
+	ParkName    string        `json:"parkName"`
+	ShedID      *string       `json:"shedId,omitempty"`
+	ShedName    *string       `json:"shedName,omitempty"`
+	ReasonCode  GapReasonCode `json:"reasonCode"`
+	ReasonLabel string        `json:"reasonLabel"`
+}
+
+type GapReasonSummary struct {
+	ReasonCode  GapReasonCode `json:"reasonCode"`
+	ReasonLabel string        `json:"reasonLabel"`
+	Count       int           `json:"count"`
+}
+
+type GapsQuery struct {
+	TenantID string
+	ParkID   *string
+	Cursor   *string // last goat_id seen (exclusive); nil/empty means start from the beginning.
+	Limit    int
+}
+
+type GapsResponse struct {
+	Source     string             `json:"source"`
+	ParkID     *string            `json:"parkId,omitempty"`
+	Reasons    []GapReasonSummary `json:"reasons"`
+	Rows       []GapRow           `json:"rows"`
+	NextCursor *string            `json:"nextCursor,omitempty"`
+}
+
+// ---- Vaccination coverage rollup (per-vaccine given-count + coverage % for a scope). Backs the mobile
+// "Doses given" overlay (Overlays.kt DosesGivenSheet TODO(backend): per-vaccine given + coverage % from
+// the scope-token rollup). Reuses the exact same indexed cohort×protocol rows VaccinationOperations
+// already reads (ports.Repository.VaccinationOperations) and re-aggregates them by protocol only, so
+// this introduces no new hot-table query. ----
+
+type CoverageProtocol struct {
+	ProtocolID      string `json:"protocolId"`
+	Name            string `json:"name"`
+	GivenCount      int    `json:"givenCount"`
+	TotalCount      int    `json:"totalCount"`
+	CoveragePercent int    `json:"coveragePercent"`
+}
+
+type CoverageResponse struct {
+	Source    string             `json:"source"`
+	ParkID    *string            `json:"parkId,omitempty"`
+	Protocols []CoverageProtocol `json:"protocols"`
 }

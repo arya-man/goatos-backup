@@ -205,6 +205,133 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 	return out, nil
 }
 
+// VaccinationGaps returns the bounded, keyset-paginated per-animal exclusion rows (missing date of
+// birth / breed) for a tenant, optionally scoped to one park. Ordered and cursor-paginated by goat_id
+// (the primary key), so a park with many gapped animals is never returned in one unbounded response.
+func (r *Repository) VaccinationGaps(ctx context.Context, q domain.GapsQuery) ([]domain.GapProjectionRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	parkID := ""
+	if q.ParkID != nil {
+		parkID = *q.ParkID
+	}
+	cursor := zeroUUID
+	if q.Cursor != nil && *q.Cursor != "" {
+		cursor = *q.Cursor
+	}
+	rows, err := r.pool.Query(ctx, vaccinationGapsSQL, q.TenantID, parkID, cursor, limit)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: list gaps: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.GapProjectionRow{}
+	for rows.Next() {
+		var row domain.GapProjectionRow
+		var shedID, shedName pgtype.Text
+		var reasonCode string
+		if err := rows.Scan(&row.GoatID, &row.DisplayID, &row.ParkID, &row.ParkName, &shedID, &shedName, &reasonCode); err != nil {
+			return nil, fmt.Errorf("vaccination execution: scan gaps: %w", err)
+		}
+		row.ShedID = textPtr(shedID)
+		row.ShedName = textPtr(shedName)
+		row.ReasonCode = domain.GapReasonCode(reasonCode)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: iterate gaps: %w", err)
+	}
+	return out, nil
+}
+
+// VaccinationGapsSummary returns the scoped reason-count aggregate: at most two GROUP BY buckets
+// (no_date_of_birth / no_breed_on_record) over the same tenant+park+lifecycle-scoped predicate as
+// VaccinationGaps above — a bounded indexed aggregate, never a raw full-herd COUNT(*)/GROUP BY.
+func (r *Repository) VaccinationGapsSummary(ctx context.Context, q domain.GapsQuery) ([]domain.GapReasonCount, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	parkID := ""
+	if q.ParkID != nil {
+		parkID = *q.ParkID
+	}
+	rows, err := r.pool.Query(ctx, vaccinationGapsSummarySQL, q.TenantID, parkID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: gaps summary: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.GapReasonCount{}
+	for rows.Next() {
+		var reasonCode string
+		var count int64
+		if err := rows.Scan(&reasonCode, &count); err != nil {
+			return nil, fmt.Errorf("vaccination execution: scan gaps summary: %w", err)
+		}
+		out = append(out, domain.GapReasonCount{ReasonCode: domain.GapReasonCode(reasonCode), Count: int(count)})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: iterate gaps summary: %w", err)
+	}
+	return out, nil
+}
+
+const zeroUUID = "00000000-0000-0000-0000-000000000000"
+
+// vaccinationGapsSQL is a bounded keyset-paginated scan: tenant_id + lifecycle_status prune the index,
+// goat_id > $3 drives the PK-ordered keyset window, and the LIMIT bounds the response regardless of how
+// many animals a park has gapped. Requires a park (INNER JOIN locations park), matching the same
+// "located park_uuid IS NOT NULL" convention the execution/operations queries already use; a goat with
+// no park at all is out of scope here (not a modeled gap reason).
+const vaccinationGapsSQL = `
+SELECT
+  g.goat_id::text,
+  g.display_id,
+  g.park_id::text,
+  park.name,
+  g.shed_id::text,
+  shed.name,
+  CASE WHEN g.dob IS NULL THEN 'no_date_of_birth' ELSE 'no_breed_on_record' END
+FROM goats g
+JOIN locations park
+  ON park.tenant_id = $1::uuid
+ AND park.location_id = g.park_id
+ AND park.location_type = 'park'
+LEFT JOIN locations shed
+  ON shed.tenant_id = $1::uuid
+ AND shed.location_id = g.shed_id
+ AND shed.location_type = 'shed'
+WHERE g.tenant_id = $1::uuid
+  AND g.lifecycle_status = 'alive'
+  AND g.merged_into_goat_id IS NULL
+  AND g.park_id IS NOT NULL
+  AND ($2::text = '' OR g.park_id = $2::uuid)
+  AND (g.dob IS NULL OR (g.breed IS NULL AND g.breed_id IS NULL))
+  AND g.goat_id > $3::uuid
+ORDER BY g.goat_id ASC
+LIMIT $4;
+`
+
+// vaccinationGapsSummarySQL mirrors the same scoped predicate as vaccinationGapsSQL, without the
+// per-animal projection/keyset, collapsed to a two-bucket GROUP BY reason count.
+const vaccinationGapsSummarySQL = `
+SELECT
+  CASE WHEN g.dob IS NULL THEN 'no_date_of_birth' ELSE 'no_breed_on_record' END AS reason_code,
+  COUNT(*)::bigint
+FROM goats g
+WHERE g.tenant_id = $1::uuid
+  AND g.lifecycle_status = 'alive'
+  AND g.merged_into_goat_id IS NULL
+  AND g.park_id IS NOT NULL
+  AND ($2::text = '' OR g.park_id = $2::uuid)
+  AND (g.dob IS NULL OR (g.breed IS NULL AND g.breed_id IS NULL))
+GROUP BY 1;
+`
+
 func textPtr(v pgtype.Text) *string {
 	if !v.Valid || v.String == "" {
 		return nil

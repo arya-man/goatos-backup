@@ -27,6 +27,10 @@ type Reader interface {
 	ShedDrilldown(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ShedDrilldown, bool, error)
 	VaccinationOperations(ctx context.Context, q vaccexecd.OperationsQuery) (vaccexecd.OperationsResponse, error)
 	ScanRoster(ctx context.Context, q vaccexecd.ScanRosterQuery) ([]vaccexecd.ScanRosterRow, error)
+	// VaccinationGaps backs the mobile data-gaps overlay (animals excluded from coverage + reason).
+	VaccinationGaps(ctx context.Context, q vaccexecd.GapsQuery) (vaccexecd.GapsResponse, error)
+	// CoverageRollup backs the mobile doses-given overlay (per-vaccine given count + coverage %).
+	CoverageRollup(ctx context.Context, q vaccexecd.OperationsQuery) (vaccexecd.CoverageResponse, error)
 }
 
 // Writer is the obligation write interface needed for reschedule operations.
@@ -72,6 +76,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/operations", h.VaccinationOperations)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}/roster", h.ScanRoster)
 	mux.HandleFunc("POST /app/vaccination/obligations/{obligation_id}/reschedule", h.RescheduleObligation)
+	mux.HandleFunc("GET /app/vaccination/gaps", h.VaccinationGaps)
+	mux.HandleFunc("GET /app/vaccination/coverage", h.VaccinationCoverage)
 }
 
 // VaccinationOperations serves the source-backed cohort × protocol matrix + per-cohort detail for the
@@ -369,6 +375,102 @@ func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
 		ObligationID:     id,
 		IdempotentReplay: isReplay,
 	})
+}
+
+// VaccinationGaps returns the bounded, cursor-paginated animals excluded from the vaccination coverage
+// denominator (missing date of birth / breed) for the mobile "Data gaps" overlay. Scoped by tenant +
+// optional park_id, mirroring the existing park-scope pattern on /vaccination/execution and
+// /vaccination/operations.
+func (h *Handler) VaccinationGaps(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	q := vaccexecd.GapsQuery{TenantID: tenantID(r), Limit: defaultExecutionLimit}
+	if parkID := query.Get("park_id"); parkID != "" {
+		if !uuidutil.IsUUIDString(parkID) {
+			h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+			return
+		}
+		q.ParkID = &parkID
+	}
+	if cursor := query.Get("cursor"); cursor != "" {
+		if !uuidutil.IsUUIDString(cursor) {
+			h.badRequest(w, r, "invalid_cursor", "cursor must be a goat UUID")
+			return
+		}
+		q.Cursor = &cursor
+	}
+	if limit := query.Get("limit"); limit != "" {
+		n, err := strconv.Atoi(limit)
+		if err != nil || n <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		if n > maxExecutionLimit {
+			n = maxExecutionLimit
+		}
+		q.Limit = n
+	}
+	resp, err := h.reader.VaccinationGaps(r.Context(), q)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
+// VaccinationCoverage returns the per-vaccine given-count + coverage % rollup for a scope, for the
+// mobile "Doses given" overlay. Reuses the same park/as_of/due_before query parsing as
+// /vaccination/operations, whose indexed cohort×protocol rollup this endpoint re-aggregates by
+// protocol only (no new hot-table query).
+func (h *Handler) VaccinationCoverage(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	asOf := time.Now().In(biztime.DefaultLocation())
+	q := vaccexecd.OperationsQuery{
+		TenantID:  tenantID(r),
+		AsOf:      asOf,
+		DueBefore: asOf.Add(defaultExecutionHorizonDays * 24 * time.Hour),
+		Limit:     defaultDrilldownLimit,
+	}
+	if parkID := query.Get("park_id"); parkID != "" {
+		if !uuidutil.IsUUIDString(parkID) {
+			h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+			return
+		}
+		q.ParkID = &parkID
+	}
+	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
+		parsed, err := time.Parse(time.RFC3339, asOfRaw)
+		if err != nil {
+			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
+			return
+		}
+		q.AsOf = parsed.In(biztime.DefaultLocation())
+		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
+	}
+	if dueBefore := query.Get("due_before"); dueBefore != "" {
+		parsed, err := time.Parse(time.RFC3339, dueBefore)
+		if err != nil {
+			h.badRequest(w, r, "invalid_due_before", "due_before must be RFC3339")
+			return
+		}
+		q.DueBefore = parsed.In(biztime.DefaultLocation())
+	}
+	if limit := query.Get("limit"); limit != "" {
+		n, err := strconv.Atoi(limit)
+		if err != nil || n <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		if n > maxExecutionLimit {
+			n = maxExecutionLimit
+		}
+		q.Limit = n
+	}
+	resp, err := h.reader.CoverageRollup(r.Context(), q)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
 }
 
 func traceID(r *http.Request) string {

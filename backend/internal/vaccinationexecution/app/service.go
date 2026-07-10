@@ -460,3 +460,113 @@ func nextAction(p domain.ExecutionProjection, workState domain.WorkState) string
 func (s *Service) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) ([]domain.ScanRosterRow, error) {
 	return s.repo.ScanRoster(ctx, q)
 }
+
+const (
+	defaultGapsLimit = 200
+	maxGapsLimit     = 500
+)
+
+var gapReasonLabels = map[domain.GapReasonCode]string{
+	domain.GapReasonNoDateOfBirth:   "No date of birth",
+	domain.GapReasonNoBreedOnRecord: "No breed on record",
+}
+
+func gapReasonLabel(code domain.GapReasonCode) string {
+	if label, ok := gapReasonLabels[code]; ok {
+		return label
+	}
+	return string(code)
+}
+
+// VaccinationGaps returns the animals excluded from the vaccination coverage denominator due to
+// missing identity data (no date of birth, no breed on record) for the mobile "Data gaps" overlay. The
+// reason summary is a cheap scoped aggregate (<=2 groups); the rows are the bounded, goat_id-keyset
+// paginated per-animal drill-down — never a full-herd scan, however many animals a park has gapped.
+func (s *Service) VaccinationGaps(ctx context.Context, q domain.GapsQuery) (domain.GapsResponse, error) {
+	limit := q.Limit
+	if limit <= 0 {
+		limit = defaultGapsLimit
+	}
+	if limit > maxGapsLimit {
+		limit = maxGapsLimit
+	}
+	q.Limit = limit
+
+	summary, err := s.repo.VaccinationGapsSummary(ctx, q)
+	if err != nil {
+		return domain.GapsResponse{}, err
+	}
+	reasons := make([]domain.GapReasonSummary, 0, len(summary))
+	for _, r := range summary {
+		reasons = append(reasons, domain.GapReasonSummary{
+			ReasonCode:  r.ReasonCode,
+			ReasonLabel: gapReasonLabel(r.ReasonCode),
+			Count:       r.Count,
+		})
+	}
+	sort.SliceStable(reasons, func(i, j int) bool { return reasons[i].ReasonCode < reasons[j].ReasonCode })
+
+	projections, err := s.repo.VaccinationGaps(ctx, q)
+	if err != nil {
+		return domain.GapsResponse{}, err
+	}
+	rows := make([]domain.GapRow, 0, len(projections))
+	for _, p := range projections {
+		rows = append(rows, domain.GapRow{
+			GoatID:      p.GoatID,
+			DisplayID:   p.DisplayID,
+			ParkID:      p.ParkID,
+			ParkName:    p.ParkName,
+			ShedID:      p.ShedID,
+			ShedName:    p.ShedName,
+			ReasonCode:  p.ReasonCode,
+			ReasonLabel: gapReasonLabel(p.ReasonCode),
+		})
+	}
+	var nextCursor *string
+	if len(rows) == limit {
+		last := rows[len(rows)-1].GoatID
+		nextCursor = &last
+	}
+	return domain.GapsResponse{
+		Source:     domain.SourceAPI,
+		ParkID:     q.ParkID,
+		Reasons:    reasons,
+		Rows:       rows,
+		NextCursor: nextCursor,
+	}, nil
+}
+
+// CoverageRollup returns per-vaccine (protocol) given-dose counts + coverage % for a scope, for the
+// mobile "Doses given" overlay. It reuses the same indexed cohort×protocol rows VaccinationOperations
+// already reads (ports.Repository.VaccinationOperations) and re-aggregates them by protocol only, so no
+// new hot-table query is introduced — this is the scoped rollup docs/decisions/high-scale-dashboard-
+// projections.md requires instead of a raw COUNT(*) over the full herd.
+func (s *Service) CoverageRollup(ctx context.Context, q domain.OperationsQuery) (domain.CoverageResponse, error) {
+	rows, err := s.repo.VaccinationOperations(ctx, q)
+	if err != nil {
+		return domain.CoverageResponse{}, err
+	}
+	order := make([]string, 0, len(rows))
+	byProtocol := map[string]*domain.CoverageProtocol{}
+	for _, r := range rows {
+		agg, ok := byProtocol[r.ProtocolID]
+		if !ok {
+			agg = &domain.CoverageProtocol{ProtocolID: r.ProtocolID, Name: r.ProtocolName}
+			byProtocol[r.ProtocolID] = agg
+			order = append(order, r.ProtocolID)
+		}
+		agg.GivenCount += r.AcceptedCount
+		agg.TotalCount += r.TotalCount
+	}
+	protocols := make([]domain.CoverageProtocol, 0, len(order))
+	for _, id := range order {
+		agg := byProtocol[id]
+		if agg.TotalCount > 0 {
+			agg.CoveragePercent = int(float64(agg.GivenCount) / float64(agg.TotalCount) * 100)
+		}
+		protocols = append(protocols, *agg)
+	}
+	sort.SliceStable(protocols, func(i, j int) bool { return protocols[i].Name < protocols[j].Name })
+	return domain.CoverageResponse{Source: domain.SourceAPI, ParkID: q.ParkID, Protocols: protocols}, nil
+}

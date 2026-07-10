@@ -332,6 +332,49 @@ ORDER BY goat_id
 LIMIT 500;"
 }
 
+validate_vaccination_gaps_plan() {
+  explain_must_use_index "VaccinationGapsKeyset" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
+SELECT
+  g.goat_id::text,
+  g.display_id,
+  g.park_id::text,
+  park.name,
+  g.shed_id::text,
+  shed.name,
+  CASE WHEN g.dob IS NULL THEN 'no_date_of_birth' ELSE 'no_breed_on_record' END
+FROM goats g
+JOIN locations park
+  ON park.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+ AND park.location_id = g.park_id
+ AND park.location_type = 'park'
+LEFT JOIN locations shed
+  ON shed.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+ AND shed.location_id = g.shed_id
+ AND shed.location_type = 'shed'
+WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND g.lifecycle_status = 'alive'
+  AND g.merged_into_goat_id IS NULL
+  AND g.park_id IS NOT NULL
+  AND (''::text = '' OR g.park_id = nullif(''::text, '')::uuid)
+  AND (g.dob IS NULL OR (g.breed IS NULL AND g.breed_id IS NULL))
+  AND g.goat_id > '00000000-0000-0000-0000-000000000000'::uuid
+ORDER BY g.goat_id ASC
+LIMIT 200;"
+
+  explain_must_use_index "VaccinationGapsSummary" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
+SELECT
+  CASE WHEN g.dob IS NULL THEN 'no_date_of_birth' ELSE 'no_breed_on_record' END AS reason_code,
+  COUNT(*)::bigint
+FROM goats g
+WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND g.lifecycle_status = 'alive'
+  AND g.merged_into_goat_id IS NULL
+  AND g.park_id IS NOT NULL
+  AND (''::text = '' OR g.park_id = nullif(''::text, '')::uuid)
+  AND (g.dob IS NULL OR (g.breed IS NULL AND g.breed_id IS NULL))
+GROUP BY 1;"
+}
+
 validate_vaccination_impact_count_plans() {
   local impact_predicates="
 FROM goats g
@@ -1116,6 +1159,7 @@ validate_inventory_fefo_plan
 validate_inventory_movements_ledger_plan
 validate_inventory_batch_reconcile_plan
 validate_vaccination_generation_scan_plan
+validate_vaccination_gaps_plan
 validate_vaccination_impact_count_plans
 validate_vaccination_review_queue_plan
 validate_vaccination_fanout_plan

@@ -2093,6 +2093,173 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/vaccination/obligations/{obligation_id}/reschedule:
+    post:
+      tags:
+        - Vaccination
+      operationId: appRescheduleObligation
+      summary: Reschedule an open vaccination obligation to a new due date.
+      description: >-
+        Reschedules an open (scheduled/due) vaccination obligation to a new due date,
+        targeted by obligation_id. Idempotent via the Idempotency-Key header: an exact
+        replay returns the original result without re-running the write; a same-key/different-payload
+        replay is rejected with 409. A health-held ('deferred') obligation cannot be reached
+        through this endpoint. A 'missed' target is immutable closed history — this endpoint
+        creates a brand-new obligation for the new due date and returns the new obligation_id
+        rather than mutating the missed row.
+      parameters:
+        - $ref: "#/components/parameters/ObligationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RescheduleObligationRequest"
+      responses:
+        "200":
+          description: Obligation rescheduled successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RescheduleObligationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/vaccination/gaps:
+    get:
+      tags:
+        - Vaccination
+      operationId: appVaccinationGaps
+      summary: List animals excluded from the vaccination coverage denominator, with the reason.
+      description: >-
+        Bounded, cursor-paginated animals whose identity data is incomplete (no date of birth, no
+        breed on record) and are therefore excluded from the coverage %. Scoped by tenant + optional
+        park_id, mirroring the same park-scope mechanism /vaccination/execution and
+        /vaccination/operations already use. Backs the mobile "Data gaps" overlay.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Bounded gap rows + scoped reason-count summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationGapsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/vaccination/coverage:
+    get:
+      tags:
+        - Vaccination
+      operationId: appVaccinationCoverage
+      summary: Per-vaccine given-dose count + coverage % rollup for a scope.
+      description: >-
+        Reuses the same indexed cohort×protocol rollup /vaccination/operations already reads,
+        re-aggregated by protocol only (no new hot-table query). Backs the mobile "Doses given"
+        overlay.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: due_before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Per-vaccine given/coverage rollup.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationCoverageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/config:
+    get:
+      tags:
+        - Operator App Bootstrap
+      operationId: appConfig
+      summary: Get the mobile live-config bundle (nav/labels/flags/tunables/kill-switch).
+      description: >-
+        docs/mobile/backend-driven-config.md primary config poll. Returns presentationConfig
+        (feature flags, department-sourced owned-module registry) + clientRuntimeConfig (bounded
+        operational knobs) stamped with a monotonic revision + ETag, plus a read-only policy_revision
+        traceability echo. Supports conditional GET: a matching If-None-Match returns 304 with no
+        body. Side-effect-free; no FCM push is wired by this endpoint (poll/ETag only).
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full config bundle.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppConfigResponse"
+        "304":
+          description: Config unchanged since the given ETag.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -2183,6 +2350,13 @@ components:
         maxLength: 256
     ProofId:
       name: proof_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ObligationId:
+      name: obligation_id
       in: path
       required: true
       schema:
@@ -7371,3 +7545,235 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+    RescheduleObligationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - due_at
+      properties:
+        due_at:
+          type: string
+          format: date-time
+          description: The new due date for the obligation. Must be in the future.
+        window_start:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: Optional window start. Defaults to due_at if not provided.
+        window_end:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: Optional window end for the obligation.
+    RescheduleObligationResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - obligation_id
+        - idempotent_replay
+      properties:
+        obligation_id:
+          type: string
+          format: uuid
+          description: >-
+            The obligation ID after rescheduling. If the original obligation was 'missed',
+            this is a new obligation_id. Otherwise, it is the same as the path parameter.
+        idempotent_replay:
+          type: boolean
+          description: True if this result was returned from a previous identical request (idempotency replay).
+    VaccinationGapReasonCode:
+      type: string
+      description: >-
+        Real, DB-backed reasons a live goat is excluded from the vaccination coverage denominator —
+        derived from nullable goats columns (dob, breed/breed_id) the generation engine's eligibility
+        selectors require to match a protocol rule.
+      enum:
+        - no_date_of_birth
+        - no_breed_on_record
+    VaccinationGapReasonSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - reasonCode
+        - reasonLabel
+        - count
+      properties:
+        reasonCode:
+          $ref: "#/components/schemas/VaccinationGapReasonCode"
+        reasonLabel:
+          type: string
+        count:
+          type: integer
+          minimum: 0
+    VaccinationGapRow:
+      type: object
+      additionalProperties: false
+      required:
+        - goatId
+        - displayId
+        - parkId
+        - parkName
+        - reasonCode
+        - reasonLabel
+      properties:
+        goatId:
+          type: string
+          format: uuid
+        displayId:
+          type: string
+        parkId:
+          type: string
+          format: uuid
+        parkName:
+          type: string
+        shedId:
+          type: string
+          format: uuid
+        shedName:
+          type: string
+        reasonCode:
+          $ref: "#/components/schemas/VaccinationGapReasonCode"
+        reasonLabel:
+          type: string
+    VaccinationGapsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - reasons
+        - rows
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        parkId:
+          type: string
+          format: uuid
+        reasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationGapReasonSummary"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationGapRow"
+        nextCursor:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+    VaccinationCoverageProtocol:
+      type: object
+      additionalProperties: false
+      required:
+        - protocolId
+        - name
+        - givenCount
+        - totalCount
+        - coveragePercent
+      properties:
+        protocolId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        givenCount:
+          type: integer
+          minimum: 0
+        totalCount:
+          type: integer
+          minimum: 0
+        coveragePercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+    VaccinationCoverageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - protocols
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        parkId:
+          type: string
+          format: uuid
+        protocols:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationCoverageProtocol"
+    AppClientRuntimeConfig:
+      type: object
+      additionalProperties: false
+      description: >-
+        Backend-owned, backend-bounded client operational tuning — never business/medical policy
+        (docs/mobile/backend-driven-config.md). Every value is clamped server-side to a safe min/max.
+      required:
+        - pageSizeDefault
+        - syncBackoffBaseMs
+        - syncBackoffMaxMs
+        - refreshCadenceSec
+        - cacheTtlSec
+        - jankSamplingRate
+      properties:
+        pageSizeDefault:
+          type: integer
+          minimum: 1
+        syncBackoffBaseMs:
+          type: integer
+          minimum: 0
+        syncBackoffMaxMs:
+          type: integer
+          minimum: 0
+        refreshCadenceSec:
+          type: integer
+          minimum: 1
+        cacheTtlSec:
+          type: integer
+          minimum: 0
+        jankSamplingRate:
+          type: number
+          minimum: 0
+          maximum: 1
+    AppConfigResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - revision
+        - cachePolicy
+        - featureFlags
+        - ownedModules
+        - clientRuntimeConfig
+        - policyRevision
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        revision:
+          type: string
+          minLength: 1
+        cachePolicy:
+          $ref: "#/components/schemas/AdminWebContractCachePolicy"
+        featureFlags:
+          type: object
+          additionalProperties:
+            type: boolean
+        ownedModules:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnedModule"
+        clientRuntimeConfig:
+          $ref: "#/components/schemas/AppClientRuntimeConfig"
+        policyRevision:
+          type: string
+          description: >-
+            Read-only traceability echo (the governing business-rule doc, e.g.
+            vaccination-rules.md) — never a raw threshold the client could compute from.

@@ -1136,3 +1136,132 @@ func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 		t.Errorf("MC cohort workState want missed, got %q", c.WorkState)
 	}
 }
+
+const (
+	testGapsPark        = "71000000-0000-4000-8000-000000000001"
+	testGapsShed        = "71000000-0000-4000-8000-000000000002"
+	testGapsGoatNoDOB   = "71000000-0000-4000-8000-000000000003"
+	testGapsGoatNoBreed = "71000000-0000-4000-8000-000000000004"
+	testGapsGoatOK      = "71000000-0000-4000-8000-000000000005"
+)
+
+func seedVaccinationGaps(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	exec := func(label, sql string, args ...any) { execProjectionSQL(t, ctx, pool, label, sql, args...) }
+	exec("gaps park",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+		 VALUES ($1, $2, 'park', 'PARK-GAPS', 'Gaps Park', 'active')`,
+		testGapsPark, testTenant)
+	exec("gaps shed",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1, $2, 'shed', 'SHED-GAPS', 'Gaps Shed', $3, 'active')`,
+		testGapsShed, testTenant, testGapsPark)
+	exec("goat no dob",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+			   current_location_id, park_id, shed_id, breed, dob)
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, 'Beetal', NULL)`,
+		testGapsGoatNoDOB, testTenant, testParty, testGapsShed, testGapsPark)
+	exec("goat no breed",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+			   current_location_id, park_id, shed_id, breed, breed_id, dob)
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, NULL, NULL, DATE '2025-01-01')`,
+		testGapsGoatNoBreed, testTenant, testParty, testGapsShed, testGapsPark)
+	exec("goat complete",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+			   current_location_id, park_id, shed_id, breed, dob)
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, 'Beetal', DATE '2025-01-01')`,
+		testGapsGoatOK, testTenant, testParty, testGapsShed, testGapsPark)
+}
+
+func TestVaccinationGapsSummaryScopesAndCounts(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationGaps(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	summary, err := repo.VaccinationGapsSummary(ctx, domain.GapsQuery{TenantID: testTenant})
+	if err != nil {
+		t.Fatalf("VaccinationGapsSummary() error = %v", err)
+	}
+	counts := map[domain.GapReasonCode]int{}
+	for _, s := range summary {
+		counts[s.ReasonCode] = s.Count
+	}
+	if counts[domain.GapReasonNoDateOfBirth] != 1 {
+		t.Fatalf("no_date_of_birth count = %d want 1 (summary=%#v)", counts[domain.GapReasonNoDateOfBirth], summary)
+	}
+	if counts[domain.GapReasonNoBreedOnRecord] != 1 {
+		t.Fatalf("no_breed_on_record count = %d want 1 (summary=%#v)", counts[domain.GapReasonNoBreedOnRecord], summary)
+	}
+
+	// Scoping to a park with no gapped animals returns zero counts, not an error.
+	otherPark := "71000000-0000-4000-8000-000000000099"
+	scoped, err := repo.VaccinationGapsSummary(ctx, domain.GapsQuery{TenantID: testTenant, ParkID: &otherPark})
+	if err != nil {
+		t.Fatalf("VaccinationGapsSummary(scoped) error = %v", err)
+	}
+	if len(scoped) != 0 {
+		t.Fatalf("scoped summary = %#v want empty", scoped)
+	}
+}
+
+func TestVaccinationGapsExcludesCompleteAnimalsAndPaginates(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationGaps(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.VaccinationGaps(ctx, domain.GapsQuery{TenantID: testTenant, Limit: 10})
+	if err != nil {
+		t.Fatalf("VaccinationGaps() error = %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows want 2 (complete animal must be excluded): %#v", len(rows), rows)
+	}
+	byGoat := map[string]domain.GapProjectionRow{}
+	for _, r := range rows {
+		byGoat[r.GoatID] = r
+	}
+	if got, ok := byGoat[testGapsGoatNoDOB]; !ok || got.ReasonCode != domain.GapReasonNoDateOfBirth {
+		t.Fatalf("no-dob goat row = %#v want reason no_date_of_birth", got)
+	}
+	if got, ok := byGoat[testGapsGoatNoBreed]; !ok || got.ReasonCode != domain.GapReasonNoBreedOnRecord {
+		t.Fatalf("no-breed goat row = %#v want reason no_breed_on_record", got)
+	}
+	if _, ok := byGoat[testGapsGoatOK]; ok {
+		t.Fatalf("complete goat must not appear in gaps: %#v", rows)
+	}
+
+	// Keyset pagination: limit=1 must return exactly one row plus a usable cursor for the next page.
+	page1, err := repo.VaccinationGaps(ctx, domain.GapsQuery{TenantID: testTenant, Limit: 1})
+	if err != nil {
+		t.Fatalf("VaccinationGaps(page1) error = %v", err)
+	}
+	if len(page1) != 1 {
+		t.Fatalf("page1 = %#v want 1 row", page1)
+	}
+	cursor := page1[0].GoatID
+	page2, err := repo.VaccinationGaps(ctx, domain.GapsQuery{TenantID: testTenant, Limit: 10, Cursor: &cursor})
+	if err != nil {
+		t.Fatalf("VaccinationGaps(page2) error = %v", err)
+	}
+	if len(page2) != 1 || page2[0].GoatID == cursor {
+		t.Fatalf("page2 = %#v want the one remaining row, distinct from cursor %q", page2, cursor)
+	}
+
+	// park_id scoping: an unrelated park returns no rows.
+	otherPark := "71000000-0000-4000-8000-000000000099"
+	scoped, err := repo.VaccinationGaps(ctx, domain.GapsQuery{TenantID: testTenant, ParkID: &otherPark, Limit: 10})
+	if err != nil {
+		t.Fatalf("VaccinationGaps(scoped) error = %v", err)
+	}
+	if len(scoped) != 0 {
+		t.Fatalf("scoped rows = %#v want empty", scoped)
+	}
+}

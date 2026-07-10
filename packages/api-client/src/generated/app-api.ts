@@ -896,6 +896,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/vaccination/obligations/{obligation_id}/reschedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reschedule an open vaccination obligation to a new due date.
+         * @description Reschedules an open (scheduled/due) vaccination obligation to a new due date, targeted by obligation_id. Idempotent via the Idempotency-Key header: an exact replay returns the original result without re-running the write; a same-key/different-payload replay is rejected with 409. A health-held ('deferred') obligation cannot be reached through this endpoint. A 'missed' target is immutable closed history — this endpoint creates a brand-new obligation for the new due date and returns the new obligation_id rather than mutating the missed row.
+         */
+        post: operations["appRescheduleObligation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/vaccination/gaps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List animals excluded from the vaccination coverage denominator, with the reason.
+         * @description Bounded, cursor-paginated animals whose identity data is incomplete (no date of birth, no breed on record) and are therefore excluded from the coverage %. Scoped by tenant + optional park_id, mirroring the same park-scope mechanism /vaccination/execution and /vaccination/operations already use. Backs the mobile "Data gaps" overlay.
+         */
+        get: operations["appVaccinationGaps"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/vaccination/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-vaccine given-dose count + coverage % rollup for a scope.
+         * @description Reuses the same indexed cohort×protocol rollup /vaccination/operations already reads, re-aggregated by protocol only (no new hot-table query). Backs the mobile "Doses given" overlay.
+         */
+        get: operations["appVaccinationCoverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the mobile live-config bundle (nav/labels/flags/tunables/kill-switch).
+         * @description docs/mobile/backend-driven-config.md primary config poll. Returns presentationConfig (feature flags, department-sourced owned-module registry) + clientRuntimeConfig (bounded operational knobs) stamped with a monotonic revision + ETag, plus a read-only policy_revision traceability echo. Supports conditional GET: a matching If-None-Match returns 304 with no body. Side-effect-free; no FCM push is wired by this endpoint (poll/ETag only).
+         */
+        get: operations["appConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2706,6 +2786,101 @@ export interface components {
             coverage: components["schemas"]["MyCoverage"];
             trace_id: string;
         };
+        RescheduleObligationRequest: {
+            /**
+             * Format: date-time
+             * @description The new due date for the obligation. Must be in the future.
+             */
+            due_at: string;
+            /**
+             * Format: date-time
+             * @description Optional window start. Defaults to due_at if not provided.
+             */
+            window_start?: string | null;
+            /**
+             * Format: date-time
+             * @description Optional window end for the obligation.
+             */
+            window_end?: string | null;
+        };
+        RescheduleObligationResponse: {
+            /**
+             * Format: uuid
+             * @description The obligation ID after rescheduling. If the original obligation was 'missed', this is a new obligation_id. Otherwise, it is the same as the path parameter.
+             */
+            obligation_id: string;
+            /** @description True if this result was returned from a previous identical request (idempotency replay). */
+            idempotent_replay: boolean;
+        };
+        /**
+         * @description Real, DB-backed reasons a live goat is excluded from the vaccination coverage denominator — derived from nullable goats columns (dob, breed/breed_id) the generation engine's eligibility selectors require to match a protocol rule.
+         * @enum {string}
+         */
+        VaccinationGapReasonCode: "no_date_of_birth" | "no_breed_on_record";
+        VaccinationGapReasonSummary: {
+            reasonCode: components["schemas"]["VaccinationGapReasonCode"];
+            reasonLabel: string;
+            count: number;
+        };
+        VaccinationGapRow: {
+            /** Format: uuid */
+            goatId: string;
+            displayId: string;
+            /** Format: uuid */
+            parkId: string;
+            parkName: string;
+            /** Format: uuid */
+            shedId?: string;
+            shedName?: string;
+            reasonCode: components["schemas"]["VaccinationGapReasonCode"];
+            reasonLabel: string;
+        };
+        VaccinationGapsResponse: {
+            /** @enum {string} */
+            source: "api";
+            /** Format: uuid */
+            parkId?: string;
+            reasons: components["schemas"]["VaccinationGapReasonSummary"][];
+            rows: components["schemas"]["VaccinationGapRow"][];
+            nextCursor?: string | null;
+        };
+        VaccinationCoverageProtocol: {
+            /** Format: uuid */
+            protocolId: string;
+            name: string;
+            givenCount: number;
+            totalCount: number;
+            coveragePercent: number;
+        };
+        VaccinationCoverageResponse: {
+            /** @enum {string} */
+            source: "api";
+            /** Format: uuid */
+            parkId?: string;
+            protocols: components["schemas"]["VaccinationCoverageProtocol"][];
+        };
+        /** @description Backend-owned, backend-bounded client operational tuning — never business/medical policy (docs/mobile/backend-driven-config.md). Every value is clamped server-side to a safe min/max. */
+        AppClientRuntimeConfig: {
+            pageSizeDefault: number;
+            syncBackoffBaseMs: number;
+            syncBackoffMaxMs: number;
+            refreshCadenceSec: number;
+            cacheTtlSec: number;
+            jankSamplingRate: number;
+        };
+        AppConfigResponse: {
+            /** @enum {string} */
+            source: "api";
+            revision: string;
+            cachePolicy: components["schemas"]["AdminWebContractCachePolicy"];
+            featureFlags: {
+                [key: string]: boolean;
+            };
+            ownedModules: components["schemas"]["OwnedModule"][];
+            clientRuntimeConfig: components["schemas"]["AppClientRuntimeConfig"];
+            /** @description Read-only traceability echo (the governing business-rule doc, e.g. vaccination-rules.md) — never a raw threshold the client could compute from. */
+            policyRevision: string;
+        };
     };
     responses: {
         /** @description Validation error. */
@@ -2794,6 +2969,7 @@ export interface components {
         ShedId: string;
         CalendarEventId: string;
         ProofId: string;
+        ObligationId: string;
     };
     requestBodies: never;
     headers: never;
@@ -4347,6 +4523,129 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MyCoverageResponse"];
                 };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appRescheduleObligation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                obligation_id: components["parameters"]["ObligationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RescheduleObligationRequest"];
+            };
+        };
+        responses: {
+            /** @description Obligation rescheduled successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RescheduleObligationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appVaccinationGaps: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                limit?: number;
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded gap rows + scoped reason-count summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationGapsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appVaccinationCoverage: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                as_of?: string;
+                due_before?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-vaccine given/coverage rollup. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationCoverageResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appConfig: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Full config bundle. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppConfigResponse"];
+                };
+            };
+            /** @description Config unchanged since the given ETag. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];

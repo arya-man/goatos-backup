@@ -76,6 +76,10 @@ var protectedRoutes = []Route{
 	{OperationID: "adminWebBootstrap", Method: "GET", Pattern: "/admin-web/bootstrap", Permissions: []string{AdminWebBootstrap}},
 	{OperationID: "registerAppDevice", Method: "POST", Pattern: "/app/devices/register", Permissions: []string{AppBootstrap}},
 	{OperationID: "heartbeatAppDevice", Method: "POST", Pattern: "/app/devices/{device_id}/heartbeat", Permissions: []string{AppBootstrap}},
+	// Mobile live remote-config poll (docs/mobile/backend-driven-config.md): ETag/revision +
+	// cache_policy, presentation feature flags/owned-module registry, and bounded client runtime
+	// knobs. Same AppBootstrap "any authenticated app principal" gate as /app/bootstrap.
+	{OperationID: "appConfig", Method: "GET", Pattern: "/app/config", Permissions: []string{AppBootstrap}},
 
 	{OperationID: "listSOPs", Method: "GET", Pattern: "/admin/sops", Permissions: []string{SOPRead}},
 	{OperationID: "createSOP", Method: "POST", Pattern: "/admin/sops", Permissions: []string{SOPWrite}},
@@ -137,8 +141,20 @@ var protectedRoutes = []Route{
 	{OperationID: "getVaccinationOperations", Method: "GET", Pattern: "/vaccination/operations", Permissions: []string{ObligationRead, VaccinationRead}},
 	{OperationID: "listVaccinationExecution", Method: "GET", Pattern: "/vaccination/execution", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationExecutionShedDrilldown", Method: "GET", Pattern: "/vaccination/execution/sheds/{shed_id}", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
-	{OperationID: "appScanRoster", Method: "GET", Pattern: "/app/vaccination/execution/sheds/{shed_id}/roster", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
-	{OperationID: "appRescheduleObligation", Method: "POST", Pattern: "/app/vaccination/obligations/{obligation_id}/reschedule", Permissions: []string{ObligationRead, VaccinationRead, CalendarAction}},
+	// App-tier vaccination execution: gated on AppBootstrap = any authenticated
+	// app user (operators + leadership all hold it), NOT the admin-tier
+	// LocationsRead/ObligationRead/VaccinationRead/CalendarAction combo RoleOperator
+	// lacks. Mirrors the /app/roster/* precedent (commit 6c8962be) -- these are the
+	// core operator app actions (scan the shed roster, reschedule an obligation),
+	// so gating them on admin-tier perms 403s every field operator. The admin
+	// /vaccination/* routes above stay on their existing admin-tier perms.
+	{OperationID: "appScanRoster", Method: "GET", Pattern: "/app/vaccination/execution/sheds/{shed_id}/roster", Permissions: []string{AppBootstrap}},
+	{OperationID: "appRescheduleObligation", Method: "POST", Pattern: "/app/vaccination/obligations/{obligation_id}/reschedule", Permissions: []string{AppBootstrap}},
+	// App-tier data-gaps + coverage-rollup overlays: same AppBootstrap "any authenticated app
+	// principal" gate as appScanRoster/appRescheduleObligation above (mobile Data gaps + Doses
+	// given overlays, Overlays.kt DataGapsSheet/DosesGivenSheet).
+	{OperationID: "appVaccinationGaps", Method: "GET", Pattern: "/app/vaccination/gaps", Permissions: []string{AppBootstrap}},
+	{OperationID: "appVaccinationCoverage", Method: "GET", Pattern: "/app/vaccination/coverage", Permissions: []string{AppBootstrap}},
 	{OperationID: "getFeedDirectionReadiness", Method: "GET", Pattern: "/feed-direction/readiness", Permissions: []string{ProtocolRead}},
 	{OperationID: "getFeedDirectionGenerationPreview", Method: "GET", Pattern: "/feed-direction/generation-preview", Permissions: []string{ProtocolRead}},
 	{OperationID: "listFeedDirectionCountsProjectionExceptions", Method: "GET", Pattern: "/feed-direction/counts-projection/exceptions", Permissions: []string{ProtocolRead}},
