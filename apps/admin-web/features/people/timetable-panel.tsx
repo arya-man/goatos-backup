@@ -2,20 +2,27 @@
 
 import { getAdminApi } from '@/lib/api/client';
 import { useEffect, useState } from 'react';
+import type { AdminApiComponents } from '@goatos/api-client';
+import { type AdminUiPageContract } from '@/lib/admin-ui-contract';
 
-interface Shift {
-  position_code: string;
-  position_title: string;
-  shift_time: string;
-  cbe_holder: string | null;
-  cpt_holder: string | null;
-  week_off_day: string;
-  backup_group: string;
-  is_backup_position: boolean;
+// Backend enriches positions with display fields from related tables
+type BasePosition = AdminApiComponents['schemas']['Position'];
+interface Position extends BasePosition {
+  person_display_name?: string | null;
+  hr_designation_grade?: string | null;
+  position_title?: string | null;
+  center_label?: string | null;
+  tier?: string | null;
+  week_off?: string | null;
+  backup_group?: string | null;
 }
 
-export function TimetablePanel() {
-  const [shifts, setShifts] = useState<Shift[]>([]);
+interface TimetablePanelProps {
+  pageContract?: AdminUiPageContract;
+}
+
+export function TimetablePanel({ pageContract }: TimetablePanelProps) {
+  const [positions, setPositions] = useState<Position[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,17 +30,16 @@ export function TimetablePanel() {
     const loadData = async () => {
       try {
         const api = getAdminApi();
-        const response = await api.getAdminRosterPositions({});
+        const response = await api.listStaffPositions();
 
-        if (response.data) {
-          // Transform positions data into shift roster format
-          setShifts(response.data as Shift[]);
+        if (response.data?.items) {
+          setPositions(response.data.items);
         }
 
         setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load shifts');
-        console.error('Error loading shifts:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load timetable');
+        console.error('Error loading timetable:', err);
       } finally {
         setLoading(false);
       }
@@ -47,8 +53,19 @@ export function TimetablePanel() {
   }
 
   if (error) {
-    return <div className="p-4 text-red-600">Error: {error}</div>;
+    return (
+      <div style={{ padding: '16px', color: 'var(--danger)' }}>
+        <svg className="ic" style={{ marginRight: '8px' }}>
+          <use href="#i-warn" />
+        </svg>
+        Error: {error}
+      </div>
+    );
   }
+
+  // Group positions by center + backup status for timetable display
+  const regularPositions = positions.filter(p => !p.is_backup_slot && p.status === 'active');
+  const backupPositions = positions.filter(p => p.is_backup_slot && p.status === 'active');
 
   return (
     <div className="subpanel" data-sub="timetable">
@@ -57,61 +74,87 @@ export function TimetablePanel() {
           <div className="crumb">Team / <b>Timetable</b></div>
           <h1>Timetable</h1>
           <div className="sub">
-            The shift roster per center — the operational source for <b>who executes each day</b>. Vaccination and every drive read this to resolve the owner. The mobile app <b>mirrors this read-only</b>. Edited here (web CRUD) only.
+            The shift roster — the operational source for <b>who executes each day</b>. Vaccination and operations read this to resolve responsibility. The mobile app <b>mirrors this read-only</b>. CRUD edit only here.
           </div>
         </div>
         <div className="sp"></div>
-        <button className="btn" title="Import sheet">
-          <svg className="ic" style={{ width: '13px' }}><use href="#i-arrow"/></svg>Import sheet
+        <button className="btn" title="Import sheet" disabled aria-label="Import sheet (backend import contract pending)">
+          <svg className="ic" style={{ width: '13px' }}>
+            <use href="#i-arrow" />
+          </svg>
+          Import sheet
         </button>
-        <button className="btn p" title="Edit shift">
-          <svg className="ic"><use href="#i-plus"/></svg>Edit shift
+        <button className="btn p" title="Edit position" disabled aria-label="Edit position (backend contract pending)">
+          <svg className="ic">
+            <use href="#i-plus" />
+          </svg>
+          Edit position
         </button>
       </div>
 
       <div className="card">
         <div className="hd">
-          <svg className="ic" style={{ color: 'var(--brand)' }}><use href="#i-clock"/></svg>
-          <h3>Shift roster — CBE + CPT</h3>
+          <svg className="ic" style={{ color: 'var(--brand)' }}>
+            <use href="#i-clock" />
+          </svg>
+          <h3>Position roster — regular + backup</h3>
           <div className="sp"></div>
-          <span className="small muted">position × center · Week OFF · Backup</span>
+          <span className="small muted">position · tier · center · week OFF · backup</span>
         </div>
         <div className="bd" style={{ padding: 0 }}>
           <table id="ttTbl">
             <thead>
               <tr>
-                <th>Operational position</th>
-                <th>Shift</th>
-                <th>CBE</th>
-                <th>CPT</th>
+                <th>Position title</th>
+                <th>Position code</th>
+                <th>Tier</th>
+                <th>Center</th>
+                <th>Person</th>
                 <th>Week OFF</th>
-                <th>Backup</th>
+                <th>Backup group</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              {shifts.map((shift) => (
-                <tr
-                  key={shift.position_code}
-                  style={shift.is_backup_position ? { background: 'var(--surf3)' } : undefined}
-                >
-                  <td>
-                    {shift.is_backup_position ? <b>{shift.position_title}</b> : shift.position_title}
-                  </td>
-                  <td>{shift.shift_time}</td>
-                  <td>{shift.cbe_holder || '—'}</td>
-                  <td>{shift.cpt_holder || '—'}</td>
-                  <td>{shift.week_off_day}</td>
-                  <td>
-                    <span className={`tag ${shift.is_backup_position ? 't-teal' : 't-mut'}`}>
-                      {shift.is_backup_position ? `covers ${shift.backup_group}` : shift.backup_group}
-                    </span>
+              {positions.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '16px', color: 'var(--muted)' }}>
+                    No positions in roster
                   </td>
                 </tr>
-              ))}
+              ) : (
+                positions.map((pos) => (
+                  <tr
+                    key={pos.position_id}
+                    style={pos.is_backup_slot ? { background: 'var(--surf3)' } : undefined}
+                  >
+                    <td>
+                      {pos.is_backup_slot ? <b>{pos.position_title || pos.position_code}</b> : pos.position_title || pos.position_code}
+                    </td>
+                    <td><code>{pos.position_code}</code></td>
+                    <td><span className="tag t-info">{pos.position_tier}</span></td>
+                    <td>{pos.center_label || '—'}</td>
+                    <td>{pos.person_display_name || '—'}</td>
+                    <td>{pos.week_off || (pos.week_off_weekday ? pos.week_off_weekday : '—')}</td>
+                    <td>
+                      <span
+                        className={`tag ${pos.is_backup_slot ? 't-teal' : 't-mut'}`}
+                      >
+                        {pos.is_backup_slot ? `backup: ${pos.backup_group_code}` : pos.backup_group_code || '—'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`tag ${pos.status === 'active' ? 't-ok' : 't-warn'}`}>
+                        {pos.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
           <div className="note" style={{ margin: '12px 14px' }}>
-            The <b>Backup</b> column is a fixed <b>position</b>, not a leave-time pick — exactly as the source roster encodes it. A position's <b>Week OFF</b> auto-triggers same-day coverage from its backup, no leave request needed. Mobile shows this table read-only plus a "you're covering X" banner when a coverage window is active.
+            <b>Backup column:</b> The backup group code (e.g., "backup_manager", "backup_am1") is a fixed <b>position assignment</b>, not a temporary leave pick — exactly as stored. A position's <b>Week OFF</b> auto-triggers same-day coverage from its backup group, no leave request needed. Mobile shows this table read-only plus "covering X" context when a coverage is active.
           </div>
         </div>
       </div>
