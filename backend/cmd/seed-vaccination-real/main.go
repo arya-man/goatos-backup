@@ -1,6 +1,6 @@
 // Command seed-vaccination-real imports the real captured herd + vaccination
 // spreadsheet snapshot into the local/dev GoatOS schema so the /vaccination
-// operations read model renders real cohorts x the 7 vaccine protocols with
+// operations read model renders real cohorts x the vaccination matrix with
 // honest up-to-date / due / overdue / scheduled statuses.
 //
 // Source data (gitignored, read at runtime, never committed):
@@ -9,10 +9,10 @@
 //
 // It is idempotent (deterministic v5 UUIDs + ON CONFLICT), batched for scale,
 // and uses Asia/Kolkata for every business date. It seeds ONLY to the existing
-// schema: parks/sheds (creates missing sheds park-scoped), animals, the 7
-// vaccine protocol definitions/versions/rules, per-goat vaccination history
-// (accepted completions) and obligations (scheduled/due). It never mutates the
-// protocol/obligation SCHEMA or business rules.
+// schema: parks/sheds (creates missing sheds park-scoped), animals, one
+// vaccination.matrix protocol definition/version with seven vaccine rows,
+// per-goat vaccination history (accepted completions) and obligations
+// (scheduled/due). It never mutates the protocol/obligation SCHEMA.
 package main
 
 import (
@@ -33,6 +33,8 @@ import (
 )
 
 const defaultTenantID = "00000000-0000-4000-8000-000000000001"
+const matrixProtocolCode = "vaccination.matrix"
+const matrixVersionLabel = "V1 Real Vaccination"
 
 // vaccineDef is one vaccine column from the source sheet, mapped to the approved
 // GoatOS schedule (docs/preventive-care-vaccination/vaccination-rules.md).
@@ -78,12 +80,12 @@ type goatRecord struct {
 
 // vaccCell is one goat x vaccine x dose spreadsheet cell.
 type vaccCell struct {
-	RFID     string
-	Vaccine  string // source vaccine header
-	DoseType string // "First Dose" | "Booster"
-	DoseCode string // "first" | "booster"
-	Sequence int
-	Value    string // date | "Pending" | "NA" | ""
+	AnimalKey string
+	Vaccine   string // source vaccine header
+	DoseType  string // "First Dose" | "Booster"
+	DoseCode  string // "first" | "booster"
+	Sequence  int
+	Value     string // date | "Pending" | "NA" | ""
 }
 
 type stats struct {
@@ -191,7 +193,7 @@ func loadGoats(sourcePath string) ([]goatRecord, error) {
 			Status:      cell(row, col["status"]),
 			Health:      cell(row, col["health_status"]),
 		}
-		if rec.RFID != "" && rec.Farm != "" {
+		if rec.Farm != "" && sourceAnimalIdentifier(rec.RFID, rec.OldID, rec.OldIDSuffix) != "" {
 			out = append(out, rec)
 		}
 	}
@@ -235,23 +237,26 @@ func loadVaccinationCells(sourcePath string) ([]vaccCell, error) {
 	}
 
 	rfidCol := col["RFID"]
+	oldIDCol := col["Old ID"]
+	oldIDSuffixCol := col["Old ID Suffix"]
 	var out []vaccCell
 	for _, row := range values[2:] {
 		if len(row) == 0 {
 			continue
 		}
 		rfid := cell(row, rfidCol)
-		if rfid == "" {
+		animalKey := sourceAnimalIdentifier(rfid, cell(row, oldIDCol), cell(row, oldIDSuffixCol))
+		if animalKey == "" {
 			continue
 		}
 		for i, cd := range colDefs {
 			out = append(out, vaccCell{
-				RFID:     rfid,
-				Vaccine:  cd.vaccine,
-				DoseType: cd.doseType,
-				DoseCode: doseCode(cd.doseType),
-				Sequence: doseSequence(cd.doseType),
-				Value:    cell(row, i),
+				AnimalKey: animalKey,
+				Vaccine:   cd.vaccine,
+				DoseType:  cd.doseType,
+				DoseCode:  doseCode(cd.doseType),
+				Sequence:  doseSequence(cd.doseType),
+				Value:     cell(row, i),
 			})
 		}
 	}
@@ -370,22 +375,14 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 		st.ShedsCreated++
 	}
 
-	// 3. Protocols: 7 vaccine protocols, each draft -> per-dose rules -> published.
+	// 3. Protocol config: one canonical vaccination.matrix protocol version with
+	//    seven vaccine rows. The individual vaccines become rules inside the
+	//    matrix, not seven top-level protocol definitions.
 	versionByVaccine := map[string]string{}  // vaccine header -> protocol_version_id
 	ruleByVaccineDose := map[string]string{} // vaccine|doseCode -> rule_id
 	for _, vaccName := range vaccineOrder {
 		def := vaccines[vaccName]
-		protocolID := detUUID("protocol", tenantID, def.Code)
-		versionID := detUUID("protocol_version", tenantID, def.Code)
 		itemID := detUUID("inventory_item", tenantID, def.Code)
-
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
-			VALUES ($1,$2,$3,$4,'vaccination','active')
-			ON CONFLICT (protocol_id) DO UPDATE SET name=EXCLUDED.name, status='active', updated_at=now()`,
-			protocolID, tenantID, "vaccination."+def.Code, def.Name); err != nil {
-			return st, fmt.Errorf("protocol def %s: %w", vaccName, err)
-		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit, status)
 			VALUES ($1,$2,$3,$4,'vaccine','dose','active')
@@ -393,54 +390,131 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 			itemID, tenantID, def.ItemCode, def.Name+" vaccine"); err != nil {
 			return st, fmt.Errorf("inventory item %s: %w", vaccName, err)
 		}
+	}
 
-		// Only (re)build config while the version is new; published config is immutable.
-		var status string
-		qerr := tx.QueryRow(ctx, `SELECT status FROM protocol_versions WHERE protocol_version_id=$1`, versionID).Scan(&status)
-		if qerr == pgx.ErrNoRows {
-			ruleDSL := fmt.Sprintf(`{"vaccine":{"code":%q,"name":%q,"type":%q,"disease":%q,"dose_ml":%g,"vial_doses":%d},"reference":"docs/preventive-care-vaccination/vaccination-rules.md"}`,
-				def.Code, def.Name, def.Type, def.Disease, def.DoseML, def.VialDoses)
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
-					version_label, status, effective_from, effective_to, rule_dsl, proof_policy)
-				VALUES ($1,$2,$3,'tenant',NULL,1,'Real herd import','draft',DATE '2024-01-01',NULL,$4::jsonb,'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb)`,
-				versionID, tenantID, protocolID, ruleDSL); err != nil {
-				return st, fmt.Errorf("protocol version %s: %w", vaccName, err)
-			}
+	protocolID := detUUID("protocol", tenantID, "vaccination_matrix")
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+		VALUES ($1,$2,$3,'Preventive Care Vaccination Matrix','vaccination','active')
+		ON CONFLICT (tenant_id, code) DO UPDATE SET name=EXCLUDED.name, status='active', updated_at=now()`,
+		protocolID, tenantID, matrixProtocolCode); err != nil {
+		return st, fmt.Errorf("protocol def vaccination matrix: %w", err)
+	}
+	if err := tx.QueryRow(ctx,
+		`SELECT protocol_id FROM protocol_definitions WHERE tenant_id=$1 AND code=$2`,
+		tenantID, matrixProtocolCode).Scan(&protocolID); err != nil {
+		return st, fmt.Errorf("resolve vaccination matrix protocol id: %w", err)
+	}
+
+	ruleDSL, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		return st, err
+	}
+	versionID := detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real")
+	var status string
+	qerr := tx.QueryRow(ctx, `
+		SELECT protocol_version_id, status
+		FROM protocol_versions
+		WHERE tenant_id=$1
+		  AND protocol_id=$2
+		  AND scope_type='tenant'
+		  AND scope_id IS NULL
+		  AND version_label=$3
+		ORDER BY version DESC
+		LIMIT 1`,
+		tenantID, protocolID, matrixVersionLabel).Scan(&versionID, &status)
+	if qerr == pgx.ErrNoRows {
+		var nextVersion int
+		if err := tx.QueryRow(ctx, `
+			SELECT COALESCE(MAX(version), 0) + 1
+			FROM protocol_versions
+			WHERE tenant_id=$1
+			  AND protocol_id=$2
+			  AND scope_type='tenant'
+			  AND scope_id IS NULL`,
+			tenantID, protocolID).Scan(&nextVersion); err != nil {
+			return st, fmt.Errorf("next vaccination matrix version: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
+				version_label, status, effective_from, effective_to, rule_dsl, proof_policy)
+			VALUES ($1,$2,$3,'tenant',NULL,$4,$5,'draft',DATE '2026-01-01',NULL,$6::jsonb,'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb)`,
+			versionID, tenantID, protocolID, nextVersion, matrixVersionLabel, ruleDSL); err != nil {
+			return st, fmt.Errorf("protocol version vaccination matrix: %w", err)
+		}
+		status = "draft"
+	} else if qerr != nil {
+		return st, fmt.Errorf("lookup vaccination matrix version: %w", qerr)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE protocol_versions
+		SET status='retired', retired_at=COALESCE(retired_at, now()), updated_at=now(), row_version=row_version+1
+		WHERE tenant_id=$1
+		  AND protocol_id=$2
+		  AND protocol_version_id <> $3
+		  AND status <> 'retired'`,
+		tenantID, protocolID, versionID); err != nil {
+		return st, fmt.Errorf("retire previous vaccination matrix versions: %w", err)
+	}
+
+	if status == "draft" {
+		for _, vaccName := range vaccineOrder {
+			def := vaccines[vaccName]
 			for _, dt := range doseTypesFor(vaccName) {
-				ruleID := detUUID("protocol_rule", tenantID, def.Code, doseCode(dt))
-				if _, err := tx.Exec(ctx, `
+				ruleID := detUUID("protocol_rule", tenantID, "vaccination_matrix", def.Code, doseCode(dt))
+				eligibility := fmt.Sprintf(`{"stage":"all","sex":"all","breed":"all","lifecycle":"alive","matrix_protocol":%q,"vaccine_code":%q,"vaccine_name":%q}`,
+					matrixProtocolCode, def.Code, def.Name)
+				if err := tx.QueryRow(ctx, `
 					INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
 						offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json, sort_order)
-					VALUES ($1,$2,$3,$4,$5,'birth_age',28,7,0,'none','immediate',
-						'{"stage":"all","sex":"all","breed":"all","lifecycle":"alive"}'::jsonb,$6)
-					ON CONFLICT (rule_id) DO NOTHING`,
-					ruleID, tenantID, versionID, def.Code+"_"+doseCode(dt), doseSequence(dt), doseSequence(dt)*10); err != nil {
+					VALUES ($1,$2,$3,$4,$5,'birth_age',$6,7,$7,'none','immediate',$8::jsonb,$9)
+					ON CONFLICT (tenant_id, protocol_version_id, dose_code) DO UPDATE SET
+						sequence=EXCLUDED.sequence,
+						trigger_type=EXCLUDED.trigger_type,
+						offset_days=EXCLUDED.offset_days,
+						due_window_days=EXCLUDED.due_window_days,
+						min_gap_days=EXCLUDED.min_gap_days,
+						repeat=EXCLUDED.repeat,
+						catch_up=EXCLUDED.catch_up,
+						eligibility_json=EXCLUDED.eligibility_json,
+						sort_order=EXCLUDED.sort_order
+					RETURNING rule_id`,
+					ruleID, tenantID, versionID, matrixDoseCode(def, dt), doseSequence(dt), offsetDays(dt), minGapDays(dt), eligibility,
+					vaccineSortOrder(vaccName)+doseSequence(dt)).Scan(&ruleID); err != nil {
 					return st, fmt.Errorf("protocol rule %s/%s: %w", vaccName, dt, err)
 				}
 			}
-			if _, err := tx.Exec(ctx, `
-				UPDATE protocol_versions SET status='published', published_at=now(), updated_at=now()
-				WHERE protocol_version_id=$1 AND status='draft'`, versionID); err != nil {
-				return st, fmt.Errorf("publish version %s: %w", vaccName, err)
-			}
-		} else if qerr != nil {
-			return st, fmt.Errorf("lookup version %s: %w", vaccName, qerr)
 		}
-
+		if _, err := tx.Exec(ctx, `
+			UPDATE protocol_versions SET status='published', published_at=now(), updated_at=now()
+			WHERE protocol_version_id=$1 AND status='draft'`, versionID); err != nil {
+			return st, fmt.Errorf("publish vaccination matrix version: %w", err)
+		}
+	}
+	for _, vaccName := range vaccineOrder {
+		def := vaccines[vaccName]
 		versionByVaccine[vaccName] = versionID
 		for _, dt := range doseTypesFor(vaccName) {
-			ruleByVaccineDose[vaccName+"|"+doseCode(dt)] = detUUID("protocol_rule", tenantID, def.Code, doseCode(dt))
+			var ruleID string
+			if err := tx.QueryRow(ctx, `
+				SELECT rule_id
+				FROM protocol_rules
+				WHERE tenant_id=$1 AND protocol_version_id=$2 AND dose_code=$3`,
+				tenantID, versionID, matrixDoseCode(def, dt)).Scan(&ruleID); err != nil {
+				return st, fmt.Errorf("resolve protocol rule %s/%s: %w", vaccName, dt, err)
+			}
+			ruleByVaccineDose[vaccName+"|"+doseCode(dt)] = ruleID
 		}
-		st.Protocols++
 	}
+	st.Protocols = 1
 
 	// 4. Animals: import each goat with shed_id + park_id (the read model groups on these).
-	goatIDByRFID := map[string]string{}
-	goatLifecycleByRFID := map[string]string{}
+	goatIDByAnimalKey := map[string]string{}
+	goatLifecycleByAnimalKey := map[string]string{}
 	type goatIns struct {
-		goatID, rfid, animalIdentifier2, breed, sex, lifecycle, stage, age, shedID, parkID, dob string
-		health                                                                                  *string
+		goatID, animalKey, animalIdentifier1, animalIdentifier2, breed, sex, lifecycle, stage, age, shedID, parkID, dob string
+		health                                                                                                          *string
 	}
 	var goatRows []goatIns
 	for _, g := range goats {
@@ -449,17 +523,23 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 			// No shed (blank) -> cannot place in a cohort; skip animal placement.
 			continue
 		}
-		goatID := detUUID("goat", tenantID, g.RFID)
-		goatIDByRFID[g.RFID] = goatID
-		goatLifecycleByRFID[g.RFID] = normalizeLifecycle(g.Status)
+		animalKey := sourceAnimalIdentifier(g.RFID, g.OldID, g.OldIDSuffix)
+		if animalKey == "" {
+			continue
+		}
+		animalIdentifier1, animalIdentifier2 := identifierSlots(g.RFID, g.OldID, g.OldIDSuffix)
+		goatID := detUUID("goat", tenantID, animalKey)
+		goatIDByAnimalKey[animalKey] = goatID
+		goatLifecycleByAnimalKey[animalKey] = normalizeLifecycle(g.Status)
 		goatRows = append(goatRows, goatIns{
 			goatID:            goatID,
-			rfid:              g.RFID,
-			animalIdentifier2: oldTagIdentifier(g.OldID, g.OldIDSuffix),
+			animalKey:         animalKey,
+			animalIdentifier1: animalIdentifier1,
+			animalIdentifier2: animalIdentifier2,
 			breed:             normalizeBreed(g.Breed),
 			sex:               normalizeSex(g.Gender),
 			lifecycle:         normalizeLifecycle(g.Status),
-			stage:             g.Stage,
+			stage:             normalizeStage(g.Stage, g.Age),
 			age:               g.Age,
 			health:            normalizeHealth(g.Health),
 			shedID:            shedID,
@@ -483,17 +563,18 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 	}
 	st.Animals = len(goatRows)
 
-	// Identifiers. RFID is animal_identifier_1; old source tag is animal_identifier_2 when present.
+	// Identifiers. animal_identifier_1 is the best available real-world animal ID;
+	// animal_identifier_2 carries the secondary tag when both RFID and old/source tag exist.
 	for _, gi := range goatRows {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO goat_identifiers (identifier_type, tenant_id, goat_id, identifier_value, normalized_value,
 				scope_key, valid_from, normalizer_version, status)
 			VALUES ('animal_identifier_1',$1,$2,$3,$4,'global',now()::date,'identifier_normalizer_v1','active')
 			ON CONFLICT (tenant_id, normalized_value) DO NOTHING`,
-			tenantID, gi.goatID, gi.rfid, strings.ToLower(gi.rfid)); err != nil {
-			return st, fmt.Errorf("insert identifier %s: %w", gi.rfid, err)
+			tenantID, gi.goatID, gi.animalIdentifier1, strings.ToLower(gi.animalIdentifier1)); err != nil {
+			return st, fmt.Errorf("insert identifier %s: %w", gi.animalIdentifier1, err)
 		}
-		if gi.animalIdentifier2 == "" || strings.EqualFold(gi.animalIdentifier2, gi.rfid) {
+		if gi.animalIdentifier2 == "" || strings.EqualFold(gi.animalIdentifier2, gi.animalIdentifier1) {
 			continue
 		}
 		if _, err := tx.Exec(ctx, `
@@ -526,7 +607,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 	var cmps []cmpIns
 
 	for _, c := range cells {
-		goatID, ok := goatIDByRFID[c.RFID]
+		goatID, ok := goatIDByAnimalKey[c.AnimalKey]
 		if !ok {
 			continue // goat not placed (no shed) or not in herd sheet
 		}
@@ -539,13 +620,13 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 			continue
 		}
 		def := vaccines[c.Vaccine]
-		oblID := detUUID("obligation", tenantID, c.RFID, def.Code, c.DoseCode)
-		oblIdem := "vacc-real-obl:" + c.RFID + ":" + def.Code + ":" + c.DoseCode
+		oblID := detUUID("obligation", tenantID, c.AnimalKey, def.Code, c.DoseCode)
+		oblIdem := "vacc-real-obl:" + c.AnimalKey + ":" + def.Code + ":" + c.DoseCode
 
 		// Open (scheduled/due) vaccination obligations are blocked by the procurement
 		// exclusion guard for goats that are dead/sold/lost/culled/transferred/merged/inactive.
 		// Completed history is still allowed for those goats.
-		openEligible := !excludedLifecycle(goatLifecycleByRFID[c.RFID])
+		openEligible := !excludedLifecycle(goatLifecycleByAnimalKey[c.AnimalKey])
 
 		val := strings.TrimSpace(c.Value)
 		switch {
@@ -580,12 +661,12 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 					dueAt: dueAt, status: "completed", completedAt: &completedAt, sequence: c.Sequence, idem: oblIdem,
 				})
 				cmps = append(cmps, cmpIns{
-					completionID:   detUUID("completion", tenantID, c.RFID, def.Code, c.DoseCode),
+					completionID:   detUUID("completion", tenantID, c.AnimalKey, def.Code, c.DoseCode),
 					obligationID:   oblID,
 					goatID:         goatID,
 					doseML:         def.DoseML,
 					administeredAt: dueAt,
-					idem:           "vacc-real-cmp:" + c.RFID + ":" + def.Code + ":" + c.DoseCode,
+					idem:           "vacc-real-cmp:" + c.AnimalKey + ":" + def.Code + ":" + c.DoseCode,
 				})
 				st.Completed++
 				st.CompletionsHistory++
@@ -651,19 +732,23 @@ func (p purgeCounts) total() int {
 	return p.CalendarProjections + p.Obligations + p.Batches + p.Goats + p.Sheds + p.OtherChildRows
 }
 
-// purgeSyntheticFixtures removes ALL leftover dev/integration-test synthetic fixtures that leak
-// junk into the /calendar, /counts/herd, and /vaccination surfaces, in FK-safe order. It targets
-// ONLY:
+// purgeSyntheticFixtures removes leftover dev/integration-test synthetic fixtures and stale
+// prior seed outputs that leak junk into the /calendar, /counts/herd, /config, and /vaccination
+// surfaces, in FK-safe order. It targets ONLY:
 //   - the trigger-seed vaccination protocol family (protocol code 'vaccination.matrix%') — its
 //     obligations, planned batches, and stale calendar projections;
+//   - previous seed-vaccination-real obligations (idempotency key 'vacc-real-obl:%') so a new
+//     real-source run replaces the local due/history projection instead of stacking on it;
+//   - old per-vaccine "Real herd import" protocol configs, which are retired so Config shows the
+//     canonical vaccination.matrix seed only;
 //   - synthetic fixture goats (display_id like 'G-0000NN');
 //   - junk-named sheds ('Chain Proof%', 'Rework Proof%', 'Trusted History%');
 //   - stale junk calendar_event_projections rows (junk protocol / junk title / junk shed).
 //
-// It NEVER touches the 1,310 real goats (display_id 'G-9%'), the 7 real vaccine protocols, real
-// sheds (Castro/Godel/Gandhi/...), workforce, or the ravi@mesha.sg grant. It is idempotent: on a
-// clean DB every statement is a no-op. All child rows are removed before their parents so no FK is
-// violated. This is data cleanup on the existing schema — no schema or business-rule change.
+// It NEVER touches real goats, real sheds (Castro/Godel/Gandhi/...), workforce, or the
+// ravi@mesha.sg grant. It is idempotent: on a clean DB every statement is a no-op. All child
+// rows are removed before their parents so no FK is violated. This is data cleanup on the
+// existing schema — no schema change.
 func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (purgeCounts, error) {
 	var pc purgeCounts
 
@@ -675,7 +760,10 @@ func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (pu
 	junkObls := `(SELECT oi.obligation_id FROM obligation_instances oi
 		JOIN protocol_versions pv ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
 		JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
-		WHERE oi.tenant_id = $1 AND pd.category = 'vaccination' AND pd.code LIKE 'vaccination.matrix%')`
+		WHERE oi.tenant_id = $1 AND (
+			oi.idempotency_key LIKE 'vacc-real-obl:%'
+			OR (pd.category = 'vaccination' AND pd.code LIKE 'vaccination.matrix%')
+		))`
 	junkBatches := `(SELECT ob.batch_id FROM obligation_batches ob
 		JOIN protocol_versions pv ON pv.tenant_id = ob.tenant_id AND pv.protocol_version_id = ob.protocol_version_id
 		JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
@@ -683,6 +771,29 @@ func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (pu
 	junkVersions := `(SELECT pv.protocol_version_id FROM protocol_versions pv
 		JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
 		WHERE pv.tenant_id = $1 AND pd.category = 'vaccination' AND pd.code LIKE 'vaccination.matrix%')`
+	legacySeedVersions := `(SELECT pv.protocol_version_id FROM protocol_versions pv
+		JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+		WHERE pv.tenant_id = $1 AND pd.category = 'vaccination' AND (
+			pd.code LIKE 'vaccination.matrix.%'
+			OR pd.code IN (
+				'vaccination.et_tt', 'vaccination.ppr', 'vaccination.blue_tongue',
+				'vaccination.fmd', 'vaccination.hs', 'vaccination.goat_pox',
+				'vaccination.sheep_pox', 'vaccination.calendar.matrix',
+				'vaccination.calendar.draft_matrix',
+				'et_tt', 'ppr', 'blue_tongue', 'fmd', 'hs', 'goat_pox', 'sheep_pox'
+			)
+		))`
+	legacySeedDefinitions := `(SELECT pd.protocol_id FROM protocol_definitions pd
+		WHERE pd.tenant_id = $1 AND pd.category = 'vaccination' AND (
+			pd.code LIKE 'vaccination.matrix.%'
+			OR pd.code IN (
+				'vaccination.et_tt', 'vaccination.ppr', 'vaccination.blue_tongue',
+				'vaccination.fmd', 'vaccination.hs', 'vaccination.goat_pox',
+				'vaccination.sheep_pox', 'vaccination.calendar.matrix',
+				'vaccination.calendar.draft_matrix',
+				'et_tt', 'ppr', 'blue_tongue', 'fmd', 'hs', 'goat_pox', 'sheep_pox'
+			)
+		))`
 
 	exec := func(label, sql string) (int, error) {
 		tag, err := tx.Exec(ctx, sql, tenantID)
@@ -831,6 +942,26 @@ func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (pu
 	}
 	pc.Sheds += n
 
+	// Phase 7 — retire old seed protocol definitions/versions so Config shows the one canonical
+	// vaccination.matrix family. Published protocol rows are immutable, but published -> retired is
+	// explicitly allowed by the protocol immutability trigger.
+	n, err = exec("protocol_versions (legacy seed retire)", `UPDATE protocol_versions
+		SET status='retired', retired_at=COALESCE(retired_at, now()), updated_at=now(), row_version=row_version+1
+		WHERE tenant_id = $1 AND protocol_version_id IN `+legacySeedVersions+`
+		  AND status <> 'retired'`)
+	if err != nil {
+		return pc, err
+	}
+	pc.OtherChildRows += n
+	n, err = exec("protocol_definitions (legacy seed retire)", `UPDATE protocol_definitions
+		SET status='retired', updated_at=now(), row_version=row_version+1
+		WHERE tenant_id = $1 AND protocol_id IN `+legacySeedDefinitions+`
+		  AND status <> 'retired'`)
+	if err != nil {
+		return pc, err
+	}
+	pc.OtherChildRows += n
+
 	return pc, nil
 }
 
@@ -907,6 +1038,26 @@ func oldTagIdentifier(oldID string, suffix string) string {
 		return oldID
 	}
 	return suffix + "-" + oldID
+}
+
+func sourceAnimalIdentifier(rfid string, oldID string, suffix string) string {
+	rfid = strings.TrimSpace(rfid)
+	if rfid != "" {
+		return rfid
+	}
+	return oldTagIdentifier(oldID, suffix)
+}
+
+func identifierSlots(rfid string, oldID string, suffix string) (string, string) {
+	rfid = strings.TrimSpace(rfid)
+	oldTag := oldTagIdentifier(oldID, suffix)
+	if rfid == "" {
+		return oldTag, ""
+	}
+	if oldTag == "" || strings.EqualFold(oldTag, rfid) {
+		return rfid, ""
+	}
+	return rfid, oldTag
 }
 
 func getenv(key, fallback string) string {
@@ -1033,12 +1184,75 @@ func normalizeHealth(h string) *string {
 	}
 }
 
+func normalizeStage(stage string, age string) string {
+	if s := strings.TrimSpace(stage); s != "" {
+		switch strings.ToLower(s) {
+		case "unknown", "na", "n/a", "null", "-":
+		default:
+			return s
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(age)) {
+	case "kid", "kids", "k1", "k2":
+		return "Kid"
+	default:
+		return "Adult"
+	}
+}
+
 func nullString(s string) *string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil
 	}
 	return &s
+}
+
+func vaccinationMatrixRuleDSL() (string, error) {
+	type matrixRow struct {
+		Code      string   `json:"code"`
+		Name      string   `json:"name"`
+		Disease   string   `json:"disease"`
+		Type      string   `json:"type"`
+		ItemCode  string   `json:"item_code"`
+		DoseML    float64  `json:"dose_ml"`
+		VialDoses int      `json:"vial_doses"`
+		Doses     []string `json:"doses"`
+	}
+	rows := make([]matrixRow, 0, len(vaccineOrder))
+	for _, vaccName := range vaccineOrder {
+		def := vaccines[vaccName]
+		doses := make([]string, 0, len(doseTypesFor(vaccName)))
+		for _, dt := range doseTypesFor(vaccName) {
+			doses = append(doses, matrixDoseCode(def, dt))
+		}
+		rows = append(rows, matrixRow{
+			Code: def.Code, Name: def.Name, Disease: def.Disease, Type: def.Type,
+			ItemCode: def.ItemCode, DoseML: def.DoseML, VialDoses: def.VialDoses, Doses: doses,
+		})
+	}
+	payload := map[string]any{
+		"category":       "vaccination",
+		"ruleset_family": "vaccination.matrix",
+		"reference":      "docs/preventive-care-vaccination/vaccination-rules.md",
+		"source": map[string]any{
+			"source_system": "google_sheet",
+			"source_ref":    "real_vaccination_seed",
+			"review_status": "approved_for_dev_staging_seed",
+		},
+		"eligibility": map[string]string{
+			"stage":     "all",
+			"sex":       "all",
+			"breed":     "all",
+			"lifecycle": "alive",
+		},
+		"matrix_rows": rows,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("build vaccination matrix rule_dsl: %w", err)
+	}
+	return string(data), nil
 }
 
 func nullableDate(s string) *string {
@@ -1050,6 +1264,10 @@ func nullableDate(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func matrixDoseCode(def vaccineDef, doseType string) string {
+	return def.Code + "_" + doseCode(doseType)
 }
 
 func doseCode(doseType string) string {
@@ -1064,6 +1282,29 @@ func doseSequence(doseType string) int {
 		return 2
 	}
 	return 1
+}
+
+func offsetDays(doseType string) int {
+	if strings.EqualFold(strings.TrimSpace(doseType), "Booster") {
+		return 56
+	}
+	return 28
+}
+
+func minGapDays(doseType string) int {
+	if strings.EqualFold(strings.TrimSpace(doseType), "Booster") {
+		return 21
+	}
+	return 0
+}
+
+func vaccineSortOrder(vaccName string) int {
+	for i, name := range vaccineOrder {
+		if name == vaccName {
+			return (i + 1) * 10
+		}
+	}
+	return 999
 }
 
 // doseTypesFor lists the dose columns present for a vaccine in the source sheet.

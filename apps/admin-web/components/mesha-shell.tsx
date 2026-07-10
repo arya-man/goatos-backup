@@ -170,7 +170,6 @@ export function MeshaShell({
   const [isLight, setIsLight] = useState(false);
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
-  const [rangeMenuOpen, setRangeMenuOpen] = useState(false);
   const [routePending, setRoutePending] = useState(false);
   const [navCounts, setNavCounts] = useState<NavCounts>({ actionCenter: null, pc: null });
   const [navTrail, setNavTrail] = useState<TrailItem[]>([]);
@@ -192,8 +191,6 @@ export function MeshaShell({
   const currentPageLabel = labelForPath(pathname, contract);
   const companyScopeOption = contract.top_bar.scope_mode_toggle.find((option) => option.key === "company");
   const parkScopeOption = contract.top_bar.scope_mode_toggle.find((option) => option.key === "park");
-  const dateOptions = contract.top_bar.date_range_selector.options;
-  const currentDateOption = dateOptions.find((option) => option.key === "last_30_days") ?? dateOptions[0];
   const actor = contract.top_bar.role_preview;
   const alertDisplayRules = contract.display_rules.filter((rule) => rule.id.includes("error"));
 
@@ -309,15 +306,14 @@ export function MeshaShell({
     };
   }, [navCountsHref]);
 
-  // All top-bar dropdowns (park scope, reporting range, role/user) close together: clicking outside any
+  // All top-bar dropdowns (park scope, role/user) close together: clicking outside any
   // menu root or pressing Escape dismisses them, and opening one closes the others (handled per-button).
   function closeMenus() {
     setScopeMenuOpen(false);
-    setRangeMenuOpen(false);
     setRoleMenuOpen(false);
   }
   useEffect(() => {
-    if (!scopeMenuOpen && !rangeMenuOpen && !roleMenuOpen) return;
+    if (!scopeMenuOpen && !roleMenuOpen) return;
     function onDown(e: MouseEvent) {
       const el = e.target as HTMLElement | null;
       if (el && el.closest("[data-menu-root]")) return; // click inside a menu/trigger — its own handler acts
@@ -332,7 +328,7 @@ export function MeshaShell({
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [scopeMenuOpen, rangeMenuOpen, roleMenuOpen]);
+  }, [scopeMenuOpen, roleMenuOpen]);
 
   function toggleTheme() {
     const next = !document.documentElement.classList.contains("light");
@@ -411,7 +407,6 @@ export function MeshaShell({
             className="pscope"
             onClick={() => {
               setScopeMenuOpen((o) => !o);
-              setRangeMenuOpen(false);
               setRoleMenuOpen(false);
             }}
             aria-expanded={scopeMenuOpen}
@@ -463,50 +458,20 @@ export function MeshaShell({
             <div className="pm-hint">{contract.top_bar.park_selector.hint}</div>
           </div>
         </div>
-        {/* As-of date scope. Honored backend params today: park_id + as_of (point-in-time across Control
-            Tower, Action Center, Protocol Adherence, Workflows, /vaccination operations, and execution).
-            The Last 7 / Last 30 / Custom RANGE control is intentionally DISABLED this pass: no backend
-            consumes range/date_from/date_to, so it must not look like it filters.
-            TODO(scope-range): wire real range filtering once the due-window semantics are defined, then
-            re-enable these options (and restore range links in scopeHref usage). */}
-        <div className="parksel" data-menu-root style={{ marginRight: 4 }}>
-          <button
-            type="button"
-            className="pscope"
-            onClick={() => {
-              setRangeMenuOpen((o) => !o);
-              setScopeMenuOpen(false);
-              setRoleMenuOpen(false);
-            }}
-            aria-expanded={rangeMenuOpen}
-            title={contract.top_bar.date_range_selector.label}
-          >
-            <CalendarDays className="ic" style={{ width: 14 }} aria-hidden="true" />
-            <span>{contract.top_bar.date_range_selector.label}:</span>
-            <b>{currentDateOption?.label ?? shellCopy(contract, "date.as_of_fallback")}</b>
-            <span className="muted small" style={{ marginLeft: 2 }}>
-              · {shellCopy(contract, "date.data_prefix")} {scope.asOf ?? today} · {freshness}
-            </span>
-            <ChevronDown className="ic" style={{ width: 12 }} aria-hidden="true" />
-          </button>
-          <div className={`parkmenu ${rangeMenuOpen ? "on" : ""}`} role="menu" aria-label={shellCopy(contract, "date.menu_aria")}>
-            <div className="pm-label">{contract.top_bar.date_range_selector.label}</div>
-            <div className="pm-list">
-              {dateOptions.map((option) => (
-                <span
-                  key={option.key}
-                  className="pm-item"
-                  aria-disabled={!option.enabled}
-                  title={option.disabled_reason || option.title}
-                  style={!option.enabled ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
-                >
-                  <span className="pn">{option.label}</span>
-                  {!option.enabled ? <span className="rl">{shellCopy(contract, "date.disabled_badge")}</span> : null}
-                </span>
-              ))}
-            </div>
-            <div className="pm-hint">{contract.top_bar.date_range_selector.hint}</div>
-          </div>
+        {/* Point-in-time freshness only. Range filtering is not implemented, so the top bar must not render
+            a clickable Date range / Last 30 days control. */}
+        <div
+          className="pscope"
+          style={{ marginRight: 4 }}
+          title={`${shellCopy(contract, "date.data_prefix")} ${scope.asOf ?? today} · ${freshness}`}
+          aria-label={`${shellCopy(contract, "date.data_prefix")} ${scope.asOf ?? today} · ${freshness}`}
+        >
+          <CalendarDays className="ic" style={{ width: 14 }} aria-hidden="true" />
+          <span>{shellCopy(contract, "date.data_prefix")}</span>
+          <b>{scope.asOf ?? today}</b>
+          <span className="muted small" style={{ marginLeft: 2 }}>
+            · {freshness}
+          </span>
         </div>
         <button
           type="button"
@@ -536,7 +501,6 @@ export function MeshaShell({
             onClick={() => {
               setRoleMenuOpen((open) => !open);
               setScopeMenuOpen(false);
-              setRangeMenuOpen(false);
             }}
           >
             <span className="av">{actor.initials}</span>
