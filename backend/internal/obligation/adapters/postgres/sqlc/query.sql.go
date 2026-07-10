@@ -145,6 +145,63 @@ func (q *Queries) GetObligationByIdempotencyKey(ctx context.Context, arg GetObli
 	return i, err
 }
 
+const getOpenObligationByLogicalKey = `-- name: GetOpenObligationByLogicalKey :one
+SELECT obligation_id::text AS obligation_id, status, due_at, row_version
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND protocol_version_id = $2
+  AND rule_id = $3
+  AND target_type = $4
+  AND target_id = $5
+  AND "sequence" = $6
+  AND due_at = $7
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+ORDER BY obligation_id
+LIMIT 1
+`
+
+type GetOpenObligationByLogicalKeyParams struct {
+	TenantID          pgtype.UUID
+	ProtocolVersionID pgtype.UUID
+	RuleID            pgtype.UUID
+	TargetType        string
+	TargetID          pgtype.UUID
+	Sequence          int32
+	DueAt             pgtype.Timestamptz
+}
+
+type GetOpenObligationByLogicalKeyRow struct {
+	ObligationID string
+	Status       string
+	DueAt        pgtype.Timestamptz
+	RowVersion   int32
+}
+
+// Convergent no-op lookup for InsertObligationInstance's "WHERE NOT EXISTS" dedup guard (mirrors that
+// exact predicate): when InsertObligationInstance affects 0 rows because an equivalent open obligation
+// already exists for the same logical target (protocol_version_id, rule_id, target, sequence, due_at),
+// callers use this to fetch that existing row and return it as an idempotent success instead of
+// surfacing an internal error. See Repository.insertReworkObligationForMissed.
+func (q *Queries) GetOpenObligationByLogicalKey(ctx context.Context, arg GetOpenObligationByLogicalKeyParams) (GetOpenObligationByLogicalKeyRow, error) {
+	row := q.db.QueryRow(ctx, getOpenObligationByLogicalKey,
+		arg.TenantID,
+		arg.ProtocolVersionID,
+		arg.RuleID,
+		arg.TargetType,
+		arg.TargetID,
+		arg.Sequence,
+		arg.DueAt,
+	)
+	var i GetOpenObligationByLogicalKeyRow
+	err := row.Scan(
+		&i.ObligationID,
+		&i.Status,
+		&i.DueAt,
+		&i.RowVersion,
+	)
+	return i, err
+}
+
 const idempotencyKeyStatus = `-- name: IdempotencyKeyStatus :one
 SELECT status, COALESCE(result_type, '')::text AS result_type, COALESCE(result_id::text, '')::text AS result_id
 FROM idempotency_keys

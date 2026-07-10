@@ -72,6 +72,9 @@ func (s *RosterService) CreatePosition(ctx context.Context, cmd ports.CreatePosi
 	if !uuidutil.IsUUIDString(body.WorkforceMemberID) {
 		return nil, BadRequest("invalid_workforce_member_id", "workforce_member_id must be a UUID")
 	}
+	if err := s.requireMemberInTenant(ctx, cmd.TenantID, body.WorkforceMemberID); err != nil {
+		return nil, err
+	}
 	if !validRosterScope(cmd.TenantID, body.ScopeType, body.ScopeID) {
 		return nil, BadRequest("invalid_scope", "scope_type must be tenant or center, and scope_id a UUID")
 	}
@@ -142,6 +145,9 @@ func (s *RosterService) ApplyLeave(ctx context.Context, tenantID, actorID string
 	body.ReasonCode = strings.TrimSpace(body.ReasonCode)
 	if !uuidutil.IsUUIDString(body.WorkforceMemberID) {
 		return nil, BadRequest("invalid_workforce_member_id", "workforce_member_id must be a UUID")
+	}
+	if err := s.requireMemberInTenant(ctx, tenantID, body.WorkforceMemberID); err != nil {
+		return nil, err
 	}
 	if !validRosterScope(tenantID, body.ScopeType, body.ScopeID) {
 		return nil, BadRequest("invalid_scope", "scope_type must be tenant or center, and scope_id a UUID")
@@ -753,6 +759,23 @@ func ptrString(s *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*s)
+}
+
+// requireMemberInTenant rejects a workforce_member_id that does not belong to
+// the caller's tenant (P1: workforce_positions.workforce_member_id's FK,
+// migration 000151, is global -- not tenant-scoped -- so without this check a
+// caller in one tenant could link another tenant's workforce member into a
+// position or leave). Called on every roster write that accepts a
+// client-supplied workforce_member_id before any other validation of that id.
+func (s *RosterService) requireMemberInTenant(ctx context.Context, tenantID, workforceMemberID string) error {
+	ok, err := s.repo.MemberExistsInTenant(ctx, tenantID, workforceMemberID)
+	if err != nil {
+		return mapRepoErr(err)
+	}
+	if !ok {
+		return BadRequest("workforce_member_wrong_tenant", "workforce_member_id does not belong to the caller's tenant")
+	}
+	return nil
 }
 
 func validRosterScope(tenantID, scopeType, scopeID string) bool {

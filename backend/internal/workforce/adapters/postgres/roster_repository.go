@@ -211,6 +211,26 @@ ORDER BY p.valid_from DESC
 LIMIT 1`, tenantID, workforceMemberID)
 }
 
+// MemberExistsInTenant reports whether workforceMemberID is a
+// workforce_members row scoped to tenantID -- the tenant-isolation guard for
+// every roster write that accepts a client-supplied workforce_member_id (P1:
+// workforce_positions.workforce_member_id's FK is global, not tenant-scoped).
+// workforce_member_id is workforce_members' primary key, so this is a single
+// indexed point lookup, not a scan.
+func (r *Repository) MemberExistsInTenant(ctx context.Context, tenantID, workforceMemberID string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM workforce_members WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid
+)`, tenantID, workforceMemberID).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
 // ---- Leave / absence (workforce_absences reuse) -----------------------------
 
 func leaveSelectSQL(where string) string {

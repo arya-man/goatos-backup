@@ -20,6 +20,12 @@ type fakeRosterRepo struct {
 	leaves              map[string]domain.StaffLeave
 	createPositionCalls int
 	nextSeq             int
+	// foreignTenantMembers simulates workforce_member_ids that exist in
+	// Postgres but belong to a DIFFERENT tenant (cross-tenant fixture, P1
+	// regression coverage). Empty by default so existing fixtures/tests are
+	// unaffected -- MemberExistsInTenant only returns false for ids explicitly
+	// added here via markForeignTenantMember.
+	foreignTenantMembers map[string]bool
 	// idem simulates the shared idempotency_keys store so service-level replay
 	// behavior (return original, skip downstream side effects, reject
 	// same-key/different-payload) is unit-testable without Postgres. Keyed by
@@ -34,10 +40,18 @@ type fakeIdem struct {
 
 func newFakeRosterRepo() *fakeRosterRepo {
 	return &fakeRosterRepo{
-		positions: map[string]domain.Position{},
-		leaves:    map[string]domain.StaffLeave{},
-		idem:      map[string]fakeIdem{},
+		positions:            map[string]domain.Position{},
+		leaves:               map[string]domain.StaffLeave{},
+		idem:                 map[string]fakeIdem{},
+		foreignTenantMembers: map[string]bool{},
 	}
+}
+
+// markForeignTenantMember flags workforceMemberID as belonging to a different
+// tenant, so MemberExistsInTenant rejects it -- used to simulate the P1
+// cross-tenant workforce_member_id gap.
+func (f *fakeRosterRepo) markForeignTenantMember(workforceMemberID string) {
+	f.foreignTenantMembers[workforceMemberID] = true
 }
 
 var _ ports.RosterRepository = (*fakeRosterRepo)(nil)
@@ -153,6 +167,10 @@ func (f *fakeRosterRepo) GetActivePositionForMember(_ context.Context, _ string,
 		}
 	}
 	return domain.Position{}, ports.ErrNotFound
+}
+
+func (f *fakeRosterRepo) MemberExistsInTenant(_ context.Context, _ string, workforceMemberID string) (bool, error) {
+	return !f.foreignTenantMembers[workforceMemberID], nil
 }
 
 func (f *fakeRosterRepo) ApplyLeave(_ context.Context, cmd ports.ApplyLeaveCommand) (domain.StaffLeave, error) {
@@ -673,6 +691,43 @@ func TestRosterResolveLeaveCoverageIdempotentReplay(t *testing.T) {
 	_, err = svc.ResolveLeaveCoverage(ctx, testTenant, testActor, leave.AbsenceID,
 		domain.ResolveLeaveCoverageRequest{ReplacementMemberID: stringPtr(""), IdempotencyKey: &key}, "r3")
 	assertAppCode(t, err, "idempotency_conflict")
+}
+
+// ---- P1 cross-tenant workforce_member_id rejection -------------------------
+
+func TestRosterCreatePositionRejectsCrossTenantMember(t *testing.T) {
+	repo := newFakeRosterRepo()
+	svc := NewRosterService(repo, newFakeCapabilityGranter())
+	otherTenantMember := fakeUUID(999)
+	repo.markForeignTenantMember(otherTenantMember)
+
+	_, err := svc.CreatePosition(context.Background(), ports.CreatePositionCommand{
+		TenantID: testTenant, ActorID: testActor,
+		Body: domain.CreatePositionRequest{
+			WorkforceMemberID: otherTenantMember, ScopeType: "center", ScopeID: rosterCenter,
+			PositionCode: "preventive_care_manager", PositionTier: domain.PositionTierManager,
+		},
+	}, "trace-cross-tenant")
+	assertAppCode(t, err, "workforce_member_wrong_tenant")
+	if repo.createPositionCalls != 0 {
+		t.Fatalf("createPositionCalls = %d, want 0 -- cross-tenant member must never be linked", repo.createPositionCalls)
+	}
+}
+
+func TestRosterApplyLeaveRejectsCrossTenantMember(t *testing.T) {
+	repo := newFakeRosterRepo()
+	svc := NewRosterService(repo, newFakeCapabilityGranter())
+	otherTenantMember := fakeUUID(998)
+	repo.markForeignTenantMember(otherTenantMember)
+
+	_, err := svc.ApplyLeave(context.Background(), testTenant, testActor, domain.ApplyStaffLeaveRequest{
+		WorkforceMemberID: otherTenantMember, ScopeType: "center", ScopeID: rosterCenter,
+		ReasonCode: "personal", StartsOn: "2026-08-03", EndsOn: "2026-08-05",
+	}, "trace-cross-tenant")
+	assertAppCode(t, err, "workforce_member_wrong_tenant")
+	if len(repo.leaves) != 0 {
+		t.Fatalf("leaves created = %d, want 0 -- cross-tenant member must never be linked", len(repo.leaves))
+	}
 }
 
 func TestRosterCreatePositionIdempotentReplay(t *testing.T) {

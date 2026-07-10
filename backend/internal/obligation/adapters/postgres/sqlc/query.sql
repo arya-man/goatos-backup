@@ -3,6 +3,25 @@ SELECT obligation_id::text AS obligation_id, status, due_at, row_version
 FROM obligation_instances
 WHERE tenant_id = @tenant_id AND idempotency_key = @idempotency_key;
 
+-- name: GetOpenObligationByLogicalKey :one
+-- Convergent no-op lookup for InsertObligationInstance's "WHERE NOT EXISTS" dedup guard (mirrors that
+-- exact predicate): when InsertObligationInstance affects 0 rows because an equivalent open obligation
+-- already exists for the same logical target (protocol_version_id, rule_id, target, sequence, due_at),
+-- callers use this to fetch that existing row and return it as an idempotent success instead of
+-- surfacing an internal error. See Repository.insertReworkObligationForMissed.
+SELECT obligation_id::text AS obligation_id, status, due_at, row_version
+FROM obligation_instances
+WHERE tenant_id = @tenant_id
+  AND protocol_version_id = @protocol_version_id
+  AND rule_id = @rule_id
+  AND target_type = @target_type
+  AND target_id = @target_id
+  AND "sequence" = @sequence
+  AND due_at = @due_at
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+ORDER BY obligation_id
+LIMIT 1;
+
 -- name: ListOpenObligationsByGoat :many
 -- Goat Passport next-due: a goat's still-actionable obligations, earliest due first. Uses
 -- obligation_instances_target_idx (tenant_id, target_type, target_id, status).

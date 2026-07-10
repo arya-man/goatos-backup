@@ -146,6 +146,73 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 	}
 }
 
+// ---- P1 cross-tenant workforce_member_id rejection (real Postgres) ---------
+
+// TestRosterCreatePositionRejectsCrossTenantMemberWithDockerPostgres guards
+// against the P1 gap where workforce_positions.workforce_member_id's FK
+// (migration 000151) is global, not tenant-scoped: without a service-layer
+// check, a caller in rosterTenant could link a DIFFERENT tenant's workforce
+// member into a position or leave. Exercises MemberExistsInTenant against a
+// real Postgres instance (not the in-memory fake).
+func TestRosterCreatePositionRejectsCrossTenantMemberWithDockerPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const (
+		otherTenant       = "00000000-0000-4000-8000-000000000002"
+		otherTenantMember = "96000000-0000-4000-8000-000000000098"
+	)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Other Tenant', 'active')`, otherTenant); err != nil {
+		t.Fatalf("seed other tenant: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint)
+VALUES ($2, $1, 'OTHER-TENANT-01', 'Other Tenant Member', 'active', 'other')`, otherTenant, otherTenantMember); err != nil {
+		t.Fatalf("seed other tenant member: %v", err)
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	exists, err := repo.MemberExistsInTenant(ctx, rosterTenant, otherTenantMember)
+	if err != nil {
+		t.Fatalf("MemberExistsInTenant: %v", err)
+	}
+	if exists {
+		t.Fatal("MemberExistsInTenant must return false for a member belonging to a different tenant")
+	}
+	exists, err = repo.MemberExistsInTenant(ctx, otherTenant, otherTenantMember)
+	if err != nil {
+		t.Fatalf("MemberExistsInTenant (own tenant): %v", err)
+	}
+	if !exists {
+		t.Fatal("MemberExistsInTenant must return true for a member's own tenant")
+	}
+
+	svc := workforceapp.NewRosterService(repo, repo)
+	_, err = svc.CreatePosition(ctx, ports.CreatePositionCommand{
+		TenantID: rosterTenant, ActorID: rosterActor,
+		Body: domain.CreatePositionRequest{
+			WorkforceMemberID: otherTenantMember, ScopeType: "center", ScopeID: rosterCenterScope,
+			PositionCode: "preventive_care_manager", PositionTier: "manager",
+		},
+	}, "trace-cross-tenant-create")
+	var appErr *workforceapp.Error
+	if !errors.As(err, &appErr) || appErr.Code != "workforce_member_wrong_tenant" {
+		t.Fatalf("CreatePosition with a cross-tenant member: err=%v, want app error workforce_member_wrong_tenant", err)
+	}
+
+	_, err = svc.ApplyLeave(ctx, rosterTenant, rosterActor, domain.ApplyStaffLeaveRequest{
+		WorkforceMemberID: otherTenantMember, ScopeType: "center", ScopeID: rosterCenterScope,
+		ReasonCode: "personal", StartsOn: "2026-08-03", EndsOn: "2026-08-05",
+	}, "trace-cross-tenant-leave")
+	if !errors.As(err, &appErr) || appErr.Code != "workforce_member_wrong_tenant" {
+		t.Fatalf("ApplyLeave with a cross-tenant member: err=%v, want app error workforce_member_wrong_tenant", err)
+	}
+}
+
 // ---- Request-level idempotency (repo mandatory write-path contract) --------
 //
 // These exercise the REAL shared idempotency_keys table (migration 000001) via

@@ -111,6 +111,14 @@ type RosterRepository interface {
 	// currently holds, used to resolve coverage on leave approval. Returns
 	// ErrNotFound when the member holds no fixed position.
 	GetActivePositionForMember(ctx context.Context, tenantID, workforceMemberID string) (domain.Position, error)
+	// MemberExistsInTenant reports whether workforceMemberID is a
+	// workforce_members row scoped to tenantID. workforce_positions.
+	// workforce_member_id's FK (000151) is global, not tenant-scoped, so every
+	// write that accepts a client-supplied workforce_member_id (CreatePosition,
+	// ApplyLeave) MUST call this first and reject cross-tenant references --
+	// otherwise a caller in one tenant could link another tenant's workforce
+	// member into a position/leave (P1 tenant-isolation gap).
+	MemberExistsInTenant(ctx context.Context, tenantID, workforceMemberID string) (bool, error)
 
 	ApplyLeave(ctx context.Context, cmd ApplyLeaveCommand) (domain.StaffLeave, error)
 	// ApproveLeave transitions reported->approved. The returned bool is true on

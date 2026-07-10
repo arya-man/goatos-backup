@@ -307,3 +307,64 @@ func TestRescheduleObligationByIDCreatesNewObligationForMissed(t *testing.T) {
 		t.Fatalf("want exactly 1 obligation at the new due date after replay (no duplicate insert), got %d", got)
 	}
 }
+
+// TestRescheduleObligationByIDForMissedConvergesUnderDifferentIdempotencyKey is the regression guard for
+// the P2 bug: RescheduleObligationByID's own idempotency reservation only dedups an EXACT key match, so a
+// SECOND reschedule request for the SAME missed obligation to the SAME new due date, but under a
+// DIFFERENT outer idempotency key (for example a retried mobile request that generated a fresh key),
+// reaches insertReworkObligationForMissed's InsertObligationInstance a second time. That INSERT's own
+// "WHERE NOT EXISTS" dedup guard then affects 0 rows because the first call's rework obligation is still
+// open at the same logical target (protocol_version_id, rule_id, target, sequence, due_at) — this must be
+// convergent (return the existing rework obligation as an idempotent success), not surface an internal
+// error.
+func TestRescheduleObligationByIDForMissedConvergesUnderDifferentIdempotencyKey(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obA := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET status='missed' WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, obA); err != nil {
+		t.Fatalf("mark seed obligation missed: %v", err)
+	}
+
+	newDue := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
+	firstID, firstReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-missed-conv-key-1", newDue, newDue, nil, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("first reschedule of missed obligation: %v", err)
+	}
+	if firstReplay || firstID == "" || firstID == obA {
+		t.Fatalf("first call: id=%q isReplay=%v, want a fresh id distinct from %q and isReplay=false", firstID, firstReplay, obA)
+	}
+
+	// Same missed obligation, same new due date, but a DIFFERENT request idempotency key -- must
+	// converge on the existing rework obligation instead of erroring.
+	secondID, secondReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-missed-conv-key-2", newDue, newDue, nil, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("second reschedule under a different idempotency key must converge, not error: %v", err)
+	}
+	if secondID != firstID {
+		t.Fatalf("second call id = %q, want the same existing rework obligation %q (convergent no-op)", secondID, firstID)
+	}
+	// This is not an exact replay of the SAME outer key, so the reservation itself is new -- the
+	// convergence happens one layer down, inside the rework insert.
+	if secondReplay {
+		t.Fatalf("second call used a different idempotency key, so it must not be flagged as an exact-key replay")
+	}
+
+	if got := scanStatus(t, ctx, pool, obA); got != "missed" {
+		t.Fatalf("missed obligation status after second call = %q, want unchanged 'missed'", got)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND protocol_version_id=(SELECT protocol_version_id FROM obligation_instances WHERE obligation_id=$2) AND rule_id=(SELECT rule_id FROM obligation_instances WHERE obligation_id=$2) AND target_id=(SELECT target_id FROM obligation_instances WHERE obligation_id=$2) AND due_at=$3`,
+		tenantID, obA, newDue); got != 1 {
+		t.Fatalf("want exactly 1 obligation at the new due date after the second (different-key) call, got %d", got)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='scheduled' AND payload->>'reason'='mobile_reschedule_of_missed'`,
+		tenantID, firstID); got != 1 {
+		t.Fatalf("want exactly 1 rework-scheduled event on the existing obligation (no duplicate side effect), got %d", got)
+	}
+}

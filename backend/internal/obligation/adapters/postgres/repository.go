@@ -808,6 +808,14 @@ WHERE tenant_id = $1 AND batch_id = $2::uuid`, tenant, lockedBatchID); err != ni
 // so this JSONB back-reference is the established traceability mechanism (see the payload `reason`
 // field elsewhere in this file). The missed row itself is never written to: no column mutation, no new
 // obligation_status_events row.
+//
+// Convergent on a same-logical-target replay under a DIFFERENT outer request idempotency key (P2 fix):
+// RescheduleObligationByID's own idempotency reservation only dedups an EXACT key match, so a second
+// reschedule request for the same missed obligation + same new due date (a different request key, for
+// example a retried mobile request) still reaches this INSERT. InsertObligationInstance then affects 0
+// rows because an equivalent open obligation already exists for this logical target -- that is duplicate
+// logical work, not a failure, so this fetches the existing row via GetOpenObligationByLogicalKey and
+// returns it (idempotent success, no duplicate status event) instead of surfacing an internal error.
 func (r *Repository) insertReworkObligationForMissed(
 	ctx context.Context,
 	qtx *obligationdb.Queries,
@@ -857,6 +865,30 @@ func (r *Repository) insertReworkObligationForMissed(
 		GeneratedByTriggerID: trigger,
 		Sequence:             sequence,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Convergent no-op (P2 fix): InsertObligationInstance's "WHERE NOT EXISTS" dedup guard (or,
+		// equivalently, its ON CONFLICT(tenant_id, idempotency_key) branch, since newIdempotencyKey is
+		// deterministic on (missedObligationID, dueAt)) skipped the insert because an equivalent open
+		// obligation for this exact logical target already exists -- most commonly this same rework
+		// replayed under a DIFFERENT outer request idempotency key (RescheduleObligationByID's own
+		// idempotency reservation only dedups on an exact key match, so a new key for the same missed
+		// obligation + due date reaches this far). That is duplicate logical work, not a failure: fetch
+		// the existing row and return it as an idempotent success instead of surfacing an internal error.
+		// No new status event is written here -- the original successful call already recorded one.
+		existing, lookupErr := qtx.GetOpenObligationByLogicalKey(ctx, obligationdb.GetOpenObligationByLogicalKeyParams{
+			TenantID:          tenant,
+			ProtocolVersionID: protocolVersion,
+			RuleID:            rule,
+			TargetType:        targetType,
+			TargetID:          target,
+			Sequence:          sequence,
+			DueAt:             pgconv.Timestamptz(dueAt),
+		})
+		if lookupErr != nil {
+			return "", fmt.Errorf("obligation: insert rework obligation for missed %s: %w", missedObligationID, err)
+		}
+		return existing.ObligationID, nil
+	}
 	if err != nil {
 		return "", fmt.Errorf("obligation: insert rework obligation for missed %s: %w", missedObligationID, err)
 	}
