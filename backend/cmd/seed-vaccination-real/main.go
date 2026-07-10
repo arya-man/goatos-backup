@@ -91,12 +91,12 @@ type stats struct {
 	Protocols          int
 	Animals            int
 	Obligations        int
-	Completed          int // completed obligations (past history)
-	CompletionsHistory int // vaccination_completions rows (accepted doses)
-	Due                int // "Pending" -> open/due obligations
-	Scheduled          int // future -> scheduled obligations
-	Skipped            int // NA / blank cells
-	PurgedTriggerSeed  int // dev trigger-seed vaccination obligations removed
+	Completed          int         // completed obligations (past history)
+	CompletionsHistory int         // vaccination_completions rows (accepted doses)
+	Due                int         // "Pending" -> open/due obligations
+	Scheduled          int         // future -> scheduled obligations
+	Skipped            int         // NA / blank cells
+	Purged             purgeCounts // synthetic fixtures removed
 }
 
 func main() {
@@ -111,7 +111,7 @@ func run(args []string) error {
 	tenantID := fs.String("tenant-id", getenv("GOATOS_TENANT_ID", defaultTenantID), "tenant id")
 	timeout := fs.Duration("timeout", 300*time.Second, "seed timeout")
 	sourcePath := fs.String("source", "/Users/ravi/mesha/source-material/vgoats-seed", "path to source data directory")
-	purgeTriggerSeed := fs.Bool("purge-trigger-seed", true, "purge dev trigger-seed vaccination obligations (protocol code vaccination.matrix*) so the /vaccination matrix shows only real data")
+	purgeFixtures := fs.Bool("purge-fixtures", true, "purge leftover synthetic dev fixtures (trigger-seed protocol family, synthetic G-0000NN goats, junk-named sheds, stale calendar projections) so every surface shows only real herd data")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -143,7 +143,7 @@ func run(args []string) error {
 		return fmt.Errorf("load vaccination cells: %w", err)
 	}
 
-	st, err := seed(ctx, pool, *tenantID, loc, goats, cells, *purgeTriggerSeed)
+	st, err := seed(ctx, pool, *tenantID, loc, goats, cells, *purgeFixtures)
 	if err != nil {
 		return fmt.Errorf("seed: %w", err)
 	}
@@ -151,10 +151,11 @@ func run(args []string) error {
 	fmt.Printf("seeded real vaccination data:\n"+
 		"  parks_resolved=%d sheds_resolved=%d sheds_created=%d protocols=%d animals=%d\n"+
 		"  obligations=%d (completed=%d due=%d scheduled=%d) completions_history=%d skipped_cells=%d\n"+
-		"  purged_trigger_seed_obligations=%d\n",
+		"  purged_fixtures total=%d (calendar_projections=%d obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d)\n",
 		st.ParksResolved, st.ShedsResolved, st.ShedsCreated, st.Protocols, st.Animals,
 		st.Obligations, st.Completed, st.Due, st.Scheduled, st.CompletionsHistory, st.Skipped,
-		st.PurgedTriggerSeed)
+		st.Purged.total(), st.Purged.CalendarProjections, st.Purged.Obligations, st.Purged.Batches,
+		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows)
 	return nil
 }
 
@@ -284,7 +285,7 @@ func headerIndex(hdr []interface{}) map[string]int {
 // on the pair.
 type shedKey struct{ farm, shed string }
 
-func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeTriggerSeed bool) (stats, error) {
+func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool) (stats, error) {
 	var st stats
 	now := time.Now().In(loc)
 
@@ -300,15 +301,16 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 	}
 	defer tx.Rollback(ctx)
 
-	// 0. Purge dev trigger-seed vaccination fixtures (data cleanup, not schema/rule change) so the
-	//    /vaccination operations matrix renders only real herd data. Targets ONLY the trigger-seed
-	//    protocol family (code vaccination.matrix*) against synthetic fixture goats.
-	if purgeTriggerSeed {
-		n, err := purgeTriggerSeedVaccination(ctx, tx, tenantID)
+	// 0. Purge ALL leftover synthetic dev fixtures (data cleanup, not schema/rule change) so every
+	//    surface (/calendar, /counts/herd, /vaccination) renders only real herd data. Targets the
+	//    trigger-seed protocol family, synthetic G-0000NN goats, junk-named sheds, and stale
+	//    calendar projections — never real goats/protocols/sheds/workforce/grants.
+	if purgeFixtures {
+		pc, err := purgeSyntheticFixtures(ctx, tx, tenantID)
 		if err != nil {
-			return st, fmt.Errorf("purge trigger-seed fixtures: %w", err)
+			return st, fmt.Errorf("purge synthetic fixtures: %w", err)
 		}
-		st.PurgedTriggerSeed = n
+		st.Purged = pc
 	}
 
 	// 1. Parks: resolve existing CBE/CPT park rows by location_code.
@@ -620,27 +622,201 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 	return st, nil
 }
 
-// purgeTriggerSeedVaccination removes the dev trigger-seed vaccination obligations (and their
-// completions / status events / escalations) so the operations matrix shows only real protocols.
-// It targets ONLY protocol definitions whose code starts with 'vaccination.matrix' (the
-// seed-vaccination-trigger family). It never deletes protocol config, goats, workforce, or grants.
-func purgeTriggerSeedVaccination(ctx context.Context, tx pgx.Tx, tenantID string) (int, error) {
-	const junkIDs = `
-		SELECT oi.obligation_id
-		FROM obligation_instances oi
+// purgeCounts breaks down what the fixture purge removed, for the run report.
+type purgeCounts struct {
+	CalendarProjections int
+	Obligations         int
+	Batches             int
+	Goats               int
+	Sheds               int
+	OtherChildRows      int
+}
+
+func (p purgeCounts) total() int {
+	return p.CalendarProjections + p.Obligations + p.Batches + p.Goats + p.Sheds + p.OtherChildRows
+}
+
+// purgeSyntheticFixtures removes ALL leftover dev/integration-test synthetic fixtures that leak
+// junk into the /calendar, /counts/herd, and /vaccination surfaces, in FK-safe order. It targets
+// ONLY:
+//   - the trigger-seed vaccination protocol family (protocol code 'vaccination.matrix%') — its
+//     obligations, planned batches, and stale calendar projections;
+//   - synthetic fixture goats (display_id like 'G-0000NN');
+//   - junk-named sheds ('Chain Proof%', 'Rework Proof%', 'Trusted History%');
+//   - stale junk calendar_event_projections rows (junk protocol / junk title / junk shed).
+//
+// It NEVER touches the 1,310 real goats (display_id 'G-9%'), the 7 real vaccine protocols, real
+// sheds (Castro/Godel/Gandhi/...), workforce, or the ravi@mesha.sg grant. It is idempotent: on a
+// clean DB every statement is a no-op. All child rows are removed before their parents so no FK is
+// violated. This is data cleanup on the existing schema — no schema or business-rule change.
+func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (purgeCounts, error) {
+	var pc purgeCounts
+
+	// Junk id subqueries (tenant-scoped). Evaluated fresh by each statement; parents are always
+	// deleted after their children so these still resolve while children are being removed.
+	junkGoats := `(SELECT goat_id FROM goats WHERE tenant_id = $1 AND display_id ~ '^G-0000[0-9]{2}$')`
+	junkSheds := `(SELECT location_id FROM locations WHERE tenant_id = $1 AND location_type = 'shed'
+		AND (name ILIKE '%Chain Proof%' OR name ILIKE '%Rework Proof%' OR name ILIKE '%Trusted History%'))`
+	junkObls := `(SELECT oi.obligation_id FROM obligation_instances oi
 		JOIN protocol_versions pv ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
 		JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
-		WHERE oi.tenant_id = $1 AND pd.category = 'vaccination' AND pd.code LIKE 'vaccination.matrix%'`
+		WHERE oi.tenant_id = $1 AND pd.category = 'vaccination' AND pd.code LIKE 'vaccination.matrix%')`
+	junkBatches := `(SELECT ob.batch_id FROM obligation_batches ob
+		JOIN protocol_versions pv ON pv.tenant_id = ob.tenant_id AND pv.protocol_version_id = ob.protocol_version_id
+		JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+		WHERE ob.tenant_id = $1 AND pd.category = 'vaccination' AND pd.code LIKE 'vaccination.matrix%')`
+	junkVersions := `(SELECT pv.protocol_version_id FROM protocol_versions pv
+		JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+		WHERE pv.tenant_id = $1 AND pd.category = 'vaccination' AND pd.code LIKE 'vaccination.matrix%')`
+
+	exec := func(label, sql string) (int, error) {
+		tag, err := tx.Exec(ctx, sql, tenantID)
+		if err != nil {
+			return 0, fmt.Errorf("purge %s: %w", label, err)
+		}
+		return int(tag.RowsAffected()), nil
+	}
+
+	// Phase 1 — stale junk calendar_event_projections (leaf; references locations/protocol/batch).
+	n, err := exec("calendar_event_projections", `DELETE FROM calendar_event_projections
+		WHERE tenant_id = $1 AND (
+			protocol_version_id IN `+junkVersions+`
+			OR shed_id IN `+junkSheds+`
+			OR park_id IN `+junkSheds+`
+			OR title ILIKE '%Chain Proof%' OR title ILIKE '%Rework Proof%'
+			OR title ILIKE '%Trusted History%' OR title ILIKE '%Trigger Seed%'
+			OR title ILIKE '%Calendar Shed%')`)
+	if err != nil {
+		return pc, err
+	}
+	pc.CalendarProjections += n
+
+	// Phase 2 — trigger-seed obligations + their children.
 	for _, child := range []string{"vaccination_completions", "obligation_status_events", "obligation_escalations", "feed_direction_completions"} {
-		if _, err := tx.Exec(ctx, `DELETE FROM `+child+` WHERE tenant_id = $1 AND obligation_id IN (`+junkIDs+`)`, tenantID); err != nil {
-			return 0, fmt.Errorf("delete %s: %w", child, err)
+		if _, err := exec(child+" (by obligation)", `DELETE FROM `+child+` WHERE tenant_id = $1 AND obligation_id IN `+junkObls); err != nil {
+			return pc, err
 		}
 	}
-	tag, err := tx.Exec(ctx, `DELETE FROM obligation_instances WHERE tenant_id = $1 AND obligation_id IN (`+junkIDs+`)`, tenantID)
+	n, err = exec("obligation_instances (trigger-seed)", `DELETE FROM obligation_instances WHERE tenant_id = $1 AND obligation_id IN `+junkObls)
 	if err != nil {
-		return 0, fmt.Errorf("delete obligation_instances: %w", err)
+		return pc, err
 	}
-	return int(tag.RowsAffected()), nil
+	pc.Obligations += n
+
+	// Phase 3 — trigger-seed planned batches + their children (obligations already gone).
+	for _, s := range []struct{ label, sql string }{
+		{"inventory_stock_movements (batch)", `DELETE FROM inventory_stock_movements WHERE tenant_id = $1 AND batch_id IN ` + junkBatches},
+		{"vaccination_completions (batch)", `DELETE FROM vaccination_completions WHERE tenant_id = $1 AND batch_id IN ` + junkBatches},
+		{"feed_direction_completions (batch)", `DELETE FROM feed_direction_completions WHERE tenant_id = $1 AND batch_id IN ` + junkBatches},
+	} {
+		if _, err := exec(s.label, s.sql); err != nil {
+			return pc, err
+		}
+	}
+	n, err = exec("obligation_batches (trigger-seed)", `DELETE FROM obligation_batches WHERE tenant_id = $1 AND batch_id IN `+junkBatches)
+	if err != nil {
+		return pc, err
+	}
+	pc.Batches += n
+
+	// Phase 4 — synthetic goats: delete every referencing child row, then the goats. Each DELETE is
+	// tenant-scoped via junkGoats; tables without a tenant_id column are scoped by goat_id membership.
+	goatChildren := []struct{ label, sql string }{
+		{"vaccination_completions (goat)", `DELETE FROM vaccination_completions WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"obligation_instances (goat target)", `DELETE FROM obligation_instances WHERE tenant_id = $1 AND target_type = 'goat' AND target_id IN ` + junkGoats},
+		{"identity_decision_events", `DELETE FROM identity_decision_events WHERE tenant_id = $1 AND event_id IN (SELECT event_id FROM goat_identity_events WHERE tenant_id = $1 AND goat_id IN ` + junkGoats + `)`},
+		{"goat_identity_events", `DELETE FROM goat_identity_events WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"goat_identifiers", `DELETE FROM goat_identifiers WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"goat_location_history", `DELETE FROM goat_location_history WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"goat_custody_history", `DELETE FROM goat_custody_history WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"goat_ownership", `DELETE FROM goat_ownership WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"goat_merge_links", `DELETE FROM goat_merge_links WHERE tenant_id = $1 AND (merged_goat_id IN ` + junkGoats + ` OR survivor_goat_id IN ` + junkGoats + `)`},
+		{"sop_submission_items", `DELETE FROM sop_submission_items WHERE goat_id IN ` + junkGoats},
+		{"procurement_pc_handoffs", `DELETE FROM procurement_pc_handoffs WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"procurement_source_health_checks", `DELETE FROM procurement_source_health_checks WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"procurement_hf_vaccination_evidence", `DELETE FROM procurement_hf_vaccination_evidence WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"procurement_load_goats", `DELETE FROM procurement_load_goats WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"arrival_intake_review_goats", `DELETE FROM arrival_intake_review_goats WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"source_entry_decisions", `DELETE FROM source_entry_decisions WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"source_holding_stays", `DELETE FROM source_holding_stays WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"identity_conflict_goats", `DELETE FROM identity_conflict_goats WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"identity_correction_requests", `DELETE FROM identity_correction_requests WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"identity_decision_goats", `DELETE FROM identity_decision_goats WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
+		{"obligation_goat_shift_watermarks", `DELETE FROM obligation_goat_shift_watermarks WHERE goat_id IN ` + junkGoats},
+		{"vaccination_generation_runs (cursor)", `UPDATE vaccination_generation_runs SET cursor_goat_id = NULL WHERE tenant_id = $1 AND cursor_goat_id IN ` + junkGoats},
+	}
+	for _, s := range goatChildren {
+		n, err := exec(s.label, s.sql)
+		if err != nil {
+			return pc, err
+		}
+		pc.OtherChildRows += n
+	}
+	// Hard-deleting goats is blocked by the maintainer-locked prevent_goat_hard_delete business-rule
+	// trigger (its own message directs: retire to merged/inactive, never DELETE). So the sanctioned
+	// removal is a soft-retire: mark the synthetic fixtures 'inactive' and detach them from all
+	// locations. This drops them out of active-herd surfaces and frees the junk sheds for deletion,
+	// without bypassing a business rule.
+	n, err = exec("goats (synthetic soft-retire+detach)", `UPDATE goats
+		SET lifecycle_status = 'inactive', shed_id = NULL, park_id = NULL, current_location_id = NULL,
+		    cohort_id = NULL, farm_id = NULL, updated_at = now()
+		WHERE tenant_id = $1 AND goat_id IN `+junkGoats)
+	if err != nil {
+		return pc, err
+	}
+	pc.Goats += n
+
+	// Phase 5 — junk-named sheds: delete referencing rows, then the shed locations.
+	shedChildren := []struct{ label, sql string }{
+		{"calendar_event_projections (shed)", `DELETE FROM calendar_event_projections WHERE tenant_id = $1 AND (shed_id IN ` + junkSheds + ` OR park_id IN ` + junkSheds + `)`},
+		{"location_operational_attributes", `DELETE FROM location_operational_attributes WHERE tenant_id = $1 AND location_id IN ` + junkSheds},
+		{"shed_profiles", `DELETE FROM shed_profiles WHERE location_id IN ` + junkSheds},
+		{"location_capacity_records", `DELETE FROM location_capacity_records WHERE location_id IN ` + junkSheds},
+		{"location_aliases", `DELETE FROM location_aliases WHERE tenant_id = $1 AND canonical_location_id IN ` + junkSheds},
+		{"goat_location_history (shed refs)", `DELETE FROM goat_location_history WHERE tenant_id = $1 AND (to_location_id IN ` + junkSheds + ` OR from_location_id IN ` + junkSheds + `)`},
+	}
+	for _, s := range shedChildren {
+		n, err := exec(s.label, s.sql)
+		if err != nil {
+			return pc, err
+		}
+		pc.OtherChildRows += n
+	}
+	n, err = exec("locations (junk sheds)", `DELETE FROM locations WHERE tenant_id = $1 AND location_type = 'shed'
+		AND (name ILIKE '%Chain Proof%' OR name ILIKE '%Rework Proof%' OR name ILIKE '%Trusted History%')`)
+	if err != nil {
+		return pc, err
+	}
+	pc.Sheds += n
+
+	// Phase 6 — trigger-seed farm/shed fixtures ("Trigger Gate Farm", "CBE Trigger Shed") from
+	// seed-vaccination-trigger, which leak into the herd register. Delete their attrs/profiles then
+	// the locations, but ONLY when nothing real references them (no goats, no workforce, no child
+	// locations, no inventory) — so workforce and the ravi@mesha.sg grant stay intact.
+	triggerLocs := `(SELECT location_id FROM locations WHERE tenant_id = $1 AND location_type IN ('farm', 'shed')
+		AND (name ILIKE '%Trigger Gate%' OR name ILIKE '%Trigger Shed%')
+		AND NOT EXISTS (SELECT 1 FROM goats g WHERE g.farm_id = locations.location_id OR g.park_id = locations.location_id
+			OR g.shed_id = locations.location_id OR g.current_location_id = locations.location_id OR g.cohort_id = locations.location_id)
+		AND NOT EXISTS (SELECT 1 FROM workforce_members w WHERE w.primary_location_id = locations.location_id)
+		AND NOT EXISTS (SELECT 1 FROM locations c WHERE c.parent_location_id = locations.location_id)
+		AND NOT EXISTS (SELECT 1 FROM inventory_stock s WHERE s.location_id = locations.location_id))`
+	for _, s := range []struct{ label, sql string }{
+		{"location_operational_attributes (trigger)", `DELETE FROM location_operational_attributes WHERE tenant_id = $1 AND location_id IN ` + triggerLocs},
+		{"farm_profiles (trigger)", `DELETE FROM farm_profiles WHERE location_id IN ` + triggerLocs},
+		{"shed_profiles (trigger)", `DELETE FROM shed_profiles WHERE location_id IN ` + triggerLocs},
+		{"location_capacity_records (trigger)", `DELETE FROM location_capacity_records WHERE location_id IN ` + triggerLocs},
+	} {
+		if _, err := exec(s.label, s.sql); err != nil {
+			return pc, err
+		}
+	}
+	n, err = exec("locations (trigger farm/shed)", `DELETE FROM locations WHERE tenant_id = $1 AND location_id IN `+triggerLocs)
+	if err != nil {
+		return pc, err
+	}
+	pc.Sheds += n
+
+	return pc, nil
 }
 
 // batch queues rows via pgx.Batch in chunks and executes each chunk, surfacing the
