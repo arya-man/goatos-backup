@@ -1451,7 +1451,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.kids":                               "Kids",
 			"label.untagged_kids":                      "Untagged kids",
 			"label.live_scoped_register":               "live scoped register",
-			"label.stage_shed_inferred":                "stage/shed inferred",
+			"label.stage_shed_inferred":                "age band / stage",
 			"label.invalid_id_rows":                    "invalid ID rows",
 			"label.first_live_rows_prefix":             "first",
 			"label.live_rows":                          "live rows",
@@ -1914,8 +1914,8 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "people":
 		return map[string]string{
-			"crumb":                    "Admin / Data Ops",
-			"filter.search_label":      "Search staff",
+			"crumb":                     "Admin / Data Ops",
+			"filter.search_label":       "Search staff",
 			"filter.search_placeholder": "Search position, person, grade, center...",
 		}
 	case "sops":

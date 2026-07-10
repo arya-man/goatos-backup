@@ -9,6 +9,7 @@ import { actionFeedbackCopy, copy, tableLabels, tablePageSizes, type AdminUiPage
 import {
   firstAuthRequiredError,
   listAnimalStages,
+  searchAllGoats,
   searchGoats,
   type GoatSearchResponse,
 } from "@/lib/api/server";
@@ -29,6 +30,8 @@ import { HerdPassportVaccinationBlock } from "./herd-passport-vaccination";
 
 // Counts -> Herd Register. The vaccination cascade's real business entry point: register/import a goat,
 // emit goat.created, generate vaccination obligations. This screen is the OPERATIONAL Counts module surface.
+// KPI summary cards paginate through all /goats/search rows in scope (100 per page) for exact totals.
+// Kid vs adult uses goat age_band and management_stage from the API (K1/K2/... stages), not shed names.
 //
 // Generated-client status: goat READ and WRITE operation IDs are present and wired. The herd table +
 // filters read /goats/search; Register goat and Import sheet open real drawers that post createAdminGoat /
@@ -36,7 +39,6 @@ import { HerdPassportVaccinationBlock } from "./herd-passport-vaccination";
 // New report has no API and stays disabled.
 
 const DEFAULT_PAGE_SIZE = 10;
-const SUMMARY_LIMIT = 100;
 
 type GoatRow = GoatSearchResponse["items"][number];
 
@@ -90,36 +92,36 @@ function isActiveGoat(g: GoatRow): boolean {
 }
 
 function isKidGoat(g: GoatRow): boolean {
-  const text = [
-    g.location_path.shed_name,
-    g.location_path.shed_code,
-    g.lifecycle_status,
-    g.reproductive_status,
-  ]
+  const band = String(g.age_band ?? "").trim().toLowerCase();
+  if (band === "kid") return true;
+  if (band === "adult") return false;
+
+  const stage = String(g.management_stage ?? "").trim().toUpperCase();
+  if (/^K\d/.test(stage)) return true;
+
+  // Last resort when stage/age_band are missing: kid-tagged operational sheds only.
+  const shedText = [g.location_path.shed_name, g.location_path.shed_code]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
-  return /\b(k\d|kid|kids|weaner|nursery)\b/.test(text);
+  return /\b(kid|kids|weaner|nursery)\b/.test(shedText);
 }
 
 function isUntagged(g: GoatRow): boolean {
-  return !g.animal_identifier_1 || !g.animal_identifier_2;
+  return !g.animal_identifier_1;
 }
 
-function buildHerdSummary(pageContract: AdminUiPageContract, rows: GoatRow[], capped: boolean) {
+function buildHerdSummary(pageContract: AdminUiPageContract, rows: GoatRow[]) {
   const activeRows = rows.filter(isActiveGoat);
   const kidRows = activeRows.filter(isKidGoat);
   const adultRows = activeRows.filter((g) => !isKidGoat(g));
   const untaggedKids = kidRows.filter(isUntagged).length;
-  const suffix = capped ? "+" : "";
-  const sub = capped
-    ? `${copy(pageContract, "label.first_live_rows_prefix")} ${rows.length} ${copy(pageContract, "label.live_rows")}`
-    : `${rows.length} ${copy(pageContract, "label.live_rows")}`;
+  const scopedSub = `${activeRows.length} ${copy(pageContract, "label.live_rows")}`;
   return [
-    { label: copy(pageContract, "label.active"), value: `${activeRows.length}${suffix}`, sub },
-    { label: copy(pageContract, "label.adults"), value: `${adultRows.length}${suffix}`, sub: copy(pageContract, "label.live_scoped_register") },
-    { label: copy(pageContract, "label.kids"), value: `${kidRows.length}${suffix}`, sub: copy(pageContract, "label.stage_shed_inferred") },
-    { label: copy(pageContract, "label.untagged_kids"), value: `${untaggedKids}${suffix}`, sub: copy(pageContract, "label.invalid_id_rows") },
+    { label: copy(pageContract, "label.active"), value: `${activeRows.length}`, sub: scopedSub },
+    { label: copy(pageContract, "label.adults"), value: `${adultRows.length}`, sub: copy(pageContract, "label.live_scoped_register") },
+    { label: copy(pageContract, "label.kids"), value: `${kidRows.length}`, sub: copy(pageContract, "label.stage_shed_inferred") },
+    { label: copy(pageContract, "label.untagged_kids"), value: `${untaggedKids}`, sub: copy(pageContract, "label.identity") },
   ];
 }
 
@@ -156,7 +158,7 @@ export async function HerdRegisterPage({
   // Real goats + real location options for the write drawers, in parallel.
   const [result, summaryResult, locations, stagesResult] = await Promise.all([
     searchGoats({ limit: pageSize, cursor, q, breed, sex, park_id: parkId }),
-    searchGoats({ limit: SUMMARY_LIMIT, q, breed, sex, park_id: parkId }),
+    searchAllGoats({ q, breed, sex, park_id: parkId }),
     getHerdRegisterLocations(),
     listAnimalStages(),
   ]);
@@ -176,8 +178,8 @@ export async function HerdRegisterPage({
     : [];
 
   const goats: GoatRow[] = result.ok ? result.data.items : [];
-  const summaryRows: GoatRow[] = summaryResult.ok ? summaryResult.data.items : goats;
-  const summaryCards = buildHerdSummary(pageContract, summaryRows, Boolean(summaryResult.ok && summaryResult.data.next_cursor));
+  const summaryRows: GoatRow[] = summaryResult.ok ? summaryResult.data : goats;
+  const summaryCards = buildHerdSummary(pageContract, summaryRows);
   const nextCursor = result.ok ? result.data.next_cursor ?? null : null;
   const nextHref = hrefWithCursor(pathname, sp, nextCursor);
   const prevHref = hrefPreviousCursor(pathname, sp);

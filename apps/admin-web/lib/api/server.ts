@@ -308,6 +308,24 @@ export async function searchGoats(params: HerdSearchParams): Promise<ApiResult<G
   );
 }
 
+const HERD_SEARCH_MAX_PAGE_SIZE = 100;
+
+/** Walk /goats/search cursors until exhausted so herd-register KPIs can use exact scoped totals. */
+export async function searchAllGoats(
+  params: Omit<HerdSearchParams, "limit" | "cursor">,
+): Promise<ApiResult<GoatSearchResponse["items"]>> {
+  const items: GoatSearchResponse["items"] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await searchGoats({ ...params, limit: HERD_SEARCH_MAX_PAGE_SIZE, cursor });
+    if (!page.ok) return page;
+    items.push(...page.data.items);
+    if (!page.data.next_cursor) break;
+    cursor = page.data.next_cursor;
+  }
+  return { ok: true, data: items };
+}
+
 export async function getGoatPassport(goatId: string): Promise<ApiResult<GoatPassportResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
