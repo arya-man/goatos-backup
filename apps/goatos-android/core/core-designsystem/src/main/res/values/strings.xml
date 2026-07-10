@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shared design-system chrome. Ported verbatim from the mock's TXT dict (keys noted). -->
+<resources>
+    <string name="ds_app_language">App language</string> <!-- mock: applang -->
+</resources>

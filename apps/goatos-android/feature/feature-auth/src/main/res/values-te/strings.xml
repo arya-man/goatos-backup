@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="login_brand_name">Mesha</string>
+    <string name="login_tagline">క్షేత్ర కార్యకలాపాలు</string>
+    <string name="login_field_work_email">పని ఇమెయిల్</string>
+    <string name="login_email_hint">you@mesha.sg</string>
+    <string name="login_field_password">పాస్‌వర్డ్</string>
+    <string name="login_password_hint">మీ పాస్‌వర్డ్</string>
+    <string name="login_sign_in">సైన్ ఇన్</string>
+    <string name="login_use_email_password">మీ Mesha పని ఇమెయిల్ మరియు పాస్‌వర్డ్ వాడండి</string>
+    <string name="login_app_language">యాప్ భాష</string>
+    <string name="login_change">మార్చు</string>
+    <string name="login_role_note">మీ పాత్ర HR డైరెక్టరీ నుండి — మీ పని స్క్రీన్ కనిపిస్తుంది. ఫీల్డ్ ఆపరేటర్ టీకా వేస్తారు; మేనేజర్‌లు, డైరెక్టర్‌లు ట్రాక్ చేస్తారు.</string>
+</resources>

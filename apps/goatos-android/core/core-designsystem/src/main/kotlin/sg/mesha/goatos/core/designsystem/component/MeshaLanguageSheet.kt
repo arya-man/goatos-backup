@@ -19,7 +19,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import sg.mesha.goatos.core.designsystem.R
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.locale.SUPPORTED_LANGUAGES
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -46,7 +48,7 @@ fun MeshaLanguageSheet(
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = MeshaDimens.gutter, vertical = MeshaDimens.space2)) {
             Text(
-                text = "App language".uppercase(),
+                text = stringResource(R.string.ds_app_language).uppercase(),
                 color = MeshaColors.Faint,
                 style = MeshaType.sectionLabel,
                 modifier = Modifier.padding(bottom = MeshaDimens.space3),

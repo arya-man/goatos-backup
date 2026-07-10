@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Login (v-login) chrome strings. Translations are ported verbatim from the mock's TXT
+  dictionary in mock/vaccination-mobile-mock.html (keys noted per string) so the app and
+  the mock never drift. Two strings intentionally have NO locale variants: the brand mark
+  "मे" (fixed Devanagari mark, not a translation) and "Mesha" (brand name).
+-->
+<resources>
+    <string name="login_brand_name">Mesha</string>
+    <string name="login_tagline">Field operations</string> <!-- mock: tagline -->
+    <string name="login_field_work_email">Work email</string> <!-- mock: email -->
+    <string name="login_email_hint">you@mesha.sg</string>
+    <string name="login_field_password">Password</string> <!-- mock: otp -->
+    <string name="login_password_hint">Your password</string>
+    <string name="login_sign_in">Sign in</string> <!-- mock: signin -->
+    <string name="login_use_email_password">Use your Mesha work email and password.</string> <!-- mock: otpnote -->
+    <string name="login_app_language">App language</string> <!-- mock: applang -->
+    <string name="login_change">Change</string> <!-- mock: change -->
+    <string name="login_role_note">Your role comes from the HR directory — you land on the screen for your job. The field operator executes; managers and directors track.</string> <!-- mock: rbac -->
+</resources>

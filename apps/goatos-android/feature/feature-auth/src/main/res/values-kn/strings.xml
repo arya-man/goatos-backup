@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="login_brand_name">Mesha</string>
+    <string name="login_tagline">ಕ್ಷೇತ್ರ ಕಾರ್ಯಾಚರಣೆ</string>
+    <string name="login_field_work_email">ಕೆಲಸದ ಇಮೇಲ್</string>
+    <string name="login_email_hint">you@mesha.sg</string>
+    <string name="login_field_password">ಪಾಸ್‌ವರ್ಡ್</string>
+    <string name="login_password_hint">ನಿಮ್ಮ ಪಾಸ್‌ವರ್ಡ್</string>
+    <string name="login_sign_in">ಸೈನ್ ಇನ್</string>
+    <string name="login_use_email_password">ನಿಮ್ಮ Mesha ಕೆಲಸದ ಇಮೇಲ್ ಮತ್ತು ಪಾಸ್‌ವರ್ಡ್ ಬಳಸಿ</string>
+    <string name="login_app_language">ಆ್ಯಪ್ ಭಾಷೆ</string>
+    <string name="login_change">ಬದಲಿಸಿ</string>
+    <string name="login_role_note">ನಿಮ್ಮ ಪಾತ್ರ HR ಡೈರೆಕ್ಟರಿಯಿಂದ — ನಿಮ್ಮ ಕೆಲಸದ ಪರದೆ ಸಿಗುತ್ತದೆ. ಫೀಲ್ಡ್ ಆಪರೇಟರ್ ಲಸಿಕೆ ಹಾಕುತ್ತಾರೆ; ಮ್ಯಾನೇಜರ್ ಮತ್ತು ಡೈರೆಕ್ಟರ್ ಟ್ರ್ಯಾಕ್ ಮಾಡುತ್ತಾರೆ.</string>
+</resources>

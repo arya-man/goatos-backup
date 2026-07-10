@@ -6,11 +6,11 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.datastore.SessionStore
+import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.feature.profile.ProfileUiState
 import sg.mesha.goatos.feature.profile.SettingKind
 import sg.mesha.goatos.feature.profile.SettingRow
@@ -43,7 +43,12 @@ class ProfileViewModel @Inject constructor(
 
     private fun load() = viewModelScope.launch {
         val profile = runCatching { bootstrap.operatorProfile() }.getOrNull()
-        val langCode = runCatching { sessionStore.language.first() }.getOrDefault("en")
+        // AppLocaleState is the single in-memory source of truth for the active app-wide
+        // locale (MainActivity seeds it from SessionStore at launch and persists every
+        // change back). Reading it here — instead of SessionStore again — guarantees this
+        // row always agrees with whatever the app is actually rendering in, including a
+        // language picked on Login before the user ever opens You/Settings.
+        val langCode = AppLocaleState.tag
         val name = profile?.displayName?.ifBlank { profile.displayCode }?.ifBlank { null } ?: "Signed in"
         val role = profile?.primaryRoleHint?.ifBlank { "" } ?: ""
         val location = profile?.primaryLocation?.ifBlank { "" } ?: ""
@@ -62,10 +67,16 @@ class ProfileViewModel @Inject constructor(
         viewModelScope.launch { sessionStore.setBearerToken(null) }
     }
 
-    /** Persists [code] and updates the Language row's displayed value. */
+    /**
+     * Switches the app-wide locale via [AppLocaleState] — the same call LoginScreen makes —
+     * so the whole tree recomposes in the new language, not just this row's label.
+     * MainActivity observes [AppLocaleState.tag] and persists it to [SessionStore] itself
+     * (see MainActivity's `LaunchedEffect(AppLocaleState.tag)`), so this no longer writes
+     * SessionStore directly: one source of truth, one place that persists it.
+     */
     fun setLanguage(code: String) {
         val label = LANGUAGES[code] ?: return
-        viewModelScope.launch { sessionStore.setLanguage(code) }
+        AppLocaleState.set(code)
         _state.update { current ->
             current.copy(
                 rows = current.rows.map {

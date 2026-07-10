@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -115,27 +116,26 @@ private fun LoginContent(
         BrandLockup()
 
         Spacer(Modifier.height(MeshaDimens.space8))
-        FieldLabel("Work email")
+        FieldLabel(stringResource(R.string.login_field_work_email))
         EmailField(email = email, onEmailChange = onEmailChange)
 
         Spacer(Modifier.height(MeshaDimens.space4))
-        FieldLabel("Password")
+        FieldLabel(stringResource(R.string.login_field_password))
         PasswordField(password = password, onPasswordChange = onPasswordChange, onDone = onSignIn)
 
         Spacer(Modifier.height(MeshaDimens.space5))
-        MeshaPrimaryButton(text = "Sign in", enabled = canSignIn, onClick = onSignIn)
+        MeshaPrimaryButton(text = stringResource(R.string.login_sign_in), enabled = canSignIn, onClick = onSignIn)
 
         Spacer(Modifier.height(MeshaDimens.space3))
-        Centered("Use your Mesha work email and password.")
+        Centered(stringResource(R.string.login_use_email_password))
 
         Spacer(Modifier.height(MeshaDimens.space6))
-        FieldLabel("App language")
+        FieldLabel(stringResource(R.string.login_app_language))
         LanguageField(language = AppLocaleState.labelFor(currentTag), onClick = { showLangSheet = true })
 
         Spacer(Modifier.height(18.dp))
         Text(
-            text = "Your role comes from the HR directory — you land on the screen for " +
-                "your job. The field operator executes; managers and directors track.",
+            text = stringResource(R.string.login_role_note),
             color = MeshaColors.Faint,
             style = MeshaType.caption.copy(fontWeight = FontWeight.W500),
             lineHeight = 18.sp,
@@ -195,7 +195,7 @@ private fun EmailField(email: String, onEmailChange: (String) -> Unit) {
             MeshaInputShell {
                 Icon(MeshaIcons.User, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(MeshaDimens.iconMd))
                 Box(Modifier.weight(1f)) {
-                    if (email.isEmpty()) Text("you@mesha.sg", color = MeshaColors.Faint, style = MeshaType.body)
+                    if (email.isEmpty()) Text(stringResource(R.string.login_email_hint), color = MeshaColors.Faint, style = MeshaType.body)
                     inner()
                 }
             }
@@ -218,7 +218,7 @@ private fun PasswordField(password: String, onPasswordChange: (String) -> Unit, 
         decorationBox = { inner ->
             MeshaInputShell {
                 Box(Modifier.weight(1f)) {
-                    if (password.isEmpty()) Text("Your password", color = MeshaColors.Faint, style = MeshaType.body)
+                    if (password.isEmpty()) Text(stringResource(R.string.login_password_hint), color = MeshaColors.Faint, style = MeshaType.body)
                     inner()
                 }
             }
@@ -237,7 +237,7 @@ private fun LanguageField(language: String, onClick: () -> Unit) {
         }
         Text(language, color = MeshaColors.Ink, style = MeshaType.body)
         Spacer(Modifier.weight(1f))
-        Text("Change", color = MeshaColors.Faint, style = MeshaType.cardSubtitle.copy(fontSize = 13.sp))
+        Text(stringResource(R.string.login_change), color = MeshaColors.Faint, style = MeshaType.cardSubtitle.copy(fontSize = 13.sp))
         Icon(MeshaIcons.Chevron, contentDescription = null, tint = MeshaColors.Faint, modifier = Modifier.size(13.dp))
     }
 }
@@ -262,8 +262,8 @@ private fun BrandLockup() {
         }
         Spacer(Modifier.width(13.dp))
         Column {
-            Text(text = "Mesha", color = MeshaColors.Ink, style = MeshaType.screenTitle.copy(fontWeight = FontWeight.W900, letterSpacing = (-0.66).sp))
-            Text(text = "Field operations", color = MeshaColors.Faint, style = MeshaType.cardSubtitle.copy(fontSize = 12.sp, fontWeight = FontWeight.W600))
+            Text(text = stringResource(R.string.login_brand_name), color = MeshaColors.Ink, style = MeshaType.screenTitle.copy(fontWeight = FontWeight.W900, letterSpacing = (-0.66).sp))
+            Text(text = stringResource(R.string.login_tagline), color = MeshaColors.Faint, style = MeshaType.cardSubtitle.copy(fontSize = 12.sp, fontWeight = FontWeight.W600))
         }
     }
 }
