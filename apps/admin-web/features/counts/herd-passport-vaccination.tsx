@@ -51,8 +51,18 @@ export async function HerdPassportVaccinationBlock({ goatId }: { goatId: string 
   if (!res.ok) {
     return (
       <div style={{ marginTop: 16 }}>
-        <div className="muted small" style={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: ".4px" }}>
-          <Syringe className="ic" aria-hidden="true" style={{ width: 13, marginRight: 6, verticalAlign: "-2px" }} />
+        <div
+          className="muted small"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: ".4px",
+          }}
+        >
+          <Syringe className="ic" aria-hidden="true" style={{ width: 14, height: 14 }} />
           {copy(pageContract, "section.vaccination.title")}
         </div>
         <p className="muted small" style={{ marginTop: 8 }}>
@@ -73,13 +83,16 @@ export async function HerdPassportVaccinationBlock({ goatId }: { goatId: string 
       <div
         className="muted small"
         style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
           fontWeight: 700,
           textTransform: "uppercase",
           letterSpacing: ".4px",
           marginBottom: 10,
         }}
       >
-        <Syringe className="ic" aria-hidden="true" style={{ width: 13, marginRight: 6, verticalAlign: "-2px" }} />
+        <Syringe className="ic" aria-hidden="true" style={{ width: 14, height: 14 }} />
         {copy(pageContract, "section.vaccination.title")}
       </div>
 
