@@ -907,14 +907,14 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 		// Resolve effective backup for the position holder (P2)
 		var replacementID *string
 		positionRow := tx.QueryRow(ctx, `
-			SELECT p.position_id FROM workforce_positions
+			SELECT p.position_id FROM workforce_positions p
 			WHERE tenant_id=$1 AND workforce_member_id=$2 AND scope_type=$3 AND scope_id=$4 AND status='active'
 			LIMIT 1`, tenantID, mID, scopeType, scopeID)
 		var positionID string
 		if err := positionRow.Scan(&positionID); err == nil {
 			// Position found; resolve backup for this position's backup_group
 			backupRow := tx.QueryRow(ctx, `
-				SELECT p.backup_group_code FROM workforce_positions
+				SELECT p.backup_group_code FROM workforce_positions p
 				WHERE position_id=$1 LIMIT 1`, positionID)
 			var backupGroup *string
 			_ = backupRow.Scan(&backupGroup)

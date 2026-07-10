@@ -570,8 +570,8 @@ WHERE p.tenant_id = $1::uuid
   AND p.scope_type = 'center'
   AND p.scope_id = $2::uuid
   AND p.status = 'active'
-  AND p.valid_from <= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-  AND (p.valid_to IS NULL OR p.valid_to > (NOW() AT TIME ZONE 'Asia/Kolkata')::date)
+  AND p.valid_from <= NOW()
+  AND (p.valid_to IS NULL OR p.valid_to > NOW())
 ORDER BY p.position_tier DESC, p.position_code
 LIMIT $3`), tenantID, centerID, limit)
 	if err != nil {
