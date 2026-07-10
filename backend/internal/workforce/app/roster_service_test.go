@@ -278,6 +278,12 @@ func (f *fakeRosterRepo) GetOperatorCoverage(_ context.Context, tenantID, workfo
 	return nil, nil
 }
 
+func (f *fakeRosterRepo) GetMemberForActor(_ context.Context, tenantID, actorID string) (domain.OperatorProfile, error) {
+	// For test purposes, return a minimal profile; tests that need this can override
+	loc := rosterCenter
+	return domain.OperatorProfile{OperatorID: testActor, PrimaryLocationID: &loc}, nil
+}
+
 // fakeCapabilityGranter is an in-memory fake of ports.CapabilityGranter
 // (workforce_member_capabilities reuse, design doc S4.6).
 type fakeCapabilityGranter struct {

@@ -645,9 +645,20 @@ func (s *RosterService) ListCoverage(ctx context.Context, params ports.ListCover
 
 // ---- Operator timetable + my-coverage  ------------------------------------
 
-func (s *RosterService) GetOperatorTimetable(ctx context.Context, tenantID, centerID string, limit int, traceID string) (*domain.PositionListResponse, error) {
-	if err := validateTenant(tenantID); err != nil {
+func (s *RosterService) GetOperatorTimetable(ctx context.Context, tenantID, actorID, centerID string, limit int, traceID string) (*domain.PositionListResponse, error) {
+	if err := validateTenantAndActor(tenantID, actorID); err != nil {
 		return nil, err
+	}
+	if !uuidutil.IsUUIDString(centerID) {
+		return nil, BadRequest("invalid_center_id", "center_id must be a UUID")
+	}
+	// IDOR: operator may only read their own center's timetable (P1)
+	member, err := s.repo.GetMemberForActor(ctx, tenantID, actorID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if member.PrimaryLocationID == nil || *member.PrimaryLocationID != centerID {
+		return nil, Forbidden("center_scope_mismatch", "not authorized to read this center's timetable")
 	}
 	limit = boundedLimit(limit, 200)
 	items, err := s.repo.GetCenterTimetable(ctx, tenantID, centerID, limit)
@@ -666,8 +677,14 @@ func (s *RosterService) GetMyCoverage(ctx context.Context, tenantID, actorID, tr
 	if err := validateTenantAndActor(tenantID, actorID); err != nil {
 		return nil, err
 	}
+	// P1: Resolve actor (user_id) to workforce_member_id
+	member, err := s.repo.GetMemberForActor(ctx, tenantID, actorID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
 	at := s.now()
-	coverage, err := s.repo.GetOperatorCoverage(ctx, tenantID, actorID, at)
+	// Query for coverage where THIS member (replacement_member_id) is the one covering someone else
+	coverage, err := s.repo.GetOperatorCoverage(ctx, tenantID, member.OperatorID, at)
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
@@ -699,16 +716,31 @@ func (s *RosterService) GetMyCoverage(ctx context.Context, tenantID, actorID, tr
 
 // ---- Enrichment helpers --------------------------------------------------
 
-// enrichPositions joins Position data with workforce_members and locations to
-// populate display fields. Returns the enriched positions with person_display_name,
-// hr_designation_grade, center_label, position_title, and tier populated.
+// enrichPositions populates display fields (position_title, tier, week_off, backup_group)
+// from Position domain fields already loaded via repository JOINs.
 func (s *RosterService) enrichPositions(ctx context.Context, tenantID string, positions []domain.Position) ([]domain.Position, error) {
-	// For now, return positions as-is. The actual enrichment would happen via JOINs
-	// in the repository layer when querying from the database. This function is
-	// a placeholder for service-level enrichment if needed.
-	// The repository's ListPositions, GetCenterTimetable, etc. should handle
-	// the enrichment via SQL JOINs at query time.
+	for i := range positions {
+		// Position title: prettified position_code
+		title := formatPositionCode(positions[i].PositionCode)
+		positions[i].PositionTitle = &title
+		// Tier: from position_tier
+		positions[i].Tier = &positions[i].PositionTier
+		// Week off: week_off_weekday
+		positions[i].WeekOff = positions[i].WeekOffWeekday
+		// Backup group: backup_group_code
+		positions[i].BackupGroup = positions[i].BackupGroupCode
+	}
 	return positions, nil
+}
+
+// formatPositionCode converts a position code like "preventive_care_manager"
+// to a display title like "Preventive Care Manager"
+func formatPositionCode(code string) string {
+	words := strings.Split(code, "_")
+	for i, word := range words {
+		words[i] = strings.ToUpper(word[:1]) + word[1:]
+	}
+	return strings.Join(words, " ")
 }
 
 // ---- shared roster helpers ------------------------------------------------

@@ -884,7 +884,7 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 		seqNoToMember[m.seqNo] = struct{ name, center string }{k, m.location}
 	}
 
-	// Insert leaves
+	// Insert leaves with coverage resolution (P2)
 	if err := batch(ctx, tx, leaves, 200, func(b *pgx.Batch, l leaveWindow) {
 		memberInfo, ok := seqNoToMember[l.seqNo]
 		if !ok {
@@ -903,12 +903,41 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 
 		startsAt := l.startDate
 		endsAt := l.endDate.AddDate(0, 0, 1)
+
+		// Resolve effective backup for the position holder (P2)
+		var replacementID *string
+		positionRow := tx.QueryRow(ctx, `
+			SELECT p.position_id FROM workforce_positions
+			WHERE tenant_id=$1 AND workforce_member_id=$2 AND scope_type=$3 AND scope_id=$4 AND status='active'
+			LIMIT 1`, tenantID, mID, scopeType, scopeID)
+		var positionID string
+		if err := positionRow.Scan(&positionID); err == nil {
+			// Position found; resolve backup for this position's backup_group
+			backupRow := tx.QueryRow(ctx, `
+				SELECT p.backup_group_code FROM workforce_positions
+				WHERE position_id=$1 LIMIT 1`, positionID)
+			var backupGroup *string
+			_ = backupRow.Scan(&backupGroup)
+			if backupGroup != nil && *backupGroup != "" {
+				// Find the backup holder in this group
+				backupHolderRow := tx.QueryRow(ctx, `
+					SELECT p.workforce_member_id FROM workforce_positions p
+					WHERE tenant_id=$1 AND backup_group_code=$2 AND scope_type=$3 AND scope_id=$4
+					AND is_backup_slot=true AND status='active' AND p.workforce_member_id != $5
+					LIMIT 1`, tenantID, *backupGroup, scopeType, scopeID, mID)
+				var backupMemberID string
+				if err := backupHolderRow.Scan(&backupMemberID); err == nil {
+					replacementID = &backupMemberID
+				}
+			}
+		}
+		// Query with ON CONFLICT will handle idempotency; batch sets replacement_member_id on first insert
 		b.Queue(`
 			INSERT INTO workforce_absences (absence_id, tenant_id, workforce_member_id, scope_type, scope_id,
-				starts_at, ends_at, reason_code, status, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,'attendance_sheet_absence','approved',now())
-			ON CONFLICT (absence_id) DO NOTHING`,
-			absID, tenantID, mID, scopeType, scopeID, startsAt, endsAt)
+				starts_at, ends_at, reason_code, status, replacement_member_id, updated_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,'attendance_sheet_absence','approved',$8,now())
+			ON CONFLICT (absence_id) DO UPDATE SET replacement_member_id = COALESCE(excluded.replacement_member_id, workforce_absences.replacement_member_id)`,
+			absID, tenantID, mID, scopeType, scopeID, startsAt, endsAt, replacementID)
 	}); err != nil {
 		return ist, fmt.Errorf("insert leave windows: %w", err)
 	}

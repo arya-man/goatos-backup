@@ -570,8 +570,8 @@ WHERE p.tenant_id = $1::uuid
   AND p.scope_type = 'center'
   AND p.scope_id = $2::uuid
   AND p.status = 'active'
-  AND (p.valid_from <= NOW() AT TIME ZONE 'Asia/Kolkata'::text)::date
-  AND (p.valid_to IS NULL OR (p.valid_to > NOW() AT TIME ZONE 'Asia/Kolkata'::text)::date)
+  AND p.valid_from <= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+  AND (p.valid_to IS NULL OR p.valid_to > (NOW() AT TIME ZONE 'Asia/Kolkata')::date)
 ORDER BY p.position_tier DESC, p.position_code
 LIMIT $3`), tenantID, centerID, limit)
 	if err != nil {
@@ -601,7 +601,7 @@ JOIN workforce_positions p ON wa.workforce_member_id = p.workforce_member_id
   AND wa.scope_type = p.scope_type AND wa.scope_id = p.scope_id
 LEFT JOIN workforce_members wm ON wa.replacement_member_id = wm.workforce_member_id
 WHERE wa.tenant_id = $1::uuid
-  AND wa.workforce_member_id = $2::uuid
+  AND wa.replacement_member_id = $2::uuid
   AND wa.status IN ('approved', 'escalation_required')
   AND wa.starts_at <= $3::timestamptz AND wa.ends_at > $3::timestamptz
 ORDER BY wa.starts_at DESC, wa.absence_id DESC

@@ -162,7 +162,7 @@ func (h *RosterHandler) ListCoverage(w http.ResponseWriter, r *http.Request) {
 
 func (h *RosterHandler) GetOperatorTimetable(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	result, err := h.service.GetOperatorTimetable(r.Context(), tenantID(r), q.Get("center_id"), parseLimit(q.Get("limit")), traceID(r))
+	result, err := h.service.GetOperatorTimetable(r.Context(), tenantID(r), actorID(r), q.Get("center_id"), parseLimit(q.Get("limit")), traceID(r))
 	h.respond(w, r, result, err)
 }
 

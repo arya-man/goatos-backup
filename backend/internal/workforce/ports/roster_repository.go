@@ -144,6 +144,9 @@ type RosterRepository interface {
 
 	// GetOperatorCoverage returns the current coverage (leave/week-off) for an operator, if any.
 	GetOperatorCoverage(ctx context.Context, tenantID, workforceMemberID string, at time.Time) (*domain.Coverage, error)
+
+	// GetMemberForActor resolves a user_id to an operator profile, used for IDOR validation and identity resolution (P1).
+	GetMemberForActor(ctx context.Context, tenantID, actorID string) (domain.OperatorProfile, error)
 }
 
 // CapabilityGranter is the slice of the existing ports.Repository the roster
