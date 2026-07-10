@@ -42,8 +42,8 @@ type StoryResult struct {
 	Pass      bool
 }
 
-// Report collects every story recorded across the three kernel-story tests in this package (each
-// test runs against its own ephemeral Postgres container, but they all render into one report).
+// Report collects every kernel story recorded in this package (each test runs against its own
+// ephemeral Postgres container, but they all render into one report).
 type Report struct {
 	mu          sync.Mutex
 	GeneratedAt time.Time

@@ -22,6 +22,7 @@ import (
 	invpg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	invapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	oblpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
+	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	pipg "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/postgres"
 	proofpg "github.com/vgoats/goatos/backend/internal/proof/adapters/postgres"
@@ -164,14 +165,21 @@ func (f *Fixture) SeedWorkforce(operatorID, parkHeadID, verifierID, shedID strin
 }
 
 // GoatSpec is the minimal, realistic goat fixture every story needs. Zero-value fields fall back
-// to sensible defaults (alive/healthy/K1).
+// to sensible defaults (alive/healthy/K1/goat).
 type GoatSpec struct {
-	GoatID    string
-	ShedID    string // optional; when set, current_location_id/shed_id both point here
-	Lifecycle string // default "alive"
-	Health    string // default "healthy"
-	Stage     string // default "K1"
-	DOB       *time.Time
+	GoatID             string
+	ShedID             string // optional; when set, current_location_id/shed_id both point here
+	Lifecycle          string // default "alive"
+	Health             string // default "healthy"
+	Stage              string // default "K1"
+	Species            string // default "goat"
+	ReproductiveStatus string
+	BreedingDate       *time.Time
+	OriginType         string
+	EntryDate          *time.Time
+	DOB                *time.Time
+	NoDOB              bool // when true, dob is stored NULL (missing-DOB defer stories)
+	NoEntryDate        bool // when true, entry_date is NULL (missing-entry-date defer stories; use procured origin)
 }
 
 // SeedGoat inserts one goat row directly (goats are owned by the identity module, exactly like the
@@ -191,15 +199,64 @@ func (f *Fixture) SeedGoat(spec GoatSpec) {
 	if stage == "" {
 		stage = "K1"
 	}
+	species := spec.Species
+	if species == "" {
+		species = "goat"
+	}
 	var shedID *string
 	if spec.ShedID != "" {
 		shedID = &spec.ShedID
 	}
+	var repro *string
+	if spec.ReproductiveStatus != "" {
+		repro = &spec.ReproductiveStatus
+	}
+	if spec.NoDOB {
+		f.exec("goat "+spec.GoatID,
+			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, health_status, species, custodian_party_id, sex,
+			    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date)
+			 VALUES ($1, $2, $3, $4, $5, $6, 'female', COALESCE($7::uuid, $8::uuid), $8, $7, $9, NULL, $10, $11::date, $12, $13::date)`,
+			spec.GoatID, fxTenant, lifecycle, health, species, fxParty, shedID, fxPark, stage,
+			repro, spec.BreedingDate, nullIfEmpty(spec.OriginType), spec.EntryDate)
+		return
+	}
+	if spec.NoEntryDate {
+		origin := spec.OriginType
+		if origin == "" {
+			origin = "procured"
+		}
+		f.exec("goat "+spec.GoatID,
+			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, health_status, species, custodian_party_id, sex,
+			    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date)
+			 VALUES ($1, $2, $3, $4, $5, $6, 'female', COALESCE($7::uuid, $8::uuid), $8, $7, $9, $10::date, $11, $12::date, $13, NULL)`,
+			spec.GoatID, fxTenant, lifecycle, health, species, fxParty, shedID, fxPark, stage, spec.DOB,
+			repro, spec.BreedingDate, origin)
+		return
+	}
 	f.exec("goat "+spec.GoatID,
 		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, health_status, species, custodian_party_id, sex,
-		    current_location_id, park_id, shed_id, management_stage, dob)
-		 VALUES ($1, $2, $3, $4, 'goat', $5, 'female', COALESCE($6::uuid, $7::uuid), $7, $6, $8, $9::date)`,
-		spec.GoatID, fxTenant, lifecycle, health, fxParty, shedID, fxPark, stage, spec.DOB)
+		    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date)
+		 VALUES ($1, $2, $3, $4, $5, $6, 'female', COALESCE($7::uuid, $8::uuid), $8, $7, $9, $10::date, $11, $12::date, $13, $14::date)`,
+		spec.GoatID, fxTenant, lifecycle, health, species, fxParty, shedID, fxPark, stage, spec.DOB,
+		repro, spec.BreedingDate, nullIfEmpty(spec.OriginType), spec.EntryDate)
+}
+
+func nullIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// SeedICUShed creates a shed marked ICU (location unusable for vaccination until the goat leaves).
+func (f *Fixture) SeedICUShed(shedID, shedCode, stageID string) {
+	f.T.Helper()
+	f.SeedShed(shedID, shedCode, stageID)
+	f.exec("icu shed attributes",
+		`UPDATE location_operational_attributes
+		    SET is_icu = true, usable_for_vaccination = false
+		  WHERE tenant_id = $1 AND location_id = $2`,
+		fxTenant, shedID)
 }
 
 // PublishSimpleProtocol creates and publishes a one-rule vaccination protocol version (a single
@@ -247,6 +304,27 @@ func (f *Fixture) PublishSimpleProtocol(code string, offsetDays, dueWindowDays i
 		f.T.Fatalf("publish protocol version %s: %v", code, err)
 	}
 	return versionID, ruleID
+}
+
+// SeedAcceptedCompletion inserts a completed obligation plus an accepted+verified vaccination
+// completion row, mirroring generation_integration_test.go's seedGoatOSCompletion helper. Used by
+// cross-vaccine-gap and trusted-history suppression stories.
+func (f *Fixture) SeedAcceptedCompletion(versionID, ruleID, goatID, idempotencySuffix string, administered time.Time) {
+	f.T.Helper()
+	verifiedAt := administered.Add(2 * time.Hour)
+	obID, applied, err := f.Obl.InsertObligation(f.Ctx, obldomain.NewObligation{
+		TenantID: fxTenant, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: goatID, ScopeType: "tenant", ScopeID: fxTenant,
+		DueAt: administered.Add(48 * time.Hour), Status: "completed",
+		IdempotencyKey: "prior:" + idempotencySuffix, Sequence: 1,
+	})
+	if err != nil || !applied {
+		f.T.Fatalf("seed prior obligation %s: applied=%v err=%v", idempotencySuffix, applied, err)
+	}
+	f.exec("accepted completion "+idempotencySuffix, `
+INSERT INTO vaccination_completions (tenant_id, obligation_id, goat_id, doses, administered_at, status, verified_at, idempotency_key)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 1, $4::timestamptz, 'accepted', $5::timestamptz, $6)`,
+		fxTenant, obID, goatID, administered, verifiedAt, "compl:"+idempotencySuffix)
 }
 
 // ---- Story narration / assertion recorder ----

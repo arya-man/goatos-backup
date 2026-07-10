@@ -3,6 +3,8 @@ package e2e
 import (
 	"time"
 
+	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
+	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
@@ -22,11 +24,16 @@ func sameDay(a, b time.Time) bool {
 // PublishScheduleProtocol. It mirrors the fields protodomain.NewRule needs for a
 // birth_age or post_arrival SM-1 trigger.
 type RuleSpec struct {
-	DoseCode      string
-	Sequence      int32
-	TriggerType   string // "birth_age" | "post_arrival"
-	OffsetDays    int32
-	DueWindowDays int32
+	DoseCode        string
+	Sequence        int32
+	TriggerType     string // "birth_age" | "post_arrival"
+	OffsetDays      int32
+	DueWindowDays   int32
+	EligibilityJSON string // optional; default `{}`
+}
+
+func defaultParkSweepConfig() oblapp.SweepConfig {
+	return oblapp.SweepConfig{ParkConsolidation: obldomain.DefaultParkConsolidationSettings()}
 }
 
 // PublishScheduleProtocol creates and publishes a vaccination protocol version carrying an
@@ -63,11 +70,15 @@ func (f *Fixture) PublishScheduleProtocol(code, ruleDSL string, rules []RuleSpec
 		if trigger == "" {
 			trigger = "birth_age"
 		}
+		eligibility := r.EligibilityJSON
+		if eligibility == "" {
+			eligibility = `{}`
+		}
 		rid, err := f.Proto.CreateRule(f.Ctx, protodomain.NewRule{
 			TenantID: fxTenant, ProtocolVersionID: versionID, DoseCode: r.DoseCode, Sequence: r.Sequence,
 			TriggerType: trigger, OffsetDays: r.OffsetDays, DueWindowDays: r.DueWindowDays,
 			Repeat: "none", CatchUp: "pc_approval",
-			EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+			EligibilityJSON: []byte(eligibility), ProofPolicy: []byte(`{}`),
 		})
 		if err != nil {
 			f.T.Fatalf("create protocol rule %s/%s: %v", code, r.DoseCode, err)
