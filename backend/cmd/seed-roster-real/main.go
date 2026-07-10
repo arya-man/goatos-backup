@@ -686,7 +686,7 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 
 	// Insert members
 	type memberIns struct {
-		id, displayCode, roleHint, status string
+		id, displayCode, name, roleHint, status string
 		grade                             *string
 		locationID                        *string
 		deptID                            *string
@@ -736,8 +736,10 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 			return ist, fmt.Errorf("resolve department: %w", err)
 		}
 
+		// display_name = the real person name (the map key IS the Jun-26 name),
+		// read at runtime from gitignored source — never hardcoded/committed.
 		memberRows = append(memberRows, memberIns{
-			id: id, displayCode: displayCode, roleHint: roleHint, status: status,
+			id: id, displayCode: displayCode, name: key, roleHint: roleHint, status: status,
 			grade: grade, locationID: locationID, deptID: deptID,
 		})
 	}
@@ -746,9 +748,9 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 		b.Queue(`
 			INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status,
 				primary_role_hint, primary_location_id, department_id, hr_designation_grade, updated_at)
-			VALUES ($1,$2,$3,$3,$4,$5,$6,$7,$8,now())
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
 			ON CONFLICT (workforce_member_id) DO NOTHING`,
-			m.id, tenantID, m.displayCode, m.status, m.roleHint, m.locationID, m.deptID, m.grade)
+			m.id, tenantID, m.displayCode, m.name, m.status, m.roleHint, m.locationID, m.deptID, m.grade)
 	}); err != nil {
 		return ist, fmt.Errorf("insert members: %w", err)
 	}
