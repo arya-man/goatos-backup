@@ -15,6 +15,14 @@ import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.isTerminalAppApiError
 
+fun interface SyncRetryScheduler {
+    fun scheduleAt(epochMillis: Long)
+
+    companion object {
+        val Noop = SyncRetryScheduler { }
+    }
+}
+
 /**
  * A definitive, non-retryable server rejection (e.g. a failed submission validation).
  * Retrying with the SAME payload would only reproduce the same rejection, so [SyncEngine]
@@ -57,6 +65,7 @@ class SyncEngine(
     private val clock: () -> Long = System::currentTimeMillis,
     private val backoff: BackoffPolicy = BackoffPolicy.Default,
     private val maxConcurrentGroups: Int = 3,
+    private val retryScheduler: SyncRetryScheduler = SyncRetryScheduler.Noop,
 ) {
     // The WorkManager-equivalent of "enqueue as unique work": never run two overlapping
     // drain passes. A trigger that arrives mid-drain simply waits its turn, then re-reads
@@ -119,7 +128,7 @@ class SyncEngine(
         val conflict = error is NonRetryableSyncException || error.isTerminalAppApiError()
         val terminal = conflict || attempt >= item.maxAttempts
         val nextAttemptAt = if (terminal) Long.MAX_VALUE else clock() + backoff.delayMillis(attempt)
-        store.markFailed(
+        val applied = store.markFailed(
             id = item.id,
             attemptCount = attempt,
             nextAttemptAt = nextAttemptAt,
@@ -127,6 +136,9 @@ class SyncEngine(
             lastError = error.message ?: (error::class.simpleName ?: "sync_failed"),
             now = clock(),
         )
+        if (applied && !terminal) {
+            retryScheduler.scheduleAt(nextAttemptAt)
+        }
     }
 
     /** Calls the app-api for [item], reusing its stored idempotency key verbatim (never a new

@@ -6,14 +6,19 @@ import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import sg.mesha.goatos.core.data.sync.SyncEngine
+import sg.mesha.goatos.core.data.sync.SyncRetryScheduler
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * OS-scheduled outbox drain. Unlike the in-process `ConnectivitySyncTrigger`, a WorkManager job
@@ -44,16 +49,29 @@ class SyncWorker @AssistedInject constructor(
  * Registers the periodic, connectivity-gated outbox drain. Idempotent via
  * [ExistingPeriodicWorkPolicy.KEEP] so app relaunches never stack duplicate work.
  */
-class SyncWorkScheduler(private val context: Context) {
+@Singleton
+class SyncWorkScheduler @Inject constructor(
+    @ApplicationContext private val context: Context,
+) : SyncRetryScheduler {
     fun schedule() {
         val request = PeriodicWorkRequestBuilder<SyncWorker>(PERIOD_MINUTES, TimeUnit.MINUTES)
-            .setConstraints(
-                Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
-            )
+            .setConstraints(syncConstraints())
             .build()
         WorkManager.getInstance(context)
             .enqueueUniquePeriodicWork(UNIQUE_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
     }
+
+    override fun scheduleAt(epochMillis: Long) {
+        val delayMillis = (epochMillis - System.currentTimeMillis()).coerceAtLeast(0L)
+        val request = OneTimeWorkRequestBuilder<SyncWorker>()
+            .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
+            .setConstraints(syncConstraints())
+            .build()
+        WorkManager.getInstance(context).enqueue(request)
+    }
+
+    private fun syncConstraints(): Constraints =
+        Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
     private companion object {
         const val UNIQUE_WORK_NAME = "goatos-outbox-sync"

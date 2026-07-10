@@ -67,8 +67,10 @@ class SubmitViewModel @Inject constructor(
     // Durable across process death via SavedStateHandle — NOT a plain var. A backgrounded Android
     // process is routinely killed; if the key lived only in memory, a ViewModel recreation could
     // mint a NEW key and re-enable submit for a drive that's already queued/in-flight, double-
-    // submitting it with a key the backend can't dedupe. Persisting a task-derived key + the
-    // enqueued row id lets the recreated VM reuse the same key and resume the existing banner.
+    // submitting it with a key the backend can't dedupe. The key is scoped to the task row
+    // version: retries/recreations of the same logical submission reuse it, while backend-driven
+    // rework (which increments row_version) gets a fresh key and can submit corrected answers.
+    // Persisting that key + the enqueued row id lets the recreated VM resume the existing banner.
     private var idempotencyKey: String?
         get() = savedStateHandle[KEY_IDEMPOTENCY]
         set(value) {
@@ -95,7 +97,7 @@ class SubmitViewModel @Inject constructor(
                     _state.value = blockedState("No task assigned to you to submit.")
                 } else {
                     task = next
-                    bindSubmissionKey(next.taskId)
+                    bindSubmissionKey(next)
                     val queuedItemId = outboxItemId
                     if (queuedItemId != null) {
                         // A submission for this task is already queued (it survived process death).
@@ -130,7 +132,7 @@ class SubmitViewModel @Inject constructor(
             observeOutboxItem(existing)
             return
         }
-        val key = idempotencyKey ?: stableSubmissionKey(current.taskId).also { idempotencyKey = it }
+        val key = idempotencyKey ?: stableSubmissionKey(current).also { idempotencyKey = it }
         statusJob?.cancel()
         viewModelScope.launch {
             _state.update {
@@ -188,21 +190,22 @@ class SubmitViewModel @Inject constructor(
         }
     }
 
-    private fun bindSubmissionKey(taskId: String) {
-        val previousTaskId = savedStateHandle.get<String>(KEY_TASK_ID)
-        if (previousTaskId != taskId) {
-            savedStateHandle[KEY_TASK_ID] = taskId
-            idempotencyKey = stableSubmissionKey(taskId)
+    private fun bindSubmissionKey(task: TaskSummaryDto) {
+        val submissionScope = submissionScope(task)
+        val previousScope = savedStateHandle.get<String>(KEY_SUBMISSION_SCOPE)
+        if (previousScope != submissionScope) {
+            savedStateHandle[KEY_SUBMISSION_SCOPE] = submissionScope
+            idempotencyKey = stableSubmissionKey(task)
             outboxItemId = null
             return
         }
         if (idempotencyKey == null) {
-            idempotencyKey = stableSubmissionKey(taskId)
+            idempotencyKey = stableSubmissionKey(task)
         }
     }
 
     private fun clearSavedSubmission() {
-        savedStateHandle.remove<String>(KEY_TASK_ID)
+        savedStateHandle.remove<String>(KEY_SUBMISSION_SCOPE)
         idempotencyKey = null
         outboxItemId = null
     }
@@ -300,10 +303,12 @@ class SubmitViewModel @Inject constructor(
     private companion object {
         // SavedStateHandle keys — survive process death so the idempotency key + enqueued row id
         // are never lost to a ViewModel recreation (which would otherwise double-submit).
-        const val KEY_TASK_ID = "submit.taskId"
+        const val KEY_SUBMISSION_SCOPE = "submit.submissionScope"
         const val KEY_IDEMPOTENCY = "submit.idempotencyKey"
         const val KEY_OUTBOX_ITEM_ID = "submit.outboxItemId"
 
-        fun stableSubmissionKey(taskId: String): String = "shed-submit:$taskId"
+        fun stableSubmissionKey(task: TaskSummaryDto): String = "shed-submit:${submissionScope(task)}"
+
+        private fun submissionScope(task: TaskSummaryDto): String = "${task.taskId}:rv:${task.rowVersion}"
     }
 }

@@ -97,6 +97,28 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `transport failure schedules the next retry at the computed backoff time`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(queuedShedSubmit(idempotencyKey = "stable-key"))
+        val api = ScriptedAppApi().apply {
+            submitAppTaskFn = { _, _, _ -> throw IOException("network down") }
+        }
+        var scheduledAt: Long? = null
+        val engine = SyncEngine(
+            store,
+            api,
+            connectivityGate = { true },
+            clock = { 1_000L },
+            backoff = BackoffPolicy { 60_000L },
+            retryScheduler = SyncRetryScheduler { scheduledAt = it },
+        )
+
+        engine.drainOnce()
+
+        assertEquals(61_000L, scheduledAt)
+    }
+
+    @Test
     fun `exhausting the attempt budget marks the row dead-letter and excludes it from future drains`() = runBlocking {
         val store = FakeOutboxStore()
         store.insert(queuedShedSubmit(maxAttempts = 3))

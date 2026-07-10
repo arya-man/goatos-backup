@@ -19,6 +19,7 @@ import javax.inject.Inject
 @HiltAndroidApp
 class GoatOsApplication : Application(), Configuration.Provider {
     @Inject lateinit var connectivitySyncTrigger: ConnectivitySyncTrigger
+    @Inject lateinit var syncWorkScheduler: SyncWorkScheduler
     @Inject lateinit var workerFactory: HiltWorkerFactory
 
     override val workManagerConfiguration: Configuration
@@ -27,6 +28,6 @@ class GoatOsApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         connectivitySyncTrigger.start()
-        SyncWorkScheduler(this).schedule()
+        syncWorkScheduler.schedule()
     }
 }

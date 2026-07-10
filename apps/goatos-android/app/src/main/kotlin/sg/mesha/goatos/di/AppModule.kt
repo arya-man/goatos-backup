@@ -39,6 +39,7 @@ import sg.mesha.goatos.core.data.sync.DefaultSyncRepository
 import sg.mesha.goatos.core.data.sync.OutboxStore
 import sg.mesha.goatos.core.data.sync.RoomOutboxStore
 import sg.mesha.goatos.core.data.sync.SyncEngine
+import sg.mesha.goatos.core.data.sync.SyncRetryScheduler
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.database.outbox.OutboxDao
 import sg.mesha.goatos.core.database.outbox.OutboxDatabase
@@ -51,6 +52,7 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.NetworkFactory
 import sg.mesha.goatos.rfid.KeyboardWedgeRfidReader
 import sg.mesha.goatos.rfid.RfidReaderPort
+import sg.mesha.goatos.sync.SyncWorkScheduler
 import javax.inject.Singleton
 
 /**
@@ -165,11 +167,21 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideSyncRetryScheduler(scheduler: SyncWorkScheduler): SyncRetryScheduler = scheduler
+
+    @Provides
+    @Singleton
     fun provideSyncEngine(
         store: OutboxStore,
         api: AppApi,
         connectivityGate: ConnectivityGate,
-    ): SyncEngine = SyncEngine(store = store, api = api, connectivityGate = connectivityGate)
+        retryScheduler: SyncRetryScheduler,
+    ): SyncEngine = SyncEngine(
+        store = store,
+        api = api,
+        connectivityGate = connectivityGate,
+        retryScheduler = retryScheduler,
+    )
 
     @Provides
     @Singleton
