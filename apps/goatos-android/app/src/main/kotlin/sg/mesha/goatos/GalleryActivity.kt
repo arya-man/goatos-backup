@@ -59,7 +59,7 @@ class GalleryActivity : ComponentActivity() {
         setContent {
             GoatOsTheme {
                 sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale {
-                Box(Modifier.fillMaxSize().background(Color(0xFF0B100D))) {
+                Box(Modifier.fillMaxSize().background(sg.mesha.goatos.core.designsystem.theme.MeshaColors.Bg)) {
                     when (screen) {
                         "login" -> LoginScreen(onSignIn = {})
                         "calendar" -> CalendarScreen(state = sampleCalendarState())

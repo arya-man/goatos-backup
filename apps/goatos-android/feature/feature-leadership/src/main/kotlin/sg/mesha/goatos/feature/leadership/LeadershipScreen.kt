@@ -42,6 +42,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Leadership feature — three stateless screens (Overview / Overdue / Reschedule).
@@ -57,24 +58,24 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 
 /** Dark-first palette from docs/mobile/design-system.md (the mock CSS vars). */
 internal object LeadTokens {
-    val brand = Color(0xFF8AD457)
-    val brand2 = Color(0xFF5FB531)
-    val brandD = Color(0xFFB7EA8C)
-    val pageBg = Color(0xFF0A0F0C)
-    val surf = Color(0xFF131A15)
-    val surf2 = Color(0xFF1A241D)
-    val surf3 = Color(0xFF222E25)
-    val ink = Color(0xFFECF4EE)
-    val muted = Color(0xFF8FA497)
-    val faint = Color(0xFF5F7367)
-    val hair = Color(0xFF28352B)
-    val danger = Color(0xFFFB6F63)
-    val dangerX = Color(0x26FB6F63)
-    val warn = Color(0xFFF0B54B)
-    val warnX = Color(0x26F0B54B)
-    val ok = Color(0xFF8AD457)
-    val okX = Color(0x298AD457)
-    val heroInk = Color(0xFF082611)
+    val brand = MeshaColors.Brand
+    val brand2 = MeshaColors.Brand2
+    val brandD = MeshaColors.BrandD
+    val pageBg = MeshaColors.PageBg
+    val surf = MeshaColors.Surf
+    val surf2 = MeshaColors.Surf2
+    val surf3 = MeshaColors.Surf3
+    val ink = MeshaColors.Ink
+    val muted = MeshaColors.Muted
+    val faint = MeshaColors.Faint
+    val hair = MeshaColors.Hair
+    val danger = MeshaColors.Danger
+    val dangerX = MeshaColors.DangerX
+    val warn = MeshaColors.Warn
+    val warnX = MeshaColors.WarnX
+    val ok = MeshaColors.Ok
+    val okX = MeshaColors.OkX
+    val heroInk = MeshaColors.OnBrand
 }
 
 /** Backend-provided severity tone; the app maps tone → colour, it does not judge. */
@@ -269,11 +270,7 @@ private fun CoverageHero(hero: CoverageHeroState, onEvent: (LeadershipEvent) -> 
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(Color(0xFF93DA5E), LeadTokens.brand2),
-                ),
-            )
+            .background(MeshaColors.BrandGradient)
             .padding(16.dp),
     ) {
         Text(
@@ -324,7 +321,7 @@ private fun HeroPill(
     Row(
         Modifier
             .clip(CircleShape)
-            .background(Color(0x33FFFFFF))
+            .background(MeshaColors.Overlay)
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .padding(horizontal = 11.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,

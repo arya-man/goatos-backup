@@ -49,6 +49,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 // ---------------------------------------------------------------------------
 // Scan (v-scan) — the field operator's tap-to-scan surface for one shed.
@@ -150,19 +151,19 @@ sealed interface ScanEvent {
 
 // --- mock-ported tokens (dark = default field theme; values from design-system.md) --
 private object ScanTokens {
-    val brand = Color(0xFF8AD457)
-    val brandD = Color(0xFFB7EA8C)
-    val danger = Color(0xFFFB6F63)
-    val muted = Color(0xFF8FA497)
-    val faint = Color(0xFF5F7367)
-    val ink = Color(0xFFECF4EE)
-    val hair = Color(0xFF28352B)
-    val surf = Color(0xFF131A15)
-    val surf3 = Color(0xFF222E25)
-    val okX = Color(0x298AD457)      // ~.16 alpha brand
-    val dangerX = Color(0x26FB6F63)  // ~.15 alpha danger
-    val brandSoft = Color(0x1F8AD457)
-    val onPrimary = Color(0xFF06210F)
+    val brand = MeshaColors.Brand
+    val brandD = MeshaColors.BrandD
+    val danger = MeshaColors.Danger
+    val muted = MeshaColors.Muted
+    val faint = MeshaColors.Faint
+    val ink = MeshaColors.Ink
+    val hair = MeshaColors.Hair
+    val surf = MeshaColors.Surf
+    val surf3 = MeshaColors.Surf3
+    val okX = MeshaColors.OkX        // ~.16 alpha brand
+    val dangerX = MeshaColors.DangerX  // ~.15 alpha danger
+    val brandSoft = MeshaColors.BrandTint
+    val onPrimary = MeshaColors.OnBrand
 }
 
 @Composable

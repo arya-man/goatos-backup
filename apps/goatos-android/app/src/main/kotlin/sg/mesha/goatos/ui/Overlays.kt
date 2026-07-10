@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,22 +54,22 @@ import androidx.compose.ui.unit.sp
 //   5. DosesGivenSheet   (ovl-given) — per-vaccine doses-given breakdown
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Dark-first palette from docs/mobile/design-system.md (the mock CSS vars). */
+/** Overlay palette — aliased to the design system (MeshaColors); no raw hex here. */
 private object OverlayTokens {
-    val brandD = Color(0xFFB7EA8C)
-    val sheetBg = Color(0xFF131A15)
-    val surf2 = Color(0xFF1A241D)
-    val surf3 = Color(0xFF222E25)
-    val ink = Color(0xFFECF4EE)
-    val muted = Color(0xFF8FA497)
-    val faint = Color(0xFF5F7367)
-    val hair = Color(0xFF28352B)
-    val danger = Color(0xFFFB6F63)
-    val dangerX = Color(0x26FB6F63)
-    val warn = Color(0xFFF0B54B)
-    val warnX = Color(0x26F0B54B)
-    val ok = Color(0xFF8AD457)
-    val okX = Color(0x298AD457)
+    val brandD = MeshaColors.BrandD
+    val sheetBg = MeshaColors.Surf
+    val surf2 = MeshaColors.Surf2
+    val surf3 = MeshaColors.Surf3
+    val ink = MeshaColors.Ink
+    val muted = MeshaColors.Muted
+    val faint = MeshaColors.Faint
+    val hair = MeshaColors.Hair
+    val danger = MeshaColors.Danger
+    val dangerX = MeshaColors.DangerX
+    val warn = MeshaColors.Warn
+    val warnX = MeshaColors.WarnX
+    val ok = MeshaColors.Ok
+    val okX = MeshaColors.OkX
 }
 
 // region ── shared sheet scaffold ──────────────────────────────────────────────

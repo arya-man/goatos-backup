@@ -29,6 +29,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 // ---------------------------------------------------------------------------
 // Shed / drive record sheet (screens.md: ovl-shedrec, ovl-driverec) — READ-ONLY.
@@ -41,20 +42,20 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 // ---------------------------------------------------------------------------
 
 private object RecordTokens {
-    val Bg = Color(0xFF0B100D)
-    val Surf = Color(0xFF131A15)
-    val Surf2 = Color(0xFF1A241D)
-    val Surf3 = Color(0xFF222E25)
-    val Hair = Color(0xFF28352B)
-    val Ink = Color(0xFFECF4EE)
-    val Muted = Color(0xFF8FA497)
-    val Faint = Color(0xFF5F7367)
-    val BrandD = Color(0xFFB7EA8C)
-    val Danger = Color(0xFFFB6F63)
-    val Warn = Color(0xFFF0B54B)
-    val OkX = Color(0xFF8AD457).copy(alpha = 0.16f)
-    val WarnX = Color(0xFFF0B54B).copy(alpha = 0.15f)
-    val DangerX = Color(0xFFFB6F63).copy(alpha = 0.15f)
+    val Bg = MeshaColors.Bg
+    val Surf = MeshaColors.Surf
+    val Surf2 = MeshaColors.Surf2
+    val Surf3 = MeshaColors.Surf3
+    val Hair = MeshaColors.Hair
+    val Ink = MeshaColors.Ink
+    val Muted = MeshaColors.Muted
+    val Faint = MeshaColors.Faint
+    val BrandD = MeshaColors.BrandD
+    val Danger = MeshaColors.Danger
+    val Warn = MeshaColors.Warn
+    val OkX = MeshaColors.OkX
+    val WarnX = MeshaColors.WarnX
+    val DangerX = MeshaColors.DangerX
 }
 
 /** Status tone for the header/footer pill and for tinted meta values. */

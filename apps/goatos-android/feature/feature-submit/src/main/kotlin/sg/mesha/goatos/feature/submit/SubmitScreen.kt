@@ -32,6 +32,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 // ---------------------------------------------------------------------------
 // Submit (v-submit) — ONE shed record covering every due vaccine in a shed.
@@ -90,22 +91,22 @@ sealed interface SubmitEvent {
 // palette used for the status banner / pills / bars until core-designsystem
 // surfaces them as GoatOsTokens.
 private object T {
-    val bg = Color(0xFF0B100D)
-    val surf = Color(0xFF131A15)
-    val surf2 = Color(0xFF1A241D)
-    val surf3 = Color(0xFF222E25)
-    val ink = Color(0xFFECF4EE)
-    val muted = Color(0xFF8FA497)
-    val faint = Color(0xFF5F7367)
-    val hair = Color(0xFF28352B)
-    val brand = Color(0xFF8AD457)
-    val brandD = Color(0xFFB7EA8C)
-    val danger = Color(0xFFFB6F63)
-    val dangerX = Color(0x26FB6F63) // rgba(251,111,99,.15)
-    val warn = Color(0xFFF0B54B)
-    val warnX = Color(0x26F0B54B) // rgba(240,181,75,.15)
-    val ok = Color(0xFF8AD457)
-    val okX = Color(0x298AD457) // rgba(138,212,87,.16)
+    val bg = MeshaColors.Bg
+    val surf = MeshaColors.Surf
+    val surf2 = MeshaColors.Surf2
+    val surf3 = MeshaColors.Surf3
+    val ink = MeshaColors.Ink
+    val muted = MeshaColors.Muted
+    val faint = MeshaColors.Faint
+    val hair = MeshaColors.Hair
+    val brand = MeshaColors.Brand
+    val brandD = MeshaColors.BrandD
+    val danger = MeshaColors.Danger
+    val dangerX = MeshaColors.DangerX // rgba(251,111,99,.15)
+    val warn = MeshaColors.Warn
+    val warnX = MeshaColors.WarnX // rgba(240,181,75,.15)
+    val ok = MeshaColors.Ok
+    val okX = MeshaColors.OkX // rgba(138,212,87,.16)
 }
 
 private data class BannerTone(val fg: Color, val bg: Color)
@@ -297,7 +298,7 @@ private fun SubmitFooter(state: SubmitUiState, onEvent: (SubmitEvent) -> Unit) {
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = T.brand,
-                contentColor = Color(0xFF06210F),
+                contentColor = MeshaColors.OnBrand,
                 disabledContainerColor = T.surf3,
                 disabledContentColor = T.faint,
             ),

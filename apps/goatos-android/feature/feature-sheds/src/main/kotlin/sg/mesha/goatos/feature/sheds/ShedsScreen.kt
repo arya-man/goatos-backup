@@ -43,6 +43,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 /**
  * Today's sheds / Drive status (`v-sheds`).
@@ -134,25 +135,25 @@ sealed interface ShedsEvent {
 // Tokens (ported from docs/mobile/design-system.md — dark is the default field theme)
 // ---------------------------------------------------------------------------
 
-private val PageBg = Color(0xFF0A0F0C)
-private val Surf = Color(0xFF131A15)
-private val Surf2 = Color(0xFF1A241D)
-private val Surf3 = Color(0xFF222E25)
-private val Hair = Color(0xFF28352B)
-private val Ink = Color(0xFFECF4EE)
-private val Muted = Color(0xFF8FA497)
-private val Faint = Color(0xFF5F7367)
-private val Brand = Color(0xFF8AD457)
-private val BrandD = Color(0xFFB7EA8C)
-private val Warn = Color(0xFFF0B54B)
-private val Danger = Color(0xFFFB6F63)
-private val OkBg = Color(0x298AD457)
-private val WarnBg = Color(0x26F0B54B)
-private val DangerBg = Color(0x26FB6F63)
-private val Info = Color(0xFF5B9BE8)
-private val InfoBg = Color(0x295B9BE8)
-private val BrandTint = Color(0x218AD457)
-private val ProgressFill = Brush.horizontalGradient(listOf(Color(0xFF93DA5E), Color(0xFF5FB531)))
+private val PageBg = MeshaColors.PageBg
+private val Surf = MeshaColors.Surf
+private val Surf2 = MeshaColors.Surf2
+private val Surf3 = MeshaColors.Surf3
+private val Hair = MeshaColors.Hair
+private val Ink = MeshaColors.Ink
+private val Muted = MeshaColors.Muted
+private val Faint = MeshaColors.Faint
+private val Brand = MeshaColors.Brand
+private val BrandD = MeshaColors.BrandD
+private val Warn = MeshaColors.Warn
+private val Danger = MeshaColors.Danger
+private val OkBg = MeshaColors.OkX
+private val WarnBg = MeshaColors.WarnX
+private val DangerBg = MeshaColors.DangerX
+private val Info = MeshaColors.Info
+private val InfoBg = MeshaColors.InfoX
+private val BrandTint = MeshaColors.BrandTint
+private val ProgressFill = MeshaColors.BrandGradientHorizontal
 
 private data class StatusTone(val fg: Color, val bg: Color, val edge: Color)
 

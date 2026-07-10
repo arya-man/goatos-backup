@@ -41,8 +41,14 @@ object MeshaColors {
     val TealX = Color(0x2957C9B0) // rgba(87,201,176,.16)
     val Purple = Color(0xFFA78BF5)
     val PurpleX = Color(0x26A78BF5) // rgba(167,139,245,.15)
+    val Info = Color(0xFF5B9BE8) // blue info accent (sheds status)
+    val InfoX = Color(0x295B9BE8)
+
+    // White overlay for pills on the bright brand hero (mock rgba(255,255,255,.2)).
+    val Overlay = Color(0x33FFFFFF)
 
     // Gradients (mock --grad 135deg, --grad-soft)
     val BrandGradient: Brush = Brush.linearGradient(listOf(Color(0xFF93DA5E), Color(0xFF5FB531)))
     val BrandGradientSoft: Brush = Brush.linearGradient(listOf(Color(0x2993DA5E), Color(0x0D5FB531)))
+    val BrandGradientHorizontal: Brush = Brush.horizontalGradient(listOf(Color(0xFF93DA5E), Color(0xFF5FB531)))
 }
