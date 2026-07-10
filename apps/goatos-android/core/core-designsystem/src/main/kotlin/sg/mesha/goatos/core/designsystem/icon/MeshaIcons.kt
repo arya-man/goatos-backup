@@ -95,6 +95,14 @@ object MeshaIcons {
         "M21 12a9 9 0 1 1 -18 0 9 9 0 0 1 18 0z",
         "M12 7.5V12l3.5 2.2",
     )
+    val Feed: ImageVector = strokeIcon(
+        "feed",
+        "M3.5 11h17a8.5 8.5 0 0 1 -17 0zM8 11c0-2 1-2.5 0-4.5M12 11c0-2 1-2.5 0-4.5M16 11c0-2 1-2.5 0-4.5",
+    )
+    val Goat: ImageVector = strokeIcon(
+        "goat",
+        "M5 8c-1-3 1-4 2-2M19 8c1-3-1-4-2-2M7 6c0 6 2 9 5 9s5-3 5-9M9 15v3M15 15v3M10 11h.01M14 11h.01",
+    )
 
     /** Maps a backend nav-item key to its mock icon. */
     fun forNavKey(key: String): ImageVector = when (key.lowercase()) {

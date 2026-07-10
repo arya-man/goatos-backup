@@ -116,9 +116,12 @@ class RoleChromeScreenshotTest {
                 items = leadershipNavItems(),
                 ownedModules = leadershipFourModules,
             ),
-            currentRoute = Routes.LEADERSHIP,
+            // Vaccination active so the golden shows the mock's active-module state (green rail +
+            // check) alongside the owned modules, Soon rows, Settings, and Sign-out.
+            currentRoute = Routes.VACCINATION,
             onNavigate = {},
             initialDrawerValue = DrawerValue.Open,
+            drawerProfile = DrawerProfile(name = "Arun Kumar", role = "Health Asst Mgr · CBE", initials = "AK"),
         ) {
             LeadershipScreen(state = sampleLeadershipState())
         }
