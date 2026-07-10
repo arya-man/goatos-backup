@@ -40,10 +40,15 @@ const (
 
 func positionSelectSQL(where string) string {
 	return `
-SELECT position_id::text, workforce_member_id::text, scope_type, scope_id::text, position_code,
-       position_tier, is_backup_slot, backup_group_code, week_off_weekday, status,
-       valid_from, valid_to, row_version, created_at, updated_at
-FROM workforce_positions
+SELECT p.position_id::text, p.workforce_member_id::text, p.scope_type, p.scope_id::text, p.position_code,
+       p.position_tier, p.is_backup_slot, p.backup_group_code, p.week_off_weekday, p.status,
+       p.valid_from, p.valid_to, p.row_version, p.created_at, p.updated_at,
+       COALESCE(wm.display_name, NULL) as person_display_name,
+       COALESCE(wm.hr_designation_grade, NULL) as hr_designation_grade,
+       COALESCE(l.name, NULL) as center_label
+FROM workforce_positions p
+LEFT JOIN workforce_members wm ON wm.workforce_member_id = p.workforce_member_id AND wm.tenant_id = p.tenant_id
+LEFT JOIN locations l ON l.location_id = p.scope_id AND p.scope_type = 'center'
 ` + where
 }
 
@@ -52,17 +57,21 @@ func scanPositions(rows pgx.Rows) ([]domain.Position, error) {
 	items := []domain.Position{}
 	for rows.Next() {
 		var item domain.Position
-		var backupGroup, weekOff pgtype.Text
+		var backupGroup, weekOff, personDisplayName, hrDesignationGrade, centerLabel pgtype.Text
 		var validFrom time.Time
 		var validTo pgtype.Timestamptz
 		var createdAt, updatedAt time.Time
 		if err := rows.Scan(&item.PositionID, &item.WorkforceMemberID, &item.ScopeType, &item.ScopeID, &item.PositionCode,
 			&item.PositionTier, &item.IsBackupSlot, &backupGroup, &weekOff, &item.Status,
-			&validFrom, &validTo, &item.RowVersion, &createdAt, &updatedAt); err != nil {
+			&validFrom, &validTo, &item.RowVersion, &createdAt, &updatedAt,
+			&personDisplayName, &hrDesignationGrade, &centerLabel); err != nil {
 			return nil, err
 		}
 		item.BackupGroupCode = textPtr(backupGroup)
 		item.WeekOffWeekday = textPtr(weekOff)
+		item.PersonDisplayName = textPtr(personDisplayName)
+		item.HrDesignationGrade = textPtr(hrDesignationGrade)
+		item.CenterLabel = textPtr(centerLabel)
 		item.ValidFrom = validFrom.UTC().Format(time.RFC3339)
 		item.ValidTo = timePtr(validTo)
 		item.CreatedAt = createdAt.UTC().Format(time.RFC3339)
@@ -116,7 +125,7 @@ func (r *Repository) CreatePosition(ctx context.Context, cmd ports.CreatePositio
 			return domain.Position{}, err
 		}
 		return r.queryOnePosition(contextWithoutCancel(ctx), `
-WHERE tenant_id = $1::uuid AND position_id = $2::uuid
+WHERE p.tenant_id = $1::uuid AND p.position_id = $2::uuid
 LIMIT 1`, cmd.TenantID, reservation.resultID)
 	}
 
@@ -159,7 +168,7 @@ RETURNING position_id::text`,
 		return domain.Position{}, err
 	}
 	return r.queryOnePosition(contextWithoutCancel(ctx), `
-WHERE tenant_id = $1::uuid AND position_id = $2::uuid
+WHERE p.tenant_id = $1::uuid AND p.position_id = $2::uuid
 LIMIT 1`, cmd.TenantID, positionID)
 }
 
@@ -167,13 +176,13 @@ func (r *Repository) ListPositions(ctx context.Context, params ports.ListPositio
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, positionSelectSQL(`
-WHERE tenant_id = $1::uuid
-  AND ($2 = '' OR workforce_member_id = $2::uuid)
-  AND ($3 = '' OR scope_type = $3)
-  AND ($4 = '' OR scope_id = $4::uuid)
-  AND ($5 = '' OR position_code = $5)
-  AND ($6 = '' OR status = $6)
-ORDER BY status, scope_type, scope_id, position_code
+WHERE p.tenant_id = $1::uuid
+  AND ($2 = '' OR p.workforce_member_id = $2::uuid)
+  AND ($3 = '' OR p.scope_type = $3)
+  AND ($4 = '' OR p.scope_id = $4::uuid)
+  AND ($5 = '' OR p.position_code = $5)
+  AND ($6 = '' OR p.status = $6)
+ORDER BY p.status, p.scope_type, p.scope_id, p.position_code
 LIMIT $7`), params.TenantID, params.WorkforceMemberID, params.ScopeType, params.ScopeID, params.PositionCode, params.Status, params.Limit)
 	if err != nil {
 		return nil, err
@@ -183,22 +192,22 @@ LIMIT $7`), params.TenantID, params.WorkforceMemberID, params.ScopeType, params.
 
 func (r *Repository) GetActivePositionByCode(ctx context.Context, tenantID, scopeType, scopeID, positionCode string, at time.Time) (domain.Position, error) {
 	return r.queryOnePosition(ctx, `
-WHERE tenant_id = $1::uuid AND scope_type = $2 AND scope_id = $3::uuid AND position_code = $4
-  AND status = 'active' AND valid_from <= $5::timestamptz AND (valid_to IS NULL OR valid_to > $5::timestamptz)
+WHERE p.tenant_id = $1::uuid AND p.scope_type = $2 AND p.scope_id = $3::uuid AND p.position_code = $4
+  AND p.status = 'active' AND p.valid_from <= $5::timestamptz AND (p.valid_to IS NULL OR p.valid_to > $5::timestamptz)
 LIMIT 1`, tenantID, scopeType, scopeID, positionCode, at)
 }
 
 func (r *Repository) GetActiveBackupSlot(ctx context.Context, tenantID, scopeType, scopeID, backupGroupCode string, at time.Time) (domain.Position, error) {
 	return r.queryOnePosition(ctx, `
-WHERE tenant_id = $1::uuid AND scope_type = $2 AND scope_id = $3::uuid AND backup_group_code = $4 AND is_backup_slot = true
-  AND status = 'active' AND valid_from <= $5::timestamptz AND (valid_to IS NULL OR valid_to > $5::timestamptz)
+WHERE p.tenant_id = $1::uuid AND p.scope_type = $2 AND p.scope_id = $3::uuid AND p.backup_group_code = $4 AND p.is_backup_slot = true
+  AND p.status = 'active' AND p.valid_from <= $5::timestamptz AND (p.valid_to IS NULL OR p.valid_to > $5::timestamptz)
 LIMIT 1`, tenantID, scopeType, scopeID, backupGroupCode, at)
 }
 
 func (r *Repository) GetActivePositionForMember(ctx context.Context, tenantID, workforceMemberID string) (domain.Position, error) {
 	return r.queryOnePosition(ctx, `
-WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND status = 'active'
-ORDER BY valid_from DESC
+WHERE p.tenant_id = $1::uuid AND p.workforce_member_id = $2::uuid AND p.status = 'active'
+ORDER BY p.valid_from DESC
 LIMIT 1`, tenantID, workforceMemberID)
 }
 
