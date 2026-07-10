@@ -12,6 +12,10 @@ interface HRMSPageProps {
 }
 
 export function HRMSPage({ tab, pageContract }: HRMSPageProps) {
+  // Render tabs from pageContract.tables, with fallback to defaults
+  const positionsLabel = pageContract?.tables?.find((t) => t.id === 'positions')?.label ?? 'Position & Coverage';
+  const timetableLabel = pageContract?.tables?.find((t) => t.id === 'timetable')?.label ?? 'Timetable';
+
   return (
     <section className="screen" data-screen="people">
       <div className="subtabs">
@@ -25,7 +29,7 @@ export function HRMSPage({ tab, pageContract }: HRMSPageProps) {
             window.history.pushState({}, '', url);
           }}
         >
-          Position &amp; Coverage
+          {positionsLabel}
         </button>
         <button
           data-screen="people"
@@ -37,7 +41,7 @@ export function HRMSPage({ tab, pageContract }: HRMSPageProps) {
             window.history.pushState({}, '', url);
           }}
         >
-          Timetable
+          {timetableLabel}
         </button>
       </div>
 

@@ -3,7 +3,7 @@
 import { getAdminApi } from '@/lib/api/client';
 import { useEffect, useState } from 'react';
 import type { AdminApiComponents } from '@goatos/api-client';
-import { type AdminUiPageContract } from '@/lib/admin-ui-contract';
+import { optionalCopy, type AdminUiPageContract } from '@/lib/admin-ui-contract';
 
 // Backend enriches positions with display fields from related tables
 type BasePosition = AdminApiComponents['schemas']['Position'];
@@ -30,6 +30,17 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
   const [activeCoverages, setActiveCoverages] = useState<Coverage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Contract-driven labels (from pageContract, fallback to defaults)
+  // Note: /people page contract copy/labels are being moved to backend; falling back to sensible defaults until complete
+  const positionsTableLabel = pageContract?.tables?.find((t) => t.id === 'positions')?.label ?? 'Position & Coverage';
+  const pageTitle = pageContract?.title ?? 'People / HRMS';
+  const pageSubtitle = pageContract?.subtitle ?? 'Staff positions, coverage, timetable';
+
+  const kpiPositionsFilled = optionalCopy(pageContract, 'kpi.positions_filled') ?? 'Positions filled';
+  const kpiOffToday = optionalCopy(pageContract, 'kpi.off_today') ?? 'Off today (leave + week-off)';
+  const kpiAutoCovered = optionalCopy(pageContract, 'kpi.auto_covered') ?? 'Auto-covered';
+  const kpiEscalated = optionalCopy(pageContract, 'kpi.escalated') ?? 'Escalated to Park Head';
 
   useEffect(() => {
     const loadData = async () => {
@@ -81,16 +92,21 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
     );
   }
 
+  // Helper to determine if coverage is escalated based on backend coverage fields
+  const isEscalatedCoverage = (coverage: Coverage): boolean => {
+    return !!(coverage.escalation_state || coverage.source === 'escalation');
+  };
+
   const positionsFilled = positions.filter(p => p.status === 'active').length;
   const autoCovered = activeCoverages.filter(c => c.source === 'leave' || c.source === 'week_off').length;
-  const escalated = activeCoverages.filter(c => c.source === 'escalation').length;
+  const escalated = activeCoverages.filter(isEscalatedCoverage).length;
 
   return (
     <div className="subpanel" data-sub="positions">
       <div className="phead">
         <div>
-          <div className="crumb">Team / <b>Position &amp; Coverage</b></div>
-          <h1>Position &amp; Coverage</h1>
+          <div className="crumb">Team / <b>{positionsTableLabel}</b></div>
+          <h1>{positionsTableLabel}</h1>
           <div className="sub">Each person holds a <b>fixed operational position</b> — never mutated by a leave. When someone is off (ad-hoc leave <b>or</b> their weekly OFF day), that position's <b>configured backup</b> covers only their due work for that window; ownership never changes. Functional managers never cross-cover.</div>
         </div>
         <div className="sp"></div>
@@ -105,25 +121,25 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
       <div className="grid g4" style={{ marginBottom: '16px' }}>
         <div className="kpi">
           <span className="acc" style={{ background: 'var(--brand)' }}></span>
-          <div className="lab"><svg className="ic"><use href="#i-people"/></svg>Positions filled</div>
+          <div className="lab"><svg className="ic"><use href="#i-people"/></svg>{kpiPositionsFilled}</div>
           <div className="val">{positionsFilled}</div>
           <div className="dl">{positions.length} total rows</div>
         </div>
         <div className="kpi">
           <span className="acc" style={{ background: 'var(--amber)' }}></span>
-          <div className="lab">Off today (leave + week-off)</div>
+          <div className="lab">{kpiOffToday}</div>
           <div className="val">{autoCovered + escalated}</div>
           <div className="dl"><span className="muted">all resolved below</span></div>
         </div>
         <div className="kpi">
           <span className="acc" style={{ background: 'var(--brand)' }}></span>
-          <div className="lab">Auto-covered</div>
+          <div className="lab">{kpiAutoCovered}</div>
           <div className="val">{autoCovered}</div>
           <div className="dl up">backup routed</div>
         </div>
         <div className="kpi">
           <span className="acc" style={{ background: 'var(--danger)' }}></span>
-          <div className="lab">Escalated to Park Head</div>
+          <div className="lab">{kpiEscalated}</div>
           <div className="val">{escalated}</div>
           <div className="dl down">no backup configured</div>
         </div>
@@ -245,7 +261,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
               </div>
             ) : (
               activeCoverages.map((coverage) => {
-                const isEscalated = coverage.source === 'escalation';
+                const isEscalated = isEscalatedCoverage(coverage);
                 return (
                   <div key={coverage.position_id} className="fitem">
                     <span

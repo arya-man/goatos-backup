@@ -274,6 +274,14 @@ Explicit exceptions:
   but are not yet in the AdminWebPageContract. These will be added to the backend
   contract in a follow-up when the contract is extended for the new accordion
   structure.
+- `features/people/hrms-page.tsx` and `features/people/positions-panel.tsx`: /people page contract
+  is being extended. Page title, subtitle, and tab labels are now rendered from `pageContract.title`,
+  `pageContract.subtitle`, and `pageContract.tables[].label`. KPI labels (`positions_filled`,
+  `off_today`, `auto_covered`, `escalated`) are rendered via `optionalCopy(pageContract, ...)` with
+  sensible fallbacks. Table column headers, section descriptions, action button labels, and notes
+  remain as fallback text until the backend contract is extended with full copy keys. Escalation
+  counting fix (P2b): now uses backend `escalation_state` or `status` field instead of
+  `source === 'escalation'` alone.
 
 ## Page-Body Contract Snapshot for E2E
 
@@ -296,6 +304,7 @@ page contracts evolve. E2E should assert the title/columns/chips come from
 | `/counts/herd` | Herd Register summary cards, filter modal, herd table, selected Goat Passport drawer. | Contract route `herd-register` owns title/subtitle, summary/table/filter labels, import/register copy, and passport drawer labels. |
 | `/operations/audit` | Audit summary, role/status chips, activity trail, advanced filters, business drawer. | Contract route `audit-log` owns role-lens chips, filter labels, page-size/cursor text, columns, drawer labels, and raw metadata placement. |
 | `/config` | Protocol Rules, search/page-size controls, draft/publish modal, process map. | Contract route `config` owns rule columns, status chips, editor vocabularies, publish gates, preview copy, and linked-SOP labels. |
+| `/people` | People / HRMS staff positions, coverage, timetable tabs; position/coverage table; backup config; active coverage feed. | Contract route `people` owns page title/subtitle, tab labels (from tables), KPI labels (title pending full extension), table columns, empty states, and action labels. |
 | `/sops` | SOP Library search/domain chips, empty state, cards, new SOP form-builder modal. | Contract route `sops` owns domain/trigger/status/proof/subject/action option labels, seed steps, validation copy, and disabled reasons. |
 | `/goats/{goat_id}` | Goat Passport summary, warnings, identifiers, evidence, timeline, vaccination passport. | Contract route `goat-passport` owns section labels, identifier/evidence options, timeline labels, vaccination history labels, and action availability. |
 
