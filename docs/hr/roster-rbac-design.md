@@ -20,30 +20,29 @@ example uses a role/position label. Where the source sheets show a person
 assigned to a role, this document describes only the shape of that assignment,
 never the person.
 
-## Pending maintainer confirmation (flagged before any implementation)
+## Confirmed decisions (maintainer, 2026-07-10)
 
-The maintainer is actively confirming two shape questions on the real
-Staff-Timetable data as of this writing. **Everything below is modeled
-generically so either answer fits without a redesign** — nothing here hardcodes
-a single answer:
+Two shape questions this document originally flagged as pending are now
+**confirmed, not open**. Both were modeled generically from the start
+specifically so no redesign is needed once decided — the schema/rule engine in
+§4 already expresses exactly this:
 
-1. **Two-tier backup.** The real timetable shows manager-tier positions
-   (Preventive Care Manager, Breeding Manager, Feeding Manager, Health/Kidding
-   Manager, Goats Head) falling back to one shared **Backup Manager** position
-   per center, while assistant/operator-tier positions (Feeding AM1/2/3,
-   Cleaning AM1/2, Milk AM1/2, Breeding AM, Health/Kidding AM1/2, Packaging
-   AM1/2, Trainer AMs) fall back to their **own** fixed Backup AM1/Backup AM2
-   positions — not the Backup Manager. §4.3 below models this as a generic
-   "backup group" so it can express either one shared backup per tier, or
-   several parallel backup slots within a tier (as CBE's/CPT's real AM1/AM2
-   split shows), without ever hardcoding "exactly one Backup Manager."
-2. **Week-OFF-triggered coverage scope.** The timetable's per-position "Week
-   OFFs" column is a **recurring weekday**, not a leave date range — coverage
-   must also trigger every time that weekday recurs, not only on ad-hoc leave.
-   §4.5 models this as a derived (read-time) rule alongside the ad-hoc
-   `workforce_absences` path, rather than writing a reassignment row every
-   week, but the exact precedence/interaction between a recurring week-off and
-   an overlapping ad-hoc leave is still open.
+1. **Backup is genuinely two-tier, and the coverage engine is generic across
+   both.** Manager-tier positions (Preventive Care Manager, Breeding Manager,
+   Feeding Manager, Health/Kidding Manager, Goats Head) fall back to a single
+   shared **Backup Manager** position per center. Operator/assistant-tier
+   positions (Feeding AM1/2/3, Cleaning AM1/2, Milk AM1/2, Breeding AM,
+   Health/Kidding AM1/2, Packaging AM1/2, Trainer AMs) fall back to their
+   **own** fixed Backup AM1/Backup AM2 positions — never the Backup Manager.
+   §4.3's `backup_group_code` resolution is the confirmed model: the coverage
+   engine resolves **the configured backup for any covered position** via one
+   generic lookup, not a hardcoded "exactly one Backup Manager" special case —
+   which is exactly why it needs no change now that this is decided.
+2. **Coverage fires on both ad-hoc leave and the recurring per-position
+   Week-OFF day.** Both are confirmed, real triggers, not just the ad-hoc one.
+   §4.5 models both: the recurring `week_off_weekday` (derived, read-time, no
+   row written) and the ad-hoc `workforce_absences` path (a written
+   reassignment record) both resolve to the same `effective_backup` lookup.
 
 ## 0. Maintainer corrections folded into this design (2026-07-10)
 
@@ -138,7 +137,7 @@ proposal in §4 is deliberately small because it reuses the following
 | Staff roster identity | `workforce_members` (migration `000050`) | `display_code`, `display_name`, `status`, `primary_role_hint` (coarse: operator/park_head/verifier/supervisor/admin/other — an app-permission hint, NOT the same as HR Designation grade or Operational Position), `primary_location_id`, `department_id`. This is the person row every table below hangs off. |
 | Skills / capabilities, scope + time-bounded | `workforce_capabilities`, `workforce_member_capabilities` (migration `000050`) | Already scope-bounded (`scope_type`/`scope_id`) and time-bounded (`valid_from`/`valid_to`, one active row per member+capability+scope via a partial unique index). This is the exact shape a **temporary execution grant** needs — see §4.6, which reuses this table rather than inventing a new one. |
 | Shift roster | `workforce_roster_assignments` (migration `000050`) | Per-member, per-scope, per-shift-date rows with `shift_start_at`/`shift_end_at`, `task_type`, `status`, and an `escalation_owner_user_id` — this is where the Park-Head escalation target for a shift already lives structurally. |
-| Absence + replacement pointer | `workforce_absences` (migration `000050`) | Already has `workforce_member_id`, `scope_type`/`scope_id`, `starts_at`/`ends_at`, `reason_code`, `status` (`reported`/`approved`/`rejected`/`canceled`), and — critically — **`replacement_member_id`**, a nullable FK to `workforce_members`. This is the real, already-built "who covers this absence" pointer for **ad-hoc** leave. The gap this document closes is *which value is allowed to go in `replacement_member_id`* (§4.5), plus the **recurring** week-off coverage case this table does not model at all (it is a date-range table, not a weekly-recurrence one) — see the Pending Confirmation section above.
+| Absence + replacement pointer | `workforce_absences` (migration `000050`) | Already has `workforce_member_id`, `scope_type`/`scope_id`, `starts_at`/`ends_at`, `reason_code`, `status` (`reported`/`approved`/`rejected`/`canceled`), and — critically — **`replacement_member_id`**, a nullable FK to `workforce_members`. This is the real, already-built "who covers this absence" pointer for **ad-hoc** leave. The gap this document closes is *which value is allowed to go in `replacement_member_id`* (§4.5), plus the **recurring** week-off coverage case this table does not model at all (it is a date-range table, not a weekly-recurrence one) — see the Confirmed Decisions section above.
 
 **Consequence for this design:** the only genuinely new concepts below are (1)
 the **fixed Operational Position** (axis b) as its own standing-title concept,
@@ -311,8 +310,8 @@ workforce_positions (PROPOSED)
 This single partial-unique index is what makes "exactly one holder of a given
 Position per center at a time" structural, not a convention someone can
 violate by accident. It does **not** by itself force "exactly one Backup
-Manager" — that emerges from `backup_group_code` resolution below, which is
-deliberately generalized per the Pending Confirmation note.
+Manager" — that emerges from the confirmed `backup_group_code` resolution
+below, which is deliberately generalized (Confirmed Decisions, item 1, above).
 
 ### 4.3 Two-tier, group-based backup resolution (generalized, not hardcoded)
 
@@ -329,20 +328,20 @@ effective_backup(covered_position) =
 ```
 
 This is why no tier is hardcoded to "exactly one backup": the **manager**
-tier happens to have one group (`manager_backup` → the single Backup
-Manager), while the **assistant** tier splits into two parallel groups
-(`am1_backup` → Backup AM1, covering Feeding AM1/2/3 + Cleaning AM1/2 + Milk
-AM1; `am2_backup` → Backup AM2, covering Breeding AM + Health/Kidding AM1/2 +
-Packaging AM1), matching the real CBE/CPT timetable exactly (§2). If the
-maintainer's confirmation changes the grouping (e.g. per-department manager
-backups instead of one shared one), only the `backup_group_code` values
-seeded per position change — the resolution rule and the schema do not.
+tier has one confirmed group (`manager_backup` → the single Backup Manager
+per center), while the **assistant** tier is confirmed to split into two
+parallel groups (`am1_backup` → Backup AM1, covering Feeding AM1/2/3 +
+Cleaning AM1/2 + Milk AM1; `am2_backup` → Backup AM2, covering Breeding AM +
+Health/Kidding AM1/2 + Packaging AM1), matching the real CBE/CPT timetable
+exactly (§2). This two-tier shape is now a **confirmed requirement**, not a
+hypothetical — the coverage engine must resolve the configured backup for any
+covered position generically, exactly as `backup_group_code` resolution does;
+it must never assume every covered position shares one backup slot.
 
-A scope may have **no** active row for a given `backup_group_code` (the
-Pending Confirmation note above: CPT's Backup Manager slot is configured
-today, CBE's observed value was empty). `effective_backup` then returns
-nothing, and §4.6's escalation rule applies — it never falls back to picking
-an unrelated position.
+A scope may have **no** active row for a given `backup_group_code` (per §2:
+CPT's Backup Manager slot is configured today, CBE's observed value was
+empty). `effective_backup` then returns nothing, and §4.6's escalation rule
+applies — it never falls back to picking an unrelated position.
 
 ### 4.4 HR Designation grade is informational, not an access lever
 
@@ -356,9 +355,8 @@ corrected — grade, position, and department stay three independent reads.
 
 ### 4.5 Coverage triggers: recurring week-off AND ad-hoc leave
 
-Two distinct triggers feed the same `effective_backup` resolution (§4.3); both
-are in scope per the maintainer's brief, and the pending-confirmation note
-above flags that their precedence when they overlap is not yet decided:
+Two distinct triggers feed the same `effective_backup` resolution (§4.3), and
+**both are confirmed, not optional** — coverage must fire on either one:
 
 - **Recurring week-off (derived, no row written).** Every position carries a
   `week_off_weekday` (§4.2), sourced directly from the timetable's "Week OFFs"
@@ -513,17 +511,17 @@ columns are the direct evidence for `workforce_positions`' shape.
 
 ## 7. Open questions (flagged, not decided here)
 
-1. **(Pending maintainer confirmation, see the callout at the top.) Two-tier
-   backup grouping and week-off coverage precedence.** The maintainer is
-   confirming: (a) whether the manager tier truly has exactly one backup group
-   per center (as CBE/CPT's real data currently shows) or could ever need more
-   than one, and (b) how a recurring week-off should interact with an
-   overlapping ad-hoc leave for the same holder (does the week-off day simply
-   fall inside the leave window with no special handling, or does something
-   different need to happen at the boundary days?). §4.3/§4.5 are written to
-   accommodate either answer without a schema change, but the exact seeded
-   `backup_group_code` values and the week-off/leave precedence rule are not
-   finalized.
+The two-tier backup grouping and the ad-hoc-leave + recurring-week-off dual
+trigger are **confirmed** (see "Confirmed decisions" near the top) and are no
+longer open. The following remain open:
+
+1. **Same-day overlap between a recurring week-off and an approved ad-hoc
+   leave for the same holder.** Both confirmed triggers resolve to the exact
+   same action (route to `effective_backup`), so an overlap is not a conflict
+   in practice — but confirm whether the system should still write/notify
+   once or twice for that one day (a minor implementation nicety, not a
+   modeling gap: §4.5's two triggers already produce the same outcome either
+   way).
 2. **`workforce_positions.scope_type` set and whether Bangalore HQ needs a new
    location row.** CBE/CPT already exist as `park`-type `locations` rows;
    Bangalore HQ (housing CXOs/Directors) may not have an equivalent
