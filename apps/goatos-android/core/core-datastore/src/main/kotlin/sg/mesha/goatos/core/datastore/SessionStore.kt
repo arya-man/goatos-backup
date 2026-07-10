@@ -11,10 +11,13 @@ import kotlinx.coroutines.flow.map
 private val Context.sessionDataStore by preferencesDataStore(name = "goatos_session")
 
 /**
- * Session/auth state (bearer token, language). The token feeds the network
- * BearerAuthInterceptor per request, so a refresh is picked up without rebuilding
- * the client. TRD: keep the token in secure storage (EncryptedSharedPreferences) —
- * tracked as a hardening follow-up over this DataStore baseline.
+ * Session/auth state (session token, language). Two things live under the same key by flavor:
+ *  - dev flavor stores the local HS256 dev bearer, which the network interceptor reads and sends
+ *    (that token is already baked into the APK, so DataStore adds no exposure);
+ *  - stg/prod store only a non-sensitive presence marker (see `FIREBASE_SESSION_MARKER`) — the
+ *    live Firebase ID token is re-fetched per request and is NEVER written to disk.
+ * So no unencrypted credential is persisted at rest, and a non-blank value simply means "signed
+ * in" for the session gate.
  */
 interface SessionStore {
     val bearerToken: Flow<String?>

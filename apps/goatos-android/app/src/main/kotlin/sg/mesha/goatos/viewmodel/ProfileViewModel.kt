@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.auth.AuthRepository
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
@@ -28,6 +29,7 @@ import javax.inject.Inject
 class ProfileViewModel @Inject constructor(
     private val bootstrap: BootstrapRepository,
     private val sessionStore: SessionStore,
+    private val authRepository: AuthRepository,
     private val reader: RfidReaderPort,
 ) : ViewModel() {
 
@@ -62,9 +64,17 @@ class ProfileViewModel @Inject constructor(
         )
     }
 
-    /** Clears the session token — the login gate in MainActivity reacts to this. */
+    /**
+     * Ends the session from the authenticated shell. Signs out of Firebase FIRST so no Firebase
+     * `currentUser` (and no mintable ID token) survives a "signed out" state, then clears the
+     * session marker so the MainActivity login gate flips. Mirrors SessionViewModel.signOut;
+     * `authRepository.signOut()` is a harmless no-op on the dev/bearer flavor.
+     */
     fun signOut() {
-        viewModelScope.launch { sessionStore.setBearerToken(null) }
+        viewModelScope.launch {
+            authRepository.signOut()
+            sessionStore.setBearerToken(null)
+        }
     }
 
     /**

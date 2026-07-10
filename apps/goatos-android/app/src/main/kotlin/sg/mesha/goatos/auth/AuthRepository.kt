@@ -14,13 +14,6 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
- * Google's web OAuth server client id for the goatos-stg Firebase project. It is public
- * OAuth client metadata, not a secret.
- */
-private const val GOOGLE_WEB_CLIENT_ID =
-    "514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com"
-
-/**
  * Wraps Firebase Auth for stg/prod. The dev flavor keeps the local HS256 bearer path in
  * [sg.mesha.goatos.boot.SessionViewModel] because the local backend does not validate
  * Firebase ID tokens.
@@ -51,10 +44,11 @@ class FirebaseAuthRepository @Inject constructor() : AuthRepository {
         }
 
     override suspend fun signInWithGoogle(activityContext: Context): Result<Unit> = runCatching {
+        val webClientId = googleWebClientId(activityContext)
         val credentialManager = CredentialManager.create(activityContext)
         val googleIdOption = GetGoogleIdOption.Builder()
             .setFilterByAuthorizedAccounts(false)
-            .setServerClientId(GOOGLE_WEB_CLIENT_ID)
+            .setServerClientId(webClientId)
             .build()
         val request = GetCredentialRequest.Builder()
             .addCredentialOption(googleIdOption)
@@ -88,6 +82,26 @@ class FirebaseAuthRepository @Inject constructor() : AuthRepository {
 
     override fun signOut() {
         runCatching { firebaseAuth.signOut() }
+    }
+
+    /**
+     * The Google OAuth web client id for THIS flavor's Firebase project, read from the flavor's
+     * generated-equivalent `default_web_client_id` string resource (src/<flavor>/res/values/
+     * firebase.xml). Resolved by name — the same mechanism `FirebaseApp` uses to read
+     * `google_app_id` — so a flavor that ships no Firebase config (e.g. prod until its own
+     * project is wired) resolves nothing and this fails closed, instead of silently
+     * authenticating against another environment's Firebase project.
+     */
+    private fun googleWebClientId(context: Context): String {
+        val resources = context.resources
+        val resId = resources.getIdentifier("default_web_client_id", "string", context.packageName)
+        check(resId != 0) {
+            "Google sign-in is unavailable: this build flavor ships no Firebase config " +
+                "(default_web_client_id missing). Wire this environment's Firebase project first."
+        }
+        return resources.getString(resId).also {
+            check(it.isNotBlank()) { "default_web_client_id is blank for this build flavor." }
+        }
     }
 }
 

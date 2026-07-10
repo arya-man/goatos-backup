@@ -26,6 +26,17 @@ import javax.inject.Inject
 /** Which credential path [SessionViewModel] routes sign-in through for the running flavor. */
 internal enum class AuthMode { DEV_BEARER, FIREBASE }
 
+/**
+ * Firebase-mode session marker. In stg/prod the network layer authorizes every request with a
+ * freshly-minted Firebase ID token ([sg.mesha.goatos.auth.currentFirebaseIdTokenBlocking], wired
+ * in `AppModule`), so the persisted session value only has to signal "a user is signed in" for
+ * [SessionViewModel.isAuthed]. Storing the short-lived ID token in plaintext DataStore would put a
+ * live bearer on disk for no benefit — TRD requires no unencrypted credential at rest — so a
+ * non-sensitive sentinel is persisted instead. (The dev flavor still persists its local HS256 dev
+ * bearer, which the interceptor reads there and which is already baked into the APK.)
+ */
+internal const val FIREBASE_SESSION_MARKER = "firebase-session"
+
 /** Pure: [BuildConfig.FLAVOR] carries no other meaning here, keeping this testable. */
 internal fun authModeForFlavor(flavor: String): AuthMode =
     if (flavor == "dev") AuthMode.DEV_BEARER else AuthMode.FIREBASE
@@ -111,7 +122,12 @@ class SessionViewModel @Inject constructor(
         }
     }
 
-    /** Seeds the session bearer from the just-established Firebase user's ID token. */
+    /**
+     * Confirms the just-established Firebase user actually has an ID token (honest failure if
+     * not), then opens the session. Only a non-sensitive presence marker is persisted — never
+     * the ID token itself; the network layer re-fetches a live token per request. See
+     * [FIREBASE_SESSION_MARKER].
+     */
     private suspend fun persistFirebaseSession() {
         val token = authRepository.currentIdToken()
         if (token.isNullOrBlank()) {
@@ -124,7 +140,7 @@ class SessionViewModel @Inject constructor(
             }
             return
         }
-        sessionStore.setBearerToken(token)
+        sessionStore.setBearerToken(FIREBASE_SESSION_MARKER)
         _uiState.update { it.copy(isLoading = false, errorReason = null, errorDetail = null) }
     }
 
