@@ -143,6 +143,7 @@ func navigation() domain.NavigationContract {
 					navLeafDomain("config", "Config", "/config", "admin.config", map[string]string{"category": "vaccination"}),
 					navLeafDomain("audit-log", "Audit Log", "/operations/audit", "admin.audit", nil),
 					navLeafDomain("dlq-center", "DLQ Center", "/operations/dlq", "admin.audit", nil),
+					navLeafDomain("people", "People / HRMS", "/people", "admin.people", nil),
 					navLeafDomain("sop-library", "SOP Library", "/sops", "admin.sop", nil),
 				},
 			},
@@ -167,6 +168,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/operations/audit", Label: "Audit Log", Match: "exact"},
 		{Pattern: "/operations/dlq", Label: "DLQ Center", Match: "exact"},
 		{Pattern: "/config", Label: "Config — Protocol Rules", Match: "exact"},
+		{Pattern: "/people", Label: "People / HRMS", Match: "exact"},
 		{Pattern: "/sops", Label: "SOP Library", Match: "exact"},
 		{Pattern: "/goats/{goat_id}", Label: "Goat Passport", Match: "pattern"},
 	}
@@ -283,6 +285,11 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				table("protocol-rules", "Protocol rules", "/protocols", []string{"category", "version", "scope", "status", "effective", "linked_sop", "last_publisher", "actions"}, "protocol_id"),
 				table("feed-config-evidence", "Feed Direction parameter evidence", "/protocols?category=feed_direction", []string{"source_table", "parameter_family", "validation_gate", "calculation_output"}, "feed_config_row"),
+			}),
+		page("people", "/people", "/people", "People / HRMS", "Staff positions, coverage, timetable", "authority-screen",
+			[]domain.TableContract{
+				table("positions", "Position & Coverage", "/admin/roster/positions", []string{"position_title", "person_display_name", "hr_designation_grade", "center_label", "tier", "week_off", "backup_group", "status", "actions"}, "position_id"),
+				table("timetable", "Timetable", "/admin/roster/positions", []string{"position_title", "person_display_name", "hr_designation_grade", "center_label", "tier", "week_off", "backup_group", "status", "actions"}, "position_id"),
 			}),
 		page("sops", "/sops", "/sops", "SOP Library", "Vaccination SOP policy and form-builder surface.", "authority-screen",
 			[]domain.TableContract{table("sop-library", "SOP Library", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
@@ -1904,6 +1911,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.label.rule_plural":                       "rules",
 			"modal.rule_editor.label.tenant":                            "tenant",
 			"modal.rule_editor.label.park_scope_prefix":                 "park:",
+		}
+	case "people":
+		return map[string]string{
+			"crumb":                    "Admin / Data Ops",
+			"filter.search_label":      "Search staff",
+			"filter.search_placeholder": "Search position, person, grade, center...",
 		}
 	case "sops":
 		return map[string]string{

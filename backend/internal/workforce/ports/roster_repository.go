@@ -73,6 +73,21 @@ type ListLeaveParams struct {
 	Limit             int
 }
 
+type ListBackupConfigParams struct {
+	TenantID  string
+	ScopeType string
+	ScopeID   string
+	Limit     int
+}
+
+type ListCoverageParams struct {
+	TenantID  string
+	ScopeType string
+	ScopeID   string
+	Active    bool // true = only approved, false = all statuses
+	Limit     int
+}
+
 // RosterRepository is the HR roster read/write surface: the fixed position
 // seat catalog (workforce_positions) and leave/absence (workforce_absences
 // reuse). Kept separate from Repository (operator/device/grant CRUD) for file
@@ -116,6 +131,19 @@ type RosterRepository interface {
 	// resolved) whose [starts_at, ends_at) window contains `at`, and that
 	// row's id.
 	IsMemberOnApprovedLeave(ctx context.Context, tenantID, workforceMemberID string, at time.Time) (bool, string, error)
+
+	// ListBackupConfig returns all backup slot configurations for a scope,
+	// joined with their configured holder names.
+	ListBackupConfig(ctx context.Context, params ListBackupConfigParams) ([]domain.BackupConfig, error)
+
+	// ListCoverage returns active or historical coverage (leave, week-off, escalation).
+	ListCoverage(ctx context.Context, params ListCoverageParams) ([]domain.Coverage, error)
+
+	// GetCenterTimetable returns all active positions for a center with enriched fields.
+	GetCenterTimetable(ctx context.Context, tenantID, centerID string, limit int) ([]domain.Position, error)
+
+	// GetOperatorCoverage returns the current coverage (leave/week-off) for an operator, if any.
+	GetOperatorCoverage(ctx context.Context, tenantID, workforceMemberID string, at time.Time) (*domain.Coverage, error)
 }
 
 // CapabilityGranter is the slice of the existing ports.Repository the roster

@@ -2665,6 +2665,112 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /admin/roster/backup-config:
+    get:
+      tags:
+        - HR Roster
+      operationId: listBackupConfig
+      summary: List backup group configurations by center.
+      parameters:
+        - name: scope_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - tenant
+              - center
+        - name: scope_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: List of backup configurations.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BackupConfig"
+                  trace_id:
+                    type: string
+                    format: uuid
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/roster/coverage:
+    get:
+      tags:
+        - HR Roster
+      operationId: listCoverage
+      summary: List active or historical coverage (leave, week-off, escalation).
+      parameters:
+        - name: scope_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - tenant
+              - center
+        - name: scope_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: active
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: List of coverage records.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Coverage"
+                  trace_id:
+                    type: string
+                    format: uuid
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 components:
   securitySchemes:
     bearerAuth:
@@ -8858,3 +8964,85 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+    BackupConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - center_id
+        - backup_group_code
+        - backup_position_code
+        - status
+      properties:
+        center_id:
+          type: string
+          format: uuid
+        center_label:
+          type:
+            - string
+            - "null"
+        backup_group_code:
+          type: string
+        backup_position_code:
+          type: string
+        backup_position_title:
+          type:
+            - string
+            - "null"
+        configured_holder_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        configured_holder_name:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+    Coverage:
+      type: object
+      additionalProperties: false
+      required:
+        - position_id
+        - covered_position_code
+        - start_date
+        - end_date
+        - source
+        - status
+      properties:
+        position_id:
+          type: string
+          format: uuid
+        covered_position_code:
+          type: string
+        covered_position_title:
+          type:
+            - string
+            - "null"
+        covering_member_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        covering_member_name:
+          type:
+            - string
+            - "null"
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+        source:
+          type: string
+          enum:
+            - leave
+            - week_off
+            - escalation
+        escalation_state:
+          type:
+            - string
+            - "null"
+        status:
+          type: string

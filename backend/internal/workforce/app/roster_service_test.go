@@ -262,6 +262,22 @@ func (f *fakeRosterRepo) IsMemberOnApprovedLeave(_ context.Context, _ string, wo
 	return false, "", nil
 }
 
+func (f *fakeRosterRepo) ListBackupConfig(_ context.Context, params ports.ListBackupConfigParams) ([]domain.BackupConfig, error) {
+	return []domain.BackupConfig{}, nil
+}
+
+func (f *fakeRosterRepo) ListCoverage(_ context.Context, params ports.ListCoverageParams) ([]domain.Coverage, error) {
+	return []domain.Coverage{}, nil
+}
+
+func (f *fakeRosterRepo) GetCenterTimetable(_ context.Context, tenantID, centerID string, limit int) ([]domain.Position, error) {
+	return []domain.Position{}, nil
+}
+
+func (f *fakeRosterRepo) GetOperatorCoverage(_ context.Context, tenantID, workforceMemberID string, at time.Time) (*domain.Coverage, error) {
+	return nil, nil
+}
+
 // fakeCapabilityGranter is an in-memory fake of ports.CapabilityGranter
 // (workforce_member_capabilities reuse, design doc S4.6).
 type fakeCapabilityGranter struct {

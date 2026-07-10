@@ -2030,6 +2030,69 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/roster/timetable:
+    get:
+      tags:
+        - Operator Roster
+      operationId: getOperatorTimetable
+      summary: Get the operator's center timetable with enriched position and coverage data.
+      parameters:
+        - name: center_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Operator timetable.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EnrichedPosition"
+                  trace_id:
+                    type: string
+                    format: uuid
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/roster/my-coverage:
+    get:
+      tags:
+        - Operator Roster
+      operationId: getMyCoverage
+      summary: Get the authenticated operator's current coverage status.
+      responses:
+        "200":
+          description: Operator's current coverage.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyCoverageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -7188,3 +7251,123 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VaccinationPassportHistoryItem"
+    EnrichedPosition:
+      type: object
+      additionalProperties: false
+      required:
+        - position_id
+        - position_code
+        - position_tier
+        - scope_type
+        - scope_id
+        - status
+      properties:
+        position_id:
+          type: string
+          format: uuid
+        workforce_member_id:
+          type: string
+          format: uuid
+        position_code:
+          type: string
+        position_title:
+          type:
+            - string
+            - "null"
+        position_tier:
+          type: string
+        scope_type:
+          type: string
+          enum:
+            - tenant
+            - center
+        scope_id:
+          type: string
+          format: uuid
+        center_label:
+          type:
+            - string
+            - "null"
+        person_display_name:
+          type:
+            - string
+            - "null"
+        hr_designation_grade:
+          type:
+            - string
+            - "null"
+        tier:
+          type:
+            - string
+            - "null"
+        week_off:
+          type:
+            - string
+            - "null"
+        backup_group:
+          type:
+            - string
+            - "null"
+        is_backup_slot:
+          type: boolean
+        status:
+          type: string
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date-time
+    MyCoverage:
+      type: object
+      additionalProperties: false
+      required:
+        - has_coverage
+        - timezone
+      properties:
+        has_coverage:
+          type: boolean
+        position_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        covering_person_name:
+          type:
+            - string
+            - "null"
+        covering_position_title:
+          type:
+            - string
+            - "null"
+        window_start:
+          type:
+            - string
+            - "null"
+          format: date-time
+        window_end:
+          type:
+            - string
+            - "null"
+          format: date-time
+        banner_text:
+          type:
+            - string
+            - "null"
+        timezone:
+          type: string
+    MyCoverageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - coverage
+        - trace_id
+      properties:
+        coverage:
+          $ref: "#/components/schemas/MyCoverage"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200

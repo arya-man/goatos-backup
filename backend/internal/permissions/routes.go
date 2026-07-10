@@ -165,6 +165,10 @@ var protectedRoutes = []Route{
 	{OperationID: "getStaffLeave", Method: "GET", Pattern: "/admin/roster/leave/{absence_id}", Permissions: []string{RosterRead}},
 	{OperationID: "listStaffLeave", Method: "GET", Pattern: "/admin/roster/leave", Permissions: []string{RosterRead}},
 	{OperationID: "resolveVaccinationOwner", Method: "GET", Pattern: "/admin/roster/vaccination-owner", Permissions: []string{RosterRead}},
+	{OperationID: "listBackupConfig", Method: "GET", Pattern: "/admin/roster/backup-config", Permissions: []string{RosterRead}},
+	{OperationID: "listCoverage", Method: "GET", Pattern: "/admin/roster/coverage", Permissions: []string{RosterRead}},
+	{OperationID: "getOperatorTimetable", Method: "GET", Pattern: "/app/roster/timetable", Permissions: []string{RosterRead}},
+	{OperationID: "getMyCoverage", Method: "GET", Pattern: "/app/roster/my-coverage", Permissions: []string{}}, // All authenticated actors
 }
 
 func ProtectedRoutes() []Route {

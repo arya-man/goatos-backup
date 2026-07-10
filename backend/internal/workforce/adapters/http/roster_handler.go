@@ -40,6 +40,10 @@ func RegisterRoster(mux *http.ServeMux, h *RosterHandler) {
 	mux.HandleFunc("GET /admin/roster/leave/{absence_id}", h.GetLeave)
 	mux.HandleFunc("GET /admin/roster/leave", h.ListLeave)
 	mux.HandleFunc("GET /admin/roster/vaccination-owner", h.ResolveVaccinationOwner)
+	mux.HandleFunc("GET /admin/roster/backup-config", h.ListBackupConfig)
+	mux.HandleFunc("GET /admin/roster/coverage", h.ListCoverage)
+	mux.HandleFunc("GET /app/roster/timetable", h.GetOperatorTimetable)
+	mux.HandleFunc("GET /app/roster/my-coverage", h.GetMyCoverage)
 }
 
 func (h *RosterHandler) ListPositions(w http.ResponseWriter, r *http.Request) {
@@ -129,6 +133,41 @@ func (h *RosterHandler) ListLeave(w http.ResponseWriter, r *http.Request) {
 func (h *RosterHandler) ResolveVaccinationOwner(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	result, err := h.service.ResolveVaccinationOwner(r.Context(), tenantID(r), actorID(r), q.Get("scope_type"), q.Get("scope_id"), q.Get("date"), traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *RosterHandler) ListBackupConfig(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	result, err := h.service.ListBackupConfig(r.Context(), ports.ListBackupConfigParams{
+		TenantID:  tenantID(r),
+		ScopeType: q.Get("scope_type"),
+		ScopeID:   q.Get("scope_id"),
+		Limit:     parseLimit(q.Get("limit")),
+	}, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *RosterHandler) ListCoverage(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	active := q.Get("active") == "true"
+	result, err := h.service.ListCoverage(r.Context(), ports.ListCoverageParams{
+		TenantID:  tenantID(r),
+		ScopeType: q.Get("scope_type"),
+		ScopeID:   q.Get("scope_id"),
+		Active:    active,
+		Limit:     parseLimit(q.Get("limit")),
+	}, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *RosterHandler) GetOperatorTimetable(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	result, err := h.service.GetOperatorTimetable(r.Context(), tenantID(r), q.Get("center_id"), parseLimit(q.Get("limit")), traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *RosterHandler) GetMyCoverage(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.GetMyCoverage(r.Context(), tenantID(r), actorID(r), traceID(r))
 	h.respond(w, r, result, err)
 }
 

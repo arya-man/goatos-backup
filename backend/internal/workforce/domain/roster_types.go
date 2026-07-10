@@ -23,6 +23,15 @@ type Position struct {
 	RowVersion        int     `json:"row_version"`
 	CreatedAt         string  `json:"created_at"`
 	UpdatedAt         string  `json:"updated_at"`
+
+	// Enriched fields (read from related tables at list time)
+	PersonDisplayName    *string `json:"person_display_name,omitempty"`
+	HrDesignationGrade   *string `json:"hr_designation_grade,omitempty"`
+	PositionTitle        *string `json:"position_title,omitempty"`
+	CenterLabel          *string `json:"center_label,omitempty"`
+	Tier                 *string `json:"tier,omitempty"`
+	WeekOff              *string `json:"week_off,omitempty"`
+	BackupGroup          *string `json:"backup_group,omitempty"`
 }
 
 type PositionListResponse struct {
@@ -160,6 +169,59 @@ const (
 	LeaveStatusCanceled           = "canceled"
 	LeaveStatusEscalationRequired = "escalation_required"
 )
+
+// BackupConfig represents the backup configuration for a position group at a center.
+type BackupConfig struct {
+	CenterID             string  `json:"center_id"`
+	CenterLabel          *string `json:"center_label,omitempty"`
+	BackupGroupCode      string  `json:"backup_group_code"`
+	BackupPositionCode   string  `json:"backup_position_code"`
+	BackupPositionTitle  *string `json:"backup_position_title,omitempty"`
+	ConfiguredHolderID   *string `json:"configured_holder_id,omitempty"`
+	ConfiguredHolderName *string `json:"configured_holder_name,omitempty"`
+	Status               string  `json:"status"`
+}
+
+type BackupConfigListResponse struct {
+	Items   []BackupConfig `json:"items"`
+	TraceID string         `json:"trace_id"`
+}
+
+// Coverage represents an active or historical coverage (leave, week-off, or escalation).
+type Coverage struct {
+	PositionID            string  `json:"position_id"`
+	CoveredPositionCode   string  `json:"covered_position_code"`
+	CoveredPositionTitle  *string `json:"covered_position_title,omitempty"`
+	CoveringMemberID      *string `json:"covering_member_id,omitempty"`
+	CoveringMemberName    *string `json:"covering_member_name,omitempty"`
+	StartDate             string  `json:"start_date"`
+	EndDate               string  `json:"end_date"`
+	Source                string  `json:"source"` // "leave", "week_off", "escalation"
+	EscalationState       *string `json:"escalation_state,omitempty"`
+	Status                string  `json:"status"`
+}
+
+type CoverageListResponse struct {
+	Items   []Coverage `json:"items"`
+	TraceID string     `json:"trace_id"`
+}
+
+// MyCoverage represents the current coverage state for the authenticated operator.
+type MyCoverage struct {
+	HasCoverage         bool    `json:"has_coverage"`
+	PositionID          *string `json:"position_id,omitempty"`
+	CoveringPersonName  *string `json:"covering_person_name,omitempty"`
+	CoveringPositionTitle *string `json:"covering_position_title,omitempty"`
+	WindowStart         *string `json:"window_start,omitempty"` // RFC3339
+	WindowEnd           *string `json:"window_end,omitempty"`   // RFC3339
+	BannerText          *string `json:"banner_text,omitempty"`
+	Timezone            string  `json:"timezone"` // Always "Asia/Kolkata"
+}
+
+type MyCoverageResponse struct {
+	Coverage MyCoverage `json:"coverage"`
+	TraceID  string     `json:"trace_id"`
+}
 
 // Position tiers (design doc S4.2).
 const (

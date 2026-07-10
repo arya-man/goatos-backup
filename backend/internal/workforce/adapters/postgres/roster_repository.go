@@ -458,3 +458,174 @@ LIMIT 1`, tenantID, workforceMemberID, at).Scan(&absenceID)
 	}
 	return true, absenceID, nil
 }
+
+// ---- Backup config + coverage lists -----------------------------------------
+
+func (r *Repository) ListBackupConfig(ctx context.Context, params ports.ListBackupConfigParams) ([]domain.BackupConfig, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  p.scope_id::text as center_id,
+  l.center_label,
+  p.backup_group_code,
+  p.position_code,
+  p.position_code as position_title,
+  COALESCE(wm.workforce_member_id::text, NULL) as configured_holder_id,
+  COALESCE(wm.display_name, NULL) as configured_holder_name,
+  p.status
+FROM workforce_positions p
+LEFT JOIN workforce_members wm ON p.workforce_member_id = wm.workforce_member_id
+LEFT JOIN locations l ON p.scope_id = l.location_id AND p.scope_type = 'center'
+WHERE p.tenant_id = $1::uuid
+  AND p.is_backup_slot = true
+  AND ($2 = '' OR p.scope_type = $2)
+  AND ($3 = '' OR p.scope_id = $3::uuid)
+ORDER BY p.scope_id, p.backup_group_code, p.position_code
+LIMIT $4`, params.TenantID, params.ScopeType, params.ScopeID, params.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []domain.BackupConfig
+	for rows.Next() {
+		var item domain.BackupConfig
+		err := rows.Scan(&item.CenterID, &item.CenterLabel, &item.BackupGroupCode,
+			&item.BackupPositionCode, &item.BackupPositionTitle, &item.ConfiguredHolderID,
+			&item.ConfiguredHolderName, &item.Status)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (r *Repository) ListCoverage(ctx context.Context, params ports.ListCoverageParams) ([]domain.Coverage, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	statusFilter := ""
+	if params.Active {
+		statusFilter = " AND wa.status = 'approved'"
+	}
+
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  p.position_id::text,
+  p.position_code,
+  p.position_code as position_title,
+  COALESCE(wm.workforce_member_id::text, NULL) as covering_member_id,
+  COALESCE(wm.display_name, NULL) as covering_member_name,
+  wa.starts_at::text,
+  wa.ends_at::text,
+  'leave' as source,
+  NULL as escalation_state,
+  wa.status
+FROM workforce_absences wa
+JOIN workforce_positions p ON wa.workforce_member_id = p.workforce_member_id
+  AND wa.scope_type = p.scope_type AND wa.scope_id = p.scope_id
+LEFT JOIN workforce_members wm ON wa.replacement_member_id = wm.workforce_member_id
+WHERE wa.tenant_id = $1::uuid
+  AND ($2 = '' OR p.scope_type = $2)
+  AND ($3 = '' OR p.scope_id = $3::uuid)` + statusFilter + `
+ORDER BY wa.starts_at DESC, wa.absence_id DESC
+LIMIT $4`, params.TenantID, params.ScopeType, params.ScopeID, params.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []domain.Coverage
+	for rows.Next() {
+		var item domain.Coverage
+		err := rows.Scan(&item.PositionID, &item.CoveredPositionCode, &item.CoveredPositionTitle,
+			&item.CoveringMemberID, &item.CoveringMemberName, &item.StartDate, &item.EndDate,
+			&item.Source, &item.EscalationState, &item.Status)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// ---- Operator timetable + my-coverage  -----------------------------------------------
+
+func (r *Repository) GetCenterTimetable(ctx context.Context, tenantID, centerID string, limit int) ([]domain.Position, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, positionSelectSQL(`
+WHERE p.tenant_id = $1::uuid
+  AND p.scope_type = 'center'
+  AND p.scope_id = $2::uuid
+  AND p.status = 'active'
+  AND (p.valid_from <= NOW() AT TIME ZONE 'Asia/Kolkata'::text)::date
+  AND (p.valid_to IS NULL OR (p.valid_to > NOW() AT TIME ZONE 'Asia/Kolkata'::text)::date)
+ORDER BY p.position_tier DESC, p.position_code
+LIMIT $3`), tenantID, centerID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanPositions(rows)
+}
+
+func (r *Repository) GetOperatorCoverage(ctx context.Context, tenantID, workforceMemberID string, at time.Time) (*domain.Coverage, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  p.position_id::text,
+  p.position_code,
+  p.position_code as position_title,
+  COALESCE(wm.workforce_member_id::text, NULL) as covering_member_id,
+  COALESCE(wm.display_name, NULL) as covering_member_name,
+  wa.starts_at::text,
+  wa.ends_at::text,
+  'leave' as source,
+  NULL as escalation_state,
+  wa.status
+FROM workforce_absences wa
+JOIN workforce_positions p ON wa.workforce_member_id = p.workforce_member_id
+  AND wa.scope_type = p.scope_type AND wa.scope_id = p.scope_id
+LEFT JOIN workforce_members wm ON wa.replacement_member_id = wm.workforce_member_id
+WHERE wa.tenant_id = $1::uuid
+  AND wa.workforce_member_id = $2::uuid
+  AND wa.status IN ('approved', 'escalation_required')
+  AND wa.starts_at <= $3::timestamptz AND wa.ends_at > $3::timestamptz
+ORDER BY wa.starts_at DESC, wa.absence_id DESC
+LIMIT 1`, tenantID, workforceMemberID, at)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items, err := scanCoverage(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	return &items[0], nil
+}
+
+// ---- Coverage scanning helper ------------------------------------------------
+
+func scanCoverage(rows pgx.Rows) ([]domain.Coverage, error) {
+	var items []domain.Coverage
+	for rows.Next() {
+		var item domain.Coverage
+		err := rows.Scan(&item.PositionID, &item.CoveredPositionCode, &item.CoveredPositionTitle,
+			&item.CoveringMemberID, &item.CoveringMemberName, &item.StartDate, &item.EndDate,
+			&item.Source, &item.EscalationState, &item.Status)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
