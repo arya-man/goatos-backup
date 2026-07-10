@@ -104,11 +104,23 @@ the same OAuth client ID. Firebase/Auth Platform authorized domains must include
 
 Seed the matching dashboard DB grants with the staging-guarded helper:
 
+Start the Cloud SQL Auth Proxy with a Unix socket path, not a localhost TCP
+port:
+
+```bash
+cloud-sql-proxy --unix-socket /tmp/cloudsql goatos-stg:asia-south1:goatos-stg-core-db
+```
+
+Then run the seed with a `DATABASE_URL` whose `host` visibly contains the exact
+staging Cloud SQL connection name. The guard intentionally rejects
+`localhost:5433` for staging because a local TCP port does not prove which Cloud
+SQL instance the proxy is connected to.
+
 ```bash
 GOATOS_ENV=stg \
 GOATOS_ALLOW_STG_CLOUDSQL_TARGET=true \
 GOATOS_STG_CLOUDSQL_CONNECTION_NAME=goatos-stg:asia-south1:goatos-stg-core-db \
-DATABASE_URL="postgres://goatos_app:<password>@localhost:5433/goatos?sslmode=disable" \
+DATABASE_URL="postgres://goatos_app:<password>@/goatos?host=/tmp/cloudsql/goatos-stg:asia-south1:goatos-stg-core-db&sslmode=disable" \
 GOATOS_TENANT_ID=00000000-0000-4000-8000-000000000001 \
 make seed-stg-email-grants
 ```

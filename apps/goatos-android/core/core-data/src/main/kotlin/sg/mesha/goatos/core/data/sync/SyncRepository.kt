@@ -1,5 +1,6 @@
 package sg.mesha.goatos.core.data.sync
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,9 +37,10 @@ import java.util.UUID
  * — enqueue, then collect `observeStatus()` filtered to the returned id).
  *
  * ### Idempotency-key strategy
- * The CALLER generates the idempotency key ONCE (e.g. `UUID.randomUUID()`) the first time
- * the user acts, and persists it alongside the draft (not just in a local var that a
- * ViewModel recreation would lose) so the SAME key is passed to `enqueue*` on every resend.
+ * The CALLER derives or generates the idempotency key ONCE for the logical write (for a shed
+ * submit, `SubmitViewModel` derives it from the task id) and persists it alongside the draft
+ * (not just in a local var that a ViewModel recreation would lose) so the SAME key is passed
+ * to `enqueue*` on every resend.
  * This port never mints a new key internally:
  * - a repeat `enqueue*` call with a key that already has a row is an idempotent no-op — the
  *   EXISTING row's id is returned, never a duplicate insert (enforced by a unique index on
@@ -157,10 +159,33 @@ class DefaultSyncRepository(
         idempotencyKey: String,
         payloadJson: String,
     ): AppResult<String> = withContext(dispatchers.io) {
-        runCatching {
-            store.findByIdempotencyKey(idempotencyKey)?.let { existing -> return@runCatching existing.id }
-            val now = clock()
-            val id = UUID.randomUUID().toString()
+        try {
+            val id = insertOrExistingRow(opType, groupKey, idempotencyKey, payloadJson)
+            triggerDrainAsync()
+            AppResult.Ok(id)
+        } catch (cancellation: CancellationException) {
+            // Never swallow cancellation into an Err — that breaks structured concurrency
+            // (a torn-down caller scope must see its own cancellation, not a fake failure).
+            throw cancellation
+        } catch (e: Throwable) {
+            AppResult.Err("Couldn't queue the write: ${e.message}", e)
+        }
+    }
+
+    /** Idempotent-enqueue: returns the existing row's id if this key is already queued, else
+     *  inserts a new row. Handles the concurrent-insert race — if two callers pass the unique
+     *  key at once, the loser's unique-index violation is turned back into the winner's row id
+     *  instead of a user-facing failure. */
+    private suspend fun insertOrExistingRow(
+        opType: OutboxOpType,
+        groupKey: String,
+        idempotencyKey: String,
+        payloadJson: String,
+    ): String {
+        store.findByIdempotencyKey(idempotencyKey)?.let { return it.id }
+        val now = clock()
+        val id = UUID.randomUUID().toString()
+        try {
             store.insert(
                 OutboxEntity(
                     id = id,
@@ -179,23 +204,28 @@ class DefaultSyncRepository(
                     resultJson = null,
                 ),
             )
-            id
-        }.onSuccess { triggerDrainAsync() }
-            .fold(
-                onSuccess = { AppResult.Ok(it) },
-                onFailure = { e -> AppResult.Err("Couldn't queue the write: ${e.message}", e) },
-            )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Throwable) {
+            // A concurrent enqueue of the same key won the unique-index race — return its row.
+            return store.findByIdempotencyKey(idempotencyKey)?.id ?: throw e
+        }
+        return id
     }
 
     override suspend fun retry(itemId: String): AppResult<Unit> = withContext(dispatchers.io) {
-        runCatching {
+        try {
             store.findById(itemId) ?: throw NoSuchElementException("Outbox item not found: $itemId")
+            // markRetryReady only re-arms a terminal FAILED row; a no-op (row already SUCCEEDED
+            // or a drain has it IN_FLIGHT) is fine — the live status flow reflects the real state.
             store.markRetryReady(itemId, clock())
-        }.onSuccess { triggerDrainAsync() }
-            .fold(
-                onSuccess = { AppResult.Ok(Unit) },
-                onFailure = { e -> AppResult.Err("Couldn't retry: ${e.message}", e) },
-            )
+            triggerDrainAsync()
+            AppResult.Ok(Unit)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Throwable) {
+            AppResult.Err("Couldn't retry: ${e.message}", e)
+        }
     }
 
     override suspend fun triggerDrain() {

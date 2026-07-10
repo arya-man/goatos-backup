@@ -43,12 +43,17 @@ class FakeOutboxStore : OutboxStore {
 
     override fun observeAll() = rows.asStateFlow()
 
-    override suspend fun markInFlight(id: String, now: Long) =
-        mutate(id) { it.copy(status = OutboxStatus.IN_FLIGHT.name, updatedAt = now) }
+    // Status-guarded conditional transitions mirroring OutboxDao's atomic UPDATE ... WHERE
+    // status=<expected> queries exactly, so the fake enforces the SAME race semantics.
+    override suspend fun markInFlight(id: String, now: Long): Boolean =
+        mutateIf(id, expected = setOf(OutboxStatus.QUEUED.name, OutboxStatus.FAILED.name)) {
+            it.copy(status = OutboxStatus.IN_FLIGHT.name, updatedAt = now)
+        }
 
-    override suspend fun markSucceeded(id: String, resultJson: String, now: Long) = mutate(id) {
-        it.copy(status = OutboxStatus.SUCCEEDED.name, resultJson = resultJson, lastError = null, updatedAt = now)
-    }
+    override suspend fun markSucceeded(id: String, resultJson: String, now: Long): Boolean =
+        mutateIf(id, expected = setOf(OutboxStatus.IN_FLIGHT.name)) {
+            it.copy(status = OutboxStatus.SUCCEEDED.name, resultJson = resultJson, lastError = null, updatedAt = now)
+        }
 
     override suspend fun markFailed(
         id: String,
@@ -57,7 +62,7 @@ class FakeOutboxStore : OutboxStore {
         conflict: Boolean,
         lastError: String,
         now: Long,
-    ) = mutate(id) {
+    ): Boolean = mutateIf(id, expected = setOf(OutboxStatus.IN_FLIGHT.name)) {
         it.copy(
             status = OutboxStatus.FAILED.name,
             attemptCount = attemptCount,
@@ -68,18 +73,38 @@ class FakeOutboxStore : OutboxStore {
         )
     }
 
-    override suspend fun markRetryReady(id: String, now: Long) = mutate(id) {
-        it.copy(
-            status = OutboxStatus.QUEUED.name,
-            attemptCount = 0,
-            conflict = false,
-            lastError = null,
-            nextAttemptAt = now,
-            updatedAt = now,
-        )
+    override suspend fun markRetryReady(id: String, now: Long): Boolean =
+        mutateIf(id, expected = setOf(OutboxStatus.FAILED.name)) {
+            it.copy(
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                conflict = false,
+                lastError = null,
+                nextAttemptAt = now,
+                updatedAt = now,
+            )
+        }
+
+    override suspend fun reclaimInFlight(now: Long): Int {
+        val stranded = rows.value.count { it.status == OutboxStatus.IN_FLIGHT.name }
+        if (stranded > 0) {
+            rows.update { list ->
+                list.map {
+                    if (it.status == OutboxStatus.IN_FLIGHT.name) {
+                        it.copy(status = OutboxStatus.QUEUED.name, updatedAt = now)
+                    } else {
+                        it
+                    }
+                }
+            }
+        }
+        return stranded
     }
 
-    private fun mutate(id: String, transform: (OutboxEntity) -> OutboxEntity) {
+    private fun mutateIf(id: String, expected: Set<String>, transform: (OutboxEntity) -> OutboxEntity): Boolean {
+        val current = rows.value.firstOrNull { it.id == id } ?: return false
+        if (current.status !in expected) return false
         rows.update { list -> list.map { if (it.id == id) transform(it) else it } }
+        return true
     }
 }

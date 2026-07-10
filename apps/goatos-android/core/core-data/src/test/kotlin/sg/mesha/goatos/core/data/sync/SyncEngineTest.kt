@@ -75,7 +75,7 @@ class SyncEngineTest {
         store.insert(queuedShedSubmit(idempotencyKey = "stable-key"))
         var calls = 0
         val api = ScriptedAppApi().apply {
-            submitAppTaskFn = { _, _ ->
+            submitAppTaskFn = { _, _, _ ->
                 calls++
                 if (calls == 1) throw IOException("network down")
                 okSubmission()
@@ -101,7 +101,7 @@ class SyncEngineTest {
         val store = FakeOutboxStore()
         store.insert(queuedShedSubmit(maxAttempts = 3))
         val api = ScriptedAppApi().apply {
-            submitAppTaskFn = { _, _ -> throw IOException("still down") }
+            submitAppTaskFn = { _, _, _ -> throw IOException("still down") }
         }
         val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }, backoff = BackoffPolicy { 0L })
 
@@ -122,7 +122,7 @@ class SyncEngineTest {
         val store = FakeOutboxStore()
         store.insert(queuedShedSubmit())
         val api = ScriptedAppApi().apply {
-            submitAppTaskFn = { _, _ ->
+            submitAppTaskFn = { _, _, _ ->
                 SubmissionResponseDto(
                     submission = SubmissionSummaryDto(
                         validationReport = ValidationReportDto(
@@ -153,6 +153,25 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `a row stranded IN_FLIGHT by a crash is reclaimed and drained on the next pass`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(queuedShedSubmit())
+        // Simulate a process death mid-dispatch: the row was marked IN_FLIGHT, then the process
+        // died before markSucceeded/markFailed ran. Pre-fix, eligibleForDrain excluded IN_FLIGHT
+        // rows forever, so this submission would be stranded (never retried).
+        store.markInFlight("row-1", now = 5L)
+        assertEquals(OutboxStatus.IN_FLIGHT.name, store.findById("row-1")!!.status)
+        val api = ScriptedAppApi()
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 10L })
+
+        engine.drainOnce()
+
+        val row = store.findById("row-1")!!
+        assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+        assertEquals(1, api.submitCalls.size)
+    }
+
+    @Test
     fun `offline skips the drain entirely without spending an attempt`() = runBlocking {
         val store = FakeOutboxStore()
         store.insert(queuedShedSubmit())
@@ -174,7 +193,7 @@ class SyncEngineTest {
         store.insert(queuedShedSubmit(id = "row-1", groupKey = "shed-1", idempotencyKey = "key-1", createdAt = 100L))
         val order = mutableListOf<String>()
         val api = ScriptedAppApi().apply {
-            submitAppTaskFn = { _, request ->
+            submitAppTaskFn = { _, _, request ->
                 order += request.idempotencyKey
                 okSubmission()
             }
@@ -184,6 +203,28 @@ class SyncEngineTest {
         engine.drainOnce()
 
         assertEquals(listOf("key-1", "key-2"), order)
+    }
+
+    @Test
+    fun `same group stops after the oldest item fails`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(queuedShedSubmit(id = "row-2", groupKey = "shed-1", idempotencyKey = "key-2", createdAt = 200L))
+        store.insert(queuedShedSubmit(id = "row-1", groupKey = "shed-1", idempotencyKey = "key-1", createdAt = 100L))
+        val order = mutableListOf<String>()
+        val api = ScriptedAppApi().apply {
+            submitAppTaskFn = { _, key, _ ->
+                order += key
+                if (key == "key-1") throw IOException("oldest failed")
+                okSubmission()
+            }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 1_000L }, backoff = BackoffPolicy { 60_000L })
+
+        engine.drainOnce()
+
+        assertEquals(listOf("key-1"), order)
+        assertEquals(OutboxStatus.FAILED.name, store.findById("row-1")!!.status)
+        assertEquals(OutboxStatus.QUEUED.name, store.findById("row-2")!!.status)
     }
 
     @Test

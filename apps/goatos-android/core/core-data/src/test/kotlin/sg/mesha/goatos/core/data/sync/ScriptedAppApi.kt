@@ -16,16 +16,22 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
  * idempotency key, to assert it never changes across retries).
  */
 class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by delegate {
-    var submitAppTaskFn: (suspend (String, SubmitTaskRequestDto) -> SubmissionResponseDto)? = null
+    var submitAppTaskFn: (suspend (String, String, SubmitTaskRequestDto) -> SubmissionResponseDto)? = null
     var rescheduleObligationFn: (suspend (String, String, RescheduleObligationRequestDto) -> RescheduleObligationResponseDto)? = null
     var registerProofFn: (suspend (String, ProofUploadRequestDto) -> ProofUploadResponseDto)? = null
 
-    /** (taskId, idempotencyKey) for every [submitAppTask] call, in call order. */
+    /** (taskId, header Idempotency-Key) for every [submitAppTask] call, in call order — asserts
+     *  the outbox sends the SAME key on every retry (and actually sends one at all). */
     val submitCalls = mutableListOf<Pair<String, String>>()
 
-    override suspend fun submitAppTask(taskId: String, request: SubmitTaskRequestDto): SubmissionResponseDto {
-        submitCalls += taskId to request.idempotencyKey
-        return submitAppTaskFn?.invoke(taskId, request) ?: delegate.submitAppTask(taskId, request)
+    override suspend fun submitAppTask(
+        taskId: String,
+        idempotencyKey: String,
+        request: SubmitTaskRequestDto,
+    ): SubmissionResponseDto {
+        submitCalls += taskId to idempotencyKey
+        return submitAppTaskFn?.invoke(taskId, idempotencyKey, request)
+            ?: delegate.submitAppTask(taskId, idempotencyKey, request)
     }
 
     override suspend fun rescheduleObligation(

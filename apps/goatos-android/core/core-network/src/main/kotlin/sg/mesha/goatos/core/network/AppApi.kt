@@ -203,9 +203,12 @@ interface AppApi {
         limit: Int? = null,
     ): TaskListResponseDto
 
-    /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. */
+    /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. The offline
+     *  sync engine's outbox drains this with a stable [idempotencyKey] (same key on every
+     *  retry) so a server-committed-but-client-unrecorded replay never duplicates the write. */
     suspend fun submitAppTask(
         taskId: String,
+        idempotencyKey: String,
         request: SubmitTaskRequestDto,
     ): SubmissionResponseDto
 
@@ -261,10 +264,12 @@ interface AppApi {
     ): VaccinationCoverageResponseDto
 
     /** GET /app/config — mobile live-config bundle (nav labels, flags, tunables, kill-switch).
-     *  Supports conditional GET via If-None-Match header; 304 means config unchanged. */
+     *  Supports conditional GET via If-None-Match header. Returns `null` when the server
+     *  answers `304 Not Modified` (config unchanged — the caller keeps its cached copy);
+     *  a non-null value is a fresh config bundle. */
     suspend fun getAppConfig(
         eTag: String? = null,
-    ): AppConfigResponseDto
+    ): AppConfigResponseDto?
 }
 
 /**
@@ -346,6 +351,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun submitAppTask(
         taskId: String,
+        idempotencyKey: String,
         request: SubmitTaskRequestDto,
     ): SubmissionResponseDto = SubmissionResponseDto()
 
@@ -383,7 +389,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         limit: Int?,
     ): VaccinationCoverageResponseDto = VaccinationCoverageResponseDto()
 
-    override suspend fun getAppConfig(eTag: String?): AppConfigResponseDto = AppConfigResponseDto()
+    override suspend fun getAppConfig(eTag: String?): AppConfigResponseDto? = AppConfigResponseDto()
 }
 
 /**

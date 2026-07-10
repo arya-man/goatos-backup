@@ -32,5 +32,5 @@ class DefaultTasksRepository(
     override suspend fun submit(
         taskId: String,
         request: SubmitTaskRequestDto,
-    ): SubmissionResponseDto = api.submitAppTask(taskId, request)
+    ): SubmissionResponseDto = api.submitAppTask(taskId, request.idempotencyKey, request)
 }

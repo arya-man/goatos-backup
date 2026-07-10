@@ -3,7 +3,6 @@ package sg.mesha.goatos.core.data.sync
 import kotlinx.coroutines.flow.Flow
 import sg.mesha.goatos.core.database.outbox.OutboxDao
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
-import sg.mesha.goatos.core.database.outbox.OutboxStatus
 
 /**
  * Persistence port for the outbox. [SyncEngine] and [SyncRepository] talk to this, never to
@@ -19,14 +18,23 @@ interface OutboxStore {
     suspend fun eligibleForDrain(now: Long): List<OutboxEntity>
     fun observeAll(): Flow<List<OutboxEntity>>
 
-    suspend fun markInFlight(id: String, now: Long)
-    suspend fun markSucceeded(id: String, resultJson: String, now: Long)
-    suspend fun markFailed(id: String, attemptCount: Int, nextAttemptAt: Long, conflict: Boolean, lastError: String, now: Long)
+    /** All transitions are ATOMIC + status-guarded and return whether they were applied
+     *  (`true`) or were a no-op because the row had already moved on (`false`) — so a manual
+     *  retry and a concurrent drain can never silently clobber each other. */
+    suspend fun markInFlight(id: String, now: Long): Boolean
+    suspend fun markSucceeded(id: String, resultJson: String, now: Long): Boolean
+    suspend fun markFailed(id: String, attemptCount: Int, nextAttemptAt: Long, conflict: Boolean, lastError: String, now: Long): Boolean
 
-    /** Re-arms a row for another attempt: resets [OutboxEntity.attemptCount] to 0,
-     *  [OutboxEntity.conflict] to false, and [OutboxEntity.status] back to QUEUED — the SAME
-     *  [OutboxEntity.idempotencyKey] and [OutboxEntity.payloadJson] are preserved untouched. */
-    suspend fun markRetryReady(id: String, now: Long)
+    /** Re-arms a terminal FAILED row for another attempt: resets [OutboxEntity.attemptCount] to
+     *  0, [OutboxEntity.conflict] to false, [OutboxEntity.status] back to QUEUED — the SAME
+     *  [OutboxEntity.idempotencyKey] and [OutboxEntity.payloadJson] are preserved untouched.
+     *  Returns `false` (no-op) if the row is not FAILED (e.g. a drain has it IN_FLIGHT). */
+    suspend fun markRetryReady(id: String, now: Long): Boolean
+
+    /** Recovers rows stranded IN_FLIGHT by a prior crash/process-death mid-dispatch back to
+     *  QUEUED. Returns the number reclaimed. Called at the top of every drain pass (safe under
+     *  the drain mutex — no dispatch is concurrently in progress). */
+    suspend fun reclaimInFlight(now: Long): Int
 }
 
 class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
@@ -36,22 +44,10 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     override suspend fun eligibleForDrain(now: Long): List<OutboxEntity> = dao.eligibleForDrain(now)
     override fun observeAll(): Flow<List<OutboxEntity>> = dao.observeAll()
 
-    override suspend fun markInFlight(id: String, now: Long) {
-        val current = dao.findById(id) ?: return
-        dao.update(current.copy(status = OutboxStatus.IN_FLIGHT.name, updatedAt = now))
-    }
+    override suspend fun markInFlight(id: String, now: Long): Boolean = dao.markInFlight(id, now) > 0
 
-    override suspend fun markSucceeded(id: String, resultJson: String, now: Long) {
-        val current = dao.findById(id) ?: return
-        dao.update(
-            current.copy(
-                status = OutboxStatus.SUCCEEDED.name,
-                resultJson = resultJson,
-                lastError = null,
-                updatedAt = now,
-            ),
-        )
-    }
+    override suspend fun markSucceeded(id: String, resultJson: String, now: Long): Boolean =
+        dao.markSucceeded(id, resultJson, now) > 0
 
     override suspend fun markFailed(
         id: String,
@@ -60,33 +56,11 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
         conflict: Boolean,
         lastError: String,
         now: Long,
-    ) {
-        val current = dao.findById(id) ?: return
-        dao.update(
-            current.copy(
-                status = OutboxStatus.FAILED.name,
-                attemptCount = attemptCount,
-                nextAttemptAt = nextAttemptAt,
-                conflict = conflict,
-                lastError = lastError,
-                updatedAt = now,
-            ),
-        )
-    }
+    ): Boolean = dao.markFailed(id, attemptCount, nextAttemptAt, conflict, lastError, now) > 0
 
-    override suspend fun markRetryReady(id: String, now: Long) {
-        val current = dao.findById(id) ?: return
-        dao.update(
-            current.copy(
-                status = OutboxStatus.QUEUED.name,
-                attemptCount = 0,
-                conflict = false,
-                lastError = null,
-                nextAttemptAt = now,
-                updatedAt = now,
-            ),
-        )
-    }
+    override suspend fun markRetryReady(id: String, now: Long): Boolean = dao.markRetryReady(id, now) > 0
+
+    override suspend fun reclaimInFlight(now: Long): Int = dao.reclaimInFlight(now)
 }
 
 /** Room row -> UI/ViewModel-facing model (see [SyncQueueItem]). */

@@ -91,7 +91,7 @@ class SyncRepositoryTest {
         val store = FakeOutboxStore()
         val api = ScriptedAppApi()
         var callCount = 0
-        api.submitAppTaskFn = { _, _ ->
+        api.submitAppTaskFn = { _, _, _ ->
             callCount++
             if (callCount == 1) throw IOException("down")
             sg.mesha.goatos.core.network.dto.SubmissionResponseDto(
@@ -154,6 +154,41 @@ class SyncRepositoryTest {
         status = repo.observeStatus().value
         assertTrue(status.online)
         assertEquals(SyncItemStatus.SUCCEEDED, status.items.first().status)
+    }
+
+    @Test
+    fun `connectivity trigger forwards the validated transition exactly once`() {
+        class FakeConnectivitySource : ConnectivitySource {
+            var listener: ((Boolean) -> Unit)? = null
+            var closed = false
+
+            override fun start(onChange: (Boolean) -> Unit): AutoCloseable {
+                listener = onChange
+                return AutoCloseable {
+                    closed = true
+                    listener = null
+                }
+            }
+
+            fun emit(online: Boolean) {
+                listener?.invoke(online)
+            }
+        }
+
+        val source = FakeConnectivitySource()
+        val events = mutableListOf<Boolean>()
+        val trigger = ConnectivitySyncTrigger(source) { events += it }
+
+        trigger.start()
+        source.emit(false)
+        source.emit(false)
+        source.emit(true)
+        source.emit(true)
+
+        assertEquals(listOf(false, true), events)
+
+        trigger.stop()
+        assertTrue(source.closed)
     }
 
     @Test

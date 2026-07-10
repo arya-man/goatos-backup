@@ -33,7 +33,12 @@ const val DEFAULT_MAX_ATTEMPTS = 8
  */
 @Entity(
     tableName = "outbox",
-    indices = [Index(value = ["idempotencyKey"], unique = true)],
+    indices = [
+        Index(value = ["idempotencyKey"], unique = true),
+        // Backs OutboxDao.eligibleForDrain's status/backoff-window scan so the drain query
+        // stays an index range-scan, not a full-table scan, as outbox rows accumulate.
+        Index(value = ["status", "nextAttemptAt"]),
+    ],
 )
 data class OutboxEntity(
     @PrimaryKey val id: String,

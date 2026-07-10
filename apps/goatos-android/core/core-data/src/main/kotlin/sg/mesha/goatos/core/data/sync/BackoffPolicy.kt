@@ -7,8 +7,12 @@ fun interface BackoffPolicy {
     fun delayMillis(attempt: Int): Long
 
     companion object {
-        /** Exponential backoff with a cap and jitter: base, 2x base, 4x base, ... capped, plus
-         *  up to [jitterFraction] extra so many devices retrying at once don't thunder-herd. */
+        /** Exponential backoff with a cap and jitter: base, 2x base, 4x base, ... capped at
+         *  [capMillis], plus up to [jitterFraction] extra. Jitter is applied AFTER the cap (so
+         *  the effective ceiling is `capMillis * (1 + jitterFraction)`, ~18 min for the
+         *  defaults) — deliberately: the jitter must survive at the cap, otherwise every device
+         *  that hit the ceiling would retry at the exact same instant (the thundering herd the
+         *  jitter exists to prevent). */
         fun exponential(
             baseMillis: Long = 1_000L,
             capMillis: Long = 15 * 60 * 1_000L,
@@ -22,8 +26,8 @@ fun interface BackoffPolicy {
             capped + jitter
         }
 
-        /** 1s, 2s, 4s, 8s, ... capped at 15 min, +0-20% jitter. Used by [SyncEngine] unless a
-         *  test overrides it for determinism. */
+        /** 1s, 2s, 4s, 8s, ... capped at ~15 min, +0-20% jitter (so the true ceiling is ~18 min).
+         *  Used by [SyncEngine] unless a test overrides it for determinism. */
         val Default: BackoffPolicy = exponential()
     }
 }

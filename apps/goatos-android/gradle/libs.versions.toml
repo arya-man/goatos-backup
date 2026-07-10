@@ -26,7 +26,11 @@ okhttp = "5.1.0"
 datastore = "1.1.7"
 room = "2.8.4"
 workRuntime = "2.9.1"
-hiltWork = "1.2.1"
+# androidx.hilt (hilt-work + its KSP hilt-compiler). 1.2.0 is the latest published; there is
+# no 1.2.1 (the prior catalog value was never resolved because nothing consumed the alias).
+hiltWork = "1.2.0"
+# LeakCanary: automatic runtime memory-leak detector, debug builds only (item: leak detection).
+leakcanary = "2.14"
 # Verified at scaffold (item 7): 2.0.0-alpha05 is the first Paparazzi release that resolves
 # and renders correctly against AGP 9.2 / Kotlin 2.3.21 / Compose BOM 2026.06 — alpha04 and
 # earlier are documented as broken on AGP 9. Confirmed with a real render (see
@@ -62,6 +66,9 @@ androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = 
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntime" }
 androidx-hilt-work = { group = "androidx.hilt", name = "hilt-work", version.ref = "hiltWork" }
+# KSP processor for @HiltWorker (androidx.hilt), distinct from Dagger's hilt-android-compiler.
+androidx-hilt-compiler = { group = "androidx.hilt", name = "hilt-compiler", version.ref = "hiltWork" }
+leakcanary-android = { group = "com.squareup.leakcanary", name = "leakcanary-android", version.ref = "leakcanary" }
 
 [plugins]
 # AGP 9+ has built-in Kotlin: Android modules apply NO kotlin.android plugin.

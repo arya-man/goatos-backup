@@ -32,6 +32,7 @@ import sg.mesha.goatos.core.data.RosterRepository
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.buildGoatDatabase
 import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
+import sg.mesha.goatos.core.data.sync.AndroidConnectivitySource
 import sg.mesha.goatos.core.data.sync.ConnectivityGate
 import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
 import sg.mesha.goatos.core.data.sync.DefaultSyncRepository
@@ -137,10 +138,9 @@ object AppModule {
     fun provideRosterRepository(api: AppApi): RosterRepository = DefaultRosterRepository(api)
 
     // --- Offline sync engine (outbox) --------------------------------------------------
-    // WorkManager is NOT used here — androidx.work has no version alias in
-    // gradle/libs.versions.toml (see SyncEngine's KDoc for the full rationale). The
-    // engine instead runs on this Hilt-provided, app-lifetime CoroutineScope — a
-    // Singleton, never GlobalScope — triggered on enqueue and on reconnect.
+    // The engine runs on this Hilt-provided, app-lifetime CoroutineScope (a Singleton, never
+    // GlobalScope), triggered on enqueue and on reconnect. A WorkManager SyncWorker (wired in
+    // GoatOsApplication) is the process-death backstop that calls the SAME drainOnce().
 
     @Provides
     @Singleton
@@ -197,7 +197,7 @@ object AppModule {
         syncRepository: SyncRepository,
     ): ConnectivitySyncTrigger {
         val repo = syncRepository as? DefaultSyncRepository
-        return ConnectivitySyncTrigger(context = context) { online ->
+        return ConnectivitySyncTrigger(source = AndroidConnectivitySource(context)) { online ->
             repo?.notifyConnectivityChanged(online)
             if (online) appScope.launch { engine.drainOnce() }
         }

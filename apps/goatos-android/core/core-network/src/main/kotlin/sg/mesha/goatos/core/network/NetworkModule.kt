@@ -3,8 +3,11 @@ package sg.mesha.goatos.core.network
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
+import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.Response
+import retrofit2.HttpException
+import retrofit2.Response as RetrofitResponse
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.create
@@ -114,6 +117,7 @@ interface AppApiService {
     @POST("app/tasks/{task_id}/submissions")
     suspend fun submitAppTask(
         @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: SubmitTaskRequestDto,
     ): SubmissionResponseDto
 
@@ -163,7 +167,7 @@ interface AppApiService {
     @GET("app/config")
     suspend fun getAppConfig(
         @Header("If-None-Match") eTag: String?,
-    ): AppConfigResponseDto
+    ): RetrofitResponse<AppConfigResponseDto>
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic. */
@@ -236,8 +240,9 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
 
     override suspend fun submitAppTask(
         taskId: String,
+        idempotencyKey: String,
         request: SubmitTaskRequestDto,
-    ): SubmissionResponseDto = service.submitAppTask(taskId, request)
+    ): SubmissionResponseDto = service.submitAppTask(taskId, idempotencyKey, request)
 
     override suspend fun getScanRoster(
         shedId: String,
@@ -274,7 +279,14 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
         limit: Int?,
     ): VaccinationCoverageResponseDto = service.getVaccinationCoverage(parkId, asOf, dueBefore, limit)
 
-    override suspend fun getAppConfig(eTag: String?): AppConfigResponseDto = service.getAppConfig(eTag)
+    override suspend fun getAppConfig(eTag: String?): AppConfigResponseDto? {
+        val response = service.getAppConfig(eTag)
+        // 304 Not Modified: config unchanged, no body — signal "keep cached" with null instead
+        // of letting Retrofit surface the 3xx as an HttpException the way a bare-DTO return would.
+        if (response.code() == 304) return null
+        if (!response.isSuccessful) throw HttpException(response)
+        return response.body()
+    }
 }
 
 /**
@@ -308,6 +320,13 @@ object NetworkFactory {
     fun okHttp(tokenProvider: () -> String?): OkHttpClient =
         OkHttpClient.Builder()
             .addInterceptor(BearerAuthInterceptor(tokenProvider))
+            // Explicit bounds — never rely on the platform/OkHttp defaults (a stuck socket on a
+            // field 2G link must fail and let the outbox back off, not hang the drain coroutine).
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(60, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .build()
 
     fun retrofit(baseUrl: String, client: OkHttpClient): Retrofit =

@@ -41,8 +41,7 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
     // Proto DataStore lands next. The outbox/sync engine (SyncEngine, SyncRepository,
-    // OutboxStore — sg.mesha.goatos.core.data.sync) is wired below; WorkManager itself is
-    // NOT used — see the KDoc on SyncEngine for why (androidx.work has no version alias in
-    // gradle/libs.versions.toml).
+    // OutboxStore — sg.mesha.goatos.core.data.sync) stays framework-free here; the app module
+    // wires WorkManager as a thin trigger/backstop around SyncEngine.drainOnce().
     testImplementation("junit:junit:4.13.2")
 }

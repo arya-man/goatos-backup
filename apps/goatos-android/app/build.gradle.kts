@@ -93,6 +93,17 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
     ksp(libs.hilt.compiler)
 
+    // WorkManager + Hilt worker factory: guarantees the outbox drains on reconnect even after the
+    // process is killed (an OS-scheduled job survives process death, which the in-process
+    // connectivity trigger cannot). SyncWorker.doWork() delegates to the same SyncEngine.drainOnce().
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.compiler)
+
+    // Runtime memory-leak detector — debug builds only, never shipped in release. Auto-watches
+    // destroyed Activities/Fragments/ViewModels and dumps a leak trace if any is retained.
+    debugImplementation(libs.leakcanary.android)
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

@@ -1,5 +1,6 @@
 package sg.mesha.goatos.core.data.sync
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
@@ -12,6 +13,7 @@ import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.isTerminalAppApiError
 
 /**
  * A definitive, non-retryable server rejection (e.g. a failed submission validation).
@@ -26,24 +28,20 @@ class NonRetryableSyncException(message: String) : Exception(message)
  * item — the pure, framework-agnostic "do the work" body a `CoroutineWorker.doWork()` would
  * delegate to.
  *
- * ### On WorkManager (read before assuming this should use it)
- * The TRD (`docs/mobile/trd-operator-mobile.md` §6) specifies WorkManager for the sync
- * worker. This build does NOT wire WorkManager: `androidx.work:work-runtime-ktx` (and
- * `androidx.hilt:hilt-work` for a `@HiltWorker`) have **no version alias** in
- * `gradle/libs.versions.toml`, and this task was explicitly instructed to STOP and report a
- * missing dependency alias rather than edit that file. [SyncEngine] is therefore built
- * WorkManager-agnostic on purpose: the day the alias is added, a
- * `SyncWorker : CoroutineWorker` can be a ~10-line shim whose `doWork()` calls [drainOnce] —
- * no logic moves. Until then, [drainOnce] is triggered by [SyncRepository] on every enqueue
- * and by [ConnectivitySyncTrigger] on reconnect, run on a Hilt-provided application-scoped
- * `CoroutineScope` (never `GlobalScope` — see AppModule's `provideAppScope`).
+ * ### Triggers (TRD `docs/mobile/trd-operator-mobile.md` §6)
+ * [SyncEngine] is WorkManager-agnostic — it is just the framework-free "do the work" body.
+ * Three things call [drainOnce], all on a Hilt application-scoped `CoroutineScope` (never
+ * `GlobalScope` — see AppModule's `provideAppScope`):
+ *  - [SyncRepository] on every enqueue (optimistic write, drain immediately);
+ *  - [ConnectivitySyncTrigger] on reconnect (WHILE the process is alive);
+ *  - `app`'s `SyncWorker : CoroutineWorker` (`@HiltWorker`), a periodic CONNECTED-constrained
+ *    WorkManager job — the OS-scheduled backstop that survives PROCESS DEATH. `doWork()` is a
+ *    ~10-line shim that just calls [drainOnce]; no drain logic lives there.
  *
- * The one real behavioral gap versus WorkManager: if the process is fully killed, drain does
- * not resume until the app is next opened (no persistent OS-level job survives process
- * death). No data is lost — everything durable is already in Room — sync is just not
- * *actively* retried while the process is dead. `drainOnce` is also called from
- * `Application.onCreate` indirectly (via the connectivity trigger's initial state) so a
- * relaunch drains promptly.
+ * Nothing is ever lost regardless of trigger: every write is durable in Room, and each drain
+ * pass first [OutboxStore.reclaimInFlight]s rows stranded IN_FLIGHT by a crash/process-death
+ * mid-dispatch, so an interrupted submit is always retried on the next pass (relaunch,
+ * reconnect, or the WorkManager backstop).
  *
  * ### Ordering & concurrency
  * Items are grouped by [OutboxEntity.groupKey] (e.g. a shed id) and each group drains
@@ -69,6 +67,11 @@ class SyncEngine(
         if (!connectivityGate.isOnline()) return // capture continues offline; sync just waits.
         drainMutex.withLock {
             withContext(dispatchers.io) {
+                // Recover rows stranded IN_FLIGHT by a prior crash/process-death mid-dispatch.
+                // Safe here: the drain mutex guarantees no other pass is dispatching, so any
+                // IN_FLIGHT row is orphaned, not actively in-flight. Without this they would be
+                // excluded from eligibility forever (never retried, never dead-lettered).
+                store.reclaimInFlight(clock())
                 val due = store.eligibleForDrain(clock())
                 if (due.isEmpty()) return@withContext
                 val semaphore = Semaphore(maxConcurrentGroups.coerceAtLeast(1))
@@ -76,7 +79,9 @@ class SyncEngine(
                     due.groupBy { it.groupKey }.values.forEach { groupItems ->
                         launch {
                             semaphore.withPermit {
-                                groupItems.sortedBy { it.createdAt }.forEach { processItem(it) }
+                                for (item in groupItems.sortedBy { it.createdAt }) {
+                                    if (!processItem(item)) break
+                                }
                             }
                         }
                     }
@@ -85,16 +90,33 @@ class SyncEngine(
         }
     }
 
-    private suspend fun processItem(item: OutboxEntity) {
-        store.markInFlight(item.id, clock())
-        runCatching { dispatch(item) }
-            .onSuccess { resultJson -> store.markSucceeded(item.id, resultJson, clock()) }
-            .onFailure { error -> recordFailure(item, error) }
+    /**
+     * Returns `true` when this group may continue to its next row. A dispatch failure returns
+     * `false` so same-shed FIFO stops at the first broken write instead of posting newer writes
+     * over an older failed proof/submission.
+     */
+    private suspend fun processItem(item: OutboxEntity): Boolean {
+        // Guard the transition: if the row is no longer QUEUED/FAILED (e.g. a manual retry or a
+        // concurrent pass already claimed it) markInFlight is a no-op and we skip it — never
+        // dispatch a row we didn't actually transition.
+        if (!store.markInFlight(item.id, clock())) return true
+        return try {
+            val resultJson = dispatch(item)
+            store.markSucceeded(item.id, resultJson, clock())
+            true
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Throwable) {
+            recordFailure(item, error)
+            false
+        }
     }
 
     private suspend fun recordFailure(item: OutboxEntity, error: Throwable) {
         val attempt = item.attemptCount + 1
-        val conflict = error is NonRetryableSyncException
+        // Terminal = a definitive server rejection (validation) OR a non-retryable 4xx: neither
+        // changes by re-sending the same payload, so don't burn the backoff budget on it.
+        val conflict = error is NonRetryableSyncException || error.isTerminalAppApiError()
         val terminal = conflict || attempt >= item.maxAttempts
         val nextAttemptAt = if (terminal) Long.MAX_VALUE else clock() + backoff.delayMillis(attempt)
         store.markFailed(
@@ -119,7 +141,9 @@ class SyncEngine(
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<ShedSubmitPayload>(item.payloadJson)
-        val response = api.submitAppTask(payload.taskId, payload.request)
+        // Reuse the row's stable key verbatim (never a new key on retry) so the backend dedupes a
+        // server-committed-but-client-unrecorded replay instead of creating a duplicate submission.
+        val response = api.submitAppTask(payload.taskId, item.idempotencyKey, payload.request)
         val report = response.submission.validationReport
         if (!report.valid) {
             throw NonRetryableSyncException(rejectionReason(report))

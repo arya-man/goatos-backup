@@ -3,14 +3,14 @@ package sg.mesha.goatos.core.database.outbox
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
-import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Room DAO for the outbox. Kept deliberately thin (insert / update / a couple of finder
- * queries + the drain-eligibility query) — state transitions (mark in-flight / succeeded /
- * failed / retry-ready) are composed in `:core:core-data`'s `RoomOutboxStore` via
- * find-then-[update], not as bespoke `@Query` UPDATE statements per transition.
+ * Room DAO for the outbox. State transitions are ATOMIC conditional `UPDATE`s guarded by the
+ * expected current status (`WHERE id=:id AND status=<expected>`), NOT find-then-copy-then-
+ * `@Update`: the old read-modify-write let a manual `retry()` and a concurrent drain clobber
+ * each other (last-write-wins). Each transition returns the affected-row count so a caller can
+ * tell whether it won the race (`1`) or was a no-op because the row had already moved on (`0`).
  */
 @Dao
 interface OutboxDao {
@@ -19,9 +19,6 @@ interface OutboxDao {
      *  Callers should check [findByIdempotencyKey] first for an idempotent-enqueue no-op. */
     @Insert
     suspend fun insert(entity: OutboxEntity)
-
-    @Update
-    suspend fun update(entity: OutboxEntity)
 
     @Query("SELECT * FROM outbox WHERE idempotencyKey = :key LIMIT 1")
     suspend fun findByIdempotencyKey(key: String): OutboxEntity?
@@ -45,4 +42,42 @@ interface OutboxDao {
     /** Backs the sync-status overlay (see `SyncRepository.observeStatus`). */
     @Query("SELECT * FROM outbox ORDER BY createdAt ASC")
     fun observeAll(): Flow<List<OutboxEntity>>
+
+    // --- Atomic state transitions (return rows affected: 1 = applied, 0 = lost the race) ----
+
+    @Query("UPDATE outbox SET status = 'IN_FLIGHT', updatedAt = :now WHERE id = :id AND status IN ('QUEUED', 'FAILED')")
+    suspend fun markInFlight(id: String, now: Long): Int
+
+    @Query(
+        "UPDATE outbox SET status = 'SUCCEEDED', resultJson = :resultJson, lastError = NULL, updatedAt = :now " +
+            "WHERE id = :id AND status = 'IN_FLIGHT'",
+    )
+    suspend fun markSucceeded(id: String, resultJson: String, now: Long): Int
+
+    @Query(
+        "UPDATE outbox SET status = 'FAILED', attemptCount = :attemptCount, nextAttemptAt = :nextAttemptAt, " +
+            "conflict = :conflict, lastError = :lastError, updatedAt = :now WHERE id = :id AND status = 'IN_FLIGHT'",
+    )
+    suspend fun markFailed(
+        id: String,
+        attemptCount: Int,
+        nextAttemptAt: Long,
+        conflict: Boolean,
+        lastError: String,
+        now: Long,
+    ): Int
+
+    /** Manual retry only re-arms a terminal FAILED row — guarded so it can never clobber a
+     *  row a drain is actively dispatching (IN_FLIGHT) or one that already SUCCEEDED. */
+    @Query(
+        "UPDATE outbox SET status = 'QUEUED', attemptCount = 0, conflict = 0, lastError = NULL, " +
+            "nextAttemptAt = :now, updatedAt = :now WHERE id = :id AND status = 'FAILED'",
+    )
+    suspend fun markRetryReady(id: String, now: Long): Int
+
+    /** Recovers rows orphaned IN_FLIGHT by a process death / crash mid-dispatch back to QUEUED.
+     *  Safe to run at the top of a drain pass: the drain mutex guarantees no other dispatch is
+     *  in progress, so any IN_FLIGHT row is necessarily stranded, not actively being sent. */
+    @Query("UPDATE outbox SET status = 'QUEUED', updatedAt = :now WHERE status = 'IN_FLIGHT'")
+    suspend fun reclaimInFlight(now: Long): Int
 }
