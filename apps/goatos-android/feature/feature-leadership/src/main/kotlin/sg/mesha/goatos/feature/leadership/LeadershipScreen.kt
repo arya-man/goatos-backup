@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -124,6 +125,9 @@ sealed interface LeadershipEvent {
 
 // region ── Overview (v-dhome) UiState ──
 
+// @Immutable: several List<T> fields below otherwise mark this unstable, disabling
+// recomposition skipping for LeadershipScreen (item 6, perf/stability pass).
+@Immutable
 data class LeadershipUiState(
     val eyebrow: String,
     val title: String,
@@ -142,6 +146,8 @@ data class LeadershipUiState(
     val coverageByPark: List<ParkCoverageRow> = emptyList(),
 )
 
+// @Immutable: dosesTrend: List<Float> otherwise marks this unstable (item 6, perf/stability pass).
+@Immutable
 data class CoverageHeroState(
     val coverageLabel: String,
     /** Backend-computed coverage %, rendered verbatim — never divided on device. */
@@ -166,6 +172,9 @@ data class KpiTile(
     val tone: Tone,
 )
 
+// @Immutable: vaccineGroups: List<VaccineGroupChip> otherwise marks this unstable — ShedSummary
+// is passed directly into ShedSummaryRow(shed: ShedSummary, ...) (item 6, perf/stability pass).
+@Immutable
 data class ShedSummary(
     val shedId: String,
     val name: String,

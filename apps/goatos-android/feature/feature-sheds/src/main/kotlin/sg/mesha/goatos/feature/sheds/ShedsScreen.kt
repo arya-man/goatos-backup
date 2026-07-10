@@ -28,6 +28,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,6 +93,9 @@ data class RosterChange(
  * (e.g. leadership gets no Start/scan) — the absence of the field, not a client
  * `role ==` check, is what hides the affordance.
  */
+// @Immutable: vaccineGroups: List<VaccineGroup> otherwise marks this unstable — ShedRow is
+// passed directly as a composable parameter per shed card (item 6, perf/stability pass).
+@Immutable
 data class ShedRow(
     val id: String,
     val name: String,
@@ -107,7 +111,10 @@ data class ShedRow(
     val actionLabel: String? = null,
 )
 
-/** Full screen state. Header fields + the shed list + optional roster/kernel context. */
+/** Full screen state. Header fields + the shed list + optional roster/kernel context.
+ *  @Immutable: rows/rosterChanges List<T> fields otherwise mark this unstable (item 6,
+ *  perf/stability pass). */
+@Immutable
 data class ShedsUiState(
     val moduleLabel: String,
     val scopeLabel: String,

@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +41,9 @@ internal fun OverdueClassification.tone(): Tone = when (this) {
     OverdueClassification.IN_BUFFER -> Tone.WARN
 }
 
+// @Immutable: List<T> fields (legend, rows) otherwise mark this unstable, disabling
+// recomposition skipping for OverdueScreen (item 6, perf/stability pass).
+@Immutable
 data class OverdueUiState(
     val eyebrow: String,
     val title: String,

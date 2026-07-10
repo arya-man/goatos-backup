@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +38,9 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 // never computes which dates are allowed or whether one is in buffer.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// @Immutable: List<T> fields (segments, dateOptions) otherwise mark this unstable, disabling
+// recomposition skipping for RescheduleScreen (item 6, perf/stability pass).
+@Immutable
 data class RescheduleUiState(
     val eyebrow: String,
     val title: String,

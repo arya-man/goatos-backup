@@ -22,6 +22,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -77,6 +78,8 @@ data class SettingRow(
  * [rows] is the backend-surfaced settings list. A SIGN_OUT row (if present) renders
  * as the bottom sign-out button; all other rows render in the settings card.
  */
+// @Immutable: rows: List<SettingRow> otherwise marks this unstable (item 6, perf/stability pass).
+@Immutable
 data class ProfileUiState(
     val name: String,
     val roleLabel: String,

@@ -29,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -117,6 +118,9 @@ data class ScanTileLabels(
  * Complete, backend-fed state for the Scan screen. Every visible string is a
  * field so nothing is hardcoded in the renderer.
  */
+// @Immutable: vaccineGroups/feed/roster List<T> fields otherwise mark this unstable (item 6,
+// perf/stability pass).
+@Immutable
 data class ScanUiState(
     val shedLabel: String,                 // header eyebrow, e.g. "Vaccination · Gandhi 1"
     val cohortLabel: String,               // header title, e.g. "Milking does"

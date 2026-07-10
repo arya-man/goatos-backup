@@ -22,6 +22,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,7 +63,10 @@ data class VaccineGroup(
     val proofLabel: String = "Video proof required",
 )
 
-/** Hoisted state for [SubmitScreen]. Every visible string is a field. */
+/** Hoisted state for [SubmitScreen]. Every visible string is a field.
+ *  @Immutable: groups: List<VaccineGroup> otherwise marks this unstable (item 6,
+ *  perf/stability pass). */
+@Immutable
 data class SubmitUiState(
     val eyebrow: String,
     val title: String,

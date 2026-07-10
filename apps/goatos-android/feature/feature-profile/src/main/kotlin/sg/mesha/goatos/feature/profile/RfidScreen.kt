@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -61,6 +62,9 @@ data class RfidReaderRow(
  * the test-read label all come from the backend/RfidReaderPort — the app renders
  * whatever it is given.
  */
+// @Immutable: discovered: List<RfidReaderRow> otherwise marks this unstable (item 6,
+// perf/stability pass).
+@Immutable
 data class RfidUiState(
     val title: String,
     val statusLabel: String,

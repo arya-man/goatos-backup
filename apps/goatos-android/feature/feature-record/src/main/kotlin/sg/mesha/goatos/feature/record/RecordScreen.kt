@@ -20,6 +20,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,6 +82,9 @@ data class RecordMetaRow(
  * are backend labels (shed or drive · date · status); [groups] is the per-vaccine
  * breakdown; [meta] carries operator/window/proof or a "not started" status line.
  */
+// @Immutable: groups/meta List<T> fields otherwise mark this unstable (item 6,
+// perf/stability pass).
+@Immutable
 data class RecordUiState(
     val title: String,
     val subtitle: String,

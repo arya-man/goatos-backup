@@ -102,3 +102,11 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
+
+// Compose compiler stability/metrics reports (item 6: perf/stability audit). Written under
+// build/compose_metrics (*-classes.txt / *-composables.txt: stability per class/composable) and
+// build/compose_reports (*-module.json). Regenerate with `./gradlew :<module>:assembleDevDebug`.
+composeCompiler {
+    metricsDestination = layout.buildDirectory.dir("compose_metrics")
+    reportsDestination = layout.buildDirectory.dir("compose_reports")
+}

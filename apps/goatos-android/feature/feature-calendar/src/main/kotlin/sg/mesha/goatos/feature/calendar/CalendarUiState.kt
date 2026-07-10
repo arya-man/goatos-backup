@@ -1,5 +1,7 @@
 package sg.mesha.goatos.feature.calendar
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Calendar screen state (TRD §14 dumb-renderer). Every visible label, status,
  * count, action, and drill target is a backend-provided FIELD — the screen never
@@ -73,12 +75,18 @@ data class CalendarHistoryRow(
 )
 
 /** The `ovl-day` sheet: the sheds for a tapped month day (surfaced as a bottom section). */
+@Immutable
 data class DaySheetUiState(
     val title: String,
     val items: List<CalendarItem>,
     val emptyLabel: String,
 )
 
+// @Immutable: every field is a val built once from a fixed List — the compiler otherwise
+// treats the several List<T> fields below as potentially-mutable and marks the whole class
+// (and every screen that takes it as a parameter) unstable, which disables recomposition
+// skipping. See build/compose_reports/*-classes.txt (item 6, perf/stability pass).
+@Immutable
 data class CalendarUiState(
     val eyebrow: String = "",
     val title: String = "",
