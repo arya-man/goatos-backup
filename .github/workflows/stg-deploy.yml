@@ -1,0 +1,119 @@
+name: stg-deploy
+
+on:
+  push:
+    branches: [stg]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: stg-deploy
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: goatos-stg
+  PROJECT_NUMBER: "514832198871"
+  REGION: asia-south1
+  ARTIFACT_REPOSITORY: goatos
+  API_SERVICE: goatos-api-stg
+  ADMIN_WEB_SERVICE: goatos-admin-web-stg
+  MIGRATE_JOB: goatos-stg-migrate
+  STG_API_URL: https://goatos-api-stg-awtrpmn4za-el.a.run.app
+  STG_DASHBOARD_URL: https://stg.dashboard.mesha.sg
+  BACKEND_JOBS: |
+    goatos-stg-calendar-escalation-sweeper
+    goatos-stg-calendar-projector
+    goatos-stg-calendar-reminder-sweeper
+    goatos-stg-domain-event-consumer
+    goatos-stg-domain-event-processed-sweeper
+    goatos-stg-idempotency-key-sweeper
+    goatos-stg-inventory-batch-reconciler
+    goatos-stg-notification-dispatcher
+    goatos-stg-obligation-sweeper
+    goatos-stg-outbox-relay
+    goatos-stg-partition-maintainer
+    goatos-stg-sop-review-fanout-retry
+    goatos-stg-vaccination-generator
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip stg deploy]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GOATOS_STG_WIF_PROVIDER }}
+          service_account: ${{ vars.GOATOS_STG_DEPLOYER_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+      - name: Compute image tags
+        run: |
+          image_tag="${GITHUB_SHA::12}"
+          registry="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}"
+          {
+            echo "IMAGE_TAG=${image_tag}"
+            echo "BACKEND_IMAGE=${registry}/backend:${image_tag}"
+            echo "MIGRATION_IMAGE=${registry}/migrate:${image_tag}"
+            echo "ADMIN_WEB_IMAGE=${registry}/admin-web:${image_tag}"
+          } >> "$GITHUB_ENV"
+      - name: Build and push backend image
+        run: docker buildx build --platform linux/amd64 --push -f backend/Dockerfile -t "$BACKEND_IMAGE" .
+      - name: Build and push migration image
+        run: docker buildx build --platform linux/amd64 --push -f backend/Dockerfile.migrate -t "$MIGRATION_IMAGE" .
+      - name: Build and push admin-web image
+        run: docker buildx build --platform linux/amd64 --push -f apps/admin-web/Dockerfile -t "$ADMIN_WEB_IMAGE" .
+      - name: Update and run migrations
+        run: |
+          gcloud run jobs update "$MIGRATE_JOB" \
+            --project="$PROJECT_ID" \
+            --region="$REGION" \
+            --image="$MIGRATION_IMAGE" \
+            --quiet
+          gcloud run jobs execute "$MIGRATE_JOB" \
+            --project="$PROJECT_ID" \
+            --region="$REGION" \
+            --wait \
+            --quiet
+      - name: Deploy backend API service
+        run: |
+          gcloud run services update "$API_SERVICE" \
+            --project="$PROJECT_ID" \
+            --region="$REGION" \
+            --image="$BACKEND_IMAGE" \
+            --update-labels="commit_sha=${IMAGE_TAG},deployed_by=github-actions" \
+            --quiet
+      - name: Update backend worker jobs
+        run: |
+          while IFS= read -r job; do
+            [ -n "$job" ] || continue
+            gcloud run jobs update "$job" \
+              --project="$PROJECT_ID" \
+              --region="$REGION" \
+              --image="$BACKEND_IMAGE" \
+              --quiet
+          done <<< "$BACKEND_JOBS"
+      - name: Deploy admin-web service
+        run: |
+          gcloud run services update "$ADMIN_WEB_SERVICE" \
+            --project="$PROJECT_ID" \
+            --region="$REGION" \
+            --image="$ADMIN_WEB_IMAGE" \
+            --update-labels="commit_sha=${IMAGE_TAG},deployed_by=github-actions" \
+            --quiet
+      - name: Smoke staging API and dashboard
+        run: |
+          for path in livez readyz; do
+            code="$(curl -fsS -o /dev/null -w '%{http_code}' "${STG_API_URL}/${path}")"
+            if [ "$code" != "204" ]; then
+              echo "${STG_API_URL}/${path} returned ${code}, expected 204"
+              exit 1
+            fi
+          done
+          curl -fsSIL "${STG_DASHBOARD_URL}/login" >/dev/null
+          echo "Staging smoke passed for ${STG_API_URL} and ${STG_DASHBOARD_URL}/login"

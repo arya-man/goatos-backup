@@ -252,7 +252,7 @@ function AnimalRosterCard({
 }
 
 // Shed-wise vaccination detail — planned sessions (with capacity), per-vaccine breakdown, and the shed's
-// animal roster. Rendered at /vaccination/execution/sheds/{shedId}. Back returns to the board's exact
+// animal roster. Route: /vaccination/execution/sheds/{shedId}. Back returns to the board's exact
 // filtered/paginated state via the ?ret param the board attached; falls back to /vaccination#sheds.
 export async function VaccinationShedDetailPage({
   shedId,

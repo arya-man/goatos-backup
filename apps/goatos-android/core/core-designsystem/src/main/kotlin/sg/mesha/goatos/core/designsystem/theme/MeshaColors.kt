@@ -43,6 +43,7 @@ object MeshaColors {
     val PurpleX = Color(0x26A78BF5) // rgba(167,139,245,.15)
     val Info = Color(0xFF5B9BE8) // blue info accent (sheds status)
     val InfoX = Color(0x295B9BE8)
+    val GoogleBrandBlue = Color(0xFF4285F4)
 
     // White overlay for pills on the bright brand hero (mock rgba(255,255,255,.2)).
     val Overlay = Color(0x33FFFFFF)

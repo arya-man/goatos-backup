@@ -37,6 +37,35 @@ architecture/context index and agent skill references. Once adopted, Phase B
 implementation must conform to this orchestration, repair-boundary, liveness,
 and notification contract.
 
+### 0.1 Runtime Feature Flag
+
+Kernel audit is opt-in runtime behavior. The entire audit system must sit behind
+an explicit global flag, default `false` in every environment:
+
+```text
+GOATOS_KERNEL_AUDIT_ENABLED=false
+```
+
+Implementation can back this with environment config, app config, or a feature
+flag service, but the runtime contract is the same:
+
+- if the global flag is off, `backend/cmd/kernel-audit` exits as a no-op;
+- no scheduled audit sweeps are enqueued or executed;
+- no watchdog/dead-man alerts fire for missing audit runs;
+- no Slack audit summaries or P0/P1 audit alerts are sent;
+- no `kernel_audit_runs`, findings, repairs, repair proofs, cap claims, or
+  suppressions are written by audit runtime;
+- no self-healing, projection rebuild request, notification request, or owning
+  repair-port call is attempted;
+- sub-flags such as report-only, auto-repair, tenant allowlists, or Slack
+  delivery cannot override the global off switch.
+
+Schema migrations, static CI/`make ai-doctor` manifest checks, and docs can
+exist while the flag is off. Runtime execution must remain disabled until an
+operator deliberately enables the flag. If a per-tenant or per-module allowlist
+is added later, both the global flag and the narrower allowlist must be enabled;
+global off always wins.
+
 ## 1. Purpose
 
 Goat OS is an event-driven operational kernel. A business fact such as birth,
@@ -88,7 +117,10 @@ graphs, and legacy repositories. Important source anchors:
   shift, exit, batch, stock, feed generation, and booster behavior.
 - `docs/protocol-engine/high-scale-kernel-validation-plan.md`: reconciliation
   must prove expected-vs-actual counts by tenant, park, category, protocol
-  version, rule, and cohort.
+  version, rule, and cohort; rule resolution is cached by
+  `(tenant, park, category, as_of)` and projection accuracy must reconcile due,
+  overdue, missed, deferred, suppressed, canceled, completed, and exception
+  buckets.
 - `docs/preventive-care-vaccination/vaccination-rules.md`: vaccination timing,
   pregnancy holds, warm-up, trusted source, same-day compatibility, defer and
   recovery behavior.
@@ -145,7 +177,7 @@ Never fabricate source facts.
 
 ## 4. Schedule And Delivery
 
-Default audit cadence:
+Default audit cadence when `GOATOS_KERNEL_AUDIT_ENABLED=true`:
 
 | Run | Proposed IST time | Purpose |
 | --- | --- | --- |
@@ -179,9 +211,10 @@ Slack implementation rule:
 
 ### 4.1 Liveness And Meta-Monitoring
 
-Audit has to be audited. Every expected sweep writes a `kernel_audit_runs`
-heartbeat with schedule key, tenant/scope window, started time, heartbeat time,
-deadline, completed time, status, code SHA, config hash, and report-delivery
+Audit has to be audited, but only when the runtime flag is enabled. Every
+expected sweep writes a `kernel_audit_runs` heartbeat with schedule key,
+tenant/scope window, started time, heartbeat time, deadline, completed time,
+status, code SHA, config hash, flag state, input windows, and report-delivery
 state.
 
 A small watchdog checks:
@@ -196,6 +229,8 @@ A small watchdog checks:
 Meta-alert truth must live outside Slack. Slack is last-mile delivery only. P0/P1
 meta-alerts should also flow to Cloud Monitoring, email/PagerDuty-style webhook,
 or an operator incident channel so a Slack outage does not hide audit failure.
+When the global audit flag is off, the watchdog must not alert merely because
+scheduled audit runs are absent.
 
 ## 5. Core Data Model
 
@@ -213,11 +248,26 @@ safely.
 | `kernel_audit_invariant_versions` | Versioned registry of invariant packs. Each pack is tied to tenant/category/module/source owner, rule source, code owner, and pack hash. |
 | `kernel_audit_runs` | One row per sweep with `tenant_id`, run type, operational scope, schedule key, started/heartbeat/deadline/completed time, status, code SHA, config hash, input windows, watermarks, skipped scopes, and totals. Hot indexes: `(tenant_id, status, started_at)`, `(tenant_id, schedule_key, deadline_at)`, and `(tenant_id, scope_type, scope_id, started_at)`. |
 | `kernel_audit_findings` | Durable finding rows with `tenant_id`, `run_id`, invariant ID, category, subject type/id, scope type/id, severity, status, owner, evidence, expected, actual, first/last seen, and resolution state. Hot indexes: `(tenant_id, status, severity, last_seen_at)`, `(tenant_id, category, status, last_seen_at)`, `(tenant_id, subject_type, subject_id)`, and a dedupe key. |
-| `kernel_audit_repairs` | Repair requests and outcomes with `tenant_id`, `run_id`, finding ID, owning module, repair port/command, confidence level, dry-run diff hash, idempotency key, before/after hashes, affected rows, status, error, rollback/replay notes, verifier result, `trace_id`, `correlation_id`, and `causation_id`. Hot indexes: `(tenant_id, status, created_at)`, `(tenant_id, idempotency_key)`, `(tenant_id, finding_id)`, and `(tenant_id, trace_id)`. |
-| `kernel_audit_repair_proofs` | Immutable proof packet for each repair attempt: source event IDs, canonical row references, rule/protocol version, expected state, actual state, precondition result, dry-run diff, before/after snapshots or hashes, verification query, verifier result, and linked operation/audit rows. Hot indexes: `(tenant_id, repair_id)`, `(tenant_id, subject_type, subject_id)`, and `(tenant_id, correlation_id)`. |
+| `kernel_audit_repairs` | Repair requests and outcomes with `tenant_id`, `run_id`, finding ID, owning module, repair port/command, confidence level, dry-run diff hash, expected-version/precondition token, idempotency key, before/after hashes, affected rows, status, error, rollback/replay notes, verifier result, `trace_id`, `correlation_id`, and `causation_id`. Hot indexes: `(tenant_id, status, created_at)`, `(tenant_id, idempotency_key)`, `(tenant_id, finding_id)`, `(tenant_id, trace_id, created_at)`, `(tenant_id, correlation_id, created_at)`, and `(tenant_id, causation_id, created_at)`. |
+| `kernel_audit_repair_proofs` | Immutable proof packet for each repair attempt: source event IDs, canonical row references, rule/protocol version, expected state, actual state, precondition result, dry-run diff, before/after snapshots or hashes, verification query, verifier result, and linked operation/audit rows. Hot indexes: `(tenant_id, repair_id)`, `(tenant_id, subject_type, subject_id, created_at, repair_id)`, `(tenant_id, invariant_id, created_at, repair_id)`, `(tenant_id, trace_id, created_at)`, `(tenant_id, correlation_id, created_at)`, `(tenant_id, causation_id, created_at)`, and cursor/time access for repair-run pages. Partition by tenant/time or time with tenant-leading local indexes before millions-scale retention. |
 | `kernel_audit_repair_limits` | Per-tenant, per-invariant, per-category repair caps and circuit-breaker state. Stores dry-run-only flags, max repairs per run/day, confidence threshold, owner approval requirement, and last tripped reason. Hot indexes: `(tenant_id, invariant_id, status)` and `(tenant_id, tripped_at)`. |
+| `kernel_audit_repair_cap_buckets` | One counter row per tenant/invariant/category/repair type/confidence level/period bucket. `UNIQUE(tenant_id, invariant_id, category, repair_type, confidence_level, period_start, period_end)` is the serialization anchor for quota claims. The bucket counter is the authoritative cap-enforcement state. Stores limit, reserved, consumed, refunded, circuit-breaker state, row version, and updated time. |
+| `kernel_audit_repair_cap_claims` | Reservation rows under a cap bucket for mutation-capable repairs. Each row has `tenant_id`, `bucket_id`, `reservation_id`, requested/applied/refunded counts, status, expiry, and linked repair/proof IDs. Hot indexes: `(tenant_id, bucket_id, status)`, `(tenant_id, reservation_id)`, `(tenant_id, status, expires_at)`, and `(tenant_id, status, updated_at)` for `needs_reconcile` age checks. |
+| `kernel_audit_scope_claims` | Single-flight leases for audit runner scope pages so overlapping orchestrator instances do not double-scan or double-repair the same tenant/scope/window. Claims use `FOR UPDATE SKIP LOCKED` or equivalent lease-safe semantics, heartbeat, expiry, reclaim status, owner identity, and a tenant-fair queue cursor so `SKIP LOCKED` cannot let a noisy tenant dominate every claim cycle. |
 | `kernel_audit_suppressions` | Explicit reviewed suppressions with `tenant_id`, invariant/category, subject/scope, reason, expiry, approver, source evidence, and status. Hot indexes: `(tenant_id, status, expires_at)` and `(tenant_id, invariant_id, scope_type, scope_id)`. |
 | `kernel_audit_slack_deliveries` | Delivery ledger for Slack messages, retry state, durable notification/report request ID, payload hash, channel, permalink if available, and exhausted-delivery reason. Hot indexes: `(tenant_id, status, next_attempt_at)` and `(tenant_id, request_id)`. |
+
+Audit ledgers must have explicit retention, archive, and partition rollover
+before millions-scale runs. Hot partitions keep active/open findings, recent
+runs, recent repairs, live cap claims, and retryable deliveries. Closed
+findings, completed repair proofs, old runs, old Slack deliveries, and expired
+cap claims roll to cold/archive partitions by tenant/time after the configured
+replay and investigation window. Operations Audit trace lookup must either span
+hot and archive partitions transparently or publish an explicit trace-retrieval
+window; acceptance cannot promise trace-from-any-subject while the archive path is
+unqueryable. A `kernel-audit-retention` sweeper or the shared
+`partition-maintainer` owns rollover, expiry, archive export, and index bloat
+checks; no audit table may grow forever by default.
 
 Findings should flow into command lenses:
 
@@ -263,21 +313,27 @@ workflow ticket, calendar surface, or business rule, it must update or add the
 relevant audit pack in the same change.
 ```
 
-CI should eventually fail from manifest/static detection when it detects:
+Initial CI/`make ai-doctor` enforcement should fail from registry/manifest
+presence checks when it detects:
 
 - new `protocol_definitions.category` without an audit pack;
-- new domain event schema without expected-artifact mapping;
+- new domain event schema without an audit-pack entry and source pointer;
 - new obligation strategy, batch strategy, or repair policy without invariant
-  coverage;
-- new obligation status or transition without an invariant update;
+  registry coverage;
+- new obligation status or transition without an invariant registry update;
 - new notification, reminder, escalation, or reporting policy without delivery
-  and state coverage;
+  and state coverage registration;
 - new projection/read model, metric, command-lens, workflow ticket, or calendar
-  surface without parity expectations;
-- new business rule or rule DSL path without detect/repair/non-repair policy;
+  surface without parity-expectation registration;
+- new business rule or rule DSL path without detect/repair/non-repair policy
+  registration;
 - new sweeper/worker without run-ledger and audit coverage;
 - new Slack/reporting route without delivery ledger and retry behavior;
 - future PRD/TRD missing an `Audit And Reconciliation` section.
+
+Deeper semantic checks that prove every expected artifact is fully mapped can
+come after the audit-pack manifest format is stable. The first gate should be
+portable and mechanical enough for `make ai-doctor` and normal CI.
 
 ## 7. Detection And Repair Classes
 
@@ -324,9 +380,9 @@ detect mismatch
   -> write finding
   -> build repair plan
   -> dry-run expected diff
-  -> re-check preconditions
-  -> enforce repair cap / confidence threshold
-  -> call owning module repair service
+  -> re-check preconditions and capture expected-version token
+  -> atomically reserve repair cap / enforce confidence threshold
+  -> call owning module repair service with expected-version token
   -> emit repair/status/audit/outbox events through owner
   -> verify invariant again
   -> close, retry, revert request, or escalate
@@ -346,6 +402,7 @@ expected state
 actual state
 dry-run diff
 precondition query and result
+expected row versions / source watermarks / invariant input hash
 owning repair port/service/command
 idempotency key
 before snapshot or hash
@@ -355,6 +412,7 @@ affected row count
 repair status: proposed / skipped / applied / verified / failed / escalated
 trace_id / correlation_id / causation_id
 links to audit rows, status events, outbox rows, notifications, and Slack digest
+cap reservation ID when a mutation-capable repair is attempted
 ```
 
 The default decision rule:
@@ -372,6 +430,14 @@ detection and repair, the repair must skip, write `precondition_changed`, and
 let the next audit window re-evaluate. This prevents self-healing from racing a
 real worker and undoing valid state.
 
+Owning repair ports must accept an expected-version/precondition token captured
+at the final precondition check. The token should include the row versions,
+source-event watermarks, and invariant input hash needed by that module. If a
+live worker writes a newer state between audit precondition and repair apply,
+the owning port returns `precondition_changed` and performs no mutation. Audit
+idempotency alone is not enough protection against a different concurrent live
+write.
+
 Confidence levels:
 
 | Level | Examples | Default action |
@@ -384,6 +450,8 @@ Blast-radius controls:
 
 - per-run and per-day caps by tenant, invariant, category, repair type, and
   subject type;
+- caps must be enforced through atomic period-bucketed reservations, not a
+  read-then-write check that concurrent workers can race;
 - dry-run-only mode for new invariants and newly changed business rules;
 - automatic circuit breaker when expected affected rows exceed cap, verifier
   fails, repeated repairs hit the same subject, or same-key/different-payload
@@ -391,6 +459,43 @@ Blast-radius controls:
 - sample review requirement before promoting a `controlled_derived` repair from
   report-only to auto-fix;
 - kill switch per invariant and per tenant.
+
+Atomic cap reservation contract:
+
+- the runner computes the cap bucket from tenant, invariant, category, repair
+  type, confidence level, and period window such as run/day;
+- each bucket has exactly one `kernel_audit_repair_cap_buckets` row protected by
+  `UNIQUE(tenant_id, invariant_id, category, repair_type, confidence_level,
+  period_start, period_end)`;
+- the quota claim updates the bucket counter row and writes the
+  `kernel_audit_repair_cap_claims`, `kernel_audit_repairs`, and initial proof
+  packet in one transaction with a unique `reservation_id`;
+- the transaction must lock or compare-and-update the bucket row, or run under a
+  serializable retry loop, so `reserved_count + claim_count <= limit` is
+  enforced by the database under concurrent workers;
+- a worker may call the owning repair service only after the reservation commits
+  and the repair request references the `reservation_id`;
+- skipped, precondition-changed, dry-run-only, or owner-rejected repairs release
+  or refund the reservation in a replay-safe transaction;
+- applied repairs keep the reservation consumed even if post-repair verification
+  later fails, so repeated bad repairs trip the circuit breaker instead of
+  cycling through refunded capacity;
+- expired in-flight reservations are not blindly refunded. The watchdog first
+  reconciles against `kernel_audit_repairs`, proof rows, owning service audit
+  rows, and status/outbox evidence. If the owning repair committed, the
+  reservation is consumed; if it provably did not commit, it is refunded; if
+  outcome is unclear, the reservation becomes `needs_reconcile` and counts
+  against the cap until an operator or deterministic verifier resolves it;
+- `needs_reconcile` is fail-safe, not silent. Expose count and oldest-age metrics
+  by tenant, invariant, repair type, and bucket window; alert when count or age
+  crosses the cap-ledger SLO so ambiguous crash outcomes cannot quietly exhaust a
+  bucket and block all future repairs;
+- `kernel_audit_repair_cap_buckets` is authoritative for cap enforcement.
+  `kernel_audit_repair_cap_claims` is the explainable ledger underneath it. A
+  periodic self-audit must check bucket/claim parity, including
+  `bucket.reserved == SUM(open claim.requested)` and consumed/refunded totals for
+  closed claims. Drift opens a P1 audit-system finding and blocks mutation-capable
+  repairs for that bucket until reconciled.
 
 Traceability rules:
 
@@ -407,7 +512,8 @@ Operator surfaces:
 
 - Operations Audit needs a repair detail page with evidence, dry-run diff,
   before/after hashes, verifier result, owning service, idempotency key, and
-  full trace chain;
+  full trace chain across hot and archived partitions, or a visible retention
+  window when older traces have intentionally expired;
 - Control Tower needs repair health by category: repaired, skipped,
   precondition-changed, failed, escalated, repeated, and circuit-broken;
 - Action Center needs owner-visible process exceptions for every non-repairable
@@ -476,6 +582,9 @@ Detect:
 - pregnancy month 4/5 animals have schedulable vaccination work;
 - deferred sick/ICU/quarantine/pregnancy animals do not reopen or micro-drive
   after recovery;
+- recovered deferred animals do not rejoin a compatible drive within 7
+  location-local calendar days or get a micro-drive scheduled inside that
+  recovery buffer;
 - trusted procurement holding-park history suppresses work correctly, while
   third-party/vendor claims do not;
 - same-day compatibility, max two shots, priority, one-time batching hold, and
@@ -531,6 +640,9 @@ Detect:
 - status event ledger missing for obligation transition;
 - verification fanout did not publish completion/rejection event;
 - in-progress work expired but not marked missed/rework;
+- missed/overdue/due bucket is derived from current obligation status alone
+  instead of as-of-effective state reconstructed from due window,
+  `completed_at`, status events, and sweeper-persisted missed markers;
 - UI shows action enabled when backend says disabled.
 
 Auto-fix:
@@ -592,6 +704,12 @@ Detect:
 
 - `scheduled` rows past due not promoted to `due`;
 - due rows past SLA not marked missed or escalated;
+- as-of due/missed/overdue bucket is computed from UTC or server-default date
+  instead of the location-local business calendar;
+- persisted missed state disagrees with the as-of-effective expectation for the
+  audited window;
+- read-time overdue projections disagree with as-of-effective due/completion
+  state;
 - reminder/nudge/escalation policy threshold crossed without durable intent;
 - notification request exhausted without operator visibility;
 - sweeper scans unbounded windows or lacks tenant/date/status index shape;
@@ -876,6 +994,7 @@ Per-sweep Slack message should be shorter:
 ```text
 Goat OS audit sweep 12:00 IST: P0=0 P1=1 P2=4 auto_repaired=12 blocked=2.
 Top issue: feed safe input blocked for tomorrow in 2 sheds.
+run=<url> top_proofs=<url>
 ```
 
 ## 11. Severity Model
@@ -904,6 +1023,8 @@ Top issue: feed safe input blocked for tomorrow in 2 sheds.
 
 - Implement `backend/cmd/kernel-audit` in report-only mode as orchestrator,
   normalizer, run ledger, finding ledger, and reporter.
+- Gate the command, scheduler, watchdog, Slack delivery, and any repair request
+  behind `GOATOS_KERNEL_AUDIT_ENABLED`; default off must be a no-op.
 - Record `kernel_audit_runs` and `kernel_audit_findings`.
 - Add expected-run liveness heartbeats and watchdog alerts before auto-repair.
 - Add repair proof packet schema before enabling any mutation-capable repair.
@@ -920,6 +1041,10 @@ Top issue: feed safe input blocked for tomorrow in 2 sheds.
 - Every repair has a verifier query and explicit owner module.
 - Every repair stores dry-run diff, precondition result, proof packet,
   before/after hashes, trace IDs, and post-repair verifier result.
+- Every mutation-capable repair reserves cap capacity atomically in the same
+  transaction as the repair request and initial proof packet, using a
+  reservation ID that is consumed, refunded, expired, or circuit-broken
+  explicitly.
 - Add per-tenant and per-invariant repair caps, dry-run-only flags, confidence
   thresholds, and kill switches before enabling `controlled_derived` repairs.
 - Same-key different-payload is a conflict, never a repair.
@@ -935,8 +1060,12 @@ Top issue: feed safe input blocked for tomorrow in 2 sheds.
 
 ### Phase E - Future-feature enforcement
 
-- Add CI checks for new event/category/status/worker/projection/metric/ticket/
-  calendar/notification/business-rule surfaces without audit pack update.
+- Add manifest/registry-presence checks for new event/category/status/worker/
+  projection/metric/ticket/calendar/notification/business-rule surfaces without
+  audit pack registration.
+- Hook the presence checks into `make ai-doctor`/CI first; keep deeper semantic
+  expected-artifact validation as a later implementation gate once the audit
+  pack manifest format is stable.
 - Add codegen or manifest validation so audit runner picks up new packs.
 - Require audit-pack status in phase closeout.
 
@@ -957,6 +1086,8 @@ The audit runner must follow the same high-scale rules as the kernel:
 - no full-herd scans;
 - no `OFFSET` on hot tables;
 - keyset pagination by tenant/scope/date/status/cursor;
+- scope/page claims use `FOR UPDATE SKIP LOCKED`, lease single-flight, or an
+  equivalent claim table with heartbeat and stale-claim reclaim;
 - bounded worker pool;
 - one page/batch per transaction;
 - deterministic idempotency keys;
@@ -966,6 +1097,14 @@ The audit runner must follow the same high-scale rules as the kernel:
 - tenant-fair claim order;
 - query-plan validation for hot checks;
 - clear freshness envelope for report data.
+
+Tenant fairness is an ordering contract, not a side effect of `SKIP LOCKED`.
+The scheduler must maintain a tenant-fair queue, round-robin cursor, weighted
+fair cursor, or equivalent per-tenant claim budget before it enters
+`FOR UPDATE SKIP LOCKED` page claims. `SKIP LOCKED` prevents double-claiming
+inside the selected queue slice; it must not be the only mechanism deciding which
+tenant receives the next worker page. Under skewed load, quiet tenants must still
+receive progress and visible skipped-scope reasons.
 
 ### Reconciliation Strategy
 
@@ -981,12 +1120,25 @@ cursor checkpoints, and explicit skipped-scope reasons. A routine sweep must not
 scan the whole herd, all tickets, all calendar rows, or all HRMS/workforce rows
 just because one invariant changed.
 
+Temporal reconciliation must be as-of-effective. Missed/overdue checks should
+reconstruct expected state for the audit window from due dates, SLA windows,
+`completed_at`, status-event history, and sweeper-persisted missed markers.
+Day boundaries must resolve through the subject location's business calendar
+timezone, with the current fallback/default as `Asia/Kolkata` where no more
+specific location timezone exists. The auditor must not compute medical or
+calendar-day buckets with `time.Now().UTC().Date()`, server-local defaults, or
+raw UTC date truncation. It also must not bucket directly from current
+`oi.status`, because current status can encode the bug being audited. Persisted
+`missed` and read-time `overdue` must be reconciled against the same
+location-local as-of expectation before the auditor creates or closes findings.
+
 An audit finding is not allowed to be based on stale or partial data without
 saying so. Reports must include input windows, projection freshness, source
 watermarks, and skipped/deferred scan reasons.
 
 ## 14. Non-Goals
 
+- Do not run kernel audit runtime unless `GOATOS_KERNEL_AUDIT_ENABLED=true`.
 - Do not resurrect legacy Slack/App Script as Goat OS runtime.
 - Do not use Slack as canonical truth.
 - Do not let AI agents apply business fixes.
@@ -1000,39 +1152,59 @@ watermarks, and skipped/deferred scan reasons.
   verification.
 - Do not allow unlimited auto-fix volume for any invariant, tenant, or repair
   type.
+- Do not enforce repair caps with a non-atomic read/check/write sequence.
+- Do not reconcile due/missed/overdue buckets from current status alone.
+- Do not compute user-facing medical, recovery, due, missed, or overdue
+  calendar-day buckets in UTC when the business rule is location-local.
 - Do not turn daily digest into a noisy dump of every P3 hygiene issue.
 
 ## 15. Acceptance Criteria
 
 The plan is implemented when:
 
-1. Four scheduled audit sweeps run daily with durable run rows.
-2. Expected-run watchdogs alert when sweeps, daily digest, Slack delivery, or
-   the watchdog itself miss heartbeat/deadline.
-3. Daily Slack digest reaches `#goatos-audit`.
-4. P0/P1 findings alert promptly through durable notification/report requests
+1. `GOATOS_KERNEL_AUDIT_ENABLED` defaults off, and off means no runner, schedule,
+   watchdog alert, Slack audit delivery, finding write, repair request, or
+   self-healing action.
+2. When the flag is enabled, four scheduled audit sweeps run daily with durable
+   run rows that record the flag state.
+3. Expected-run watchdogs alert when enabled sweeps, daily digest, Slack
+   delivery, or the watchdog itself miss heartbeat/deadline.
+4. Daily Slack digest reaches `#goatos-audit`.
+5. P0/P1 findings alert promptly through durable notification/report requests
    and link to Operations Audit/Action Center.
-5. Vaccination birth/procurement/completion/exit/defer/recovery cases reconcile
+6. Vaccination birth/procurement/completion/exit/defer/recovery cases reconcile
    expected-vs-actual obligations and projections.
-6. Event spine, outbox, DLQ, sweepers, notification intent, and projection
+7. Event spine, outbox, DLQ, sweepers, notification intent, and projection
    freshness are covered.
-7. Auto-repair is restricted to deterministic derived artifacts, executed
+8. Auto-repair is restricted to deterministic derived artifacts, executed
    through owning module repair ports/services/commands, verified, and fully
    audited.
-8. Every repair has a durable proof packet with source evidence, dry-run diff,
+9. Every repair has a durable proof packet with source evidence, dry-run diff,
    preconditions, before/after hashes, verifier result, idempotency key, and
    trace/correlation/causation IDs.
-9. Repair caps, confidence levels, dry-run mode, circuit breakers, and kill
-   switches prevent broad accidental mutation at tenant and invariant scale.
-10. Missing source truth creates process exceptions, not fabricated data.
-11. Protocol Adherence percentages, ticket counts, notification state, calendar
-   state, and command-lens projections reconcile from canonical state.
-12. Operations Audit can trace from any repaired subject to finding, source
-   evidence, owning repair service, emitted events, notifications, projections,
-   and Slack report link.
-13. Feed Direction, HRMS/workforce, and every future feature can register an
+10. Repair caps, confidence levels, dry-run mode, circuit breakers, and kill
+    switches prevent broad accidental mutation at tenant and invariant scale;
+    cap reservations are atomic and period-bucketed under concurrent workers,
+    using a unique cap-bucket serialization row, cap bucket counters are the
+    authoritative enforcement source, claim parity is self-audited, and
+    `needs_reconcile` count/age alerts prevent silent cap starvation.
+11. Missing source truth creates process exceptions, not fabricated data.
+12. Protocol Adherence percentages, ticket counts, notification state, calendar
+   state, and command-lens projections reconcile from canonical state using
+   location-local calendar day semantics for user-facing due/missed/overdue and
+   recovery windows.
+13. Operations Audit can trace from any repaired subject to finding, source
+    evidence, owning repair service, emitted events, notifications, projections,
+    and Slack report link across hot and archive partitions, or it publishes an
+    explicit trace-retrieval retention window.
+14. Feed Direction, HRMS/workforce, and every future feature can register an
    audit pack before it ships.
-14. CI blocks new kernel events/categories/statuses/workers/projections/metrics/
-   tickets/calendar surfaces/business rules without audit coverage.
-15. High-scale validation proves audit scans, repair proof lookup, and trace
-   traversal are bounded and tenant-fair.
+15. CI blocks new kernel events/categories/statuses/workers/projections/metrics/
+   tickets/calendar surfaces/business rules without audit-pack registry
+   coverage.
+16. High-scale validation proves audit scans, repair proof lookup, and trace
+   traversal are bounded and tenant-fair, including lookups by invariant,
+   trace ID, correlation ID, subject, repair, and time cursor.
+17. Audit tables have a documented retention, archive, and partition-rollover
+    policy, and scope claims are both lease-safe against overlapping
+    orchestrators and tenant-fair under skewed load.

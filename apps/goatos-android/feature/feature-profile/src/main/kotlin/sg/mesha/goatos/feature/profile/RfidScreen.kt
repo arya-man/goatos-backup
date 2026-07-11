@@ -66,17 +66,16 @@ data class RfidReaderRow(
 )
 
 /**
- * Everything the RFID pairing surface renders. Header title, status text, the
- * paired reader name/detail, the discovered list, the primary action label, and
- * the test-read label all come from the backend/RfidReaderPort — the app renders
- * whatever it is given. All static strings are rendered via stringResource() based
- * on the detail status enum.
+ * Everything the RFID pairing surface renders. The header title and all status/action text
+ * are static strings rendered here via stringResource() (keyed off the detail-status enum) —
+ * NOT passed in from the ViewModel. Only genuinely dynamic data is state: [readerName] is the
+ * real device name from the RfidReaderPort (rendered verbatim, never localized) or null when
+ * the port has no standing name.
  */
 // @Immutable: discovered: List<RfidReaderRow> otherwise marks this unstable (item 6,
 // perf/stability pass).
 @Immutable
 data class RfidUiState(
-    val title: String,
     val detailStatus: RfidDetailStatus,
     val connectionState: RfidConnectionState,
     val readerName: String? = null,
@@ -149,7 +148,7 @@ fun RfidScreen(
             .background(MeshaColors.Bg),
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
-        item { RfidHeader(state.title) }
+        item { RfidHeader() }
         item { RfidDeviceHero(state) }
         if (state.discovered.isNotEmpty()) {
             items(state.discovered.size) { index ->
@@ -162,9 +161,9 @@ fun RfidScreen(
 }
 
 @Composable
-private fun RfidHeader(title: String) {
+private fun RfidHeader() {
     Text(
-        text = title,
+        text = stringResource(R.string.rfid_title),
         color = MeshaColors.Ink,
         fontSize = 22.sp,
         fontWeight = FontWeight.W700,
@@ -311,10 +310,9 @@ private fun RfidScreenPreview() {
     GoatOsTheme {
         RfidScreen(
             state = RfidUiState(
-                title = "RFID reader",
                 detailStatus = RfidDetailStatus.READY,
                 connectionState = RfidConnectionState.CONNECTED,
-                readerName = "Chainway R3",
+                readerName = "Chainway R3", // a real device name from the port renders verbatim
             ),
         )
     }

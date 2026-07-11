@@ -1,3 +1,6 @@
+import com.android.build.api.variant.HasHostTestsBuilder
+import com.android.build.api.variant.HostTestBuilder
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -63,7 +66,7 @@ android {
                 groups = (project.findProperty("fadGroups") as String?) ?: "goatos-testers"
                 (project.findProperty("fadTesters") as String?)?.let { testers = it }
                 releaseNotes = (project.findProperty("fadReleaseNotes") as String?)
-                    ?: "Goat OS (Mesha) stg debug build"
+                    ?: "Goat OS (Mesha) stg release build"
             }
         }
         create("prod") {
@@ -159,4 +162,17 @@ dependencies {
 composeCompiler {
     metricsDestination = layout.buildDirectory.dir("compose_metrics")
     reportsDestination = layout.buildDirectory.dir("compose_reports")
+}
+
+androidComponents {
+    beforeVariants(
+        selector()
+            .withBuildType("release")
+            .withFlavor("env" to "stg"),
+    ) { variantBuilder ->
+        (variantBuilder as HasHostTestsBuilder)
+            .hostTests
+            .get(HostTestBuilder.UNIT_TEST_TYPE)
+            ?.enable = true
+    }
 }

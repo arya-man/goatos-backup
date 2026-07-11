@@ -40,7 +40,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -338,7 +337,7 @@ private fun DrawerHeader(profile: DrawerProfile?) {
         ) {
             Text(
                 text = profile?.initials?.ifBlank { "M" } ?: "M",
-                color = Color(0xFF08130B),
+                color = MeshaColors.OnBrand,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.W800,
             )

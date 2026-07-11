@@ -271,7 +271,6 @@ fun sampleRecordState(): RecordUiState = RecordUiState(
 )
 
 fun sampleRfidState(): RfidUiState = RfidUiState(
-    title = "RFID reader",
     detailStatus = RfidDetailStatus.READY,
     connectionState = RfidConnectionState.CONNECTED,
     readerName = "Chainway R3",
