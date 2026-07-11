@@ -774,10 +774,8 @@ WHERE tenant_id = $1 AND protocol_version_id = $2`, tenant, vid); err != nil {
 			return err
 		}
 	}
-	for _, dim := range dimensions {
-		if err := insertProtocolRuleDimensionTx(ctx, tx, tenant, vid, dim); err != nil {
-			return err
-		}
+	if err := insertProtocolRuleDimensionsTx(ctx, tx, tenant, vid, dimensions); err != nil {
+		return err
 	}
 
 	var published protocolPublishedRow
@@ -1712,10 +1710,8 @@ DELETE FROM protocol_rule_dimensions
 WHERE tenant_id = $1 AND protocol_version_id = $2`, tenant, vid); err != nil {
 		return fmt.Errorf("protocol: delete rule dimensions: %w", err)
 	}
-	for _, dim := range dimensions {
-		if err := insertProtocolRuleDimensionTx(ctx, tx, tenant, vid, dim); err != nil {
-			return err
-		}
+	if err := insertProtocolRuleDimensionsTx(ctx, tx, tenant, vid, dimensions); err != nil {
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("protocol: commit replace rule dimensions: %w", err)
@@ -1723,12 +1719,7 @@ WHERE tenant_id = $1 AND protocol_version_id = $2`, tenant, vid); err != nil {
 	return nil
 }
 
-func insertProtocolRuleDimensionTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, vid pgtype.UUID, dim domain.RuleDimension) error {
-	ruleID, err := pgconv.UUID(dim.RuleID)
-	if err != nil {
-		return fmt.Errorf("protocol: dimension rule id %q: %w", dim.RuleID, err)
-	}
-	if _, err := tx.Exec(ctx, `
+const insertProtocolRuleDimensionSQL = `
 INSERT INTO protocol_rule_dimensions (
   tenant_id, protocol_version_id, rule_id, category, ruleset_family, matrix_row_id, selector_key,
   dose_code, source_dose_code, vaccine_code, vaccine_type, pathogen_class, compatibility_group,
@@ -1739,16 +1730,41 @@ INSERT INTO protocol_rule_dimensions (
   $1, $2, $3, $4, $5, $6, $7,
   $8, $9, $10, $11, $12, $13,
   $14, $15, $16, $17, $18, $19, $20, $21, $22,
-  $23, $24, $25, $26, $27, $28, $29,
-  $30, $31, $32, $33, $34
-)`, tenant, vid, ruleID,
-		dim.Category, dim.RulesetFamily, dim.MatrixRowID, dim.SelectorKey,
-		dim.DoseCode, dim.SourceDoseCode, dim.VaccineCode, dim.VaccineType, dim.PathogenClass, dim.CompatibilityGroup,
-		dim.Species, dim.AnimalStage, dim.Sex, dim.Breed, dim.Lifecycle, dim.Health, dim.Reproductive, pgconv.Int4(dim.MinAgeDays), pgconv.Int4(dim.MaxAgeDays),
-		dim.TriggerType, dim.Sequence, dim.OffsetDays, dim.DueWindowDays, dim.MinGapDays, dim.Repeat, dim.CatchUp,
-		dim.MaxDelayDays, dim.RevaccinationIntervalDays, pgconv.JSONB(defaultJSON(dim.EligibilityJSON)), pgconv.JSONB(defaultJSON(dim.VaccineJSON)), pgconv.JSONB(defaultJSON(dim.ScheduleJSON)),
-	); err != nil {
-		return fmt.Errorf("protocol: insert rule dimension %s: %w", dim.SelectorKey, err)
+	$23, $24, $25, $26, $27, $28, $29,
+	$30, $31, $32, $33, $34
+)`
+
+// insertProtocolRuleDimensionsTx preserves the all-or-nothing publish transaction while sending
+// the compiled execution index in one pgx batch. Matrix publication previously paid one network
+// round trip per selector row, which made valid matrices exceed the repository operation deadline
+// over Cloud SQL even though every individual INSERT was small.
+func insertProtocolRuleDimensionsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, vid pgtype.UUID, dimensions []domain.RuleDimension) error {
+	if len(dimensions) == 0 {
+		return nil
+	}
+	batch := &pgx.Batch{}
+	for _, dim := range dimensions {
+		ruleID, err := pgconv.UUID(dim.RuleID)
+		if err != nil {
+			return fmt.Errorf("protocol: dimension rule id %q: %w", dim.RuleID, err)
+		}
+		batch.Queue(insertProtocolRuleDimensionSQL, tenant, vid, ruleID,
+			dim.Category, dim.RulesetFamily, dim.MatrixRowID, dim.SelectorKey,
+			dim.DoseCode, dim.SourceDoseCode, dim.VaccineCode, dim.VaccineType, dim.PathogenClass, dim.CompatibilityGroup,
+			dim.Species, dim.AnimalStage, dim.Sex, dim.Breed, dim.Lifecycle, dim.Health, dim.Reproductive, pgconv.Int4(dim.MinAgeDays), pgconv.Int4(dim.MaxAgeDays),
+			dim.TriggerType, dim.Sequence, dim.OffsetDays, dim.DueWindowDays, dim.MinGapDays, dim.Repeat, dim.CatchUp,
+			dim.MaxDelayDays, dim.RevaccinationIntervalDays, pgconv.JSONB(defaultJSON(dim.EligibilityJSON)), pgconv.JSONB(defaultJSON(dim.VaccineJSON)), pgconv.JSONB(defaultJSON(dim.ScheduleJSON)),
+		)
+	}
+	results := tx.SendBatch(ctx, batch)
+	for idx, dim := range dimensions {
+		if _, err := results.Exec(); err != nil {
+			_ = results.Close()
+			return fmt.Errorf("protocol: insert rule dimension %s (batch index %d): %w", dim.SelectorKey, idx, err)
+		}
+	}
+	if err := results.Close(); err != nil {
+		return fmt.Errorf("protocol: close rule dimension insert batch: %w", err)
 	}
 	return nil
 }

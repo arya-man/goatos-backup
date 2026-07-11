@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
 	vaccinationdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
@@ -217,6 +218,36 @@ func TestVaccinationMatrixUsesNextCycleOnlyForRepeatRows(t *testing.T) {
 	}
 	if repeats != len(vaccineOrder) {
 		t.Fatalf("repeat rows=%d, want %d", repeats, len(vaccineOrder))
+	}
+}
+
+func TestVaccinationMatrixIsPublishable(t *testing.T) {
+	raw, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("vaccinationMatrixRuleDSL: %v", err)
+	}
+	if err := protocolapp.ValidateRuleDSL([]byte(raw)); err != nil {
+		t.Fatalf("ValidateRuleDSL: %v", err)
+	}
+	if err := protocolapp.ValidatePublishable([]byte(raw)); err != nil {
+		t.Fatalf("ValidatePublishable: %v", err)
+	}
+}
+
+func TestVaccinationMatrixKeepsLegacyUnknownHealthSchedulableWithSafetyDeferrals(t *testing.T) {
+	eligibility := vaccinationSeedEligibility()
+	if got := eligibility["health"]; !reflect.DeepEqual(got, []string{"any"}) {
+		t.Fatalf("health eligibility = %#v, want [any]", got)
+	}
+	if got := eligibility["animal_stage"]; !reflect.DeepEqual(got, []string{"all"}) {
+		t.Fatalf("animal_stage eligibility = %#v, want [all]", got)
+	}
+	if got := eligibility["breed"]; !reflect.DeepEqual(got, []string{"all"}) {
+		t.Fatalf("breed eligibility = %#v, want [all]", got)
+	}
+	wantDeferrals := []string{"sick", "under_treatment", "icu", "quarantine"}
+	if got := eligibility["defer_states"]; !reflect.DeepEqual(got, wantDeferrals) {
+		t.Fatalf("defer_states = %#v, want %#v", got, wantDeferrals)
 	}
 }
 

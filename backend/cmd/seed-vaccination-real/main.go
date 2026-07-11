@@ -523,7 +523,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	}
 	committed = true
 
-	protocolService := protocolapp.NewService(protocolpg.NewRepository(pool, 0))
+	protocolService := protocolapp.NewService(protocolpg.NewRepository(pool, pgCfg.QueryTimeout))
 	if err := protocolService.PublishVersion(ctx, tenantID, versionID, nil, "seed-vaccination-real:"+versionID); err != nil {
 		return st, fmt.Errorf("publish vaccination matrix through protocol service: %w", err)
 	}
@@ -1684,18 +1684,21 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			sequenceCounter++
 			dose := def.Code + "_revac"
 			cell := scheduleRow{
-				DoseCode:            dose,
-				SourceDoseCode:      dose,
-				Sequence:            sequenceCounter,
-				TriggerType:         "after_previous_completion",
-				OffsetDays:          spec.RevaccinationDays,
-				DueWindowDays:       30,
-				DoseAmount:          def.DoseML,
-				DoseUnit:            "ml",
-				VialDoses:           def.VialDoses,
-				ScheduleNote:        "real vaccination seed source matrix",
-				RouteSite:           "subcutaneous",
-				MaxDelayDays:        7,
+				DoseCode:       dose,
+				SourceDoseCode: dose,
+				Sequence:       sequenceCounter,
+				TriggerType:    "after_previous_completion",
+				OffsetDays:     spec.RevaccinationDays,
+				DueWindowDays:  30,
+				DoseAmount:     def.DoseML,
+				DoseUnit:       "ml",
+				VialDoses:      def.VialDoses,
+				ScheduleNote:   "real vaccination seed source matrix",
+				RouteSite:      "subcutaneous",
+				// Repeat rows expose a 30-day due window, so the protocol's
+				// publishability invariant requires the maximum allowed delay to
+				// cover that full window as well.
+				MaxDelayDays:        30,
 				CourseLapsePolicy:   "preventive_care_review",
 				MinGapDays:          spec.RevaccinationDays,
 				Repeat:              "every_n_days",
@@ -1855,15 +1858,18 @@ type birthAgeWave struct {
 
 func vaccinationSeedEligibility() map[string]any {
 	return map[string]any{
-		"species":                     []string{"goat", "sheep"},
-		"animal_stage":                []string{"all"},
-		"sex":                         []string{"female", "male"},
-		"breed":                       []string{"all"},
-		"lifecycle":                   []string{"alive"},
-		"health":                      []string{"healthy"},
+		"species":      []string{"goat", "sheep"},
+		"animal_stage": []string{"all"},
+		"sex":          []string{"female", "male"},
+		"breed":        []string{"all"},
+		"lifecycle":    []string{"alive"},
+		// Legacy V2 rows commonly have no health value. Treat health as an
+		// execution-time safety gate so unknown rows remain schedulable while
+		// explicit sick/treatment/ICU/quarantine states are visibly deferred.
+		"health":                      []string{"any"},
 		"reproductive":                []string{"any"},
 		"exclude_reproductive_states": []string{"pregnant_late"},
-		"defer_states":                []string{"icu", "quarantine"},
+		"defer_states":                []string{"sick", "under_treatment", "icu", "quarantine"},
 	}
 }
 
