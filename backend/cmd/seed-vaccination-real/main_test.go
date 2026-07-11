@@ -164,7 +164,7 @@ func TestSourceVaccinationDateIsHistoryUsesBusinessDateNotClockTime(t *testing.T
 	sourceDate := time.Date(2026, time.July, 11, 0, 0, 0, 0, loc)
 	asOfBeforeSeedTimestamp := time.Date(2026, time.July, 11, 6, 30, 0, 0, loc)
 
-	if !sourceVaccinationDateIsHistory(sourceDate, asOfBeforeSeedTimestamp, loc) {
+	if !sourceVaccinationDateOnOrBeforeBusinessDate(sourceDate, asOfBeforeSeedTimestamp, loc) {
 		t.Fatalf("same source business date must import as completed history even before 09:00 as_of=%s", asOfBeforeSeedTimestamp)
 	}
 }
@@ -174,7 +174,7 @@ func TestSourceVaccinationDateIsHistoryRejectsFutureBusinessDate(t *testing.T) {
 	sourceDate := time.Date(2026, time.July, 12, 0, 0, 0, 0, loc)
 	asOf := time.Date(2026, time.July, 11, 23, 59, 0, 0, loc)
 
-	if sourceVaccinationDateIsHistory(sourceDate, asOf, loc) {
+	if sourceVaccinationDateOnOrBeforeBusinessDate(sourceDate, asOf, loc) {
 		t.Fatalf("future source business date must remain scheduled, source=%s as_of=%s", sourceDate, asOf)
 	}
 }
