@@ -251,9 +251,9 @@ safely.
 | `kernel_audit_repairs` | Repair requests and outcomes with `tenant_id`, `run_id`, finding ID, owning module, repair port/command, confidence level, dry-run diff hash, expected-version/precondition token, idempotency key, before/after hashes, affected rows, status, error, rollback/replay notes, verifier result, `trace_id`, `correlation_id`, and `causation_id`. Hot indexes: `(tenant_id, status, created_at)`, `(tenant_id, idempotency_key)`, `(tenant_id, finding_id)`, `(tenant_id, trace_id, created_at)`, `(tenant_id, correlation_id, created_at)`, and `(tenant_id, causation_id, created_at)`. |
 | `kernel_audit_repair_proofs` | Immutable proof packet for each repair attempt: source event IDs, canonical row references, rule/protocol version, expected state, actual state, precondition result, dry-run diff, before/after snapshots or hashes, verification query, verifier result, and linked operation/audit rows. Hot indexes: `(tenant_id, repair_id)`, `(tenant_id, subject_type, subject_id, created_at, repair_id)`, `(tenant_id, invariant_id, created_at, repair_id)`, `(tenant_id, trace_id, created_at)`, `(tenant_id, correlation_id, created_at)`, `(tenant_id, causation_id, created_at)`, and cursor/time access for repair-run pages. Partition by tenant/time or time with tenant-leading local indexes before millions-scale retention. |
 | `kernel_audit_repair_limits` | Per-tenant, per-invariant, per-category repair caps and circuit-breaker state. Stores dry-run-only flags, max repairs per run/day, confidence threshold, owner approval requirement, and last tripped reason. Hot indexes: `(tenant_id, invariant_id, status)` and `(tenant_id, tripped_at)`. |
-| `kernel_audit_repair_cap_buckets` | One counter row per tenant/invariant/category/repair type/confidence level/period bucket. `UNIQUE(tenant_id, invariant_id, category, repair_type, confidence_level, period_start, period_end)` is the serialization anchor for quota claims. Stores limit, reserved, consumed, refunded, circuit-breaker state, row version, and updated time. |
-| `kernel_audit_repair_cap_claims` | Reservation rows under a cap bucket for mutation-capable repairs. Each row has `tenant_id`, `bucket_id`, `reservation_id`, requested/applied/refunded counts, status, expiry, and linked repair/proof IDs. Hot indexes: `(tenant_id, bucket_id, status)`, `(tenant_id, reservation_id)`, and `(tenant_id, status, expires_at)`. |
-| `kernel_audit_scope_claims` | Single-flight leases for audit runner scope pages so overlapping orchestrator instances do not double-scan or double-repair the same tenant/scope/window. Claims use `FOR UPDATE SKIP LOCKED` or equivalent lease-safe semantics, heartbeat, expiry, reclaim status, and owner identity. |
+| `kernel_audit_repair_cap_buckets` | One counter row per tenant/invariant/category/repair type/confidence level/period bucket. `UNIQUE(tenant_id, invariant_id, category, repair_type, confidence_level, period_start, period_end)` is the serialization anchor for quota claims. The bucket counter is the authoritative cap-enforcement state. Stores limit, reserved, consumed, refunded, circuit-breaker state, row version, and updated time. |
+| `kernel_audit_repair_cap_claims` | Reservation rows under a cap bucket for mutation-capable repairs. Each row has `tenant_id`, `bucket_id`, `reservation_id`, requested/applied/refunded counts, status, expiry, and linked repair/proof IDs. Hot indexes: `(tenant_id, bucket_id, status)`, `(tenant_id, reservation_id)`, `(tenant_id, status, expires_at)`, and `(tenant_id, status, updated_at)` for `needs_reconcile` age checks. |
+| `kernel_audit_scope_claims` | Single-flight leases for audit runner scope pages so overlapping orchestrator instances do not double-scan or double-repair the same tenant/scope/window. Claims use `FOR UPDATE SKIP LOCKED` or equivalent lease-safe semantics, heartbeat, expiry, reclaim status, owner identity, and a tenant-fair queue cursor so `SKIP LOCKED` cannot let a noisy tenant dominate every claim cycle. |
 | `kernel_audit_suppressions` | Explicit reviewed suppressions with `tenant_id`, invariant/category, subject/scope, reason, expiry, approver, source evidence, and status. Hot indexes: `(tenant_id, status, expires_at)` and `(tenant_id, invariant_id, scope_type, scope_id)`. |
 | `kernel_audit_slack_deliveries` | Delivery ledger for Slack messages, retry state, durable notification/report request ID, payload hash, channel, permalink if available, and exhausted-delivery reason. Hot indexes: `(tenant_id, status, next_attempt_at)` and `(tenant_id, request_id)`. |
 
@@ -262,9 +262,12 @@ before millions-scale runs. Hot partitions keep active/open findings, recent
 runs, recent repairs, live cap claims, and retryable deliveries. Closed
 findings, completed repair proofs, old runs, old Slack deliveries, and expired
 cap claims roll to cold/archive partitions by tenant/time after the configured
-replay and investigation window. A `kernel-audit-retention` sweeper or the
-shared `partition-maintainer` owns rollover, expiry, archive export, and index
-bloat checks; no audit table may grow forever by default.
+replay and investigation window. Operations Audit trace lookup must either span
+hot and archive partitions transparently or publish an explicit trace-retrieval
+window; acceptance cannot promise trace-from-any-subject while the archive path is
+unqueryable. A `kernel-audit-retention` sweeper or the shared
+`partition-maintainer` owns rollover, expiry, archive export, and index bloat
+checks; no audit table may grow forever by default.
 
 Findings should flow into command lenses:
 
@@ -482,7 +485,17 @@ Atomic cap reservation contract:
   rows, and status/outbox evidence. If the owning repair committed, the
   reservation is consumed; if it provably did not commit, it is refunded; if
   outcome is unclear, the reservation becomes `needs_reconcile` and counts
-  against the cap until an operator or deterministic verifier resolves it.
+  against the cap until an operator or deterministic verifier resolves it;
+- `needs_reconcile` is fail-safe, not silent. Expose count and oldest-age metrics
+  by tenant, invariant, repair type, and bucket window; alert when count or age
+  crosses the cap-ledger SLO so ambiguous crash outcomes cannot quietly exhaust a
+  bucket and block all future repairs;
+- `kernel_audit_repair_cap_buckets` is authoritative for cap enforcement.
+  `kernel_audit_repair_cap_claims` is the explainable ledger underneath it. A
+  periodic self-audit must check bucket/claim parity, including
+  `bucket.reserved == SUM(open claim.requested)` and consumed/refunded totals for
+  closed claims. Drift opens a P1 audit-system finding and blocks mutation-capable
+  repairs for that bucket until reconciled.
 
 Traceability rules:
 
@@ -499,7 +512,8 @@ Operator surfaces:
 
 - Operations Audit needs a repair detail page with evidence, dry-run diff,
   before/after hashes, verifier result, owning service, idempotency key, and
-  full trace chain;
+  full trace chain across hot and archived partitions, or a visible retention
+  window when older traces have intentionally expired;
 - Control Tower needs repair health by category: repaired, skipped,
   precondition-changed, failed, escalated, repeated, and circuit-broken;
 - Action Center needs owner-visible process exceptions for every non-repairable
@@ -1084,6 +1098,14 @@ The audit runner must follow the same high-scale rules as the kernel:
 - query-plan validation for hot checks;
 - clear freshness envelope for report data.
 
+Tenant fairness is an ordering contract, not a side effect of `SKIP LOCKED`.
+The scheduler must maintain a tenant-fair queue, round-robin cursor, weighted
+fair cursor, or equivalent per-tenant claim budget before it enters
+`FOR UPDATE SKIP LOCKED` page claims. `SKIP LOCKED` prevents double-claiming
+inside the selected queue slice; it must not be the only mechanism deciding which
+tenant receives the next worker page. Under skewed load, quiet tenants must still
+receive progress and visible skipped-scope reasons.
+
 ### Reconciliation Strategy
 
 Routine audits use event-window deltas first: new or changed domain events,
@@ -1161,17 +1183,20 @@ The plan is implemented when:
    preconditions, before/after hashes, verifier result, idempotency key, and
    trace/correlation/causation IDs.
 10. Repair caps, confidence levels, dry-run mode, circuit breakers, and kill
-   switches prevent broad accidental mutation at tenant and invariant scale;
-   cap reservations are atomic and period-bucketed under concurrent workers,
-   using a unique cap-bucket serialization row.
+    switches prevent broad accidental mutation at tenant and invariant scale;
+    cap reservations are atomic and period-bucketed under concurrent workers,
+    using a unique cap-bucket serialization row, cap bucket counters are the
+    authoritative enforcement source, claim parity is self-audited, and
+    `needs_reconcile` count/age alerts prevent silent cap starvation.
 11. Missing source truth creates process exceptions, not fabricated data.
 12. Protocol Adherence percentages, ticket counts, notification state, calendar
    state, and command-lens projections reconcile from canonical state using
    location-local calendar day semantics for user-facing due/missed/overdue and
    recovery windows.
 13. Operations Audit can trace from any repaired subject to finding, source
-   evidence, owning repair service, emitted events, notifications, projections,
-   and Slack report link.
+    evidence, owning repair service, emitted events, notifications, projections,
+    and Slack report link across hot and archive partitions, or it publishes an
+    explicit trace-retrieval retention window.
 14. Feed Direction, HRMS/workforce, and every future feature can register an
    audit pack before it ships.
 15. CI blocks new kernel events/categories/statuses/workers/projections/metrics/
@@ -1181,4 +1206,5 @@ The plan is implemented when:
    traversal are bounded and tenant-fair, including lookups by invariant,
    trace ID, correlation ID, subject, repair, and time cursor.
 17. Audit tables have a documented retention, archive, and partition-rollover
-   policy, and scope claims are lease-safe against overlapping orchestrators.
+    policy, and scope claims are both lease-safe against overlapping
+    orchestrators and tenant-fair under skewed load.
