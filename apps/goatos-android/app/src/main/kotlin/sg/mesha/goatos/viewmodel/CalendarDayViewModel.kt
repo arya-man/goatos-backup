@@ -4,10 +4,13 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
@@ -37,6 +40,7 @@ class CalendarDayViewModel @Inject constructor(
     // Nav arg (the tapped day, as an ISO LocalDate string). Same key the day route declares.
     private val date: LocalDate? =
         savedStateHandle.get<String>("dateKey")?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    private val dateKey: String? = date?.toString()
 
     private val _state = MutableStateFlow(
         CalendarDayUiState(
@@ -47,10 +51,17 @@ class CalendarDayViewModel @Inject constructor(
     val state: StateFlow<CalendarDayUiState> = _state.asStateFlow()
 
     init {
-        // Cache-first: renders whatever Room already holds for the calendar read (instant),
-        // then re-renders after every successful refresh below.
-        viewModelScope.launch {
-            repo.observeEvents().collectLatest { resource -> applyResource(resource) }
+        // The backend keeps open work and accepted completion history as separate bounded
+        // reads. Observe both exact-day Room scopes so tapping a completed month marker opens
+        // the canonical read-only record instead of an empty day.
+        if (dateKey != null) {
+            viewModelScope.launch {
+                combine(
+                    repo.observeEvents(dateFrom = dateKey, dateTo = dateKey, limit = 200),
+                    repo.observeEvents(status = COMPLETED_STATUS, dateFrom = dateKey, dateTo = dateKey, limit = 200),
+                    ::mergeCalendarResources,
+                ).collectLatest { resource -> applyResource(resource) }
+            }
         }
         refresh()
     }
@@ -58,12 +69,20 @@ class CalendarDayViewModel @Inject constructor(
     /** Drives the shared calendar network refresh; on failure the cached day content stays. */
     fun refresh() = viewModelScope.launch {
         _state.update { it.copy(isRefreshing = true) }
-        val result = repo.refreshEvents()
+        val key = dateKey
+        if (key == null) {
+            _state.update { it.copy(isRefreshing = false) }
+            return@launch
+        }
+        val results = listOf(
+            async { repo.refreshEvents(dateFrom = key, dateTo = key, limit = 200) },
+            async { repo.refreshEvents(status = COMPLETED_STATUS, dateFrom = key, dateTo = key, limit = 200) },
+        ).awaitAll()
         _state.update { current ->
-            when {
-                result.isSuccess -> current.copy(isRefreshing = false, isOffline = false)
-                else -> current.copy(isRefreshing = false, isOffline = true)
-            }
+            current.copy(
+                isRefreshing = false,
+                isOffline = results.any { result -> result.isFailure },
+            )
         }
     }
 

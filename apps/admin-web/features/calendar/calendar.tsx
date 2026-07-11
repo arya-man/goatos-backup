@@ -26,6 +26,7 @@ import {
 } from "./calendar-contract";
 import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { CalendarEventDrawer } from "./calendar-event-drawer";
+import { monthWindow, weekWindow } from "./calendar-window";
 
 const PATH = "/calendar";
 
@@ -40,15 +41,6 @@ function weekdayOf(iso: string): string {
 // Business "today" in the operating-tenant timezone (IST). Used for the month highlight + agenda "TODAY".
 function istToday(): string {
   return todayIso();
-}
-
-// First/last calendar day of the month an anchor date (YYYY-MM-DD) falls in. Deterministic (args-only Date).
-function monthWindow(anchorKey: string): { dateFrom: string; dateTo: string } {
-  const year = Number(anchorKey.slice(0, 4));
-  const month = Number(anchorKey.slice(5, 7)); // 1-based
-  const lastDay = new Date(year, month, 0).getDate(); // day 0 of next month = last day of this month
-  const ym = anchorKey.slice(0, 7);
-  return { dateFrom: `${ym}-01`, dateTo: `${ym}-${String(lastDay).padStart(2, "0")}` };
 }
 
 function timeOf(iso: string): string {
@@ -117,19 +109,18 @@ export async function VaccinationCalendarPage({
   // selected month so drive days are highlighted even when the visible agenda window is empty.
   const anchorKey = asOf ? asOf.slice(0, 10) : today;
   const pickerWindow = monthWindow(anchorKey);
+  const agendaWindow = weekWindow(anchorKey);
 
   const [list, pickerList, historyList, detail, targets] = await Promise.all([
-    getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, dateFrom: asOf ? asOf.slice(0, 10) : undefined }),
+    getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, dateFrom: agendaWindow.dateFrom, dateTo: agendaWindow.dateTo }),
     getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, dateFrom: pickerWindow.dateFrom, dateTo: pickerWindow.dateTo, includeDateMarkers: true }),
-    asOf
-      ? getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, status: "completed", dateFrom: asOf.slice(0, 10), dateTo: asOf.slice(0, 10), limit: 200 })
-      : Promise.resolve(null),
+    getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, status: "completed", dateFrom: agendaWindow.dateFrom, dateTo: agendaWindow.dateTo, limit: 200 }),
     selectedEventId ? getCalendarVaccinationEventDetail(selectedEventId) : Promise.resolve(null),
     selectedEventId ? getCalendarDriveTargets(selectedEventId, { cursor: targetsCursor, limit: 10 }) : Promise.resolve(null),
   ]);
 
   const openEvents = list.ok ? list.data.items : [];
-  const historyEvents = historyList?.ok ? historyList.data.items : [];
+  const historyEvents = historyList.ok ? historyList.data.items : [];
   const events = Array.from(new Map([...historyEvents, ...openEvents].map((event) => [event.event_id, event])).values());
   const pickerEvents = pickerList.ok ? pickerList.data.items : events;
   if (list.ok && !list.data.presentation) {

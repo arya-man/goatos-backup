@@ -46,6 +46,9 @@ func TestServiceAddsBackendControlledPresentation(t *testing.T) {
 	if len(resp.Presentation.Rhythm.Days) < 2 || resp.Presentation.Rhythm.Days[1].Label != "FEFO" {
 		t.Fatalf("rhythm days = %#v, want inventory rhythm labels", resp.Presentation.Rhythm.Days)
 	}
+	if len(resp.Presentation.ViewTabs) != 3 || resp.Presentation.ViewTabs[2].Key != "history" || resp.Presentation.ViewTabs[2].Query["status"] != domain.StatusCompleted {
+		t.Fatalf("view tabs = %#v, want backend-owned week/month/completed-history tabs", resp.Presentation.ViewTabs)
+	}
 }
 
 func TestServiceAllowsMissedStatusFilter(t *testing.T) {

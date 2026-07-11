@@ -3,10 +3,13 @@ package sg.mesha.goatos.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
@@ -68,12 +71,29 @@ class CalendarViewModel @Inject constructor(
      * simply filters to an empty list, which renders the honest empty state.
      */
     private var loadedEvents: List<CalendarEventDto> = emptyList()
+    private val today = LocalDate.now(KOLKATA)
+    private val monthRange = calendarMonthRange(today)
+    private val historyRange = calendarHistoryRange(today)
 
     init {
-        // Cache-first: renders whatever Room already has (possibly nothing, on a cold
-        // install) immediately, then re-renders after every successful refresh below.
+        // Open work and accepted completion history are deliberately separate bounded
+        // backend reads. Combine their Room streams so week/month/history all render
+        // canonical data while each request keeps an index-safe date window.
         viewModelScope.launch {
-            repo.observeEvents().collectLatest { resource -> applyResource(resource) }
+            combine(
+                repo.observeEvents(
+                    dateFrom = monthRange.dateFrom,
+                    dateTo = monthRange.dateTo,
+                    limit = CALENDAR_PAGE_LIMIT,
+                ),
+                repo.observeEvents(
+                    status = COMPLETED_STATUS,
+                    dateFrom = historyRange.dateFrom,
+                    dateTo = historyRange.dateTo,
+                    limit = CALENDAR_PAGE_LIMIT,
+                ),
+                ::mergeCalendarResources,
+            ).collectLatest { resource -> applyResource(resource) }
         }
         refresh()
     }
@@ -83,13 +103,29 @@ class CalendarViewModel @Inject constructor(
      *  [CalendarUiState.isOffline] — cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         _state.update { it.copy(isRefreshing = true) }
-        val result = repo.refreshEvents()
+        val results = listOf(
+            async {
+                repo.refreshEvents(
+                    dateFrom = monthRange.dateFrom,
+                    dateTo = monthRange.dateTo,
+                    limit = CALENDAR_PAGE_LIMIT,
+                )
+            },
+            async {
+                repo.refreshEvents(
+                    status = COMPLETED_STATUS,
+                    dateFrom = historyRange.dateFrom,
+                    dateTo = historyRange.dateTo,
+                    limit = CALENDAR_PAGE_LIMIT,
+                )
+            },
+        ).awaitAll()
         // SWR: a refresh NEVER replaces what's on screen. On success the observeEvents
         // collector re-emits the fresh cache; on failure the current content stays put and
         // only the offline flag flips — the segments, the week strip, and any cached list keep
         // rendering (never a blank wall). A cold start with no cache yet keeps its calendar
         // skeleton + honest empty state, now flagged offline via [CalendarUiState.isOffline].
-        _state.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
+        _state.update { it.copy(isRefreshing = false, isOffline = results.any { result -> result.isFailure }) }
     }
 
     private fun applyResource(resource: Resource<CalendarEventListResponseDto>) {
@@ -158,7 +194,6 @@ class CalendarViewModel @Inject constructor(
                 },
             )
         }
-        val today = LocalDate.now(KOLKATA)
         val weekDays = buildWeekDays(items)
         val todayLabel = dateLabel(today)
         // Initial week list is scoped to TODAY's real due events (mirrors the mock's default
@@ -169,16 +204,21 @@ class CalendarViewModel @Inject constructor(
         val monthLabel = YearMonth.now(KOLKATA).let {
             "${it.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)} ${it.year}"
         }
-        val historyRows = items.take(3).map { ev ->
-            CalendarHistoryRow(
-                id = ev.eventId,
-                title = ev.title,
-                subtitle = ev.subtitle,
-                badgeLabel = ev.status,
-                badgeTone = fromSeverity(ev.severity),
-                target = ev.links.route(),
-            )
-        }
+        val historyRows = items
+            .asSequence()
+            .filter { it.status == COMPLETED_STATUS }
+            .sortedByDescending { it.dueAt }
+            .take(HISTORY_ROW_LIMIT)
+            .map { ev ->
+                CalendarHistoryRow(
+                    id = ev.eventId,
+                    title = ev.title,
+                    subtitle = ev.subtitle,
+                    badgeLabel = ev.status,
+                    badgeTone = CalendarTone.Ok,
+                    target = ev.links.route(),
+                )
+            }.toList()
         val monthWeekdayLabels = listOf("S", "M", "T", "W", "T", "F", "S")
 
         return base.copy(
@@ -219,6 +259,55 @@ class CalendarViewModel @Inject constructor(
 }
 
 private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
+internal const val COMPLETED_STATUS = "completed"
+private const val CALENDAR_PAGE_LIMIT = 200
+private const val HISTORY_ROW_LIMIT = 50
+private const val HISTORY_WINDOW_DAYS = 45L
+
+internal data class CalendarDateRange(val dateFrom: String, val dateTo: String)
+
+internal fun calendarMonthRange(today: LocalDate): CalendarDateRange {
+    val month = YearMonth.from(today)
+    return CalendarDateRange(month.atDay(1).toString(), month.atEndOfMonth().toString())
+}
+
+internal fun calendarHistoryRange(today: LocalDate): CalendarDateRange =
+    CalendarDateRange(today.minusDays(HISTORY_WINDOW_DAYS - 1).toString(), today.toString())
+
+/**
+ * Merge the independent Room-backed open-work and completed-history scopes. The
+ * backend intentionally requires an explicit completed filter, so keeping this
+ * merge at the ViewModel boundary preserves bounded queries without hiding done
+ * dates from the renderer.
+ */
+internal fun mergeCalendarResources(
+    open: Resource<CalendarEventListResponseDto>,
+    history: Resource<CalendarEventListResponseDto>,
+): Resource<CalendarEventListResponseDto> {
+    val openData = open.data
+    val historyData = history.data
+    val merged = when {
+        openData == null && historyData == null -> null
+        else -> {
+            val base = openData ?: requireNotNull(historyData)
+            val items = (openData?.items.orEmpty() + historyData?.items.orEmpty())
+                .associateBy { it.eventId }
+                .values
+                .sortedBy { it.dueAt }
+            base.copy(
+                presentation = openData?.presentation ?: base.presentation,
+                items = items,
+                nextCursor = openData?.nextCursor,
+            )
+        }
+    }
+    return Resource(
+        data = merged,
+        isRefreshing = open.isRefreshing || history.isRefreshing,
+        lastSyncedAt = listOfNotNull(open.lastSyncedAt, history.lastSyncedAt).maxOrNull(),
+        error = open.error ?: history.error,
+    )
+}
 
 /**
  * The Mon–Sun week containing today (India business calendar), with per-day due-work
@@ -260,9 +349,8 @@ private fun buildMonthDays(items: List<CalendarEventDto>): List<CalendarMonthDay
     val dayTones = mutableMapOf<LocalDate, CalendarTone>()
     items.mapNotNull { parseLocalDate(it.dueAt) }.forEach { date ->
         if (date.month == today.month && date.year == today.year) {
-            val newTone = fromSeverity(
-                items.find { parseLocalDate(it.dueAt) == date }?.severity ?: "neutral"
-            )
+            val newTone = items.find { parseLocalDate(it.dueAt) == date }?.calendarTone()
+                ?: CalendarTone.Neutral
             dayTones[date] = when {
                 dayTones[date] == CalendarTone.Danger -> CalendarTone.Danger
                 newTone == CalendarTone.Danger -> CalendarTone.Danger
@@ -306,6 +394,9 @@ internal fun fromSeverity(severity: String): CalendarTone = when (severity.lower
     else -> CalendarTone.Muted
 }
 
+internal fun CalendarEventDto.calendarTone(): CalendarTone =
+    if (status == COMPLETED_STATUS) CalendarTone.Ok else fromSeverity(severity)
+
 /**
  * Backend calendar event -> a drillable [CalendarItem]. Shared by [CalendarViewModel] and
  * [CalendarDayViewModel] so the calendar and its L1 day screen map an event identically.
@@ -317,7 +408,7 @@ internal fun CalendarEventDto.toCalendarItem(): CalendarItem {
         title = title,
         subtitle = subtitle,
         statusLabel = status,
-        statusTone = fromSeverity(severity),
+        statusTone = calendarTone(),
         categoryLabel = vaccineName,
         ctaLabel = if (target != null) "Open" else null,
         target = target,

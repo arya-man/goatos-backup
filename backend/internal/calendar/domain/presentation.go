@@ -51,6 +51,7 @@ func calendarViewTabs() []CalendarPresentationTab {
 	return []CalendarPresentationTab{
 		{Key: "week", Label: "Week", Enabled: true, Query: map[string]string{"view": ""}},
 		{Key: "month", Label: "Month", Enabled: true, Query: map[string]string{"view": "month", "day": ""}},
+		{Key: "history", Label: "History", Enabled: true, Query: map[string]string{"status": StatusCompleted}},
 	}
 }
 
