@@ -67,8 +67,8 @@ locals {
       name                = "goatos-stg-obligation-sweeper"
       service_account_key = "obligation_sweeper"
       command             = ["/app/bin/obligation-sweeper"]
-      args                = ["-timeout=60s"]
-      timeout             = "120s"
+      args                = ["-timeout=180s"]
+      timeout             = "300s"
       memory              = "512Mi"
       cpu                 = "1"
       schedule            = "*/5 * * * *"
@@ -80,6 +80,7 @@ locals {
         GOATOS_CLOUD_TASKS_QUEUE_ID              = google_cloud_tasks_queue.near_term_kernel.name
         GOATOS_CLOUD_TASKS_OAUTH_SERVICE_ACCOUNT = google_service_account.runtime["cloud_tasks_enqueuer"].email
         GOATOS_NOTIFICATION_DISPATCHER_RUN_URL   = local.notification_dispatcher_run_url
+        GOATOS_PG_QUERY_TIMEOUT                  = "30s"
       }
     }
     calendar_projector = {
