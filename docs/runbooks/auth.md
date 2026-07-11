@@ -202,10 +202,11 @@ boundary:
 2. Verified the target before any cloud mutation:
 
    ```bash
+   REPO_ROOT="$(git rev-parse --show-toplevel)"
    gcloud auth list --filter=status:ACTIVE --format='value(account)'
    gcloud config get-value project
    gcloud projects get-ancestors goatos-stg --format='table(ID,TYPE)'
-   git -C /Users/ravi/mesha/goatos remote -v
+   git -C "${REPO_ROOT}" remote -v
    ```
 
    Expected staging context:
@@ -412,13 +413,14 @@ CONTINUE_URL="https://${DASHBOARD_HOST}/login"
 2. Verify the mutation target before touching prod:
 
    ```bash
+   REPO_ROOT="$(git rev-parse --show-toplevel)"
    gcloud config set project "${PROJECT}"
    gcloud auth list --filter=status:ACTIVE --format='value(account)'
    gcloud config get-value project
    gcloud projects get-ancestors "${PROJECT}" --format='table(ID,TYPE)'
    gcloud organizations list --filter='DISPLAY_NAME=vgoats.com'
-   git -C /Users/ravi/mesha/goatos remote -v
-   git -C /Users/ravi/mesha/goatos status --short --branch
+   git -C "${REPO_ROOT}" remote -v
+   git -C "${REPO_ROOT}" status --short --branch
    ```
 
    Stop if the active account is not `ravi@mesha.sg`, the org is not
@@ -440,7 +442,8 @@ CONTINUE_URL="https://${DASHBOARD_HOST}/login"
 4. Build and deploy admin-web:
 
    ```bash
-   SHA="$(git -C /Users/ravi/mesha/goatos rev-parse --short=12 HEAD)"
+   REPO_ROOT="$(git rev-parse --show-toplevel)"
+   SHA="$(git -C "${REPO_ROOT}" rev-parse --short=12 HEAD)"
    IMAGE="${IMAGE_REPO}:${SHA}-reset-auth-$(date -u +%Y%m%d%H%M%S)"
 
    docker buildx build \
