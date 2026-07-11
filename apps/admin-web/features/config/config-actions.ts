@@ -8,8 +8,10 @@ import {
   createProtocolVersion,
   previewVaccinationImpact,
   publishProtocolVersion,
+  updateVaccinationCapacityConfig,
   type ImpactPreviewInput,
   type ImpactPreviewResult,
+  type VaccinationCapacityConfig,
 } from "@/lib/api/server";
 import {
   buildVaccinationMatrixPreview,
@@ -41,6 +43,31 @@ export async function runImpactPreview(
   if (!res.ok)
     return { ok: false, message: res.error.message ?? "impact preview failed" };
   return { ok: true, data: res.data };
+}
+
+export interface CapacityConfigResult {
+  ok: boolean;
+  message: string;
+  code?: string;
+  config?: VaccinationCapacityConfig;
+}
+
+// saveCapacityConfig persists the tenant daily vaccination cap edit with optimistic concurrency. A stale
+// expectedRowVersion returns code "stale_row_version" (the card asks the admin to reload). A saved cap
+// reshapes the shed board's Sessions/Capacity/Status, so both /config and /vaccination are revalidated.
+export async function saveCapacityConfig(input: {
+  maxPerDay: number;
+  capacityScope: string;
+  maxBufferDays: number;
+  overflowPolicy: string;
+  expectedRowVersion: number;
+}): Promise<CapacityConfigResult> {
+  const res = await updateVaccinationCapacityConfig(input);
+  if (!res.ok) {
+    return { ok: false, message: res.error.message ?? "save failed", code: res.error.code };
+  }
+  for (const p of ["/config", "/vaccination"]) revalidatePath(p);
+  return { ok: true, message: "capacity saved", config: res.data };
 }
 
 // saveDraft persists the authored rule as a protocol_definitions row + a DRAFT protocol_versions row

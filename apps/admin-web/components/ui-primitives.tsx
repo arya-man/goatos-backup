@@ -17,6 +17,22 @@ export function Tag({ tone, children, title }: { tone: Tone; children: ReactNode
   );
 }
 
+// Info popover for a column header / label. CSS-only (see `.tipwrap`/`.tip` in mesha-theme.css): the
+// tooltip body is always rendered in the DOM and revealed on hover/focus, so it needs no client JS and
+// stays testable. `label` is the accessible name of the "i" trigger; `children` is the popover body.
+export function InfoTooltip({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <span className="tipwrap">
+      <span className="ihelp" role="note" tabIndex={0} aria-label={label}>
+        i
+      </span>
+      <span className="tip" role="tooltip">
+        {children}
+      </span>
+    </span>
+  );
+}
+
 export function ClipText({
   children,
   title,

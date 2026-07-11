@@ -163,24 +163,21 @@ func TestRunManualCampaignRequiresIdempotencyKey(t *testing.T) {
 
 func TestImpactPreviewParsesFilterAndReturnsJSON(t *testing.T) {
 	fake := &fakeImpact{preview: domain.ImpactPreview{
-		EligibleGoats: 12, CatchupGoats: 3, Obligations: 12, Batches: 2, DosesRequired: 12,
-		DosesAvailable: "50", Warnings: nil,
+		EligibleAnimals: 12, VaccinationCells: 24, AffectedSheds: 2, EstimatedDays: 1, DailyCap: 100,
+		DosesAvailable: "50", SourceRevision: 1700000000000, Warnings: nil,
 	}}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(fake, nil))
 
-	body := `{"species":"goat","stage":"K1","sex":"female","health":"healthy","doses_per_goat":1,"dose_rows":1,"vaccine_item_id":"item-1","warmup_no_vaccination_days":7}`
+	body := `{"species":"goat","stage":"K1","sex":"female","health":"healthy","dose_rows":2,"vaccine_item_id":"item-1"}`
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/protocols/vaccination/impact-preview", strings.NewReader(body)))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	if fake.got.Filter.Species != "goat" || fake.got.Filter.Stage != "K1" || fake.got.Filter.Sex != "female" || fake.got.Filter.Health != "healthy" || fake.got.DosesPerGoat != 1 {
+	if fake.got.Filter.Species != "goat" || fake.got.Filter.Stage != "K1" || fake.got.Filter.Sex != "female" || fake.got.Filter.Health != "healthy" || fake.got.DoseRows != 2 {
 		t.Fatalf("filter/inputs not parsed: %+v", fake.got)
-	}
-	if fake.got.Filter.WarmupNoVaccinationDays != 7 {
-		t.Fatalf("warmup days not parsed: %+v", fake.got.Filter)
 	}
 	if fake.got.VaccineItemID == nil || *fake.got.VaccineItemID != "item-1" {
 		t.Fatalf("vaccine_item_id not parsed: %+v", fake.got.VaccineItemID)
@@ -189,7 +186,7 @@ func TestImpactPreviewParsesFilterAndReturnsJSON(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("response json: %v", err)
 	}
-	if resp.EligibleGoats != 12 || resp.Batches != 2 || resp.DosesAvailable != "50" {
+	if resp.EligibleAnimals != 12 || resp.VaccinationCells != 24 || resp.AffectedSheds != 2 || resp.EstimatedDays != 1 || resp.DailyCap != 100 || resp.DosesAvailable != "50" || resp.SourceRevision != 1700000000000 {
 		t.Fatalf("response body: %+v", resp)
 	}
 	if resp.Warnings == nil {

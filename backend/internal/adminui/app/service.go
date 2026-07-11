@@ -217,15 +217,19 @@ func pages() []domain.PageContract {
 		page("workflows", "/workflows", "/workflows", "Workflows", "Config → obligation → SOP → proof → verification → completion workflow records.", "command-lens",
 			[]domain.TableContract{table("workflow-catalog", "Workflow catalog", "/vaccination/action-center", []string{"workflow", "stage", "owner", "next_action", "status"}, "wf_row")}),
 		page("workflow-record", "/workflows/{row_id}", "/workflows/{row_id}", "Workflow drilldown", "One vaccination workflow chain reaction record.", "record-drilldown", nil),
-		page("vaccination", "/vaccination", "/vaccination", "Vaccination", "Preventive Care (PC) vaccination operations: status matrix, cohort detail, shed execution, proof, and verification.", "module-surface",
+		page("vaccination", "/vaccination", "/vaccination", "Vaccination", "Shed-wise Preventive Care (PC) vaccination: one row per shed with animal-level due/done, planned sessions, capacity, and merged status.", "module-surface",
 			[]domain.TableContract{
-				table("status-matrix", "Vaccination status matrix", "/vaccination/operations", []string{"cohort", "protocol_cells"}, "matrix_cell"),
-				table("cohort-detail", "Per-cohort vaccination detail", "/vaccination/operations", []string{"cohort", "animals", "age_band", "last_dose", "next_due", "status"}, "cohort_row"),
-				table("shed-events", "Drive — shed events", "/vaccination/execution", []string{"shed_stage", "drive_due", "work_state", "owner_chain", "sop_proof_verify", "next_action"}, "shed_event"),
+				// Shed-wise summary is the MAIN vaccination table (one row per shed, animal-level Due/Done,
+				// planned Sessions, capacity, merged Status). 10 columns; default 25 rows.
+				tableP("shed-summary", "Vaccination by shed", "/vaccination/sheds", []string{"park", "shed", "animals", "due", "done", "sessions", "next_due", "manager", "backup", "status"}, "shed", []int{25, 50, 100}),
 				table("supplier-warmup", "Supplier warmup — Holding Farm", "/procurement/source-entry/loads", []string{"load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"}, "warmup_load"),
 			}),
-		page("shed-execution", "/vaccination/execution/sheds/{shed_id}", "/vaccination/execution/sheds/{shed_id}", "Vaccination execution", "Full shed execution context for vaccination work.", "record-drilldown",
-			[]domain.TableContract{table("shed-drive-rows", "Drive rows", "/vaccination/execution/sheds/{shed_id}", []string{"animal_stage", "drive", "due", "work_state", "sop_proof_verify", "next_action"}, "shed_event")}),
+		page("shed-execution", "/vaccination/execution/sheds/{shed_id}", "/vaccination/execution/sheds/{shed_id}", "Vaccination shed detail", "Shed-wise vaccination detail: planned sessions, per-vaccine breakdown, and the shed's animal roster.", "record-drilldown",
+			[]domain.TableContract{
+				table("planned-sessions", "Planned sessions", "/vaccination/sheds/{shed_id}", []string{"session_date", "vaccinations", "daily_limit", "capacity"}, "session"),
+				table("shed-vaccines", "Vaccine breakdown", "/vaccination/sheds/{shed_id}", []string{"vaccine", "status", "last_dose", "next_due", "counts"}, "vaccine"),
+				table("shed-animals", "Animals in shed", "/vaccination/sheds/{shed_id}/animals", []string{"display_id", "tag_1", "tag_2", "vaccination_status"}, "goat_id"),
+			}),
 		page("source-entry", "/procurement/source-entry", "/procurement/source-entry", "Source Entry Board", "Supplier warmup and accepted-intake bridge into Preventive Care (PC) vaccination.", "module-surface",
 			[]domain.TableContract{table("source-loads", "Supplier warmup — Holding Farm", "/procurement/source-entry/loads", []string{"load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"}, "source_load")}),
 		page("source-load", "/procurement/source-entry/loads/{load_id}", "/procurement/source-entry/loads/{load_id}", "Source load", "Full source-entry journey timeline, animal rows, decisions, and arrival gate.", "record-drilldown",
@@ -288,6 +292,14 @@ func page(id, href, pattern, title, subtitle, kind string, tables []domain.Table
 			"Frontend owns layout density, responsive wrapping, focus/open state, and icon token rendering only.",
 		},
 	}
+}
+
+// tableP is table() with an explicit page-size option set (the shed-wise list defaults to 25 with
+// 25/50/100 options, unlike the generic 5/10/25/50 board default).
+func tableP(id, title, source string, cols []string, rowParam string, pageSizes []int) domain.TableContract {
+	t := table(id, title, source, cols, rowParam)
+	t.PageSizeOptions = pageSizes
+	return t
 }
 
 func table(id, title, source string, cols []string, rowParam string) domain.TableContract {
@@ -841,6 +853,28 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.shed_events.reason":                   "Search shed, owner, proof, status...",
 			"filter.shed_events.filter_reason":            "Use visible-row search, quick facets, severity chips, and work-state chips on this board.",
 			"filter.shed_events.rows_suffix":              "park, shed, owner, proof, verify",
+			"section.sheds.title":                         "Vaccination by shed",
+			"section.sheds.note":                          "One row per shed · animal-level due / done · planned sessions · capacity",
+			"section.sheds.empty_none_title":              "No sheds with vaccination work yet",
+			"section.sheds.empty_none_body":               "Rows appear per shed once a published vaccination protocol generates obligations against the shed's animals.",
+			"section.sheds.empty_filtered_title":          "No sheds match these filters",
+			"section.sheds.empty_filtered_body":           "Clear a filter to see other parks, sheds, statuses, and capacity states.",
+			"section.sheds.unavailable_title":             "Shed-wise vaccination is unavailable",
+			"section.sheds.unavailable_body":              "The shed summary service did not return data. Resolve the error above, then reload.",
+			"filter.sheds.search":                         "Search park or shed",
+			"filter.sheds.title":                          "Filter — Vaccination by shed",
+			"filter.sheds.reason":                         "Search park or shed name...",
+			"filter.sheds.filter_reason":                  "Park, shed, status, and capacity filters apply server-side; search matches park or shed name.",
+			"filter.sheds.rows_suffix":                    "sheds, animal counts, sessions, capacity",
+			"label.all_status":                            "All status",
+			"label.all_capacity":                          "All capacity",
+			"label.sheds_noun":                            "sheds",
+			"label.shed_noun":                             "shed",
+			"label.manager_unassigned":                    "Manager: unassigned",
+			"label.backup_unassigned":                     "Backup: unassigned",
+			"tooltip.sessions.label":                      "About planned sessions",
+			"tooltip.sessions.body":                       "Goat OS splits a shed's vaccination work across multiple days when the daily limit is reached. Sessions is the number of planned visit days (usually 1). One goat getting two vaccines (e.g. FMD + HS) counts as two vaccinations, not one.",
+			"note.sheds_counts":                           "Animal-level counts, scoped by the top bar and filters. Due = animals with open vaccination work; Done = Animals − Due.",
 			"drawer.record_verify.title":                  "Vaccination work context",
 			"drawer.record_verify.aria":                   "Vaccination work context",
 			"drawer.record_verify.close_label":            "Close record / verify drawer",
@@ -990,47 +1024,69 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "shed-execution":
 		return map[string]string{
-			"crumb":                      "Preventive Care (PC) · Vaccination · Execution",
-			"fallback.title":             "Shed unavailable",
-			"fallback.body":              "Shed returned no vaccination execution context. It may be outside the current drive scope, or the service is unavailable.",
-			"section.work_state.title":   "Work state",
-			"section.drives.title":       "Drives at this shed",
-			"section.owner_chain.title":  "Operator assignment",
-			"section.blocked.title":      "Blocked / deferred",
-			"section.drive_rows.title":   "Drive rows",
-			"table.drive_rows.aria":      "drive rows",
-			"drawer.action.aria":         "Vaccination execution action",
-			"action.open_workflow":       "Open Workflow",
-			"action.close":               "Close",
-			"empty.drives":               "No drives scheduled at this shed.",
-			"empty.drive_rows":           "No drive rows for this shed.",
-			"label.animal_stages":        "Animal stages",
-			"label.drive_rows":           "drive rows",
-			"label.done":                 "done",
-			"label.open":                 "open",
-			"label.operator_ground":      "Operator (ground)",
-			"label.park_head":            "Park head",
-			"label.verifier":             "Verifier",
-			"label.unassigned":           "unassigned",
-			"label.verifier_default":     "Video Verification Team",
-			"label.drive_fallback":       "drive",
-			"label.placeholder":          "—",
-			"form.proof_upload.label":    "Upload vaccination proof",
-			"form.proof_upload.select":   "Select a video or image file",
-			"form.proof_upload.disabled": "Proof upload disabled",
-			"form.proof_upload.reason":   "No SOP task on this shed-drive rollup yet (sopTaskId null) — proof is uploaded per-goat in the operator SOP task once the drive is assigned/advanced.",
-			"form.completion.reason":     "No single recorded completion on this rollup (completionId null) — verify a recorded dose from the verification queue.",
-			"form.actions.unavailable":   "This row is a generated rollup. Dose recording and proof happen on the operator SOP task; open the Action Center or workflow record for the live handle.",
-			"form.reject.placeholder":    "Reason for rejection (required)",
-			"error.reject_reason":        "Rejection reason required — provide a reason for requiring rework.",
-			"action.submit_proof":        "Submit proof",
-			"action.uploading_proof":     "Uploading proof...",
-			"action.accept":              "Accept",
-			"action.accepting":           "Accepting...",
-			"action.reject":              "Reject",
-			"action.confirm_reject":      "Confirm reject",
-			"action.rejecting":           "Rejecting...",
-			"action.cancel":              "Cancel",
+			"crumb":                          "Preventive Care (PC) · Vaccination · Execution",
+			"fallback.title":                 "Shed unavailable",
+			"fallback.body":                  "Shed returned no vaccination execution context. It may be outside the current drive scope, or the service is unavailable.",
+			"section.overview.title":         "Shed overview",
+			"section.planned_sessions.title": "Planned sessions",
+			"section.planned_sessions.note":  "How the shed's open vaccination work splits across days at the daily cap.",
+			"section.planned_sessions.empty": "No planned sessions — no open vaccination work at this shed.",
+			"section.vaccines.title":         "Vaccine breakdown",
+			"section.vaccines.note":          "Per-vaccine obligation counts for this shed — the only place vaccine-level counts appear.",
+			"section.vaccines.empty":         "No vaccines with open obligations at this shed.",
+			"section.animals.title":          "Animals in shed",
+			"section.animals.note":           "Display ID, Tag 1, Tag 2, and vaccination status. Missing tag values show —.",
+			"section.animals.empty":          "No animals in this shed.",
+			"action.load_more":               "Load more",
+			"label.animals":                  "Animals",
+			"label.due":                      "Due",
+			"label.done_stat":                "Done",
+			"label.sessions":                 "Sessions",
+			"label.status":                   "Status",
+			"label.manager":                  "Manager",
+			"label.backup":                   "Backup",
+			"label.manager_unassigned":       "Manager: unassigned",
+			"label.backup_unassigned":        "Backup: unassigned",
+			"tooltip.capacity.label":         "About capacity",
+			"tooltip.capacity.body":          "Each day is capped at the configured daily vaccination limit. Capacity counts vaccination administrations, not animals — FMD + HS on one goat is 2 vaccinations. When due work cannot fit within the safe window, the shed is marked Needs review.",
+			"section.work_state.title":       "Work state",
+			"section.drives.title":           "Drives at this shed",
+			"section.owner_chain.title":      "Operator assignment",
+			"section.blocked.title":          "Blocked / deferred",
+			"section.drive_rows.title":       "Drive rows",
+			"table.drive_rows.aria":          "drive rows",
+			"drawer.action.aria":             "Vaccination execution action",
+			"action.open_workflow":           "Open Workflow",
+			"action.close":                   "Close",
+			"empty.drives":                   "No drives scheduled at this shed.",
+			"empty.drive_rows":               "No drive rows for this shed.",
+			"label.animal_stages":            "Animal stages",
+			"label.drive_rows":               "drive rows",
+			"label.done":                     "done",
+			"label.open":                     "open",
+			"label.operator_ground":          "Operator (ground)",
+			"label.park_head":                "Park head",
+			"label.verifier":                 "Verifier",
+			"label.unassigned":               "unassigned",
+			"label.verifier_default":         "Video Verification Team",
+			"label.drive_fallback":           "drive",
+			"label.placeholder":              "—",
+			"form.proof_upload.label":        "Upload vaccination proof",
+			"form.proof_upload.select":       "Select a video or image file",
+			"form.proof_upload.disabled":     "Proof upload disabled",
+			"form.proof_upload.reason":       "No SOP task on this shed-drive rollup yet (sopTaskId null) — proof is uploaded per-goat in the operator SOP task once the drive is assigned/advanced.",
+			"form.completion.reason":         "No single recorded completion on this rollup (completionId null) — verify a recorded dose from the verification queue.",
+			"form.actions.unavailable":       "This row is a generated rollup. Dose recording and proof happen on the operator SOP task; open the Action Center or workflow record for the live handle.",
+			"form.reject.placeholder":        "Reason for rejection (required)",
+			"error.reject_reason":            "Rejection reason required — provide a reason for requiring rework.",
+			"action.submit_proof":            "Submit proof",
+			"action.uploading_proof":         "Uploading proof...",
+			"action.accept":                  "Accept",
+			"action.accepting":               "Accepting...",
+			"action.reject":                  "Reject",
+			"action.confirm_reject":          "Confirm reject",
+			"action.rejecting":               "Rejecting...",
+			"action.cancel":                  "Cancel",
 		}
 	case "source-entry":
 		return map[string]string{
@@ -1560,6 +1616,22 @@ func pageSpecificCopy(id string) map[string]string {
 	case "config":
 		return map[string]string{
 			"crumb":                                                     "Admin / Data Ops",
+			"capacity.title":                                            "Daily vaccination capacity",
+			"capacity.note":                                             "How many vaccine shots the team can give per day",
+			"capacity.info.label":                                       "About daily capacity",
+			"capacity.info":                                             "This counts vaccination administrations, not animals — one goat getting FMD + HS is 2 vaccinations. Goat OS splits a shed's work across days when the daily limit is reached; when the work can't fit within the safe window, the shed is flagged Needs review.",
+			"capacity.field.max_per_day":                                "Max vaccinations per day",
+			"capacity.field.max_per_day_placeholder":                    "e.g. 100",
+			"capacity.field.capacity_scope":                             "Capacity scope",
+			"capacity.field.max_buffer_days":                            "Max buffer days",
+			"capacity.field.max_buffer_days_placeholder":                "e.g. 3",
+			"capacity.help.max_buffer_days":                             "Extra days past the first due day before work is flagged Needs review.",
+			"capacity.field.overflow_policy":                            "Overflow policy",
+			"capacity.action.save":                                      "Save capacity",
+			"capacity.action.saving":                                    "Saving…",
+			"capacity.saved":                                            "Capacity saved",
+			"capacity.stale":                                            "Changed by someone else — reload and try again",
+			"capacity.error_prefix":                                     "Couldn't save:",
 			"page.lede":                                                 "What should happen.",
 			"page.lede_detail":                                          "CEO/COO author + publish the business/medical config. Obligations, SOP tasks & adherence gaps all flow from published rules.",
 			"security.warning":                                          "Real business/medical config — not public. Only CEO/COO publish · Directors draft/propose if granted the capability · field / verifier / park never see raw config (they get generated obligations + SOP tasks only).",
@@ -1852,10 +1924,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"feed_config.action.preview":                                "Run feed calculation preview",
 			"feed_config.action.preview_disabled":                       "Feed import/solver preview endpoint is not built yet; the UI shows the required contract shape and blocks publish until preview support lands.",
 			"modal.rule_editor.impact_title_vaccination":                "Impact preview - selected dose row",
-			"modal.rule_editor.kpi.eligible_goats":                      "Eligible goats",
-			"modal.rule_editor.kpi.obligations":                         "Obligations / cycle",
-			"modal.rule_editor.kpi.batches":                             "Batches (SOP tasks)",
-			"modal.rule_editor.kpi.doses_required":                      "Doses required",
+			"modal.rule_editor.kpi.eligible_animals":                    "Eligible animals",
+			"modal.rule_editor.kpi.vaccination_cells":                   "Vaccination cells",
+			"modal.rule_editor.kpi.affected_sheds":                      "Affected sheds",
+			"modal.rule_editor.kpi.estimated_days":                      "Estimated days",
+			"modal.rule_editor.label.daily_cap_suffix":                  "vaccinations/day cap",
 			"modal.rule_editor.label.doses_available":                   "doses available",
 			"modal.rule_editor.label.earliest_expiry":                   "earliest expiry",
 			"modal.rule_editor.preview_empty_vaccination":               "Run a preview before publishing. It is read-only and does not create obligations, batches, notifications, or stock movements.",
@@ -1863,8 +1936,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.impact_stock_set":                        "stock item set",
 			"modal.rule_editor.impact_stock_missing":                    "no stock item",
 			"modal.rule_editor.impact_method_title":                     "How the numbers are calculated",
-			"modal.rule_editor.impact_method_body":                      "Read-only estimate for the selected combo. Eligible goats = live in-care animals matching species, stage, sex, breed, health, and park scope. Obligations/cycle = eligible goats x dose rows. Batches = distinct eligible sheds, approximating one SOP drive task per shed. Doses required = eligible goats x dose rows. Stock appears only when the row has a vaccine inventory item.",
-			"modal.rule_editor.impact_scale_note":                       "For 1-5M goats, this panel uses aggregate SQL counts and does not load goats into the browser. It is a quick operator estimate; full scale proof still comes from the high-scale kernel E2E/staging report.",
+			"modal.rule_editor.impact_method_body":                      "Read-only aggregate estimate for the selected combo, read from the precomputed vaccination eligibility rollup (never a live goat scan). Eligible animals = usable in-care animals matching species, stage, sex, breed, health, and park scope. Vaccination cells = eligible animals x selected dose rows. Affected sheds = distinct sheds holding those animals. Estimated days = ceil(vaccination cells / the configured daily cap). Stock appears only when the row has a vaccine inventory item.",
+			"modal.rule_editor.impact_scale_note":                       "For 1-5M animals, this panel reads a precomputed eligibility rollup and does not scan goats or load them into the browser. It is a quick planning estimate; per-animal scheduling, sessions, and assignment happen after publish.",
 			"modal.rule_editor.label.draft_saved":                       "draft saved",
 			"modal.rule_editor.message.preview_failed":                  "preview failed",
 			"modal.rule_editor.label.rule_singular":                     "rule",
@@ -2148,10 +2221,12 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		}}), processIntegrityOptionGroups()...)
 	case "vaccination":
 		return append(withGenericOptionGroups([]domain.OptionGroup{
+			shedStatusOptionGroup(),
+			capacityOptionGroup(),
 			{
 				ID: "drive_steps",
 				Options: []domain.Option{
-					option("target", "Target", "Drive cohort|matching goats by cohort · age · park — never random individuals", "ok"),
+					option("target", "Target", "Drive target|matching goats by stage · age · park — never random individuals", "ok"),
 					option("group", "Group", "→ per-shed events|all matching goats grouped by shed", "info"),
 					option("route", "Route", "→ shed owner|one batched notification per shed → its Manager, delegated to Asst", "info"),
 					option("execute", "Execute", "video per shed|FEFO dose consumed, posted on verify", "warn"),
@@ -2175,7 +2250,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			{
 				ID: "new_drive_steps",
 				Options: []domain.Option{
-					option("target", "Target", "Drive cohort|cohort · age · park", "ok"),
+					option("target", "Target", "Drive target|stage · age · park", "ok"),
 					option("group", "Group", "per-shed events|all matching goats grouped by shed", "info"),
 					option("route", "Route", "shed owner|manager / assistant assignment", "info"),
 					option("execute", "Execute", "video per shed|proof gates before consume", "warn"),
@@ -2381,7 +2456,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 	case "protocol-adherence":
 		return append(genericOptionGroups(), processIntegrityOptionGroups()...)
 	case "shed-execution":
-		return append(genericOptionGroups(), processIntegrityOptionGroups()...)
+		return append(append(genericOptionGroups(), processIntegrityOptionGroups()...),
+			shedStatusOptionGroup(), capacityOptionGroup())
 	case "config":
 		return withGenericOptionGroups(configOptionGroups())
 	case "sops":
@@ -2469,6 +2545,22 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 
 func configOptionGroups() []domain.OptionGroup {
 	return []domain.OptionGroup{
+		{
+			// Capacity scope options for the daily-cap card. Only 'tenant' is honored by the planner today;
+			// center/shed are shown disabled-with-reason (mock-fidelity: disable, never hide the future shape).
+			ID: "capacity_scopes",
+			Options: []domain.Option{
+				option("tenant", "Whole tenant (all parks)", "One daily cap for the whole tenant", "ok"),
+				{Key: "center", Label: "Per center", Enabled: false, DisabledReason: "Per-center caps are not available yet — planning uses the tenant-wide cap."},
+				{Key: "shed", Label: "Per shed", Enabled: false, DisabledReason: "Per-shed caps are not available yet — planning uses the tenant-wide cap."},
+			},
+		},
+		{
+			ID: "capacity_overflow_policies",
+			Options: []domain.Option{
+				option("split_within_safe_window_then_mark_needs_review", "Split across days, then flag Needs review", "Spread work across days at the cap; flag the shed when it can't fit the safe window", ""),
+			},
+		},
 		{
 			ID: "rule_categories",
 			Options: []domain.Option{
@@ -3586,10 +3678,44 @@ func option(key, label, title, tone string) domain.Option {
 	return domain.Option{Key: key, Label: label, Title: title, Enabled: true, Tone: tone}
 }
 
+// shedStatusOptionGroup is the merged CEO status headline vocabulary for the shed-wise table + shed
+// detail. The frontend renders these labels (never the raw enum, never the word "state") and uses the
+// group for the Status filter chips. Priority order matches the backend headline: needs_review > split >
+// overdue > due > scheduled > on_track.
+func shedStatusOptionGroup() domain.OptionGroup {
+	return domain.OptionGroup{
+		ID: "shed_status_chips",
+		Options: []domain.Option{
+			option("needs_review", "Needs review", "Capacity breach — due work cannot fit the safe window", "dng"),
+			option("split", "Split", "Work safely split across multiple days", "warn"),
+			option("overdue", "Overdue", "At least one overdue animal", "dng"),
+			option("due", "Due", "At least one due animal, none overdue", "warn"),
+			option("scheduled", "Scheduled", "Only future scheduled work", "info"),
+			option("on_track", "On track", "No open vaccination work", "ok"),
+		},
+	}
+}
+
+// capacityOptionGroup renders the internal capacity machine states (within_cap/over_cap/capacity_breach)
+// as CEO labels (Within cap / Split / Needs review). Used for the capacity filter chips, the per-day
+// planned-session capacity cell, and the shed detail capacity headline. The raw tokens never reach the UI.
+func capacityOptionGroup() domain.OptionGroup {
+	return domain.OptionGroup{
+		ID: "capacity_chips",
+		Options: []domain.Option{
+			option("within_cap", "Within cap", "Fits within the daily vaccination limit in a single day", "ok"),
+			option("over_cap", "Split", "Safely split across multiple days within the safe window", "warn"),
+			option("capacity_breach", "Needs review", "Cannot fit within the safe window — needs manager review", "dng"),
+		},
+	}
+}
+
 func humanLabel(key string) string {
 	switch key {
 	case "goat_id":
 		return "Goat ID"
+	case "display_id":
+		return "Display ID"
 	case "next_action":
 		return "Next action"
 	case "effective_date":

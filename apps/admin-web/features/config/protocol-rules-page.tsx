@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { Workflow } from "lucide-react";
 import { ConfigConsole, type ConfigRuleRow } from "./config-console";
+import { CapacityConfigCard } from "./capacity-config-card";
 import { type AnimalStageOption, type SopVersionOption } from "./rule-dsl";
-import { getProtocolVersion, listAnimalStages, listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
+import { getProtocolVersion, getVaccinationCapacityConfig, listAnimalStages, listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
 import { control, copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate as fmtIstDate } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
@@ -84,12 +85,17 @@ export async function ConfigProtocolRulesPage({
   const authoringOpen = searchParams ? one(searchParams, "new_rule") === "1" : false;
   const publishControl = control(pageContract, "publish_protocol_version");
   const selectedRuleId = searchParams ? one(searchParams, "config_rule") : undefined;
-  const [res, sopRes, stagesRes, selectedRes] = await Promise.all([
+  const [res, sopRes, stagesRes, selectedRes, capacityRes] = await Promise.all([
     listProtocolConfigs(initialCategory),
     listSops({ status: "active" }),
     listAnimalStages(),
     selectedRuleId ? getProtocolVersion(selectedRuleId) : Promise.resolve(null),
+    initialCategory === "vaccination" ? getVaccinationCapacityConfig() : Promise.resolve(null),
   ]);
+  // Daily vaccination capacity (admin-editable) — only in the vaccination flow; falls back to the code
+  // default on the backend, so a successful read always yields a config. A failed read simply hides the
+  // card rather than blocking rule authoring.
+  const capacityConfig = capacityRes && capacityRes.ok ? capacityRes.data : null;
   const rules: ConfigRuleRow[] = res.ok ? res.data.items.map((item) => toRuleRow(item, pageContract)) : [];
   const loadError = res.ok ? null : (res.error.message ?? copy(pageContract, "error.rules_load"));
   const selectedRuleDetail = selectedRes && selectedRes.ok ? selectedRes.data : null;
@@ -139,6 +145,10 @@ export async function ConfigProtocolRulesPage({
         publishDisabledReason={publishControl.disabled_reason}
         pageContract={pageContract}
       />
+
+      {/* Daily vaccination capacity authoring (admin-editable cap → shed-wise session splitting). Only in
+          the vaccination config flow; not authoring the rule matrix, so it shows even while authoring is open. */}
+      {capacityConfig ? <CapacityConfigCard initial={capacityConfig} pageContract={pageContract} /> : null}
 
       {/* How a published rule maps to live work */}
       {!authoringOpen ? <section className="card">

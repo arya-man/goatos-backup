@@ -66,6 +66,21 @@ export type VaccinationExecutionSOPStatus = AppApiComponents["schemas"]["Vaccina
 export type VaccinationExecutionProofStatus = AppApiComponents["schemas"]["VaccinationExecutionProofStatus"];
 export type VaccinationExecutionVerificationStatus = AppApiComponents["schemas"]["VaccinationExecutionVerificationStatus"];
 
+// Shed-wise vaccination read model (the main /vaccination table + shed detail + capacity planner).
+export type VaccinationShedSummaryResponse = AppApiComponents["schemas"]["VaccinationShedSummaryResponse"];
+export type VaccinationShedSummaryRow = AppApiComponents["schemas"]["VaccinationShedSummaryRow"];
+export type VaccinationShedDetail = AppApiComponents["schemas"]["VaccinationShedDetail"];
+export type VaccinationShedVaccineRow = AppApiComponents["schemas"]["VaccinationShedVaccineRow"];
+export type VaccinationShedAnimalPage = AppApiComponents["schemas"]["VaccinationShedAnimalPage"];
+export type VaccinationShedAnimalRow = AppApiComponents["schemas"]["VaccinationShedAnimalRow"];
+export type VaccinationShedOwner = AppApiComponents["schemas"]["VaccinationShedOwner"];
+export type VaccinationShedStatus = AppApiComponents["schemas"]["VaccinationShedStatus"];
+export type VaccinationCapacityStatus = AppApiComponents["schemas"]["VaccinationCapacityStatus"];
+export type VaccinationPlannedSession = AppApiComponents["schemas"]["VaccinationPlannedSession"];
+export type VaccinationShedSortKey = AppApiComponents["schemas"]["VaccinationShedSortKey"];
+export type VaccinationPageInfo = AppApiComponents["schemas"]["VaccinationPageInfo"];
+export type VaccinationCapacityConfig = AppApiComponents["schemas"]["VaccinationCapacityConfig"];
+
 export type AdminGoatResponse = AdminApiComponents["schemas"]["AdminGoatResponse"];
 export type CreateAdminGoatRequest = AdminApiComponents["schemas"]["CreateAdminGoatRequest"];
 export type AdminGoatBulkPreviewRequest = AdminApiComponents["schemas"]["AdminGoatBulkPreviewRequest"];
@@ -522,6 +537,104 @@ export async function getVaccinationExecutionShedDrilldown(
     client.request<VaccinationExecutionShedDrilldown>(path, {
       cache: "no-store",
       query: compactQuery({ as_of: params.asOf }),
+    }),
+  );
+}
+
+// Shed-wise vaccination summary — the MAIN /vaccination table (one row per shed, animal-level Due/Done,
+// planned Sessions, capacity, merged Status). Filters (park/shed/status/capacity/search) + offset
+// pagination are applied server-side.
+export async function getVaccinationShedSummary(
+  params: {
+    parkId?: string;
+    shedId?: string;
+    status?: VaccinationShedStatus;
+    capacity?: VaccinationCapacityStatus;
+    search?: string;
+    sort?: VaccinationShedSortKey;
+    limit?: number;
+    offset?: number;
+    asOf?: string;
+  } = {},
+): Promise<ApiResult<VaccinationShedSummaryResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationShedSummaryResponse>("/vaccination/sheds", {
+      cache: "no-store",
+      query: compactQuery({
+        park_id: params.parkId,
+        shed_id: params.shedId,
+        status: params.status,
+        capacity: params.capacity,
+        q: params.search,
+        sort: params.sort,
+        limit: params.limit,
+        offset: params.offset,
+        as_of: params.asOf,
+      }),
+    }),
+  );
+}
+
+export async function getVaccinationShedDetail(
+  shedId: string,
+  params: { asOf?: string } = {},
+): Promise<ApiResult<VaccinationShedDetail>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/vaccination/sheds/${encodeURIComponent(shedId)}` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<VaccinationShedDetail>(path, {
+      cache: "no-store",
+      query: compactQuery({ as_of: params.asOf }),
+    }),
+  );
+}
+
+export async function getVaccinationShedAnimals(
+  shedId: string,
+  params: { cursor?: string; limit?: number } = {},
+): Promise<ApiResult<VaccinationShedAnimalPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/vaccination/sheds/${encodeURIComponent(shedId)}/animals` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<VaccinationShedAnimalPage>(path, {
+      cache: "no-store",
+      query: compactQuery({ cursor: params.cursor, limit: params.limit }),
+    }),
+  );
+}
+
+// Admin daily vaccination capacity config (Config screen). Read + optimistic-concurrency update.
+export async function getVaccinationCapacityConfig(): Promise<ApiResult<VaccinationCapacityConfig>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationCapacityConfig>("/vaccination/capacity-config", { cache: "no-store" }),
+  );
+}
+
+export async function updateVaccinationCapacityConfig(body: {
+  maxPerDay: number;
+  capacityScope: string;
+  maxBufferDays: number;
+  overflowPolicy: string;
+  expectedRowVersion: number;
+}): Promise<ApiResult<VaccinationCapacityConfig>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationCapacityConfig>("/vaccination/capacity-config", {
+      method: "PUT",
+      cache: "no-store",
+      body,
     }),
   );
 }

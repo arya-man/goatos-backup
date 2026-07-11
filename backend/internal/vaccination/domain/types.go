@@ -115,13 +115,13 @@ type ImpactFilter struct {
 	ParkID                  *string
 }
 
-// ImpactRequest drives a live impact preview for a vaccination rule/version.
+// ImpactRequest drives an aggregate config impact preview for a vaccination rule/version. Preview
+// numbers come from the vaccination_eligibility_rollups read model, never a live goats scan.
 type ImpactRequest struct {
 	Filter        ImpactFilter
 	VaccineItemID *string
 	LocationID    *string
-	DosesPerGoat  int32
-	DoseRows      int32 // number of schedule rows (obligations per eligible goat per cycle)
+	DoseRows      int32 // number of selected dose/schedule rows (vaccination cells per eligible animal)
 	HorizonDays   int
 	AsOf          time.Time
 }
@@ -222,15 +222,41 @@ type GenerationRunInput struct {
 	RequestHash       string
 }
 
-// ImpactPreview is the computed live impact (eligible goats, catch-up, obligations, batches,
-// doses required vs available, warnings). Mock math is replaced by these real counts.
+// ImpactPreview is the aggregate-only config impact preview. Every number is computed from the
+// vaccination_eligibility_rollups read model (plus a cheap optional stock lookup) — the UI request
+// path never scans goats. Per-animal/workflow/session/manager detail is intentionally NOT here; that
+// belongs after publish/planner execution.
 type ImpactPreview struct {
-	EligibleGoats  int64
-	CatchupGoats   int64
-	Obligations    int64
-	Batches        int64
-	DosesRequired  int64
+	EligibleAnimals  int64 // SUM(animal_count) WHERE usable_for_vaccination
+	VaccinationCells int64 // eligible_animals × selected dose rows
+	AffectedSheds    int64 // distinct sheds with usable animals
+	EstimatedDays    int64 // ceil(vaccination_cells / daily_cap)
+	DailyCap         int64 // configured vaccinations/day used for estimated_days
+	// Optional stock check — populated only when a vaccine item is set. Kept because the lookup is a
+	// single cheap indexed aggregate on inventory_stock, not a goats join.
 	DosesAvailable string
 	EarliestExpiry *time.Time
+	// Read-model freshness: source_revision is the recompute stamp behind these numbers (0 when the
+	// rollup has no rows for the scope yet), recomputed_at is when that grain was last rebuilt.
+	SourceRevision int64
+	RecomputedAt   *time.Time
 	Warnings       []string
+}
+
+// EligibilityRollupAggregate is the aggregate read from vaccination_eligibility_rollups for a preview:
+// total usable animals and the number of distinct sheds holding them, with the read model's freshness.
+type EligibilityRollupAggregate struct {
+	EligibleAnimals int64
+	AffectedSheds   int64
+	SourceRevision  int64
+	RecomputedAt    *time.Time
+}
+
+// RollupRecomputeResult summarises one full recompute of the eligibility rollup for a tenant.
+type RollupRecomputeResult struct {
+	TenantID        string
+	Grains          int64 // rollup rows written
+	EligibleAnimals int64 // total usable animals across all grains
+	SourceRevision  int64
+	RecomputedAt    time.Time
 }

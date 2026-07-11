@@ -407,7 +407,8 @@ func TestVaccinationOperationsProductionQueryPlanUsesIndexes(t *testing.T) {
 		testTenant,
 		asOf,
 		dueBefore,
-		"",
+		"", // park filter
+		"", // shed filter
 		500,
 	)
 	if err != nil {
@@ -1263,5 +1264,57 @@ func TestVaccinationGapsExcludesCompleteAnimalsAndPaginates(t *testing.T) {
 	}
 	if len(scoped) != 0 {
 		t.Fatalf("scoped rows = %#v want empty", scoped)
+	}
+}
+
+// TestShedSummaryReadsSeededShed exercises the full shed-wise rollup SQL (alive aggregate + as-of
+// reconstruction + session-split planner columns) and the capacity config read against a real Postgres,
+// proving migrations 000153-000155 apply and the query executes and scans. Small seed => 1 session,
+// within cap; the animal-level identity Due + Done == Animals must hold for every row.
+func TestShedSummaryReadsSeededShed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	repo := NewRepository(pool, 0)
+
+	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	rows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
+		TenantID:  testTenant,
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     50,
+	})
+	if err != nil {
+		t.Fatalf("ShedSummary: %v", err)
+	}
+	var found *domain.ShedSummaryProjection
+	for i := range rows {
+		r := rows[i]
+		// Animal-level invariant: a shed can't have more due animals than alive animals (Done = Animals -
+		// Due is then always >= 0).
+		if r.DueAnimals < 0 || r.DueAnimals > r.Animals {
+			t.Fatalf("row %s: DueAnimals=%d out of range for Animals=%d", r.ShedID, r.DueAnimals, r.Animals)
+		}
+		if r.ShedID == testShed {
+			found = &rows[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("seeded shed %s not present in %d summary rows", testShed, len(rows))
+	}
+	if found.Animals < 1 {
+		t.Errorf("animals = %d, want >= 1", found.Animals)
+	}
+	if found.Sessions > 1 {
+		t.Errorf("sessions = %d, want <= 1 for small seed", found.Sessions)
+	}
+	if found.Capacity != domain.CapacityWithinCap {
+		t.Errorf("capacity = %q, want within_cap", found.Capacity)
+	}
+	if found.Status == "" {
+		t.Errorf("status must be a non-empty merged headline")
 	}
 }

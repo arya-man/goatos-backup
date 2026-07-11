@@ -95,6 +95,13 @@
   /* contextual help (ℹ) + in-screen park filter */
   .ihelp{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1px solid var(--line);color:var(--muted);font-size:10px;font-weight:800;cursor:pointer;margin-left:6px;vertical-align:middle;font-style:normal;line-height:1}
   .ihelp:hover{border-color:var(--brand);color:var(--brand)}
+  /* Hover/focus info popover (Sessions + Capacity tooltips). CSS-only, no JS: the .tip text is always in
+     the DOM (read/testable), revealed on hover/focus-within. Modeled on the .parkmenu popover idiom. */
+  .tipwrap{position:relative;display:inline-flex;align-items:center}
+  .tipwrap .ihelp:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
+  .tipwrap .tip{position:absolute;z-index:60;top:calc(100% + 6px);left:0;min-width:230px;max-width:300px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:9px 11px;font-size:12px;line-height:1.5;font-weight:500;color:var(--ink);text-transform:none;letter-spacing:normal;white-space:normal;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-4px);transition:opacity .14s,transform .14s,visibility .14s}
+  .tipwrap:hover .tip,.tipwrap:focus-within .tip{opacity:1;visibility:visible;transform:translateY(0)}
+  th .tipwrap .tip{right:0;left:auto}
   .pscope{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 10px;font-weight:600;font-size:12.5px;color:var(--ink);cursor:pointer;white-space:nowrap;flex:none}
   .pscope:hover{border-color:var(--brand)}
   .pscope b{color:var(--brand-d)}
@@ -460,6 +467,9 @@
   .main table.control-tower-gaps-table th:nth-child(1),.main table.control-tower-gaps-table td:nth-child(1),.main table.control-tower-gaps-table th:nth-child(2),.main table.control-tower-gaps-table td:nth-child(2){min-width:132px}
   .main table.herd-register-table{min-width:1320px}
   .main table.herd-register-table th:nth-child(7),.main table.herd-register-table td:nth-child(7),.main table.herd-register-table th:nth-child(8),.main table.herd-register-table td:nth-child(8),.main table.herd-register-table th:nth-child(9),.main table.herd-register-table td:nth-child(9){min-width:116px}
+  /* Shed-wise vaccination table (10 cols): widen Manager/Backup (cols 8,9) for names; scrolls on narrow. */
+  .main table.shed-summary-table{min-width:1080px}
+  .main table.shed-summary-table th:nth-child(8),.main table.shed-summary-table td:nth-child(8),.main table.shed-summary-table th:nth-child(9),.main table.shed-summary-table td:nth-child(9){min-width:140px}
   .main table.vaccination-status-matrix-table{min-width:860px}
   .main table.vaccination-status-matrix-table th:not(:first-child),.main table.vaccination-status-matrix-table td:not(:first-child){min-width:132px}
   .main table.vaccination-cohort-detail-table{min-width:980px}

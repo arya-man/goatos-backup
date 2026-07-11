@@ -24,6 +24,10 @@ import (
 
 const defaultQueryTimeout = 3 * time.Second
 
+// defaultDailyVaccinationCap mirrors domain.DefaultCapacityConfig / migration 000155 seed. Used when a
+// tenant has no vaccination_capacity_config row yet.
+const defaultDailyVaccinationCap int64 = 100
+
 const (
 	vaccinationCompletedEventType     = "vaccination.completed"
 	vaccinationCompletedSchemaVersion = "1.0.0"
@@ -1599,6 +1603,183 @@ func (r *Repository) CountEligibleShedScopes(ctx context.Context, f domain.Impac
 		return 0, fmt.Errorf("vaccination: count shed scopes: %w", err)
 	}
 	return n, nil
+}
+
+// SumEligibilityRollup reads the config impact-preview aggregate from the vaccination_eligibility_rollups
+// READ MODEL only — it never scans goats. Returns total usable animals + distinct sheds holding them for
+// the tenant + optional eligibility filter dims, plus the read model's freshness stamp. Empty scope
+// yields zeros with source_revision 0 (rollup not yet recomputed / no matching animals).
+func (r *Repository) SumEligibilityRollup(ctx context.Context, f domain.ImpactFilter) (domain.EligibilityRollupAggregate, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(f.TenantID)
+	if err != nil {
+		return domain.EligibilityRollupAggregate{}, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	var out domain.EligibilityRollupAggregate
+	var recomputedAt pgtype.Timestamptz
+	err = r.pool.QueryRow(ctx, `
+SELECT COALESCE(SUM(animal_count), 0)::bigint AS eligible_animals,
+       COUNT(DISTINCT shed_id) FILTER (WHERE animal_count > 0 AND shed_id IS NOT NULL)::bigint AS affected_sheds,
+       COALESCE(MAX(source_revision), 0)::bigint AS source_revision,
+       MAX(recomputed_at) AS recomputed_at
+FROM vaccination_eligibility_rollups
+WHERE tenant_id = $1::uuid
+  AND usable_for_vaccination = true
+  AND ($2::text = '' OR species = $2::text)
+  AND ($3::text = '' OR management_stage = $3::text)
+  AND ($4::text = '' OR sex = $4::text)
+  AND ($5::text = '' OR breed = $5::text)
+  AND ($6::text = '' OR health_status = $6::text)
+  AND ($7::uuid IS NULL OR park_id = $7::uuid)`,
+		tenant,
+		eligibilityWildcard(f.Species),
+		eligibilityWildcard(f.Stage),
+		eligibilityWildcard(f.Sex),
+		eligibilityWildcard(f.Breed),
+		eligibilityWildcard(f.Health),
+		pgconv.NullableUUID(f.ParkID),
+	).Scan(&out.EligibleAnimals, &out.AffectedSheds, &out.SourceRevision, &recomputedAt)
+	if err != nil {
+		return domain.EligibilityRollupAggregate{}, fmt.Errorf("vaccination: sum eligibility rollup: %w", err)
+	}
+	if recomputedAt.Valid {
+		t := recomputedAt.Time
+		out.RecomputedAt = &t
+	}
+	return out, nil
+}
+
+// CapacityMaxPerDay returns the tenant's configured daily vaccination cap (vaccinations/day), falling
+// back to the code default when no vaccination_capacity_config row exists.
+func (r *Repository) CapacityMaxPerDay(ctx context.Context, tenantID string) (int64, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	var maxPerDay int64
+	err = r.pool.QueryRow(ctx, `
+SELECT max_per_day::bigint
+FROM vaccination_capacity_config
+WHERE tenant_id = $1::uuid`, tenant).Scan(&maxPerDay)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return defaultDailyVaccinationCap, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("vaccination: capacity max per day: %w", err)
+	}
+	if maxPerDay < 1 {
+		return defaultDailyVaccinationCap, nil
+	}
+	return maxPerDay, nil
+}
+
+// RecomputeEligibilityRollup fully rebuilds vaccination_eligibility_rollups for one tenant from the
+// source tables (goats + location operational attributes + shed profiles + animal stage lookup). It is
+// the PROJECTOR write path — delete-then-insert per tenant inside a single transaction. This is a heavy
+// full-herd aggregate and must run off the UI request path (CLI / future event-driven projector). The
+// caller owns the timeout via ctx (the full-herd scan can exceed the default query timeout).
+func (r *Repository) RecomputeEligibilityRollup(ctx context.Context, tenantID string) (domain.RollupRecomputeResult, error) {
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return domain.RollupRecomputeResult{}, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.RollupRecomputeResult{}, fmt.Errorf("vaccination: begin recompute rollup: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	var sourceRevision int64
+	var recomputedAt time.Time
+	if err := tx.QueryRow(ctx, `SELECT (extract(epoch FROM now()) * 1000)::bigint, now()`).Scan(&sourceRevision, &recomputedAt); err != nil {
+		return domain.RollupRecomputeResult{}, fmt.Errorf("vaccination: recompute stamp: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM vaccination_eligibility_rollups WHERE tenant_id = $1::uuid`, tenant); err != nil {
+		return domain.RollupRecomputeResult{}, fmt.Errorf("vaccination: clear rollup: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `
+INSERT INTO vaccination_eligibility_rollups (
+  tenant_id, park_id, shed_id, species, management_stage, sex, breed, health_status,
+  usable_for_vaccination, animal_count, source_revision, recomputed_at, updated_at
+)
+SELECT
+  g.tenant_id,
+  g.park_id,
+  g.shed_id,
+  COALESCE(g.species, '')::text,
+  COALESCE(asl.stage_code, g.management_stage, '')::text,
+  COALESCE(g.sex, '')::text,
+  COALESCE(g.breed, '')::text,
+  COALESCE(g.health_status, '')::text,
+  (
+    COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    AND COALESCE(loa.usable_for_vaccination, true)
+    AND NOT COALESCE(loa.is_quarantine, false)
+    AND NOT COALESCE(loa.is_icu, false)
+  ) AS usable_for_vaccination,
+  count(*)::bigint,
+  $2::bigint,
+  $3::timestamptz,
+  $3::timestamptz
+FROM goats g
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+LEFT JOIN shed_profiles sp
+  ON sp.tenant_id = g.tenant_id
+ AND sp.location_id = g.shed_id
+LEFT JOIN animal_stage_lookup asl
+  ON asl.tenant_id = sp.tenant_id
+ AND asl.animal_stage_id = sp.animal_stage_id
+ AND asl.status = 'active'
+WHERE g.tenant_id = $1::uuid
+  AND g.lifecycle_status = 'alive'
+  AND g.merged_into_goat_id IS NULL
+GROUP BY g.tenant_id, g.park_id, g.shed_id,
+         COALESCE(g.species, ''),
+         COALESCE(asl.stage_code, g.management_stage, ''),
+         COALESCE(g.sex, ''),
+         COALESCE(g.breed, ''),
+         COALESCE(g.health_status, ''),
+         (
+           COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+           AND COALESCE(loa.usable_for_vaccination, true)
+           AND NOT COALESCE(loa.is_quarantine, false)
+           AND NOT COALESCE(loa.is_icu, false)
+         )`, tenant, sourceRevision, recomputedAt)
+	if err != nil {
+		return domain.RollupRecomputeResult{}, fmt.Errorf("vaccination: rebuild rollup: %w", err)
+	}
+
+	var eligibleAnimals int64
+	if err := tx.QueryRow(ctx, `
+SELECT COALESCE(SUM(animal_count), 0)::bigint
+FROM vaccination_eligibility_rollups
+WHERE tenant_id = $1::uuid AND usable_for_vaccination = true`, tenant).Scan(&eligibleAnimals); err != nil {
+		return domain.RollupRecomputeResult{}, fmt.Errorf("vaccination: recompute eligible total: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.RollupRecomputeResult{}, fmt.Errorf("vaccination: commit recompute rollup: %w", err)
+	}
+	committed = true
+	return domain.RollupRecomputeResult{
+		TenantID:        tenantID,
+		Grains:          tag.RowsAffected(),
+		EligibleAnimals: eligibleAnimals,
+		SourceRevision:  sourceRevision,
+		RecomputedAt:    recomputedAt,
+	}, nil
 }
 
 // ListRecoverableDeferredVaccinationGoatIDs returns a bounded set of goats with old deferred

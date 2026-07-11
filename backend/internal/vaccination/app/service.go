@@ -126,3 +126,10 @@ func (s *Service) LastAccepted(ctx context.Context, tenantID, goatID string) (do
 func (s *Service) VerificationQueue(ctx context.Context, tenantID, parkID string, limit int32) ([]domain.RecordedCompletion, error) {
 	return s.repo.ListRecordedCompletions(ctx, tenantID, parkID, limit)
 }
+
+// RecomputeEligibilityRollup fully rebuilds the tenant's vaccination eligibility rollup read model from
+// the source tables. This is the projector/CLI entry point — a heavy full-herd aggregate that must run
+// off the UI request path, never from a preview handler.
+func (s *Service) RecomputeEligibilityRollup(ctx context.Context, tenantID string) (domain.RollupRecomputeResult, error) {
+	return s.repo.RecomputeEligibilityRollup(ctx, tenantID)
+}

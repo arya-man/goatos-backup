@@ -431,7 +431,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Preview vaccination impact for eligible goats, drive batches, and stock. */
+        /** Aggregate config impact preview (eligible animals, vaccination cells, affected sheds, estimated days) from the eligibility rollup read model. */
         post: operations["vaccinationImpactPreview"];
         delete?: never;
         options?: never;
@@ -585,6 +585,78 @@ export interface paths {
         /** Get vaccination execution context for one shed. */
         get: operations["getVaccinationExecutionShedDrilldown"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/sheds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List shed-wise vaccination summaries with optional filtering and pagination. */
+        get: operations["listVaccinationShedSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/sheds/{shed_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get vaccination detail for one shed with per-vaccine obligation counts. */
+        get: operations["getVaccinationShedDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/sheds/{shed_id}/animals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get keyset-paginated roster of animals in a shed for vaccination detail. */
+        get: operations["getVaccinationShedAnimals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/capacity-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the tenant's daily vaccination capacity config for the admin Config screen. */
+        get: operations["getVaccinationCapacityConfig"];
+        /**
+         * Update the tenant's daily vaccination capacity config (optimistic concurrency).
+         * @description Authors the daily vaccination cap in the vaccination config flow. Capacity counts vaccination administrations, not animals (one goat receiving FMD + HS = 2). expectedRowVersion is the rowVersion the admin last read; a stale value returns 409 so concurrent edits never clobber.
+         */
+        put: operations["updateVaccinationCapacityConfig"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2323,6 +2395,7 @@ export interface components {
         VaccinationQueueResponse: {
             items: components["schemas"]["VaccinationQueueItem"][];
         };
+        /** @description Config impact-preview filter. Empty filter dims mean "any". Preview is aggregate-only over the eligibility rollup, so there is no per-goat dose count and no time-relative warmup on this path. */
         ImpactPreviewInput: {
             species?: string;
             stage?: string;
@@ -2332,20 +2405,36 @@ export interface components {
             park_id?: string;
             vaccine_item_id?: string;
             location_id?: string;
-            doses_per_goat?: number;
+            /** @description Number of selected dose/schedule rows (vaccination cells per eligible animal). */
             dose_rows?: number;
             horizon_days?: number;
-            warmup_no_vaccination_days?: number;
         };
+        /** @description Aggregate-only config impact preview. Every number is read from the precomputed vaccination eligibility rollup (read model); the request path never scans goats. Use the business names only (eligible_animals / vaccination_cells / affected_sheds / estimated_days / daily_cap). */
         ImpactPreviewResult: {
-            eligible_goats: number;
-            catchup_goats: number;
-            obligations: number;
-            batches: number;
-            doses_required: number;
-            doses_available: string;
+            /** @description SUM(animal_count) over usable animals matching the filter. */
+            eligible_animals: number;
+            /** @description eligible_animals × selected dose rows. */
+            vaccination_cells: number;
+            /** @description Distinct sheds holding usable animals in scope. */
+            affected_sheds: number;
+            /** @description ceil(vaccination_cells / daily_cap). */
+            estimated_days: number;
+            /** @description Configured vaccinations/day used for estimated_days. */
+            daily_cap: number;
+            /** @description Optional cheap stock check; present only when a vaccine item is set. */
+            doses_available?: string;
             /** Format: date-time */
             earliest_expiry?: string;
+            /**
+             * Format: int64
+             * @description Read-model recompute stamp behind these numbers (0 when the rollup has no data for the scope yet).
+             */
+            source_revision: number;
+            /**
+             * Format: date-time
+             * @description When the read-model grain behind these numbers was last rebuilt.
+             */
+            recomputed_at?: string;
             warnings: string[];
         };
         CreateProtocolDefinitionRequest: {
@@ -2697,6 +2786,145 @@ export interface components {
             /** Format: date-time */
             last_checked_at: string;
             allows_generate: boolean;
+        };
+        /**
+         * @description Machine vocabulary for capacity/session-splitting state:
+         *     - within_cap: fits in a single day (sessions <= 1)
+         *     - over_cap: safely split across multiple days within the safe window
+         *     - capacity_breach: cannot fit within the safe window; needs manager review
+         *
+         *     NEVER show raw tokens in CEO UI. Frontend renders provided labels:
+         *     within_cap -> "Within cap", over_cap -> "Split", capacity_breach -> "Needs review"
+         * @enum {string}
+         */
+        VaccinationCapacityStatus: "within_cap" | "over_cap" | "capacity_breach";
+        VaccinationPlannedSession: {
+            /** @description Asia/Kolkata business date (YYYY-MM-DD) */
+            date: string;
+            /** @description Vaccination cells (obligations) planned for this day */
+            vaccinations: number;
+            /** @description The configured daily vaccination capacity cap */
+            dailyLimit: number;
+            capacity: components["schemas"]["VaccinationCapacityStatus"];
+        };
+        /**
+         * @description Tenant daily vaccination capacity config authored on the admin Config screen. The cap counts
+         *     vaccination administrations (cells), not animals — one goat receiving FMD + HS is 2. rowVersion
+         *     is the optimistic-concurrency token (bump on each save); pass it back as expectedRowVersion.
+         */
+        VaccinationCapacityConfig: {
+            /** @description Max vaccination administrations allowed per day. */
+            maxPerDay: number;
+            /**
+             * @description Where the cap applies. Only 'tenant' is honored by the planner today.
+             * @enum {string}
+             */
+            capacityScope: "tenant" | "center" | "shed";
+            /** @description Extra safe-window days past the first due day before work is flagged Needs review. */
+            maxBufferDays: number;
+            /**
+             * @description What the planner does when due work exceeds the cap.
+             * @enum {string}
+             */
+            overflowPolicy: "split_within_safe_window_then_mark_needs_review";
+            /** @description Optimistic-concurrency token; pass back as expectedRowVersion on update. */
+            rowVersion: number;
+        };
+        UpdateVaccinationCapacityConfigRequest: {
+            maxPerDay: number;
+            /** @enum {string} */
+            capacityScope: "tenant" | "center" | "shed";
+            maxBufferDays: number;
+            /** @enum {string} */
+            overflowPolicy: "split_within_safe_window_then_mark_needs_review";
+            /** @description The rowVersion the admin last read; a stale value returns 409. */
+            expectedRowVersion: number;
+        };
+        /**
+         * @description Merged CEO headline folding capacity and vaccination state by priority (highest first):
+         *     needs_review > split > overdue > due > scheduled > on_track
+         *
+         *     This is the INTERNAL machine vocabulary. The CEO UI renders the backend-provided label
+         *     (never the raw token, never the word "state").
+         * @enum {string}
+         */
+        VaccinationShedStatus: "needs_review" | "split" | "overdue" | "due" | "scheduled" | "on_track";
+        /** @enum {string} */
+        VaccinationShedSortKey: "park_shed" | "due_desc" | "animals_desc" | "next_due";
+        VaccinationPageInfo: {
+            total: number;
+            limit: number;
+            offset: number;
+        };
+        VaccinationShedOwner: {
+            workforceMemberId: string;
+            displayName: string;
+        };
+        VaccinationShedSummaryRow: {
+            /** Format: uuid */
+            parkId: string;
+            parkName: string;
+            /** Format: uuid */
+            shedId: string;
+            shedName: string;
+            animals: number;
+            due: number;
+            done: number;
+            /** @description Planned vaccination visits/days for this shed. Usually 1; >1 when the daily cap forces a split. */
+            sessions: number;
+            lastDone?: string | null;
+            nextDue?: string | null;
+            manager?: components["schemas"]["VaccinationShedOwner"] & unknown;
+            backup?: components["schemas"]["VaccinationShedOwner"] & unknown;
+            capacity: components["schemas"]["VaccinationCapacityStatus"];
+            status: components["schemas"]["VaccinationShedStatus"];
+        };
+        VaccinationShedVaccineRow: {
+            protocolId: string;
+            name: string;
+            workState: components["schemas"]["WorkState"];
+            lastDose?: string | null;
+            nextDue?: string | null;
+            counts: components["schemas"]["VaccinationOperationsCounts"];
+        };
+        VaccinationShedSummaryResponse: {
+            /** @enum {string} */
+            source: "api";
+            rows: components["schemas"]["VaccinationShedSummaryRow"][];
+            page: components["schemas"]["VaccinationPageInfo"];
+        };
+        VaccinationShedDetail: {
+            /** @enum {string} */
+            source: "api";
+            /** Format: uuid */
+            parkId: string;
+            parkName: string;
+            /** Format: uuid */
+            shedId: string;
+            shedName: string;
+            animals: number;
+            due: number;
+            done: number;
+            /** @description Planned vaccination visits/days for this shed. Usually 1; >1 when the daily cap forces a split. */
+            sessions: number;
+            manager?: components["schemas"]["VaccinationShedOwner"] & unknown;
+            backup?: components["schemas"]["VaccinationShedOwner"] & unknown;
+            capacity: components["schemas"]["VaccinationCapacityStatus"];
+            /** @description Planned vaccination days for this shed, with daily cell and capacity breakdown. */
+            plannedSessions: components["schemas"]["VaccinationPlannedSession"][];
+            status: components["schemas"]["VaccinationShedStatus"];
+            vaccines: components["schemas"]["VaccinationShedVaccineRow"][];
+        };
+        VaccinationShedAnimalRow: {
+            goatId: string;
+            displayId: string;
+            tag1?: string | null;
+            tag2?: string | null;
+            status: string;
+        };
+        VaccinationShedAnimalPage: {
+            rows: components["schemas"]["VaccinationShedAnimalRow"][];
+            nextCursor?: string | null;
         };
         VaccinationPassportDue: {
             obligation_id: string;
@@ -3989,6 +4217,165 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listVaccinationShedSummary: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                shed_id?: string;
+                status?: components["schemas"]["VaccinationShedStatus"];
+                capacity?: components["schemas"]["VaccinationCapacityStatus"];
+                /** @description Search query string (park or shed name). */
+                q?: string;
+                /** @description Sort key. */
+                sort?: components["schemas"]["VaccinationShedSortKey"];
+                limit?: number;
+                offset?: number;
+                page?: number;
+                /** @description Reconstruct shed state as of this instant. Defaults to now. */
+                as_of?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Shed-wise vaccination summaries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationShedSummaryResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationShedDetail: {
+        parameters: {
+            query?: {
+                /** @description Reconstruct shed state as of this instant. Defaults to now. */
+                as_of?: string;
+            };
+            header?: never;
+            path: {
+                shed_id: components["parameters"]["ShedId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vaccination shed detail with vaccine breakdown. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationShedDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationShedAnimals: {
+        parameters: {
+            query?: {
+                /** @description Keyset cursor (last goat_id seen, exclusive). Omit to start from beginning. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                shed_id: components["parameters"]["ShedId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Keyset-paginated shed animal roster. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationShedAnimalPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationCapacityConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant's daily vaccination capacity config. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationCapacityConfig"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updateVaccinationCapacityConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateVaccinationCapacityConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated capacity config (with the bumped rowVersion). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationCapacityConfig"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Stale rowVersion — the config was changed by someone else; reload and retry. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             500: components["responses"]["ServerError"];
         };
     };

@@ -9,21 +9,22 @@ blocker below is red.
   must stay an exact staging workbook derived from V2, not an independently
   edited copy.
 - Current verified source counts: V2 has 1,311 animal rows, 1,310 unique
-  nonblank RFIDs, and 1 blank-RFID-but-old-tag-present row. Demo DB has the same
-  1,311 vaccination rows, the same 1,310 nonblank RFIDs, and zero normalized
-  vaccination-cell diffs from V2.
+  nonblank primary animal IDs, and 1 blank-primary-ID-but-secondary-ID-present
+  row. Demo DB has the same 1,311 vaccination rows, the same 1,310 nonblank
+  primary IDs, and zero normalized vaccination-cell diffs from V2.
 - Local must be a rehearsal of the staging seed. Before seeding `goatos-stg`,
   local must contain the exact same 1,311 source animal keys and no extra Goat OS
   animal keys.
-- The known blank-RFID row is not identity-less: farm `CPT`, old ID `1388`,
-  old ID suffix `BLR`, age `Kid`, gender `Male`, breed `Beetal`, source tag
-  `K2`, shed `Yashoda`, partition `2`. It may be seeded using the old tag as a
-  real animal identifier; do not label it "missing ID". Only rows where both
-  RFID and old/source tag are blank are identifier blockers.
-- RFID and old/source tag are both valid animal identifiers. Use RFID as the
-  join key where present. When RFID is blank but old/source tag exists, use the
-  old/source tag as the available animal identifier. Never invent a composite
-  key from farm + shed + age + gender + breed + partition.
+- The known blank-primary-ID row is not identity-less: farm `CPT`, secondary ID
+  source pieces `1388` and `BLR`, age `Kid`, gender `Male`, breed `Beetal`,
+  tag value `K2`, and shed `Yashoda`. It may be seeded using the secondary
+  animal ID as a real animal identifier; do not label it "missing ID".
+  Only rows where both primary and secondary animal IDs are blank are identifier
+  blockers.
+- Primary and secondary source animal IDs are both valid animal identifiers. Use
+  the primary ID as the join key where present. When primary ID is blank but a
+  secondary ID exists, use the secondary ID as the available animal identifier.
+  Never invent a composite key from farm + shed + age + gender + breed.
 
 ## Strict Blockers
 
@@ -33,23 +34,40 @@ blocker below is red.
   available, including `admin.people`.
 - Identity columns: Goat OS `display_id` is the short readable internal ID.
   `animal_identifier_1` and `animal_identifier_2` are real-world animal ID
-  slots. RFID and old/source tag are both valid values for these slots. Herd
-  Register must display all three columns: `display_id`, `animal_identifier_1`,
-  and `animal_identifier_2`. The second identifier may render `—`; an animal
-  must not render as missing ID when either RFID or old/source tag exists.
-- Cohorts: vaccination cohort rows must not show `Unknown`. Blank source stage
-  must be fixed in the source sheet or deliberately mapped from age before
-  import.
+  slots. UI labels must be `Display ID`, `Tag 1`, and `Tag 2`. Missing values
+  render `-`. Never render a separate "missing ID" badge/chip.
+- Vaccination grouping: the main vaccination UI is shed-wise. Do not show
+  `cohort`, `partition`, or vaccine-wise rows on the main page. Park owns sheds;
+  sheds contain animals; vaccination planning and execution is shed-wise.
 - Protocol shape: real vaccination seed must publish one canonical
   `vaccination.matrix` version (`V1 Real Vaccination`) containing the
   vaccination rules. Do not create separate obligation families such as
   `vaccination.ppr`, `vaccination.fmd`, or "Real herd import" protocols for the
   same real seed.
-- Source identifier completeness: reject or fix goat rows only when both RFID
-  and old/source tag are blank. The known blank-RFID row
-  `CPT / 1388 / BLR / K2 / Yashoda / 2` still has an old/source tag identity.
+- Config/SOP visibility: the staging demo must not show old authoring/import
+  debris in the normal UI. The default Protocol Rules page should expose one
+  active vaccination matrix entry for the real seed, and the SOP Library should
+  expose one intended vaccination SOP. Retired/history rows may exist only if the
+  UI hides them from the default business view or clearly separates them as
+  archive/history.
+- Source identifier completeness: reject or fix goat rows only when both primary
+  and secondary animal IDs are blank. The known blank-primary-ID row
+  `CPT / 1388 / BLR / K2 / Yashoda` still has a secondary identity.
 - Farm/shed placement: every imported goat must resolve to a real park and shed.
   Blank shed means the animal is rejected from the seed.
+- Shed manager/backup ownership: reuse the existing workforce Position model;
+  do not create a separate vaccination-owned shed ownership table. Manager is
+  the shed-scoped Position holder. Backup is the center/park backup-manager slot
+  unless a real shed-specific backup exists. Missing manager/backup is a staging
+  seed blocker, not a normal UI business state. Do not invent mappings.
+- HRMS/vaccination ownership source: the real roster seed must include the
+  vaccination-relevant people from the roster discussion: Health Managers and
+  Health AMs, with known examples such as Darshan for CPT and Eshwar for CBE
+  when confirmed by the source sheet/WhatsApp owner. These must be represented as
+  workforce members/positions with the right center/shed responsibility and
+  backup chain, because vaccination execution and the mobile app read this
+  ownership data. If the source does not provide a shed manager or backup, seed
+  preflight fails; do not leave `owner missing` as a normal business state.
 - Sex and dates: sex must be explicit `Male`/`Female`; dates must be real
   `YYYY-MM-DD`. Do not let importer defaults hide source mistakes.
 - Workflow links: Passport/history links may point only to real workflow rows.
@@ -62,13 +80,206 @@ blocker below is red.
   grouped open process-integrity work, not raw goat count. Export the counts by
   obligation status, dose rule, distinct goats, and grouped work state before
   importing into `goatos-stg`.
+- Sidebar counts must be backend-computed, never seeded constants. After seed,
+  `Action Center`, `Preventive Care (PC)`, and `Vaccination` badges must be
+  reconciled to the same grouped open-work query used by the page list. A number
+  such as `661` is acceptable only when the query proves 661 open grouped work
+  items; otherwise it is a seed/projection bug.
+- Shed-row counts are animal-level: `Animals` is alive animals in the shed,
+  `Due` is distinct animals with at least one pending/due/overdue/in-progress
+  vaccination item, and `Done = Animals - Due`. Per-vaccine obligation counts
+  belong only inside the shed detail page.
+- Work-session capacity config is a staging blocker. Daily capacity must be
+  authored in the same vaccination matrix/rule config flow, with fields for
+  `max vaccinations per day`, `capacity scope`, `max buffer days`, and
+  `overflow policy`. Do not hide this cap in Calendar, Action Center, env vars,
+  or a separate ops-only settings page.
+- Capacity counts vaccination administrations, not animals. One goat receiving
+  FMD + HS counts as 2 vaccination cells. Medical due windows, cross-vaccine
+  spacing, and max buffer days override the cap when needed; if the cap cannot
+  fit all due work inside the safe window, the planner must mark a capacity
+  exception.
+- Draft rule publish must show an impact preview before activation: total cells,
+  cap per day, number of sessions, per-day counts, capacity state, and latest
+  safe date.
+- Built (2026-07-11, read side): the deterministic session-split planner plus a
+  tenant-default cap config (`vaccination_capacity_config`: 100 vaccinations/day,
+  tenant scope, 3 buffer days, split-within-safe-window-then-mark-needs-review;
+  migration 000155). The shed-wise read model now returns backend-computed
+  `Sessions`, per-day `Planned sessions`, `Capacity` (within_cap/over_cap/
+  capacity_breach), and a merged `Status` headline.
+- Built (2026-07-11, shed-wise + capacity UI): `/vaccination` is now the shed-wise
+  board (`features/vaccination-sheds/shed-board.tsx`, 10 columns Park…Sessions…
+  Status, server-side park/status/capacity/search filters + offset pagination,
+  Sessions info tooltip) and the shed detail
+  (`features/vaccination-sheds/shed-detail.tsx`: Planned sessions table above the
+  vaccine breakdown, Capacity info tooltip, animal roster) at
+  `/vaccination/execution/sheds/{shed_id}`. All labels are backend-driven via the
+  `vaccination` + `shed-execution` page contracts (`shed_status_chips`,
+  `capacity_chips`, tooltip copy) in `backend/internal/adminui/app/service.go`; no
+  internal enum token (`within_cap`/`over_cap`/`capacity_breach`) or the word
+  `state` is rendered. Local E2E verified against the real seed (109 sheds,
+  capacity filter → breach shed → 7-day planned split with first days Within cap
+  then Needs review, both tooltips, back-nav preserves filter/page state). The old
+  cohort/vaccine-wise status matrix + per-cohort detail + drive shed-event board
+  are removed from the main page. STILL PENDING: the capacity-config authoring UI
+  inside the matrix/rule flow, the draft-publish impact preview, Calendar/Action
+  Center work-session rows, and the animal-roster Breed/Sex/Age columns (contract
+  gap — the roster endpoint returns Display ID/Tag 1/Tag 2/Vaccination status
+  only).
+
+## UI And E2E Gate
+
+Do not seed staging for demo until the local admin-web vaccination slice passes
+this smoke/e2e gate with the exact staging seed source:
+
+- Sidebar `Preventive Care (PC) > Vaccination` opens the vaccination page.
+- Main vaccination page shows one row per shed, not one row per vaccine.
+- Main table columns are exactly: `Park`, `Shed`, `Animals`, `Due`, `Done`,
+  `Sessions`, `Next due`, `Manager`, `Backup`, `Status` (10 columns; `Last done`
+  is not a main-table column).
+- No `cohort`, `partition`, `action`, `owner missing`, `missing ID`,
+  `source obligation`, workflow row ID, or internal row key appears in the main
+  vaccination UI.
+- Filters work server-side: park, shed, status, and search.
+- Pagination works server-side: default 25 rows, page-size options 25/50/100,
+  next/previous, and displayed range such as `1-25 of N sheds`.
+- Sorting is stable: overdue first, due second, scheduled third, done last, then
+  park and shed.
+- Row click opens shed detail.
+- Shed detail shows vaccine breakdown for that shed.
+- Shed detail animal list shows `Display ID`, `Tag 1`, `Tag 2`, `Breed`, `Sex`,
+  `Age`, and `Vaccination status`.
+- Missing `Tag 1` or `Tag 2` values render `-`; no missing-ID chip is rendered.
+- Back navigation from shed detail returns to the same filtered/paginated shed
+  list state.
+- Sessions column renders the planned visit count (usually 1; 2/3/... when the
+  daily cap forces a split). The info icon beside Sessions opens a tooltip
+  explaining Goat OS splits a shed's work across days when the daily limit is
+  reached, and that one goat getting two vaccines counts as two vaccinations.
+- Capacity filter (All / Within cap / Split / Needs review) filters the shed
+  list server-side.
+- Status is the merged CEO headline (priority: Needs review > Split > Overdue >
+  Due > Scheduled > On track). The word `state` never appears in the UI.
+- Shed detail shows a Planned sessions table ABOVE the vaccine breakdown, with
+  columns Session date / Vaccinations / Daily limit / Capacity, and an info icon
+  beside Capacity whose tooltip explains the daily limit, FMD + HS on one goat =
+  2 vaccinations, and Needs review when work cannot fit the safe window.
+- No internal capacity enum name (`within_cap`, `over_cap`, `capacity_breach`)
+  and no `state` token is ever rendered; only the labels Within cap / Split /
+  Needs review appear.
+- Date range controls stay hidden until backend-owned range semantics exist.
+- Config UI exposes the daily capacity fields inside the vaccination matrix/rule
+  config flow.
+- Config UI has an info popover explaining that the cap counts vaccination cells,
+  not animals, and that FMD + HS on one goat counts as 2 vaccinations.
+- Draft publish impact preview shows the planned session split before publish.
+- Local E2E proves:
+  - FMD + HS combo in one shed work session;
+  - mixed goat-vaccine matrix cells;
+  - per-cell replay/idempotency;
+  - 300 cells with cap 100/day -> 100/100/100;
+  - 250 cells with cap 100/day -> 100/100/50;
+  - capacity breach when safe window cannot fit the cap;
+  - cross-shed/team capacity scope;
+  - Calendar and Action Center rows for dated work sessions;
+  - config info popover and impact preview evidence.
+
+## Pub/Sub And Projection Gate
+
+Do not assume DB seed rows automatically update every read model. Before or
+immediately after staging seed, verify the event/projection chain:
+
+- Config impact preview uses the `vaccination_eligibility_rollups` read model,
+  not a live `goats` scan. After seed/import and before preview or demo
+  verification, run the backend recompute entry point
+  `backend/cmd/vaccination-eligibility-rollup-recompute` for the target tenant.
+  The UI and `POST /protocols/vaccination/impact-preview` may only read this
+  rollup. They must not write it and must not scan animal rows on the request
+  path. If the migration/table or CLI entry point is missing, staging seed is
+  blocked until it lands.
+- Pub/Sub topics exist for staging domain/outbox events.
+- Subscriptions exist for every staging consumer and have DLQ routing.
+- Cloud Run services/jobs that publish or consume events are deployed and
+  healthy.
+- Cloud Scheduler jobs for sweepers/projectors are enabled.
+- IAM allows Scheduler/Cloud Run service accounts to publish, subscribe, and
+  ack messages.
+- Trigger or wait for the required staging jobs:
+  - obligation sweeper
+  - calendar vaccination projector
+  - counts projection recompute
+  - vaccination eligibility rollup recompute
+  - process-integrity projection/update jobs
+  - outbox publisher if it is a separate service/job
+- Verify DLQ/dead-letter counts are zero or explicitly explained.
+- Verify Action Center, Calendar, Protocol Adherence, Workflows, and the
+  shed-wise vaccination page match the seeded DB counts.
+
+## Local Preflight Snapshot - 2026-07-11
+
+Latest local rehearsal state before staging seed:
+
+- Source identity parity is green: source Tag 1 set has 1,311 keys, local
+  `animal_identifier_1` has the same 1,311 keys, with zero missing and zero
+  extra. The one blank-primary-ID source row maps to Tag 1 `BLR-1388`.
+- Source secondary identity parity is green: source Tag 2 set has 1,122 keys,
+  local `animal_identifier_2` has the same 1,122 keys, with zero missing and
+  zero extra.
+- Local goat counts match the intended seed: 1,311 total goats, 1,192 alive,
+  78 sold, and 41 dead. No local `display_id` contains a long source primary ID.
+- Local vaccination math matches the workbook: 5,860 due obligations, 3,836
+  accepted completion rows, and 9,696 total seeded vaccination obligations.
+- Local protocol shape is green: exactly one non-retired vaccination protocol is
+  published, `vaccination.matrix / V1 Real Vaccination`.
+- Local capacity config exists: tenant cap is 100 vaccinations/day, tenant
+  scope, 3 buffer days, with overflow policy
+  `split_within_safe_window_then_mark_needs_review`.
+
+Current red items; do not seed staging until these are resolved or explicitly
+explained:
+
+- Local DB does not yet contain `vaccination_eligibility_rollups`; the recompute
+  CLI path exists in the working tree, but the local table is not applied or
+  populated. Config preview must not hit staging until this read model is green.
+- Local SOP data is polluted: 12 non-retired vaccination SOP versions exist,
+  including 11 old `vaccination.authoring_*` rows. Staging should have one
+  intended vaccination SOP version, not authoring debris.
+- Local Protocol Rules UI can show many rows when it includes retired/archive
+  rows. That is not acceptable for the default staging demo view. Confirm the
+  default UI filters to the one active real vaccination matrix, or explicitly
+  hides/archive-separates retired rows before staging.
+- Local outbox is not clean: 3 failed rows (`config.changed` x2,
+  `obligation.regenerated` x1, all `invalid_event_envelope`) and 126 pending
+  rows (`config.changed` x116, `protocol.events` x5, `obligation.events` x3,
+  calendar notifications x2). Staging preflight must either drain these paths or
+  prove they are intentionally excluded.
+- Calendar projection count is inconsistent: local has 5,854
+  `vaccination_dose_due` rows plus 9 `vaccination_drive` rows, while seeded due
+  obligations are 5,860. This must be reconciled before staging demo.
+- Workforce ownership is not ready locally: workforce positions are still
+  center-scoped only; there are zero shed-scoped manager positions populated for
+  shed-wise vaccination ownership.
+- Founder/builder grants are not locally proven: the five expected
+  `@mesha.sg` pending email grants are absent in the local auth grant table.
+- Goat `health_status` is blank for all 1,311 local rows. If the source health
+  columns are meant to drive the UI, importer mapping must be fixed before
+  staging.
+- Identifier query compatibility: this local database uses
+  `goat_identifiers.status = 'active'`; it does not have a boolean
+  `goat_identifiers.active` column. Preflight SQL and seed checks must use the
+  actual deployed schema for the target DB, not an assumed newer/older column
+  name.
+
+Conclusion: local source animal/vaccination data is clean, but the kernel/read
+model/SOP/outbox/workforce gates are not clean enough to seed `goatos-stg` yet.
 
 ## Clean Seed Checks
 
 After local seed and before staging:
 
 ```sql
--- No long RFID values in short display IDs.
+-- No long source primary IDs in short display IDs.
 SELECT count(*) FROM goats
 WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
   AND display_id LIKE 'G-901%';
@@ -140,7 +351,7 @@ LEFT JOIN goat_identifiers gi
  AND gi.goat_id = g.goat_id
 WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001';
 
--- No vaccination cohort Unknown labels.
+-- No blank vaccination grouping labels.
 SELECT count(*) FROM goats
 WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
   AND lifecycle_status = 'alive'

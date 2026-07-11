@@ -259,6 +259,10 @@ type completionRepoFake struct {
 	stockAvailable string
 	stockExpiry    *time.Time
 	next           int
+	// rollup read-model doubles for impact-preview tests.
+	rollupAgg   domain.EligibilityRollupAggregate
+	dailyCap    int64
+	goatScanned bool // set true if any live goat-count method is ever called (impact must not scan goats)
 }
 
 type completionRowFake struct {
@@ -363,15 +367,33 @@ func (r *completionRepoFake) GetLastAcceptedForGoat(context.Context, string, str
 }
 
 func (r *completionRepoFake) CountEligibleGoats(context.Context, domain.ImpactFilter) (int64, error) {
+	r.goatScanned = true
 	return 0, nil
 }
 
 func (r *completionRepoFake) CountCatchupGoats(context.Context, domain.ImpactFilter) (int64, error) {
+	r.goatScanned = true
 	return 0, nil
 }
 
 func (r *completionRepoFake) CountEligibleShedScopes(context.Context, domain.ImpactFilter) (int64, error) {
+	r.goatScanned = true
 	return 0, nil
+}
+
+func (r *completionRepoFake) SumEligibilityRollup(context.Context, domain.ImpactFilter) (domain.EligibilityRollupAggregate, error) {
+	return r.rollupAgg, nil
+}
+
+func (r *completionRepoFake) CapacityMaxPerDay(context.Context, string) (int64, error) {
+	if r.dailyCap < 1 {
+		return 100, nil
+	}
+	return r.dailyCap, nil
+}
+
+func (r *completionRepoFake) RecomputeEligibilityRollup(context.Context, string) (domain.RollupRecomputeResult, error) {
+	return domain.RollupRecomputeResult{}, nil
 }
 
 func (r *completionRepoFake) SumAvailableStock(context.Context, string, string, *string) (string, *time.Time, error) {

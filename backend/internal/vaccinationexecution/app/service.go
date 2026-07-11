@@ -3,7 +3,9 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
@@ -11,11 +13,19 @@ import (
 )
 
 type Service struct {
-	repo ports.Repository
+	repo      ports.Repository
+	ownership ports.ShedOwnershipReader
 }
 
-func NewService(repo ports.Repository) *Service {
-	return &Service{repo: repo}
+// NewService builds the vaccination-execution read service. An optional ShedOwnershipReader attaches
+// each shed's Manager/Backup (from the workforce roster, cross-module). When omitted/nil, every shed
+// reads as a manager/backup seed gap (NoopShedOwnership) — the honest default, never a fabricated owner.
+func NewService(repo ports.Repository, ownership ...ports.ShedOwnershipReader) *Service {
+	var own ports.ShedOwnershipReader = ports.NoopShedOwnership{}
+	if len(ownership) > 0 && ownership[0] != nil {
+		own = ownership[0]
+	}
+	return &Service{repo: repo, ownership: own}
 }
 
 func (s *Service) VaccinationExecution(ctx context.Context, q domain.ExecutionQuery) ([]domain.ExecutionRow, error) {
@@ -565,4 +575,212 @@ func (s *Service) CoverageRollup(ctx context.Context, q domain.OperationsQuery) 
 	}
 	sort.SliceStable(protocols, func(i, j int) bool { return protocols[i].Name < protocols[j].Name })
 	return domain.CoverageResponse{Source: domain.SourceAPI, ParkID: q.ParkID, Protocols: protocols}, nil
+}
+
+// ---- Shed-wise vaccination (shed rollup + shed detail + animal roster) ----
+
+const defaultShedSummaryLimit = 50
+
+// ShedSummary returns the shed-wise rollup: one animal-level row per shed with the resolved Manager/
+// Backup attached from the workforce roster and a derived shed Status, plus offset-pagination metadata.
+func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (domain.ShedSummaryResponse, error) {
+	projections, err := s.repo.ShedSummary(ctx, q)
+	if err != nil {
+		return domain.ShedSummaryResponse{}, err
+	}
+	at := q.AsOf
+	if at.IsZero() {
+		at = time.Now().In(biztime.DefaultLocation())
+	}
+	total := 0
+	rows := make([]domain.ShedSummaryRow, 0, len(projections))
+	// Owner enrichment is one bounded cross-module read per shed on the page (page size <= 200, each an
+	// indexed point lookup). A batched roster read is a noted scale follow-up if page sizes grow.
+	for _, p := range projections {
+		total = p.TotalCount // window COUNT(*) OVER() — identical on every row of the filtered set
+		manager, backup, err := s.ownership.ShedOwnership(ctx, q.TenantID, p.ShedID, p.ParkID, at)
+		if err != nil {
+			return domain.ShedSummaryResponse{}, err
+		}
+		rows = append(rows, domain.ShedSummaryRow{
+			ParkID:   p.ParkID,
+			ParkName: p.ParkName,
+			ShedID:   p.ShedID,
+			ShedName: p.ShedName,
+			Animals:  p.Animals,
+			Due:      p.DueAnimals,
+			Done:     p.Animals - p.DueAnimals,
+			Sessions: p.Sessions,
+			LastDone: businessDatePtr(p.LastDone),
+			NextDue:  businessDatePtr(p.NextDue),
+			Manager:  manager,
+			Backup:   backup,
+			Capacity: p.Capacity,
+			Status:   p.Status,
+		})
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = defaultShedSummaryLimit
+	}
+	offset := q.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	return domain.ShedSummaryResponse{
+		Source: domain.SourceAPI,
+		Rows:   rows,
+		Page:   domain.PageInfo{Total: total, Limit: limit, Offset: offset},
+	}, nil
+}
+
+// ShedDetail returns one shed's header (the same animal-level counts + Manager/Backup + Sessions +
+// Capacity + merged Status as the list row, so detail and list agree), the per-day Planned sessions
+// (re-planned deterministically from the shed's open cells via PlanSessions — mirrors the SQL sessions
+// count), and the per-vaccine obligation breakdown. found=false when the shed has no alive animals / is
+// not an active shed. The per-shed animal roster is a separate keyset endpoint (ShedAnimals).
+func (s *Service) ShedDetail(ctx context.Context, shedID string, q domain.OperationsQuery) (domain.ShedDetailResponse, bool, error) {
+	projections, err := s.repo.ShedSummary(ctx, domain.ShedSummaryQuery{
+		TenantID:  q.TenantID,
+		ShedID:    &shedID,
+		AsOf:      q.AsOf,
+		DueBefore: q.DueBefore,
+		Limit:     1,
+	})
+	if err != nil {
+		return domain.ShedDetailResponse{}, false, err
+	}
+	if len(projections) == 0 {
+		return domain.ShedDetailResponse{}, false, nil
+	}
+	p := projections[0]
+
+	at := q.AsOf
+	if at.IsZero() {
+		at = time.Now().In(biztime.DefaultLocation())
+	}
+	manager, backup, err := s.ownership.ShedOwnership(ctx, q.TenantID, p.ShedID, p.ParkID, at)
+	if err != nil {
+		return domain.ShedDetailResponse{}, false, err
+	}
+
+	cfg, err := s.repo.CapacityConfig(ctx, q.TenantID)
+	if err != nil {
+		return domain.ShedDetailResponse{}, false, err
+	}
+	start := at
+	if p.NextDue != nil {
+		start = *p.NextDue
+	}
+	_, _, planned := PlanSessions(p.OpenCells, cfg, start)
+
+	opsQ := q
+	opsQ.ParkID = nil
+	opsQ.ShedID = &shedID
+	ops, err := s.repo.VaccinationOperations(ctx, opsQ)
+	if err != nil {
+		return domain.ShedDetailResponse{}, false, err
+	}
+	return domain.ShedDetailResponse{
+		Source:          domain.SourceAPI,
+		ParkID:          p.ParkID,
+		ParkName:        p.ParkName,
+		ShedID:          p.ShedID,
+		ShedName:        p.ShedName,
+		Animals:         p.Animals,
+		Due:             p.DueAnimals,
+		Done:            p.Animals - p.DueAnimals,
+		Sessions:        p.Sessions,
+		Manager:         manager,
+		Backup:          backup,
+		Capacity:        p.Capacity,
+		Status:          p.Status,
+		PlannedSessions: planned,
+		Vaccines:        aggregateShedVaccines(ops),
+	}, true, nil
+}
+
+// ShedAnimals returns the shed's keyset-paginated alive-animal roster (Display ID + two tag identities +
+// status). NextCursor is the last goat_id when a full page is returned, nil when the shed is exhausted.
+func (s *Service) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) (domain.ShedAnimalPage, error) {
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	q.Limit = limit
+	rows, err := s.repo.ShedAnimals(ctx, q)
+	if err != nil {
+		return domain.ShedAnimalPage{}, err
+	}
+	var next *string
+	if len(rows) == limit {
+		last := rows[len(rows)-1].GoatID
+		next = &last
+	}
+	return domain.ShedAnimalPage{Rows: rows, NextCursor: next}, nil
+}
+
+// CapacityConfig returns the tenant's daily vaccination cap config for the admin Config screen (falls back
+// to the code default when no row is authored).
+func (s *Service) CapacityConfig(ctx context.Context, tenantID string) (domain.CapacityConfig, error) {
+	return s.repo.CapacityConfig(ctx, tenantID)
+}
+
+// UpdateCapacityConfig persists an admin edit with optimistic concurrency. It re-validates defensively
+// (the HTTP handler validates first for precise field errors); a stale expectedRowVersion surfaces as
+// domain.ErrCapacityConfigStale from the repo. Returns the freshly-stored config with the bumped version.
+func (s *Service) UpdateCapacityConfig(ctx context.Context, tenantID string, cfg domain.CapacityConfig, expectedRowVersion int) (domain.CapacityConfig, error) {
+	if _, msg, ok := cfg.Validate(); !ok {
+		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: invalid capacity config: %s", msg)
+	}
+	return s.repo.UpdateCapacityConfig(ctx, tenantID, cfg, expectedRowVersion)
+}
+
+// aggregateShedVaccines rolls the shed's cohort×protocol rows (across stages) up to one row per vaccine:
+// summed obligation counts, worst-of work state, latest accepted last dose, earliest open next due. This
+// is the ONLY surface exposing per-vaccine obligation counts (the shed row stays animal-level).
+func aggregateShedVaccines(rows []domain.OperationsRow) []domain.ShedVaccineRow {
+	order := make([]string, 0)
+	byProto := map[string]*domain.ShedVaccineRow{}
+	lastByProto := map[string]*time.Time{}
+	nextByProto := map[string]*time.Time{}
+	for _, r := range rows {
+		v, ok := byProto[r.ProtocolID]
+		if !ok {
+			v = &domain.ShedVaccineRow{ProtocolID: r.ProtocolID, Name: r.ProtocolName, WorkState: domain.WorkStateCompleted}
+			byProto[r.ProtocolID] = v
+			order = append(order, r.ProtocolID)
+		}
+		v.Counts = addCounts(v.Counts, countsFromRow(r))
+		cs := cellWorkState(r)
+		if operationsRank(cs) < operationsRank(v.WorkState) {
+			v.WorkState = cs
+		}
+		if r.LastDose != nil && (lastByProto[r.ProtocolID] == nil || r.LastDose.After(*lastByProto[r.ProtocolID])) {
+			lastByProto[r.ProtocolID] = r.LastDose
+		}
+		if r.NextDue != nil && (nextByProto[r.ProtocolID] == nil || r.NextDue.Before(*nextByProto[r.ProtocolID])) {
+			nextByProto[r.ProtocolID] = r.NextDue
+		}
+	}
+	out := make([]domain.ShedVaccineRow, 0, len(order))
+	for _, id := range order {
+		v := byProto[id]
+		v.LastDose = businessDatePtr(lastByProto[id])
+		v.NextDue = businessDatePtr(nextByProto[id])
+		out = append(out, *v)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func businessDatePtr(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	d := biztime.BusinessDate(*t)
+	return &d
 }

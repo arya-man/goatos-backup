@@ -766,7 +766,7 @@ paths:
       tags:
         - Vaccination
       operationId: vaccinationImpactPreview
-      summary: Preview vaccination impact for eligible goats, drive batches, and stock.
+      summary: Aggregate config impact preview (eligible animals, vaccination cells, affected sheds, estimated days) from the eligibility rollup read model.
       requestBody:
         required: false
         content:
@@ -1390,6 +1390,214 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/sheds:
+    get:
+      tags:
+        - Vaccination
+      operationId: listVaccinationShedSummary
+      summary: List shed-wise vaccination summaries with optional filtering and pagination.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/VaccinationShedStatus"
+        - name: capacity
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/VaccinationCapacityStatus"
+        - name: q
+          in: query
+          required: false
+          description: Search query string (park or shed name).
+          schema:
+            type: string
+        - name: sort
+          in: query
+          required: false
+          description: Sort key.
+          schema:
+            $ref: "#/components/schemas/VaccinationShedSortKey"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: as_of
+          in: query
+          required: false
+          description: Reconstruct shed state as of this instant. Defaults to now.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Shed-wise vaccination summaries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationShedSummaryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/sheds/{shed_id}:
+    get:
+      tags:
+        - Vaccination
+      operationId: getVaccinationShedDetail
+      summary: Get vaccination detail for one shed with per-vaccine obligation counts.
+      parameters:
+        - $ref: "#/components/parameters/ShedId"
+        - name: as_of
+          in: query
+          required: false
+          description: Reconstruct shed state as of this instant. Defaults to now.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Vaccination shed detail with vaccine breakdown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationShedDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/sheds/{shed_id}/animals:
+    get:
+      tags:
+        - Vaccination
+      operationId: getVaccinationShedAnimals
+      summary: Get keyset-paginated roster of animals in a shed for vaccination detail.
+      parameters:
+        - $ref: "#/components/parameters/ShedId"
+        - name: cursor
+          in: query
+          required: false
+          description: Keyset cursor (last goat_id seen, exclusive). Omit to start from beginning.
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+      responses:
+        "200":
+          description: Keyset-paginated shed animal roster.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationShedAnimalPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/capacity-config:
+    get:
+      tags:
+        - Vaccination
+      operationId: getVaccinationCapacityConfig
+      summary: Read the tenant's daily vaccination capacity config for the admin Config screen.
+      responses:
+        "200":
+          description: The tenant's daily vaccination capacity config.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationCapacityConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    put:
+      tags:
+        - Vaccination
+      operationId: updateVaccinationCapacityConfig
+      summary: Update the tenant's daily vaccination capacity config (optimistic concurrency).
+      description: >-
+        Authors the daily vaccination cap in the vaccination config flow. Capacity counts vaccination
+        administrations, not animals (one goat receiving FMD + HS = 2). expectedRowVersion is the
+        rowVersion the admin last read; a stale value returns 409 so concurrent edits never clobber.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVaccinationCapacityConfigRequest"
+      responses:
+        "200":
+          description: The updated capacity config (with the bumped rowVersion).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationCapacityConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Stale rowVersion — the config was changed by someone else; reload and retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           $ref: "#/components/responses/ServerError"
   /feed-direction/readiness:
@@ -6332,6 +6540,9 @@ components:
     ImpactPreviewInput:
       type: object
       additionalProperties: false
+      description: >-
+        Config impact-preview filter. Empty filter dims mean "any". Preview is aggregate-only over the
+        eligibility rollup, so there is no per-goat dose count and no time-relative warmup on this path.
       properties:
         species:
           type: string
@@ -6349,45 +6560,58 @@ components:
           type: string
         location_id:
           type: string
-        doses_per_goat:
-          type: integer
-          minimum: 0
         dose_rows:
           type: integer
           minimum: 0
+          description: Number of selected dose/schedule rows (vaccination cells per eligible animal).
         horizon_days:
-          type: integer
-          minimum: 0
-        warmup_no_vaccination_days:
           type: integer
           minimum: 0
     ImpactPreviewResult:
       type: object
       additionalProperties: false
+      description: >-
+        Aggregate-only config impact preview. Every number is read from the precomputed vaccination
+        eligibility rollup (read model); the request path never scans goats. Use the business names
+        only (eligible_animals / vaccination_cells / affected_sheds / estimated_days / daily_cap).
       required:
-        - eligible_goats
-        - catchup_goats
-        - obligations
-        - batches
-        - doses_required
-        - doses_available
+        - eligible_animals
+        - vaccination_cells
+        - affected_sheds
+        - estimated_days
+        - daily_cap
+        - source_revision
         - warnings
       properties:
-        eligible_goats:
+        eligible_animals:
           type: integer
-        catchup_goats:
+          description: SUM(animal_count) over usable animals matching the filter.
+        vaccination_cells:
           type: integer
-        obligations:
+          description: eligible_animals × selected dose rows.
+        affected_sheds:
           type: integer
-        batches:
+          description: Distinct sheds holding usable animals in scope.
+        estimated_days:
           type: integer
-        doses_required:
+          description: ceil(vaccination_cells / daily_cap).
+        daily_cap:
           type: integer
+          description: Configured vaccinations/day used for estimated_days.
         doses_available:
           type: string
+          description: Optional cheap stock check; present only when a vaccine item is set.
         earliest_expiry:
           type: string
           format: date-time
+        source_revision:
+          type: integer
+          format: int64
+          description: Read-model recompute stamp behind these numbers (0 when the rollup has no data for the scope yet).
+        recomputed_at:
+          type: string
+          format: date-time
+          description: When the read-model grain behind these numbers was last rebuilt.
         warnings:
           type: array
           items:
@@ -7278,6 +7502,352 @@ components:
           format: date-time
         allows_generate:
           type: boolean
+    VaccinationCapacityStatus:
+      type: string
+      enum:
+        - within_cap
+        - over_cap
+        - capacity_breach
+      description: |
+        Machine vocabulary for capacity/session-splitting state:
+        - within_cap: fits in a single day (sessions <= 1)
+        - over_cap: safely split across multiple days within the safe window
+        - capacity_breach: cannot fit within the safe window; needs manager review
+
+        NEVER show raw tokens in CEO UI. Frontend renders provided labels:
+        within_cap -> "Within cap", over_cap -> "Split", capacity_breach -> "Needs review"
+    VaccinationPlannedSession:
+      type: object
+      additionalProperties: false
+      required:
+        - date
+        - vaccinations
+        - dailyLimit
+        - capacity
+      properties:
+        date:
+          type: string
+          description: Asia/Kolkata business date (YYYY-MM-DD)
+        vaccinations:
+          type: integer
+          description: Vaccination cells (obligations) planned for this day
+        dailyLimit:
+          type: integer
+          description: The configured daily vaccination capacity cap
+        capacity:
+          $ref: "#/components/schemas/VaccinationCapacityStatus"
+    VaccinationCapacityConfig:
+      type: object
+      additionalProperties: false
+      description: |
+        Tenant daily vaccination capacity config authored on the admin Config screen. The cap counts
+        vaccination administrations (cells), not animals — one goat receiving FMD + HS is 2. rowVersion
+        is the optimistic-concurrency token (bump on each save); pass it back as expectedRowVersion.
+      required:
+        - maxPerDay
+        - capacityScope
+        - maxBufferDays
+        - overflowPolicy
+        - rowVersion
+      properties:
+        maxPerDay:
+          type: integer
+          minimum: 1
+          maximum: 100000
+          description: Max vaccination administrations allowed per day.
+        capacityScope:
+          type: string
+          enum:
+            - tenant
+            - center
+            - shed
+          description: Where the cap applies. Only 'tenant' is honored by the planner today.
+        maxBufferDays:
+          type: integer
+          minimum: 0
+          maximum: 60
+          description: Extra safe-window days past the first due day before work is flagged Needs review.
+        overflowPolicy:
+          type: string
+          enum:
+            - split_within_safe_window_then_mark_needs_review
+          description: What the planner does when due work exceeds the cap.
+        rowVersion:
+          type: integer
+          description: Optimistic-concurrency token; pass back as expectedRowVersion on update.
+    UpdateVaccinationCapacityConfigRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - maxPerDay
+        - capacityScope
+        - maxBufferDays
+        - overflowPolicy
+        - expectedRowVersion
+      properties:
+        maxPerDay:
+          type: integer
+          minimum: 1
+          maximum: 100000
+        capacityScope:
+          type: string
+          enum:
+            - tenant
+            - center
+            - shed
+        maxBufferDays:
+          type: integer
+          minimum: 0
+          maximum: 60
+        overflowPolicy:
+          type: string
+          enum:
+            - split_within_safe_window_then_mark_needs_review
+        expectedRowVersion:
+          type: integer
+          description: The rowVersion the admin last read; a stale value returns 409.
+    VaccinationShedStatus:
+      type: string
+      enum:
+        - needs_review
+        - split
+        - overdue
+        - due
+        - scheduled
+        - on_track
+      description: |
+        Merged CEO headline folding capacity and vaccination state by priority (highest first):
+        needs_review > split > overdue > due > scheduled > on_track
+
+        This is the INTERNAL machine vocabulary. The CEO UI renders the backend-provided label
+        (never the raw token, never the word "state").
+    VaccinationShedSortKey:
+      type: string
+      enum:
+        - park_shed
+        - due_desc
+        - animals_desc
+        - next_due
+    VaccinationPageInfo:
+      type: object
+      additionalProperties: false
+      required:
+        - total
+        - limit
+        - offset
+      properties:
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+    VaccinationShedOwner:
+      type: object
+      additionalProperties: false
+      required:
+        - workforceMemberId
+        - displayName
+      properties:
+        workforceMemberId:
+          type: string
+        displayName:
+          type: string
+    VaccinationShedSummaryRow:
+      type: object
+      additionalProperties: false
+      required:
+        - parkId
+        - parkName
+        - shedId
+        - shedName
+        - animals
+        - due
+        - done
+        - sessions
+        - capacity
+        - status
+      properties:
+        parkId:
+          type: string
+          format: uuid
+        parkName:
+          type: string
+        shedId:
+          type: string
+          format: uuid
+        shedName:
+          type: string
+        animals:
+          type: integer
+        due:
+          type: integer
+        done:
+          type: integer
+        sessions:
+          type: integer
+          description: Planned vaccination visits/days for this shed. Usually 1; >1 when the daily cap forces a split.
+        lastDone:
+          type:
+            - string
+            - "null"
+        nextDue:
+          type:
+            - string
+            - "null"
+        manager:
+          allOf:
+            - $ref: "#/components/schemas/VaccinationShedOwner"
+            - nullable: true
+        backup:
+          allOf:
+            - $ref: "#/components/schemas/VaccinationShedOwner"
+            - nullable: true
+        capacity:
+          $ref: "#/components/schemas/VaccinationCapacityStatus"
+        status:
+          $ref: "#/components/schemas/VaccinationShedStatus"
+    VaccinationShedVaccineRow:
+      type: object
+      additionalProperties: false
+      required:
+        - protocolId
+        - name
+        - workState
+        - counts
+      properties:
+        protocolId:
+          type: string
+        name:
+          type: string
+        workState:
+          $ref: "#/components/schemas/WorkState"
+        lastDose:
+          type:
+            - string
+            - "null"
+        nextDue:
+          type:
+            - string
+            - "null"
+        counts:
+          $ref: "#/components/schemas/VaccinationOperationsCounts"
+    VaccinationShedSummaryResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - rows
+        - page
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationShedSummaryRow"
+        page:
+          $ref: "#/components/schemas/VaccinationPageInfo"
+    VaccinationShedDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - parkId
+        - parkName
+        - shedId
+        - shedName
+        - animals
+        - due
+        - done
+        - sessions
+        - capacity
+        - plannedSessions
+        - status
+        - vaccines
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        parkId:
+          type: string
+          format: uuid
+        parkName:
+          type: string
+        shedId:
+          type: string
+          format: uuid
+        shedName:
+          type: string
+        animals:
+          type: integer
+        due:
+          type: integer
+        done:
+          type: integer
+        sessions:
+          type: integer
+          description: Planned vaccination visits/days for this shed. Usually 1; >1 when the daily cap forces a split.
+        manager:
+          allOf:
+            - $ref: "#/components/schemas/VaccinationShedOwner"
+            - nullable: true
+        backup:
+          allOf:
+            - $ref: "#/components/schemas/VaccinationShedOwner"
+            - nullable: true
+        capacity:
+          $ref: "#/components/schemas/VaccinationCapacityStatus"
+        plannedSessions:
+          type: array
+          description: Planned vaccination days for this shed, with daily cell and capacity breakdown.
+          items:
+            $ref: "#/components/schemas/VaccinationPlannedSession"
+        status:
+          $ref: "#/components/schemas/VaccinationShedStatus"
+        vaccines:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationShedVaccineRow"
+    VaccinationShedAnimalRow:
+      type: object
+      additionalProperties: false
+      required:
+        - goatId
+        - displayId
+        - status
+      properties:
+        goatId:
+          type: string
+        displayId:
+          type: string
+        tag1:
+          type:
+            - string
+            - "null"
+        tag2:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+    VaccinationShedAnimalPage:
+      type: object
+      additionalProperties: false
+      required:
+        - rows
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationShedAnimalRow"
+        nextCursor:
+          type:
+            - string
+            - "null"
     VaccinationPassportDue:
       type: object
       additionalProperties: false

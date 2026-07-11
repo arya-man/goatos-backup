@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,17 @@ type fakeReader struct {
 	lastGaps     domain.GapsQuery
 	coverage     domain.CoverageResponse
 	lastCoverage domain.OperationsQuery
+	shedSummary  domain.ShedSummaryResponse
+	lastShedSum  domain.ShedSummaryQuery
+	shedDetail   domain.ShedDetailResponse
+	shedFound    bool
+	lastShedID   string
+	shedAnimals  domain.ShedAnimalPage
+	lastShedAnim domain.ShedAnimalQuery
+	capacityCfg  domain.CapacityConfig
+	capacityErr  error
+	lastCapCfg   domain.CapacityConfig
+	lastCapRV    int
 }
 
 type fakeWriter struct {
@@ -65,6 +77,37 @@ func (f *fakeReader) VaccinationGaps(_ context.Context, q domain.GapsQuery) (dom
 func (f *fakeReader) CoverageRollup(_ context.Context, q domain.OperationsQuery) (domain.CoverageResponse, error) {
 	f.lastCoverage = q
 	return f.coverage, nil
+}
+
+func (f *fakeReader) ShedSummary(_ context.Context, q domain.ShedSummaryQuery) (domain.ShedSummaryResponse, error) {
+	f.lastShedSum = q
+	return f.shedSummary, nil
+}
+
+func (f *fakeReader) ShedDetail(_ context.Context, shedID string, q domain.OperationsQuery) (domain.ShedDetailResponse, bool, error) {
+	f.lastShedID = shedID
+	f.lastOps = q
+	return f.shedDetail, f.shedFound, nil
+}
+
+func (f *fakeReader) ShedAnimals(_ context.Context, q domain.ShedAnimalQuery) (domain.ShedAnimalPage, error) {
+	f.lastShedAnim = q
+	return f.shedAnimals, nil
+}
+
+func (f *fakeReader) CapacityConfig(_ context.Context, _ string) (domain.CapacityConfig, error) {
+	return f.capacityCfg, nil
+}
+
+func (f *fakeReader) UpdateCapacityConfig(_ context.Context, _ string, cfg domain.CapacityConfig, expectedRowVersion int) (domain.CapacityConfig, error) {
+	f.lastCapCfg = cfg
+	f.lastCapRV = expectedRowVersion
+	if f.capacityErr != nil {
+		return domain.CapacityConfig{}, f.capacityErr
+	}
+	out := cfg
+	out.RowVersion = expectedRowVersion + 1
+	return out, nil
 }
 
 func (w *fakeWriter) ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obligationdomain.RecoveryReschedule) (string, bool, error) {
@@ -140,6 +183,107 @@ func TestListVaccinationExecutionRejectsInvalidQuery(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution?due_before=not-time", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid due_before status = %d want 400", rec.Code)
+	}
+}
+
+func TestListShedSummaryParsesFiltersAndPaginates(t *testing.T) {
+	reader := &fakeReader{shedSummary: domain.ShedSummaryResponse{
+		Source: domain.SourceAPI,
+		Rows:   []domain.ShedSummaryRow{{ParkName: "CBE", ShedName: "Castro 1", Animals: 54, Due: 1, Done: 53, Status: domain.ShedStatusOverdue}},
+		Page:   domain.PageInfo{Total: 1, Limit: 25, Offset: 25},
+	}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/sheds?park_id=30000000-0000-4000-8000-000000000001&status=overdue&capacity=over_cap&sort=due_desc&q=castro&limit=25&page=2", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	got := reader.lastShedSum
+	if got.Capacity == nil || *got.Capacity != domain.CapacityOverCap {
+		t.Errorf("capacity filter = %v", got.Capacity)
+	}
+	if got.TenantID != "00000000-0000-4000-8000-000000000001" {
+		t.Errorf("tenant = %q", got.TenantID)
+	}
+	if got.ParkID == nil || *got.ParkID != "30000000-0000-4000-8000-000000000001" {
+		t.Errorf("park = %v", got.ParkID)
+	}
+	if got.Status == nil || *got.Status != domain.ShedStatusOverdue {
+		t.Errorf("status = %v", got.Status)
+	}
+	if got.Sort != domain.ShedSortDueDesc {
+		t.Errorf("sort = %q", got.Sort)
+	}
+	if got.Search == nil || *got.Search != "castro" {
+		t.Errorf("search = %v", got.Search)
+	}
+	if got.Limit != 25 || got.Offset != 25 { // page 2 * limit 25 -> offset 25
+		t.Errorf("pagination limit=%d offset=%d want 25/25", got.Limit, got.Offset)
+	}
+	var resp domain.ShedSummaryResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Rows) != 1 || resp.Page.Total != 1 {
+		t.Fatalf("response = %#v", resp)
+	}
+}
+
+func TestListShedSummaryRejectsInvalidQuery(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{}, &fakeWriter{}))
+	for _, q := range []string{
+		"/vaccination/sheds?status=not_a_status",
+		"/vaccination/sheds?capacity=not_a_capacity",
+		"/vaccination/sheds?sort=not_a_sort",
+		"/vaccination/sheds?park_id=not-a-uuid",
+		"/vaccination/sheds?page=0",
+		"/vaccination/sheds?limit=-1",
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, q, nil))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d want 400", q, rec.Code)
+		}
+	}
+}
+
+func TestGetShedDetailNotFound(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{shedFound: false}, &fakeWriter{}))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/sheds/30000000-0000-4000-8000-000000000009", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d want 404", rec.Code)
+	}
+}
+
+func TestGetShedAnimalsParsesCursor(t *testing.T) {
+	reader := &fakeReader{shedAnimals: domain.ShedAnimalPage{Rows: []domain.ShedAnimalRow{{GoatID: "g1", DisplayID: "G-1", Status: "due"}}}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/sheds/30000000-0000-4000-8000-000000000009/animals?cursor=40000000-0000-4000-8000-000000000001&limit=50", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.lastShedAnim.ShedID != "30000000-0000-4000-8000-000000000009" {
+		t.Errorf("shed = %q", reader.lastShedAnim.ShedID)
+	}
+	if reader.lastShedAnim.Cursor == nil || *reader.lastShedAnim.Cursor != "40000000-0000-4000-8000-000000000001" {
+		t.Errorf("cursor = %v", reader.lastShedAnim.Cursor)
+	}
+	if reader.lastShedAnim.Limit != 50 {
+		t.Errorf("limit = %d", reader.lastShedAnim.Limit)
 	}
 }
 
@@ -455,5 +599,89 @@ func sampleRow() domain.ExecutionRow {
 		ProofStatus:        domain.ProofStatusMissing,
 		VerificationStatus: domain.VerificationStatusNotReady,
 		NextAction:         "Start scheduled vaccination SOP",
+	}
+}
+
+func TestGetCapacityConfig(t *testing.T) {
+	reader := &fakeReader{capacityCfg: domain.CapacityConfig{MaxPerDay: 100, CapacityScope: "tenant", MaxBufferDays: 3, OverflowPolicy: "split_within_safe_window_then_mark_needs_review", RowVersion: 2}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/capacity-config", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	var resp domain.CapacityConfig
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.MaxPerDay != 100 || resp.MaxBufferDays != 3 || resp.RowVersion != 2 {
+		t.Fatalf("resp = %#v", resp)
+	}
+}
+
+func TestUpdateCapacityConfig(t *testing.T) {
+	reader := &fakeReader{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	body := `{"maxPerDay":150,"capacityScope":"tenant","maxBufferDays":2,"overflowPolicy":"split_within_safe_window_then_mark_needs_review","expectedRowVersion":1}`
+	req := httptest.NewRequest(http.MethodPut, "/vaccination/capacity-config", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.lastCapCfg.MaxPerDay != 150 || reader.lastCapRV != 1 {
+		t.Fatalf("captured cfg=%#v rv=%d", reader.lastCapCfg, reader.lastCapRV)
+	}
+	var resp domain.CapacityConfig
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.RowVersion != 2 { // bumped from expected 1
+		t.Fatalf("row version = %d want 2", resp.RowVersion)
+	}
+}
+
+func TestUpdateCapacityConfigRejectsBadValues(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{}, &fakeWriter{}))
+	for _, body := range []string{
+		`{"maxPerDay":0,"capacityScope":"tenant","maxBufferDays":3,"overflowPolicy":"split_within_safe_window_then_mark_needs_review","expectedRowVersion":1}`,
+		`{"maxPerDay":100,"capacityScope":"planet","maxBufferDays":3,"overflowPolicy":"split_within_safe_window_then_mark_needs_review","expectedRowVersion":1}`,
+		`{"maxPerDay":100,"capacityScope":"tenant","maxBufferDays":-1,"overflowPolicy":"split_within_safe_window_then_mark_needs_review","expectedRowVersion":1}`,
+		`{"maxPerDay":100,"capacityScope":"tenant","maxBufferDays":3,"overflowPolicy":"drop_everything","expectedRowVersion":1}`,
+		`{"maxPerDay":100,"capacityScope":"tenant","maxBufferDays":3,"overflowPolicy":"split_within_safe_window_then_mark_needs_review"}`, // missing expectedRowVersion
+	} {
+		req := httptest.NewRequest(http.MethodPut, "/vaccination/capacity-config", strings.NewReader(body))
+		req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("body %s: status = %d want 400", body, rec.Code)
+		}
+	}
+}
+
+func TestUpdateCapacityConfigStaleConflict(t *testing.T) {
+	reader := &fakeReader{capacityErr: domain.ErrCapacityConfigStale}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	body := `{"maxPerDay":150,"capacityScope":"tenant","maxBufferDays":2,"overflowPolicy":"split_within_safe_window_then_mark_needs_review","expectedRowVersion":1}`
+	req := httptest.NewRequest(http.MethodPut, "/vaccination/capacity-config", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d want 409 body=%s", rec.Code, rec.Body.String())
 	}
 }

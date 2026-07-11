@@ -52,12 +52,26 @@ type Repository interface {
 	// GetLastAcceptedForGoat returns the most recent accepted administration; found is false when none.
 	GetLastAcceptedForGoat(ctx context.Context, tenantID, goatID string) (rec domain.LastAccepted, found bool, err error)
 
-	// Impact-preview counts (live). All scoped by tenant + the eligibility filter.
+	// Impact-preview aggregate (READ MODEL). Reads ONLY vaccination_eligibility_rollups — never scans
+	// goats — so the config preview stays cheap at 1-5M-animal scale. Scoped by tenant + the eligibility
+	// filter dims (usable animals only).
+	SumEligibilityRollup(ctx context.Context, f domain.ImpactFilter) (domain.EligibilityRollupAggregate, error)
+	// CapacityMaxPerDay returns the tenant's configured vaccinations/day cap (default when unset). Used
+	// to compute estimated_days = ceil(vaccination_cells / cap).
+	CapacityMaxPerDay(ctx context.Context, tenantID string) (int64, error)
+	// SumAvailableStock returns available (unreserved) quantity + earliest expiry for an item.
+	SumAvailableStock(ctx context.Context, tenantID, itemID string, locationID *string) (available string, earliestExpiry *time.Time, err error)
+
+	// Live eligibility counts. NOT used by the config impact preview (which reads the rollup); retained
+	// for the generation/listing path and direct integration coverage.
 	CountEligibleGoats(ctx context.Context, f domain.ImpactFilter) (int64, error)
 	CountCatchupGoats(ctx context.Context, f domain.ImpactFilter) (int64, error)
 	CountEligibleShedScopes(ctx context.Context, f domain.ImpactFilter) (int64, error)
-	// SumAvailableStock returns available (unreserved) quantity + earliest expiry for an item.
-	SumAvailableStock(ctx context.Context, tenantID, itemID string, locationID *string) (available string, earliestExpiry *time.Time, err error)
+
+	// RecomputeEligibilityRollup fully rebuilds the tenant's vaccination_eligibility_rollups from source
+	// tables (goats, locations/operational attributes, shed profiles, animal stage lookup). Projector
+	// write path only; delete-then-insert per tenant inside one transaction.
+	RecomputeEligibilityRollup(ctx context.Context, tenantID string) (domain.RollupRecomputeResult, error)
 
 	// ListEligibleGoatsForGeneration returns a chunked (keyset by goat_id) page of the in-care
 	// cohort matching the filter; afterGoatID is the cursor ("" starts at the beginning).

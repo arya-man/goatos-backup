@@ -79,32 +79,34 @@ type errorEnvelope struct {
 	TraceID string `json:"trace_id"`
 }
 
-// impactPreviewRequest is the API body: the eligibility filter + drive math inputs. All optional;
-// empty filter dims mean "any".
+// impactPreviewRequest is the API body: the eligibility filter + the number of selected dose rows. All
+// optional; empty filter dims mean "any". Preview numbers are aggregate-only and read from the
+// eligibility rollup read model, so there is no per-goat dose math (no doses_per_goat) and no
+// time-relative warmup window on this path.
 type impactPreviewRequest struct {
-	Species                 string  `json:"species"`
-	Stage                   string  `json:"stage"`
-	Sex                     string  `json:"sex"`
-	Breed                   string  `json:"breed"`
-	Health                  string  `json:"health"`
-	ParkID                  *string `json:"park_id"`
-	VaccineItemID           *string `json:"vaccine_item_id"`
-	LocationID              *string `json:"location_id"`
-	DosesPerGoat            int32   `json:"doses_per_goat"`
-	DoseRows                int32   `json:"dose_rows"`
-	HorizonDays             int     `json:"horizon_days"`
-	WarmupNoVaccinationDays int32   `json:"warmup_no_vaccination_days"`
+	Species       string  `json:"species"`
+	Stage         string  `json:"stage"`
+	Sex           string  `json:"sex"`
+	Breed         string  `json:"breed"`
+	Health        string  `json:"health"`
+	ParkID        *string `json:"park_id"`
+	VaccineItemID *string `json:"vaccine_item_id"`
+	LocationID    *string `json:"location_id"`
+	DoseRows      int32   `json:"dose_rows"`
+	HorizonDays   int     `json:"horizon_days"`
 }
 
 type impactPreviewResponse struct {
-	EligibleGoats  int64      `json:"eligible_goats"`
-	CatchupGoats   int64      `json:"catchup_goats"`
-	Obligations    int64      `json:"obligations"`
-	Batches        int64      `json:"batches"`
-	DosesRequired  int64      `json:"doses_required"`
-	DosesAvailable string     `json:"doses_available"`
-	EarliestExpiry *time.Time `json:"earliest_expiry,omitempty"`
-	Warnings       []string   `json:"warnings"`
+	EligibleAnimals  int64      `json:"eligible_animals"`
+	VaccinationCells int64      `json:"vaccination_cells"`
+	AffectedSheds    int64      `json:"affected_sheds"`
+	EstimatedDays    int64      `json:"estimated_days"`
+	DailyCap         int64      `json:"daily_cap"`
+	DosesAvailable   string     `json:"doses_available,omitempty"`
+	EarliestExpiry   *time.Time `json:"earliest_expiry,omitempty"`
+	SourceRevision   int64      `json:"source_revision"`
+	RecomputedAt     *time.Time `json:"recomputed_at,omitempty"`
+	Warnings         []string   `json:"warnings"`
 }
 
 type manualCampaignRequest struct {
@@ -213,8 +215,11 @@ func (h *Handler) RunManualCampaign(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ImpactPreview computes a live impact preview for a vaccination rule/version (eligible goats,
-// catch-up, obligations, drive batches, doses required vs available, stock warnings).
+// ImpactPreview computes the AGGREGATE config impact preview for a vaccination rule/version: eligible
+// animals, vaccination cells, affected sheds, and estimated days at the configured daily cap. Numbers
+// come from the vaccination_eligibility_rollups read model — this request path never scans goats — so
+// the "Preview impact" button stays cheap at 1-5M-animal scale. An optional cheap stock check is added
+// only when a vaccine item is set.
 func (h *Handler) ImpactPreview(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
@@ -230,18 +235,16 @@ func (h *Handler) ImpactPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	preview, err := h.svc.ImpactPreview(r.Context(), domain.ImpactRequest{
 		Filter: domain.ImpactFilter{
-			TenantID:                tenantID(r),
-			Species:                 req.Species,
-			Stage:                   req.Stage,
-			Sex:                     req.Sex,
-			Breed:                   req.Breed,
-			Health:                  req.Health,
-			ParkID:                  req.ParkID,
-			WarmupNoVaccinationDays: req.WarmupNoVaccinationDays,
+			TenantID: tenantID(r),
+			Species:  req.Species,
+			Stage:    req.Stage,
+			Sex:      req.Sex,
+			Breed:    req.Breed,
+			Health:   req.Health,
+			ParkID:   req.ParkID,
 		},
 		VaccineItemID: req.VaccineItemID,
 		LocationID:    req.LocationID,
-		DosesPerGoat:  req.DosesPerGoat,
 		DoseRows:      req.DoseRows,
 		HorizonDays:   req.HorizonDays,
 	})
@@ -255,14 +258,16 @@ func (h *Handler) ImpactPreview(w http.ResponseWriter, r *http.Request) {
 		warnings = []string{}
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, impactPreviewResponse{
-		EligibleGoats:  preview.EligibleGoats,
-		CatchupGoats:   preview.CatchupGoats,
-		Obligations:    preview.Obligations,
-		Batches:        preview.Batches,
-		DosesRequired:  preview.DosesRequired,
-		DosesAvailable: preview.DosesAvailable,
-		EarliestExpiry: preview.EarliestExpiry,
-		Warnings:       warnings,
+		EligibleAnimals:  preview.EligibleAnimals,
+		VaccinationCells: preview.VaccinationCells,
+		AffectedSheds:    preview.AffectedSheds,
+		EstimatedDays:    preview.EstimatedDays,
+		DailyCap:         preview.DailyCap,
+		DosesAvailable:   preview.DosesAvailable,
+		EarliestExpiry:   preview.EarliestExpiry,
+		SourceRevision:   preview.SourceRevision,
+		RecomputedAt:     preview.RecomputedAt,
+		Warnings:         warnings,
 	})
 }
 

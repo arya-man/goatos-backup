@@ -1,31 +1,16 @@
-import {
-  getSop,
-  getVaccinationExecution,
-  getVaccinationOperations,
-  isAuthRequiredError,
-  listSops,
-  type VaccinationOperationsResponse,
-} from "@/lib/api/server";
+import { getSop, isAuthRequiredError, listSops } from "@/lib/api/server";
 import { isVaccinationSop, toSopView, type SopCardView } from "@/features/sops";
-import { one, type RouteSearchParams } from "@/lib/search-params";
+import { type RouteSearchParams } from "@/lib/search-params";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { backendScope, parseScope } from "@/lib/scope";
-import type { VaccinationExecutionWorkState } from "@/lib/api/vaccination-execution";
-import { VaccinationExecutionSection } from "./execution-section";
-import { VaccinationStatusMatrix } from "./status-matrix";
-import { VaccinationCohortDetail } from "./cohort-detail";
+import { parseScope } from "@/lib/scope";
+import { VaccinationShedBoard } from "@/features/vaccination-sheds";
 import { VaccinationSopButton } from "./sop-quick-view";
 import { VaccinationHeaderActions } from "./vaccination-action-dialogs";
-import { WORK_STATE_ORDER } from "@/features/vaccination-execution/work-state";
 
 // Linked vaccination SOP for the header quick-view. Derived from the REAL /admin/sops data (same source as
 // /sops), filtered to the vaccination slice and reduced to the primary (active preferred) SOP + its latest
 // version. Errors/auth are surfaced in the modal rather than swallowed into a fake "no SOP" state.
 type LinkedSop = { view: SopCardView | null; error?: { code?: string; message: string } | null; authRequired?: boolean };
-
-function executionWorkState(sp: RouteSearchParams): VaccinationExecutionWorkState | undefined {
-  return WORK_STATE_ORDER.find((state) => state === one(sp, "state"));
-}
 
 async function loadLinkedVaccinationSop(): Promise<LinkedSop> {
   const listed = await listSops({ limit: 200 });
@@ -45,13 +30,15 @@ async function loadLinkedVaccinationSop(): Promise<LinkedSop> {
   return { view: toSopView(primary, detail.data.latest_version ?? null) };
 }
 
-// Preventive Care (PC) · Vaccination — the operations floor, ported to the mock's single stacked screen:
+// Preventive Care (PC) · Vaccination — the SHED-WISE operations floor:
 //   header (SOP · Protocol Rules) → drive-mechanic band (Target → Group → Route → Execute)
-//   → Vaccination status matrix → Per-cohort vaccination detail → shed-event execution section.
-// No KPI strip, no tab switch — it is one mock-shaped screen. Command lenses (Control Tower / Action
-// Center / Protocol Adherence / Workflows) stay top-level; this screen does not embed or shortcut them.
-// Park scope comes from the shell top bar (?park); the page passes it to the read models.
-
+//   → shed-wise vaccination table (one row per shed, animal-level due/done, planned sessions, capacity,
+//     merged status), which links to the shed detail at /vaccination/execution/sheds/{shed_id}.
+// The old cohort/vaccine-wise status matrix + per-cohort detail + drive shed-event board are replaced by
+// the shed-wise table per docs/runbooks/staging-vaccination-seed-preflight.md — no cohort/vaccine-wise
+// rows appear on the main page. Command lenses (Control Tower / Action Center / Protocol Adherence /
+// Workflows) stay top-level; this screen does not embed or shortcut them. Park scope comes from the shell
+// top bar (?park).
 export async function VaccinationOperationsPage({
   searchParams,
   pageContract,
@@ -60,16 +47,9 @@ export async function VaccinationOperationsPage({
   pageContract: AdminUiPageContract;
 }) {
   const sp = searchParams ?? {};
-  // Top-bar scope contract: park (backend-safe UUID) + as_of are honored by /vaccination/operations.
   const scope = parseScope(sp);
-  const { parkId, asOf } = backendScope(scope);
 
-  const [operations, linkedSop, execution] = await Promise.all([
-    getVaccinationOperations({ parkId, asOf }),
-    loadLinkedVaccinationSop(),
-    getVaccinationExecution({ parkId, asOf, workState: executionWorkState(sp), limit: 500 }),
-  ]);
-  const ops: VaccinationOperationsResponse | null = operations.ok ? operations.data : null;
+  const linkedSop = await loadLinkedVaccinationSop();
   const driveSteps = optionGroup(pageContract, "drive_steps").map((step) => {
     const [title, detail] = (step.title || "").split("|");
     return { key: step.key, step: step.label, title, detail };
@@ -79,27 +59,21 @@ export async function VaccinationOperationsPage({
     <div className="screen on">
       <div className="phead">
         <div>
-	          <div className="crumb">
-	            {copy(pageContract, "crumb")}
-	          </div>
-	          <h1>{pageContract.title}</h1>
-	          <div className="sub">{pageContract.subtitle}</div>
+          <div className="crumb">
+            {copy(pageContract, "crumb")}
+          </div>
+          <h1>{pageContract.title}</h1>
+          <div className="sub">{pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
         <VaccinationSopButton view={linkedSop.view} error={linkedSop.error} authRequired={linkedSop.authRequired} pageContract={pageContract} />
         <VaccinationHeaderActions scope={scope} pageContract={pageContract} />
       </div>
 
-      {!operations.ok ? (
-        <div className="alert" style={{ marginBottom: 16 }}>
-          <b>{operations.error.code ?? operations.error.kind}</b>&nbsp;{operations.error.message}
-        </div>
-      ) : null}
-
       {/* Drive mechanic — Target → Group → Route → Execute (mock band). */}
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="bd">
-	          <div className="chain" tabIndex={0} role="group" aria-label={copy(pageContract, "section.drive_flow.aria")}>
+          <div className="chain" tabIndex={0} role="group" aria-label={copy(pageContract, "section.drive_flow.aria")}>
             {driveSteps.map((c) => (
               <div className="cstep" key={c.key} style={{ cursor: "default" }}>
                 <div className="s">{c.step}</div>
@@ -111,15 +85,9 @@ export async function VaccinationOperationsPage({
         </div>
       </section>
 
-      {/* Vaccination status matrix — cohort × vaccine protocol, from /vaccination/operations. */}
-      <VaccinationStatusMatrix operations={ops} ok={operations.ok} scope={scope} searchParams={sp} pageContract={pageContract} />
-
-      {/* Per-cohort vaccination detail — animals, age band, real last dose, next due, status. */}
-      <VaccinationCohortDetail operations={ops} ok={operations.ok} scope={scope} searchParams={sp} pageContract={pageContract} />
-
-      {/* Shed-event execution — the per-shed drive events (park/shed/owner/stock/status/next action).
-          A NORMAL stacked section (mock "drive — shed events"), not a tab. Anchor id for deep links. */}
-      <VaccinationExecutionSection searchParams={sp} pageContract={pageContract} executionResult={execution} />
+      {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,
+          and merged status. Rows deep-link to the shed detail. This is the MAIN vaccination table. */}
+      <VaccinationShedBoard searchParams={sp} pageContract={pageContract} />
     </div>
   );
 }

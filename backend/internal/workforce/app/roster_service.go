@@ -57,6 +57,58 @@ var positionExecuteCapability = map[string]string{
 // only built + surfaced module.
 const vaccinationPositionCode = "preventive_care_manager"
 
+// Shed-wise ownership vocabulary. The shed-wise vaccination table shows a
+// shed's Manager and Backup as two INDEPENDENT columns (not a single as-of
+// effective owner), so these reads return the STATIC seat holders and do not
+// run the leave/week-off substitution that ResolveVaccinationOwner does.
+const (
+	// ShedManagerPositionCode is the position_code of a shed's operational
+	// manager seat (scope_type='shed').
+	ShedManagerPositionCode = "shed_manager"
+	// ManagerBackupGroupCode is the backup group whose is_backup_slot seat
+	// covers manager-tier work for a scope.
+	ManagerBackupGroupCode = "manager_backup"
+)
+
+// ShedManager returns the active shed-scoped manager Position holder at `at`, or
+// (nil, nil) when no seat is assigned -- a seed/config gap the UI renders as "-",
+// never invented, never an error. A non-nil error is a real infrastructure fault.
+func (s *RosterService) ShedManager(ctx context.Context, tenantID, shedID string, at time.Time) (*domain.Position, error) {
+	pos, err := s.repo.GetActivePositionByCode(ctx, tenantID, "shed", shedID, ShedManagerPositionCode, at)
+	if err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &pos, nil
+}
+
+// ShedBackup returns the Backup Manager slot holder covering a shed's manager: a
+// shed-specific backup seat if one is configured, otherwise the center-level
+// Backup Manager slot (centerID = the shed's park/center location). (nil, nil)
+// when neither is configured (seed/config gap).
+func (s *RosterService) ShedBackup(ctx context.Context, tenantID, shedID, centerID string, at time.Time) (*domain.Position, error) {
+	pos, err := s.repo.GetActiveBackupSlot(ctx, tenantID, "shed", shedID, ManagerBackupGroupCode, at)
+	if err == nil {
+		return &pos, nil
+	}
+	if !errors.Is(err, ports.ErrNotFound) {
+		return nil, err
+	}
+	if centerID == "" {
+		return nil, nil
+	}
+	pos, err = s.repo.GetActiveBackupSlot(ctx, tenantID, "center", centerID, ManagerBackupGroupCode, at)
+	if err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &pos, nil
+}
+
 // ---- Positions ------------------------------------------------------------
 
 func (s *RosterService) CreatePosition(ctx context.Context, cmd ports.CreatePositionCommand, traceID string) (*domain.PositionResponse, error) {
@@ -76,7 +128,7 @@ func (s *RosterService) CreatePosition(ctx context.Context, cmd ports.CreatePosi
 		return nil, err
 	}
 	if !validRosterScope(cmd.TenantID, body.ScopeType, body.ScopeID) {
-		return nil, BadRequest("invalid_scope", "scope_type must be tenant or center, and scope_id a UUID")
+		return nil, BadRequest("invalid_scope", "scope_type must be tenant, center, or shed, and scope_id a UUID")
 	}
 	if body.PositionCode == "" {
 		return nil, BadRequest("invalid_position_code", "position_code is required")
@@ -150,7 +202,7 @@ func (s *RosterService) ApplyLeave(ctx context.Context, tenantID, actorID string
 		return nil, err
 	}
 	if !validRosterScope(tenantID, body.ScopeType, body.ScopeID) {
-		return nil, BadRequest("invalid_scope", "scope_type must be tenant or center, and scope_id a UUID")
+		return nil, BadRequest("invalid_scope", "scope_type must be tenant, center, or shed, and scope_id a UUID")
 	}
 	if body.ReasonCode == "" {
 		return nil, BadRequest("invalid_reason_code", "reason_code is required")
@@ -509,7 +561,7 @@ func (s *RosterService) ResolveVaccinationOwner(ctx context.Context, tenantID, a
 	scopeType = strings.TrimSpace(scopeType)
 	scopeID = strings.TrimSpace(scopeID)
 	if !validRosterScope(tenantID, scopeType, scopeID) {
-		return nil, BadRequest("invalid_scope", "scope_type must be tenant or center, and scope_id a UUID")
+		return nil, BadRequest("invalid_scope", "scope_type must be tenant, center, or shed, and scope_id a UUID")
 	}
 	date, err := parseBusinessDate(dateStr)
 	if err != nil {
@@ -782,7 +834,7 @@ func validRosterScope(tenantID, scopeType, scopeID string) bool {
 	switch scopeType {
 	case "tenant":
 		return scopeID == tenantID
-	case "center":
+	case "center", "shed":
 		return uuidutil.IsUUIDString(scopeID)
 	default:
 		return false

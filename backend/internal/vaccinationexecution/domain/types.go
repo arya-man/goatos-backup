@@ -218,8 +218,11 @@ type OperationsRow struct {
 }
 
 type OperationsQuery struct {
-	TenantID  string
-	ParkID    *string
+	TenantID string
+	ParkID   *string
+	// ShedID optionally narrows the cohort×protocol rollup to a single shed (used by the shed-detail
+	// vaccine breakdown, which re-aggregates the shed's cohort cells per protocol). Empty = all sheds.
+	ShedID    *string
 	AsOf      time.Time
 	DueBefore time.Time
 	Limit     int
@@ -368,4 +371,189 @@ type CoverageResponse struct {
 	Source    string             `json:"source"`
 	ParkID    *string            `json:"parkId,omitempty"`
 	Protocols []CoverageProtocol `json:"protocols"`
+}
+
+// ---- Shed-wise vaccination summary read model (shed-level rollup for the /vaccination screen) ----
+//
+// One row per shed. Counts are ANIMAL-LEVEL, never per-obligation: a goat needing three vaccines is ONE
+// due animal at the shed level, not three (per-vaccine obligation counts appear ONLY in the shed detail
+// vaccine breakdown, ShedVaccineRow.Counts). This is the CEO/shed view — a confusing "3 due" when one
+// animal needs three shots is explicitly rejected.
+//
+//   Animals = alive goats physically in the shed (goats.lifecycle_status='alive').
+//   Due     = distinct alive goats with >=1 obligation that is actionable-and-unfinished as-of
+//             (see the shed-due predicate below).
+//   Done    = Animals - Due (identity always holds; Due + Done == Animals).
+//
+// Shed-due predicate (the ONE place the animal-level "still needs work" rule is defined; mirrored in
+// shedSummarySQL). An animal is DUE if, reconstructed as-of, it has at least one vaccination obligation
+// whose effective status is one of {overdue, due, in_progress} OR whose completion sub-state is one of
+// {recorded (proof pending), rejected (rework)}. NOT due: future 'scheduled', 'completed'+accepted,
+// health-held 'deferred'/'waived'. (Open business question flagged to maintainer: whether 'missed'
+// should also count as due — currently surfaced separately via ShedStatus 'blocked' but NOT added to
+// the Due animal count, so it does not silently inflate Done; change one predicate to flip this.)
+
+// ShedStatus is the CEO-friendly merged headline shown in the shed row Status column. It folds the
+// capacity state and the vaccination state into ONE label by priority (highest first):
+//
+//	needs_review (capacity breach) > split (safely split across days) > overdue > due > scheduled > on_track
+//
+// This is the INTERNAL machine vocabulary; the CEO UI renders the backend-provided label (never the raw
+// token, never the word "state"). "within_cap" never appears here — a shed that fits in one day falls
+// through to its vaccination status. Derived (mirrored in shedSummarySQL), not stored.
+type ShedStatus string
+
+const (
+	ShedStatusNeedsReview ShedStatus = "needs_review" // capacity breach — highest priority
+	ShedStatusSplit       ShedStatus = "split"        // safely split across multiple days (over cap)
+	ShedStatusOverdue     ShedStatus = "overdue"      // >=1 overdue animal
+	ShedStatusDue         ShedStatus = "due"          // >=1 due animal, none overdue
+	ShedStatusScheduled   ShedStatus = "scheduled"    // only future scheduled work, nothing due
+	ShedStatusOnTrack     ShedStatus = "on_track"     // no open vaccination work
+)
+
+// ShedOwner is a resolved workforce person for a shed's Manager or Backup slot, read cross-module from
+// the workforce roster (Manager = shed-scoped Position holder; Backup = the center Backup Manager slot).
+// A nil Manager/Backup on a row means the assignment is MISSING — a seed/config gap surfaced in staging
+// preflight, NEVER a normal business state and never invented.
+type ShedOwner struct {
+	WorkforceMemberID string `json:"workforceMemberId"`
+	DisplayName       string `json:"displayName"`
+}
+
+// ShedSummaryRow is one shed's rollup line for the shed-wise vaccination table. Sessions = planned
+// vaccination visits/days for the shed (usually 1; >1 when the daily cap forces a split). Capacity is
+// the machine capacity state (CEO label rendered by the UI). Status is the merged CEO headline.
+type ShedSummaryRow struct {
+	ParkID   string         `json:"parkId"`
+	ParkName string         `json:"parkName"`
+	ShedID   string         `json:"shedId"`
+	ShedName string         `json:"shedName"`
+	Animals  int            `json:"animals"`
+	Due      int            `json:"due"`
+	Done     int            `json:"done"`
+	Sessions int            `json:"sessions"`
+	LastDone *string        `json:"lastDone,omitempty"` // Asia/Kolkata business date of latest accepted dose
+	NextDue  *string        `json:"nextDue,omitempty"`  // Asia/Kolkata business date of earliest open obligation
+	Manager  *ShedOwner     `json:"manager,omitempty"`
+	Backup   *ShedOwner     `json:"backup,omitempty"`
+	Capacity CapacityStatus `json:"capacity"`
+	Status   ShedStatus     `json:"status"`
+}
+
+// PageInfo carries offset-pagination metadata. Shed rows are bounded (a tenant has at most a few hundred
+// sheds), so offset+total is scale-safe here; the large, unbounded axis is the per-shed ANIMAL list,
+// which uses goat_id keyset pagination (ShedAnimalPage), never offset.
+type PageInfo struct {
+	Total  int `json:"total"`
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+}
+
+type ShedSummaryResponse struct {
+	Source string           `json:"source"`
+	Rows   []ShedSummaryRow `json:"rows"`
+	Page   PageInfo         `json:"page"`
+}
+
+// ShedSummarySort is the whitelisted sort vocabulary (the ORDER BY fragment is chosen in Go from this
+// closed set — never interpolated from raw client input).
+type ShedSummarySort string
+
+const (
+	ShedSortStatus     ShedSummarySort = "status"       // DEFAULT: merged status priority (needs_review > split > overdue > due > scheduled > on_track), then park, then shed
+	ShedSortParkShed   ShedSummarySort = "park_shed"    // park name, then shed name (alphabetical)
+	ShedSortDueDesc    ShedSummarySort = "due_desc"     // most due animals first
+	ShedSortAnimalDesc ShedSummarySort = "animals_desc" // largest sheds first
+	ShedSortNextDue    ShedSummarySort = "next_due"     // soonest due first
+)
+
+type ShedSummaryQuery struct {
+	TenantID  string
+	ParkID    *string
+	ShedID    *string
+	Status    *ShedStatus
+	Capacity  *CapacityStatus
+	Search    *string
+	AsOf      time.Time
+	DueBefore time.Time
+	Sort      ShedSummarySort
+	Limit     int
+	Offset    int
+}
+
+// ShedSummaryProjection is one aggregated shed straight from SQL, before the service attaches the
+// resolved Manager/Backup (cross-module). Sessions/Capacity/Status are computed IN SQL (so the capacity
+// and status filters can page correctly) using the tenant cap config; OpenCells is the planner input the
+// shed-detail page re-plans into per-day sessions.
+type ShedSummaryProjection struct {
+	ParkID     string
+	ParkName   string
+	ShedID     string
+	ShedName   string
+	Animals    int
+	DueAnimals int
+	OpenCells  int            // open vaccination cells (overdue+due+in_progress) — session planner input
+	Sessions   int            // ceil(OpenCells / cap)
+	Capacity   CapacityStatus // from Sessions vs (buffer+1)
+	Status     ShedStatus     // merged CEO headline
+	LastDone   *time.Time
+	NextDue    *time.Time
+	TotalCount int // window COUNT(*) OVER() of the filtered set, for PageInfo.Total
+}
+
+// ---- Shed detail read model (per-vaccine breakdown + keyset-paginated animal list) ----
+
+// ShedVaccineRow is one vaccine's obligation breakdown inside a shed. This is the ONLY place per-vaccine
+// obligation counts are exposed (the shed row stays animal-level).
+type ShedVaccineRow struct {
+	ProtocolID string           `json:"protocolId"`
+	Name       string           `json:"name"`
+	WorkState  WorkState        `json:"workState"`
+	LastDose   *string          `json:"lastDose,omitempty"`
+	NextDue    *string          `json:"nextDue,omitempty"`
+	Counts     OperationsCounts `json:"counts"`
+}
+
+// ShedAnimalRow is one animal in the shed-detail roster: the three identities the UI shows. Tag1/Tag2
+// are nil when the animal has no such identifier on record — the UI renders "-", never a "missing id"
+// badge. goatId is the opaque keyset cursor.
+type ShedAnimalRow struct {
+	GoatID    string  `json:"goatId"`
+	DisplayID string  `json:"displayId"`
+	Tag1      *string `json:"tag1,omitempty"`
+	Tag2      *string `json:"tag2,omitempty"`
+	Status    string  `json:"status"`
+}
+
+type ShedAnimalPage struct {
+	Rows       []ShedAnimalRow `json:"rows"`
+	NextCursor *string         `json:"nextCursor,omitempty"`
+}
+
+type ShedDetailResponse struct {
+	Source          string           `json:"source"`
+	ParkID          string           `json:"parkId"`
+	ParkName        string           `json:"parkName"`
+	ShedID          string           `json:"shedId"`
+	ShedName        string           `json:"shedName"`
+	Animals         int              `json:"animals"`
+	Due             int              `json:"due"`
+	Done            int              `json:"done"`
+	Sessions        int              `json:"sessions"`
+	Manager         *ShedOwner       `json:"manager,omitempty"`
+	Backup          *ShedOwner       `json:"backup,omitempty"`
+	Capacity        CapacityStatus   `json:"capacity"`
+	Status          ShedStatus       `json:"status"`
+	PlannedSessions []PlannedSession `json:"plannedSessions"`
+	Vaccines        []ShedVaccineRow `json:"vaccines"`
+}
+
+// ShedAnimalQuery is the keyset-paginated per-shed animal list query (separate endpoint so the large
+// per-shed animal axis never rides on the shed-detail header/vaccine payload).
+type ShedAnimalQuery struct {
+	TenantID string
+	ShedID   string
+	Cursor   *string // last goat_id seen (exclusive)
+	Limit    int
 }

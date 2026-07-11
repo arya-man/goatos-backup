@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
@@ -31,6 +32,17 @@ type Reader interface {
 	VaccinationGaps(ctx context.Context, q vaccexecd.GapsQuery) (vaccexecd.GapsResponse, error)
 	// CoverageRollup backs the mobile doses-given overlay (per-vaccine given count + coverage %).
 	CoverageRollup(ctx context.Context, q vaccexecd.OperationsQuery) (vaccexecd.CoverageResponse, error)
+	// ShedSummary backs the shed-wise vaccination table (animal-level rollup + Manager/Backup).
+	ShedSummary(ctx context.Context, q vaccexecd.ShedSummaryQuery) (vaccexecd.ShedSummaryResponse, error)
+	// ShedDetail backs the shed drill-down header + per-vaccine breakdown.
+	ShedDetail(ctx context.Context, shedID string, q vaccexecd.OperationsQuery) (vaccexecd.ShedDetailResponse, bool, error)
+	// ShedAnimals backs the shed drill-down keyset-paginated animal roster.
+	ShedAnimals(ctx context.Context, q vaccexecd.ShedAnimalQuery) (vaccexecd.ShedAnimalPage, error)
+	// CapacityConfig backs the admin Config screen's read of the tenant daily vaccination cap.
+	CapacityConfig(ctx context.Context, tenantID string) (vaccexecd.CapacityConfig, error)
+	// UpdateCapacityConfig persists an admin edit (optimistic concurrency). domain.ErrCapacityConfigStale
+	// signals a stale write; the handler validates field values before calling this.
+	UpdateCapacityConfig(ctx context.Context, tenantID string, cfg vaccexecd.CapacityConfig, expectedRowVersion int) (vaccexecd.CapacityConfig, error)
 }
 
 // Writer is the obligation write interface needed for reschedule operations.
@@ -74,6 +86,11 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /vaccination/operations", h.VaccinationOperations)
+	mux.HandleFunc("GET /vaccination/sheds", h.ListShedSummary)
+	mux.HandleFunc("GET /vaccination/sheds/{shed_id}", h.GetShedDetail)
+	mux.HandleFunc("GET /vaccination/sheds/{shed_id}/animals", h.GetShedAnimals)
+	mux.HandleFunc("GET /vaccination/capacity-config", h.GetCapacityConfig)
+	mux.HandleFunc("PUT /vaccination/capacity-config", h.UpdateCapacityConfig)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}/roster", h.ScanRoster)
 	mux.HandleFunc("POST /app/vaccination/obligations/{obligation_id}/reschedule", h.RescheduleObligation)
 	mux.HandleFunc("GET /app/vaccination/gaps", h.VaccinationGaps)
@@ -476,11 +493,275 @@ func (h *Handler) VaccinationCoverage(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
 }
 
+const (
+	defaultShedLimit = 50
+	maxShedLimit     = 200
+	maxSearchLen     = 120
+)
+
+var allowedShedStatuses = map[vaccexecd.ShedStatus]bool{
+	vaccexecd.ShedStatusNeedsReview: true,
+	vaccexecd.ShedStatusSplit:       true,
+	vaccexecd.ShedStatusOverdue:     true,
+	vaccexecd.ShedStatusDue:         true,
+	vaccexecd.ShedStatusScheduled:   true,
+	vaccexecd.ShedStatusOnTrack:     true,
+}
+
+var allowedCapacityStatuses = map[vaccexecd.CapacityStatus]bool{
+	vaccexecd.CapacityWithinCap: true,
+	vaccexecd.CapacityOverCap:   true,
+	vaccexecd.CapacityBreach:    true,
+}
+
+var allowedShedSorts = map[vaccexecd.ShedSummarySort]bool{
+	vaccexecd.ShedSortStatus:     true,
+	vaccexecd.ShedSortParkShed:   true,
+	vaccexecd.ShedSortDueDesc:    true,
+	vaccexecd.ShedSortAnimalDesc: true,
+	vaccexecd.ShedSortNextDue:    true,
+}
+
+// ListShedSummary serves the shed-wise vaccination rollup: one animal-level row per shed with resolved
+// Manager/Backup and derived Status, filterable by park/shed/status/search, sortable, offset-paginated.
+func (h *Handler) ListShedSummary(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	asOf := time.Now().In(biztime.DefaultLocation())
+	q := vaccexecd.ShedSummaryQuery{
+		TenantID:  tenantID(r),
+		AsOf:      asOf,
+		DueBefore: asOf.Add(defaultExecutionHorizonDays * 24 * time.Hour),
+		Sort:      vaccexecd.ShedSortStatus,
+		Limit:     defaultShedLimit,
+	}
+	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
+		parsed, err := time.Parse(time.RFC3339, asOfRaw)
+		if err != nil {
+			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
+			return
+		}
+		q.AsOf = parsed.In(biztime.DefaultLocation())
+		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
+	}
+	if parkID := query.Get("park_id"); parkID != "" {
+		if !uuidutil.IsUUIDString(parkID) {
+			h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+			return
+		}
+		q.ParkID = &parkID
+	}
+	if shedID := query.Get("shed_id"); shedID != "" {
+		if !uuidutil.IsUUIDString(shedID) {
+			h.badRequest(w, r, "invalid_shed_id", "shed_id must be a UUID")
+			return
+		}
+		q.ShedID = &shedID
+	}
+	if status := query.Get("status"); status != "" {
+		shedStatus := vaccexecd.ShedStatus(status)
+		if !allowedShedStatuses[shedStatus] {
+			h.badRequest(w, r, "invalid_status", "status must be needs_review, split, overdue, due, scheduled, or on_track")
+			return
+		}
+		q.Status = &shedStatus
+	}
+	if capacity := query.Get("capacity"); capacity != "" {
+		capStatus := vaccexecd.CapacityStatus(capacity)
+		if !allowedCapacityStatuses[capStatus] {
+			h.badRequest(w, r, "invalid_capacity", "capacity must be within_cap, over_cap, or capacity_breach")
+			return
+		}
+		q.Capacity = &capStatus
+	}
+	if search := strings.TrimSpace(query.Get("q")); search != "" {
+		if len(search) > maxSearchLen {
+			search = search[:maxSearchLen]
+		}
+		q.Search = &search
+	}
+	if sort := query.Get("sort"); sort != "" {
+		shedSort := vaccexecd.ShedSummarySort(sort)
+		if !allowedShedSorts[shedSort] {
+			h.badRequest(w, r, "invalid_sort", "sort must be park_shed, due_desc, animals_desc, or next_due")
+			return
+		}
+		q.Sort = shedSort
+	}
+	if limit := query.Get("limit"); limit != "" {
+		n, err := strconv.Atoi(limit)
+		if err != nil || n <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		if n > maxShedLimit {
+			n = maxShedLimit
+		}
+		q.Limit = n
+	}
+	// Pagination accepts either an explicit offset, or a 1-based page (offset = (page-1)*limit).
+	if page := query.Get("page"); page != "" {
+		n, err := strconv.Atoi(page)
+		if err != nil || n < 1 {
+			h.badRequest(w, r, "invalid_page", "page must be a positive integer")
+			return
+		}
+		q.Offset = (n - 1) * q.Limit
+	} else if offset := query.Get("offset"); offset != "" {
+		n, err := strconv.Atoi(offset)
+		if err != nil || n < 0 {
+			h.badRequest(w, r, "invalid_offset", "offset must be a non-negative integer")
+			return
+		}
+		q.Offset = n
+	}
+	resp, err := h.reader.ShedSummary(r.Context(), q)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetShedDetail returns one shed's header + per-vaccine obligation breakdown. 404 when the shed has no
+// alive animals / is not an active shed.
+func (h *Handler) GetShedDetail(w http.ResponseWriter, r *http.Request) {
+	shedID := r.PathValue("shed_id")
+	if !uuidutil.IsUUIDString(shedID) {
+		h.badRequest(w, r, "invalid_shed_id", "shed_id must be a UUID")
+		return
+	}
+	query := r.URL.Query()
+	asOf := time.Now().In(biztime.DefaultLocation())
+	q := vaccexecd.OperationsQuery{
+		TenantID:  tenantID(r),
+		AsOf:      asOf,
+		DueBefore: asOf.Add(defaultExecutionHorizonDays * 24 * time.Hour),
+		Limit:     defaultDrilldownLimit,
+	}
+	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
+		parsed, err := time.Parse(time.RFC3339, asOfRaw)
+		if err != nil {
+			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
+			return
+		}
+		q.AsOf = parsed.In(biztime.DefaultLocation())
+		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
+	}
+	detail, found, err := h.reader.ShedDetail(r.Context(), shedID, q)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	if !found {
+		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+			errorEnvelope{Code: "not_found", Message: "shed vaccination detail was not found", TraceID: traceID(r)}, nil)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, detail)
+}
+
+// GetShedAnimals returns the shed's keyset-paginated alive-animal roster (Display ID + two tag
+// identities + status) for the shed drill-down.
+func (h *Handler) GetShedAnimals(w http.ResponseWriter, r *http.Request) {
+	shedID := r.PathValue("shed_id")
+	if !uuidutil.IsUUIDString(shedID) {
+		h.badRequest(w, r, "invalid_shed_id", "shed_id must be a UUID")
+		return
+	}
+	query := r.URL.Query()
+	q := vaccexecd.ShedAnimalQuery{TenantID: tenantID(r), ShedID: shedID, Limit: 100}
+	if cursor := query.Get("cursor"); cursor != "" {
+		if !uuidutil.IsUUIDString(cursor) {
+			h.badRequest(w, r, "invalid_cursor", "cursor must be a goat UUID")
+			return
+		}
+		q.Cursor = &cursor
+	}
+	if limit := query.Get("limit"); limit != "" {
+		n, err := strconv.Atoi(limit)
+		if err != nil || n <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		if n > 500 {
+			n = 500
+		}
+		q.Limit = n
+	}
+	page, err := h.reader.ShedAnimals(r.Context(), q)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, page)
+}
+
 func traceID(r *http.Request) string {
 	if t := httpmiddleware.TraceIDFromContext(r.Context()); t != "" {
 		return t
 	}
 	return "missing-trace"
+}
+
+// capacityConfigRequest is the admin PUT body. All fields are pointers so a missing field is a 400 rather
+// than a silent zero value (e.g. maxPerDay:0 would violate the >=1 rule). expectedRowVersion carries the
+// RowVersion the admin last read for optimistic concurrency.
+type capacityConfigRequest struct {
+	MaxPerDay          *int    `json:"maxPerDay"`
+	CapacityScope      *string `json:"capacityScope"`
+	MaxBufferDays      *int    `json:"maxBufferDays"`
+	OverflowPolicy     *string `json:"overflowPolicy"`
+	ExpectedRowVersion *int    `json:"expectedRowVersion"`
+}
+
+// GetCapacityConfig returns the tenant's daily vaccination cap config for the admin Config screen. Read
+// authority is enforced at the permission layer (config authority: CEO/COO/superadmin).
+func (h *Handler) GetCapacityConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := h.reader.CapacityConfig(r.Context(), tenantID(r))
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, cfg)
+}
+
+// UpdateCapacityConfig persists an admin edit to the daily cap with optimistic concurrency. Field values
+// are validated against the DB CHECK rules here (clean 400); a stale expectedRowVersion returns 409.
+func (h *Handler) UpdateCapacityConfig(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 8*1024)
+	defer r.Body.Close()
+	var req capacityConfigRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil && err != io.EOF {
+		h.badRequest(w, r, "invalid_body", "request body must be JSON")
+		return
+	}
+	if req.MaxPerDay == nil || req.CapacityScope == nil || req.MaxBufferDays == nil || req.OverflowPolicy == nil || req.ExpectedRowVersion == nil {
+		h.badRequest(w, r, "missing_field", "maxPerDay, capacityScope, maxBufferDays, overflowPolicy, and expectedRowVersion are required")
+		return
+	}
+	cfg := vaccexecd.CapacityConfig{
+		MaxPerDay:      *req.MaxPerDay,
+		CapacityScope:  *req.CapacityScope,
+		MaxBufferDays:  *req.MaxBufferDays,
+		OverflowPolicy: *req.OverflowPolicy,
+	}
+	if code, msg, ok := cfg.Validate(); !ok {
+		h.badRequest(w, r, code, msg)
+		return
+	}
+	out, err := h.reader.UpdateCapacityConfig(r.Context(), tenantID(r), cfg, *req.ExpectedRowVersion)
+	if err != nil {
+		if errors.Is(err, vaccexecd.ErrCapacityConfigStale) {
+			httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+				errorEnvelope{Code: "stale_row_version", Message: "the capacity config was changed by someone else — reload and retry", TraceID: traceID(r)}, nil)
+			return
+		}
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {

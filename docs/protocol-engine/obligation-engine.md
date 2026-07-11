@@ -235,6 +235,15 @@ e.g. booster = `upstream_completion` of the prior obligation; feed direction = `
 `escalation_id PK · tenant_id · obligation_id→obligation_instances · level int CHECK(>=1) · escalated_to_user_id uuid (external subject) · escalated_to_role text CHECK(admin/park_head/operator/verifier/ceo_internal) · reason · status text CHECK(open/acknowledged/resolved/expired) · opened_at · acknowledged_at · resolved_at` — index `(tenant_id, status, level)`.
 
 ### `obligation_batches` — the DRIVE / work-unit layer (generic)
+Decision reconciliation note: the vaccination combo/bundle model identified one
+case where a single `obligation_batch` is not enough to represent the operator
+work unit. See `docs/decisions/vaccination-work-session-bundle.md` before
+changing this area. Until that ADR is accepted, the text below remains the
+current runtime contract. If accepted, vaccination combo visits promote the
+existing scope/session batch key into a generic work-session grouping above
+multiple per-vaccine batches; they still do not create a
+`vaccination_drives` table.
+
 A `sop_task` alone can't hold drive-level fields. Group per-target obligations executed together (a **shed vaccination drive**, a **feed session**) into a batch:
 `batch_id PK · tenant_id · protocol_version_id→protocol_versions · scope_type/scope_id (shed/cohort) · session text NULL (Morning/Afternoon/Evening for feed) · planned_date date · window_start/end · status text CHECK(planned/in_progress/completed/superseded/canceled) · estimated_targets int · planned_quantity numeric NULL · reserved_quantity numeric DEFAULT 0 · used_quantity numeric DEFAULT 0 · quantity_unit text NULL (dose/ml/kg/litre) · primary_inventory_lot_id uuid NULL→inventory_stock · sop_task_id uuid NULL→sop_tasks · conducted_by uuid · proof_ref text NULL · context jsonb (module-specific extras) · created_at · row_version`.
 - `obligation_instances.batch_id` points here. Stock reservation/consumption happens at the **batch** level (§6), not per-obligation.
@@ -244,6 +253,11 @@ A `sop_task` alone can't hold drive-level fields. Group per-target obligations e
 ---
 
 ## 5. Execution — reuse the committed SOP engine
+
+Decision reconciliation note: for vaccination combo/bundle sessions, see
+`docs/decisions/vaccination-work-session-bundle.md`. The proposed model keeps
+per-vaccine batches but groups them under one work-session task/submission/video.
+Do not implement that exception until the ADR is signed off.
 
 The unit of execution is the **batch**, not the individual obligation: **many due obligations → grouped into one `obligation_batch` → one `sop_task`.** Phase 0 catch-up uses Preventive Care approved manual campaign obligations/batches; standalone per-animal individual override generation is not exposed.
 

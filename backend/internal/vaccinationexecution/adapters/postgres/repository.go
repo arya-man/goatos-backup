@@ -3,9 +3,12 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -165,7 +168,11 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 	if q.ParkID != nil {
 		parkID = *q.ParkID
 	}
-	rows, err := r.pool.Query(ctx, vaccinationOperationsSQL, q.TenantID, asOf, dueBefore, parkID, q.Limit)
+	shedID := ""
+	if q.ShedID != nil {
+		shedID = *q.ShedID
+	}
+	rows, err := r.pool.Query(ctx, vaccinationOperationsSQL, q.TenantID, asOf, dueBefore, parkID, shedID, q.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: list operations: %w", err)
 	}
@@ -913,9 +920,10 @@ JOIN locations park
  AND park.status = 'active'
 WHERE effective.park_uuid IS NOT NULL
   AND ($4::text = '' OR effective.park_uuid = $4::uuid)
+  AND ($5::text = '' OR effective.shed_uuid = $5::uuid)
 GROUP BY effective.park_uuid, park.name, effective.shed_uuid, shed.name, effective.stage, effective.protocol_id, effective.protocol_name
 ORDER BY park.name ASC, shed.name ASC, effective.stage ASC, effective.protocol_name ASC
-LIMIT $5;
+LIMIT $6;
 `
 
 // ScanRoster returns per-animal vaccination obligations scoped by shed, with RFID tags and vaccine labels.
@@ -1002,4 +1010,462 @@ WHERE oi.tenant_id = $1::uuid
   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
 ORDER BY g.goat_id ASC
 LIMIT $3;
+`
+
+func optStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// shedSummaryOrderBy maps the whitelisted sort enum to a fixed ORDER BY fragment. The fragment is a
+// closed constant set (never interpolated from raw client input), so substituting it into the query is
+// injection-safe. Columns referenced are outer-SELECT aliases.
+func shedSummaryOrderBy(sort domain.ShedSummarySort) string {
+	switch sort {
+	case domain.ShedSortParkShed:
+		return "park_name ASC, shed_name ASC"
+	case domain.ShedSortDueDesc:
+		return "due_animals DESC, park_name ASC, shed_name ASC"
+	case domain.ShedSortAnimalDesc:
+		return "animals DESC, park_name ASC, shed_name ASC"
+	case domain.ShedSortNextDue:
+		return "next_due ASC NULLS LAST, park_name ASC, shed_name ASC"
+	default: // ShedSortStatus — merged-status priority (most urgent first), then park, then shed.
+		return "CASE shed_status " +
+			"WHEN 'needs_review' THEN 0 " +
+			"WHEN 'split' THEN 1 " +
+			"WHEN 'overdue' THEN 2 " +
+			"WHEN 'due' THEN 3 " +
+			"WHEN 'scheduled' THEN 4 " +
+			"WHEN 'on_track' THEN 5 ELSE 6 END, park_name ASC, shed_name ASC"
+	}
+}
+
+const capacityConfigSQL = `
+SELECT max_per_day, capacity_scope, max_buffer_days, overflow_policy, row_version
+FROM vaccination_capacity_config
+WHERE tenant_id = $1::uuid;`
+
+// CapacityConfig reads the tenant's daily vaccination cap config, falling back to the code default when
+// no row is authored (migration 000155 seeds existing tenants; later tenants use the default). The code
+// default carries RowVersion 0 so an admin's first save takes the INSERT branch in UpdateCapacityConfig.
+func (r *Repository) CapacityConfig(ctx context.Context, tenantID string) (domain.CapacityConfig, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	cfg := domain.DefaultCapacityConfig()
+	err := r.pool.QueryRow(ctx, capacityConfigSQL, tenantID).
+		Scan(&cfg.MaxPerDay, &cfg.CapacityScope, &cfg.MaxBufferDays, &cfg.OverflowPolicy, &cfg.RowVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.DefaultCapacityConfig(), nil
+	}
+	if err != nil {
+		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: capacity config: %w", err)
+	}
+	return cfg, nil
+}
+
+// updateCapacityConfigSQL is an optimistic-concurrency upsert: it INSERTs when no row exists (first author
+// for a post-000155 tenant, expected row_version 0) and UPDATEs in place only when the stored row_version
+// still equals the caller's expected value — bumping row_version so a concurrent stale write returns no
+// row (detected as a conflict). Values are re-checked against the DB CHECK constraints; the caller also
+// validates in Go for a clean 400.
+const updateCapacityConfigSQL = `
+INSERT INTO vaccination_capacity_config
+  (tenant_id, max_per_day, capacity_scope, max_buffer_days, overflow_policy, row_version)
+VALUES ($1::uuid, $2, $3, $4, $5, 1)
+ON CONFLICT (tenant_id) DO UPDATE
+  SET max_per_day     = EXCLUDED.max_per_day,
+      capacity_scope  = EXCLUDED.capacity_scope,
+      max_buffer_days = EXCLUDED.max_buffer_days,
+      overflow_policy = EXCLUDED.overflow_policy,
+      row_version     = vaccination_capacity_config.row_version + 1,
+      updated_at      = now()
+  WHERE vaccination_capacity_config.row_version = $6
+RETURNING max_per_day, capacity_scope, max_buffer_days, overflow_policy, row_version;`
+
+// UpdateCapacityConfig persists an admin edit to the tenant's daily cap config with optimistic
+// concurrency. expectedRowVersion is the RowVersion the admin last read; a mismatch (someone else edited
+// meanwhile) returns domain.ErrCapacityConfigStale so the caller re-reads instead of clobbering. Returns
+// the freshly-stored config (with the bumped RowVersion).
+func (r *Repository) UpdateCapacityConfig(ctx context.Context, tenantID string, cfg domain.CapacityConfig, expectedRowVersion int) (domain.CapacityConfig, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var out domain.CapacityConfig
+	err := r.pool.QueryRow(ctx, updateCapacityConfigSQL,
+		tenantID, cfg.MaxPerDay, cfg.CapacityScope, cfg.MaxBufferDays, cfg.OverflowPolicy, expectedRowVersion).
+		Scan(&out.MaxPerDay, &out.CapacityScope, &out.MaxBufferDays, &out.OverflowPolicy, &out.RowVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// A row exists but its row_version != expected (the ON CONFLICT UPDATE WHERE filtered it out).
+		return domain.CapacityConfig{}, domain.ErrCapacityConfigStale
+	}
+	if err != nil {
+		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: update capacity config: %w", err)
+	}
+	return out, nil
+}
+
+// ShedSummary returns the shed-wise rollup with ANIMAL-LEVEL Due counts plus the session-split planner's
+// SQL-side outputs (Sessions, Capacity, merged Status computed from the tenant cap config so the capacity
+// and status filters page correctly), filtered + offset-paginated, each row carrying the window total.
+// Manager/Backup are attached later by the service.
+func (r *Repository) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) ([]domain.ShedSummaryProjection, error) {
+	cfg, err := r.CapacityConfig(ctx, q.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := q.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	asOf := q.AsOf
+	if asOf.IsZero() {
+		asOf = time.Now().In(biztime.DefaultLocation())
+	}
+	dueBefore := q.DueBefore
+	if dueBefore.IsZero() {
+		dueBefore = asOf.Add(defaultExecutionHorizon)
+	}
+	status := ""
+	if q.Status != nil {
+		status = string(*q.Status)
+	}
+	capacity := ""
+	if q.Capacity != nil {
+		capacity = string(*q.Capacity)
+	}
+	query := strings.Replace(shedSummarySQL, "__ORDER_BY__", shedSummaryOrderBy(q.Sort), 1)
+	rows, err := r.pool.Query(ctx, query,
+		q.TenantID, asOf, dueBefore, optStr(q.ParkID), optStr(q.ShedID), optStr(q.Search),
+		status, capacity, cfg.MaxPerDay, cfg.MaxBufferDays, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: shed summary: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.ShedSummaryProjection{}
+	for rows.Next() {
+		var row domain.ShedSummaryProjection
+		var animals, due, openCells, sessions, total int64
+		var capacityStatus, shedStatus string
+		var lastDone, nextDue pgtype.Timestamptz
+		if err := rows.Scan(
+			&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName,
+			&animals, &due, &openCells, &sessions, &capacityStatus, &shedStatus,
+			&lastDone, &nextDue, &total,
+		); err != nil {
+			return nil, fmt.Errorf("vaccination execution: scan shed summary: %w", err)
+		}
+		row.Animals = int(animals)
+		row.DueAnimals = int(due)
+		row.OpenCells = int(openCells)
+		row.Sessions = int(sessions)
+		row.Capacity = domain.CapacityStatus(capacityStatus)
+		row.Status = domain.ShedStatus(shedStatus)
+		row.LastDone = timePtr(lastDone)
+		row.NextDue = timePtr(nextDue)
+		row.TotalCount = int(total)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: iterate shed summary: %w", err)
+	}
+	return out, nil
+}
+
+// shedSummarySQL rolls the per-obligation as-of reconstruction up to ONE row per active shed with
+// ANIMAL-LEVEL counts (a goat needing three vaccines is one due animal, not three). It reuses the exact
+// completions/asof_terminal/raw/located/effective CTE chain the cohort×protocol operations query uses,
+// so the shed row and the vaccine breakdown agree on as-of status. `alive` is the base (all alive goats
+// in the shed, INCLUDING zero-obligation animals) so Animals is a true headcount and Done = Animals -
+// Due always holds. The shed-due predicate (see domain.go) lives in due_agg. Shed rows are bounded (a
+// tenant has at most a few hundred sheds), so COUNT(*) OVER() + LIMIT/OFFSET is scale-safe here; the
+// unbounded axis is the per-shed animal list, which is keyset-paginated separately (ShedAnimals). The
+// alive aggregate is tenant/lifecycle-scoped and index-backed (goats_tenant_lifecycle_shed_idx, mig 000154).
+// __ORDER_BY__ is substituted from a closed whitelist in Go.
+const shedSummarySQL = `
+WITH alive AS (
+  SELECT g.shed_id AS shed_uuid, COUNT(*)::bigint AS animals
+  FROM goats g
+  WHERE g.tenant_id = $1::uuid
+    AND g.lifecycle_status = 'alive'
+    AND g.merged_into_goat_id IS NULL
+    AND g.shed_id IS NOT NULL
+  GROUP BY g.shed_id
+),
+completions AS (
+  SELECT
+    obligation_id,
+    (ARRAY_AGG(asof_status ORDER BY
+      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
+      administered_at DESC,
+      created_at DESC))[1] AS effective_status,
+    MAX(administered_at) FILTER (WHERE asof_status = 'accepted') AS last_accepted_at
+  FROM (
+    SELECT
+      obligation_id, administered_at, created_at,
+      CASE
+        WHEN status IN ('accepted', 'rejected') AND verified_at IS NOT NULL AND verified_at > $2::timestamptz THEN 'recorded'
+        ELSE status
+      END AS asof_status
+    FROM vaccination_completions
+    WHERE tenant_id = $1::uuid
+      AND COALESCE(administered_at, created_at) <= $2::timestamptz
+  ) c
+  GROUP BY obligation_id
+),
+asof_terminal AS (
+  SELECT
+    obligation_id,
+    (ARRAY_AGG(event_type ORDER BY occurred_at DESC, obligation_event_id DESC)
+       FILTER (WHERE occurred_at <= $2::timestamptz))[1] AS asof_terminal_type,
+    true AS has_terminal_event
+  FROM obligation_status_events
+  WHERE tenant_id = $1::uuid
+    AND event_type IN ('missed', 'waived', 'deferred')
+  GROUP BY obligation_id
+),
+raw AS (
+  SELECT
+    oi.obligation_id,
+    oi.due_at,
+    oi.window_start,
+    oi.completed_at,
+    oi.status AS stored_status,
+    te.asof_terminal_type,
+    te.has_terminal_event,
+    oi.target_id AS goat_id,
+    g.shed_id AS shed_uuid,
+    c.effective_status AS completion_status,
+    c.last_accepted_at
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+   AND pd.category = 'vaccination'
+  JOIN goats g
+    ON oi.target_type = 'goat'
+   AND g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+   AND g.merged_into_goat_id IS NULL
+   AND g.lifecycle_status = 'alive'
+  LEFT JOIN completions c
+    ON c.obligation_id = oi.obligation_id
+  LEFT JOIN asof_terminal te
+    ON te.obligation_id = oi.obligation_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.target_type = 'goat'
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
+    AND oi.due_at <= $3::timestamptz
+    AND g.shed_id IS NOT NULL
+),
+effective AS (
+  SELECT
+    raw.goat_id,
+    raw.shed_uuid,
+    raw.due_at,
+    raw.last_accepted_at,
+    raw.completion_status,
+    CASE
+      WHEN raw.stored_status = 'completed' THEN
+        CASE
+          WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $2::timestamptz THEN 'completed'
+          WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
+          ELSE (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+        END
+      WHEN raw.stored_status IN ('missed', 'waived', 'deferred') THEN
+        CASE
+          WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
+          WHEN raw.has_terminal_event THEN (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE raw.stored_status
+        END
+      WHEN raw.stored_status = 'in_progress' THEN 'in_progress'
+      ELSE (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+    END AS eff_status
+  FROM raw
+),
+due_agg AS (
+  SELECT
+    effective.shed_uuid,
+    -- animal-level Due (distinct animals with any actionable/unfinished obligation)
+    COUNT(DISTINCT effective.goat_id) FILTER (
+      WHERE effective.eff_status IN ('overdue', 'due', 'in_progress')
+         OR effective.completion_status IN ('recorded', 'rejected')
+    )::bigint AS due_animals,
+    COUNT(DISTINCT effective.goat_id) FILTER (WHERE effective.eff_status = 'overdue')::bigint AS overdue_animals,
+    COUNT(DISTINCT effective.goat_id) FILTER (WHERE effective.eff_status = 'scheduled')::bigint AS scheduled_animals,
+    -- capacity is VACCINATION-level: count obligation CELLS that need administering (a goat needing FMD +
+    -- HS contributes 2), the session planner's input.
+    COUNT(*) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress'))::bigint AS open_cells,
+    MAX(effective.last_accepted_at) AS last_done,
+    MIN(effective.due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due
+  FROM effective
+  GROUP BY effective.shed_uuid
+),
+shed_rows AS (
+  SELECT
+    park.location_id::text AS park_id,
+    park.name AS park_name,
+    shed.location_id::text AS shed_id,
+    shed.name AS shed_name,
+    alive.animals,
+    COALESCE(due_agg.due_animals, 0) AS due_animals,
+    COALESCE(due_agg.overdue_animals, 0) AS overdue_animals,
+    COALESCE(due_agg.scheduled_animals, 0) AS scheduled_animals,
+    COALESCE(due_agg.open_cells, 0) AS open_cells,
+    due_agg.last_done,
+    due_agg.next_due
+  FROM alive
+  JOIN locations shed
+    ON shed.tenant_id = $1::uuid
+   AND shed.location_id = alive.shed_uuid
+   AND shed.location_type = 'shed'
+   AND shed.status = 'active'
+  JOIN locations park
+    ON park.tenant_id = $1::uuid
+   AND park.location_id = shed.parent_location_id
+   AND park.location_type = 'park'
+   AND park.status = 'active'
+  LEFT JOIN due_agg ON due_agg.shed_uuid = alive.shed_uuid
+),
+-- Session-split planner, mirrored from app.PlanSessions. cap = $9 (max/day), buffer = $10 (max buffer
+-- days). sessions = ceil(open cells / cap); allowed window = buffer + 1 days.
+scored AS (
+  SELECT
+    shed_rows.*,
+    CASE WHEN open_cells <= 0 THEN 0 ELSE CEIL(open_cells::numeric / GREATEST($9::numeric, 1))::int END AS sessions
+  FROM shed_rows
+),
+classified AS (
+  SELECT
+    scored.*,
+    CASE
+      WHEN sessions <= 1 THEN 'within_cap'
+      WHEN sessions <= ($10::int + 1) THEN 'over_cap'
+      ELSE 'capacity_breach'
+    END AS capacity_status,
+    CASE
+      WHEN sessions > ($10::int + 1) THEN 'needs_review'  -- capacity breach
+      WHEN sessions > 1 THEN 'split'                       -- over cap, safely split
+      WHEN overdue_animals > 0 THEN 'overdue'
+      WHEN due_animals > 0 THEN 'due'
+      WHEN scheduled_animals > 0 THEN 'scheduled'
+      ELSE 'on_track'
+    END AS shed_status
+  FROM scored
+)
+SELECT
+  park_id, park_name, shed_id, shed_name,
+  animals, due_animals, open_cells, sessions, capacity_status, shed_status,
+  last_done, next_due,
+  COUNT(*) OVER()::bigint AS total_count
+FROM classified
+WHERE ($4::text = '' OR park_id = $4)
+  AND ($5::text = '' OR shed_id = $5)
+  AND ($6::text = '' OR shed_name ILIKE '%' || $6 || '%' OR park_name ILIKE '%' || $6 || '%')
+  AND ($7::text = '' OR shed_status = $7)
+  AND ($8::text = '' OR capacity_status = $8)
+ORDER BY __ORDER_BY__
+LIMIT $11 OFFSET $12;
+`
+
+// ShedAnimals returns the shed's alive animals (Display ID + the two tag identities + a lightweight
+// animal-level status hint), keyset-paginated by goat_id, for the shed-detail roster. The authoritative
+// shed Due/Done counts are the as-of reconstruction in ShedSummary; the per-row status here is a cheaper
+// current-status hint on the animal's own vaccination obligations, sufficient for a detail list.
+func (r *Repository) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) ([]domain.ShedAnimalRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	cursor := zeroUUID
+	if q.Cursor != nil && *q.Cursor != "" {
+		cursor = *q.Cursor
+	}
+	rows, err := r.pool.Query(ctx, shedAnimalListSQL, q.TenantID, q.ShedID, cursor, limit)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: shed animals: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.ShedAnimalRow{}
+	for rows.Next() {
+		var row domain.ShedAnimalRow
+		var tag1, tag2 pgtype.Text
+		if err := rows.Scan(&row.GoatID, &row.DisplayID, &tag1, &tag2, &row.Status); err != nil {
+			return nil, fmt.Errorf("vaccination execution: scan shed animals: %w", err)
+		}
+		row.Tag1 = textPtr(tag1)
+		row.Tag2 = textPtr(tag2)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: iterate shed animals: %w", err)
+	}
+	return out, nil
+}
+
+// shedAnimalListSQL is a bounded keyset scan of alive goats in one shed (goat_id > $3 drives the
+// PK-ordered window, LIMIT bounds the page). Display ID + both tag identities are returned as-is; a null
+// tag becomes NULL -> the UI renders "-", never a "missing id" badge. status is 'due' when the animal
+// has any actionable-now vaccination obligation, else 'done'.
+const shedAnimalListSQL = `
+SELECT
+  g.goat_id::text,
+  g.display_id,
+  aid1.identifier_value AS tag1,
+  aid2.identifier_value AS tag2,
+  CASE
+    WHEN EXISTS (
+      SELECT 1
+      FROM obligation_instances oi
+      JOIN protocol_versions pv
+        ON pv.tenant_id = oi.tenant_id
+       AND pv.protocol_version_id = oi.protocol_version_id
+      JOIN protocol_definitions pd
+        ON pd.tenant_id = pv.tenant_id
+       AND pd.protocol_id = pv.protocol_id
+       AND pd.category = 'vaccination'
+      WHERE oi.tenant_id = g.tenant_id
+        AND oi.target_type = 'goat'
+        AND oi.target_id = g.goat_id
+        AND ( oi.status IN ('due', 'in_progress')
+              OR (oi.status = 'scheduled' AND oi.due_at <= now()) )
+    ) THEN 'due'
+    ELSE 'done'
+  END AS status
+FROM goats g
+LEFT JOIN goat_identifiers aid1
+  ON aid1.tenant_id = g.tenant_id
+ AND aid1.goat_id = g.goat_id
+ AND aid1.identifier_type = 'animal_identifier_1'
+ AND aid1.status = 'active'
+LEFT JOIN goat_identifiers aid2
+  ON aid2.tenant_id = g.tenant_id
+ AND aid2.goat_id = g.goat_id
+ AND aid2.identifier_type = 'animal_identifier_2'
+ AND aid2.status = 'active'
+WHERE g.tenant_id = $1::uuid
+  AND g.shed_id = $2::uuid
+  AND g.lifecycle_status = 'alive'
+  AND g.merged_into_goat_id IS NULL
+  AND g.goat_id > $3::uuid
+ORDER BY g.goat_id ASC
+LIMIT $4;
 `

@@ -78,6 +78,7 @@ import (
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	vaccexechttp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/http"
 	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
+	vaccexecroster "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/roster"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	workforcehttp "github.com/vgoats/goatos/backend/internal/workforce/adapters/http"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
@@ -278,7 +279,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	operationsAuditHandler := operationsaudithttp.NewHandler(operationsAuditService, log)
 	processIntegrityService := processintegrityapp.NewService(processintegritypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	processIntegrityHandler := processintegrityhttp.NewHandler(processIntegrityService, log)
-	vaccExecService := vaccexecapp.NewService(vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	vaccExecOwnership := vaccexecroster.NewOwnershipAdapter(rosterService)
+	vaccExecService := vaccexecapp.NewService(vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout), vaccExecOwnership)
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)

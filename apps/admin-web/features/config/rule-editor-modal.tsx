@@ -1334,10 +1334,8 @@ export function RuleEditorModal({
             ? parsedScope.id
             : undefined,
         vaccine_item_id: vaccineItemId || undefined,
-        doses_per_goat: scheduleRows,
         dose_rows: scheduleRows,
         horizon_days: 30,
-        warmup_no_vaccination_days: procurementPolicy.warmupNoVaccinationDays,
       });
       if (res.ok && res.data) setImpact(res.data);
       else
@@ -2392,20 +2390,20 @@ export function RuleEditorModal({
                 <div className="grid g4">
                   {[
                     [
-                      copy(pageContract, "modal.rule_editor.kpi.eligible_goats"),
-                      impact.eligible_goats,
+                      copy(pageContract, "modal.rule_editor.kpi.eligible_animals"),
+                      impact.eligible_animals,
                     ],
                     [
-                      copy(pageContract, "modal.rule_editor.kpi.obligations"),
-                      impact.obligations,
+                      copy(pageContract, "modal.rule_editor.kpi.vaccination_cells"),
+                      impact.vaccination_cells,
                     ],
                     [
-                      copy(pageContract, "modal.rule_editor.kpi.batches"),
-                      impact.batches,
+                      copy(pageContract, "modal.rule_editor.kpi.affected_sheds"),
+                      impact.affected_sheds,
                     ],
                     [
-                      copy(pageContract, "modal.rule_editor.kpi.doses_required"),
-                      impact.doses_required,
+                      copy(pageContract, "modal.rule_editor.kpi.estimated_days"),
+                      impact.estimated_days,
                     ],
                   ].map(([l, v]) => (
                     <div key={String(l)} className="kpi">
@@ -2415,11 +2413,11 @@ export function RuleEditorModal({
                   ))}
                 </div>
                 <div className="muted small" style={{ marginTop: 10 }}>
-                  {copy(pageContract, "modal.rule_editor.label.doses_available")}:{" "}
-                  <b>
-                    {impact.doses_available ||
-                      copy(pageContract, "label.placeholder")}
-                  </b>
+                  <b>{impact.daily_cap}</b>{" "}
+                  {copy(pageContract, "modal.rule_editor.label.daily_cap_suffix")}
+                  {impact.doses_available
+                    ? ` · ${copy(pageContract, "modal.rule_editor.label.doses_available")}: ${impact.doses_available}`
+                    : ""}
                   {impact.earliest_expiry
                     ? ` · ${copy(pageContract, "modal.rule_editor.label.earliest_expiry")} ${impact.earliest_expiry.slice(0, 10)}`
                     : ""}
@@ -4554,20 +4552,20 @@ export function RuleEditorModal({
               <div className="grid g4">
                 {[
                   [
-                    copy(pageContract, "modal.rule_editor.kpi.eligible_goats"),
-                    impact.eligible_goats,
+                    copy(pageContract, "modal.rule_editor.kpi.eligible_animals"),
+                    impact.eligible_animals,
                   ],
                   [
-                    copy(pageContract, "modal.rule_editor.kpi.obligations"),
-                    impact.obligations,
+                    copy(pageContract, "modal.rule_editor.kpi.vaccination_cells"),
+                    impact.vaccination_cells,
                   ],
                   [
-                    copy(pageContract, "modal.rule_editor.kpi.batches"),
-                    impact.batches,
+                    copy(pageContract, "modal.rule_editor.kpi.affected_sheds"),
+                    impact.affected_sheds,
                   ],
                   [
-                    copy(pageContract, "modal.rule_editor.kpi.doses_required"),
-                    impact.doses_required,
+                    copy(pageContract, "modal.rule_editor.kpi.estimated_days"),
+                    impact.estimated_days,
                   ],
                 ].map(([l, v]) => (
                   <div key={String(l)} className="kpi">
@@ -4577,11 +4575,11 @@ export function RuleEditorModal({
                 ))}
               </div>
               <div className="muted small" style={{ marginTop: 10 }}>
-                {copy(pageContract, "modal.rule_editor.label.doses_available")}:{" "}
-                <b>
-                  {impact.doses_available ||
-                    copy(pageContract, "label.placeholder")}
-                </b>
+                <b>{impact.daily_cap}</b>{" "}
+                {copy(pageContract, "modal.rule_editor.label.daily_cap_suffix")}
+                {impact.doses_available
+                  ? ` · ${copy(pageContract, "modal.rule_editor.label.doses_available")}: ${impact.doses_available}`
+                  : ""}
                 {impact.earliest_expiry
                   ? ` · ${copy(pageContract, "modal.rule_editor.label.earliest_expiry")} ${impact.earliest_expiry.slice(0, 10)}`
                   : ""}

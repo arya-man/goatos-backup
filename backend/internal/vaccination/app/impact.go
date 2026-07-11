@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -9,11 +10,32 @@ import (
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
-// ImpactPreview computes a live impact preview for a vaccination rule/version: eligible goats,
-// catch-up count, obligations, estimated drive batches, doses required vs available, and warnings
-// (stock shortage, expiry-before-horizon). Real counts replace the mock's fake math. Overlapping
-// published-window conflicts are enforced at publish time by the DB EXCLUDE constraint.
+// ErrImpactPreviewUnsupported is returned when the wired repository cannot serve the aggregate impact
+// preview read model. Every ports.Repository satisfies impactReads in practice; this guards a mis-wired
+// or partial repository.
+var ErrImpactPreviewUnsupported = errors.New("vaccination: impact preview read model not available")
+
+// impactReads is the NARROW read surface the config impact preview is allowed to touch. It deliberately
+// excludes the live goat-count methods (CountEligibleGoats/...): the preview must be aggregate-only and
+// read the vaccination_eligibility_rollups read model, never scan goats on the UI request path. The
+// compile-time interface is the guard — a future edit that reaches for a goat scan won't satisfy it.
+type impactReads interface {
+	SumEligibilityRollup(ctx context.Context, f domain.ImpactFilter) (domain.EligibilityRollupAggregate, error)
+	CapacityMaxPerDay(ctx context.Context, tenantID string) (int64, error)
+	SumAvailableStock(ctx context.Context, tenantID, itemID string, locationID *string) (string, *time.Time, error)
+}
+
+// ImpactPreview computes the aggregate config impact preview for a vaccination rule/version from the
+// precomputed eligibility rollup: eligible animals, vaccination cells, affected sheds, and estimated
+// days at the configured daily cap. It reads ONLY the read model (plus a cheap optional stock lookup) —
+// no live goats scan — so the "Preview impact" button stays cheap at 1-5M-animal scale. Per-animal,
+// workflow, session-plan, and manager/backup detail belong after publish/planner execution, not here.
 func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error) {
+	reads, ok := s.repo.(impactReads)
+	if !ok {
+		return domain.ImpactPreview{}, ErrImpactPreviewUnsupported
+	}
+
 	filter := req.Filter
 	if filter.AsOf.IsZero() {
 		filter.AsOf = req.AsOf
@@ -22,15 +44,7 @@ func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (
 		filter.AsOf = time.Now().In(biztime.DefaultLocation())
 	}
 
-	eligible, err := s.repo.CountEligibleGoats(ctx, filter)
-	if err != nil {
-		return domain.ImpactPreview{}, err
-	}
-	catchup, err := s.repo.CountCatchupGoats(ctx, filter)
-	if err != nil {
-		return domain.ImpactPreview{}, err
-	}
-	sheds, err := s.repo.CountEligibleShedScopes(ctx, filter)
+	agg, err := reads.SumEligibilityRollup(ctx, filter)
 	if err != nil {
 		return domain.ImpactPreview{}, err
 	}
@@ -39,33 +53,39 @@ func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (
 	if doseRows < 1 {
 		doseRows = 1
 	}
-	dosesPer := req.DosesPerGoat
-	if dosesPer < 1 {
-		dosesPer = 1
+	cap, err := reads.CapacityMaxPerDay(ctx, filter.TenantID)
+	if err != nil {
+		return domain.ImpactPreview{}, err
 	}
-	batches := sheds
-	if batches == 0 && eligible > 0 {
-		batches = 1 // eligible goats with no shed assignment still form one catch-up drive
+	if cap < 1 {
+		cap = 1
 	}
 
+	cells := agg.EligibleAnimals * int64(doseRows)
 	out := domain.ImpactPreview{
-		EligibleGoats: eligible,
-		CatchupGoats:  catchup,
-		Obligations:   eligible * int64(doseRows),
-		Batches:       batches,
-		DosesRequired: eligible * int64(dosesPer),
+		EligibleAnimals:  agg.EligibleAnimals,
+		VaccinationCells: cells,
+		AffectedSheds:    agg.AffectedSheds,
+		EstimatedDays:    ceilDiv(cells, cap),
+		DailyCap:         cap,
+		SourceRevision:   agg.SourceRevision,
+		RecomputedAt:     agg.RecomputedAt,
+	}
+	if agg.SourceRevision == 0 {
+		out.Warnings = append(out.Warnings,
+			"eligibility rollup has no data for this scope yet — run vaccination-eligibility-rollup-recompute after seed/import")
 	}
 
 	if req.VaccineItemID != nil && *req.VaccineItemID != "" {
-		available, earliest, err := s.repo.SumAvailableStock(ctx, filter.TenantID, *req.VaccineItemID, req.LocationID)
+		available, earliest, err := reads.SumAvailableStock(ctx, filter.TenantID, *req.VaccineItemID, req.LocationID)
 		if err != nil {
 			return domain.ImpactPreview{}, err
 		}
 		out.DosesAvailable = available
 		out.EarliestExpiry = earliest
-		if availNum, ok := parseNumeric(available); ok && float64(out.DosesRequired) > availNum {
+		if availNum, ok := parseNumeric(available); ok && float64(out.VaccinationCells) > availNum {
 			out.Warnings = append(out.Warnings,
-				"stock shortage: required "+strconv.FormatInt(out.DosesRequired, 10)+" > available "+available)
+				"stock shortage: required "+strconv.FormatInt(out.VaccinationCells, 10)+" > available "+available)
 		}
 		if earliest != nil && req.HorizonDays > 0 {
 			if earliest.Before(filter.AsOf.AddDate(0, 0, req.HorizonDays)) {
@@ -77,6 +97,18 @@ func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (
 	}
 
 	return out, nil
+}
+
+// ceilDiv returns ceil(n / d) for non-negative n and positive d, using integer math (no float drift at
+// million scale).
+func ceilDiv(n, d int64) int64 {
+	if d <= 0 {
+		return 0
+	}
+	if n <= 0 {
+		return 0
+	}
+	return (n + d - 1) / d
 }
 
 func parseNumeric(s string) (float64, bool) {

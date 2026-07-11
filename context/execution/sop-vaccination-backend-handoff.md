@@ -441,8 +441,12 @@ published protocol_version/rule
   -> Parks / Preventive Care (PC) / Action Center status projections
 ```
 
-The batch is the drive/work unit. Do not create a parallel
-`vaccination_drives` table.
+Decision reconciliation note: `docs/decisions/vaccination-work-session-bundle.md`
+proposes the vaccination combo/bundle exception. The prior rule remains active
+until that ADR is accepted: the batch is the drive/work unit, and no parallel
+`vaccination_drives` table is allowed. If accepted, combo vaccination visits
+promote the existing scope/session batch key into a generic work-session
+grouping above multiple per-vaccine batches, with one SOP task/submission/video.
 
 ### 7. Keep status model consistent
 
