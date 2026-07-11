@@ -38,7 +38,7 @@ class TimetableViewModel @Inject constructor(
     private val bootstrap: BootstrapRepository,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(TimetableUiState(subtitle = "Loading…"))
+    private val _state = MutableStateFlow(TimetableUiState())
     val state: StateFlow<TimetableUiState> = _state.asStateFlow()
 
     init {
@@ -54,24 +54,23 @@ class TimetableViewModel @Inject constructor(
     private fun load() = viewModelScope.launch {
         val centerId = runCatching { bootstrap.operatorProfile()?.primaryLocationId }.getOrNull()
         if (centerId.isNullOrBlank()) {
-            _state.value = TimetableUiState(errorLabel = "No center assigned — timetable unavailable.")
+            _state.value = TimetableUiState(errorCode = "no_center")
             return@launch
         }
         runCatching { repo.timetable(centerId) }
             .onSuccess { dto -> _state.value = dto.toTimetableUiState() }
-            .onFailure { _state.value = TimetableUiState(errorLabel = "Couldn't load the timetable right now.") }
+            .onFailure { _state.value = TimetableUiState(errorCode = "load_failed") }
     }
 }
 
 private fun EnrichedPositionListResponseDto.toTimetableUiState(): TimetableUiState = TimetableUiState(
-    subtitle = "Shift roster — the operational source for who executes each day.",
     rows = items.map { it.toTimetableRow() },
-    emptyLabel = "No positions configured",
 )
 
 private fun EnrichedPositionDto.toTimetableRow(): TimetableRow = TimetableRow(
     id = positionId,
-    positionLabel = positionCode.ifBlank { "Position" },
+    positionLabel = positionCode.ifBlank { "" },
+    positionLabelFallback = positionCode.isBlank(),
     tier = when (positionTier) {
         "assistant" -> PositionTier.ASSISTANT
         "manager" -> PositionTier.MANAGER
@@ -81,8 +80,12 @@ private fun EnrichedPositionDto.toTimetableRow(): TimetableRow = TimetableRow(
         else -> PositionTier.UNKNOWN
     },
     holderName = personDisplayName?.ifBlank { null },
-    weekOffLabel = weekOff?.ifBlank { null }?.replaceFirstChar { it.uppercase() }?.take(3) ?: "—",
-    backupLabel = backupGroup?.ifBlank { null } ?: if (isBackupSlot) "Backup slot" else "—",
-    statusLabel = status.replaceFirstChar { it.uppercase() }.ifBlank { "—" },
+    weekOffLabel = weekOff?.ifBlank { null }?.replaceFirstChar { it.uppercase() }?.take(3) ?: "",
+    weekOffLabelFallback = weekOff.isNullOrBlank(),
+    backupLabel = backupGroup?.ifBlank { null } ?: "",
+    backupLabelFallback = backupGroup.isNullOrBlank(),
+    isBackupSlot = isBackupSlot,
+    statusLabel = status.replaceFirstChar { it.uppercase() },
+    statusLabelFallback = status.isBlank(),
     isActive = status.equals("active", ignoreCase = true),
 )

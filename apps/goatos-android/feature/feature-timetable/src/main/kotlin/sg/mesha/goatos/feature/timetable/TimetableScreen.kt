@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
@@ -54,16 +55,26 @@ enum class PositionTier { ASSISTANT, MANAGER, HEAD, DIRECTOR, CXO, UNKNOWN }
  * [holderName] is the backend-resolved `person_display_name` — null when the seat is
  * unfilled. Never a raw UUID: the screen renders "Unassigned" for a null holder, it
  * never falls back to an id fragment.
+ *
+ * Fallback flags are set by the ViewModel when a field is empty; the Screen uses them
+ * to decide whether to render the backend value or a localized fallback via stringResource.
+ * [isBackupSlot] is a backend flag used by the Screen to choose between "Backup slot"
+ * and "—" when rendering a fallback label.
  */
 @Immutable
 data class TimetableRow(
     val id: String,
     val positionLabel: String,
+    val positionLabelFallback: Boolean = false,
     val tier: PositionTier,
     val holderName: String?,
     val weekOffLabel: String,
+    val weekOffLabelFallback: Boolean = false,
     val backupLabel: String,
+    val backupLabelFallback: Boolean = false,
+    val isBackupSlot: Boolean = false,
     val statusLabel: String,
+    val statusLabelFallback: Boolean = false,
     val isActive: Boolean,
 )
 
@@ -71,25 +82,44 @@ data class TimetableRow(
 @Immutable
 data class TimetableUiState(
     val title: String = "Timetable",
-    val subtitle: String = "",
     val rows: List<TimetableRow> = emptyList(),
-    val emptyLabel: String = "No positions configured",
-    /** Set only on a load failure — an honest error state, never a fabricated roster. */
-    val errorLabel: String? = null,
+    /**
+     * Error code: "no_center" when operator has no primary location assigned, "load_failed" when
+     * the roster API call failed, or null when the screen is loaded or loading successfully.
+     * The Screen renders the localized error message based on this code.
+     */
+    val errorCode: String? = null,
 )
 
 sealed interface TimetableEvent {
     data object Refresh : TimetableEvent
 }
 
+@Composable
 private fun tierLabel(tier: PositionTier): String = when (tier) {
-    PositionTier.ASSISTANT -> "Assistant"
-    PositionTier.MANAGER -> "Manager"
-    PositionTier.HEAD -> "Head"
-    PositionTier.DIRECTOR -> "Director"
-    PositionTier.CXO -> "CXO"
-    PositionTier.UNKNOWN -> "—"
+    PositionTier.ASSISTANT -> stringResource(R.string.timetable_tier_assistant)
+    PositionTier.MANAGER -> stringResource(R.string.timetable_tier_manager)
+    PositionTier.HEAD -> stringResource(R.string.timetable_tier_head)
+    PositionTier.DIRECTOR -> stringResource(R.string.timetable_tier_director)
+    PositionTier.CXO -> stringResource(R.string.timetable_tier_cxo)
+    PositionTier.UNKNOWN -> stringResource(R.string.timetable_tier_unknown)
 }
+
+/** Localized subtitle for the Timetable screen. */
+@Composable
+private fun subtitleText(): String = stringResource(R.string.timetable_subtitle)
+
+/** Localized error message based on the error code. */
+@Composable
+private fun errorText(errorCode: String?): String? = when (errorCode) {
+    "no_center" -> stringResource(R.string.timetable_error_no_center)
+    "load_failed" -> stringResource(R.string.timetable_error_load)
+    else -> null
+}
+
+/** Localized empty-state message when no positions are configured. */
+@Composable
+private fun emptyText(): String = stringResource(R.string.timetable_empty)
 
 @Composable
 fun TimetableScreen(
@@ -105,7 +135,7 @@ fun TimetableScreen(
     ) {
         item { TimetableHeader(state) }
         if (state.rows.isEmpty()) {
-            item { TimetableEmpty(state.errorLabel ?: state.emptyLabel) }
+            item { TimetableEmpty(errorText(state.errorCode) ?: emptyText()) }
         } else {
             items(state.rows.size) { index -> TimetableRowCard(state.rows[index]) }
         }
@@ -119,15 +149,13 @@ private fun TimetableHeader(state: TimetableUiState) {
             .fillMaxWidth()
             .padding(horizontal = MeshaDimens.gutter, vertical = MeshaDimens.screenTop),
     ) {
-        Text(text = state.title, style = MeshaType.screenTitle, color = MeshaColors.Ink)
-        if (state.subtitle.isNotBlank()) {
-            Text(
-                text = state.subtitle,
-                style = MeshaType.cardSubtitle,
-                color = MeshaColors.Muted,
-                modifier = Modifier.padding(top = MeshaDimens.space1),
-            )
-        }
+        Text(text = stringResource(R.string.timetable_title), style = MeshaType.screenTitle, color = MeshaColors.Ink)
+        Text(
+            text = subtitleText(),
+            style = MeshaType.cardSubtitle,
+            color = MeshaColors.Muted,
+            modifier = Modifier.padding(top = MeshaDimens.space1),
+        )
     }
 }
 
@@ -144,7 +172,7 @@ private fun TimetableRowCard(row: TimetableRow) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = row.positionLabel,
+                text = positionLabelText(row),
                 style = MeshaType.cardTitle,
                 color = MeshaColors.Ink,
                 modifier = Modifier.weight(1f),
@@ -153,18 +181,43 @@ private fun TimetableRowCard(row: TimetableRow) {
         }
         Spacer(Modifier.height(MeshaDimens.space2))
         Row(horizontalArrangement = Arrangement.spacedBy(MeshaDimens.space6)) {
-            MetaCell(label = "Holder", value = row.holderName ?: "Unassigned")
-            MetaCell(label = "Week OFF", value = row.weekOffLabel)
-            MetaCell(label = "Backup", value = row.backupLabel)
+            MetaCell(label = stringResource(R.string.timetable_label_holder), value = row.holderName ?: stringResource(R.string.timetable_unassigned))
+            MetaCell(label = stringResource(R.string.timetable_label_week_off), value = weekOffLabelText(row))
+            MetaCell(label = stringResource(R.string.timetable_label_backup), value = backupLabelText(row))
         }
         Text(
-            text = row.statusLabel,
+            text = statusLabelText(row),
             style = MeshaType.caption,
             color = statusColor,
             modifier = Modifier.padding(top = MeshaDimens.space2),
         )
     }
 }
+
+/** Render positionLabel; use fallback if the label is empty. */
+@Composable
+private fun positionLabelText(row: TimetableRow): String =
+    if (row.positionLabelFallback) stringResource(R.string.timetable_position_fallback) else row.positionLabel
+
+/** Render weekOffLabel; use fallback if the label is empty. */
+@Composable
+private fun weekOffLabelText(row: TimetableRow): String =
+    if (row.weekOffLabelFallback) stringResource(R.string.timetable_empty_value) else row.weekOffLabel
+
+/** Render backupLabel; use fallback if appropriate. */
+@Composable
+private fun backupLabelText(row: TimetableRow): String =
+    if (row.backupLabelFallback) {
+        if (row.isBackupSlot) stringResource(R.string.timetable_backup_slot)
+        else stringResource(R.string.timetable_empty_value)
+    } else {
+        row.backupLabel
+    }
+
+/** Render statusLabel; use fallback if the label is empty. */
+@Composable
+private fun statusLabelText(row: TimetableRow): String =
+    if (row.statusLabelFallback) stringResource(R.string.timetable_empty_value) else row.statusLabel
 
 @Composable
 private fun TierTag(tier: PositionTier) {
@@ -213,27 +266,35 @@ private fun TimetableScreenPreview() {
     GoatOsTheme {
         TimetableScreen(
             state = TimetableUiState(
-                title = "Timetable",
-                subtitle = "Shift roster — the operational source for who executes each day.",
                 rows = listOf(
                     TimetableRow(
                         id = "p1",
                         positionLabel = "Feeding AM1",
+                        positionLabelFallback = false,
                         tier = PositionTier.ASSISTANT,
                         holderName = "Arun Kumar",
                         weekOffLabel = "Mon",
+                        weekOffLabelFallback = false,
                         backupLabel = "Backup AM1",
+                        backupLabelFallback = false,
+                        isBackupSlot = false,
                         statusLabel = "Active",
+                        statusLabelFallback = false,
                         isActive = true,
                     ),
                     TimetableRow(
                         id = "p2",
                         positionLabel = "Preventive Care Manager",
+                        positionLabelFallback = false,
                         tier = PositionTier.MANAGER,
                         holderName = null,
-                        weekOffLabel = "—",
-                        backupLabel = "Backup Manager",
+                        weekOffLabel = "",
+                        weekOffLabelFallback = true,
+                        backupLabel = "",
+                        backupLabelFallback = true,
+                        isBackupSlot = true,
                         statusLabel = "Active",
+                        statusLabelFallback = false,
                         isActive = true,
                     ),
                 ),

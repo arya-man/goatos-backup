@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -267,7 +268,7 @@ private fun ScanHeader(eyebrow: String, title: String, onBack: () -> Unit) {
         ) {
             Icon(
                 imageVector = MeshaIcons.ChevronLeft,
-                contentDescription = "Back",
+                contentDescription = stringResource(R.string.scan_back_cd),
                 tint = ScanTokens.ink,
                 modifier = Modifier.size(22.dp),
             )
@@ -537,7 +538,7 @@ private fun FeedRow(entry: ScanFeedEntry) {
 @Composable
 private fun FeedEmpty() {
     Text(
-        "No taps yet",
+        stringResource(R.string.scan_feed_empty),
         color = ScanTokens.faint,
         fontSize = 12.sp,
         textAlign = TextAlign.Center,
@@ -555,7 +556,7 @@ private fun TwoTagsBadge() {
             .background(ScanTokens.surf3)
             .padding(horizontal = 6.dp, vertical = 1.dp),
     ) {
-        Text("2 tags", color = ScanTokens.muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.scan_badge_two_tags), color = ScanTokens.muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -659,7 +660,7 @@ fun ScanListSheet(
                 value = query,
                 onValueChange = { query = it },
                 singleLine = true,
-                placeholder = { Text("Search either RFID tag…", color = ScanTokens.faint, fontSize = 13.sp) },
+                placeholder = { Text(stringResource(R.string.scan_search_placeholder), color = ScanTokens.faint, fontSize = 13.sp) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
@@ -667,7 +668,7 @@ fun ScanListSheet(
             Spacer(Modifier.height(4.dp))
             if (filtered.isEmpty()) {
                 Text(
-                    "No matching animals",
+                    stringResource(R.string.scan_search_empty),
                     color = ScanTokens.faint,
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center,

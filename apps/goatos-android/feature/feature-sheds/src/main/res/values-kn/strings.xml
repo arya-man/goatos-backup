@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Header and navigation chrome -->
+    <string name="sheds_back_description">ಹಿಂದಕ್ಕೆ ಹೋಗಿ</string>
+    <string name="sheds_refresh_description">ರಿಫ್ರೆಶ್</string>
+    <string name="sheds_title">ಇಂದಿನ ಶೆಡ್‌ಗಳು</string>
+    <string name="sheds_count_fmt">%1$d ಶೆಡ್‌ಗಳು</string>
+    <string name="sheds_due_fmt">%1$d ಬಾಕಿ</string>
+    <string name="sheds_day_summary_fmt">%1$d / %2$d ಮುಗಿದಿದೆ</string>
+
+    <!-- Day progress section -->
+    <string name="sheds_day_progress">ದಿನದ ಪ್ರಗತಿ</string>
+
+    <!-- Table column labels in NumsRow -->
+    <string name="sheds_num_cell_in_shed">ಶೆಡ್ನಲ್ಲಿ</string>
+    <string name="sheds_num_cell_due">ಬಾಕಿ</string>
+    <string name="sheds_num_cell_done">ಮುಗಿದಿದೆ</string>
+
+    <!-- Roster changes section -->
+    <string name="sheds_roster_changes_caption">ಸಿಬ್ಬಂದಿ ಪರಿವರ್ತನೆಗಳು · ಈ ಡ್ರೈವ್ ಅನುಸೂಚಿತವಾದ ನಂತರ</string>
+
+    <!-- Content descriptions and empty/loading/error messages (ViewModel-provided) -->
+    <string name="sheds_loading_message">ಇಂದಿನ ಶೆಡ್‌ಗಳನ್ನು ಲೋಡ್ ಮಾಡುತ್ತಿದೆ…</string>
+    <string name="sheds_empty_message">ಇಂದು ಯಾವುದೇ ಶೆಡ್ ಅನುಸೂಚಿತವಾಗಿಲ್ಲ</string>
+    <string name="sheds_error_message">ಇಂದಿನ ಶೆಡ್‌ಗಳನ್ನು ಲೋಡ್ ಮಾಡಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ಪುನಃ ಪ್ರಯತ್ನಿಸಲು ರಿಫ್ರೆಶ್ ಟ್ಯಾಪ್ ಮಾಡಿ.</string>
+</resources>

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Profile (v-you), Alerts (v-alerts), and RFID (v-rfid) chrome strings.
+  Extracted from ProfileUiState defaults, ProfileScreen, AlertsScreen, and
+  ProfileViewModel. All static UI chrome is localized; data values (name, role,
+  language own-script label, alert content) remain dynamic.
+-->
+<resources>
+    <!-- Profile screen defaults and chrome -->
+    <string name="profile_screen_title">You</string>
+    <string name="profile_eyebrow">Mesha</string>
+    <string name="profile_settings_label">Settings</string>
+
+    <!-- Settings row titles -->
+    <string name="profile_setting_language">Language</string>
+    <string name="profile_setting_rfid">RFID reader</string>
+    <string name="profile_setting_timetable">Timetable</string>
+    <string name="profile_setting_timetable_subtitle">Shift roster (read-only)</string>
+    <string name="profile_setting_sign_out">Sign out</string>
+
+    <!-- RFID reader status values and subtitles -->
+    <string name="profile_rfid_status_ready">Ready</string>
+    <string name="profile_rfid_status_ready_subtitle">Reader connected</string>
+    <string name="profile_rfid_status_reconnect">Reconnect</string>
+    <string name="profile_rfid_status_reconnect_subtitle">Paired, not connected</string>
+    <string name="profile_rfid_status_pair">Pair</string>
+    <string name="profile_rfid_status_pair_subtitle">Not paired</string>
+    <string name="profile_rfid_status_allow">Allow</string>
+    <string name="profile_rfid_status_allow_subtitle">Nearby devices permission needed</string>
+    <string name="profile_rfid_status_bluetooth_off">Bluetooth off</string>
+    <string name="profile_rfid_status_bluetooth_off_subtitle">Turn on Bluetooth</string>
+
+    <!-- RFID detail screen status and action labels -->
+    <string name="rfid_detail_status_ready">Ready</string>
+    <string name="rfid_detail_status_ready_detail">Ready to scan</string>
+    <string name="rfid_detail_status_paired_not_ready">Paired · not connected</string>
+    <string name="rfid_detail_status_paired_not_ready_detail">Paired — reconnect in Bluetooth settings</string>
+    <string name="rfid_detail_status_not_paired">Not paired</string>
+    <string name="rfid_detail_status_not_paired_detail">Pair the reader in Bluetooth settings, then return</string>
+    <string name="rfid_detail_status_permission_needed">Allow Nearby devices</string>
+    <string name="rfid_detail_status_permission_needed_detail">Grant Nearby devices to detect the reader</string>
+    <string name="rfid_detail_status_bluetooth_off">Bluetooth off</string>
+    <string name="rfid_detail_status_bluetooth_off_detail">Turn on Bluetooth to use the reader</string>
+    <string name="rfid_detail_action_test_read">Test read</string>
+    <string name="rfid_detail_action_open_bluetooth">Open Bluetooth settings</string>
+    <string name="rfid_detail_action_pair_reader">Pair reader</string>
+    <string name="rfid_detail_test_label">Test read</string>
+
+    <!-- Alerts screen chrome -->
+    <string name="alerts_screen_title">Alerts</string>
+    <string name="alerts_mark_all_read">Mark all read</string>
+    <string name="alerts_empty_message">You\'re all caught up.</string>
+
+    <!-- Alert tone labels -->
+    <string name="alerts_tone_info">Info</string>
+    <string name="alerts_tone_warn">Warn</string>
+    <string name="alerts_tone_critical">Critical</string>
+</resources>

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Calendar (v-calendar) chrome strings. Segment labels, empty states, hints, and
+  accessibility descriptions for the Calendar screen (universal landing for all roles).
+  Most labels (title, eyebrow, segment labels, counts, status/category pills) come from
+  the backend; these strings are fallback/preview constants and UI affordances.
+-->
+<resources>
+    <!-- Screen chrome -->
+    <string name="calendar_eyebrow">Vaccination</string>
+    <string name="calendar_title">Calendar</string>
+
+    <!-- Segment labels (week/month/history tabs) -->
+    <string name="calendar_segment_week">Week</string>
+    <string name="calendar_segment_month">Month</string>
+    <string name="calendar_segment_history">History</string>
+
+    <!-- Empty states -->
+    <string name="calendar_week_empty">No drives scheduled</string>
+    <string name="calendar_history_empty">No past drives</string>
+
+    <!-- Month grid hint -->
+    <string name="calendar_month_hint">Tap a day for its drives · dots = drive days</string>
+
+    <!-- Accessibility descriptions -->
+    <string name="calendar_button_menu">Menu</string>
+    <string name="calendar_button_refresh">Refresh</string>
+
+    <!-- History section label (prefix before dynamic count) -->
+    <string name="calendar_history_label">Past drives</string>
+
+    <!-- Card call-to-action verb (drill into a drive) -->
+    <string name="calendar_cta_open">Open</string>
+</resources>

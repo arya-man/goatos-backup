@@ -29,6 +29,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,12 +46,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
+import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.R as DesignSystemR
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavState
@@ -148,16 +152,18 @@ fun GoatOsShellChrome(
     val drawerState = rememberDrawerState(initialDrawerValue)
     val scope = rememberCoroutineScope()
 
+    // Top-level routes: backend nav items + Routes.YOU. Detail screens (with args) won't match.
+    val topLevelRoutes = navState.items.map { it.href } + Routes.YOU
+    val isTopLevel = currentRoute != null && currentRoute in topLevelRoutes
+
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = hasDrawer,
+        gesturesEnabled = hasDrawer && isTopLevel,
         drawerContent = {
             if (hasDrawer) {
                 ModuleDrawer(
-                    navState = navState,
                     currentRoute = currentRoute,
                     profile = drawerProfile,
-                    languageLabel = languageLabel,
                     onSelect = { href ->
                         scope.launch { drawerState.close() }
                         onNavigate(href)
@@ -177,19 +183,22 @@ fun GoatOsShellChrome(
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                MeshaNavBar(
-                    items = navState.items,
-                    currentRoute = currentRoute,
-                    onSelect = onNavigate,
-                    onYou = { onNavigate(Routes.YOU) },
-                )
+                if (isTopLevel) {
+                    MeshaNavBar(
+                        items = navState.items,
+                        currentRoute = currentRoute,
+                        onSelect = onNavigate,
+                        onYou = { onNavigate(Routes.YOU) },
+                    )
+                }
             },
         ) { padding ->
-            Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-                if (hasDrawer) {
-                    ShellTopBar(onMenu = { scope.launch { drawerState.open() } })
+            CompositionLocalProvider(
+                LocalDrawerOpener provides { scope.launch { drawerState.open() } }
+            ) {
+                Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+                    content()
                 }
-                content()
             }
         }
     }
@@ -219,49 +228,45 @@ private fun MeshaNavBar(
         tonalElevation = 0.dp,
     ) {
         items.forEach { item ->
+            val label = navItemLabel(item.key, item.label)
             NavigationBarItem(
                 selected = currentRoute == item.href,
                 onClick = { onSelect(item.href) },
                 icon = {
                     Icon(
                         imageVector = MeshaIcons.forNavKey(item.key),
-                        contentDescription = item.label,
+                        contentDescription = label,
                         modifier = Modifier.size(24.dp),
                     )
                 },
-                label = { Text(item.label, fontWeight = FontWeight.SemiBold) },
+                label = { Text(label, fontWeight = FontWeight.SemiBold) },
                 colors = itemColors,
             )
         }
         NavigationBarItem(
             selected = currentRoute == Routes.YOU,
             onClick = onYou,
-            icon = { Icon(MeshaIcons.User, contentDescription = "You", modifier = Modifier.size(24.dp)) },
-            label = { Text("You", fontWeight = FontWeight.SemiBold) },
+            icon = { Icon(MeshaIcons.User, contentDescription = stringResource(DesignSystemR.string.nav_you), modifier = Modifier.size(24.dp)) },
+            label = { Text(stringResource(DesignSystemR.string.nav_you), fontWeight = FontWeight.SemiBold) },
             colors = itemColors,
         )
     }
 }
 
+/**
+ * Localized label for a backend nav destination, keyed by [NavItem.key] (the stable
+ * backend key, same set [MeshaIcons.forNavKey] maps). Known keys resolve to client
+ * string resources so the bottom bar follows the app locale; any unmapped key falls
+ * back to the backend-sent [fallback] label (which still needs backend i18n).
+ */
 @Composable
-private fun ShellTopBar(onMenu: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = MeshaIcons.Menu,
-            contentDescription = "Menu",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .clickable(onClick = onMenu)
-                .padding(8.dp),
-        )
-        Spacer(Modifier.size(10.dp))
-        Text("Mesha", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-    }
+private fun navItemLabel(key: String, fallback: String): String = when (key.lowercase()) {
+    "overview", "leadership", "home", "dhome" -> stringResource(DesignSystemR.string.nav_overview)
+    "calendar" -> stringResource(DesignSystemR.string.nav_calendar)
+    "alerts", "notifications" -> stringResource(DesignSystemR.string.nav_alerts)
+    "vaccination", "sheds", "pc.vaccination", "execution" -> stringResource(DesignSystemR.string.nav_vaccination)
+    "you", "profile", "settings" -> stringResource(DesignSystemR.string.nav_you)
+    else -> fallback
 }
 
 // ---------------------------------------------------------------------------
@@ -272,15 +277,6 @@ private fun ShellTopBar(onMenu: () -> Unit) {
 // coming-soon rows are fixed product roadmap.
 // ---------------------------------------------------------------------------
 
-/**
- * Modules that actually have a MOBILE screen today, keyed by backend module key → mobile route.
- * Backend nav can include web-only destinations that the mobile app has NO screen for — those
- * must NEVER appear in the mobile module switcher (they'd be dead rows going nowhere).
- */
-private val MOBILE_MODULE_ROUTES: Map<String, String> = mapOf(
-    "vaccination" to Routes.VACCINATION,
-)
-
 /** Not-yet-built verticals the mock lists as "Soon" (honest: they are NOT shipped). */
 private data class SoonModule(val key: String, val label: String, val icon: ImageVector)
 private val SOON_MODULES = listOf(
@@ -290,10 +286,8 @@ private val SOON_MODULES = listOf(
 
 @Composable
 private fun ModuleDrawer(
-    navState: NavState,
     currentRoute: String?,
     profile: DrawerProfile?,
-    languageLabel: String,
     onSelect: (String) -> Unit,
     onOpenLanguage: () -> Unit,
     onSignOut: () -> Unit,
@@ -311,32 +305,17 @@ private fun ModuleDrawer(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
             ) {
-                DrawerGroupLabel("Modules")
-                // Only backend nav items that have a real mobile screen are shown.
-                val mobileModules = navState.items
-                    .mapNotNull { item -> MOBILE_MODULE_ROUTES[item.key.lowercase()]?.let { item to it } }
-                mobileModules.forEach { (item, route) ->
-                    val active = route == currentRoute
-                    DrawerRow(
-                        icon = MeshaIcons.forNavKey(item.key),
-                        label = item.label,
-                        active = active,
-                        // Mock `.di.on`: the active module carries the check; others are plain.
-                        trailing = if (active) ({ DrawerCheck() }) else null,
-                        onClick = { onSelect(route) },
-                    )
-                }
-                SOON_MODULES.forEach { soon -> DrawerSoonRow(soon) }
-
-                DrawerGroupLabel("Settings")
+                DrawerGroupLabel(stringResource(DesignSystemR.string.nav_modules))
+                // Single-module app: always show Vaccination as the active module.
+                val vaccinationActive = currentRoute == Routes.VACCINATION
                 DrawerRow(
-                    icon = MeshaIcons.Globe,
-                    label = "Language",
-                    trailing = { DrawerBadge(languageLabel, brand = true) },
-                    onClick = onOpenLanguage,
+                    icon = MeshaIcons.forNavKey("vaccination"),
+                    label = stringResource(DesignSystemR.string.nav_vaccination),
+                    active = vaccinationActive,
+                    trailing = if (vaccinationActive) ({ DrawerCheck() }) else null,
+                    onClick = { onSelect(Routes.VACCINATION) },
                 )
-                DrawerRow(icon = MeshaIcons.Bluetooth, label = "RFID reader", onClick = { onSelect(Routes.RFID) })
-                DrawerRow(icon = MeshaIcons.Bell, label = "Notifications", onClick = { onSelect(Routes.ALERTS) })
+                SOON_MODULES.forEach { soon -> DrawerSoonRow(soon) }
             }
             DrawerFooter(onSignOut)
         }
@@ -423,14 +402,19 @@ private fun DrawerRow(
 
 @Composable
 private fun DrawerSoonRow(soon: SoonModule) {
+    val label = when (soon.key) {
+        "feed_direction" -> stringResource(DesignSystemR.string.nav_feed_direction)
+        "breeding" -> stringResource(DesignSystemR.string.nav_breeding)
+        else -> soon.label
+    }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(13.dp),
     ) {
-        Icon(soon.icon, contentDescription = soon.label, tint = MeshaColors.Faint, modifier = Modifier.size(20.dp))
-        Text(soon.label, color = MeshaColors.Faint, fontSize = 14.5.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
-        DrawerBadge("Soon", brand = false)
+        Icon(soon.icon, contentDescription = label, tint = MeshaColors.Faint, modifier = Modifier.size(20.dp))
+        Text(label, color = MeshaColors.Faint, fontSize = 14.5.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
+        DrawerBadge(stringResource(DesignSystemR.string.nav_soon), brand = false)
     }
 }
 
@@ -464,8 +448,8 @@ private fun DrawerFooter(onSignOut: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(13.dp),
     ) {
-        Icon(MeshaIcons.Logout, contentDescription = "Sign out", tint = MeshaColors.Danger, modifier = Modifier.size(20.dp))
-        Text("Sign out", color = MeshaColors.Danger, fontSize = 14.5.sp, fontWeight = FontWeight.W600)
+        Icon(MeshaIcons.Logout, contentDescription = stringResource(DesignSystemR.string.nav_sign_out), tint = MeshaColors.Danger, modifier = Modifier.size(20.dp))
+        Text(stringResource(DesignSystemR.string.nav_sign_out), color = MeshaColors.Danger, fontSize = 14.5.sp, fontWeight = FontWeight.W600)
     }
 }
 

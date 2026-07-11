@@ -66,7 +66,9 @@ class OverdueViewModel @Inject constructor(
                 },
             )
         }
-        return base.copy(title = "Overdue · ${rows.size}", rows = rows)
+        // Title is rendered by OverdueScreen via the localized overdue_title_fmt (with rows.size);
+        // no English title is baked here.
+        return base.copy(title = "", rows = rows)
     }
 
     private fun isMissed(severity: String): Boolean =

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="timetable_title">ವೇಳಾಪಟ್ಟಿ</string>
+    <string name="timetable_subtitle">ಶಿಫ್ಟ್ ರೋಸ್ಟರ್ — ಯಾರು ಪ್ರತಿದಿನ ಕಾರ್ಯನಿರ್ವಹಣ ಮಾಡುತ್ತಾರೆ ಎಂಬುದರ ಆಪರೇಶನಲ್ ಮೂಲ।</string>
+    <string name="timetable_empty">ಯಾವುದೇ ಸ್ಥಾನಾಂಕ ಸಂರೂಪಿಸಲಾಗಿಲ್ಲ</string>
+    <string name="timetable_unassigned">ನಿಯೋಜಿತವಲ್ಲ</string>
+    <string name="timetable_label_holder">ಧಾರಕ</string>
+    <string name="timetable_label_week_off">ವಾರ ಕೊರತೆ</string>
+    <string name="timetable_label_backup">ಬ್ಯಾಕಪ್</string>
+    <string name="timetable_error_no_center">ಯಾವುದೇ ಕೇಂದ್ರ ನಿಯೋಜಿತವಲ್ಲ — ವೇಳಾಪಟ್ಟಿ ಲಭ್ಯವಿಲ್ಲ।</string>
+    <string name="timetable_error_load">ಈ ಸಮಯದಲ್ಲಿ ವೇಳಾಪಟ್ಟಿಯನ್ನು ಲೋಡ್ ಮಾಡಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ.</string>
+    <string name="timetable_position_fallback">ಸ್ಥಾನ</string>
+    <string name="timetable_backup_slot">ಬ್ಯಾಕಪ್ ಸ್ಲಾಟ್</string>
+    <string name="timetable_empty_value">—</string>
+    <string name="timetable_tier_assistant">ಸಹಾಯಕ</string>
+    <string name="timetable_tier_manager">ನಿರ್ವಾಹಕ</string>
+    <string name="timetable_tier_head">ಮುಖ್ಯಸ್ಥ</string>
+    <string name="timetable_tier_director">ನಿರ್ದೇಶಕ</string>
+    <string name="timetable_tier_cxo">ಸಿಎಕ್ಸ್ಒ</string>
+    <string name="timetable_tier_unknown">—</string>
+</resources>

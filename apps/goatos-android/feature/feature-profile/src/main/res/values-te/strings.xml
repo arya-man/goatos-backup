@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Profile screen defaults and chrome -->
+    <string name="profile_screen_title">మీరు</string>
+    <string name="profile_eyebrow">Mesha</string>
+    <string name="profile_settings_label">సెట్టింగ్‌లు</string>
+
+    <!-- Settings row titles -->
+    <string name="profile_setting_language">భాష</string>
+    <string name="profile_setting_rfid">RFID reader</string>
+    <string name="profile_setting_timetable">టైమ్‌టేబుల్</string>
+    <string name="profile_setting_timetable_subtitle">షిఫ్ట్ రోస్టర్ (చదవడానికి మాత్రమే)</string>
+    <string name="profile_setting_sign_out">సైన్ అవుట్</string>
+
+    <!-- RFID reader status values and subtitles -->
+    <string name="profile_rfid_status_ready">సిద్ధమైన</string>
+    <string name="profile_rfid_status_ready_subtitle">Reader కనెక్ట్ చేయబడింది</string>
+    <string name="profile_rfid_status_reconnect">తిరిగి కనెక్ట్ చేయండి</string>
+    <string name="profile_rfid_status_reconnect_subtitle">కనెక్ట్ చేయబడింది, కనెక్ట్ కాలేదు</string>
+    <string name="profile_rfid_status_pair">జత</string>
+    <string name="profile_rfid_status_pair_subtitle">జత చేయబడలేదు</string>
+    <string name="profile_rfid_status_allow">అనుమతించండి</string>
+    <string name="profile_rfid_status_allow_subtitle">సమీప పరికరాల అనుమతి అవసరం</string>
+    <string name="profile_rfid_status_bluetooth_off">Bluetooth ఆఫ్</string>
+    <string name="profile_rfid_status_bluetooth_off_subtitle">Bluetooth ఆన్ చేయండి</string>
+
+    <!-- RFID detail screen status and action labels -->
+    <string name="rfid_detail_status_ready">సిద్ధమైన</string>
+    <string name="rfid_detail_status_ready_detail">స్కాన్ చేయడానికి సిద్ధమైన</string>
+    <string name="rfid_detail_status_paired_not_ready">జత · కనెక్ట్ కాలేదు</string>
+    <string name="rfid_detail_status_paired_not_ready_detail">జత చేయబడింది — Bluetooth సెట్టింగ్‌లలో తిరిగి కనెక్ట్ చేయండి</string>
+    <string name="rfid_detail_status_not_paired">జత చేయబడలేదు</string>
+    <string name="rfid_detail_status_not_paired_detail">Bluetooth సెట్టింగ్‌లలో reader ను జత చేయండి, ఆ తర్వాత తిరిగి వెళ్లండి</string>
+    <string name="rfid_detail_status_permission_needed">సమీప పరికరాల అనుమతిని ఇవ్వండి</string>
+    <string name="rfid_detail_status_permission_needed_detail">Reader ను గుర్తించడానికి సమీప పరికరాల అనుమతిని ఇవ్వండి</string>
+    <string name="rfid_detail_status_bluetooth_off">Bluetooth ఆఫ్</string>
+    <string name="rfid_detail_status_bluetooth_off_detail">Reader ను ఉపయోగించడానికి Bluetooth ఆన్ చేయండి</string>
+    <string name="rfid_detail_action_test_read">పరీక్ష స్కాన్</string>
+    <string name="rfid_detail_action_open_bluetooth">Bluetooth సెట్టింగ్‌లను తెరవండి</string>
+    <string name="rfid_detail_action_pair_reader">Reader ను జత చేయండి</string>
+    <string name="rfid_detail_test_label">పరీక్ష స్కాన్</string>
+
+    <!-- Alerts screen chrome -->
+    <string name="alerts_screen_title">హెచ్చరికలు</string>
+    <string name="alerts_mark_all_read">అన్నిటిని చదివినట్లు గుర్తించండి</string>
+    <string name="alerts_empty_message">మీరు అన్ని విషయాలలో నవీకృతమైనారు.</string>
+
+    <!-- Alert tone labels -->
+    <string name="alerts_tone_info">సమాచారం</string>
+    <string name="alerts_tone_warn">హెచ్చరిక</string>
+    <string name="alerts_tone_critical">విమర్శనీయ</string>
+</resources>

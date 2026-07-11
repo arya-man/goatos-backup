@@ -22,6 +22,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.feature.profile.R
 
 // ---------------------------------------------------------------------------
 // Alerts / notifications surface (screens.md: v-alerts; mock #v-alerts `.notif`).
@@ -112,10 +114,11 @@ private fun tonePill(tone: AlertTone): Pair<Color, Color> = when (tone) {
 }
 
 /** Short severity word rendered from the backend tone (like a StatusPill label). */
+@Composable
 private fun toneLabel(tone: AlertTone): String = when (tone) {
-    AlertTone.INFO -> "Info"
-    AlertTone.WARN -> "Warn"
-    AlertTone.CRITICAL -> "Critical"
+    AlertTone.INFO -> stringResource(R.string.alerts_tone_info)
+    AlertTone.WARN -> stringResource(R.string.alerts_tone_warn)
+    AlertTone.CRITICAL -> stringResource(R.string.alerts_tone_critical)
 }
 
 /** Channel-chip pill colours (mock `.pill.ok` / `.pill.mut` / `.pill.teal`). */

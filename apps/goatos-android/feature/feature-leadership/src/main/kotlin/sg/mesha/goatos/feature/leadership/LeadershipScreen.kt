@@ -38,12 +38,15 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
+import sg.mesha.goatos.feature.leadership.R
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Leadership feature — three stateless screens (Overview / Overdue / Reschedule).
@@ -163,7 +166,14 @@ data class CoverageHeroState(
 
 data class ScopePill(val label: String)
 
-data class DataGapPill(val label: String, val hasGaps: Boolean)
+data class DataGapPill(
+    val label: String,
+    val hasGaps: Boolean,
+    /** Backend-computed open-gap count, rendered into the localized "%1$d open gaps"
+     *  chrome string; the app never counts gaps client-side. Only meaningful when
+     *  [hasGaps] is true — defaults to 0 for callers that don't populate it. */
+    val openGapsCount: Int = 0,
+)
 
 data class KpiTile(
     val id: String,
@@ -226,6 +236,7 @@ fun LeadershipScreen(
     onEvent: (LeadershipEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val openDrawer = LocalDrawerOpener.current
     Column(
         modifier
             .fillMaxSize()
@@ -233,12 +244,14 @@ fun LeadershipScreen(
     ) {
         LeadTopBar(
             eyebrow = state.eyebrow,
-            title = state.title,
+            // Static screen title — localized client-side (the VM value is fixed
+            // English chrome; the visible title must follow the app locale).
+            title = stringResource(R.string.overview_title),
             leading = TopBarLeading.MENU,
-            avatarInitial = state.avatarInitial,
-            onLeading = { onEvent(LeadershipEvent.Menu) },
+            onLeading = { openDrawer() },
             onRefresh = { onEvent(LeadershipEvent.Refresh) },
-            onAvatar = { onEvent(LeadershipEvent.OpenProfile) },
+            leadingContentDescription = stringResource(R.string.overview_menu_content_description),
+            refreshContentDescription = stringResource(R.string.overview_refresh_content_description),
         )
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),
@@ -248,21 +261,24 @@ fun LeadershipScreen(
             item { CoverageHero(state.hero, onEvent) }
             item { KpiRow(state.kpis, onEvent) }
 
-            item { SectionLabel(state.todayShedsTitle) }
+            // Section headers are fixed chrome — localize by key, not the VM's English title.
+            item { SectionLabel(stringResource(R.string.overview_today_sheds_title)) }
             items(state.todaySheds, key = { it.shedId }) { shed ->
                 ShedSummaryRow(shed, onEvent)
             }
 
-            item { SectionLabel(state.backlogTitle) }
+            item { SectionLabel(stringResource(R.string.overview_backlog_title)) }
             items(state.backlog, key = { it.vaccine }) { row -> BacklogRowView(row) }
 
-            item { SectionLabel(state.needsDecisionTitle) }
+            item { SectionLabel(stringResource(R.string.overview_needs_decision_title)) }
             items(state.needsDecision, key = { it.id }) { row ->
                 DecisionRowView(row, onEvent)
             }
 
+            // coverageByParkTitle's presence (non-null) is still the backend's grant signal
+            // for whether this section renders at all — only the displayed text is localized.
             if (state.coverageByParkTitle != null && state.coverageByPark.isNotEmpty()) {
-                item { SectionLabel(state.coverageByParkTitle) }
+                item { SectionLabel(stringResource(R.string.overview_coverage_by_park_title)) }
                 items(state.coverageByPark, key = { it.code }) { park ->
                     ParkCoverageRowView(park, onEvent)
                 }
@@ -283,7 +299,9 @@ private fun CoverageHero(hero: CoverageHeroState, onEvent: (LeadershipEvent) -> 
             .padding(16.dp),
     ) {
         Text(
-            hero.coverageLabel,
+            // Static hero label — localized client-side (the VM always bakes the English
+            // "Process integrity" chrome string; ignore it and render the screen's own copy).
+            stringResource(R.string.overview_coverage_label),
             color = LeadTokens.heroInk.copy(alpha = 0.75f),
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
@@ -294,28 +312,53 @@ private fun CoverageHero(hero: CoverageHeroState, onEvent: (LeadershipEvent) -> 
             fontSize = 40.sp,
             fontWeight = FontWeight.ExtraBold,
         )
-        Text(
-            hero.dosesLine,
-            color = LeadTokens.heroInk.copy(alpha = 0.8f),
-            fontSize = 12.5.sp,
-            fontWeight = FontWeight.Medium,
-        )
-        Spacer(Modifier.height(8.dp))
-        DosesSparkline(
-            points = hero.dosesTrend,
-            line = LeadTokens.heroInk,
-            modifier = Modifier.fillMaxWidth().height(34.dp),
-        )
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            hero.scopePill?.let { pill ->
-                HeroPill(pill.label, trailingChevron = true) {
-                    onEvent(LeadershipEvent.OpenScopePicker)
+        if (hero.dosesLine.isNotBlank()) {
+            Text(
+                hero.dosesLine,
+                color = LeadTokens.heroInk.copy(alpha = 0.8f),
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+        if (hero.dosesTrend.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            DosesSparkline(
+                points = hero.dosesTrend,
+                line = LeadTokens.heroInk,
+                modifier = Modifier.fillMaxWidth().height(34.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+        }
+        // Only render pills row if at least one pill has a non-blank label
+        val hasScopePill = hero.scopePill?.label?.isNotBlank() == true
+        val hasAnimalsLabel = hero.animalsLabel.isNotBlank()
+        val hasDataGapLabel = hero.dataGapPill.label.isNotBlank()
+
+        if (hasScopePill || hasAnimalsLabel || hasDataGapLabel) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (hasScopePill) {
+                    hero.scopePill?.let { pill ->
+                        HeroPill(pill.label, trailingChevron = true) {
+                            onEvent(LeadershipEvent.OpenScopePicker)
+                        }
+                    }
                 }
-            }
-            HeroPill(hero.animalsLabel)
-            HeroPill(hero.dataGapPill.label, trailingChevron = true) {
-                onEvent(LeadershipEvent.OpenDataGaps)
+                if (hasAnimalsLabel) {
+                    HeroPill(hero.animalsLabel)
+                }
+                if (hasDataGapLabel) {
+                    // The pill's presence is still gated on the VM's label (backend signal
+                    // that a data-gap pill should show at all); the displayed TEXT is fixed
+                    // chrome localized client-side, with the backend's count substituted in.
+                    val gapLabel = if (hero.dataGapPill.hasGaps) {
+                        stringResource(R.string.overview_open_gaps_label, hero.dataGapPill.openGapsCount)
+                    } else {
+                        stringResource(R.string.overview_data_gaps_label)
+                    }
+                    HeroPill(gapLabel, trailingChevron = true) {
+                        onEvent(LeadershipEvent.OpenDataGaps)
+                    }
+                }
             }
         }
     }
@@ -385,10 +428,25 @@ private fun KpiRow(kpis: List<KpiTile>, onEvent: (LeadershipEvent) -> Unit) {
                     .padding(15.dp),
             ) {
                 Text(kpi.value, color = tone.fg, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
-                Text(kpi.label, color = LeadTokens.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(kpiLabel(kpi.id, kpi.label), color = LeadTokens.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
+}
+
+/**
+ * Localized label for a KPI tile, keyed by its backend id (fixed UI chrome). Falls back to
+ * the VM-supplied [fallback] label for any id the screen doesn't recognize yet, so a new
+ * backend-added tile still renders something rather than going blank.
+ */
+@Composable
+private fun kpiLabel(id: String, fallback: String): String = when (id) {
+    "critical" -> stringResource(R.string.overview_kpi_critical_label)
+    "warnings" -> stringResource(R.string.overview_kpi_warnings_label)
+    "open_gaps" -> stringResource(R.string.overview_kpi_open_gaps_label)
+    "given" -> stringResource(R.string.overview_kpi_doses_given_label)
+    "pending" -> stringResource(R.string.overview_kpi_pending_label)
+    else -> fallback
 }
 
 @Composable
@@ -422,7 +480,14 @@ private fun ShedSummaryRow(shed: ShedSummary, onEvent: (LeadershipEvent) -> Unit
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Icon(imageVector = MeshaIcons.Plus, contentDescription = null, tint = LeadTokens.brandD, modifier = Modifier.size(13.dp))
-                        Text(shed.assignLabel, color = LeadTokens.brandD, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        // shed.assignLabel != null is still the backend's presence signal for
+                        // this affordance (assign grant); the button's TEXT is fixed chrome.
+                        Text(
+                            stringResource(R.string.overview_assign_team_label),
+                            color = LeadTokens.brandD,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                     }
                 }
             }
@@ -526,10 +591,13 @@ internal fun LeadTopBar(
     eyebrow: String,
     title: String,
     leading: TopBarLeading,
-    avatarInitial: String? = null,
     onLeading: () -> Unit = {},
     onRefresh: (() -> Unit)? = null,
-    onAvatar: (() -> Unit)? = null,
+    // Optional a11y labels for the leading/refresh icons. Default null preserves the prior
+    // (unlabeled) behavior for callers that don't supply one — Overdue/Reschedule still pass
+    // none; Overview supplies localized labels for its Menu + Refresh buttons.
+    leadingContentDescription: String? = null,
+    refreshContentDescription: String? = null,
 ) {
     Row(
         Modifier
@@ -539,31 +607,23 @@ internal fun LeadTopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        IconButton(if (leading == TopBarLeading.MENU) MeshaIcons.Menu else MeshaIcons.ChevronLeft, onClick = onLeading)
+        IconButton(
+            icon = if (leading == TopBarLeading.MENU) MeshaIcons.Menu else MeshaIcons.ChevronLeft,
+            contentDescription = leadingContentDescription,
+            onClick = onLeading,
+        )
         Column(Modifier.weight(1f)) {
             Text(eyebrow, color = LeadTokens.brandD, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Text(title, color = LeadTokens.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
         if (onRefresh != null) {
-            IconButton(MeshaIcons.Refresh, onClick = onRefresh)
-        }
-        if (avatarInitial != null) {
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(LeadTokens.surf3)
-                    .then(if (onAvatar != null) Modifier.clickable { onAvatar() } else Modifier),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(avatarInitial, color = LeadTokens.brandD, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            }
+            IconButton(icon = MeshaIcons.Refresh, contentDescription = refreshContentDescription, onClick = onRefresh)
         }
     }
 }
 
 @Composable
-internal fun IconButton(icon: ImageVector, onClick: () -> Unit) {
+internal fun IconButton(icon: ImageVector, contentDescription: String? = null, onClick: () -> Unit) {
     Box(
         Modifier
             .size(40.dp)
@@ -573,7 +633,7 @@ internal fun IconButton(icon: ImageVector, onClick: () -> Unit) {
             .clickable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(imageVector = icon, contentDescription = null, tint = LeadTokens.ink, modifier = Modifier.size(20.dp))
+        Icon(imageVector = icon, contentDescription = contentDescription, tint = LeadTokens.ink, modifier = Modifier.size(20.dp))
     }
 }
 

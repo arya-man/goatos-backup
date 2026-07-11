@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="scan_back_cd">पीछे</string>
+    <string name="scan_feed_empty">अभी तक कोई टैप नहीं</string>
+    <string name="scan_badge_two_tags">2 टैग</string>
+    <string name="scan_search_placeholder">किसी भी RFID टैग को खोजें…</string>
+    <string name="scan_search_empty">कोई मेल खाने वाले पशु नहीं</string>
+</resources>

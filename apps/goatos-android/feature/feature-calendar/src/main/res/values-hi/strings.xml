@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Screen chrome -->
+    <string name="calendar_eyebrow">टीकाकरण</string>
+    <string name="calendar_title">कैलेंडर</string>
+
+    <!-- Segment labels (week/month/history tabs) -->
+    <string name="calendar_segment_week">सप्ताह</string>
+    <string name="calendar_segment_month">माह</string>
+    <string name="calendar_segment_history">इतिहास</string>
+
+    <!-- Empty states -->
+    <string name="calendar_week_empty">कोई ड्राइव शेड्यूल नहीं है</string>
+    <string name="calendar_history_empty">कोई पिछली ड्राइव नहीं</string>
+
+    <!-- Month grid hint -->
+    <string name="calendar_month_hint">किसी दिन को उसकी ड्राइवों के लिए टैप करें · बिंदु = ड्राइव के दिन</string>
+
+    <!-- Accessibility descriptions -->
+    <string name="calendar_button_menu">मेनू</string>
+    <string name="calendar_button_refresh">ताज़ा करें</string>
+
+    <!-- History section label (prefix before dynamic count) -->
+    <string name="calendar_history_label">पिछली ड्राइवें</string>
+    <string name="calendar_cta_open">खोलें</string>
+</resources>

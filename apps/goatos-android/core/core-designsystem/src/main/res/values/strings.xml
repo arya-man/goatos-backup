@@ -2,4 +2,74 @@
 <!-- Shared design-system chrome. Ported verbatim from the mock's TXT dict (keys noted). -->
 <resources>
     <string name="ds_app_language">App language</string> <!-- mock: applang -->
+
+    <!-- Navigation shell chrome (bottom nav bar + module drawer). -->
+    <string name="nav_you">You</string>
+    <string name="nav_modules">Modules</string>
+    <string name="nav_vaccination">Vaccination</string>
+    <string name="nav_feed_direction">Feed direction</string>
+    <string name="nav_breeding">Breeding</string>
+    <string name="nav_soon">Soon</string>
+    <string name="nav_sign_out">Sign out</string>
+    <!-- Known bottom-nav destination labels, keyed by NavItem.key (backend sends the
+         English label; the client localizes known keys and falls back to the backend
+         label for any unmapped key — those still need backend i18n). -->
+    <string name="nav_overview">Overview</string>
+    <string name="nav_calendar">Calendar</string>
+    <string name="nav_alerts">Alerts</string>
+
+    <!-- Language picker sheet (ovl-language) chrome. -->
+    <string name="lang_sheet_title">Choose language</string>
+    <string name="lang_sheet_subtitle">Kept for every screen on this phone</string>
+    <string name="lang_sheet_footer">More languages added as teams grow</string>
+
+    <!-- Overlay sheet chrome (titles/subtitles are fixed UI text; row DATA stays dynamic). -->
+    <string name="ovl_loading">Loading…</string>
+    <string name="ovl_sync_title">Sync status</string>
+    <string name="ovl_sync_subtitle">Records save on the phone first, then sync when online</string>
+    <string name="ovl_scope_title">View a park</string>
+    <string name="ovl_scope_subtitle">Company-wide, or drill into one park</string>
+    <string name="ovl_gaps_title">Data gaps</string>
+    <string name="ovl_gaps_subtitle">Animals the schedule can\'t evaluate until fixed</string>
+    <string name="ovl_doses_title">Doses given</string>
+    <string name="ovl_doses_subtitle">Completed doses this cycle · by vaccine</string>
+
+    <!-- Offline banner chrome. -->
+    <string name="offline_title">You\'re offline</string>
+    <string name="offline_subtitle">Records save on this phone and sync when you reconnect</string>
+    <string name="offline_details">Details</string>
+
+    <!-- Shared overlay bits. %1$s in ovl_error is a backend message (data). -->
+    <string name="ovl_error_fmt">Error: %1$s</string>
+    <string name="ovl_animals_fmt">%1$s animals</string>
+
+    <!-- Sync sheet: connectivity, queue summary, retry, per-row state + detail, op type. -->
+    <string name="sync_footer">Offline-first: the outbox uploads video proof then the shed record, retries with backoff, and never creates a duplicate.</string>
+    <string name="sync_online">Online</string>
+    <string name="sync_offline">Offline</string>
+    <string name="sync_summary_all_synced">All synced</string>
+    <string name="sync_summary_syncing_fmt">Syncing %1$d…</string>
+    <string name="sync_summary_queued_fmt">%1$d queued</string>
+    <string name="sync_retry_all">Retry all</string>
+    <string name="sync_state_synced">Synced</string>
+    <string name="sync_state_queued">Queued</string>
+    <string name="sync_state_uploading">Uploading proof</string>
+    <string name="sync_state_syncing">Syncing record</string>
+    <string name="sync_state_failed">Failed</string>
+    <string name="sync_detail_queued">Waiting to sync</string>
+    <string name="sync_detail_syncing">Submitting…</string>
+    <string name="sync_detail_uploading">Uploading proof…</string>
+    <string name="sync_detail_synced">On file</string>
+    <string name="sync_detail_attempt_fmt">Attempt %1$d of %2$d</string>
+    <string name="sync_optype_shed">Shed record</string>
+    <string name="sync_optype_proof">Video proof</string>
+    <string name="sync_optype_reschedule">Reschedule</string>
+
+    <!-- Scope / Data-gaps / Doses sheet footers + empty/note copy. -->
+    <string name="scope_footer">Scope also filters the drives and backlog below</string>
+    <string name="gaps_footer">Fix on the web dashboard · Data Ops → Herd Register</string>
+    <string name="gaps_empty">No data gaps — all animals have required information.</string>
+    <string name="gaps_note">These animals are excluded from the coverage % until the missing data is filled. Everything else is fully tracked.</string>
+    <string name="doses_footer">Every dose is a verified shed record with video proof</string>
+    <string name="doses_empty">No vaccination data available for this scope.</string>
 </resources>

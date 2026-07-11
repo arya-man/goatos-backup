@@ -30,13 +30,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
+import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
 import sg.mesha.goatos.core.ui.CoverageBanner
+import sg.mesha.goatos.feature.calendar.R
 
 /**
  * Calendar — the universal landing for every role (screens.md). Renders the
@@ -95,14 +98,19 @@ fun CalendarScreen(
 
 @Composable
 private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> Unit) {
+    val openDrawer = LocalDrawerOpener.current
     Row(
         Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
+        // Menu button to open the module drawer
+        HeaderIconButton(onClick = { openDrawer() }, icon = MeshaIcons.Menu, contentDescription = stringResource(R.string.calendar_button_menu))
+        Column(Modifier.weight(1f).padding(start = 8.dp)) {
             if (state.eyebrow.isNotEmpty()) {
                 Text(
-                    text = state.eyebrow.uppercase(),
+                    // Static module eyebrow — localized client-side (the VM value is the
+                    // English module name; the visible chrome must follow the app locale).
+                    text = stringResource(R.string.calendar_eyebrow).uppercase(),
                     color = MeshaColors.Faint,
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.W700,
@@ -110,7 +118,7 @@ private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> U
                 )
             }
             Text(
-                text = state.title,
+                text = stringResource(R.string.calendar_title),
                 color = MeshaColors.Ink,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.W700,
@@ -131,14 +139,13 @@ private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> U
                 )
             }
         }
-        // Mock `.vhead` refresh affordance. (Menu/bell are omitted: single-module chrome has
-        // no drawer, and Alerts is already a bottom-nav tab — neither would be a live control.)
-        HeaderIconButton(onClick = { onEvent(CalendarEvent.Refresh) })
+        // Refresh button on the right
+        HeaderIconButton(onClick = { onEvent(CalendarEvent.Refresh) }, icon = MeshaIcons.Refresh, contentDescription = stringResource(R.string.calendar_button_refresh))
     }
 }
 
 @Composable
-private fun HeaderIconButton(onClick: () -> Unit) {
+private fun HeaderIconButton(onClick: () -> Unit, icon: androidx.compose.ui.graphics.vector.ImageVector = MeshaIcons.Refresh, contentDescription: String = "Button") {
     Box(
         Modifier
             .size(38.dp)
@@ -148,8 +155,8 @@ private fun HeaderIconButton(onClick: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            imageVector = MeshaIcons.Refresh,
-            contentDescription = "Refresh",
+            imageVector = icon,
+            contentDescription = contentDescription,
             tint = MeshaColors.Muted,
             modifier = Modifier.size(18.dp),
         )
@@ -186,7 +193,8 @@ private fun SegmentedControl(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = seg.label,
+                    // Segment labels are fixed chrome — localize by kind, not the VM's English label.
+                    text = segmentLabel(seg.kind, seg.label),
                     color = if (on) MeshaColors.OnBrand else MeshaColors.Muted,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.W700,
@@ -196,6 +204,14 @@ private fun SegmentedControl(
             }
         }
     }
+}
+
+/** Localized label for a calendar segment, keyed by its kind (fixed UI chrome). */
+@Composable
+private fun segmentLabel(kind: CalendarSegmentKind, fallback: String): String = when (kind) {
+    CalendarSegmentKind.Week -> stringResource(R.string.calendar_segment_week)
+    CalendarSegmentKind.Month -> stringResource(R.string.calendar_segment_month)
+    CalendarSegmentKind.History -> stringResource(R.string.calendar_segment_history)
 }
 
 /* --------------------------------------------------------------------------- */
@@ -222,7 +238,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.weekContent(
     }
     item { SectionLabel(state.selectedDateLabel) }
     if (state.weekItems.isEmpty()) {
-        item { EmptyCard(state.weekEmptyLabel) }
+        item { EmptyCard(stringResource(R.string.calendar_week_empty)) }
     } else {
         items(state.weekItems, key = { it.id }) { item ->
             EventCard(item = item, onClick = { onEvent(CalendarEvent.TapItem(item.id)) })
@@ -330,9 +346,11 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
                 modifier = Modifier.padding(top = 7.dp),
             )
         }
-        item.ctaLabel?.let { cta ->
+        item.ctaLabel?.let {
+            // ctaLabel non-null = drillable; the verb itself is fixed chrome, localized here
+            // (the VM's English "Open" is ignored so the label follows the app locale).
             Text(
-                text = "$cta  ›",
+                text = "${stringResource(R.string.calendar_cta_open)}  ›",
                 color = MeshaColors.Brand2,
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.W700,
@@ -393,7 +411,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
     if (state.monthHint.isNotEmpty()) {
         item {
             Text(
-                text = state.monthHint,
+                text = stringResource(R.string.calendar_month_hint),
                 color = MeshaColors.Faint,
                 fontSize = 10.5.sp,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 9.dp),
@@ -516,7 +534,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.historyContent(
 ) {
     item { SectionLabel(state.historyLabel) }
     if (state.historyRows.isEmpty()) {
-        item { EmptyCard(state.historyEmptyLabel) }
+        item { EmptyCard(stringResource(R.string.calendar_history_empty)) }
     } else {
         items(state.historyRows, key = { it.id }) { row ->
             HistoryRow(row = row, onClick = { onEvent(CalendarEvent.TapItem(row.id)) })
@@ -613,15 +631,17 @@ private fun EmptyCard(text: String) {
 
 @Composable
 private fun StatusPill(label: String, tone: CalendarTone) {
+    // Derive tone from label keywords for consistent coloring across screens
+    val effectiveTone = toneFromStatusLabel(label, tone)
     Box(
         Modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(toneBackground(tone))
+            .background(toneBackground(effectiveTone))
             .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
         Text(
             text = label,
-            color = toneText(tone),
+            color = toneText(effectiveTone),
             fontSize = 11.sp,
             fontWeight = FontWeight.W700,
             maxLines = 1,
@@ -632,6 +652,22 @@ private fun StatusPill(label: String, tone: CalendarTone) {
 /** A 3dp brand accent bar on the card's leading edge (mock `.evt` left border). */
 private fun Modifier.leftAccent(color: Color): Modifier = this.drawBehind {
     drawRect(color = color, size = size.copy(width = 3.dp.toPx()))
+}
+
+/**
+ * Maps a status label to the authoritative tone. If the label contains keywords
+ * like "due", "done", "delayed", or "overdue", the tone is derived from those
+ * keywords, ensuring consistency with detail screens. Otherwise, the provided tone
+ * is used as-is.
+ */
+private fun toneFromStatusLabel(label: String, providedTone: CalendarTone): CalendarTone {
+    val lowerLabel = label.lowercase()
+    return when {
+        lowerLabel.contains("due") || lowerLabel.contains("warning") -> CalendarTone.Warn
+        lowerLabel.contains("done") || lowerLabel.contains("completed") -> CalendarTone.Ok
+        lowerLabel.contains("delayed") || lowerLabel.contains("overdue") || lowerLabel.contains("missed") -> CalendarTone.Danger
+        else -> providedTone
+    }
 }
 
 private fun toneColor(tone: CalendarTone): Color = when (tone) {

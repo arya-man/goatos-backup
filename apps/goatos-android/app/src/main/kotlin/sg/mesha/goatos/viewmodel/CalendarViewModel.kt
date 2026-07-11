@@ -17,6 +17,7 @@ import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.feature.calendar.CalendarEvent
 import sg.mesha.goatos.feature.calendar.CalendarHistoryRow
 import sg.mesha.goatos.feature.calendar.CalendarItem
+import sg.mesha.goatos.feature.calendar.CalendarMonthDay
 import sg.mesha.goatos.feature.calendar.CalendarSegment
 import sg.mesha.goatos.feature.calendar.CalendarSegmentKind
 import sg.mesha.goatos.feature.calendar.CalendarTone
@@ -27,6 +28,7 @@ import sg.mesha.goatos.ui.sampleCalendarState
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.OffsetDateTime
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.TextStyle
 import java.util.Locale
@@ -87,6 +89,10 @@ class CalendarViewModel @Inject constructor(
             "Today · ${it.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} ${it.dayOfMonth} ${it.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)}"
         }
         val weekItems = items.map { it.toCalendarItem() }
+        val monthDays = buildMonthDays(items)
+        val monthLabel = YearMonth.now(KOLKATA).let {
+            "${it.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)} ${it.year}"
+        }
         val historyRows = items.take(3).map { ev ->
             CalendarHistoryRow(
                 id = ev.eventId,
@@ -97,6 +103,8 @@ class CalendarViewModel @Inject constructor(
                 target = ev.links.route(),
             )
         }
+        val monthWeekdayLabels = listOf("S", "M", "T", "W", "T", "F", "S")
+
         return base.copy(
             // Mock eyebrow is a short module label, NOT the verbose page description —
             // the backend pageSubtitle is a paragraph and must not be dumped as an eyebrow.
@@ -114,6 +122,10 @@ class CalendarViewModel @Inject constructor(
             weekDays = weekDays,
             weekItems = weekItems,
             weekEmptyLabel = presentation.emptyState.okMessage.ifBlank { "No drives scheduled" },
+            monthLabel = monthLabel,
+            monthWeekdayLabels = monthWeekdayLabels,
+            monthDays = monthDays,
+            monthHint = "Tap a day for its drives · dots = drive days",
             historyRows = historyRows,
             historyEmptyLabel = presentation.emptyState.okMessage.ifBlank { "No past drives" },
         )
@@ -158,6 +170,54 @@ private fun buildWeekDays(items: List<CalendarEventDto>): List<CalendarWeekDay> 
             isSelected = date == today,
         )
     }
+}
+
+/**
+ * Month grid for the current month (Asia/Kolkata), with leading blank cells so the
+ * 1st lands under the correct weekday (Sunday-first calendar). Each cell shows the day
+ * number and a dot on days that carry work from the events' [CalendarEventDto.dueAt].
+ * Marks today and respects the dot tone based on event severity.
+ */
+private fun buildMonthDays(items: List<CalendarEventDto>): List<CalendarMonthDay> {
+    val today = LocalDate.now(KOLKATA)
+    val yearMonth = YearMonth.now(KOLKATA)
+    val firstDay = yearMonth.atDay(1)
+    val lastDay = yearMonth.atEndOfMonth()
+
+    // Map dates to their highest-severity tone (danger > warn > ok > neutral)
+    val dayTones = mutableMapOf<LocalDate, CalendarTone>()
+    items.mapNotNull { parseLocalDate(it.dueAt) }.forEach { date ->
+        if (date.month == today.month && date.year == today.year) {
+            val newTone = fromSeverity(
+                items.find { parseLocalDate(it.dueAt) == date }?.severity ?: "neutral"
+            )
+            dayTones[date] = when {
+                dayTones[date] == CalendarTone.Danger -> CalendarTone.Danger
+                newTone == CalendarTone.Danger -> CalendarTone.Danger
+                dayTones[date] == CalendarTone.Warn -> CalendarTone.Warn
+                newTone == CalendarTone.Warn -> CalendarTone.Warn
+                else -> newTone
+            }
+        }
+    }
+
+    // Leading blank cells (Sunday = 0, so firstDay.dayOfWeek.value - 1)
+    val leadingBlanks = (firstDay.dayOfWeek.value % 7).let { if (it == 0) 0 else it }
+    val blanks = (0 until leadingBlanks).map { CalendarMonthDay(dateKey = null, dayNumber = null) }
+
+    // Days of the month
+    val days = (1..lastDay.dayOfMonth).map { d ->
+        val date = yearMonth.atDay(d)
+        CalendarMonthDay(
+            dateKey = date.toString(),
+            dayNumber = d.toString(),
+            hasWork = date in dayTones,
+            dotTone = dayTones[date] ?: CalendarTone.Neutral,
+            isSelected = date == today,
+        )
+    }
+
+    return blanks + days
 }
 
 private fun parseLocalDate(due: String): LocalDate? =

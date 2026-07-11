@@ -24,12 +24,14 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.feature.leadership.R
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Reschedule (v-reschedule). Segmented reschedule / mark-scheduled + a date field
@@ -37,6 +39,12 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 // buffer state and label (policySnapshot). The app renders the option list and
 // never computes which dates are allowed or whether one is in buffer.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Localized confirm button label state enum. */
+enum class RescheduleConfirmKind { CONFIRM, QUEUED }
+
+/** Localized channels note state enum. */
+enum class RescheduleNoteKind { NO_OBLIGATION, SELECT_DATE, QUEUEING, QUEUED, ERROR }
 
 // @Immutable: List<T> fields (segments, dateOptions) otherwise mark this unstable, disabling
 // recomposition skipping for RescheduleScreen (item 6, perf/stability pass).
@@ -59,6 +67,8 @@ data class RescheduleUiState(
     val confirmLabel: String,
     val confirmEnabled: Boolean,
     val channelsNote: String,
+    val confirmKind: RescheduleConfirmKind? = null,
+    val noteKind: RescheduleNoteKind? = null,
 )
 
 data class RescheduleSegment(val id: String, val label: String)
@@ -73,7 +83,22 @@ data class DateOption(
     val sub: String,
     /** Backend-precomputed buffer state; the app renders, never computes it. */
     val inBuffer: Boolean,
+    /** Whether this is tomorrow (used for localized sub rendering). */
+    val tomorrow: Boolean = false,
 )
+
+private fun confirmKindLabel(kind: RescheduleConfirmKind): Int = when (kind) {
+    RescheduleConfirmKind.CONFIRM -> R.string.reschedule_confirm_label
+    RescheduleConfirmKind.QUEUED -> R.string.reschedule_confirm_queued_label
+}
+
+private fun noteKindLabel(kind: RescheduleNoteKind): Int = when (kind) {
+    RescheduleNoteKind.NO_OBLIGATION -> R.string.reschedule_note_no_obligation
+    RescheduleNoteKind.SELECT_DATE -> R.string.reschedule_note_select_date
+    RescheduleNoteKind.QUEUEING -> R.string.reschedule_note_queueing
+    RescheduleNoteKind.QUEUED -> R.string.reschedule_note_queued
+    RescheduleNoteKind.ERROR -> R.string.reschedule_note_error
+}
 
 @Composable
 fun RescheduleScreen(
@@ -132,12 +157,12 @@ fun RescheduleScreen(
             )
 
             ConfirmButton(
-                label = state.confirmLabel,
+                label = state.confirmKind?.let { stringResource(confirmKindLabel(it)) } ?: state.confirmLabel,
                 enabled = state.confirmEnabled,
                 onClick = { onEvent(LeadershipEvent.ConfirmReschedule) },
             )
             Text(
-                state.channelsNote,
+                state.noteKind?.let { stringResource(noteKindLabel(it)) } ?: state.channelsNote,
                 color = LeadTokens.faint,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
@@ -235,7 +260,12 @@ private fun DateOptionRow(opt: DateOption, selected: Boolean, onClick: () -> Uni
         }
         Column(Modifier.weight(1f)) {
             Text(opt.label, color = LeadTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Text(opt.sub, color = subColor, fontSize = 11.5.sp)
+            val subText = if (opt.tomorrow) {
+                stringResource(R.string.reschedule_date_sub_tomorrow)
+            } else {
+                stringResource(R.string.reschedule_date_sub_default)
+            }
+            Text(subText, color = subColor, fontSize = 11.5.sp)
         }
         if (selected) {
             Icon(imageVector = MeshaIcons.Check, contentDescription = null, tint = LeadTokens.brand, modifier = Modifier.size(16.dp))
@@ -335,6 +365,40 @@ internal fun sampleRescheduleState() = RescheduleUiState(
     confirmLabel = "Confirm — notify team",
     confirmEnabled = true,
     channelsNote = "Team gets a phone call, push, Slack alert and email — 2 days before, and again the morning of.",
+)
+
+/**
+ * Localized sample state using stringResource for all static UI chrome.
+ * This @Composable variant is used to support locale changes via the language switcher.
+ */
+@Composable
+internal fun sampleRescheduleStateLocalized() = RescheduleUiState(
+    eyebrow = "Vaccination",
+    title = "Goat Pox · overdue",
+    bufferMessage = stringResource(R.string.reschedule_buffer_message),
+    actionTitle = stringResource(R.string.reschedule_action_title),
+    segments = listOf(
+        RescheduleSegment("reschedule", stringResource(R.string.reschedule_segment_reschedule)),
+        RescheduleSegment("mark", stringResource(R.string.reschedule_segment_mark_scheduled)),
+    ),
+    selectedSegmentId = "reschedule",
+    dateFieldLabel = stringResource(R.string.reschedule_date_field_label),
+    dateOptionsTitle = stringResource(R.string.reschedule_date_options_title),
+    dateOptions = listOf(
+        DateOption("d8", "8", "Wed, 8 Jul", "Tomorrow · in buffer", inBuffer = true),
+        DateOption("d9", "9", "Thu, 9 Jul", stringResource(R.string.reschedule_in_buffer), inBuffer = true),
+        DateOption("d10", "10", "Fri, 10 Jul", stringResource(R.string.reschedule_in_buffer), inBuffer = true),
+        DateOption("d11", "11", "Sat, 11 Jul", "Last day in buffer", inBuffer = true),
+        DateOption("d13", "13", "Mon, 13 Jul", stringResource(R.string.reschedule_out_of_buffer), inBuffer = false),
+    ),
+    selectedDateId = "d10",
+    assignFieldLabel = stringResource(R.string.reschedule_assign_field_label),
+    assignPrimary = "Arun Kumar",
+    assignBackupLabel = stringResource(R.string.reschedule_assign_backup_label) + " Indradev",
+    assignEnabled = true,
+    confirmLabel = stringResource(R.string.reschedule_confirm_label),
+    confirmEnabled = true,
+    channelsNote = stringResource(R.string.reschedule_channels_note),
 )
 
 @Preview(name = "Reschedule", widthDp = 380, heightDp = 900, backgroundColor = 0xFF0A0F0C, showBackground = true)

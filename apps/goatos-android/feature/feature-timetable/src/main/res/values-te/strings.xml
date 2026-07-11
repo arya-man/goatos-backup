@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="timetable_title">టైమ్‌టేబుల్</string>
+    <string name="timetable_subtitle">షిఫ్ట్ రోస్టర్ — ఎవరు ప్రతిరోజు అమలు చేస్తారో నిర్ణయించే ఆపరేషనల్ మూలం.</string>
+    <string name="timetable_empty">ఎటువంటి స్థానం ఆకృతీకరించబడలేదు</string>
+    <string name="timetable_unassigned">నియమితం కాలేదు</string>
+    <string name="timetable_label_holder">ధారణ</string>
+    <string name="timetable_label_week_off">వారం విశ్రాంతి</string>
+    <string name="timetable_label_backup">బ్యాకప్</string>
+    <string name="timetable_error_no_center">ఎటువంటి కేంద్రం నియమితం కాలేదు — టైమ్‌టేబుల్ అందుబాటులో లేనిది.</string>
+    <string name="timetable_error_load">ఇప్పుడు టైమ్‌టేబుల్‌ను లోడ్ చేయలేకపోయాం.</string>
+    <string name="timetable_position_fallback">స్థానం</string>
+    <string name="timetable_backup_slot">బ్యాకప్ స్లాట్</string>
+    <string name="timetable_empty_value">—</string>
+    <string name="timetable_tier_assistant">సహాయకుడు</string>
+    <string name="timetable_tier_manager">నిర్ణేత</string>
+    <string name="timetable_tier_head">ప్రధానమైనది</string>
+    <string name="timetable_tier_director">డైరెక్టర్</string>
+    <string name="timetable_tier_cxo">సిఎక్సఓ</string>
+    <string name="timetable_tier_unknown">—</string>
+</resources>

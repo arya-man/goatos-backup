@@ -8,11 +8,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.feature.profile.RfidConnectionState
+import sg.mesha.goatos.feature.profile.RfidDetailStatus
 import sg.mesha.goatos.feature.profile.RfidEvent
 import sg.mesha.goatos.feature.profile.RfidUiState
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
-import sg.mesha.goatos.ui.sampleRfidState
 import javax.inject.Inject
 
 /**
@@ -48,48 +48,23 @@ class RfidViewModel @Inject constructor(
     }
 
     private fun fromStatus(status: RfidReaderStatus): RfidUiState {
-        val base = sampleRfidState()
-        return when (status) {
-            RfidReaderStatus.READY -> base.copy(
-                statusLabel = "Ready",
-                connectionState = RfidConnectionState.CONNECTED,
-                readerName = "RFID reader",
-                readerDetail = "Ready to scan",
-                primaryActionLabel = "Test read",
-                testLabel = "Test read",
-            )
-            RfidReaderStatus.PAIRED_NOT_READY -> base.copy(
-                statusLabel = "Paired · not connected",
-                connectionState = RfidConnectionState.SCANNING,
-                readerName = "RFID reader",
-                readerDetail = "Paired — reconnect in Bluetooth settings",
-                primaryActionLabel = "Open Bluetooth settings",
-                testLabel = null,
-            )
-            RfidReaderStatus.NOT_PAIRED -> base.copy(
-                statusLabel = "Not paired",
-                connectionState = RfidConnectionState.DISCONNECTED,
-                readerName = null,
-                readerDetail = "Pair the reader in Bluetooth settings, then return",
-                primaryActionLabel = "Pair reader",
-                testLabel = null,
-            )
-            RfidReaderStatus.PERMISSION_NEEDED -> base.copy(
-                statusLabel = "Allow Nearby devices",
-                connectionState = RfidConnectionState.DISCONNECTED,
-                readerName = null,
-                readerDetail = "Grant Nearby devices to detect the reader",
-                primaryActionLabel = "Open Bluetooth settings",
-                testLabel = null,
-            )
-            RfidReaderStatus.BLUETOOTH_OFF -> base.copy(
-                statusLabel = "Bluetooth off",
-                connectionState = RfidConnectionState.DISCONNECTED,
-                readerName = null,
-                readerDetail = "Turn on Bluetooth to use the reader",
-                primaryActionLabel = "Open Bluetooth settings",
-                testLabel = null,
-            )
+        val (detailStatus, connectionState, readerName) = when (status) {
+            RfidReaderStatus.READY ->
+                Triple(RfidDetailStatus.READY, RfidConnectionState.CONNECTED, "RFID reader")
+            RfidReaderStatus.PAIRED_NOT_READY ->
+                Triple(RfidDetailStatus.PAIRED_NOT_READY, RfidConnectionState.SCANNING, "RFID reader")
+            RfidReaderStatus.NOT_PAIRED ->
+                Triple(RfidDetailStatus.NOT_PAIRED, RfidConnectionState.DISCONNECTED, null)
+            RfidReaderStatus.PERMISSION_NEEDED ->
+                Triple(RfidDetailStatus.PERMISSION_NEEDED, RfidConnectionState.DISCONNECTED, null)
+            RfidReaderStatus.BLUETOOTH_OFF ->
+                Triple(RfidDetailStatus.BLUETOOTH_OFF, RfidConnectionState.DISCONNECTED, null)
         }
+        return RfidUiState(
+            title = "RFID reader",
+            detailStatus = detailStatus,
+            connectionState = connectionState,
+            readerName = readerName,
+        )
     }
 }

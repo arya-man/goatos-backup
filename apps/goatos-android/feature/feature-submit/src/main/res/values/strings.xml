@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Submit (v-submit) chrome strings. The sheet renders backend-provided data only
+  (eyebrow, title, shed name, cohort, date, sync status). Only the static UI
+  chrome labels and buttons are extracted here for localization.
+-->
+<resources>
+    <!-- Record summary labels -->
+    <string name="submit_summary_shed">Shed</string>
+    <string name="submit_summary_cohort">Cohort</string>
+    <string name="submit_summary_date">Date</string>
+    <string name="submit_dose_label">Dose</string>
+
+    <!-- Button labels -->
+    <string name="submit_retry_label">Retry</string>
+
+    <!-- Sync state labels -->
+    <string name="submit_sync_loading">Loading…</string>
+    <string name="submit_sync_ready">Ready to submit</string>
+    <string name="submit_sync_queued">Queued — will sync…</string>
+    <string name="submit_sync_syncing">Submitting shed record…</string>
+    <string name="submit_sync_retrying">Retrying… (attempt %1$d/%2$d)</string>
+    <string name="submit_sync_acked">Synced · record on file</string>
+    <string name="submit_sync_conflict">Server rejected the submission.</string>
+    <string name="submit_sync_dead_letter">Sync failed after %1$d attempts — tap retry.</string>
+    <string name="submit_sync_no_task">No task assigned to you to submit.</string>
+    <string name="submit_sync_load_failed">Couldn\'t load your task. Tap retry.</string>
+    <string name="submit_sync_queue_failed">Couldn\'t queue the submission — tap retry.</string>
+    <string name="submit_sync_retry_failed">Couldn\'t retry — tap retry again.</string>
+</resources>

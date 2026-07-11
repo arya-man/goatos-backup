@@ -24,6 +24,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -48,6 +49,14 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 /** Backend-surfaced connection state. Drives the glyph tint + status-pill tone only. */
 enum class RfidConnectionState { CONNECTED, DISCONNECTED, SCANNING }
 
+/**
+ * RFID reader status for the detail screen (distinct from ProfileScreen's RfidRowStatus).
+ * Maps to RfidReaderStatus from the app module. Feature-profile does not depend on the
+ * app module — RfidViewModel maps the real reader status onto this enum before handing
+ * it to the screen for localization.
+ */
+enum class RfidDetailStatus { READY, PAIRED_NOT_READY, NOT_PAIRED, PERMISSION_NEEDED, BLUETOOTH_OFF }
+
 /** One discovered reader from a scan. Every field is backend/device-provided. */
 data class RfidReaderRow(
     val id: String,
@@ -60,20 +69,18 @@ data class RfidReaderRow(
  * Everything the RFID pairing surface renders. Header title, status text, the
  * paired reader name/detail, the discovered list, the primary action label, and
  * the test-read label all come from the backend/RfidReaderPort — the app renders
- * whatever it is given.
+ * whatever it is given. All static strings are rendered via stringResource() based
+ * on the detail status enum.
  */
 // @Immutable: discovered: List<RfidReaderRow> otherwise marks this unstable (item 6,
 // perf/stability pass).
 @Immutable
 data class RfidUiState(
     val title: String,
-    val statusLabel: String,
+    val detailStatus: RfidDetailStatus,
     val connectionState: RfidConnectionState,
     val readerName: String? = null,
-    val readerDetail: String? = null,
     val discovered: List<RfidReaderRow> = emptyList(),
-    val primaryActionLabel: String,
-    val testLabel: String? = null,
 )
 
 sealed interface RfidEvent {
@@ -88,6 +95,34 @@ sealed interface RfidEvent {
 // connection, so there is no in-app "disconnect"); otherwise it opens system pairing.
 private fun primaryEventFor(state: RfidConnectionState): RfidEvent =
     if (state == RfidConnectionState.CONNECTED) RfidEvent.TestRead else RfidEvent.Pair
+
+/** Localized status label and detail for RFID reader status. */
+@Composable
+private fun statusTextFor(status: RfidDetailStatus): Pair<String, String> = when (status) {
+    RfidDetailStatus.READY ->
+        stringResource(R.string.rfid_detail_status_ready) to stringResource(R.string.rfid_detail_status_ready_detail)
+    RfidDetailStatus.PAIRED_NOT_READY ->
+        stringResource(R.string.rfid_detail_status_paired_not_ready) to stringResource(R.string.rfid_detail_status_paired_not_ready_detail)
+    RfidDetailStatus.NOT_PAIRED ->
+        stringResource(R.string.rfid_detail_status_not_paired) to stringResource(R.string.rfid_detail_status_not_paired_detail)
+    RfidDetailStatus.PERMISSION_NEEDED ->
+        stringResource(R.string.rfid_detail_status_permission_needed) to stringResource(R.string.rfid_detail_status_permission_needed_detail)
+    RfidDetailStatus.BLUETOOTH_OFF ->
+        stringResource(R.string.rfid_detail_status_bluetooth_off) to stringResource(R.string.rfid_detail_status_bluetooth_off_detail)
+}
+
+/** Localized action button label for RFID reader status. */
+@Composable
+private fun actionLabelFor(status: RfidDetailStatus): String = when (status) {
+    RfidDetailStatus.READY ->
+        stringResource(R.string.rfid_detail_action_test_read)
+    RfidDetailStatus.PAIRED_NOT_READY,
+    RfidDetailStatus.PERMISSION_NEEDED,
+    RfidDetailStatus.BLUETOOTH_OFF ->
+        stringResource(R.string.rfid_detail_action_open_bluetooth)
+    RfidDetailStatus.NOT_PAIRED ->
+        stringResource(R.string.rfid_detail_action_pair_reader)
+}
 
 private fun glyphTint(state: RfidConnectionState): Color = when (state) {
     RfidConnectionState.CONNECTED -> MeshaColors.Brand
@@ -122,9 +157,7 @@ fun RfidScreen(
             }
         }
         item { RfidPrimaryAction(state = state, onEvent = onEvent) }
-        state.testLabel?.let { label ->
-            item { TestReadRow(label = label, onEvent = onEvent) }
-        }
+        item { TestReadRow(status = state.detailStatus, onEvent = onEvent) }
     }
 }
 
@@ -142,6 +175,7 @@ private fun RfidHeader(title: String) {
 @Composable
 private fun RfidDeviceHero(state: RfidUiState) {
     val (pillBg, pillFg) = statusPillTone(state.connectionState)
+    val (statusLabel, detailText) = statusTextFor(state.detailStatus)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -171,21 +205,19 @@ private fun RfidDeviceHero(state: RfidUiState) {
                 modifier = Modifier.padding(top = 12.dp),
             )
         }
-        state.readerDetail?.let {
-            Text(
-                text = it,
-                color = MeshaColors.Muted,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 3.dp),
-            )
-        }
+        Text(
+            text = detailText,
+            color = MeshaColors.Muted,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 3.dp),
+        )
         Box(
             modifier = Modifier
                 .padding(top = 9.dp)
                 .background(pillBg, shape = RoundedCornerShape(999.dp))
                 .padding(horizontal = 10.dp, vertical = 4.dp),
         ) {
-            Text(text = state.statusLabel, color = pillFg, fontSize = 11.sp, fontWeight = FontWeight.W700)
+            Text(text = statusLabel, color = pillFg, fontSize = 11.sp, fontWeight = FontWeight.W700)
         }
     }
 }
@@ -226,6 +258,7 @@ private fun DiscoveredReaderRow(row: RfidReaderRow, onEvent: (RfidEvent) -> Unit
 
 @Composable
 private fun RfidPrimaryAction(state: RfidUiState, onEvent: (RfidEvent) -> Unit) {
+    val actionLabel = actionLabelFor(state.detailStatus)
     Row(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -239,7 +272,7 @@ private fun RfidPrimaryAction(state: RfidUiState, onEvent: (RfidEvent) -> Unit) 
             .padding(15.dp),
     ) {
         Text(
-            text = state.primaryActionLabel,
+            text = actionLabel,
             color = MeshaColors.BrandD,
             fontSize = 15.sp,
             fontWeight = FontWeight.W700,
@@ -249,7 +282,11 @@ private fun RfidPrimaryAction(state: RfidUiState, onEvent: (RfidEvent) -> Unit) 
 }
 
 @Composable
-private fun TestReadRow(label: String, onEvent: (RfidEvent) -> Unit) {
+private fun TestReadRow(status: RfidDetailStatus, onEvent: (RfidEvent) -> Unit) {
+    // Only show test read row when ready
+    if (status != RfidDetailStatus.READY) return
+
+    val testLabel = stringResource(R.string.rfid_detail_test_label)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -263,7 +300,7 @@ private fun TestReadRow(label: String, onEvent: (RfidEvent) -> Unit) {
     ) {
         Icon(imageVector = MeshaIcons.Search, contentDescription = null, tint = MeshaColors.Faint, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(10.dp))
-        Text(text = label, color = MeshaColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
+        Text(text = testLabel, color = MeshaColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
         Icon(imageVector = MeshaIcons.Check, contentDescription = null, tint = MeshaColors.Brand, modifier = Modifier.size(16.dp))
     }
 }
@@ -275,12 +312,9 @@ private fun RfidScreenPreview() {
         RfidScreen(
             state = RfidUiState(
                 title = "RFID reader",
-                statusLabel = "Paired · battery 84%",
+                detailStatus = RfidDetailStatus.READY,
                 connectionState = RfidConnectionState.CONNECTED,
                 readerName = "Chainway R3",
-                readerDetail = "Bluetooth keyboard · signal strong",
-                primaryActionLabel = "Disconnect",
-                testLabel = "Test read",
             ),
         )
     }

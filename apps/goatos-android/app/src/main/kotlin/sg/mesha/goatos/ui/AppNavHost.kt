@@ -190,6 +190,7 @@ fun AppNavHost(
                             val route = if (done) Routes.recordRoute(event.shedId) else Routes.scanRoute(event.shedId)
                             navController.navigate(route) { launchSingleTop = true }
                         }
+                        ShedsEvent.Back -> navController.popBackStack()
                         else -> vm.onEvent(event)
                     }
                 },

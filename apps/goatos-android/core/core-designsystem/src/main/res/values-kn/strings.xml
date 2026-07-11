@@ -1,4 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="ds_app_language">ಆ್ಯಪ್ ಭಾಷೆ</string>
+
+    <!-- Navigation shell chrome (bottom nav bar + module drawer). -->
+    <string name="nav_you">ನೀವು</string>
+    <string name="nav_modules">ಮಾಡ್ಯೂಲ್‌ಗಳು</string>
+    <string name="nav_vaccination">ಲಸಿಕೆ</string>
+    <string name="nav_feed_direction">ಆಹಾರ ನಿರ್ದೇಶನ</string>
+    <string name="nav_breeding">ಸಂತಾನೋತ್ಪತ್ತಿ</string>
+    <string name="nav_soon">ಶೀಘ್ರದಲ್ಲಿ</string>
+    <string name="nav_sign_out">ಸೈನ್ ಔಟ್</string>
+    <string name="nav_overview">ಅವಲೋಕನ</string>
+    <string name="nav_calendar">ಕ್ಯಾಲೆಂಡರ್</string>
+    <string name="nav_alerts">ಎಚ್ಚರಿಕೆಗಳು</string>
+    <string name="lang_sheet_title">ಭಾಷೆ ಆಯ್ಕೆಮಾಡಿ</string>
+    <string name="lang_sheet_subtitle">ಈ ಫೋನ್‌ನ ಪ್ರತಿ ಪರದೆಗೆ ಉಳಿಸಲಾಗಿದೆ</string>
+    <string name="lang_sheet_footer">ತಂಡ ಬೆಳೆದಂತೆ ಹೆಚ್ಚಿನ ಭಾಷೆಗಳನ್ನು ಸೇರಿಸಲಾಗುತ್ತದೆ</string>
+    <string name="ovl_loading">ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="ovl_sync_title">ಸಿಂಕ್ ಸ್ಥಿತಿ</string>
+    <string name="ovl_sync_subtitle">ದಾಖಲೆಗಳು ಮೊದಲು ಫೋನ್‌ನಲ್ಲಿ ಉಳಿಯುತ್ತವೆ, ನಂತರ ಆನ್‌ಲೈನ್ ಆದಾಗ ಸಿಂಕ್ ಆಗುತ್ತವೆ</string>
+    <string name="ovl_scope_title">ಪಾರ್ಕ್ ವೀಕ್ಷಿಸಿ</string>
+    <string name="ovl_scope_subtitle">ಕಂಪನಿ-ವ್ಯಾಪಿ, ಅಥವಾ ಒಂದು ಪಾರ್ಕ್‌ಗೆ ಹೋಗಿ</string>
+    <string name="ovl_gaps_title">ಡೇಟಾ ಅಂತರ</string>
+    <string name="ovl_gaps_subtitle">ಸರಿಪಡಿಸುವವರೆಗೆ ವೇಳಾಪಟ್ಟಿ ಮೌಲ್ಯಮಾಪನ ಮಾಡಲಾಗದ ಪ್ರಾಣಿಗಳು</string>
+    <string name="ovl_doses_title">ನೀಡಿದ ಡೋಸ್‌ಗಳು</string>
+    <string name="ovl_doses_subtitle">ಈ ಚಕ್ರದಲ್ಲಿ ಪೂರ್ಣಗೊಂಡ ಡೋಸ್‌ಗಳು · ಲಸಿಕೆ ಪ್ರಕಾರ</string>
+    <string name="offline_title">ನೀವು ಆಫ್‌ಲೈನ್‌ನಲ್ಲಿದ್ದೀರಿ</string>
+    <string name="offline_details">ವಿವರಗಳು</string>
+    <string name="offline_subtitle">ದಾಖಲೆಗಳು ಈ ಫೋನ್‌ನಲ್ಲಿ ಉಳಿಯುತ್ತವೆ ಮತ್ತು ಮರುಸಂಪರ್ಕಗೊಂಡಾಗ ಸಿಂಕ್ ಆಗುತ್ತವೆ</string>
+    <string name="ovl_error_fmt">ದೋಷ: %1$s</string>
+    <string name="ovl_animals_fmt">%1$s ಪ್ರಾಣಿಗಳು</string>
+    <string name="sync_footer">ಆಫ್‌ಲೈನ್-ಮೊದಲು: ಔಟ್‌ಬಾಕ್ಸ್ ಮೊದಲು ವೀಡಿಯೊ ಪ್ರೂಫ್, ನಂತರ ಶೆಡ್ ದಾಖಲೆ ಅಪ್‌ಲೋಡ್ ಮಾಡುತ್ತದೆ, ಬ್ಯಾಕ್‌ಆಫ್‌ನೊಂದಿಗೆ ಮರುಪ್ರಯತ್ನಿಸುತ್ತದೆ, ಮತ್ತು ಎಂದಿಗೂ ನಕಲು ರಚಿಸುವುದಿಲ್ಲ.</string>
+    <string name="sync_online">ಆನ್‌ಲೈನ್</string>
+    <string name="sync_offline">ಆಫ್‌ಲೈನ್</string>
+    <string name="sync_summary_all_synced">ಎಲ್ಲಾ ಸಿಂಕ್ ಆಗಿದೆ</string>
+    <string name="sync_summary_syncing_fmt">%1$d ಸಿಂಕ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="sync_summary_queued_fmt">%1$d ಸಾಲಿನಲ್ಲಿ</string>
+    <string name="sync_retry_all">ಎಲ್ಲವನ್ನೂ ಮರುಪ್ರಯತ್ನಿಸಿ</string>
+    <string name="sync_state_synced">ಸಿಂಕ್ ಆಗಿದೆ</string>
+    <string name="sync_state_queued">ಸಾಲಿನಲ್ಲಿ</string>
+    <string name="sync_state_uploading">ಪ್ರೂಫ್ ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ</string>
+    <string name="sync_state_syncing">ದಾಖಲೆ ಸಿಂಕ್ ಆಗುತ್ತಿದೆ</string>
+    <string name="sync_state_failed">ವಿಫಲ</string>
+    <string name="sync_detail_queued">ಸಿಂಕ್‌ಗಾಗಿ ಕಾಯುತ್ತಿದೆ</string>
+    <string name="sync_detail_syncing">ಸಲ್ಲಿಸಲಾಗುತ್ತಿದೆ…</string>
+    <string name="sync_detail_uploading">ಪ್ರೂಫ್ ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="sync_detail_synced">ಫೈಲ್‌ನಲ್ಲಿ</string>
+    <string name="sync_detail_attempt_fmt">ಪ್ರಯತ್ನ %1$d / %2$d</string>
+    <string name="sync_optype_shed">ಶೆಡ್ ದಾಖಲೆ</string>
+    <string name="sync_optype_proof">ವೀಡಿಯೊ ಪ್ರೂಫ್</string>
+    <string name="sync_optype_reschedule">ಮರುನಿಗದಿ</string>
+    <string name="scope_footer">ಸ್ಕೋಪ್ ಕೆಳಗಿನ ಡ್ರೈವ್‌ಗಳು ಮತ್ತು ಬ್ಯಾಕ್‌ಲಾಗ್ ಅನ್ನೂ ಫಿಲ್ಟರ್ ಮಾಡುತ್ತದೆ</string>
+    <string name="gaps_footer">ವೆಬ್ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್‌ನಲ್ಲಿ ಸರಿಪಡಿಸಿ · Data Ops → Herd Register</string>
+    <string name="gaps_empty">ಯಾವುದೇ ಡೇಟಾ ಅಂತರವಿಲ್ಲ — ಎಲ್ಲಾ ಪ್ರಾಣಿಗಳ ಅಗತ್ಯ ಮಾಹಿತಿ ಇದೆ.</string>
+    <string name="gaps_note">ಕಾಣೆಯಾದ ಡೇಟಾ ಭರ್ತಿಯಾಗುವವರೆಗೆ ಈ ಪ್ರಾಣಿಗಳನ್ನು ಕವರೇಜ್ %ನಿಂದ ಹೊರಗಿಡಲಾಗುತ್ತದೆ. ಉಳಿದೆಲ್ಲವೂ ಸಂಪೂರ್ಣವಾಗಿ ಟ್ರ್ಯಾಕ್ ಆಗುತ್ತದೆ.</string>
+    <string name="doses_footer">ಪ್ರತಿ ಡೋಸ್ ವೀಡಿಯೊ ಪ್ರೂಫ್‌ನೊಂದಿಗೆ ಪರಿಶೀಲಿಸಿದ ಶೆಡ್ ದಾಖಲೆಯಾಗಿದೆ</string>
+    <string name="doses_empty">ಈ ಸ್ಕೋಪ್‌ಗೆ ಯಾವುದೇ ಲಸಿಕೆ ಡೇಟಾ ಲಭ್ಯವಿಲ್ಲ.</string>
 </resources>

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Overview screen -->
+    <string name="overview_title">ಅವಲೋಕನ</string>
+    <string name="overview_coverage_label">ಪ್ರಕ್ರಿಯೆ ಸಮಗ್ರತೆ</string>
+    <string name="overview_animals_label">1,312 ಪಶುಗಳು</string>
+    <string name="overview_data_gaps_label">ಡೇಟಾ ಅಂತರ</string>
+    <string name="overview_open_gaps_label">%1$d ತೆರೆದ ಅಂತರಗಳು</string>
+    <string name="overview_today_sheds_title">ಇಂದಿನ ಶೆಡ್ ಗಳು · ನೇರ</string>
+    <string name="overview_assign_team_label">ತಂಡವನ್ನು ನಿಯೋಜಿಸಿ</string>
+    <string name="overview_backlog_title">ಲಸಿಕೆ ಆಧಾರಿತ ಬ್ಯಾಕ್ಲಾಗ್ · ಬಾಕಿ ಡೋಸ್</string>
+    <string name="overview_needs_decision_title">ನಿರ್ಧಾರದ ಅಗತ್ಯ</string>
+    <string name="overview_coverage_by_park_title">ಪಾರ್ಕ್ ಆಧಾರಿತ ಕವರೇಜ್</string>
+
+    <!-- KPI tile labels -->
+    <string name="overview_kpi_critical_label">ಗಂಭೀರ</string>
+    <string name="overview_kpi_warnings_label">ಎಚ್ಚರಿಕೆಗಳು</string>
+    <string name="overview_kpi_open_gaps_label">ತೆರೆದ ಅಂತರಗಳು</string>
+    <string name="overview_kpi_doses_given_label">ಡೋಸ್ ನೀಡಲಾಗಿದೆ · ಟ್ಯಾಪ್ ಮಾಡಿ</string>
+    <string name="overview_kpi_pending_label">ಬಾಕಿ · ಟ್ಯಾಪ್ ಮಾಡಿ</string>
+
+    <!-- Overdue screen -->
+    <string name="overdue_section_title">ಮರುನಿಗದನದ ಅವಶ್ಯಕತೆ</string>
+    <string name="overdue_legend_missed">ತಪ್ಪು · ಬಫರ್ ನ ಹೊರಗೆ</string>
+    <string name="overdue_legend_in_buffer">ಬಫರ್ ನಲ್ಲಿ · ಮರುಪಡೆಯಬಹುದಾದ</string>
+    <string name="overdue_explainer_title">ಬಣ್ಣಗಳ ಅರ್ಥ ಏನು</string>
+    <string name="overdue_explainer">ಕೆಂಪು · ತಪ್ಪು — ಡೋಸ್ ವಿಂಡೋ ಮುಚ್ಚಲಾಗಿದೆ ಮತ್ತು ಪಶುವನ್ನು ಸಮಯಕ್ಕೆ ಹೊಂದಾಣಿಕೆಯ ಡ್ರೈವ್ ನಲ್ಲಿ ಮರುಪಡೆಯಲಾಗಿಲ್ಲ; ನೇತೃತ್ವವನ್ನು ಮೊದಲೇ ಎಚ್ಚರಿಸಲಾಗಿತ್ತು. ಅಂಬರ್ · ಬಫರ್ ನಲ್ಲಿ — ಬಾಕಿ ಆದರೆ ಹೊಂದಾಣಿಕೆಯ ಡ್ರೈವ್ ನಲ್ಲಿ ಮರುನಿಗದನ ಮಾಡುವ ಮೂಲಕ ಇನ್ನೂ ಮರುಪಡೆಯಬಹುದಾದ, ಕೋನ ಡೋಸ್ ತಪ್ಪು ಇಲ್ಲ. ಬಫರ್ ನಲ್ಲಿ/ಹೊರಗೆ ಬ್ಯಾಕೆಂಡ್ ನೀತಿ (policySnapshot) ರಿಂದ ಕಂಪೈಲ್ ಆಗಿದೆ; ಆಪ್ ಕೇವಲ ಲೇಬಲ್ ಮಾತ್ರ ಮಾಡುತ್ತದೆ.</string>
+
+    <!-- Reschedule screen -->
+    <string name="reschedule_buffer_message">ಪಶುವು ಇನ್ನೂ ಮರುಪಡೆಯಬಹುದಾದಾಗ ಹೊಂದಾಣಿಕೆಯ ಡ್ರೈವ್ ನಲ್ಲಿ ಮರುನಿಗದನ ಮಾಡಿ. ಬಫರ್ ವಿಂಡೋವನ್ನು ಬ್ಯಾಕೆಂಡ್ ನೀತಿ (policySnapshot) ರಿಂದ ಕಂಪೈಲ್ ಆಗಿದೆ; ಅದರ ಪಾಸ್ ಡೋಸ್ ತಪ್ಪು ಆಗಿದೆ ಮತ್ತು ನೇತೃತ್ವವನ್ನು ಮೊದಲೇ ಎಚ್ಚರಿಸಲಾಗಿದೆ.</string>
+    <string name="reschedule_action_title">ಕ್ರಿಯೆ</string>
+    <string name="reschedule_segment_reschedule">ಮರುನಿಗದನ</string>
+    <string name="reschedule_segment_mark_scheduled">ನಿಗದನ ಮಾಡಿ</string>
+    <string name="reschedule_date_field_label">ಹೊಸ ದಿನಾಂಕ</string>
+    <string name="reschedule_date_options_title">ಬಾಕಿ ದಿನಾಂಕದಿಂದ ಬ್ಯಾಕೆಂಡ್-ಕಂಪೈಲ್ ಬಫರ್ ವಿಂಡೋ ಒಳಗೆ</string>
+    <string name="reschedule_assign_field_label">ನಿಯೋಜಿಸಲು</string>
+    <string name="reschedule_assign_backup_label">+ ಬ್ಯಾಕಅಪ್</string>
+    <string name="reschedule_confirm_label">ಖಚಿತ ಪಡಿಸಿ — ತಂಡವನ್ನು ಅಧಿಸೂಚಿಸಿ</string>
+    <string name="reschedule_confirm_queued_label">ಸರಣೀಬದ್ಧ</string>
+    <string name="reschedule_channels_note">ತಂಡವು ಫೋನ್ ಕರೆ, ಪುಶ್, Slack ಸೂಚನೆ ಮತ್ತು ಇಮೇಲ್ ಪಡೆಯುತ್ತದೆ — 2 ದಿನ ಮೊದಲೇ, ಮತ್ತೆ ಬೆಳಿಗ್ಗೆ.</string>
+    <string name="reschedule_note_no_obligation">ಈ ಸಾಲಿಗೆ ಯಾವುದೇ ಕರ್ತವ್ಯ ಐಡಿ ಇಲ್ಲ, ಆದ್ದರಿಂದ ಮೊಬೈಲ್ ಬ್ಯಾಕೆಂಡ್ ಮರುನಿಗದನ ಎಂಡ್‌ಪಾಯಿಂಟ್ ಅನ್ನು ಗುರುತಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ.</string>
+    <string name="reschedule_note_select_date">ಭವಿಷ್ಯತ್ತಿನ ದಿನಾಂಕವನ್ನು ಆಯ್ಕೆ ಮಾಡಿ. ಬ್ಯಾಕೆಂಡ್ ಕರ್ತವ್ಯ ವಿಂಡೋವನ್ನು ಮೌಲ್ಯೀಕರಿಸುತ್ತದೆ ಮತ್ತು ಸ್ವೀಕಾರದ ನಂತರ ಸೂಚನೆಗಳನ್ನು ನಿರಪೇಕ್ಷವಾಗಿ ಸರಣೀಬದ್ಧ ಮಾಡುತ್ತದೆ.</string>
+    <string name="reschedule_note_queueing">ಮರುನಿಗದನ ಸರಣೀಬದ್ಧಗೊಳಿಸುತ್ತಿದೆ…</string>
+    <string name="reschedule_note_queued">ಮರುನಿಗದನ ಸರಣೀಬದ್ಧಗೊಳಿಸಲಾಯಿತು — ಇದು ಬ್ಯಾಕೆಂಡ್ ನೊಂದಿಗೆ ಸಿಂಕ್ ಮಾಡುತ್ತದೆ ಮತ್ತು ಸ್ವೀಕಾರದ ನಂತರ ತಂಡವನ್ನು ಅಧಿಸೂಚಿಸುತ್ತದೆ.</string>
+    <string name="reschedule_note_error">ಮರುನಿಗದನ ಸರಣೀಬದ್ಧಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ — ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಖಚಿತ ಪಡಿಸಿ ಕ್ಲಿಕ್ ಮಾಡಿ.</string>
+    <string name="reschedule_in_buffer">ಬಫರ್ ನಲ್ಲಿ</string>
+    <string name="reschedule_out_of_buffer">ಬಫರ್ ನ ಹೊರಗೆ · ತಪ್ಪು ಎಂದು ಕಂಪೈಲ್</string>
+    <string name="reschedule_date_sub_tomorrow">ನಾಳೆ · ಬ್ಯಾಕೆಂಡ್ ಬಫರ್ ಮೌಲ್ಯೀಕರಿಸುತ್ತದೆ</string>
+    <string name="reschedule_date_sub_default">ಬ್ಯಾಕೆಂಡ್ ಬಫರ್ ಮೌಲ್ಯೀಕರಿಸುತ್ತದೆ</string>
+
+    <!-- Content descriptions and accessibility -->
+    <string name="overview_back_content_description">ಹಿಂದಕ್ಕೆ</string>
+    <string name="overview_refresh_content_description">ರಿಫ್ರೆಶ್</string>
+    <string name="overview_menu_content_description">ಮೆನು</string>
+    <string name="overdue_title_fmt">ಅವಧಿ ಮೀರಿದ · %1$d</string>
+</resources>

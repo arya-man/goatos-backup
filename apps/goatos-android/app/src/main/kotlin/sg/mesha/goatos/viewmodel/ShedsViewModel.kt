@@ -49,6 +49,7 @@ class ShedsViewModel @Inject constructor(
         when (event) {
             ShedsEvent.Refresh -> load()
             is ShedsEvent.OpenShedRecord -> Unit // navigation — handled by the nav host.
+            ShedsEvent.Back -> Unit // navigation — handled by the nav host.
         }
     }
 
@@ -63,7 +64,7 @@ class ShedsViewModel @Inject constructor(
             val vaccineGroups = group
                 .mapNotNull { it.driveName }
                 .distinct()
-                .map { VaccineGroup(label = it, countLabel = "", full = false) }
+                .map { VaccineGroup(label = humanizeDriveName(it), countLabel = "", full = false) }
             ShedRow(
                 id = first.shedId,
                 name = first.shedName,
@@ -88,6 +89,12 @@ class ShedsViewModel @Inject constructor(
             scopeLabel = "",
             date = "",
             window = "",
+            // Raw counts — the screen formats + localizes these via *_fmt resources
+            // (counts are UI chrome, not backend-owned copy). The label strings below
+            // are kept only as a fallback for non-VM sources (placeholder/sample).
+            shedCount = shedRows.size,
+            dueCount = totalDue,
+            doneCount = totalDone,
             shedCountLabel = "${shedRows.size} sheds",
             dueLabel = "$totalDue due",
             dayProgressLabel = percentLabel(totalDone, totalDue),
@@ -130,3 +137,47 @@ private fun ShedStatus.readable(): String = name.lowercase().replaceFirstChar { 
 
 private fun String.readableState(): String =
     replace('_', ' ').replaceFirstChar { it.uppercase() }
+
+/**
+ * Humanize raw driveName strings for display in vaccine group chips.
+ *
+ * Raw inputs like "Preventive Care Vaccination Matrix - hs_first" or "… - ppr_booster"
+ * are transformed to human-readable labels like "HS", "PPR · Booster".
+ *
+ * Rules:
+ * - Strip leading prefix (take the part after the last " - ").
+ * - Parse antigen token (before the dose suffix) and map to display name.
+ * - Dose suffix: _first → no suffix (default), _booster → append " · Booster".
+ * - Unknown tokens are Title-Cased with underscores replaced by spaces.
+ */
+private fun humanizeDriveName(raw: String): String {
+    val trimmed = raw.trim().takeIf { it.isNotBlank() } ?: return ""
+
+    // Strip the prefix (take part after last " - ")
+    val suffix = if (" - " in trimmed) trimmed.substringAfterLast(" - ") else trimmed
+    if (suffix.isBlank()) return ""
+
+    // Parse antigen and dose: split on the last underscore that precedes _first/_booster
+    val (antigen, doseSuffix) = when {
+        suffix.endsWith("_first") -> suffix.dropLast(6) to "first"
+        suffix.endsWith("_booster") -> suffix.dropLast(8) to "booster"
+        else -> suffix to ""
+    }
+
+    if (antigen.isBlank()) return ""
+
+    // Map antigen token to display name
+    val antigenLabel = when (antigen.lowercase()) {
+        "hs" -> "HS"
+        "ppr" -> "PPR"
+        "fmd" -> "FMD"
+        "et_tt" -> "ET+TT"
+        "sheep_pox" -> "Sheep Pox"
+        "blue_tongue" -> "Blue Tongue"
+        "goat_pox" -> "Goat Pox"
+        else -> antigen.replace('_', ' ').replaceFirstChar { it.uppercase() }
+    }
+
+    // Append dose suffix if present
+    return if (doseSuffix == "booster") "$antigenLabel · Booster" else antigenLabel
+}
