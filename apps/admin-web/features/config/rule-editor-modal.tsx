@@ -26,11 +26,13 @@ import {
   hasProofRequirement,
   ALL_STAGES_VALUE,
   parseScope,
+  newCapacityPolicy,
   newCompatibilityPolicy,
   newFeedFields,
   newPregnancyPolicy,
   newProcurementPolicy,
   type AnimalStageOption,
+  type CapacityPolicy,
   type CompatibilityPolicy,
   type DoseRow,
   type FeedFields,
@@ -111,6 +113,8 @@ export function RuleEditorModal({
   const reproductiveOptions = optionGroup(pageContract, "rule_reproductive");
   const deferOptions = optionGroup(pageContract, "defer_states");
   const missedDoseOptions = optionGroup(pageContract, "missed_dose_policies");
+  const capacityScopeOptions = optionGroup(pageContract, "capacity_scopes");
+  const capacityOverflowOptions = optionGroup(pageContract, "capacity_overflow_policies");
   const vaccineTypeOptions = optionGroup(pageContract, "vaccine_types");
   const pathogenClassOptions = optionGroup(
     pageContract,
@@ -475,6 +479,9 @@ export function RuleEditorModal({
   );
   const [pregnancyPolicy, setPregnancyPolicy] = useState<PregnancyPolicy>(() =>
     newPregnancyPolicy(),
+  );
+  const [capacityPolicy, setCapacityPolicy] = useState<CapacityPolicy>(() =>
+    newCapacityPolicy(),
   );
   const [doses] = useState<DoseRow[]>(() => [newContractDose(1)]);
   const [feed, setFeed] = useState<FeedFields>(() => newContractFeedFields());
@@ -1165,6 +1172,7 @@ export function RuleEditorModal({
       compatibilityPolicy,
       procurementPolicy,
       pregnancyPolicy,
+      capacityPolicy,
       doses,
       feed,
     }),
@@ -1199,6 +1207,7 @@ export function RuleEditorModal({
       compatibilityPolicy,
       procurementPolicy,
       pregnancyPolicy,
+      capacityPolicy,
       doses,
       feed,
     ],
@@ -1335,6 +1344,9 @@ export function RuleEditorModal({
             : undefined,
         vaccine_item_id: vaccineItemId || undefined,
         dose_rows: scheduleRows,
+        // Impact preview uses the DRAFT capacity (authored in this editor), before publish — not the
+        // persisted operational cap. estimated_days = ceil(vaccination_cells / this cap).
+        daily_cap: Number(capacityPolicy.maxPerDay) || undefined,
         horizon_days: 30,
       });
       if (res.ok && res.data) setImpact(res.data);
@@ -3953,6 +3965,81 @@ export function RuleEditorModal({
                       "modal.rule_editor.field.post_delivery_catch_up_days",
                     )}
                   />
+                </div>
+
+                <label>{copy(pageContract, "capacity.title")}</label>
+                <div className="rowf">
+                  <input
+                    aria-label={copy(pageContract, "capacity.field.max_per_day")}
+                    type="number"
+                    min="1"
+                    inputMode="numeric"
+                    value={capacityPolicy.maxPerDay}
+                    onChange={(e) =>
+                      setCapacityPolicy((p) => ({
+                        ...p,
+                        maxPerDay: Number(e.target.value),
+                      }))
+                    }
+                    placeholder={copy(pageContract, "capacity.field.max_per_day")}
+                  />
+                  <input
+                    aria-label={copy(pageContract, "capacity.field.max_buffer_days")}
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                    value={capacityPolicy.maxBufferDays}
+                    onChange={(e) =>
+                      setCapacityPolicy((p) => ({
+                        ...p,
+                        maxBufferDays: Number(e.target.value),
+                      }))
+                    }
+                    placeholder={copy(pageContract, "capacity.field.max_buffer_days")}
+                  />
+                </div>
+                <div className="rowf" style={{ marginTop: 6 }}>
+                  <select
+                    aria-label={copy(pageContract, "capacity.field.capacity_scope")}
+                    value={capacityPolicy.capacityScope}
+                    onChange={(e) =>
+                      setCapacityPolicy((p) => ({
+                        ...p,
+                        capacityScope: e.target.value,
+                      }))
+                    }
+                  >
+                    {capacityScopeOptions.map((o) => (
+                      <option
+                        key={o.key}
+                        value={o.key}
+                        disabled={!o.enabled}
+                        title={o.enabled ? undefined : o.disabled_reason}
+                      >
+                        {o.label}
+                        {o.enabled ? "" : ` — ${o.disabled_reason}`}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label={copy(pageContract, "capacity.field.overflow_policy")}
+                    value={capacityPolicy.overflowPolicy}
+                    onChange={(e) =>
+                      setCapacityPolicy((p) => ({
+                        ...p,
+                        overflowPolicy: e.target.value,
+                      }))
+                    }
+                  >
+                    {capacityOverflowOptions.map((o) => (
+                      <option key={o.key} value={o.key}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="muted small" style={{ marginTop: 4, lineHeight: 1.4 }}>
+                  {copy(pageContract, "capacity.help.max_buffer_days")}
                 </div>
 
                 <label>

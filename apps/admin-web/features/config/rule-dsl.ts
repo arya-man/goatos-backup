@@ -104,6 +104,17 @@ export interface PregnancyPolicy {
   postDeliveryCatchUpDays: number;
 }
 
+// CapacityPolicy is the daily vaccination throughput knob that now lives INSIDE the versioned config
+// (rule_dsl.capacity), authored + published with the rule — not a separate tenant setting. On publish
+// the backend syncs these values into vaccination_capacity_config (the operational read model the
+// session-splitting planner reads). Counts VACCINATIONS (cells), not animals.
+export interface CapacityPolicy {
+  maxPerDay: number;
+  maxBufferDays: number;
+  capacityScope: string; // tenant | center | shed
+  overflowPolicy: string;
+}
+
 export interface RuleInput {
   category: string;
   code: string;
@@ -122,6 +133,7 @@ export interface RuleInput {
   compatibilityPolicy: CompatibilityPolicy;
   procurementPolicy: ProcurementPolicy;
   pregnancyPolicy: PregnancyPolicy;
+  capacityPolicy: CapacityPolicy;
   doses: DoseRow[];
   feed: FeedFields;
 }
@@ -242,6 +254,30 @@ export function newPregnancyPolicy(): PregnancyPolicy {
   };
 }
 
+// Default capacity authored into a new vaccination draft. max_buffer_days defaults to 7 (business rule,
+// 2026-07-11); overflow_policy is the only value the planner honors today.
+export function newCapacityPolicy(): CapacityPolicy {
+  return {
+    maxPerDay: 100,
+    maxBufferDays: 7,
+    capacityScope: "tenant",
+    overflowPolicy: "split_within_safe_window_then_mark_needs_review",
+  };
+}
+
+// capacityDsl emits the versioned rule_dsl.capacity block. Shared by both the single-rule and matrix
+// builders so every published vaccination version carries capacity.
+function capacityDsl(input: RuleInput): Record<string, unknown> {
+  return {
+    max_per_day: Math.max(1, Number(input.capacityPolicy.maxPerDay) || 100),
+    max_buffer_days: Math.max(0, Number(input.capacityPolicy.maxBufferDays) || 0),
+    capacity_scope: input.capacityPolicy.capacityScope || "tenant",
+    overflow_policy:
+      input.capacityPolicy.overflowPolicy ||
+      "split_within_safe_window_then_mark_needs_review",
+  };
+}
+
 export function parseScope(scope: string): { type: string; id: string | null } {
   const [type, id] = scope.split(":");
   return { type, id: id ?? null };
@@ -337,6 +373,7 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       post_delivery_catch_up_days:
         Number(input.pregnancyPolicy.postDeliveryCatchUpDays) || 0,
     },
+    capacity: capacityDsl(input),
     schedule: input.doses.map((d, i) => ({
       dose_code: d.doseCode,
       sequence: i + 1,
@@ -537,6 +574,7 @@ export function buildVaccinationMatrixPreview(
       post_delivery_catch_up_days:
         Number(input.pregnancyPolicy.postDeliveryCatchUpDays) || 0,
     },
+    capacity: capacityDsl(input),
     schedule: normalizedRows.flatMap((row, index) => {
       const rowInput = ruleInputForVaccinationMatrixRow(input, row);
       return rowInput.doses.map((d, doseIndex) =>
