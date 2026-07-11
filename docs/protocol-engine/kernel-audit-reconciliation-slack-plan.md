@@ -1072,12 +1072,26 @@ run=<url> top_proofs=<url>
 ### Phase F - Scale certification
 
 - Prove audit scans are tenant/date/status/cursor bounded.
-- Validate query plans for widest audit checks.
+- Run `make scale-guard` and keep new audit implementation compliant with
+  `docs/decisions/scale-anti-patterns.md`. Any unavoidable compute-from-raw
+  reconciliation inside `backend/internal/**` must be bounded and carry a narrow
+  `// scale-guard:ignore: <bounded reason>` annotation; do not baseline new
+  audit offenders.
+- Validate query plans for widest audit checks with `make validate-sqlc-plans`
+  plus seeded `ANALYZE` and `EXPLAIN (ANALYZE, BUFFERS)` evidence at realistic
+  row counts, without relying on `enable_seqscan=off`.
 - Include noisy-tenant fairness in audit workers.
 - Add high-scale report rows for audit runner throughput, lag, repairs,
   Slack delivery, and projection parity.
 - Load-test repair proof lookup and trace traversal by tenant, subject, repair,
   invariant, and correlation ID before enabling millions-scale auto-fix.
+- Run the real kernel gates where applicable: `make high-scale-kernel-e2e-data`,
+  `make high-scale-kernel-e2e-all`, `make high-scale-kernel-e2e-certification`,
+  and `make scale-kernel-gate` / `make scale-kernel-gate-smoke` for the shared
+  kernel paths the audit runner exercises.
+- Commit generated E2E/scale reports into the repo and surface them on the
+  GitHub Pages CI report site before handoff. Reports must state whether they are
+  local-only proof, staging certification, or production certification.
 
 ## 13. Query And Worker Rules
 
@@ -1096,6 +1110,7 @@ The audit runner must follow the same high-scale rules as the kernel:
 - stale-run heartbeat and reclaim;
 - tenant-fair claim order;
 - query-plan validation for hot checks;
+- `make scale-guard` compliance for implementation code;
 - clear freshness envelope for report data.
 
 Tenant fairness is an ordering contract, not a side effect of `SKIP LOCKED`.
@@ -1131,6 +1146,16 @@ raw UTC date truncation. It also must not bucket directly from current
 `oi.status`, because current status can encode the bug being audited. Persisted
 `missed` and read-time `overdue` must be reconciled against the same
 location-local as-of expectation before the auditor creates or closes findings.
+
+This reconstruction is an audit-only exception to the normal compute-on-write
+rule. The implementation must still follow `docs/decisions/scale-anti-patterns.md`:
+use event-window deltas, aggregate parity, keyset-scoped subject scans, persisted
+watermarks, and module-owned projections. Do not implement due/missed/overdue
+reconciliation as a whole-tenant compute-on-read god CTE or request-path
+rebuild. If a compute-from-raw check is genuinely unavoidable in
+`backend/internal/**`, it must be narrowly bounded, explain why the bounded scan
+is safe, and carry a `// scale-guard:ignore: <bounded reason>` annotation instead
+of disabling or extending the scale-guard baseline.
 
 An audit finding is not allowed to be based on stale or partial data without
 saying so. Reports must include input windows, projection freshness, source
@@ -1204,7 +1229,11 @@ The plan is implemented when:
    coverage.
 16. High-scale validation proves audit scans, repair proof lookup, and trace
    traversal are bounded and tenant-fair, including lookups by invariant,
-   trace ID, correlation ID, subject, repair, and time cursor.
+   trace ID, correlation ID, subject, repair, and time cursor. Phase F evidence
+   includes `make scale-guard`, `make validate-sqlc-plans`, realistic
+   `EXPLAIN (ANALYZE, BUFFERS)` plans, applicable high-scale kernel gates, and
+   committed GitHub Pages reports that label local-only vs staging/production
+   certification.
 17. Audit tables have a documented retention, archive, and partition-rollover
     policy, and scope claims are both lease-safe against overlapping
     orchestrators and tenant-fair under skewed load.
