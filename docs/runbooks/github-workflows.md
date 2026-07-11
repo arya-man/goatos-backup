@@ -237,6 +237,44 @@ Note: this guard checks query SHAPE, not runtime cost. It does not replace the
 plan/latency gates (Step 8), which today run at ~1k rows — a green run means
 "correct shape", not "1M-proven".
 
+### Step 4b: Mobile list-fetch anti-pattern guard
+
+Command:
+
+```text
+make mobile-guard          # what CI runs (diff-scoped)
+make mobile-guard-audit    # whole-tree backlog
+```
+
+Purpose:
+
+```text
+Block the mobile/web "fetch a whole list to render a screen" anti-patterns
+catalogued in docs/decisions/mobile-data-fetch-anti-patterns.md. A phone shows
+~10 rows; a screen must never pull 50/200/1000. Runs the Node analyzer
+tools/agent-hooks/check-mobile-list-fetch.mjs over apps/goatos-android/**.
+```
+
+It blocks: a `limit = N` / `*_LIMIT` / `*_PAGE_LIMIT` / `*_PAGE_SIZE` above ~20
+rows; `buildMonthDays`/`buildWeekDays` parsing event dates (the calendar overview
+must render from backend day-markers/dots, not by fetching+parsing events); and
+O(n^2) date scans (`.find { ... parseLocalDate }`).
+
+It is **diff-scoped in CI** (`MOBILE_GUARD_BASE`, default `origin/main`): it only
+scans mobile `.kt` files changed vs the base, so **a commit with no mobile code
+passes instantly** — the guardrails job checks out with `fetch-depth: 0` so the
+diff base is available. `make mobile-guard-audit` scans the whole tree to show the
+current backlog. A genuinely-bounded case may carry an inline
+`// mobile-guard:ignore: <reason>`.
+
+If this fails, it usually means:
+
+```text
+a mobile screen fetches more than one keyset page (~20) of rows; a calendar
+overview parses events to draw its dots instead of consuming day-markers; or a
+list transform re-parses every event inside .find/.any (O(n^2)).
+```
+
 ### Step 5: Large File Guard
 
 Purpose:

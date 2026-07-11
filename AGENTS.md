@@ -379,6 +379,25 @@ Do:
   migrated). Full rule + the NetworkBoundResource pattern:
   `docs/decisions/android-offline-first.md`; refs the Android data-layer + offline-first
   architecture guides.
+- NEVER fetch more than one screen-page of rows on mobile/web (hard rule — Claude,
+  Codex, humans). A phone viewport holds ~7-10 items; pulling 50/200/1000 rows to
+  render is the mobile twin of compute-on-read. Machine-blocked by `make mobile-guard`
+  (`tools/agent-hooks/check-mobile-list-fetch.mjs`, diff-scoped in CI so a commit with
+  no mobile code passes instantly); rule + rationale in
+  `docs/decisions/mobile-data-fetch-anti-patterns.md`. The rules:
+  - **Calendar week/month overview = DOTS ONLY** — one per-day marker (a drive exists;
+    optional tone) from a backend day-marker set (`includeDateMarkers` /
+    `CalendarDateMarkerDto`). Never fetch or parse a day's events to draw the grid.
+  - **Every drill level paginates** — L1 day list, L2 sheds, L3 vaccine-capture
+    (done/pending/skipped animals) are each a keyset page of **~20** with infinite
+    scroll (prefetch next at item ~17-18). Never request > ~20 rows in one page.
+  - **A vaccination drive is a mix of SHEDS, never grouped by vaccine** — a shed may
+    bundle same/different vaccines, but the drive is shed-scoped. Coverage-by-vaccine is
+    a metric, not the drive grouping.
+  - Parse/transform each field ONCE (never re-parse inside `.find`/`.filter` → O(n^2)),
+    off the Main thread (`Dispatchers.Default`, ideally in the repo via `flowOn`).
+  If a case is genuinely bounded (e.g. a fixed 7-cell week loop) annotate the line
+  `// mobile-guard:ignore: <reason>`; do not disable the guard.
 - Treat idempotency as a mandatory write-path contract for every mutating API,
   worker, importer, webhook, state transition, outbox producer/consumer, server
   action, and UI-triggered write. Each write path must accept or derive a stable

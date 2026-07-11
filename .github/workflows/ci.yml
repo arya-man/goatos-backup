@@ -12,6 +12,8 @@ jobs:
       GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # mobile-guard diffs against origin/main to scope to changed mobile files
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -29,6 +31,12 @@ jobs:
           bash tools/agent-hooks/check-e2e-kernel-integrity.sh
       - name: Scale anti-pattern guard
         run: make scale-guard
+      - name: Mobile list-fetch anti-pattern guard
+        # Diff-scoped: only scans mobile .kt changed vs the base, so a commit with no mobile
+        # code passes instantly. See docs/decisions/mobile-data-fetch-anti-patterns.md.
+        env:
+          MOBILE_GUARD_BASE: origin/${{ github.base_ref || 'main' }}
+        run: make mobile-guard
       - name: Large file guard
         run: |
           found="$(

@@ -1,0 +1,187 @@
+#!/usr/bin/env node
+
+// check-mobile-list-fetch.mjs — blocks mobile "fetch a huge list / aggregate on the client"
+// anti-patterns. A phone viewport holds ~10 items; a screen must never pull hundreds of rows
+// from Room/backend, and a calendar overview must render from tiny per-day markers, not by
+// parsing every event. See docs/decisions/mobile-data-fetch-anti-patterns.md.
+//
+// Modes:
+//   (default)     diff-scoped: scan only mobile .kt changed vs $MOBILE_GUARD_BASE (or origin/main).
+//                 No mobile Kotlin changed -> PASS instantly (CI stays fast on non-mobile commits).
+//   --all         audit the whole mobile /src/main tree (backlog view; used by `make mobile-guard`).
+//   --self-test   run the built-in fixtures and exit.
+//
+// Escape hatch: a genuinely-bounded case may append `mobile-guard:ignore: <reason>` on the line.
+
+import { execSync } from "node:child_process";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+
+const repo = resolve(import.meta.dirname, "../..");
+
+// A phone shows ~7-10 rows; a page is ~20. Anything larger is fetching more than a screen can use.
+const MAX_PAGE = 20;
+
+const isMobileKt = (rel) =>
+  rel.startsWith("apps/goatos-android/") &&
+  rel.endsWith(".kt") &&
+  rel.includes("/src/main/") &&
+  !rel.includes("/build/");
+
+// Returns array of findings: { line, rule, message }. `line` is 1-indexed or null.
+export function findingsForSource(source) {
+  const findings = [];
+  const lines = source.split("\n");
+
+  // 1) Oversized page/list fetch. A `limit = N` arg or a *_LIMIT / *_PAGE_LIMIT / *_PAGE_SIZE
+  //    constant above one screen-page (MAX_PAGE) means the screen pulls more than it can show.
+  lines.forEach((text, i) => {
+    if (/mobile-guard:ignore/.test(text)) return;
+    const patterns = [
+      /\blimit\s*=\s*(\d+)/,
+      /\b[A-Za-z0-9_]*(?:PAGE_LIMIT|PAGE_SIZE|_LIMIT)\s*=\s*(\d+)/,
+    ];
+    for (const re of patterns) {
+      const m = re.exec(text);
+      if (m && Number(m[1]) > MAX_PAGE) {
+        findings.push({
+          line: i + 1,
+          rule: "oversized-page-fetch",
+          message: `fetches ${m[1]} rows (> ${MAX_PAGE}); a phone shows ~10 — use a ~20-row keyset page with load-more`,
+        });
+        break;
+      }
+    }
+  });
+
+  // 2) Calendar overview must render from backend day-markers, never by parsing events.
+  //    Parsing dates inside the month/week grid builders is the "fetch + aggregate on client" smell.
+  for (const fn of ["buildMonthDays", "buildWeekDays"]) {
+    const start = source.search(new RegExp(`fun\\s+${fn}\\s*\\(`));
+    if (start < 0) continue;
+    // Body ends at the next top-level fun (heuristic) or 2500 chars, whichever comes first.
+    const rest = source.slice(start + 3);
+    const nextFn = rest.search(/\n(?:private |internal |public )?fun\s/);
+    const body = rest.slice(0, nextFn < 0 ? 2500 : Math.min(nextFn, 2500));
+    if (/\bparseLocalDate\s*\(|\bOffsetDateTime\.parse\s*\(/.test(body)) {
+      const line = source.slice(0, start).split("\n").length;
+      findings.push({
+        line,
+        rule: "overview-parses-events",
+        message: `${fn} parses event dates; the week/month overview must render from backend day-markers (dots), not by fetching & parsing events`,
+      });
+    }
+  }
+
+  // 3) O(n^2) date scan: a `.find { ... parseLocalDate/OffsetDateTime.parse }` re-parses the whole
+  //    list per item. Precompute once instead.
+  lines.forEach((text, i) => {
+    if (/mobile-guard:ignore/.test(text)) return;
+    if (/\.(?:find|first|last|any|count)\s*\{[^}]*(?:parseLocalDate|OffsetDateTime\.parse)/.test(text)) {
+      findings.push({
+        line: i + 1,
+        rule: "on2-date-scan",
+        message: "re-parses every event inside .find/.any (O(n^2)); parse each date once and reuse",
+      });
+    }
+  });
+
+  return findings;
+}
+
+function walkMobile(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (["build", "node_modules"].includes(entry.name)) continue;
+      out.push(...walkMobile(path));
+    } else if (entry.isFile()) {
+      const rel = relative(repo, path);
+      if (isMobileKt(rel)) out.push(rel);
+    }
+  }
+  return out;
+}
+
+function changedMobileFiles() {
+  const base = process.env.MOBILE_GUARD_BASE || "origin/main";
+  const ranges = [`${base}...HEAD`, "HEAD~1...HEAD"];
+  for (const range of ranges) {
+    try {
+      const refOk = range.split("...")[0];
+      execSync(`git rev-parse --verify --quiet ${refOk}^{commit}`, { cwd: repo, stdio: "ignore" });
+      const out = execSync(`git diff --name-only --diff-filter=d ${range}`, { cwd: repo, encoding: "utf8" });
+      return out.split("\n").map((s) => s.trim()).filter(Boolean).filter(isMobileKt);
+    } catch {
+      /* try next range */
+    }
+  }
+  return null; // could not resolve a diff base
+}
+
+function selfTest() {
+  const bad = [
+    ["private const val DAY_PAGE_LIMIT = 50", "oversized-page-fetch"],
+    ["repo.observeEvents(dateFrom = k, dateTo = k, limit = 200)", "oversized-page-fetch"],
+    ["private fun buildMonthDays(items: List<Dto>) {\n  items.mapNotNull { parseLocalDate(it.dueAt) }\n}\nprivate fun next() {}", "overview-parses-events"],
+    ["val t = items.find { parseLocalDate(it.dueAt) == date }?.tone()", "on2-date-scan"],
+  ];
+  for (const [src, rule] of bad) {
+    const f = findingsForSource(src);
+    if (!f.some((x) => x.rule === rule)) throw new Error(`self-test: '${rule}' not flagged for: ${src.slice(0, 60)}`);
+  }
+  const good = [
+    "repo.observeEvents(dateFrom = k, dateTo = k, limit = 20)",
+    "private const val DAY_PAGE_LIMIT = 20",
+    "repo.markers(month = m) // dots only, no events fetched",
+    "val t = items.find { parseLocalDate(it.dueAt) == date } // mobile-guard:ignore: bounded <=7 day cells",
+    "private fun buildMonthDays(markers: List<DayMarker>) {\n  markers.forEach { cell(it.date, it.tone) }\n}\nprivate fun next() {}",
+  ];
+  for (const src of good) {
+    const f = findingsForSource(src);
+    if (f.length) throw new Error(`self-test: false positive on good source: ${src.slice(0, 60)} -> ${f.map((x) => x.rule)}`);
+  }
+  console.log("mobile-list-fetch self-test: ok");
+}
+
+if (process.argv.includes("--self-test")) {
+  selfTest();
+  process.exit(0);
+}
+
+const all = process.argv.includes("--all");
+let files;
+if (all) {
+  files = walkMobile(join(repo, "apps/goatos-android"));
+} else {
+  files = changedMobileFiles();
+  if (files === null) {
+    console.log("mobile-list-fetch: skipped (no git diff base; run with --all to audit the whole tree)");
+    process.exit(0);
+  }
+  if (files.length === 0) {
+    console.log("mobile-list-fetch: ok (no mobile Kotlin changed)");
+    process.exit(0);
+  }
+}
+
+const findings = [];
+for (const rel of files) {
+  const abs = join(repo, rel);
+  let source;
+  try {
+    source = readFileSync(abs, "utf8");
+  } catch {
+    continue;
+  }
+  for (const f of findingsForSource(source)) findings.push({ ...f, rel });
+}
+
+if (findings.length) {
+  console.error(`mobile-list-fetch: ${findings.length} anti-pattern(s) (see docs/decisions/mobile-data-fetch-anti-patterns.md)`);
+  for (const f of findings) console.error(`- ${f.rule} ${f.rel}:${f.line}: ${f.message}`);
+  console.error("If a case is genuinely bounded, append `mobile-guard:ignore: <reason>` on the line.");
+  process.exit(1);
+}
+console.log(`mobile-list-fetch: ok (${files.length} mobile file(s) scanned; no over-fetch / client-aggregation)`);
