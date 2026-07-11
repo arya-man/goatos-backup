@@ -86,6 +86,20 @@ export function findingsForSource(source) {
     }
   });
 
+  // 4) Unbounded DB read. Room is the UI's source of truth, so pagination binds the Room side too:
+  //    an @Query that ORDER BYs without a LIMIT (e.g. observeAll() SELECT *) re-materializes the whole
+  //    table into memory on every emission. Bound it to a ~20-row keyset window / PagingSource.
+  lines.forEach((text, i) => {
+    if (/mobile-guard:ignore/.test(text)) return;
+    if (/@Query\s*\(/.test(text) && /\bselect\b[\s\S]*\bfrom\b[\s\S]*\border\s+by\b/i.test(text) && !/\blimit\b/i.test(text)) {
+      findings.push({
+        line: i + 1,
+        rule: "unbounded-db-read",
+        message: "unbounded DAO read (SELECT ... ORDER BY with no LIMIT); the UI observes Room too — bound it to a ~20-row keyset window / PagingSource",
+      });
+    }
+  });
+
   return findings;
 }
 
@@ -126,6 +140,7 @@ function selfTest() {
     ["repo.observeEvents(dateFrom = k, dateTo = k, limit = 200)", "oversized-page-fetch"],
     ["private fun buildMonthDays(items: List<Dto>) {\n  items.mapNotNull { parseLocalDate(it.dueAt) }\n}\nprivate fun next() {}", "overview-parses-events"],
     ["val t = items.find { parseLocalDate(it.dueAt) == date }?.tone()", "on2-date-scan"],
+    ["@Query(\"SELECT * FROM outbox ORDER BY createdAt ASC\")", "unbounded-db-read"],
   ];
   for (const [src, rule] of bad) {
     const f = findingsForSource(src);
@@ -137,6 +152,8 @@ function selfTest() {
     "repo.markers(month = m) // dots only, no events fetched",
     "val t = items.find { parseLocalDate(it.dueAt) == date } // mobile-guard:ignore: bounded <=7 day cells",
     "private fun buildMonthDays(markers: List<DayMarker>) {\n  markers.forEach { cell(it.date, it.tone) }\n}\nprivate fun next() {}",
+    "@Query(\"SELECT * FROM outbox ORDER BY createdAt DESC LIMIT :pageSize\")",
+    "@Query(\"SELECT * FROM calendar_cache WHERE cacheKey = :key\")",
   ];
   for (const src of good) {
     const f = findingsForSource(src);

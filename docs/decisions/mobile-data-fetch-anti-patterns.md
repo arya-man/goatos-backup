@@ -31,6 +31,33 @@ the shared rule the CI guard enforces.
    `Dispatchers.Default` (ideally in the repository via `.map { }.flowOn(...)`), leaving only the
    small state assembly on Main.
 
+## Room is the single source of truth — pagination binds BOTH layers
+
+Offline-first makes Room the UI's source of truth: the screen renders from Room, the network refresh
+upserts Room in the background. Pagination is therefore a property of BOTH sides, with the SAME keyset
+and page size (~20):
+
+- **Network fetch** requests one keyset page (`limit ~20` + `cursor`) and reads `next_cursor`.
+- **The Room read the UI observes** must be an EQUALLY bounded keyset window — a Room `PagingSource`, or
+  a `@Query(... ORDER BY <key> LIMIT :pageSize)` advanced by cursor. NEVER `SELECT *` / `observeAll()`,
+  and never re-decode an ever-growing accumulated blob. Otherwise the over-fetch just moves from the
+  network to the DB: Room re-materializes the whole cached table into memory and re-parses it on every
+  emission — the same anti-pattern one layer down.
+
+Canonical shape for a large list (scan roster, tasks): **Paging 3 + `RemoteMediator`, Room as the single
+source of truth** — the mediator fills Room from the backend keyset page-by-page, a Room `PagingSource`
+reads bounded windows, the VM exposes `Flow<PagingData<T>>.cachedIn(viewModelScope)`, the screen renders
+`LazyColumn { items(lazyPagingItems, key = { it.id }) }`. Both layers page identically and automatically;
+nothing ever holds the whole cohort.
+
+For the small page-blob caches (one JSON blob per scope key), the blob IS the network page, so bounding
+the page (~20) bounds the Room read too — but an append/load-more must NOT grow one scope blob without
+bound; store per-item rows (Paging) or cap+evict so the observed window stays ~one screen.
+
+Current gaps (tracked in [mobile-fetch-fix-backlog.md](./mobile-fetch-fix-backlog.md)): the outbox
+`observeAll()` is `SELECT *` (unbounded DB read); scan/tasks need per-item Room + Paging rather than a
+growing page-blob.
+
 ## CI guard
 
 `tools/agent-hooks/check-mobile-list-fetch.mjs` (via `make mobile-guard`) blocks the machine-checkable
@@ -41,6 +68,8 @@ subset:
 - `overview-parses-events` — `parseLocalDate` / `OffsetDateTime.parse` inside `buildMonthDays` /
   `buildWeekDays` (overview must consume markers, not events).
 - `on2-date-scan` — re-parsing every event inside `.find` / `.any` (O(n²)).
+- `unbounded-db-read` — an `@Query` that `ORDER BY`s with no `LIMIT` (e.g. `observeAll()` `SELECT *`);
+  Room is the UI's source of truth, so the observed read must be a bounded ~20-row keyset window too.
 
 **It is diff-scoped in CI**: it only scans mobile `.kt` files changed vs the base, so a commit with
 no mobile code passes instantly (nothing to check). `make mobile-guard` runs the whole-tree audit

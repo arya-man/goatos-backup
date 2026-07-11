@@ -396,6 +396,11 @@ Do:
     a metric, not the drive grouping.
   - Parse/transform each field ONCE (never re-parse inside `.find`/`.filter` → O(n^2)),
     off the Main thread (`Dispatchers.Default`, ideally in the repo via `flowOn`).
+  - **Room is the single source of truth, so pagination binds BOTH layers** — the network
+    fetch AND the Room read the UI observes use the same keyset + ~20 page size. NEVER
+    `SELECT *` / `observeAll()` / an ever-growing accumulated blob; the observed read is a
+    bounded keyset window (Room `PagingSource`; Paging 3 + `RemoteMediator` for large lists).
+    Otherwise the over-fetch just moves from network to DB.
   If a case is genuinely bounded (e.g. a fixed 7-cell week loop) annotate the line
   `// mobile-guard:ignore: <reason>`; do not disable the guard.
 - Treat idempotency as a mandatory write-path contract for every mutating API,
