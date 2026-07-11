@@ -13,7 +13,6 @@ type fakeRepo struct {
 	opsRows     []domain.OperationsRow
 	roster      []domain.ScanRosterRow
 	gapsRows    []domain.GapProjectionRow
-	gapsCounts  []domain.GapReasonCount
 	shedRows    []domain.ShedSummaryProjection
 	shedAnimals []domain.ShedAnimalRow
 	capacityCfg domain.CapacityConfig
@@ -49,13 +48,6 @@ func (r fakeRepo) VaccinationGaps(_ context.Context, _ domain.GapsQuery) ([]doma
 		return nil, r.err
 	}
 	return r.gapsRows, nil
-}
-
-func (r fakeRepo) VaccinationGapsSummary(_ context.Context, _ domain.GapsQuery) ([]domain.GapReasonCount, error) {
-	if r.err != nil {
-		return nil, r.err
-	}
-	return r.gapsCounts, nil
 }
 
 func (r fakeRepo) ScanRoster(_ context.Context, _ domain.ScanRosterQuery) ([]domain.ScanRosterRow, error) {
@@ -205,36 +197,28 @@ func TestVaccinationExecutionFiltersWorkStateAndBuildsDrilldown(t *testing.T) {
 	}
 }
 
-func TestVaccinationGapsBuildsReasonLabelsAndCursor(t *testing.T) {
+func TestVaccinationGapsBuildsPerAnimalRowsAndCursor(t *testing.T) {
 	shedID := "shed-1"
+	tag1 := "901007000503717"
 	gapsRows := []domain.GapProjectionRow{
-		{GoatID: "goat-1", DisplayID: "G-000001", ParkID: "park-1", ParkName: "CBE", ShedID: &shedID, ReasonCode: domain.GapReasonNoDateOfBirth},
+		{GoatID: "goat-1", DisplayID: "G-000001", AnimalIdentifier1: &tag1, ParkID: "park-1", ParkName: "CBE", ShedID: &shedID, ReasonCode: domain.GapReasonNoDateOfBirth},
 		{GoatID: "goat-2", DisplayID: "G-000002", ParkID: "park-1", ParkName: "CBE", ReasonCode: domain.GapReasonNoBreedOnRecord},
 	}
-	gapsCounts := []domain.GapReasonCount{
-		{ReasonCode: domain.GapReasonNoBreedOnRecord, Count: 3},
-		{ReasonCode: domain.GapReasonNoDateOfBirth, Count: 7},
-	}
-	svc := NewService(fakeRepo{gapsRows: gapsRows, gapsCounts: gapsCounts})
+	svc := NewService(fakeRepo{gapsRows: gapsRows})
 
 	resp, err := svc.VaccinationGaps(context.Background(), domain.GapsQuery{TenantID: "tenant", Limit: len(gapsRows)})
 	if err != nil {
 		t.Fatalf("VaccinationGaps() error = %v", err)
 	}
-	if len(resp.Reasons) != 2 {
-		t.Fatalf("reasons = %#v want 2 entries", resp.Reasons)
-	}
-	// Reasons come back sorted by reason code: no_breed_on_record < no_date_of_birth lexically? verify labels attached.
-	for _, r := range resp.Reasons {
-		if r.ReasonLabel == "" {
-			t.Fatalf("reason %q missing label", r.ReasonCode)
-		}
-	}
+	// Data gaps are strictly per-animal: one row per goat, no by-reason aggregate on the response.
 	if len(resp.Rows) != 2 {
 		t.Fatalf("rows = %#v want 2", resp.Rows)
 	}
 	if resp.Rows[0].ReasonLabel != "No date of birth" {
 		t.Fatalf("row 0 label = %q want %q", resp.Rows[0].ReasonLabel, "No date of birth")
+	}
+	if resp.Rows[0].AnimalIdentifier1 == nil || *resp.Rows[0].AnimalIdentifier1 != tag1 {
+		t.Fatalf("row 0 tag1 = %v want %q", resp.Rows[0].AnimalIdentifier1, tag1)
 	}
 	if resp.Rows[1].ReasonLabel != "No breed on record" {
 		t.Fatalf("row 1 label = %q want %q", resp.Rows[1].ReasonLabel, "No breed on record")

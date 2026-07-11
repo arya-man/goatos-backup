@@ -517,9 +517,8 @@ func TestRescheduleObligationValidatesRequest(t *testing.T) {
 
 func TestVaccinationGapsParsesQueryAndResponds(t *testing.T) {
 	reader := &fakeReader{gaps: domain.GapsResponse{
-		Source:  domain.SourceAPI,
-		Reasons: []domain.GapReasonSummary{{ReasonCode: domain.GapReasonNoDateOfBirth, ReasonLabel: "No date of birth", Count: 7}},
-		Rows:    []domain.GapRow{{GoatID: "goat-1", DisplayID: "G-000001", ParkID: "park-1", ParkName: "CBE", ReasonCode: domain.GapReasonNoDateOfBirth, ReasonLabel: "No date of birth"}},
+		Source: domain.SourceAPI,
+		Rows:   []domain.GapRow{{GoatID: "goat-1", DisplayID: "G-000001", ParkID: "park-1", ParkName: "CBE", ReasonCode: domain.GapReasonNoDateOfBirth, ReasonLabel: "No date of birth"}},
 	}}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader, &fakeWriter{}))
@@ -544,9 +543,6 @@ func TestVaccinationGapsParsesQueryAndResponds(t *testing.T) {
 	var resp domain.GapsResponse
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
-	}
-	if len(resp.Reasons) != 1 || resp.Reasons[0].Count != 7 {
-		t.Fatalf("response reasons = %#v", resp.Reasons)
 	}
 	if len(resp.Rows) != 1 || resp.Rows[0].DisplayID != "G-000001" {
 		t.Fatalf("response rows = %#v", resp.Rows)

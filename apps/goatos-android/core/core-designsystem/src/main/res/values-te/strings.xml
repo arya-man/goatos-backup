@@ -29,7 +29,6 @@
     <string name="offline_details">వివరాలు</string>
     <string name="offline_subtitle">రికార్డులు ఈ ఫోన్‌లో సేవ్ అవుతాయి, మళ్లీ కనెక్ట్ అయినప్పుడు సింక్ అవుతాయి</string>
     <string name="ovl_error_fmt">లోపం: %1$s</string>
-    <string name="ovl_animals_fmt">%1$s జంతువులు</string>
     <string name="sync_footer">ఆఫ్‌లైన్-మొదట: అవుట్‌బాక్స్ ముందు వీడియో ప్రూఫ్, ఆపై షెడ్ రికార్డును అప్‌లోడ్ చేస్తుంది, బ్యాకాఫ్‌తో మళ్లీ ప్రయత్నిస్తుంది, ఎప్పుడూ నకిలీ సృష్టించదు.</string>
     <string name="sync_online">ఆన్‌లైన్</string>
     <string name="sync_offline">ఆఫ్‌లైన్</string>
@@ -54,6 +53,8 @@
     <string name="gaps_footer">వెబ్ డాష్‌బోర్డ్‌లో సరిచేయండి · Data Ops → Herd Register</string>
     <string name="gaps_empty">డేటా ఖాళీలు లేవు — అన్ని జంతువుల అవసర సమాచారం ఉంది.</string>
     <string name="gaps_note">తప్పిపోయిన డేటా నింపే వరకు ఈ జంతువులు కవరేజ్ % నుండి మినహాయించబడతాయి. మిగతావన్నీ పూర్తిగా ట్రాక్ చేయబడతాయి.</string>
+    <string name="gaps_tag1_label">ట్యాగ్ 1</string>
+    <string name="gaps_tag2_label">ట్యాగ్ 2</string>
     <string name="doses_footer">ప్రతి డోసు వీడియో ప్రూఫ్‌తో ధృవీకరించిన షెడ్ రికార్డు</string>
     <string name="doses_empty">ఈ స్కోప్‌కు టీకా డేటా అందుబాటులో లేదు.</string>
 </resources>

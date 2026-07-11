@@ -11,10 +11,9 @@ type Repository interface {
 	ListVaccinationExecution(ctx context.Context, q domain.ExecutionQuery) ([]domain.ExecutionProjection, error)
 	VaccinationOperations(ctx context.Context, q domain.OperationsQuery) ([]domain.OperationsRow, error)
 	ScanRoster(ctx context.Context, q domain.ScanRosterQuery) ([]domain.ScanRosterRow, error)
-	// VaccinationGaps returns the bounded, keyset-paginated per-animal exclusion rows for the mobile data
-	// gaps overlay. VaccinationGapsSummary returns the cheap scoped reason-count aggregate (<= 2 groups).
+	// VaccinationGaps returns the bounded, keyset-paginated PER-ANIMAL exclusion rows for the mobile data
+	// gaps overlay. Every row is one goat; there is no by-reason aggregate in the contract.
 	VaccinationGaps(ctx context.Context, q domain.GapsQuery) ([]domain.GapProjectionRow, error)
-	VaccinationGapsSummary(ctx context.Context, q domain.GapsQuery) ([]domain.GapReasonCount, error)
 	// ShedSummary returns the filtered, offset-paginated shed-wise rollup rows with ANIMAL-LEVEL Due
 	// counts and a window total for pagination. Manager/Backup are attached by the service via the
 	// ShedOwnershipReader port, not by this query.

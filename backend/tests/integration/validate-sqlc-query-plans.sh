@@ -360,19 +360,6 @@ WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND g.goat_id > '00000000-0000-0000-0000-000000000000'::uuid
 ORDER BY g.goat_id ASC
 LIMIT 200;"
-
-  explain_must_use_index "VaccinationGapsSummary" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
-SELECT
-  CASE WHEN g.dob IS NULL THEN 'no_date_of_birth' ELSE 'no_breed_on_record' END AS reason_code,
-  COUNT(*)::bigint
-FROM goats g
-WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-  AND g.lifecycle_status = 'alive'
-  AND g.merged_into_goat_id IS NULL
-  AND g.park_id IS NOT NULL
-  AND (''::text = '' OR g.park_id = nullif(''::text, '')::uuid)
-  AND (g.dob IS NULL OR (g.breed IS NULL AND g.breed_id IS NULL))
-GROUP BY 1;"
 }
 
 validate_vaccination_impact_count_plans() {

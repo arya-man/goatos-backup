@@ -305,37 +305,32 @@ const (
 // GapProjectionRow is one excluded animal straight from SQL, before the service layer attaches a
 // human-readable reason label.
 type GapProjectionRow struct {
-	GoatID     string
-	DisplayID  string
-	ParkID     string
-	ParkName   string
-	ShedID     *string
-	ShedName   *string
-	ReasonCode GapReasonCode
-}
-
-// GapReasonCount is a cheap scoped aggregate (GROUP BY reason, at most two groups) — never a raw
-// full-herd COUNT(*).
-type GapReasonCount struct {
-	ReasonCode GapReasonCode
-	Count      int
+	GoatID            string
+	DisplayID         string
+	AnimalIdentifier1 *string
+	AnimalIdentifier2 *string
+	ParkID            string
+	ParkName          string
+	ShedID            *string
+	ShedName          *string
+	ReasonCode        GapReasonCode
 }
 
 type GapRow struct {
-	GoatID      string        `json:"goatId"`
-	DisplayID   string        `json:"displayId"`
-	ParkID      string        `json:"parkId"`
-	ParkName    string        `json:"parkName"`
-	ShedID      *string       `json:"shedId,omitempty"`
-	ShedName    *string       `json:"shedName,omitempty"`
-	ReasonCode  GapReasonCode `json:"reasonCode"`
-	ReasonLabel string        `json:"reasonLabel"`
-}
-
-type GapReasonSummary struct {
-	ReasonCode  GapReasonCode `json:"reasonCode"`
-	ReasonLabel string        `json:"reasonLabel"`
-	Count       int           `json:"count"`
+	GoatID string `json:"goatId"`
+	// DisplayID is the Goat OS passport id (G-XXXXXX). AnimalIdentifier1/2 are the two
+	// physical tags ("Tag 1"/"Tag 2") from goat_identifiers, nil when no active tag of that
+	// type is attached — the mobile data-gaps card shows all three so a field operator can
+	// physically locate the animal that needs its data fixed.
+	DisplayID         string        `json:"displayId"`
+	AnimalIdentifier1 *string       `json:"animalIdentifier1,omitempty"`
+	AnimalIdentifier2 *string       `json:"animalIdentifier2,omitempty"`
+	ParkID            string        `json:"parkId"`
+	ParkName          string        `json:"parkName"`
+	ShedID            *string       `json:"shedId,omitempty"`
+	ShedName          *string       `json:"shedName,omitempty"`
+	ReasonCode        GapReasonCode `json:"reasonCode"`
+	ReasonLabel       string        `json:"reasonLabel"`
 }
 
 type GapsQuery struct {
@@ -346,11 +341,10 @@ type GapsQuery struct {
 }
 
 type GapsResponse struct {
-	Source     string             `json:"source"`
-	ParkID     *string            `json:"parkId,omitempty"`
-	Reasons    []GapReasonSummary `json:"reasons"`
-	Rows       []GapRow           `json:"rows"`
-	NextCursor *string            `json:"nextCursor,omitempty"`
+	Source     string   `json:"source"`
+	ParkID     *string  `json:"parkId,omitempty"`
+	Rows       []GapRow `json:"rows"`
+	NextCursor *string  `json:"nextCursor,omitempty"`
 }
 
 // ---- Vaccination coverage rollup (per-vaccine given-count + coverage % for a scope). Backs the mobile

@@ -484,9 +484,10 @@ func gapReasonLabel(code domain.GapReasonCode) string {
 }
 
 // VaccinationGaps returns the animals excluded from the vaccination coverage denominator due to
-// missing identity data (no date of birth, no breed on record) for the mobile "Data gaps" overlay. The
-// reason summary is a cheap scoped aggregate (<=2 groups); the rows are the bounded, goat_id-keyset
-// paginated per-animal drill-down — never a full-herd scan, however many animals a park has gapped.
+// missing identity data (no date of birth, no breed on record) for the mobile "Data gaps" overlay.
+// Data gaps are strictly PER ANIMAL: every row is one goat (display id + physical tags + reason it's
+// excluded). The rows are the bounded, goat_id-keyset paginated drill-down — never a full-herd scan,
+// however many animals a park has gapped, and never a by-reason aggregate masquerading as entries.
 func (s *Service) VaccinationGaps(ctx context.Context, q domain.GapsQuery) (domain.GapsResponse, error) {
 	limit := q.Limit
 	if limit <= 0 {
@@ -497,20 +498,6 @@ func (s *Service) VaccinationGaps(ctx context.Context, q domain.GapsQuery) (doma
 	}
 	q.Limit = limit
 
-	summary, err := s.repo.VaccinationGapsSummary(ctx, q)
-	if err != nil {
-		return domain.GapsResponse{}, err
-	}
-	reasons := make([]domain.GapReasonSummary, 0, len(summary))
-	for _, r := range summary {
-		reasons = append(reasons, domain.GapReasonSummary{
-			ReasonCode:  r.ReasonCode,
-			ReasonLabel: gapReasonLabel(r.ReasonCode),
-			Count:       r.Count,
-		})
-	}
-	sort.SliceStable(reasons, func(i, j int) bool { return reasons[i].ReasonCode < reasons[j].ReasonCode })
-
 	projections, err := s.repo.VaccinationGaps(ctx, q)
 	if err != nil {
 		return domain.GapsResponse{}, err
@@ -518,14 +505,16 @@ func (s *Service) VaccinationGaps(ctx context.Context, q domain.GapsQuery) (doma
 	rows := make([]domain.GapRow, 0, len(projections))
 	for _, p := range projections {
 		rows = append(rows, domain.GapRow{
-			GoatID:      p.GoatID,
-			DisplayID:   p.DisplayID,
-			ParkID:      p.ParkID,
-			ParkName:    p.ParkName,
-			ShedID:      p.ShedID,
-			ShedName:    p.ShedName,
-			ReasonCode:  p.ReasonCode,
-			ReasonLabel: gapReasonLabel(p.ReasonCode),
+			GoatID:            p.GoatID,
+			DisplayID:         p.DisplayID,
+			AnimalIdentifier1: p.AnimalIdentifier1,
+			AnimalIdentifier2: p.AnimalIdentifier2,
+			ParkID:            p.ParkID,
+			ParkName:          p.ParkName,
+			ShedID:            p.ShedID,
+			ShedName:          p.ShedName,
+			ReasonCode:        p.ReasonCode,
+			ReasonLabel:       gapReasonLabel(p.ReasonCode),
 		})
 	}
 	var nextCursor *string
@@ -536,7 +525,6 @@ func (s *Service) VaccinationGaps(ctx context.Context, q domain.GapsQuery) (doma
 	return domain.GapsResponse{
 		Source:     domain.SourceAPI,
 		ParkID:     q.ParkID,
-		Reasons:    reasons,
 		Rows:       rows,
 		NextCursor: nextCursor,
 	}, nil

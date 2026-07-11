@@ -29,7 +29,6 @@
     <string name="offline_details">ವಿವರಗಳು</string>
     <string name="offline_subtitle">ದಾಖಲೆಗಳು ಈ ಫೋನ್‌ನಲ್ಲಿ ಉಳಿಯುತ್ತವೆ ಮತ್ತು ಮರುಸಂಪರ್ಕಗೊಂಡಾಗ ಸಿಂಕ್ ಆಗುತ್ತವೆ</string>
     <string name="ovl_error_fmt">ದೋಷ: %1$s</string>
-    <string name="ovl_animals_fmt">%1$s ಪ್ರಾಣಿಗಳು</string>
     <string name="sync_footer">ಆಫ್‌ಲೈನ್-ಮೊದಲು: ಔಟ್‌ಬಾಕ್ಸ್ ಮೊದಲು ವೀಡಿಯೊ ಪ್ರೂಫ್, ನಂತರ ಶೆಡ್ ದಾಖಲೆ ಅಪ್‌ಲೋಡ್ ಮಾಡುತ್ತದೆ, ಬ್ಯಾಕ್‌ಆಫ್‌ನೊಂದಿಗೆ ಮರುಪ್ರಯತ್ನಿಸುತ್ತದೆ, ಮತ್ತು ಎಂದಿಗೂ ನಕಲು ರಚಿಸುವುದಿಲ್ಲ.</string>
     <string name="sync_online">ಆನ್‌ಲೈನ್</string>
     <string name="sync_offline">ಆಫ್‌ಲೈನ್</string>
@@ -54,6 +53,8 @@
     <string name="gaps_footer">ವೆಬ್ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್‌ನಲ್ಲಿ ಸರಿಪಡಿಸಿ · Data Ops → Herd Register</string>
     <string name="gaps_empty">ಯಾವುದೇ ಡೇಟಾ ಅಂತರವಿಲ್ಲ — ಎಲ್ಲಾ ಪ್ರಾಣಿಗಳ ಅಗತ್ಯ ಮಾಹಿತಿ ಇದೆ.</string>
     <string name="gaps_note">ಕಾಣೆಯಾದ ಡೇಟಾ ಭರ್ತಿಯಾಗುವವರೆಗೆ ಈ ಪ್ರಾಣಿಗಳನ್ನು ಕವರೇಜ್ %ನಿಂದ ಹೊರಗಿಡಲಾಗುತ್ತದೆ. ಉಳಿದೆಲ್ಲವೂ ಸಂಪೂರ್ಣವಾಗಿ ಟ್ರ್ಯಾಕ್ ಆಗುತ್ತದೆ.</string>
+    <string name="gaps_tag1_label">ಟ್ಯಾಗ್ 1</string>
+    <string name="gaps_tag2_label">ಟ್ಯಾಗ್ 2</string>
     <string name="doses_footer">ಪ್ರತಿ ಡೋಸ್ ವೀಡಿಯೊ ಪ್ರೂಫ್‌ನೊಂದಿಗೆ ಪರಿಶೀಲಿಸಿದ ಶೆಡ್ ದಾಖಲೆಯಾಗಿದೆ</string>
     <string name="doses_empty">ಈ ಸ್ಕೋಪ್‌ಗೆ ಯಾವುದೇ ಲಸಿಕೆ ಡೇಟಾ ಲಭ್ಯವಿಲ್ಲ.</string>
 </resources>

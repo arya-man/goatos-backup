@@ -1175,41 +1175,6 @@ func seedVaccinationGaps(t *testing.T, ctx context.Context, pool *pgxpool.Pool) 
 		testGapsGoatOK, testTenant, testParty, testGapsShed, testGapsPark)
 }
 
-func TestVaccinationGapsSummaryScopesAndCounts(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-
-	seedVaccinationGaps(t, ctx, pool)
-
-	repo := NewRepository(pool, 5*time.Second)
-	summary, err := repo.VaccinationGapsSummary(ctx, domain.GapsQuery{TenantID: testTenant})
-	if err != nil {
-		t.Fatalf("VaccinationGapsSummary() error = %v", err)
-	}
-	counts := map[domain.GapReasonCode]int{}
-	for _, s := range summary {
-		counts[s.ReasonCode] = s.Count
-	}
-	if counts[domain.GapReasonNoDateOfBirth] != 1 {
-		t.Fatalf("no_date_of_birth count = %d want 1 (summary=%#v)", counts[domain.GapReasonNoDateOfBirth], summary)
-	}
-	if counts[domain.GapReasonNoBreedOnRecord] != 1 {
-		t.Fatalf("no_breed_on_record count = %d want 1 (summary=%#v)", counts[domain.GapReasonNoBreedOnRecord], summary)
-	}
-
-	// Scoping to a park with no gapped animals returns zero counts, not an error.
-	otherPark := "71000000-0000-4000-8000-000000000099"
-	scoped, err := repo.VaccinationGapsSummary(ctx, domain.GapsQuery{TenantID: testTenant, ParkID: &otherPark})
-	if err != nil {
-		t.Fatalf("VaccinationGapsSummary(scoped) error = %v", err)
-	}
-	if len(scoped) != 0 {
-		t.Fatalf("scoped summary = %#v want empty", scoped)
-	}
-}
-
 func TestVaccinationGapsExcludesCompleteAnimalsAndPaginates(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

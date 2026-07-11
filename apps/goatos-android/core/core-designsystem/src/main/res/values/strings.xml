@@ -41,7 +41,6 @@
 
     <!-- Shared overlay bits. %1$s in ovl_error is a backend message (data). -->
     <string name="ovl_error_fmt">Error: %1$s</string>
-    <string name="ovl_animals_fmt">%1$s animals</string>
 
     <!-- Sync sheet: connectivity, queue summary, retry, per-row state + detail, op type. -->
     <string name="sync_footer">Offline-first: the outbox uploads video proof then the shed record, retries with backoff, and never creates a duplicate.</string>
@@ -70,6 +69,8 @@
     <string name="gaps_footer">Fix on the web dashboard · Data Ops → Herd Register</string>
     <string name="gaps_empty">No data gaps — all animals have required information.</string>
     <string name="gaps_note">These animals are excluded from the coverage % until the missing data is filled. Everything else is fully tracked.</string>
+    <string name="gaps_tag1_label">Tag 1</string>
+    <string name="gaps_tag2_label">Tag 2</string>
     <string name="doses_footer">Every dose is a verified shed record with video proof</string>
     <string name="doses_empty">No vaccination data available for this scope.</string>
 </resources>

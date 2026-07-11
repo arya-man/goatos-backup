@@ -35,7 +35,9 @@ import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.R as DesignSystemR
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import androidx.compose.ui.unit.dp
@@ -195,6 +197,40 @@ private fun OverlayPill(text: String, fg: Color, bg: Color) {
         fontWeight = FontWeight.W700,
         modifier = Modifier.clip(CircleShape).background(bg).padding(horizontal = 10.dp, vertical = 4.dp),
     )
+}
+
+/**
+ * One physical-tag chip on a data-gaps card: a small labeled slot ("TAG 1" / "TAG 2") with the tag
+ * value in mono, or a muted "—" when the animal has no active tag of that type. Fixed shape whether
+ * present or missing, so the two chips stay aligned and a missing tag reads as "known-empty", not
+ * "forgotten".
+ */
+@Composable
+private fun GapTagChip(label: String, value: String?, modifier: Modifier = Modifier) {
+    val hasValue = !value.isNullOrBlank()
+    Column(
+        modifier
+            .clip(RoundedCornerShape(9.dp))
+            .background(OverlayTokens.surf3)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Text(
+            label.uppercase(),
+            color = OverlayTokens.faint,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.W700,
+            letterSpacing = 0.5.sp,
+        )
+        Text(
+            if (hasValue) value!! else "—",
+            color = if (hasValue) OverlayTokens.ink else OverlayTokens.muted,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.W600,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 @Composable
@@ -478,15 +514,27 @@ fun defaultScopeOptions(): List<ScopeOption> = listOf(
 
 // region ── 4. DataGapsSheet (ovl-gaps) ─────────────────────────────────────────
 
-data class GapRow(val title: String, val detail: String, val count: String)
+/**
+ * One data-gaps entry — always a SINGLE animal (never a by-reason group). [displayId] = Goat OS
+ * passport id (G-XXXXXX, headlines the card), [tag1]/[tag2] = the two physical tags ("Tag 1"/"Tag 2",
+ * null when no active tag of that type — rendered as "—"), [location] = park · shed, [reason] = why
+ * it's excluded (the pill).
+ */
+data class GapRow(
+    val displayId: String,
+    val location: String,
+    val reason: String,
+    val tag1: String? = null,
+    val tag2: String? = null,
+)
 
 /**
  * Data-gaps sheet (ovl-gaps). Animals the schedule can't evaluate until fixed —
  * excluded from the coverage % with the reason.
  *
- * Wired to `GET /app/vaccination/gaps?park_id=<id>` → animals excluded + reason summary.
- * The overlay is currently HONEST with empty/error states: if no gaps exist, the sheet
- * shows empty. If the load fails (no network), it shows the error.
+ * Wired to `GET /app/vaccination/gaps?park_id=<id>` → one row PER ANIMAL (display id + tags + reason).
+ * The overlay is HONEST with empty/error states: if no gaps exist, the sheet shows empty; if the load
+ * fails (no network), it shows the error.
  */
 @Composable
 fun DataGapsSheet(
@@ -528,15 +576,24 @@ fun DataGapsSheet(
                     OverlayInfoBox(stringResource(DesignSystemR.string.gaps_empty))
                 }
                 else -> {
+                    // Every entry is one animal: display id + both physical tags + the reason pill.
                     gapsData.forEach { gap ->
                         OverlayCard {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.Top) {
                                 Column(Modifier.weight(1f)) {
-                                    Text(gap.title, color = OverlayTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
-                                    Text(gap.detail, color = OverlayTokens.muted, fontSize = 11.5.sp)
+                                    Text(gap.displayId, color = OverlayTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
+                                    if (gap.location.isNotBlank()) {
+                                        Text(gap.location, color = OverlayTokens.muted, fontSize = 11.5.sp)
+                                    }
                                 }
                                 Spacer(Modifier.width(10.dp))
-                                OverlayPill(stringResource(DesignSystemR.string.ovl_animals_fmt, gap.count), OverlayTokens.warn, OverlayTokens.warnX)
+                                // The pill is the reason it's excluded — the actionable fact.
+                                OverlayPill(gap.reason, OverlayTokens.warn, OverlayTokens.warnX)
+                            }
+                            Spacer(Modifier.height(9.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                GapTagChip(stringResource(DesignSystemR.string.gaps_tag1_label), gap.tag1, Modifier.weight(1f))
+                                GapTagChip(stringResource(DesignSystemR.string.gaps_tag2_label), gap.tag2, Modifier.weight(1f))
                             }
                         }
                     }

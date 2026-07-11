@@ -258,27 +258,22 @@ data class OverlayLoadState<T>(
 private const val GAPS_LIMIT = 50
 private const val COVERAGE_LIMIT = 50
 
+// Data gaps are strictly per-animal: one card per goat (display id + physical tags + reason).
+// No rows → empty list → the sheet shows its empty state. There is no by-reason aggregate card.
 private fun VaccinationGapsResponseDto.toGapRows(): List<GapRow> =
-    if (rows.isNotEmpty()) {
-        rows.map { row ->
-            GapRow(
-                title = row.displayId.ifBlank { row.goatId },
-                detail = listOfNotNull(
-                    row.parkName.takeIf { it.isNotBlank() },
-                    row.shedName,
-                    row.reasonLabel.takeIf { it.isNotBlank() },
-                ).joinToString(" · "),
-                count = "1",
-            )
-        }
-    } else {
-        reasons.map { reason ->
-            GapRow(
-                title = reason.reasonLabel.ifBlank { reason.reasonCode },
-                detail = reason.reasonCode,
-                count = reason.count.toString(),
-            )
-        }
+    rows.map { row ->
+        GapRow(
+            // Display id headlines the card; the two physical tags render below it (— when absent).
+            displayId = row.displayId.ifBlank { row.goatId },
+            // Location only — the reason is the pill, so the card leads with WHERE, not WHY.
+            location = listOfNotNull(
+                row.parkName.takeIf { it.isNotBlank() },
+                row.shedName,
+            ).joinToString(" · "),
+            reason = row.reasonLabel,
+            tag1 = row.animalIdentifier1,
+            tag2 = row.animalIdentifier2,
+        )
     }
 
 private fun VaccinationCoverageResponseDto.toGivenRows(): List<GivenRow> =
