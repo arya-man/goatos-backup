@@ -28,6 +28,7 @@ func New(sop SOPTaskCreator, actorID string) *Bridge {
 }
 
 var _ oblapp.TaskCreator = (*Bridge)(nil)
+var _ oblapp.BatchTaskCreator = (*Bridge)(nil)
 
 // CreateTaskForBatch spawns one SOP task for a batch from the given published sop_version.
 func (b *Bridge) CreateTaskForBatch(ctx context.Context, tenantID, batchID, sopVersionID, taskType, title, scopeType, scopeID string) (string, error) {
@@ -49,4 +50,18 @@ func (b *Bridge) CreateTaskForBatch(ctx context.Context, tenantID, batchID, sopV
 		return "", err
 	}
 	return task.TaskID, nil
+}
+
+// CreateTasksForBatches exposes a page-level task creation boundary to the sweeper. SOP task
+// creation remains individually idempotent because each task carries its source batch id.
+func (b *Bridge) CreateTasksForBatches(ctx context.Context, tenantID string, batches []oblapp.BatchTaskCreate) (map[string]string, error) {
+	out := make(map[string]string, len(batches))
+	for _, batch := range batches {
+		taskID, err := b.CreateTaskForBatch(ctx, tenantID, batch.BatchID, batch.SOPVersionID, batch.TaskType, batch.Title, batch.ScopeType, batch.ScopeID)
+		if err != nil {
+			return nil, err
+		}
+		out[batch.BatchID] = taskID
+	}
+	return out, nil
 }

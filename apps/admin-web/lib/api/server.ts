@@ -332,6 +332,7 @@ export async function searchAllGoats(
   const items: GoatSearchResponse["items"] = [];
   let cursor: string | undefined;
   for (;;) {
+    // serial-await: allow cursor pagination depends on the previous page's next_cursor.
     const page = await searchGoats({ ...params, limit: HERD_SEARCH_MAX_PAGE_SIZE, cursor });
     if (!page.ok) return page;
     items.push(...page.data.items);

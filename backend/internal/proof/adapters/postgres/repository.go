@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 	"github.com/vgoats/goatos/backend/internal/proof/domain"
 	"github.com/vgoats/goatos/backend/internal/proof/ports"
 )
@@ -91,6 +93,37 @@ LIMIT 1`), tenantID, proofID)
 		return domain.Artifact{}, ports.ErrNotFound
 	}
 	return artifact, err
+}
+
+func (r *Repository) GetProofsByIDs(ctx context.Context, tenantID string, proofIDs []string) (map[string]domain.Artifact, error) {
+	out := make(map[string]domain.Artifact, len(proofIDs))
+	if len(proofIDs) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	ids, err := pgconv.UUIDs(proofIDs)
+	if err != nil {
+		return nil, fmt.Errorf("proof: proof ids: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, artifactSelectSQL(`
+WHERE tenant_id = $1::uuid
+  AND proof_id = ANY($2::uuid[])`), tenantID, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		artifact, err := scanArtifact(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[artifact.ProofID] = artifact
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *Repository) CompleteProof(ctx context.Context, in domain.CompleteUpload) (domain.Artifact, error) {

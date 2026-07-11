@@ -406,6 +406,7 @@ export async function commitShedsAction(rows: ShedImportCommitRow[], fileHash: s
     }
 
     const idempotencyKey = `shed-bulk:${commitHash}:row:${rowNumber}`;
+    // serial-await: allow creates are committed sequentially to keep import row side effects ordered.
     const result = await createLocation(commit.normalized, idempotencyKey);
     if (result.ok) {
       response.summary.created += 1;

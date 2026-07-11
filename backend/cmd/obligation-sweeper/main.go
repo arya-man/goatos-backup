@@ -355,6 +355,18 @@ func (c sopTaskCreator) CreateTaskForBatch(ctx context.Context, tenantID, batchI
 	return resp.Task.TaskID, nil
 }
 
+func (c sopTaskCreator) CreateTasksForBatches(ctx context.Context, tenantID string, batches []obligationapp.BatchTaskCreate) (map[string]string, error) {
+	out := make(map[string]string, len(batches))
+	for _, batch := range batches {
+		taskID, err := c.CreateTaskForBatch(ctx, tenantID, batch.BatchID, batch.SOPVersionID, batch.TaskType, batch.Title, batch.ScopeType, batch.ScopeID)
+		if err != nil {
+			return nil, err
+		}
+		out[batch.BatchID] = taskID
+	}
+	return out, nil
+}
+
 func enqueueNotificationDispatcher(ctx context.Context, tenantID, source string) error {
 	cfg, enabled, err := taskqueue.ConfigFromEnv()
 	if err != nil || !enabled {

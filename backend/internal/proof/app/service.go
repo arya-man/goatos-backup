@@ -130,7 +130,7 @@ func (s *Service) ResolveProofRefs(ctx context.Context, tenantID string, binding
 	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(binding.TaskID) {
 		return nil, ErrInvalid
 	}
-	out := make([]sopdomain.ProofReference, 0, len(refs))
+	proofIDs := make([]string, 0, len(refs))
 	seen := map[string]struct{}{}
 	for _, ref := range refs {
 		proofID := strings.TrimSpace(ref.ProofID)
@@ -141,9 +141,20 @@ func (s *Service) ResolveProofRefs(ctx context.Context, tenantID string, binding
 			continue
 		}
 		seen[proofID] = struct{}{}
-		proof, err := s.repo.GetProof(ctx, tenantID, proofID)
-		if err != nil {
-			return nil, err
+		proofIDs = append(proofIDs, proofID)
+	}
+	if len(proofIDs) == 0 {
+		return nil, nil
+	}
+	proofs, err := s.repo.GetProofsByIDs(ctx, tenantID, proofIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]sopdomain.ProofReference, 0, len(proofIDs))
+	for _, proofID := range proofIDs {
+		proof, ok := proofs[proofID]
+		if !ok {
+			return nil, ports.ErrNotFound
 		}
 		if proof.UploadState != "completed" || !proofBoundToTask(proof, binding) || !subjectBoundToTaskScope(proof, binding) {
 			return nil, ErrInvalid

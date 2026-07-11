@@ -17,11 +17,49 @@ type TaskCreator interface {
 	CreateTaskForBatch(ctx context.Context, tenantID, batchID, sopVersionID, taskType, title, scopeType, scopeID string) (taskID string, err error)
 }
 
+// BatchTaskCreate is one SOP task spawn request for a planned batch.
+type BatchTaskCreate struct {
+	BatchID      string
+	SOPVersionID string
+	TaskType     string
+	Title        string
+	ScopeType    string
+	ScopeID      string
+}
+
+// BatchTaskCreator lets the sweeper spawn a page of SOP tasks through one adapter call.
+type BatchTaskCreator interface {
+	CreateTasksForBatches(ctx context.Context, tenantID string, batches []BatchTaskCreate) (map[string]string, error)
+}
+
 // StockReserver reserves doses for a batch (FEFO). Satisfied by the inventory app service; nil
 // disables reserve. Best-effort: no stock is a no-op.
 type StockReserver interface {
 	ReserveForBatch(ctx context.Context, tenantID, batchID, locationID, itemID string, qty int64, validOn time.Time) error
 }
+
+// BatchStockReservation is one stock reservation request for a planned batch/rule item.
+type BatchStockReservation struct {
+	BatchID    string
+	LocationID string
+	ItemID     string
+	Qty        int64
+	ValidOn    time.Time
+}
+
+// StockReservationKey returns the stable key used in BatchStockReserver result maps.
+func StockReservationKey(req BatchStockReservation) string {
+	return req.BatchID + "\x00" + req.ItemID
+}
+
+// BatchStockReserver lets the sweeper reserve a page of planned batches through one adapter call.
+// The returned map is keyed by StockReservationKey; an entry means that request failed.
+type BatchStockReserver interface {
+	ReserveForBatches(ctx context.Context, tenantID string, reservations []BatchStockReservation) (map[string]error, error)
+}
+
+// BatchStockBlock records stock-block metadata for one failed reservation.
+type BatchStockBlock = domain.BatchStockBlock
 
 type batchingHoldRecorder interface {
 	RecordBatchingHoldForObligations(ctx context.Context, tenantID string, obligationIDs []string, holdUntil time.Time, occurredAt time.Time) (int64, error)
@@ -29,6 +67,19 @@ type batchingHoldRecorder interface {
 
 type clinicalSweepDeferrer interface {
 	DeferBlockedVaccinationSweepCandidates(ctx context.Context, tenantID, versionID string, dueBefore, occurredAt time.Time, limit int32) (int, error)
+}
+
+type plannedBatchRuleCounter interface {
+	CountAttachedObligationsByRuleForBatches(ctx context.Context, tenantID string, batchIDs []string) (map[string][]domain.RuleAttachmentCount, error)
+}
+
+type plannedBatchTaskLinker interface {
+	SetBatchSOPTasks(ctx context.Context, tenantID string, taskIDsByBatch map[string]string) error
+}
+
+type plannedBatchStockStateWriter interface {
+	MarkBatchStockBlocks(ctx context.Context, tenantID string, blocks []BatchStockBlock) error
+	ClearBatchStockBlocks(ctx context.Context, tenantID string, batchIDs []string) error
 }
 
 // SweepConfig carries the per-version batch config resolved by the caller from the protocol version:
@@ -429,27 +480,11 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 		if len(batches) == 0 {
 			return nil
 		}
-		// The "needing finalization" query is config-unaware, so a batch whose
-		// rule lacks an SOP version (task path) or a vaccine item (stock path) is
-		// returned but never mutated out. Cursoring past a skipped page lets later
-		// actionable batches finalize in the same run. The next run starts from the
-		// beginning, so skipped rows are retried if config is added later.
-		for _, b := range batches {
-			batchCfg := cfg.forRule(b.RuleID)
-			if s.tasks != nil && batchCfg.SOPVersionID != "" && !b.HasSOPTask {
-				taskID, err := s.tasks.CreateTaskForBatch(ctx, tenantID, b.BatchID, batchCfg.SOPVersionID, "vaccination", "Vaccination drive "+b.ScopeID, b.ScopeType, b.ScopeID)
-				if err != nil {
-					return err
-				}
-				if err := s.repo.SetBatchSOPTask(ctx, tenantID, b.BatchID, taskID); err != nil {
-					return err
-				}
-			}
-			if s.reserver != nil && !b.HasStockReservation {
-				if _, err := s.reservePlannedBatchStock(ctx, tenantID, b, cfg); err != nil {
-					return err
-				}
-			}
+		if err := s.finalizePlannedBatchTasks(ctx, tenantID, batches, cfg); err != nil {
+			return err
+		}
+		if err := s.finalizePlannedBatchStock(ctx, tenantID, batches, cfg); err != nil {
+			return err
 		}
 		if int32(len(batches)) < s.page {
 			return nil
@@ -458,6 +493,217 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 		after = &domain.PlannedBatchFinalizationCursor{CreatedAt: last.CreatedAt, BatchID: last.BatchID}
 	}
 	return fmt.Errorf("obligation: planned batch finalization exceeded %d pages without draining", maxPlannedFinalizationPagesPerSweep)
+}
+
+func (s *SweeperService) finalizePlannedBatchTasks(ctx context.Context, tenantID string, batches []domain.PlannedBatchFinalization, cfg SweepConfig) error {
+	if s.tasks == nil {
+		return nil
+	}
+	requests := make([]BatchTaskCreate, 0, len(batches))
+	for _, b := range batches {
+		batchCfg := cfg.forRule(b.RuleID)
+		if batchCfg.SOPVersionID == "" || b.HasSOPTask {
+			continue
+		}
+		requests = append(requests, BatchTaskCreate{
+			BatchID:      b.BatchID,
+			SOPVersionID: batchCfg.SOPVersionID,
+			TaskType:     "vaccination",
+			Title:        "Vaccination drive " + b.ScopeID,
+			ScopeType:    b.ScopeType,
+			ScopeID:      b.ScopeID,
+		})
+	}
+	if len(requests) == 0 {
+		return nil
+	}
+	if creator, ok := s.tasks.(BatchTaskCreator); ok {
+		taskIDs, err := creator.CreateTasksForBatches(ctx, tenantID, requests)
+		if err != nil {
+			return err
+		}
+		return s.linkPlannedBatchTasks(ctx, tenantID, requests, taskIDs)
+	}
+	taskIDs := make(map[string]string, len(requests))
+	for _, req := range requests {
+		// scale-guard:ignore: fallback for non-production task adapters; production bridge implements page-level task creation.
+		taskID, err := s.tasks.CreateTaskForBatch(ctx, tenantID, req.BatchID, req.SOPVersionID, req.TaskType, req.Title, req.ScopeType, req.ScopeID)
+		if err != nil {
+			return err
+		}
+		taskIDs[req.BatchID] = taskID
+	}
+	return s.linkPlannedBatchTasks(ctx, tenantID, requests, taskIDs)
+}
+
+func (s *SweeperService) linkPlannedBatchTasks(ctx context.Context, tenantID string, requests []BatchTaskCreate, taskIDs map[string]string) error {
+	links := make(map[string]string, len(requests))
+	for _, req := range requests {
+		taskID := taskIDs[req.BatchID]
+		if taskID == "" {
+			return fmt.Errorf("obligation: task creator returned no task for batch %s", req.BatchID)
+		}
+		links[req.BatchID] = taskID
+	}
+	if linker, ok := s.repo.(plannedBatchTaskLinker); ok {
+		return linker.SetBatchSOPTasks(ctx, tenantID, links)
+	}
+	for _, req := range requests {
+		// scale-guard:ignore: fallback for non-production repos; production repo links tasks in one set-based update.
+		if err := s.repo.SetBatchSOPTask(ctx, tenantID, req.BatchID, links[req.BatchID]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SweeperService) finalizePlannedBatchStock(ctx context.Context, tenantID string, batches []domain.PlannedBatchFinalization, cfg SweepConfig) error {
+	if s.reserver == nil {
+		return nil
+	}
+	stockBatches := make([]domain.PlannedBatchFinalization, 0, len(batches))
+	for _, b := range batches {
+		if !b.HasStockReservation {
+			stockBatches = append(stockBatches, b)
+		}
+	}
+	if len(stockBatches) == 0 {
+		return nil
+	}
+	ruleCountsByBatch, err := s.ruleCountsForPlannedBatches(ctx, tenantID, stockBatches)
+	if err != nil {
+		return err
+	}
+	requests := make([]BatchStockReservation, 0, len(stockBatches))
+	blocked := make(map[string]bool)
+	for _, b := range stockBatches {
+		ruleCounts := ruleCountsByBatch[b.BatchID]
+		if len(ruleCounts) == 0 && b.AttachedObligations > 0 {
+			ruleCounts = []domain.RuleAttachmentCount{{RuleID: b.RuleID, Count: b.AttachedObligations}}
+		}
+		for _, rc := range ruleCounts {
+			batchCfg := cfg.forRule(rc.RuleID)
+			if batchCfg.VaccineItemID == "" || rc.Count <= 0 {
+				continue
+			}
+			dosesPer := batchCfg.DosesPerGoat
+			if dosesPer < 1 {
+				dosesPer = 1
+			}
+			requests = append(requests, BatchStockReservation{
+				BatchID:    b.BatchID,
+				LocationID: b.ScopeID,
+				ItemID:     batchCfg.VaccineItemID,
+				Qty:        rc.Count * int64(dosesPer),
+				ValidOn:    batchStockValidOn(b),
+			})
+		}
+		blocked[b.BatchID] = b.StockBlocked
+	}
+	if len(requests) == 0 {
+		return nil
+	}
+
+	var failures map[string]error
+	if reserver, ok := s.reserver.(BatchStockReserver); ok {
+		failures, err = reserver.ReserveForBatches(ctx, tenantID, requests)
+		if err != nil {
+			return err
+		}
+	} else {
+		failures = make(map[string]error)
+		for _, req := range requests {
+			// scale-guard:ignore: fallback for non-production reservers; production inventory service implements page-level reservation.
+			if err := s.reserver.ReserveForBatch(ctx, tenantID, req.BatchID, req.LocationID, req.ItemID, req.Qty, req.ValidOn); err != nil {
+				failures[StockReservationKey(req)] = err
+			}
+		}
+	}
+
+	blocks := make([]BatchStockBlock, 0)
+	reservedByBatch := make(map[string]bool)
+	failedByBatch := make(map[string]bool)
+	for _, req := range requests {
+		if reserveErr := failures[StockReservationKey(req)]; reserveErr != nil {
+			if !failedByBatch[req.BatchID] {
+				blocks = append(blocks, BatchStockBlock{BatchID: req.BatchID, ItemID: req.ItemID, RequiredQty: req.Qty, Reason: reserveErr.Error()})
+			}
+			failedByBatch[req.BatchID] = true
+			continue
+		}
+		reservedByBatch[req.BatchID] = true
+	}
+	if err := s.markBatchStockBlocks(ctx, tenantID, blocks); err != nil {
+		return err
+	}
+	clearIDs := make([]string, 0)
+	for batchID := range reservedByBatch {
+		if blocked[batchID] && !failedByBatch[batchID] {
+			clearIDs = append(clearIDs, batchID)
+		}
+	}
+	return s.clearBatchStockBlocks(ctx, tenantID, clearIDs)
+}
+
+func (s *SweeperService) ruleCountsForPlannedBatches(ctx context.Context, tenantID string, batches []domain.PlannedBatchFinalization) (map[string][]domain.RuleAttachmentCount, error) {
+	out := make(map[string][]domain.RuleAttachmentCount, len(batches))
+	if len(batches) == 0 {
+		return out, nil
+	}
+	batchIDs := make([]string, 0, len(batches))
+	seen := make(map[string]bool)
+	for _, b := range batches {
+		if seen[b.BatchID] {
+			continue
+		}
+		seen[b.BatchID] = true
+		batchIDs = append(batchIDs, b.BatchID)
+		out[b.BatchID] = nil
+	}
+	if counter, ok := s.repo.(plannedBatchRuleCounter); ok {
+		return counter.CountAttachedObligationsByRuleForBatches(ctx, tenantID, batchIDs)
+	}
+	for _, batchID := range batchIDs {
+		// scale-guard:ignore: fallback for non-production repos; production repo counts all page batches in one grouped query.
+		counts, err := s.repo.CountAttachedObligationsByRule(ctx, tenantID, batchID)
+		if err != nil {
+			return nil, err
+		}
+		out[batchID] = counts
+	}
+	return out, nil
+}
+
+func (s *SweeperService) markBatchStockBlocks(ctx context.Context, tenantID string, blocks []BatchStockBlock) error {
+	if len(blocks) == 0 {
+		return nil
+	}
+	if writer, ok := s.repo.(plannedBatchStockStateWriter); ok {
+		return writer.MarkBatchStockBlocks(ctx, tenantID, blocks)
+	}
+	for _, block := range blocks {
+		// scale-guard:ignore: fallback for non-production repos; production repo marks stock blocks in one set-based update.
+		if err := s.repo.MarkBatchStockBlocked(ctx, tenantID, block.BatchID, block.ItemID, block.RequiredQty, block.Reason); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SweeperService) clearBatchStockBlocks(ctx context.Context, tenantID string, batchIDs []string) error {
+	if len(batchIDs) == 0 {
+		return nil
+	}
+	if writer, ok := s.repo.(plannedBatchStockStateWriter); ok {
+		return writer.ClearBatchStockBlocks(ctx, tenantID, batchIDs)
+	}
+	for _, batchID := range batchIDs {
+		// scale-guard:ignore: fallback for non-production repos; production repo clears stock blocks in one set-based update.
+		if err := s.repo.ClearBatchStockBlock(ctx, tenantID, batchID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func batchPlannedDate(dueAt time.Time) *time.Time {
@@ -473,49 +719,6 @@ func batchStockValidOn(b domain.PlannedBatchFinalization) time.Time {
 		return *b.PlannedDate
 	}
 	return biztime.BusinessDayStart(time.Now())
-}
-
-// reservePlannedBatchStock returns whether it changed the batch's stock state
-// (created a reserve movement, recorded a stock block, or cleared one). A false
-// return means nothing mutated — the batch stays "needing finalization" and the
-// caller must not count it as progress, else the sweep can loop forever.
-func (s *SweeperService) reservePlannedBatchStock(ctx context.Context, tenantID string, b domain.PlannedBatchFinalization, cfg SweepConfig) (bool, error) {
-	ruleCounts, err := s.repo.CountAttachedObligationsByRule(ctx, tenantID, b.BatchID)
-	if err != nil {
-		return false, err
-	}
-	if len(ruleCounts) == 0 && b.AttachedObligations > 0 {
-		ruleCounts = []domain.RuleAttachmentCount{{RuleID: b.RuleID, Count: b.AttachedObligations}}
-	}
-	if len(ruleCounts) == 0 {
-		return false, nil
-	}
-	validOn := batchStockValidOn(b)
-	reservedAny := false
-	for _, rc := range ruleCounts {
-		batchCfg := cfg.forRule(rc.RuleID)
-		if batchCfg.VaccineItemID == "" || rc.Count <= 0 {
-			continue
-		}
-		dosesPer := batchCfg.DosesPerGoat
-		if dosesPer < 1 {
-			dosesPer = 1
-		}
-		qty := rc.Count * int64(dosesPer)
-		if err := s.reserver.ReserveForBatch(ctx, tenantID, b.BatchID, b.ScopeID, batchCfg.VaccineItemID, qty, validOn); err != nil {
-			if markErr := s.repo.MarkBatchStockBlocked(ctx, tenantID, b.BatchID, batchCfg.VaccineItemID, qty, err.Error()); markErr != nil {
-				return false, markErr
-			}
-			// A recorded stock block moves the retry window forward, so the batch
-			// drops out of the finalization query until it is due again: progress.
-			return true, nil
-		}
-		reservedAny = true
-	}
-	if reservedAny && b.StockBlocked {
-		return true, s.repo.ClearBatchStockBlock(ctx, tenantID, b.BatchID)
-	}
-	return reservedAny, nil
 }
 
 func timeKey(t *time.Time) string {

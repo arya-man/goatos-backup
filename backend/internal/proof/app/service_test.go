@@ -15,6 +15,7 @@ import (
 const (
 	proofTestTenant = "00000000-0000-4000-8000-000000000001"
 	proofTestID     = "10000000-0000-4000-8000-000000000001"
+	proofTestID2    = "10000000-0000-4000-8000-000000000002"
 	proofTestTask   = "20000000-0000-4000-8000-000000000001"
 	proofTestShed   = "30000000-0000-4000-8000-000000000001"
 )
@@ -94,6 +95,34 @@ func TestResolveProofRefsRequiresCompletedTaskBoundProof(t *testing.T) {
 	}
 }
 
+func TestResolveProofRefsFetchesProofsInBulk(t *testing.T) {
+	first := baseProof()
+	second := baseProof()
+	second.ProofID = proofTestID2
+	second.ProofType = "photo"
+	repo := &fakeProofRepo{proofs: map[string]domain.Artifact{
+		first.ProofID:  first,
+		second.ProofID: second,
+	}}
+	service := NewService(repo, &fakeProofStorage{})
+	binding := sopdomain.ProofBinding{TaskID: proofTestTask, ScopeType: "shed", ScopeID: proofTestShed}
+
+	refs, err := service.ResolveProofRefs(context.Background(), proofTestTenant, binding, []sopdomain.ProofReference{
+		{ProofID: proofTestID},
+		{ProofID: proofTestID2},
+		{ProofID: proofTestID},
+	})
+	if err != nil {
+		t.Fatalf("ResolveProofRefs() error = %v", err)
+	}
+	if len(refs) != 2 || refs[0].ProofID != proofTestID || refs[1].ProofID != proofTestID2 {
+		t.Fatalf("refs=%#v, want two deduped refs in request order", refs)
+	}
+	if repo.getProofCalls != 0 || repo.getProofsCalls != 1 {
+		t.Fatalf("repo calls get=%d bulk=%d, want one bulk lookup", repo.getProofCalls, repo.getProofsCalls)
+	}
+}
+
 func TestCreateAndCompleteStripReservedMetadata(t *testing.T) {
 	pending := baseProof()
 	pending.UploadState = "pending"
@@ -164,9 +193,12 @@ func baseProof() domain.Artifact {
 }
 
 type fakeProofRepo struct {
-	proof     domain.Artifact
-	created   domain.CreateUpload
-	completed domain.CompleteUpload
+	proof          domain.Artifact
+	proofs         map[string]domain.Artifact
+	created        domain.CreateUpload
+	completed      domain.CompleteUpload
+	getProofCalls  int
+	getProofsCalls int
 }
 
 func (r *fakeProofRepo) CreateProof(_ context.Context, in domain.CreateUpload, _ string) (domain.Artifact, error) {
@@ -174,11 +206,36 @@ func (r *fakeProofRepo) CreateProof(_ context.Context, in domain.CreateUpload, _
 	return r.proof, nil
 }
 
-func (r *fakeProofRepo) GetProof(context.Context, string, string) (domain.Artifact, error) {
+func (r *fakeProofRepo) GetProof(_ context.Context, _ string, proofID string) (domain.Artifact, error) {
+	r.getProofCalls++
+	if r.proofs != nil {
+		proof, ok := r.proofs[proofID]
+		if !ok {
+			return domain.Artifact{}, ports.ErrNotFound
+		}
+		return proof, nil
+	}
 	if r.proof.ProofID == "" {
 		return domain.Artifact{}, ports.ErrNotFound
 	}
 	return r.proof, nil
+}
+
+func (r *fakeProofRepo) GetProofsByIDs(_ context.Context, _ string, proofIDs []string) (map[string]domain.Artifact, error) {
+	r.getProofsCalls++
+	out := make(map[string]domain.Artifact, len(proofIDs))
+	for _, proofID := range proofIDs {
+		if r.proofs != nil {
+			if proof, ok := r.proofs[proofID]; ok {
+				out[proofID] = proof
+			}
+			continue
+		}
+		if r.proof.ProofID == proofID {
+			out[proofID] = r.proof
+		}
+	}
+	return out, nil
 }
 
 func (r *fakeProofRepo) CompleteProof(_ context.Context, in domain.CompleteUpload) (domain.Artifact, error) {

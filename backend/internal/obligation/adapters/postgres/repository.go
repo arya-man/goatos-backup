@@ -1854,6 +1854,52 @@ FROM obligation_instances oi
 	return out, nil
 }
 
+// CountAttachedObligationsByRuleForBatches returns actionable attached obligation counts for a
+// bounded page of planned batches in one grouped query.
+func (r *Repository) CountAttachedObligationsByRuleForBatches(ctx context.Context, tenantID string, batchIDs []string) (map[string][]domain.RuleAttachmentCount, error) {
+	out := make(map[string][]domain.RuleAttachmentCount, len(batchIDs))
+	if len(batchIDs) == 0 {
+		return out, nil
+	}
+	for _, batchID := range batchIDs {
+		out[batchID] = nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	ids, err := pgconv.UUIDs(batchIDs)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: batch ids: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT oi.batch_id::text, oi.rule_id::text, COUNT(*)::bigint
+FROM obligation_instances oi
+WHERE oi.tenant_id = $1
+  AND oi.batch_id = ANY($2::uuid[])
+  AND oi.status IN ('scheduled', 'due', 'in_progress')
+GROUP BY oi.batch_id, oi.rule_id
+ORDER BY oi.batch_id, oi.rule_id`, tenant, ids)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: count attached by rule for batches: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var batchID string
+		var row domain.RuleAttachmentCount
+		if err := rows.Scan(&batchID, &row.RuleID, &row.Count); err != nil {
+			return nil, fmt.Errorf("obligation: scan attached by rule for batches: %w", err)
+		}
+		out[batchID] = append(out[batchID], row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: count attached by rule for batches: %w", err)
+	}
+	return out, nil
+}
+
 // ListPlannedComboBatches lists unfinalized planned batches that use combo sessions for cross-version alignment.
 func (r *Repository) ListPlannedComboBatches(ctx context.Context, tenantID string, dueBefore time.Time, limit int32) ([]domain.ComboDriveBatch, error) {
 	ctx, cancel := r.withTimeout(ctx)
@@ -2166,6 +2212,53 @@ WHERE tenant_id = $2
 	return nil
 }
 
+// SetBatchSOPTasks links a page of planned batches to their spawned SOP tasks in one update.
+func (r *Repository) SetBatchSOPTasks(ctx context.Context, tenantID string, taskIDsByBatch map[string]string) error {
+	if len(taskIDsByBatch) == 0 {
+		return nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	batchIDs := make([]string, 0, len(taskIDsByBatch))
+	taskIDs := make([]string, 0, len(taskIDsByBatch))
+	for batchID, taskID := range taskIDsByBatch {
+		batchIDs = append(batchIDs, batchID)
+		taskIDs = append(taskIDs, taskID)
+	}
+	batchUUIDs, err := pgconv.UUIDs(batchIDs)
+	if err != nil {
+		return fmt.Errorf("obligation: batch ids: %w", err)
+	}
+	taskUUIDs, err := pgconv.UUIDs(taskIDs)
+	if err != nil {
+		return fmt.Errorf("obligation: task ids: %w", err)
+	}
+	tag, err := r.pool.Exec(ctx, `
+WITH input AS (
+  SELECT *
+  FROM unnest($2::uuid[], $3::uuid[]) AS input(batch_id, task_id)
+)
+UPDATE obligation_batches ob
+SET sop_task_id = input.task_id,
+    updated_at = now(),
+    row_version = ob.row_version + 1
+FROM input
+WHERE ob.tenant_id = $1
+  AND ob.batch_id = input.batch_id
+  AND (ob.sop_task_id IS NULL OR ob.sop_task_id = input.task_id)`, tenant, batchUUIDs, taskUUIDs)
+	if err != nil {
+		return fmt.Errorf("obligation: set batch sop tasks: %w", err)
+	}
+	if tag.RowsAffected() != int64(len(taskIDsByBatch)) {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
 // MarkBatchStockBlocked records an explicit stock-block context on a batch after hard reservation
 // failure. The batch remains planned and visible; execution surfaces can show the reason/action.
 func (r *Repository) MarkBatchStockBlocked(ctx context.Context, tenantID, batchID, itemID string, requiredQty int64, reason string) error {
@@ -2196,6 +2289,57 @@ WHERE tenant_id = $1::uuid
 	return nil
 }
 
+// MarkBatchStockBlocks records stock-block context for a page of failed reservations.
+func (r *Repository) MarkBatchStockBlocks(ctx context.Context, tenantID string, blocks []domain.BatchStockBlock) error {
+	if len(blocks) == 0 {
+		return nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	batchIDs := make([]string, 0, len(blocks))
+	itemIDs := make([]string, 0, len(blocks))
+	requiredQtys := make([]int64, 0, len(blocks))
+	reasons := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		batchIDs = append(batchIDs, block.BatchID)
+		itemIDs = append(itemIDs, block.ItemID)
+		requiredQtys = append(requiredQtys, block.RequiredQty)
+		reasons = append(reasons, block.Reason)
+	}
+	batchUUIDs, err := pgconv.UUIDs(batchIDs)
+	if err != nil {
+		return fmt.Errorf("obligation: batch ids: %w", err)
+	}
+	tag, err := r.pool.Exec(ctx, `
+WITH input AS (
+  SELECT *
+  FROM unnest($2::uuid[], $3::text[], $4::bigint[], $5::text[]) AS input(batch_id, item_id, required_qty, reason)
+)
+UPDATE obligation_batches ob
+SET context = ob.context || jsonb_build_object(
+      'stock_block', jsonb_build_object(
+        'state', 'blocked',
+        'item_id', input.item_id,
+        'required_qty', input.required_qty,
+        'reason', input.reason,
+        'blocked_at', now(),
+        'retry_after', now() + interval '15 minutes'
+      )
+    ),
+    updated_at = now(),
+    row_version = ob.row_version + 1
+FROM input
+WHERE ob.tenant_id = $1::uuid
+  AND ob.batch_id = input.batch_id`, tenantID, batchUUIDs, itemIDs, requiredQtys, reasons)
+	if err != nil {
+		return fmt.Errorf("obligation: mark batch stock blocks: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
 // ClearBatchStockBlock removes a previous stock-block marker after a later reservation succeeds.
 func (r *Repository) ClearBatchStockBlock(ctx context.Context, tenantID, batchID string) error {
 	ctx, cancel := r.withTimeout(ctx)
@@ -2212,6 +2356,31 @@ WHERE tenant_id = $1::uuid
 	}
 	if tag.RowsAffected() == 0 {
 		return ports.ErrNotFound
+	}
+	return nil
+}
+
+// ClearBatchStockBlocks clears stock-block context for successfully reserved batches.
+func (r *Repository) ClearBatchStockBlocks(ctx context.Context, tenantID string, batchIDs []string) error {
+	if len(batchIDs) == 0 {
+		return nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	ids, err := pgconv.UUIDs(batchIDs)
+	if err != nil {
+		return fmt.Errorf("obligation: batch ids: %w", err)
+	}
+	_, err = r.pool.Exec(ctx, `
+UPDATE obligation_batches
+SET context = context - 'stock_block',
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND batch_id = ANY($2::uuid[])
+  AND context ? 'stock_block'`, tenantID, ids)
+	if err != nil {
+		return fmt.Errorf("obligation: clear batch stock blocks: %w", err)
 	}
 	return nil
 }

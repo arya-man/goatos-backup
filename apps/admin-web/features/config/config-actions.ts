@@ -122,6 +122,7 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
           : {},
       sort_order: d.sortOrder,
     };
+    // serial-await: allow rule creation follows authored order and per-row idempotency keys.
     const rule = await addProtocolRule(
       version.data.protocol_version_id,
       ruleBody,

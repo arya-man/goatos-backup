@@ -423,6 +423,76 @@ func (r *Repository) GetVersion(ctx context.Context, tenantID, versionID string)
 	}, nil
 }
 
+// GetVersionsByIDs fetches a bounded page of versions in one round-trip for cohort generation.
+func (r *Repository) GetVersionsByIDs(ctx context.Context, tenantID string, versionIDs []string) (map[string]domain.Version, error) {
+	out := make(map[string]domain.Version, len(versionIDs))
+	if len(versionIDs) == 0 {
+		return out, nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	ids, err := pgconv.UUIDs(versionIDs)
+	if err != nil {
+		return nil, fmt.Errorf("protocol: version ids: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT pv.protocol_version_id::text AS protocol_version_id,
+       pv.protocol_id::text AS protocol_id,
+       pd.category AS category,
+       pv.scope_type,
+       COALESCE(pv.scope_id::text, '')::text AS scope_id,
+       pv.version,
+       pv.status,
+       pv.effective_from,
+       pv.effective_to,
+       pv.rule_dsl,
+       pv.proof_policy,
+       COALESCE(pv.sop_version_id::text, '')::text AS sop_version_id,
+       pv.row_version
+FROM protocol_versions pv
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+WHERE pv.tenant_id = $1
+  AND pv.protocol_version_id = ANY($2::uuid[])`, tenant, ids)
+	if err != nil {
+		return nil, fmt.Errorf("protocol: get versions by ids: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var row domain.Version
+		var effectiveFrom, effectiveTo pgtype.Date
+		if err := rows.Scan(
+			&row.ProtocolVersionID,
+			&row.ProtocolID,
+			&row.Category,
+			&row.ScopeType,
+			&row.ScopeID,
+			&row.Version,
+			&row.Status,
+			&effectiveFrom,
+			&effectiveTo,
+			&row.RuleDsl,
+			&row.ProofPolicy,
+			&row.SopVersionID,
+			&row.RowVersion,
+		); err != nil {
+			return nil, fmt.Errorf("protocol: scan version by id: %w", err)
+		}
+		row.EffectiveFrom = pgconv.DateValue(effectiveFrom)
+		row.EffectiveTo = pgconv.DateValue(effectiveTo)
+		out[row.ProtocolVersionID] = row
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("protocol: get versions by ids: %w", err)
+	}
+	return out, nil
+}
+
 // ListPublishedVersions returns published versions for a protocol, newest effective_from first.
 func (r *Repository) ListPublishedVersions(ctx context.Context, tenantID, protocolID string) ([]domain.Version, error) {
 	ctx, cancel := r.withTimeout(ctx)
@@ -1336,6 +1406,84 @@ func (r *Repository) ListEffectiveVaccinationVersionsForGoat(ctx context.Context
 	return ids, nil
 }
 
+// ListEffectiveVaccinationVersionsForParks returns the effective vaccination version ids for every
+// park scope in a generation page. Keys match the supplied park ids; the empty key is tenant scope.
+func (r *Repository) ListEffectiveVaccinationVersionsForParks(ctx context.Context, tenantID string, parkIDs []string, asOf time.Time) (map[string][]string, error) {
+	out := make(map[string][]string, len(parkIDs))
+	if len(parkIDs) == 0 {
+		return out, nil
+	}
+	for _, parkID := range parkIDs {
+		out[parkID] = nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+WITH input_parks AS (
+  SELECT DISTINCT
+         COALESCE(NULLIF(park_id_text, ''), '') AS park_key,
+         NULLIF(park_id_text, '')::uuid AS park_id
+  FROM unnest($2::text[]) AS input(park_id_text)
+),
+operating_timezone AS (
+  SELECT 'Asia/Kolkata'::text AS timezone
+),
+effective_clock AS (
+  SELECT ($3::timestamptz AT TIME ZONE ot.timezone)::date AS business_date
+  FROM operating_timezone ot
+),
+picked AS (
+  SELECT DISTINCT ON (ip.park_key, pv.protocol_id)
+         ip.park_key,
+         pv.protocol_id,
+         pv.protocol_version_id::text AS protocol_version_id,
+         (pv.scope_type = 'park') AS park_specific,
+         pv.effective_from
+  FROM input_parks ip
+  JOIN protocol_versions pv
+    ON pv.tenant_id = $1
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+  CROSS JOIN effective_clock ec
+  WHERE pv.status = 'published'
+    AND pd.category = 'vaccination'
+    AND pv.effective_from <= ec.business_date
+    AND (pv.effective_to IS NULL OR pv.effective_to > ec.business_date)
+    AND (
+      pv.scope_type = 'tenant'
+      OR (ip.park_id IS NOT NULL AND pv.scope_type = 'park' AND pv.scope_id = ip.park_id)
+    )
+  ORDER BY ip.park_key,
+           pv.protocol_id,
+           (pv.scope_type = 'park') DESC,
+           pv.effective_from DESC,
+           pv.protocol_version_id DESC
+)
+SELECT park_key, protocol_version_id
+FROM picked
+ORDER BY park_key, protocol_id`, tenant, parkIDs, pgconv.Timestamptz(asOf))
+	if err != nil {
+		return nil, fmt.Errorf("protocol: list effective vaccination versions for parks: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var parkID, versionID string
+		if err := rows.Scan(&parkID, &versionID); err != nil {
+			return nil, fmt.Errorf("protocol: scan effective vaccination versions for parks: %w", err)
+		}
+		out[parkID] = append(out[parkID], versionID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("protocol: list effective vaccination versions for parks: %w", err)
+	}
+	return out, nil
+}
+
 // CreateRule inserts one dose/phase rule under a version.
 func (r *Repository) CreateRule(ctx context.Context, in domain.NewRule) (string, error) {
 	ctx, cancel := r.withTimeout(ctx)
@@ -1462,6 +1610,81 @@ func (r *Repository) ListRules(ctx context.Context, tenantID, versionID string) 
 			SopVersionID:        row.SopVersionID,
 			SortOrder:           row.SortOrder,
 		})
+	}
+	return out, nil
+}
+
+// ListRulesForVersions returns ordered protocol rules for a bounded page of version ids.
+func (r *Repository) ListRulesForVersions(ctx context.Context, tenantID string, versionIDs []string) (map[string][]domain.Rule, error) {
+	out := make(map[string][]domain.Rule, len(versionIDs))
+	if len(versionIDs) == 0 {
+		return out, nil
+	}
+	for _, versionID := range versionIDs {
+		out[versionID] = nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	ids, err := pgconv.UUIDs(versionIDs)
+	if err != nil {
+		return nil, fmt.Errorf("protocol: version ids: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT pr.rule_id::text AS rule_id,
+       pr.protocol_version_id::text AS protocol_version_id,
+       pv.protocol_id::text AS protocol_id,
+       pr.dose_code,
+       pr."sequence",
+       pr.trigger_type,
+       pr.offset_days,
+       pr.due_window_days,
+       pr.min_gap_days,
+       pr."repeat",
+       COALESCE(pr.repeat_until_after_age, '')::text AS repeat_until_after_age,
+       pr.catch_up,
+       pr.eligibility_json,
+       COALESCE(pr.sop_version_id::text, '')::text AS sop_version_id,
+       pr.sort_order
+FROM protocol_rules pr
+JOIN protocol_versions pv
+  ON pv.tenant_id = pr.tenant_id
+ AND pv.protocol_version_id = pr.protocol_version_id
+WHERE pr.tenant_id = $1
+  AND pr.protocol_version_id = ANY($2::uuid[])
+ORDER BY array_position($2::uuid[], pr.protocol_version_id), pr.sort_order ASC, pr."sequence" ASC`, tenant, ids)
+	if err != nil {
+		return nil, fmt.Errorf("protocol: list rules for versions: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var row domain.Rule
+		if err := rows.Scan(
+			&row.RuleID,
+			&row.ProtocolVersionID,
+			&row.ProtocolID,
+			&row.DoseCode,
+			&row.Sequence,
+			&row.TriggerType,
+			&row.OffsetDays,
+			&row.DueWindowDays,
+			&row.MinGapDays,
+			&row.Repeat,
+			&row.RepeatUntilAfterAge,
+			&row.CatchUp,
+			&row.EligibilityJSON,
+			&row.SopVersionID,
+			&row.SortOrder,
+		); err != nil {
+			return nil, fmt.Errorf("protocol: scan rules for versions: %w", err)
+		}
+		out[row.ProtocolVersionID] = append(out[row.ProtocolVersionID], row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("protocol: list rules for versions: %w", err)
 	}
 	return out, nil
 }

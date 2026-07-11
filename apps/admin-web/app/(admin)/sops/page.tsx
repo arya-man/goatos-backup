@@ -12,8 +12,7 @@ export const dynamic = "force-dynamic";
 // swaps the library grid for the full-page SOP form builder — a dedicated builder surface at the SAME
 // top-level /sops authority route (no nested command route). No SOP list fetch is needed to compose.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
-  const sp = await searchParams;
-  const pageContract = await requireAdminWebPageContract("sops");
+  const [sp, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("sops")]);
   if (sp.compose === "1" || sp.new === "1") {
     // `?edit=<sop_id>` reconstructs the full builder state from the SOP's latest version (faithful edit,
     // saving publishes a NEW version); a missing/versionless SOP falls back to the create builder.

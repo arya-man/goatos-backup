@@ -844,8 +844,7 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
     setError(null);
     setCommitted(null);
     startTransition(async () => {
-      const hash = await stableCSVContentHash(csv);
-      const res = await previewShedsAction(csv);
+      const [hash, res] = await Promise.all([stableCSVContentHash(csv), previewShedsAction(csv)]);
       if (res.ok) {
         setPreview(res.data);
         setPreviewHash(hash);

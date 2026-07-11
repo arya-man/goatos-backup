@@ -48,11 +48,9 @@ n-plus-one backend/internal/bulkstatus/adapters/postgres/repository.go 1
 # batched ShedOwnerships). 34 offenders / 9 files. BURN DOWN P1 (request/scale)
 # first. Verdicts are agent-verified against current HEAD.
 #
-# P1 REAL — request path / unbounded-by-animal; batch to *ByIDs / = ANY($1):
-n-plus-one-fanout backend/internal/vaccination/app/generation.go 8  # proto.GetVersion/ListRules per version; UNBOUNDED on herd reschedule + 2N/page
-n-plus-one-fanout backend/internal/proof/app/service.go 1           # GetProof per ref, POST /app/tasks/{id}/submissions, no API cap; add GetProofsByIDs
-# P1x3 inside a P2 file — sweeper batch spawn/reserve/count (~1000 calls at 1M/10% due):
-n-plus-one-fanout backend/internal/obligation/app/sweeper.go 13     # 3 real (spawn/reserve/count) + 10 bounded per-run (page/chunk)
+# P1 burn-down completed 2026-07-11: generation rulebook reads and proof refs are now batched.
+# P1 inside a P2 file: sweeper count/link/block are batched; remaining hits are bounded per-run page/chunk paths.
+n-plus-one-fanout backend/internal/obligation/app/sweeper.go 10
 # P2/P3 bounded (per-run / capped) — annotate with scale-guard:ignore then drop:
 n-plus-one-fanout backend/internal/obligation/app/park_consolidation.go 3  # bounded by parks
 n-plus-one-fanout backend/internal/sop/app/service.go 4             # BOUNDED: admin retry, ListPending* cap=100

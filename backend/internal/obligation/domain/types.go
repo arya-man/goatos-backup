@@ -203,6 +203,14 @@ type RuleAttachmentCount struct {
 	Count  int64
 }
 
+// BatchStockBlock is the stock-block context recorded for one failed batch reservation.
+type BatchStockBlock struct {
+	BatchID     string
+	ItemID      string
+	RequiredQty int64
+	Reason      string
+}
+
 // PlannedBatchFinalization is a planned batch that already owns obligations but still needs
 // replayable side-effect finalization (SOP task link and/or stock reservation).
 type PlannedBatchFinalization struct {

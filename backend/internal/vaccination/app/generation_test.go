@@ -1757,6 +1757,12 @@ func TestGenerateEffectiveForAllGoatsCachesEffectiveVersionsPerPark(t *testing.T
 	if len(proto.effectiveParkID) != 2 || proto.effectiveParkID[0] != "park-a" || proto.effectiveParkID[1] != "" {
 		t.Fatalf("effective park IDs=%#v, want one lookup per park/fallback scope", proto.effectiveParkID)
 	}
+	if proto.getVersionCalls != 0 || proto.listRulesCalls != 0 {
+		t.Fatalf("scalar rulebook calls get=%d rules=%d, want batched cohort path", proto.getVersionCalls, proto.listRulesCalls)
+	}
+	if proto.batchGetVersionCalls != 1 || proto.batchListRulesCalls != 1 || proto.batchEffectiveCalls != 1 {
+		t.Fatalf("batch calls versions=%d rules=%d effective=%d, want one page-level call each", proto.batchGetVersionCalls, proto.batchListRulesCalls, proto.batchEffectiveCalls)
+	}
 }
 
 func TestGenerateForGoatCancelsOpenWorkWhenEligibilityNoLongerMatches(t *testing.T) {
@@ -1822,15 +1828,25 @@ func TestGenerateForGoatCancelsOpenWorkForNoLongerEffectiveVersions(t *testing.T
 }
 
 type generationProtoFake struct {
-	rules             []protodomain.Rule
-	ruleDSL           []byte
-	ruleDSLByVersion  map[string][]byte
-	effectiveVersions []string
-	effectiveAsOf     []time.Time
-	effectiveParkID   []string
+	rules                []protodomain.Rule
+	ruleDSL              []byte
+	ruleDSLByVersion     map[string][]byte
+	effectiveVersions    []string
+	effectiveAsOf        []time.Time
+	effectiveParkID      []string
+	getVersionCalls      int
+	listRulesCalls       int
+	batchGetVersionCalls int
+	batchListRulesCalls  int
+	batchEffectiveCalls  int
 }
 
 func (p *generationProtoFake) GetVersion(_ context.Context, _ string, versionID string) (protodomain.Version, error) {
+	p.getVersionCalls++
+	return p.versionFor(versionID), nil
+}
+
+func (p *generationProtoFake) versionFor(versionID string) protodomain.Version {
 	ruleDSL := p.ruleDSL
 	if p.ruleDSLByVersion != nil {
 		ruleDSL = p.ruleDSLByVersion[versionID]
@@ -1838,16 +1854,21 @@ func (p *generationProtoFake) GetVersion(_ context.Context, _ string, versionID 
 	if versionID == "" {
 		versionID = "version-1"
 	}
-	return protodomain.Version{ProtocolVersionID: versionID, Status: "published", ScopeType: "tenant", RuleDsl: ruleDSL}, nil
+	return protodomain.Version{ProtocolVersionID: versionID, Status: "published", ScopeType: "tenant", RuleDsl: ruleDSL}
 }
 
 func (p *generationProtoFake) ListRules(context.Context, string, string) ([]protodomain.Rule, error) {
+	p.listRulesCalls++
+	return p.rulesForVersion(), nil
+}
+
+func (p *generationProtoFake) rulesForVersion() []protodomain.Rule {
 	if len(p.rules) > 0 {
-		return p.rules, nil
+		return p.rules
 	}
 	return []protodomain.Rule{{
 		RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "manual_campaign",
-	}}, nil
+	}}
 }
 
 func (p *generationProtoFake) ListEffectiveVaccinationVersionsForGoat(_ context.Context, _ string, parkID string, asOf time.Time) ([]string, error) {
@@ -1857,6 +1878,40 @@ func (p *generationProtoFake) ListEffectiveVaccinationVersionsForGoat(_ context.
 		return p.effectiveVersions, nil
 	}
 	return []string{"version-1"}, nil
+}
+
+func (p *generationProtoFake) GetVersionsByIDs(_ context.Context, _ string, versionIDs []string) (map[string]protodomain.Version, error) {
+	p.batchGetVersionCalls++
+	out := make(map[string]protodomain.Version, len(versionIDs))
+	for _, versionID := range versionIDs {
+		v := p.versionFor(versionID)
+		out[v.ProtocolVersionID] = v
+	}
+	return out, nil
+}
+
+func (p *generationProtoFake) ListRulesForVersions(_ context.Context, _ string, versionIDs []string) (map[string][]protodomain.Rule, error) {
+	p.batchListRulesCalls++
+	out := make(map[string][]protodomain.Rule, len(versionIDs))
+	for _, versionID := range versionIDs {
+		out[versionID] = p.rulesForVersion()
+	}
+	return out, nil
+}
+
+func (p *generationProtoFake) ListEffectiveVaccinationVersionsForParks(_ context.Context, _ string, parkIDs []string, asOf time.Time) (map[string][]string, error) {
+	p.batchEffectiveCalls++
+	out := make(map[string][]string, len(parkIDs))
+	for _, parkID := range parkIDs {
+		p.effectiveAsOf = append(p.effectiveAsOf, asOf)
+		p.effectiveParkID = append(p.effectiveParkID, parkID)
+		if len(p.effectiveVersions) > 0 {
+			out[parkID] = append([]string(nil), p.effectiveVersions...)
+			continue
+		}
+		out[parkID] = []string{"version-1"}
+	}
+	return out, nil
 }
 
 type generationGoatFake struct {

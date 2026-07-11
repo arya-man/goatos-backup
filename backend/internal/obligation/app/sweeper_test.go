@@ -244,6 +244,9 @@ func TestSweeperFinalizesExistingPlannedBatchMissingTask(t *testing.T) {
 	if tasks.calls != 1 || repo.setTaskCalls != 1 || repo.lastTaskID != "task-1" {
 		t.Fatalf("task repair calls=%d setCalls=%d taskID=%q", tasks.calls, repo.setTaskCalls, repo.lastTaskID)
 	}
+	if tasks.batchCalls != 1 || repo.batchSetTaskCalls != 1 {
+		t.Fatalf("batch task calls=%d batch links=%d, want 1/1", tasks.batchCalls, repo.batchSetTaskCalls)
+	}
 	if repo.createBatchCalls != 0 {
 		t.Fatalf("new batches created = %d, want 0", repo.createBatchCalls)
 	}
@@ -300,6 +303,9 @@ func TestSweeperFinalizationPagesPastConfigSkippedBatches(t *testing.T) {
 	if tasks.calls != 1 || repo.setTaskCalls != 1 {
 		t.Fatalf("task calls=%d setTaskCalls=%d, want 1/1", tasks.calls, repo.setTaskCalls)
 	}
+	if tasks.batchCalls != 1 || repo.batchSetTaskCalls != 1 {
+		t.Fatalf("batch task calls=%d batch links=%d, want 1/1", tasks.batchCalls, repo.batchSetTaskCalls)
+	}
 	if got := strings.Join(tasks.batchIDs, ","); got != "batch-actionable" {
 		t.Fatalf("task batches = %q, want batch-actionable", got)
 	}
@@ -337,6 +343,9 @@ func TestSweeperFinalizesExistingPlannedBatchMissingStockReservation(t *testing.
 	if reserver.calls != 1 || reserver.lastBatchID != "batch-1" || reserver.lastQty != 4 {
 		t.Fatalf("reservation repair calls=%d batch=%q qty=%d", reserver.calls, reserver.lastBatchID, reserver.lastQty)
 	}
+	if repo.countBatchCalls != 1 || reserver.batchCalls != 1 {
+		t.Fatalf("batch count/reserve calls=%d/%d, want 1/1", repo.countBatchCalls, reserver.batchCalls)
+	}
 }
 
 func TestSweeperRetriesAndClearsBlockedBatchAfterStockRecovery(t *testing.T) {
@@ -367,6 +376,9 @@ func TestSweeperRetriesAndClearsBlockedBatchAfterStockRecovery(t *testing.T) {
 	}
 	if repo.clearStockBlockCalls != 1 {
 		t.Fatalf("clear stock block calls = %d, want 1", repo.clearStockBlockCalls)
+	}
+	if repo.countBatchCalls != 1 || reserver.batchCalls != 1 {
+		t.Fatalf("batch count/reserve calls=%d/%d, want 1/1", repo.countBatchCalls, reserver.batchCalls)
 	}
 }
 
@@ -402,6 +414,9 @@ func TestSweeperMarksExistingBatchBlockedWhenFinalizedReservationFails(t *testin
 	if repo.stockBlockCalls != 2 {
 		t.Fatalf("stock block calls = %d, want 2", repo.stockBlockCalls)
 	}
+	if repo.countBatchCalls != 1 || reserver.batchCalls != 1 {
+		t.Fatalf("batch count/reserve calls=%d/%d, want 1/1", repo.countBatchCalls, reserver.batchCalls)
+	}
 	if result.Batches != 0 || result.Obligations != 0 {
 		t.Fatalf("result = %#v, want no newly-created work for repair", result)
 	}
@@ -429,8 +444,10 @@ type fakeSweepRepo struct {
 	attachAll            bool
 	createBatchCalls     int
 	setTaskCalls         int
+	batchSetTaskCalls    int
 	stockBlockCalls      int
 	clearStockBlockCalls int
+	countBatchCalls      int
 	lastTaskID           string
 	missedPages          []int
 	missedCalls          int
@@ -499,13 +516,32 @@ func (f *fakeSweepRepo) SetBatchSOPTask(_ context.Context, _, _, taskID string) 
 	return nil
 }
 
+func (f *fakeSweepRepo) SetBatchSOPTasks(_ context.Context, _ string, taskIDsByBatch map[string]string) error {
+	f.batchSetTaskCalls++
+	for _, taskID := range taskIDsByBatch {
+		f.setTaskCalls++
+		f.lastTaskID = taskID
+	}
+	return nil
+}
+
 func (f *fakeSweepRepo) MarkBatchStockBlocked(context.Context, string, string, string, int64, string) error {
 	f.stockBlockCalls++
 	return nil
 }
 
+func (f *fakeSweepRepo) MarkBatchStockBlocks(_ context.Context, _ string, blocks []BatchStockBlock) error {
+	f.stockBlockCalls += len(blocks)
+	return nil
+}
+
 func (f *fakeSweepRepo) ClearBatchStockBlock(context.Context, string, string) error {
 	f.clearStockBlockCalls++
+	return nil
+}
+
+func (f *fakeSweepRepo) ClearBatchStockBlocks(_ context.Context, _ string, batchIDs []string) error {
+	f.clearStockBlockCalls += len(batchIDs)
 	return nil
 }
 
@@ -568,6 +604,19 @@ func (f *fakeSweepRepo) CountAttachedObligationsByRule(_ context.Context, _, bat
 	return nil, nil
 }
 
+func (f *fakeSweepRepo) CountAttachedObligationsByRuleForBatches(_ context.Context, _ string, batchIDs []string) (map[string][]domain.RuleAttachmentCount, error) {
+	f.countBatchCalls++
+	out := make(map[string][]domain.RuleAttachmentCount, len(batchIDs))
+	for _, batchID := range batchIDs {
+		counts, err := f.CountAttachedObligationsByRule(context.Background(), "", batchID)
+		if err != nil {
+			return nil, err
+		}
+		out[batchID] = counts
+	}
+	return out, nil
+}
+
 func (f *fakeSweepRepo) AttachObligationsToBatch(context.Context, string, string, []string) (int64, error) {
 	return 0, nil
 }
@@ -608,6 +657,7 @@ func (f *fakeSweepRepo) RecordStatusEvent(context.Context, domain.NewStatusEvent
 type fakeSweepTaskCreator struct {
 	id            string
 	calls         int
+	batchCalls    int
 	batchIDs      []string
 	sopVersionIDs []string
 }
@@ -622,8 +672,22 @@ func (f *fakeSweepTaskCreator) CreateTaskForBatch(_ context.Context, _, batchID,
 	return f.id, nil
 }
 
+func (f *fakeSweepTaskCreator) CreateTasksForBatches(ctx context.Context, tenantID string, batches []BatchTaskCreate) (map[string]string, error) {
+	f.batchCalls++
+	out := make(map[string]string, len(batches))
+	for _, batch := range batches {
+		taskID, err := f.CreateTaskForBatch(ctx, tenantID, batch.BatchID, batch.SOPVersionID, batch.TaskType, batch.Title, batch.ScopeType, batch.ScopeID)
+		if err != nil {
+			return nil, err
+		}
+		out[batch.BatchID] = taskID
+	}
+	return out, nil
+}
+
 type fakeSweepStockReserver struct {
 	calls       int
+	batchCalls  int
 	lastBatchID string
 	lastQty     int64
 	validOns    []time.Time
@@ -640,6 +704,17 @@ func (f *fakeSweepStockReserver) ReserveForBatch(_ context.Context, _, batchID, 
 	f.itemIDs = append(f.itemIDs, itemID)
 	f.quantities = append(f.quantities, qty)
 	return f.err
+}
+
+func (f *fakeSweepStockReserver) ReserveForBatches(ctx context.Context, tenantID string, reservations []BatchStockReservation) (map[string]error, error) {
+	f.batchCalls++
+	failures := make(map[string]error)
+	for _, req := range reservations {
+		if err := f.ReserveForBatch(ctx, tenantID, req.BatchID, req.LocationID, req.ItemID, req.Qty, req.ValidOn); err != nil {
+			failures[StockReservationKey(req)] = err
+		}
+	}
+	return failures, nil
 }
 
 func ruleIDFromSession(session string) string {

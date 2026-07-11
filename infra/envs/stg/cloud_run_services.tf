@@ -9,7 +9,7 @@ resource "google_cloud_run_v2_service" "api" {
     service_account = google_service_account.runtime["api"].email
 
     scaling {
-      min_instance_count = 0
+      min_instance_count = 1
       max_instance_count = 10
     }
 
@@ -170,7 +170,7 @@ resource "google_cloud_run_v2_service" "admin_web" {
     service_account = google_service_account.runtime["admin_web"].email
 
     scaling {
-      min_instance_count = 0
+      min_instance_count = 1
       max_instance_count = 5
     }
 

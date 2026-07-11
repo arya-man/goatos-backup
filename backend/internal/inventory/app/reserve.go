@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/inventory/ports"
+	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
@@ -39,6 +40,18 @@ func (s *Service) ReserveForBatch(ctx context.Context, tenantID, batchID, locati
 		return fmt.Errorf("%w: required %d doses of item %s, but no location at or above %s holds enough", ErrInsufficientStock, qty, itemID, locationID)
 	}
 	return err
+}
+
+// ReserveForBatches exposes a page-level reservation boundary to the obligation sweeper while
+// preserving ReserveForBatch's per-batch FEFO lock/idempotency semantics.
+func (s *Service) ReserveForBatches(ctx context.Context, tenantID string, reservations []oblapp.BatchStockReservation) (map[string]error, error) {
+	failures := make(map[string]error)
+	for _, req := range reservations {
+		if err := s.ReserveForBatch(ctx, tenantID, req.BatchID, req.LocationID, req.ItemID, req.Qty, req.ValidOn); err != nil {
+			failures[oblapp.StockReservationKey(req)] = err
+		}
+	}
+	return failures, nil
 }
 
 // parseQty parses a decimal quantity string to a floored int64 (doses are whole units).

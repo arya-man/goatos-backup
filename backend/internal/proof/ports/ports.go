@@ -19,6 +19,7 @@ var (
 type Repository interface {
 	CreateProof(ctx context.Context, in domain.CreateUpload, provider string) (domain.Artifact, error)
 	GetProof(ctx context.Context, tenantID, proofID string) (domain.Artifact, error)
+	GetProofsByIDs(ctx context.Context, tenantID string, proofIDs []string) (map[string]domain.Artifact, error)
 	CompleteProof(ctx context.Context, in domain.CompleteUpload) (domain.Artifact, error)
 }
 

@@ -28,6 +28,19 @@ type ProtocolReader interface {
 	ListEffectiveVaccinationVersionsForGoat(ctx context.Context, tenantID, parkID string, asOf time.Time) ([]string, error)
 }
 
+// ProtocolVersionBatchReader is implemented by the production protocol repo so cohort generation
+// can load rulebooks once per page of version ids rather than once per goat.
+type ProtocolVersionBatchReader interface {
+	GetVersionsByIDs(ctx context.Context, tenantID string, versionIDs []string) (map[string]protodomain.Version, error)
+	ListRulesForVersions(ctx context.Context, tenantID string, versionIDs []string) (map[string][]protodomain.Rule, error)
+}
+
+// EffectiveVaccinationVersionBatchReader resolves effective protocol versions for every park in a
+// page at once. It returns entries keyed by the original park id; the empty key is tenant scope.
+type EffectiveVaccinationVersionBatchReader interface {
+	ListEffectiveVaccinationVersionsForParks(ctx context.Context, tenantID string, parkIDs []string, asOf time.Time) (map[string][]string, error)
+}
+
 // GoatLister is the eligible-goat source (the vaccination repo): chunked for backfill, single for
 // the goat.created path.
 type GoatLister interface {
@@ -411,39 +424,18 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 		if len(goats) == 0 {
 			break
 		}
-		pagePlans := make([]goatGenerationPlan, 0, len(goats))
-		for _, g := range goats {
-			if !inCare(g.LifecycleStatus) {
-				continue
-			}
-			versionIDs, err := s.effectiveVersionsForPark(ctx, tenantID, g.ParkID, asOf, effectiveVersionsByPark)
-			if err != nil {
-				return res, err
-			}
-			for _, versionID := range versionIDs {
-				p, ok := plans[versionID]
-				if !ok {
-					v, err := s.proto.GetVersion(ctx, tenantID, versionID)
-					if err != nil {
-						return res, err
-					}
-					dsl, err := parseGenerationDSL(v.RuleDsl)
-					if err != nil {
-						return res, err
-					}
-					rules, err := s.proto.ListRules(ctx, tenantID, versionID)
-					if err != nil {
-						return res, err
-					}
-					p = cachedVersionPlan{
-						rules:          rules,
-						deferState:     dsl.Eligibility.DeferStates,
-						eligibility:    dsl.Eligibility,
-						policies:       versionPoliciesFromDSL(dsl),
-						vaccineProfile: vaccineProfileFromDSL(dsl),
-					}
-					plans[versionID] = p
-				}
+		activeGoats := activeGenerationGoats(goats)
+		if err := s.fillEffectiveVersionsForGoats(ctx, tenantID, activeGoats, asOf, effectiveVersionsByPark); err != nil {
+			return res, err
+		}
+		if err := s.loadVersionPlans(ctx, tenantID, missingVersionPlansForGoats(activeGoats, effectiveVersionsByPark, plans), plans); err != nil {
+			return res, err
+		}
+
+		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
+		for _, g := range activeGoats {
+			for _, versionID := range effectiveVersionsByPark[generationParkCacheKey(g.ParkID)] {
+				p := plans[versionID]
 				if !goatMatchesEligibility(g, p.eligibility, p.policies.Pregnancy, asOf) {
 					continue
 				}
@@ -487,27 +479,163 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 	return res, nil
 }
 
+func activeGenerationGoats(goats []domain.EligibleGoat) []domain.EligibleGoat {
+	if len(goats) == 0 {
+		return nil
+	}
+	out := make([]domain.EligibleGoat, 0, len(goats))
+	for _, goat := range goats {
+		if inCare(goat.LifecycleStatus) {
+			out = append(out, goat)
+		}
+	}
+	return out
+}
+
+func generationParkCacheKey(parkID string) string {
+	if parkID == "" {
+		return "<tenant>"
+	}
+	return parkID
+}
+
+func (s *GenerationService) fillEffectiveVersionsForGoats(ctx context.Context, tenantID string, goats []domain.EligibleGoat, asOf time.Time, cache map[string][]string) error {
+	missing := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, goat := range goats {
+		key := generationParkCacheKey(goat.ParkID)
+		if _, ok := cache[key]; ok || seen[key] {
+			continue
+		}
+		seen[key] = true
+		missing = append(missing, goat.ParkID)
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	if reader, ok := s.proto.(EffectiveVaccinationVersionBatchReader); ok {
+		byPark, err := reader.ListEffectiveVaccinationVersionsForParks(ctx, tenantID, missing, asOf)
+		if err != nil {
+			return err
+		}
+		for _, parkID := range missing {
+			cache[generationParkCacheKey(parkID)] = append([]string(nil), byPark[parkID]...)
+		}
+		return nil
+	}
+	for _, parkID := range missing {
+		// scale-guard:ignore: test-double fallback; production protocol repo implements page-level effective-version lookup.
+		versionIDs, err := s.proto.ListEffectiveVaccinationVersionsForGoat(ctx, tenantID, parkID, asOf)
+		if err != nil {
+			return err
+		}
+		cache[generationParkCacheKey(parkID)] = append([]string(nil), versionIDs...)
+	}
+	return nil
+}
+
+func missingVersionPlansForGoats(goats []domain.EligibleGoat, effectiveVersionsByPark map[string][]string, plans map[string]cachedVersionPlan) []string {
+	seen := make(map[string]bool)
+	out := make([]string, 0)
+	for _, goat := range goats {
+		for _, versionID := range effectiveVersionsByPark[generationParkCacheKey(goat.ParkID)] {
+			if _, ok := plans[versionID]; ok || seen[versionID] {
+				continue
+			}
+			seen[versionID] = true
+			out = append(out, versionID)
+		}
+	}
+	return out
+}
+
+func missingVersionPlans(versionIDs []string, plans map[string]cachedVersionPlan) []string {
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(versionIDs))
+	for _, versionID := range versionIDs {
+		if versionID == "" {
+			continue
+		}
+		if _, ok := plans[versionID]; ok || seen[versionID] {
+			continue
+		}
+		seen[versionID] = true
+		out = append(out, versionID)
+	}
+	return out
+}
+
+func (s *GenerationService) loadVersionPlans(ctx context.Context, tenantID string, versionIDs []string, plans map[string]cachedVersionPlan) error {
+	missing := missingVersionPlans(versionIDs, plans)
+	if len(missing) == 0 {
+		return nil
+	}
+	if reader, ok := s.proto.(ProtocolVersionBatchReader); ok {
+		versions, err := reader.GetVersionsByIDs(ctx, tenantID, missing)
+		if err != nil {
+			return err
+		}
+		rulesByVersion, err := reader.ListRulesForVersions(ctx, tenantID, missing)
+		if err != nil {
+			return err
+		}
+		for _, versionID := range missing {
+			v, ok := versions[versionID]
+			if !ok {
+				return fmt.Errorf("vaccination: protocol version %s not found", versionID)
+			}
+			if err := cacheVersionPlan(versionID, v, rulesByVersion[versionID], plans); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, versionID := range missing {
+		// scale-guard:ignore: test-double fallback; production protocol repo implements page-level version lookup.
+		v, err := s.proto.GetVersion(ctx, tenantID, versionID)
+		if err != nil {
+			return err
+		}
+		// scale-guard:ignore: test-double fallback; production protocol repo implements page-level rule lookup.
+		rules, err := s.proto.ListRules(ctx, tenantID, versionID)
+		if err != nil {
+			return err
+		}
+		if err := cacheVersionPlan(versionID, v, rules, plans); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cacheVersionPlan(versionID string, v protodomain.Version, rules []protodomain.Rule, plans map[string]cachedVersionPlan) error {
+	dsl, err := parseGenerationDSL(v.RuleDsl)
+	if err != nil {
+		return err
+	}
+	plans[versionID] = cachedVersionPlan{
+		rules:          append([]protodomain.Rule(nil), rules...),
+		deferState:     dsl.Eligibility.DeferStates,
+		eligibility:    dsl.Eligibility,
+		policies:       versionPoliciesFromDSL(dsl),
+		vaccineProfile: vaccineProfileFromDSL(dsl),
+	}
+	return nil
+}
+
+func versionIDSet(versionIDs []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(versionIDs))
+	for _, versionID := range versionIDs {
+		out[versionID] = struct{}{}
+	}
+	return out
+}
+
 // GenerateRecoveryRepairForGoat runs a single-goat recovery repair using the same nearby-drive
 // alignment semantics as goat.health/location recovery events. It is used by bounded repair jobs so
 // recovered deferred goats do not depend on a full-herd scan reaching their page.
 func (s *GenerationService) GenerateRecoveryRepairForGoat(ctx context.Context, tenantID, goatID string, asOf time.Time) (domain.GenerateResult, error) {
 	return s.generateForGoat(ctx, tenantID, goatID, asOf, generationOptions{healthRecoveryAlign: true})
-}
-
-func (s *GenerationService) effectiveVersionsForPark(ctx context.Context, tenantID, parkID string, asOf time.Time, cache map[string][]string) ([]string, error) {
-	key := parkID
-	if key == "" {
-		key = "<tenant>"
-	}
-	if versionIDs, ok := cache[key]; ok {
-		return versionIDs, nil
-	}
-	versionIDs, err := s.proto.ListEffectiveVaccinationVersionsForGoat(ctx, tenantID, parkID, asOf)
-	if err != nil {
-		return nil, err
-	}
-	cache[key] = append([]string(nil), versionIDs...)
-	return versionIDs, nil
 }
 
 // GenerateForVersionWithRun wraps an existing-cohort generation pass in a durable status row. If
@@ -642,7 +770,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		park := v.ScopeID
 		filter.ParkID = &park
 	}
-	effectiveCache := make(map[string]map[string]struct{})
+	effectiveVersionsByPark := make(map[string][]string)
 	failedGoats := make(map[string]struct{})
 	after := ""
 	for {
@@ -653,20 +781,26 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		if len(goats) == 0 {
 			break
 		}
-		pagePlans := make([]goatGenerationPlan, 0, len(goats))
-		for _, g := range goats {
-			if !inCare(g.LifecycleStatus) {
-				continue
+		activeGoats := activeGenerationGoats(goats)
+		if v.ScopeType == "tenant" {
+			if err := s.fillEffectiveVersionsForGoats(ctx, tenantID, activeGoats, asOf, effectiveVersionsByPark); err != nil {
+				return res, err
 			}
+		}
+		effectiveVersionSets := make(map[string]map[string]struct{})
+		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
+		for _, g := range activeGoats {
 			if !goatMatchesEligibility(g, elig, policies.Pregnancy, asOf) {
 				continue
 			}
 			if v.ScopeType == "tenant" {
-				effective, err := s.versionEffectiveForGoat(ctx, tenantID, g.ParkID, versionID, asOf, effectiveCache)
-				if err != nil {
-					return res, err
+				key := generationParkCacheKey(g.ParkID)
+				set := effectiveVersionSets[key]
+				if set == nil {
+					set = versionIDSet(effectiveVersionsByPark[key])
+					effectiveVersionSets[key] = set
 				}
-				if !effective {
+				if _, ok := set[versionID]; !ok {
 					continue
 				}
 			}
@@ -778,27 +912,6 @@ func recordFailedGenerationGoat(res *domain.GenerateResult, seen map[string]stru
 	}
 	seen[key] = struct{}{}
 	res.FailedGoats++
-}
-
-func (s *GenerationService) versionEffectiveForGoat(ctx context.Context, tenantID, parkID, versionID string, asOf time.Time, cache map[string]map[string]struct{}) (bool, error) {
-	key := parkID
-	if key == "" {
-		key = "<tenant>"
-	}
-	versions, ok := cache[key]
-	if !ok {
-		versionIDs, err := s.proto.ListEffectiveVaccinationVersionsForGoat(ctx, tenantID, parkID, asOf)
-		if err != nil {
-			return false, err
-		}
-		versions = make(map[string]struct{}, len(versionIDs))
-		for _, id := range versionIDs {
-			versions[id] = struct{}{}
-		}
-		cache[key] = versions
-	}
-	_, ok = versions[versionID]
-	return ok, nil
 }
 
 func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantID string, plans []goatGenerationPlan, asOf time.Time) (map[string]trustedEvidenceLookup, error) {
@@ -1194,35 +1307,27 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 		return res, err
 	}
 	pagePlans := make([]goatGenerationPlan, 0, len(versionIDs))
+	plans := make(map[string]cachedVersionPlan, len(versionIDs))
+	if err := s.loadVersionPlans(ctx, tenantID, versionIDs, plans); err != nil {
+		return res, err
+	}
 	for _, versionID := range versionIDs {
-		v, err := s.proto.GetVersion(ctx, tenantID, versionID)
-		if err != nil {
-			return res, err
-		}
-		dsl, err := parseGenerationDSL(v.RuleDsl)
-		if err != nil {
-			return res, err
-		}
-		policies := versionPoliciesFromDSL(dsl)
-		if !goatMatchesEligibility(g, dsl.Eligibility, policies.Pregnancy, asOf) {
+		p := plans[versionID]
+		if !goatMatchesEligibility(g, p.eligibility, p.policies.Pregnancy, asOf) {
 			if _, err := s.obl.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, goatID, versionID, "ineligible_after_shift", asOf); err != nil {
 				return res, err
 			}
 			continue
 		}
-		rules, err := s.proto.ListRules(ctx, tenantID, versionID)
-		if err != nil {
-			return res, err
-		}
 		pagePlans = append(pagePlans, goatGenerationPlan{
 			versionID:      versionID,
-			rules:          rules,
-			deferState:     dsl.Eligibility.DeferStates,
+			rules:          p.rules,
+			deferState:     p.deferState,
 			goat:           g,
 			opts:           opts,
-			eligibility:    dsl.Eligibility,
-			policies:       policies,
-			vaccineProfile: vaccineProfileFromDSL(dsl),
+			eligibility:    p.eligibility,
+			policies:       p.policies,
+			vaccineProfile: p.vaccineProfile,
 		})
 	}
 	trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf)
