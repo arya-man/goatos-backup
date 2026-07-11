@@ -228,7 +228,7 @@ func loadGoats(sourcePath string) ([]goatRecord, error) {
 			DOB:            cell(row, col["dob"]),
 			StageEntryDate: cell(row, col["stage_entry_date"]),
 			PurchaseDate:   cell(row, col["purchase_date"]),
-			Species:        cell(row, col["species"]),
+			Species:        optionalCell(row, col, "species", "Species"),
 			Status:         cell(row, col["status"]),
 			Health:         cell(row, col["health_status"]),
 		}
@@ -1302,6 +1302,15 @@ func cell(row []interface{}, idx int) string {
 	default:
 		return ""
 	}
+}
+
+func optionalCell(row []interface{}, col map[string]int, names ...string) string {
+	for _, name := range names {
+		if idx, ok := col[name]; ok {
+			return cell(row, idx)
+		}
+	}
+	return ""
 }
 
 func stringAt(row []interface{}, idx int) string {

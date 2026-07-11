@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -89,6 +90,25 @@ func TestBuildEntryDateMappingUsesEntrySourcesOnly(t *testing.T) {
 	}
 	if got["rfid-purchase"] == nil || got["rfid-purchase"].Format("2006-01-02") != "2026-05-06" {
 		t.Fatalf("purchase date must win over stage entry date, got %v", got["rfid-purchase"])
+	}
+}
+
+func TestLoadGoatsMissingSpeciesColumnLeavesSpeciesEmpty(t *testing.T) {
+	dir := t.TempDir()
+	data := `{"values":[["rfid","old_id","old_id_suffix","farm","shed","stage","age","breed","gender","dob","stage_entry_date","purchase_date","status","health_status"],["RFID-SHEEP-HINT","","","CBE","Shed 1","Adult","","Sojat","Female","","","","Alive","Healthy"]]}`
+	if err := os.WriteFile(dir+"/goats.json", []byte(data), 0644); err != nil {
+		t.Fatalf("write goats source: %v", err)
+	}
+
+	goats, err := loadGoats(dir)
+	if err != nil {
+		t.Fatalf("load goats: %v", err)
+	}
+	if len(goats) != 1 {
+		t.Fatalf("goats = %d, want 1", len(goats))
+	}
+	if goats[0].Species != "" {
+		t.Fatalf("missing species column species = %q, want empty", goats[0].Species)
 	}
 }
 
