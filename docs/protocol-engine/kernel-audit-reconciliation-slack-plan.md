@@ -460,6 +460,22 @@ Blast-radius controls:
   report-only to auto-fix;
 - kill switch per invariant and per tenant.
 
+Control-plane authority contract:
+
+- every audit control action is enforced server-side by an explicit named
+  capability at tenant/invariant/scope level; UI hiding, Slack approval, or a
+  config comment is not authority;
+- control actions fail closed and include enabling/disabling global or scoped
+  audit flags, promoting `controlled_derived` repairs from report-only to
+  auto-fix, changing caps/confidence thresholds/kill switches, approving or
+  expiring suppressions, resolving `needs_reconcile` cap claims,
+  replaying/discarding DLQ poison messages, and forcing report delivery;
+- high-risk control actions require segregation of duty where the proposer or
+  requester cannot be the sole approver;
+- every control action writes durable Operations Audit history with actor,
+  capability, scope, reason, evidence/ticket link, before/after values,
+  idempotency key, and trace/correlation IDs.
+
 Atomic cap reservation contract:
 
 - the runner computes the cap bucket from tenant, invariant, category, repair
@@ -1237,3 +1253,6 @@ The plan is implemented when:
 17. Audit tables have a documented retention, archive, and partition-rollover
     policy, and scope claims are both lease-safe against overlapping
     orchestrators and tenant-fair under skewed load.
+18. Audit control-plane mutations are server-side RBAC/capability gated,
+    segregation-of-duty enforced where high risk, fail closed, and write durable
+    Operations Audit history.
