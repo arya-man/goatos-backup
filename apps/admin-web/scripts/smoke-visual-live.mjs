@@ -46,7 +46,15 @@ const KNOWN_ROUTE_NAMES = [
   "sops-builder", "counts-herd", "operations-audit", "operations-dlq", "goat-passport",
   "procurement-load-detail",
 ];
-const onlyRoutes = (process.env.GOATOS_SMOKE_ONLY_ROUTES || "").split(",").map((s) => s.trim()).filter(Boolean);
+const onlyRoutesRaw = process.env.GOATOS_SMOKE_ONLY_ROUTES;
+const onlyRoutes = (onlyRoutesRaw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+// Present-but-empty (e.g. "," or whitespace) is an error: the caller asked to filter but named nothing.
+// Only an entirely-unset var falls back to the full sweep.
+if (onlyRoutesRaw !== undefined && onlyRoutes.length === 0) {
+  throw new Error(
+    `GOATOS_SMOKE_ONLY_ROUTES is set (${JSON.stringify(onlyRoutesRaw)}) but resolves to no route names. Unset it to run the full sweep, or name valid routes: ${KNOWN_ROUTE_NAMES.join(", ")}`,
+  );
+}
 const unknownRoutes = onlyRoutes.filter((name) => !KNOWN_ROUTE_NAMES.includes(name));
 if (unknownRoutes.length) {
   throw new Error(
