@@ -343,7 +343,7 @@ LIMIT 1`, fxTenant, aggregateID, eventType).Scan(&outboxID, &payload, &status); 
 			"event_type": eventType,
 			"tenant_id":  fxTenant,
 		},
-		DeliveryAttempt: 1,
+		DeliveryAttempt: 2,
 	}); err != nil {
 		f.T.Fatalf("consume %s outbox for %s: %v", eventType, aggregateID, err)
 	}

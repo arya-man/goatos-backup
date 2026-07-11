@@ -36,6 +36,11 @@ collect_named_artifacts() {
     # macOS still ships Bash 3, which has no ${var,,} lowercase expansion.
     rel="$(printf '%s' "$rel" | tr '[:upper:]' '[:lower:]')"
     if [[ "$rel" =~ (e2e|smoke|proof) ]]; then
+      # Legacy proof scripts are manual operator artifacts (for live/procurement checks),
+      # not kernel-e2e fixtures, and are covered by dedicated live-run workflows.
+      if [[ "$rel" == tools/dev/*-proof.sh ]]; then
+        continue
+      fi
       source_files+=("$file")
     fi
   done < <(find "$dir" -type f \( \
