@@ -12,6 +12,7 @@ import (
 
 	obligationdomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	obligationports "github.com/vgoats/goatos/backend/internal/obligation/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
@@ -296,6 +297,57 @@ func TestExecutionParsesAsOf(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution?as_of=2026-06-24", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("malformed as_of status = %d want 400", rec.Code)
+	}
+}
+
+func TestExecutionClampsFutureAsOfToServerNow(t *testing.T) {
+	serverNow := time.Date(2026, 7, 11, 18, 15, 0, 0, biztime.DefaultLocation())
+	reader := &fakeReader{
+		rows:        []domain.ExecutionRow{sampleRow()},
+		shedSummary: domain.ShedSummaryResponse{Source: domain.SourceAPI},
+		shedDetail:  domain.ShedDetailResponse{Source: domain.SourceAPI},
+		shedFound:   true,
+	}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}).WithClock(func() time.Time { return serverNow }))
+
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/execution?as_of=2026-09-01T23:59:59Z", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("execution status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !reader.last.AsOf.Equal(serverNow) {
+		t.Fatalf("execution as_of = %s, want clamped server now %s", reader.last.AsOf, serverNow)
+	}
+	if !reader.last.DueBefore.Equal(serverNow.Add(defaultExecutionHorizonDays * 24 * time.Hour)) {
+		t.Fatalf("execution due_before = %s, want clamped horizon", reader.last.DueBefore)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/vaccination/sheds?as_of=2026-09-01T23:59:59Z", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("shed summary status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !reader.lastShedSum.AsOf.Equal(serverNow) {
+		t.Fatalf("shed summary as_of = %s, want clamped server now %s", reader.lastShedSum.AsOf, serverNow)
+	}
+	if !reader.lastShedSum.DueBefore.Equal(serverNow.Add(defaultExecutionHorizonDays * 24 * time.Hour)) {
+		t.Fatalf("shed summary due_before = %s, want clamped horizon", reader.lastShedSum.DueBefore)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/vaccination/sheds/30000000-0000-4000-8000-000000000009?as_of=2026-09-01T23:59:59Z", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("shed detail status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !reader.lastOps.AsOf.Equal(serverNow) {
+		t.Fatalf("shed detail as_of = %s, want clamped server now %s", reader.lastOps.AsOf, serverNow)
 	}
 }
 

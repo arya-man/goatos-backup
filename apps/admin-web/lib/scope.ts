@@ -69,10 +69,9 @@ export function rangeDays(range: RangeKey): number {
 export function backendScope(scope: Scope): { parkId?: string; asOf?: string } {
   return {
     parkId: scope.parkId,
-    // as_of is a DATE in the URL; "compute state as of <date>" means INCLUSIVE end of that day, so a dose
-    // administered during the selected day still counts. Map to 23:59:59.999Z, not midnight — midnight would
-    // drop same-day events. The backend then reconstructs completion/dose state at or before this instant.
-    asOf: scope.asOf ? `${scope.asOf}T23:59:59.999Z` : undefined,
+    // as_of is a DATE in the URL; "compute state as of <date>" means inclusive end of that Goat OS
+    // business day. Send the India business-calendar instant, not UTC end-of-day.
+    asOf: scope.asOf ? `${scope.asOf}T23:59:59.999+05:30` : undefined,
   };
 }
 

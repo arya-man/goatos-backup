@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 )
@@ -225,6 +226,38 @@ func TestActionCenterParsesAsOfAndReanchorsHorizon(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("malformed as_of status = %d want 400 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestActionCenterClampsFutureAsOfToServerNow(t *testing.T) {
+	serverNow := time.Date(2026, 7, 11, 18, 15, 0, 0, biztime.DefaultLocation())
+	reader := &fakeReader{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader).WithClock(func() time.Time { return serverNow }))
+
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/action-center?as_of=2026-09-01T23:59:59Z", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), handlerTenant))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !reader.actionQuery.AsOf.Equal(serverNow) {
+		t.Fatalf("action-center as_of = %s, want clamped server now %s", reader.actionQuery.AsOf, serverNow)
+	}
+	if !reader.actionQuery.DueBefore.Equal(serverNow.Add(defaultHorizonDays * 24 * time.Hour)) {
+		t.Fatalf("action-center due_before = %s, want clamped horizon", reader.actionQuery.DueBefore)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/vaccination/action-center/counts?as_of=2026-09-01T23:59:59Z", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), handlerTenant))
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("counts status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !reader.countsQuery.AsOf.Equal(serverNow) {
+		t.Fatalf("counts as_of = %s, want clamped server now %s", reader.countsQuery.AsOf, serverNow)
 	}
 }
 

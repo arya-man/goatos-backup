@@ -82,13 +82,13 @@
 </head>
 <body>
   <h1>Vaccination Kernel Story Report</h1>
-  <p class="subtitle">Generated 2026-07-10 11:48:16 UTC &middot; backend/tests/e2e</p>
+  <p class="subtitle">Generated 2026-07-11 13:06:59 UTC &middot; backend/tests/e2e</p>
 
   <div class="summary">
-    <div class="tile"><span class="n">32</span>stories</div>
-    <div class="tile pass"><span class="n">32</span>stories passed</div>
+    <div class="tile"><span class="n">35</span>stories</div>
+    <div class="tile pass"><span class="n">35</span>stories passed</div>
     <div class="tile fail"><span class="n">0</span>stories failed</div>
-    <div class="tile"><span class="n">329</span>assertions checked</div>
+    <div class="tile"><span class="n">374</span>assertions checked</div>
     <div class="tile pass"><span class="n">0</span>assertions failed</div>
   </div>
 
@@ -169,7 +169,7 @@
           <tr class="ok">
             <td>a brand-new obligation was created rather than the missed row being reused</td>
             <td>PASS</td>
-            <td class="detail">newObl=&#34;8b5fff25-4e58-41cf-8cd4-d81a04e95719&#34; missedObl=&#34;aea2ebfc-e8ff-4e05-bb17-2bfdd84d6a66&#34;</td>
+            <td class="detail">newObl=&#34;a1df4d75-a070-4c0f-8215-e3434182269e&#34; missedObl=&#34;fc03d4ac-03c4-4240-b813-a5bca99caaa1&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -236,7 +236,7 @@
           <tr class="ok">
             <td>replay returns the same new obligation id, not a second new one</td>
             <td>PASS</td>
-            <td class="detail">replayObl=&#34;8b5fff25-4e58-41cf-8cd4-d81a04e95719&#34; newObl=&#34;8b5fff25-4e58-41cf-8cd4-d81a04e95719&#34;</td>
+            <td class="detail">replayObl=&#34;a1df4d75-a070-4c0f-8215-e3434182269e&#34; newObl=&#34;a1df4d75-a070-4c0f-8215-e3434182269e&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -285,13 +285,457 @@
           <tr class="ok">
             <td>orphan goat is on a batch</td>
             <td>PASS</td>
-            <td class="detail">batch_id=&#34;bd643895-409b-47fe-b60c-45c090b3379f&#34;</td>
+            <td class="detail">batch_id=&#34;c0d9a320-dbb7-4e1a-b8de-457440d18611&#34;</td>
           </tr>
 
           <tr class="ok">
             <td>fallback drive is shed-scoped</td>
             <td>PASS</td>
             <td class="detail">scope_type=&#34;shed&#34;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+  </section>
+
+  <section class="story pass">
+    <h2>Publishing vaccination.matrix syncs daily capacity into the planner <span class="badge pass">PASS</span></h2>
+    <p class="narrative">The admin authors a daily vaccination cap inside the versioned rule (rule_dsl.capacity) and publishes the vaccination.matrix through the protocol Service. Publish must persist that cap into the vaccination_capacity_config read model (max_buffer_days = 7), and the session-splitting planner must read the SYNCED cap — a shed within the cap runs in one day, an over-cap load splits across the safe window, and a load past the window is flagged Needs review.</p>
+
+    <div class="step">
+      <h3>Seed a deliberately-wrong pre-publish capacity</h3>
+      <p class="narrative">Set the tenant cap to 100/day with a 2-day buffer. Neither value matches what the version will publish, so the post-publish read is unambiguous evidence the publish overwrote it.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>pre-publish cap is the wrong 100/2</td>
+            <td>PASS</td>
+            <td class="detail">max_per_day=100 max_buffer_days=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>protocol definition created</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>draft matrix version created</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Publish the vaccination.matrix through the protocol Service</h3>
+      <p class="narrative">Service.PublishVersion recognizes the vaccination.matrix ruleset, writes the derived rules, then syncs rule_dsl.capacity into vaccination_capacity_config and parity-checks the stored row.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>Service publish succeeded (sync &#43; parity check passed)</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>publish persisted max_per_day = 10</td>
+            <td>PASS</td>
+            <td class="detail">max_per_day=10</td>
+          </tr>
+
+          <tr class="ok">
+            <td>publish persisted max_buffer_days = 7</td>
+            <td>PASS</td>
+            <td class="detail">max_buffer_days=7</td>
+          </tr>
+
+          <tr class="ok">
+            <td>publish persisted capacity_scope = tenant</td>
+            <td>PASS</td>
+            <td class="detail">scope=&#34;tenant&#34;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Planner reads the SYNCED capacity</h3>
+      <p class="narrative">The session-splitting planner reads vaccination_capacity_config through the vaccination-execution read path — the same values publish just wrote, not a code default.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>capacity read for planner succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>planner sees synced cap 10/day</td>
+            <td>PASS</td>
+            <td class="detail">MaxPerDay=10</td>
+          </tr>
+
+          <tr class="ok">
+            <td>planner sees synced buffer 7 (8-day window)</td>
+            <td>PASS</td>
+            <td class="detail">MaxBufferDays=7</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Within cap → one day</h3>
+      <p class="narrative">A shed with 10 open vaccination cells fits in a single day at the 10/day cap: within_cap.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>within-cap load is one session</td>
+            <td>PASS</td>
+            <td class="detail">sessions=1</td>
+          </tr>
+
+          <tr class="ok">
+            <td>within-cap classified within_cap</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;within_cap&#34;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Over cap but inside the window → split</h3>
+      <p class="narrative">80 cells split into 8 daily sessions — exactly the safe window for buffer 7 (7 &#43; 1). This boundary is bound to the PUBLISHED buffer: a smaller buffer would push this same load to Needs review.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>over-cap load splits into 8 sessions</td>
+            <td>PASS</td>
+            <td class="detail">sessions=8</td>
+          </tr>
+
+          <tr class="ok">
+            <td>over-cap classified over_cap (Split)</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;over_cap&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>every split day stays within the safe window</td>
+            <td>PASS</td>
+            <td class="detail">sessions=[{Date:2026-07-15 Vaccinations:10 DailyLimit:10 Capacity:within_cap} {Date:2026-07-16 Vaccinations:10 DailyLimit:10 Capacity:within_cap} {Date:2026-07-17 Vaccinations:10 DailyLimit:10 Capacity:within_cap} {Date:2026-07-18 Vaccinations:10 DailyLimit:10 Capacity:within_cap} {Date:2026-07-19 Vaccinations:10 DailyLimit:10 Capacity:within_cap} {Date:2026-07-20 Vaccinations:10 DailyLimit:10 Capacity:within_cap} {Date:2026-07-21 Vaccinations:10 DailyLimit:10 Capacity:within_cap} {Date:2026-07-22 Vaccinations:10 DailyLimit:10 Capacity:within_cap}]</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Past the window → Needs review</h3>
+      <p class="narrative">90 cells need 9 daily sessions — one past the 8-day safe window — so the planner flags capacity_breach (Needs review). Same cap, one dose more than Split: the window edge is exactly buffer 7.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>past-window load needs 9 sessions</td>
+            <td>PASS</td>
+            <td class="detail">sessions=9</td>
+          </tr>
+
+          <tr class="ok">
+            <td>past-window classified capacity_breach (Needs review)</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;capacity_breach&#34;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+  </section>
+
+  <section class="story pass">
+    <h2>Shed capacity count uses eligible planned cells, not herd size <span class="badge pass">PASS</span></h2>
+    <p class="narrative">Three goats share a shed; each is due FMD &#43; HS (2 vaccination cells per goat). The shed capacity count must total eligible planned cells only: a sick goat and a quarantined goat drop out of today&#39;s count when their doses defer, a recovered goat&#39;s doses come back after the hold is released, and one goat needing two vaccines counts as two cells. capacity_status follows those cells — never the raw headcount.</p>
+
+    <div class="step">
+      <h3>Generate: three goats × two vaccines = six planned cells</h3>
+      <p class="narrative">Publishing FMD &#43; HS and generating both as of 2026-06-23 gives each of the three goats two overdue obligations — six vaccination cells across three animals.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>both generations ran without error</td>
+            <td>PASS</td>
+            <td class="detail">errF=&lt;nil&gt; errH=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>six cells generated (3 goats × FMD&#43;HS)</td>
+            <td>PASS</td>
+            <td class="detail">fmd=3 hs=3</td>
+          </tr>
+
+          <tr class="ok">
+            <td>case 4: one goat needing FMD &#43; HS carries 2 obligation cells</td>
+            <td>PASS</td>
+            <td class="detail">gFMDHS cells=2</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Capacity count = eligible cells, not headcount</h3>
+      <p class="narrative">The shed has 3 alive animals but 6 open vaccination cells. open_cells must read 6 (the planner input), and capacity_status must classify off those 6 cells: ceil(6 / cap 2) = 3 sessions &gt; the 2-day window =&gt; needs review. A headcount-based count (3 animals) would only be over_cap.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>shed summary read without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>shed has 3 alive animals</td>
+            <td>PASS</td>
+            <td class="detail">animals=3</td>
+          </tr>
+
+          <tr class="ok">
+            <td>case 4/5: open_cells counts vaccinations (6), not animals (3)</td>
+            <td>PASS</td>
+            <td class="detail">open_cells=6 animals=3</td>
+          </tr>
+
+          <tr class="ok">
+            <td>case 5: capacity_status is driven by the 6 cells (needs review), not the 3 animals (would be over_cap)</td>
+            <td>PASS</td>
+            <td class="detail">capacity=&#34;capacity_breach&#34; sessions=3</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Case 1 &amp; 2: sick &#43; quarantined goats defer and drop out of the capacity count</h3>
+      <p class="narrative">Flip gSick to &#39;sick&#39; and gQuar to &#39;quarantine&#39;; each recheck defers that goat&#39;s two open doses. Both goats&#39; cells must leave open_cells, leaving only gFMDHS&#39;s 2 — and capacity_status must fall to within_cap (2 cells, one session). With three animals unchanged, this proves the count follows eligible cells, not the herd.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>gSick recheck ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>gSick&#39;s two doses deferred</td>
+            <td>PASS</td>
+            <td class="detail">deferred=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>gQuar recheck ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>gQuar&#39;s two doses deferred</td>
+            <td>PASS</td>
+            <td class="detail">deferred=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>gSick both obligations are deferred (SQL)</td>
+            <td>PASS</td>
+            <td class="detail">deferred rows=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>gQuar both obligations are deferred (SQL)</td>
+            <td>PASS</td>
+            <td class="detail">deferred rows=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>shed summary read without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>case 1&#43;2: open_cells drops 6 -&gt; 2 (sick &#43; quarantined cells excluded)</td>
+            <td>PASS</td>
+            <td class="detail">open_cells=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>headcount is still 3 while the count fell to 2 — exclusion is per-cell, not per-animal</td>
+            <td>PASS</td>
+            <td class="detail">animals=3</td>
+          </tr>
+
+          <tr class="ok">
+            <td>case 5: capacity_status is now within_cap (2 cells, 1 session) — cells, not 3 animals</td>
+            <td>PASS</td>
+            <td class="detail">capacity=&#34;within_cap&#34; sessions=1</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Case 3: gSick recovers; its doses reopen and re-enter the capacity count</h3>
+      <p class="narrative">Flip gSick back to &#39;healthy&#39; and run the real recovery recheck. Both held doses must reopen (follow-up obligations after the hold), realigned onto the recovery calendar. Read the shed as of just past the realigned due date: open_cells must climb back to 4 (gFMDHS 2 &#43; gSick 2). gQuar stays quarantined, so its cells remain excluded — recovery is per-goat.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>gSick recovery recheck ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>case 3: both held doses reopened as follow-up obligations</td>
+            <td>PASS</td>
+            <td class="detail">reopened=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>gSick both obligations are scheduled again (SQL)</td>
+            <td>PASS</td>
+            <td class="detail">scheduled rows=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>shed summary read without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>case 3: recovered follow-up doses re-enter open_cells -&gt; 4 (gFMDHS 2 &#43; gSick 2)</td>
+            <td>PASS</td>
+            <td class="detail">open_cells=4</td>
+          </tr>
+
+          <tr class="ok">
+            <td>gQuar stays quarantined/excluded — recovery is per-goat</td>
+            <td>PASS</td>
+            <td class="detail">gQuar deferred=2</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+  </section>
+
+  <section class="story pass">
+    <h2>Live vaccination reads clamp future as_of to backend now <span class="badge pass">PASS</span></h2>
+    <p class="narrative">A vaccination obligation is open on the July 11 live business day and due on July 18. If a browser URL carries as_of=2026-09-01, the backend must not evaluate the live table as September and call the July 18 dose overdue. Historical as_of remains allowed, but future as_of is clamped to the server&#39;s Asia/Kolkata now.</p>
+
+    <div class="step">
+      <h3>Future URL parameter is clamped by the backend</h3>
+      <p class="narrative">Call the real /vaccination/sheds HTTP route with as_of=2026-09-01 while the backend clock is 2026-07-11 18:15 IST. The row must match live July semantics: due on July 18, not overdue.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>shed row is returned through the real HTTP route</td>
+            <td>PASS</td>
+            <td class="detail">found=true</td>
+          </tr>
+
+          <tr class="ok">
+            <td>future as_of does not mark July 18 work overdue</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;due&#34; next_due=0x1400011a180 due=1 done=0</td>
+          </tr>
+
+          <tr class="ok">
+            <td>next due stays the July 18 business date</td>
+            <td>PASS</td>
+            <td class="detail">next_due=0x1400011a180</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Explicit live as_of and future as_of produce the same live classification</h3>
+      <p class="narrative">The same route with as_of set to the server&#39;s current July 11 instant should produce the same status as the future URL, proving the future parameter was clamped instead of honored.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>live as_of row is returned</td>
+            <td>PASS</td>
+            <td class="detail">found=true</td>
+          </tr>
+
+          <tr class="ok">
+            <td>future URL and live URL agree on status</td>
+            <td>PASS</td>
+            <td class="detail">future_status=&#34;due&#34; live_status=&#34;due&#34; future_next=0x1400011a180 live_next=0x1400011a350</td>
           </tr>
 
         </tbody>
@@ -562,7 +1006,7 @@
           <tr class="ok">
             <td>the shed drive appears in the execution rollup</td>
             <td>PASS</td>
-            <td class="detail">batch=e17e6f2a-dc1c-40e2-b70b-4dc32baad06b rows=1</td>
+            <td class="detail">batch=d60207dc-0087-4de2-804e-74e36a705c51 rows=1</td>
           </tr>
 
           <tr class="ok">
@@ -822,7 +1266,7 @@
           <tr class="ok">
             <td>a brand-new obligation was created rather than the missed row being reused</td>
             <td>PASS</td>
-            <td class="detail">newOblID=&#34;5dfe901e-32fc-440e-9bf0-a359005b9768&#34; oblID=&#34;2e4e406b-dc4b-4bbb-9077-7ac8ff62c164&#34;</td>
+            <td class="detail">newOblID=&#34;16e1e4be-ca0e-4e16-bf5c-183a5e14055b&#34; oblID=&#34;0dc2e759-60e9-43ef-926a-7d62a2bef992&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -1439,7 +1883,7 @@
           <tr class="ok">
             <td>first administration recorded</td>
             <td>PASS</td>
-            <td class="detail">cid=&#34;40b9a33f-a2dd-494a-9792-e5c3b6275b32&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid=&#34;a5b2a895-06f5-440c-9047-830aa5598809&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
 
         </tbody>
@@ -1507,7 +1951,7 @@
           <tr class="ok">
             <td>rework administration recorded under a new key</td>
             <td>PASS</td>
-            <td class="detail">cid2=&#34;843db1e7-f84e-4afc-824a-9abbefb871c7&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid2=&#34;bafc1645-95bb-4281-b3bc-34fa20be6fd2&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
 
         </tbody>
@@ -1587,7 +2031,7 @@
           <tr class="ok">
             <td>first submit recorded a completion</td>
             <td>PASS</td>
-            <td class="detail">cid=&#34;f322477d-0a96-4518-a661-6d4346e2f427&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid=&#34;7d2e1860-e826-4ffb-9ddb-46e10d4710d7&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
 
           <tr class="ok">
@@ -1803,7 +2247,7 @@
           <tr class="ok">
             <td>a next-page cursor is returned (keyset pagination, bounded reads)</td>
             <td>PASS</td>
-            <td class="detail">next_cursor=0x14000370c90</td>
+            <td class="detail">next_cursor=0x140003c4120</td>
           </tr>
 
         </tbody>
@@ -3580,7 +4024,7 @@
           <tr class="ok">
             <td>missed goat is on the catch-up batch</td>
             <td>PASS</td>
-            <td class="detail">batch_id=&#34;eb3b31cc-7657-4556-a039-bcf3b8472852&#34;</td>
+            <td class="detail">batch_id=&#34;52d69709-cd72-415d-9308-0dfd59f3cb2e&#34;</td>
           </tr>
 
         </tbody>

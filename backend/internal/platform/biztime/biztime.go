@@ -52,3 +52,27 @@ func BusinessDate(t time.Time) string {
 func BusinessDateIn(t time.Time, timezone string) string {
 	return BusinessDayStartIn(t, timezone).Format("2006-01-02")
 }
+
+// ClampFutureAsOf converts an as-of instant into the Goat OS business calendar and
+// caps future values at the server's current business instant. Live operational
+// reads may reconstruct historical state, but a stale or hand-edited future
+// as_of must not make not-yet-due work look overdue.
+func ClampFutureAsOf(asOf, now time.Time) time.Time {
+	loc := DefaultLocation()
+	asOf = asOf.In(loc)
+	now = now.In(loc)
+	if asOf.After(now) {
+		return now
+	}
+	return asOf
+}
+
+// ParseLiveAsOfRFC3339 parses an RFC3339 as_of value for live operational reads.
+// Malformed values return the parse error; valid future values are clamped to now.
+func ParseLiveAsOfRFC3339(raw string, now time.Time) (time.Time, error) {
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return ClampFutureAsOf(parsed, now), nil
+}

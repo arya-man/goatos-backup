@@ -27,6 +27,7 @@ type Reader interface {
 type Handler struct {
 	reader Reader
 	log    *slog.Logger
+	clock  func() time.Time
 }
 
 func NewHandler(reader Reader, log ...*slog.Logger) *Handler {
@@ -34,7 +35,23 @@ func NewHandler(reader Reader, log ...*slog.Logger) *Handler {
 	if len(log) > 0 && log[0] != nil {
 		l = log[0]
 	}
-	return &Handler{reader: reader, log: l}
+	return &Handler{reader: reader, log: l, clock: time.Now}
+}
+
+// WithClock overrides the wall clock for deterministic live-as-of tests.
+// Production uses time.Now.
+func (h *Handler) WithClock(clock func() time.Time) *Handler {
+	if clock != nil {
+		h.clock = clock
+	}
+	return h
+}
+
+func (h *Handler) now() time.Time {
+	if h.clock == nil {
+		return time.Now().In(biztime.DefaultLocation())
+	}
+	return h.clock().In(biztime.DefaultLocation())
 }
 
 func Register(mux *http.ServeMux, h *Handler) {
@@ -157,7 +174,7 @@ func (h *Handler) WorkflowDrilldown(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) query(w http.ResponseWriter, r *http.Request, defaultRowLimit int) (domain.Query, bool) {
-	now := time.Now().In(biztime.DefaultLocation())
+	now := h.now()
 	q := domain.Query{
 		TenantID:  tenantID(r),
 		AsOf:      now,
@@ -166,12 +183,12 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request, defaultRowLimit 
 	}
 	values := r.URL.Query()
 	if asOfRaw := values.Get("as_of"); asOfRaw != "" {
-		parsed, err := time.Parse(time.RFC3339, asOfRaw)
+		parsed, err := biztime.ParseLiveAsOfRFC3339(asOfRaw, now)
 		if err != nil {
 			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
 			return domain.Query{}, false
 		}
-		q.AsOf = parsed.In(biztime.DefaultLocation())
+		q.AsOf = parsed
 		// Re-anchor the default horizon to as_of; an explicit due_before below still wins.
 		q.DueBefore = q.AsOf.Add(defaultHorizonDays * 24 * time.Hour)
 	}

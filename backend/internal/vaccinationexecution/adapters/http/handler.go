@@ -67,6 +67,7 @@ type Handler struct {
 	reader Reader
 	writer Writer
 	log    *slog.Logger
+	clock  func() time.Time
 }
 
 // NewHandler constructs the vaccination execution handler.
@@ -75,7 +76,23 @@ func NewHandler(reader Reader, writer Writer, log ...*slog.Logger) *Handler {
 	if len(log) > 0 && log[0] != nil {
 		l = log[0]
 	}
-	return &Handler{reader: reader, writer: writer, log: l}
+	return &Handler{reader: reader, writer: writer, log: l, clock: time.Now}
+}
+
+// WithClock overrides the wall clock for tests that need deterministic as-of
+// clamping. Production uses time.Now.
+func (h *Handler) WithClock(clock func() time.Time) *Handler {
+	if clock != nil {
+		h.clock = clock
+	}
+	return h
+}
+
+func (h *Handler) now() time.Time {
+	if h.clock == nil {
+		return time.Now().In(biztime.DefaultLocation())
+	}
+	return h.clock().In(biztime.DefaultLocation())
 }
 
 // Register mounts the vaccination execution routes (owned by PC Vaccination, park/shed scope).
@@ -97,7 +114,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 // /vaccination screen. Park scope (park_id) + as_of + due_before come from the top bar.
 func (h *Handler) VaccinationOperations(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	asOf := time.Now().In(biztime.DefaultLocation())
+	asOf := h.now()
 	q := vaccexecd.OperationsQuery{
 		TenantID:  tenantID(r),
 		AsOf:      asOf,
@@ -112,12 +129,12 @@ func (h *Handler) VaccinationOperations(w http.ResponseWriter, r *http.Request) 
 		q.ParkID = &parkID
 	}
 	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
-		parsed, err := time.Parse(time.RFC3339, asOfRaw)
+		parsed, err := biztime.ParseLiveAsOfRFC3339(asOfRaw, asOf)
 		if err != nil {
 			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
 			return
 		}
-		q.AsOf = parsed.In(biztime.DefaultLocation())
+		q.AsOf = parsed
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
 	}
 	if dueBefore := query.Get("due_before"); dueBefore != "" {
@@ -215,7 +232,7 @@ func (h *Handler) GetShedDrilldown(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, defaultLimit int) (vaccexecd.ExecutionQuery, bool) {
 	query := r.URL.Query()
-	asOf := time.Now().In(biztime.DefaultLocation())
+	asOf := h.now()
 	q := vaccexecd.ExecutionQuery{
 		TenantID:  tenantID(r),
 		AsOf:      asOf,
@@ -224,12 +241,12 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 	}
 
 	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
-		parsed, err := time.Parse(time.RFC3339, asOfRaw)
+		parsed, err := biztime.ParseLiveAsOfRFC3339(asOfRaw, asOf)
 		if err != nil {
 			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
 			return vaccexecd.ExecutionQuery{}, false
 		}
-		q.AsOf = parsed.In(biztime.DefaultLocation())
+		q.AsOf = parsed
 		// Re-anchor the default horizon to as_of; an explicit due_before below still wins.
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
 	}
@@ -439,7 +456,7 @@ func (h *Handler) VaccinationGaps(w http.ResponseWriter, r *http.Request) {
 // protocol only (no new hot-table query).
 func (h *Handler) VaccinationCoverage(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	asOf := time.Now().In(biztime.DefaultLocation())
+	asOf := h.now()
 	q := vaccexecd.OperationsQuery{
 		TenantID:  tenantID(r),
 		AsOf:      asOf,
@@ -454,12 +471,12 @@ func (h *Handler) VaccinationCoverage(w http.ResponseWriter, r *http.Request) {
 		q.ParkID = &parkID
 	}
 	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
-		parsed, err := time.Parse(time.RFC3339, asOfRaw)
+		parsed, err := biztime.ParseLiveAsOfRFC3339(asOfRaw, asOf)
 		if err != nil {
 			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
 			return
 		}
-		q.AsOf = parsed.In(biztime.DefaultLocation())
+		q.AsOf = parsed
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
 	}
 	if dueBefore := query.Get("due_before"); dueBefore != "" {
@@ -522,7 +539,7 @@ var allowedShedSorts = map[vaccexecd.ShedSummarySort]bool{
 // Manager/Backup and derived Status, filterable by park/shed/status/search, sortable, offset-paginated.
 func (h *Handler) ListShedSummary(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	asOf := time.Now().In(biztime.DefaultLocation())
+	asOf := h.now()
 	q := vaccexecd.ShedSummaryQuery{
 		TenantID:  tenantID(r),
 		AsOf:      asOf,
@@ -531,12 +548,12 @@ func (h *Handler) ListShedSummary(w http.ResponseWriter, r *http.Request) {
 		Limit:     defaultShedLimit,
 	}
 	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
-		parsed, err := time.Parse(time.RFC3339, asOfRaw)
+		parsed, err := biztime.ParseLiveAsOfRFC3339(asOfRaw, asOf)
 		if err != nil {
 			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
 			return
 		}
-		q.AsOf = parsed.In(biztime.DefaultLocation())
+		q.AsOf = parsed
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
 	}
 	if parkID := query.Get("park_id"); parkID != "" {
@@ -627,7 +644,7 @@ func (h *Handler) GetShedDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
-	asOf := time.Now().In(biztime.DefaultLocation())
+	asOf := h.now()
 	q := vaccexecd.OperationsQuery{
 		TenantID:  tenantID(r),
 		AsOf:      asOf,
@@ -635,12 +652,12 @@ func (h *Handler) GetShedDetail(w http.ResponseWriter, r *http.Request) {
 		Limit:     defaultDrilldownLimit,
 	}
 	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
-		parsed, err := time.Parse(time.RFC3339, asOfRaw)
+		parsed, err := biztime.ParseLiveAsOfRFC3339(asOfRaw, asOf)
 		if err != nil {
 			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
 			return
 		}
-		q.AsOf = parsed.In(biztime.DefaultLocation())
+		q.AsOf = parsed
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
 	}
 	detail, found, err := h.reader.ShedDetail(r.Context(), shedID, q)
