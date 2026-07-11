@@ -163,7 +163,10 @@ one product; this skill is the navigation layer.
   blocks). If the E2E belongs to an existing category, update that category's
   report instead of creating a new root card; create a new card only for a
   genuinely new report category. A standalone deep link, raw markdown dump,
-  attachment, scratchpad, or chat paste is not an accepted E2E report.
+  attachment, scratchpad, or chat paste is not an accepted E2E report. Each E2E
+  report must explain the scenario, setup/data, action/trigger, assertions,
+  evidence source, and certification boundary; a one-line test name is not a
+  report.
 - Treat backend-driven UI contracts as a golden rule. Admin-web/operator-mobile
   must render backend-owned OpenAPI/app contracts for navigation, route labels,
   page/section titles, table columns, filter/sort/page-size semantics, chips,

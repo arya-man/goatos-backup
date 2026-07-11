@@ -732,7 +732,20 @@ local-only, staging certification, or production proof.
 
 Every E2E detail page must match the existing report style: self-contained HTML,
 title/subtitle, summary tiles, pass/fail/pending badges, sections/steps, and
-readable code/evidence blocks. Do not ship raw markdown, a bare `<pre>` page,
+readable code/evidence blocks. Each story/check must explain, in prose a
+reviewer can understand without opening the code, all of:
+
+```text
+what behavior is under test
+why it matters operationally or at scale
+what data/setup creates the scenario
+what action/trigger/API/job is executed
+what assertions prove pass/fail
+where the source evidence lives
+what is out of scope or still uncertified
+```
+
+Do not ship one-line headings, raw markdown, a bare `<pre>` page,
 screenshots-only proof, an Actions artifact, a local scratchpad, or a chat paste
 as the final E2E report. Before declaring the report published, verify both the
 root card and the detail page with `curl`; when GitHub Pages cache is stale, use

@@ -335,8 +335,12 @@ Do:
   and document it in `docs/runbooks/github-workflows.md`. The detail page must
   follow the existing E2E report visual contract: self-contained HTML with
   title/subtitle, summary tiles, pass/fail/pending badges, report sections, and
-  readable code/evidence blocks. Do not publish raw markdown, a bare
-  `<pre>`, screenshots-only evidence, or a hidden artifact as the final report.
+  readable code/evidence blocks. It must explain the test in enough detail for
+  a reviewer who did not write the code: what behavior is under test, why it
+  matters, setup/data, action/trigger, assertions, evidence source, and any
+  certification boundary. One-line headings or test names are not enough. Do
+  not publish raw markdown, a bare `<pre>`, screenshots-only evidence, or a
+  hidden artifact as the final report.
   Do not leave E2E reports only in `/tmp`, scratchpads, attachments, local
   `.codex/` or `.claude/` folders, or chat. State clearly when a report is local
   E2E only and not staging or production certification. Before handoff, verify
