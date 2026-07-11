@@ -3192,6 +3192,10 @@ export interface components {
         Limit: number;
         Cursor: string;
         IdempotencyKey: string;
+        /** @description Standard language preference used to localize backend-owned labels/copy. Supported app languages are en, hi, kn, and te; unsupported values fall back to en. */
+        AcceptLanguage: string;
+        /** @description Exact Goat OS app language selected by the user. Takes precedence over Accept-Language for backend-owned labels/copy. */
+        GoatOSLocale: "en" | "hi" | "kn" | "te";
         ProtocolId: string;
         ProtocolVersionId: string;
         ShedId: string;
@@ -3260,7 +3264,12 @@ export interface operations {
             query?: {
                 device_id?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Standard language preference used to localize backend-owned labels/copy. Supported app languages are en, hi, kn, and te; unsupported values fall back to en. */
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+                /** @description Exact Goat OS app language selected by the user. Takes precedence over Accept-Language for backend-owned labels/copy. */
+                "X-GoatOS-Locale"?: components["parameters"]["GoatOSLocale"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5011,6 +5020,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Standard language preference used to localize backend-owned labels/copy. Supported app languages are en, hi, kn, and te; unsupported values fall back to en. */
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+                /** @description Exact Goat OS app language selected by the user. Takes precedence over Accept-Language for backend-owned labels/copy. */
+                "X-GoatOS-Locale"?: components["parameters"]["GoatOSLocale"];
                 "If-None-Match"?: string;
             };
             path?: never;
