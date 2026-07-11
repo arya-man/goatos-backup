@@ -1,5 +1,9 @@
 package sg.mesha.goatos.ui
 
+import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -137,10 +141,18 @@ fun AppNavHost(
     navController: NavHostController,
     modifier: Modifier = Modifier,
 ) {
+    // Shared-axis-X motion instead of the default cross-fade: a forward navigation slides
+    // the new screen in from the end and the old one out toward the start; Back reverses it.
+    // Gives drill-in (Calendar → sheds → Scan → Submit) real directional continuity.
+    val motion = tween<Float>(280)
     NavHost(
         navController = navController,
         startDestination = Routes.START,
         modifier = modifier,
+        enterTransition = { slideIntoContainer(SlideDirection.Start, tween(280)) + fadeIn(motion) },
+        exitTransition = { slideOutOfContainer(SlideDirection.Start, tween(280)) + fadeOut(motion) },
+        popEnterTransition = { slideIntoContainer(SlideDirection.End, tween(280)) + fadeIn(motion) },
+        popExitTransition = { slideOutOfContainer(SlideDirection.End, tween(280)) + fadeOut(motion) },
     ) {
         // Calendar — universal landing. Segment switch is local; day/item taps drill
         // into the vaccination execution flow.
@@ -164,8 +176,10 @@ fun AppNavHost(
                                 ?: state.historyRows.firstOrNull { it.id == event.itemId }?.target
                             navController.navigate(calendarTargetRoute(target)) { launchSingleTop = true }
                         }
-                        is CalendarEvent.TapDay ->
-                            navController.navigate(Routes.VACCINATION) { launchSingleTop = true }
+                        // Tapping a day is IN-SCREEN selection (mock: sel=day; renderWeek) —
+                        // week list re-scopes to that day, month day opens its day-sheet. It must
+                        // NOT navigate away. Handled by CalendarViewModel.
+                        is CalendarEvent.TapDay -> vm.onEvent(event)
                         else -> vm.onEvent(event)
                     }
                 },

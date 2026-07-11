@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
@@ -89,8 +90,18 @@ fun GoatOsShell(navState: NavState) {
     val profile by profileVm.state.collectAsStateWithLifecycle()
     var showLanguage by remember { mutableStateOf(false) }
 
+    // Bottom-nav reselect pattern (Android nav guidance): pop back to the graph start
+    // and SAVE that destination's state, single-top, and RESTORE state on return. Without
+    // popUpTo(saveState)+restoreState, tapping a tab (or double-tapping it) re-enters a new
+    // back-stack entry each time, re-creating the screen ViewModel and re-firing its load —
+    // which is why rapid taps left the screen stuck "loading". This makes reselect a no-op
+    // that reuses the saved screen state instead of reloading.
     val navigate: (String) -> Unit = { href ->
-        navController.navigate(href) { launchSingleTop = true; restoreState = true }
+        navController.navigate(href) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
     }
 
     GoatOsShellChrome(
