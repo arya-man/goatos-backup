@@ -50,7 +50,7 @@ func TestSweeperMarksBatchBlockedWhenStockReservationFails(t *testing.T) {
 			{ObligationID: "obl-3", ScopeType: "park", ScopeID: "park-2"},
 			{ObligationID: "obl-4", ScopeType: "park", ScopeID: "park-2"},
 		},
-		createBatchID:       "batch-1",
+		createBatchIDs:      []string{"batch-1", "batch-2"},
 		createBatchAttached: 2,
 	}
 	reserver := &fakeSweepStockReserver{err: errors.New("inventory: stock unavailable")}

@@ -21,6 +21,19 @@ func UUID(s string) (pgtype.UUID, error) {
 	return u, nil
 }
 
+// UUIDs parses UUID strings into pgtype.UUID values for pgx uuid[] parameters.
+func UUIDs(values []string) ([]pgtype.UUID, error) {
+	ids := make([]pgtype.UUID, 0, len(values))
+	for _, value := range values {
+		id, err := UUID(value)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 // MustUUID is UUID without the error (invalid string yields a NULL UUID). Use only when the
 // caller has already validated the input.
 func MustUUID(s string) pgtype.UUID {
