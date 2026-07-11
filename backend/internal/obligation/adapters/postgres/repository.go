@@ -2216,7 +2216,7 @@ WHERE tenant_id = $1::uuid
 	return nil
 }
 
-func (r *Repository) ListPlannedBatchesNeedingFinalization(ctx context.Context, tenantID, versionID string, needsTask, needsStock bool, limit int32) ([]domain.PlannedBatchFinalization, error) {
+func (r *Repository) ListPlannedBatchesNeedingFinalization(ctx context.Context, tenantID, versionID string, needsTask, needsStock bool, after *domain.PlannedBatchFinalizationCursor, limit int32) ([]domain.PlannedBatchFinalization, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	if !needsTask && !needsStock {
@@ -2233,11 +2233,21 @@ func (r *Repository) ListPlannedBatchesNeedingFinalization(ctx context.Context, 
 	if limit <= 0 {
 		limit = 1000
 	}
+	var afterCreatedAt *time.Time
+	var afterBatchID pgtype.UUID
+	if after != nil {
+		afterCreatedAt = &after.CreatedAt
+		afterBatchID, err = pgconv.UUID(after.BatchID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: planned finalization cursor batch id: %w", err)
+		}
+	}
 	rows, err := r.pool.Query(ctx, `
 SELECT ob.batch_id::text,
        COALESCE(MIN(oi.rule_id::text), '')::text AS rule_id,
        ob.scope_type,
        ob.scope_id::text,
+       ob.created_at,
        ob.planned_date,
        ob.estimated_targets,
        COUNT(oi.obligation_id)::bigint AS attached_obligations,
@@ -2258,6 +2268,11 @@ JOIN obligation_instances oi
 WHERE ob.tenant_id = $1
   AND ob.protocol_version_id = $2
   AND ob.status = 'planned'
+  AND (
+    $5::timestamptz IS NULL
+    OR ob.created_at > $5::timestamptz
+    OR (ob.created_at = $5::timestamptz AND ob.batch_id > $6::uuid)
+  )
 GROUP BY ob.tenant_id, ob.batch_id, ob.scope_type, ob.scope_id, ob.planned_date, ob.estimated_targets, ob.sop_task_id, ob.context, ob.created_at
 	HAVING COUNT(oi.obligation_id) > 0
    AND (
@@ -2278,7 +2293,7 @@ GROUP BY ob.tenant_id, ob.batch_id, ob.scope_type, ob.scope_id, ob.planned_date,
      )
    )
 ORDER BY ob.created_at ASC, ob.batch_id ASC
-LIMIT $5`, tenant, version, needsTask, needsStock, limit)
+LIMIT $7`, tenant, version, needsTask, needsStock, afterCreatedAt, afterBatchID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list planned batch finalization: %w", err)
 	}
@@ -2292,6 +2307,7 @@ LIMIT $5`, tenant, version, needsTask, needsStock, limit)
 			&b.RuleID,
 			&b.ScopeType,
 			&b.ScopeID,
+			&b.CreatedAt,
 			&plannedDate,
 			&b.EstimatedTargets,
 			&b.AttachedObligations,

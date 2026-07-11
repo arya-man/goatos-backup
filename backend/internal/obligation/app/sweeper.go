@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -58,6 +59,8 @@ type SweeperService struct {
 	reserver StockReserver
 	page     int32
 }
+
+const maxPlannedFinalizationPagesPerSweep = 10000
 
 // NewSweeperService constructs the sweeper. tasks/reserver may be nil to skip spawn/reserve.
 func NewSweeperService(repo ports.Repository, tasks TaskCreator, reserver StockReserver) *SweeperService {
@@ -417,22 +420,20 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 	if !needsTask && !needsStock {
 		return nil
 	}
-	for {
-		batches, err := s.repo.ListPlannedBatchesNeedingFinalization(ctx, tenantID, versionID, needsTask, needsStock, s.page)
+	var after *domain.PlannedBatchFinalizationCursor
+	for pages := 0; pages < maxPlannedFinalizationPagesPerSweep; pages++ {
+		batches, err := s.repo.ListPlannedBatchesNeedingFinalization(ctx, tenantID, versionID, needsTask, needsStock, after, s.page)
 		if err != nil {
 			return err
 		}
 		if len(batches) == 0 {
 			return nil
 		}
-		// progressed counts batches whose finalization state we actually advanced
-		// this page. The "needing finalization" query is config-unaware, so a batch
-		// whose rule lacks an SOP version (task path) or a vaccine item (stock path)
-		// is returned but never mutated out. Without this guard, once such stuck
-		// batches fill a page the `len < s.page` break never fires and the sweep
-		// loops forever. Zero progress on a full page means the rest are stuck for
-		// config reasons this sweep cannot resolve, so stop rather than hang.
-		var progressed int
+		// The "needing finalization" query is config-unaware, so a batch whose
+		// rule lacks an SOP version (task path) or a vaccine item (stock path) is
+		// returned but never mutated out. Cursoring past a skipped page lets later
+		// actionable batches finalize in the same run. The next run starts from the
+		// beginning, so skipped rows are retried if config is added later.
 		for _, b := range batches {
 			batchCfg := cfg.forRule(b.RuleID)
 			if s.tasks != nil && batchCfg.SOPVersionID != "" && !b.HasSOPTask {
@@ -443,22 +444,20 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 				if err := s.repo.SetBatchSOPTask(ctx, tenantID, b.BatchID, taskID); err != nil {
 					return err
 				}
-				progressed++
 			}
 			if s.reserver != nil && !b.HasStockReservation {
-				did, err := s.reservePlannedBatchStock(ctx, tenantID, b, cfg)
-				if err != nil {
+				if _, err := s.reservePlannedBatchStock(ctx, tenantID, b, cfg); err != nil {
 					return err
-				}
-				if did {
-					progressed++
 				}
 			}
 		}
-		if progressed == 0 || int32(len(batches)) < s.page {
+		if int32(len(batches)) < s.page {
 			return nil
 		}
+		last := batches[len(batches)-1]
+		after = &domain.PlannedBatchFinalizationCursor{CreatedAt: last.CreatedAt, BatchID: last.BatchID}
 	}
+	return fmt.Errorf("obligation: planned batch finalization exceeded %d pages without draining", maxPlannedFinalizationPagesPerSweep)
 }
 
 func batchPlannedDate(dueAt time.Time) *time.Time {

@@ -359,7 +359,7 @@ WHERE tenant_id=$1
   AND obligation_id IN ($2::uuid, $3::uuid)`, tenantID, firstObligationID, secondObligationID); err != nil {
 		t.Fatalf("mark batches missed-only: %v", err)
 	}
-	pending, err := repo.ListPlannedBatchesNeedingFinalization(ctx, tenantID, versionID, true, true, 100)
+	pending, err := repo.ListPlannedBatchesNeedingFinalization(ctx, tenantID, versionID, true, true, nil, 100)
 	if err != nil {
 		t.Fatalf("list planned finalization: %v", err)
 	}

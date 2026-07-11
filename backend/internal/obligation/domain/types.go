@@ -210,12 +210,20 @@ type PlannedBatchFinalization struct {
 	RuleID              string
 	ScopeType           string
 	ScopeID             string
+	CreatedAt           time.Time
 	PlannedDate         *time.Time
 	EstimatedTargets    int32
 	AttachedObligations int64
 	HasSOPTask          bool
 	HasStockReservation bool
 	StockBlocked        bool
+}
+
+// PlannedBatchFinalizationCursor advances through planned batches in repository
+// order so config-unactionable rows cannot pin a sweeper to the first page.
+type PlannedBatchFinalizationCursor struct {
+	CreatedAt time.Time
+	BatchID   string
 }
 
 // SweepResult summarises an SM-4 sweep (batches created, obligations attached).

@@ -249,6 +249,65 @@ func TestSweeperFinalizesExistingPlannedBatchMissingTask(t *testing.T) {
 	}
 }
 
+func TestSweeperFinalizationPagesPastConfigSkippedBatches(t *testing.T) {
+	repo := &fakeSweepRepo{
+		finalizationPages: [][]domain.PlannedBatchFinalization{
+			{
+				{
+					BatchID:             "batch-skipped-1",
+					RuleID:              "rule-without-config",
+					ScopeType:           "shed",
+					ScopeID:             "shed-old-1",
+					AttachedObligations: 1,
+					HasStockReservation: true,
+				},
+				{
+					BatchID:             "batch-skipped-2",
+					RuleID:              "another-rule-without-config",
+					ScopeType:           "shed",
+					ScopeID:             "shed-old-2",
+					AttachedObligations: 1,
+					HasStockReservation: true,
+				},
+			},
+			{
+				{
+					BatchID:             "batch-actionable",
+					RuleID:              "rule-actionable",
+					ScopeType:           "shed",
+					ScopeID:             "shed-new",
+					AttachedObligations: 1,
+					HasStockReservation: true,
+				},
+			},
+		},
+	}
+	tasks := &fakeSweepTaskCreator{id: "task-actionable"}
+	svc := NewSweeperService(repo, tasks, nil)
+	svc.page = 2
+
+	_, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		RuleConfigs: map[string]SweepRuleConfig{
+			"rule-actionable": {SOPVersionID: "sop-actionable"},
+		},
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if repo.finalizationCalls != 2 {
+		t.Fatalf("finalization pages fetched = %d, want 2", repo.finalizationCalls)
+	}
+	if tasks.calls != 1 || repo.setTaskCalls != 1 {
+		t.Fatalf("task calls=%d setTaskCalls=%d, want 1/1", tasks.calls, repo.setTaskCalls)
+	}
+	if got := strings.Join(tasks.batchIDs, ","); got != "batch-actionable" {
+		t.Fatalf("task batches = %q, want batch-actionable", got)
+	}
+	if got := strings.Join(tasks.sopVersionIDs, ","); got != "sop-actionable" {
+		t.Fatalf("task SOP versions = %q, want sop-actionable", got)
+	}
+}
+
 func TestSweeperFinalizesExistingPlannedBatchMissingStockReservation(t *testing.T) {
 	repo := &fakeSweepRepo{
 		finalizationPages: [][]domain.PlannedBatchFinalization{{
@@ -450,7 +509,7 @@ func (f *fakeSweepRepo) ClearBatchStockBlock(context.Context, string, string) er
 	return nil
 }
 
-func (f *fakeSweepRepo) ListPlannedBatchesNeedingFinalization(context.Context, string, string, bool, bool, int32) ([]domain.PlannedBatchFinalization, error) {
+func (f *fakeSweepRepo) ListPlannedBatchesNeedingFinalization(context.Context, string, string, bool, bool, *domain.PlannedBatchFinalizationCursor, int32) ([]domain.PlannedBatchFinalization, error) {
 	if f.finalizationCalls >= len(f.finalizationPages) {
 		if len(f.createdFinalization) > 0 {
 			rows := f.createdFinalization
@@ -549,11 +608,13 @@ func (f *fakeSweepRepo) RecordStatusEvent(context.Context, domain.NewStatusEvent
 type fakeSweepTaskCreator struct {
 	id            string
 	calls         int
+	batchIDs      []string
 	sopVersionIDs []string
 }
 
-func (f *fakeSweepTaskCreator) CreateTaskForBatch(_ context.Context, _, _, sopVersionID, _, _, _, _ string) (string, error) {
+func (f *fakeSweepTaskCreator) CreateTaskForBatch(_ context.Context, _, batchID, sopVersionID, _, _, _, _ string) (string, error) {
 	f.calls++
+	f.batchIDs = append(f.batchIDs, batchID)
 	f.sopVersionIDs = append(f.sopVersionIDs, sopVersionID)
 	if f.id == "" {
 		f.id = "task-1"
