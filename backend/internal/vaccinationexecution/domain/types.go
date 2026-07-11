@@ -441,6 +441,20 @@ type ShedSummaryRow struct {
 	Status   ShedStatus     `json:"status"`
 }
 
+// ShedOwnershipScope is one shed row whose owner cells need enrichment. ParkID is the center/park scope
+// used for center-level backup fallback.
+type ShedOwnershipScope struct {
+	ShedID string
+	ParkID string
+}
+
+// ShedOwnership is the workforce-owned manager/backup pair displayed on a shed row. Nil values are
+// honest seed/config gaps.
+type ShedOwnership struct {
+	Manager *ShedOwner
+	Backup  *ShedOwner
+}
+
 // PageInfo carries offset-pagination metadata. Shed rows are bounded (a tenant has at most a few hundred
 // sheds), so offset+total is scale-safe here; the large, unbounded axis is the per-shed ANIMAL list,
 // which uses goat_id keyset pagination (ShedAnimalPage), never offset.

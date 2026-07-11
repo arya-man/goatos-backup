@@ -160,6 +160,30 @@ func (f *fakeRosterRepo) GetActiveBackupSlot(_ context.Context, _ string, scopeT
 	return domain.Position{}, ports.ErrNotFound
 }
 
+func (f *fakeRosterRepo) ShedOwnerships(_ context.Context, _ string, sheds []domain.ShedOwnershipScope, _ time.Time) (map[string]domain.ShedOwnership, error) {
+	out := make(map[string]domain.ShedOwnership, len(sheds))
+	for _, shed := range sheds {
+		var manager, backup *domain.ShedOwner
+		if p, err := f.GetActivePositionByCode(context.Background(), "", "shed", shed.ShedID, ShedManagerPositionCode, time.Time{}); err == nil {
+			manager = &domain.ShedOwner{WorkforceMemberID: p.WorkforceMemberID, DisplayName: rosterStringValue(p.PersonDisplayName)}
+		}
+		if p, err := f.GetActiveBackupSlot(context.Background(), "", "shed", shed.ShedID, ManagerBackupGroupCode, time.Time{}); err == nil {
+			backup = &domain.ShedOwner{WorkforceMemberID: p.WorkforceMemberID, DisplayName: rosterStringValue(p.PersonDisplayName)}
+		} else if p, err := f.GetActiveBackupSlot(context.Background(), "", "center", shed.CenterID, ManagerBackupGroupCode, time.Time{}); err == nil {
+			backup = &domain.ShedOwner{WorkforceMemberID: p.WorkforceMemberID, DisplayName: rosterStringValue(p.PersonDisplayName)}
+		}
+		out[shed.ShedID] = domain.ShedOwnership{Manager: manager, Backup: backup}
+	}
+	return out, nil
+}
+
+func rosterStringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
 func (f *fakeRosterRepo) GetActivePositionForMember(_ context.Context, _ string, workforceMemberID string) (domain.Position, error) {
 	for _, p := range f.positions {
 		if p.WorkforceMemberID == workforceMemberID && p.Status == "active" {

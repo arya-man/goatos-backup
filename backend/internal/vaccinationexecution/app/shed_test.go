@@ -22,6 +22,17 @@ func (f fakeOwnership) ShedOwnership(_ context.Context, _, shedID, _ string, _ t
 	return f.managers[shedID], f.backups[shedID], nil
 }
 
+func (f fakeOwnership) ShedOwnerships(_ context.Context, _ string, sheds []domain.ShedOwnershipScope, _ time.Time) (map[string]domain.ShedOwnership, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make(map[string]domain.ShedOwnership, len(sheds))
+	for _, shed := range sheds {
+		out[shed.ShedID] = domain.ShedOwnership{Manager: f.managers[shed.ShedID], Backup: f.backups[shed.ShedID]}
+	}
+	return out, nil
+}
+
 func TestPlanSessionsSplitsAndClassifies(t *testing.T) {
 	cfg := domain.CapacityConfig{MaxPerDay: 100, MaxBufferDays: 3} // allowed window = 4 days
 	start := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)

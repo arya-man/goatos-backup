@@ -593,14 +593,17 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 	}
 	total := 0
 	rows := make([]domain.ShedSummaryRow, 0, len(projections))
-	// Owner enrichment is one bounded cross-module read per shed on the page (page size <= 200, each an
-	// indexed point lookup). A batched roster read is a noted scale follow-up if page sizes grow.
+	ownershipScopes := make([]domain.ShedOwnershipScope, 0, len(projections))
+	for _, p := range projections {
+		ownershipScopes = append(ownershipScopes, domain.ShedOwnershipScope{ShedID: p.ShedID, ParkID: p.ParkID})
+	}
+	ownersByShed, err := s.ownership.ShedOwnerships(ctx, q.TenantID, ownershipScopes, at)
+	if err != nil {
+		return domain.ShedSummaryResponse{}, err
+	}
 	for _, p := range projections {
 		total = p.TotalCount // window COUNT(*) OVER() — identical on every row of the filtered set
-		manager, backup, err := s.ownership.ShedOwnership(ctx, q.TenantID, p.ShedID, p.ParkID, at)
-		if err != nil {
-			return domain.ShedSummaryResponse{}, err
-		}
+		owners := ownersByShed[p.ShedID]
 		rows = append(rows, domain.ShedSummaryRow{
 			ParkID:   p.ParkID,
 			ParkName: p.ParkName,
@@ -612,8 +615,8 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 			Sessions: p.Sessions,
 			LastDone: businessDatePtr(p.LastDone),
 			NextDue:  businessDatePtr(p.NextDue),
-			Manager:  manager,
-			Backup:   backup,
+			Manager:  owners.Manager,
+			Backup:   owners.Backup,
 			Capacity: p.Capacity,
 			Status:   p.Status,
 		})

@@ -46,6 +46,25 @@ type PositionDuty struct {
 	CapabilityCode *string `json:"capability_code,omitempty"`
 }
 
+// ShedOwnershipScope is the batch input for shed-wise vaccination owner cells. CenterID is the park/center
+// scope used for the center backup fallback.
+type ShedOwnershipScope struct {
+	ShedID   string
+	CenterID string
+}
+
+// ShedOwner is the small owner cell needed outside the workforce module.
+type ShedOwner struct {
+	WorkforceMemberID string
+	DisplayName       string
+}
+
+// ShedOwnership is the manager/backup pair for a shed. Nil values mean the seat is unassigned.
+type ShedOwnership struct {
+	Manager *ShedOwner
+	Backup  *ShedOwner
+}
+
 type PositionListResponse struct {
 	Items   []Position `json:"items"`
 	TraceID string     `json:"trace_id"`

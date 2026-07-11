@@ -38,6 +38,36 @@ function OwnerCell({ owner, missingLabel }: { owner: VaccinationShedSummaryRow["
   return <Tag tone="dng">{missingLabel}</Tag>;
 }
 
+export function getVaccinationShedSummaryParams(searchParams: RouteSearchParams | undefined, pageContract: AdminUiPageContract) {
+  const sp = searchParams ?? {};
+  const scope = parseScope(sp);
+  const { parkId, asOf } = backendScope(scope);
+
+  const status = SHED_STATUS_ORDER.find((s) => s === one(sp, "sheds_status"));
+  const capacity = CAPACITY_ORDER.find((c) => c === one(sp, "sheds_capacity"));
+  const search = one(sp, "sheds_q");
+  const pageSizeOptions = tablePageSizes(pageContract, "shed-summary");
+  const requestedLimit = Number(one(sp, "sheds_limit"));
+  const limit: VaccinationPageSize = pageSizeOptions.includes(requestedLimit) ? requestedLimit : DEFAULT_PAGE_SIZE;
+  const page = boundedInt(one(sp, "sheds_page"), 1, 1, 1_000_000);
+  const offset = (page - 1) * limit;
+
+  return { sp, scope, parkId, asOf, status, capacity, search, limit, page, offset, pageSizeOptions };
+}
+
+export function loadVaccinationShedSummary(searchParams: RouteSearchParams | undefined, pageContract: AdminUiPageContract) {
+  const params = getVaccinationShedSummaryParams(searchParams, pageContract);
+  return getVaccinationShedSummary({
+    parkId: params.parkId,
+    asOf: params.asOf,
+    status: params.status,
+    capacity: params.capacity,
+    search: params.search,
+    limit: params.limit,
+    offset: params.offset,
+  });
+}
+
 // Shed-wise vaccination board — the MAIN /vaccination table (one row per shed). Animal-level Due/Done,
 // planned Sessions, capacity, and a merged CEO Status headline, all computed server-side. Park scope comes
 // from the shell top bar (?park); status/capacity/search filters + offset pagination are server-side via
@@ -52,31 +82,18 @@ export async function VaccinationShedBoard({
   pageContract: AdminUiPageContract;
   summaryResult?: ApiResult<VaccinationShedSummaryResponse>;
 }) {
-  const sp = searchParams ?? {};
-  const scope = parseScope(sp);
-  const { parkId, asOf } = backendScope(scope);
-
-  const statusFilter = SHED_STATUS_ORDER.find((s) => s === one(sp, "sheds_status"));
-  const capacityFilter = CAPACITY_ORDER.find((c) => c === one(sp, "sheds_capacity"));
-  const search = one(sp, "sheds_q");
-
-  const pageSizeOptions = tablePageSizes(pageContract, "shed-summary");
-  const requestedLimit = Number(one(sp, "sheds_limit"));
-  const pageSize: VaccinationPageSize = pageSizeOptions.includes(requestedLimit) ? requestedLimit : DEFAULT_PAGE_SIZE;
-  const page = boundedInt(one(sp, "sheds_page"), 1, 1, 1_000_000);
-  const offset = (page - 1) * pageSize;
-
-  const result =
-    summaryResult ??
-    (await getVaccinationShedSummary({
-      parkId,
-      asOf,
-      status: statusFilter,
-      capacity: capacityFilter,
-      search,
-      limit: pageSize,
-      offset,
-    }));
+  const {
+    sp,
+    scope,
+    status: statusFilter,
+    capacity: capacityFilter,
+    search,
+    limit: pageSize,
+    page,
+    offset,
+    pageSizeOptions,
+  } = getVaccinationShedSummaryParams(searchParams, pageContract);
+  const result = summaryResult ?? (await loadVaccinationShedSummary(searchParams, pageContract));
   const rows: VaccinationShedSummaryRow[] = result.ok ? result.data.rows : [];
   const total = result.ok ? result.data.page.total : 0;
   const hasFilter = Boolean(statusFilter || capacityFilter || search);

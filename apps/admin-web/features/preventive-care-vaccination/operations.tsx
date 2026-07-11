@@ -3,7 +3,7 @@ import { isVaccinationSop, toSopView, type SopCardView } from "@/features/sops";
 import { type RouteSearchParams } from "@/lib/search-params";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { parseScope } from "@/lib/scope";
-import { VaccinationShedBoard } from "@/features/vaccination-sheds";
+import { loadVaccinationShedSummary, VaccinationShedBoard } from "@/features/vaccination-sheds";
 import { VaccinationSopButton } from "./sop-quick-view";
 import { VaccinationHeaderActions } from "./vaccination-action-dialogs";
 
@@ -49,11 +49,13 @@ export async function VaccinationOperationsPage({
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
 
-  const linkedSop = await loadLinkedVaccinationSop();
+  const linkedSopPromise = loadLinkedVaccinationSop();
+  const shedSummaryPromise = loadVaccinationShedSummary(sp, pageContract);
   const driveSteps = optionGroup(pageContract, "drive_steps").map((step) => {
     const [title, detail] = (step.title || "").split("|");
     return { key: step.key, step: step.label, title, detail };
   });
+  const [linkedSop, shedSummary] = await Promise.all([linkedSopPromise, shedSummaryPromise]);
 
   return (
     <div className="screen on">
@@ -87,7 +89,7 @@ export async function VaccinationOperationsPage({
 
       {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,
           and merged status. Rows deep-link to the shed detail. This is the MAIN vaccination table. */}
-      <VaccinationShedBoard searchParams={sp} pageContract={pageContract} />
+      <VaccinationShedBoard searchParams={sp} pageContract={pageContract} summaryResult={shedSummary} />
     </div>
   );
 }

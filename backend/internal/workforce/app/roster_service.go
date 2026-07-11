@@ -109,6 +109,20 @@ func (s *RosterService) ShedBackup(ctx context.Context, tenantID, shedID, center
 	return &pos, nil
 }
 
+// ShedOwnerships returns manager/backup owner cells for a page of shed-wise vaccination rows in one
+// repository call. It preserves the same backup precedence as ShedBackup: shed-specific backup first,
+// center-level backup second.
+func (s *RosterService) ShedOwnerships(ctx context.Context, tenantID string, sheds []domain.ShedOwnershipScope, at time.Time) (map[string]domain.ShedOwnership, error) {
+	if len(sheds) == 0 {
+		return map[string]domain.ShedOwnership{}, nil
+	}
+	owners, err := s.repo.ShedOwnerships(ctx, tenantID, sheds, at)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return owners, nil
+}
+
 // ---- Positions ------------------------------------------------------------
 
 func (s *RosterService) CreatePosition(ctx context.Context, cmd ports.CreatePositionCommand, traceID string) (*domain.PositionResponse, error) {

@@ -141,6 +141,9 @@ type RosterRepository interface {
 	// active is_backup_slot=true seat sharing backupGroupCode in the same
 	// scope, or ErrNotFound if none is configured.
 	GetActiveBackupSlot(ctx context.Context, tenantID, scopeType, scopeID, backupGroupCode string, at time.Time) (domain.Position, error)
+	// ShedOwnerships resolves manager/backup owner cells for a page of sheds in one bounded read. Backup
+	// resolution prefers a shed-scoped backup seat, then falls back to the center/park backup seat.
+	ShedOwnerships(ctx context.Context, tenantID string, sheds []domain.ShedOwnershipScope, at time.Time) (map[string]domain.ShedOwnership, error)
 	// GetActivePositionForMember returns the (single) active seat a member
 	// currently holds, used to resolve coverage on leave approval. Returns
 	// ErrNotFound when the member holds no fixed position.

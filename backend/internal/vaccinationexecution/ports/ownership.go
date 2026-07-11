@@ -16,6 +16,7 @@ import (
 // preflight), not an error and never invented. Errors are reserved for real infrastructure faults.
 type ShedOwnershipReader interface {
 	ShedOwnership(ctx context.Context, tenantID, shedID, parkID string, at time.Time) (manager, backup *domain.ShedOwner, err error)
+	ShedOwnerships(ctx context.Context, tenantID string, sheds []domain.ShedOwnershipScope, at time.Time) (map[string]domain.ShedOwnership, error)
 }
 
 // NoopShedOwnership is a ShedOwnershipReader that always reports "no assignment", used where ownership
@@ -25,4 +26,8 @@ type NoopShedOwnership struct{}
 
 func (NoopShedOwnership) ShedOwnership(context.Context, string, string, string, time.Time) (*domain.ShedOwner, *domain.ShedOwner, error) {
 	return nil, nil, nil
+}
+
+func (NoopShedOwnership) ShedOwnerships(context.Context, string, []domain.ShedOwnershipScope, time.Time) (map[string]domain.ShedOwnership, error) {
+	return map[string]domain.ShedOwnership{}, nil
 }

@@ -17,6 +17,7 @@ import (
 type RosterReader interface {
 	ShedManager(ctx context.Context, tenantID, shedID string, at time.Time) (*workforced.Position, error)
 	ShedBackup(ctx context.Context, tenantID, shedID, centerID string, at time.Time) (*workforced.Position, error)
+	ShedOwnerships(ctx context.Context, tenantID string, sheds []workforced.ShedOwnershipScope, at time.Time) (map[string]workforced.ShedOwnership, error)
 }
 
 type OwnershipAdapter struct {
@@ -41,6 +42,28 @@ func (a *OwnershipAdapter) ShedOwnership(ctx context.Context, tenantID, shedID, 
 	return ownerFromPosition(manager), ownerFromPosition(backup), nil
 }
 
+func (a *OwnershipAdapter) ShedOwnerships(ctx context.Context, tenantID string, sheds []vaccexecd.ShedOwnershipScope, at time.Time) (map[string]vaccexecd.ShedOwnership, error) {
+	if len(sheds) == 0 {
+		return map[string]vaccexecd.ShedOwnership{}, nil
+	}
+	scopes := make([]workforced.ShedOwnershipScope, 0, len(sheds))
+	for _, shed := range sheds {
+		scopes = append(scopes, workforced.ShedOwnershipScope{ShedID: shed.ShedID, CenterID: shed.ParkID})
+	}
+	owners, err := a.roster.ShedOwnerships(ctx, tenantID, scopes, at)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]vaccexecd.ShedOwnership, len(owners))
+	for shedID, owner := range owners {
+		out[shedID] = vaccexecd.ShedOwnership{
+			Manager: ownerFromShedOwner(owner.Manager),
+			Backup:  ownerFromShedOwner(owner.Backup),
+		}
+	}
+	return out, nil
+}
+
 func ownerFromPosition(p *workforced.Position) *vaccexecd.ShedOwner {
 	if p == nil {
 		return nil
@@ -50,4 +73,11 @@ func ownerFromPosition(p *workforced.Position) *vaccexecd.ShedOwner {
 		name = *p.PersonDisplayName
 	}
 	return &vaccexecd.ShedOwner{WorkforceMemberID: p.WorkforceMemberID, DisplayName: name}
+}
+
+func ownerFromShedOwner(owner *workforced.ShedOwner) *vaccexecd.ShedOwner {
+	if owner == nil {
+		return nil
+	}
+	return &vaccexecd.ShedOwner{WorkforceMemberID: owner.WorkforceMemberID, DisplayName: owner.DisplayName}
 }

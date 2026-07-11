@@ -302,6 +302,123 @@ WHERE p.tenant_id = $1::uuid AND p.scope_type = $2 AND p.scope_id = $3::uuid AND
 LIMIT 1`, tenantID, scopeType, scopeID, backupGroupCode, at)
 }
 
+const shedOwnershipsSQL = `
+WITH wanted AS (
+  SELECT DISTINCT shed_id, center_id
+  FROM unnest($2::text[], $3::text[]) AS u(shed_id, center_id)
+  WHERE shed_id <> ''
+)
+SELECT
+  wanted.shed_id,
+  mgr.workforce_member_id::text AS manager_member_id,
+  mgr.display_name AS manager_display_name,
+  COALESCE(shed_backup.workforce_member_id, center_backup.workforce_member_id)::text AS backup_member_id,
+  COALESCE(shed_backup.display_name, center_backup.display_name) AS backup_display_name
+FROM wanted
+LEFT JOIN LATERAL (
+  SELECT p.workforce_member_id, wm.display_name
+  FROM workforce_positions p
+  LEFT JOIN workforce_members wm
+    ON wm.tenant_id = p.tenant_id
+   AND wm.workforce_member_id = p.workforce_member_id
+  WHERE p.tenant_id = $1::uuid
+    AND p.scope_type = 'shed'
+    AND p.scope_id = wanted.shed_id::uuid
+    AND p.position_code = 'shed_manager'
+    AND p.status = 'active'
+    AND p.valid_from <= $4::timestamptz
+    AND (p.valid_to IS NULL OR p.valid_to > $4::timestamptz)
+  LIMIT 1
+) mgr ON true
+LEFT JOIN LATERAL (
+  SELECT p.workforce_member_id, wm.display_name
+  FROM workforce_positions p
+  LEFT JOIN workforce_members wm
+    ON wm.tenant_id = p.tenant_id
+   AND wm.workforce_member_id = p.workforce_member_id
+  WHERE p.tenant_id = $1::uuid
+    AND p.scope_type = 'shed'
+    AND p.scope_id = wanted.shed_id::uuid
+    AND p.backup_group_code = 'manager_backup'
+    AND p.is_backup_slot = true
+    AND p.status = 'active'
+    AND p.valid_from <= $4::timestamptz
+    AND (p.valid_to IS NULL OR p.valid_to > $4::timestamptz)
+  LIMIT 1
+) shed_backup ON true
+LEFT JOIN LATERAL (
+  SELECT p.workforce_member_id, wm.display_name
+  FROM workforce_positions p
+  LEFT JOIN workforce_members wm
+    ON wm.tenant_id = p.tenant_id
+   AND wm.workforce_member_id = p.workforce_member_id
+  WHERE shed_backup.workforce_member_id IS NULL
+    AND wanted.center_id <> ''
+    AND p.tenant_id = $1::uuid
+    AND p.scope_type = 'center'
+    AND p.scope_id = NULLIF(wanted.center_id, '')::uuid
+    AND p.backup_group_code = 'manager_backup'
+    AND p.is_backup_slot = true
+    AND p.status = 'active'
+    AND p.valid_from <= $4::timestamptz
+    AND (p.valid_to IS NULL OR p.valid_to > $4::timestamptz)
+  LIMIT 1
+) center_backup ON true;`
+
+// ShedOwnerships resolves the manager/backup cells for the shed-wise vaccination table in one bounded
+// round trip. It mirrors app.ShedManager/ShedBackup: shed manager, then shed backup, then center backup.
+func (r *Repository) ShedOwnerships(ctx context.Context, tenantID string, sheds []domain.ShedOwnershipScope, at time.Time) (map[string]domain.ShedOwnership, error) {
+	out := make(map[string]domain.ShedOwnership, len(sheds))
+	if len(sheds) == 0 {
+		return out, nil
+	}
+	shedIDs := make([]string, 0, len(sheds))
+	centerIDs := make([]string, 0, len(sheds))
+	seen := make(map[string]bool, len(sheds))
+	for _, shed := range sheds {
+		if shed.ShedID == "" || seen[shed.ShedID] {
+			continue
+		}
+		seen[shed.ShedID] = true
+		out[shed.ShedID] = domain.ShedOwnership{}
+		shedIDs = append(shedIDs, shed.ShedID)
+		centerIDs = append(centerIDs, shed.CenterID)
+	}
+	if len(shedIDs) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, shedOwnershipsSQL, tenantID, shedIDs, centerIDs, at)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var shedID string
+		var managerID, managerName, backupID, backupName pgtype.Text
+		if err := rows.Scan(&shedID, &managerID, &managerName, &backupID, &backupName); err != nil {
+			return nil, err
+		}
+		out[shedID] = domain.ShedOwnership{
+			Manager: shedOwnerFromTexts(managerID, managerName),
+			Backup:  shedOwnerFromTexts(backupID, backupName),
+		}
+	}
+	return out, rows.Err()
+}
+
+func shedOwnerFromTexts(memberID, displayName pgtype.Text) *domain.ShedOwner {
+	if !memberID.Valid {
+		return nil
+	}
+	name := ""
+	if displayName.Valid {
+		name = displayName.String
+	}
+	return &domain.ShedOwner{WorkforceMemberID: memberID.String, DisplayName: name}
+}
+
 func (r *Repository) GetActivePositionForMember(ctx context.Context, tenantID, workforceMemberID string) (domain.Position, error) {
 	return r.queryOnePosition(ctx, `
 WHERE p.tenant_id = $1::uuid AND p.workforce_member_id = $2::uuid AND p.status = 'active'
