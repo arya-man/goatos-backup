@@ -22,8 +22,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -622,6 +624,39 @@ private fun ScanFooter(label: String, enabled: Boolean, note: String, onSubmit: 
             Spacer(Modifier.height(6.dp))
             Text(note, color = ScanTokens.faint, fontSize = 11.sp, textAlign = TextAlign.Center)
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Roster overlay (mock ovl-scanlist) — hosts [ScanListSheet] in a ModalBottomSheet, filtered
+// to [ScanUiState.selectedFilter] (a tapped Done/Pending/Skipped tile) or unfiltered when
+// opened via [ScanEvent.OpenList]. Dismiss (swipe-down/scrim-tap) replays whichever event(s)
+// opened it, so the backing state (selectedFilter/rosterExpanded) stays in sync with the sheet.
+// ---------------------------------------------------------------------------
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RosterListOverlay(state: ScanUiState, onEvent: (ScanEvent) -> Unit) {
+    val filter = state.selectedFilter
+    val rows = remember(state.roster, filter) {
+        if (filter == null) state.roster else state.roster.filter { it.status == filter }
+    }
+    val title = when (filter) {
+        ScanStatus.DONE -> state.tileLabels.done
+        ScanStatus.PENDING -> state.tileLabels.pending
+        ScanStatus.SKIPPED -> state.tileLabels.skipped
+        null -> state.listTitle
+    }
+    val dismiss: () -> Unit = {
+        if (state.rosterExpanded) onEvent(ScanEvent.OpenList)
+        filter?.let { onEvent(ScanEvent.OpenTile(it)) }
+    }
+    ModalBottomSheet(
+        onDismissRequest = dismiss,
+        containerColor = ScanTokens.surf,
+        contentColor = ScanTokens.ink,
+        dragHandle = null, // ScanListSheet draws its own grip below.
+    ) {
+        ScanListSheet(title = title, rows = rows, onEvent = onEvent)
     }
 }
 
