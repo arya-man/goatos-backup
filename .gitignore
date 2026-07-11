@@ -97,6 +97,7 @@ wiki/
 /backend/seed-shed-positions
 /backend/seed-roster-real
 /backend/seed-position-duties
+/backend/seed-vaccination-real
 
 # provisional shed->manager fixture (round-robin fill, contains staff names) —
 # local seed input, replace with a reviewed source; never commit

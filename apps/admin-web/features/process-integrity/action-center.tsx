@@ -28,7 +28,8 @@ import {
 } from "@/features/preventive-care-vaccination";
 import { rejectCompletionAction, verifyCompletionAction } from "./actions";
 import { ActionCenterFiltersButton } from "./action-center-filters";
-import { WorkBoard, actionWorkTitle, boardWorkStates } from "./work-board";
+import { actionCenterRequestPlan } from "./action-center-request-plan";
+import { WorkBoard, actionWorkTitle } from "./work-board";
 import { Tag } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
 
@@ -39,18 +40,6 @@ const PRIORITY_BY_SEVERITY: Record<ProcessIntegritySeverity, "high" | "med" | "l
   watch: "low",
   ok: "low",
 };
-const BOARD_LANE_SAMPLE_LIMIT = 5;
-
-function mergeActionCenterRows(...groups: ActionCenterObligation[][]): ActionCenterObligation[] {
-  const byID = new Map<string, ActionCenterObligation>();
-  for (const group of groups) {
-    for (const row of group) {
-      byID.set(row.row_id, row);
-    }
-  }
-  return Array.from(byID.values());
-}
-
 function optionLabel(options: AdminUiOption[], key: string): string {
   const option = options.find((item) => item.key === key);
   if (!option) throw new Error(`Admin-web contract missing option ${key}`);
@@ -145,35 +134,24 @@ export async function VaccinationActionCenterPage({
   const boardPageSizeOptions = tablePageSizes(pageContract, "work-board");
   const queuePageSizeOptions = tablePageSizes(pageContract, "verification-queue");
   const requestedBoardPage = backendPage(sp, "ac", boardPageSizeOptions, 10);
-  const boardSampleStates = stateFilter === "all" ? boardWorkStates(pageContract) : [];
+  const requestPlan = actionCenterRequestPlan({
+    stateFilter,
+    severityFilter,
+    requestedBoardPage,
+    parkId,
+    asOf,
+  });
 
   // Board source = the real process-integrity Action Center contract (server-computed work state,
   // severity, owner, proof/verify state, next action). Verification queue = actionable completions.
   // Both honor the top-bar park scope (park_id) so the SOP/verification queue can't show other parks.
-  const [actionCenter, queue, ...boardSamples] = await Promise.all([
-    getVaccinationActionCenter({
-      parkId,
-      asOf,
-      workState: stateFilter === "all" ? undefined : stateFilter,
-      severity: severityFilter === "all" ? undefined : severityFilter,
-      limit: requestedBoardPage.pageSize,
-      offset: requestedBoardPage.offset,
-    }),
-    getVaccinationVerificationQueue({ parkId, limit: 200 }),
-    ...boardSampleStates.map((workState) =>
-      getVaccinationActionCenter({
-        parkId,
-        asOf,
-        workState,
-        severity: severityFilter === "all" ? undefined : severityFilter,
-        limit: BOARD_LANE_SAMPLE_LIMIT,
-      }),
-    ),
+  const [actionCenter, queue] = await Promise.all([
+    getVaccinationActionCenter(requestPlan.actionCenter),
+    getVaccinationVerificationQueue(requestPlan.verificationQueue),
   ]);
 
   const items: ActionCenterObligation[] = actionCenter.ok ? actionCenter.data.items : [];
-  const boardSampleItems = boardSamples.flatMap((sample) => (sample.ok ? sample.data.items : []));
-  const boardRows = mergeActionCenterRows(items, boardSampleItems);
+  const boardRows = items;
   const queueItems: VaccinationQueueItem[] = queue.ok ? queue.data.items : [];
   const verificationHeaders = tableLabels(pageContract, "verification-queue");
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
@@ -195,7 +173,7 @@ export async function VaccinationActionCenterPage({
   const selectedActionRowId = one(sp, "ac_row");
   const selectedActionRow = selectedActionRowId ? boardRows.find((row) => row.row_id === selectedActionRowId) : undefined;
 
-  // Server-authoritative counts per work state (not derived from the capped page).
+  // Filter chips use server totals; WorkBoard lane headers stay derived from visible rows.
   const stateCounts = new Map<WorkState, number>();
   if (actionCenter.ok) for (const c of actionCenter.data.counts_by_work_state) stateCounts.set(c.work_state, c.count);
   const totalCount = actionCenter.ok ? actionCenter.data.total_count : 0;
@@ -486,7 +464,7 @@ export async function VaccinationActionCenterPage({
 	            </div>
 	          ) : null}
 
-          <WorkBoard pageContract={pageContract} rows={boardRows} stateCounts={stateCounts} drawerHrefForRow={(row) => hrefWith({ ac_row: row.row_id })} />
+          <WorkBoard pageContract={pageContract} rows={boardRows} drawerHrefForRow={(row) => hrefWith({ ac_row: row.row_id })} />
           <VaccinationTablePager
             pageContract={pageContract}
             pageSizeOptions={boardPageSizeOptions}

@@ -396,6 +396,17 @@ func TestProcessIntegrityProjectionKeepsUnbatchedHistoryOutOfNextCycle(t *testin
 	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
 		t.Fatalf("RecomputeProjection: %v", err)
 	}
+	var projectedHistoryRows int
+	if err := pool.QueryRow(ctx, `
+SELECT COUNT(*)::int
+FROM process_integrity_projection_rows
+WHERE tenant_id = $1::uuid
+  AND obligation_id = $2::text`, piTenant, historyObl).Scan(&projectedHistoryRows); err != nil {
+		t.Fatalf("count projected history rows: %v", err)
+	}
+	if projectedHistoryRows != 0 {
+		t.Fatalf("old completed history rows must stay out of the hot Action Center projection, got %d", projectedHistoryRows)
+	}
 	category := domain.CategoryVaccination
 	result, err := repo.ListRows(ctx, domain.Query{
 		TenantID:  piTenant,
@@ -424,6 +435,66 @@ func TestProcessIntegrityProjectionKeepsUnbatchedHistoryOutOfNextCycle(t *testin
 		if row.DueAt.Equal(time.Date(2026, 2, 21, 3, 30, 0, 0, time.UTC)) && row.WorkState == domain.WorkStateOverdue {
 			t.Fatalf("historical completion due date leaked as overdue row: %#v", row)
 		}
+	}
+}
+
+func TestListRowsGroupsUnbatchedVaccinationByBusinessDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	const (
+		piGoatSameDay      = "71000000-0000-4000-8000-000000000070"
+		piOblSameDayEarly  = "71000000-0000-4000-8000-000000000071"
+		piOblSameDayLater  = "71000000-0000-4000-8000-000000000072"
+		piSameDayEarlyDue  = "2026-07-10 19:15:00+00" // 2026-07-11 00:45 IST
+		piSameDayLaterDue  = "2026-07-11 12:00:00+00" // 2026-07-11 17:30 IST
+		piSameDayQueryFrom = "2026-07-10 18:00:00+00"
+	)
+	execPI(t, ctx, pool, "same-day second goat",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+		   current_location_id, park_id, shed_id, management_stage, health_status)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, 'K1', 'healthy')`,
+		piGoatSameDay, piTenant, piParty, piShed, piPark)
+	execPI(t, ctx, pool, "same-day early unbatched obligation",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, 'goat', $5, 'shed', $6, $7::timestamptz, 'scheduled', 'pi-same-day-early', 30)`,
+		piOblSameDayEarly, piTenant, piVersion, piRule, piGoat, piShed, piSameDayEarlyDue)
+	execPI(t, ctx, pool, "same-day later unbatched obligation",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, 'goat', $5, 'shed', $6, $7::timestamptz, 'scheduled', 'pi-same-day-later', 31)`,
+		piOblSameDayLater, piTenant, piVersion, piRule, piGoatSameDay, piShed, piSameDayLaterDue)
+
+	repo := NewRepository(pool, 5*time.Second)
+	category := domain.CategoryVaccination
+	dueAfter := time.Date(2026, 7, 10, 18, 0, 0, 0, time.UTC)
+	result, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		Category:  &category,
+		DueAfter:  &dueAfter,
+		AsOf:      time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListRows: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("same IST business-day unbatched obligations should group to one row, got %d rows: %#v", len(result.Rows), result.Rows)
+	}
+	row := result.Rows[0]
+	if row.ExpectedCount != 2 || !row.DueAt.Equal(time.Date(2026, 7, 10, 19, 15, 0, 0, time.UTC)) {
+		t.Fatalf("grouped same-day row expected_count/due_at = %d/%s, want 2/%s", row.ExpectedCount, row.DueAt.Format(time.RFC3339), piSameDayEarlyDue)
+	}
+	if result.TotalCount != 1 || countFor(result.CountsByWorkState, domain.WorkStateScheduled) != 1 {
+		t.Fatalf("same-day grouping counts = total %d states %+v, want one scheduled row", result.TotalCount, result.CountsByWorkState)
+	}
+	if !row.DueAt.After(dueAfter) {
+		t.Fatalf("test setup drift: due_at %s should be after query lower bound %s", row.DueAt, piSameDayQueryFrom)
 	}
 }
 

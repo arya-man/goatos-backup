@@ -30,12 +30,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	processpg "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/postgres"
 	processdomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
+	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
+	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
 const defaultTenantID = "00000000-0000-4000-8000-000000000001"
@@ -70,18 +73,20 @@ var vaccines = map[string]vaccineDef{
 var vaccineOrder = []string{"ET+TT", "PPR", "Blue tongue", "FMD", "HS", "Goat Pox", "Sheep Pox"}
 
 type goatRecord struct {
-	RFID        string
-	OldID       string
-	OldIDSuffix string
-	Farm        string
-	Shed        string
-	Stage       string
-	Age         string
-	Breed       string
-	Gender      string
-	DOB         string
-	Status      string
-	Health      string
+	RFID           string
+	OldID          string
+	OldIDSuffix    string
+	Farm           string
+	Shed           string
+	Stage          string
+	Age            string
+	Breed          string
+	Gender         string
+	DOB            string
+	StageEntryDate string
+	PurchaseDate   string
+	Status         string
+	Health         string
 }
 
 // vaccCell is one goat x vaccine x dose spreadsheet cell.
@@ -106,6 +111,9 @@ type stats struct {
 	Due                int         // "Pending" -> open/due obligations
 	Scheduled          int         // future -> scheduled obligations
 	Skipped            int         // NA / blank cells
+	KernelGenerated    int         // kernel-generated open obligations
+	KernelDeferred     int         // kernel-deferred obligations
+	KernelSuppressed   int         // kernel-suppressed (already completed) obligations
 	Purged             purgeCounts // synthetic fixtures removed
 }
 
@@ -123,6 +131,8 @@ type cmpIns struct {
 	completionID, obligationID, goatID string
 	doseML                             float64
 	administeredAt                     time.Time
+	verifiedAt                         *time.Time
+	verifiedBy                         string
 	idem                               string
 }
 
@@ -170,10 +180,10 @@ func run(args []string) error {
 		return fmt.Errorf("load vaccination cells: %w", err)
 	}
 
-	st, err := seed(ctx, pool, *tenantID, loc, goats, cells, *purgeFixtures)
-	if err != nil {
+	if _, err := seed(ctx, pool, pgCfg, *tenantID, loc, goats, cells, *purgeFixtures); err != nil {
 		return fmt.Errorf("seed: %w", err)
 	}
+
 	processProjection, err := processpg.NewRepository(pool, pgCfg.QueryTimeout).RecomputeProjection(ctx, processdomain.ProjectionRecomputeRequest{
 		TenantID: *tenantID,
 	})
@@ -181,15 +191,7 @@ func run(args []string) error {
 		return fmt.Errorf("recompute process integrity projection after vaccination seed: %w", err)
 	}
 
-	fmt.Printf("seeded real vaccination data:\n"+
-		"  parks_resolved=%d sheds_resolved=%d sheds_created=%d protocols=%d animals=%d\n"+
-		"  obligations=%d (completed=%d due=%d scheduled=%d) completions_history=%d skipped_cells=%d\n"+
-		"  purged_fixtures total=%d (calendar_projections=%d obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d)\n"+
-		"  process_integrity_projection rows=%d version=%d as_of=%s\n",
-		st.ParksResolved, st.ShedsResolved, st.ShedsCreated, st.Protocols, st.Animals,
-		st.Obligations, st.Completed, st.Due, st.Scheduled, st.CompletionsHistory, st.Skipped,
-		st.Purged.total(), st.Purged.CalendarProjections, st.Purged.Obligations, st.Purged.Batches,
-		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows,
+	fmt.Printf("process_integrity_projection rows=%d version=%d as_of=%s\n",
 		processProjection.Rows, processProjection.ProjectionVersion, processProjection.AsOf.Format(time.RFC3339))
 	return nil
 }
@@ -211,18 +213,20 @@ func loadGoats(sourcePath string) ([]goatRecord, error) {
 			continue
 		}
 		rec := goatRecord{
-			RFID:        cell(row, col["rfid"]),
-			OldID:       cell(row, col["old_id"]),
-			OldIDSuffix: cell(row, col["old_id_suffix"]),
-			Farm:        cell(row, col["farm"]),
-			Shed:        cell(row, col["shed"]),
-			Stage:       cell(row, col["stage"]),
-			Age:         cell(row, col["age"]),
-			Breed:       cell(row, col["breed"]),
-			Gender:      cell(row, col["gender"]),
-			DOB:         cell(row, col["dob"]),
-			Status:      cell(row, col["status"]),
-			Health:      cell(row, col["health_status"]),
+			RFID:           cell(row, col["rfid"]),
+			OldID:          cell(row, col["old_id"]),
+			OldIDSuffix:    cell(row, col["old_id_suffix"]),
+			Farm:           cell(row, col["farm"]),
+			Shed:           cell(row, col["shed"]),
+			Stage:          cell(row, col["stage"]),
+			Age:            cell(row, col["age"]),
+			Breed:          cell(row, col["breed"]),
+			Gender:         cell(row, col["gender"]),
+			DOB:            cell(row, col["dob"]),
+			StageEntryDate: cell(row, col["stage_entry_date"]),
+			PurchaseDate:   cell(row, col["purchase_date"]),
+			Status:         cell(row, col["status"]),
+			Health:         cell(row, col["health_status"]),
 		}
 		if rec.Farm != "" && sourceAnimalIdentifier(rec.RFID, rec.OldID, rec.OldIDSuffix) != "" {
 			out = append(out, rec)
@@ -281,12 +285,18 @@ func loadVaccinationCells(sourcePath string) ([]vaccCell, error) {
 			continue
 		}
 		for i, cd := range colDefs {
+			doseCodeVal := "first"
+			sequenceVal := 1
+			if strings.EqualFold(strings.TrimSpace(cd.doseType), "Booster") {
+				doseCodeVal = "booster"
+				sequenceVal = 2
+			}
 			out = append(out, vaccCell{
 				AnimalKey: animalKey,
 				Vaccine:   cd.vaccine,
 				DoseType:  cd.doseType,
-				DoseCode:  doseCode(cd.doseType),
-				Sequence:  doseSequence(cd.doseType),
+				DoseCode:  doseCodeVal,
+				Sequence:  sequenceVal,
 				Value:     cell(row, i),
 			})
 		}
@@ -325,7 +335,7 @@ func headerIndex(hdr []interface{}) map[string]int {
 // on the pair.
 type shedKey struct{ farm, shed string }
 
-func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool) (stats, error) {
+func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool) (stats, error) {
 	var st stats
 	now := time.Now().In(loc)
 
@@ -411,11 +421,13 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 		st.ShedsCreated++
 	}
 
+	// Store entry_date source mapping for later use when seeding goats
+	entryDateByAnimalKey := buildEntryDateMapping(goats)
+
 	// 3. Protocol config: one canonical vaccination.matrix protocol version with
 	//    seven vaccine rows. The individual vaccines become rules inside the
 	//    matrix, not seven top-level protocol definitions.
-	versionByVaccine := map[string]string{}  // vaccine header -> protocol_version_id
-	ruleByVaccineDose := map[string]string{} // vaccine|doseCode -> rule_id
+	versionByVaccine := map[string]string{} // vaccine header -> protocol_version_id
 	for _, vaccName := range vaccineOrder {
 		def := vaccines[vaccName]
 		itemID := detUUID("inventory_item", tenantID, def.Code)
@@ -518,28 +530,44 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 	}
 	committed = false
 
-	for _, vaccName := range vaccineOrder {
-		def := vaccines[vaccName]
-		versionByVaccine[vaccName] = versionID
-		for _, dt := range doseTypesFor(vaccName) {
-			var ruleID string
-			if err := tx.QueryRow(ctx, `
-				SELECT rule_id
-				FROM protocol_rules
-				WHERE tenant_id=$1 AND protocol_version_id=$2 AND dose_code=$3`,
-				tenantID, versionID, matrixDoseCode(def, dt)).Scan(&ruleID); err != nil {
-				return st, fmt.Errorf("resolve protocol rule %s/%s: %w", vaccName, dt, err)
-			}
-			ruleByVaccineDose[vaccName+"|"+doseCode(dt)] = ruleID
+	// Load all protocol rules (birth_age, post_arrival, revacc for all vaccines)
+	// ruleByDoseCode: vaccine_code "_" dose_code → rule_id
+	ruleByDoseCode := map[string]string{}
+	rows, err := tx.Query(ctx, `
+		SELECT dose_code, rule_id
+		FROM protocol_rules
+		WHERE tenant_id=$1 AND protocol_version_id=$2`,
+		tenantID, versionID)
+	if err != nil {
+		return st, fmt.Errorf("load protocol rules: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var doseCode, ruleID string
+		if err := rows.Scan(&doseCode, &ruleID); err != nil {
+			return st, fmt.Errorf("scan rule row: %w", err)
 		}
+		ruleByDoseCode[doseCode] = ruleID
+	}
+	if err := rows.Err(); err != nil {
+		return st, fmt.Errorf("read protocol rules: %w", err)
+	}
+
+	for _, vaccName := range vaccineOrder {
+		versionByVaccine[vaccName] = versionID
 	}
 	st.Protocols = 1
 
 	// 4. Animals: import each goat with shed_id + park_id (the read model groups on these).
 	goatIDByAnimalKey := map[string]string{}
 	goatLifecycleByAnimalKey := map[string]string{}
+	goatOriginTypeByAnimalKey := map[string]string{}
+	goatDOBByAnimalKey := map[string]*time.Time{}
+	goatEntryDateByAnimalKey := map[string]*time.Time{}
+	goatStageByAnimalKey := map[string]string{}
 	type goatIns struct {
 		goatID, animalKey, animalIdentifier1, animalIdentifier2, breed, sex, lifecycle, stage, age, shedID, parkID, dob string
+		entryDate                                                                                                       string
 		health                                                                                                          *string
 	}
 	var goatRows []goatIns
@@ -557,6 +585,26 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 		goatID := detUUID("goat", tenantID, animalKey)
 		goatIDByAnimalKey[animalKey] = goatID
 		goatLifecycleByAnimalKey[animalKey] = normalizeLifecycle(g.Status)
+		goatOriginTypeByAnimalKey[animalKey] = "procured"
+		goatStageByAnimalKey[animalKey] = normalizeStage(g.Stage, g.Age)
+
+		// Parse DOB for later use in schedule path resolution
+		var dobTime *time.Time
+		if g.DOB != "" {
+			if d, err := time.ParseInLocation("2006-01-02", g.DOB, loc); err == nil {
+				dobTime = &d
+				goatDOBByAnimalKey[animalKey] = dobTime
+			}
+		}
+
+		// Resolve entry_date from source mapping
+		entryDate := entryDateByAnimalKey[animalKey]
+		entryDateValue := ""
+		if entryDate != nil {
+			goatEntryDateByAnimalKey[animalKey] = entryDate
+			entryDateValue = entryDate.Format("2006-01-02")
+		}
+
 		goatRows = append(goatRows, goatIns{
 			goatID:            goatID,
 			animalKey:         animalKey,
@@ -571,19 +619,20 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 			shedID:            shedID,
 			parkID:            parkByFarm[g.Farm],
 			dob:               g.DOB,
+			entryDate:         entryDateValue,
 		})
 	}
 	if err := batch(ctx, tx, goatRows, 500, func(b *pgx.Batch, gi goatIns) {
 		b.Queue(`
 			INSERT INTO goats (goat_id, tenant_id, species, breed, sex, lifecycle_status,
-				health_status, origin_type, dob, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, updated_at)
-			VALUES ($1,$2,'goat',$3,$4,$5,$6,'procured',$7,$8,$8,$9,$10,$11,$12,now())
+				health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, updated_at)
+			VALUES ($1,$2,'goat',$3,$4,$5,$6,'procured',$7,$8,$9,$10,$10,$11,$12,$13,$14,now())
 			ON CONFLICT (goat_id) DO UPDATE SET breed=EXCLUDED.breed, sex=EXCLUDED.sex,
 				lifecycle_status=EXCLUDED.lifecycle_status, health_status=EXCLUDED.health_status,
 				shed_id=EXCLUDED.shed_id, park_id=EXCLUDED.park_id, current_location_id=EXCLUDED.current_location_id,
-				management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, updated_at=now()`,
+				management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, entry_date=EXCLUDED.entry_date, updated_at=now()`,
 			gi.goatID, tenantID, gi.breed, gi.sex, gi.lifecycle, gi.health,
-			nullableDate(gi.dob), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID)
+			nullableDate(gi.dob), nullableDate(gi.entryDate), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID)
 	}); err != nil {
 		return st, fmt.Errorf("insert goats: %w", err)
 	}
@@ -617,6 +666,8 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 	var obls []oblIns
 	var cmps []cmpIns
 
+	vaccMatrixDef := buildCanonicalVaccinationMatrix()
+
 	for _, c := range cells {
 		goatID, ok := goatIDByAnimalKey[c.AnimalKey]
 		if !ok {
@@ -626,13 +677,55 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 		if !ok {
 			continue
 		}
-		ruleID := ruleByVaccineDose[c.Vaccine+"|"+c.DoseCode]
+		def := vaccines[c.Vaccine]
+
+		// Resolve goat's schedule path (kid vs adult)
+		path := schedulePathForGoat(
+			goatOriginTypeByAnimalKey[c.AnimalKey],
+			goatDOBByAnimalKey[c.AnimalKey],
+			goatStageByAnimalKey[c.AnimalKey],
+			goatEntryDateByAnimalKey[c.AnimalKey],
+			now,
+		)
+
+		// Map sheet dose to actual rule based on schedule path
+		var doseCodeForPath string
+		spec := vaccMatrixDef[c.Vaccine]
+
+		if path == "kid" {
+			// Map sheet First/Booster to birth_age waves
+			if c.DoseCode == "first" && len(spec.BirthAgeWaves) > 0 {
+				doseCodeForPath = spec.BirthAgeWaves[0].DoseCode
+			} else if c.DoseCode == "booster" && len(spec.BirthAgeWaves) > 1 {
+				doseCodeForPath = spec.BirthAgeWaves[1].DoseCode
+			} else if c.DoseCode == "first" {
+				doseCodeForPath = spec.BirthAgeWaves[0].DoseCode
+			} else {
+				st.Skipped++
+				continue
+			}
+		} else {
+			// Adult path: map sheet First/Booster to post_arrival waves
+			if c.DoseCode == "first" && len(spec.PostArrivalWaves) > 0 {
+				doseCodeForPath = def.Code + "_adult_w1"
+			} else if c.DoseCode == "booster" && len(spec.PostArrivalWaves) > 1 {
+				doseCodeForPath = def.Code + "_adult_w2"
+			} else if c.DoseCode == "first" {
+				doseCodeForPath = def.Code + "_adult_w1"
+			} else {
+				st.Skipped++
+				continue
+			}
+		}
+
+		ruleID := ruleByDoseCode[doseCodeForPath]
 		if ruleID == "" {
+			st.Skipped++
 			continue
 		}
-		def := vaccines[c.Vaccine]
-		oblID := detUUID("obligation", tenantID, c.AnimalKey, def.Code, c.DoseCode)
-		oblIdem := "vacc-real-obl:" + c.AnimalKey + ":" + def.Code + ":" + c.DoseCode
+
+		oblID := detUUID("obligation", tenantID, c.AnimalKey, def.Code, doseCodeForPath)
+		oblIdem := "vacc-real-obl:" + c.AnimalKey + ":" + def.Code + ":" + doseCodeForPath
 
 		// Open (scheduled/due) vaccination obligations are blocked by the procurement
 		// exclusion guard for goats that are dead/sold/lost/culled/transferred/merged/inactive.
@@ -645,16 +738,21 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 			st.Skipped++
 			continue
 		case strings.EqualFold(val, "Pending"):
+			// Pending handling:
+			// - adult path with entry_date → SKIP (kernel post_arrival will generate)
+			// - else → deferred with needs_scheduling_source_pending
+			if path == "adult" && goatEntryDateByAnimalKey[c.AnimalKey] != nil {
+				st.Skipped++
+				continue
+			}
 			if !openEligible {
 				st.Skipped++
 				continue
 			}
-			// Open work due now.
-			ws := startOfDay(now).AddDate(0, 0, -1)
-			due := startOfDay(now).AddDate(0, 0, 7)
+			// Create deferred obligation (not due, needs review)
 			obls = append(obls, oblIns{
 				obligationID: oblID, versionID: versionID, ruleID: ruleID, goatID: goatID,
-				dueAt: due, windowStart: &ws, status: "due", sequence: c.Sequence, idem: oblIdem,
+				dueAt: now, status: "deferred", sequence: c.Sequence, idem: oblIdem,
 			})
 			st.Due++
 		default:
@@ -665,10 +763,12 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 			}
 			administeredAt := sourceVaccinationDateTime(d, loc)
 			if sourceVaccinationDateIsHistory(d, now, loc) {
-				// Source date cells are last-administered history, not due dates. Keep
-				// accepted history for audit/proof, then derive the next open cycle.
+				// Source date cells are last-administered history, not due dates.
+				// Create COMPLETED obligation + vaccination_completions with status='accepted' AND verified_at set.
 				completedAt := administeredAt
-				historyOblID := detUUID("obligation-history", tenantID, c.AnimalKey, def.Code, c.DoseCode, administeredAt.Format("2006-01-02"))
+				verifiedBy := detUUID("seed-actor", tenantID)
+				sourceDateKey := administeredAt.Format("2006-01-02")
+				historyOblID := historyObligationID(tenantID, c, def, sourceDateKey)
 				obls = append(obls, oblIns{
 					obligationID: historyOblID,
 					versionID:    versionID,
@@ -678,37 +778,27 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 					status:       "completed",
 					completedAt:  &completedAt,
 					sequence:     c.Sequence,
-					idem:         "vacc-real-obl:history:" + c.AnimalKey + ":" + def.Code + ":" + c.DoseCode,
+					idem:         historyObligationIdem(c, def, sourceDateKey),
 				})
 				cmps = append(cmps, cmpIns{
-					completionID:   detUUID("completion", tenantID, c.AnimalKey, def.Code, c.DoseCode),
+					completionID:   historyCompletionID(tenantID, c, def, sourceDateKey),
 					obligationID:   historyOblID,
 					goatID:         goatID,
 					doseML:         def.DoseML,
 					administeredAt: administeredAt,
-					idem:           "vacc-real-cmp:" + c.AnimalKey + ":" + def.Code + ":" + c.DoseCode,
+					verifiedAt:     &administeredAt,
+					verifiedBy:     verifiedBy,
+					idem:           historyCompletionIdem(c, def, sourceDateKey),
 				})
 				st.Completed++
 				st.CompletionsHistory++
-				if !openEligible {
-					continue
-				}
-				nextDue := nextDueAfterLastVaccination(administeredAt, c.Vaccine, now)
-				obls = append(obls, oblIns{
-					obligationID: detUUID("obligation-next", tenantID, c.AnimalKey, def.Code, c.DoseCode, nextDue.Format("2006-01-02")),
-					versionID:    versionID, ruleID: ruleID, goatID: goatID,
-					dueAt:    nextDue,
-					status:   "scheduled",
-					sequence: c.Sequence,
-					idem:     "vacc-real-obl:next:" + c.AnimalKey + ":" + def.Code + ":" + c.DoseCode + ":" + nextDue.Format("2006-01-02"),
-				})
-				st.Scheduled++
+				// NO flat next-revacc obligation; kernel will generate revacc from the completion
 			} else {
 				if !openEligible {
 					st.Skipped++
 					continue
 				}
-				// Future dose -> scheduled.
+				// Future dose -> scheduled at the sheet date.
 				obls = append(obls, oblIns{
 					obligationID: oblID, versionID: versionID, ruleID: ruleID, goatID: goatID,
 					dueAt: administeredAt, status: "scheduled", sequence: c.Sequence, idem: oblIdem,
@@ -737,10 +827,10 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 	if err := batch(ctx, tx, cmps, 500, func(b *pgx.Batch, cm cmpIns) {
 		b.Queue(`
 			INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, goat_id,
-				doses, dose_ml_given, administered_at, status, idempotency_key, created_at, updated_at)
-			VALUES ($1,$2,$3,$4,1,$5,$6,'accepted',$7,now(),now())
+				doses, dose_ml_given, administered_at, verified_at, verified_by, status, idempotency_key, created_at, updated_at)
+			VALUES ($1,$2,$3,$4,1,$5,$6,$7,$8,'accepted',$9,now(),now())
 			ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
-			cm.completionID, tenantID, cm.obligationID, cm.goatID, cm.doseML, cm.administeredAt, cm.idem)
+			cm.completionID, tenantID, cm.obligationID, cm.goatID, cm.doseML, cm.administeredAt, cm.verifiedAt, cm.verifiedBy, cm.idem)
 	}); err != nil {
 		return st, fmt.Errorf("insert completions: %w", err)
 	}
@@ -749,6 +839,32 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 		return st, fmt.Errorf("commit: %w", err)
 	}
 	committed = true
+
+	// Run kernel generation IN THE SEED to produce derived obligations
+	protocolRepo := protocolpg.NewRepository(pool, pgCfg.QueryTimeout)
+	vaccinationRepo := vaccinationpg.NewRepository(pool, pgCfg.QueryTimeout)
+	obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
+	gen := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
+
+	genRes, err := gen.GenerateEffectiveForAllGoats(ctx, tenantID, now)
+	if err != nil && !vaccinationapp.IsGenerationPartialFailure(err) {
+		return st, fmt.Errorf("generate effective cohort: %w", err)
+	}
+	st.KernelGenerated = genRes.Generated
+	st.KernelDeferred = genRes.Deferred
+	st.KernelSuppressed = genRes.SuppressedByTrustedHistory
+
+	fmt.Printf("seeded real vaccination data with kernel generation:\n"+
+		"  parks_resolved=%d sheds_resolved=%d sheds_created=%d protocols=%d animals=%d\n"+
+		"  obligations=%d (completed=%d due=%d scheduled=%d) completions_history=%d skipped_cells=%d\n"+
+		"  purged_fixtures total=%d (calendar_projections=%d obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d)\n"+
+		"  kernel_generation generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
+		st.ParksResolved, st.ShedsResolved, st.ShedsCreated, st.Protocols, st.Animals,
+		st.Obligations, st.Completed, st.Due, st.Scheduled, st.CompletionsHistory, st.Skipped,
+		st.Purged.total(), st.Purged.CalendarProjections, st.Purged.Obligations, st.Purged.Batches,
+		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows,
+		genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.FailedGoats, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory)
+
 	return st, nil
 }
 
@@ -1030,6 +1146,114 @@ func batch[T any](ctx context.Context, tx pgx.Tx, rows []T, size int, queue func
 
 // ---- helpers ----
 
+func buildEntryDateMapping(goats []goatRecord) map[string]*time.Time {
+	// Precedence: purchase_date -> stage_entry_date. DOB is not an entry date.
+	out := map[string]*time.Time{}
+	for _, g := range goats {
+		animalKey := sourceAnimalIdentifier(g.RFID, g.OldID, g.OldIDSuffix)
+		if animalKey == "" {
+			continue
+		}
+		for _, raw := range []string{g.PurchaseDate, g.StageEntryDate} {
+			if d := parseSourceDate(raw); d != nil {
+				out[animalKey] = d
+				break
+			}
+		}
+	}
+	return out
+}
+
+func parseSourceDate(raw string) *time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	for _, layout := range []string{"2006-01-02", "02/01/2006", "1/2/2006"} {
+		if d, err := time.Parse(layout, raw); err == nil {
+			return &d
+		}
+	}
+	return nil
+}
+
+// schedulePathForGoat replicates the kernel's schedulePathForGoat logic
+func schedulePathForGoat(originType string, dob *time.Time, stage string, entryDate *time.Time, asOf time.Time) string {
+	origin := strings.ToLower(strings.TrimSpace(originType))
+	if origin == "birth" {
+		return "kid"
+	}
+	kidWeeks := 16
+	// Check age: age <= 16w (112d) → kid
+	if dob != nil {
+		ageDays := int(asOf.Sub(*dob).Hours() / 24)
+		ageWeeks := ageDays / 7
+		if ageWeeks <= kidWeeks {
+			return "kid"
+		}
+	}
+	// Check management_stage starts "K" → kid
+	if isKidManagementStage(stage) {
+		return "kid"
+	}
+	// Check if has entry_date (procured/imported) → adult
+	if entryDate != nil {
+		return "adult"
+	}
+	// Check origin type
+	if origin == "procured" || origin == "imported" {
+		return "adult"
+	}
+	return "kid"
+}
+
+func isKidManagementStage(stage string) bool {
+	stage = strings.ToUpper(strings.TrimSpace(stage))
+	if len(stage) >= 1 && strings.HasPrefix(stage, "K") {
+		return true
+	}
+	return false
+}
+
+// resolveGoatPath wraps schedulePathForGoat for spec naming consistency
+func resolveGoatPath(originType string, dob *time.Time, stage string, entryDate *time.Time, asOf time.Time) string {
+	return schedulePathForGoat(originType, dob, stage, entryDate, asOf)
+}
+
+// mapSheetDoseToRuleCode maps a sheet dose code (First/Booster) to the actual rule dose_code
+// based on goat schedule path (kid vs adult) and vaccine spec.
+func mapSheetDoseToRuleCode(vaccine string, sheetDoseCode string, path string, vaccMatrixDef map[string]vaccMatrixSpec) string {
+	spec, ok := vaccMatrixDef[vaccine]
+	if !ok {
+		return ""
+	}
+	def, ok := vaccines[vaccine]
+	if !ok {
+		return ""
+	}
+
+	if path == "kid" {
+		// Map sheet First/Booster to birth_age waves
+		if sheetDoseCode == "first" && len(spec.BirthAgeWaves) > 0 {
+			return spec.BirthAgeWaves[0].DoseCode
+		} else if sheetDoseCode == "booster" && len(spec.BirthAgeWaves) > 1 {
+			return spec.BirthAgeWaves[1].DoseCode
+		} else if sheetDoseCode == "first" {
+			return spec.BirthAgeWaves[0].DoseCode
+		}
+	} else {
+		// Adult path: map sheet First/Booster to post_arrival waves
+		if sheetDoseCode == "first" && len(spec.PostArrivalWaves) > 0 {
+			return def.Code + "_adult_w1"
+		} else if sheetDoseCode == "booster" && len(spec.PostArrivalWaves) > 1 {
+			return def.Code + "_adult_w2"
+		} else if sheetDoseCode == "first" {
+			return def.Code + "_adult_w1"
+		}
+	}
+	return ""
+}
+
 func detUUID(kind string, parts ...string) string {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("goatos:seed-vaccination-real:"+kind+":"+strings.Join(parts, ":"))).String()
 }
@@ -1301,25 +1525,25 @@ func jsonSemanticallyEqual(a, b string) bool {
 
 func vaccinationMatrixRuleDSL() (string, error) {
 	type scheduleRow struct {
-		DoseCode                  string  `json:"dose_code"`
-		SourceDoseCode            string  `json:"source_dose_code"`
-		Sequence                  int     `json:"sequence"`
-		TriggerType               string  `json:"trigger_type"`
-		OffsetDays                int     `json:"offset_days"`
-		DueWindowDays             int     `json:"due_window_days"`
-		DoseAmount                float64 `json:"dose_amount"`
-		DoseUnit                  string  `json:"dose_unit"`
-		VialDoses                 int     `json:"vial_doses"`
-		RevaccinationIntervalDays int     `json:"revaccination_interval_days"`
-		ScheduleNote              string  `json:"schedule_note,omitempty"`
-		RouteSite                 string  `json:"route_site"`
-		MaxDelayDays              int     `json:"max_delay_days"`
-		CourseLapsePolicy         string  `json:"course_lapse_policy"`
-		MinGapDays                int     `json:"min_gap_days"`
-		Repeat                    string  `json:"repeat"`
-		RepeatUntilAfterAge       string  `json:"repeat_until_after_age"`
-		CatchUp                   string  `json:"catch_up"`
+		DoseCode            string  `json:"dose_code"`
+		SourceDoseCode      string  `json:"source_dose_code"`
+		Sequence            int     `json:"sequence"`
+		TriggerType         string  `json:"trigger_type"`
+		OffsetDays          int     `json:"offset_days"`
+		DueWindowDays       int     `json:"due_window_days"`
+		DoseAmount          float64 `json:"dose_amount"`
+		DoseUnit            string  `json:"dose_unit"`
+		VialDoses           int     `json:"vial_doses"`
+		ScheduleNote        string  `json:"schedule_note,omitempty"`
+		RouteSite           string  `json:"route_site"`
+		MaxDelayDays        int     `json:"max_delay_days"`
+		CourseLapsePolicy   string  `json:"course_lapse_policy"`
+		MinGapDays          int     `json:"min_gap_days"`
+		Repeat              string  `json:"repeat"`
+		RepeatUntilAfterAge string  `json:"repeat_until_after_age"`
+		CatchUp             string  `json:"catch_up"`
 	}
+
 	type vaccineMeta struct {
 		Code               string `json:"code"`
 		Name               string `json:"name"`
@@ -1329,46 +1553,114 @@ func vaccinationMatrixRuleDSL() (string, error) {
 		PathogenClass      string `json:"pathogen_class"`
 		CourseType         string `json:"course_type"`
 	}
+
 	type matrixRow struct {
 		RowID       string         `json:"row_id"`
 		Vaccine     vaccineMeta    `json:"vaccine"`
+		Species     []string       `json:"species"`
 		Eligibility map[string]any `json:"eligibility"`
 		Schedule    []scheduleRow  `json:"schedule"`
 	}
-	rows := make([]matrixRow, 0, len(vaccineOrder))
+
+	// Build the canonical vaccination matrix per spec
+	vaccMatrixDef := buildCanonicalVaccinationMatrix()
+
+	rows := make([]matrixRow, 0)
 	schedule := []scheduleRow{}
+	sequenceCounter := 0
+
 	for _, vaccName := range vaccineOrder {
 		def := vaccines[vaccName]
+		spec := vaccMatrixDef[vaccName]
+
 		rowSchedule := []scheduleRow{}
-		for _, dt := range doseTypesFor(vaccName) {
-			dose := matrixDoseCode(def, dt)
+
+		// birth_age doses (kid path)
+		for _, wave := range spec.BirthAgeWaves {
+			sequenceCounter++
+			dose := wave.DoseCode
 			cell := scheduleRow{
-				DoseCode:                  dose,
-				SourceDoseCode:            dose,
-				Sequence:                  vaccineSortOrder(vaccName) + doseSequence(dt),
-				TriggerType:               "birth_age",
-				OffsetDays:                offsetDays(dt),
-				DueWindowDays:             7,
-				DoseAmount:                def.DoseML,
-				DoseUnit:                  "ml",
-				VialDoses:                 def.VialDoses,
-				RevaccinationIntervalDays: revaccinationIntervalDays(vaccName),
-				ScheduleNote:              "real vaccination seed source matrix",
-				RouteSite:                 "subcutaneous",
-				MaxDelayDays:              7,
-				CourseLapsePolicy:         "preventive_care_review",
-				MinGapDays:                minGapDays(dt),
-				Repeat:                    "none",
-				RepeatUntilAfterAge:       "-",
-				CatchUp:                   "immediate",
+				DoseCode:            dose,
+				SourceDoseCode:      dose,
+				Sequence:            sequenceCounter,
+				TriggerType:         "birth_age",
+				OffsetDays:          wave.Days,
+				DueWindowDays:       7,
+				DoseAmount:          def.DoseML,
+				DoseUnit:            "ml",
+				VialDoses:           def.VialDoses,
+				ScheduleNote:        "real vaccination seed source matrix",
+				RouteSite:           "subcutaneous",
+				MaxDelayDays:        7,
+				CourseLapsePolicy:   "preventive_care_review",
+				MinGapDays:          wave.MinGapDays,
+				Repeat:              "none",
+				RepeatUntilAfterAge: "-",
+				CatchUp:             "immediate",
 			}
 			rowSchedule = append(rowSchedule, cell)
 			schedule = append(schedule, cell)
 		}
+
+		// post_arrival doses (adult procurement path)
+		for waveIdx, wave := range spec.PostArrivalWaves {
+			sequenceCounter++
+			dose := fmt.Sprintf("%s_adult_w%d", def.Code, waveIdx+1)
+			cell := scheduleRow{
+				DoseCode:            dose,
+				SourceDoseCode:      dose,
+				Sequence:            sequenceCounter,
+				TriggerType:         "post_arrival",
+				OffsetDays:          wave,
+				DueWindowDays:       7,
+				DoseAmount:          def.DoseML,
+				DoseUnit:            "ml",
+				VialDoses:           def.VialDoses,
+				ScheduleNote:        "real vaccination seed source matrix",
+				RouteSite:           "subcutaneous",
+				MaxDelayDays:        7,
+				CourseLapsePolicy:   "preventive_care_review",
+				MinGapDays:          0,
+				Repeat:              "none",
+				RepeatUntilAfterAge: "-",
+				CatchUp:             "immediate",
+			}
+			rowSchedule = append(rowSchedule, cell)
+			schedule = append(schedule, cell)
+		}
+
+		// revacc (after_previous_completion)
+		if spec.RevaccinationDays > 0 {
+			sequenceCounter++
+			dose := def.Code + "_revac"
+			cell := scheduleRow{
+				DoseCode:            dose,
+				SourceDoseCode:      dose,
+				Sequence:            sequenceCounter,
+				TriggerType:         "after_previous_completion",
+				OffsetDays:          spec.RevaccinationDays,
+				DueWindowDays:       30,
+				DoseAmount:          def.DoseML,
+				DoseUnit:            "ml",
+				VialDoses:           def.VialDoses,
+				ScheduleNote:        "real vaccination seed source matrix",
+				RouteSite:           "subcutaneous",
+				MaxDelayDays:        7,
+				CourseLapsePolicy:   "preventive_care_review",
+				MinGapDays:          spec.RevaccinationDays,
+				Repeat:              "every_n_days",
+				RepeatUntilAfterAge: "-",
+				CatchUp:             "immediate",
+			}
+			rowSchedule = append(rowSchedule, cell)
+			schedule = append(schedule, cell)
+		}
+
 		courseType := "single"
-		if len(rowSchedule) > 1 {
+		if len(spec.BirthAgeWaves) > 1 {
 			courseType = "booster"
 		}
+
 		rows = append(rows, matrixRow{
 			RowID: "real-seed-" + def.Code,
 			Vaccine: vaccineMeta{
@@ -1380,10 +1672,12 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				PathogenClass:      pathogenClass(def.Type),
 				CourseType:         courseType,
 			},
+			Species:     spec.Species,
 			Eligibility: vaccinationSeedEligibility(),
 			Schedule:    rowSchedule,
 		})
 	}
+
 	payload := map[string]any{
 		"category":       "vaccination",
 		"ruleset_family": "vaccination.matrix",
@@ -1428,6 +1722,82 @@ func vaccinationMatrixRuleDSL() (string, error) {
 	return string(data), nil
 }
 
+func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
+	return map[string]vaccMatrixSpec{
+		"ET+TT": {
+			Species: []string{"goat", "sheep"},
+			BirthAgeWaves: []birthAgeWave{
+				{DoseCode: "et_tt_kid_4w", Days: 28, MinGapDays: 0},
+				{DoseCode: "et_tt_kid_7w", Days: 49, MinGapDays: 21},
+			},
+			PostArrivalWaves:  []int{7, 35},
+			RevaccinationDays: 182,
+		},
+		"PPR": {
+			Species: []string{"goat", "sheep"},
+			BirthAgeWaves: []birthAgeWave{
+				{DoseCode: "ppr_kid_16w", Days: 112, MinGapDays: 0},
+			},
+			PostArrivalWaves:  []int{7},
+			RevaccinationDays: 1095,
+		},
+		"Goat Pox": {
+			Species: []string{"goat"},
+			BirthAgeWaves: []birthAgeWave{
+				{DoseCode: "goat_pox_kid_20w", Days: 140, MinGapDays: 0},
+			},
+			PostArrivalWaves:  []int{35},
+			RevaccinationDays: 365,
+		},
+		"FMD": {
+			Species: []string{"goat", "sheep"},
+			BirthAgeWaves: []birthAgeWave{
+				{DoseCode: "fmd_kid_12w", Days: 84, MinGapDays: 0},
+			},
+			PostArrivalWaves:  []int{63},
+			RevaccinationDays: 274,
+		},
+		"HS": {
+			Species: []string{"goat", "sheep"},
+			BirthAgeWaves: []birthAgeWave{
+				{DoseCode: "hs_kid_12w", Days: 84, MinGapDays: 0},
+			},
+			PostArrivalWaves:  []int{63},
+			RevaccinationDays: 365,
+		},
+		"Blue tongue": {
+			Species: []string{"sheep"},
+			BirthAgeWaves: []birthAgeWave{
+				{DoseCode: "blue_tongue_kid_16w", Days: 112, MinGapDays: 0},
+				{DoseCode: "blue_tongue_kid_20w", Days: 140, MinGapDays: 28},
+			},
+			PostArrivalWaves:  []int{35},
+			RevaccinationDays: 365,
+		},
+		"Sheep Pox": {
+			Species: []string{"sheep"},
+			BirthAgeWaves: []birthAgeWave{
+				{DoseCode: "sheep_pox_kid_12w", Days: 84, MinGapDays: 0},
+			},
+			PostArrivalWaves:  []int{35},
+			RevaccinationDays: 365,
+		},
+	}
+}
+
+type vaccMatrixSpec struct {
+	Species           []string
+	BirthAgeWaves     []birthAgeWave
+	PostArrivalWaves  []int
+	RevaccinationDays int
+}
+
+type birthAgeWave struct {
+	DoseCode   string
+	Days       int
+	MinGapDays int
+}
+
 func vaccinationSeedEligibility() map[string]any {
 	return map[string]any{
 		"species":                     []string{"goat", "sheep"},
@@ -1455,6 +1825,54 @@ func pathogenClass(vaccineType string) string {
 	}
 }
 
+func historyObligationID(tenantID string, c vaccCell, def vaccineDef, sourceDateKey string) string {
+	return detUUID("obligation-history", tenantID, c.AnimalKey, def.Code, sourceDoseCode(c), sourceDateKey)
+}
+
+func historyObligationIdem(c vaccCell, def vaccineDef, sourceDateKey string) string {
+	return "vacc-real-obl:history:" + c.AnimalKey + ":" + def.Code + ":" + sourceDoseCode(c) + ":" + sourceDateKey
+}
+
+func historyCompletionID(tenantID string, c vaccCell, def vaccineDef, sourceDateKey string) string {
+	return detUUID("completion-history", tenantID, c.AnimalKey, def.Code, sourceDoseCode(c), sourceDateKey)
+}
+
+func historyCompletionIdem(c vaccCell, def vaccineDef, sourceDateKey string) string {
+	return "vacc-real-cmp:" + c.AnimalKey + ":" + def.Code + ":" + sourceDoseCode(c) + ":" + sourceDateKey
+}
+
+func sourceDoseCode(c vaccCell) string {
+	if code := strings.ToLower(strings.TrimSpace(c.DoseCode)); code != "" {
+		return code
+	}
+	if strings.EqualFold(strings.TrimSpace(c.DoseType), "Booster") {
+		return "booster"
+	}
+	return "first"
+}
+
+func shouldDeriveNextCycleAfterHistory(c vaccCell) bool {
+	if !vaccineHasBoosterDose(c.Vaccine) {
+		return true
+	}
+	return sourceDoseCode(c) == terminalCourseDose(c.Vaccine)
+}
+
+func terminalCourseDose(vaccName string) string {
+	if vaccineHasBoosterDose(vaccName) {
+		return "booster"
+	}
+	return "first"
+}
+
+func vaccineHasBoosterDose(vaccName string) bool {
+	spec, ok := buildCanonicalVaccinationMatrix()[vaccName]
+	if !ok {
+		return false
+	}
+	return len(spec.BirthAgeWaves) > 1 || len(spec.PostArrivalWaves) > 1
+}
+
 func revaccinationIntervalDays(vaccName string) int {
 	switch vaccName {
 	case "FMD":
@@ -1468,6 +1886,16 @@ func revaccinationIntervalDays(vaccName string) int {
 	}
 }
 
+func nextDueAfterLastVaccination(lastAdministered time.Time, vaccName string, asOf time.Time) time.Time {
+	loc := lastAdministered.Location()
+	intervalDays := revaccinationIntervalDays(vaccName)
+	next := sourceVaccinationDateTime(lastAdministered.In(loc).AddDate(0, 0, intervalDays), loc)
+	for !next.After(asOf.In(loc)) {
+		next = sourceVaccinationDateTime(next.In(loc).AddDate(0, 0, intervalDays), loc)
+	}
+	return next
+}
+
 func sourceVaccinationDateTime(d time.Time, loc *time.Location) time.Time {
 	return time.Date(d.Year(), d.Month(), d.Day(), 9, 0, 0, 0, loc)
 }
@@ -1476,15 +1904,6 @@ func sourceVaccinationDateIsHistory(d time.Time, asOf time.Time, loc *time.Locat
 	sourceDay := startOfDay(d.In(loc))
 	asOfDay := startOfDay(asOf.In(loc))
 	return !sourceDay.After(asOfDay)
-}
-
-func nextDueAfterLastVaccination(lastAdministeredAt time.Time, vaccName string, asOf time.Time) time.Time {
-	intervalDays := revaccinationIntervalDays(vaccName)
-	nextDue := lastAdministeredAt.AddDate(0, 0, intervalDays)
-	for !nextDue.After(asOf) {
-		nextDue = nextDue.AddDate(0, 0, intervalDays)
-	}
-	return nextDue
 }
 
 func nullableDate(s string) *string {
@@ -1496,57 +1915,6 @@ func nullableDate(s string) *string {
 		return nil
 	}
 	return &s
-}
-
-func matrixDoseCode(def vaccineDef, doseType string) string {
-	return def.Code + "_" + doseCode(doseType)
-}
-
-func doseCode(doseType string) string {
-	if strings.EqualFold(strings.TrimSpace(doseType), "Booster") {
-		return "booster"
-	}
-	return "first"
-}
-
-func doseSequence(doseType string) int {
-	if strings.EqualFold(strings.TrimSpace(doseType), "Booster") {
-		return 2
-	}
-	return 1
-}
-
-func offsetDays(doseType string) int {
-	if strings.EqualFold(strings.TrimSpace(doseType), "Booster") {
-		return 56
-	}
-	return 28
-}
-
-func minGapDays(doseType string) int {
-	if strings.EqualFold(strings.TrimSpace(doseType), "Booster") {
-		return 21
-	}
-	return 0
-}
-
-func vaccineSortOrder(vaccName string) int {
-	for i, name := range vaccineOrder {
-		if name == vaccName {
-			return (i + 1) * 10
-		}
-	}
-	return 999
-}
-
-// doseTypesFor lists the dose columns present for a vaccine in the source sheet.
-func doseTypesFor(vaccName string) []string {
-	switch vaccName {
-	case "ET+TT", "Blue tongue", "FMD":
-		return []string{"First Dose", "Booster"}
-	default:
-		return []string{"First Dose"}
-	}
 }
 
 func startOfDay(t time.Time) time.Time {

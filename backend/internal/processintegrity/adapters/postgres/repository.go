@@ -238,6 +238,9 @@ func (r *Repository) countByWorkStateProjected(ctx context.Context, args []any) 
 }
 
 func (r *Repository) projectionReadable(ctx context.Context, q domain.Query) bool {
+	if q.IncludeCompleted {
+		return false
+	}
 	var servingVersion int64
 	err := r.pool.QueryRow(ctx, `
 SELECT serving_projection_version
@@ -436,7 +439,7 @@ func projectionBuildArgs(tenantID string, asOf time.Time, projectionVersion int6
 		TenantID:         tenantID,
 		AsOf:             asOf,
 		DueBefore:        time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC),
-		IncludeCompleted: true,
+		IncludeCompleted: false,
 		Limit:            maxLimit,
 	})
 	args := queryArgs(q)
@@ -1036,9 +1039,9 @@ grouped AS (
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
     AND ($3::text = '' OR located.shed_uuid = $3::uuid)
     AND ($9::text = '' OR located.protocol_version_id = $9::uuid)
-	  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.rule_id, located.protocol_id, located.protocol_version_id, located.protocol_name, located.dose_code,
-	    CASE WHEN located.batch_id IS NULL THEN located.due_at ELSE NULL END
-	),
+  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.rule_id, located.protocol_id, located.protocol_version_id, located.protocol_name, located.dose_code,
+    CASE WHEN located.batch_id IS NULL THEN (located.due_at AT TIME ZONE 'Asia/Kolkata')::date ELSE NULL END
+),
 enriched AS (
   SELECT
     grouped.*,

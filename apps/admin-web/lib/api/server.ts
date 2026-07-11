@@ -207,7 +207,7 @@ export type OutboxDLQListParams = {
   limit?: number;
 };
 
-export async function getServerConfig(requireTenant = false): Promise<ApiResult<ServerConfig>> {
+export const getServerConfig = cache(async function getServerConfig(requireTenant = false): Promise<ApiResult<ServerConfig>> {
   const baseUrl = process.env.GOATOS_API_BASE_URL ?? "http://127.0.0.1:8080";
   const firebaseIdToken = await getFirebaseIdTokenCookie();
   // Local bearer mode: self-mint a FRESH token per request (never the stale boot-time token) so the dev
@@ -250,7 +250,7 @@ export async function getServerConfig(requireTenant = false): Promise<ApiResult<
       tenantId: tenantId ?? "",
     },
   };
-}
+});
 
 export function getAdminRuntimeStatus() {
   return {

@@ -37,6 +37,58 @@ func TestNextDueAfterLastVaccinationRollsForwardPastImportAsOf(t *testing.T) {
 	}
 }
 
+func TestShouldDeriveNextCycleAfterHistoryOnlyForTerminalDose(t *testing.T) {
+	if shouldDeriveNextCycleAfterHistory(vaccCell{Vaccine: "ET+TT", DoseCode: "first"}) {
+		t.Fatal("ET+TT first-dose history must not seed a flat-interval next cycle while booster owns course progress")
+	}
+	if !shouldDeriveNextCycleAfterHistory(vaccCell{Vaccine: "ET+TT", DoseCode: "booster"}) {
+		t.Fatal("ET+TT booster history must seed the terminal-dose revaccination cycle")
+	}
+	if !shouldDeriveNextCycleAfterHistory(vaccCell{Vaccine: "PPR", DoseCode: "first"}) {
+		t.Fatal("single-dose vaccine history must seed its revaccination cycle")
+	}
+}
+
+func TestHistoryIdempotencyIncludesAdministeredSourceDate(t *testing.T) {
+	cell := vaccCell{AnimalKey: "goat-1", Vaccine: "ET+TT", DoseCode: "first"}
+	def := vaccines["ET+TT"]
+
+	firstObligationID := historyObligationID(defaultTenantID, cell, def, "2026-06-21")
+	secondObligationID := historyObligationID(defaultTenantID, cell, def, "2026-06-22")
+	if firstObligationID == secondObligationID {
+		t.Fatal("history obligation IDs must differ by administered source date")
+	}
+	if got, want := historyObligationIdem(cell, def, "2026-06-21"), "vacc-real-obl:history:goat-1:et_tt:first:2026-06-21"; got != want {
+		t.Fatalf("history obligation idem = %q, want %q", got, want)
+	}
+
+	firstCompletionID := historyCompletionID(defaultTenantID, cell, def, "2026-06-21")
+	secondCompletionID := historyCompletionID(defaultTenantID, cell, def, "2026-06-22")
+	if firstCompletionID == secondCompletionID {
+		t.Fatal("history completion IDs must differ by administered source date")
+	}
+	if got, want := historyCompletionIdem(cell, def, "2026-06-21"), "vacc-real-cmp:goat-1:et_tt:first:2026-06-21"; got != want {
+		t.Fatalf("history completion idem = %q, want %q", got, want)
+	}
+}
+
+func TestBuildEntryDateMappingUsesEntrySourcesOnly(t *testing.T) {
+	got := buildEntryDateMapping([]goatRecord{
+		{RFID: "rfid-dob-only", DOB: "2026-01-01"},
+		{RFID: "rfid-stage-entry", DOB: "2026-01-01", StageEntryDate: "2026-04-05"},
+		{RFID: "rfid-purchase", DOB: "2026-01-01", StageEntryDate: "2026-04-05", PurchaseDate: "2026-05-06"},
+	})
+	if _, ok := got["rfid-dob-only"]; ok {
+		t.Fatal("DOB-only source rows must not get a synthetic entry_date")
+	}
+	if got["rfid-stage-entry"] == nil || got["rfid-stage-entry"].Format("2006-01-02") != "2026-04-05" {
+		t.Fatalf("stage entry date mapping = %v, want 2026-04-05", got["rfid-stage-entry"])
+	}
+	if got["rfid-purchase"] == nil || got["rfid-purchase"].Format("2006-01-02") != "2026-05-06" {
+		t.Fatalf("purchase date must win over stage entry date, got %v", got["rfid-purchase"])
+	}
+}
+
 func TestSourceVaccinationDateIsHistoryUsesBusinessDateNotClockTime(t *testing.T) {
 	loc := mustKolkata(t)
 	sourceDate := time.Date(2026, time.July, 11, 0, 0, 0, 0, loc)
