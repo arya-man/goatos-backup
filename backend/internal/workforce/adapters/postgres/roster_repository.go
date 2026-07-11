@@ -730,9 +730,13 @@ func (r *Repository) ListCoverage(ctx context.Context, params ports.ListCoverage
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	// "Active" means CURRENTLY in effect: an in-force absence (approved OR
+	// escalation_required) whose window contains now() -- not merely status=approved
+	// with no time bound. Without it, past/future leaves render as active coverage.
 	statusFilter := ""
 	if params.Active {
-		statusFilter = " AND wa.status = 'approved'"
+		statusFilter = " AND wa.status IN ('approved', 'escalation_required')" +
+			" AND wa.starts_at <= now() AND wa.ends_at > now()"
 	}
 
 	rows, err := r.pool.Query(ctx, `
@@ -744,12 +748,15 @@ SELECT
   COALESCE(wm.display_name, NULL) as covering_member_name,
   wa.starts_at::text,
   wa.ends_at::text,
-  'leave' as source,
-  NULL as escalation_state,
+  CASE WHEN wa.status = 'escalation_required' THEN 'escalation' ELSE 'leave' END as source,
+  CASE WHEN wa.status = 'escalation_required' THEN 'escalation_required' ELSE NULL END as escalation_state,
   wa.status
 FROM workforce_absences wa
-JOIN workforce_positions p ON wa.workforce_member_id = p.workforce_member_id
+JOIN workforce_positions p ON p.tenant_id = wa.tenant_id
+  AND wa.workforce_member_id = p.workforce_member_id
   AND wa.scope_type = p.scope_type AND wa.scope_id = p.scope_id
+  AND p.status = 'active'
+  AND p.valid_from <= now() AND (p.valid_to IS NULL OR p.valid_to > now())
 LEFT JOIN workforce_members wm ON wa.replacement_member_id = wm.workforce_member_id
 WHERE wa.tenant_id = $1::uuid
   AND ($2 = '' OR p.scope_type = $2)
@@ -808,12 +815,15 @@ SELECT
   COALESCE(wm.display_name, NULL) as covering_member_name,
   wa.starts_at::text,
   wa.ends_at::text,
-  'leave' as source,
-  NULL as escalation_state,
+  CASE WHEN wa.status = 'escalation_required' THEN 'escalation' ELSE 'leave' END as source,
+  CASE WHEN wa.status = 'escalation_required' THEN 'escalation_required' ELSE NULL END as escalation_state,
   wa.status
 FROM workforce_absences wa
-JOIN workforce_positions p ON wa.workforce_member_id = p.workforce_member_id
+JOIN workforce_positions p ON p.tenant_id = wa.tenant_id
+  AND wa.workforce_member_id = p.workforce_member_id
   AND wa.scope_type = p.scope_type AND wa.scope_id = p.scope_id
+  AND p.status = 'active'
+  AND p.valid_from <= $3::timestamptz AND (p.valid_to IS NULL OR p.valid_to > $3::timestamptz)
 LEFT JOIN workforce_members wm ON wa.replacement_member_id = wm.workforce_member_id
 WHERE wa.tenant_id = $1::uuid
   AND wa.replacement_member_id = $2::uuid
@@ -855,12 +865,15 @@ SELECT
   COALESCE(wm.display_name, NULL) as covering_member_name,
   wa.starts_at::text,
   wa.ends_at::text,
-  'leave' as source,
-  NULL as escalation_state,
+  CASE WHEN wa.status = 'escalation_required' THEN 'escalation' ELSE 'leave' END as source,
+  CASE WHEN wa.status = 'escalation_required' THEN 'escalation_required' ELSE NULL END as escalation_state,
   wa.status
 FROM workforce_absences wa
-JOIN workforce_positions p ON wa.workforce_member_id = p.workforce_member_id
+JOIN workforce_positions p ON p.tenant_id = wa.tenant_id
+  AND wa.workforce_member_id = p.workforce_member_id
   AND wa.scope_type = p.scope_type AND wa.scope_id = p.scope_id
+  AND p.status = 'active'
+  AND p.valid_from <= $3::timestamptz AND (p.valid_to IS NULL OR p.valid_to > $3::timestamptz)
 LEFT JOIN workforce_members wm ON wa.replacement_member_id = wm.workforce_member_id
 WHERE wa.tenant_id = $1::uuid
   AND wa.workforce_member_id = $2::uuid

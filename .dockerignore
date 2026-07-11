@@ -9,6 +9,9 @@
 **/out
 **/build
 **/coverage
+# ...but the admin-web roster /coverage API route is real product code.
+!apps/admin-web/app/api/admin/roster/coverage
+!apps/admin-web/app/api/admin/roster/coverage/**
 **/*.tsbuildinfo
 **/*.log
 backend/seed-roster-real

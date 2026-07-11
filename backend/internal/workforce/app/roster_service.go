@@ -557,6 +557,17 @@ func (s *RosterService) resolveLeaveCoverage(ctx context.Context, tenantID, acto
 		if backup == nil || backup.WorkforceMemberID != *explicitReplacement {
 			return domain.StaffLeave{}, Conflict("cross_cover_rejected", "replacement_member_id must be the configured backup for this position's group")
 		}
+		// Same whole-window availability guard as the auto path (S4.7): a CEO cannot
+		// pin an explicit backup who is themselves absent (leave or week-off) during
+		// any part of the window -- accepting it would fabricate coverage for a window
+		// the backup cannot serve. Clear the replacement to escalate instead.
+		unavailable, err := s.isPositionHolderUnavailableInWindow(ctx, tenantID, *backup, startsAt, endsAt)
+		if err != nil {
+			return domain.StaffLeave{}, err
+		}
+		if unavailable {
+			return domain.StaffLeave{}, Conflict("backup_unavailable_in_window", "the configured backup is absent (leave or week-off) during part of this window; clear replacement_member_id to escalate instead")
+		}
 		resolvedLeave, replayed, err := s.repo.ResolveLeaveCoverage(ctx, ports.ResolveLeaveCoverageCommand{
 			TenantID: tenantID, ActorID: actorID, AbsenceID: leave.AbsenceID,
 			Status: domain.LeaveStatusApproved, ReplacementMemberID: explicitReplacement, OverrideReason: overrideReason,

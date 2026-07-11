@@ -613,6 +613,45 @@ func TestRosterResolveLeaveCoverageRejectsNonBackupOverride(t *testing.T) {
 	assertAppCode(t, err, "cross_cover_rejected")
 }
 
+// Review P2: the explicit CEO-override path must run the SAME whole-window
+// availability check as auto-resolution. Pinning the CONFIGURED backup who is
+// absent later in the window would fabricate coverage; it must be rejected, not
+// accepted just because the person is the configured backup.
+func TestRosterResolveLeaveCoverageRejectsUnavailableExplicitBackup(t *testing.T) {
+	svc, _, _ := rosterFixture(t)
+	ctx := context.Background()
+	// The configured backup (Backup Manager) is free on the window's first day but
+	// on leave 2026-08-04 -- a later day of the covered manager's window.
+	bk, err := svc.ApplyLeave(ctx, testTenant, testActor, domain.ApplyStaffLeaveRequest{
+		WorkforceMemberID: memberBackupManager, ScopeType: "center", ScopeID: rosterCenter,
+		ReasonCode: "personal", StartsOn: "2026-08-04", EndsOn: "2026-08-04",
+	}, "trace-bk")
+	if err != nil {
+		t.Fatalf("ApplyLeave(backup): %v", err)
+	}
+	if _, err := svc.ApproveLeave(ctx, testTenant, testActor, bk.Leave.AbsenceID, domain.ApproveStaffLeaveRequest{RowVersion: 1}, "trace-bk-approve"); err != nil {
+		t.Fatalf("ApproveLeave(backup): %v", err)
+	}
+
+	applied, err := svc.ApplyLeave(ctx, testTenant, testActor, domain.ApplyStaffLeaveRequest{
+		WorkforceMemberID: memberPCM, ScopeType: "center", ScopeID: rosterCenter,
+		ReasonCode: "personal", StartsOn: "2026-08-03", EndsOn: "2026-08-05",
+	}, "trace-leave")
+	if err != nil {
+		t.Fatalf("ApplyLeave(PCM): %v", err)
+	}
+	if _, err := svc.ApproveLeave(ctx, testTenant, testActor, applied.Leave.AbsenceID, domain.ApproveStaffLeaveRequest{RowVersion: 1}, "trace-approve"); err != nil {
+		t.Fatalf("ApproveLeave(PCM): %v", err)
+	}
+
+	// CEO explicitly pins the configured backup -- who is unavailable later in the window.
+	_, err = svc.ResolveLeaveCoverage(ctx, testTenant, testActor, applied.Leave.AbsenceID, domain.ResolveLeaveCoverageRequest{
+		ReplacementMemberID: stringPtr(memberBackupManager),
+		OverrideReason:      stringPtr("CEO pins the configured backup despite their own leave"),
+	}, "trace-ceo")
+	assertAppCode(t, err, "backup_unavailable_in_window")
+}
+
 func TestRosterApproveLeaveDoesNotChangePositionOwnership(t *testing.T) {
 	svc, repo, _ := rosterFixture(t)
 	callsBefore := repo.createPositionCalls

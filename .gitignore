@@ -22,6 +22,10 @@ dist/
 build/
 .turbo/
 coverage/
+# ...but the admin-web roster /coverage API route is real product code, not
+# test-coverage output — the generic `coverage/` rule must not eat it.
+!/apps/admin-web/app/api/admin/roster/coverage/
+!/apps/admin-web/app/api/admin/roster/coverage/route.ts
 
 # Terraform local state/cache
 .terraform/

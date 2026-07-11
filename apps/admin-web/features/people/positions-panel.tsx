@@ -88,8 +88,9 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
           setBackupConfigs(backupResponse.data.items);
         }
 
-        // Load active coverage
-        const coverageResponse = await api.listCoverage();
+        // Load active coverage — active=true means currently-in-effect windows only
+        // (the "this period" the section header promises), incl. escalation_required.
+        const coverageResponse = await api.listCoverage({ active: true });
         if (coverageResponse.data?.items) {
           setActiveCoverages(coverageResponse.data.items);
         }
