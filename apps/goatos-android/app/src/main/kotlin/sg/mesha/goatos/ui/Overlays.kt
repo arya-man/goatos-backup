@@ -577,27 +577,35 @@ fun DataGapsSheet(
                 }
                 else -> {
                     // Every entry is one animal: display id + both physical tags + the reason pill.
-                    gapsData.forEach { gap ->
-                        OverlayCard {
-                            Row(verticalAlignment = Alignment.Top) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(gap.displayId, color = OverlayTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
-                                    if (gap.location.isNotBlank()) {
-                                        Text(gap.location, color = OverlayTokens.muted, fontSize = 11.5.sp)
+                    // LazyColumn(heightIn) so a long gaps list scrolls inside the sheet and composes
+                    // lazily, instead of a plain Column { forEach } that eagerly builds every card and
+                    // clips past the sheet edge (mirrors DosesGivenSheet).
+                    LazyColumn(
+                        Modifier.fillMaxWidth().heightIn(max = 340.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(gapsData, key = { it.displayId }) { gap ->
+                            OverlayCard {
+                                Row(verticalAlignment = Alignment.Top) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(gap.displayId, color = OverlayTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
+                                        if (gap.location.isNotBlank()) {
+                                            Text(gap.location, color = OverlayTokens.muted, fontSize = 11.5.sp)
+                                        }
                                     }
+                                    Spacer(Modifier.width(10.dp))
+                                    // The pill is the reason it's excluded — the actionable fact.
+                                    OverlayPill(gap.reason, OverlayTokens.warn, OverlayTokens.warnX)
                                 }
-                                Spacer(Modifier.width(10.dp))
-                                // The pill is the reason it's excluded — the actionable fact.
-                                OverlayPill(gap.reason, OverlayTokens.warn, OverlayTokens.warnX)
-                            }
-                            Spacer(Modifier.height(9.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                GapTagChip(stringResource(DesignSystemR.string.gaps_tag1_label), gap.tag1, Modifier.weight(1f))
-                                GapTagChip(stringResource(DesignSystemR.string.gaps_tag2_label), gap.tag2, Modifier.weight(1f))
+                                Spacer(Modifier.height(9.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    GapTagChip(stringResource(DesignSystemR.string.gaps_tag1_label), gap.tag1, Modifier.weight(1f))
+                                    GapTagChip(stringResource(DesignSystemR.string.gaps_tag2_label), gap.tag2, Modifier.weight(1f))
+                                }
                             }
                         }
+                        item { OverlayInfoBox(stringResource(DesignSystemR.string.gaps_note)) }
                     }
-                    OverlayInfoBox(stringResource(DesignSystemR.string.gaps_note))
                 }
             }
         }
