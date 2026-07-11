@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
     alias(libs.plugins.paparazzi)
+    alias(libs.plugins.firebase.appdistribution)
 }
 
 android {
@@ -25,8 +26,10 @@ android {
         val devToken = (project.findProperty("goatosDevBearerToken") as String?).orEmpty()
         val tenantId = (project.findProperty("goatosTenantId") as String?)
             ?: "00000000-0000-4000-8000-000000000001"
+        val authActionLinkDomain = (project.findProperty("goatosAuthActionLinkDomain") as String?).orEmpty()
         buildConfigField("String", "DEV_BEARER_TOKEN", "\"$devToken\"")
         buildConfigField("String", "TENANT_ID", "\"$tenantId\"")
+        buildConfigField("String", "AUTH_ACTION_LINK_DOMAIN", "\"${authActionLinkDomain.replace("\"", "\\\"")}\"")
     }
 
     // One common app; env is a build flavor, roles are runtime (app-id ADR).
@@ -39,16 +42,32 @@ android {
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
             buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080/\"")
+            buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"http://localhost:3311/login\"")
         }
         create("stg") {
             dimension = "env"
             applicationIdSuffix = ".stg"
             versionNameSuffix = "-stg"
             buildConfigField("String", "API_BASE_URL", "\"https://goatos-api-stg-514832198871.asia-south1.run.app/\"")
+            buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"https://stg.dashboard.mesha.sg/login\"")
+
+            // Firebase App Distribution — ships stg builds to testers. appId is the
+            // registered goatos-stg Android client. Testers live in the Firebase
+            // "goatos-testers" group (emails stay in the console, never the repo);
+            // override per-invoke with -PfadGroups / -PfadTesters / -PfadReleaseNotes.
+            firebaseAppDistribution {
+                appId = "1:514832198871:android:0cb898377ba4f7f7f19492"
+                artifactType = "APK"
+                groups = (project.findProperty("fadGroups") as String?) ?: "goatos-testers"
+                (project.findProperty("fadTesters") as String?)?.let { testers = it }
+                releaseNotes = (project.findProperty("fadReleaseNotes") as String?)
+                    ?: "Goat OS (Mesha) stg debug build"
+            }
         }
         create("prod") {
             dimension = "env"
             buildConfigField("String", "API_BASE_URL", "\"https://api.goatos.mesha.sg/\"")
+            buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"https://dashboard.mesha.sg/login\"")
         }
     }
 
