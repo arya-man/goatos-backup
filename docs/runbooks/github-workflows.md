@@ -13,6 +13,8 @@ what a failure usually means.
 .github/workflows/ci.yml
 .github/workflows/android-quality.yml
 .github/workflows/pages.yml
+.github/workflows/stg-pr-gate.yml
+.github/workflows/stg-deploy.yml
 ```
 
 This is the main CI guardrail workflow.
@@ -556,6 +558,101 @@ the runner — check the uploaded `screenshot-gallery` artifact and the
 the kernel-story assertions broke — read the failing `story.Assert`
 message, it is written to explain the business expectation in plain English,
 not just the SQL/Go that checked it.
+
+## stg-pr-gate.yml
+
+Runs only for pull requests whose base branch is `stg`.
+
+The first job fails closed unless the PR is exactly:
+
+```text
+vgoats/goatos main -> stg
+```
+
+This workflow does not run for feature branches into `main`.
+
+Jobs:
+
+```text
+route                verifies this is a main -> stg PR
+backend-db-api       runs guardrails, go test ./..., sqlc, query plans,
+                     migration validation, vaccination kernel E2E, and HRMS
+                     roster/RBAC E2E against disposable Postgres
+admin-web            runs npm ci, lint, typecheck, mock fidelity, and Next
+                     production build with token-leak guard
+android-release-apk  builds :app:assembleStgRelease, runs
+                     :app:testStgReleaseUnitTest, runs
+                     :app:verifyPaparazziStgRelease when the Android build
+                     exposes it, verifies the APK contains AndroidManifest.xml,
+                     and uploads the release APK artifact
+stg-pr-gate          aggregate success marker
+```
+
+The Android gate intentionally uses the staging release variant, not
+`stgDebug`, because release Compose/runtime behavior is the one that matters for
+staging handoff.
+
+Common failures:
+
+```text
+route failed
+  PR is not main -> stg.
+
+backend-db-api failed
+  migrations, DB-backed APIs, sqlc/query plans, or kernel story behavior broke.
+
+admin-web failed
+  generated-client/admin surface drift, mock-fidelity drift, or build/token leak.
+
+android-release-apk failed
+  the stg release APK did not compile, release unit tests failed, release render
+  checks failed, or no structurally valid APK was produced.
+```
+
+## stg-deploy.yml
+
+Runs on:
+
+```text
+push to stg
+workflow_dispatch
+```
+
+Authentication uses GitHub OIDC with repo variables:
+
+```text
+GOATOS_STG_WIF_PROVIDER
+GOATOS_STG_DEPLOYER_SERVICE_ACCOUNT
+```
+
+The deployer is
+`goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com`. It can write to
+the staging Artifact Registry, update/execute Cloud Run, and act as the staging
+runtime service accounts. There is no committed service-account key.
+
+Deploy flow:
+
+```text
+1. Build and push backend:<git-sha-12>
+2. Build and push migrate:<git-sha-12>
+3. Build and push admin-web:<git-sha-12>
+4. Update goatos-stg-migrate and execute it with --wait
+5. Update goatos-api-stg
+6. Update scheduled backend Cloud Run jobs
+7. Update goatos-admin-web-stg
+8. Smoke https://goatos-api-stg-awtrpmn4za-el.a.run.app/livez -> 204
+9. Smoke https://goatos-api-stg-awtrpmn4za-el.a.run.app/readyz -> 204
+10. Smoke https://stg.dashboard.mesha.sg/login
+```
+
+The workflow skips a push only when the head commit message contains:
+
+```text
+[skip stg deploy]
+```
+
+Use that only for branch bootstrapping or workflow-only seeding. Normal
+`main -> stg` PR merges must deploy automatically.
 
 ## Maintenance Rule
 

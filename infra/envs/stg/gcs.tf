@@ -1,5 +1,5 @@
 resource "google_storage_bucket" "proof_media" {
-  name                        = "goatos-stg-proof-media"
+  name                        = "goatos-stg-media"
   location                    = var.region
   force_destroy               = false
   uniform_bucket_level_access = true
@@ -15,7 +15,7 @@ resource "google_storage_bucket" "proof_media" {
 }
 
 resource "google_service_account" "proof_media_signer" {
-  account_id   = "goatos-proof-media-signer-stg"
+  account_id   = "goatos-proof-signer-stg"
   display_name = "Goat OS staging proof media signer"
   description  = "Signs direct GCS proof media upload/download URLs for staging."
 }

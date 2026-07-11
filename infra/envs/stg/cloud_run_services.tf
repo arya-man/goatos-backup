@@ -33,8 +33,23 @@ resource "google_cloud_run_v2_service" "api" {
       }
 
       env {
+        name  = "GOATOS_HTTP_ADDR"
+        value = ":8080"
+      }
+
+      env {
         name  = "GOATOS_AUTH_MODE"
         value = "jwks"
+      }
+
+      env {
+        name  = "GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS"
+        value = var.stg_tenant_id
+      }
+
+      env {
+        name  = "GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE"
+        value = "120"
       }
 
       env {
@@ -93,56 +108,6 @@ resource "google_cloud_run_v2_service" "api" {
       }
 
       env {
-        name = "GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.container["auth_session_allowed_tenant_ids"].secret_id
-            version = "latest"
-          }
-        }
-      }
-
-      env {
-        name = "GOATOS_APPCHECK_ENFORCE"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.container["appcheck_enforce"].secret_id
-            version = "latest"
-          }
-        }
-      }
-
-      env {
-        name = "GOATOS_APPCHECK_ISSUER"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.container["appcheck_issuer"].secret_id
-            version = "latest"
-          }
-        }
-      }
-
-      env {
-        name = "GOATOS_APPCHECK_AUDIENCE"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.container["appcheck_audience"].secret_id
-            version = "latest"
-          }
-        }
-      }
-
-      env {
-        name = "GOATOS_APPCHECK_JWKS_URL"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.container["appcheck_jwks_url"].secret_id
-            version = "latest"
-          }
-        }
-      }
-
-      env {
         name = "GOATOS_BULK_IMPORT_PREVIEW_SIGNING_KEY"
         value_source {
           secret_key_ref {
@@ -170,6 +135,11 @@ resource "google_cloud_run_v2_service" "api" {
             version = "latest"
           }
         }
+      }
+
+      env {
+        name  = "GOATOS_PG_QUERY_TIMEOUT"
+        value = "15s"
       }
 
       volume_mounts {
@@ -214,7 +184,7 @@ resource "google_cloud_run_v2_service" "admin_web" {
       resources {
         limits = {
           cpu    = "1"
-          memory = "1Gi"
+          memory = "512Mi"
         }
       }
 
@@ -244,28 +214,26 @@ resource "google_cloud_run_v2_service" "admin_web" {
       }
 
       env {
-        name = "GOATOS_API_BASE_URL"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.container["admin_web_api_base_url"].secret_id
-            version = "latest"
-          }
-        }
+        name  = "GOATOS_API_BASE_URL"
+        value = var.api_base_url
       }
 
       env {
-        name = "GOATOS_TENANT_ID"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.container["admin_web_tenant_id"].secret_id
-            version = "latest"
-          }
-        }
+        name  = "GOATOS_TENANT_ID"
+        value = var.stg_tenant_id
       }
     }
   }
 
   depends_on = [google_project_service.enabled]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "api_public_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.api.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
 }
 
 resource "google_cloud_run_v2_service_iam_member" "admin_web_public_invoker" {

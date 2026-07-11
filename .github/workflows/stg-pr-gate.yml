@@ -1,0 +1,150 @@
+name: stg-pr-gate
+
+on:
+  pull_request:
+    branches: [stg]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stg-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  route:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require main to stg
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          TARGET_REPO: ${{ github.repository }}
+        run: |
+          echo "base=${BASE_REF}"
+          echo "head=${HEAD_REF}"
+          echo "head_repo=${HEAD_REPO}"
+          echo "repo=${TARGET_REPO}"
+          if [ "${BASE_REF}" != "stg" ]; then
+            echo "This gate is only for pull requests into stg."
+            exit 1
+          fi
+          if [ "${HEAD_REF}" != "main" ] || [ "${HEAD_REPO}" != "${TARGET_REPO}" ]; then
+            echo "Only vgoats/goatos main -> stg pull requests may use the staging deployment gate."
+            exit 1
+          fi
+
+  backend-db-api:
+    needs: route
+    runs-on: ubuntu-latest
+    env:
+      GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
+      GOATOS_SQLC_POSTGRES_IMAGE: postgres:16.9-alpine
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Install guardrail tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+      - name: Boundary and contract guards
+        run: |
+          make ai-doctor
+          bash tools/agent-hooks/check-boundaries.sh
+          bash tools/agent-hooks/check-contract-drift.sh
+      - name: Backend unit and integration tests
+        working-directory: backend
+        run: go test ./...
+      - name: Install pinned sqlc
+        run: |
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@"$(cat tools/sqlc/sqlc.version)"
+          "$(go env GOPATH)/bin/sqlc" version
+      - name: Migrations and query-plan guards
+        run: |
+          make sqlc-check
+          make validate-sqlc-plans
+          make validate-migrations
+          git diff --check
+      - name: Vaccination DB/API kernel story smoke
+        working-directory: backend
+        run: go test ./tests/e2e/... -run TestKernelStor -count=1 -v
+      - name: HRMS roster/RBAC DB/API story smoke
+        working-directory: backend
+        run: go test ./tests/e2e-hrms/... -run TestHRMS -count=1 -v
+
+  admin-web:
+    needs: route
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/admin-web/package-lock.json
+      - name: Install admin-web dependencies
+        run: npm --prefix apps/admin-web ci
+      - name: Admin-web lint
+        run: npm --prefix apps/admin-web run lint
+      - name: Admin-web typecheck
+        run: npm --prefix apps/admin-web run typecheck
+      - name: Admin-web mock fidelity
+        run: npm --prefix apps/admin-web run check:mock-fidelity
+      - name: Admin-web production build and token leak guard
+        env:
+          GOATOS_BEARER_TOKEN: sentinel-mesha-admin-token
+        run: npm --prefix apps/admin-web run build
+
+  android-release-apk:
+    needs: route
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Accept Android SDK licenses and install compile SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" || true
+      - name: Build stg release APK and run release unit tests
+        working-directory: apps/goatos-android
+        run: ./gradlew :app:assembleStgRelease :app:testStgReleaseUnitTest --no-configuration-cache --stacktrace
+      - name: Render stg release app shell when Paparazzi exposes the task
+        working-directory: apps/goatos-android
+        run: |
+          if ./gradlew :app:tasks --all --console=plain | grep -q 'verifyPaparazziStgRelease'; then
+            ./gradlew :app:verifyPaparazziStgRelease --no-configuration-cache --stacktrace
+          else
+            echo "::warning::verifyPaparazziStgRelease is not exposed by the Android build; release APK and release unit tests still ran."
+          fi
+      - name: Verify release APK artifact is structurally loadable
+        working-directory: apps/goatos-android
+        run: |
+          apk="$(find app/build/outputs/apk/stg/release -type f -name '*.apk' | head -n 1)"
+          if [ -z "$apk" ] || [ ! -s "$apk" ]; then
+            echo "No stg release APK was produced."
+            exit 1
+          fi
+          unzip -l "$apk" | grep -q 'AndroidManifest.xml'
+          echo "GOATOS_STG_RELEASE_APK=$apk" >> "$GITHUB_ENV"
+          echo "Staging release APK: $apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: goatos-stg-release-apk
+          path: apps/goatos-android/app/build/outputs/apk/stg/release/*.apk
+          retention-days: 14
+
+  stg-pr-gate:
+    needs: [backend-db-api, admin-web, android-release-apk]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Staging gate passed
+        run: echo "main -> stg PR is ready for merge and automatic staging deployment."

@@ -3,8 +3,8 @@ resource "google_sql_database_instance" "core" {
   database_version = "POSTGRES_16"
   region           = var.region
 
-  # Staging stays stopped until an explicit rehearsal/deploy window so the fixed
-  # benchmark baseline does not burn 24/7 CPU/RAM.
+  # Live staging is currently kept warm so every stg branch deploy can run the
+  # migration job and /readyz smoke without a manual database start step.
   settings {
     tier              = var.cloud_sql_tier
     edition           = "ENTERPRISE"
@@ -16,7 +16,7 @@ resource "google_sql_database_instance" "core" {
     disk_autoresize = true
 
     backup_configuration {
-      enabled                        = true
+      enabled                        = false
       point_in_time_recovery_enabled = false
     }
 

@@ -94,10 +94,11 @@ variable "cloud_sql_database_name" {
 variable "cloud_sql_tier" {
   description = "Staging Cloud SQL tier. Pin the exact tier in each benchmark profile before a 1M rehearsal."
   type        = string
-  default     = "db-custom-2-7680"
+  default     = "db-g1-small"
 
   validation {
     condition = contains([
+      "db-g1-small",
       "db-custom-2-7680",
       "db-custom-4-15360",
       "db-custom-8-30720",
@@ -107,9 +108,9 @@ variable "cloud_sql_tier" {
 }
 
 variable "cloud_sql_activation_policy" {
-  description = "Staging Cloud SQL activation policy. Keep NEVER until an explicit rehearsal/deploy window."
+  description = "Staging Cloud SQL activation policy."
   type        = string
-  default     = "NEVER"
+  default     = "ALWAYS"
 
   validation {
     condition     = contains(["ALWAYS", "NEVER"], var.cloud_sql_activation_policy)
@@ -118,13 +119,13 @@ variable "cloud_sql_activation_policy" {
 }
 
 variable "cloud_sql_disk_size_gb" {
-  description = "Initial staging Cloud SQL SSD size for the fixed benchmark baseline."
+  description = "Staging Cloud SQL SSD size."
   type        = number
-  default     = 200
+  default     = 20
 
   validation {
-    condition     = var.cloud_sql_disk_size_gb >= 100
-    error_message = "cloud_sql_disk_size_gb must be at least 100 for staging benchmark rehearsals."
+    condition     = var.cloud_sql_disk_size_gb >= 20
+    error_message = "cloud_sql_disk_size_gb must be at least 20."
   }
 }
 
@@ -180,6 +181,17 @@ variable "canonical_dashboard_host" {
   validation {
     condition     = var.canonical_dashboard_host == "stg.dashboard.mesha.sg"
     error_message = "canonical_dashboard_host must remain stg.dashboard.mesha.sg."
+  }
+}
+
+variable "api_base_url" {
+  description = "Current public goatos-stg API base URL used by admin-web SSR."
+  type        = string
+  default     = "https://goatos-api-stg-awtrpmn4za-el.a.run.app"
+
+  validation {
+    condition     = var.api_base_url == "https://goatos-api-stg-awtrpmn4za-el.a.run.app"
+    error_message = "api_base_url must remain the current goatos-stg Cloud Run API URL until the custom API host is introduced."
   }
 }
 

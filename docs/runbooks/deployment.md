@@ -91,7 +91,7 @@ and object versioning enabled. It stores Terraform state only: no goat data,
 legacy exports, secrets, app artifacts, container images, or migration payloads.
 Do not delete or modify the state bucket unless explicitly approved.
 
-Staging now has source-only Terraform under `infra/envs/stg/` with backend:
+Staging has Terraform under `infra/envs/stg/` with backend:
 
 ```text
 Bucket:       gs://goatos-stg-tf-state
@@ -100,17 +100,30 @@ Location:     asia-south1
 State prefix: terraform/stg
 ```
 
-This bucket still needs explicit bootstrap before any real staging backend init.
-No staging Terraform apply was run when the source support was added. Existing
-manual staging resources, especially `goatos-admin-web-stg`, the load balancer,
-certificate, DNS, OAuth/Firebase config, and any existing Secret Manager
-containers/versions, must be imported or intentionally kept outside Terraform
-before a future apply.
+The bucket exists and stores state only. The source is aligned to live staging
+names, including `goatos-stg-media`, `goatos-proof-signer-stg`,
+`goatos-vax-generator-stg`, `goatos-notify-stg`, and the GitHub OIDC deployer.
+Live resources still need to be imported into state before a broad staging
+`terraform apply`; do not apply an empty state against live staging resources.
 
-The staging Terraform defaults Cloud SQL to `activation_policy = "NEVER"` and
-models no public invoker binding for `goatos-api-stg`. Do not change either for
-convenience; start/serve staging only during an explicit rehearsal/deploy window
-and preserve the staging auth boundary.
+Current staging keeps Cloud SQL warm with `activation_policy = "ALWAYS"` so
+`stg` branch deploys can run migrations and `/readyz` without a manual database
+start. Both `goatos-api-stg` and `goatos-admin-web-stg` are publicly invokable
+at the Cloud Run layer today; Goat OS JWKS/RBAC remains the authorization
+boundary for protected app routes.
+
+Staging branch automation:
+
+```text
+main -> stg PR: .github/workflows/stg-pr-gate.yml
+push to stg:    .github/workflows/stg-deploy.yml
+```
+
+The PR gate runs backend DB/API/migration tests, admin-web checks, and a real
+`stgRelease` Android APK build. The deploy workflow builds/pushes backend,
+migration, and admin-web images, executes the migration job, updates staging
+Cloud Run services/jobs, and smokes `/livez`, `/readyz`, and
+`https://stg.dashboard.mesha.sg/login`.
 
 ## Dev Layer 1 foundation plan
 
@@ -299,6 +312,20 @@ for shared environments once the load balancer hostname is healthy; the
 canonical redirect is a user-friendly fallback, not the primary exposure model.
 
 ## Release steps
+
+For staging, the normal release path is now:
+
+```text
+open main -> stg PR
+wait for stg-pr-gate
+merge PR
+stg-deploy runs automatically on the stg branch push
+```
+
+Manual steps below remain the reference for dev/prod and for break-glass
+staging operations.
+
+## Manual release steps
 
 1. **Build + publish images.** Build the three image families in
    `docs/runbooks/containers.md`: backend multi-binary, migration job, and

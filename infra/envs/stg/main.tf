@@ -33,7 +33,7 @@ locals {
       display_name = "Goat OS staging domain processed-event retention sweeper runtime"
     }
     vaccination_generator = {
-      account_id   = "goatos-vaccination-generator-stg"
+      account_id   = "goatos-vax-generator-stg"
       display_name = "Goat OS staging vaccination obligation generator runtime"
     }
     obligation_sweeper = {
@@ -53,7 +53,7 @@ locals {
       display_name = "Goat OS staging calendar escalation sweeper runtime"
     }
     notification_dispatcher = {
-      account_id   = "goatos-notification-dispatcher-stg"
+      account_id   = "goatos-notify-stg"
       display_name = "Goat OS staging notification dispatcher runtime"
     }
     inventory_batch_reconciler = {
@@ -164,44 +164,14 @@ locals {
         "api",
       ]
     }
-    auth_session_allowed_tenant_ids = {
-      secret_id = "goatos-stg-auth-session-allowed-tenant-ids"
-      accessors = [
-        "api",
-      ]
-    }
     bulk_import_preview_signing_key = {
       secret_id = "goatos-stg-bulk-import-preview-signing-key"
       accessors = [
         "api",
       ]
     }
-    appcheck_enforce = {
-      secret_id = "goatos-stg-appcheck-enforce"
-      accessors = [
-        "api",
-      ]
-    }
-    appcheck_issuer = {
-      secret_id = "goatos-stg-appcheck-issuer"
-      accessors = [
-        "api",
-      ]
-    }
-    appcheck_audience = {
-      secret_id = "goatos-stg-appcheck-audience"
-      accessors = [
-        "api",
-      ]
-    }
-    appcheck_jwks_url = {
-      secret_id = "goatos-stg-appcheck-jwks-url"
-      accessors = [
-        "api",
-      ]
-    }
     proof_gcs_service_account_json = {
-      secret_id = "goatos-stg-proof-gcs-service-account-json"
+      secret_id = "goatos-stg-gcs-service-account-json"
       accessors = [
         "api",
       ]
