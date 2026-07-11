@@ -55,6 +55,7 @@ jobs:
       - name: Boundary and contract guards
         run: |
           make ai-doctor
+          make scale-guard
           bash tools/agent-hooks/check-boundaries.sh
           bash tools/agent-hooks/check-contract-drift.sh
       - name: Backend unit and integration tests
@@ -69,6 +70,7 @@ jobs:
         run: |
           make sqlc-check
           make validate-sqlc-plans
+          make validate-hot-index-migrations
           make validate-migrations
           git diff --check
       - name: Vaccination DB/API kernel story smoke

@@ -9,11 +9,11 @@ import (
 func TestCompileIsDeterministicForSameInput(t *testing.T) {
 	svc := NewService(ConfigFromEnv())
 
-	first, err := svc.Compile(context.Background(), Input{TenantID: "tenant-1", ActorID: "actor-1"})
+	first, err := svc.Compile(context.Background())
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	second, err := svc.Compile(context.Background(), Input{TenantID: "tenant-1", ActorID: "actor-1"})
+	second, err := svc.Compile(context.Background())
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
@@ -30,7 +30,7 @@ func TestCompileIsDeterministicForSameInput(t *testing.T) {
 
 func TestCompileClientRuntimeConfigIsBoundedAndFeatureFlagsPresent(t *testing.T) {
 	svc := NewService(ConfigFromEnv())
-	resp, err := svc.Compile(context.Background(), Input{TenantID: "tenant-1", ActorID: "actor-1"})
+	resp, err := svc.Compile(context.Background())
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}

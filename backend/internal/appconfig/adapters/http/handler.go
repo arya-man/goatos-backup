@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/vgoats/goatos/backend/internal/appconfig/app"
 	"github.com/vgoats/goatos/backend/internal/appconfig/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
@@ -14,7 +13,7 @@ import (
 
 // ConfigCompiler is the read-only compile slice this handler needs.
 type ConfigCompiler interface {
-	Compile(ctx context.Context, in app.Input) (domain.Response, error)
+	Compile(ctx context.Context) (domain.Response, error)
 }
 
 // Handler serves the mobile live-config bundle.
@@ -47,11 +46,7 @@ type errorEnvelope struct {
 // matching If-None-Match short-circuits to a bodyless 304 (cheap poll); otherwise the
 // full bundle + its ETag/revision is returned. Side-effect-free — a pure read.
 func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
-	resp, err := h.service.Compile(r.Context(), app.Input{
-		TenantID:  httpmiddleware.TenantIDFromContext(r.Context()),
-		ActorID:   httpmiddleware.ActorIDFromContext(r.Context()),
-		LocaleTag: httpmiddleware.LocaleTagFromRequest(r),
-	})
+	resp, err := h.service.Compile(r.Context())
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, errorEnvelope{
 			Code:    "internal_error",

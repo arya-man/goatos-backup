@@ -109,13 +109,6 @@ func clampFloat(v, min, max float64) float64 {
 	return v
 }
 
-// Input identifies the actor whose config bundle this compile call resolves.
-type Input struct {
-	TenantID  string
-	ActorID   string
-	LocaleTag string
-}
-
 // Service compiles the mobile remote-config bundle.
 type Service struct {
 	runtime Config
@@ -151,9 +144,8 @@ type hashInput struct {
 // Compile assembles the config bundle, stamping a content-hash revision + ETag
 // (mirrors the adminui bootstrap compile
 // pattern: hash the canonical payload, format `W/"<hash>"`, no DB write involved).
-func (s *Service) Compile(ctx context.Context, in Input) (domain.Response, error) {
+func (s *Service) Compile(ctx context.Context) (domain.Response, error) {
 	_ = ctx
-	_ = in
 	runtimeConfig := domain.ClientRuntimeConfig{
 		PageSizeDefault:   s.runtime.PageSizeDefault,
 		SyncBackoffBaseMs: s.runtime.SyncBackoffBaseMs,

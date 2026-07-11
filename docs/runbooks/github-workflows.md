@@ -624,9 +624,10 @@ Jobs:
 
 ```text
 route                verifies this is a main -> stg PR
-backend-db-api       runs guardrails, go test ./..., sqlc, query plans,
-                     migration validation, vaccination kernel E2E, and HRMS
-                     roster/RBAC E2E against disposable Postgres
+backend-db-api       runs guardrails, scale guard, go test ./..., sqlc,
+                     query plans, hot-index migration validation, migration
+                     validation, vaccination kernel E2E, and HRMS roster/RBAC
+                     E2E against disposable Postgres
 admin-web            runs npm ci, lint, typecheck, mock fidelity, and Next
                      production build with token-leak guard
 android-release-apk  builds :app:assembleStgRelease, runs
