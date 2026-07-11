@@ -91,6 +91,27 @@ and object versioning enabled. It stores Terraform state only: no goat data,
 legacy exports, secrets, app artifacts, container images, or migration payloads.
 Do not delete or modify the state bucket unless explicitly approved.
 
+Staging now has source-only Terraform under `infra/envs/stg/` with backend:
+
+```text
+Bucket:       gs://goatos-stg-tf-state
+Project:      goatos-stg
+Location:     asia-south1
+State prefix: terraform/stg
+```
+
+This bucket still needs explicit bootstrap before any real staging backend init.
+No staging Terraform apply was run when the source support was added. Existing
+manual staging resources, especially `goatos-admin-web-stg`, the load balancer,
+certificate, DNS, OAuth/Firebase config, and any existing Secret Manager
+containers/versions, must be imported or intentionally kept outside Terraform
+before a future apply.
+
+The staging Terraform defaults Cloud SQL to `activation_policy = "NEVER"` and
+models no public invoker binding for `goatos-api-stg`. Do not change either for
+convenience; start/serve staging only during an explicit rehearsal/deploy window
+and preserve the staging auth boundary.
+
 ## Dev Layer 1 foundation plan
 
 P7-preapply adds Terraform for Layer 1 foundation only and stops before apply.

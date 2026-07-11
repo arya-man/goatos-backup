@@ -30,8 +30,9 @@ Created (see google-cloud-environments.md): org folder goat-os, projects
 goatos-dev/stg/prod, billing linked.
 
 Committed here: per-env backend config templates, the deployment procedure,
-P4 goatos-dev Terraform remote-state backend wiring, and the P7-preapply dev
-Layer 1 foundation plan.
+goatos-dev Terraform remote-state/backend foundation wiring, and source-only
+goatos-stg Terraform support. Staging Terraform has not been applied from this
+workspace.
 
 P4 completed for goatos-dev only:
 - Terraform state bucket `gs://goatos-dev-tf-state` was bootstrapped
@@ -51,15 +52,30 @@ P7-preapply completed for goatos-dev only:
   small Cloud SQL Postgres shell, Secret Manager containers only, Pub/Sub
   outbox/DLQ wiring, runtime service accounts, and pre-Cloud-Run IAM.
 
-P8 raw-URL dev dashboard bring-up switches dev Cloud SQL to
-`activation_policy = "ALWAYS"` so migrations and serving can use the instance.
-This is a running-cost posture while the raw dev dashboard is live.
+Staging Terraform source support exists under `envs/stg/`:
+- Project guardrails pin `goatos-stg`, project number `514832198871`, folder
+  `188649904255`, and region `asia-south1`.
+- The composition models Artifact Registry, Cloud SQL, Secret Manager
+  containers, runtime IAM, Pub/Sub/DLQ, Cloud Tasks, Cloud Run services/jobs,
+  Scheduler, GCS proof media, and baseline Monitoring.
+- Cloud SQL defaults to `activation_policy = "NEVER"` until an explicit staging
+  rehearsal/deploy window.
+- Existing manually-created staging resources must be imported or kept manual
+  before any apply.
 
-Dev custom dashboard URL is live:
+P8 raw-URL dev dashboard bring-up temporarily switched dev Cloud SQL to
+`activation_policy = "ALWAYS"` so migrations and serving could use the
+instance. The dev dashboard was archived on 2026-07-11, so Terraform now keeps
+Cloud SQL at `activation_policy = "NEVER"` until an explicit dev rollout
+reactivates it.
+
+Dev custom dashboard URL is archived:
 - `https://dev.dashboard.mesha.sg/`
-- Cloudflare DNS: `A dev.dashboard -> 8.232.140.161`, DNS-only.
-- Google Cloud global HTTPS LB resources were created imperatively in
-  `goatos-dev`; see `envs/dev/README.md`.
+- Cloudflare DNS still has the historical `A dev.dashboard -> 8.232.140.161`
+  record, but the Google global static IP and load-balancer resources were
+  deleted on 2026-07-11 to stop the public dashboard edge billing.
+- Historical Google Cloud global HTTPS LB recreation commands live in
+  `envs/dev/README.md`.
 - Firebase/Auth Platform authorized domains include `dev.dashboard.mesha.sg`.
 - The Google OAuth web client allows JavaScript origin
   `https://dev.dashboard.mesha.sg`, and Google Auth Platform Branding app name
@@ -68,17 +84,18 @@ Dev custom dashboard URL is live:
 Still blocked on later explicit operator approval in the verified vgoats.com
 context:
 - Terraform apply for Layer 1 foundation resources.
-- Remaining Layer 2 app resources beyond the already-live dev admin-web/LB/DNS
-  path: Cloud Run services/jobs, Scheduler jobs, stg/prod LB/DNS, Secret
-  Manager secret versions, Cloud SQL users/passwords, image pushes, migrations,
-  and legacy imports.
+- goatos-stg Terraform backend bucket bootstrap, imports for existing manual
+  staging resources, and any future apply.
+- Remaining app-resource execution: stg/prod LB/DNS Terraform ownership,
+  Secret Manager secret versions, Cloud SQL users/passwords, image pushes,
+  migrations, seed/import commands, and legacy imports.
 - Production IdP/JWKS endpoint + signing-key/secret provisioning.
 - Pub/Sub outbox publisher + worker deploy wiring.
 ```
 
-The module/env directories are intentional placeholders. Do not commit
-speculative Terraform that cannot be `terraform validate`/`plan`-checked against
-the real projects; author it during provisioning with cloud access.
+The module directories are intentional placeholders. Environment compositions
+may exist before apply, but do not treat committed Terraform as evidence that a
+resource exists until the matching project state/import/apply has been verified.
 
 ## Rules
 
