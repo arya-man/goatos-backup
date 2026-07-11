@@ -3737,7 +3737,7 @@ func humanLabel(key string) string {
 	case "source_obligation":
 		return "Source obligation"
 	case "weight":
-		return "WT"
+		return "Weight"
 	case "when":
 		return "Time"
 	case "holding_farm_supplier":

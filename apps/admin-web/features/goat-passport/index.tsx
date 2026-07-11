@@ -12,9 +12,9 @@ import { addIdentifierAction, retireIdentifierAction } from "./actions";
 
 // Business-friendly labels for the two physical tag identifier types in the identifiers detail table.
 // Other stored identifier types (mirrors, ear tags, vendor tags) keep their raw type string.
-function identifierTypeLabel(type: string): string {
-  if (type === "animal_identifier_1") return "Tag 1";
-  if (type === "animal_identifier_2") return "Tag 2";
+function identifierTypeLabel(type: string, pageContract: AdminUiPageContract): string {
+  if (type === "animal_identifier_1") return copy(pageContract, "label.tag_1");
+  if (type === "animal_identifier_2") return copy(pageContract, "label.tag_2");
   return type;
 }
 
@@ -253,7 +253,7 @@ export async function GoatPassportPage({
                 <tbody>
                   {goat.identifiers.map((identifier) => (
                     <tr key={identifier.identifier_id}>
-                      <td>{identifierTypeLabel(identifier.identifier_type)}</td>
+                      <td>{identifierTypeLabel(identifier.identifier_type, pageContract)}</td>
                       <td className="mono">{identifier.identifier_value}</td>
                       <td>{identifier.scope_key}</td>
                       <td>

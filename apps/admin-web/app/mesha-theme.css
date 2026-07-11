@@ -466,11 +466,17 @@
   .main table.control-tower-gaps-table{min-width:920px}
   .main table.control-tower-gaps-table th:nth-child(1),.main table.control-tower-gaps-table td:nth-child(1),.main table.control-tower-gaps-table th:nth-child(2),.main table.control-tower-gaps-table td:nth-child(2){min-width:132px}
   .main table.herd-register-table{min-width:1600px}
-  /* Tag 1 / Tag 2 (cols 2-3) carry long numeric/coded physical tags. Give them room and keep them
-     single-line so the global .celllink overflow-wrap:anywhere can't split a 15-digit tag mid-number. */
+  /* Single-line EVERY herd cell: the global .celllink overflow-wrap:anywhere otherwise splits
+     short words ("female" -> "femal e") and 15-digit tags the moment a column narrows. The table
+     scrolls horizontally, so nowrap never clips content. */
+  .main table.herd-register-table th,.main table.herd-register-table td,.main table.herd-register-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  /* Per-column min-width so table auto-layout can't collapse a column to a sliver and force a wrap.
+     Cols: 1 Display ID · 2 Tag 1 · 3 Tag 2 · 4 Park · 5 Shed · 6 Breed · 7 Sex · 8 Weight ·
+     9 Lifecycle · 10 Health · 11 Breeding. */
+  .main table.herd-register-table th:nth-child(1),.main table.herd-register-table td:nth-child(1){min-width:104px}
   .main table.herd-register-table th:nth-child(2),.main table.herd-register-table td:nth-child(2),.main table.herd-register-table th:nth-child(3),.main table.herd-register-table td:nth-child(3){min-width:150px}
-  .main table.herd-register-table td:nth-child(2) .celllink,.main table.herd-register-table td:nth-child(3) .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
-  /* Lifecycle / Health / Breeding status columns shift to 9-11 after Display ID + Tag 1 + Tag 2. */
+  .main table.herd-register-table th:nth-child(4),.main table.herd-register-table td:nth-child(4),.main table.herd-register-table th:nth-child(5),.main table.herd-register-table td:nth-child(5),.main table.herd-register-table th:nth-child(6),.main table.herd-register-table td:nth-child(6){min-width:88px}
+  .main table.herd-register-table th:nth-child(7),.main table.herd-register-table td:nth-child(7),.main table.herd-register-table th:nth-child(8),.main table.herd-register-table td:nth-child(8){min-width:84px}
   .main table.herd-register-table th:nth-child(9),.main table.herd-register-table td:nth-child(9),.main table.herd-register-table th:nth-child(10),.main table.herd-register-table td:nth-child(10),.main table.herd-register-table th:nth-child(11),.main table.herd-register-table td:nth-child(11){min-width:116px}
   /* Shed-wise vaccination table (10 cols): widen Manager/Backup (cols 8,9) for names; scrolls on narrow. */
   .main table.shed-summary-table{min-width:1080px}
