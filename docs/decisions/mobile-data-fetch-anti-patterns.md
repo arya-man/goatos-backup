@@ -50,9 +50,12 @@ reads bounded windows, the VM exposes `Flow<PagingData<T>>.cachedIn(viewModelSco
 `LazyColumn { items(lazyPagingItems, key = { it.id }) }`. Both layers page identically and automatically;
 nothing ever holds the whole cohort.
 
-For the small page-blob caches (one JSON blob per scope key), the blob IS the network page, so bounding
-the page (~20) bounds the Room read too — but an append/load-more must NOT grow one scope blob without
-bound; store per-item rows (Paging) or cap+evict so the observed window stays ~one screen.
+There is no legitimate "growing blob". A JSON-blob-per-scope cache is only bounded while it holds exactly
+one page; if load-more MERGES pages into that one blob it balloons — but that merge-on-append is itself
+the anti-pattern, not an unavoidable nuance. The same keyset pagination applies to Room: store PER-ITEM
+rows (one Room row per event/animal/task) and observe a bounded window (`ORDER BY key LIMIT :pageSize` /
+`PagingSource`), so the Room read is bounded exactly like the network page and never grows. Do not cache
+a whole page-response and concatenate into it.
 
 Current gaps (tracked in [mobile-fetch-fix-backlog.md](./mobile-fetch-fix-backlog.md)): the outbox
 `observeAll()` is `SELECT *` (unbounded DB read); scan/tasks need per-item Room + Paging rather than a

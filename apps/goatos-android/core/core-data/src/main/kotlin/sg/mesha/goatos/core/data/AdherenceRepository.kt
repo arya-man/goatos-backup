@@ -1,6 +1,8 @@
 package sg.mesha.goatos.core.data
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -89,6 +91,7 @@ class DefaultAdherenceRepository(
     ): Flow<Resource<ProtocolAdherenceResponseDto>> =
         dao.observe(cacheKey(parkId, shedId, workState, severity, dueBefore, asOf, cursor, limit?.toString()))
             .map { it.toResource() }
+            .flowOn(Dispatchers.Default) // JSON decode + DTO->Resource off the Main collector
 
     override suspend fun refreshAdherence(
         parkId: String?,

@@ -1,6 +1,8 @@
 package sg.mesha.goatos.core.data
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -91,6 +93,7 @@ class DefaultVaccinationInsightsRepository(
     ): Flow<Resource<VaccinationGapsResponseDto>> =
         gapsDao.observe(cacheKey(parkId, limit?.toString(), cursor))
             .map { it.toResource() }
+            .flowOn(Dispatchers.Default) // JSON decode + DTO->Resource off the Main collector
 
     override suspend fun refreshGaps(
         parkId: String?,
@@ -117,6 +120,7 @@ class DefaultVaccinationInsightsRepository(
     ): Flow<Resource<VaccinationCoverageResponseDto>> =
         coverageDao.observe(cacheKey(parkId, asOf, dueBefore, limit?.toString()))
             .map { it.toResource() }
+            .flowOn(Dispatchers.Default) // JSON decode + DTO->Resource off the Main collector
 
     override suspend fun refreshCoverage(
         parkId: String?,
