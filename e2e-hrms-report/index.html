@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HRMS Kernel Story Report</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 32px 20px 80px;
+    line-height: 1.5;
+    color: #1a1f24;
+    background: #f5f7f9;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e6e9ec; background: #14181c; }
+  }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  .subtitle { color: #5b6770; margin-top: 0; }
+  @media (prefers-color-scheme: dark) { .subtitle { color: #9aa7b0; } }
+  .summary {
+    display: flex; gap: 16px; flex-wrap: wrap; margin: 20px 0 32px;
+  }
+  .summary .tile {
+    flex: 1 1 140px;
+    border-radius: 10px;
+    padding: 14px 16px;
+    background: #ffffff;
+    border: 1px solid #e1e6ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    .summary .tile { background: #1d2328; border-color: #2b333a; }
+  }
+  .summary .tile .n { font-size: 1.6rem; font-weight: 700; display: block; }
+  .summary .tile.pass .n { color: #1f8a4c; }
+  .summary .tile.fail .n { color: #c62828; }
+  section.story {
+    background: #ffffff;
+    border: 1px solid #e1e6ea;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 28px;
+  }
+  @media (prefers-color-scheme: dark) {
+    section.story { background: #1d2328; border-color: #2b333a; }
+  }
+  section.story.fail { border-left: 5px solid #c62828; }
+  section.story.pass { border-left: 5px solid #1f8a4c; }
+  .story h2 { margin: 0 0 6px; font-size: 1.25rem; display: flex; align-items: center; gap: 10px; }
+  .badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    color: #fff;
+  }
+  .badge.pass { background: #1f8a4c; }
+  .badge.fail { background: #c62828; }
+  .story .narrative { color: #444d54; margin-top: 0; }
+  @media (prefers-color-scheme: dark) { .story .narrative { color: #b7c0c7; } }
+  .step { margin-top: 18px; padding-top: 14px; border-top: 1px dashed #dfe4e8; }
+  @media (prefers-color-scheme: dark) { .step { border-top-color: #2b333a; } }
+  .step h3 { margin: 0 0 4px; font-size: 1rem; }
+  .step .narrative { margin: 0 0 10px; color: #5b6770; font-size: 0.92rem; }
+  @media (prefers-color-scheme: dark) { .step .narrative { color: #9aa7b0; } }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 6px 8px; vertical-align: top; }
+  thead th { color: #5b6770; font-weight: 600; border-bottom: 1px solid #e1e6ea; }
+  @media (prefers-color-scheme: dark) {
+    thead th { color: #9aa7b0; border-bottom-color: #2b333a; }
+  }
+  tr.ok td:first-child::before { content: "\2713  "; color: #1f8a4c; font-weight: 700; }
+  tr.bad td:first-child::before { content: "\2717  "; color: #c62828; font-weight: 700; }
+  tr.bad { background: rgba(198,40,40,0.06); }
+  td.detail { color: #5b6770; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; }
+  @media (prefers-color-scheme: dark) { td.detail { color: #9aa7b0; } }
+  footer { color: #8a949c; font-size: 0.8rem; margin-top: 40px; }
+</style>
+</head>
+<body>
+  <h1>HRMS Kernel Story Report</h1>
+  <p class="subtitle">Generated 2026-07-11 19:33:04 UTC &middot; backend/tests/e2e-hrms</p>
+
+  <div class="summary">
+    <div class="tile"><span class="n">1</span>stories</div>
+    <div class="tile pass"><span class="n">1</span>stories passed</div>
+    <div class="tile fail"><span class="n">0</span>stories failed</div>
+    <div class="tile"><span class="n">31</span>assertions checked</div>
+    <div class="tile pass"><span class="n">0</span>assertions failed</div>
+  </div>
+
+
+  <section class="story pass">
+    <h2>Manager leave with backup coverage and escalation <span class="badge pass">PASS</span></h2>
+    <p class="narrative">A Preventive Care Manager at a shed takes leave with an available Backup Manager. The approval auto-resolves the backup as replacement and grants them a temporary vaccination.execute capability. ResolveVaccinationOwner correctly returns the backup as effective owner on the leave dates. When the backup also becomes unavailable, ResolveVaccinationOwner escalates to the park head.</p>
+
+    <div class="step">
+      <h3>Seed workforce members and position module duties</h3>
+      <p class="narrative">Create three workforce members (Manager, Backup Manager, Park Head) and seed the position_module_duties for preventive_care_manager so ResolveExecuteCapability reads the vaccination.execute capability.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>workforce members seeded successfully</td>
+            <td>PASS</td>
+            <td class="detail">3 members created</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Create the Preventive Care Manager position</h3>
+      <p class="narrative">Create a fixed position for the manager at the shed scope with backup_group_code=&#39;manager_backup&#39; so the roster engine can resolve coverage.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>CreatePosition for manager succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>manager position_code is preventive_care_manager</td>
+            <td>PASS</td>
+            <td class="detail">code=&#34;preventive_care_manager&#34;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Create the Backup Manager backup slot</h3>
+      <p class="narrative">Create a backup-slot position for the backup manager at the same shed scope with the same backup_group_code so the roster engine resolves them as coverage pair.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>CreatePosition for backup succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>backup is_backup_slot=true</td>
+            <td>PASS</td>
+            <td class="detail">is_backup_slot=true</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Create the Park Head position</h3>
+      <p class="narrative">Create a park-scoped park_head position so that escalation can resolve the park head as escalation target.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>CreatePosition for park head succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Apply leave for the manager</h3>
+      <p class="narrative">The manager requests leave from 2026-08-03 to 2026-08-05 (3 days) with reason &#39;personal&#39;.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>ApplyLeave succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>initial status is reported</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;reported&#34;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Approve the leave (auto-resolve coverage)</h3>
+      <p class="narrative">Approve the manager&#39;s leave. The roster service&#39;s resolveLeaveCoverage engine automatically resolves the backup manager as replacement_member_id (design doc S4.5) and grants them a temporary vaccination.execute capability for the leave window (design doc S4.6).</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>ApproveLeave succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>approved status is approved</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;approved&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>replacement_member_id is the backup</td>
+            <td>PASS</td>
+            <td class="detail">replacement=0x14000195200 want=91000000-0000-4000-8000-000000000002</td>
+          </tr>
+
+          <tr class="ok">
+            <td>ListCapabilities for backup succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>capability window matches leave window</td>
+            <td>PASS</td>
+            <td class="detail">valid_from=&#34;2026-07-11T19:33:07Z&#34; valid_to=0x140000142f0</td>
+          </tr>
+
+          <tr class="ok">
+            <td>backup was granted vaccination.execute capability</td>
+            <td>PASS</td>
+            <td class="detail">no capability found</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Resolve vaccination owner on a leave date (backup as replacement)</h3>
+      <p class="narrative">Call ResolveVaccinationOwner for the shed on 2026-08-04 (during the leave). Since the manager is on approved leave with a resolved replacement, the result must return the backup manager as owner_workforce_member_id with owner_source=&#39;replacement&#39; (design doc S4.8).</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>ResolveVaccinationOwner succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>owner is the backup manager</td>
+            <td>PASS</td>
+            <td class="detail">owner=0x140000a6400 want=91000000-0000-4000-8000-000000000002</td>
+          </tr>
+
+          <tr class="ok">
+            <td>owner_source is replacement</td>
+            <td>PASS</td>
+            <td class="detail">source=&#34;replacement&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>position_id is the manager&#39;s position</td>
+            <td>PASS</td>
+            <td class="detail">position_id=0x140000143b0 want=2adeda4b-deae-4837-8c3a-d9e2cfa9b7ce</td>
+          </tr>
+
+          <tr class="ok">
+            <td>no escalation required (reason is nil)</td>
+            <td>PASS</td>
+            <td class="detail">reason=&lt;nil&gt;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Apply leave for the backup manager</h3>
+      <p class="narrative">While the manager&#39;s leave is still active, the backup manager also takes leave (2026-08-04 to 2026-08-04, overlapping the manager&#39;s leave window). Now the backup is unavailable to cover the manager&#39;s position.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>ApplyLeave for backup succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Approve the backup&#39;s leave (escalates due to no backup-of-backup)</h3>
+      <p class="narrative">Approve the backup manager&#39;s leave. The backup has a fixed position (backup_manager) at the same scope, so the roster service tries to resolve coverage for the backup. Since no backup is configured for the manager_backup group (no backup-of-backup), the approval escalates (status=&#39;escalation_required&#39;). This is correct per design doc S4.7: escalation happens at approval time, not at query time.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>ApproveLeave for backup succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>backup leave escalates (no backup-of-backup configured)</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;escalation_required&#34; want=escalation_required</td>
+          </tr>
+
+          <tr class="ok">
+            <td>escalation has no replacement_member_id</td>
+            <td>PASS</td>
+            <td class="detail">replacement=&lt;nil&gt;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Resolve vaccination owner (commitment semantics)</h3>
+      <p class="narrative">Call ResolveVaccinationOwner again for 2026-08-04 (while backup is on escalated leave). Since the manager&#39;s leave was APPROVED with a resolved replacement (backup), that commitment is durable (design doc S4.8: replacement &#39;wins first&#39;). ResolveVaccinationOwner returns the backup as owner, even though the backup is now on escalated leave. Escalation checks happen at APPROVAL time, not at query time, so the already-resolved replacement stands.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>ResolveVaccinationOwner still returns approved replacement</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>owner is still the backup (durable commitment)</td>
+            <td>PASS</td>
+            <td class="detail">owner=0x14000195820 want=91000000-0000-4000-8000-000000000002</td>
+          </tr>
+
+          <tr class="ok">
+            <td>owner_source is still replacement</td>
+            <td>PASS</td>
+            <td class="detail">source=&#34;replacement&#34; want=replacement</td>
+          </tr>
+
+          <tr class="ok">
+            <td>no escalation for the resolved replacement (commitment is durable)</td>
+            <td>PASS</td>
+            <td class="detail">reason=&lt;nil&gt; should be nil</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Resolve vaccination owner after manager&#39;s leave ends (manager as owner again)</h3>
+      <p class="narrative">Call ResolveVaccinationOwner for 2026-08-06 (after the manager&#39;s leave ends). The manager is now present, so the result must return the manager as owner with owner_source=&#39;position_holder&#39;.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>ResolveVaccinationOwner succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>owner is the manager (position holder)</td>
+            <td>PASS</td>
+            <td class="detail">owner=0x140000145f0 want=91000000-0000-4000-8000-000000000001</td>
+          </tr>
+
+          <tr class="ok">
+            <td>owner_source is position_holder</td>
+            <td>PASS</td>
+            <td class="detail">source=&#34;position_holder&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>no escalation required</td>
+            <td>PASS</td>
+            <td class="detail">reason=&lt;nil&gt;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+  </section>
+
+
+  <footer>Generated by backend/tests/e2e-hrms &mdash; run via <code>backend/tests/e2e-hrms/run.sh</code> or <code>go test ./tests/e2e-hrms/... -run TestKernelStor -v</code>.</footer>
+</body>
+</html>

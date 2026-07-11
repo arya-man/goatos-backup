@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scale Audit Fix E2E Report</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 32px 20px 80px;
+      line-height: 1.5;
+      color: #1a1f24;
+      background: #f5f7f9;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { color: #e6e9ec; background: #14181c; }
+    }
+    h1 { font-size: 1.6rem; margin-bottom: 4px; }
+    .subtitle { color: #5b6770; margin-top: 0; }
+    @media (prefers-color-scheme: dark) { .subtitle { color: #9aa7b0; } }
+    .summary {
+      display: flex; gap: 16px; flex-wrap: wrap; margin: 20px 0 32px;
+    }
+    .summary .tile {
+      flex: 1 1 140px;
+      border-radius: 10px;
+      padding: 14px 16px;
+      background: #ffffff;
+      border: 1px solid #e1e6ea;
+    }
+    @media (prefers-color-scheme: dark) {
+      .summary .tile { background: #1d2328; border-color: #2b333a; }
+    }
+    .summary .tile .n { font-size: 1.6rem; font-weight: 700; display: block; }
+    .summary .tile.pass .n { color: #1f8a4c; }
+    .summary .tile.warn .n { color: #a66500; }
+    section.story {
+      background: #ffffff;
+      border: 1px solid #e1e6ea;
+      border-left: 5px solid #1f8a4c;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 28px;
+    }
+    @media (prefers-color-scheme: dark) {
+      section.story { background: #1d2328; border-color: #2b333a; border-left-color: #1f8a4c; }
+    }
+    section.story.caution { border-left-color: #a66500; }
+    .story h2 { margin: 0 0 6px; font-size: 1.25rem; display: flex; align-items: center; gap: 10px; }
+    .badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 3px 9px;
+      border-radius: 999px;
+      color: #fff;
+      background: #1f8a4c;
+    }
+    .story.caution .badge { background: #a66500; }
+    .step { margin-top: 18px; padding-top: 14px; border-top: 1px dashed #dfe4e8; }
+    @media (prefers-color-scheme: dark) { .step { border-top-color: #2b333a; } }
+    .step h3 { margin: 0 0 4px; font-size: 1rem; }
+    p, li { color: #444d54; }
+    @media (prefers-color-scheme: dark) { p, li { color: #b7c0c7; } }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.88em;
+      background: rgba(127,127,127,0.14);
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+    pre {
+      background: rgba(127,127,127,0.10);
+      border: 1px solid #e1e6ea;
+      border-radius: 10px;
+      padding: 12px 14px;
+      overflow-x: auto;
+    }
+    @media (prefers-color-scheme: dark) { pre { border-color: #2b333a; } }
+    pre code { background: transparent; padding: 0; }
+    footer { color: #8a949c; font-size: 0.8rem; margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <h1>Scale Audit Fix E2E Report</h1>
+  <p class="subtitle">Generated 2026-07-11 &middot; context/execution/scale-audit-fix-e2e-report-2026-07-11.md</p>
+  <div class="summary">
+    <div class="tile"><span class="n">3</span>scale risks covered</div>
+    <div class="tile pass"><span class="n">3</span>fixed or gated</div>
+    <div class="tile pass"><span class="n">0</span>failed checks</div>
+    <div class="tile warn"><span class="n">1</span>1M certification pending</div>
+  </div>
+  <p>Status: local/backend E2E proof complete; staging 1M certification not run.</p>
+<section class="story pass"><h2>Scope <span class="badge pass">PASS</span></h2>
+<p>This report explains the scale-audit fixes that were verified after the staging</p>
+<p>Control Tower slowdown review. It is not a generic changelog. Each item below</p>
+<p>states what behavior was under test, why it matters at 1M-goat scale, how the</p>
+<p>test sets up the failure mode, what code path it executes, and what assertions</p>
+<p>prove the fix.</p>
+<p>Covered in this report:</p>
+<ol>
+<li>Park-consolidation pagination in the obligation sweeper.</li>
+<li>Process-integrity projection recompute and stale/rebuilding read behavior.</li>
+<li>Vaccinationexecution hot-read latency gates.</li>
+</ol>
+<p>Out of scope for this report: the final outbox-fed incremental</p>
+<p><code>obligation_process_state</code> projector and the <code>goatos-stg-1m-benchmark-v1</code></p>
+<p>certification run.</p>
+</section>
+<section class="story pass"><h2>1. Park-Consolidation Pagination <span class="badge pass">PASS</span></h2>
+<div class="step"><h3>What this test is about</h3>
+<p>The obligation sweeper groups due shed-level vaccination obligations into a</p>
+<p>single park-level drive when multiple sheds in the same park can be handled in</p>
+<p>one visit. At small scale this is a convenience feature. At large scale this is</p>
+<p>a liveness risk: the sweeper pages through candidate obligations, so every page</p>
+<p>loop must make forward progress.</p>
+<p>The original failure mode was that an exact full page could be returned again</p>
+<p>and again. If page size was 2 and the repository kept returning the same 2</p>
+<p>candidates, the worker could loop forever, hold resources, and never finish</p>
+<p>batching the rest of the tenant.</p>
+</div>
+<div class="step"><h3>Test setup</h3>
+<p>The regression tests use a fake sweeper repository, not a mock UI. The fake repo</p>
+<p>returns park-consolidation candidates ordered by the same keyset cursor used by</p>
+<p>the real repository:</p>
+<pre><code>park_id, rule_id, target_species, target_animal_stage, due_at, obligation_id</code></pre>
+<p>One test seeds four candidate obligations across four sheds in the same park and</p>
+<p>sets the service page size to 2. That forces an exact-page boundary:</p>
+<pre><code>page 1: obl-1, obl-2
+page 2: obl-3, obl-4
+page 3: empty page, proving the scan terminated</code></pre>
+<p>A separate negative test sets <code>repeatParkPage=true</code> so the fake repository keeps</p>
+<p>returning the same full page. That simulates the bug directly.</p>
+</div>
+<div class="step"><h3>Action executed</h3>
+<p>The test calls:</p>
+<pre><code>consolidateParkDrives(context, tenant-1, version-1, SweepConfig{ParkConsolidation: default}, dueBefore)</code></pre>
+<p>That is the same service path used by the sweeper when it builds park-level</p>
+<p>vaccination drives from unbatched shed obligations.</p>
+</div>
+<div class="step"><h3>Assertions that passed</h3>
+<ul>
+<li>The happy-path exact-boundary case calls the candidate list method exactly 3</li>
+</ul>
+<p>times: two data pages plus the final empty page.</p>
+<ul>
+<li>The happy path creates exactly 1 park batch and attaches all 4 candidate</li>
+</ul>
+<p>obligations.</p>
+<ul>
+<li>The failure-path test does not hang. It returns an explicit error containing</li>
+</ul>
+<p><code>pagination did not advance</code>.</p>
+<ul>
+<li>The progress guard compares the last cursor from the current page with the</li>
+</ul>
+<p>previous cursor, so a non-advancing repository page fails fast instead of</p>
+<p>looping.</p>
+</div>
+<div class="step"><h3>Source evidence</h3>
+<pre><code>backend/internal/obligation/app/park_consolidation.go
+backend/internal/obligation/app/park_consolidation_test.go
+TestConsolidateParkDrivesPagesParkCandidatesWithCursor
+TestConsolidateParkDrivesFailsWhenCandidateCursorDoesNotAdvance</code></pre>
+</div>
+</section>
+<section class="story pass"><h2>2. Process-Integrity Projection Recompute <span class="badge pass">PASS</span></h2>
+<div class="step"><h3>What this test is about</h3>
+<p>Control Tower, Action Center, Protocol Adherence, and process-integrity views</p>
+<p>must read a durable projection. They cannot reconstruct the whole obligation</p>
+<p>state machine from raw obligation, SOP, proof, completion, goat, protocol, and</p>
+<p>workforce tables on every dashboard request.</p>
+<p>The original scale risk was twofold:</p>
+<ol>
+<li>The read path could fall back to canonical replay when the projection became</li>
+</ol>
+<p>stale.</p>
+<ol>
+<li>The recompute path could delete tenant projection rows before the replacement</li>
+</ol>
+<p>generation was fully ready.</p>
+<p>At 1M goats, either behavior is dangerous. Canonical replay becomes a dashboard</p>
+<p>pileup, and delete-then-reinsert creates a long transaction, WAL pressure, and a</p>
+<p>window where hot reads have no safe projection to serve.</p>
+</div>
+<div class="step"><h3>Test setup</h3>
+<p>The integration tests boot a disposable Postgres database with the real schema.</p>
+<p>They seed process-integrity source rows and then run the real repository:</p>
+<pre><code>repo := processintegrity/postgres.NewRepository(pool, 5s timeout)
+repo.RecomputeProjection(tenant, as_of)</code></pre>
+<p>The tests then manipulate projection state deliberately:</p>
+<ul>
+<li>insert stale projection rows with an old <code>projection_version</code></li>
+<li>mark the projection <code>stale</code></li>
+<li>mark the projection <code>rebuilding</code></li>
+<li>mark the projection <code>failed</code></li>
+<li>clear <code>serving_projection_version</code></li>
+<li>stamp a row with a marker string so the read path can prove it served the</li>
+</ul>
+<p>projection row instead of replaying canonical source tables</p>
+</div>
+<div class="step"><h3>Action executed</h3>
+<p>The tests execute the real repository methods:</p>
+<pre><code>RecomputeProjection
+projectionReadable
+ListRows
+CountByWorkState
+EXPLAIN processIntegrityProjectionRowsSQL
+EXPLAIN processIntegrityProjectionCountsSQL</code></pre>
+<p>This covers both write-side projection generation and read-side dashboard</p>
+<p>behavior.</p>
+</div>
+<div class="step"><h3>Assertions that passed</h3>
+<ul>
+<li>Recompute writes a new projection generation keyed by</li>
+</ul>
+<p><code>(tenant_id, projection_version, row_id)</code> before serving it.</p>
+<ul>
+<li>The serving pointer moves to the new <code>serving_projection_version</code> only after</li>
+</ul>
+<p>the new generation exists.</p>
+<ul>
+<li>Old non-serving rows are pruned after the serving generation is safe.</li>
+<li>Multi-batch prune drains all stale rows even when the stale generation is</li>
+</ul>
+<p>larger than one prune batch.</p>
+<ul>
+<li>The currently serving projection rows are not pruned.</li>
+<li>A <code>stale</code> projection with a serving version remains readable.</li>
+<li>A <code>rebuilding</code> projection with a serving version remains readable, so the</li>
+</ul>
+<p>dashboard serves the last good data while recompute runs.</p>
+<ul>
+<li>A <code>failed</code> projection is not served.</li>
+<li>A <code>rebuilding</code> projection with no serving version is not served.</li>
+<li>A stale projection row marked with <code>served-from-stale-projection</code> is returned</li>
+</ul>
+<p>by <code>ListRows</code>, proving the read path used projection rows instead of canonical</p>
+<p>replay.</p>
+<ul>
+<li>The hot read plan touches <code>process_integrity_projection_rows</code>.</li>
+<li>The hot read plan does not replay these canonical source tables:</li>
+</ul>
+<p><code>obligation_instances</code>, <code>obligation_status_events</code>,</p>
+<p><code>vaccination_completions</code>, <code>sop_tasks</code>, <code>sop_submissions</code>, <code>goats</code>,</p>
+<p><code>protocol_versions</code>, <code>protocol_rules</code>, or <code>workforce_members</code>.</p>
+<ul>
+<li>The plan uses an index scan, bitmap index scan, or index-only scan.</li>
+</ul>
+</div>
+<div class="step"><h3>Source evidence</h3>
+<pre><code>backend/internal/processintegrity/adapters/postgres/repository.go
+backend/internal/processintegrity/adapters/postgres/repository_integration_test.go
+TestProcessIntegrityProjectionRecomputePrunesStaleGenerationRows
+TestProcessIntegrityProjectionPruneExhaustsMultipleBatches
+TestProcessIntegrityProjectionReadableDuringStaleAndRebuildStates
+TestProcessIntegrityProjectionServesStaleProjectionInsteadOfCanonicalReplay
+TestProcessIntegrityProjectionReadPlanDoesNotReplayCanonicalTables
+TestProcessIntegrityProjectionInsertSQLUpsertsRows</code></pre>
+</div>
+</section>
+<section class="story pass"><h2>3. Vaccinationexecution Hot-Read Latency Gates <span class="badge pass">PASS</span></h2>
+<div class="step"><h3>What this test is about</h3>
+<p>The vaccination execution surfaces answer operational questions such as which</p>
+<p>sheds need work, which drives are active, which animals are blocked, and which</p>
+<p>execution rows need proof or verification. These endpoints are user-facing hot</p>
+<p>paths. A green correctness test is not enough if a single request takes multiple</p>
+<p>seconds on a tiny staging dataset.</p>
+<p>This patch did not rewrite vaccinationexecution into a new projection. Instead,</p>
+<p>it added explicit latency gates so slow read paths cannot be waved through</p>
+<p>silently. If the gate fails, the next fix is a durable execution read model with</p>
+<p>indexed reads.</p>
+</div>
+<div class="step"><h3>Test setup</h3>
+<p>The API latency manifest includes the existing dashboard hot paths plus the</p>
+<p>vaccinationexecution endpoints:</p>
+<pre><code>/control-tower/vaccination?category=vaccination
+/vaccination/action-center?category=vaccination&amp;limit=50
+/vaccination/action-center/counts?category=vaccination
+/vaccination/adherence?category=vaccination&amp;limit=50
+/calendar/vaccination/events?limit=50
+/vaccination/execution?limit=50
+/vaccination/operations?limit=50
+/vaccination/sheds?limit=50</code></pre>
+<p>The process-integrity database latency command also measures the fresh</p>
+<p>projection path and then intentionally marks the projection stale so the stale</p>
+<p>path is measured too.</p>
+</div>
+<div class="step"><h3>Action executed</h3>
+<p>The local/backend verification ran syntax and test coverage for the gate code,</p>
+<p>and the staging workflow can run the same gates against a live API:</p>
+<pre><code>node tools/perf/api-latency-gate.mjs --manifest tools/perf/hot-paths.vaccination.json
+cd backend &amp;&amp; go run ./cmd/process-integrity-latency-check</code></pre>
+</div>
+<div class="step"><h3>Assertions that passed</h3>
+<ul>
+<li>The hot-path manifest parses as valid JSON.</li>
+<li>Every manifest entry has an explicit threshold.</li>
+<li>The API latency gate records p50, p90, p95, p99, and max latency for each</li>
+</ul>
+<p>endpoint.</p>
+<ul>
+<li>The gate exits non-zero when any endpoint exceeds its p90, p95, or p99</li>
+</ul>
+<p>threshold.</p>
+<ul>
+<li>Process-integrity latency checks require a fresh projection before measuring.</li>
+<li>Process-integrity latency checks also measure the stale-projection serving</li>
+</ul>
+<p>path so a future canonical fallback regression is visible.</p>
+<ul>
+<li>The staging target guard rejects the wrong environment when</li>
+</ul>
+<p><code>GOATOS_ENV=stg</code>, so the live check cannot accidentally run against a local</p>
+<p>database while claiming staging evidence.</p>
+</div>
+<div class="step"><h3>Source evidence</h3>
+<pre><code>tools/perf/api-latency-gate.mjs
+tools/perf/hot-paths.vaccination.json
+backend/cmd/process-integrity-latency-check/main.go
+docs/runbooks/performance-gates.md</code></pre>
+</div>
+</section>
+<section class="story pass"><h2>Verification Commands <span class="badge pass">PASS</span></h2>
+<p>Commands run for this report:</p>
+<pre><code>cd backend &amp;&amp; go test ./internal/obligation/app ./internal/processintegrity/adapters/postgres
+cd backend &amp;&amp; go test ./internal/obligation/...
+cd backend &amp;&amp; go test ./internal/processintegrity/...
+cd backend &amp;&amp; go test ./internal/vaccinationexecution/...
+cd /Users/ravi/mesha/goatos &amp;&amp; bash backend/tests/integration/validate-postgres-migrations.sh
+node -e &quot;JSON.parse(require(&#x27;fs&#x27;).readFileSync(&#x27;tools/perf/hot-paths.vaccination.json&#x27;,&#x27;utf8&#x27;)); console.log(&#x27;hot-paths manifest ok&#x27;)&quot;
+bash -n tools/dev/high-scale-kernel-e2e-all.sh
+node --check tools/perf/api-latency-gate.mjs</code></pre>
+<p>Observed result summary:</p>
+<pre><code>PASS backend/internal/obligation/app
+PASS backend/internal/obligation/adapters/postgres
+PASS backend/internal/obligation/...
+PASS backend/internal/processintegrity/adapters/postgres
+PASS backend/internal/processintegrity/...
+PASS backend/internal/vaccinationexecution/...
+PASS postgres migration validation
+PASS hot-paths manifest JSON parse
+PASS high-scale-kernel-e2e-all.sh syntax
+PASS api-latency-gate.mjs syntax</code></pre>
+</section>
+<section class="story caution"><h2>Certification Boundary <span class="badge pass">PENDING</span></h2>
+<p>This is not a 1M staging certification report. The full certification gate</p>
+<p>remains:</p>
+<pre><code>make high-scale-kernel-e2e-certification</code></pre>
+<p>That certification must attach staging evidence for Cloud SQL shape, migration</p>
+<p>head, seed checksum, scaled <code>EXPLAIN (ANALYZE, BUFFERS)</code>, API p95/p99,</p>
+<p>outbox/sweeper/projection metrics, and the <code>goatos-stg-1m-benchmark-v1</code></p>
+<p>baseline.</p>
+</section>
+<section class="story pass"><h2>Final Verdict <span class="badge pass">PASS</span></h2>
+<p>The local/backend scale-audit proof is green for the three defects covered here:</p>
+<ul>
+<li>Park consolidation cannot silently loop on a non-advancing full page.</li>
+<li>Process-integrity reads keep serving the last good projection during stale or</li>
+</ul>
+<p>rebuilding states and do not replay canonical source tables on the hot path.</p>
+<ul>
+<li>Vaccinationexecution hot reads are now part of latency-gate coverage, so slow</li>
+</ul>
+<p>endpoints must be fixed or explicitly certified before handoff.</p>
+<p>Remaining production-scale work is the final incremental process-state projector</p>
+<p>and the staging 1M certification run.</p>
+</section>
+  <footer>Published by .github/workflows/pages.yml as a first-class CI report category.</footer>
+</body>
+</html>
