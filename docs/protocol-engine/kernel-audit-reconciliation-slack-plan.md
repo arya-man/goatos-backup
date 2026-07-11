@@ -213,7 +213,9 @@ safely.
 | `kernel_audit_invariant_versions` | Versioned registry of invariant packs. Each pack is tied to tenant/category/module/source owner, rule source, code owner, and pack hash. |
 | `kernel_audit_runs` | One row per sweep with `tenant_id`, run type, operational scope, schedule key, started/heartbeat/deadline/completed time, status, code SHA, config hash, input windows, watermarks, skipped scopes, and totals. Hot indexes: `(tenant_id, status, started_at)`, `(tenant_id, schedule_key, deadline_at)`, and `(tenant_id, scope_type, scope_id, started_at)`. |
 | `kernel_audit_findings` | Durable finding rows with `tenant_id`, `run_id`, invariant ID, category, subject type/id, scope type/id, severity, status, owner, evidence, expected, actual, first/last seen, and resolution state. Hot indexes: `(tenant_id, status, severity, last_seen_at)`, `(tenant_id, category, status, last_seen_at)`, `(tenant_id, subject_type, subject_id)`, and a dedupe key. |
-| `kernel_audit_repairs` | Repair requests and outcomes with `tenant_id`, `run_id`, finding ID, owning module, repair port/command, idempotency key, before/after, affected rows, status, error, rollback/replay notes, and verifier result. Hot indexes: `(tenant_id, status, created_at)`, `(tenant_id, idempotency_key)`, and `(tenant_id, finding_id)`. |
+| `kernel_audit_repairs` | Repair requests and outcomes with `tenant_id`, `run_id`, finding ID, owning module, repair port/command, confidence level, dry-run diff hash, idempotency key, before/after hashes, affected rows, status, error, rollback/replay notes, verifier result, `trace_id`, `correlation_id`, and `causation_id`. Hot indexes: `(tenant_id, status, created_at)`, `(tenant_id, idempotency_key)`, `(tenant_id, finding_id)`, and `(tenant_id, trace_id)`. |
+| `kernel_audit_repair_proofs` | Immutable proof packet for each repair attempt: source event IDs, canonical row references, rule/protocol version, expected state, actual state, precondition result, dry-run diff, before/after snapshots or hashes, verification query, verifier result, and linked operation/audit rows. Hot indexes: `(tenant_id, repair_id)`, `(tenant_id, subject_type, subject_id)`, and `(tenant_id, correlation_id)`. |
+| `kernel_audit_repair_limits` | Per-tenant, per-invariant, per-category repair caps and circuit-breaker state. Stores dry-run-only flags, max repairs per run/day, confidence threshold, owner approval requirement, and last tripped reason. Hot indexes: `(tenant_id, invariant_id, status)` and `(tenant_id, tripped_at)`. |
 | `kernel_audit_suppressions` | Explicit reviewed suppressions with `tenant_id`, invariant/category, subject/scope, reason, expiry, approver, source evidence, and status. Hot indexes: `(tenant_id, status, expires_at)` and `(tenant_id, invariant_id, scope_type, scope_id)`. |
 | `kernel_audit_slack_deliveries` | Delivery ledger for Slack messages, retry state, durable notification/report request ID, payload hash, channel, permalink if available, and exhausted-delivery reason. Hot indexes: `(tenant_id, status, next_attempt_at)` and `(tenant_id, request_id)`. |
 
@@ -289,6 +291,8 @@ Repair boundary:
   verifies the result, and reports the outcome.
 - Direct SQL writes to another module's tables are forbidden unless the owning
   module exposes that exact SQL path as its repair implementation.
+- No repair is considered successful until the invariant passes after the
+  repair and the proof packet links the source evidence to the mutation.
 
 | Class | Detect | Auto-fix? | Rule |
 | --- | --- | --- | --- |
@@ -306,6 +310,110 @@ Repair boundary:
 | Terminal state mutation | Completed/missed/waived/canceled/superseded changed in place. | No | P0/P1 finding; corrective lineage, never silent rewrite. |
 | Rule/config drift | Code, seed, rule DSL, migration, and docs disagree. | No | Block publish/apply until explicit owner decision. |
 | Legacy parity gap | Legacy workflow signal has no Goat OS equivalent. | No direct runtime fix | Track as migration/cutover gap with owner and target module. |
+
+### 7.1 Repair Proof, Traceability, And Safe Self-Healing
+
+Self-healing must behave like an audited workflow, not like a cron silently
+editing rows. Every attempted repair writes a repair proof packet before and
+after it calls the owning module.
+
+Required repair lifecycle:
+
+```text
+detect mismatch
+  -> write finding
+  -> build repair plan
+  -> dry-run expected diff
+  -> re-check preconditions
+  -> enforce repair cap / confidence threshold
+  -> call owning module repair service
+  -> emit repair/status/audit/outbox events through owner
+  -> verify invariant again
+  -> close, retry, revert request, or escalate
+```
+
+Required proof packet fields:
+
+```text
+repair_id
+tenant_id / operational scope
+invariant_id and audit pack version
+severity and confidence level
+source event IDs
+canonical row references used as evidence
+rule version / protocol version / config hash
+expected state
+actual state
+dry-run diff
+precondition query and result
+owning repair port/service/command
+idempotency key
+before snapshot or hash
+after snapshot or hash
+verification query and result
+affected row count
+repair status: proposed / skipped / applied / verified / failed / escalated
+trace_id / correlation_id / causation_id
+links to audit rows, status events, outbox rows, notifications, and Slack digest
+```
+
+The default decision rule:
+
+```text
+No repair without evidence.
+No evidence without canonical source.
+No mutation without owning service.
+No success without verification.
+No scale without caps, idempotency, and traceability.
+```
+
+Precondition re-check is mandatory. If the original mismatch changed between
+detection and repair, the repair must skip, write `precondition_changed`, and
+let the next audit window re-evaluate. This prevents self-healing from racing a
+real worker and undoing valid state.
+
+Confidence levels:
+
+| Level | Examples | Default action |
+| --- | --- | --- |
+| `safe_derived` | Projection rebuild, notification retry, Slack delivery retry, read-model aggregate rebuild. | Auto-repair allowed with caps. |
+| `controlled_derived` | Missing obligation from canonical fact plus active rule, booster from accepted completion, open-work cancel after proven exit. | Dry-run first; auto-repair only after invariant-specific approval and low blast radius. |
+| `manual_required` | Missing DOB, pregnancy date, proof decision, owner policy, stock truth, attendance approval, payroll truth. | Never auto-repair; create process exception. |
+
+Blast-radius controls:
+
+- per-run and per-day caps by tenant, invariant, category, repair type, and
+  subject type;
+- dry-run-only mode for new invariants and newly changed business rules;
+- automatic circuit breaker when expected affected rows exceed cap, verifier
+  fails, repeated repairs hit the same subject, or same-key/different-payload
+  idempotency conflicts appear;
+- sample review requirement before promoting a `controlled_derived` repair from
+  report-only to auto-fix;
+- kill switch per invariant and per tenant.
+
+Traceability rules:
+
+- carry `trace_id`, `correlation_id`, and `causation_id` from source event to
+  finding, repair request, owning service call, status event, outbox event,
+  notification, projection update, Operations Audit row, and Slack digest;
+- every goat, obligation, ticket, calendar item, notification, and projection
+  touched by repair must be able to show "changed by audit repair X because
+  invariant Y failed, using evidence A/B/C";
+- raw logs are secondary. Debugging starts from durable repair/finding/proof
+  rows and only then jumps to logs/traces.
+
+Operator surfaces:
+
+- Operations Audit needs a repair detail page with evidence, dry-run diff,
+  before/after hashes, verifier result, owning service, idempotency key, and
+  full trace chain;
+- Control Tower needs repair health by category: repaired, skipped,
+  precondition-changed, failed, escalated, repeated, and circuit-broken;
+- Action Center needs owner-visible process exceptions for every non-repairable
+  finding;
+- Slack messages must include counts plus links to the audit run and top repair
+  proof packets, not raw row dumps.
 
 ## 8. Current Feature Audit Matrix
 
@@ -729,6 +837,8 @@ Overall:
 - P2: 12
 - Auto-repaired: 41
 - Needs owner decision: 5
+- Repair verifier failures: 0
+- Circuit breakers tripped: 0
 - Slack delivery status: delivered
 
 Critical:
@@ -736,6 +846,7 @@ Critical:
    18 accepted animal-created facts had no matching vaccination obligation.
    Repair: 18 obligations requested through vaccination repair service and
    verified idempotently.
+   Trace: repair_run=<url> proof_packets=<url>
    Owner: Preventive Care Director
 
 2. P1 feed.safe_input_blocked
@@ -795,6 +906,7 @@ Top issue: feed safe input blocked for tomorrow in 2 sheds.
   normalizer, run ledger, finding ledger, and reporter.
 - Record `kernel_audit_runs` and `kernel_audit_findings`.
 - Add expected-run liveness heartbeats and watchdog alerts before auto-repair.
+- Add repair proof packet schema before enabling any mutation-capable repair.
 - Cover vaccination and event-spine invariants first.
 - No auto-repair in this phase.
 
@@ -806,6 +918,10 @@ Top issue: feed safe input blocked for tomorrow in 2 sheds.
   relay leases, and replay-safe outbox repair.
 - Every repair writes `kernel_audit_repairs`, audit/history, and idempotency key.
 - Every repair has a verifier query and explicit owner module.
+- Every repair stores dry-run diff, precondition result, proof packet,
+  before/after hashes, trace IDs, and post-repair verifier result.
+- Add per-tenant and per-invariant repair caps, dry-run-only flags, confidence
+  thresholds, and kill switches before enabling `controlled_derived` repairs.
 - Same-key different-payload is a conflict, never a repair.
 
 ### Phase D - Slack delivery
@@ -831,6 +947,8 @@ Top issue: feed safe input blocked for tomorrow in 2 sheds.
 - Include noisy-tenant fairness in audit workers.
 - Add high-scale report rows for audit runner throughput, lag, repairs,
   Slack delivery, and projection parity.
+- Load-test repair proof lookup and trace traversal by tenant, subject, repair,
+  invariant, and correlation ID before enabling millions-scale auto-fix.
 
 ## 13. Query And Worker Rules
 
@@ -842,6 +960,8 @@ The audit runner must follow the same high-scale rules as the kernel:
 - bounded worker pool;
 - one page/batch per transaction;
 - deterministic idempotency keys;
+- trace/correlation/causation IDs on every audit, repair, event, notification,
+  projection, and report write;
 - stale-run heartbeat and reclaim;
 - tenant-fair claim order;
 - query-plan validation for hot checks;
@@ -876,6 +996,10 @@ watermarks, and skipped/deferred scan reasons.
 - Do not write repairs directly to another module's tables outside owning
   service/port boundaries.
 - Do not use `kernel_audit_slack_deliveries` as canonical alert state.
+- Do not mark a repair successful without proof packet and post-repair
+  verification.
+- Do not allow unlimited auto-fix volume for any invariant, tenant, or repair
+  type.
 - Do not turn daily digest into a noisy dump of every P3 hygiene issue.
 
 ## 15. Acceptance Criteria
@@ -895,11 +1019,20 @@ The plan is implemented when:
 7. Auto-repair is restricted to deterministic derived artifacts, executed
    through owning module repair ports/services/commands, verified, and fully
    audited.
-8. Missing source truth creates process exceptions, not fabricated data.
-9. Protocol Adherence percentages, ticket counts, notification state, calendar
+8. Every repair has a durable proof packet with source evidence, dry-run diff,
+   preconditions, before/after hashes, verifier result, idempotency key, and
+   trace/correlation/causation IDs.
+9. Repair caps, confidence levels, dry-run mode, circuit breakers, and kill
+   switches prevent broad accidental mutation at tenant and invariant scale.
+10. Missing source truth creates process exceptions, not fabricated data.
+11. Protocol Adherence percentages, ticket counts, notification state, calendar
    state, and command-lens projections reconcile from canonical state.
-10. Feed Direction, HRMS/workforce, and every future feature can register an
+12. Operations Audit can trace from any repaired subject to finding, source
+   evidence, owning repair service, emitted events, notifications, projections,
+   and Slack report link.
+13. Feed Direction, HRMS/workforce, and every future feature can register an
    audit pack before it ships.
-11. CI blocks new kernel events/categories/statuses/workers/projections/metrics/
+14. CI blocks new kernel events/categories/statuses/workers/projections/metrics/
    tickets/calendar surfaces/business rules without audit coverage.
-12. High-scale validation proves audit scans are bounded and tenant-fair.
+15. High-scale validation proves audit scans, repair proof lookup, and trace
+   traversal are bounded and tenant-fair.
