@@ -252,15 +252,18 @@ private fun WeekDayCell(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    val on = day.isSelected || day.isToday
+    // Mock CSS: `.week .d` and `.week .d.today` share the same `padding:10px 0` — the
+    // selected cell is distinguished by its gradient background, not by extra height.
+    // A tap moves the highlight to whichever day is selected (mirrors mock `sel`), so
+    // the selected day — not the literal calendar date — decides the "on" look.
+    val on = day.isSelected
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .then(if (on) Modifier.background(MeshaColors.BrandGradient) else Modifier.background(MeshaColors.Surf))
             .border(1.dp, if (on) Color.Transparent else MeshaColors.Hair, RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
-            // Mock: today's cell is a taller pill that pops below the row.
-            .padding(vertical = if (on) 18.dp else 10.dp),
+            .padding(vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
@@ -507,8 +510,10 @@ fun DaySheet(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
         if (state.items.isEmpty()) {
+            // Fixed chrome localized client-side, like the week/history empty states below —
+            // the VM's state.emptyLabel is an English structural fallback, not the rendered copy.
             Text(
-                text = state.emptyLabel,
+                text = stringResource(R.string.calendar_day_sheet_empty),
                 color = MeshaColors.Muted,
                 fontSize = 12.5.sp,
                 modifier = Modifier.fillMaxWidth().padding(16.dp),

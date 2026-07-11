@@ -12,6 +12,7 @@
     <!-- Empty states -->
     <string name="calendar_week_empty">ಡ್ರೈವ್ ನಿಗದಿಸಲಾಗಿಲ್ಲ</string>
     <string name="calendar_history_empty">ಹಿಂದಿನ ಡ್ರೈವ್ ಇಲ್ಲ</string>
+    <string name="calendar_day_sheet_empty">ಈ ದಿನ ಯಾವುದೇ ಡ್ರೈವ್ ನಿಗದಿಯಾಗಿಲ್ಲ</string>
 
     <!-- Month grid hint -->
     <string name="calendar_month_hint">ಅದರ ಡ್ರೈವ್‌ಗಳಿಗಾಗಿ ದಿನವನ್ನು ಟ್ಯಾಪ್ ಮಾಡಿ · ಚುಕ್ಕೆಗಳು = ಡ್ರೈವ್ ದಿನಗಳು</string>

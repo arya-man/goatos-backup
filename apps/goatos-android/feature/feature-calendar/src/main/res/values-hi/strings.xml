@@ -12,6 +12,7 @@
     <!-- Empty states -->
     <string name="calendar_week_empty">कोई ड्राइव शेड्यूल नहीं है</string>
     <string name="calendar_history_empty">कोई पिछली ड्राइव नहीं</string>
+    <string name="calendar_day_sheet_empty">इस दिन कोई ड्राइव शेड्यूल नहीं</string>
 
     <!-- Month grid hint -->
     <string name="calendar_month_hint">किसी दिन को उसकी ड्राइवों के लिए टैप करें · बिंदु = ड्राइव के दिन</string>

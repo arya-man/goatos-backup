@@ -18,6 +18,7 @@
     <!-- Empty states -->
     <string name="calendar_week_empty">No drives scheduled</string>
     <string name="calendar_history_empty">No past drives</string>
+    <string name="calendar_day_sheet_empty">No drives scheduled this day</string>
 
     <!-- Month grid hint -->
     <string name="calendar_month_hint">Tap a day for its drives · dots = drive days</string>

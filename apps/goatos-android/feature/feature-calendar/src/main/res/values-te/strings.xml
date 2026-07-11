@@ -12,6 +12,7 @@
     <!-- Empty states -->
     <string name="calendar_week_empty">డ్రైవ్‌లు షెడ్యూల్ చేయబడలేదు</string>
     <string name="calendar_history_empty">గత డ్రైవ్‌లు లేవు</string>
+    <string name="calendar_day_sheet_empty">ఈ రోజు ఎలాంటి డ్రైవ్ షెడ్యూల్ చేయలేదు</string>
 
     <!-- Month grid hint -->
     <string name="calendar_month_hint">దాని డ్రైవ్‌ల కోసం ఒక రోజుని నొక్కండి · చుక్కలు = డ్రైవ్ రోజులు</string>
