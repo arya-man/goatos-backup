@@ -10,11 +10,22 @@ state, and exact stop conditions, read:
 docs/runbooks/staging-vaccination-seed-resume-2026-07-11.md
 ```
 
+For binding source-date semantics, read:
+
+```text
+docs/runbooks/vaccination-seed-source-date-contract.md
+```
+
 ## Source Of Record
 
 - Use `Vaccination_DB_-V2` / `Demo DB` as the vaccination seed source. Demo DB
   must stay an exact staging workbook derived from V2, not an independently
   edited copy.
+- Vaccination date cells are last-administered administration facts, not due
+  dates. Dates on or before the backend business date seed accepted history and
+  the kernel derives next obligations from that history. Future source dates
+  need reviewed semantics or are blocked from production seed; they must not be
+  marked late merely because they appear in the sheet.
 - Current verified source counts: V2 has 1,311 animal rows, 1,310 unique
   nonblank primary animal IDs, and 1 blank-primary-ID-but-secondary-ID-present
   row. Demo DB has the same 1,311 vaccination rows, the same 1,310 nonblank
@@ -94,6 +105,17 @@ docs/runbooks/staging-vaccination-seed-resume-2026-07-11.md
   revalidate coverage before seeding.
 - Sex and dates: sex must be explicit `Male`/`Female`; dates must be real
   `YYYY-MM-DD`. Do not let importer defaults hide source mistakes.
+- Past vaccination source dates: every trusted animal-level source vaccination
+  date is a last-administered/done date. It must seed visible vaccination
+  history, not a new due date. For local/dev/stg/prod real-data seeds, if the
+  matching `vaccination.matrix` rule exists, the seed must create/retain an
+  accepted completion with `administered_at = source date`, complete/suppress the
+  matching historical obligation, and derive only the next open work from that
+  past date. If the rule does not exist yet, the old date must still show in
+  Passport/Vaccination/Action Center as history plus a config/review gap; do not
+  fabricate rules, obligations, or completions. When the rule is later published,
+  the next generation/reconciliation run must schedule from that preserved past
+  date.
 - Workflow links: Passport/history links may point only to real workflow rows.
   Source obligation IDs are lineage, not clickable workflow records.
 - No E2E/story/dev data in shared staging: reject seed inputs, protocol codes,
@@ -127,6 +149,14 @@ docs/runbooks/staging-vaccination-seed-resume-2026-07-11.md
   spacing, and max buffer days override the cap when needed; if the cap cannot
   fit all due work inside the safe window, the planner must mark a capacity
   exception.
+- Future scheduling from seeded history must run through the same constraints as
+  normal runtime generation: active matrix scope, species/breed/sex/stage,
+  lifecycle/death/sold state, current park/shed, sick/ICU/quarantine defer
+  states, pregnancy/lactation holds, procurement warm-up, min-gap and
+  cross-vaccine spacing, latest safe date, inventory/FEFO availability,
+  manager/backup ownership, daily capacity, max buffer days, and session split
+  policy. A past trusted completion is only the anchor; it does not override any
+  current constraint.
 - Draft rule publish must show an impact preview before activation: total cells,
   cap per day, number of sessions, per-day counts, capacity state, and latest
   safe date.
@@ -257,7 +287,10 @@ Latest local rehearsal state before staging seed:
 - Local goat counts match the intended seed: 1,311 total goats, 1,192 alive,
   78 sold, and 41 dead. No local `display_id` contains a long source primary ID.
 - Local vaccination math matches the workbook: 5,860 due obligations, 3,836
-  accepted completion rows, and 9,696 total seeded vaccination obligations.
+  accepted completion rows, and 9,696 total seeded vaccination obligations. The
+  accepted completion rows come from source last-administered dates; they are
+  done/history anchors, and the due rows are next-cycle work derived after the
+  matrix and constraints are applied.
 - Local protocol shape is green: exactly one non-retired vaccination protocol is
   published, `vaccination.matrix / V1 Real Vaccination`.
 - Capacity config must be staging-correct before seed: tenant cap is configurable

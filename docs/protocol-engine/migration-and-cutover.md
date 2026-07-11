@@ -67,20 +67,55 @@ Do **not** replay old rows as `animal.created`. Run a **one-time Preventive Care
 ```
 for each canonical ACTIVE herd animal (paged, chunked by park):
    read published vaccination protocol_versions (effective today, tenant/park scope)
-   evaluate eligibility: age (approx_dob) + sex + animal_stage(shed/cohort) + lifecycle + health + overrides
-   subtract already-known vaccination history (§5)
+   evaluate eligibility and constraints:
+      age/DOB or entry date, species/breed, sex, stage/shed, lifecycle,
+      health/defer states (sick, ICU, quarantine), pregnancy/lactation,
+      procurement warm-up, park/shed scope, rule gaps, min gaps/cross-vaccine
+      spacing, inventory, operator ownership, and capacity/session caps
+   subtract already-known trusted vaccination history (§5)
    create the MISSING obligation_instances (idempotent on the deterministic key)
    group into shed drives (SM-4 batches)
 ```
 
 Idempotent: re-running the backfill creates zero duplicates (same `idempotency_key` guard as SM-1). After backfill, **all** new/future obligations come from the engine (SM-1/SM-7), never from legacy.
 
+The old source date is allowed to anchor history; it is not allowed to bypass the
+current engine. A trusted past date can mark that dose as done and establish the
+last accepted completion date, but any next/future row still passes through the
+published vaccination matrix, eligibility, defer rules, pregnancy/lactation
+rules, warm-up holds, cross-vaccine gaps, inventory checks, ownership checks,
+capacity/session caps, and the cutover policy below.
+
 ## 5. Historical vaccination data
 
-**If reliable old vaccination records exist:**
-- import into a `vaccination_history_imports` staging table → reconcile into `vaccination_completions`.
-- mark the corresponding obligations `completed` (do not re-vaccinate).
-- schedule boosters from the **actual administered date** (SM-7), not the import date.
+This contract applies to local/dev/stg/prod real-data seeds and later migration
+jobs.
+
+**If reliable animal-level old vaccination records exist:**
+- Treat each trusted source date as the **actual last-administered/done date**,
+  not as a due date and not as the seed/import run date.
+- Preserve the old date as visible vaccination history even before a matching
+  active rule exists. Passport/Vaccination/Action Center must be able to show
+  "source says last given on <date>" or a config/review blocker; the date must
+  not vanish just because `vaccination.matrix` is not published yet.
+- If a matching active rule exists, reconcile the evidence into the canonical
+  completion path (`vaccination_completions` or the equivalent reviewed
+  import-to-completion bridge), mark/suppress the corresponding obligation as
+  completed, and do **not** re-vaccinate that dose.
+- If no matching active rule exists yet, keep the evidence in the import/history
+  ledger with source refs and review status. Do **not** fabricate a rule,
+  obligation, or completion. Surface a configuration gap/review item instead.
+  When a rule is later published for that vaccine/dose/scope, the next
+  generation/reconciliation run must use the preserved past date as the last
+  accepted completion and schedule future work from it.
+- Schedule boosters/repeats from the **actual administered date** (SM-7), not the
+  import date.
+- Apply all current constraints before creating open work: active matrix scope,
+  species/breed/sex/stage, lifecycle/death/sold state, current park/shed,
+  health/defer states (`sick`, `ICU`, `quarantine`), pregnancy/lactation holds,
+  procurement warm-up, min-gap and cross-vaccine spacing, latest safe date,
+  inventory/FEFO availability, assigned owner/backup, daily capacity, max buffer
+  days, and session split policy.
 
 **If history is missing or untrusted:**
 - **do NOT invent completions.**

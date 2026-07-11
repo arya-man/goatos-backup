@@ -437,19 +437,26 @@ without durable notes/follow-up, and review confidence not being first-class.
   intake the animal starts/restarts through the normal GoatOS schedule after
   warm-up and health gates.
 - Reliable historical vaccination records, if later proven, import through
-  staging, reconcile into `vaccination_completions`, complete matching
-  obligations, and schedule boosters from actual `administered_at`. Missing or
-  untrusted history first creates one safe catch-up/review action for older animals
-  whose historical windows are already past, not every old dose as same-day
-  work; after Preventive Care (PC) approval it becomes catch-up shed drives via
-  [migration-and-cutover.md](../protocol-engine/migration-and-cutover.md), never
-  fabricated completions.
+  staging as visible history first. A trusted animal-level source date is the
+  actual last-administered/done date, not a new due date and not the import run
+  date. If a matching active rule exists, reconcile it into
+  `vaccination_completions`, complete/suppress the matching obligation, and
+  schedule boosters/repeats from actual `administered_at`. If a matching rule
+  does not exist yet, keep the date visible in Passport/Vaccination/Action
+  Center as history plus a config/review gap; do not fabricate a rule,
+  obligation, or completion. Once the rule is published, the next generation pass
+  uses that preserved past date as the last accepted completion. Missing or
+  untrusted history first creates one safe catch-up/review action for older
+  animals whose historical windows are already past, not every old dose as
+  same-day work; after Preventive Care (PC) approval it becomes catch-up shed
+  drives via [migration-and-cutover.md](../protocol-engine/migration-and-cutover.md),
+  never fabricated completions.
 - `PPR`, `FMD`, `HS`, Goat Pox, and ET+TT schedule-bearing behavior now comes
   from the active scoped vaccination matrix version. `BQ` remains a tracked
   SOP/vocabulary label until evidence-derived timing/dose/booster policy is
   added to a future matrix version.
 
-**Due state:** per-animal doses = `obligation_instances` rows (`target_type='herd_animal'`, `target_id=animal_id`, `scope_type='shed'`, `rule_id` set so two vaccines/doses due the same day on one animal don't collide). `after_previous_completion` / booster doses generate on the prior dose's **actual `administered_at`** (`trigger_type='after_previous_completion'`, respecting `min_gap_days`) — see SM-7.
+**Due state:** per-animal doses = `obligation_instances` rows (`target_type='herd_animal'`, `target_id=animal_id`, `scope_type='shed'`, `rule_id` set so two vaccines/doses due the same day on one animal don't collide). `after_previous_completion` / booster doses generate on the prior dose's **actual `administered_at`** (`trigger_type='after_previous_completion'`, respecting `min_gap_days`) and must still respect active matrix scope, species/breed/sex/stage, lifecycle state, current park/shed, health/defer states, pregnancy/lactation holds, procurement warm-up, cross-vaccine gaps, latest safe date, inventory, owner/backup availability, daily capacity, max buffer days, and session split policy — see SM-7.
 
 **Drive plan = an `obligation_batches` row** (the generic work-unit,
 [engine §4](../protocol-engine/obligation-engine.md)), NOT just a `sop_task`.

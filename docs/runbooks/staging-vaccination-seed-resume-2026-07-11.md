@@ -122,6 +122,13 @@ Known seed commands and staging readiness:
 - `backend/cmd/seed-vaccination-real`
   - Source: `goats.json`, `vaccination.json`.
   - Seeds goats, identifiers, vaccine matrix/protocol, obligations/history.
+  - Source vaccination date cells are last-administered/done dates. When a
+    matching active rule exists, seed them as accepted history with
+    `administered_at = source date`, then derive future work from that date
+    after current eligibility, defer, pregnancy/lactation, warm-up, gap,
+    inventory, ownership, and capacity constraints. When a matching rule is
+    missing, preserve the old date as visible history/config-gap evidence; do
+    not invent a rule or completion.
   - Currently guarded for local/dev/test; needs a narrow staging Cloud SQL guard
     before `GOATOS_ENV=stg`.
 - `backend/cmd/seed-roster-real`
@@ -239,6 +246,9 @@ Strict rule:
     - no `Manager: unassigned`, no owner missing, no blank backup.
     - founder accounts see all visible modules.
     - Action Center/PC/Vaccination counts reconcile.
+    - past source vaccination dates are visible as history/done anchors or
+      explicit config/review gaps; none are silently dropped because a rule was
+      missing at seed time.
     - `vaccination_eligibility_rollups` has rows.
     - capacity config/rule uses buffer 7.
 14. Stop the Cloud SQL proxy when finished.
