@@ -724,3 +724,44 @@ func derivedMatrixRows(versionID, ruleID, doseCode string) ([]domain.NewRule, []
 	}}
 	return rules, dimensions
 }
+
+// TestSyncVaccinationCapacityConfigUpsertsAndReturnsStored proves the publish-time capacity sync SQL:
+// it upserts vaccination_capacity_config for the tenant and returns the stored row (used for the
+// post-publish parity check), and a re-sync overwrites it (derived read model).
+func TestSyncVaccinationCapacityConfigUpsertsAndReturnsStored(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	want := domain.PublishedCapacity{MaxPerDay: 137, MaxBufferDays: 7, CapacityScope: "tenant", OverflowPolicy: "split_within_safe_window_then_mark_needs_review"}
+	got, err := repo.SyncVaccinationCapacityConfig(ctx, testTenantID, want)
+	if err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	if got != want {
+		t.Fatalf("sync returned %+v, want %+v (parity check would fail)", got, want)
+	}
+
+	var mp, mb int
+	var scope, overflow string
+	if err := pool.QueryRow(ctx,
+		`SELECT max_per_day, max_buffer_days, capacity_scope, overflow_policy
+		 FROM vaccination_capacity_config WHERE tenant_id = $1::uuid`, testTenantID).
+		Scan(&mp, &mb, &scope, &overflow); err != nil {
+		t.Fatalf("read stored capacity: %v", err)
+	}
+	if mp != 137 || mb != 7 || scope != "tenant" || overflow != "split_within_safe_window_then_mark_needs_review" {
+		t.Fatalf("stored capacity = %d/%d/%s/%s, want 137/7/tenant/split...", mp, mb, scope, overflow)
+	}
+
+	want2 := domain.PublishedCapacity{MaxPerDay: 200, MaxBufferDays: 2, CapacityScope: "tenant", OverflowPolicy: "split_within_safe_window_then_mark_needs_review"}
+	got2, err := repo.SyncVaccinationCapacityConfig(ctx, testTenantID, want2)
+	if err != nil {
+		t.Fatalf("re-sync: %v", err)
+	}
+	if got2 != want2 {
+		t.Fatalf("re-sync returned %+v, want %+v", got2, want2)
+	}
+}

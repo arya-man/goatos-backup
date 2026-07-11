@@ -4,12 +4,71 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/protocol/ports"
 )
+
+func vaccinationRuleDSLWithCapacity(maxPerDay, bufferDays int, scope, overflow string) string {
+	base := validVaccinationMatrixRuleDSL()
+	block := fmt.Sprintf(
+		`,"capacity":{"max_per_day":%d,"max_buffer_days":%d,"capacity_scope":%q,"overflow_policy":%q}}`,
+		maxPerDay, bufferDays, scope, overflow,
+	)
+	return strings.TrimSuffix(base, "}") + block
+}
+
+// TestPublishVersionSyncsVersionedCapacity proves publishing a vaccination version syncs its
+// rule_dsl.capacity into the operational read model with the authored values.
+func TestPublishVersionSyncsVersionedCapacity(t *testing.T) {
+	version := validPublishVersion("draft")
+	version.RuleDsl = []byte(vaccinationRuleDSLWithCapacity(137, 7, "tenant", "split_within_safe_window_then_mark_needs_review"))
+	repo := &fakeProtocolRepo{version: version}
+	service := NewService(repo)
+	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil, "publish-key"); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if repo.capacitySyncWant == nil {
+		t.Fatalf("publish must sync versioned capacity into the operational read model")
+	}
+	got := *repo.capacitySyncWant
+	want := domain.PublishedCapacity{MaxPerDay: 137, MaxBufferDays: 7, CapacityScope: "tenant", OverflowPolicy: "split_within_safe_window_then_mark_needs_review"}
+	if got != want {
+		t.Fatalf("synced capacity = %+v, want %+v", got, want)
+	}
+}
+
+// TestPublishVersionCapacityParityMismatchFails proves the post-publish parity check fails the publish
+// when the stored operational capacity does not match the versioned rule_dsl.capacity.
+func TestPublishVersionCapacityParityMismatchFails(t *testing.T) {
+	version := validPublishVersion("draft")
+	version.RuleDsl = []byte(vaccinationRuleDSLWithCapacity(137, 7, "tenant", "split_within_safe_window_then_mark_needs_review"))
+	drift := domain.PublishedCapacity{MaxPerDay: 100, MaxBufferDays: 3, CapacityScope: "tenant", OverflowPolicy: "split_within_safe_window_then_mark_needs_review"}
+	repo := &fakeProtocolRepo{version: version, capacitySyncReturn: &drift}
+	service := NewService(repo)
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil, "publish-key")
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("capacity parity mismatch must fail publish with ErrNotPublishable, got %v", err)
+	}
+}
+
+// TestParseVersionedCapacityDefaults proves an absent block yields ok=false and a present block applies
+// the business default max_buffer_days=7 when omitted.
+func TestParseVersionedCapacityDefaults(t *testing.T) {
+	if _, ok, err := parseVersionedCapacity(nil); ok || err != nil {
+		t.Fatalf("absent capacity: want ok=false err=nil, got ok=%v err=%v", ok, err)
+	}
+	got, ok, err := parseVersionedCapacity([]byte(`{"max_per_day":150}`))
+	if err != nil || !ok {
+		t.Fatalf("present capacity: ok=%v err=%v", ok, err)
+	}
+	if got.MaxPerDay != 150 || got.MaxBufferDays != 7 || got.CapacityScope != "tenant" {
+		t.Fatalf("defaults not applied: %+v", got)
+	}
+}
 
 func TestValidatePublishable(t *testing.T) {
 	cases := []struct {
@@ -891,6 +950,19 @@ type fakeProtocolRepo struct {
 	createdRules                []domain.NewRule
 	rules                       []domain.Rule
 	dimensions                  []domain.RuleDimension
+	capacitySyncWant            *domain.PublishedCapacity
+	capacitySyncReturn          *domain.PublishedCapacity
+}
+
+// SyncVaccinationCapacityConfig records the versioned capacity the publish flow synced, and echoes it
+// back (parity ok) unless a mismatching capacitySyncReturn is configured.
+func (f *fakeProtocolRepo) SyncVaccinationCapacityConfig(_ context.Context, _ string, want domain.PublishedCapacity) (domain.PublishedCapacity, error) {
+	w := want
+	f.capacitySyncWant = &w
+	if f.capacitySyncReturn != nil {
+		return *f.capacitySyncReturn, nil
+	}
+	return want, nil
 }
 
 func (f *fakeProtocolRepo) Ping(context.Context) error { return nil }

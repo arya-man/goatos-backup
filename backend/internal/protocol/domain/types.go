@@ -60,6 +60,16 @@ type Version struct {
 	RowVersion        int32
 }
 
+// PublishedCapacity is the versioned daily-vaccination-capacity block carried in rule_dsl.capacity.
+// On publish it is synced into vaccination_capacity_config (the planner's operational read model);
+// rule_dsl.capacity is the authoring source of truth and that table is derived.
+type PublishedCapacity struct {
+	MaxPerDay      int
+	MaxBufferDays  int
+	CapacityScope  string
+	OverflowPolicy string
+}
+
 // NewRule is the input to create one dose/phase rule under a version.
 type NewRule struct {
 	RuleID              string

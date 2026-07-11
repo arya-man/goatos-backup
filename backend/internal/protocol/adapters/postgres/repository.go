@@ -1616,3 +1616,34 @@ func (r *Repository) CreateTrigger(ctx context.Context, in domain.NewTrigger) (s
 	}
 	return id, nil
 }
+
+// SyncVaccinationCapacityConfig upserts the operational daily-vaccination-capacity read model from a
+// published version's rule_dsl.capacity and returns the stored row for a post-publish parity check.
+// vaccination_capacity_config is a DERIVED read model (the session-splitting planner reads it); publish
+// is the only writer. Keyed by tenant_id (one operational cap per tenant).
+func (r *Repository) SyncVaccinationCapacityConfig(ctx context.Context, tenantID string, want domain.PublishedCapacity) (domain.PublishedCapacity, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return domain.PublishedCapacity{}, fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	var got domain.PublishedCapacity
+	err = r.pool.QueryRow(ctx, `
+INSERT INTO vaccination_capacity_config (tenant_id, max_per_day, capacity_scope, max_buffer_days, overflow_policy)
+VALUES ($1::uuid, $2, $3, $4, $5)
+ON CONFLICT (tenant_id) DO UPDATE SET
+  max_per_day = EXCLUDED.max_per_day,
+  capacity_scope = EXCLUDED.capacity_scope,
+  max_buffer_days = EXCLUDED.max_buffer_days,
+  overflow_policy = EXCLUDED.overflow_policy,
+  row_version = vaccination_capacity_config.row_version + 1,
+  updated_at = now()
+RETURNING max_per_day, max_buffer_days, capacity_scope, overflow_policy`,
+		tenant, want.MaxPerDay, want.CapacityScope, want.MaxBufferDays, want.OverflowPolicy).
+		Scan(&got.MaxPerDay, &got.MaxBufferDays, &got.CapacityScope, &got.OverflowPolicy)
+	if err != nil {
+		return domain.PublishedCapacity{}, fmt.Errorf("protocol: sync vaccination capacity config: %w", err)
+	}
+	return got, nil
+}

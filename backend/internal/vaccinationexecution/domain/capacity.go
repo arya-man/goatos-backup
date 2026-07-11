@@ -81,7 +81,7 @@ func DefaultCapacityConfig() CapacityConfig {
 	return CapacityConfig{
 		MaxPerDay:      100,
 		CapacityScope:  "tenant",
-		MaxBufferDays:  3,
+		MaxBufferDays:  7,
 		OverflowPolicy: "split_within_safe_window_then_mark_needs_review",
 	}
 }

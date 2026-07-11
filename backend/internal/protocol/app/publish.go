@@ -56,8 +56,93 @@ type ruleDSLEnvelope struct {
 	MissedDosePolicy    string          `json:"missed_dose_policy"`
 	ProcurementPolicy   json.RawMessage `json:"procurement_policy"`
 	CompatibilityPolicy json.RawMessage `json:"compatibility_policy"`
+	Capacity            json.RawMessage `json:"capacity"`
 	Schedule            []scheduleRow   `json:"schedule"`
 	MatrixRows          []matrixRow     `json:"matrix_rows"`
+}
+
+// capacityConfigSyncer is the optional repository capability that upserts the operational capacity
+// read model (vaccination_capacity_config) from the published version, then returns the stored row for
+// a post-publish parity check. The versioned rule_dsl.capacity is the authoring source of truth.
+type capacityConfigSyncer interface {
+	SyncVaccinationCapacityConfig(ctx context.Context, tenantID string, want domain.PublishedCapacity) (domain.PublishedCapacity, error)
+}
+
+const defaultMaxBufferDays = 7
+
+// parseVersionedCapacity reads rule_dsl.capacity. ok is false when the block is absent. Missing/invalid
+// numeric fields fall back to safe defaults (max_per_day 100, max_buffer_days 7 — the business default).
+func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool, error) {
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
+		return domain.PublishedCapacity{}, false, nil
+	}
+	var body struct {
+		MaxPerDay      *int   `json:"max_per_day"`
+		MaxBufferDays  *int   `json:"max_buffer_days"`
+		CapacityScope  string `json:"capacity_scope"`
+		OverflowPolicy string `json:"overflow_policy"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return domain.PublishedCapacity{}, false, fmt.Errorf("%w: rule_dsl.capacity must be a JSON object: %v", ErrInvalidRuleDSL, err)
+	}
+	out := domain.PublishedCapacity{
+		MaxPerDay:      100,
+		MaxBufferDays:  defaultMaxBufferDays,
+		CapacityScope:  strings.TrimSpace(body.CapacityScope),
+		OverflowPolicy: strings.TrimSpace(body.OverflowPolicy),
+	}
+	if body.MaxPerDay != nil && *body.MaxPerDay >= 1 {
+		out.MaxPerDay = *body.MaxPerDay
+	}
+	if body.MaxBufferDays != nil && *body.MaxBufferDays >= 0 {
+		out.MaxBufferDays = *body.MaxBufferDays
+	}
+	if out.CapacityScope == "" {
+		out.CapacityScope = "tenant"
+	}
+	if out.OverflowPolicy == "" {
+		out.OverflowPolicy = "split_within_safe_window_then_mark_needs_review"
+	}
+	return out, true, nil
+}
+
+// syncPublishedCapacityBestEffort is the replay-path variant: a retry of an already-published version
+// must NOT re-validate/decode old (possibly invalid) rule_dsl, so an undecodable DSL skips the sync
+// (capacity was synced at the first publish) rather than failing the idempotent replay.
+func (s *Service) syncPublishedCapacityBestEffort(ctx context.Context, tenantID string, v domain.Version) error {
+	env, err := decodeRuleDSLEnvelope(v.RuleDsl)
+	if err != nil {
+		return nil
+	}
+	return s.syncPublishedCapacity(ctx, tenantID, v, env)
+}
+
+// syncPublishedCapacity upserts the versioned capacity into vaccination_capacity_config after a
+// vaccination version publishes, then verifies the stored row matches (preflight parity). vaccination_
+// capacity_config is a derived read model here — publish is its only writer.
+func (s *Service) syncPublishedCapacity(ctx context.Context, tenantID string, v domain.Version, env ruleDSLEnvelope) error {
+	if !isVaccinationVersion(v, env) {
+		return nil
+	}
+	want, ok, err := parseVersionedCapacity(env.Capacity)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	syncer, ok := s.repo.(capacityConfigSyncer)
+	if !ok {
+		return nil
+	}
+	got, err := syncer.SyncVaccinationCapacityConfig(ctx, tenantID, want)
+	if err != nil {
+		return fmt.Errorf("protocol: sync published capacity: %w", err)
+	}
+	if got != want {
+		return fmt.Errorf("%w: capacity parity mismatch after publish (rule_dsl=%+v stored=%+v)", ErrNotPublishable, want, got)
+	}
+	return nil
 }
 
 type vaccineMeta struct {
@@ -117,6 +202,7 @@ var (
 		"compatibility_policy": true,
 		"procurement_policy":   true,
 		"pregnancy_policy":     true,
+		"capacity":             true,
 		"recovery_policy":      true,
 		"drive_policy":         true,
 		"parameter_template":   true,
@@ -180,6 +266,14 @@ var (
 		"skip_from_pregnancy_month":    true,
 		"skip_through_pregnancy_month": true,
 		"post_delivery_catch_up_days":  true,
+	}
+	// ruleDSLCapacityKeys is the versioned daily-vaccination-capacity block (rule_dsl.capacity). It is
+	// authored + published with the rule and synced into vaccination_capacity_config on publish.
+	ruleDSLCapacityKeys = map[string]bool{
+		"max_per_day":     true,
+		"max_buffer_days": true,
+		"capacity_scope":  true,
+		"overflow_policy": true,
 	}
 	ruleDSLRecoveryPolicyKeys = map[string]bool{
 		"max_nearby_drive_align_days": true,
@@ -313,6 +407,11 @@ func ValidateRuleDSL(ruleDSL []byte) error {
 	}
 	if raw, ok := root["pregnancy_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
 		if _, err := decodeRuleDSLObject(raw, "rule_dsl.pregnancy_policy", ruleDSLPregnancyPolicyKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["capacity"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.capacity", ruleDSLCapacityKeys); err != nil {
 			return err
 		}
 	}
@@ -894,10 +993,16 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 	if v.Status == "published" {
 		if publishedVersionLooksLikeVaccinationMatrix(v) {
 			if replayer, ok := s.repo.(protocolPublishedMatrixReplayer); ok {
-				return replayer.PublishPublishedMatrixReplay(ctx, tenantID, v, publishedBy, idempotencyKey...)
+				if err := replayer.PublishPublishedMatrixReplay(ctx, tenantID, v, publishedBy, idempotencyKey...); err != nil {
+					return err
+				}
+				return s.syncPublishedCapacityBestEffort(ctx, tenantID, v)
 			}
 		}
-		return s.repo.PublishVersion(ctx, tenantID, versionID, publishedBy, idempotencyKey...)
+		if err := s.repo.PublishVersion(ctx, tenantID, versionID, publishedBy, idempotencyKey...); err != nil {
+			return err
+		}
+		return s.syncPublishedCapacityBestEffort(ctx, tenantID, v)
 	}
 	if err := ValidateRuleDSL(v.RuleDsl); err != nil {
 		return err
@@ -918,7 +1023,10 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 		if err != nil {
 			return err
 		}
-		return publisher.PublishVersionWithDerivedRules(ctx, tenantID, v, rules, dimensions, publishedBy, idempotencyKey...)
+		if err := publisher.PublishVersionWithDerivedRules(ctx, tenantID, v, rules, dimensions, publishedBy, idempotencyKey...); err != nil {
+			return err
+		}
+		return s.syncPublishedCapacity(ctx, tenantID, v, env)
 	}
 	if v.Status == "draft" {
 		if err := ValidateExecutionContract(v); err != nil {
@@ -934,7 +1042,7 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 	if err := s.repo.PublishVersion(ctx, tenantID, versionID, publishedBy, idempotencyKey...); err != nil {
 		return err
 	}
-	return nil
+	return s.syncPublishedCapacity(ctx, tenantID, v, env)
 }
 
 func decodeRuleDSLEnvelope(raw []byte) (ruleDSLEnvelope, error) {
