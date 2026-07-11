@@ -37,6 +37,72 @@ tail -f .codex-goatos-render/logs/local-api.log | grep /app/bootstrap
 
 `401` there = token expired / wrong secret (re-run the script; it re-mints). No `/app/bootstrap` line at all = the tunnel isn't up (`adb reverse --list` should show `tcp:8080 tcp:8080`; re-run the script).
 
+## Auth in dev is the LOCAL bearer — NEVER Firebase (do not re-derive this)
+
+The dev flavor authenticates by AUTO-CONSUMING the baked HS256 bearer: `make android-dev-run`
+mints a token for the target user, bakes it into `BuildConfig.DEV_BEARER_TOKEN`, and the app boots
+straight into the workspace **as that user** — no login screen. Firebase (Google / work-email +
+password) is **stg/prod only** and points at the deployed API + `goatos-prod`, so it CANNOT reach
+local `:8080`.
+
+**If the dev build shows the Firebase login screen, that is a REGRESSION, not the flow** — the
+dev-bearer auto-auth is broken and local testing is impossible until it's restored. Do NOT try to log
+in with Google/email (it hits prod, not local, and you shouldn't type credentials). Fix the dev
+auto-auth (session bootstrap consuming `DEV_BEARER_TOKEN`) instead.
+
+## Testing as a specific ROLE / switching roles (operator ↔ director ↔ CEO …)
+
+There is NO in-app role/user picker in dev — one build = one baked identity. To be a role, mint the
+bearer for a user that has that role's grant, then run. Role comes from `user_scope_grants`.
+
+**Two steps, per role:**
+
+```bash
+# 1) grant a (dev) user UUID a role — one-time per uuid+role. DATABASE_URL = the local Cloud-SQL-proxy
+#    DSN the running :8080 uses (pull it: ps eww <:8080 pid> | tr ' ' '\n' | grep ^DATABASE_URL=).
+#    GOATOS_ENV=local is required (seed-dev-grant refuses non-local targets).
+cd backend
+DATABASE_URL='postgres://postgres:<pw>@127.0.0.1:55432/goatos?sslmode=disable' GOATOS_ENV=local \
+  go run ./cmd/seed-dev-grant \
+    -tenant-id 00000000-0000-4000-8000-000000000001 \
+    -user-id 90000000-0000-4000-8000-000000000103 \
+    -role pc_director \
+    -department preventive_care   # provisions a workforce_member so department-driven nav works
+
+# 2) build + deploy the app AS that user (overrides the default identity, then the normal script):
+GOATOS_LOCAL_USER_ID=90000000-0000-4000-8000-000000000103 make android-dev-run
+```
+
+Switch role = repeat step 2 with a different `GOATOS_LOCAL_USER_ID` (grant it once via step 1 first).
+
+**Canonical dev identities (convention — any UUID works once granted):**
+
+| role (`-role`) | suggested user-id | can do |
+|---|---|---|
+| `operator` | `…000101` (the script default) | EXECUTE a drive: scan → submit + proof. Cannot close/verify. |
+| `park_head` | `…000102` | close + post verification (leadership) |
+| `pc_director` | `…000103` | close + post verification (leadership) |
+| `ceo_internal` | `…000104` | close + post verification (leadership) |
+| `verifier` | `…000105` | post verification |
+
+(`…` = `90000000-0000-4000-8000-0000000001`.) The business rule: **Director / CEO / CxO / Park Head /
+verifier close + verify; operators/managers only execute.** Closing/verification happens on the web
+(admin-web) and, where wired, the app; the operator path is app-only execution.
+
+Valid roles (from `seed-dev-grant`): `admin`, `verifier`, `park_head`, `pc_director`, `operator`,
+`ceo_internal`.
+
+## Emulator stability (why it ANRs) + recording
+
+- **System-level ANRs** ("Process system / System UI isn't responding") mean the HOST is thrashing,
+  not the app — usually a concurrent `gradle` build, the backend, and a cold emulator competing.
+  Run ONE build at a time; let the emulator finish booting before `android-dev-run`; don't run a
+  parallel `assembleDevDebug`/agent while testing.
+- Record the whole flow: `adb -s emulator-5554 shell screenrecord /sdcard/e2e.mp4` (Ctrl-C to stop),
+  then `adb -s emulator-5554 pull /sdcard/e2e.mp4`. Stills: `adb -s <serial> exec-out screencap -p > shot.png`.
+- Proof capture needs the camera: `adb -s <serial> shell pm grant sg.mesha.goatos.dev android.permission.CAMERA`
+  and set the emulator camera to the virtual scene (AVD → Camera → VirtualScene) so proof photos/video capture works.
+
 ## Notes
 
 - `goatosDevBearerToken` lives in `~/.gradle/gradle.properties` (git-ignored, machine-local) — never committed. The script rewrites just that line; the token is never printed.
