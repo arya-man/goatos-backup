@@ -9,29 +9,44 @@ import (
 )
 
 type fakeRepo struct {
-	result domain.ListResult
-	row    domain.Row
-	found  bool
+	result       domain.ListResult
+	counts       []domain.CountByWorkState
+	row          domain.Row
+	found        bool
+	listCalls    int
+	countCalls   int
+	countQueries []domain.Query
 }
 
-func (f fakeRepo) ListRows(context.Context, domain.Query) (domain.ListResult, error) {
+func (f *fakeRepo) ListRows(context.Context, domain.Query) (domain.ListResult, error) {
+	f.listCalls++
 	return f.result, nil
 }
 
-func (f fakeRepo) GetRow(context.Context, domain.Query, string) (domain.Row, bool, error) {
+func (f *fakeRepo) CountByWorkState(_ context.Context, q domain.Query) ([]domain.CountByWorkState, error) {
+	f.countCalls++
+	f.countQueries = append(f.countQueries, q)
+	if f.counts != nil {
+		return f.counts, nil
+	}
+	return f.result.CountsByWorkState, nil
+}
+
+func (f *fakeRepo) GetRow(context.Context, domain.Query, string) (domain.Row, bool, error) {
 	return f.row, f.found, nil
 }
 
 func TestControlTowerUsesFilteredCountsAndAlerts(t *testing.T) {
 	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
 	row := processRow("r1", domain.WorkStateBlocked, domain.SeverityBroken, due)
-	svc := NewService(fakeRepo{result: domain.ListResult{
+	repo := &fakeRepo{result: domain.ListResult{
 		Rows: []domain.Row{row},
 		CountsByWorkState: []domain.CountByWorkState{
 			{WorkState: domain.WorkStateBlocked, Count: 2},
 			{WorkState: domain.WorkStateVerificationPending, Count: 3},
 		},
-	}}).WithClock(func() time.Time { return due })
+	}}
+	svc := NewService(repo).WithClock(func() time.Time { return due })
 
 	got, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
 	if err != nil {
@@ -46,13 +61,47 @@ func TestControlTowerUsesFilteredCountsAndAlerts(t *testing.T) {
 	if len(got.Alerts) != 1 || got.Alerts[0].EvidenceLink != "/workflows/r1" {
 		t.Fatalf("alerts = %+v", got.Alerts)
 	}
+	if repo.listCalls != 1 || repo.countCalls != 0 {
+		t.Fatalf("control tower default queries list=%d count=%d, want one list and no extra count", repo.listCalls, repo.countCalls)
+	}
+}
+
+func TestControlTowerFetchesUnfilteredSummaryCountsForFilteredAlerts(t *testing.T) {
+	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
+	row := processRow("r1", domain.WorkStateBlocked, domain.SeverityBroken, due)
+	severity := domain.SeverityBroken
+	repo := &fakeRepo{
+		result: domain.ListResult{
+			Rows:              []domain.Row{row},
+			CountsByWorkState: []domain.CountByWorkState{{WorkState: domain.WorkStateBlocked, Count: 1}},
+		},
+		counts: []domain.CountByWorkState{
+			{WorkState: domain.WorkStateBlocked, Count: 2},
+			{WorkState: domain.WorkStateVerificationPending, Count: 3},
+		},
+	}
+	svc := NewService(repo).WithClock(func() time.Time { return due })
+
+	got, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1", Severity: &severity})
+	if err != nil {
+		t.Fatalf("control tower: %v", err)
+	}
+	if got.Summary.CriticalCount != 2 || got.Summary.WarningCount != 3 {
+		t.Fatalf("summary counts = %+v", got.Summary)
+	}
+	if repo.listCalls != 1 || repo.countCalls != 1 {
+		t.Fatalf("filtered control tower queries list=%d count=%d, want one list and one count", repo.listCalls, repo.countCalls)
+	}
+	if len(repo.countQueries) != 1 || repo.countQueries[0].Severity != nil || repo.countQueries[0].WorkState != nil || repo.countQueries[0].OwnerID != nil {
+		t.Fatalf("summary query did not clear alert-only filters: %+v", repo.countQueries)
+	}
 }
 
 func TestControlTowerUsesFeedDirectionWorkflowLinks(t *testing.T) {
 	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
 	row := processRow("feed_projection_exception:10000000-0000-4000-8000-000000000099", domain.WorkStateBlocked, domain.SeverityBroken, due)
 	row.Category = domain.CategoryFeedDirection
-	svc := NewService(fakeRepo{result: domain.ListResult{Rows: []domain.Row{row}}}).WithClock(func() time.Time { return due })
+	svc := NewService(&fakeRepo{result: domain.ListResult{Rows: []domain.Row{row}}}).WithClock(func() time.Time { return due })
 
 	got, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
 	if err != nil {
@@ -68,7 +117,7 @@ func TestProtocolAdherenceIncludesDeferredExplainedRows(t *testing.T) {
 	row := processRow("r2", domain.WorkStateDeferred, domain.SeverityWatch, due)
 	row.DeferredCount = 4
 	row.GapType = "deferred_explained"
-	svc := NewService(fakeRepo{result: domain.ListResult{
+	svc := NewService(&fakeRepo{result: domain.ListResult{
 		Rows: []domain.Row{row},
 		AdherenceSummary: domain.AdherenceSummary{
 			ExpectedCount:      row.ExpectedCount,
@@ -104,7 +153,7 @@ func TestProtocolAdherenceSummaryUsesFullFilteredSetNotCurrentPage(t *testing.T)
 		ProcessIntactCount: 975,
 		AdherencePercent:   90,
 	}
-	svc := NewService(fakeRepo{result: domain.ListResult{
+	svc := NewService(&fakeRepo{result: domain.ListResult{
 		Rows:             []domain.Row{pageRow},
 		TotalCount:       1000,
 		AdherenceSummary: fullSummary,
@@ -128,7 +177,7 @@ func TestWorkflowDrilldownBuildsConfigToCompletionNodes(t *testing.T) {
 	row.ProofState = domain.ProofStateUploaded
 	row.Evidence.ProofIDs = []string{"70000000-0000-4000-8000-000000000001"}
 	row.Evidence.EvidenceCount = 1
-	svc := NewService(fakeRepo{row: row, found: true}).WithClock(func() time.Time { return due })
+	svc := NewService(&fakeRepo{row: row, found: true}).WithClock(func() time.Time { return due })
 
 	got, found, err := svc.WorkflowDrilldown(context.Background(), domain.Query{TenantID: "tenant-1"}, "r3")
 	if err != nil || !found {
@@ -148,7 +197,7 @@ func TestWorkflowDrilldownBuildsFeedDirectionExceptionNodes(t *testing.T) {
 	row.Category = domain.CategoryFeedDirection
 	row.BlockerReason = strPtr("pregnant destination shed shortage")
 	row.Evidence.AuditRef = strPtr("count_projection_exception:10000000-0000-4000-8000-000000000099")
-	svc := NewService(fakeRepo{row: row, found: true}).WithClock(func() time.Time { return due })
+	svc := NewService(&fakeRepo{row: row, found: true}).WithClock(func() time.Time { return due })
 
 	got, found, err := svc.WorkflowDrilldown(context.Background(), domain.Query{TenantID: "tenant-1"}, row.RowID)
 	if err != nil || !found {

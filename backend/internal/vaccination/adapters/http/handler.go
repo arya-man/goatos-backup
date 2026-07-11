@@ -99,17 +99,18 @@ type impactPreviewRequest struct {
 }
 
 type impactPreviewResponse struct {
-	EligibleAnimals  int64      `json:"eligible_animals"`
-	VaccinationCells int64      `json:"vaccination_cells"`
-	AffectedSheds    int64      `json:"affected_sheds"`
-	EstimatedDays    int64      `json:"estimated_days"`
-	DailyCap         int64      `json:"daily_cap"`
-	CapacityStatus   string     `json:"capacity_status,omitempty"`
-	DosesAvailable   string     `json:"doses_available,omitempty"`
-	EarliestExpiry   *time.Time `json:"earliest_expiry,omitempty"`
-	SourceRevision   int64      `json:"source_revision"`
-	RecomputedAt     *time.Time `json:"recomputed_at,omitempty"`
-	Warnings         []string   `json:"warnings"`
+	EligibleAnimals  int64                         `json:"eligible_animals"`
+	VaccinationCells int64                         `json:"vaccination_cells"`
+	AffectedSheds    int64                         `json:"affected_sheds"`
+	EstimatedDays    int64                         `json:"estimated_days"`
+	DailyCap         int64                         `json:"daily_cap"`
+	CapacityStatus   string                        `json:"capacity_status,omitempty"`
+	PlannedSessions  []domain.ImpactPlannedSession `json:"planned_sessions"`
+	DosesAvailable   string                        `json:"doses_available,omitempty"`
+	EarliestExpiry   *time.Time                    `json:"earliest_expiry,omitempty"`
+	SourceRevision   int64                         `json:"source_revision"`
+	RecomputedAt     *time.Time                    `json:"recomputed_at,omitempty"`
+	Warnings         []string                      `json:"warnings"`
 }
 
 type manualCampaignRequest struct {
@@ -262,6 +263,10 @@ func (h *Handler) ImpactPreview(w http.ResponseWriter, r *http.Request) {
 	if warnings == nil {
 		warnings = []string{}
 	}
+	plannedSessions := preview.PlannedSessions
+	if plannedSessions == nil {
+		plannedSessions = []domain.ImpactPlannedSession{}
+	}
 	httpresponse.WriteJSON(w, http.StatusOK, impactPreviewResponse{
 		EligibleAnimals:  preview.EligibleAnimals,
 		VaccinationCells: preview.VaccinationCells,
@@ -269,6 +274,7 @@ func (h *Handler) ImpactPreview(w http.ResponseWriter, r *http.Request) {
 		EstimatedDays:    preview.EstimatedDays,
 		DailyCap:         preview.DailyCap,
 		CapacityStatus:   preview.CapacityStatus,
+		PlannedSessions:  plannedSessions,
 		DosesAvailable:   preview.DosesAvailable,
 		EarliestExpiry:   preview.EarliestExpiry,
 		SourceRevision:   preview.SourceRevision,

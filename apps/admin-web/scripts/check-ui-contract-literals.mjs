@@ -16,6 +16,7 @@ const SKIP_PATH_PARTS = [
   "components/admin-shell.tsx",
   "app/layout.tsx",
   "app/loading.tsx",
+  "app/auth/",
   "app/login/",
   "features/people/",  // /people page contract being extended; documented exception in context/frontend/admin-web-backend-ui-contract.md
   "features/procurement/work-state.ts",

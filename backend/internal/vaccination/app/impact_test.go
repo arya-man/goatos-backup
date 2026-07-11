@@ -43,6 +43,12 @@ func TestImpactPreviewReadsRollupNotGoats(t *testing.T) {
 	if out.EstimatedDays != 5 { // ceil(500 / 100)
 		t.Fatalf("estimated_days: want 5, got %d", out.EstimatedDays)
 	}
+	if len(out.PlannedSessions) != 5 {
+		t.Fatalf("planned_sessions: want 5 rows, got %d", len(out.PlannedSessions))
+	}
+	if out.PlannedSessions[0].Vaccinations != 100 || out.PlannedSessions[4].Vaccinations != 100 {
+		t.Fatalf("planned_sessions split = %+v", out.PlannedSessions)
+	}
 	if out.SourceRevision != 1700000000000 {
 		t.Fatalf("source_revision: want 1700000000000, got %d", out.SourceRevision)
 	}
@@ -68,6 +74,34 @@ func TestImpactPreviewEstimatedDaysCeilsAndDefaultsDoseRows(t *testing.T) {
 	}
 	if out.EstimatedDays != 2 { // ceil(101 / 100) = 2, not 1
 		t.Fatalf("estimated_days: want 2 (ceil), got %d", out.EstimatedDays)
+	}
+}
+
+func TestImpactPreviewPlannedSessionsUsesDraftBuffer(t *testing.T) {
+	repo := newCompletionRepoFake()
+	repo.rollupAgg = domain.EligibilityRollupAggregate{EligibleAnimals: 350, AffectedSheds: 3, SourceRevision: 1}
+	svc := NewService(repo)
+	buffer := int64(2)
+
+	out, err := svc.ImpactPreview(context.Background(), domain.ImpactRequest{
+		Filter:        domain.ImpactFilter{TenantID: "tenant-1", AsOf: time.Date(2026, time.January, 1, 8, 0, 0, 0, time.UTC)},
+		DailyCap:      100,
+		MaxBufferDays: &buffer,
+	})
+	if err != nil {
+		t.Fatalf("impact: %v", err)
+	}
+	if out.CapacityStatus != "capacity_breach" {
+		t.Fatalf("capacity_status = %q, want capacity_breach", out.CapacityStatus)
+	}
+	if len(out.PlannedSessions) != 4 {
+		t.Fatalf("planned_sessions = %d, want 4", len(out.PlannedSessions))
+	}
+	if out.PlannedSessions[0].Date != "2026-01-01" || out.PlannedSessions[3].Date != "2026-01-04" {
+		t.Fatalf("planned dates = %+v", out.PlannedSessions)
+	}
+	if out.PlannedSessions[3].Vaccinations != 50 || out.PlannedSessions[3].Capacity != "capacity_breach" {
+		t.Fatalf("last session = %+v, want 50 capacity_breach", out.PlannedSessions[3])
 	}
 }
 

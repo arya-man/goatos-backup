@@ -130,3 +130,15 @@ make seed-stg-email-grants
 ```
 
 Run heavy load tests only here, never against prod.
+
+## Terraform source support
+
+`infra/envs/stg/*.tf` now models the staging foundation and app runtime shape:
+Artifact Registry, Cloud SQL, Secret Manager containers, runtime IAM, Pub/Sub,
+Cloud Tasks, Cloud Run services/jobs, Scheduler, proof-media GCS, and Monitoring.
+It has not been applied. Existing manually-created staging resources must be
+imported or left manual before any future `terraform apply`.
+
+The API service intentionally has no public `allUsers` invoker binding. The
+admin-web service is public because the login page is public; data access remains
+gated by Firebase/JWKS plus backend RBAC.

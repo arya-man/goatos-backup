@@ -221,10 +221,10 @@ scheduled notification dispatcher job, otherwise Cloud Run will try to read
 policy and prove a real dev-safe reminder/escalation delivery before claiming
 live notification delivery.
 
-Cloud SQL is planned with `activation_policy = "ALWAYS"` for the live raw-URL
-dev dashboard bring-up. This means the instance runs while the dashboard is
-live and carries running CPU/RAM cost plus storage cost. Stop or change this
-posture only through an explicit later dev-ops checkpoint.
+Cloud SQL was changed back to `activation_policy = "NEVER"` on 2026-07-11 when
+the dev dashboard was archived. This preserves the database disk while stopping
+the 24/7 CPU/RAM posture used during live raw-URL dashboard bring-up. Switch it
+to `ALWAYS` only through an explicit later dev-ops checkpoint.
 
 Connectivity is public IP plus future Cloud SQL connector/socket:
 
@@ -271,21 +271,24 @@ commit `tfplan`, `*.tfplan`, `.terraform/`, or `*.tfstate*`.
 
 ## Dev Custom Dashboard URL
 
-Status: live for dev HTTPS page load, created imperatively outside Terraform.
-This is intentionally documented here because the P7 Terraform composition still
-does not own Layer 2 load-balancer or DNS resources.
+Status: archived on 2026-07-11. The URL no longer serves from Google Cloud. The
+load-balancer/static-IP resources below were created imperatively outside
+Terraform and then deleted during the archive; the commands remain here as the
+recreation path because the P7 Terraform composition still does not own Layer 2
+load-balancer or DNS resources.
 
 ```text
 Public URL:       https://dev.dashboard.mesha.sg/
 Project:          goatos-dev / 634659905829
 Region:           asia-south1 for the serverless NEG and Cloud Run backend
-Global IP:        8.232.140.161
+Global IP:        8.232.140.161 (historical; released on 2026-07-11)
 Global IP name:   goatos-nonprod-dashboard-ip
 DNS provider:     Cloudflare, zone mesha.sg
 DNS record:       A dev.dashboard -> 8.232.140.161, DNS-only, TTL Auto
-Certificate:      goatos-nonprod-dashboard-cert
+                  (stale after archive until Cloudflare is updated)
+Certificate:      goatos-nonprod-dashboard-cert (historical; deleted)
 Certificate SAN:  dev.dashboard.mesha.sg
-Certificate state: ACTIVE
+Certificate state: deleted with the archived load balancer
 Cloud Run target: goatos-admin-web-dev
 ```
 
@@ -410,7 +413,7 @@ goatos-dev.firebaseapp.com
 goatos-dev.web.app
 ```
 
-Validation:
+Historical validation when the custom URL was live:
 
 ```bash
 dig +short A dev.dashboard.mesha.sg @1.1.1.1

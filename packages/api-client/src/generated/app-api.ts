@@ -473,6 +473,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/action-center/counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Count vaccination process-integrity rows by work state without returning row payloads. */
+        get: operations["countVaccinationActionCenter"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/adherence": {
         parameters: {
             query?: never;
@@ -652,11 +669,7 @@ export interface paths {
         };
         /** Read the tenant's daily vaccination capacity config for the admin Config screen. */
         get: operations["getVaccinationCapacityConfig"];
-        /**
-         * Update the tenant's daily vaccination capacity config (optimistic concurrency).
-         * @description Authors the daily vaccination cap in the vaccination config flow. Capacity counts vaccination administrations, not animals (one goat receiving FMD + HS = 2). expectedRowVersion is the rowVersion the admin last read; a stale value returns 409 so concurrent edits never clobber.
-         */
-        put: operations["updateVaccinationCapacityConfig"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -2163,6 +2176,12 @@ export interface components {
             total_count: number;
             next_cursor?: string;
         };
+        ActionCenterCountsResponse: {
+            /** @enum {string} */
+            source: "api";
+            counts_by_work_state: components["schemas"]["CountByWorkState"][];
+            total_count: number;
+        };
         AdherenceSummary: {
             expected_count: number;
             completed_count: number;
@@ -2431,6 +2450,8 @@ export interface components {
              * @enum {string}
              */
             capacity_status?: "within_cap" | "over_cap" | "capacity_breach";
+            /** @description Pre-publish session split under the draft daily cap. Bounded for very large herds; estimated_days remains the full duration when the preview is truncated. */
+            planned_sessions: components["schemas"]["VaccinationPlannedSession"][];
             /** @description Optional cheap stock check; present only when a vaccine item is set. */
             doses_available?: string;
             /** Format: date-time */
@@ -2818,9 +2839,8 @@ export interface components {
             capacity: components["schemas"]["VaccinationCapacityStatus"];
         };
         /**
-         * @description Tenant daily vaccination capacity config authored on the admin Config screen. The cap counts
-         *     vaccination administrations (cells), not animals — one goat receiving FMD + HS is 2. rowVersion
-         *     is the optimistic-concurrency token (bump on each save); pass it back as expectedRowVersion.
+         * @description Tenant daily vaccination capacity config published from the versioned vaccination rule DSL. The cap
+         *     counts vaccination administrations (cells), not animals — one goat receiving FMD + HS is 2.
          */
         VaccinationCapacityConfig: {
             /** @description Max vaccination administrations allowed per day. */
@@ -2837,18 +2857,8 @@ export interface components {
              * @enum {string}
              */
             overflowPolicy: "split_within_safe_window_then_mark_needs_review";
-            /** @description Optimistic-concurrency token; pass back as expectedRowVersion on update. */
+            /** @description Published capacity config row version. */
             rowVersion: number;
-        };
-        UpdateVaccinationCapacityConfigRequest: {
-            maxPerDay: number;
-            /** @enum {string} */
-            capacityScope: "tenant" | "center" | "shed";
-            maxBufferDays: number;
-            /** @enum {string} */
-            overflowPolicy: "split_within_safe_window_then_mark_needs_review";
-            /** @description The rowVersion the admin last read; a stale value returns 409. */
-            expectedRowVersion: number;
         };
         /**
          * @description Merged CEO headline folding capacity and vaccination state by priority (highest first):
@@ -2930,6 +2940,10 @@ export interface components {
             displayId: string;
             tag1?: string | null;
             tag2?: string | null;
+            breed?: string | null;
+            /** @enum {string} */
+            sex: "female" | "male";
+            age?: string | null;
             status: string;
         };
         VaccinationShedAnimalPage: {
@@ -3192,6 +3206,10 @@ export interface components {
         Limit: number;
         Cursor: string;
         IdempotencyKey: string;
+        /** @description Standard language preference used to localize backend-owned labels/copy. Supported app languages are en, hi, kn, and te; unsupported values fall back to en. */
+        AcceptLanguage: string;
+        /** @description Exact Goat OS app language selected by the user. Takes precedence over Accept-Language for backend-owned labels/copy. */
+        GoatOSLocale: "en" | "hi" | "kn" | "te";
         ProtocolId: string;
         ProtocolVersionId: string;
         ShedId: string;
@@ -3260,7 +3278,12 @@ export interface operations {
             query?: {
                 device_id?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Standard language preference used to localize backend-owned labels/copy. Supported app languages are en, hi, kn, and te; unsupported values fall back to en. */
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+                /** @description Exact Goat OS app language selected by the user. Takes precedence over Accept-Language for backend-owned labels/copy. */
+                "X-GoatOS-Locale"?: components["parameters"]["GoatOSLocale"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4006,6 +4029,41 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    countVaccinationActionCenter: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                /** @description Reconstruct process state as of this instant (top-bar date scope). Defaults to now. */
+                as_of?: string;
+                shed_id?: string;
+                work_state?: components["schemas"]["WorkState"];
+                severity?: components["schemas"]["ProcessIntegritySeverity"];
+                owner_id?: string;
+                protocol_version_id?: string;
+                due_after?: string;
+                due_before?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vaccination Action Center work-state counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionCenterCountsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     getVaccinationProtocolAdherence: {
         parameters: {
             query?: {
@@ -4349,43 +4407,6 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    updateVaccinationCapacityConfig: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateVaccinationCapacityConfigRequest"];
-            };
-        };
-        responses: {
-            /** @description The updated capacity config (with the bumped rowVersion). */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VaccinationCapacityConfig"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            /** @description Stale rowVersion — the config was changed by someone else; reload and retry. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
             500: components["responses"]["ServerError"];
         };
     };
@@ -5011,6 +5032,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Standard language preference used to localize backend-owned labels/copy. Supported app languages are en, hi, kn, and te; unsupported values fall back to en. */
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+                /** @description Exact Goat OS app language selected by the user. Takes precedence over Accept-Language for backend-owned labels/copy. */
+                "X-GoatOS-Locale"?: components["parameters"]["GoatOSLocale"];
                 "If-None-Match"?: string;
             };
             path?: never;

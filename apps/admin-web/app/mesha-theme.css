@@ -303,6 +303,9 @@
   .cfgpolicy-note>span{font-size:10px;font-weight:800;text-transform:uppercase;color:var(--faint)}.cfgpolicy-note>b{font-size:13px;line-height:1.35;font-weight:650;color:var(--muted)}
   .cfgimpact-explain{display:grid;gap:8px;margin-top:12px;padding:11px 13px;border:1px solid var(--line2);border-radius:10px;background:var(--bg);font-size:12px;line-height:1.5;color:var(--muted)}
   .cfgimpact-explain b{display:block;margin-bottom:2px;color:var(--ink);font-size:12px;font-weight:750}.cfgimpact-explain p{margin:0}.cfgimpact-scope{display:grid;gap:2px}.cfgimpact-scope span{color:var(--muted)}
+  .cfgimpact-plan{margin-top:12px;border:1px solid var(--line2);border-radius:10px;overflow:hidden;background:var(--bg)}
+  .cfgimpact-plan-title{padding:9px 11px;border-bottom:1px solid var(--line2);font-size:12px;font-weight:750;color:var(--ink)}
+  .cfgimpact-plan table{min-width:520px;margin:0}.cfgimpact-plan th,.cfgimpact-plan td{padding:8px 10px;font-size:12px}
   .cfgdate-button{width:100%;justify-content:space-between;min-height:38px}
   .cfgdate-label{display:inline-flex;align-items:center;gap:8px;min-width:0}
   .cfgdate-popover{position:absolute;right:0;top:calc(100% + 8px);z-index:20;width:min(330px,88vw);padding:12px;background:var(--panel)}

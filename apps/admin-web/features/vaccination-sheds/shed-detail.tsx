@@ -227,6 +227,9 @@ function AnimalRosterCard({
                     </td>
                     <td className="muted">{a.tag1 ?? copy(pageContract, "label.placeholder")}</td>
                     <td className="muted">{a.tag2 ?? copy(pageContract, "label.placeholder")}</td>
+                    <td className="muted">{a.breed ?? copy(pageContract, "label.placeholder")}</td>
+                    <td className="muted">{a.sex}</td>
+                    <td className="muted">{a.age ?? copy(pageContract, "label.placeholder")}</td>
                     <td>
                       <ClipText title={a.status}>{a.status}</ClipText>
                     </td>

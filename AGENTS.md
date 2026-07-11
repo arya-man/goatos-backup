@@ -217,6 +217,16 @@ Organization boundaries:
   links billing, deploys, or changes configuration, verify and state the active
   account, organization, folder, project, and target repo. If the target is not
   Mesha/VGoats for Goat OS work, stop and correct context first.
+- If any Google auth surface expires or cannot refresh non-interactively
+  (`gcloud`, ADC, Cloud SQL Auth Proxy, Secret Manager, Google Drive/Docs/
+  Sheets, or a Google browser session), do not stop at "token refresh failed"
+  when the task requires Google access. Use browser-based reauthentication
+  immediately: `gcloud auth login ravi@mesha.sg` for CLI user credentials,
+  `gcloud auth application-default login` for ADC, or the relevant browser/
+  connector sign-in for Drive/Docs/Sheets. After reauth, re-verify the active
+  account, organization, project, and target before any write/deploy/config
+  mutation. For Goat OS, the expected account is `ravi@mesha.sg` and the
+  expected Google Cloud organization is `vgoats.com`.
 - For read-only Google-backed data pulls, Cloud SQL queries, dashboard issue
   CSVs, or any request phrased as "use gcloud/browser login", follow
   `docs/runbooks/google-cloud-environments.md` -> `goatos-dev Read-Only Cloud

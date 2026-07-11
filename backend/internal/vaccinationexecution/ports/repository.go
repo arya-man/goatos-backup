@@ -25,7 +25,4 @@ type Repository interface {
 	// CapacityConfig returns the tenant's daily vaccination cap config (falls back to the code default
 	// when no row is authored). Drives session-splitting in ShedSummary and the shed-detail plan.
 	CapacityConfig(ctx context.Context, tenantID string) (domain.CapacityConfig, error)
-	// UpdateCapacityConfig persists an admin edit with optimistic concurrency (expectedRowVersion);
-	// a stale version returns domain.ErrCapacityConfigStale.
-	UpdateCapacityConfig(ctx context.Context, tenantID string, cfg domain.CapacityConfig, expectedRowVersion int) (domain.CapacityConfig, error)
 }

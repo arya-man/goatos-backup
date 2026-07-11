@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getVaccinationActionCenter } from "@/lib/api/server";
+import { getVaccinationActionCenterCounts } from "@/lib/api/server";
 import { backendScope, parseScope } from "@/lib/scope";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ type NavCountsPayload = {
 export async function GET(request: NextRequest) {
   const scopeParams = Object.fromEntries(request.nextUrl.searchParams.entries());
   const { parkId, asOf } = backendScope(parseScope(scopeParams));
-  const actionCenter = await getVaccinationActionCenter({ parkId, asOf, limit: 1 });
+  const actionCenter = await getVaccinationActionCenterCounts({ parkId, asOf });
 
   if (!actionCenter.ok) {
     return NextResponse.json(

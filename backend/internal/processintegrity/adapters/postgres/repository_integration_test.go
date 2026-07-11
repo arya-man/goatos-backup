@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -269,6 +270,256 @@ func TestProcessIntegrityProductionQueryPlanUsesIndexes(t *testing.T) {
 		!strings.Contains(plan, "Index Only Scan") &&
 		!strings.Contains(plan, "Bitmap Index Scan") {
 		t.Fatalf("process integrity plan did not use an index scan:\n%s", plan)
+	}
+}
+
+func TestProcessIntegrityProjectionRecomputeServesHotReadsWithParity(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	seedFeedProjectionException(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	q := domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     50,
+	}
+	raw, err := repo.ListRows(ctx, q)
+	if err != nil {
+		t.Fatalf("raw ListRows: %v", err)
+	}
+	recomputed, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: q.AsOf})
+	if err != nil {
+		t.Fatalf("RecomputeProjection: %v", err)
+	}
+	if recomputed.Rows < int64(len(raw.Rows)) {
+		t.Fatalf("projection rows=%d raw page rows=%d", recomputed.Rows, len(raw.Rows))
+	}
+
+	projected, err := repo.ListRows(ctx, q)
+	if err != nil {
+		t.Fatalf("projected ListRows: %v", err)
+	}
+	if !reflect.DeepEqual(rowStateSignature(raw.Rows), rowStateSignature(projected.Rows)) {
+		t.Fatalf("projected rows differ from raw\nraw=%v\nprojected=%v", rowStateSignature(raw.Rows), rowStateSignature(projected.Rows))
+	}
+	if !reflect.DeepEqual(countSignature(raw.CountsByWorkState), countSignature(projected.CountsByWorkState)) {
+		t.Fatalf("projected counts differ from raw\nraw=%v\nprojected=%v", raw.CountsByWorkState, projected.CountsByWorkState)
+	}
+
+	feed := domain.CategoryFeedDirection
+	feedOnly, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		Category:  &feed,
+		AsOf:      q.AsOf,
+		DueBefore: q.DueBefore,
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("projected feed ListRows: %v", err)
+	}
+	if len(feedOnly.Rows) != 1 || feedOnly.Rows[0].Category != domain.CategoryFeedDirection {
+		t.Fatalf("projected feed rows = %#v", feedOnly.Rows)
+	}
+}
+
+func TestProcessIntegrityProjectionRecomputePrunesStaleGenerationRows(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
+		t.Fatalf("initial RecomputeProjection: %v", err)
+	}
+	execPI(t, ctx, pool, "insert stale projection row", `
+INSERT INTO process_integrity_projection_rows (
+  tenant_id, category, row_id, sort_priority, process_key, obligation_id, due_at,
+  expected_count, work_state, severity, owner_state, process_intact,
+  projection_version, projected_at, updated_at
+) VALUES (
+  $1::uuid, 'vaccination', 'stale-row', 99, 'stale-row', 'stale-obligation',
+  $2::timestamptz, 1, 'due', 'watch', 'assigned', false, -1, now(), now()
+)`, piTenant, asOf)
+
+	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
+		t.Fatalf("second RecomputeProjection: %v", err)
+	}
+	var staleRows int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM process_integrity_projection_rows WHERE tenant_id = $1::uuid AND row_id = 'stale-row'`, piTenant).Scan(&staleRows); err != nil {
+		t.Fatalf("count stale projection rows: %v", err)
+	}
+	if staleRows != 0 {
+		t.Fatalf("stale projection rows = %d, want pruned", staleRows)
+	}
+}
+
+func TestProcessIntegrityProjectionReadableDuringStaleAndRebuildStates(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
+		t.Fatalf("RecomputeProjection: %v", err)
+	}
+	q := normalizeQuery(domain.Query{TenantID: piTenant, AsOf: asOf, DueBefore: asOf.Add(24 * time.Hour), Limit: 10})
+	execPI(t, ctx, pool, "mark projection stale", `
+UPDATE process_integrity_projection_state
+SET serving_state = 'stale',
+    freshness_status = 'yellow',
+    as_of = $2::timestamptz
+WHERE tenant_id = $1::uuid`, piTenant, asOf.Add(-24*time.Hour))
+	if !repo.projectionReadable(ctx, q) {
+		t.Fatal("stale projection with a serving version must stay readable")
+	}
+	execPI(t, ctx, pool, "mark projection rebuilding", `
+UPDATE process_integrity_projection_state
+SET serving_state = 'rebuilding',
+    freshness_status = 'yellow',
+    as_of = $2::timestamptz,
+    row_count = (SELECT COUNT(*) FROM process_integrity_projection_rows WHERE tenant_id = $1::uuid)
+WHERE tenant_id = $1::uuid`, piTenant, asOf.Add(-10*time.Minute))
+	if !repo.projectionReadable(ctx, q) {
+		t.Fatal("projection should serve last good rows during bounded rebuild")
+	}
+	execPI(t, ctx, pool, "mark projection failed", `
+UPDATE process_integrity_projection_state
+SET serving_state = 'failed',
+    freshness_status = 'red'
+WHERE tenant_id = $1::uuid`, piTenant)
+	if repo.projectionReadable(ctx, q) {
+		t.Fatal("failed projection state must not serve rows")
+	}
+	execPI(t, ctx, pool, "clear serving projection while rebuilding", `
+UPDATE process_integrity_projection_state
+SET serving_state = 'rebuilding',
+    freshness_status = 'unknown',
+    serving_projection_version = NULL
+WHERE tenant_id = $1::uuid`, piTenant)
+	if repo.projectionReadable(ctx, q) {
+		t.Fatal("rebuilding projection with no serving version must not serve rows")
+	}
+}
+
+func TestProcessIntegrityProjectionServesStaleProjectionInsteadOfCanonicalReplay(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
+		t.Fatalf("RecomputeProjection: %v", err)
+	}
+	const marker = "served-from-stale-projection"
+	execPI(t, ctx, pool, "mark projection stale", `
+UPDATE process_integrity_projection_state
+SET serving_state = 'stale',
+    freshness_status = 'yellow',
+    as_of = $2::timestamptz
+WHERE tenant_id = $1::uuid`, piTenant, asOf.Add(-24*time.Hour))
+	execPI(t, ctx, pool, "mark first projection row", `
+UPDATE process_integrity_projection_rows
+SET next_action = $2
+WHERE process_integrity_projection_row_id = (
+  SELECT process_integrity_projection_row_id
+  FROM process_integrity_projection_rows rows
+  JOIN process_integrity_projection_state state
+    ON state.tenant_id = rows.tenant_id
+   AND state.serving_projection_version = rows.projection_version
+  WHERE rows.tenant_id = $1::uuid
+  ORDER BY rows.sort_priority, rows.due_at, rows.row_id
+  LIMIT 1
+)`, piTenant, marker)
+
+	got, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      asOf,
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     1,
+	})
+	if err != nil {
+		t.Fatalf("ListRows stale projection: %v", err)
+	}
+	if len(got.Rows) != 1 || got.Rows[0].NextAction != marker {
+		t.Fatalf("stale projection was not served; rows=%#v", got.Rows)
+	}
+}
+
+func TestProcessIntegrityProjectionReadPlanDoesNotReplayCanonicalTables(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
+		t.Fatalf("RecomputeProjection: %v", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, "SET LOCAL enable_seqscan = off"); err != nil {
+		t.Fatalf("set enable_seqscan: %v", err)
+	}
+
+	q := normalizeQuery(domain.Query{
+		TenantID:  piTenant,
+		AsOf:      asOf,
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     200,
+	})
+	args := queryArgs(q)
+	plan := explainPlan(t, ctx, tx, "EXPLAIN (COSTS OFF)\n"+processIntegrityProjectionRowsSQL, args...)
+	plan += "\n" + explainPlan(t, ctx, tx, "EXPLAIN (COSTS OFF)\n"+processIntegrityProjectionCountsSQL, countQueryArgs(args)...)
+	lowerPlan := strings.ToLower(plan)
+	if !strings.Contains(lowerPlan, "process_integrity_projection_rows") {
+		t.Fatalf("projection hot read plan must read process_integrity_projection_rows:\n%s", plan)
+	}
+	for _, forbidden := range []string{
+		"obligation_instances",
+		"obligation_status_events",
+		"vaccination_completions",
+		"sop_tasks",
+		"sop_submissions",
+		"goats",
+		"protocol_versions",
+		"protocol_rules",
+		"workforce_members",
+	} {
+		if strings.Contains(lowerPlan, forbidden) {
+			t.Fatalf("projection hot read plan replays %s:\n%s", forbidden, plan)
+		}
+	}
+	if !strings.Contains(plan, "Index Scan") &&
+		!strings.Contains(plan, "Bitmap Index Scan") &&
+		!strings.Contains(plan, "Index Only Scan") {
+		t.Fatalf("projection hot read plan did not use an index:\n%s", plan)
+	}
+}
+
+func TestProcessIntegrityProjectionInsertSQLUpsertsRows(t *testing.T) {
+	if !strings.Contains(processIntegrityProjectionInsertSQL, "ON CONFLICT (tenant_id, projection_version, row_id) DO UPDATE") {
+		t.Fatal("projection insert SQL must upsert by tenant/version/row so recompute builds a new serving generation before flipping")
 	}
 }
 
@@ -694,6 +945,22 @@ func rowByBatchSubstr(rows []domain.Row, batchID string) *domain.Row {
 		}
 	}
 	return nil
+}
+
+func rowStateSignature(rows []domain.Row) []string {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.RowID+"|"+row.Category+"|"+string(row.WorkState)+"|"+string(row.Severity)+"|"+row.NextAction)
+	}
+	return out
+}
+
+func countSignature(counts []domain.CountByWorkState) map[domain.WorkState]int64 {
+	out := map[domain.WorkState]int64{}
+	for _, count := range counts {
+		out[count.WorkState] = count.Count
+	}
+	return out
 }
 
 func explainPlan(t *testing.T, ctx context.Context, q pgx.Tx, sql string, args ...any) string {

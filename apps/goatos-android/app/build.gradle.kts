@@ -33,15 +33,17 @@ android {
     }
 
     // One common app; env is a build flavor, roles are runtime (app-id ADR).
-    // API_BASE_URL is per-flavor: dev → local backend (10.0.2.2 = host from the
-    // Android emulator); stg/prod point at the deployed API (TBD).
+    // API_BASE_URL is per-flavor: dev → local backend; stg/prod point at the deployed
+    // API (TBD). localhost:8080 works on BOTH the emulator and a USB-tethered physical
+    // device when `adb reverse tcp:8080 tcp:8080` tunnels device-loopback → laptop.
+    // (Was 10.0.2.2 = emulator-only host alias; localhost + adb reverse covers both.)
     flavorDimensions += "env"
     productFlavors {
         create("dev") {
             dimension = "env"
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
-            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080/\"")
+            buildConfigField("String", "API_BASE_URL", "\"http://localhost:8080/\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"http://localhost:3311/login\"")
         }
         create("stg") {

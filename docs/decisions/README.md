@@ -20,3 +20,14 @@ Active ADRs:
   (`stdout_json`/`otlp`/`gcm`, OTLP over HTTP), log-once-at-boundaries,
   recover-and-log panics; goat identifiers are business data (log them), only
   secrets are redacted.
+
+Pending sign-off ADRs:
+
+- `docs/decisions/vaccination-work-session-bundle.md` - Proposed vaccination
+  work-session grouping for combo/bundle drives: promote the existing
+  scope/session batch key above per-vaccine batches, keep per-vaccine
+  obligations, split oversized sessions by daily administration capacity,
+  expose the cap in the same config UI with explanatory help, require matrix
+  submissions and per-cell completion idempotency, publish the expanded E2E
+  story report, and reconcile the older "batch is the drive/work unit" decision
+  before code.

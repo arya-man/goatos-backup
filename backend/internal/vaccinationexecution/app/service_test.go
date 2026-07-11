@@ -37,14 +37,6 @@ func (r fakeRepo) CapacityConfig(_ context.Context, _ string) (domain.CapacityCo
 	return r.capacityCfg, nil
 }
 
-func (r fakeRepo) UpdateCapacityConfig(_ context.Context, _ string, cfg domain.CapacityConfig, expectedRowVersion int) (domain.CapacityConfig, error) {
-	if r.err != nil {
-		return domain.CapacityConfig{}, r.err
-	}
-	cfg.RowVersion = expectedRowVersion + 1
-	return cfg, nil
-}
-
 func (r fakeRepo) ShedAnimals(_ context.Context, _ domain.ShedAnimalQuery) ([]domain.ShedAnimalRow, error) {
 	if r.err != nil {
 		return nil, r.err

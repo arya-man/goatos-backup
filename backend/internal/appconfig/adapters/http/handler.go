@@ -48,8 +48,9 @@ type errorEnvelope struct {
 // full bundle + its ETag/revision is returned. Side-effect-free — a pure read.
 func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.service.Compile(r.Context(), app.Input{
-		TenantID: httpmiddleware.TenantIDFromContext(r.Context()),
-		ActorID:  httpmiddleware.ActorIDFromContext(r.Context()),
+		TenantID:  httpmiddleware.TenantIDFromContext(r.Context()),
+		ActorID:   httpmiddleware.ActorIDFromContext(r.Context()),
+		LocaleTag: httpmiddleware.LocaleTagFromRequest(r),
 	})
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, errorEnvelope{

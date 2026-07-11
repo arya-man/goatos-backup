@@ -7,10 +7,12 @@ import androidx.credentials.GetCredentialRequest
 import com.google.android.gms.tasks.Tasks
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.firebase.auth.ActionCodeSettings
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import sg.mesha.goatos.BuildConfig
 import javax.inject.Inject
 
 /**
@@ -68,7 +70,7 @@ class FirebaseAuthRepository @Inject constructor() : AuthRepository {
 
     override suspend fun sendPasswordReset(email: String): Result<Unit> = runCatching {
         withContext(Dispatchers.IO) {
-            Tasks.await(firebaseAuth.sendPasswordResetEmail(email))
+            Tasks.await(firebaseAuth.sendPasswordResetEmail(email, passwordResetActionCodeSettings()))
         }
         Unit
     }
@@ -102,6 +104,16 @@ class FirebaseAuthRepository @Inject constructor() : AuthRepository {
         return resources.getString(resId).also {
             check(it.isNotBlank()) { "default_web_client_id is blank for this build flavor." }
         }
+    }
+
+    private fun passwordResetActionCodeSettings(): ActionCodeSettings {
+        val builder = ActionCodeSettings.newBuilder()
+            .setUrl(BuildConfig.AUTH_ACTION_CONTINUE_URL)
+            .setHandleCodeInApp(false)
+        BuildConfig.AUTH_ACTION_LINK_DOMAIN.trim()
+            .takeIf { it.isNotEmpty() }
+            ?.let { builder.setLinkDomain(it) }
+        return builder.build()
     }
 }
 

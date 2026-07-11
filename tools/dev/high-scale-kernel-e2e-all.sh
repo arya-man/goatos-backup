@@ -16,6 +16,7 @@ run_static="${GOATOS_KERNEL_E2E_RUN_STATIC:-1}"
 run_tests="${GOATOS_KERNEL_E2E_RUN_TESTS:-1}"
 run_live="${GOATOS_KERNEL_E2E_RUN_LIVE:-1}"
 run_browser="${GOATOS_KERNEL_E2E_RUN_BROWSER:-0}"
+run_perf="${GOATOS_KERNEL_E2E_RUN_PERF:-1}"
 allow_local_checksum_drift="${GOATOS_KERNEL_E2E_ALLOW_LOCAL_CHECKSUM_DRIFT:-0}"
 local_database_url="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable}"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
@@ -39,6 +40,7 @@ require_bool() {
 require_bool GOATOS_KERNEL_E2E_CERTIFICATION "$certification_mode"
 require_bool GOATOS_KERNEL_E2E_ALLOW_NOT_IMPLEMENTED "$allow_not_implemented"
 require_bool GOATOS_KERNEL_E2E_ALLOW_LOCAL_CHECKSUM_DRIFT "$allow_local_checksum_drift"
+require_bool GOATOS_KERNEL_E2E_RUN_PERF "$run_perf"
 
 if [ "$certification_mode" = "1" ] && [ "$allow_not_implemented" != "0" ]; then
   printf 'GOATOS_KERNEL_E2E_CERTIFICATION=1 requires GOATOS_KERNEL_E2E_ALLOW_NOT_IMPLEMENTED=0\n' >&2
@@ -194,6 +196,10 @@ if [ "$run_live" = "1" ]; then
   run_step "local dev DB migration head" "cd backend && GOATOS_ENV=local DATABASE_URL='$local_database_url' go run ./cmd/migrate $migrate_flags_text"
   run_step "live vaccination chain proof" "DATABASE_URL='$local_database_url' bash tools/dev/vaccination-chain-proof.sh"
   run_step "live procurement vaccination matrix" "GOATOS_E2E_RUN_ID='$run_id' DATABASE_URL='$local_database_url' bash tools/dev/procurement-vaccination-e2e-matrix.sh"
+  if [ "$run_perf" = "1" ]; then
+    run_step "live process-integrity DB latency gate" "cd backend && DATABASE_URL='$local_database_url' GOATOS_TENANT_ID='$tenant_id' go run ./cmd/process-integrity-latency-check"
+    run_step "live API latency gate" "export GOATOS_ENV=local GOATOS_AUTH_MODE=bearer GOATOS_AUTH_ISSUER=goatos-local GOATOS_AUTH_AUDIENCE=goatos-api GOATOS_AUTH_HS256_SECRET='$auth_secret' GOATOS_AUTH_MAX_TOKEN_TTL=24h GOATOS_TENANT_ID='$tenant_id' GOATOS_LOCAL_USER_ID='$local_user_id' GOATOS_API_BASE_URL='$api_base_url' DATABASE_URL='$local_database_url'; export GOATOS_BEARER_TOKEN=\"\$(cd backend && go run ./cmd/mint-dev-token -tenant-id '$tenant_id' -user-id '$local_user_id' -ttl 2h 2>/dev/null)\"; node tools/perf/api-latency-gate.mjs --manifest tools/perf/hot-paths.vaccination.json --output '$report_dir/api-latency-gate.json'"
+  fi
   if [ "$run_browser" = "1" ]; then
     run_step "live admin-web visual smoke" "export GOATOS_ENV=local GOATOS_AUTH_MODE=bearer GOATOS_AUTH_ISSUER=goatos-local GOATOS_AUTH_AUDIENCE=goatos-api GOATOS_AUTH_HS256_SECRET='$auth_secret' GOATOS_AUTH_MAX_TOKEN_TTL=24h GOATOS_TENANT_ID='$tenant_id' GOATOS_LOCAL_USER_ID='$local_user_id' GOATOS_API_BASE_URL='$api_base_url' GOATOS_ADMIN_WEB_BASE_URL='$admin_web_base_url' DATABASE_URL='$local_database_url'; export GOATOS_BEARER_TOKEN=\"\$(cd backend && go run ./cmd/mint-dev-token -tenant-id '$tenant_id' -user-id '$local_user_id' -ttl 2h 2>/dev/null)\"; npm --prefix apps/admin-web run smoke:visual:live"
   fi
@@ -232,6 +238,13 @@ if [ "$run_live" = "1" ]; then
   passed_if "outbox relay success path" "live vaccination-chain-proof.log" "live vaccination chain proof"
   passed_if "sweeper creates batch/drive/task" "live vaccination-chain-proof.log" "live vaccination chain proof"
   passed_if "read model refresh and API surfaces reflect process state" "live vaccination-chain-proof.log" "live vaccination chain proof"
+  if [ "$run_perf" = "1" ]; then
+    passed_if "process-integrity DB hot-path p95 thresholds" "process-integrity-latency-check JSON in live-process-integrity-db-latency-gate.log" "live process-integrity DB latency gate"
+    passed_if "API hot-path p95/p99 thresholds" "api-latency-gate JSON at $report_dir/api-latency-gate.json" "live API latency gate"
+    passed_if "vaccinationexecution live CTE hot reads have explicit p95/p99 evidence" "api-latency-gate manifest includes /vaccination/execution, /vaccination/operations, and /vaccination/sheds" "live API latency gate"
+  else
+    not_run "hot-path latency gates" "GOATOS_KERNEL_E2E_RUN_PERF=0"
+  fi
   passed_if "proof submission accepted path" "live vaccination-chain-proof.log" "live vaccination chain proof"
   passed_if "procurement accepted/rejected/source-only boundaries" "live procurement-vaccination-e2e-matrix.log" "live procurement vaccination matrix"
   if [ "$run_browser" = "1" ]; then

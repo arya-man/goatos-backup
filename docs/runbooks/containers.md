@@ -22,6 +22,7 @@ docker build -f apps/admin-web/Dockerfile -t goatos-admin-web:local .
 /app/bin/domain-event-consumer
 /app/bin/domain-event-processed-sweeper
 /app/bin/generate-vaccination-obligations
+/app/bin/vaccination-eligibility-rollup-recompute
 /app/bin/obligation-sweeper
 /app/bin/calendar-vaccination-projector
 /app/bin/calendar-reminder-sweeper
@@ -63,6 +64,26 @@ docker run --rm \
   --entrypoint /app/bin/outbox-dlq \
   goatos-backend:local -mode=list -status=dead_letter -limit=100
 ```
+
+The vaccination eligibility rollup (`vaccination_eligibility_rollups`) backs the
+Config "Preview impact" button and planning aggregates. It is a READ MODEL: the
+UI/impact-preview endpoint only reads it; the projector below is the only writer.
+Run a full recompute after any bulk change — seed, import, or backfill — and
+before preview / staging verification, so the aggregate numbers match source:
+
+```bash
+docker run --rm \
+  -e DATABASE_URL="${DATABASE_URL}" \
+  -e GOATOS_TENANT_ID="${GOATOS_TENANT_ID}" \
+  --entrypoint /app/bin/vaccination-eligibility-rollup-recompute \
+  goatos-backend:local -tenant-id "${GOATOS_TENANT_ID}"
+```
+
+This is the current explicit projector entry point. The future event-driven path
+(goat created/updated/moved / stage / health / shed operational-attributes
+changed → outbox/Pub-Sub → incremental projector) is documented in the command
+header and migration `000156`; until it lands, run the recompute after bulk
+changes.
 
 Expired shared idempotency keys are cleaned by a bounded job-style binary. Dry
 run first, then execute with an operator-chosen limit:

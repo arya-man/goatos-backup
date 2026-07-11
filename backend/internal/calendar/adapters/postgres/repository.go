@@ -2354,7 +2354,12 @@ upserted AS (
   )
   SELECT
     $1::uuid, event_id, 'vaccination', event_type, owner_key, title, subtitle, status, severity,
-    due_at, window_start, window_end, timezone, timezone_source, park_id, park_code, shed_id, shed_name,
+    due_at, window_start,
+    CASE
+      WHEN window_start IS NOT NULL AND window_end IS NOT NULL AND window_end < window_start THEN window_start
+      ELSE window_end
+    END AS window_end,
+    timezone, timezone_source, park_id, park_code, shed_id, shed_name,
     cohort_id, cohort_name, target_type, target_count, protocol_id, protocol_version_id, rule_id,
     vaccine_name, dose_code, source_backed, source_label, source_target_type, source_target_id,
     assignee_label, executor_role, verifier_label, reminder_state, primary_notification_channel,

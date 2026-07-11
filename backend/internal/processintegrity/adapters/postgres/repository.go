@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -16,12 +17,15 @@ import (
 )
 
 const (
-	defaultQueryTimeout     = 3 * time.Second
-	defaultClosedHistoryAge = 14 * 24 * time.Hour
-	defaultLimit            = 100
-	maxLimit                = 500
-	countQueryArgCount      = 15
-	rowsQueryArgCount       = 20
+	defaultQueryTimeout       = 3 * time.Second
+	defaultClosedHistoryAge   = 14 * 24 * time.Hour
+	defaultProjectionFresh    = 5 * time.Minute
+	defaultLimit              = 100
+	maxLimit                  = 500
+	countQueryArgCount        = 15
+	rowsQueryArgCount         = 20
+	projectionPruneBatchSize  = 5000
+	projectionPruneMaxBatches = 25
 )
 
 type Repository struct {
@@ -43,6 +47,13 @@ func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListR
 	defer cancel()
 	q = normalizeQuery(q)
 	args := queryArgs(q)
+	if r.projectionReadable(ctx, q) {
+		return r.listRowsProjected(ctx, q, args)
+	}
+	return r.listRowsCanonical(ctx, q, args)
+}
+
+func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args []any) (domain.ListResult, error) {
 	rows, err := r.pool.Query(ctx, processIntegrityRowsSQL, args...)
 	if err != nil {
 		return domain.ListResult{}, fmt.Errorf("processintegrity: list rows: %w", err)
@@ -68,26 +79,8 @@ func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListR
 		return domain.ListResult{}, fmt.Errorf("processintegrity: iterate rows: %w", err)
 	}
 
-	countRows, err := r.pool.Query(ctx, processIntegrityCountsSQL, countQueryArgs(args)...)
-	if err != nil {
-		return domain.ListResult{}, fmt.Errorf("processintegrity: count rows: %w", err)
-	}
-	defer countRows.Close()
 	counts := []domain.CountByWorkState{}
 	var totalCount int64
-	for countRows.Next() {
-		var state string
-		var count int64
-		if err := countRows.Scan(&state, &count); err != nil {
-			return domain.ListResult{}, fmt.Errorf("processintegrity: scan count: %w", err)
-		}
-		counts = append(counts, domain.CountByWorkState{WorkState: domain.WorkState(state), Count: count})
-		totalCount += count
-	}
-	if err := countRows.Err(); err != nil {
-		return domain.ListResult{}, fmt.Errorf("processintegrity: iterate counts: %w", err)
-	}
-
 	summary := domain.AdherenceSummary{}
 	if q.IncludeAdherenceSummary {
 		summaryRows := r.pool.QueryRow(ctx, processIntegrityAdherenceSummarySQL, countQueryArgs(args)...)
@@ -99,6 +92,13 @@ func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListR
 			&summary.ProcessIntactCount,
 		); err != nil {
 			return domain.ListResult{}, fmt.Errorf("processintegrity: adherence summary: %w", err)
+		}
+		totalCount = int64(summary.OpenGapCount + summary.ProcessIntactCount)
+	} else {
+		var err error
+		counts, totalCount, err = r.countByWorkState(ctx, countQueryArgs(args))
+		if err != nil {
+			return domain.ListResult{}, err
 		}
 	}
 
@@ -113,6 +113,145 @@ func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListR
 	return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, AdherenceSummary: summary, NextCursor: next}, nil
 }
 
+func (r *Repository) CountByWorkState(ctx context.Context, q domain.Query) ([]domain.CountByWorkState, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	q = normalizeQuery(q)
+	args := queryArgs(q)
+	if r.projectionReadable(ctx, q) {
+		counts, _, err := r.countByWorkStateProjected(ctx, countQueryArgs(args))
+		if err != nil {
+			return nil, err
+		}
+		return counts, nil
+	}
+	counts, _, err := r.countByWorkState(ctx, countQueryArgs(args))
+	if err != nil {
+		return nil, err
+	}
+	return counts, nil
+}
+
+func (r *Repository) countByWorkState(ctx context.Context, args []any) ([]domain.CountByWorkState, int64, error) {
+	countRows, err := r.pool.Query(ctx, processIntegrityCountsSQL, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("processintegrity: count rows: %w", err)
+	}
+	defer countRows.Close()
+	counts := []domain.CountByWorkState{}
+	var totalCount int64
+	for countRows.Next() {
+		var state string
+		var count int64
+		if err := countRows.Scan(&state, &count); err != nil {
+			return nil, 0, fmt.Errorf("processintegrity: scan count: %w", err)
+		}
+		counts = append(counts, domain.CountByWorkState{WorkState: domain.WorkState(state), Count: count})
+		totalCount += count
+	}
+	if err := countRows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("processintegrity: iterate counts: %w", err)
+	}
+	return counts, totalCount, nil
+}
+
+func (r *Repository) listRowsProjected(ctx context.Context, q domain.Query, args []any) (domain.ListResult, error) {
+	rows, err := r.pool.Query(ctx, processIntegrityProjectionRowsSQL, args...)
+	if err != nil {
+		return domain.ListResult{}, fmt.Errorf("processintegrity: list projection rows: %w", err)
+	}
+	defer rows.Close()
+
+	out := []domain.Row{}
+	var lastCursor *domain.Cursor
+	seenExtra := false
+	for rows.Next() {
+		row, cursor, err := scanRow(rows)
+		if err != nil {
+			return domain.ListResult{}, err
+		}
+		if len(out) < q.Limit {
+			out = append(out, row)
+			lastCursor = &cursor
+		} else {
+			seenExtra = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return domain.ListResult{}, fmt.Errorf("processintegrity: iterate projection rows: %w", err)
+	}
+
+	counts := []domain.CountByWorkState{}
+	var totalCount int64
+	summary := domain.AdherenceSummary{}
+	if q.IncludeAdherenceSummary {
+		summaryRows := r.pool.QueryRow(ctx, processIntegrityProjectionAdherenceSummarySQL, countQueryArgs(args)...)
+		if err := summaryRows.Scan(
+			&summary.ExpectedCount,
+			&summary.CompletedCount,
+			&summary.OpenGapCount,
+			&summary.DeferredCount,
+			&summary.ProcessIntactCount,
+		); err != nil {
+			return domain.ListResult{}, fmt.Errorf("processintegrity: projection adherence summary: %w", err)
+		}
+		totalCount = int64(summary.OpenGapCount + summary.ProcessIntactCount)
+	} else {
+		var err error
+		counts, totalCount, err = r.countByWorkStateProjected(ctx, countQueryArgs(args))
+		if err != nil {
+			return domain.ListResult{}, err
+		}
+	}
+
+	var next *string
+	if seenExtra && lastCursor != nil {
+		encoded, err := domain.EncodeCursor(*lastCursor)
+		if err != nil {
+			return domain.ListResult{}, err
+		}
+		next = &encoded
+	}
+	return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, AdherenceSummary: summary, NextCursor: next}, nil
+}
+
+func (r *Repository) countByWorkStateProjected(ctx context.Context, args []any) ([]domain.CountByWorkState, int64, error) {
+	countRows, err := r.pool.Query(ctx, processIntegrityProjectionCountsSQL, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("processintegrity: count projection rows: %w", err)
+	}
+	defer countRows.Close()
+	counts := []domain.CountByWorkState{}
+	var totalCount int64
+	for countRows.Next() {
+		var state string
+		var count int64
+		if err := countRows.Scan(&state, &count); err != nil {
+			return nil, 0, fmt.Errorf("processintegrity: scan projection count: %w", err)
+		}
+		counts = append(counts, domain.CountByWorkState{WorkState: domain.WorkState(state), Count: count})
+		totalCount += count
+	}
+	if err := countRows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("processintegrity: iterate projection counts: %w", err)
+	}
+	return counts, totalCount, nil
+}
+
+func (r *Repository) projectionReadable(ctx context.Context, q domain.Query) bool {
+	var servingVersion int64
+	err := r.pool.QueryRow(ctx, `
+SELECT serving_projection_version
+FROM process_integrity_projection_state
+WHERE tenant_id = $1::uuid
+  AND serving_projection_version IS NOT NULL
+  AND serving_state IN ('fresh', 'stale', 'rebuilding')`, q.TenantID).Scan(&servingVersion)
+	if err != nil {
+		return false
+	}
+	return servingVersion > 0
+}
+
 func (r *Repository) GetRow(ctx context.Context, q domain.Query, rowID string) (domain.Row, bool, error) {
 	q.RowID = &rowID
 	q.Limit = 1
@@ -125,6 +264,202 @@ func (r *Repository) GetRow(ctx context.Context, q domain.Query, rowID string) (
 		return domain.Row{}, false, nil
 	}
 	return result.Rows[0], true, nil
+}
+
+// RecomputeProjection refreshes the tenant process-integrity read model from canonical
+// obligation/SOP/proof/completion/feed-exception tables. This is the projector path: it is allowed to
+// replay raw source state because it runs off the request path and publishes one indexed serving table.
+func (r *Repository) RecomputeProjection(ctx context.Context, req domain.ProjectionRecomputeRequest) (result domain.ProjectionRecomputeResult, retErr error) {
+	if strings.TrimSpace(req.TenantID) == "" {
+		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: tenant id is required")
+	}
+	asOf := req.AsOf
+	if asOf.IsZero() {
+		asOf = time.Now().In(biztime.DefaultLocation())
+	}
+	var projectionVersion int64
+	var projectedAt time.Time
+	if err := r.pool.QueryRow(ctx, `SELECT (extract(epoch FROM now()) * 1000)::bigint, now()`).Scan(&projectionVersion, &projectedAt); err != nil {
+		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: projection stamp: %w", err)
+	}
+	if err := r.markProjectionRebuilding(ctx, req.TenantID, projectionVersion, projectedAt, asOf); err != nil {
+		return domain.ProjectionRecomputeResult{}, err
+	}
+	defer func() {
+		if retErr != nil {
+			r.markProjectionFailed(req.TenantID, retErr)
+		}
+	}()
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: begin projection recompute: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	if _, err := tx.Exec(ctx, processIntegrityProjectionInsertSQL, projectionBuildArgs(req.TenantID, asOf, projectionVersion, projectedAt)...); err != nil {
+		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: upsert projection rows: %w", err)
+	}
+
+	counts, err := projectionCountsForTenant(ctx, tx, req.TenantID, projectionVersion)
+	if err != nil {
+		return domain.ProjectionRecomputeResult{}, err
+	}
+	var rowCount int64
+	for _, count := range counts {
+		rowCount += count.Count
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO process_integrity_projection_state (
+  tenant_id, projection_version, serving_projection_version, projected_at, as_of, row_count,
+  freshness_status, serving_state, last_error, updated_at
+) VALUES (
+  $1::uuid, $2::bigint, $2::bigint, $3::timestamptz, $4::timestamptz, $5::bigint,
+  'green', 'fresh', NULL, now()
+)
+ON CONFLICT (tenant_id) DO UPDATE SET
+  projection_version = EXCLUDED.projection_version,
+  serving_projection_version = EXCLUDED.serving_projection_version,
+  projected_at = EXCLUDED.projected_at,
+  as_of = EXCLUDED.as_of,
+  row_count = EXCLUDED.row_count,
+  freshness_status = EXCLUDED.freshness_status,
+  serving_state = EXCLUDED.serving_state,
+  last_error = NULL,
+  updated_at = now()`,
+		req.TenantID, projectionVersion, projectedAt, asOf, rowCount); err != nil {
+		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: upsert projection state: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: commit projection recompute: %w", err)
+	}
+	committed = true
+	r.pruneOldProjectionRows(ctx, req.TenantID, projectionVersion)
+	return domain.ProjectionRecomputeResult{
+		TenantID:           req.TenantID,
+		ProjectionVersion:  projectionVersion,
+		ProjectedAt:        projectedAt,
+		AsOf:               asOf,
+		Rows:               rowCount,
+		CountsByWorkState:  counts,
+		ProjectionFreshFor: defaultProjectionFresh,
+	}, nil
+}
+
+func (r *Repository) markProjectionRebuilding(ctx context.Context, tenantID string, projectionVersion int64, projectedAt, asOf time.Time) error {
+	if _, err := r.pool.Exec(ctx, `
+INSERT INTO process_integrity_projection_state (
+  tenant_id, projection_version, serving_projection_version, projected_at, as_of, row_count,
+  freshness_status, serving_state, last_error, updated_at
+) VALUES (
+  $1::uuid, $2::bigint, NULL, $3::timestamptz, $4::timestamptz, 0,
+  'unknown', 'rebuilding', NULL, now()
+)
+ON CONFLICT (tenant_id) DO UPDATE SET
+  freshness_status = CASE
+    WHEN process_integrity_projection_state.row_count > 0 THEN 'yellow'
+    ELSE 'unknown'
+  END,
+  serving_state = 'rebuilding',
+  last_error = NULL,
+  updated_at = now()`, tenantID, projectionVersion, projectedAt, asOf); err != nil {
+		return fmt.Errorf("processintegrity: mark projection rebuilding: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) markProjectionFailed(tenantID string, cause error) {
+	if strings.TrimSpace(tenantID) == "" || cause == nil {
+		return
+	}
+	stateCtx, cancel := context.WithTimeout(context.Background(), r.timeout)
+	defer cancel()
+	message := cause.Error()
+	if len(message) > 2000 {
+		message = message[:2000]
+	}
+	_, _ = r.pool.Exec(stateCtx, `
+UPDATE process_integrity_projection_state
+SET freshness_status = 'red',
+    serving_state = 'failed',
+    last_error = $2::text,
+    updated_at = now()
+WHERE tenant_id = $1::uuid`, tenantID, message)
+}
+
+func (r *Repository) pruneOldProjectionRows(ctx context.Context, tenantID string, servingVersion int64) {
+	if strings.TrimSpace(tenantID) == "" || servingVersion <= 0 {
+		return
+	}
+	for batch := 0; batch < projectionPruneMaxBatches; batch++ {
+		tag, err := r.pool.Exec(ctx, `
+WITH doomed AS (
+  SELECT process_integrity_projection_row_id
+  FROM process_integrity_projection_rows
+  WHERE tenant_id = $1::uuid
+    AND projection_version <> $2::bigint
+  ORDER BY projection_version, process_integrity_projection_row_id
+  LIMIT $3::int
+)
+DELETE FROM process_integrity_projection_rows rows
+USING doomed
+WHERE rows.process_integrity_projection_row_id = doomed.process_integrity_projection_row_id`,
+			tenantID, servingVersion, projectionPruneBatchSize)
+		if err != nil {
+			return
+		}
+		if tag.RowsAffected() < projectionPruneBatchSize {
+			return
+		}
+	}
+}
+
+func projectionBuildArgs(tenantID string, asOf time.Time, projectionVersion int64, projectedAt time.Time) []any {
+	q := normalizeQuery(domain.Query{
+		TenantID:         tenantID,
+		AsOf:             asOf,
+		DueBefore:        time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC),
+		IncludeCompleted: true,
+		Limit:            maxLimit,
+	})
+	args := queryArgs(q)
+	return append(args, projectionVersion, pgtype.Timestamptz{Time: projectedAt, Valid: true})
+}
+
+func projectionCountsForTenant(ctx context.Context, q interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}, tenantID string, projectionVersion int64) ([]domain.CountByWorkState, error) {
+	rows, err := q.Query(ctx, `
+SELECT work_state, COUNT(*)::bigint
+FROM process_integrity_projection_rows
+WHERE tenant_id = $1::uuid
+  AND projection_version = $2::bigint
+GROUP BY work_state
+ORDER BY work_state`, tenantID, projectionVersion)
+	if err != nil {
+		return nil, fmt.Errorf("processintegrity: projection count summary: %w", err)
+	}
+	defer rows.Close()
+	counts := []domain.CountByWorkState{}
+	for rows.Next() {
+		var state string
+		var count int64
+		if err := rows.Scan(&state, &count); err != nil {
+			return nil, fmt.Errorf("processintegrity: scan projection count summary: %w", err)
+		}
+		counts = append(counts, domain.CountByWorkState{WorkState: domain.WorkState(state), Count: count})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("processintegrity: iterate projection count summary: %w", err)
+	}
+	return counts, nil
 }
 
 type rowScanner interface {
@@ -659,19 +994,7 @@ grouped AS (
     MAX(jsonb_array_length(COALESCE(located.proof_refs, '[]'::jsonb)))::int AS proof_count,
     MAX(located.submitted_at) AS latest_evidence_at,
     (ARRAY_AGG(located.rejection_reason ORDER BY located.completion_updated_at DESC NULLS LAST) FILTER (WHERE located.rejection_reason IS NOT NULL AND located.rejection_reason <> ''))[1] AS latest_rejection_reason,
-    COALESCE(
-      (ARRAY_AGG(located.conducted_by::text ORDER BY located.due_at DESC NULLS LAST) FILTER (WHERE located.conducted_by IS NOT NULL))[1],
-      (ARRAY_AGG(default_operator.workforce_member_id::text ORDER BY
-        CASE
-          WHEN default_operator.primary_location_id = located.shed_uuid THEN 0
-          WHEN default_operator.primary_location_id = located.park_uuid THEN 1
-          ELSE 2
-        END,
-        located.due_at DESC NULLS LAST,
-        default_operator.updated_at DESC NULLS LAST,
-        default_operator.workforce_member_id DESC
-      ) FILTER (WHERE default_operator.workforce_member_id IS NOT NULL))[1]
-    ) AS conducted_by,
+    (ARRAY_AGG(located.conducted_by::text ORDER BY located.due_at DESC NULLS LAST) FILTER (WHERE located.conducted_by IS NOT NULL))[1] AS explicit_conducted_by,
     (ARRAY_AGG(located.assigned_to::text ORDER BY located.due_at DESC NULLS LAST) FILTER (WHERE located.assigned_to IS NOT NULL))[1] AS assigned_to,
     (ARRAY_AGG(located.verified_by::text ORDER BY located.verified_at DESC NULLS LAST) FILTER (WHERE located.verified_by IS NOT NULL))[1] AS verified_by,
     COALESCE(MAX(stage.stage_code), MAX(stage.name), MAX(located.goat_stage), 'Unknown') AS animal_stage,
@@ -699,17 +1022,6 @@ grouped AS (
   LEFT JOIN animal_stage_lookup stage
     ON stage.tenant_id = $1::uuid
    AND stage.animal_stage_id = sp.animal_stage_id
-  LEFT JOIN LATERAL (
-    SELECT wm.workforce_member_id, wm.primary_location_id, wm.updated_at
-    FROM workforce_members wm
-    WHERE wm.tenant_id = $1::uuid
-      AND wm.status = 'active'
-      AND wm.primary_role_hint = 'operator'
-      AND wm.primary_location_id IN (located.shed_uuid, located.park_uuid)
-    ORDER BY CASE WHEN wm.primary_location_id = located.shed_uuid THEN 0 WHEN wm.primary_location_id = located.park_uuid THEN 1 ELSE 2 END,
-             wm.updated_at DESC, wm.workforce_member_id DESC
-    LIMIT 1
-  ) default_operator ON true
   WHERE located.park_uuid IS NOT NULL
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
     AND ($3::text = '' OR located.shed_uuid = $3::uuid)
@@ -719,6 +1031,7 @@ grouped AS (
 enriched AS (
   SELECT
     grouped.*,
+    COALESCE(grouped.explicit_conducted_by, default_operator.workforce_member_id::text) AS conducted_by,
     COALESCE(loa.usable_for_vaccination, true) AS usable_for_vaccination,
     COALESCE(loa.is_quarantine, false) AS is_quarantine,
     COALESCE(loa.is_icu, false) AS is_icu
@@ -726,6 +1039,17 @@ enriched AS (
   LEFT JOIN location_operational_attributes loa
     ON loa.tenant_id = $1::uuid
    AND loa.location_id = grouped.shed_uuid
+  LEFT JOIN LATERAL (
+    SELECT wm.workforce_member_id, wm.primary_location_id, wm.updated_at
+    FROM workforce_members wm
+    WHERE wm.tenant_id = $1::uuid
+      AND wm.status = 'active'
+      AND wm.primary_role_hint = 'operator'
+      AND wm.primary_location_id IN (grouped.shed_uuid, grouped.park_uuid)
+    ORDER BY CASE WHEN wm.primary_location_id = grouped.shed_uuid THEN 0 WHEN wm.primary_location_id = grouped.park_uuid THEN 1 ELSE 2 END,
+             wm.updated_at DESC, wm.workforce_member_id DESC
+    LIMIT 1
+  ) default_operator ON grouped.explicit_conducted_by IS NULL
 ),
 stateful AS (
   SELECT
@@ -1041,7 +1365,7 @@ feed_exception_rows AS (
 )
 `
 
-const processIntegrityRowsSQL = processIntegrityBaseSQL + processIntegrityFeedExceptionSQL + `,
+const processIntegrityAllRowsSQL = processIntegrityBaseSQL + processIntegrityFeedExceptionSQL + `,
 all_rows AS (
   SELECT
     sort_priority,
@@ -1174,6 +1498,9 @@ all_rows AS (
     audit_ref
   FROM feed_exception_rows
 )
+`
+
+const processIntegrityRowsSQL = processIntegrityAllRowsSQL + `
 SELECT *
 FROM all_rows
 WHERE (
@@ -1183,16 +1510,12 @@ WHERE (
 ORDER BY sort_priority ASC, due_at ASC, row_id ASC
 LIMIT $19
 OFFSET $20;
-	`
+		`
 
-const processIntegrityCountsSQL = processIntegrityBaseSQL + processIntegrityFeedExceptionSQL + `,
+const processIntegrityCountsSQL = processIntegrityAllRowsSQL + `,
 all_counts AS (
   SELECT work_state
-  FROM filtered
-  WHERE ($15::text = '' OR $15::text = 'vaccination')
-  UNION ALL
-  SELECT work_state
-  FROM feed_exception_rows
+  FROM all_rows
 )
 SELECT work_state, COUNT(*)::bigint
 FROM all_counts
@@ -1200,24 +1523,15 @@ GROUP BY work_state
 ORDER BY work_state;
 `
 
-const processIntegrityAdherenceSummarySQL = processIntegrityBaseSQL + processIntegrityFeedExceptionSQL + `,
+const processIntegrityAdherenceSummarySQL = processIntegrityAllRowsSQL + `,
 all_summary AS (
-  SELECT
-    expected_count,
-    completed_count,
-    deferred_count + health_deferred_count AS deferred_count,
-    work_state,
-    process_intact
-  FROM filtered
-  WHERE ($15::text = '' OR $15::text = 'vaccination')
-  UNION ALL
   SELECT
     expected_count,
     completed_count,
     deferred_count,
     work_state,
     process_intact
-  FROM feed_exception_rows
+  FROM all_rows
 )
 SELECT
   COALESCE(SUM(expected_count), 0)::integer AS expected_count,
@@ -1226,4 +1540,333 @@ SELECT
   COALESCE(SUM(CASE WHEN work_state = 'deferred' THEN GREATEST(deferred_count, 1) ELSE 0 END), 0)::integer AS deferred_count,
   COALESCE(COUNT(*) FILTER (WHERE process_intact), 0)::integer AS process_intact_count
 FROM all_summary;
+`
+
+const processIntegrityProjectionFilterSQL = `
+FROM process_integrity_projection_rows
+WHERE tenant_id = $1::uuid
+  AND projection_version = (
+    SELECT serving_projection_version
+    FROM process_integrity_projection_state
+    WHERE tenant_id = $1::uuid
+      AND serving_projection_version IS NOT NULL
+      AND serving_state IN ('fresh', 'stale', 'rebuilding')
+  )
+  AND ($15::text = '' OR category = $15::text)
+  AND ($2::text = '' OR park_id = $2::text)
+  AND ($3::text = '' OR shed_id = $3::text)
+  AND ($4::timestamptz IS NULL OR due_at >= $4::timestamptz)
+  AND due_at <= $5::timestamptz
+  AND ($6::text = '' OR work_state = $6::text)
+  AND ($7::text = '' OR severity = $7::text)
+  AND ($8::text = '' OR owner_refs @> ARRAY[$8::text])
+  AND ($9::text = '' OR protocol_version_id = $9::text)
+  AND ($10::timestamptz IS NULL OR $10::timestamptz IS NOT NULL)
+  AND ($12::text = '' OR row_id = $12::text)
+  AND (NOT $13::boolean OR work_state IN ('rejected', 'blocked', 'overdue', 'proof_pending', 'verification_pending'))
+  AND ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz)
+`
+
+const processIntegrityProjectionRowsSQL = `
+SELECT
+  sort_priority,
+  row_id,
+  process_key,
+  category,
+  obligation_id,
+  batch_id,
+  sop_task_id,
+  sop_task_row_version,
+  sop_submission_id,
+  completion_id,
+  park_id,
+  park_name,
+  shed_id,
+  shed_name,
+  cohort_id,
+  goat_id,
+  animal_stage,
+  protocol_id,
+  protocol_version_id,
+  rule_id,
+  protocol_name,
+  dose_code,
+  drive_name,
+  sop_version_id,
+  proof_policy,
+  due_at,
+  window_start,
+  window_end,
+  expected_count,
+  obligation_status,
+  batch_status,
+  sop_state,
+  submission_state,
+  proof_state,
+  verification_state,
+  completion_state,
+  completed_count,
+  proof_count,
+  rejected_count,
+  deferred_count,
+  work_state,
+  gap_type,
+  severity,
+  blocker_reason,
+  owner_state,
+  next_action,
+  process_intact,
+  operator_id,
+  operator_name,
+  park_head_id,
+  park_head_name,
+  verifier_id,
+  verifier_name,
+  escalation_owner_id,
+  escalation_owner_name,
+  proof_ids,
+  evidence_count,
+  latest_evidence_at,
+  latest_rejection_reason,
+  audit_ref
+` + processIntegrityProjectionFilterSQL + `
+  AND (
+    $16::int < 0
+    OR (sort_priority, due_at, row_id) > ($16::int, $17::timestamptz, $18::text)
+  )
+ORDER BY sort_priority ASC, due_at ASC, row_id ASC
+LIMIT $19
+OFFSET $20;
+`
+
+const processIntegrityProjectionCountsSQL = `
+SELECT work_state, COUNT(*)::bigint
+` + processIntegrityProjectionFilterSQL + `
+GROUP BY work_state
+ORDER BY work_state;
+`
+
+const processIntegrityProjectionAdherenceSummarySQL = `
+SELECT
+  COALESCE(SUM(expected_count), 0)::integer AS expected_count,
+  COALESCE(SUM(completed_count), 0)::integer AS completed_count,
+  COALESCE(COUNT(*) FILTER (WHERE NOT process_intact), 0)::integer AS open_gap_count,
+  COALESCE(SUM(CASE WHEN work_state = 'deferred' THEN GREATEST(deferred_count, 1) ELSE 0 END), 0)::integer AS deferred_count,
+  COALESCE(COUNT(*) FILTER (WHERE process_intact), 0)::integer AS process_intact_count
+` + processIntegrityProjectionFilterSQL + `;
+`
+
+const processIntegrityProjectionInsertSQL = processIntegrityAllRowsSQL + `,
+projection_args AS (
+  SELECT
+    $16::int AS cursor_sort,
+    $17::timestamptz AS cursor_due,
+    $18::text AS cursor_row,
+    $19::int AS row_limit,
+    $20::int AS row_offset
+)
+INSERT INTO process_integrity_projection_rows (
+  tenant_id,
+  sort_priority,
+  row_id,
+  process_key,
+  category,
+  obligation_id,
+  batch_id,
+  sop_task_id,
+  sop_task_row_version,
+  sop_submission_id,
+  completion_id,
+  park_id,
+  park_name,
+  shed_id,
+  shed_name,
+  cohort_id,
+  goat_id,
+  animal_stage,
+  protocol_id,
+  protocol_version_id,
+  rule_id,
+  protocol_name,
+  dose_code,
+  drive_name,
+  sop_version_id,
+  proof_policy,
+  due_at,
+  window_start,
+  window_end,
+  expected_count,
+  obligation_status,
+  batch_status,
+  sop_state,
+  submission_state,
+  proof_state,
+  verification_state,
+  completion_state,
+  completed_count,
+  proof_count,
+  rejected_count,
+  deferred_count,
+  work_state,
+  gap_type,
+  severity,
+  blocker_reason,
+  owner_state,
+  next_action,
+  process_intact,
+  operator_id,
+  operator_name,
+  park_head_id,
+  park_head_name,
+  verifier_id,
+  verifier_name,
+  escalation_owner_id,
+  escalation_owner_name,
+  owner_refs,
+  proof_ids,
+  evidence_count,
+  latest_evidence_at,
+  latest_rejection_reason,
+  audit_ref,
+  projection_version,
+  projected_at,
+  updated_at
+)
+SELECT
+  $1::uuid,
+  sort_priority,
+  row_id,
+  process_key,
+  category,
+  obligation_id,
+  batch_id,
+  sop_task_id,
+  sop_task_row_version,
+  sop_submission_id,
+  completion_id,
+  park_id,
+  park_name,
+  shed_id,
+  shed_name,
+  cohort_id,
+  goat_id,
+  animal_stage,
+  protocol_id,
+  protocol_version_id,
+  rule_id,
+  protocol_name,
+  dose_code,
+  drive_name,
+  sop_version_id,
+  proof_policy,
+  due_at,
+  window_start,
+  window_end,
+  expected_count,
+  obligation_status,
+  batch_status,
+  sop_state,
+  submission_state,
+  proof_state,
+  verification_state,
+  completion_state,
+  completed_count,
+  proof_count,
+  rejected_count,
+  deferred_count,
+  work_state,
+  gap_type,
+  severity,
+  blocker_reason,
+  owner_state,
+  next_action,
+  process_intact,
+  operator_id,
+  operator_name,
+  park_head_id,
+  park_head_name,
+  verifier_id,
+  verifier_name,
+  escalation_owner_id,
+  escalation_owner_name,
+  array_remove(ARRAY[
+    NULLIF(operator_id, ''),
+    NULLIF(park_head_id, ''),
+    NULLIF(verifier_id, ''),
+    NULLIF(escalation_owner_id, '')
+  ], NULL)::text[],
+  proof_ids,
+  evidence_count,
+  latest_evidence_at,
+  latest_rejection_reason,
+  audit_ref,
+  $21::bigint,
+  $22::timestamptz,
+  $22::timestamptz
+FROM all_rows
+CROSS JOIN projection_args
+ON CONFLICT (tenant_id, projection_version, row_id) DO UPDATE SET
+  sort_priority = EXCLUDED.sort_priority,
+  process_key = EXCLUDED.process_key,
+  category = EXCLUDED.category,
+  obligation_id = EXCLUDED.obligation_id,
+  batch_id = EXCLUDED.batch_id,
+  sop_task_id = EXCLUDED.sop_task_id,
+  sop_task_row_version = EXCLUDED.sop_task_row_version,
+  sop_submission_id = EXCLUDED.sop_submission_id,
+  completion_id = EXCLUDED.completion_id,
+  park_id = EXCLUDED.park_id,
+  park_name = EXCLUDED.park_name,
+  shed_id = EXCLUDED.shed_id,
+  shed_name = EXCLUDED.shed_name,
+  cohort_id = EXCLUDED.cohort_id,
+  goat_id = EXCLUDED.goat_id,
+  animal_stage = EXCLUDED.animal_stage,
+  protocol_id = EXCLUDED.protocol_id,
+  protocol_version_id = EXCLUDED.protocol_version_id,
+  rule_id = EXCLUDED.rule_id,
+  protocol_name = EXCLUDED.protocol_name,
+  dose_code = EXCLUDED.dose_code,
+  drive_name = EXCLUDED.drive_name,
+  sop_version_id = EXCLUDED.sop_version_id,
+  proof_policy = EXCLUDED.proof_policy,
+  due_at = EXCLUDED.due_at,
+  window_start = EXCLUDED.window_start,
+  window_end = EXCLUDED.window_end,
+  expected_count = EXCLUDED.expected_count,
+  obligation_status = EXCLUDED.obligation_status,
+  batch_status = EXCLUDED.batch_status,
+  sop_state = EXCLUDED.sop_state,
+  submission_state = EXCLUDED.submission_state,
+  proof_state = EXCLUDED.proof_state,
+  verification_state = EXCLUDED.verification_state,
+  completion_state = EXCLUDED.completion_state,
+  completed_count = EXCLUDED.completed_count,
+  proof_count = EXCLUDED.proof_count,
+  rejected_count = EXCLUDED.rejected_count,
+  deferred_count = EXCLUDED.deferred_count,
+  work_state = EXCLUDED.work_state,
+  gap_type = EXCLUDED.gap_type,
+  severity = EXCLUDED.severity,
+  blocker_reason = EXCLUDED.blocker_reason,
+  owner_state = EXCLUDED.owner_state,
+  next_action = EXCLUDED.next_action,
+  process_intact = EXCLUDED.process_intact,
+  operator_id = EXCLUDED.operator_id,
+  operator_name = EXCLUDED.operator_name,
+  park_head_id = EXCLUDED.park_head_id,
+  park_head_name = EXCLUDED.park_head_name,
+  verifier_id = EXCLUDED.verifier_id,
+  verifier_name = EXCLUDED.verifier_name,
+  escalation_owner_id = EXCLUDED.escalation_owner_id,
+  escalation_owner_name = EXCLUDED.escalation_owner_name,
+  owner_refs = EXCLUDED.owner_refs,
+  proof_ids = EXCLUDED.proof_ids,
+  evidence_count = EXCLUDED.evidence_count,
+  latest_evidence_at = EXCLUDED.latest_evidence_at,
+  latest_rejection_reason = EXCLUDED.latest_rejection_reason,
+  audit_ref = EXCLUDED.audit_ref,
+  projection_version = EXCLUDED.projection_version,
+  projected_at = EXCLUDED.projected_at,
+  updated_at = EXCLUDED.updated_at;
 `

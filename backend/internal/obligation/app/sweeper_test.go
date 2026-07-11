@@ -379,6 +379,8 @@ type fakeSweepRepo struct {
 	finalizationPages    [][]domain.PlannedBatchFinalization
 	finalizationCalls    int
 	createdFinalization  []domain.PlannedBatchFinalization
+	parkListCalls        int
+	repeatParkPage       bool
 }
 
 func (f *fakeSweepRepo) Ping(context.Context) error { return nil }
@@ -466,8 +468,35 @@ func (f *fakeSweepRepo) ListUnbatchedDueForVersion(context.Context, string, stri
 	return f.rows, nil
 }
 
-func (f *fakeSweepRepo) ListUnbatchedShedDueForParkConsolidation(context.Context, string, string, time.Time, int32) ([]domain.ParkConsolidationCandidate, error) {
-	return f.parkRows, nil
+func (f *fakeSweepRepo) ListUnbatchedShedDueForParkConsolidation(_ context.Context, _, _ string, _ time.Time, limit int32, after *domain.ParkConsolidationCursor) ([]domain.ParkConsolidationCandidate, error) {
+	f.parkListCalls++
+	if limit <= 0 {
+		limit = int32(len(f.parkRows))
+	}
+	if f.repeatParkPage {
+		end := int(limit)
+		if end > len(f.parkRows) {
+			end = len(f.parkRows)
+		}
+		return f.parkRows[:end], nil
+	}
+	start := 0
+	if after != nil {
+		for idx, row := range f.parkRows {
+			if row.ObligationID == after.ObligationID {
+				start = idx + 1
+				break
+			}
+		}
+	}
+	if start >= len(f.parkRows) {
+		return nil, nil
+	}
+	end := start + int(limit)
+	if end > len(f.parkRows) {
+		end = len(f.parkRows)
+	}
+	return f.parkRows[start:end], nil
 }
 
 func (f *fakeSweepRepo) CountAttachedObligationsByRule(_ context.Context, _, batchID string) ([]domain.RuleAttachmentCount, error) {

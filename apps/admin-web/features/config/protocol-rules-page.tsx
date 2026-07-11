@@ -67,6 +67,11 @@ function toRuleRow(item: ProtocolConfigItem, pageContract: AdminUiPageContract):
   };
 }
 
+function isVisibleDefaultConfigRule(item: ProtocolConfigItem, category: string): boolean {
+  if (category !== "vaccination") return true;
+  return item.code === "vaccination.matrix" && item.status === "published";
+}
+
 // Shown at Admin / Data Ops / Config. This is the generic protocol authority surface:
 // Preventive Care (PC) / Vaccination links here with category=vaccination, but no module owns the screen. Rules are read
 // from the real backend protocol list (B3, GET /protocols?category=…) through the generated client —
@@ -93,7 +98,11 @@ export async function ConfigProtocolRulesPage({
   // Daily vaccination capacity is now authored INSIDE the versioned rule (rule_dsl.capacity) via the
   // rule editor's Save draft / Publish — there is no separate tenant-level capacity card or save button.
   // On publish the backend syncs it into vaccination_capacity_config (the planner's operational read model).
-  const rules: ConfigRuleRow[] = res.ok ? res.data.items.map((item) => toRuleRow(item, pageContract)) : [];
+  const rules: ConfigRuleRow[] = res.ok
+    ? res.data.items
+        .filter((item) => isVisibleDefaultConfigRule(item, initialCategory))
+        .map((item) => toRuleRow(item, pageContract))
+    : [];
   const loadError = res.ok ? null : (res.error.message ?? copy(pageContract, "error.rules_load"));
   const selectedRuleDetail = selectedRes && selectedRes.ok ? selectedRes.data : null;
   const selectedRuleError = selectedRes && !selectedRes.ok ? (selectedRes.error.message ?? selectedRes.error.kind) : null;

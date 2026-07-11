@@ -30,6 +30,8 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
+	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
 )
 
 const defaultTenantID = "00000000-0000-4000-8000-000000000001"
@@ -129,7 +131,7 @@ func run(args []string) error {
 	defer cancel()
 
 	pgCfg := platformpg.ConfigFromEnv()
-	if err := localtarget.ValidateLocalDatabaseTarget("seed-vaccination-real", os.Getenv("GOATOS_ENV"), pgCfg.DatabaseURL, "local", "dev", "test"); err != nil {
+	if err := validateTarget(os.Getenv("GOATOS_ENV"), pgCfg.DatabaseURL); err != nil {
 		return err
 	}
 	pool, err := platformpg.Connect(ctx, pgCfg)
@@ -308,7 +310,12 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 	if err != nil {
 		return st, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
 
 	// 0. Purge ALL leftover synthetic dev fixtures (data cleanup, not schema/rule change) so every
 	//    surface (/calendar, /counts/herd, /vaccination) renders only real herd data. Targets the
@@ -410,88 +417,78 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 	if err != nil {
 		return st, err
 	}
+	sopVersionID, err := resolveVaccinationSOPVersion(ctx, tx, tenantID)
+	if err != nil {
+		return st, err
+	}
 	versionID := detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real")
-	var status string
+	var status, existingRuleDSL, existingSOPVersionID string
+	var existingVersion int
 	qerr := tx.QueryRow(ctx, `
-		SELECT protocol_version_id, status
+		SELECT protocol_version_id, status, version, rule_dsl::text, COALESCE(sop_version_id::text, '')
 		FROM protocol_versions
 		WHERE tenant_id=$1
 		  AND protocol_id=$2
 		  AND scope_type='tenant'
 		  AND scope_id IS NULL
 		  AND version_label=$3
+		  AND status <> 'retired'
 		ORDER BY version DESC
 		LIMIT 1`,
-		tenantID, protocolID, matrixVersionLabel).Scan(&versionID, &status)
+		tenantID, protocolID, matrixVersionLabel).Scan(&versionID, &status, &existingVersion, &existingRuleDSL, &existingSOPVersionID)
+	if qerr == nil && status == "published" && (!jsonSemanticallyEqual(existingRuleDSL, ruleDSL) || existingSOPVersionID != sopVersionID) {
+		qerr = pgx.ErrNoRows
+	}
 	if qerr == pgx.ErrNoRows {
-		var nextVersion int
-		if err := tx.QueryRow(ctx, `
-			SELECT COALESCE(MAX(version), 0) + 1
-			FROM protocol_versions
-			WHERE tenant_id=$1
-			  AND protocol_id=$2
-			  AND scope_type='tenant'
-			  AND scope_id IS NULL`,
-			tenantID, protocolID).Scan(&nextVersion); err != nil {
-			return st, fmt.Errorf("next vaccination matrix version: %w", err)
+		nextVersion, err := nextProtocolVersion(ctx, tx, tenantID, protocolID)
+		if err != nil {
+			return st, err
 		}
+		versionID = detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real", fmt.Sprintf("%d", nextVersion))
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
-				version_label, status, effective_from, effective_to, rule_dsl, proof_policy)
-			VALUES ($1,$2,$3,'tenant',NULL,$4,$5,'draft',DATE '2026-01-01',NULL,$6::jsonb,'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb)`,
-			versionID, tenantID, protocolID, nextVersion, matrixVersionLabel, ruleDSL); err != nil {
+				version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id)
+			VALUES ($1,$2,$3,'tenant',NULL,$4,$5,'draft',DATE '2026-01-01',NULL,$6::jsonb,'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,$7::uuid)`,
+			versionID, tenantID, protocolID, nextVersion, matrixVersionLabel, ruleDSL, sopVersionID); err != nil {
 			return st, fmt.Errorf("protocol version vaccination matrix: %w", err)
 		}
 		status = "draft"
 	} else if qerr != nil {
 		return st, fmt.Errorf("lookup vaccination matrix version: %w", qerr)
-	}
-
-	if _, err := tx.Exec(ctx, `
-		UPDATE protocol_versions
-		SET status='retired', retired_at=COALESCE(retired_at, now()), updated_at=now(), row_version=row_version+1
-		WHERE tenant_id=$1
-		  AND protocol_id=$2
-		  AND protocol_version_id <> $3
-		  AND status <> 'retired'`,
-		tenantID, protocolID, versionID); err != nil {
-		return st, fmt.Errorf("retire previous vaccination matrix versions: %w", err)
-	}
-
-	if status == "draft" {
-		for _, vaccName := range vaccineOrder {
-			def := vaccines[vaccName]
-			for _, dt := range doseTypesFor(vaccName) {
-				ruleID := detUUID("protocol_rule", tenantID, "vaccination_matrix", def.Code, doseCode(dt))
-				eligibility := fmt.Sprintf(`{"stage":"all","sex":"all","breed":"all","lifecycle":"alive","matrix_protocol":%q,"vaccine_code":%q,"vaccine_name":%q}`,
-					matrixProtocolCode, def.Code, def.Name)
-				if err := tx.QueryRow(ctx, `
-					INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
-						offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json, sort_order)
-					VALUES ($1,$2,$3,$4,$5,'birth_age',$6,7,$7,'none','immediate',$8::jsonb,$9)
-					ON CONFLICT (tenant_id, protocol_version_id, dose_code) DO UPDATE SET
-						sequence=EXCLUDED.sequence,
-						trigger_type=EXCLUDED.trigger_type,
-						offset_days=EXCLUDED.offset_days,
-						due_window_days=EXCLUDED.due_window_days,
-						min_gap_days=EXCLUDED.min_gap_days,
-						repeat=EXCLUDED.repeat,
-						catch_up=EXCLUDED.catch_up,
-						eligibility_json=EXCLUDED.eligibility_json,
-						sort_order=EXCLUDED.sort_order
-					RETURNING rule_id`,
-					ruleID, tenantID, versionID, matrixDoseCode(def, dt), doseSequence(dt), offsetDays(dt), minGapDays(dt), eligibility,
-					vaccineSortOrder(vaccName)+doseSequence(dt)).Scan(&ruleID); err != nil {
-					return st, fmt.Errorf("protocol rule %s/%s: %w", vaccName, dt, err)
-				}
-			}
-		}
+	} else if status == "draft" && (!jsonSemanticallyEqual(existingRuleDSL, ruleDSL) || existingSOPVersionID != sopVersionID) {
 		if _, err := tx.Exec(ctx, `
-			UPDATE protocol_versions SET status='published', published_at=now(), updated_at=now()
-			WHERE protocol_version_id=$1 AND status='draft'`, versionID); err != nil {
-			return st, fmt.Errorf("publish vaccination matrix version: %w", err)
+			UPDATE protocol_versions
+			SET rule_dsl=$1::jsonb,
+			    proof_policy='{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,
+			    sop_version_id=$2::uuid,
+			    updated_at=now(),
+			    row_version=row_version+1
+			WHERE tenant_id=$3::uuid
+			  AND protocol_version_id=$4::uuid
+			  AND status='draft'`,
+			ruleDSL, sopVersionID, tenantID, versionID); err != nil {
+			return st, fmt.Errorf("refresh vaccination matrix draft: %w", err)
 		}
+	} else {
+		_ = existingVersion
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return st, fmt.Errorf("commit protocol draft: %w", err)
+	}
+	committed = true
+
+	protocolService := protocolapp.NewService(protocolpg.NewRepository(pool, 0))
+	if err := protocolService.PublishVersion(ctx, tenantID, versionID, nil, "seed-vaccination-real:"+versionID); err != nil {
+		return st, fmt.Errorf("publish vaccination matrix through protocol service: %w", err)
+	}
+
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		return st, fmt.Errorf("begin animal seed tx: %w", err)
+	}
+	committed = false
+
 	for _, vaccName := range vaccineOrder {
 		def := vaccines[vaccName]
 		versionByVaccine[vaccName] = versionID
@@ -715,6 +712,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 	if err := tx.Commit(ctx); err != nil {
 		return st, fmt.Errorf("commit: %w", err)
 	}
+	committed = true
 	return st, nil
 }
 
@@ -1067,6 +1065,13 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
+func validateTarget(env, databaseURL string) error {
+	if strings.EqualFold(strings.TrimSpace(env), "stg") {
+		return localtarget.ValidateStagingCloudSQLDatabaseTarget("seed-vaccination-real", env, databaseURL)
+	}
+	return localtarget.ValidateLocalDatabaseTarget("seed-vaccination-real", env, databaseURL, "local", "dev", "test")
+}
+
 func distinct[T any](items []T, key func(T) string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -1208,44 +1213,176 @@ func nullString(s string) *string {
 	return &s
 }
 
+func resolveVaccinationSOPVersion(ctx context.Context, tx pgx.Tx, tenantID string) (string, error) {
+	var sopVersionID string
+	err := tx.QueryRow(ctx, `
+		SELECT sv.sop_version_id::text
+		FROM sop_versions sv
+		JOIN sop_definitions sd
+		  ON sd.tenant_id = sv.tenant_id
+		 AND sd.sop_id = sv.sop_id
+		WHERE sv.tenant_id = $1::uuid
+		  AND sd.code = 'vaccination.drive'
+		  AND sv.status = 'published'
+		ORDER BY sv.version DESC, sv.updated_at DESC
+		LIMIT 1`, tenantID).Scan(&sopVersionID)
+	if err != nil {
+		return "", fmt.Errorf("resolve published vaccination.drive SOP version: %w", err)
+	}
+	return sopVersionID, nil
+}
+
+func nextProtocolVersion(ctx context.Context, tx pgx.Tx, tenantID, protocolID string) (int, error) {
+	var nextVersion int
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(MAX(version), 0) + 1
+		FROM protocol_versions
+		WHERE tenant_id=$1
+		  AND protocol_id=$2
+		  AND scope_type='tenant'
+		  AND scope_id IS NULL`,
+		tenantID, protocolID).Scan(&nextVersion); err != nil {
+		return 0, fmt.Errorf("next vaccination matrix version: %w", err)
+	}
+	return nextVersion, nil
+}
+
+func jsonSemanticallyEqual(a, b string) bool {
+	var left, right any
+	if json.Unmarshal([]byte(a), &left) != nil || json.Unmarshal([]byte(b), &right) != nil {
+		return strings.TrimSpace(a) == strings.TrimSpace(b)
+	}
+	la, err := json.Marshal(left)
+	if err != nil {
+		return false
+	}
+	rb, err := json.Marshal(right)
+	if err != nil {
+		return false
+	}
+	return string(la) == string(rb)
+}
+
 func vaccinationMatrixRuleDSL() (string, error) {
+	type scheduleRow struct {
+		DoseCode                  string  `json:"dose_code"`
+		SourceDoseCode            string  `json:"source_dose_code"`
+		Sequence                  int     `json:"sequence"`
+		TriggerType               string  `json:"trigger_type"`
+		OffsetDays                int     `json:"offset_days"`
+		DueWindowDays             int     `json:"due_window_days"`
+		DoseAmount                float64 `json:"dose_amount"`
+		DoseUnit                  string  `json:"dose_unit"`
+		VialDoses                 int     `json:"vial_doses"`
+		RevaccinationIntervalDays int     `json:"revaccination_interval_days"`
+		ScheduleNote              string  `json:"schedule_note,omitempty"`
+		RouteSite                 string  `json:"route_site"`
+		MaxDelayDays              int     `json:"max_delay_days"`
+		CourseLapsePolicy         string  `json:"course_lapse_policy"`
+		MinGapDays                int     `json:"min_gap_days"`
+		Repeat                    string  `json:"repeat"`
+		RepeatUntilAfterAge       string  `json:"repeat_until_after_age"`
+		CatchUp                   string  `json:"catch_up"`
+	}
+	type vaccineMeta struct {
+		Code               string `json:"code"`
+		Name               string `json:"name"`
+		Type               string `json:"type"`
+		Disease            string `json:"disease"`
+		CompatibilityGroup string `json:"compatibility_group"`
+		PathogenClass      string `json:"pathogen_class"`
+		CourseType         string `json:"course_type"`
+	}
 	type matrixRow struct {
-		Code      string   `json:"code"`
-		Name      string   `json:"name"`
-		Disease   string   `json:"disease"`
-		Type      string   `json:"type"`
-		ItemCode  string   `json:"item_code"`
-		DoseML    float64  `json:"dose_ml"`
-		VialDoses int      `json:"vial_doses"`
-		Doses     []string `json:"doses"`
+		RowID       string         `json:"row_id"`
+		Vaccine     vaccineMeta    `json:"vaccine"`
+		Eligibility map[string]any `json:"eligibility"`
+		Schedule    []scheduleRow  `json:"schedule"`
 	}
 	rows := make([]matrixRow, 0, len(vaccineOrder))
+	schedule := []scheduleRow{}
 	for _, vaccName := range vaccineOrder {
 		def := vaccines[vaccName]
-		doses := make([]string, 0, len(doseTypesFor(vaccName)))
+		rowSchedule := []scheduleRow{}
 		for _, dt := range doseTypesFor(vaccName) {
-			doses = append(doses, matrixDoseCode(def, dt))
+			dose := matrixDoseCode(def, dt)
+			cell := scheduleRow{
+				DoseCode:                  dose,
+				SourceDoseCode:            dose,
+				Sequence:                  vaccineSortOrder(vaccName) + doseSequence(dt),
+				TriggerType:               "birth_age",
+				OffsetDays:                offsetDays(dt),
+				DueWindowDays:             7,
+				DoseAmount:                def.DoseML,
+				DoseUnit:                  "ml",
+				VialDoses:                 def.VialDoses,
+				RevaccinationIntervalDays: revaccinationIntervalDays(vaccName),
+				ScheduleNote:              "real vaccination seed source matrix",
+				RouteSite:                 "subcutaneous",
+				MaxDelayDays:              7,
+				CourseLapsePolicy:         "preventive_care_review",
+				MinGapDays:                minGapDays(dt),
+				Repeat:                    "none",
+				RepeatUntilAfterAge:       "-",
+				CatchUp:                   "immediate",
+			}
+			rowSchedule = append(rowSchedule, cell)
+			schedule = append(schedule, cell)
+		}
+		courseType := "single"
+		if len(rowSchedule) > 1 {
+			courseType = "booster"
 		}
 		rows = append(rows, matrixRow{
-			Code: def.Code, Name: def.Name, Disease: def.Disease, Type: def.Type,
-			ItemCode: def.ItemCode, DoseML: def.DoseML, VialDoses: def.VialDoses, Doses: doses,
+			RowID: "real-seed-" + def.Code,
+			Vaccine: vaccineMeta{
+				Code:               strings.ToUpper(def.Code),
+				Name:               def.Name,
+				Type:               def.Type,
+				Disease:            def.Disease,
+				CompatibilityGroup: strings.ToUpper(def.Code),
+				PathogenClass:      pathogenClass(def.Type),
+				CourseType:         courseType,
+			},
+			Eligibility: vaccinationSeedEligibility(),
+			Schedule:    rowSchedule,
 		})
 	}
 	payload := map[string]any{
 		"category":       "vaccination",
 		"ruleset_family": "vaccination.matrix",
-		"reference":      "docs/preventive-care-vaccination/vaccination-rules.md",
-		"source": map[string]any{
-			"source_system": "google_sheet",
-			"source_ref":    "real_vaccination_seed",
-			"review_status": "approved_for_dev_staging_seed",
+		"vaccine": map[string]string{
+			"code": "vaccination.matrix",
+			"name": "Preventive Care Vaccination Matrix",
+			"type": "matrix",
 		},
-		"eligibility": map[string]string{
-			"stage":     "all",
-			"sex":       "all",
-			"breed":     "all",
-			"lifecycle": "alive",
+		"eligibility":        vaccinationSeedEligibility(),
+		"missed_dose_policy": "immediate",
+		"compatibility_policy": map[string]any{
+			"live_to_killed_gap_days":            14,
+			"killed_to_killed_gap_days":          14,
+			"live_to_live_gap_days":              28,
+			"kid_booster_min_gap_days":           21,
+			"bacterial_viral_same_day_allowed":   true,
+			"live_killed_viral_same_day_allowed": true,
+			"max_vaccines_per_combo_session":     2,
 		},
+		"procurement_policy": map[string]any{
+			"warmup_no_vaccination_days":       7,
+			"kids_normal_schedule_until_weeks": 16,
+			"adult_prior_vaccination_allowed":  true,
+			"first_wave":                       []string{"ET+TT", "PPR"},
+			"second_wave_after_days":           28,
+			"goat_second_wave":                 []string{"Goat Pox", "ET+TT booster"},
+			"sheep_second_wave":                []string{"ET+TT booster", "Sheep Pox"},
+		},
+		"capacity": map[string]any{
+			"max_per_day":     100,
+			"max_buffer_days": 7,
+			"capacity_scope":  "tenant",
+			"overflow_policy": "split_within_safe_window_then_mark_needs_review",
+		},
+		"schedule":    schedule,
 		"matrix_rows": rows,
 	}
 	data, err := json.Marshal(payload)
@@ -1253,6 +1390,46 @@ func vaccinationMatrixRuleDSL() (string, error) {
 		return "", fmt.Errorf("build vaccination matrix rule_dsl: %w", err)
 	}
 	return string(data), nil
+}
+
+func vaccinationSeedEligibility() map[string]any {
+	return map[string]any{
+		"species":                     []string{"goat", "sheep"},
+		"animal_stage":                []string{"all"},
+		"sex":                         []string{"female", "male"},
+		"breed":                       []string{"all"},
+		"lifecycle":                   []string{"alive"},
+		"health":                      []string{"healthy"},
+		"reproductive":                []string{"any"},
+		"exclude_reproductive_states": []string{"pregnant_late"},
+		"defer_states":                []string{"icu", "quarantine"},
+	}
+}
+
+func pathogenClass(vaccineType string) string {
+	switch strings.ToLower(strings.TrimSpace(vaccineType)) {
+	case "live":
+		return "live"
+	case "killed":
+		return "killed"
+	case "toxoid":
+		return "bacterial"
+	default:
+		return "unknown_review_needed"
+	}
+}
+
+func revaccinationIntervalDays(vaccName string) int {
+	switch vaccName {
+	case "FMD":
+		return 274
+	case "PPR":
+		return 1095
+	case "ET+TT":
+		return 182
+	default:
+		return 365
+	}
 }
 
 func nullableDate(s string) *string {

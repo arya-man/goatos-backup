@@ -111,8 +111,9 @@ func clampFloat(v, min, max float64) float64 {
 
 // Input identifies the actor whose config bundle this compile call resolves.
 type Input struct {
-	TenantID string
-	ActorID  string
+	TenantID  string
+	ActorID   string
+	LocaleTag string
 }
 
 // Service compiles the mobile remote-config bundle.

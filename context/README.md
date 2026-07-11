@@ -89,6 +89,9 @@ Backend stack ADR
 Calendar ownership and vaccination Calendar scope ADR
   docs/decisions/calendar-ownership.md
 
+Vaccination work-session bundle ADR (pending sign-off)
+  docs/decisions/vaccination-work-session-bundle.md
+
 High-scale dashboard projection architecture
   docs/decisions/high-scale-dashboard-projections.md
 

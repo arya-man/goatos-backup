@@ -5,10 +5,12 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.sessionDataStore by preferencesDataStore(name = "goatos_session")
+private const val DEFAULT_LANGUAGE_TAG = "en"
 
 /**
  * Session/auth state (session token, language). Two things live under the same key by flavor:
@@ -25,6 +27,7 @@ interface SessionStore {
     suspend fun setBearerToken(token: String?)
 
     val language: Flow<String>
+    suspend fun currentLanguage(): String
     suspend fun setLanguage(code: String)
 }
 
@@ -50,20 +53,27 @@ class DataStoreSessionStore(
     }
 
     override val language: Flow<String> =
-        context.sessionDataStore.data.map { it[Keys.LANGUAGE] ?: "en" }
+        context.sessionDataStore.data.map { normalizeLanguageTag(it[Keys.LANGUAGE]) }
+
+    override suspend fun currentLanguage(): String =
+        normalizeLanguageTag(context.sessionDataStore.data.first()[Keys.LANGUAGE])
 
     override suspend fun setLanguage(code: String) {
-        context.sessionDataStore.edit { it[Keys.LANGUAGE] = code }
+        context.sessionDataStore.edit { it[Keys.LANGUAGE] = normalizeLanguageTag(code) }
     }
 }
 
 /** In-memory fake for tests/previews. */
 class FakeSessionStore : SessionStore {
-    private var token: String? = null
-    private var lang: String = "en"
-    override val bearerToken: Flow<String?> = kotlinx.coroutines.flow.flowOf(token)
-    override suspend fun currentToken(): String? = token
-    override suspend fun setBearerToken(token: String?) { this.token = token }
-    override val language: Flow<String> = kotlinx.coroutines.flow.flowOf(lang)
-    override suspend fun setLanguage(code: String) { lang = code }
+    private val token = MutableStateFlow<String?>(null)
+    private val lang = MutableStateFlow(DEFAULT_LANGUAGE_TAG)
+    override val bearerToken: Flow<String?> = token
+    override suspend fun currentToken(): String? = token.value
+    override suspend fun setBearerToken(token: String?) { this.token.value = token }
+    override val language: Flow<String> = lang
+    override suspend fun currentLanguage(): String = lang.value
+    override suspend fun setLanguage(code: String) { lang.value = normalizeLanguageTag(code) }
 }
+
+private fun normalizeLanguageTag(code: String?): String =
+    code?.trim()?.ifBlank { null } ?: DEFAULT_LANGUAGE_TAG

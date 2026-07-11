@@ -523,6 +523,9 @@ type ShedAnimalRow struct {
 	DisplayID string  `json:"displayId"`
 	Tag1      *string `json:"tag1,omitempty"`
 	Tag2      *string `json:"tag2,omitempty"`
+	Breed     *string `json:"breed,omitempty"`
+	Sex       string  `json:"sex"`
+	Age       *string `json:"age,omitempty"`
 	Status    string  `json:"status"`
 }
 

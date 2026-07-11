@@ -3,12 +3,13 @@ resource "google_sql_database_instance" "core" {
   database_version = "POSTGRES_16"
   region           = var.region
 
-  # Dev starts stopped to avoid 24/7 CPU/RAM charges until Layer 2 needs it.
+  # Dev stays stopped while the shared dashboard is archived to avoid 24/7
+  # CPU/RAM charges. Switch to ALWAYS only for an explicit dev rollout.
   settings {
     tier              = var.cloud_sql_tier
     edition           = "ENTERPRISE"
     availability_type = "ZONAL"
-    activation_policy = "ALWAYS"
+    activation_policy = "NEVER"
 
     disk_type       = "PD_SSD"
     disk_size       = 10

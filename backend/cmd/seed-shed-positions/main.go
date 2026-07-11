@@ -21,8 +21,9 @@
 //
 // Flow: `-generate-provisional shed_manager_mapping.csv` (fill + review), then
 // `-mapping shed_manager_mapping.csv` (apply). -strict exits non-zero if any
-// active shed is still unassigned after apply -- use it as a production preflight
-// gate so real data is never accepted until every active shed has a manager.
+// active shed is still unassigned, provisionally assigned, or missing backup
+// coverage after apply -- use it as a production preflight gate so real data is
+// never accepted until every active shed has a reviewed manager and backup.
 //
 // Idempotent (deterministic v5 position UUID per shed + ON CONFLICT DO UPDATE),
 // batched, tenant-scoped, gated to local/dev/test only (localtarget guard). It
@@ -84,9 +85,10 @@ type stats struct {
 	ProvisionalSeats int
 	ReviewedSeats    int
 	UnmappedGaps     int
+	BackupGaps       int
 	SeatsInserted    int
 	DistinctHolders  int
-	StrictBlocked    bool // strict preflight refused to write (gaps or provisional present)
+	StrictBlocked    bool // strict preflight refused to write (manager gaps, backup gaps, or provisional present)
 }
 
 func main() {
@@ -105,7 +107,7 @@ func run(args []string) error {
 	mappingPath := fs.String("mapping", "",
 		"CSV of shed->manager assignments to APPLY (header must include shed_code,manager_code; resolved via locations.location_code / workforce_members.display_code). The only source of ownership; unlisted/empty rows are gaps.")
 	strict := fs.Bool("strict", false,
-		"exit non-zero if any active shed is left unassigned OR assigned only provisionally after applying -mapping. Use as a production preflight gate: production requires every active shed mapped to a REVIEWED manager.")
+		"exit non-zero if any active shed is left unassigned, assigned only provisionally, or missing backup coverage after applying -mapping. Use as a production preflight gate: production requires every active shed mapped to a REVIEWED manager and backup.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -114,7 +116,7 @@ func run(args []string) error {
 	defer cancel()
 
 	pgCfg := platformpg.ConfigFromEnv()
-	if err := localtarget.ValidateLocalDatabaseTarget("seed-shed-positions", os.Getenv("GOATOS_ENV"), pgCfg.DatabaseURL, "local", "dev", "test"); err != nil {
+	if err := validateTarget(os.Getenv("GOATOS_ENV"), pgCfg.DatabaseURL); err != nil {
 		return err
 	}
 	pool, err := platformpg.Connect(ctx, pgCfg)
@@ -149,12 +151,12 @@ func run(args []string) error {
 	fmt.Printf("shed manager seats applied from %s:\n"+
 		"  active_sheds=%d sheds_with_park=%d orphan_sheds=%d\n"+
 		"  provisional_seats=%d reviewed_seats=%d unmapped_gaps=%d\n"+
-		"  seats_inserted=%d distinct_holders=%d\n",
+		"  backup_gaps=%d seats_inserted=%d distinct_holders=%d\n",
 		*mappingPath, st.ActiveSheds, st.ShedsWithPark, st.OrphanSheds,
 		st.ProvisionalSeats, st.ReviewedSeats, st.UnmappedGaps,
-		st.SeatsInserted, st.DistinctHolders)
-	fmt.Printf("PREFLIGHT: %d/%d active sheds assigned via provisional seed; %d reviewed real mappings; %d gaps.\n",
-		st.ProvisionalSeats, st.ActiveSheds, st.ReviewedSeats, st.UnmappedGaps)
+		st.BackupGaps, st.SeatsInserted, st.DistinctHolders)
+	fmt.Printf("PREFLIGHT: %d/%d active sheds assigned via provisional seed; %d reviewed real mappings; %d manager gaps; %d backup gaps.\n",
+		st.ProvisionalSeats, st.ActiveSheds, st.ReviewedSeats, st.UnmappedGaps, st.BackupGaps)
 	if st.ProvisionalSeats > 0 {
 		fmt.Printf("WARNING: %d assignment(s) are PROVISIONAL (needs_review=true), NOT reviewed business truth. "+
 			"Replace with a reviewed shed->manager source and re-apply.\n", st.ProvisionalSeats)
@@ -162,9 +164,12 @@ func run(args []string) error {
 	if st.UnmappedGaps > 0 {
 		fmt.Printf("GAP: %d active shed(s) still have NO manager assignment.\n", st.UnmappedGaps)
 	}
+	if st.BackupGaps > 0 {
+		fmt.Printf("GAP: %d active shed(s) still have NO shed or center Backup Manager coverage.\n", st.BackupGaps)
+	}
 	if st.StrictBlocked {
-		return fmt.Errorf("strict preflight FAILED (wrote 0 rows): %d unassigned + %d provisional (unreviewed) shed assignment(s) -- production requires every active shed mapped to a REVIEWED manager (assignment_source=reviewed, needs_review=false, source_ref cited)",
-			st.UnmappedGaps, st.ProvisionalSeats)
+		return fmt.Errorf("strict preflight FAILED (wrote 0 rows): %d unassigned + %d provisional (unreviewed) + %d missing-backup shed assignment(s) -- production requires every active shed mapped to a REVIEWED manager and resolvable Backup Manager coverage",
+			st.UnmappedGaps, st.ProvisionalSeats, st.BackupGaps)
 	}
 	return nil
 }
@@ -322,9 +327,13 @@ func applyMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string
 	}
 	st.UnmappedGaps = st.ActiveSheds - len(seats)
 	st.DistinctHolders = len(holders)
+	st.BackupGaps, err = backupCoverageGaps(ctx, pool, tenantID)
+	if err != nil {
+		return st, err
+	}
 
-	// Strict preflight: refuse to write when any shed is unassigned or provisional.
-	if strict && (st.UnmappedGaps > 0 || st.ProvisionalSeats > 0) {
+	// Strict preflight: refuse to write when any shed is unassigned, provisional, or lacks backup coverage.
+	if strict && (st.UnmappedGaps > 0 || st.ProvisionalSeats > 0 || st.BackupGaps > 0) {
 		st.StrictBlocked = true
 		return st, nil
 	}
@@ -366,6 +375,52 @@ func applyMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string
 		return st, fmt.Errorf("commit: %w", err)
 	}
 	return st, nil
+}
+
+func backupCoverageGaps(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int, error) {
+	var gaps int
+	err := pool.QueryRow(ctx, `
+		WITH active_sheds AS (
+			SELECT s.location_id AS shed_id, p.location_id AS center_id
+			FROM locations s
+			LEFT JOIN locations p
+			  ON p.tenant_id = s.tenant_id
+			 AND p.location_id = s.parent_location_id
+			 AND p.status = 'active'
+			WHERE s.tenant_id = $1::uuid
+			  AND s.location_type = 'shed'
+			  AND s.status = 'active'
+		)
+		SELECT count(*)::int
+		FROM active_sheds s
+		WHERE NOT EXISTS (
+			SELECT 1
+			FROM workforce_positions wp
+			WHERE wp.tenant_id = $1::uuid
+			  AND wp.scope_type = 'shed'
+			  AND wp.scope_id = s.shed_id
+			  AND wp.backup_group_code = $2
+			  AND wp.is_backup_slot = true
+			  AND wp.status = 'active'
+			  AND wp.valid_from <= now()
+			  AND (wp.valid_to IS NULL OR wp.valid_to > now())
+		)
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM workforce_positions wp
+			WHERE wp.tenant_id = $1::uuid
+			  AND wp.scope_type = 'center'
+			  AND wp.scope_id = s.center_id
+			  AND wp.backup_group_code = $2
+			  AND wp.is_backup_slot = true
+			  AND wp.status = 'active'
+			  AND wp.valid_from <= now()
+			  AND (wp.valid_to IS NULL OR wp.valid_to > now())
+		)`, tenantID, managerBackupGroupCode).Scan(&gaps)
+	if err != nil {
+		return 0, fmt.Errorf("check backup coverage: %w", err)
+	}
+	return gaps, nil
 }
 
 func loadShedsWithPark(ctx context.Context, pool *pgxpool.Pool, tenantID string) ([]shedRow, error) {
@@ -586,4 +641,11 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func validateTarget(env, databaseURL string) error {
+	if strings.EqualFold(strings.TrimSpace(env), "stg") {
+		return localtarget.ValidateStagingCloudSQLDatabaseTarget("seed-shed-positions", env, databaseURL)
+	}
+	return localtarget.ValidateLocalDatabaseTarget("seed-shed-positions", env, databaseURL, "local", "dev", "test")
 }

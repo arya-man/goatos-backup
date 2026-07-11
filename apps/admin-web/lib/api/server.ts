@@ -401,6 +401,34 @@ export async function getVaccinationActionCenter(
   );
 }
 
+export async function getVaccinationActionCenterCounts(
+  params: {
+    parkId?: string;
+    shedId?: string;
+    workState?: WorkState;
+    severity?: ProcessIntegritySeverity;
+    asOf?: string;
+    dueBefore?: string;
+  } = {},
+): Promise<ApiResult<Pick<ActionCenterResponse, "source" | "counts_by_work_state" | "total_count">>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<Pick<ActionCenterResponse, "source" | "counts_by_work_state" | "total_count">>("/vaccination/action-center/counts" as keyof AppApiPaths & string, {
+      cache: "no-store",
+      query: compactQuery({
+        park_id: params.parkId,
+        shed_id: params.shedId,
+        work_state: params.workState,
+        severity: params.severity,
+        as_of: params.asOf,
+        due_before: params.dueBefore,
+      }),
+    }),
+  );
+}
+
 // Protocol Adherence — per rule/drive/cohort expected-vs-actual ledger (real /vaccination/adherence).
 export async function getVaccinationAdherence(
   params: {
@@ -610,32 +638,14 @@ export async function getVaccinationShedAnimals(
   );
 }
 
-// Admin daily vaccination capacity config (Config screen). Read + optimistic-concurrency update.
+// Admin daily vaccination capacity config (Config screen). Capacity is authored through protocol publish;
+// this endpoint is read-only so the planner can show the published values.
 export async function getVaccinationCapacityConfig(): Promise<ApiResult<VaccinationCapacityConfig>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<VaccinationCapacityConfig>("/vaccination/capacity-config", { cache: "no-store" }),
-  );
-}
-
-export async function updateVaccinationCapacityConfig(body: {
-  maxPerDay: number;
-  capacityScope: string;
-  maxBufferDays: number;
-  overflowPolicy: string;
-  expectedRowVersion: number;
-}): Promise<ApiResult<VaccinationCapacityConfig>> {
-  const config = await getServerConfig(true);
-  if (!config.ok) return config;
-  const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    client.request<VaccinationCapacityConfig>("/vaccination/capacity-config", {
-      method: "PUT",
-      cache: "no-store",
-      body,
-    }),
   );
 }
 

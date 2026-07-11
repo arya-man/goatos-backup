@@ -27,6 +27,9 @@ func TestRequestContextPreservesIncomingIDs(t *testing.T) {
 		if got := ActorIDFromContext(r.Context()); got != "90000000-0000-4000-8000-000000000001" {
 			t.Fatalf("actor id = %q", got)
 		}
+		if got := LocaleTagFromContext(r.Context()); got != "hi" {
+			t.Fatalf("locale tag = %q", got)
+		}
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
@@ -35,6 +38,7 @@ func TestRequestContextPreservesIncomingIDs(t *testing.T) {
 	req.Header.Set("traceparent", "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01")
 	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
 	req.Header.Set("X-GoatOS-Actor-ID", "90000000-0000-4000-8000-000000000001")
+	req.Header.Set("Accept-Language", "hi-IN, en;q=0.8")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -47,6 +51,16 @@ func TestRequestContextPreservesIncomingIDs(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), `"status":202`) {
 		t.Fatalf("request log missing status: %s", logs.String())
+	}
+}
+
+func TestLocaleTagFromRequestPrefersExplicitLocaleHeader(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/app/bootstrap", nil)
+	req.Header.Set("X-GoatOS-Locale", "te")
+	req.Header.Set("Accept-Language", "kn;q=1")
+
+	if got := LocaleTagFromRequest(req); got != "te" {
+		t.Fatalf("LocaleTagFromRequest()=%q want te", got)
 	}
 }
 

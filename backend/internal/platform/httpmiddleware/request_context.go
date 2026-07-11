@@ -12,11 +12,15 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/localization"
 )
 
 const (
-	headerRequestID = "X-Request-ID"
-	headerTrace     = "traceparent"
+	AcceptLanguageHeader = "Accept-Language"
+	LocaleContextHeader  = "X-GoatOS-Locale"
+	headerRequestID      = "X-Request-ID"
+	headerTrace          = "traceparent"
 	// TenantContextHeader carries request tenant context for tokens whose
 	// verified claims do not include a Goat OS tenant.
 	TenantContextHeader = "X-GoatOS-Tenant-ID"
@@ -28,6 +32,14 @@ const (
 	headerTenantID = TenantContextHeader
 	headerActorID  = "X-GoatOS-Actor-ID"
 )
+
+// LocaleTagFromRequest resolves the normalized locale from request context or headers.
+func LocaleTagFromRequest(r *http.Request) string {
+	if tag, ok := r.Context().Value(localeTagKey).(string); ok && tag != "" {
+		return localization.Normalize(tag)
+	}
+	return localization.FromHeaders(r.Header.Get(LocaleContextHeader), r.Header.Get(AcceptLanguageHeader))
+}
 
 // RequestContext preserves inbound request/trace IDs, generates missing IDs,
 // records local-development tenant/actor placeholders, and logs HTTP outcomes.
@@ -51,10 +63,12 @@ func RequestContext(log *slog.Logger) func(http.Handler) http.Handler {
 
 			tenantID := strings.TrimSpace(r.Header.Get(headerTenantID))
 			actorID := strings.TrimSpace(r.Header.Get(headerActorID))
+			localeTag := localization.FromHeaders(r.Header.Get(LocaleContextHeader), r.Header.Get(AcceptLanguageHeader))
 
 			ctx := r.Context()
 			ctx = context.WithValue(ctx, requestIDKey, requestID)
 			ctx = context.WithValue(ctx, traceIDKey, traceID)
+			ctx = WithLocaleTag(ctx, localeTag)
 			if tenantID != "" {
 				ctx = WithTenantID(ctx, tenantID)
 			}

@@ -228,7 +228,7 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				table("planned-sessions", "Planned sessions", "/vaccination/sheds/{shed_id}", []string{"session_date", "vaccinations", "daily_limit", "capacity"}, "session"),
 				table("shed-vaccines", "Vaccine breakdown", "/vaccination/sheds/{shed_id}", []string{"vaccine", "status", "last_dose", "next_due", "counts"}, "vaccine"),
-				table("shed-animals", "Animals in shed", "/vaccination/sheds/{shed_id}/animals", []string{"display_id", "tag_1", "tag_2", "vaccination_status"}, "goat_id"),
+				table("shed-animals", "Animals in shed", "/vaccination/sheds/{shed_id}/animals", []string{"display_id", "tag_1", "tag_2", "breed", "sex", "age", "vaccination_status"}, "goat_id"),
 			}),
 		page("source-entry", "/procurement/source-entry", "/procurement/source-entry", "Source Entry Board", "Supplier warmup and accepted-intake bridge into Preventive Care (PC) vaccination.", "module-surface",
 			[]domain.TableContract{table("source-loads", "Supplier warmup — Holding Farm", "/procurement/source-entry/loads", []string{"load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"}, "source_load")}),
@@ -1634,11 +1634,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"capacity.status.over_cap":                                  "Split",
 			"capacity.status.capacity_breach":                           "Needs review",
 			"capacity.field.overflow_policy":                            "Overflow policy",
-			"capacity.action.save":                                      "Save capacity",
-			"capacity.action.saving":                                    "Saving…",
-			"capacity.saved":                                            "Capacity saved",
-			"capacity.stale":                                            "Changed by someone else — reload and try again",
-			"capacity.error_prefix":                                     "Couldn't save:",
 			"page.lede":                                                 "What should happen.",
 			"page.lede_detail":                                          "CEO/COO author + publish the business/medical config. Obligations, SOP tasks & adherence gaps all flow from published rules.",
 			"security.warning":                                          "Real business/medical config — not public. Only CEO/COO publish · Directors draft/propose if granted the capability · field / verifier / park never see raw config (they get generated obligations + SOP tasks only).",
@@ -1942,6 +1937,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.impact_scope_label":                      "Preview scope",
 			"modal.rule_editor.impact_stock_set":                        "stock item set",
 			"modal.rule_editor.impact_stock_missing":                    "no stock item",
+			"modal.rule_editor.impact_plan_title":                       "Planned session split",
+			"modal.rule_editor.impact_plan_date":                        "Date",
+			"modal.rule_editor.impact_plan_vaccinations":                "Vaccinations",
+			"modal.rule_editor.impact_plan_daily_limit":                 "Daily limit",
+			"modal.rule_editor.impact_plan_capacity":                    "Capacity",
 			"modal.rule_editor.impact_method_title":                     "How the numbers are calculated",
 			"modal.rule_editor.impact_method_body":                      "Read-only aggregate estimate for the selected combo, read from the precomputed vaccination eligibility rollup (never a live goat scan). Eligible animals = usable in-care animals matching species, stage, sex, breed, health, and park scope. Vaccination cells = eligible animals x selected dose rows. Affected sheds = distinct sheds holding those animals. Estimated days = ceil(vaccination cells / the configured daily cap). Stock appears only when the row has a vaccine inventory item.",
 			"modal.rule_editor.impact_scale_note":                       "For 1-5M animals, this panel reads a precomputed eligibility rollup and does not scan goats or load them into the browser. It is a quick planning estimate; per-animal scheduling, sessions, and assignment happen after publish.",
@@ -3730,6 +3730,12 @@ func humanLabel(key string) string {
 		return "Tag 1"
 	case "tag_2":
 		return "Tag 2"
+	case "breed":
+		return "Breed"
+	case "sex":
+		return "Sex"
+	case "age":
+		return "Age"
 	case "next_action":
 		return "Next action"
 	case "effective_date":

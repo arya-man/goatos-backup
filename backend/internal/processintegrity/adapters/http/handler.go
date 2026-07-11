@@ -18,6 +18,7 @@ import (
 
 type Reader interface {
 	ActionCenter(ctx context.Context, q domain.Query) (domain.ActionCenterResponse, error)
+	ActionCenterCounts(ctx context.Context, q domain.Query) (domain.ActionCenterCountsResponse, error)
 	ProtocolAdherence(ctx context.Context, q domain.Query) (domain.ProtocolAdherenceResponse, error)
 	ControlTower(ctx context.Context, q domain.Query) (domain.ControlTowerResponse, error)
 	WorkflowDrilldown(ctx context.Context, q domain.Query, rowID string) (domain.WorkflowDrilldownResponse, bool, error)
@@ -39,6 +40,7 @@ func NewHandler(reader Reader, log ...*slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /action-center/obligations", h.ActionCenter)
 	mux.HandleFunc("GET /vaccination/action-center", h.ActionCenter)
+	mux.HandleFunc("GET /vaccination/action-center/counts", h.ActionCenterCounts)
 	mux.HandleFunc("GET /vaccination/adherence", h.ProtocolAdherence)
 	mux.HandleFunc("GET /control-tower/vaccination", h.ControlTower)
 	mux.HandleFunc("GET /workflows/{row_id}", h.WorkflowDrilldown)
@@ -85,6 +87,19 @@ func (h *Handler) ActionCenter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp, err := h.reader.ActionCenter(r.Context(), q)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) ActionCenterCounts(w http.ResponseWriter, r *http.Request) {
+	q, ok := h.query(w, r, 1)
+	if !ok {
+		return
+	}
+	resp, err := h.reader.ActionCenterCounts(r.Context(), q)
 	if err != nil {
 		h.internal(w, r, err)
 		return

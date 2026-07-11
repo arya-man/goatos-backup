@@ -63,6 +63,7 @@ export const VACCINATION_SLICE_LABEL = "Vaccination";
 export function isVaccinationSop(code: string, name: string): boolean {
   const c = (code || "").toLowerCase();
   const n = (name || "").toLowerCase();
+  if (c.startsWith("vaccination.authoring_") || c.startsWith("vaccination_authoring_")) return false;
   return c === "vaccination" || c.startsWith("vaccination.") || c.startsWith("vaccination_") || c.includes("vaccin") || n.includes("vaccin");
 }
 

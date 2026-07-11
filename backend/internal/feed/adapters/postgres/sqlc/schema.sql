@@ -3781,6 +3781,141 @@ CREATE TABLE public.parties (
 
 
 --
+-- Name: position_module_duties; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.position_module_duties (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    position_code text NOT NULL,
+    module_code text NOT NULL,
+    duty_type text NOT NULL,
+    capability_code text,
+    effective_from timestamp with time zone DEFAULT now() NOT NULL,
+    effective_to timestamp with time zone,
+    status text DEFAULT 'active'::text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT position_module_duties_duty_type_check CHECK ((duty_type = ANY (ARRAY['execute'::text, 'verify'::text, 'manage'::text, 'support'::text]))),
+    CONSTRAINT position_module_duties_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))
+);
+
+
+--
+-- Name: process_integrity_projection_rows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.process_integrity_projection_rows (
+    process_integrity_projection_row_id bigint NOT NULL,
+    tenant_id uuid NOT NULL,
+    category text NOT NULL,
+    row_id text NOT NULL,
+    sort_priority integer NOT NULL,
+    process_key text NOT NULL,
+    obligation_id text NOT NULL,
+    batch_id text,
+    sop_task_id text,
+    sop_task_row_version integer,
+    sop_submission_id text,
+    completion_id text,
+    park_id text DEFAULT ''::text NOT NULL,
+    park_name text DEFAULT ''::text NOT NULL,
+    shed_id text DEFAULT ''::text NOT NULL,
+    shed_name text DEFAULT ''::text NOT NULL,
+    cohort_id text,
+    goat_id text,
+    animal_stage text DEFAULT ''::text NOT NULL,
+    protocol_id text DEFAULT ''::text NOT NULL,
+    protocol_version_id text DEFAULT ''::text NOT NULL,
+    rule_id text DEFAULT ''::text NOT NULL,
+    protocol_name text DEFAULT ''::text NOT NULL,
+    dose_code text DEFAULT ''::text NOT NULL,
+    drive_name text,
+    sop_version_id text,
+    proof_policy text DEFAULT '{}'::text NOT NULL,
+    due_at timestamp with time zone NOT NULL,
+    window_start timestamp with time zone,
+    window_end timestamp with time zone,
+    expected_count integer DEFAULT 0 NOT NULL,
+    obligation_status text DEFAULT ''::text NOT NULL,
+    batch_status text,
+    sop_state text DEFAULT 'not_started'::text NOT NULL,
+    submission_state text,
+    proof_state text DEFAULT 'missing'::text NOT NULL,
+    verification_state text DEFAULT 'not_ready'::text NOT NULL,
+    completion_state text,
+    completed_count integer DEFAULT 0 NOT NULL,
+    proof_count integer DEFAULT 0 NOT NULL,
+    rejected_count integer DEFAULT 0 NOT NULL,
+    deferred_count integer DEFAULT 0 NOT NULL,
+    work_state text NOT NULL,
+    gap_type text DEFAULT ''::text NOT NULL,
+    severity text NOT NULL,
+    blocker_reason text,
+    owner_state text NOT NULL,
+    next_action text DEFAULT ''::text NOT NULL,
+    process_intact boolean DEFAULT false NOT NULL,
+    operator_id text,
+    operator_name text,
+    park_head_id text,
+    park_head_name text,
+    verifier_id text,
+    verifier_name text,
+    escalation_owner_id text,
+    escalation_owner_name text,
+    owner_refs text[] DEFAULT '{}'::text[] NOT NULL,
+    proof_ids text DEFAULT ''::text NOT NULL,
+    evidence_count integer DEFAULT 0 NOT NULL,
+    latest_evidence_at timestamp with time zone,
+    latest_rejection_reason text,
+    audit_ref text,
+    projection_version bigint NOT NULL,
+    projected_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT process_integrity_projection_category_check CHECK ((category = ANY (ARRAY['vaccination'::text, 'feed_direction'::text]))),
+    CONSTRAINT process_integrity_projection_nonnegative_check CHECK (((expected_count >= 0) AND (completed_count >= 0) AND (proof_count >= 0) AND (rejected_count >= 0) AND (deferred_count >= 0) AND (evidence_count >= 0))),
+    CONSTRAINT process_integrity_projection_owner_state_check CHECK ((owner_state = ANY (ARRAY['assigned'::text, 'missing'::text]))),
+    CONSTRAINT process_integrity_projection_severity_check CHECK ((severity = ANY (ARRAY['ok'::text, 'watch'::text, 'at_risk'::text, 'broken'::text]))),
+    CONSTRAINT process_integrity_projection_work_state_check CHECK ((work_state = ANY (ARRAY['scheduled'::text, 'due'::text, 'overdue'::text, 'in_progress'::text, 'proof_pending'::text, 'verification_pending'::text, 'rejected'::text, 'deferred'::text, 'missed'::text, 'blocked'::text, 'completed'::text])))
+);
+
+
+--
+-- Name: process_integrity_projection__process_integrity_projection__seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.process_integrity_projection_rows ALTER COLUMN process_integrity_projection_row_id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.process_integrity_projection__process_integrity_projection__seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: process_integrity_projection_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.process_integrity_projection_state (
+    tenant_id uuid NOT NULL,
+    projection_version bigint NOT NULL,
+    projected_at timestamp with time zone NOT NULL,
+    as_of timestamp with time zone NOT NULL,
+    row_count bigint DEFAULT 0 NOT NULL,
+    freshness_status text DEFAULT 'unknown'::text NOT NULL,
+    serving_state text DEFAULT 'never_synced'::text NOT NULL,
+    last_error text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT process_integrity_projection_state_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
+    CONSTRAINT process_integrity_projection_state_row_count_check CHECK ((row_count >= 0)),
+    CONSTRAINT process_integrity_projection_state_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text])))
+);
+
+
+--
 -- Name: procurement_hf_vaccination_evidence; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4568,6 +4703,26 @@ CREATE TABLE public.user_scope_grants (
 
 
 --
+-- Name: vaccination_capacity_config; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_capacity_config (
+    tenant_id uuid NOT NULL,
+    max_per_day integer NOT NULL,
+    capacity_scope text NOT NULL,
+    max_buffer_days integer NOT NULL,
+    overflow_policy text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_capacity_config_buffer_check CHECK ((max_buffer_days >= 0)),
+    CONSTRAINT vaccination_capacity_config_max_per_day_check CHECK ((max_per_day >= 1)),
+    CONSTRAINT vaccination_capacity_config_overflow_check CHECK ((overflow_policy = 'split_within_safe_window_then_mark_needs_review'::text)),
+    CONSTRAINT vaccination_capacity_config_scope_check CHECK ((capacity_scope = ANY (ARRAY['tenant'::text, 'center'::text, 'shed'::text])))
+);
+
+
+--
 -- Name: vaccination_completions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4600,6 +4755,43 @@ CREATE TABLE public.vaccination_completions (
     CONSTRAINT vaccination_completions_doses_check CHECK (((doses IS NULL) OR (doses > 0))),
     CONSTRAINT vaccination_completions_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT vaccination_completions_status_check CHECK ((status = ANY (ARRAY['recorded'::text, 'accepted'::text, 'rejected'::text, 'reversed'::text])))
+);
+
+
+--
+-- Name: vaccination_eligibility_rollups; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_eligibility_rollups (
+    rollup_id bigint NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid,
+    shed_id uuid,
+    species text DEFAULT ''::text NOT NULL,
+    management_stage text DEFAULT ''::text NOT NULL,
+    sex text DEFAULT ''::text NOT NULL,
+    breed text DEFAULT ''::text NOT NULL,
+    health_status text DEFAULT ''::text NOT NULL,
+    usable_for_vaccination boolean NOT NULL,
+    animal_count bigint NOT NULL,
+    source_revision bigint DEFAULT 0 NOT NULL,
+    recomputed_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_eligibility_rollups_count_check CHECK ((animal_count >= 0))
+);
+
+
+--
+-- Name: vaccination_eligibility_rollups_rollup_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.vaccination_eligibility_rollups ALTER COLUMN rollup_id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.vaccination_eligibility_rollups_rollup_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
 );
 
 
@@ -4906,7 +5098,7 @@ CREATE TABLE public.workforce_positions (
     CONSTRAINT workforce_positions_backup_group_check CHECK (((backup_group_code IS NULL) OR (backup_group_code ~ '^[a-z][a-z0-9_]*$'::text))),
     CONSTRAINT workforce_positions_position_code_check CHECK ((position_code ~ '^[a-z][a-z0-9_]*$'::text)),
     CONSTRAINT workforce_positions_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT workforce_positions_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'center'::text]))),
+    CONSTRAINT workforce_positions_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'center'::text, 'shed'::text]))),
     CONSTRAINT workforce_positions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'ended'::text]))),
     CONSTRAINT workforce_positions_tier_check CHECK ((position_tier = ANY (ARRAY['assistant'::text, 'manager'::text, 'head'::text, 'director'::text, 'cxo'::text]))),
     CONSTRAINT workforce_positions_week_off_check CHECK (((week_off_weekday IS NULL) OR (week_off_weekday = ANY (ARRAY['monday'::text, 'tuesday'::text, 'wednesday'::text, 'thursday'::text, 'friday'::text, 'saturday'::text, 'sunday'::text])))),
@@ -6093,6 +6285,30 @@ ALTER TABLE ONLY public.parties
 
 
 --
+-- Name: position_module_duties position_module_duties_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.position_module_duties
+    ADD CONSTRAINT position_module_duties_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: process_integrity_projection_rows process_integrity_projection_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.process_integrity_projection_rows
+    ADD CONSTRAINT process_integrity_projection_rows_pkey PRIMARY KEY (process_integrity_projection_row_id);
+
+
+--
+-- Name: process_integrity_projection_state process_integrity_projection_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.process_integrity_projection_state
+    ADD CONSTRAINT process_integrity_projection_state_pkey PRIMARY KEY (tenant_id);
+
+
+--
 -- Name: procurement_hf_vaccination_evidence procurement_hf_vaccination_evidence_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6525,6 +6741,14 @@ ALTER TABLE ONLY public.user_scope_grants
 
 
 --
+-- Name: vaccination_capacity_config vaccination_capacity_config_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_capacity_config
+    ADD CONSTRAINT vaccination_capacity_config_pkey PRIMARY KEY (tenant_id);
+
+
+--
 -- Name: vaccination_completions vaccination_completions_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6538,6 +6762,14 @@ ALTER TABLE ONLY public.vaccination_completions
 
 ALTER TABLE ONLY public.vaccination_completions
     ADD CONSTRAINT vaccination_completions_pkey PRIMARY KEY (completion_id);
+
+
+--
+-- Name: vaccination_eligibility_rollups vaccination_eligibility_rollups_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_eligibility_rollups
+    ADD CONSTRAINT vaccination_eligibility_rollups_pkey PRIMARY KEY (rollup_id);
 
 
 --
@@ -8024,6 +8256,13 @@ CREATE INDEX goats_tenant_lifecycle_idx ON public.goats USING btree (tenant_id, 
 
 
 --
+-- Name: goats_tenant_lifecycle_shed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goats_tenant_lifecycle_shed_idx ON public.goats USING btree (tenant_id, lifecycle_status, shed_id) WHERE (merged_into_goat_id IS NULL);
+
+
+--
 -- Name: goats_tenant_management_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8752,6 +8991,90 @@ CREATE UNIQUE INDEX outbox_messages_vaccination_completed_idempotency_idx ON pub
 
 
 --
+-- Name: position_module_duties_by_module; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX position_module_duties_by_module ON public.position_module_duties USING btree (tenant_id, module_code, duty_type) WHERE (status = 'active'::text);
+
+
+--
+-- Name: position_module_duties_by_position; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX position_module_duties_by_position ON public.position_module_duties USING btree (tenant_id, position_code) WHERE (status = 'active'::text);
+
+
+--
+-- Name: position_module_duties_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX position_module_duties_uq ON public.position_module_duties USING btree (tenant_id, position_code, module_code, duty_type, effective_from);
+
+
+--
+-- Name: process_integrity_projection_rows_due_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_rows_due_idx ON public.process_integrity_projection_rows USING btree (tenant_id, category, due_at, row_id);
+
+
+--
+-- Name: process_integrity_projection_rows_hot_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_rows_hot_idx ON public.process_integrity_projection_rows USING btree (tenant_id, category, sort_priority, due_at, row_id);
+
+
+--
+-- Name: process_integrity_projection_rows_owner_gin_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_rows_owner_gin_idx ON public.process_integrity_projection_rows USING gin (owner_refs);
+
+
+--
+-- Name: process_integrity_projection_rows_protocol_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_rows_protocol_idx ON public.process_integrity_projection_rows USING btree (tenant_id, category, protocol_version_id, due_at, row_id);
+
+
+--
+-- Name: process_integrity_projection_rows_row_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX process_integrity_projection_rows_row_uidx ON public.process_integrity_projection_rows USING btree (tenant_id, row_id);
+
+
+--
+-- Name: process_integrity_projection_rows_scope_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_rows_scope_idx ON public.process_integrity_projection_rows USING btree (tenant_id, category, park_id, shed_id, due_at, row_id);
+
+
+--
+-- Name: process_integrity_projection_rows_severity_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_rows_severity_idx ON public.process_integrity_projection_rows USING btree (tenant_id, category, severity, sort_priority, due_at, row_id);
+
+
+--
+-- Name: process_integrity_projection_rows_work_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_rows_work_idx ON public.process_integrity_projection_rows USING btree (tenant_id, category, work_state, sort_priority, due_at, row_id);
+
+
+--
+-- Name: process_integrity_projection_state_updated_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_state_updated_idx ON public.process_integrity_projection_state USING btree (updated_at DESC);
+
+
+--
 -- Name: procurement_hf_vaccination_evidence_goat_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9267,6 +9590,20 @@ CREATE INDEX vaccination_completions_review_idx ON public.vaccination_completion
 --
 
 CREATE INDEX vaccination_completions_submission_item_idx ON public.vaccination_completions USING btree (tenant_id, sop_submission_item_id) WHERE (sop_submission_item_id IS NOT NULL);
+
+
+--
+-- Name: vaccination_eligibility_rollups_grain_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX vaccination_eligibility_rollups_grain_uidx ON public.vaccination_eligibility_rollups USING btree (tenant_id, COALESCE(park_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid), species, management_stage, sex, breed, health_status, usable_for_vaccination);
+
+
+--
+-- Name: vaccination_eligibility_rollups_preview_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_eligibility_rollups_preview_idx ON public.vaccination_eligibility_rollups USING btree (tenant_id, usable_for_vaccination, park_id, management_stage, sex, breed, health_status);
 
 
 --
@@ -12565,6 +12902,22 @@ ALTER TABLE ONLY public.park_profiles
 
 
 --
+-- Name: process_integrity_projection_rows process_integrity_projection_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.process_integrity_projection_rows
+    ADD CONSTRAINT process_integrity_projection_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: process_integrity_projection_state process_integrity_projection_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.process_integrity_projection_state
+    ADD CONSTRAINT process_integrity_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: procurement_hf_vaccination_evidence procurement_hf_vaccination_evidence_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -13285,6 +13638,14 @@ ALTER TABLE ONLY public.user_scope_grants
 
 
 --
+-- Name: vaccination_capacity_config vaccination_capacity_config_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_capacity_config
+    ADD CONSTRAINT vaccination_capacity_config_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: vaccination_completions vaccination_completions_batch_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -13330,6 +13691,14 @@ ALTER TABLE ONLY public.vaccination_completions
 
 ALTER TABLE ONLY public.vaccination_completions
     ADD CONSTRAINT vaccination_completions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: vaccination_eligibility_rollups vaccination_eligibility_rollups_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_eligibility_rollups
+    ADD CONSTRAINT vaccination_eligibility_rollups_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

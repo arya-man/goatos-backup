@@ -5,7 +5,7 @@
 //
 // Run it after a seed/import and before preview / staging verification:
 //
-//	DATABASE_URL=... go run ./cmd/vaccination-eligibility-rollup-recompute -tenant-id <tenant>
+//	GOATOS_ENV=stg DATABASE_URL=... go run ./cmd/vaccination-eligibility-rollup-recompute -tenant-id <tenant>
 //
 // This is the CURRENT (explicit, full-recompute) projector entry point. The FUTURE event-driven path:
 // goat created/updated/moved / stage changed / health changed / shed operational-attributes changed
@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 )
@@ -47,6 +48,9 @@ func run(args []string) error {
 	defer cancel()
 
 	pgCfg := platformpg.ConfigFromEnv()
+	if err := validateDatabaseTarget(pgCfg.DatabaseURL); err != nil {
+		return err
+	}
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {
 		return err
@@ -80,4 +84,12 @@ func parseFlags(args []string) (config, error) {
 		return config{}, errors.New("timeout must be positive")
 	}
 	return cfg, nil
+}
+
+func validateDatabaseTarget(databaseURL string) error {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("GOATOS_ENV")))
+	if env == "stg" {
+		return localtarget.ValidateStagingCloudSQLDatabaseTarget("vaccination-eligibility-rollup-recompute", env, databaseURL)
+	}
+	return localtarget.ValidateLocalDatabaseTarget("vaccination-eligibility-rollup-recompute", env, databaseURL, "local", "dev")
 }

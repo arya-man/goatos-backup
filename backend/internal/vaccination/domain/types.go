@@ -241,7 +241,8 @@ type ImpactPreview struct {
 	// CapacityStatus classifies the draft under the daily cap + buffer window, mirroring the planner:
 	// within_cap (fits one day), over_cap (fits the safe window = buffer + 1 days), capacity_breach
 	// (beyond the window → needs review). Empty when there are no cells to plan.
-	CapacityStatus string
+	CapacityStatus  string
+	PlannedSessions []ImpactPlannedSession
 	// Optional stock check — populated only when a vaccine item is set. Kept because the lookup is a
 	// single cheap indexed aggregate on inventory_stock, not a goats join.
 	DosesAvailable string
@@ -251,6 +252,16 @@ type ImpactPreview struct {
 	SourceRevision int64
 	RecomputedAt   *time.Time
 	Warnings       []string
+}
+
+// ImpactPlannedSession mirrors the operational shed planner's day rows for a pre-publish, aggregate
+// config preview. It is bounded by the service for very large herds; EstimatedDays remains the full
+// source of truth for total duration.
+type ImpactPlannedSession struct {
+	Date         string `json:"date"`         // Asia/Kolkata business date, YYYY-MM-DD
+	Vaccinations int64  `json:"vaccinations"` // cells planned that day
+	DailyLimit   int64  `json:"dailyLimit"`   // daily cap used for the preview
+	Capacity     string `json:"capacity"`     // within_cap | capacity_breach
 }
 
 // EligibilityRollupAggregate is the aggregate read from vaccination_eligibility_rollups for a preview:

@@ -5,7 +5,16 @@ import {
   maxAgeForFirebaseIdToken,
 } from "@/lib/auth/session-cookie";
 
-const publicDashboardPrefixes = ["/api/auth", "/_next", "/apple-icon.png", "/favicon.ico", "/icon.png", "/login"];
+const publicDashboardPrefixes = [
+  "/__/auth/action",
+  "/api/auth",
+  "/_next",
+  "/apple-icon.png",
+  "/auth/action",
+  "/favicon.ico",
+  "/icon.png",
+  "/login",
+];
 
 export function proxy(request: NextRequest) {
   const canonicalRedirect = canonicalHostRedirect(request);

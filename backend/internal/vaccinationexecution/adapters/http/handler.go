@@ -40,9 +40,6 @@ type Reader interface {
 	ShedAnimals(ctx context.Context, q vaccexecd.ShedAnimalQuery) (vaccexecd.ShedAnimalPage, error)
 	// CapacityConfig backs the admin Config screen's read of the tenant daily vaccination cap.
 	CapacityConfig(ctx context.Context, tenantID string) (vaccexecd.CapacityConfig, error)
-	// UpdateCapacityConfig persists an admin edit (optimistic concurrency). domain.ErrCapacityConfigStale
-	// signals a stale write; the handler validates field values before calling this.
-	UpdateCapacityConfig(ctx context.Context, tenantID string, cfg vaccexecd.CapacityConfig, expectedRowVersion int) (vaccexecd.CapacityConfig, error)
 }
 
 // Writer is the obligation write interface needed for reschedule operations.
@@ -90,7 +87,6 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}", h.GetShedDetail)
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}/animals", h.GetShedAnimals)
 	mux.HandleFunc("GET /vaccination/capacity-config", h.GetCapacityConfig)
-	mux.HandleFunc("PUT /vaccination/capacity-config", h.UpdateCapacityConfig)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}/roster", h.ScanRoster)
 	mux.HandleFunc("POST /app/vaccination/obligations/{obligation_id}/reschedule", h.RescheduleObligation)
 	mux.HandleFunc("GET /app/vaccination/gaps", h.VaccinationGaps)
@@ -703,17 +699,6 @@ func traceID(r *http.Request) string {
 	return "missing-trace"
 }
 
-// capacityConfigRequest is the admin PUT body. All fields are pointers so a missing field is a 400 rather
-// than a silent zero value (e.g. maxPerDay:0 would violate the >=1 rule). expectedRowVersion carries the
-// RowVersion the admin last read for optimistic concurrency.
-type capacityConfigRequest struct {
-	MaxPerDay          *int    `json:"maxPerDay"`
-	CapacityScope      *string `json:"capacityScope"`
-	MaxBufferDays      *int    `json:"maxBufferDays"`
-	OverflowPolicy     *string `json:"overflowPolicy"`
-	ExpectedRowVersion *int    `json:"expectedRowVersion"`
-}
-
 // GetCapacityConfig returns the tenant's daily vaccination cap config for the admin Config screen. Read
 // authority is enforced at the permission layer (config authority: CEO/COO/superadmin).
 func (h *Handler) GetCapacityConfig(w http.ResponseWriter, r *http.Request) {
@@ -723,45 +708,6 @@ func (h *Handler) GetCapacityConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, cfg)
-}
-
-// UpdateCapacityConfig persists an admin edit to the daily cap with optimistic concurrency. Field values
-// are validated against the DB CHECK rules here (clean 400); a stale expectedRowVersion returns 409.
-func (h *Handler) UpdateCapacityConfig(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 8*1024)
-	defer r.Body.Close()
-	var req capacityConfigRequest
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil && err != io.EOF {
-		h.badRequest(w, r, "invalid_body", "request body must be JSON")
-		return
-	}
-	if req.MaxPerDay == nil || req.CapacityScope == nil || req.MaxBufferDays == nil || req.OverflowPolicy == nil || req.ExpectedRowVersion == nil {
-		h.badRequest(w, r, "missing_field", "maxPerDay, capacityScope, maxBufferDays, overflowPolicy, and expectedRowVersion are required")
-		return
-	}
-	cfg := vaccexecd.CapacityConfig{
-		MaxPerDay:      *req.MaxPerDay,
-		CapacityScope:  *req.CapacityScope,
-		MaxBufferDays:  *req.MaxBufferDays,
-		OverflowPolicy: *req.OverflowPolicy,
-	}
-	if code, msg, ok := cfg.Validate(); !ok {
-		h.badRequest(w, r, code, msg)
-		return
-	}
-	out, err := h.reader.UpdateCapacityConfig(r.Context(), tenantID(r), cfg, *req.ExpectedRowVersion)
-	if err != nil {
-		if errors.Is(err, vaccexecd.ErrCapacityConfigStale) {
-			httpresponse.WriteError(w, r, h.log, http.StatusConflict,
-				errorEnvelope{Code: "stale_row_version", Message: "the capacity config was changed by someone else — reload and retry", TraceID: traceID(r)}, nil)
-			return
-		}
-		h.internal(w, r, err)
-		return
-	}
-	httpresponse.WriteJSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {

@@ -120,6 +120,17 @@ type ParkConsolidationCandidate struct {
 	FirstBatchingHoldUntil   *time.Time
 }
 
+// ParkConsolidationCursor is the keyset cursor for the park-consolidation candidate query. Its
+// fields must stay in the same order as the repository ORDER BY.
+type ParkConsolidationCursor struct {
+	ParkID            string
+	RuleID            string
+	TargetSpecies     string
+	TargetAnimalStage string
+	DueAt             time.Time
+	ObligationID      string
+}
+
 // ComboDriveBatch is a planned shed/park batch participating in combo-session alignment.
 type ComboDriveBatch struct {
 	BatchID           string

@@ -229,7 +229,14 @@ func (h *Handler) AppMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Bootstrap(w http.ResponseWriter, r *http.Request) {
-	result, err := h.service.Bootstrap(r.Context(), tenantID(r), actorID(r), r.URL.Query().Get("device_id"), traceID(r))
+	result, err := h.service.Bootstrap(
+		r.Context(),
+		tenantID(r),
+		actorID(r),
+		r.URL.Query().Get("device_id"),
+		httpmiddleware.LocaleTagFromRequest(r),
+		traceID(r),
+	)
 	h.respond(w, r, result, err)
 }
 

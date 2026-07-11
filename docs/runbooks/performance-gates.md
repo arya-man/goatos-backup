@@ -1,0 +1,101 @@
+# Performance Gates
+
+Goat OS hot paths must be tested as latency contracts, not only as correctness
+or visual smoke tests. The staging seed issue on 2026-07-11 showed why: a
+correct Control Tower response can still be unusable when one request rebuilds
+process state from raw obligations, SOP, completion, location, and workforce
+tables.
+
+## Required Gate Layers
+
+1. **Static plan reachability**
+   - Command: `make validate-sqlc-plans`
+   - Purpose: catches obvious broad sequential scans and missing hot indexes.
+   - Limitation: not enough by itself. A query can use indexes and still be slow
+     because it groups/sorts/reconstructs too much state.
+
+2. **DB hot-path latency**
+   - Command:
+     ```bash
+     cd backend
+     DATABASE_URL="$DATABASE_URL" go run ./cmd/process-integrity-latency-check \
+       -iterations 10 \
+       -warmup 1 \
+       -max-action-center-p95 1200ms \
+       -max-control-tower-p95 1200ms \
+       -max-protocol-adherence-p95 1200ms \
+       -max-count-p95 250ms
+     ```
+   - Purpose: measures repository/service latency directly against Postgres.
+   - Default behavior: rebuilds `process_integrity_projection_rows` first and
+     fails unless the fresh projection serves the measured `as_of`. Use
+     `-recompute-projection=false -require-projection=false` only for raw
+     replay debugging, never for a green performance report.
+   - The gate also marks the projection state `stale`, measures the hot reads
+     again, and restores the original state. A green report must include
+     `stale_action_center_repository` and `stale_control_tower_counts_only`.
+     Stale projection reads must remain projected and fast; falling back to the
+     canonical replay query is a scale regression.
+   - This is the gate that should catch a 4s single process-integrity query even
+     if the API and browser are otherwise healthy.
+
+3. **API hot-path latency**
+   - Command:
+     ```bash
+     GOATOS_API_BASE_URL="$GOATOS_API_BASE_URL" \
+     GOATOS_BEARER_TOKEN="$GOATOS_BEARER_TOKEN" \
+     GOATOS_TENANT_ID="$GOATOS_TENANT_ID" \
+     node tools/perf/api-latency-gate.mjs \
+       --manifest tools/perf/hot-paths.vaccination.json \
+       --iterations 20 \
+       --warmup 2 \
+       --concurrency 1
+     ```
+   - Purpose: measures p50/p90/p95/p99 for real HTTP endpoints.
+   - Vaccination-slice coverage includes Control Tower, Action Center,
+     Protocol Adherence, Calendar, plus the live vaccinationexecution CTE reads:
+     `/vaccination/execution`, `/vaccination/operations`, and
+     `/vaccination/sheds`.
+   - Run with higher concurrency during staging certification, but keep a
+     single-concurrency gate too because it exposes query latency without queue
+     noise.
+
+4. **Full high-scale certification**
+   - Command: `make high-scale-kernel-e2e-certification` plus attached staging
+     evidence from `goatos-stg-1m-benchmark-v1`.
+   - Purpose: proves generation, outbox, sweeper, projection refresh, hot reads,
+     p95/p99, DB pressure, retry/DLQ, and projection parity.
+
+## Design Rule
+
+Hot dashboards must read projection/read-model tables or bounded counter tables.
+They must not reconstruct broad process state from canonical transaction tables
+on every request. Redis can be added later as a short-TTL edge cache for already
+bounded reads, but it is not the source of truth and it must not hide an
+unbounded query.
+
+For Control Tower, Action Center, Calendar, and Protocol Adherence:
+
+- canonical writes remain in Postgres transactions with audit/outbox;
+- `process-integrity-projection-recompute` or the future incremental projector
+  refreshes `process_integrity_projection_rows` after seed/import/canonical
+  writes;
+- recompute builds a new `projection_version`, atomically flips
+  `process_integrity_projection_state.serving_projection_version`, then prunes
+  old versions in bounded batches; it must not delete the live serving version
+  before the replacement is ready;
+- read APIs query the projection by tenant, category, scope, state, due window,
+  owner, and cursor;
+- stale or rebuilding projection states serve the last known
+  `serving_projection_version` instead of replaying canonical tables on every
+  request;
+- responses expose projection freshness when stale data is possible;
+- staging reports include scaled `EXPLAIN (ANALYZE, BUFFERS)` and API p95/p99.
+
+Manual process-integrity rebuild:
+
+```bash
+cd backend
+DATABASE_URL="$DATABASE_URL" go run ./cmd/process-integrity-projection-recompute \
+  -tenant-id "$GOATOS_TENANT_ID"
+```

@@ -75,8 +75,13 @@ func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (
 		EstimatedDays:    estimatedDays,
 		DailyCap:         cap,
 		CapacityStatus:   classifyCapacity(cells, estimatedDays, req.MaxBufferDays),
+		PlannedSessions:  planImpactSessions(cells, cap, estimatedDays, req.MaxBufferDays, filter.AsOf),
 		SourceRevision:   agg.SourceRevision,
 		RecomputedAt:     agg.RecomputedAt,
+	}
+	if cells > 0 && estimatedDays > maxImpactPlannedSessions {
+		out.Warnings = append(out.Warnings,
+			"planned session preview truncated at "+strconv.FormatInt(maxImpactPlannedSessions, 10)+" days; estimated_days="+strconv.FormatInt(estimatedDays, 10))
 	}
 	if agg.SourceRevision == 0 {
 		out.Warnings = append(out.Warnings,
@@ -112,6 +117,10 @@ func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (
 // request omits the draft buffer, so the classification never silently assumes a 0-day window.
 const previewDefaultMaxBufferDays = 7
 
+// maxImpactPlannedSessions bounds the payload for high-scale previews. The preview still returns the full
+// EstimatedDays headline, but avoids sending tens of thousands of day rows to the browser.
+const maxImpactPlannedSessions = 366
+
 // classifyCapacity mirrors the session-splitting planner headline (PlanSessions / shedSummarySQL):
 // sessions = estimatedDays; within_cap fits one day, over_cap fits the safe window (buffer + 1 days),
 // capacity_breach spills beyond it. Empty when there are no cells to plan. Returns the machine value; the
@@ -132,6 +141,51 @@ func classifyCapacity(cells, estimatedDays int64, maxBufferDays *int64) string {
 	default:
 		return "capacity_breach"
 	}
+}
+
+func planImpactSessions(cells, cap, estimatedDays int64, maxBufferDays *int64, start time.Time) []domain.ImpactPlannedSession {
+	if cells <= 0 || cap < 1 || estimatedDays <= 0 {
+		return []domain.ImpactPlannedSession{}
+	}
+	if start.IsZero() {
+		start = time.Now().In(biztime.DefaultLocation())
+	}
+	allowedDays := effectiveBufferDays(maxBufferDays) + 1
+	if allowedDays < 1 {
+		allowedDays = 1
+	}
+	limit := estimatedDays
+	if limit > maxImpactPlannedSessions {
+		limit = maxImpactPlannedSessions
+	}
+	planned := make([]domain.ImpactPlannedSession, 0, limit)
+	remaining := cells
+	for i := int64(0); i < limit; i++ {
+		vax := cap
+		if remaining < cap {
+			vax = remaining
+		}
+		remaining -= vax
+		perDay := "within_cap"
+		if i >= allowedDays {
+			perDay = "capacity_breach"
+		}
+		planned = append(planned, domain.ImpactPlannedSession{
+			Date:         biztime.BusinessDate(start.AddDate(0, 0, int(i))),
+			Vaccinations: vax,
+			DailyLimit:   cap,
+			Capacity:     perDay,
+		})
+	}
+	return planned
+}
+
+func effectiveBufferDays(maxBufferDays *int64) int64 {
+	buffer := int64(previewDefaultMaxBufferDays)
+	if maxBufferDays != nil && *maxBufferDays >= 0 {
+		buffer = *maxBufferDays
+	}
+	return buffer
 }
 
 func ceilDiv(n, d int64) int64 {

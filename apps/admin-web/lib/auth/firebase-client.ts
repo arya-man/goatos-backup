@@ -4,16 +4,19 @@ import { getApp, getApps, initializeApp, type FirebaseOptions } from "firebase/a
 import {
   GoogleAuthProvider,
   browserLocalPersistence,
+  confirmPasswordReset,
   getAuth,
   sendPasswordResetEmail,
   setPersistence,
   signInWithEmailAndPassword,
   signInWithCredential,
   signOut,
+  verifyPasswordResetCode,
   type Auth,
+  type ActionCodeSettings,
   type User,
 } from "firebase/auth";
-import { FIREBASE_CONFIG_ROUTE, SESSION_ROUTE } from "@/lib/auth/session-cookie";
+import { FIREBASE_CONFIG_ROUTE, LOGIN_PATH, SESSION_ROUTE } from "@/lib/auth/session-cookie";
 
 export type FirebaseClientRuntimeConfig = {
   config: FirebaseOptions;
@@ -68,7 +71,17 @@ export async function signInWithEmailPassword(email: string, password: string): 
 
 export async function sendPasswordReset(email: string): Promise<void> {
   const auth = await getFirebaseAuth();
-  await sendPasswordResetEmail(auth, email);
+  await sendPasswordResetEmail(auth, email, passwordResetActionCodeSettings());
+}
+
+export async function verifyPasswordReset(code: string): Promise<string> {
+  const auth = await getFirebaseAuth();
+  return verifyPasswordResetCode(auth, code);
+}
+
+export async function confirmPasswordResetCode(code: string, newPassword: string): Promise<void> {
+  const auth = await getFirebaseAuth();
+  await confirmPasswordReset(auth, code, newPassword);
 }
 
 async function syncSignedInUser(user: User): Promise<User> {
@@ -140,6 +153,14 @@ async function loadFirebaseConfig(): Promise<FirebaseClientRuntimeConfig> {
       });
   }
   return configPromise;
+}
+
+function passwordResetActionCodeSettings(): ActionCodeSettings {
+  const origin = typeof window === "undefined" ? "https://stg.dashboard.mesha.sg" : window.location.origin;
+  return {
+    url: new URL(LOGIN_PATH, origin).toString(),
+    handleCodeInApp: false,
+  };
 }
 
 async function sessionRouteErrorCode(response: Response): Promise<string> {

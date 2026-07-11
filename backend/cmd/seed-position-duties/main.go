@@ -124,7 +124,7 @@ func run(args []string) error {
 	defer cancel()
 
 	pgCfg := platformpg.ConfigFromEnv()
-	if err := localtarget.ValidateLocalDatabaseTarget("seed-position-duties", os.Getenv("GOATOS_ENV"), pgCfg.DatabaseURL, "local", "dev", "test"); err != nil {
+	if err := validateTarget(os.Getenv("GOATOS_ENV"), pgCfg.DatabaseURL); err != nil {
 		return err
 	}
 	pool, err := platformpg.Connect(ctx, pgCfg)
@@ -258,6 +258,13 @@ func matchModule(positionCode string) (modulePrefix, bool) {
 		}
 	}
 	return modulePrefix{}, false
+}
+
+func validateTarget(env, databaseURL string) error {
+	if strings.EqualFold(strings.TrimSpace(env), "stg") {
+		return localtarget.ValidateStagingCloudSQLDatabaseTarget("seed-position-duties", env, databaseURL)
+	}
+	return localtarget.ValidateLocalDatabaseTarget("seed-position-duties", env, databaseURL, "local", "dev", "test")
 }
 
 // ---- write ----

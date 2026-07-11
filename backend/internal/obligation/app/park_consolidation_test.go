@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,6 +144,90 @@ func TestConsolidateParkDrivesCreatesParkBatchAcrossSheds(t *testing.T) {
 	}
 	if batch.Session != "park-consolidation:obl-1" {
 		t.Fatalf("batch session = %q", batch.Session)
+	}
+}
+
+func TestConsolidateParkDrivesPagesParkCandidatesWithCursor(t *testing.T) {
+	rows := []domain.ParkConsolidationCandidate{
+		{
+			ObligationID: "obl-1",
+			RuleID:       "rule-a",
+			ShedID:       "shed-1",
+			ParkID:       "park-1",
+			DueAt:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+			WindowEnd:    ptrTime(time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)),
+		},
+		{
+			ObligationID: "obl-2",
+			RuleID:       "rule-a",
+			ShedID:       "shed-2",
+			ParkID:       "park-1",
+			DueAt:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+			WindowEnd:    ptrTime(time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)),
+		},
+		{
+			ObligationID: "obl-3",
+			RuleID:       "rule-a",
+			ShedID:       "shed-3",
+			ParkID:       "park-1",
+			DueAt:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+			WindowEnd:    ptrTime(time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)),
+		},
+		{
+			ObligationID: "obl-4",
+			RuleID:       "rule-a",
+			ShedID:       "shed-4",
+			ParkID:       "park-1",
+			DueAt:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+			WindowEnd:    ptrTime(time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)),
+		},
+	}
+	repo := &fakeSweepRepo{parkRows: rows, attachAll: true}
+	svc := NewSweeperService(repo, nil, nil)
+	svc.page = 2
+
+	res, err := svc.consolidateParkDrives(context.Background(), "tenant-1", "version-1", SweepConfig{
+		ParkConsolidation: domain.DefaultParkConsolidationSettings(),
+	}, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("consolidateParkDrives: %v", err)
+	}
+	if repo.parkListCalls != 3 {
+		t.Fatalf("park candidate list calls = %d, want 3 pages including final empty page", repo.parkListCalls)
+	}
+	if res.ParkBatches != 1 || res.ParkObligations != 4 {
+		t.Fatalf("result = %#v, want one park batch with all four obligations", res)
+	}
+}
+
+func TestConsolidateParkDrivesFailsWhenCandidateCursorDoesNotAdvance(t *testing.T) {
+	rows := []domain.ParkConsolidationCandidate{
+		{
+			ObligationID: "obl-1",
+			RuleID:       "rule-a",
+			ShedID:       "shed-1",
+			ParkID:       "park-1",
+			DueAt:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+			WindowEnd:    ptrTime(time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)),
+		},
+		{
+			ObligationID: "obl-2",
+			RuleID:       "rule-a",
+			ShedID:       "shed-2",
+			ParkID:       "park-1",
+			DueAt:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+			WindowEnd:    ptrTime(time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)),
+		},
+	}
+	repo := &fakeSweepRepo{parkRows: rows, repeatParkPage: true}
+	svc := NewSweeperService(repo, nil, nil)
+	svc.page = 2
+
+	_, err := svc.consolidateParkDrives(context.Background(), "tenant-1", "version-1", SweepConfig{
+		ParkConsolidation: domain.DefaultParkConsolidationSettings(),
+	}, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
+	if err == nil || !strings.Contains(err.Error(), "pagination did not advance") {
+		t.Fatalf("error = %v, want pagination progress failure", err)
 	}
 }
 

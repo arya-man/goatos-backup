@@ -48,6 +48,7 @@ import {
   optionalCopy,
   optionGroup,
   optionLabel,
+  optionTone,
   optionalOptionGroup,
   type AdminUiOption,
   type AdminUiPageContract,
@@ -827,6 +828,44 @@ export function RuleEditorModal({
           <p>{copy(pageContract, "modal.rule_editor.impact_method_body")}</p>
         </div>
         <p>{copy(pageContract, "modal.rule_editor.impact_scale_note")}</p>
+      </div>
+    );
+  }
+  function impactPlannedSessions() {
+    const sessions = impact?.planned_sessions ?? [];
+    if (sessions.length === 0) return null;
+    return (
+      <div className="cfgimpact-plan">
+        <div className="cfgimpact-plan-title">
+          {copy(pageContract, "modal.rule_editor.impact_plan_title")}
+        </div>
+        <div className="cfgtablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{copy(pageContract, "modal.rule_editor.impact_plan_date")}</th>
+                <th>{copy(pageContract, "modal.rule_editor.impact_plan_vaccinations")}</th>
+                <th>{copy(pageContract, "modal.rule_editor.impact_plan_daily_limit")}</th>
+                <th>{copy(pageContract, "modal.rule_editor.impact_plan_capacity")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.map((s, i) => {
+                const tone = optionTone(pageContract, "capacity_chips", s.capacity);
+                return (
+                  <tr key={`${s.date}-${i}`}>
+                    <td>{s.date}</td>
+                    <td>{s.vaccinations}</td>
+                    <td className="muted">{s.dailyLimit}</td>
+                    <td>
+                      <span className={`tag t-${tone}`}>{optionLabel(pageContract, "capacity_chips", s.capacity)}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }
@@ -2448,6 +2487,7 @@ export function RuleEditorModal({
                     ? ` · ${copy(pageContract, "modal.rule_editor.label.earliest_expiry")} ${impact.earliest_expiry.slice(0, 10)}`
                     : ""}
                 </div>
+                {impactPlannedSessions()}
                 {impact.warnings.length > 0
                   ? impact.warnings.map((w, i) => (
                       <div
@@ -4690,6 +4730,7 @@ export function RuleEditorModal({
                   ? ` · ${copy(pageContract, "modal.rule_editor.label.earliest_expiry")} ${impact.earliest_expiry.slice(0, 10)}`
                   : ""}
               </div>
+              {impactPlannedSessions()}
               {impact.warnings.length > 0
                 ? impact.warnings.map((w, i) => (
                     <div

@@ -72,6 +72,15 @@ hot_table_prefixes = (
 # certification cannot pretend those migrations are safe on populated tables.
 enforcement_floor = 141
 
+# Migration 000152 was applied to shared staging before this guard caught late
+# hot-table CHECK rollout shape. Do not edit that checksum-tracked migration.
+# Keep it visible as reviewed debt while preserving failure behavior for any new
+# unsafe hot-table migration.
+reviewed_applied_debt = {
+    "000152_obligation_window_check.sql: obligation_instances_window_check on hot table obligation_instances uses direct CHECK/FOREIGN KEY constraint without NOT VALID",
+    "000152_obligation_window_check.sql: obligation_instances_window_check on hot table obligation_instances uses direct DROP CONSTRAINT in goose Down section",
+}
+
 create_table_re = re.compile(r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<table>[a-zA-Z_][\w.]*)", re.I)
 create_index_re = re.compile(
     r"\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?P<concurrently>CONCURRENTLY\s+)?"
@@ -211,6 +220,9 @@ def has_no_transaction(section_sql: str) -> bool:
 
 
 def classify_hot_lock_risk(version: int, message: str) -> None:
+    if message in reviewed_applied_debt:
+        warnings.append("reviewed-applied-debt: " + message)
+        return
     if version < enforcement_floor:
         warnings.append("legacy-pre-floor: " + message)
         return

@@ -79,6 +79,8 @@ paths:
       operationId: appBootstrap
       summary: Return the Android bootstrap manifest for the authenticated operator.
       parameters:
+        - $ref: "#/components/parameters/AcceptLanguage"
+        - $ref: "#/components/parameters/GoatOSLocale"
         - name: device_id
           in: query
           required: false
@@ -993,6 +995,81 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /vaccination/action-center/counts:
+    get:
+      tags:
+        - Action Center
+      operationId: countVaccinationActionCenter
+      summary: Count vaccination process-integrity rows by work state without returning row payloads.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          description: Reconstruct process state as of this instant (top-bar date scope). Defaults to now.
+          schema:
+            type: string
+            format: date-time
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: work_state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/WorkState"
+        - name: severity
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ProcessIntegritySeverity"
+        - name: owner_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: protocol_version_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: due_after
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: due_before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Vaccination Action Center work-state counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionCenterCountsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/adherence:
     get:
       tags:
@@ -1562,42 +1639,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
-        "500":
-          $ref: "#/components/responses/ServerError"
-    put:
-      tags:
-        - Vaccination
-      operationId: updateVaccinationCapacityConfig
-      summary: Update the tenant's daily vaccination capacity config (optimistic concurrency).
-      description: >-
-        Authors the daily vaccination cap in the vaccination config flow. Capacity counts vaccination
-        administrations, not animals (one goat receiving FMD + HS = 2). expectedRowVersion is the
-        rowVersion the admin last read; a stale value returns 409 so concurrent edits never clobber.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateVaccinationCapacityConfigRequest"
-      responses:
-        "200":
-          description: The updated capacity config (with the bumped rowVersion).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VaccinationCapacityConfig"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "409":
-          description: Stale rowVersion — the config was changed by someone else; reload and retry.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           $ref: "#/components/responses/ServerError"
   /feed-direction/readiness:
@@ -2447,6 +2488,8 @@ paths:
         traceability echo. Supports conditional GET: a matching If-None-Match returns 304 with no
         body. Side-effect-free; no FCM push is wired by this endpoint (poll/ETag only).
       parameters:
+        - $ref: "#/components/parameters/AcceptLanguage"
+        - $ref: "#/components/parameters/GoatOSLocale"
         - name: If-None-Match
           in: header
           required: false
@@ -2526,6 +2569,22 @@ components:
         type: string
         minLength: 8
         maxLength: 200
+    AcceptLanguage:
+      name: Accept-Language
+      in: header
+      required: false
+      description: Standard language preference used to localize backend-owned labels/copy. Supported app languages are en, hi, kn, and te; unsupported values fall back to en.
+      schema:
+        type: string
+        examples: ["hi-IN, en;q=0.8"]
+    GoatOSLocale:
+      name: X-GoatOS-Locale
+      in: header
+      required: false
+      description: Exact Goat OS app language selected by the user. Takes precedence over Accept-Language for backend-owned labels/copy.
+      schema:
+        type: string
+        enum: [en, hi, kn, te]
     ProtocolId:
       name: protocol_id
       in: path
@@ -5905,6 +5964,25 @@ components:
           minimum: 0
         next_cursor:
           type: string
+    ActionCenterCountsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - counts_by_work_state
+        - total_count
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        counts_by_work_state:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountByWorkState"
+        total_count:
+          type: integer
+          minimum: 0
     AdherenceSummary:
       type: object
       additionalProperties: false
@@ -6595,6 +6673,7 @@ components:
         - affected_sheds
         - estimated_days
         - daily_cap
+        - planned_sessions
         - source_revision
         - warnings
       properties:
@@ -6620,6 +6699,13 @@ components:
             Planner classification of the draft under daily_cap + the buffer window: within_cap (fits one
             day), over_cap (Split — fits the safe window), capacity_breach (Needs review — beyond it).
             Omitted when there are no cells to plan.
+        planned_sessions:
+          type: array
+          description: >-
+            Pre-publish session split under the draft daily cap. Bounded for very large herds; estimated_days
+            remains the full duration when the preview is truncated.
+          items:
+            $ref: "#/components/schemas/VaccinationPlannedSession"
         doses_available:
           type: string
           description: Optional cheap stock check; present only when a vaccine item is set.
@@ -7562,9 +7648,8 @@ components:
       type: object
       additionalProperties: false
       description: |
-        Tenant daily vaccination capacity config authored on the admin Config screen. The cap counts
-        vaccination administrations (cells), not animals — one goat receiving FMD + HS is 2. rowVersion
-        is the optimistic-concurrency token (bump on each save); pass it back as expectedRowVersion.
+        Tenant daily vaccination capacity config published from the versioned vaccination rule DSL. The cap
+        counts vaccination administrations (cells), not animals — one goat receiving FMD + HS is 2.
       required:
         - maxPerDay
         - capacityScope
@@ -7596,38 +7681,7 @@ components:
           description: What the planner does when due work exceeds the cap.
         rowVersion:
           type: integer
-          description: Optimistic-concurrency token; pass back as expectedRowVersion on update.
-    UpdateVaccinationCapacityConfigRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - maxPerDay
-        - capacityScope
-        - maxBufferDays
-        - overflowPolicy
-        - expectedRowVersion
-      properties:
-        maxPerDay:
-          type: integer
-          minimum: 1
-          maximum: 100000
-        capacityScope:
-          type: string
-          enum:
-            - tenant
-            - center
-            - shed
-        maxBufferDays:
-          type: integer
-          minimum: 0
-          maximum: 60
-        overflowPolicy:
-          type: string
-          enum:
-            - split_within_safe_window_then_mark_needs_review
-        expectedRowVersion:
-          type: integer
-          description: The rowVersion the admin last read; a stale value returns 409.
+          description: Published capacity config row version.
     VaccinationShedStatus:
       type: string
       enum:
@@ -7840,6 +7894,7 @@ components:
       required:
         - goatId
         - displayId
+        - sex
         - status
       properties:
         goatId:
@@ -7851,6 +7906,19 @@ components:
             - string
             - "null"
         tag2:
+          type:
+            - string
+            - "null"
+        breed:
+          type:
+            - string
+            - "null"
+        sex:
+          type: string
+          enum:
+            - female
+            - male
+        age:
           type:
             - string
             - "null"

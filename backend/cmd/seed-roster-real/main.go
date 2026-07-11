@@ -236,7 +236,7 @@ func run(args []string) error {
 	defer cancel()
 
 	pgCfg := platformpg.ConfigFromEnv()
-	if err := localtarget.ValidateLocalDatabaseTarget("seed-roster-real", os.Getenv("GOATOS_ENV"), pgCfg.DatabaseURL, "local", "dev", "test"); err != nil {
+	if err := validateTarget(os.Getenv("GOATOS_ENV"), pgCfg.DatabaseURL); err != nil {
 		return err
 	}
 	pool, err := platformpg.Connect(ctx, pgCfg)
@@ -1063,4 +1063,11 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func validateTarget(env, databaseURL string) error {
+	if strings.EqualFold(strings.TrimSpace(env), "stg") {
+		return localtarget.ValidateStagingCloudSQLDatabaseTarget("seed-roster-real", env, databaseURL)
+	}
+	return localtarget.ValidateLocalDatabaseTarget("seed-roster-real", env, databaseURL, "local", "dev", "test")
 }

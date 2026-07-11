@@ -70,6 +70,29 @@ func TestGetConfigReturnsBundleAndSetsETag(t *testing.T) {
 	}
 }
 
+func TestGetConfigPassesLocaleToCompiler(t *testing.T) {
+	compiler := &fakeCompiler{resp: domain.Response{
+		Source:      domain.SourceAPI,
+		Revision:    "abc123",
+		CachePolicy: domain.CachePolicy{ETag: `W/"abc123"`},
+	}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(compiler))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/config", nil)
+	req.Header.Set("Accept-Language", "kn-IN, en;q=0.8")
+	req = withActor(req, "00000000-0000-4000-8000-000000000001", "actor-1")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if compiler.last.LocaleTag != "kn" {
+		t.Fatalf("compile locale = %q want kn", compiler.last.LocaleTag)
+	}
+}
+
 func TestGetConfigReturns304OnMatchingIfNoneMatch(t *testing.T) {
 	compiler := &fakeCompiler{resp: domain.Response{
 		Source:      domain.SourceAPI,

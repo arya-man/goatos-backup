@@ -25,6 +25,7 @@ const (
 
 type fakeReader struct {
 	actionQuery   domain.Query
+	countsQuery   domain.Query
 	workflowQuery domain.Query
 	workflowID    string
 }
@@ -32,6 +33,15 @@ type fakeReader struct {
 func (f *fakeReader) ActionCenter(_ context.Context, q domain.Query) (domain.ActionCenterResponse, error) {
 	f.actionQuery = q
 	return domain.ActionCenterResponse{Source: domain.SourceAPI, Items: []domain.Row{}}, nil
+}
+
+func (f *fakeReader) ActionCenterCounts(_ context.Context, q domain.Query) (domain.ActionCenterCountsResponse, error) {
+	f.countsQuery = q
+	return domain.ActionCenterCountsResponse{
+		Source:            domain.SourceAPI,
+		CountsByWorkState: []domain.CountByWorkState{{WorkState: domain.WorkStateDue, Count: 7}},
+		TotalCount:        7,
+	}, nil
 }
 
 func (f *fakeReader) ProtocolAdherence(_ context.Context, q domain.Query) (domain.ProtocolAdherenceResponse, error) {
@@ -101,6 +111,32 @@ func TestActionCenterParsesBoundedVaccinationQuery(t *testing.T) {
 	}
 	if q.Cursor == nil || q.Cursor.SortPriority != 5 {
 		t.Fatalf("cursor = %+v", q.Cursor)
+	}
+}
+
+func TestActionCenterCountsParsesQueryWithoutRows(t *testing.T) {
+	reader := &fakeReader{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader))
+
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/action-center/counts?park_id="+handlerPark+"&as_of=2026-06-24T12:00:00Z", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), handlerTenant))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.countsQuery.TenantID != handlerTenant || reader.countsQuery.ParkID == nil || *reader.countsQuery.ParkID != handlerPark {
+		t.Fatalf("counts query = %+v", reader.countsQuery)
+	}
+	var got domain.ActionCenterCountsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.TotalCount != 7 || len(got.CountsByWorkState) != 1 {
+		t.Fatalf("counts response = %+v", got)
 	}
 }
 

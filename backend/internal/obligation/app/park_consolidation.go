@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -30,8 +31,10 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 	}
 
 	groups := make(map[string][]domain.ParkConsolidationCandidate)
+	var after *domain.ParkConsolidationCursor
+	seenCursors := map[string]struct{}{}
 	for {
-		rows, err := s.repo.ListUnbatchedShedDueForParkConsolidation(ctx, tenantID, versionID, dueBefore, s.page)
+		rows, err := s.repo.ListUnbatchedShedDueForParkConsolidation(ctx, tenantID, versionID, dueBefore, s.page, after)
 		if err != nil {
 			return res, err
 		}
@@ -45,6 +48,16 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 		if int32(len(rows)) < s.page {
 			break
 		}
+		next := parkConsolidationCursor(rows[len(rows)-1])
+		key := parkConsolidationCursorKey(next)
+		if key == "" {
+			return res, fmt.Errorf("obligation: park consolidation pagination did not produce an advance cursor")
+		}
+		if _, ok := seenCursors[key]; ok {
+			return res, fmt.Errorf("obligation: park consolidation pagination did not advance after cursor %s", key)
+		}
+		seenCursors[key] = struct{}{}
+		after = next
 	}
 
 	now := biztime.BusinessDayStart(dueBefore)
@@ -98,6 +111,31 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 		}
 	}
 	return res, nil
+}
+
+func parkConsolidationCursorKey(cursor *domain.ParkConsolidationCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s|%s|%s|%s|%s|%s",
+		cursor.ParkID,
+		cursor.RuleID,
+		cursor.TargetSpecies,
+		cursor.TargetAnimalStage,
+		cursor.DueAt.UTC().Format(time.RFC3339Nano),
+		cursor.ObligationID,
+	)
+}
+
+func parkConsolidationCursor(row domain.ParkConsolidationCandidate) *domain.ParkConsolidationCursor {
+	return &domain.ParkConsolidationCursor{
+		ParkID:            row.ParkID,
+		RuleID:            row.RuleID,
+		TargetSpecies:     row.TargetSpecies,
+		TargetAnimalStage: row.TargetAnimalStage,
+		DueAt:             row.DueAt,
+		ObligationID:      row.ObligationID,
+	}
 }
 
 func (s *SweeperService) recordParkBatchingHoldIfNeeded(ctx context.Context, tenantID string, ids []string, rows []domain.ParkConsolidationCandidate, plannedDate *time.Time, occurredAt time.Time) error {

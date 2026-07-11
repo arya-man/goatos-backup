@@ -19,19 +19,19 @@ const (
 
 func TestBootstrapDeniesMissingProfile(t *testing.T) {
 	svc := NewService(&fakeRepo{profileErr: ports.ErrNotFound})
-	_, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "trace-1")
+	_, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
 	assertAppCode(t, err, "operator_profile_missing")
 }
 
 func TestBootstrapDeniesInactiveProfile(t *testing.T) {
 	svc := NewService(&fakeRepo{profile: profile("inactive"), grants: []domain.GrantSummary{grant()}})
-	_, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "trace-1")
+	_, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
 	assertAppCode(t, err, "operator_profile_inactive")
 }
 
 func TestBootstrapDeniesMissingGrant(t *testing.T) {
 	svc := NewService(&fakeRepo{profile: profile("active")})
-	_, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "trace-1")
+	_, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
 	assertAppCode(t, err, "operator_grant_missing")
 }
 
@@ -41,7 +41,7 @@ func TestBootstrapDeniesRevokedDevice(t *testing.T) {
 		grants:  []domain.GrantSummary{grant()},
 		device:  device("revoked"),
 	})
-	_, err := svc.Bootstrap(context.Background(), testTenant, testActor, testDevice, "trace-1")
+	_, err := svc.Bootstrap(context.Background(), testTenant, testActor, testDevice, "", "trace-1")
 	assertAppCode(t, err, "device_revoked")
 }
 
@@ -55,7 +55,7 @@ func TestBootstrapAllowsActiveProfileGrantCapabilityDevice(t *testing.T) {
 		},
 		device: device("active"),
 	})
-	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, testDevice, "trace-1")
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, testDevice, "", "trace-1")
 	if err != nil {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
@@ -78,7 +78,7 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 		profile: profile("active"),
 		grants:  []domain.GrantSummary{grant()},
 	})
-	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "trace-1")
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
 	if err != nil {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
@@ -100,16 +100,47 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 	}
 }
 
+func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
+	svc := NewService(&fakeRepo{
+		profile: profile("active"),
+		grants:  []domain.GrantSummary{grant()},
+		caps:    []domain.CapabilityAssignment{{CapabilityCode: "movement.execute", Status: "active"}},
+	})
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "hi", "trace-1")
+	if err != nil {
+		t.Fatalf("Bootstrap() error=%v", err)
+	}
+	wantNav := []domain.BootstrapNavigationItem{
+		{Key: "vaccination", Label: "ड्राइव", Href: "/vaccination"},
+		{Key: "calendar", Label: "कैलेंडर", Href: "/calendar"},
+		{Key: "alerts", Label: "अलर्ट", Href: "/alerts"},
+	}
+	if len(got.VisibleNavigation) != len(wantNav) {
+		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, wantNav)
+	}
+	for i := range wantNav {
+		if got.VisibleNavigation[i] != wantNav[i] {
+			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], wantNav[i])
+		}
+	}
+	if got.TaskQueueDescriptors[0].Label != "सौंपा गया काम" {
+		t.Fatalf("assigned queue label=%q", got.TaskQueueDescriptors[0].Label)
+	}
+	if got.TaskQueueDescriptors[1].Label != "शिफ्टिंग" {
+		t.Fatalf("shifting queue label=%q", got.TaskQueueDescriptors[1].Label)
+	}
+}
+
 // TestBootstrapLeadershipGetsFixedNav pins the leadership
 // loop: a leadership-tier grant (park_head here, but the role set below
 // covers every leadership tier) gets the fixed Calendar/Overview/Alerts nav
-// and minimal chrome.
+// and expanded chrome.
 func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile: profile("active"),
 		grants:  []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)},
 	})
-	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "trace-1")
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
 	if err != nil {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
@@ -126,8 +157,8 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], wantNav[i])
 		}
 	}
-	if got.NavChrome != domain.NavChromeMinimal {
-		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
+	if got.NavChrome != domain.NavChromeExpanded {
+		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeExpanded)
 	}
 }
 
@@ -138,7 +169,7 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 		profile: profile("active"),
 		grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 	})
-	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "trace-1")
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
 	if err != nil {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
@@ -228,7 +259,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := visibleNavigationFor(tc.grants)
+			got := visibleNavigationFor(tc.grants, "")
 			if len(got) != len(tc.want) {
 				t.Fatalf("visibleNavigationFor()=%#v want %#v", got, tc.want)
 			}
@@ -241,7 +272,8 @@ func TestVisibleNavigationFor(t *testing.T) {
 	}
 }
 
-// TestNavChromeFor pins mobile bootstrap chrome to minimal for all roles.
+// TestNavChromeFor verifies that leadership principals get expanded chrome
+// (module drawer) while field operators get minimal chrome (bottom bar only).
 func TestNavChromeFor(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -249,14 +281,19 @@ func TestNavChromeFor(t *testing.T) {
 		want   string
 	}{
 		{
-			name:   "leadership always minimal",
+			name:   "leadership expanded",
 			grants: []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)},
-			want:   domain.NavChromeMinimal,
+			want:   domain.NavChromeExpanded,
 		},
 		{
 			name:   "operator minimal",
 			grants: []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			want:   domain.NavChromeMinimal,
+		},
+		{
+			name:   "ceo expanded",
+			grants: []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)},
+			want:   domain.NavChromeExpanded,
 		},
 	}
 	for _, tc := range tests {

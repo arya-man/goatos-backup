@@ -3,6 +3,13 @@
 Run this before any `goatos-stg` vaccination seed. Do not seed staging when a
 blocker below is red.
 
+For the compact-safe resume handoff, source manifest, last observed staging
+state, and exact stop conditions, read:
+
+```text
+docs/runbooks/staging-vaccination-seed-resume-2026-07-11.md
+```
+
 ## Source Of Record
 
 - Use `Vaccination_DB_-V2` / `Demo DB` as the vaccination seed source. Demo DB
@@ -25,6 +32,19 @@ blocker below is red.
   the primary ID as the join key where present. When primary ID is blank but a
   secondary ID exists, use the secondary ID as the available animal identifier.
   Never invent a composite key from farm + shed + age + gender + breed.
+- Reviewed HRMS shed ownership source:
+  `/Users/ravi/mesha/source-material/vgoats-seed/shed-manager-mapping.jul11-vaccination.csv`.
+  This CSV is generated from the source `goats.json` shed list and reviewed
+  roster rows, not from local database state.
+  Validation on creation: 116 shed rows, 72 CBE sheds, 44 CPT sheds, 116 source
+  goat sheds covered, 1,311 source goats covered, 0 missing source sheds, 0 extra
+  seed sheds, 0 blank manager/backup values, and 0 rows failing the
+  reviewed-source contract.
+  Staging assignments are:
+  - CBE sheds -> manager `Eshwar` (`HRMS-MANUAL-9030`), backup `Saheb mete`
+    (`HRMS-JUN26-020`).
+  - CPT sheds -> manager `Darshan Talwar` (`HRMS-JUN26-013`), backup
+    `Amit Kumar` (`HRMS-JUN26-016`).
 
 ## Strict Blockers
 
@@ -58,16 +78,20 @@ blocker below is red.
 - Shed manager/backup ownership: reuse the existing workforce Position model;
   do not create a separate vaccination-owned shed ownership table. Manager is
   the shed-scoped Position holder. Backup is the center/park backup-manager slot
-  unless a real shed-specific backup exists. Missing manager/backup is a staging
-  seed blocker, not a normal UI business state. Do not invent mappings.
+  unless a real shed-specific backup exists. `Manager: unassigned`,
+  `owner missing`, or missing backup is a staging seed blocker, not a normal UI
+  business state. Use the reviewed shed ownership CSV above. If any shed code,
+  manager code, or backup code does not resolve in staging, stop instead of
+  inventing a fallback.
 - HRMS/vaccination ownership source: the real roster seed must include the
   vaccination-relevant people from the roster discussion: Health Managers and
   Health AMs, with known examples such as Darshan for CPT and Eshwar for CBE
   when confirmed by the source sheet/WhatsApp owner. These must be represented as
   workforce members/positions with the right center/shed responsibility and
   backup chain, because vaccination execution and the mobile app read this
-  ownership data. If the source does not provide a shed manager or backup, seed
-  preflight fails; do not leave `owner missing` as a normal business state.
+  ownership data. The current reviewed staging overlay is
+  `shed-manager-mapping.jul11-vaccination.csv`; if it changes, regenerate and
+  revalidate coverage before seeding.
 - Sex and dates: sex must be explicit `Male`/`Female`; dates must be real
   `YYYY-MM-DD`. Do not let importer defaults hide source mistakes.
 - Workflow links: Passport/history links may point only to real workflow rows.
@@ -94,6 +118,10 @@ blocker below is red.
   `max vaccinations per day`, `capacity scope`, `max buffer days`, and
   `overflow policy`. Do not hide this cap in Calendar, Action Center, env vars,
   or a separate ops-only settings page.
+- `max buffer days` is fixed at 7 for staging unless Ravi explicitly changes the
+  business rule. It means the planner may split work up to 7 days after the first
+  due date before flagging `Needs review`; it does not replace vaccine medical
+  windows or cross-vaccine spacing rules.
 - Capacity counts vaccination administrations, not animals. One goat receiving
   FMD + HS counts as 2 vaccination cells. Medical due windows, cross-vaccine
   spacing, and max buffer days override the cap when needed; if the cap cannot
@@ -104,8 +132,8 @@ blocker below is red.
   safe date.
 - Built (2026-07-11, read side): the deterministic session-split planner plus a
   tenant-default cap config (`vaccination_capacity_config`: 100 vaccinations/day,
-  tenant scope, 3 buffer days, split-within-safe-window-then-mark-needs-review;
-  migration 000155). The shed-wise read model now returns backend-computed
+  tenant scope, 7 buffer days, split-within-safe-window-then-mark-needs-review;
+  migrations through 000158). The shed-wise read model now returns backend-computed
   `Sessions`, per-day `Planned sessions`, `Capacity` (within_cap/over_cap/
   capacity_breach), and a merged `Status` headline.
 - Built (2026-07-11, shed-wise + capacity UI): `/vaccination` is now the shed-wise
@@ -232,16 +260,21 @@ Latest local rehearsal state before staging seed:
   accepted completion rows, and 9,696 total seeded vaccination obligations.
 - Local protocol shape is green: exactly one non-retired vaccination protocol is
   published, `vaccination.matrix / V1 Real Vaccination`.
-- Local capacity config exists: tenant cap is 100 vaccinations/day, tenant
-  scope, 3 buffer days, with overflow policy
-  `split_within_safe_window_then_mark_needs_review`.
+- Capacity config must be staging-correct before seed: tenant cap is configurable
+  and defaults to 100 vaccinations/day, tenant scope, and
+  `max_buffer_days = 7`. Any local or staging row with buffer 3 is stale and must
+  be corrected before demo.
 
-Current red items; do not seed staging until these are resolved or explicitly
-explained:
+Current red items in the local rehearsal. These do not block GCP/staging
+infrastructure setup, and they do not automatically mean a clean staging seed
+would inherit the same data. They do block treating local as a staging template,
+and the staging seed must pass equivalent checks before demo:
 
 - Local DB does not yet contain `vaccination_eligibility_rollups`; the recompute
   CLI path exists in the working tree, but the local table is not applied or
   populated. Config preview must not hit staging until this read model is green.
+- Capacity config is red anywhere `max_buffer_days` is not 7. Earlier local
+  rehearsals had 3; staging must not.
 - Local SOP data is polluted: 12 non-retired vaccination SOP versions exist,
   including 11 old `vaccination.authoring_*` rows. Staging should have one
   intended vaccination SOP version, not authoring debris.
@@ -257,9 +290,11 @@ explained:
 - Calendar projection count is inconsistent: local has 5,854
   `vaccination_dose_due` rows plus 9 `vaccination_drive` rows, while seeded due
   obligations are 5,860. This must be reconciled before staging demo.
-- Workforce ownership is not ready locally: workforce positions are still
-  center-scoped only; there are zero shed-scoped manager positions populated for
-  shed-wise vaccination ownership.
+- Workforce ownership seed source is now explicit:
+  `/Users/ravi/mesha/source-material/vgoats-seed/shed-manager-mapping.jul11-vaccination.csv`.
+  If local/staging still shows center-scoped-only positions or zero shed-scoped
+  manager positions after running the seed, that is an execution failure, not a
+  missing source-data decision.
 - Founder/builder grants are not locally proven: the five expected
   `@mesha.sg` pending email grants are absent in the local auth grant table.
 - Goat `health_status` is blank for all 1,311 local rows. If the source health
@@ -271,8 +306,43 @@ explained:
   actual deployed schema for the target DB, not an assumed newer/older column
   name.
 
-Conclusion: local source animal/vaccination data is clean, but the kernel/read
-model/SOP/outbox/workforce gates are not clean enough to seed `goatos-stg` yet.
+To make the red items green:
+
+1. Apply staging-bound migrations locally through the eligibility-rollup
+   migration, then run `backend/cmd/vaccination-eligibility-rollup-recompute` for
+   the tenant. Verify `vaccination_eligibility_rollups` exists and has rows.
+2. Seed/update capacity config through the real config path with
+   `max_buffer_days = 7`, not 3.
+3. Retire, purge, or hide the old `vaccination.authoring_*` SOP rows from the
+   default business UI. Verify the default SOP Library shows one intended
+   vaccination SOP.
+4. Verify the default Protocol Rules UI shows one active real vaccination matrix
+   entry. Retired/archive rows must not confuse the business view.
+5. Drain or explain outbox rows. Before staging demo, failed rows must be zero
+   and pending rows must either be zero or an intentional currently-running async
+   queue with documented consumers.
+6. Recompute Calendar/Action Center/process-integrity projections from the
+   seeded obligations. Verify sidebar badges and page counts reconcile to the
+   backend grouped-work query.
+7. Seed HRMS vaccination ownership before vaccination demo: create/resolve
+   Health Manager and Health AM workforce members, then run
+   `seed-shed-positions -mapping /Users/ravi/mesha/source-material/vgoats-seed/shed-manager-mapping.jul11-vaccination.csv -strict`
+   to create shed-scoped `workforce_positions` for every vaccination shed and
+   backup-manager coverage. Verify no vaccination shed renders
+   `Manager: unassigned`, `owner missing`, or blank backup.
+8. Seed founder/builder access grants for `ravi@mesha.sg`,
+   `manohark@mesha.sg`, `manju@mesha.sg`, `abhishek@mesha.sg`, and
+   `aryaman@mesha.sg` as tenant-scoped `ceo_internal` users with every built
+   visible module.
+9. Decide whether source health columns drive Goat OS `health_status`. If yes,
+   fix importer mapping and verify nonblank health rows. If no, hide/label the UI
+   so blank health is not presented as missing seed data.
+
+Conclusion: local source animal/vaccination data is clean, but the local
+kernel/read-model/SOP/outbox/workforce rehearsal is not clean enough to copy or
+trust as the staging template. A clean `goatos-stg` seed may still proceed after
+the staging seed scripts, migrations, and projections independently pass the
+same gates.
 
 ## Clean Seed Checks
 

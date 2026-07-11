@@ -9,5 +9,6 @@ import (
 
 type Repository interface {
 	ListRows(ctx context.Context, q domain.Query) (domain.ListResult, error)
+	CountByWorkState(ctx context.Context, q domain.Query) ([]domain.CountByWorkState, error)
 	GetRow(ctx context.Context, q domain.Query, rowID string) (domain.Row, bool, error)
 }

@@ -43,6 +43,23 @@ func (s *Service) ActionCenter(ctx context.Context, q domain.Query) (domain.Acti
 	}, nil
 }
 
+func (s *Service) ActionCenterCounts(ctx context.Context, q domain.Query) (domain.ActionCenterCountsResponse, error) {
+	q = s.defaults(q)
+	counts, err := s.repo.CountByWorkState(ctx, q)
+	if err != nil {
+		return domain.ActionCenterCountsResponse{}, err
+	}
+	var total int64
+	for _, count := range counts {
+		total += count.Count
+	}
+	return domain.ActionCenterCountsResponse{
+		Source:            domain.SourceAPI,
+		CountsByWorkState: counts,
+		TotalCount:        total,
+	}, nil
+}
+
 func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain.ProtocolAdherenceResponse, error) {
 	q = s.defaults(q)
 	q.IncludeCompleted = true
@@ -90,19 +107,23 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 	if err != nil {
 		return domain.ControlTowerResponse{}, err
 	}
-	summaryQuery := q
-	summaryQuery.WorkState = nil
-	summaryQuery.Severity = nil
-	summaryQuery.OwnerID = nil
-	summaryQuery.Offset = 0
-	summaryQuery.Cursor = nil
-	summaryQuery.Limit = 1
-	summaryResult, err := s.repo.ListRows(ctx, summaryQuery)
-	if err != nil {
-		return domain.ControlTowerResponse{}, err
+
+	summaryCounts := result.CountsByWorkState
+	if !controlTowerCanReuseAlertCounts(q) {
+		summaryQuery := q
+		summaryQuery.WorkState = nil
+		summaryQuery.Severity = nil
+		summaryQuery.OwnerID = nil
+		summaryQuery.Offset = 0
+		summaryQuery.Cursor = nil
+		summaryQuery.Limit = 1
+		summaryCounts, err = s.repo.CountByWorkState(ctx, summaryQuery)
+		if err != nil {
+			return domain.ControlTowerResponse{}, err
+		}
 	}
 	summary := domain.ControlTowerSummary{ProcessIntact: true}
-	for _, c := range summaryResult.CountsByWorkState {
+	for _, c := range summaryCounts {
 		switch c.WorkState {
 		case domain.WorkStateRejected, domain.WorkStateBlocked:
 			summary.CriticalCount += int(c.Count)
@@ -139,6 +160,10 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 		})
 	}
 	return domain.ControlTowerResponse{Source: domain.SourceAPI, Summary: summary, Alerts: alerts, TotalCount: result.TotalCount, NextCursor: result.NextCursor}, nil
+}
+
+func controlTowerCanReuseAlertCounts(q domain.Query) bool {
+	return q.WorkState == nil && q.Severity == nil && q.OwnerID == nil
 }
 
 func (s *Service) WorkflowDrilldown(ctx context.Context, q domain.Query, rowID string) (domain.WorkflowDrilldownResponse, bool, error) {

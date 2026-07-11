@@ -1483,7 +1483,7 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 
 // ListUnbatchedShedDueForParkConsolidation lists shed-scoped unbatched obligations with their park
 // parent location for the second-pass park drive planner.
-func (r *Repository) ListUnbatchedShedDueForParkConsolidation(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32) ([]domain.ParkConsolidationCandidate, error) {
+func (r *Repository) ListUnbatchedShedDueForParkConsolidation(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor) ([]domain.ParkConsolidationCandidate, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -1497,7 +1497,22 @@ func (r *Repository) ListUnbatchedShedDueForParkConsolidation(ctx context.Contex
 	if limit <= 0 {
 		limit = 1000
 	}
+	cursorParkID := ""
+	cursorRuleID := ""
+	cursorSpecies := ""
+	cursorStage := ""
+	cursorDue := pgtype.Timestamptz{}
+	cursorObligationID := ""
+	if after != nil && after.ParkID != "" && after.ObligationID != "" && !after.DueAt.IsZero() {
+		cursorParkID = after.ParkID
+		cursorRuleID = after.RuleID
+		cursorSpecies = after.TargetSpecies
+		cursorStage = after.TargetAnimalStage
+		cursorDue = pgconv.Timestamptz(after.DueAt)
+		cursorObligationID = after.ObligationID
+	}
 	rows, err := r.pool.Query(ctx, `
+WITH candidates AS (
 SELECT o.obligation_id::text,
        o.rule_id::text,
        COALESCE(o.scope_id::text, '')::text AS shed_id,
@@ -1563,8 +1578,29 @@ WHERE o.tenant_id = $1
       AND NOT COALESCE(loa.is_icu, false)
     )
   )
-ORDER BY park.location_id, o.rule_id, target_species, target_animal_stage, o.due_at, o.obligation_id
-LIMIT $4`, tenant, version, pgconv.Timestamptz(dueBefore), limit)
+)
+SELECT
+  obligation_id,
+  rule_id,
+  shed_id,
+  target_id,
+  due_at,
+  window_start,
+  effective_window_end,
+  park_id,
+  target_species,
+  target_animal_stage,
+  target_reproductive_status,
+  batching_hold_count,
+  first_batching_hold_until
+FROM candidates
+WHERE (
+    $4::text = ''
+    OR (park_id, rule_id, target_species, target_animal_stage, due_at, obligation_id)
+      > ($4::text, $5::text, $6::text, $7::text, $8::timestamptz, $9::text)
+  )
+ORDER BY park_id, rule_id, target_species, target_animal_stage, due_at, obligation_id
+LIMIT $10`, tenant, version, pgconv.Timestamptz(dueBefore), cursorParkID, cursorRuleID, cursorSpecies, cursorStage, cursorDue, cursorObligationID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list park consolidation candidates: %w", err)
 	}

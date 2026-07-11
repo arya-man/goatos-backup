@@ -172,6 +172,21 @@ type Query struct {
 	IncludeAdherenceSummary bool
 }
 
+type ProjectionRecomputeRequest struct {
+	TenantID string
+	AsOf     time.Time
+}
+
+type ProjectionRecomputeResult struct {
+	TenantID           string
+	ProjectionVersion  int64
+	ProjectedAt        time.Time
+	AsOf               time.Time
+	Rows               int64
+	CountsByWorkState  []CountByWorkState
+	ProjectionFreshFor time.Duration
+}
+
 type Cursor struct {
 	SortPriority int
 	DueAt        time.Time
@@ -197,6 +212,12 @@ type ActionCenterResponse struct {
 	CountsByWorkState []CountByWorkState `json:"counts_by_work_state"`
 	TotalCount        int64              `json:"total_count"`
 	NextCursor        *string            `json:"next_cursor,omitempty"`
+}
+
+type ActionCenterCountsResponse struct {
+	Source            string             `json:"source"`
+	CountsByWorkState []CountByWorkState `json:"counts_by_work_state"`
+	TotalCount        int64              `json:"total_count"`
 }
 
 type AdherenceSummary struct {

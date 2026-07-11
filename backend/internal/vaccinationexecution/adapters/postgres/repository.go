@@ -1049,8 +1049,8 @@ FROM vaccination_capacity_config
 WHERE tenant_id = $1::uuid;`
 
 // CapacityConfig reads the tenant's daily vaccination cap config, falling back to the code default when
-// no row is authored (migration 000155 seeds existing tenants; later tenants use the default). The code
-// default carries RowVersion 0 so an admin's first save takes the INSERT branch in UpdateCapacityConfig.
+// no row is authored (migration 000155 seeds existing tenants; later tenants use the default). Capacity
+// writes are owned by the protocol publish-sync path, not by vaccination execution.
 func (r *Repository) CapacityConfig(ctx context.Context, tenantID string) (domain.CapacityConfig, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -1064,46 +1064,6 @@ func (r *Repository) CapacityConfig(ctx context.Context, tenantID string) (domai
 		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: capacity config: %w", err)
 	}
 	return cfg, nil
-}
-
-// updateCapacityConfigSQL is an optimistic-concurrency upsert: it INSERTs when no row exists (first author
-// for a post-000155 tenant, expected row_version 0) and UPDATEs in place only when the stored row_version
-// still equals the caller's expected value — bumping row_version so a concurrent stale write returns no
-// row (detected as a conflict). Values are re-checked against the DB CHECK constraints; the caller also
-// validates in Go for a clean 400.
-const updateCapacityConfigSQL = `
-INSERT INTO vaccination_capacity_config
-  (tenant_id, max_per_day, capacity_scope, max_buffer_days, overflow_policy, row_version)
-VALUES ($1::uuid, $2, $3, $4, $5, 1)
-ON CONFLICT (tenant_id) DO UPDATE
-  SET max_per_day     = EXCLUDED.max_per_day,
-      capacity_scope  = EXCLUDED.capacity_scope,
-      max_buffer_days = EXCLUDED.max_buffer_days,
-      overflow_policy = EXCLUDED.overflow_policy,
-      row_version     = vaccination_capacity_config.row_version + 1,
-      updated_at      = now()
-  WHERE vaccination_capacity_config.row_version = $6
-RETURNING max_per_day, capacity_scope, max_buffer_days, overflow_policy, row_version;`
-
-// UpdateCapacityConfig persists an admin edit to the tenant's daily cap config with optimistic
-// concurrency. expectedRowVersion is the RowVersion the admin last read; a mismatch (someone else edited
-// meanwhile) returns domain.ErrCapacityConfigStale so the caller re-reads instead of clobbering. Returns
-// the freshly-stored config (with the bumped RowVersion).
-func (r *Repository) UpdateCapacityConfig(ctx context.Context, tenantID string, cfg domain.CapacityConfig, expectedRowVersion int) (domain.CapacityConfig, error) {
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
-	var out domain.CapacityConfig
-	err := r.pool.QueryRow(ctx, updateCapacityConfigSQL,
-		tenantID, cfg.MaxPerDay, cfg.CapacityScope, cfg.MaxBufferDays, cfg.OverflowPolicy, expectedRowVersion).
-		Scan(&out.MaxPerDay, &out.CapacityScope, &out.MaxBufferDays, &out.OverflowPolicy, &out.RowVersion)
-	if errors.Is(err, pgx.ErrNoRows) {
-		// A row exists but its row_version != expected (the ON CONFLICT UPDATE WHERE filtered it out).
-		return domain.CapacityConfig{}, domain.ErrCapacityConfigStale
-	}
-	if err != nil {
-		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: update capacity config: %w", err)
-	}
-	return out, nil
 }
 
 // ShedSummary returns the shed-wise rollup with ANIMAL-LEVEL Due counts plus the session-split planner's
@@ -1407,12 +1367,14 @@ func (r *Repository) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) 
 	out := []domain.ShedAnimalRow{}
 	for rows.Next() {
 		var row domain.ShedAnimalRow
-		var tag1, tag2 pgtype.Text
-		if err := rows.Scan(&row.GoatID, &row.DisplayID, &tag1, &tag2, &row.Status); err != nil {
+		var tag1, tag2, breed, age pgtype.Text
+		if err := rows.Scan(&row.GoatID, &row.DisplayID, &tag1, &tag2, &breed, &row.Sex, &age, &row.Status); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan shed animals: %w", err)
 		}
 		row.Tag1 = textPtr(tag1)
 		row.Tag2 = textPtr(tag2)
+		row.Breed = textPtr(breed)
+		row.Age = textPtr(age)
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -1431,6 +1393,13 @@ SELECT
   g.display_id,
   aid1.identifier_value AS tag1,
   aid2.identifier_value AS tag2,
+  COALESCE(NULLIF(g.breed, ''), b.canonical_name) AS breed,
+  g.sex,
+  CASE
+    WHEN g.dob IS NOT NULL THEN
+      floor(extract(epoch FROM (now() - g.dob::timestamptz)) / 86400)::int::text || 'd'
+    ELSE NULLIF(g.age_band, '')
+  END AS age,
   CASE
     WHEN EXISTS (
       SELECT 1
@@ -1461,6 +1430,8 @@ LEFT JOIN goat_identifiers aid2
  AND aid2.goat_id = g.goat_id
  AND aid2.identifier_type = 'animal_identifier_2'
  AND aid2.status = 'active'
+LEFT JOIN breeds b
+  ON b.breed_id = g.breed_id
 WHERE g.tenant_id = $1::uuid
   AND g.shed_id = $2::uuid
   AND g.lifecycle_status = 'alive'

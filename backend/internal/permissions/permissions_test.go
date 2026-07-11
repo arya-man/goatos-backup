@@ -199,6 +199,7 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"POST", "/vaccination/manual-campaigns"},
 		{"GET", "/action-center/obligations"},
 		{"GET", "/vaccination/action-center"},
+		{"GET", "/vaccination/action-center/counts"},
 		{"GET", "/vaccination/adherence"},
 		{"GET", "/control-tower/vaccination"},
 		{"GET", "/workflows/feed_projection_exception:77000000-0000-4000-8000-000000000001"},
@@ -262,6 +263,7 @@ func TestVaccinationBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 	}{
 		{"GET", "/control-tower/vaccination"},
 		{"GET", "/vaccination/action-center"},
+		{"GET", "/vaccination/action-center/counts"},
 		{"GET", "/vaccination/adherence"},
 		{"GET", "/vaccination/workflows/batch:66000000-0000-4000-8000-000000000001:rule:65000000-0000-4000-8000-000000000001:shed:55000000-0000-4000-8000-000000000001"},
 		{"GET", "/vaccination/operations"},

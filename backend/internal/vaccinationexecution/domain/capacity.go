@@ -1,11 +1,5 @@
 package domain
 
-import "errors"
-
-// ErrCapacityConfigStale is returned by an update whose expected RowVersion no longer matches the stored
-// row (a concurrent admin already changed it). The caller must re-read and retry — never blind-overwrite.
-var ErrCapacityConfigStale = errors.New("vaccination capacity config: stale row version")
-
 // ---- Vaccination capacity / session-splitting planner ----
 //
 // A shed's due vaccination work is split into planned SESSIONS (visits/days) when the daily vaccination

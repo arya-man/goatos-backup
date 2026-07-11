@@ -164,7 +164,8 @@ func TestRunManualCampaignRequiresIdempotencyKey(t *testing.T) {
 func TestImpactPreviewParsesFilterAndReturnsJSON(t *testing.T) {
 	fake := &fakeImpact{preview: domain.ImpactPreview{
 		EligibleAnimals: 12, VaccinationCells: 24, AffectedSheds: 2, EstimatedDays: 1, DailyCap: 100,
-		DosesAvailable: "50", SourceRevision: 1700000000000, Warnings: nil,
+		PlannedSessions: []domain.ImpactPlannedSession{{Date: "2026-01-01", Vaccinations: 24, DailyLimit: 100, Capacity: "within_cap"}},
+		DosesAvailable:  "50", SourceRevision: 1700000000000, Warnings: nil,
 	}}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(fake, nil))
@@ -188,6 +189,9 @@ func TestImpactPreviewParsesFilterAndReturnsJSON(t *testing.T) {
 	}
 	if resp.EligibleAnimals != 12 || resp.VaccinationCells != 24 || resp.AffectedSheds != 2 || resp.EstimatedDays != 1 || resp.DailyCap != 100 || resp.DosesAvailable != "50" || resp.SourceRevision != 1700000000000 {
 		t.Fatalf("response body: %+v", resp)
+	}
+	if len(resp.PlannedSessions) != 1 || resp.PlannedSessions[0].DailyLimit != 100 {
+		t.Fatalf("planned_sessions body: %+v", resp.PlannedSessions)
 	}
 	if resp.Warnings == nil {
 		t.Fatalf("warnings must serialize as [] not null")

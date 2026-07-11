@@ -3,7 +3,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
 
@@ -727,16 +726,6 @@ func (s *Service) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) (do
 // to the code default when no row is authored).
 func (s *Service) CapacityConfig(ctx context.Context, tenantID string) (domain.CapacityConfig, error) {
 	return s.repo.CapacityConfig(ctx, tenantID)
-}
-
-// UpdateCapacityConfig persists an admin edit with optimistic concurrency. It re-validates defensively
-// (the HTTP handler validates first for precise field errors); a stale expectedRowVersion surfaces as
-// domain.ErrCapacityConfigStale from the repo. Returns the freshly-stored config with the bumped version.
-func (s *Service) UpdateCapacityConfig(ctx context.Context, tenantID string, cfg domain.CapacityConfig, expectedRowVersion int) (domain.CapacityConfig, error) {
-	if _, msg, ok := cfg.Validate(); !ok {
-		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: invalid capacity config: %s", msg)
-	}
-	return s.repo.UpdateCapacityConfig(ctx, tenantID, cfg, expectedRowVersion)
 }
 
 // aggregateShedVaccines rolls the shed's cohort×protocol rows (across stages) up to one row per vaccine:
