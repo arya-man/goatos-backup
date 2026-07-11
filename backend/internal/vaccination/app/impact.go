@@ -53,9 +53,14 @@ func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (
 	if doseRows < 1 {
 		doseRows = 1
 	}
-	cap, err := reads.CapacityMaxPerDay(ctx, filter.TenantID)
-	if err != nil {
-		return domain.ImpactPreview{}, err
+	// Draft cap (authored in the rule editor) wins for pre-publish preview; fall back to the published/
+	// operational cap when the request omits it.
+	cap := req.DailyCap
+	if cap < 1 {
+		cap, err = reads.CapacityMaxPerDay(ctx, filter.TenantID)
+		if err != nil {
+			return domain.ImpactPreview{}, err
+		}
 	}
 	if cap < 1 {
 		cap = 1

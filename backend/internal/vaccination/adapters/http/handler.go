@@ -93,6 +93,7 @@ type impactPreviewRequest struct {
 	VaccineItemID *string `json:"vaccine_item_id"`
 	LocationID    *string `json:"location_id"`
 	DoseRows      int32   `json:"dose_rows"`
+	DailyCap      int64   `json:"daily_cap"`
 	HorizonDays   int     `json:"horizon_days"`
 }
 
@@ -246,6 +247,7 @@ func (h *Handler) ImpactPreview(w http.ResponseWriter, r *http.Request) {
 		VaccineItemID: req.VaccineItemID,
 		LocationID:    req.LocationID,
 		DoseRows:      req.DoseRows,
+		DailyCap:      req.DailyCap,
 		HorizonDays:   req.HorizonDays,
 	})
 	if err != nil {

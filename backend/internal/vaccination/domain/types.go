@@ -122,8 +122,11 @@ type ImpactRequest struct {
 	VaccineItemID *string
 	LocationID    *string
 	DoseRows      int32 // number of selected dose/schedule rows (vaccination cells per eligible animal)
-	HorizonDays   int
-	AsOf          time.Time
+	// DailyCap is the DRAFT daily vaccination cap authored in the rule editor, used to compute
+	// estimated_days before publish. 0 = fall back to the published/operational cap (CapacityMaxPerDay).
+	DailyCap    int64
+	HorizonDays int
+	AsOf        time.Time
 }
 
 // EligibleGoat is one row from the generation listing (in-care cohort). The row intentionally
