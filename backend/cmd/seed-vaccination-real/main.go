@@ -664,7 +664,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 				continue
 			}
 			administeredAt := sourceVaccinationDateTime(d, loc)
-			if !administeredAt.After(now) {
+			if sourceVaccinationDateIsHistory(d, now, loc) {
 				// Source date cells are last-administered history, not due dates. Keep
 				// accepted history for audit/proof, then derive the next open cycle.
 				completedAt := administeredAt
@@ -1470,6 +1470,12 @@ func revaccinationIntervalDays(vaccName string) int {
 
 func sourceVaccinationDateTime(d time.Time, loc *time.Location) time.Time {
 	return time.Date(d.Year(), d.Month(), d.Day(), 9, 0, 0, 0, loc)
+}
+
+func sourceVaccinationDateIsHistory(d time.Time, asOf time.Time, loc *time.Location) bool {
+	sourceDay := startOfDay(d.In(loc))
+	asOfDay := startOfDay(asOf.In(loc))
+	return !sourceDay.After(asOfDay)
 }
 
 func nextDueAfterLastVaccination(lastAdministeredAt time.Time, vaccName string, asOf time.Time) time.Time {

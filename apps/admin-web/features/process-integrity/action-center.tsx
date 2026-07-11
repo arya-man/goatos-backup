@@ -145,7 +145,7 @@ export async function VaccinationActionCenterPage({
   const boardPageSizeOptions = tablePageSizes(pageContract, "work-board");
   const queuePageSizeOptions = tablePageSizes(pageContract, "verification-queue");
   const requestedBoardPage = backendPage(sp, "ac", boardPageSizeOptions, 10);
-  const boardSampleStates = stateFilter === "all" ? boardWorkStates(pageContract) : [stateFilter];
+  const boardSampleStates = stateFilter === "all" ? boardWorkStates(pageContract) : [];
 
   // Board source = the real process-integrity Action Center contract (server-computed work state,
   // severity, owner, proof/verify state, next action). Verification queue = actionable completions.
