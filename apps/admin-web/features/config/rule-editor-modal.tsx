@@ -1347,7 +1347,13 @@ export function RuleEditorModal({
         // Impact preview uses the DRAFT capacity (authored in this editor), before publish — not the
         // persisted operational cap. estimated_days = ceil(vaccination_cells / this cap); the draft
         // buffer classifies it (within_cap / split / needs-review) so the editor shows the real outcome.
-        daily_cap: Number(capacityPolicy.maxPerDay) || undefined,
+        // A cleared field (blank) omits the cap so the backend applies its default; an explicit value
+        // — including an invalid 0 — is sent verbatim so the backend validates/rejects it rather than
+        // `Number(x) || undefined` silently swallowing a 0 into a defaulted preview.
+        daily_cap:
+          capacityPolicy.maxPerDay === ""
+            ? undefined
+            : Number(capacityPolicy.maxPerDay),
         max_buffer_days:
           capacityPolicy.maxBufferDays === ""
             ? undefined

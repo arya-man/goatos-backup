@@ -15,7 +15,7 @@ interface OutboxStore {
     suspend fun insert(entity: OutboxEntity)
     suspend fun findById(id: String): OutboxEntity?
     suspend fun findByIdempotencyKey(key: String): OutboxEntity?
-    suspend fun eligibleForDrain(now: Long): List<OutboxEntity>
+    suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity>
     fun observeAll(): Flow<List<OutboxEntity>>
 
     /** All transitions are ATOMIC + status-guarded and return whether they were applied
@@ -41,7 +41,7 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     override suspend fun insert(entity: OutboxEntity) = dao.insert(entity)
     override suspend fun findById(id: String): OutboxEntity? = dao.findById(id)
     override suspend fun findByIdempotencyKey(key: String): OutboxEntity? = dao.findByIdempotencyKey(key)
-    override suspend fun eligibleForDrain(now: Long): List<OutboxEntity> = dao.eligibleForDrain(now)
+    override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> = dao.eligibleForDrain(now, limit)
     override fun observeAll(): Flow<List<OutboxEntity>> = dao.observeAll()
 
     override suspend fun markInFlight(id: String, now: Long): Boolean = dao.markInFlight(id, now) > 0

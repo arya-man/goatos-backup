@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Keep LeakCanary's heap analysis (debugImplementation, debug builds only) but suppress its
+         separate home-screen launcher icon. Two launcher entries confuse anyone opening the app
+         from the launcher; the leak report is still reachable from the notification LeakCanary
+         posts when it finds a leak. Release builds never include LeakCanary at all. -->
+    <bool name="leak_canary_add_launcher_icon">false</bool>
+</resources>

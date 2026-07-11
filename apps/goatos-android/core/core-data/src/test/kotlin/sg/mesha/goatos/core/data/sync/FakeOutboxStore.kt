@@ -29,7 +29,7 @@ class FakeOutboxStore : OutboxStore {
     override suspend fun findByIdempotencyKey(key: String): OutboxEntity? =
         rows.value.firstOrNull { it.idempotencyKey == key }
 
-    override suspend fun eligibleForDrain(now: Long): List<OutboxEntity> = rows.value
+    override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> = rows.value
         .filter { row ->
             row.status == OutboxStatus.QUEUED.name ||
                 (
@@ -40,6 +40,7 @@ class FakeOutboxStore : OutboxStore {
                     )
         }
         .sortedBy { it.createdAt }
+        .take(limit)
 
     override fun observeAll() = rows.asStateFlow()
 

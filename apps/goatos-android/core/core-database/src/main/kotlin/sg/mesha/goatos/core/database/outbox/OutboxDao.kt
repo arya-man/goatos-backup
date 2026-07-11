@@ -31,13 +31,17 @@ interface OutboxDao {
      * FAILED rows still inside their retry budget whose backoff window has elapsed. A
      * [OutboxEntity.conflict] row is NEVER auto-eligible (only an explicit manual retry
      * re-arms it) — a definitive rejection will not change by re-sending the same payload.
+     *
+     * [limit] bounds the batch so a long offline period (thousands of queued writes) never
+     * materializes the whole table into memory at once; the drain loops batch-by-batch (see
+     * [SyncEngine.drainOnce]).
      */
     @Query(
         "SELECT * FROM outbox WHERE status = 'QUEUED' " +
             "OR (status = 'FAILED' AND conflict = 0 AND attemptCount < maxAttempts AND nextAttemptAt <= :now) " +
-            "ORDER BY createdAt ASC",
+            "ORDER BY createdAt ASC LIMIT :limit",
     )
-    suspend fun eligibleForDrain(now: Long): List<OutboxEntity>
+    suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity>
 
     /** Backs the sync-status overlay (see `SyncRepository.observeStatus`). */
     @Query("SELECT * FROM outbox ORDER BY createdAt ASC")
