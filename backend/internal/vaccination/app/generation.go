@@ -940,7 +940,19 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 				continue
 			}
 			due, ok, skip := dueAt(rule, plan.goat, asOf, plan.opts, plan.policies)
-			if skip || !ok {
+			if skip {
+				// A missing DOB/entry date cannot erase accepted history. Non-repeat
+				// evidence matching does not use the candidate due date, so include a
+				// stable as-of candidate in the page-level batch before the missing-date
+				// branch decides whether a blocker is needed.
+				if strings.EqualFold(strings.TrimSpace(rule.Repeat), "") || strings.EqualFold(strings.TrimSpace(rule.Repeat), "none") {
+					due = asOf
+					ok = true
+				} else {
+					continue
+				}
+			}
+			if !ok {
 				continue
 			}
 			evidenceDue, ok := trustedEvidenceDue(rule, due, asOf, nil, plan.policies.MissedDose)
@@ -1048,6 +1060,14 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 		baseDue, ok, skip := dueAt(rule, g, asOf, opts, policies)
 		if skip {
+			trusted, err := s.hasTrustedCompletionEvidence(ctx, tenantID, versionID, rule, g, asOf, asOf, trustedLookup)
+			if err != nil {
+				return err
+			}
+			if trusted {
+				res.SuppressedByTrustedHistory++
+				continue
+			}
 			res.SkippedNoDueDate++
 			if err := s.genMissingDueDateObligation(ctx, tenantID, versionID, rule, g, asOf, res); err != nil {
 				return err
@@ -1085,6 +1105,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 		if s.crossHistory != nil || s.crossVaccineGap != nil {
 			due = applyCrossVaccineGapFloorFromHistory(due, vaccineHistory, ruleVaccine, policies.Compatibility)
+		}
+		if skipNonFutureOpenWork(due, asOf, policies.MissedDose) {
+			continue
 		}
 		if limitsHistoricalCatchUp(rule, baseDue, due, asOf, opts) {
 			if historicalCatchUpMaterialized {
@@ -1448,6 +1471,13 @@ func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time, nearbyDri
 	default:
 		return asOf, "catch_up_" + strings.ToLower(strings.TrimSpace(rule.CatchUp)), false
 	}
+}
+
+func skipNonFutureOpenWork(due, asOf time.Time, policy genMissedDosePolicy) bool {
+	if !policy.MaterializeOnlyFutureOpenWork {
+		return false
+	}
+	return !businessDayStart(due).After(businessDayStart(asOf))
 }
 
 func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time, nearbyDriveDate *time.Time, policy genMissedDosePolicy) (time.Time, bool) {

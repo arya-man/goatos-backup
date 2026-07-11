@@ -54,13 +54,31 @@ locals {
       name                = "goatos-stg-vaccination-generator"
       service_account_key = "vaccination_generator"
       command             = ["/app/bin/generate-vaccination-obligations"]
-      args                = ["-timeout=120s"]
-      timeout             = "180s"
+      args                = ["-timeout=9m"]
+      timeout             = "600s"
       memory              = "512Mi"
       cpu                 = "1"
       schedule            = "0 * * * *"
       env = {
-        GOATOS_TENANT_ID = var.stg_tenant_id
+        GOATOS_TENANT_ID        = var.stg_tenant_id
+        GOATOS_PG_QUERY_TIMEOUT = "30s"
+      }
+    }
+    process_integrity_projector = {
+      name                = "goatos-stg-process-integrity-projector"
+      service_account_key = "vaccination_generator"
+      command             = ["/app/bin/process-integrity-projection-recompute"]
+      args                = ["-timeout=9m"]
+      timeout             = "600s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "*/5 * * * *"
+      env = {
+        GOATOS_ENV                          = "stg"
+        GOATOS_ALLOW_STG_CLOUDSQL_TARGET    = "true"
+        GOATOS_STG_CLOUDSQL_CONNECTION_NAME = google_sql_database_instance.core.connection_name
+        GOATOS_TENANT_ID                    = var.stg_tenant_id
+        GOATOS_PG_QUERY_TIMEOUT             = "30s"
       }
     }
     obligation_sweeper = {

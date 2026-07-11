@@ -60,7 +60,7 @@ type ruleDSLEnvelope struct {
 	RulesetFamily       string          `json:"ruleset_family"`
 	Vaccine             vaccineMeta     `json:"vaccine"`
 	Eligibility         json.RawMessage `json:"eligibility"`
-	MissedDosePolicy    string          `json:"missed_dose_policy"`
+	MissedDosePolicy    json.RawMessage `json:"missed_dose_policy"`
 	ProcurementPolicy   json.RawMessage `json:"procurement_policy"`
 	CompatibilityPolicy json.RawMessage `json:"compatibility_policy"`
 	Capacity            json.RawMessage `json:"capacity"`
@@ -320,7 +320,8 @@ var (
 		"max_nearby_drive_align_days": true,
 	}
 	ruleDSLMissedDosePolicyKeys = map[string]bool{
-		"nearby_drive_align_days": true,
+		"nearby_drive_align_days":           true,
+		"materialize_only_future_open_work": true,
 	}
 	ruleDSLDrivePolicyKeys = map[string]bool{
 		"enabled":                        true,
@@ -1407,7 +1408,7 @@ func scheduleRowRule(tenantID string, v domain.Version, env ruleDSLEnvelope, row
 	}
 	catchUp := strings.TrimSpace(row.CatchUp)
 	if catchUp == "" {
-		catchUp = strings.TrimSpace(env.MissedDosePolicy)
+		catchUp = defaultMissedDoseCatchUp(env.MissedDosePolicy)
 	}
 	if catchUp == "" {
 		catchUp = "immediate"
@@ -1447,6 +1448,18 @@ func scheduleRowRule(tenantID string, v domain.Version, env ruleDSLEnvelope, row
 		CreatedBy:           createdBy,
 		IdempotencyKey:      "protocol-schedule-rule:" + v.ProtocolVersionID + ":" + doseCode,
 	}, nil
+}
+
+func defaultMissedDoseCatchUp(raw json.RawMessage) string {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" || !strings.HasPrefix(trimmed, "\"") {
+		return ""
+	}
+	var legacy string
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(legacy)
 }
 
 func ruleEligibilityJSON(env ruleDSLEnvelope, row scheduleRow, idx int) ([]byte, error) {

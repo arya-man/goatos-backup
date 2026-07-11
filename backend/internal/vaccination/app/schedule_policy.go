@@ -69,7 +69,8 @@ type genVersionPolicies struct {
 }
 
 type genMissedDosePolicy struct {
-	NearbyDriveAlignDays int32 `json:"nearby_drive_align_days"`
+	NearbyDriveAlignDays          int32 `json:"nearby_drive_align_days"`
+	MaterializeOnlyFutureOpenWork bool  `json:"materialize_only_future_open_work"`
 }
 
 func (p *genMissedDosePolicy) UnmarshalJSON(raw []byte) error {

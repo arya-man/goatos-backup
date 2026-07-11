@@ -19,7 +19,7 @@
     "admin web and API are deployed with JWKS auth"
   ],
   "required_scenarios": [
-    "eligible_day21",
+    "eligible_day28",
     "age_ineligible",
     "stage_profile_mismatch",
     "location_ineligible",
@@ -58,19 +58,19 @@
   ],
   "scenarios": [
     {
-      "scenario": "eligible_day21",
+      "scenario": "eligible_day28",
       "rfid": "GDEV-ET-ELIG-001",
-      "expected": "goat.created generates one ET primary obligation for the K1 published rule"
+      "expected": "goat.created generates one ET primary obligation for the canonical 28-day primary rule"
     },
     {
       "scenario": "age_ineligible",
       "rfid": "GDEV-ET-TOO-YOUNG-002",
-      "expected": "no day-21 ET primary obligation is generated"
+      "expected": "no 28-day ET primary obligation is generated"
     },
     {
       "scenario": "stage_profile_mismatch",
       "rfid": "GDEV-ET-STAGE-MISMATCH-003",
-      "expected": "shed_profiles K2 stage prevents a K1-only obligation even though goat management_stage is K1"
+      "expected": "the canonical all-stage matrix does not invent a K1-only stage rule; the shed profile and resulting eligibility decision are recorded explicitly"
     },
     {
       "scenario": "location_ineligible",
@@ -104,7 +104,7 @@
     {
       "scenario": "sick_recovered",
       "rfid": "GDEV-ET-SICK-RECOVER-009",
-      "post_import_action": "mark sick or under_treatment, then recover through health API",
+      "post_import_action": "mark sick or under_treatment, recover through health API, then move from quarantine to GDEV-CPT-RECOVERY",
       "expected": "deferred work does not remain stuck after recovery"
     },
     {

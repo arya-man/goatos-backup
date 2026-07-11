@@ -3,29 +3,42 @@
 This contract applies to every Goat OS vaccination seed or reseed: local, dev,
 staging, production rehearsal, and production migration.
 
+The identity-quality and clean-slate migration rules are defined in
+`docs/protocol-engine/migration-and-cutover.md`; this contract adds the
+vaccination-specific date/history and kernel ownership rules.
+
 ## Binding Rule
 
-Vaccination dates present in the source sheet are administration facts, not
-future due dates.
+Vaccination dates present in the source sheet are base schedule anchors, not
+open due work.
 
-- A source date before or on the backend business date is completed vaccination
-  history. If a matching published rule exists, seed it as an
-  accepted/verified administration, then let the vaccination kernel compute the
-  next open obligation from that administered date and the published schedule.
-  For recurring doses, seed the rule with `catch_up: next_cycle`: advance from
-  that completion until the due date is strictly after the backend business
-  date, even when an older dose window has not closed yet. Primary and booster
-  doses that were never completed retain their explicit immediate catch-up
-  policy.
-  If no matching rule exists yet, keep the date as visible history/config-gap
-  evidence and do not fabricate a rule, obligation, or completion.
+- A source date before or on the backend business date is a trusted historical
+  anchor. In the current Goat OS schema, the seed may persist that anchor as
+  accepted/completed history so future recurrence has a durable start point,
+  but it must never materialize open work on or before the backend business
+  date from that anchor.
+- Recurring doses anchored by imported history must advance to the next due date
+  strictly after the backend business date. Non-recurring rows whose due date
+  would land on or before the business date are suppressed from open-work
+  materialization during the seed backfill.
 - A source date after the backend business date is future source intent or
   source error. Do not mark it late. Do not treat it as completed history.
   Import it only through an explicit reviewed future-schedule path, or block it
   from production seed until Preventive Care approves the meaning.
-- Blank, `NA`, and `Pending` are not history. They must become skipped,
-  pending/open work, or blocked review according to the seeder's documented
-  source-value mapping.
+- Blank, `NA`, and `Pending` are not historical anchors. They must become
+  skipped, future open work, or blocked review according to the seeder's
+  documented source-value mapping. `Pending` must not backfill synthetic late
+  work from a past anchor date.
+
+`Pending` has a single writer: the vaccination kernel. The source importer must
+not insert an open placeholder and then invoke generation for the same goat and
+rule. Accepted completion evidence must be checked before a missing-DOB or
+missing-entry-date blocker is materialized.
+
+Missing scheduling-anchor checks are trigger-specific. `birth_age` rules need
+DOB, `post_arrival` rules need entry date, and `after_previous_completion`
+rules need accepted completion evidence. Do not treat an unrelated missing
+field as a blocker for a rule that does not use that field.
 
 Example with backend business date `2026-07-11`:
 
@@ -42,7 +55,7 @@ Example with backend business date `2026-07-11`:
 ## Ownership Boundaries
 
 - Source sheets own animal identity, location facts, and trusted vaccination
-  administration history.
+  base-anchor dates/history.
 - The published `vaccination.matrix` owns vaccine timing, kid versus adult path,
   repeat intervals, compatibility gaps, defer rules, and catch-up behavior.
 - The obligation kernel owns generated future obligations. Seeders must not
@@ -82,27 +95,36 @@ review/config gap. It must not convert uncertainty into a clean due schedule.
 
 ## Required Reseed Flow
 
-1. Import source administration dates as history evidence when they are on or
-   before backend business date.
+For a destructive staging rebuild, also follow
+`docs/runbooks/staging-vaccination-clean-slate.md`.
+
+1. Import source base-anchor dates when they are on or before backend business
+   date and persist them only as trusted anchor history, never as open work on
+   or before that business date.
 2. Publish or reuse the intended `vaccination.matrix` version.
 3. Reconcile evidence with matching active rules into accepted completions; keep
    unmatched evidence visible as config/review gaps.
-4. Run the validated vaccination generation path to materialize future
-   obligations from history, DOB, entry date, stage, species, and current
-   constraint state.
+4. Run the validated vaccination generation path to materialize only strictly
+   future obligations from anchor history, DOB, entry date, stage, species, and
+   current constraint state.
 5. Recompute process-integrity and vaccination execution projections.
 6. Verify Action Center buckets, shed status, next due dates, and capacity
    session splits through backend APIs using server-owned live time.
 7. Run the kernel seed/generation tests before pushing or seeding a shared
    environment.
+8. Require the seed reconciliation to prove zero seed-owned Pending
+   placeholders, zero duplicate active goat/rule pairs, zero active non-repeat
+   work already satisfied by accepted history, zero schedulable open work on or
+   before the business date, future-only repeat work, and zero normal active
+   work for rules whose own trigger anchor is missing.
 
 ## Test Gates
 
 At minimum, this contract is guarded by:
 
 - `backend/cmd/seed-vaccination-real/main_test.go`: source dates on or before
-  the business date import as completed history, while future business dates do
-  not; only recurring rules use `next_cycle` catch-up.
+  the business date import as trusted anchor history, while future business
+  dates do not; open work materialized by the seed is strictly future-only.
 - `backend/internal/vaccination/app/generation_test.go`: a recurring completion
   advances to a due date strictly after the backend business date, including
   when the preceding historical window would still be open.

@@ -16,16 +16,23 @@ For binding source-date semantics, read:
 docs/runbooks/vaccination-seed-source-date-contract.md
 ```
 
+For any destructive staging rebuild, follow the canonical sequence and
+postflight gates in:
+
+```text
+docs/runbooks/staging-vaccination-clean-slate.md
+```
+
 ## Source Of Record
 
 - Use `Vaccination_DB_-V2` / `Demo DB` as the vaccination seed source. Demo DB
   must stay an exact staging workbook derived from V2, not an independently
   edited copy.
-- Vaccination date cells are last-administered administration facts, not due
-  dates. Dates on or before the backend business date seed accepted history and
-  the kernel derives next obligations from that history. Future source dates
-  need reviewed semantics or are blocked from production seed; they must not be
-  marked late merely because they appear in the sheet.
+- Vaccination date cells are base schedule anchors, not due dates. Dates on or
+  before the backend business date seed trusted anchor history, and the kernel
+  may materialize only strictly future open work from that anchor. Future source
+  dates need reviewed semantics or are blocked from production seed; they must
+  not be marked late merely because they appear in the sheet.
 - Current verified source counts: V2 has 1,311 animal rows, 1,310 unique
   nonblank primary animal IDs, and 1 blank-primary-ID-but-secondary-ID-present
   row. Demo DB has the same 1,311 vaccination rows, the same 1,310 nonblank
@@ -106,16 +113,16 @@ docs/runbooks/vaccination-seed-source-date-contract.md
 - Sex and dates: sex must be explicit `Male`/`Female`; dates must be real
   `YYYY-MM-DD`. Do not let importer defaults hide source mistakes.
 - Past vaccination source dates: every trusted animal-level source vaccination
-  date is a last-administered/done date. It must seed visible vaccination
-  history, not a new due date. For local/dev/stg/prod real-data seeds, if the
-  matching `vaccination.matrix` rule exists, the seed must create/retain an
-  accepted completion with `administered_at = source date`, complete/suppress the
-  matching historical obligation, and derive only the next open work from that
-  past date. If the rule does not exist yet, the old date must still show in
-  Passport/Vaccination/Action Center as history plus a config/review gap; do not
-  fabricate rules, obligations, or completions. When the rule is later published,
-  the next generation/reconciliation run must schedule from that preserved past
-  date.
+  date is a base schedule start point. It must seed visible vaccination anchor
+  history, not a new due/late card. For local/dev/stg/prod real-data seeds, if
+  the matching `vaccination.matrix` rule exists, the seed may persist the anchor
+  as accepted history/completion evidence with `administered_at = source date`
+  so recurrence can schedule from it, but open work materialized from that
+  anchor must be strictly future-only. If the rule does not exist yet, the old
+  date must still show in Passport/Vaccination/Action Center as history plus a
+  config/review gap; do not fabricate open obligations. When the rule is later
+  published, the next generation/reconciliation run must schedule from that
+  preserved past date without turning it into overdue/late work.
 - Workflow links: Passport/history links may point only to real workflow rows.
   Source obligation IDs are lineage, not clickable workflow records.
 - No E2E/story/dev data in shared staging: reject seed inputs, protocol codes,
@@ -126,6 +133,15 @@ docs/runbooks/vaccination-seed-source-date-contract.md
   grouped open process-integrity work, not raw goat count. Export the counts by
   obligation status, dose rule, distinct goats, and grouped work state before
   importing into `goatos-stg`.
+- Source `Pending` cells have one writer only: the vaccination kernel. Zero
+  seed-owned open `vacc-real-obl:%` placeholders and zero duplicate active
+  goat/rule pairs are hard staging gates.
+- Accepted history wins over missing scheduling anchors. A completed source
+  dose must not become a deferred missing-DOB/missing-entry-date obligation.
+- Missing scheduling anchors are checked by trigger, not globally. `birth_age`
+  rules require DOB, `post_arrival` rules require entry date, and
+  `after_previous_completion` rules require accepted completion evidence. A
+  rule must not create normal active work when its own anchor is missing.
 - Sidebar counts must be backend-computed, never seeded constants. After seed,
   `Action Center`, `Preventive Care (PC)`, and `Vaccination` badges must be
   reconciled to the same grouped open-work query used by the page list. A number
