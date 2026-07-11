@@ -55,14 +55,14 @@ accepted completion and its completed obligation, never inserted as a fixture or
 invented as a second completion/projection row.
 
 Other read-model data is not a Calendar event. Census totals, coverage
-percentages, full passport history, KPI cards, static tables, source records, and
-analytics charts stay in module screens, Control Tower, Insights, or Goat
-Passport unless they create a dated human action. The one explicit exception is
-accepted vaccination completion history, which is intentionally rendered as a
-bounded read-only history lens. Calendar history is a bounded date-oriented
-operational lens (what was due, what happened, what remains), not the animal's
-longitudinal record. Goat Passport remains the complete per-animal history and
-audit surface.
+percentages, KPI cards, static tables, source records, and analytics charts stay
+in module screens, Control Tower, Insights, or Goat Passport unless they create a
+dated human action. The one explicit exception is accepted vaccination
+completion history, which is intentionally rendered as a bounded read-only
+operational history lens. Calendar is not the place for a hidden or duplicated
+full longitudinal history; Goat Passport remains the complete per-animal history
+and audit surface, while Calendar shows a bounded date-oriented slice of accepted
+history for context.
 
 Pure system jobs are not Calendar events. A sweeper, replay, idempotency worker,
 projection refresh, or promise-safety monitor should carry `system: true` and
@@ -191,9 +191,9 @@ Vaccination data that must not create Calendar events:
 - draft protocol versions.
 - static status-matrix cells.
 - coverage percentages, overdue counts, and KPI cards.
-- full Goat Passport vaccination history or an unbounded per-animal history
-  ledger. Calendar may show only the bounded accepted operational-completion
-  lens defined above.
+- full Goat Passport vaccination history or an unbounded per-animal history ledger
+  should stay in Goat Passport and related history modules; Calendar only shows the
+  bounded accepted operational-completion lens defined above.
 - blocked gaps; these stay in Action Center / Control Tower until an owner
   exists.
 - background sweepers/replays/generation jobs with no human owner.
