@@ -142,6 +142,10 @@ data class ScanUiState(
     val scanEnabled: Boolean,              // show tap-to-scan affordances at all
     val error: ScanError? = null,          // not-due red state
     val footNote: String = "",             // haptic/tone legend copy
+    // Local UI selection (not backend-fed) — which tile is active and whether the roster
+    // overlay is open. Mirrors the mock's Done/Pending/Skipped chips → scan-list overlay.
+    val selectedFilter: ScanStatus? = null,
+    val rosterExpanded: Boolean = false,
 )
 
 /** User intents the screen emits; the app/viewmodel layer handles them. */
@@ -217,6 +221,7 @@ fun ScanScreen(
                         pending = state.pendingCount,
                         skipped = state.skippedCount,
                         labels = state.tileLabels,
+                        selected = state.selectedFilter,
                         onTile = { onEvent(ScanEvent.OpenTile(it)) },
                     )
                 }
@@ -247,6 +252,14 @@ fun ScanScreen(
                 onSubmit = { onEvent(ScanEvent.Submit) },
             )
         }
+    }
+
+    // Roster overlay (mock ovl-scanlist): opened by a count tile (filtered to that status)
+    // or by the "tap … to see the animals" hint (unfiltered). Both are toggles, so closing
+    // it — swipe-down, scrim tap, or re-tapping whichever control opened it — replays the
+    // same event(s) to clear the state that opened it.
+    if (state.selectedFilter != null || state.rosterExpanded) {
+        RosterListOverlay(state = state, onEvent = onEvent)
     }
 }
 
@@ -471,6 +484,7 @@ private fun CountTiles(
     pending: Int,
     skipped: Int,
     labels: ScanTileLabels,
+    selected: ScanStatus?,
     onTile: (ScanStatus) -> Unit,
 ) {
     Row(
@@ -479,9 +493,9 @@ private fun CountTiles(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
     ) {
-        CountTile(done, labels.done, ScanTokens.brandD, Modifier.weight(1f)) { onTile(ScanStatus.DONE) }
-        CountTile(pending, labels.pending, ScanTokens.ink, Modifier.weight(1f)) { onTile(ScanStatus.PENDING) }
-        CountTile(skipped, labels.skipped, ScanTokens.danger, Modifier.weight(1f)) { onTile(ScanStatus.SKIPPED) }
+        CountTile(done, labels.done, ScanTokens.brandD, selected == ScanStatus.DONE, Modifier.weight(1f)) { onTile(ScanStatus.DONE) }
+        CountTile(pending, labels.pending, ScanTokens.ink, selected == ScanStatus.PENDING, Modifier.weight(1f)) { onTile(ScanStatus.PENDING) }
+        CountTile(skipped, labels.skipped, ScanTokens.danger, selected == ScanStatus.SKIPPED, Modifier.weight(1f)) { onTile(ScanStatus.SKIPPED) }
     }
 }
 
@@ -490,15 +504,18 @@ private fun CountTile(
     count: Int,
     label: String,
     numberColor: Color,
+    selected: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val bg = if (selected) ScanTokens.brandSoft else ScanTokens.surf
+    val border = if (selected) ScanTokens.brand else ScanTokens.hair
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
             .clip(RoundedCornerShape(11.dp))
-            .background(ScanTokens.surf)
-            .border(1.dp, ScanTokens.hair, RoundedCornerShape(11.dp))
+            .background(bg)
+            .border(1.dp, border, RoundedCornerShape(11.dp))
             .clickable { onClick() }
             .padding(vertical = 6.dp, horizontal = 4.dp),
     ) {
