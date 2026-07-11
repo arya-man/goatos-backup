@@ -6,6 +6,12 @@ export type AdminUiOption = AdminWebPageContract["option_groups"][number]["optio
 export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 const COPY_FALLBACKS: Record<string, Record<string, string>> = {
+  calendar: {
+    "calendar.picker.previous_month": "Previous month",
+    "calendar.picker.next_month": "Next month",
+    "calendar.picker.drive_hint": "drive day",
+    "calendar.picker.other_hint": "other due work",
+  },
   config: {
     "modal.rule_editor.matrix_grid_title": "Vaccination matrix rows",
     "modal.rule_editor.field.selected_matrix_row_details": "Selected row details",
