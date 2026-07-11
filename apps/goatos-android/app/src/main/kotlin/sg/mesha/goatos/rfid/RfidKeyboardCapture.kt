@@ -1,6 +1,7 @@
 package sg.mesha.goatos.rfid
 
 import android.view.KeyEvent
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -16,7 +17,14 @@ class RfidKeyboardCapture(
     private val completionTimeoutMs: Long = 700L,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
-    private val _reads = MutableSharedFlow<RfidRead>(extraBufferCapacity = 16)
+    // DROP_OLDEST (not the default SUSPEND): onKeyEvent runs on the main/input thread and can't
+    // suspend, so a full buffer would make tryEmit() silently return false and lose the read. A
+    // scanner burst that outruns a slow collector must drop the STALEST queued tag, never the tag
+    // just scanned — the newest read is always the one the operator is acting on.
+    private val _reads = MutableSharedFlow<RfidRead>(
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     val reads: SharedFlow<RfidRead> = _reads.asSharedFlow()
 
     @Volatile

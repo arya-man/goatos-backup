@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
@@ -35,8 +36,14 @@ class SyncWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result =
         try {
-            syncEngine.drainOnce()
-            Result.success()
+            // drainOnce() returns false ONLY when the pass was aborted before attempting anything
+            // (offline at start) — nothing was scheduled, so re-run under the CONNECTED constraint.
+            // A completed pass returns true even if some rows failed transport: each failure has
+            // already booked its own backoff via the unique, REPLACE-d retry work (SyncEngine ->
+            // retryScheduler.scheduleAt). Returning success here means backed-off rows are driven
+            // solely by that explicit retry work — never ALSO by a worker Result.retry(), which
+            // would double-schedule the same row (retry-churn).
+            if (syncEngine.drainOnce()) Result.success() else Result.retry()
         } catch (cancellation: CancellationException) {
             throw cancellation // honour WorkManager's own cancellation — never swallow it.
         } catch (_: Exception) {
@@ -67,7 +74,11 @@ class SyncWorkScheduler @Inject constructor(
             .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
             .setConstraints(syncConstraints())
             .build()
-        WorkManager.getInstance(context).enqueue(request)
+        // REPLACE (not plain enqueue): every failed row's backoff calls scheduleAt, so a
+        // burst of failures must collapse to ONE pending retry job, not stack N identical
+        // one-time workers that all fire and re-drain the same outbox.
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork(UNIQUE_RETRY_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
     }
 
     private fun syncConstraints(): Constraints =
@@ -75,6 +86,7 @@ class SyncWorkScheduler @Inject constructor(
 
     private companion object {
         const val UNIQUE_WORK_NAME = "goatos-outbox-sync"
+        const val UNIQUE_RETRY_WORK_NAME = "goatos-outbox-retry"
         const val PERIOD_MINUTES = 15L // WorkManager's minimum periodic interval.
     }
 }

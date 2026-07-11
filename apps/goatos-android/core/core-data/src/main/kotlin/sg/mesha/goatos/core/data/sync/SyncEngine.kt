@@ -14,6 +14,7 @@ import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.isTerminalAppApiError
+import java.util.concurrent.ConcurrentHashMap
 
 fun interface SyncRetryScheduler {
     fun scheduleAt(epochMillis: Long)
@@ -72,8 +73,23 @@ class SyncEngine(
     // eligibility fresh (so a just-enqueued item is never missed).
     private val drainMutex = Mutex()
 
-    suspend fun drainOnce() {
-        if (!connectivityGate.isOnline()) return // capture continues offline; sync just waits.
+    /**
+     * Drains every currently-eligible outbox row, in bounded [DRAIN_BATCH_SIZE] batches so a
+     * long offline period never materializes the whole table into memory at once.
+     *
+     * Returns `true` when the drain PASS completed — every eligible row was attempted. A per-row
+     * transport failure does NOT flip this to `false`: [recordFailure] has already booked that
+     * row's next attempt through [retryScheduler] (the app's unique, REPLACE-d retry work). So the
+     * WorkManager shim reports `Result.success()` and MUST NOT also `Result.retry()`, or the two
+     * mechanisms would double-schedule the same backed-off row (retry-churn).
+     *
+     * Returns `false` only when the pass was ABORTED before attempting anything — today just
+     * "offline at pass start", where nothing was dispatched and nothing was scheduled. The caller
+     * (`SyncWorker`) turns that into `Result.retry()` so WorkManager re-runs it under its CONNECTED
+     * constraint. Backed-off rows are owned by the explicit retry work, never by a worker retry.
+     */
+    suspend fun drainOnce(): Boolean {
+        if (!connectivityGate.isOnline()) return false // capture continues offline; sync just waits.
         drainMutex.withLock {
             withContext(dispatchers.io) {
                 // Recover rows stranded IN_FLIGHT by a prior crash/process-death mid-dispatch.
@@ -81,22 +97,45 @@ class SyncEngine(
                 // IN_FLIGHT row is orphaned, not actively in-flight. Without this they would be
                 // excluded from eligibility forever (never retried, never dead-lettered).
                 store.reclaimInFlight(clock())
-                val due = store.eligibleForDrain(clock())
-                if (due.isEmpty()) return@withContext
-                val semaphore = Semaphore(maxConcurrentGroups.coerceAtLeast(1))
-                supervisorScope {
-                    due.groupBy { it.groupKey }.values.forEach { groupItems ->
-                        launch {
-                            semaphore.withPermit {
-                                for (item in groupItems.sortedBy { it.createdAt }) {
-                                    if (!processItem(item)) break
+                // Groups whose FIFO head failed this pass. Once a group's oldest in-flight write
+                // fails it backs off, so eligibleForDrain would still return that group's NEWER
+                // queued rows on the next batch fetch — dispatching them would post newer writes
+                // ahead of the older failed one (breaking "ordered per shed"). So a failed group is
+                // frozen for the REST of this pass; its rows drain on a later pass, oldest-first,
+                // once the head is eligible again. Written from concurrent group coroutines, read
+                // only after each supervisorScope barrier -> a concurrent set.
+                val blockedGroups = ConcurrentHashMap.newKeySet<String>()
+                while (true) {
+                    val due = store.eligibleForDrain(clock(), DRAIN_BATCH_SIZE)
+                    if (due.isEmpty()) break
+                    val actionable = due.filterNot { it.groupKey in blockedGroups }
+                    // Every remaining eligible row belongs to a group already frozen this pass —
+                    // nothing left to do now (and re-fetching would spin on the same rows).
+                    if (actionable.isEmpty()) break
+                    val semaphore = Semaphore(maxConcurrentGroups.coerceAtLeast(1))
+                    supervisorScope {
+                        actionable.groupBy { it.groupKey }.values.forEach { groupItems ->
+                            launch {
+                                semaphore.withPermit {
+                                    for (item in groupItems.sortedBy { it.createdAt }) {
+                                        if (!processItem(item)) {
+                                            blockedGroups += item.groupKey
+                                            break
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                    // A short final batch means the eligible set is exhausted — no further rows a
+                    // full batch left untouched, so re-querying would only re-fetch backed-off rows.
+                    if (due.size < DRAIN_BATCH_SIZE) break
                 }
             }
         }
+        // The pass ran to completion: every row eligible at pass start was attempted, and any
+        // failures self-scheduled their retry above. Only the offline early-return reports false.
+        return true
     }
 
     /**
@@ -192,5 +231,11 @@ class SyncEngine(
         val payload = syncJson.decodeFromString<ProofUploadPayload>(item.payloadJson)
         val response = api.registerProof(item.idempotencyKey, payload.request)
         return syncJson.encodeToString(response)
+    }
+
+    private companion object {
+        // Max rows pulled into memory per drain iteration. A long offline backlog drains in
+        // successive batches of this size rather than one unbounded SELECT * materialization.
+        const val DRAIN_BATCH_SIZE = 200
     }
 }
