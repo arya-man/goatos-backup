@@ -14,6 +14,8 @@
     <!-- Settings row titles -->
     <string name="profile_setting_language">Language</string>
     <string name="profile_setting_rfid">RFID reader</string>
+    <!-- RFID detail-screen header title (kept as the device-type term, like profile_setting_rfid). -->
+    <string name="rfid_title">RFID reader</string>
     <string name="profile_setting_timetable">Timetable</string>
     <string name="profile_setting_timetable_subtitle">Shift roster (read-only)</string>
     <string name="profile_setting_sign_out">Sign out</string>

@@ -8,6 +8,7 @@
     <!-- Settings row titles -->
     <string name="profile_setting_language">భాష</string>
     <string name="profile_setting_rfid">RFID reader</string>
+    <string name="rfid_title">RFID reader</string>
     <string name="profile_setting_timetable">టైమ్‌టేబుల్</string>
     <string name="profile_setting_timetable_subtitle">షిఫ్ట్ రోస్టర్ (చదవడానికి మాత్రమే)</string>
     <string name="profile_setting_sign_out">సైన్ అవుట్</string>

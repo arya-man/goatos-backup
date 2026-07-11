@@ -48,23 +48,27 @@ class RfidViewModel @Inject constructor(
     }
 
     private fun fromStatus(status: RfidReaderStatus): RfidUiState {
-        val (detailStatus, connectionState, readerName) = when (status) {
+        val (detailStatus, connectionState) = when (status) {
             RfidReaderStatus.READY ->
-                Triple(RfidDetailStatus.READY, RfidConnectionState.CONNECTED, "RFID reader")
+                RfidDetailStatus.READY to RfidConnectionState.CONNECTED
             RfidReaderStatus.PAIRED_NOT_READY ->
-                Triple(RfidDetailStatus.PAIRED_NOT_READY, RfidConnectionState.SCANNING, "RFID reader")
+                RfidDetailStatus.PAIRED_NOT_READY to RfidConnectionState.SCANNING
             RfidReaderStatus.NOT_PAIRED ->
-                Triple(RfidDetailStatus.NOT_PAIRED, RfidConnectionState.DISCONNECTED, null)
+                RfidDetailStatus.NOT_PAIRED to RfidConnectionState.DISCONNECTED
             RfidReaderStatus.PERMISSION_NEEDED ->
-                Triple(RfidDetailStatus.PERMISSION_NEEDED, RfidConnectionState.DISCONNECTED, null)
+                RfidDetailStatus.PERMISSION_NEEDED to RfidConnectionState.DISCONNECTED
             RfidReaderStatus.BLUETOOTH_OFF ->
-                Triple(RfidDetailStatus.BLUETOOTH_OFF, RfidConnectionState.DISCONNECTED, null)
+                RfidDetailStatus.BLUETOOTH_OFF to RfidConnectionState.DISCONNECTED
         }
         return RfidUiState(
-            title = "RFID reader",
             detailStatus = detailStatus,
             connectionState = connectionState,
-            readerName = readerName,
+            // The keyboard-wedge port surfaces no standing device name (only per-read
+            // RfidRead.deviceName), so leave this null — the screen omits the name row rather than
+            // showing a hardcoded label. A real reader name from a future port is passed through
+            // verbatim (a device identifier is never localized); the header title is a localized
+            // static string owned by RfidScreen.
+            readerName = null,
         )
     }
 }

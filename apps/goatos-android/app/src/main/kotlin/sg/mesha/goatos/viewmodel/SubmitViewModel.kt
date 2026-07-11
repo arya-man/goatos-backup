@@ -112,7 +112,7 @@ class SubmitViewModel @Inject constructor(
             .onFailure {
                 task = null
                 clearSavedSubmission()
-                _state.value = errorState("Couldn't load your task. Tap retry.")
+                _state.value = errorState()
             }
     }
 
@@ -309,7 +309,7 @@ class SubmitViewModel @Inject constructor(
         isNoTaskAssigned = true,
     )
 
-    private fun errorState(message: String): SubmitUiState = sampleSubmitState().copy(
+    private fun errorState(): SubmitUiState = sampleSubmitState().copy(
         groups = emptyList(),
         syncState = SyncState.DEAD_LETTER,
         syncLabel = "",
