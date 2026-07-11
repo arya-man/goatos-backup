@@ -75,8 +75,6 @@ var (
 	versionPruneGuardRe = regexp.MustCompile(`(?i)projection_version\s*(<>|!=)`)
 	// Paging repo methods whose loops must prove forward progress.
 	pageMethodRe = regexp.MustCompile(`^(List|Fetch)|Page$|Chunk$`)
-	// Identifiers whose presence in a loop body signals a cursor/progress guard.
-	cursorHintRe = regexp.MustCompile(`(?i)cursor|after|keyset|seen|advance|nextpage|next_page|pagetoken|page_token`)
 	ignoreRe     = regexp.MustCompile(`scale-guard:ignore:\s*\S`)
 	godCTELimit  = 8
 )
@@ -230,25 +228,52 @@ func scanFile(repo, path string) []finding {
 		// loop-no-cursor: an infinite for{} that pages a repo method with no
 		// cursor/progress guard anywhere in the body (the park-consolidation hang).
 		if infinite {
+			// A paging loop is guarded when EITHER an argument it passes to the
+			// paging call is reassigned in the body (a keyset cursor advances) OR
+			// the body has a zero-progress break (`if counter == 0 { break }`).
+			// Both are checked precisely rather than by loose identifier substring,
+			// so an incidental name like `...DateAfter` does not mask a real hang,
+			// and the ubiquitous `if len(rows) == 0` empty-page exit is not mistaken
+			// for a progress guard.
 			var pageCall *ast.SelectorExpr
-			guarded := false
+			argIdents := map[string]bool{}
+			assigned := map[string]bool{}
+			zeroBreak := false
 			ast.Inspect(body, func(m ast.Node) bool {
 				switch e := m.(type) {
 				case *ast.CallExpr:
 					if sel, ok := e.Fun.(*ast.SelectorExpr); ok &&
 						pageMethodRe.MatchString(sel.Sel.Name) && !dbCallSel[sel.Sel.Name] {
 						pageCall = sel
+						for _, a := range e.Args {
+							if id, ok := a.(*ast.Ident); ok {
+								argIdents[id.Name] = true
+							}
+						}
 					}
-				case *ast.Ident:
-					if cursorHintRe.MatchString(e.Name) {
-						guarded = true
+				case *ast.AssignStmt:
+					for _, lhs := range e.Lhs {
+						if id, ok := lhs.(*ast.Ident); ok {
+							assigned[id.Name] = true
+						}
+					}
+				case *ast.IfStmt:
+					if isProgressBreak(e) {
+						zeroBreak = true
 					}
 				}
 				return true
 			})
-			if pageCall != nil && !guarded {
+			cursorAdvances := false
+			for name := range argIdents {
+				if assigned[name] {
+					cursorAdvances = true
+					break
+				}
+			}
+			if pageCall != nil && !zeroBreak && !cursorAdvances {
 				add("loop-no-cursor", pageCall.Pos(),
-					fmt.Sprintf("infinite for{} pages %s(...) with no cursor/progress guard; keyset-advance or it can loop forever", pageCall.Sel.Name))
+					fmt.Sprintf("infinite for{} pages %s(...) with no cursor advance or zero-progress break; can loop forever if returned rows are never mutated out", pageCall.Sel.Name))
 			}
 		}
 		return true
@@ -328,6 +353,54 @@ func loadBaseline(path string) map[string]int {
 		out[fields[0]+"\t"+fields[1]] += count
 	}
 	return out
+}
+
+// isProgressBreak reports whether an if-stmt is a zero-progress guard: a
+// condition comparing a plain counter variable to 0 (== / <= / <) whose body
+// breaks or returns. `len(x) == 0` (the empty-page exit) is deliberately NOT a
+// match — its compared operand is a call, not a bare counter — so only a real
+// "no work happened this page -> stop" guard counts.
+func isProgressBreak(ifs *ast.IfStmt) bool {
+	counterZero := false
+	ast.Inspect(ifs.Cond, func(n ast.Node) bool {
+		be, ok := n.(*ast.BinaryExpr)
+		if !ok {
+			return true
+		}
+		if be.Op != token.EQL && be.Op != token.LEQ && be.Op != token.LSS {
+			return true
+		}
+		if (isZeroLit(be.Y) && isPlainIdent(be.X)) || (isZeroLit(be.X) && isPlainIdent(be.Y)) {
+			counterZero = true
+		}
+		return true
+	})
+	if !counterZero {
+		return false
+	}
+	stops := false
+	ast.Inspect(ifs.Body, func(n ast.Node) bool {
+		switch s := n.(type) {
+		case *ast.BranchStmt:
+			if s.Tok == token.BREAK {
+				stops = true
+			}
+		case *ast.ReturnStmt:
+			stops = true
+		}
+		return true
+	})
+	return stops
+}
+
+func isZeroLit(e ast.Expr) bool {
+	bl, ok := e.(*ast.BasicLit)
+	return ok && bl.Kind == token.INT && bl.Value == "0"
+}
+
+func isPlainIdent(e ast.Expr) bool {
+	_, ok := e.(*ast.Ident)
+	return ok
 }
 
 func must(err error) {

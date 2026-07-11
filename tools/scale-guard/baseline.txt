@@ -16,7 +16,7 @@ god-cte backend/internal/vaccinationexecution/adapters/postgres/repository.go 1 
 god-cte backend/internal/calendar/adapters/postgres/repository.go 1          # projector backfill (RefreshVaccinationProjection), paged+upsert; acceptable off request path
 
 # --- loop-no-cursor: infinite paging loop with no progress guard ---
-loop-no-cursor backend/internal/obligation/app/sweeper.go 1  # P1: planned-batch finalization loop needs cursor/progress proof
+# (none) — finalizePlannedBatches was fixed with a progressed==0 break on 2026-07-11.
 
 # --- offset-pagination: use keyset/cursor instead ---
 offset-pagination backend/internal/processintegrity/adapters/postgres/repository.go 2  # P1: maxOffset=50000 deep-scan; move to keyset

@@ -425,6 +425,14 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 		if len(batches) == 0 {
 			return nil
 		}
+		// progressed counts batches whose finalization state we actually advanced
+		// this page. The "needing finalization" query is config-unaware, so a batch
+		// whose rule lacks an SOP version (task path) or a vaccine item (stock path)
+		// is returned but never mutated out. Without this guard, once such stuck
+		// batches fill a page the `len < s.page` break never fires and the sweep
+		// loops forever. Zero progress on a full page means the rest are stuck for
+		// config reasons this sweep cannot resolve, so stop rather than hang.
+		var progressed int
 		for _, b := range batches {
 			batchCfg := cfg.forRule(b.RuleID)
 			if s.tasks != nil && batchCfg.SOPVersionID != "" && !b.HasSOPTask {
@@ -435,14 +443,19 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 				if err := s.repo.SetBatchSOPTask(ctx, tenantID, b.BatchID, taskID); err != nil {
 					return err
 				}
+				progressed++
 			}
 			if s.reserver != nil && !b.HasStockReservation {
-				if err := s.reservePlannedBatchStock(ctx, tenantID, b, cfg); err != nil {
+				did, err := s.reservePlannedBatchStock(ctx, tenantID, b, cfg)
+				if err != nil {
 					return err
+				}
+				if did {
+					progressed++
 				}
 			}
 		}
-		if int32(len(batches)) < s.page {
+		if progressed == 0 || int32(len(batches)) < s.page {
 			return nil
 		}
 	}
@@ -463,16 +476,20 @@ func batchStockValidOn(b domain.PlannedBatchFinalization) time.Time {
 	return biztime.BusinessDayStart(time.Now())
 }
 
-func (s *SweeperService) reservePlannedBatchStock(ctx context.Context, tenantID string, b domain.PlannedBatchFinalization, cfg SweepConfig) error {
+// reservePlannedBatchStock returns whether it changed the batch's stock state
+// (created a reserve movement, recorded a stock block, or cleared one). A false
+// return means nothing mutated — the batch stays "needing finalization" and the
+// caller must not count it as progress, else the sweep can loop forever.
+func (s *SweeperService) reservePlannedBatchStock(ctx context.Context, tenantID string, b domain.PlannedBatchFinalization, cfg SweepConfig) (bool, error) {
 	ruleCounts, err := s.repo.CountAttachedObligationsByRule(ctx, tenantID, b.BatchID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if len(ruleCounts) == 0 && b.AttachedObligations > 0 {
 		ruleCounts = []domain.RuleAttachmentCount{{RuleID: b.RuleID, Count: b.AttachedObligations}}
 	}
 	if len(ruleCounts) == 0 {
-		return nil
+		return false, nil
 	}
 	validOn := batchStockValidOn(b)
 	reservedAny := false
@@ -488,16 +505,18 @@ func (s *SweeperService) reservePlannedBatchStock(ctx context.Context, tenantID 
 		qty := rc.Count * int64(dosesPer)
 		if err := s.reserver.ReserveForBatch(ctx, tenantID, b.BatchID, b.ScopeID, batchCfg.VaccineItemID, qty, validOn); err != nil {
 			if markErr := s.repo.MarkBatchStockBlocked(ctx, tenantID, b.BatchID, batchCfg.VaccineItemID, qty, err.Error()); markErr != nil {
-				return markErr
+				return false, markErr
 			}
-			return nil
+			// A recorded stock block moves the retry window forward, so the batch
+			// drops out of the finalization query until it is due again: progress.
+			return true, nil
 		}
 		reservedAny = true
 	}
 	if reservedAny && b.StockBlocked {
-		return s.repo.ClearBatchStockBlock(ctx, tenantID, b.BatchID)
+		return true, s.repo.ClearBatchStockBlock(ctx, tenantID, b.BatchID)
 	}
-	return nil
+	return reservedAny, nil
 }
 
 func timeKey(t *time.Time) string {

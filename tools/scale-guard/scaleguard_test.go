@@ -168,3 +168,49 @@ func run(ctx context.Context, r R) {
 		t.Errorf("cursor-guarded loop must not trip loop-no-cursor, got %+v", got)
 	}
 }
+
+func TestLoopProgressBreakGuardRecognized(t *testing.T) {
+	// A zero-progress break (`if progressed == 0 { break }`) is a valid guard;
+	// the `len(rows) == 0` empty-page exit alone is NOT and must stay flagged.
+	guarded := `package p
+
+import "context"
+
+type R struct{}
+func (R) ListThings(ctx context.Context, page int) ([]int, error) { return nil, nil }
+
+func run(ctx context.Context, r R, page int) {
+	for {
+		rows, _ := r.ListThings(ctx, page)
+		if len(rows) == 0 { break }
+		progressed := 0
+		for range rows { progressed++ }
+		if progressed == 0 { break }
+	}
+}
+`
+	repo, path := writeGo(t, guarded)
+	if got := rules(scanFile(repo, path)); got["loop-no-cursor"] != 0 {
+		t.Errorf("progress-break guarded loop must not trip loop-no-cursor, got %+v", got)
+	}
+
+	// Same loop with ONLY the len()==0 empty exit -> still a hang risk -> flagged.
+	emptyOnly := `package p
+
+import "context"
+
+type R struct{}
+func (R) ListThings(ctx context.Context, page int) ([]int, error) { return nil, nil }
+
+func run(ctx context.Context, r R, page int) {
+	for {
+		rows, _ := r.ListThings(ctx, page)
+		if len(rows) == 0 { break }
+	}
+}
+`
+	repo, path = writeGo(t, emptyOnly)
+	if got := rules(scanFile(repo, path)); got["loop-no-cursor"] == 0 {
+		t.Errorf("len()==0 empty-exit is not a progress guard; loop must be flagged, got %+v", got)
+	}
+}
