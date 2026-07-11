@@ -2,4 +2,4 @@
 // backend module and needs no third-party dependencies.
 module github.com/vgoats/goatos/tools/scale-guard
 
-go 1.25
+go 1.23
