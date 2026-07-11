@@ -209,6 +209,18 @@ and the board columns. It must not also show "Scope", "All parks", or the same
 as-of date again in the body. If a page needs a park filter, place it behind
 Filters or update the top-bar scope instead of duplicating it inline.
 
+### Data-freshness pill (DEFERRED — currently hidden)
+
+The top-bar data-freshness chip (`data <asOf> · fresh / Nd old`) is intentionally
+hidden for now, gated by `SHOW_DATA_FRESHNESS_PILL = false` in
+`components/mesha-shell.tsx`. The as-of/freshness value is not yet backed by a
+real point-in-time data-freshness signal from the read models, so the chip would
+assert a freshness guarantee the backend cannot honor. Re-enable by flipping the
+flag to `true` once the freshness/as-of contract is implemented end-to-end (the
+value must be compiled into `/admin-web/bootstrap` from a real read-model
+freshness signal, not a client-side `todayIso()` default). The park/as-of scope
+top-bar ownership rule above still holds when it is re-enabled.
+
 ## Current Product Slice
 
 Build one connected vaccination process-integrity slice:
