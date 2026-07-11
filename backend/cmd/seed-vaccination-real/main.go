@@ -1673,7 +1673,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				CourseType:         courseType,
 			},
 			Species:     spec.Species,
-			Eligibility: vaccinationSeedEligibility(),
+			Eligibility: vaccinationSeedEligibilityForSpecies(spec.Species),
 			Schedule:    rowSchedule,
 		})
 	}
@@ -1810,6 +1810,12 @@ func vaccinationSeedEligibility() map[string]any {
 		"exclude_reproductive_states": []string{"pregnant_late"},
 		"defer_states":                []string{"icu", "quarantine"},
 	}
+}
+
+func vaccinationSeedEligibilityForSpecies(species []string) map[string]any {
+	eligibility := vaccinationSeedEligibility()
+	eligibility["species"] = append([]string(nil), species...)
+	return eligibility
 }
 
 func pathogenClass(vaccineType string) string {

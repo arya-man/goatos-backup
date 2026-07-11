@@ -1,9 +1,53 @@
 package main
 
 import (
+	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 )
+
+func TestVaccinationMatrixRowsUseSpeciesScopedEligibility(t *testing.T) {
+	dsl, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("build vaccination matrix rule DSL: %v", err)
+	}
+
+	var payload struct {
+		MatrixRows []struct {
+			Species     []string `json:"species"`
+			Eligibility struct {
+				Species []string `json:"species"`
+			} `json:"eligibility"`
+			Vaccine struct {
+				Code string `json:"code"`
+			} `json:"vaccine"`
+		} `json:"matrix_rows"`
+	}
+	if err := json.Unmarshal([]byte(dsl), &payload); err != nil {
+		t.Fatalf("unmarshal vaccination matrix DSL: %v", err)
+	}
+
+	byCode := make(map[string][]string, len(payload.MatrixRows))
+	for _, row := range payload.MatrixRows {
+		if !reflect.DeepEqual(row.Eligibility.Species, row.Species) {
+			t.Fatalf("%s eligibility species = %#v, want row species %#v", row.Vaccine.Code, row.Eligibility.Species, row.Species)
+		}
+		byCode[row.Vaccine.Code] = row.Eligibility.Species
+	}
+
+	for code, want := range map[string][]string{
+		"GOAT_POX":    {"goat"},
+		"BLUE_TONGUE": {"sheep"},
+		"SHEEP_POX":   {"sheep"},
+	} {
+		if got, ok := byCode[code]; !ok {
+			t.Fatalf("matrix row for %s missing", code)
+		} else if !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s eligibility species = %#v, want %#v", code, got, want)
+		}
+	}
+}
 
 func TestNextDueAfterLastVaccinationUsesHistoricalCellAsAnchor(t *testing.T) {
 	loc := mustKolkata(t)
