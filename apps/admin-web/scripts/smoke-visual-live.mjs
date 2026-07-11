@@ -541,7 +541,7 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
   }
 
   if (routeName === "calendar") {
-    await openAndCloseDrawer(page, page.locator(".agenda .ev.celllink").first(), "CALENDAR EVENT", routeName);
+    await openAndCloseDrawer(page, page.locator(".agenda .ev.celllink").first(), "CALENDAR EVENT", routeName, assertCalendarTargetIdentity);
     // Month view + a month-cell (.mev) event open — exercised in-app so the top-bar scope is carried.
     const monthTab = page.getByRole("link", { name: "Month", exact: true });
     if ((await monthTab.count()) === 1) {
@@ -788,6 +788,30 @@ async function assertHerdPassportIdentity(drawer, routeName, expectedText) {
   const displayId = (await drawer.locator(".gid").first().innerText().catch(() => "")).trim();
   if (!/^G-\d+/.test(displayId)) {
     throw new Error(`${routeName} passport drawer Display ID chip should be a G-###### id; got "${displayId}"`);
+  }
+}
+
+// The vaccination calendar event drawer must use the same identity vocabulary as herd/passport: any
+// eligible-animals target roster leads with Display ID / Tag 1 / Tag 2 and never renders legacy wording.
+// A given drive can legitimately resolve to 0 targets in seeded data (projection vs obligation
+// rule_id / IST-due-day mismatch), so the roster header check runs only when the roster is present;
+// the banned-wording check always runs on the drawer text.
+async function assertCalendarTargetIdentity(drawer, routeName, expectedText) {
+  const text = await drawer.innerText();
+  for (const banned of ["Animal ID 1", "Animal ID 2", "missing ID"]) {
+    if (text.includes(banned)) {
+      throw new Error(`${routeName} calendar drawer "${expectedText}" contains banned identity wording "${banned}"`);
+    }
+  }
+  const roster = drawer.locator('table:has(th:has-text("Display ID"))');
+  if ((await roster.count()) >= 1) {
+    const headers = (await roster.first().locator("thead th").allInnerTexts()).map((h) => h.trim());
+    const expected = ["Display ID", "Tag 1", "Tag 2"];
+    if (headers.slice(0, 3).join("|") !== expected.join("|")) {
+      throw new Error(`${routeName} calendar drive-target roster must start with ${expected.join(", ")}; got ${headers.join(", ")}`);
+    }
+  } else {
+    console.log(`identity_calendar_roster=skipped_no_targets route=${routeName} event="${expectedText}"`);
   }
 }
 
