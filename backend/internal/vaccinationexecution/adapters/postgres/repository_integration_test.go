@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1317,4 +1318,87 @@ func TestShedSummaryReadsSeededShed(t *testing.T) {
 	if found.Status == "" {
 		t.Errorf("status must be a non-empty merged headline")
 	}
+}
+
+func TestShedSummaryOverdueOutranksSplit(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	batchID := "72000000-0000-4000-8000-000000000001"
+	insertProjectionBatch(t, ctx, pool, batchID, "planned")
+	asOf := time.Date(2026, 7, 11, 18, 0, 0, 0, time.UTC)
+	for i := 1; i <= 101; i++ {
+		goatID := fmt.Sprintf("71000000-0000-4000-8000-%012d", i)
+		obligationID := fmt.Sprintf("73000000-0000-4000-8000-%012d", i)
+		insertProjectionGoat(t, ctx, pool, goatID, testShed, testPark)
+		dueAt := "2026-07-11 18:00:00+00"
+		if i == 1 {
+			dueAt = "2026-07-10 00:00:00+00"
+		}
+		insertProjectionObligation(t, ctx, pool, obligationID, batchID, goatID, "scheduled", dueAt, fmt.Sprintf("vaccexec-overdue-split-%03d", i))
+	}
+
+	repo := NewRepository(pool, 0)
+	rows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
+		TenantID:  testTenant,
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     50,
+	})
+	if err != nil {
+		t.Fatalf("ShedSummary: %v", err)
+	}
+	found := shedSummaryByShed(rows, testShed)
+	if found == nil {
+		t.Fatalf("seeded shed %s not present in summary rows", testShed)
+	}
+	if found.Sessions <= 1 || found.Capacity != domain.CapacityOverCap {
+		t.Fatalf("setup failed: sessions=%d capacity=%q, want over-cap split setup", found.Sessions, found.Capacity)
+	}
+	if found.Status != domain.ShedStatusOverdue {
+		t.Fatalf("status = %q, want overdue to outrank split when any animal is late", found.Status)
+	}
+
+	overdueStatus := domain.ShedStatusOverdue
+	overdueRows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
+		TenantID:  testTenant,
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Status:    &overdueStatus,
+		Limit:     50,
+	})
+	if err != nil {
+		t.Fatalf("ShedSummary(overdue filter): %v", err)
+	}
+	if shedSummaryByShed(overdueRows, testShed) == nil {
+		t.Fatalf("overdue filter did not include shed with overdue animals")
+	}
+
+	splitStatus := domain.ShedStatusSplit
+	splitRows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
+		TenantID:  testTenant,
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Status:    &splitStatus,
+		Limit:     50,
+	})
+	if err != nil {
+		t.Fatalf("ShedSummary(split filter): %v", err)
+	}
+	if shedSummaryByShed(splitRows, testShed) != nil {
+		t.Fatalf("split filter hid an overdue shed; capacity split must not steal overdue headline status")
+	}
+}
+
+func shedSummaryByShed(rows []domain.ShedSummaryProjection, shedID string) *domain.ShedSummaryProjection {
+	for i := range rows {
+		if rows[i].ShedID == shedID {
+			return &rows[i]
+		}
+	}
+	return nil
 }

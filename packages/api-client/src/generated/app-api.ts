@@ -2862,13 +2862,13 @@ export interface components {
         };
         /**
          * @description Merged CEO headline folding capacity and vaccination state by priority (highest first):
-         *     needs_review > split > overdue > due > scheduled > on_track
+         *     needs_review > overdue > split > due > scheduled > on_track
          *
          *     This is the INTERNAL machine vocabulary. The CEO UI renders the backend-provided label
          *     (never the raw token, never the word "state").
          * @enum {string}
          */
-        VaccinationShedStatus: "needs_review" | "split" | "overdue" | "due" | "scheduled" | "on_track";
+        VaccinationShedStatus: "needs_review" | "overdue" | "split" | "due" | "scheduled" | "on_track";
         /** @enum {string} */
         VaccinationShedSortKey: "park_shed" | "due_desc" | "animals_desc" | "next_due";
         VaccinationPageInfo: {

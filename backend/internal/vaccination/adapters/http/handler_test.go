@@ -39,10 +39,12 @@ type fakeCampaign struct {
 	asOf       time.Time
 	key        string
 	hash       string
+	called     bool
 	err        error
 }
 
 func (f *fakeCampaign) GenerateManualCampaignForVersionWithHTTPRun(_ context.Context, tenantID, versionID, campaignID string, asOf time.Time, idempotencyKey, requestHash string) (domain.GenerationRun, domain.GenerateResult, error) {
+	f.called = true
 	f.tenantID = tenantID
 	f.versionID = versionID
 	f.campaignID = campaignID
@@ -105,6 +107,30 @@ func TestRunManualCampaignCallsGenerator(t *testing.T) {
 	}
 	if resp.RunID == "" || resp.TriggerType != "manual_campaign" || resp.Reopened != 3 || resp.ResultReopened != 3 || resp.FailedGoats != 1 || resp.ResultFailedGoats != 1 || resp.ResultGenerated != 4 || resp.ResultSuppressedByTrustedHistory != 2 {
 		t.Fatalf("response body: %+v", resp)
+	}
+}
+
+func TestRunManualCampaignRejectsFutureAsOf(t *testing.T) {
+	campaign := &fakeCampaign{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithManualCampaignGenerator(campaign))
+
+	future := time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)
+	body := `{"protocol_version_id":"65000000-0000-4000-8000-000000000001","campaign_id":"catchup:2026-06-27","as_of":"` + future + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/manual-campaigns", strings.NewReader(body))
+	req.Header.Set("Idempotency-Key", "manual-campaign-test-0003")
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "future_as_of") {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+	if campaign.called {
+		t.Fatalf("generator was called for future as_of")
 	}
 }
 

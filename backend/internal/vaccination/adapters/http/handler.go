@@ -179,10 +179,15 @@ func (h *Handler) RunManualCampaign(w http.ResponseWriter, r *http.Request) {
 		h.badRequest(w, r, "invalid_campaign_id", "campaign_id must be 3-128 characters using letters, numbers, dash, underscore, colon, or dot")
 		return
 	}
-	asOf := time.Now().In(biztime.DefaultLocation())
+	now := time.Now().In(biztime.DefaultLocation())
+	asOf := now
 	asOfProvided := req.AsOf != nil
 	if req.AsOf != nil {
 		asOf = req.AsOf.In(biztime.DefaultLocation())
+		if asOf.After(now) {
+			h.badRequest(w, r, "future_as_of", "as_of cannot be in the future for a mutating manual campaign")
+			return
+		}
 	}
 	requestHash := manualCampaignRequestHash(req, asOfProvided)
 	run, result, err := h.campaign.GenerateManualCampaignForVersionWithHTTPRun(r.Context(), tenantID(r), req.ProtocolVersionID, req.CampaignID, asOf, idempotencyKey, requestHash)

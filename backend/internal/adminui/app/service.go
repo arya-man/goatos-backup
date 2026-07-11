@@ -3694,15 +3694,15 @@ func option(key, label, title, tone string) domain.Option {
 
 // shedStatusOptionGroup is the merged CEO status headline vocabulary for the shed-wise table + shed
 // detail. The frontend renders these labels (never the raw enum, never the word "state") and uses the
-// group for the Status filter chips. Priority order matches the backend headline: needs_review > split >
-// overdue > due > scheduled > on_track.
+// group for the Status filter chips. Priority order matches the backend headline: needs_review >
+// overdue > split > due > scheduled > on_track.
 func shedStatusOptionGroup() domain.OptionGroup {
 	return domain.OptionGroup{
 		ID: "shed_status_chips",
 		Options: []domain.Option{
 			option("needs_review", "Needs review", "Capacity breach — due work cannot fit the safe window", "dng"),
-			option("split", "Split", "Work safely split across multiple days", "warn"),
 			option("overdue", "Overdue", "At least one overdue animal", "dng"),
+			option("split", "Split", "Work safely split across multiple days, none overdue", "warn"),
 			option("due", "Due", "At least one due animal, none overdue", "warn"),
 			option("scheduled", "Scheduled", "Only future scheduled work", "info"),
 			option("on_track", "On track", "No open vaccination work", "ok"),
