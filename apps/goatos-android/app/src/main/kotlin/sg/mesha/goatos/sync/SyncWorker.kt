@@ -11,6 +11,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -33,15 +34,19 @@ class SyncWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
     private val syncEngine: SyncEngine,
+    private val syncWorkScheduler: SyncWorkScheduler,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result =
         try {
+            if (inputData.getBoolean(KEY_RETRY_WORK, false)) {
+                syncWorkScheduler.clearScheduledRetry()
+            }
             // drainOnce() returns false ONLY when the pass was aborted before attempting anything
             // (offline at start) — nothing was scheduled, so re-run under the CONNECTED constraint.
             // A completed pass returns true even if some rows failed transport: each failure has
-            // already booked its own backoff via the unique, REPLACE-d retry work (SyncEngine ->
+            // already contributed to the earliest explicit retry work (SyncEngine ->
             // retryScheduler.scheduleAt). Returning success here means backed-off rows are driven
-            // solely by that explicit retry work — never ALSO by a worker Result.retry(), which
+            // by that explicit retry work — never ALSO by a worker Result.retry(), which
             // would double-schedule the same row (retry-churn).
             if (syncEngine.drainOnce()) Result.success() else Result.retry()
         } catch (cancellation: CancellationException) {
@@ -69,24 +74,40 @@ class SyncWorkScheduler @Inject constructor(
     }
 
     override fun scheduleAt(epochMillis: Long) {
-        val delayMillis = (epochMillis - System.currentTimeMillis()).coerceAtLeast(0L)
-        val request = OneTimeWorkRequestBuilder<SyncWorker>()
-            .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
-            .setConstraints(syncConstraints())
-            .build()
-        // REPLACE (not plain enqueue): every failed row's backoff calls scheduleAt, so a
-        // burst of failures must collapse to ONE pending retry job, not stack N identical
-        // one-time workers that all fire and re-drain the same outbox.
-        WorkManager.getInstance(context)
-            .enqueueUniqueWork(UNIQUE_RETRY_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+        synchronized(retryScheduleLock) {
+            val existingRetryAt = retryPrefs().getLong(KEY_NEXT_RETRY_AT, NO_RETRY_SCHEDULED)
+            if (existingRetryAt != NO_RETRY_SCHEDULED && existingRetryAt <= epochMillis) {
+                return
+            }
+            retryPrefs().edit().putLong(KEY_NEXT_RETRY_AT, epochMillis).commit()
+            val delayMillis = (epochMillis - System.currentTimeMillis()).coerceAtLeast(0L)
+            val request = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
+                .setConstraints(syncConstraints())
+                .setInputData(workDataOf(KEY_RETRY_WORK to true))
+                .build()
+            WorkManager.getInstance(context)
+                .enqueueUniqueWork(UNIQUE_RETRY_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+        }
+    }
+
+    fun clearScheduledRetry() {
+        synchronized(retryScheduleLock) {
+            retryPrefs().edit().remove(KEY_NEXT_RETRY_AT).commit()
+        }
     }
 
     private fun syncConstraints(): Constraints =
         Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
-    private companion object {
-        const val UNIQUE_WORK_NAME = "goatos-outbox-sync"
-        const val UNIQUE_RETRY_WORK_NAME = "goatos-outbox-retry"
-        const val PERIOD_MINUTES = 15L // WorkManager's minimum periodic interval.
-    }
+    private fun retryPrefs() = context.getSharedPreferences(RETRY_PREFS_NAME, Context.MODE_PRIVATE)
 }
+
+private const val UNIQUE_WORK_NAME = "goatos-outbox-sync"
+private const val UNIQUE_RETRY_WORK_NAME = "goatos-outbox-retry"
+private const val PERIOD_MINUTES = 15L // WorkManager's minimum periodic interval.
+private const val RETRY_PREFS_NAME = "goatos-outbox-retry-schedule"
+private const val KEY_NEXT_RETRY_AT = "next_retry_at"
+private const val KEY_RETRY_WORK = "retry_work"
+private const val NO_RETRY_SCHEDULED = Long.MAX_VALUE
+private val retryScheduleLock = Any()

@@ -37,9 +37,20 @@ interface OutboxDao {
      * [SyncEngine.drainOnce]).
      */
     @Query(
-        "SELECT * FROM outbox WHERE status = 'QUEUED' " +
-            "OR (status = 'FAILED' AND conflict = 0 AND attemptCount < maxAttempts AND nextAttemptAt <= :now) " +
-            "ORDER BY createdAt ASC LIMIT :limit",
+        "SELECT candidate.* FROM outbox AS candidate " +
+            "WHERE (candidate.status = 'QUEUED' " +
+            "OR (candidate.status = 'FAILED' AND candidate.conflict = 0 " +
+            "AND candidate.attemptCount < candidate.maxAttempts AND candidate.nextAttemptAt <= :now)) " +
+            "AND NOT EXISTS (" +
+            "SELECT 1 FROM outbox AS older " +
+            "WHERE older.groupKey = candidate.groupKey " +
+            "AND older.createdAt < candidate.createdAt " +
+            "AND older.status = 'FAILED' " +
+            "AND older.conflict = 0 " +
+            "AND older.attemptCount < older.maxAttempts " +
+            "AND older.nextAttemptAt > :now" +
+            ") " +
+            "ORDER BY candidate.createdAt ASC LIMIT :limit",
     )
     suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity>
 

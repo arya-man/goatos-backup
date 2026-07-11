@@ -15,6 +15,7 @@ import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.isTerminalAppApiError
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 fun interface SyncRetryScheduler {
     fun scheduleAt(epochMillis: Long)
@@ -78,10 +79,10 @@ class SyncEngine(
      * long offline period never materializes the whole table into memory at once.
      *
      * Returns `true` when the drain PASS completed — every eligible row was attempted. A per-row
-     * transport failure does NOT flip this to `false`: [recordFailure] has already booked that
-     * row's next attempt through [retryScheduler] (the app's unique, REPLACE-d retry work). So the
-     * WorkManager shim reports `Result.success()` and MUST NOT also `Result.retry()`, or the two
-     * mechanisms would double-schedule the same backed-off row (retry-churn).
+     * transport failure does NOT flip this to `false`: [recordFailure] has already recorded that
+     * row's next attempt, and the pass schedules the earliest retry once through [retryScheduler].
+     * So the WorkManager shim reports `Result.success()` and MUST NOT also `Result.retry()`, or the
+     * two mechanisms would double-schedule the same backed-off row (retry-churn).
      *
      * Returns `false` only when the pass was ABORTED before attempting anything — today just
      * "offline at pass start", where nothing was dispatched and nothing was scheduled. The caller
@@ -90,6 +91,14 @@ class SyncEngine(
      */
     suspend fun drainOnce(): Boolean {
         if (!connectivityGate.isOnline()) return false // capture continues offline; sync just waits.
+        val earliestRetryAt = AtomicLong(NO_RETRY_DUE)
+        fun rememberRetryDue(epochMillis: Long) {
+            while (true) {
+                val current = earliestRetryAt.get()
+                if (epochMillis >= current) return
+                if (earliestRetryAt.compareAndSet(current, epochMillis)) return
+            }
+        }
         drainMutex.withLock {
             withContext(dispatchers.io) {
                 // Recover rows stranded IN_FLIGHT by a prior crash/process-death mid-dispatch.
@@ -118,7 +127,7 @@ class SyncEngine(
                             launch {
                                 semaphore.withPermit {
                                     for (item in groupItems.sortedBy { it.createdAt }) {
-                                        if (!processItem(item)) {
+                                        if (!processItem(item, ::rememberRetryDue)) {
                                             blockedGroups += item.groupKey
                                             break
                                         }
@@ -133,8 +142,12 @@ class SyncEngine(
                 }
             }
         }
+        val retryAt = earliestRetryAt.get()
+        if (retryAt != NO_RETRY_DUE) {
+            retryScheduler.scheduleAt(retryAt)
+        }
         // The pass ran to completion: every row eligible at pass start was attempted, and any
-        // failures self-scheduled their retry above. Only the offline early-return reports false.
+        // failures booked the earliest retry above. Only the offline early-return reports false.
         return true
     }
 
@@ -143,7 +156,7 @@ class SyncEngine(
      * `false` so same-shed FIFO stops at the first broken write instead of posting newer writes
      * over an older failed proof/submission.
      */
-    private suspend fun processItem(item: OutboxEntity): Boolean {
+    private suspend fun processItem(item: OutboxEntity, rememberRetryDue: (Long) -> Unit): Boolean {
         // Guard the transition: if the row is no longer QUEUED/FAILED (e.g. a manual retry or a
         // concurrent pass already claimed it) markInFlight is a no-op and we skip it — never
         // dispatch a row we didn't actually transition.
@@ -155,12 +168,12 @@ class SyncEngine(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: Throwable) {
-            recordFailure(item, error)
+            recordFailure(item, error)?.let(rememberRetryDue)
             false
         }
     }
 
-    private suspend fun recordFailure(item: OutboxEntity, error: Throwable) {
+    private suspend fun recordFailure(item: OutboxEntity, error: Throwable): Long? {
         val attempt = item.attemptCount + 1
         // Terminal = a definitive server rejection (validation) OR a non-retryable 4xx: neither
         // changes by re-sending the same payload, so don't burn the backoff budget on it.
@@ -175,8 +188,10 @@ class SyncEngine(
             lastError = error.message ?: (error::class.simpleName ?: "sync_failed"),
             now = clock(),
         )
-        if (applied && !terminal) {
-            retryScheduler.scheduleAt(nextAttemptAt)
+        return if (applied && !terminal) {
+            nextAttemptAt
+        } else {
+            null
         }
     }
 
@@ -237,5 +252,6 @@ class SyncEngine(
         // Max rows pulled into memory per drain iteration. A long offline backlog drains in
         // successive batches of this size rather than one unbounded SELECT * materialization.
         const val DRAIN_BATCH_SIZE = 200
+        const val NO_RETRY_DUE = Long.MAX_VALUE
     }
 }

@@ -250,6 +250,41 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `newer same-group rows stay blocked on a later drain while oldest is backed off`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(queuedShedSubmit(id = "row-2", groupKey = "shed-1", idempotencyKey = "key-2", createdAt = 200L))
+        store.insert(queuedShedSubmit(id = "row-1", groupKey = "shed-1", idempotencyKey = "key-1", createdAt = 100L))
+        var now = 1_000L
+        var failOldest = true
+        val order = mutableListOf<String>()
+        val api = ScriptedAppApi().apply {
+            submitAppTaskFn = { _, key, _ ->
+                order += key
+                if (key == "key-1" && failOldest) {
+                    failOldest = false
+                    throw IOException("oldest failed")
+                }
+                okSubmission()
+            }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { now }, backoff = BackoffPolicy { 60_000L })
+
+        engine.drainOnce()
+        engine.drainOnce()
+
+        assertEquals(listOf("key-1"), order)
+        assertEquals(OutboxStatus.FAILED.name, store.findById("row-1")!!.status)
+        assertEquals(OutboxStatus.QUEUED.name, store.findById("row-2")!!.status)
+
+        now = 61_000L
+        engine.drainOnce()
+
+        assertEquals(listOf("key-1", "key-1", "key-2"), order)
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-1")!!.status)
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-2")!!.status)
+    }
+
+    @Test
     fun `dispatches a RESCHEDULE item via the reschedule endpoint with its idempotency key`() = runBlocking {
         val store = FakeOutboxStore()
         val idempotencyKey = "resched-key-1"
@@ -421,6 +456,34 @@ class SyncEngineTest {
         assertTrue(result)
         assertEquals(61_000L, scheduledAt)
         assertEquals(OutboxStatus.FAILED.name, store.findById("row-1")!!.status)
+    }
+
+    @Test
+    fun `multiple group failures schedule only the earliest retry for the pass`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(queuedShedSubmit(id = "row-1", groupKey = "shed-1", idempotencyKey = "key-1", createdAt = 100L))
+        store.insert(
+            queuedShedSubmit(id = "row-2", groupKey = "shed-2", idempotencyKey = "key-2", createdAt = 200L)
+                .copy(status = OutboxStatus.FAILED.name, attemptCount = 1, nextAttemptAt = 1_000L),
+        )
+        val api = ScriptedAppApi().apply {
+            submitAppTaskFn = { _, _, _ -> throw IOException("network down") }
+        }
+        val scheduledAt = mutableListOf<Long>()
+        val engine = SyncEngine(
+            store,
+            api,
+            connectivityGate = { true },
+            clock = { 1_000L },
+            backoff = BackoffPolicy { attempt -> if (attempt == 1) 60_000L else 300_000L },
+            retryScheduler = SyncRetryScheduler { scheduledAt += it },
+        )
+
+        engine.drainOnce()
+
+        assertEquals(listOf(61_000L), scheduledAt)
+        assertEquals(61_000L, store.findById("row-1")!!.nextAttemptAt)
+        assertEquals(301_000L, store.findById("row-2")!!.nextAttemptAt)
     }
 
     @Test

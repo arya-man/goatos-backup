@@ -41,12 +41,14 @@ Rules:
   production/staging-looking, non-local, or Cloud SQL-style socket DB targets.
 - Local auth smoke uses one shared `GOATOS_AUTH_*` config across backend,
   token minting, grant seed, and admin-web generated-client smoke.
-- For the `goatos-dev` Cloud Run bring-up, backend invocation is public at the
-  Cloud Run layer and auth is enforced by Goat OS JWKS/RBAC. Admin-web SSR uses
-  the Firebase ID-token cookie bridge to forward the signed-in user's
-  `Authorization: Bearer <id_token>` plus `X-GoatOS-Tenant-ID`; do not make the
-  backend IAM-private until a separate service-to-service auth design exists.
-  Do not copy this public-invoker posture to `goatos-stg` or `goatos-prod`.
+- For the `goatos-dev` and `goatos-stg` Cloud Run bring-up, backend invocation is
+  public at the Cloud Run layer and auth is enforced by Goat OS JWKS/RBAC.
+  Admin-web SSR uses the Firebase ID-token cookie bridge to forward the
+  signed-in user's `Authorization: Bearer <id_token>` plus
+  `X-GoatOS-Tenant-ID`; Android also needs a directly reachable app API. Do not
+  make the backend IAM-private until a separate service-to-service/IAP design
+  exists. Do not copy this public-invoker posture to `goatos-prod` without an
+  explicit production ingress decision.
 - `goatos-dev` uses Google Identity Platform / Firebase Auth as the JWKS IdP.
   Firebase is auth only; do not use Firebase Hosting or Firebase App Hosting.
 - Admin-web session POST/DELETE records durable auth audit events through the

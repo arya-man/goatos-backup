@@ -29,18 +29,20 @@ class FakeOutboxStore : OutboxStore {
     override suspend fun findByIdempotencyKey(key: String): OutboxEntity? =
         rows.value.firstOrNull { it.idempotencyKey == key }
 
-    override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> = rows.value
-        .filter { row ->
-            row.status == OutboxStatus.QUEUED.name ||
-                (
-                    row.status == OutboxStatus.FAILED.name &&
-                        !row.conflict &&
-                        row.attemptCount < row.maxAttempts &&
-                        row.nextAttemptAt <= now
-                    )
-        }
-        .sortedBy { it.createdAt }
-        .take(limit)
+    override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> {
+        val snapshot = rows.value
+        return snapshot
+            .filter { row ->
+                row.isDrainCandidate(now) &&
+                    snapshot.none { older ->
+                        older.groupKey == row.groupKey &&
+                            older.createdAt < row.createdAt &&
+                            older.isBackedOff(now)
+                    }
+            }
+            .sortedBy { it.createdAt }
+            .take(limit)
+    }
 
     override fun observeAll() = rows.asStateFlow()
 
@@ -108,4 +110,19 @@ class FakeOutboxStore : OutboxStore {
         rows.update { list -> list.map { if (it.id == id) transform(it) else it } }
         return true
     }
+
+    private fun OutboxEntity.isDrainCandidate(now: Long): Boolean =
+        status == OutboxStatus.QUEUED.name ||
+            (
+                status == OutboxStatus.FAILED.name &&
+                    !conflict &&
+                    attemptCount < maxAttempts &&
+                    nextAttemptAt <= now
+                )
+
+    private fun OutboxEntity.isBackedOff(now: Long): Boolean =
+        status == OutboxStatus.FAILED.name &&
+            !conflict &&
+            attemptCount < maxAttempts &&
+            nextAttemptAt > now
 }

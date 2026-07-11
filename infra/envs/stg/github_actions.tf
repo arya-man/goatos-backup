@@ -17,13 +17,20 @@ resource "google_iam_workload_identity_pool_provider" "github_actions" {
   description                        = "Allows vgoats/goatos GitHub Actions to deploy to goatos-stg."
 
   attribute_mapping = {
-    "google.subject"       = "assertion.sub"
-    "attribute.repository" = "assertion.repository"
-    "attribute.ref"        = "assertion.ref"
-    "attribute.workflow"   = "assertion.workflow"
+    "google.subject"         = "assertion.sub"
+    "attribute.environment"  = "assertion.environment"
+    "attribute.repository"   = "assertion.repository"
+    "attribute.ref"          = "assertion.ref"
+    "attribute.workflow"     = "assertion.workflow"
+    "attribute.workflow_ref" = "assertion.workflow_ref"
   }
 
-  attribute_condition = "assertion.repository == 'vgoats/goatos'"
+  attribute_condition = <<-EOT
+    assertion.repository == 'vgoats/goatos' &&
+    assertion.ref == 'refs/heads/stg' &&
+    assertion.workflow_ref == 'vgoats/goatos/.github/workflows/stg-deploy.yml@refs/heads/stg' &&
+    assertion.environment == 'staging'
+  EOT
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
@@ -53,5 +60,5 @@ resource "google_service_account_iam_member" "github_deployer_act_as_runtime" {
 resource "google_service_account_iam_member" "github_deployer_workload_identity_user" {
   service_account_id = google_service_account.github_deployer.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository/vgoats/goatos"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.ref/refs/heads/stg"
 }

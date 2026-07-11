@@ -109,8 +109,9 @@ Live resources still need to be imported into state before a broad staging
 Current staging keeps Cloud SQL warm with `activation_policy = "ALWAYS"` so
 `stg` branch deploys can run migrations and `/readyz` without a manual database
 start. Both `goatos-api-stg` and `goatos-admin-web-stg` are publicly invokable
-at the Cloud Run layer today; Goat OS JWKS/RBAC remains the authorization
-boundary for protected app routes.
+at the Cloud Run layer today; this is the authoritative staging ingress posture
+until a separate service-to-service/IAP design exists. Goat OS JWKS/RBAC remains
+the authorization boundary for protected app routes.
 
 Staging branch automation:
 
@@ -159,10 +160,11 @@ mint a separate Cloud Run IAM identity token. Making the backend service
 IAM-private before adding a separate service-to-service auth design will fail as
 a Cloud Run 403 before the request reaches Goat OS app auth.
 
-This is a dev-only bring-up shortcut. Do not copy the public-invoker Cloud Run
-posture to `goatos-stg` or `goatos-prod`; those environments are blocked until a
-service-to-service/IAM or IAP design exists that preserves Goat OS app auth
-rather than replacing the user's app bearer token.
+This is a dev/staging bring-up posture. `goatos-stg` keeps the same public Cloud
+Run layer because the Android app, admin-web SSR, and staging smoke checks need a
+reachable app API before a separate service-to-service/IAM or IAP design exists.
+Do not copy it to `goatos-prod` without an explicit production ingress decision
+that preserves Goat OS app auth rather than replacing the user's app bearer token.
 
 ## Dashboard hostnames and DNS
 

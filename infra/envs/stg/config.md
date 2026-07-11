@@ -139,6 +139,8 @@ Cloud Tasks, Cloud Run services/jobs, Scheduler, proof-media GCS, and Monitoring
 It has not been applied. Existing manually-created staging resources must be
 imported or left manual before any future `terraform apply`.
 
-The API service intentionally has no public `allUsers` invoker binding. The
-admin-web service is public because the login page is public; data access remains
-gated by Firebase/JWKS plus backend RBAC.
+The API and admin-web services are publicly invokable at the Cloud Run layer for
+staging. This is intentional for the current staging path: Android, admin-web SSR,
+and deploy smoke checks need a reachable app API, while protected data routes
+remain gated by Firebase/JWKS plus backend RBAC. Production must make its own
+ingress decision before build-out.
