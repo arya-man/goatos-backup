@@ -176,6 +176,32 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 		}
 	}
 	if err := s.bus.Publish(ctx, event); err != nil {
+		if eventbus.IsPermanentError(err) {
+			if claimed {
+				if markErr := s.processedStore.MarkProcessed(ctx, processed); markErr != nil {
+					if s.log != nil {
+						s.log.ErrorContext(ctx, "domain_event_permanent_failure_finalization_failed",
+							slog.String("message_id", message.ID),
+							slog.String("event_id", processed.EventID),
+							slog.String("event_type", event.Type),
+							slog.String("tenant_id", event.TenantID),
+							slog.Any("error", markErr),
+						)
+					}
+					return nil
+				}
+			}
+			if s.log != nil {
+				s.log.WarnContext(ctx, "domain_event_permanent_failure_acked",
+					slog.String("message_id", message.ID),
+					slog.String("event_id", processed.EventID),
+					slog.String("event_type", event.Type),
+					slog.String("tenant_id", event.TenantID),
+					slog.Any("error", err),
+				)
+			}
+			return nil
+		}
 		return fmt.Errorf("domain event dispatch %s/%s: %w", event.Type, event.Key, err)
 	}
 	dispatched = true

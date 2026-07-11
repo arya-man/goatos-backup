@@ -22,6 +22,52 @@ type Event struct {
 	Key        string
 	Payload    []byte
 	OccurredAt time.Time
+	RecordedAt time.Time
+}
+
+type permanentError struct {
+	err error
+}
+
+func (e permanentError) Error() string { return e.err.Error() }
+func (e permanentError) Unwrap() error { return e.err }
+
+// PermanentError marks a handler failure as non-retryable for durable event delivery.
+func PermanentError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return permanentError{err: err}
+}
+
+// IsPermanentError reports whether err, including an errors.Join tree, contains only
+// permanent handler failures.
+func IsPermanentError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if _, ok := err.(permanentError); ok {
+		return true
+	}
+	if _, ok := err.(*permanentError); ok {
+		return true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		children := joined.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !IsPermanentError(child) {
+				return false
+			}
+		}
+		return true
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return IsPermanentError(wrapped.Unwrap())
+	}
+	return false
 }
 
 // Handler consumes an event. Implementations must be idempotent.

@@ -12,6 +12,7 @@ type domainEventEnvelope struct {
 	EventType       string          `json:"event_type"`
 	AggregateID     string          `json:"aggregate_id"`
 	OccurredAt      string          `json:"occurred_at"`
+	RecordedAt      string          `json:"recorded_at"`
 	Payload         json.RawMessage `json:"payload"`
 	VisibilityScope map[string]any  `json:"visibility_scope"`
 }
@@ -50,6 +51,14 @@ func EventFromEnvelope(payload []byte, fallback Event) (Event, error) {
 			occurredAt = parsed
 		}
 	}
+	var recordedAt time.Time
+	if env.RecordedAt != "" {
+		if parsed, err := time.Parse("2006-01-02T15:04:05.000000Z", env.RecordedAt); err == nil {
+			recordedAt = parsed
+		} else if parsed, err := time.Parse(time.RFC3339, env.RecordedAt); err == nil {
+			recordedAt = parsed
+		}
+	}
 	eventPayload := env.Payload
 	if len(eventPayload) == 0 {
 		eventPayload = payload
@@ -61,5 +70,6 @@ func EventFromEnvelope(payload []byte, fallback Event) (Event, error) {
 		Key:        key,
 		Payload:    eventPayload,
 		OccurredAt: occurredAt,
+		RecordedAt: recordedAt,
 	}, nil
 }

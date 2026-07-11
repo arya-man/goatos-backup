@@ -202,8 +202,39 @@ func TestManualCampaignHandlerRejectsFutureOccurredAtBeforeStartingRun(t *testin
 	if !errors.Is(err, domain.ErrFutureManualCampaign) {
 		t.Fatalf("err=%v, want future manual campaign error", err)
 	}
+	if !eventbus.IsPermanentError(err) {
+		t.Fatalf("err=%v, want permanent event error", err)
+	}
 	if len(runs.startInputs) != 0 || len(obl.inserted) != 0 {
 		t.Fatalf("future event started work: startInputs=%#v inserted=%#v", runs.startInputs, obl.inserted)
+	}
+}
+
+func TestManualCampaignEventFutureRecordedAtStaysInvalidAfterOccurredAt(t *testing.T) {
+	event := eventbus.Event{
+		Type:       EventManualCampaignRequested,
+		TenantID:   "tenant-1",
+		OccurredAt: time.Date(2026, time.June, 28, 8, 0, 0, 0, time.UTC),
+		RecordedAt: time.Date(2026, time.June, 27, 8, 0, 0, 0, time.UTC),
+		Payload:    []byte(`{"protocol_version_id":"version-1","campaign_id":"catchup"}`),
+	}
+	now := time.Date(2026, time.June, 30, 8, 0, 0, 0, time.UTC)
+	if !manualCampaignEventAsOfInFuture(event, now) {
+		t.Fatalf("future-at-recording manual event became valid after occurred_at passed")
+	}
+
+	ctx := context.Background()
+	proto := &generationProtoFake{}
+	goats := &generationGoatFake{}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	runs := &generationRunRecorderFake{byKey: map[string]domain.GenerationRun{}}
+	gen := NewGenerationService(proto, goats, obl).WithGenerationRunRecorder(runs)
+	err := NewManualCampaignHandler(gen).HandleEvent(ctx, event)
+	if !errors.Is(err, domain.ErrFutureManualCampaign) || !eventbus.IsPermanentError(err) {
+		t.Fatalf("err=%v, want permanent future manual campaign error", err)
+	}
+	if len(runs.startInputs) != 0 || len(obl.inserted) != 0 {
+		t.Fatalf("future-at-recording event started work: startInputs=%#v inserted=%#v", runs.startInputs, obl.inserted)
 	}
 }
 

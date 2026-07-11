@@ -12,6 +12,7 @@ func TestEventFromEnvelope(t *testing.T) {
 		"event_type":   "goat.location.changed",
 		"aggregate_id": "10000000-0000-4000-8000-000000000001",
 		"occurred_at":  "2026-06-27T01:02:03.000000Z",
+		"recorded_at":  "2026-06-27T01:02:04.000000Z",
 		"visibility_scope": map[string]any{
 			"tenant_id": "00000000-0000-4000-8000-000000000001",
 		},
@@ -32,6 +33,9 @@ func TestEventFromEnvelope(t *testing.T) {
 	}
 	if event.OccurredAt.Format(time.RFC3339) != "2026-06-27T01:02:03Z" {
 		t.Fatalf("occurred_at = %s", event.OccurredAt)
+	}
+	if event.RecordedAt.Format(time.RFC3339) != "2026-06-27T01:02:04Z" {
+		t.Fatalf("recorded_at = %s", event.RecordedAt)
 	}
 	if string(event.Payload) != `{"scope_id":"00000000-0000-4000-8000-000000004001","scope_type":"shed"}` {
 		t.Fatalf("payload = %s", event.Payload)

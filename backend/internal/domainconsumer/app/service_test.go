@@ -156,6 +156,25 @@ func TestHandleMessageMarksProcessedStoreFailedForRetry(t *testing.T) {
 	}
 }
 
+func TestHandleMessageMarksPermanentHandlerErrorProcessed(t *testing.T) {
+	bus := eventbus.NewInProcessBus()
+	bus.Subscribe("goat.created", eventbus.HandlerFunc(func(context.Context, eventbus.Event) error {
+		return eventbus.PermanentError(errors.New("invalid event payload"))
+	}))
+	store := &fakeProcessedStore{decision: ProcessDecisionClaimed}
+	service := NewService(bus, testValidator(t)).WithProcessedEventStore(store)
+	err := service.HandleMessage(context.Background(), Message{
+		ID:   "msg-permanent",
+		Data: testEnvelope(t, "goat.created", "10000000-0000-4000-8000-000000000009"),
+	})
+	if err != nil {
+		t.Fatalf("HandleMessage: %v", err)
+	}
+	if store.completed != 1 || store.failed != 0 {
+		t.Fatalf("store=%#v, want permanent failure marked processed", store)
+	}
+}
+
 func TestHandleMessageMarksProcessedStoreFailedAfterHandlerPanic(t *testing.T) {
 	bus := eventbus.NewInProcessBus()
 	bus.Subscribe("goat.created", eventbus.HandlerFunc(func(context.Context, eventbus.Event) error {

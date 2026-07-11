@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
 // EventGoatCreated is the event type that triggers per-goat SM-1 generation.
@@ -191,6 +192,20 @@ func (h *ManualCampaignHandler) HandleEvent(ctx context.Context, e eventbus.Even
 	if asOf.IsZero() {
 		asOf = time.Now()
 	}
+	if manualCampaignEventAsOfInFuture(e, time.Now()) {
+		return eventbus.PermanentError(domain.ErrFutureManualCampaign)
+	}
 	_, _, err := h.gen.GenerateManualCampaignForVersionWithRun(ctx, e.TenantID, p.ProtocolVersionID, p.CampaignID, asOf)
 	return err
+}
+
+func manualCampaignEventAsOfInFuture(e eventbus.Event, now time.Time) bool {
+	if e.OccurredAt.IsZero() {
+		return false
+	}
+	baseline := e.RecordedAt
+	if baseline.IsZero() {
+		baseline = now
+	}
+	return e.OccurredAt.After(baseline)
 }

@@ -40,3 +40,22 @@ func TestInProcessBusJoinsHandlerErrors(t *testing.T) {
 		t.Fatalf("expected joined errors A+B, got %v", err)
 	}
 }
+
+func TestPermanentErrorClassificationRequiresAllJoinedErrorsPermanent(t *testing.T) {
+	permanentA := errors.New("bad event")
+	permanentB := errors.New("bad payload")
+	transient := errors.New("database unavailable")
+
+	if !IsPermanentError(PermanentError(permanentA)) {
+		t.Fatalf("plain permanent error was not classified")
+	}
+	if !IsPermanentError(errors.Join(PermanentError(permanentA), PermanentError(permanentB))) {
+		t.Fatalf("joined permanent errors were not classified")
+	}
+	if IsPermanentError(errors.Join(PermanentError(permanentA), transient)) {
+		t.Fatalf("mixed permanent/transient join must remain retryable")
+	}
+	if IsPermanentError(errors.New("plain transient")) {
+		t.Fatalf("plain transient error classified as permanent")
+	}
+}
