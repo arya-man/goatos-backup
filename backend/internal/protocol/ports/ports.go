@@ -23,6 +23,11 @@ var ErrIdempotencyConflict = errors.New("protocol: idempotency key reused with d
 // versions for the same logical ruleset family, scope, and effective window.
 var ErrActiveVersionOverlap = errors.New("protocol: active version overlaps existing published version")
 
+// ErrCapacityParityMismatch is returned by an atomic publish when the versioned rule_dsl.capacity does
+// not equal the row the same transaction wrote into vaccination_capacity_config. The publish transaction
+// is rolled back (the version stays draft); the app layer maps this to ErrNotPublishable.
+var ErrCapacityParityMismatch = errors.New("protocol: capacity parity mismatch after publish")
+
 // Repository is the persistence boundary for protocol config. Implementations wrap generated
 // sqlc queries; no hand-written SQL leaks above this interface.
 type Repository interface {

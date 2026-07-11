@@ -67,12 +67,14 @@ func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (
 	}
 
 	cells := agg.EligibleAnimals * int64(doseRows)
+	estimatedDays := ceilDiv(cells, cap)
 	out := domain.ImpactPreview{
 		EligibleAnimals:  agg.EligibleAnimals,
 		VaccinationCells: cells,
 		AffectedSheds:    agg.AffectedSheds,
-		EstimatedDays:    ceilDiv(cells, cap),
+		EstimatedDays:    estimatedDays,
 		DailyCap:         cap,
+		CapacityStatus:   classifyCapacity(cells, estimatedDays, req.MaxBufferDays),
 		SourceRevision:   agg.SourceRevision,
 		RecomputedAt:     agg.RecomputedAt,
 	}
@@ -106,6 +108,32 @@ func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (
 
 // ceilDiv returns ceil(n / d) for non-negative n and positive d, using integer math (no float drift at
 // million scale).
+// previewDefaultMaxBufferDays is the business-rule safe-window buffer (2026-07-11) applied when a preview
+// request omits the draft buffer, so the classification never silently assumes a 0-day window.
+const previewDefaultMaxBufferDays = 7
+
+// classifyCapacity mirrors the session-splitting planner headline (PlanSessions / shedSummarySQL):
+// sessions = estimatedDays; within_cap fits one day, over_cap fits the safe window (buffer + 1 days),
+// capacity_breach spills beyond it. Empty when there are no cells to plan. Returns the machine value; the
+// UI renders the CEO label (within_cap→"Within cap", over_cap→"Split", capacity_breach→"Needs review").
+func classifyCapacity(cells, estimatedDays int64, maxBufferDays *int64) string {
+	if cells <= 0 {
+		return ""
+	}
+	buffer := int64(previewDefaultMaxBufferDays)
+	if maxBufferDays != nil && *maxBufferDays >= 0 {
+		buffer = *maxBufferDays
+	}
+	switch {
+	case estimatedDays <= 1:
+		return "within_cap"
+	case estimatedDays <= buffer+1:
+		return "over_cap"
+	default:
+		return "capacity_breach"
+	}
+}
+
 func ceilDiv(n, d int64) int64 {
 	if d <= 0 {
 		return 0

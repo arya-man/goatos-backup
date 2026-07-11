@@ -41,7 +41,14 @@ type protocolRuleDimensionWriter interface {
 }
 
 type protocolMatrixPublisher interface {
-	PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, idempotencyKey ...string) error
+	PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, idempotencyKey ...string) error
+}
+
+// capacityAtomicPublisher publishes a non-matrix vaccination version and upserts + parity-checks its
+// versioned capacity in the SAME transaction, so a capacity failure rolls the publish back. Repositories
+// that do not implement it fall back to the (non-atomic) best-effort post-publish sync.
+type capacityAtomicPublisher interface {
+	PublishVersionWithCapacity(ctx context.Context, tenantID, versionID string, publishedBy *string, capacity domain.PublishedCapacity, idempotencyKey ...string) error
 }
 
 type protocolPublishedMatrixReplayer interface {
@@ -70,8 +77,10 @@ type capacityConfigSyncer interface {
 
 const defaultMaxBufferDays = 7
 
-// parseVersionedCapacity reads rule_dsl.capacity. ok is false when the block is absent. Missing/invalid
-// numeric fields fall back to safe defaults (max_per_day 100, max_buffer_days 7 — the business default).
+// parseVersionedCapacity reads rule_dsl.capacity. ok is false when the block is absent. ABSENT numeric
+// fields fall back to safe defaults (max_per_day 100, max_buffer_days 7 — the business default), but a
+// field that is PRESENT and out of range (max_per_day < 1, max_buffer_days < 0) is rejected rather than
+// silently rewritten to a default the admin never authored.
 func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool, error) {
 	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
 		return domain.PublishedCapacity{}, false, nil
@@ -91,10 +100,16 @@ func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool
 		CapacityScope:  strings.TrimSpace(body.CapacityScope),
 		OverflowPolicy: strings.TrimSpace(body.OverflowPolicy),
 	}
-	if body.MaxPerDay != nil && *body.MaxPerDay >= 1 {
+	if body.MaxPerDay != nil {
+		if *body.MaxPerDay < 1 {
+			return domain.PublishedCapacity{}, false, fmt.Errorf("%w: rule_dsl.capacity.max_per_day must be >= 1, got %d", ErrInvalidRuleDSL, *body.MaxPerDay)
+		}
 		out.MaxPerDay = *body.MaxPerDay
 	}
-	if body.MaxBufferDays != nil && *body.MaxBufferDays >= 0 {
+	if body.MaxBufferDays != nil {
+		if *body.MaxBufferDays < 0 {
+			return domain.PublishedCapacity{}, false, fmt.Errorf("%w: rule_dsl.capacity.max_buffer_days must be >= 0, got %d", ErrInvalidRuleDSL, *body.MaxBufferDays)
+		}
 		out.MaxBufferDays = *body.MaxBufferDays
 	}
 	if out.CapacityScope == "" {
@@ -143,6 +158,32 @@ func (s *Service) syncPublishedCapacity(ctx context.Context, tenantID string, v 
 		return fmt.Errorf("%w: capacity parity mismatch after publish (rule_dsl=%+v stored=%+v)", ErrNotPublishable, want, got)
 	}
 	return nil
+}
+
+// versionedCapacityForPublish returns the capacity to sync atomically at first publish, or nil when the
+// version is not a vaccination version or carries no rule_dsl.capacity block. A present-but-invalid block
+// returns an error so publish is blocked, never silently defaulted.
+func versionedCapacityForPublish(v domain.Version, env ruleDSLEnvelope) (*domain.PublishedCapacity, error) {
+	if !isVaccinationVersion(v, env) {
+		return nil, nil
+	}
+	want, ok, err := parseVersionedCapacity(env.Capacity)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	return &want, nil
+}
+
+// mapCapacityParityErr translates the repository's in-transaction parity sentinel into the app-level
+// ErrNotPublishable the API and tests expect. Any other error (or nil) passes through unchanged.
+func mapCapacityParityErr(err error) error {
+	if errors.Is(err, ports.ErrCapacityParityMismatch) {
+		return fmt.Errorf("%w: %v", ErrNotPublishable, err)
+	}
+	return err
 }
 
 type vaccineMeta struct {
@@ -1023,10 +1064,14 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 		if err != nil {
 			return err
 		}
-		if err := publisher.PublishVersionWithDerivedRules(ctx, tenantID, v, rules, dimensions, publishedBy, idempotencyKey...); err != nil {
+		capacity, err := versionedCapacityForPublish(v, env)
+		if err != nil {
 			return err
 		}
-		return s.syncPublishedCapacity(ctx, tenantID, v, env)
+		if err := publisher.PublishVersionWithDerivedRules(ctx, tenantID, v, rules, dimensions, publishedBy, capacity, idempotencyKey...); err != nil {
+			return mapCapacityParityErr(err)
+		}
+		return nil
 	}
 	if v.Status == "draft" {
 		if err := ValidateExecutionContract(v); err != nil {
@@ -1039,10 +1084,23 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 			return err
 		}
 	}
+	capacity, err := versionedCapacityForPublish(v, env)
+	if err != nil {
+		return err
+	}
+	if capacity != nil {
+		if atomic, ok := s.repo.(capacityAtomicPublisher); ok {
+			return mapCapacityParityErr(atomic.PublishVersionWithCapacity(ctx, tenantID, versionID, publishedBy, *capacity, idempotencyKey...))
+		}
+	}
 	if err := s.repo.PublishVersion(ctx, tenantID, versionID, publishedBy, idempotencyKey...); err != nil {
 		return err
 	}
-	return s.syncPublishedCapacity(ctx, tenantID, v, env)
+	if capacity != nil {
+		// Fallback for a repository without atomic capacity support: best-effort post-publish sync.
+		return s.syncPublishedCapacity(ctx, tenantID, v, env)
+	}
+	return nil
 }
 
 func decodeRuleDSLEnvelope(raw []byte) (ruleDSLEnvelope, error) {

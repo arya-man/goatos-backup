@@ -124,9 +124,12 @@ type ImpactRequest struct {
 	DoseRows      int32 // number of selected dose/schedule rows (vaccination cells per eligible animal)
 	// DailyCap is the DRAFT daily vaccination cap authored in the rule editor, used to compute
 	// estimated_days before publish. 0 = fall back to the published/operational cap (CapacityMaxPerDay).
-	DailyCap    int64
-	HorizonDays int
-	AsOf        time.Time
+	DailyCap int64
+	// MaxBufferDays is the DRAFT safe-window buffer authored in the rule editor. nil = fall back to the
+	// business default. It drives the preview's within_cap / split / needs_review classification.
+	MaxBufferDays *int64
+	HorizonDays   int
+	AsOf          time.Time
 }
 
 // EligibleGoat is one row from the generation listing (in-care cohort). The row intentionally
@@ -235,6 +238,10 @@ type ImpactPreview struct {
 	AffectedSheds    int64 // distinct sheds with usable animals
 	EstimatedDays    int64 // ceil(vaccination_cells / daily_cap)
 	DailyCap         int64 // configured vaccinations/day used for estimated_days
+	// CapacityStatus classifies the draft under the daily cap + buffer window, mirroring the planner:
+	// within_cap (fits one day), over_cap (fits the safe window = buffer + 1 days), capacity_breach
+	// (beyond the window → needs review). Empty when there are no cells to plan.
+	CapacityStatus string
 	// Optional stock check — populated only when a vaccine item is set. Kept because the lookup is a
 	// single cheap indexed aggregate on inventory_stock, not a goats join.
 	DosesAvailable string

@@ -94,6 +94,7 @@ type impactPreviewRequest struct {
 	LocationID    *string `json:"location_id"`
 	DoseRows      int32   `json:"dose_rows"`
 	DailyCap      int64   `json:"daily_cap"`
+	MaxBufferDays *int64  `json:"max_buffer_days"`
 	HorizonDays   int     `json:"horizon_days"`
 }
 
@@ -103,6 +104,7 @@ type impactPreviewResponse struct {
 	AffectedSheds    int64      `json:"affected_sheds"`
 	EstimatedDays    int64      `json:"estimated_days"`
 	DailyCap         int64      `json:"daily_cap"`
+	CapacityStatus   string     `json:"capacity_status,omitempty"`
 	DosesAvailable   string     `json:"doses_available,omitempty"`
 	EarliestExpiry   *time.Time `json:"earliest_expiry,omitempty"`
 	SourceRevision   int64      `json:"source_revision"`
@@ -248,6 +250,7 @@ func (h *Handler) ImpactPreview(w http.ResponseWriter, r *http.Request) {
 		LocationID:    req.LocationID,
 		DoseRows:      req.DoseRows,
 		DailyCap:      req.DailyCap,
+		MaxBufferDays: req.MaxBufferDays,
 		HorizonDays:   req.HorizonDays,
 	})
 	if err != nil {
@@ -265,6 +268,7 @@ func (h *Handler) ImpactPreview(w http.ResponseWriter, r *http.Request) {
 		AffectedSheds:    preview.AffectedSheds,
 		EstimatedDays:    preview.EstimatedDays,
 		DailyCap:         preview.DailyCap,
+		CapacityStatus:   preview.CapacityStatus,
 		DosesAvailable:   preview.DosesAvailable,
 		EarliestExpiry:   preview.EarliestExpiry,
 		SourceRevision:   preview.SourceRevision,

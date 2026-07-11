@@ -6573,6 +6573,12 @@ components:
           description: >-
             Draft daily vaccination cap (vaccinations/day) authored in the rule editor, used to compute
             estimated_days BEFORE publish. Omit to fall back to the published/operational cap.
+        max_buffer_days:
+          type: integer
+          minimum: 0
+          description: >-
+            Draft safe-window buffer (days) authored in the rule editor. Omit to fall back to the
+            business default. Drives the within_cap / over_cap (split) / capacity_breach classification.
         horizon_days:
           type: integer
           minimum: 0
@@ -6607,6 +6613,13 @@ components:
         daily_cap:
           type: integer
           description: Configured vaccinations/day used for estimated_days.
+        capacity_status:
+          type: string
+          enum: [within_cap, over_cap, capacity_breach]
+          description: >-
+            Planner classification of the draft under daily_cap + the buffer window: within_cap (fits one
+            day), over_cap (Split — fits the safe window), capacity_breach (Needs review — beyond it).
+            Omitted when there are no cells to plan.
         doses_available:
           type: string
           description: Optional cheap stock check; present only when a vaccine item is set.

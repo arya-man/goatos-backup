@@ -2410,6 +2410,8 @@ export interface components {
             dose_rows?: number;
             /** @description Draft daily vaccination cap (vaccinations/day) authored in the rule editor, used to compute estimated_days BEFORE publish. Omit to fall back to the published/operational cap. */
             daily_cap?: number;
+            /** @description Draft safe-window buffer (days) authored in the rule editor. Omit to fall back to the business default. Drives the within_cap / over_cap (split) / capacity_breach classification. */
+            max_buffer_days?: number;
             horizon_days?: number;
         };
         /** @description Aggregate-only config impact preview. Every number is read from the precomputed vaccination eligibility rollup (read model); the request path never scans goats. Use the business names only (eligible_animals / vaccination_cells / affected_sheds / estimated_days / daily_cap). */
@@ -2424,6 +2426,11 @@ export interface components {
             estimated_days: number;
             /** @description Configured vaccinations/day used for estimated_days. */
             daily_cap: number;
+            /**
+             * @description Planner classification of the draft under daily_cap + the buffer window: within_cap (fits one day), over_cap (Split — fits the safe window), capacity_breach (Needs review — beyond it). Omitted when there are no cells to plan.
+             * @enum {string}
+             */
+            capacity_status?: "within_cap" | "over_cap" | "capacity_breach";
             /** @description Optional cheap stock check; present only when a vaccine item is set. */
             doses_available?: string;
             /** Format: date-time */

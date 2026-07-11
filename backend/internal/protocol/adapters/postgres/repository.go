@@ -472,7 +472,50 @@ const (
 // PublishVersion flips a draft version to published and emits the durable protocol.version.published
 // outbox event in the same transaction. Generation workers consume the event idempotently, so a
 // process crash after the status flip cannot lose the publish-triggered obligation cascade.
+// upsertVaccinationCapacityConfigTx upserts the versioned capacity into vaccination_capacity_config and
+// verifies the stored row equals the authored values, all INSIDE the caller's publish transaction. A
+// parity mismatch returns ports.ErrCapacityParityMismatch so the deferred Rollback leaves the version
+// draft — publish and capacity sync commit together or not at all.
+func upsertVaccinationCapacityConfigTx(ctx context.Context, tx pgx.Tx, tenantID string, want domain.PublishedCapacity) error {
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	var got domain.PublishedCapacity
+	err = tx.QueryRow(ctx, `
+INSERT INTO vaccination_capacity_config (tenant_id, max_per_day, capacity_scope, max_buffer_days, overflow_policy)
+VALUES ($1::uuid, $2, $3, $4, $5)
+ON CONFLICT (tenant_id) DO UPDATE SET
+  max_per_day = EXCLUDED.max_per_day,
+  capacity_scope = EXCLUDED.capacity_scope,
+  max_buffer_days = EXCLUDED.max_buffer_days,
+  overflow_policy = EXCLUDED.overflow_policy,
+  row_version = vaccination_capacity_config.row_version + 1,
+  updated_at = now()
+RETURNING max_per_day, max_buffer_days, capacity_scope, overflow_policy`,
+		tenant, want.MaxPerDay, want.CapacityScope, want.MaxBufferDays, want.OverflowPolicy).
+		Scan(&got.MaxPerDay, &got.MaxBufferDays, &got.CapacityScope, &got.OverflowPolicy)
+	if err != nil {
+		return fmt.Errorf("protocol: sync vaccination capacity config: %w", err)
+	}
+	if got != want {
+		return fmt.Errorf("%w (rule_dsl=%+v stored=%+v)", ports.ErrCapacityParityMismatch, want, got)
+	}
+	return nil
+}
+
 func (r *Repository) PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error {
+	return r.publishVersion(ctx, tenantID, versionID, publishedBy, nil, idempotencyKey...)
+}
+
+// PublishVersionWithCapacity publishes a draft version and, in the SAME transaction, upserts and
+// parity-checks its versioned vaccination capacity into vaccination_capacity_config. If the capacity
+// sync or parity check fails, the whole publish rolls back and the version stays draft.
+func (r *Repository) PublishVersionWithCapacity(ctx context.Context, tenantID, versionID string, publishedBy *string, capacity domain.PublishedCapacity, idempotencyKey ...string) error {
+	return r.publishVersion(ctx, tenantID, versionID, publishedBy, &capacity, idempotencyKey...)
+}
+
+func (r *Repository) publishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, capacity *domain.PublishedCapacity, idempotencyKey ...string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -563,6 +606,11 @@ WHERE tenant_id = $1
 	if err := completeProtocolIdempotency(ctx, tx, tenantID, "protocol.version.publish", key, "protocol_version", versionID); err != nil {
 		return fmt.Errorf("protocol: complete publish idempotency: %w", err)
 	}
+	if capacity != nil {
+		if err := upsertVaccinationCapacityConfigTx(ctx, tx, tenantID, *capacity); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("protocol: commit publish: %w", err)
 	}
@@ -572,7 +620,7 @@ WHERE tenant_id = $1
 // PublishVersionWithDerivedRules replaces vaccination.matrix derived rules/dimensions and publishes
 // the version in one transaction. The matrix JSON is the authoring source of truth; protocol_rules
 // and protocol_rule_dimensions are regenerated execution indexes, never hand-authored authority.
-func (r *Repository) PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, idempotencyKey ...string) error {
+func (r *Repository) PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, idempotencyKey ...string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -712,6 +760,11 @@ RETURNING pv.protocol_version_id::text,
 	}
 	if err := completeProtocolIdempotency(ctx, tx, tenantID, "protocol.version.publish", key, "protocol_version", v.ProtocolVersionID); err != nil {
 		return fmt.Errorf("protocol: complete matrix publish idempotency: %w", err)
+	}
+	if capacity != nil {
+		if err := upsertVaccinationCapacityConfigTx(ctx, tx, tenantID, *capacity); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("protocol: commit matrix publish: %w", err)

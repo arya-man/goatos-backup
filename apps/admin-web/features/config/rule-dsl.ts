@@ -109,8 +109,10 @@ export interface PregnancyPolicy {
 // the backend syncs these values into vaccination_capacity_config (the operational read model the
 // session-splitting planner reads). Counts VACCINATIONS (cells), not animals.
 export interface CapacityPolicy {
-  maxPerDay: number;
-  maxBufferDays: number;
+  // number | "" so a CLEARED field is distinguishable from an explicit 0 (0 is a valid buffer). A blank
+  // field publishes the declared default; an explicit out-of-range value is rejected by the backend.
+  maxPerDay: number | "";
+  maxBufferDays: number | "";
   capacityScope: string; // tenant | center | shed
   overflowPolicy: string;
 }
@@ -268,9 +270,14 @@ export function newCapacityPolicy(): CapacityPolicy {
 // capacityDsl emits the versioned rule_dsl.capacity block. Shared by both the single-rule and matrix
 // builders so every published vaccination version carries capacity.
 function capacityDsl(input: RuleInput): Record<string, unknown> {
+  const { maxPerDay, maxBufferDays } = input.capacityPolicy;
+  // A blank field publishes the DECLARED DEFAULT (100 / 7). An explicit value — including an out-of-range
+  // one — is sent verbatim so the backend validates it (max_per_day >= 1, max_buffer_days >= 0) and
+  // returns a clear error, instead of the UI silently rewriting the admin's input. An explicit 0 buffer
+  // (a valid same-day window) is preserved, never coerced to the default.
   return {
-    max_per_day: Math.max(1, Number(input.capacityPolicy.maxPerDay) || 100),
-    max_buffer_days: Math.max(0, Number(input.capacityPolicy.maxBufferDays) || 0),
+    max_per_day: maxPerDay === "" ? 100 : Number(maxPerDay),
+    max_buffer_days: maxBufferDays === "" ? 7 : Number(maxBufferDays),
     capacity_scope: input.capacityPolicy.capacityScope || "tenant",
     overflow_policy:
       input.capacityPolicy.overflowPolicy ||

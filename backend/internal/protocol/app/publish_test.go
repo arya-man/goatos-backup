@@ -53,6 +53,14 @@ func TestPublishVersionCapacityParityMismatchFails(t *testing.T) {
 	if !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("capacity parity mismatch must fail publish with ErrNotPublishable, got %v", err)
 	}
+	// Atomicity: a failed capacity sync must roll the publish back — the version stays draft and no
+	// publish side effect is recorded. (Regression guard for the publish/sync split-transaction bug.)
+	if repo.version.Status != "draft" {
+		t.Fatalf("failed capacity sync must leave the version draft, got status=%q", repo.version.Status)
+	}
+	if repo.publishCalled {
+		t.Fatalf("failed capacity sync must emit no publish side effect, but a publish was recorded")
+	}
 }
 
 // TestParseVersionedCapacityDefaults proves an absent block yields ok=false and a present block applies
@@ -67,6 +75,30 @@ func TestParseVersionedCapacityDefaults(t *testing.T) {
 	}
 	if got.MaxPerDay != 150 || got.MaxBufferDays != 7 || got.CapacityScope != "tenant" {
 		t.Fatalf("defaults not applied: %+v", got)
+	}
+}
+
+// TestParseVersionedCapacityRejectsInvalid proves a PRESENT-but-out-of-range numeric field blocks publish
+// with ErrInvalidRuleDSL instead of being silently rewritten to a default the admin never authored.
+func TestParseVersionedCapacityRejectsInvalid(t *testing.T) {
+	cases := []struct {
+		name string
+		dsl  string
+	}{
+		{"zero max_per_day", `{"max_per_day":0}`},
+		{"negative max_per_day", `{"max_per_day":-5}`},
+		{"negative max_buffer_days", `{"max_buffer_days":-1}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, err := parseVersionedCapacity([]byte(tc.dsl)); !errors.Is(err, ErrInvalidRuleDSL) {
+				t.Fatalf("%s must be rejected with ErrInvalidRuleDSL, got %v", tc.name, err)
+			}
+		})
+	}
+	// max_buffer_days: 0 is a valid business value (a same-day-only window), not an error.
+	if _, ok, err := parseVersionedCapacity([]byte(`{"max_per_day":50,"max_buffer_days":0}`)); err != nil || !ok {
+		t.Fatalf("max_buffer_days:0 is valid, got ok=%v err=%v", ok, err)
 	}
 }
 
@@ -965,6 +997,38 @@ func (f *fakeProtocolRepo) SyncVaccinationCapacityConfig(_ context.Context, _ st
 	return want, nil
 }
 
+// applyCapacityAtomic mimics the in-transaction capacity upsert + parity check the real repository runs
+// before committing a publish: it records the synced capacity and, when a drift is configured, returns
+// ports.ErrCapacityParityMismatch WITHOUT any publish side effect (the caller must roll back).
+func (f *fakeProtocolRepo) applyCapacityAtomic(capacity *domain.PublishedCapacity) error {
+	if capacity == nil {
+		return nil
+	}
+	want := *capacity
+	f.capacitySyncWant = &want
+	got := want
+	if f.capacitySyncReturn != nil {
+		got = *f.capacitySyncReturn
+	}
+	if got != want {
+		return fmt.Errorf("%w (rule_dsl=%+v stored=%+v)", ports.ErrCapacityParityMismatch, want, got)
+	}
+	return nil
+}
+
+// PublishVersionWithCapacity publishes atomically with capacity: a parity failure leaves the version
+// draft and records no publish side effect.
+func (f *fakeProtocolRepo) PublishVersionWithCapacity(_ context.Context, _, _ string, _ *string, capacity domain.PublishedCapacity, _ ...string) error {
+	if err := f.applyCapacityAtomic(&capacity); err != nil {
+		return err
+	}
+	f.publishCalled = true
+	f.genericPublishCalled = true
+	f.publishCalls++
+	f.version.Status = "published"
+	return nil
+}
+
 func (f *fakeProtocolRepo) Ping(context.Context) error { return nil }
 func (f *fakeProtocolRepo) CreateDefinition(context.Context, domain.NewDefinition) (string, error) {
 	return "", nil
@@ -992,7 +1056,12 @@ func (f *fakeProtocolRepo) PublishVersion(context.Context, string, string, *stri
 	f.version.Status = "published"
 	return nil
 }
-func (f *fakeProtocolRepo) PublishVersionWithDerivedRules(_ context.Context, _ string, _ domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, _ *string, _ ...string) error {
+func (f *fakeProtocolRepo) PublishVersionWithDerivedRules(_ context.Context, _ string, _ domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, _ *string, capacity *domain.PublishedCapacity, _ ...string) error {
+	// Parity is verified in the same transaction as the publish: a mismatch rolls everything back, so
+	// on failure record no derived rules and leave the version draft.
+	if err := f.applyCapacityAtomic(capacity); err != nil {
+		return err
+	}
 	alreadyPublished := f.version.Status == "published"
 	f.publishCalled = true
 	f.publishWithDerivedCalled = true

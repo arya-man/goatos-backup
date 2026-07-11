@@ -1345,8 +1345,13 @@ export function RuleEditorModal({
         vaccine_item_id: vaccineItemId || undefined,
         dose_rows: scheduleRows,
         // Impact preview uses the DRAFT capacity (authored in this editor), before publish — not the
-        // persisted operational cap. estimated_days = ceil(vaccination_cells / this cap).
+        // persisted operational cap. estimated_days = ceil(vaccination_cells / this cap); the draft
+        // buffer classifies it (within_cap / split / needs-review) so the editor shows the real outcome.
         daily_cap: Number(capacityPolicy.maxPerDay) || undefined,
+        max_buffer_days:
+          capacityPolicy.maxBufferDays === ""
+            ? undefined
+            : Number(capacityPolicy.maxBufferDays),
         horizon_days: 30,
       });
       if (res.ok && res.data) setImpact(res.data);
@@ -2427,6 +2432,9 @@ export function RuleEditorModal({
                 <div className="muted small" style={{ marginTop: 10 }}>
                   <b>{impact.daily_cap}</b>{" "}
                   {copy(pageContract, "modal.rule_editor.label.daily_cap_suffix")}
+                  {impact.capacity_status
+                    ? ` · ${copy(pageContract, "capacity.preview.label")}: ${copy(pageContract, "capacity.status." + impact.capacity_status)}`
+                    : ""}
                   {impact.doses_available
                     ? ` · ${copy(pageContract, "modal.rule_editor.label.doses_available")}: ${impact.doses_available}`
                     : ""}
@@ -3978,7 +3986,8 @@ export function RuleEditorModal({
                     onChange={(e) =>
                       setCapacityPolicy((p) => ({
                         ...p,
-                        maxPerDay: Number(e.target.value),
+                        maxPerDay:
+                          e.target.value === "" ? "" : Number(e.target.value),
                       }))
                     }
                     placeholder={copy(pageContract, "capacity.field.max_per_day")}
@@ -3992,7 +4001,8 @@ export function RuleEditorModal({
                     onChange={(e) =>
                       setCapacityPolicy((p) => ({
                         ...p,
-                        maxBufferDays: Number(e.target.value),
+                        maxBufferDays:
+                          e.target.value === "" ? "" : Number(e.target.value),
                       }))
                     }
                     placeholder={copy(pageContract, "capacity.field.max_buffer_days")}
@@ -4664,6 +4674,9 @@ export function RuleEditorModal({
               <div className="muted small" style={{ marginTop: 10 }}>
                 <b>{impact.daily_cap}</b>{" "}
                 {copy(pageContract, "modal.rule_editor.label.daily_cap_suffix")}
+                {impact.capacity_status
+                  ? ` · ${copy(pageContract, "capacity.preview.label")}: ${copy(pageContract, "capacity.status." + impact.capacity_status)}`
+                  : ""}
                 {impact.doses_available
                   ? ` · ${copy(pageContract, "modal.rule_editor.label.doses_available")}: ${impact.doses_available}`
                   : ""}
