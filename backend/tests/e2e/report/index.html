@@ -82,13 +82,13 @@
 </head>
 <body>
   <h1>Vaccination Kernel Story Report</h1>
-  <p class="subtitle">Generated 2026-07-11 13:06:59 UTC &middot; backend/tests/e2e</p>
+  <p class="subtitle">Generated 2026-07-11 13:32:11 UTC &middot; backend/tests/e2e</p>
 
   <div class="summary">
-    <div class="tile"><span class="n">35</span>stories</div>
-    <div class="tile pass"><span class="n">35</span>stories passed</div>
+    <div class="tile"><span class="n">36</span>stories</div>
+    <div class="tile pass"><span class="n">36</span>stories passed</div>
     <div class="tile fail"><span class="n">0</span>stories failed</div>
-    <div class="tile"><span class="n">374</span>assertions checked</div>
+    <div class="tile"><span class="n">384</span>assertions checked</div>
     <div class="tile pass"><span class="n">0</span>assertions failed</div>
   </div>
 
@@ -169,7 +169,7 @@
           <tr class="ok">
             <td>a brand-new obligation was created rather than the missed row being reused</td>
             <td>PASS</td>
-            <td class="detail">newObl=&#34;a1df4d75-a070-4c0f-8215-e3434182269e&#34; missedObl=&#34;fc03d4ac-03c4-4240-b813-a5bca99caaa1&#34;</td>
+            <td class="detail">newObl=&#34;6e0af8b8-bb41-4f47-97b7-de77d5d38649&#34; missedObl=&#34;4cbf8d25-ae4e-4e5e-aabc-3bb623ef9c50&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -236,7 +236,7 @@
           <tr class="ok">
             <td>replay returns the same new obligation id, not a second new one</td>
             <td>PASS</td>
-            <td class="detail">replayObl=&#34;a1df4d75-a070-4c0f-8215-e3434182269e&#34; newObl=&#34;a1df4d75-a070-4c0f-8215-e3434182269e&#34;</td>
+            <td class="detail">replayObl=&#34;6e0af8b8-bb41-4f47-97b7-de77d5d38649&#34; newObl=&#34;6e0af8b8-bb41-4f47-97b7-de77d5d38649&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -285,7 +285,7 @@
           <tr class="ok">
             <td>orphan goat is on a batch</td>
             <td>PASS</td>
-            <td class="detail">batch_id=&#34;c0d9a320-dbb7-4e1a-b8de-457440d18611&#34;</td>
+            <td class="detail">batch_id=&#34;b1514ee0-655f-4222-8549-ad5adc6b5485&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -704,13 +704,13 @@
           <tr class="ok">
             <td>future as_of does not mark July 18 work overdue</td>
             <td>PASS</td>
-            <td class="detail">status=&#34;due&#34; next_due=0x1400011a180 due=1 done=0</td>
+            <td class="detail">status=&#34;due&#34; next_due=0x140001234b0 due=1 done=0</td>
           </tr>
 
           <tr class="ok">
             <td>next due stays the July 18 business date</td>
             <td>PASS</td>
-            <td class="detail">next_due=0x1400011a180</td>
+            <td class="detail">next_due=0x140001234b0</td>
           </tr>
 
         </tbody>
@@ -735,7 +735,99 @@
           <tr class="ok">
             <td>future URL and live URL agree on status</td>
             <td>PASS</td>
-            <td class="detail">future_status=&#34;due&#34; live_status=&#34;due&#34; future_next=0x1400011a180 live_next=0x1400011a350</td>
+            <td class="detail">future_status=&#34;due&#34; live_status=&#34;due&#34; future_next=0x140001234b0 live_next=0x14000123630</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+  </section>
+
+  <section class="story pass">
+    <h2>Action Center groups same-day work and bounds completed history <span class="badge pass">PASS</span></h2>
+    <p class="narrative">Two unbatched goat obligations in the same shed are due at different clock times but on the same Asia/Kolkata business day. The Action Center must show one shed/day board row, not one row per timestamp. The same story also proves the hot projection excludes old completed history while keeping the future next-cycle row visible.</p>
+
+    <div class="step">
+      <h3>Seed two unbatched obligations on one IST business day</h3>
+      <p class="narrative">The obligations are intentionally not batch-attached and use different raw due_at instants. Both instants fall on 2026-07-11 in Asia/Kolkata.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>Action Center query ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>same business-day rows group into one board row</td>
+            <td>PASS</td>
+            <td class="detail">rows=1</td>
+          </tr>
+
+          <tr class="ok">
+            <td>grouped row carries both goats</td>
+            <td>PASS</td>
+            <td class="detail">expected_count=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>grouped row keeps the earliest due instant as its sort due</td>
+            <td>PASS</td>
+            <td class="detail">due_at=2026-07-11T00:45:00&#43;05:30</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Seed old completed history plus a future next-cycle obligation</h3>
+      <p class="narrative">The projector should not carry old completed history into the hot Action Center projection, but the future next-cycle obligation must still be visible.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>projection recompute ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>projection remains small and bounded for this fixture</td>
+            <td>PASS</td>
+            <td class="detail">rows=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>old completed history is not stored in the hot projection</td>
+            <td>PASS</td>
+            <td class="detail">projected_history_rows=0</td>
+          </tr>
+
+          <tr class="ok">
+            <td>projected Action Center read ran without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>old completed history is absent from the default board</td>
+            <td>PASS</td>
+            <td class="detail">rows=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>future next-cycle row remains visible</td>
+            <td>PASS</td>
+            <td class="detail">rows=2</td>
           </tr>
 
         </tbody>
@@ -1006,7 +1098,7 @@
           <tr class="ok">
             <td>the shed drive appears in the execution rollup</td>
             <td>PASS</td>
-            <td class="detail">batch=d60207dc-0087-4de2-804e-74e36a705c51 rows=1</td>
+            <td class="detail">batch=cc0c9083-dc2b-43a0-a1ea-3fe8621d619e rows=1</td>
           </tr>
 
           <tr class="ok">
@@ -1266,7 +1358,7 @@
           <tr class="ok">
             <td>a brand-new obligation was created rather than the missed row being reused</td>
             <td>PASS</td>
-            <td class="detail">newOblID=&#34;16e1e4be-ca0e-4e16-bf5c-183a5e14055b&#34; oblID=&#34;0dc2e759-60e9-43ef-926a-7d62a2bef992&#34;</td>
+            <td class="detail">newOblID=&#34;34285a9f-797a-4805-99f4-6dc17646684d&#34; oblID=&#34;2827c19f-30e0-46bb-aad7-c451608dd751&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -1883,7 +1975,7 @@
           <tr class="ok">
             <td>first administration recorded</td>
             <td>PASS</td>
-            <td class="detail">cid=&#34;a5b2a895-06f5-440c-9047-830aa5598809&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid=&#34;ad55befc-f01e-4d2b-af53-dd40c374e29b&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
 
         </tbody>
@@ -1951,7 +2043,7 @@
           <tr class="ok">
             <td>rework administration recorded under a new key</td>
             <td>PASS</td>
-            <td class="detail">cid2=&#34;bafc1645-95bb-4281-b3bc-34fa20be6fd2&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid2=&#34;d2de05e4-715d-440f-a93b-3ab9f1375b90&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
 
         </tbody>
@@ -2031,7 +2123,7 @@
           <tr class="ok">
             <td>first submit recorded a completion</td>
             <td>PASS</td>
-            <td class="detail">cid=&#34;7d2e1860-e826-4ffb-9ddb-46e10d4710d7&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid=&#34;2593037f-560e-4dc4-a9e3-12ec217cb87a&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
 
           <tr class="ok">
@@ -2247,7 +2339,7 @@
           <tr class="ok">
             <td>a next-page cursor is returned (keyset pagination, bounded reads)</td>
             <td>PASS</td>
-            <td class="detail">next_cursor=0x140003c4120</td>
+            <td class="detail">next_cursor=0x14000118dd0</td>
           </tr>
 
         </tbody>
@@ -4024,7 +4116,7 @@
           <tr class="ok">
             <td>missed goat is on the catch-up batch</td>
             <td>PASS</td>
-            <td class="detail">batch_id=&#34;52d69709-cd72-415d-9308-0dfd59f3cb2e&#34;</td>
+            <td class="detail">batch_id=&#34;05eb5534-5f15-47c6-aa45-632d59d700c7&#34;</td>
           </tr>
 
         </tbody>
