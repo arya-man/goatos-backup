@@ -71,6 +71,20 @@ if (procurementLoadId) {
   });
 }
 
+// Validate GOATOS_SMOKE_ONLY_ROUTES up front: an unknown/mistyped name (or a selection that matches
+// nothing) must fail loudly, never silently run zero routes and exit green.
+const knownRouteNames = new Set(routes.map((route) => route.name));
+const unknownRoutes = onlyRoutes.filter((name) => !knownRouteNames.has(name));
+if (unknownRoutes.length) {
+  throw new Error(
+    `GOATOS_SMOKE_ONLY_ROUTES has unknown route(s): ${unknownRoutes.join(", ")}. Valid routes: ${[...knownRouteNames].join(", ")}`,
+  );
+}
+const selectedRoutes = onlyRoutes.length ? routes.filter((route) => onlyRoutes.includes(route.name)) : routes;
+if (selectedRoutes.length === 0) {
+  throw new Error("GOATOS_SMOKE_ONLY_ROUTES selected zero routes");
+}
+
 const pagerMinimums = new Map([
   ["action-center", 1],
   ["protocol-adherence", 1],
@@ -92,8 +106,7 @@ try {
   ]) {
     const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
     const page = await context.newPage();
-    for (const route of routes) {
-      if (onlyRoutes.length && !onlyRoutes.includes(route.name)) continue;
+    for (const route of selectedRoutes) {
       const url = `${appBaseUrl}${appPath(route.path)}`;
       const response = await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
       if (!response) {
@@ -131,7 +144,7 @@ writeFileSync(
     {
       app_base_url: appBaseUrl,
       goat_id: goatId,
-      routes: routes.map((route) => appPath(route.path)),
+      routes: selectedRoutes.map((route) => appPath(route.path)),
       baseline_dir: baselineDir ? relativeToRepo(baselineDir) : null,
       baseline_compared: baselineCompared,
       baseline_updated: baselineUpdated,
@@ -144,7 +157,7 @@ writeFileSync(
 
 console.log(`screenshots_dir=${relativeToRepo(screenshotDir)}`);
 console.log(`goat_id=${goatId}`);
-console.log(`routes_captured=${routes.map((route) => appPath(route.path)).join(",")}`);
+console.log(`routes_captured=${selectedRoutes.map((route) => appPath(route.path)).join(",")}`);
 if (baselineDir) {
   console.log(`baseline_dir=${relativeToRepo(baselineDir)}`);
   console.log(`baseline_compared=${baselineCompared}`);
