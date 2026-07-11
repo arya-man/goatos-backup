@@ -37,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
@@ -363,8 +362,6 @@ private fun LanguageField(language: String, onClick: () -> Unit) {
     }
 }
 
-private val GoogleBrandBlue = Color(0xFF4285F4)
-
 @Composable
 private fun GoogleSignInButton(enabled: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(MeshaDimens.radiusButton)
@@ -396,7 +393,7 @@ private fun GoogleGlyphTile() {
         modifier = Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).background(Color.White),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = "G", color = GoogleBrandBlue, fontSize = 14.sp, fontWeight = FontWeight.W900)
+        Text(text = "G", color = MeshaColors.GoogleBrandBlue, fontSize = 14.sp, fontWeight = FontWeight.W900)
     }
 }
 
