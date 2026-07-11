@@ -15,6 +15,8 @@ import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.feature.leadership.DateOption
 import sg.mesha.goatos.feature.leadership.LeadershipEvent
 import sg.mesha.goatos.feature.leadership.RescheduleUiState
+import sg.mesha.goatos.feature.leadership.RescheduleConfirmKind
+import sg.mesha.goatos.feature.leadership.RescheduleNoteKind
 import sg.mesha.goatos.ui.sampleRescheduleState
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
@@ -64,7 +66,7 @@ class RescheduleViewModel @Inject constructor(
         val dueAt = state.value.selectedDateId
         if (target.isNullOrBlank() || dueAt.isNullOrBlank()) return
         viewModelScope.launch {
-            _state.update { it.copy(confirmEnabled = false, channelsNote = "Queueing reschedule…") }
+            _state.update { it.copy(confirmEnabled = false, noteKind = RescheduleNoteKind.QUEUEING) }
             val request = RescheduleObligationRequestDto(dueAt = dueAt)
             val key = "mobile-reschedule:$target:$dueAt"
             when (
@@ -76,10 +78,10 @@ class RescheduleViewModel @Inject constructor(
                 )
             ) {
                 is AppResult.Ok -> _state.update {
-                    it.copy(confirmLabel = "Queued", channelsNote = "Reschedule queued — it will sync with the backend and notify the team after acceptance.")
+                    it.copy(confirmKind = RescheduleConfirmKind.QUEUED, noteKind = RescheduleNoteKind.QUEUED)
                 }
                 is AppResult.Err -> _state.update {
-                    it.copy(confirmEnabled = true, channelsNote = "Couldn't queue reschedule — tap confirm to retry.")
+                    it.copy(confirmEnabled = true, noteKind = RescheduleNoteKind.ERROR)
                 }
             }
         }
@@ -91,11 +93,11 @@ class RescheduleViewModel @Inject constructor(
             dateOptions = options,
             selectedDateId = null,
             confirmEnabled = false,
-            confirmLabel = "Confirm — notify team",
-            channelsNote = if (obligationId.isNullOrBlank()) {
-                "This row does not include an obligation id, so mobile cannot target the backend reschedule endpoint."
+            confirmKind = RescheduleConfirmKind.CONFIRM,
+            noteKind = if (obligationId.isNullOrBlank()) {
+                RescheduleNoteKind.NO_OBLIGATION
             } else {
-                "Select a future date. The backend validates the obligation window and idempotently queues notifications after acceptance."
+                RescheduleNoteKind.SELECT_DATE
             },
         )
     }
@@ -114,6 +116,7 @@ class RescheduleViewModel @Inject constructor(
                 label = "${dueAt.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)}, ${dueAt.dayOfMonth} ${dueAt.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)}",
                 sub = if (days == 1L) "Tomorrow · backend validates buffer" else "Backend validates buffer",
                 inBuffer = true,
+                tomorrow = days == 1L,
             )
         }
 

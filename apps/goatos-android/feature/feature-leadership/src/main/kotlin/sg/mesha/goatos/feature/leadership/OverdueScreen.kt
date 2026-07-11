@@ -20,12 +20,14 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.feature.leadership.R
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Overdue (v-overdue). The backend classifies each row missed vs in-buffer
@@ -80,7 +82,9 @@ fun OverdueScreen(
     ) {
         LeadTopBar(
             eyebrow = state.eyebrow,
-            title = state.title,
+            // Title is fixed chrome + a live count — localize here (the VM's English
+            // "Overdue · N" title is ignored so it follows the app locale).
+            title = stringResource(R.string.overdue_title_fmt, state.rows.size),
             leading = TopBarLeading.BACK,
             onLeading = { onEvent(LeadershipEvent.Back) },
             onRefresh = { onEvent(LeadershipEvent.Refresh) },
@@ -155,6 +159,28 @@ internal fun sampleOverdueState() = OverdueUiState(
         "compatible drive in time; leadership was alerted ahead. Amber · In buffer — overdue but " +
         "still recoverable by reschedule into a compatible drive, no dose missed. In/out-of-buffer " +
         "is computed by backend policy (policySnapshot); the app only renders the label.",
+)
+
+/**
+ * Localized sample state using stringResource for all static UI chrome.
+ * This @Composable variant is used to support locale changes via the language switcher.
+ */
+@Composable
+internal fun sampleOverdueStateLocalized() = OverdueUiState(
+    eyebrow = "Vaccination",
+    title = "Overdue · 38 animals",
+    sectionTitle = stringResource(R.string.overdue_section_title),
+    legend = listOf(
+        OverdueLegendItem(OverdueClassification.MISSED, stringResource(R.string.overdue_legend_missed)),
+        OverdueLegendItem(OverdueClassification.IN_BUFFER, stringResource(R.string.overdue_legend_in_buffer)),
+    ),
+    rows = listOf(
+        OverdueRow("o1", "Goat Pox · Yashoda 5", "CBE · 9 days late · past buffer · 24 animals", "Missed", OverdueClassification.MISSED),
+        OverdueRow("o2", "Sheep Pox · Castro 1", "CPT · 3 days late · in buffer · 8 animals", "In buffer", OverdueClassification.IN_BUFFER),
+        OverdueRow("o3", "FMD · Booster · Mandela 1", "CBE · 2 days late · in buffer · 6 animals", "In buffer", OverdueClassification.IN_BUFFER),
+    ),
+    explainerTitle = stringResource(R.string.overdue_explainer_title),
+    explainer = stringResource(R.string.overdue_explainer),
 )
 
 @Preview(name = "Overdue", widthDp = 380, heightDp = 760, backgroundColor = 0xFF0A0F0C, showBackground = true)

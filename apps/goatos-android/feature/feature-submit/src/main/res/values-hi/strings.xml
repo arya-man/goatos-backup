@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="submit_summary_shed">शेड</string>
+    <string name="submit_summary_cohort">समूह</string>
+    <string name="submit_summary_date">तारीख</string>
+    <string name="submit_dose_label">खुराक</string>
+    <string name="submit_retry_label">पुनः प्रयास करें</string>
+
+    <!-- Sync state labels -->
+    <string name="submit_sync_loading">लोड हो रहा है…</string>
+    <string name="submit_sync_ready">सबमिट करने के लिए तैयार</string>
+    <string name="submit_sync_queued">कतार में — सिंक होगा…</string>
+    <string name="submit_sync_syncing">शेड रिकॉर्ड सबमिट किया जा रहा है…</string>
+    <string name="submit_sync_retrying">पुनः प्रयास किया जा रहा है… (प्रयास %1$d/%2$d)</string>
+    <string name="submit_sync_acked">सिंक किया गया · रिकॉर्ड फाइल पर</string>
+    <string name="submit_sync_conflict">सर्वर ने सबमिशन को अस्वीकार किया।</string>
+    <string name="submit_sync_dead_letter">%1$d प्रयासों के बाद सिंक विफल — पुनः प्रयास करने के लिए टैप करें।</string>
+    <string name="submit_sync_no_task">आपके लिए सबमिट करने के लिए कोई कार्य नियत नहीं है।</string>
+    <string name="submit_sync_load_failed">आपके कार्य को लोड नहीं जा सका। पुनः प्रयास करने के लिए टैप करें।</string>
+    <string name="submit_sync_queue_failed">सबमिशन को कतार में नहीं किया जा सका — पुनः प्रयास करने के लिए टैप करें।</string>
+    <string name="submit_sync_retry_failed">पुनः प्रयास नहीं किया जा सका — फिर से पुनः प्रयास करने के लिए टैप करें।</string>
+</resources>

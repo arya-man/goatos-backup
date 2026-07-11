@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -184,7 +185,7 @@ private fun RecordHeader(state: RecordUiState, onEvent: (RecordEvent) -> Unit) {
         ) {
             Icon(
                 imageVector = MeshaIcons.Close,
-                contentDescription = "Close",
+                contentDescription = stringResource(R.string.record_close_button),
                 tint = RecordTokens.Muted,
                 modifier = Modifier.size(16.dp),
             )

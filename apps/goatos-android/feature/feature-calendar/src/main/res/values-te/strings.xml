@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Screen chrome -->
+    <string name="calendar_eyebrow">టీకా</string>
+    <string name="calendar_title">క్యాలెండర్</string>
+
+    <!-- Segment labels (week/month/history tabs) -->
+    <string name="calendar_segment_week">వారం</string>
+    <string name="calendar_segment_month">నెల</string>
+    <string name="calendar_segment_history">చరిత్ర</string>
+
+    <!-- Empty states -->
+    <string name="calendar_week_empty">డ్రైవ్‌లు షెడ్యూల్ చేయబడలేదు</string>
+    <string name="calendar_history_empty">గత డ్రైవ్‌లు లేవు</string>
+
+    <!-- Month grid hint -->
+    <string name="calendar_month_hint">దాని డ్రైవ్‌ల కోసం ఒక రోజుని నొక్కండి · చుక్కలు = డ్రైవ్ రోజులు</string>
+
+    <!-- Accessibility descriptions -->
+    <string name="calendar_button_menu">మెనూ</string>
+    <string name="calendar_button_refresh">రిఫ్రెష్</string>
+
+    <!-- History section label (prefix before dynamic count) -->
+    <string name="calendar_history_label">గత డ్రైవ్‌లు</string>
+    <string name="calendar_cta_open">తెరవండి</string>
+</resources>

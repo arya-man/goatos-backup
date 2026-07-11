@@ -31,6 +31,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import sg.mesha.goatos.core.designsystem.R as DesignSystemR
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import androidx.compose.ui.text.font.FontWeight
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
@@ -231,10 +233,14 @@ private enum class SyncItemState { SYNCED, QUEUED, UPLOADING, SYNCING, FAILED }
 private data class SyncItem(
     val id: String,
     val shed: String,
-    val park: String,
-    val detail: String,
+    /** Raw op-type key (localized to a label in the row Composable). */
+    val opType: String,
     val state: SyncItemState,
     val progress: Float,
+    /** Backend error message (data) — rendered verbatim when present, else a localized state detail. */
+    val backendDetail: String?,
+    val attemptCount: Int,
+    val maxAttempts: Int,
 )
 
 /**
@@ -258,17 +264,18 @@ fun SyncSheet(
     val syncing = syncingCount
     val pending = queuedCount
     val summary = when {
-        syncing > 0 -> "Syncing $syncing…"
-        pending > 0 -> "$pending queued"
-        else -> "All synced"
+        syncing > 0 -> stringResource(DesignSystemR.string.sync_summary_syncing_fmt, syncing)
+        pending > 0 -> stringResource(DesignSystemR.string.sync_summary_queued_fmt, pending)
+        else -> stringResource(DesignSystemR.string.sync_summary_all_synced)
     }
+    val conn = stringResource(if (isOnline) DesignSystemR.string.sync_online else DesignSystemR.string.sync_offline)
     val items = queue.map { it.toSyncItem() }
 
     OverlaySheet(
-        title = "Sync status",
-        subtitle = "Records save on the phone first, then sync when online",
+        title = stringResource(DesignSystemR.string.ovl_sync_title),
+        subtitle = stringResource(DesignSystemR.string.ovl_sync_subtitle),
         onDismiss = onDismiss,
-        footer = "Offline-first: the outbox uploads video proof then the shed record, retries with backoff, and never creates a duplicate.",
+        footer = stringResource(DesignSystemR.string.sync_footer),
     ) {
         // Connectivity + queue summary.
         Row(
@@ -278,7 +285,7 @@ fun SyncSheet(
         ) {
             Box(Modifier.size(8.dp).clip(CircleShape).background(if (isOnline) OverlayTokens.ok else OverlayTokens.danger))
             Text(
-                "${if (isOnline) "Online" else "Offline"} · $summary",
+                "$conn · $summary",
                 color = OverlayTokens.muted,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.W600,
@@ -286,7 +293,7 @@ fun SyncSheet(
             Spacer(Modifier.weight(1f))
             if (pending > 0) {
                 Text(
-                    "↻ Retry all",
+                    "↻ ${stringResource(DesignSystemR.string.sync_retry_all)}",
                     color = OverlayTokens.brandD,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.W700,
@@ -309,12 +316,27 @@ fun SyncSheet(
 
 @Composable
 private fun SyncRow(item: SyncItem) {
-    val (glyph, fg, bg, label) = when (item.state) {
-        SyncItemState.SYNCED -> SyncVisual("✓", OverlayTokens.ok, OverlayTokens.okX, "Synced")
-        SyncItemState.QUEUED -> SyncVisual("◷", OverlayTokens.muted, OverlayTokens.surf3, "Queued")
-        SyncItemState.UPLOADING -> SyncVisual("↑", OverlayTokens.warn, OverlayTokens.warnX, "Uploading proof")
-        SyncItemState.SYNCING -> SyncVisual("↻", OverlayTokens.warn, OverlayTokens.warnX, "Syncing record")
-        SyncItemState.FAILED -> SyncVisual("✕", OverlayTokens.danger, OverlayTokens.dangerX, "Failed")
+    val (glyph, fg, bg, labelRes) = when (item.state) {
+        SyncItemState.SYNCED -> SyncVisual("✓", OverlayTokens.ok, OverlayTokens.okX, DesignSystemR.string.sync_state_synced)
+        SyncItemState.QUEUED -> SyncVisual("◷", OverlayTokens.muted, OverlayTokens.surf3, DesignSystemR.string.sync_state_queued)
+        SyncItemState.UPLOADING -> SyncVisual("↑", OverlayTokens.warn, OverlayTokens.warnX, DesignSystemR.string.sync_state_uploading)
+        SyncItemState.SYNCING -> SyncVisual("↻", OverlayTokens.warn, OverlayTokens.warnX, DesignSystemR.string.sync_state_syncing)
+        SyncItemState.FAILED -> SyncVisual("✕", OverlayTokens.danger, OverlayTokens.dangerX, DesignSystemR.string.sync_state_failed)
+    }
+    val label = stringResource(labelRes)
+    val opLabel = when (item.opType) {
+        "SHED_SUBMIT" -> stringResource(DesignSystemR.string.sync_optype_shed)
+        "PROOF_UPLOAD" -> stringResource(DesignSystemR.string.sync_optype_proof)
+        "RESCHEDULE" -> stringResource(DesignSystemR.string.sync_optype_reschedule)
+        else -> item.opType
+    }
+    // Backend error (data) wins; otherwise a localized per-state detail.
+    val detail = item.backendDetail ?: when (item.state) {
+        SyncItemState.QUEUED -> stringResource(DesignSystemR.string.sync_detail_queued)
+        SyncItemState.SYNCING -> stringResource(DesignSystemR.string.sync_detail_syncing)
+        SyncItemState.UPLOADING -> stringResource(DesignSystemR.string.sync_detail_uploading)
+        SyncItemState.SYNCED -> stringResource(DesignSystemR.string.sync_detail_synced)
+        SyncItemState.FAILED -> stringResource(DesignSystemR.string.sync_detail_attempt_fmt, item.attemptCount, item.maxAttempts)
     }
     val showBar = item.state == SyncItemState.UPLOADING || item.state == SyncItemState.SYNCING
     OverlayCard {
@@ -323,8 +345,8 @@ private fun SyncRow(item: SyncItem) {
                 Text(glyph, color = fg, fontSize = 15.sp, fontWeight = FontWeight.W800)
             }
             Column(Modifier.weight(1f)) {
-                Text("${item.shed} · ${item.park}", color = OverlayTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
-                Text(item.detail, color = OverlayTokens.muted, fontSize = 11.5.sp)
+                Text("${item.shed} · $opLabel", color = OverlayTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
+                Text(detail, color = OverlayTokens.muted, fontSize = 11.5.sp)
                 if (showBar) {
                     Spacer(Modifier.height(6.dp))
                     OverlayBar((item.progress * 100).toInt(), fg)
@@ -335,7 +357,7 @@ private fun SyncRow(item: SyncItem) {
     }
 }
 
-private data class SyncVisual(val glyph: String, val fg: Color, val bg: Color, val label: String)
+private data class SyncVisual(val glyph: String, val fg: Color, val bg: Color, val labelRes: Int)
 
 /** Maps a durable outbox row ([SyncQueueItem]) to the sheet's renderer row ([SyncItem]). The
  *  outbox only knows the scope id ([SyncQueueItem.groupKey]) + op kind, so the shed/park labels
@@ -348,29 +370,19 @@ private fun SyncQueueItem.toSyncItem(): SyncItem {
         status == SyncItemStatus.IN_FLIGHT -> SyncItemState.SYNCING
         else -> SyncItemState.FAILED
     }
-    val detail = lastError ?: when (itemState) {
-        SyncItemState.QUEUED -> "Waiting to sync"
-        SyncItemState.SYNCING -> "Submitting…"
-        SyncItemState.UPLOADING -> "Uploading proof…"
-        SyncItemState.SYNCED -> "On file"
-        SyncItemState.FAILED -> "Attempt $attemptCount of $maxAttempts"
-    }
+    // Labels/details are localized in SyncRow (Composable); the mapper only carries data:
+    // the raw op-type key, the backend error (if any), and the retry counters.
     val inProgress = itemState == SyncItemState.UPLOADING || itemState == SyncItemState.SYNCING
     return SyncItem(
         id = id,
         shed = groupKey,
-        park = opTypeLabel(opType),
-        detail = detail,
+        opType = opType,
         state = itemState,
         progress = if (inProgress) 0.6f else 0f,
+        backendDetail = lastError,
+        attemptCount = attemptCount,
+        maxAttempts = maxAttempts,
     )
-}
-
-private fun opTypeLabel(opType: String): String = when (opType) {
-    "SHED_SUBMIT" -> "Shed record"
-    "PROOF_UPLOAD" -> "Video proof"
-    "RESCHEDULE" -> "Reschedule"
-    else -> opType
 }
 
 // endregion
@@ -394,10 +406,10 @@ fun LanguageSheet(current: String, onSelect: (code: String) -> Unit, onDismiss: 
         LangOption("te", "తె", "తెలుగు", "Telugu"),
     )
     OverlaySheet(
-        title = "Choose language",
-        subtitle = "Kept for every screen on this phone",
+        title = stringResource(DesignSystemR.string.lang_sheet_title),
+        subtitle = stringResource(DesignSystemR.string.lang_sheet_subtitle),
         onDismiss = onDismiss,
-        footer = "More languages added as teams grow",
+        footer = stringResource(DesignSystemR.string.lang_sheet_footer),
     ) {
         Column {
             langs.forEach { l ->
@@ -435,10 +447,10 @@ fun ScopePickerSheet(
     onDismiss: () -> Unit,
 ) {
     OverlaySheet(
-        title = "View a park",
-        subtitle = "Company-wide, or drill into one park",
+        title = stringResource(DesignSystemR.string.ovl_scope_title),
+        subtitle = stringResource(DesignSystemR.string.ovl_scope_subtitle),
         onDismiss = onDismiss,
-        footer = "Scope also filters the drives and backlog below",
+        footer = stringResource(DesignSystemR.string.scope_footer),
     ) {
         Column {
             scopes.forEachIndexed { index, scope ->
@@ -483,10 +495,10 @@ fun DataGapsSheet(
     onDismiss: () -> Unit,
 ) {
     OverlaySheet(
-        title = "Data gaps",
-        subtitle = "Animals the schedule can't evaluate until fixed",
+        title = stringResource(DesignSystemR.string.ovl_gaps_title),
+        subtitle = stringResource(DesignSystemR.string.ovl_gaps_subtitle),
         onDismiss = onDismiss,
-        footer = "Fix on the web dashboard · Data Ops → Herd Register",
+        footer = stringResource(DesignSystemR.string.gaps_footer),
     ) {
         Column(
             Modifier.padding(horizontal = 20.dp),
@@ -494,13 +506,13 @@ fun DataGapsSheet(
         ) {
             when {
                 isLoading -> {
-                    Text("Loading…", color = OverlayTokens.muted, fontSize = 13.sp)
+                    Text(stringResource(DesignSystemR.string.ovl_loading), color = OverlayTokens.muted, fontSize = 13.sp)
                 }
                 errorMessage != null -> {
-                    OverlayInfoBox("Error: $errorMessage")
+                    OverlayInfoBox(stringResource(DesignSystemR.string.ovl_error_fmt, errorMessage))
                 }
                 gapsData.isEmpty() -> {
-                    OverlayInfoBox("No data gaps — all animals have required information.")
+                    OverlayInfoBox(stringResource(DesignSystemR.string.gaps_empty))
                 }
                 else -> {
                     gapsData.forEach { gap ->
@@ -511,13 +523,11 @@ fun DataGapsSheet(
                                     Text(gap.detail, color = OverlayTokens.muted, fontSize = 11.5.sp)
                                 }
                                 Spacer(Modifier.width(10.dp))
-                                OverlayPill("${gap.count} animals", OverlayTokens.warn, OverlayTokens.warnX)
+                                OverlayPill(stringResource(DesignSystemR.string.ovl_animals_fmt, gap.count), OverlayTokens.warn, OverlayTokens.warnX)
                             }
                         }
                     }
-                    OverlayInfoBox(
-                        "These animals are excluded from the coverage % until the missing data is filled. Everything else is fully tracked.",
-                    )
+                    OverlayInfoBox(stringResource(DesignSystemR.string.gaps_note))
                 }
             }
         }
@@ -545,23 +555,23 @@ fun DosesGivenSheet(
     onDismiss: () -> Unit,
 ) {
     OverlaySheet(
-        title = "Doses given",
-        subtitle = "Completed doses this cycle · by vaccine",
+        title = stringResource(DesignSystemR.string.ovl_doses_title),
+        subtitle = stringResource(DesignSystemR.string.ovl_doses_subtitle),
         onDismiss = onDismiss,
-        footer = "Every dose is a verified shed record with video proof",
+        footer = stringResource(DesignSystemR.string.doses_footer),
     ) {
         Column(
             Modifier.fillMaxWidth().heightIn(max = 340.dp).padding(horizontal = 20.dp),
         ) {
             when {
                 isLoading -> {
-                    Text("Loading…", color = OverlayTokens.muted, fontSize = 13.sp)
+                    Text(stringResource(DesignSystemR.string.ovl_loading), color = OverlayTokens.muted, fontSize = 13.sp)
                 }
                 errorMessage != null -> {
-                    OverlayInfoBox("Error: $errorMessage")
+                    OverlayInfoBox(stringResource(DesignSystemR.string.ovl_error_fmt, errorMessage))
                 }
                 rows.isEmpty() -> {
-                    OverlayInfoBox("No vaccination data available for this scope.")
+                    OverlayInfoBox(stringResource(DesignSystemR.string.doses_empty))
                 }
                 else -> {
                     LazyColumn(

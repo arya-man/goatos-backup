@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="submit_summary_shed">ಶೆಡ್</string>
+    <string name="submit_summary_cohort">ಸಮೂಹ</string>
+    <string name="submit_summary_date">ದಿನಾಂಕ</string>
+    <string name="submit_dose_label">ಖುರಾಕ</string>
+    <string name="submit_retry_label">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
+
+    <!-- Sync state labels -->
+    <string name="submit_sync_loading">ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="submit_sync_ready">ಸಲ್ಲಿಸಲು ಸಿದ್ಧ</string>
+    <string name="submit_sync_queued">ಸಾಲಿನಲ್ಲಿದೆ — ಸಿಂಕ್ ಆಗುತ್ತದೆ…</string>
+    <string name="submit_sync_syncing">ಶೆಡ್ ರೆಕಾರ್ಡ ಸಲ್ಲಿಸಲಾಗುತ್ತಿದೆ…</string>
+    <string name="submit_sync_retrying">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲಾಗುತ್ತಿದೆ… (ಪ್ರಯತ್ನ %1$d/%2$d)</string>
+    <string name="submit_sync_acked">ಸಿಂಕ್ ಆಯಿತು · ಫೈಲ್‌ನಲ್ಲಿ ರೆಕಾರ್ಡ್</string>
+    <string name="submit_sync_conflict">ಸರ್ವರ್ ಸಲ್ಲಿಕೆಯನ್ನು ನಿರಾಕರಿಸಿದೆ।</string>
+    <string name="submit_sync_dead_letter">%1$d ಪ್ರಯತ್ನಗಳ ನಂತರ ಸಿಂಕ್ ವಿಫಲ ಆಯಿತು — ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ।</string>
+    <string name="submit_sync_no_task">ನಿಮಗೆ ಸಲ್ಲಿಸಲು ಯಾವುದೇ ಕಾರ್ಯ ನಿಯೋಜಿತವಾಗಿಲ್ಲ।</string>
+    <string name="submit_sync_load_failed">ನಿಮ್ಮ ಕಾರ್ಯವನ್ನು ಲೋಡ್ ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ। ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ।</string>
+    <string name="submit_sync_queue_failed">ಸಲ್ಲಿಕೆಯನ್ನು ಸಾಲಿನಲ್ಲಿ ಸಾಧ್ಯವಿಲ್ಲ — ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ।</string>
+    <string name="submit_sync_retry_failed">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ — ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ।</string>
+</resources>

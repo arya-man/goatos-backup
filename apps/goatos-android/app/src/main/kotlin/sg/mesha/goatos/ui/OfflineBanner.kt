@@ -29,6 +29,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import sg.mesha.goatos.core.designsystem.R as DesignSystemR
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 /**
@@ -69,15 +71,15 @@ fun OfflineBanner(
         ) {
             Box(Modifier.size(8.dp).clip(CircleShape).background(MeshaColors.Warn))
             Column(Modifier.weight(1f)) {
-                Text("You're offline", color = MeshaColors.Warn, fontSize = 12.5.sp, fontWeight = FontWeight.W700)
+                Text(stringResource(DesignSystemR.string.offline_title), color = MeshaColors.Warn, fontSize = 12.5.sp, fontWeight = FontWeight.W700)
                 Text(
-                    "Records save on this phone and sync when you reconnect",
+                    stringResource(DesignSystemR.string.offline_subtitle),
                     color = MeshaColors.Muted,
                     fontSize = 11.sp,
                     lineHeight = 15.sp,
                 )
             }
-            Text("Details", color = MeshaColors.BrandD, fontSize = 11.5.sp, fontWeight = FontWeight.W700)
+            Text(stringResource(DesignSystemR.string.offline_details), color = MeshaColors.BrandD, fontSize = 11.5.sp, fontWeight = FontWeight.W700)
             Text(
                 "✕",
                 color = MeshaColors.Faint,

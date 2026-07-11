@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Scan (v-scan) chrome strings -->
+    <string name="scan_back_cd">Back</string>
+    <string name="scan_feed_empty">No taps yet</string>
+    <string name="scan_badge_two_tags">2 tags</string>
+    <string name="scan_search_placeholder">Search either RFID tag…</string>
+    <string name="scan_search_empty">No matching animals</string>
+</resources>

@@ -31,6 +31,7 @@ import sg.mesha.goatos.feature.profile.AlertTone
 import sg.mesha.goatos.feature.profile.AlertsUiState
 import sg.mesha.goatos.feature.profile.ProfileUiState
 import sg.mesha.goatos.feature.profile.RfidConnectionState
+import sg.mesha.goatos.feature.profile.RfidDetailStatus
 import sg.mesha.goatos.feature.profile.RfidUiState
 import sg.mesha.goatos.feature.profile.SettingKind
 import sg.mesha.goatos.feature.profile.SettingRow
@@ -154,10 +155,18 @@ fun sampleSubmitState(): SubmitUiState = SubmitUiState(
         sg.mesha.goatos.feature.submit.VaccineGroup("FMD", 38, 40, "2 ml I/M", true),
     ),
     syncState = SyncState.SYNCING,
-    syncLabel = "Syncing 1 record…",
+    syncLabel = "",
     submitLabel = "Submit",
     canSubmit = true,
     syncProgress = 0.66f,
+    attemptCount = 0,
+    maxAttempts = 0,
+    lastError = null,
+    isLoadingTask = false,
+    isNoTaskAssigned = false,
+    isTaskLoadFailed = false,
+    isQueueFailed = false,
+    isRetryFailed = false,
 )
 
 // Mock-exact snapshot of mock/vaccination-mobile-mock.html #v-dhome (Director role, "All
@@ -263,12 +272,9 @@ fun sampleRecordState(): RecordUiState = RecordUiState(
 
 fun sampleRfidState(): RfidUiState = RfidUiState(
     title = "RFID reader",
-    statusLabel = "Paired",
+    detailStatus = RfidDetailStatus.READY,
     connectionState = RfidConnectionState.CONNECTED,
     readerName = "Chainway R3",
-    readerDetail = "Paired · battery 84%",
-    primaryActionLabel = "Disconnect",
-    testLabel = "Test read",
 )
 
 // Mock-exact snapshot of mock/vaccination-mobile-mock.html #v-alerts `.notif` cards.
@@ -310,7 +316,6 @@ fun sampleProfileState(): ProfileUiState = ProfileUiState(
     rows = listOf(
         SettingRow(SettingKind.LANGUAGE, "Language", value = "English"),
         SettingRow(SettingKind.RFID, "RFID reader", subtitle = "Chainway R3", value = "Paired", valueEmphasis = true),
-        SettingRow(SettingKind.NOTIFICATIONS, "Notifications", toggleOn = true),
         SettingRow(SettingKind.TIMETABLE, "Timetable", subtitle = "Shift roster (read-only)"),
         SettingRow(SettingKind.SIGN_OUT, "Sign out"),
     ),
@@ -442,7 +447,6 @@ fun overduePlaceholder(message: String): OverdueUiState =
 // seat holder's real name IS modeled (person_display_name) — never a raw UUID fragment.
 fun sampleTimetableState(): TimetableUiState = TimetableUiState(
     title = "Timetable",
-    subtitle = "Shift roster — the operational source for who executes each day.",
     rows = listOf(
         TimetableRow(
             id = "p1",
@@ -475,7 +479,6 @@ fun sampleTimetableState(): TimetableUiState = TimetableUiState(
             isActive = true,
         ),
     ),
-    emptyLabel = "No positions configured",
 )
 
 // Calendar + coverage banner demo state — a separate sample (not folded into

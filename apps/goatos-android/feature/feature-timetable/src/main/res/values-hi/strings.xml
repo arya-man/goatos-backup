@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="timetable_title">समय-सारणी</string>
+    <string name="timetable_subtitle">पारी रोस्टर — यह संचालन का स्रोत है कि कौन प्रत्येक दिन निष्पादन करता है।</string>
+    <string name="timetable_empty">कोई पद कॉन्फ़िगर नहीं</string>
+    <string name="timetable_unassigned">अनुत्तरदायी</string>
+    <string name="timetable_label_holder">धारक</string>
+    <string name="timetable_label_week_off">सप्ताह अवकाश</string>
+    <string name="timetable_label_backup">बैकअप</string>
+    <string name="timetable_error_no_center">कोई केंद्र निर्दिष्ट नहीं — समय-सारणी अनुपलब्ध।</string>
+    <string name="timetable_error_load">अभी समय-सारणी लोड नहीं की जा सकी।</string>
+    <string name="timetable_position_fallback">पद</string>
+    <string name="timetable_backup_slot">बैकअप स्लॉट</string>
+    <string name="timetable_empty_value">—</string>
+    <string name="timetable_tier_assistant">सहायक</string>
+    <string name="timetable_tier_manager">प्रबंधक</string>
+    <string name="timetable_tier_head">प्रमुख</string>
+    <string name="timetable_tier_director">निदेशक</string>
+    <string name="timetable_tier_cxo">सीXओ</string>
+    <string name="timetable_tier_unknown">—</string>
+</resources>

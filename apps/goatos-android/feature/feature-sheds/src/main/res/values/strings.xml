@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sheds module (v-sheds) chrome strings. Operators and leadership see the same
+  screen; all visible labels and status come from the backend. These strings cover
+  the static chrome: header navigation, status labels, table column labels, empty/
+  loading/error states, and help text.
+-->
+<resources>
+    <!-- Header and navigation chrome -->
+    <string name="sheds_back_description">Back</string>
+    <string name="sheds_refresh_description">Refresh</string>
+    <string name="sheds_title">Today\'s sheds</string>
+
+    <!-- Header count/summary chrome. NOTE: ShedsUiState currently exposes these only as
+         VM-baked label strings (shedCountLabel/dueLabel/daySummary), not raw Int fields, so
+         these format strings are not wired into ShedsScreen yet — see the composable's
+         DriveMeta/DayProgress for why. Kept here so a future ShedsUiState int-field refactor
+         can localize the numbers without touching resources again. -->
+    <string name="sheds_count_fmt">%1$d sheds</string>
+    <string name="sheds_due_fmt">%1$d due</string>
+    <string name="sheds_day_summary_fmt">%1$d / %2$d done</string>
+
+    <!-- Day progress section -->
+    <string name="sheds_day_progress">Day progress</string>
+
+    <!-- Table column labels in NumsRow -->
+    <string name="sheds_num_cell_in_shed">IN SHED</string>
+    <string name="sheds_num_cell_due">DUE</string>
+    <string name="sheds_num_cell_done">DONE</string>
+
+    <!-- Roster changes section -->
+    <string name="sheds_roster_changes_caption">Roster changes · since this drive was scheduled</string>
+
+    <!-- Content descriptions and empty/loading/error messages (ViewModel-provided) -->
+    <string name="sheds_loading_message">Loading today\'s sheds…</string>
+    <string name="sheds_empty_message">No sheds scheduled today</string>
+    <string name="sheds_error_message">Couldn\'t load today\'s sheds. Tap refresh to retry.</string>
+</resources>

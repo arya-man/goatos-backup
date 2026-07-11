@@ -13,6 +13,7 @@ import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.feature.profile.ProfileUiState
+import sg.mesha.goatos.feature.profile.RfidRowStatus
 import sg.mesha.goatos.feature.profile.SettingKind
 import sg.mesha.goatos.feature.profile.SettingRow
 import sg.mesha.goatos.rfid.RfidReaderPort
@@ -113,29 +114,29 @@ class ProfileViewModel @Inject constructor(
     )
 
     private fun baseRows(langCode: String): List<SettingRow> = listOf(
-        SettingRow(SettingKind.LANGUAGE, "Language", value = LANGUAGES[langCode] ?: "English"),
-        SettingRow(SettingKind.RFID, "RFID reader"),
-        // Mock renders Notifications as a chevron row (opens notification settings), not a
-        // toggle switch — keep the row a plain navigable entry.
-        SettingRow(SettingKind.NOTIFICATIONS, "Notifications"),
+        SettingRow(SettingKind.LANGUAGE, "", value = LANGUAGES[langCode] ?: "English"),
+        SettingRow(SettingKind.RFID, ""),
         // Read-only HRMS shift roster mirror (docs/hr/roster-rbac-design.md) — the route +
         // handler already existed (AppNavHost Routes.TIMETABLE); this row was missing so the
         // screen was unreachable from You/Settings (maintainer review finding).
-        SettingRow(SettingKind.TIMETABLE, "Timetable", subtitle = "Shift roster (read-only)"),
-        SettingRow(SettingKind.SIGN_OUT, "Sign out"),
+        SettingRow(SettingKind.TIMETABLE, "", subtitle = ""),
+        SettingRow(SettingKind.SIGN_OUT, ""),
     )
 
     /** Reflect live reader readiness on the RFID settings row. */
     private fun List<SettingRow>.withRfid(status: RfidReaderStatus): List<SettingRow> = map { row ->
         if (row.kind != SettingKind.RFID) return@map row
-        val (value, subtitle, emphasis) = when (status) {
-            RfidReaderStatus.READY -> Triple("Ready", "Reader connected", true)
-            RfidReaderStatus.PAIRED_NOT_READY -> Triple("Reconnect", "Paired, not connected", false)
-            RfidReaderStatus.NOT_PAIRED -> Triple("Pair", "Not paired", false)
-            RfidReaderStatus.PERMISSION_NEEDED -> Triple("Allow", "Nearby devices permission needed", false)
-            RfidReaderStatus.BLUETOOTH_OFF -> Triple("Bluetooth off", "Turn on Bluetooth", false)
-        }
-        row.copy(subtitle = subtitle, value = value, valueEmphasis = emphasis)
+        // Hand the Composable a module-local status enum so it can render localized strings;
+        // feature-profile must not depend on the app-module RfidReaderStatus. Emphasis on READY.
+        row.copy(rfidStatus = status.toRowStatus(), valueEmphasis = status == RfidReaderStatus.READY)
+    }
+
+    private fun RfidReaderStatus.toRowStatus(): RfidRowStatus = when (this) {
+        RfidReaderStatus.READY -> RfidRowStatus.READY
+        RfidReaderStatus.PAIRED_NOT_READY -> RfidRowStatus.PAIRED_NOT_READY
+        RfidReaderStatus.NOT_PAIRED -> RfidRowStatus.NOT_PAIRED
+        RfidReaderStatus.PERMISSION_NEEDED -> RfidRowStatus.PERMISSION_NEEDED
+        RfidReaderStatus.BLUETOOTH_OFF -> RfidRowStatus.BLUETOOTH_OFF
     }
 
     private fun initialsOf(name: String): String =

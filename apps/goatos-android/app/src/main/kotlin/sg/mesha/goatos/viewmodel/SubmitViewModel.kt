@@ -138,9 +138,11 @@ class SubmitViewModel @Inject constructor(
             _state.update {
                 it.copy(
                     syncState = SyncState.QUEUED,
-                    syncLabel = "Queued — will sync…",
+                    syncLabel = "",
                     syncProgress = 0.2f,
                     canSubmit = false,
+                    attemptCount = 0,
+                    maxAttempts = 0,
                 )
             }
             // groupKey = the shed/scope this submission belongs to, so the outbox drains all
@@ -165,8 +167,11 @@ class SubmitViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             syncState = SyncState.DEAD_LETTER,
-                            syncLabel = "Couldn't queue the submission — tap retry.",
+                            syncLabel = "",
                             canSubmit = false,
+                            attemptCount = 0,
+                            maxAttempts = 0,
+                            isQueueFailed = true,
                         )
                     }
                 }
@@ -181,7 +186,7 @@ class SubmitViewModel @Inject constructor(
                 when (syncRepository.retry(itemId)) {
                     is AppResult.Ok -> observeOutboxItem(itemId)
                     is AppResult.Err -> _state.update {
-                        it.copy(syncLabel = "Couldn't retry — tap retry again.", syncState = SyncState.DEAD_LETTER)
+                        it.copy(syncLabel = "", syncState = SyncState.DEAD_LETTER, attemptCount = 0, maxAttempts = 0, isRetryFailed = true)
                     }
                 }
             }
@@ -224,22 +229,24 @@ class SubmitViewModel @Inject constructor(
     private fun applyItemStatus(item: SyncQueueItem) {
         when {
             item.status == SyncItemStatus.QUEUED -> _state.update {
-                it.copy(syncState = SyncState.QUEUED, syncLabel = "Queued — will sync…", syncProgress = 0.2f, canSubmit = false)
+                it.copy(syncState = SyncState.QUEUED, syncLabel = "", syncProgress = 0.2f, canSubmit = false, attemptCount = 0, maxAttempts = 0)
             }
             item.status == SyncItemStatus.IN_FLIGHT -> _state.update {
-                it.copy(syncState = SyncState.SYNCING, syncLabel = "Submitting shed record…", syncProgress = 0.6f, canSubmit = false)
+                it.copy(syncState = SyncState.SYNCING, syncLabel = "", syncProgress = 0.6f, canSubmit = false, attemptCount = 0, maxAttempts = 0)
             }
             item.status == SyncItemStatus.SUCCEEDED -> _state.update {
-                it.copy(syncState = SyncState.ACKED, syncLabel = "Synced · record on file", syncProgress = 1f, canSubmit = false)
+                it.copy(syncState = SyncState.ACKED, syncLabel = "", syncProgress = 1f, canSubmit = false, attemptCount = 0, maxAttempts = 0)
             }
             item.conflict -> _state.update {
-                it.copy(syncState = SyncState.CONFLICT, syncLabel = decodeRejectionReason(item), canSubmit = false)
+                it.copy(syncState = SyncState.CONFLICT, syncLabel = "", canSubmit = false, lastError = item.lastError, attemptCount = 0, maxAttempts = 0)
             }
             item.isDeadLetter -> _state.update {
                 it.copy(
                     syncState = SyncState.DEAD_LETTER,
-                    syncLabel = "Sync failed after ${item.attemptCount} attempts — tap retry.",
+                    syncLabel = "",
                     canSubmit = false,
+                    attemptCount = item.attemptCount,
+                    maxAttempts = item.maxAttempts,
                 )
             }
             else -> _state.update {
@@ -247,9 +254,11 @@ class SubmitViewModel @Inject constructor(
                 // backoff; render this as still-syncing, not a hard failure.
                 it.copy(
                     syncState = SyncState.SYNCING,
-                    syncLabel = "Retrying… (attempt ${item.attemptCount}/${item.maxAttempts})",
+                    syncLabel = "",
                     syncProgress = 0.4f,
                     canSubmit = false,
+                    attemptCount = item.attemptCount,
+                    maxAttempts = item.maxAttempts,
                 )
             }
         }
@@ -268,9 +277,12 @@ class SubmitViewModel @Inject constructor(
     private fun loadingState(): SubmitUiState = sampleSubmitState().copy(
         groups = emptyList(),
         syncState = SyncState.DRAFT,
-        syncLabel = "Loading…",
+        syncLabel = "",
         canSubmit = false,
         syncProgress = 0f,
+        attemptCount = 0,
+        maxAttempts = 0,
+        isLoadingTask = true,
     )
 
     private fun draftState(t: TaskSummaryDto): SubmitUiState = sampleSubmitState().copy(
@@ -279,25 +291,33 @@ class SubmitViewModel @Inject constructor(
         date = t.dueAt.orEmpty(),
         groups = emptyList(),
         syncState = SyncState.DRAFT,
-        syncLabel = "Ready to submit",
+        syncLabel = "",
         canSubmit = true,
         syncProgress = 0f,
+        attemptCount = 0,
+        maxAttempts = 0,
     )
 
     private fun blockedState(message: String): SubmitUiState = sampleSubmitState().copy(
         groups = emptyList(),
         syncState = SyncState.DRAFT,
-        syncLabel = message,
+        syncLabel = "",
         canSubmit = false,
         syncProgress = 0f,
+        attemptCount = 0,
+        maxAttempts = 0,
+        isNoTaskAssigned = true,
     )
 
     private fun errorState(message: String): SubmitUiState = sampleSubmitState().copy(
         groups = emptyList(),
         syncState = SyncState.DEAD_LETTER,
-        syncLabel = message,
+        syncLabel = "",
         canSubmit = false,
         syncProgress = 0f,
+        attemptCount = 0,
+        maxAttempts = 0,
+        isTaskLoadFailed = true,
     )
 
     private companion object {

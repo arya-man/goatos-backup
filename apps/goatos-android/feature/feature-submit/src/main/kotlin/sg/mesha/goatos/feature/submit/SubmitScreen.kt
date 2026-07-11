@@ -23,6 +23,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,7 +82,22 @@ data class SubmitUiState(
     val canSubmit: Boolean,
     /** 0f..1f, rendered as a bar while [syncState] is [SyncState.SYNCING]. */
     val syncProgress: Float = 0f,
-    val retryLabel: String = "Retry",
+    /** Current retry attempt count (used in format strings for localization). */
+    val attemptCount: Int = 0,
+    /** Maximum retry attempts allowed (used in format strings for localization). */
+    val maxAttempts: Int = 0,
+    /** Backend-provided rejection reason, if any. When present, rendered verbatim; otherwise a localized fallback. */
+    val lastError: String? = null,
+    /** True when the initial task load is in progress (DRAFT state). */
+    val isLoadingTask: Boolean = false,
+    /** True when the task was not found / no task assigned to this operator (DRAFT state). */
+    val isNoTaskAssigned: Boolean = false,
+    /** True when the task load failed (DEAD_LETTER state). */
+    val isTaskLoadFailed: Boolean = false,
+    /** True when enqueueing to the sync queue failed (DEAD_LETTER state). */
+    val isQueueFailed: Boolean = false,
+    /** True when a retry request failed (DEAD_LETTER state). */
+    val isRetryFailed: Boolean = false,
 )
 
 /** User intents. The ViewModel layer maps these to sync-engine commands. */
@@ -120,6 +136,36 @@ private fun SyncState.tone(): BannerTone = when (this) {
     SyncState.SYNCING -> BannerTone(T.warn, T.warnX)
     SyncState.CONFLICT, SyncState.DEAD_LETTER -> BannerTone(T.danger, T.dangerX)
     SyncState.DRAFT, SyncState.QUEUED -> BannerTone(T.muted, T.surf2)
+}
+
+/** Localized label for the sync state banner. Renders based on SyncState + ancillary state. */
+@Composable
+private fun syncLabelFor(state: SubmitUiState): String = when {
+    state.isLoadingTask ->
+        stringResource(R.string.submit_sync_loading)
+    state.syncState == SyncState.DRAFT && state.canSubmit ->
+        stringResource(R.string.submit_sync_ready)
+    state.isNoTaskAssigned ->
+        stringResource(R.string.submit_sync_no_task)
+    state.isTaskLoadFailed ->
+        stringResource(R.string.submit_sync_load_failed)
+    state.isQueueFailed ->
+        stringResource(R.string.submit_sync_queue_failed)
+    state.isRetryFailed ->
+        stringResource(R.string.submit_sync_retry_failed)
+    state.syncState == SyncState.QUEUED ->
+        stringResource(R.string.submit_sync_queued)
+    state.syncState == SyncState.SYNCING && state.attemptCount > 0 ->
+        stringResource(R.string.submit_sync_retrying, state.attemptCount, state.maxAttempts)
+    state.syncState == SyncState.SYNCING ->
+        stringResource(R.string.submit_sync_syncing)
+    state.syncState == SyncState.ACKED ->
+        stringResource(R.string.submit_sync_acked)
+    state.syncState == SyncState.CONFLICT ->
+        state.lastError ?: stringResource(R.string.submit_sync_conflict)
+    state.syncState == SyncState.DEAD_LETTER ->
+        stringResource(R.string.submit_sync_dead_letter, state.attemptCount)
+    else -> ""
 }
 
 @Composable
@@ -183,6 +229,7 @@ private fun SubmitHeader(state: SubmitUiState) {
 @Composable
 private fun SyncBanner(state: SubmitUiState) {
     val tone = state.syncState.tone()
+    val label = syncLabelFor(state)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -197,7 +244,7 @@ private fun SyncBanner(state: SubmitUiState) {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = state.syncLabel,
+                text = label,
                 color = tone.fg,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
@@ -213,11 +260,11 @@ private fun SyncBanner(state: SubmitUiState) {
 @Composable
 private fun RecordSummary(state: SubmitUiState) {
     GoatCard {
-        SummaryRow("Shed", state.shed)
+        SummaryRow(stringResource(R.string.submit_summary_shed), state.shed)
         HairLine()
-        SummaryRow("Cohort", state.cohort)
+        SummaryRow(stringResource(R.string.submit_summary_cohort), state.cohort)
         HairLine()
-        SummaryRow("Date", state.date)
+        SummaryRow(stringResource(R.string.submit_summary_date), state.date)
     }
 }
 
@@ -242,7 +289,7 @@ private fun VaccineGroupCard(group: VaccineGroup) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(group.name, color = T.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(2.dp))
-                Text("Dose · ${group.dose}", color = T.muted, fontSize = 12.sp)
+                Text(stringResource(R.string.submit_dose_label) + " · ${group.dose}", color = T.muted, fontSize = 12.sp)
             }
             Text(
                 text = "${group.given} / ${group.due}",
@@ -319,7 +366,7 @@ private fun SubmitFooter(state: SubmitUiState, onEvent: (SubmitEvent) -> Unit) {
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = T.danger),
             ) {
-                Text(state.retryLabel, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.submit_retry_label), fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -402,10 +449,18 @@ private val previewState = SubmitUiState(
         ),
     ),
     syncState = SyncState.SYNCING,
-    syncLabel = "Syncing shed record… 2 of 3 records",
+    syncLabel = "",
     submitLabel = "Submit shed record",
     canSubmit = true,
     syncProgress = 0.66f,
+    attemptCount = 0,
+    maxAttempts = 0,
+    lastError = null,
+    isLoadingTask = false,
+    isNoTaskAssigned = false,
+    isTaskLoadFailed = false,
+    isQueueFailed = false,
+    isRetryFailed = false,
 )
 
 @Preview(name = "Submit — syncing", showBackground = true, backgroundColor = 0xFF0B100D)
@@ -423,8 +478,9 @@ private fun SubmitScreenConflictPreview() {
         SubmitScreen(
             state = previewState.copy(
                 syncState = SyncState.CONFLICT,
-                syncLabel = "Conflict — server has a newer record",
+                syncLabel = "",
                 canSubmit = false,
+                lastError = null,
             ),
             onEvent = {},
         )

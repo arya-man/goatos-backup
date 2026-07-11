@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.feature.sheds.R
 
 /**
  * Today's sheds / Drive status (`v-sheds`).
@@ -126,6 +128,12 @@ data class ShedsUiState(
     val dayProgressLabel: String,
     val dayProgressFraction: Float,
     val daySummary: String,
+    // Counts are UI chrome, not backend-owned copy: the ViewModel supplies the raw
+    // numbers and the screen formats/localizes them via *_fmt string resources.
+    // Default 0 = "no counts yet" (loading/empty/error) so those states render no chips.
+    val shedCount: Int = 0,
+    val dueCount: Int = 0,
+    val doneCount: Int = 0,
     val caption: String? = null,
     val roleNote: String? = null,
     val rows: List<ShedRow> = emptyList(),
@@ -136,6 +144,7 @@ data class ShedsUiState(
 sealed interface ShedsEvent {
     data class OpenShedRecord(val shedId: String) : ShedsEvent
     data object Refresh : ShedsEvent
+    data object Back : ShedsEvent
 }
 
 // ---------------------------------------------------------------------------
@@ -193,7 +202,7 @@ fun ShedsScreen(
             .fillMaxSize()
             .background(PageBg),
     ) {
-        ShedsHeader(state = state, onRefresh = { onEvent(ShedsEvent.Refresh) })
+        ShedsHeader(state = state, onRefresh = { onEvent(ShedsEvent.Refresh) }, onBack = { onEvent(ShedsEvent.Back) })
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 20.dp),
@@ -207,7 +216,7 @@ fun ShedsScreen(
                 ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
             }
             if (state.rosterChanges.isNotEmpty()) {
-                item { SectionCaption("Roster changes · since this drive was scheduled") }
+                item { SectionCaption(stringResource(R.string.sheds_roster_changes_caption)) }
                 item { ChangeCard(state.rosterChanges) }
             }
             state.kernelInfo?.let { info -> item { InfoBox(info) } }
@@ -220,13 +229,30 @@ fun ShedsScreen(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit) {
+private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Surf2)
+                .border(1.dp, Hair, RoundedCornerShape(12.dp))
+                .clickable(onClick = onBack),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = MeshaIcons.ChevronLeft,
+                contentDescription = stringResource(R.string.sheds_back_description),
+                tint = Muted,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "${state.moduleLabel} · ${state.scopeLabel}",
@@ -236,7 +262,9 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit) {
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = state.title,
+                // Static screen title — localized client-side (the VM always bakes the
+                // English "Today's sheds" chrome string; ignore it, render the screen's own).
+                text = stringResource(R.string.sheds_title),
                 color = Ink,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
@@ -253,7 +281,7 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit) {
         ) {
             Icon(
                 imageVector = MeshaIcons.Refresh,
-                contentDescription = "Refresh",
+                contentDescription = stringResource(R.string.sheds_refresh_description),
                 tint = Muted,
                 modifier = Modifier.size(18.dp),
             )
@@ -265,11 +293,13 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit) {
 private fun DriveMeta(state: ShedsUiState) {
     // Only render segments the backend actually populated — a blank field must not
     // leave an orphaned "·" separator (loading/empty/error states clear these).
+    val shedCountText = if (state.shedCount > 0) stringResource(R.string.sheds_count_fmt, state.shedCount) else null
+    val dueText = if (state.dueCount > 0) stringResource(R.string.sheds_due_fmt, state.dueCount) else null
     val parts = listOfNotNull(
         state.date.takeIf { it.isNotBlank() }?.let { it to true },
         state.window.takeIf { it.isNotBlank() }?.let { it to false },
-        state.shedCountLabel.takeIf { it.isNotBlank() }?.let { it to true },
-        state.dueLabel.takeIf { it.isNotBlank() }?.let { it to true },
+        shedCountText?.let { it to true },
+        dueText?.let { it to true },
     )
     if (parts.isEmpty()) return
     Row(
@@ -316,14 +346,21 @@ private fun DayProgress(state: ShedsUiState) {
             .padding(horizontal = 15.dp, vertical = 13.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = "Day progress", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(text = stringResource(R.string.sheds_day_progress), color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
             Text(text = state.dayProgressLabel, color = BrandD, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
         }
         Spacer(Modifier.height(8.dp))
         ProgressBar(state.dayProgressFraction)
         Spacer(Modifier.height(7.dp))
-        Text(text = state.daySummary, color = Muted, fontSize = 10.5f.sp)
+        // Live counts localize via the *_fmt resource; fall back to any VM-supplied
+        // summary string when raw counts aren't present (placeholder/sample states).
+        val summary = if (state.dueCount > 0) {
+            stringResource(R.string.sheds_day_summary_fmt, state.doneCount, state.dueCount)
+        } else {
+            state.daySummary
+        }
+        Text(text = summary, color = Muted, fontSize = 10.5f.sp)
     }
 }
 
@@ -506,11 +543,11 @@ private fun NumsRow(row: ShedRow) {
             .clip(RoundedCornerShape(12.dp))
             .background(Surf2),
     ) {
-        NumCell(value = row.inShed, label = "IN SHED", modifier = Modifier.weight(1f))
+        NumCell(value = row.inShed, label = stringResource(R.string.sheds_num_cell_in_shed), modifier = Modifier.weight(1f))
         NumDivider()
-        NumCell(value = row.due, label = "DUE", modifier = Modifier.weight(1f))
+        NumCell(value = row.due, label = stringResource(R.string.sheds_num_cell_due), modifier = Modifier.weight(1f))
         NumDivider()
-        NumCell(value = row.done, label = "DONE", modifier = Modifier.weight(1f))
+        NumCell(value = row.done, label = stringResource(R.string.sheds_num_cell_done), modifier = Modifier.weight(1f))
     }
 }
 
@@ -657,6 +694,9 @@ private fun previewState(): ShedsUiState = ShedsUiState(
     window = "08:00–20:00",
     shedCountLabel = "4 sheds",
     dueLabel = "77 due",
+    shedCount = 4,
+    dueCount = 77,
+    doneCount = 46,
     dayProgressLabel = "46 / 77",
     dayProgressFraction = 46f / 77f,
     daySummary = "Gandhi 1 · Castro 1 · Mandela 1 · Sumathi 1",

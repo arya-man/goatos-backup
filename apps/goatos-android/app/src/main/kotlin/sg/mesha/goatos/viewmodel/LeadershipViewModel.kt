@@ -116,6 +116,7 @@ class LeadershipViewModel @Inject constructor(
                 dataGapPill = DataGapPill(
                     label = if (summary.openGapCount > 0) "${summary.openGapCount} open gaps" else "Data gaps",
                     hasGaps = summary.openGapCount > 0,
+                    openGapsCount = summary.openGapCount,
                 ),
             ),
             kpis = listOf(

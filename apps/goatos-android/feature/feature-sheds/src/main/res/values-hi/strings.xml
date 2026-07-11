@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Header and navigation chrome -->
+    <string name="sheds_back_description">वापस जाएं</string>
+    <string name="sheds_refresh_description">ताज़ा करें</string>
+    <string name="sheds_title">आज के शेड</string>
+    <string name="sheds_count_fmt">%1$d शेड</string>
+    <string name="sheds_due_fmt">%1$d बकाया</string>
+    <string name="sheds_day_summary_fmt">%1$d / %2$d पूर्ण</string>
+
+    <!-- Day progress section -->
+    <string name="sheds_day_progress">दिन की प्रगति</string>
+
+    <!-- Table column labels in NumsRow -->
+    <string name="sheds_num_cell_in_shed">शेड में</string>
+    <string name="sheds_num_cell_due">बकाया</string>
+    <string name="sheds_num_cell_done">पूर्ण</string>
+
+    <!-- Roster changes section -->
+    <string name="sheds_roster_changes_caption">रोस्टर में बदलाव · इस ड्राइव के शेड्यूल होने के बाद से</string>
+
+    <!-- Content descriptions and empty/loading/error messages (ViewModel-provided) -->
+    <string name="sheds_loading_message">आज के शेड लोड हो रहे हैं…</string>
+    <string name="sheds_empty_message">आज कोई शेड शेड्यूल नहीं है</string>
+    <string name="sheds_error_message">आज के शेड लोड नहीं हो सके। फिर से प्रयास करने के लिए ताज़ा करें।</string>
+</resources>

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Profile screen defaults and chrome -->
+    <string name="profile_screen_title">ನೀವು</string>
+    <string name="profile_eyebrow">Mesha</string>
+    <string name="profile_settings_label">ಸೆಟ್ಟಿಂಗ್‌ಗಳು</string>
+
+    <!-- Settings row titles -->
+    <string name="profile_setting_language">ಭಾಷೆ</string>
+    <string name="profile_setting_rfid">RFID reader</string>
+    <string name="profile_setting_timetable">ವೇಳಾಪಟ್ಟಿ</string>
+    <string name="profile_setting_timetable_subtitle">ಶಿಫ್ಟ್ ರೋಸ್ಟರ್ (ಓದಿಗಾಗಿ ಮಾತ್ರ)</string>
+    <string name="profile_setting_sign_out">ಸೈನ್ ಔಟ್</string>
+
+    <!-- RFID reader status values and subtitles -->
+    <string name="profile_rfid_status_ready">ತಯಾರ</string>
+    <string name="profile_rfid_status_ready_subtitle">Reader ಸಂಪರ್ಕಿತ</string>
+    <string name="profile_rfid_status_reconnect">ಮರುಸಂಪರ್ಕ</string>
+    <string name="profile_rfid_status_reconnect_subtitle">ಸಂಪರ್ಕಿತ, ಸಂಪರ್ಕ ಸಾಧಿಸಿಲ್ಲ</string>
+    <string name="profile_rfid_status_pair">ಯೋಡಲಿ</string>
+    <string name="profile_rfid_status_pair_subtitle">ಯೋಡಲಾಗಿಲ್ಲ</string>
+    <string name="profile_rfid_status_allow">ಅನುಮತಿಸಿ</string>
+    <string name="profile_rfid_status_allow_subtitle">ಹತ್ತಿರದ ಸಾಧನಗಳ ಅನುಮತಿ ಅವಶ್ಯಕ</string>
+    <string name="profile_rfid_status_bluetooth_off">Bluetooth ಆಫ್</string>
+    <string name="profile_rfid_status_bluetooth_off_subtitle">Bluetooth ಆನ್ ಮಾಡಿ</string>
+
+    <!-- RFID detail screen status and action labels -->
+    <string name="rfid_detail_status_ready">ತಯಾರ</string>
+    <string name="rfid_detail_status_ready_detail">ಸ್ಕ್ಯಾನ್ ಮಾಡಲು ತಯಾರ</string>
+    <string name="rfid_detail_status_paired_not_ready">ಯೋಡಲಾಗಿದೆ · ಸಂಪರ್ಕ ಸಾಧಿಸಿಲ್ಲ</string>
+    <string name="rfid_detail_status_paired_not_ready_detail">ಯೋಡಲಾಗಿದೆ — Bluetooth ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ ಮರುಸಂಪರ್ಕ ಮಾಡಿ</string>
+    <string name="rfid_detail_status_not_paired">ಯೋಡಲಾಗಿಲ್ಲ</string>
+    <string name="rfid_detail_status_not_paired_detail">Bluetooth ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ reader ಅನ್ನು ಯೋಡಿಸಿ, ನಂತರ ಹಿಂದಿರುಗಿ</string>
+    <string name="rfid_detail_status_permission_needed">ಹತ್ತಿರದ ಸಾಧನಗಳಿಗೆ ಅನುಮತಿ ನೀಡಿ</string>
+    <string name="rfid_detail_status_permission_needed_detail">Reader ಅನ್ನು ಪತ್ತೆ ಮಾಡಲು ಹತ್ತಿರದ ಸಾಧನಗಳ ಅನುಮತಿ ನೀಡಿ</string>
+    <string name="rfid_detail_status_bluetooth_off">Bluetooth ಆಫ್</string>
+    <string name="rfid_detail_status_bluetooth_off_detail">Reader ಅನ್ನು ಬಳಸಲು Bluetooth ಚಾಲು ಮಾಡಿ</string>
+    <string name="rfid_detail_action_test_read">ಪರೀಕ್ಷೆ ಸ್ಕ್ಯಾನ್</string>
+    <string name="rfid_detail_action_open_bluetooth">Bluetooth ಸೆಟ್ಟಿಂಗ್‌ಗಳು ತೆರೆಯಿರಿ</string>
+    <string name="rfid_detail_action_pair_reader">Reader ಅನ್ನು ಯೋಡಿಸಿ</string>
+    <string name="rfid_detail_test_label">ಪರೀಕ್ಷೆ ಸ್ಕ್ಯಾನ್</string>
+
+    <!-- Alerts screen chrome -->
+    <string name="alerts_screen_title">ಎಚ್ಚರಿಕೆಗಳು</string>
+    <string name="alerts_mark_all_read">ಎಲ್ಲವನ್ನು ಓದಿದಂತೆ ಗುರುತಿಸಿ</string>
+    <string name="alerts_empty_message">ನೀವು ಎಲ್ಲದರೊಂದಿಗೆ ನವೀಕರಣೀಯ.</string>
+
+    <!-- Alert tone labels -->
+    <string name="alerts_tone_info">ಮಾಹಿತಿ</string>
+    <string name="alerts_tone_warn">ಎಚ್ಚರಿಕೆ</string>
+    <string name="alerts_tone_critical">ಜರುরಿ</string>
+</resources>
