@@ -15,6 +15,7 @@ const calendarDriveTargetsSQL = `
 SELECT
   oi.obligation_id::text,
   oi.target_id::text AS animal_id,
+  g.display_id AS display_id,
   aid1.identifier_value AS animal_identifier_1,
   aid2.identifier_value AS animal_identifier_2,
   g.management_stage AS stage,
@@ -129,7 +130,7 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 		var animalIdentifier1 pgtype.Text
 		var animalIdentifier2 pgtype.Text
 		var stage pgtype.Text
-		if err := rows.Scan(&item.ObligationID, &item.AnimalID, &animalIdentifier1, &animalIdentifier2, &stage, &item.Status, &item.DueAt); err != nil {
+		if err := rows.Scan(&item.ObligationID, &item.AnimalID, &item.DisplayID, &animalIdentifier1, &animalIdentifier2, &stage, &item.Status, &item.DueAt); err != nil {
 			return domain.CalendarDriveTargetListResponse{}, fmt.Errorf("calendar: scan drive target: %w", err)
 		}
 		item.AnimalIdentifier1 = textPtr(animalIdentifier1)

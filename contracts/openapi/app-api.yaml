@@ -5473,6 +5473,7 @@ components:
       required:
         - obligation_id
         - animal_id
+        - display_id
         - animal_identifier_1
         - animal_identifier_2
         - status
@@ -5484,6 +5485,8 @@ components:
         animal_id:
           type: string
           format: uuid
+        display_id:
+          type: string
         animal_identifier_1:
           type:
             - string
@@ -6564,6 +6567,12 @@ components:
           type: integer
           minimum: 0
           description: Number of selected dose/schedule rows (vaccination cells per eligible animal).
+        daily_cap:
+          type: integer
+          minimum: 1
+          description: >-
+            Draft daily vaccination cap (vaccinations/day) authored in the rule editor, used to compute
+            estimated_days BEFORE publish. Omit to fall back to the published/operational cap.
         horizon_days:
           type: integer
           minimum: 0

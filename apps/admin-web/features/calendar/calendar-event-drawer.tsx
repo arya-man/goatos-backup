@@ -315,6 +315,7 @@ export function CalendarEventDrawer({
                   <table>
                     <thead>
                       <tr>
+                        <th>{copy(pageContract, "label.display_id")}</th>
                         <th>
                           {copy(pageContract, "label.animal_identifier_1")}
                         </th>
@@ -329,6 +330,9 @@ export function CalendarEventDrawer({
                     <tbody>
                       {targets.map((row) => (
                         <tr key={row.obligation_id}>
+                          <td>
+                            <span className="gid">{row.display_id}</span>
+                          </td>
                           <td>
                             {row.animal_identifier_1 ??
                               copy(pageContract, "label.placeholder")}

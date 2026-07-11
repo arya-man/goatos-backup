@@ -10,6 +10,14 @@ import { hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-par
 import { actionFeedbackCopy, copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { addIdentifierAction, retireIdentifierAction } from "./actions";
 
+// Business-friendly labels for the two physical tag identifier types in the identifiers detail table.
+// Other stored identifier types (mirrors, ear tags, vendor tags) keep their raw type string.
+function identifierTypeLabel(type: string): string {
+  if (type === "animal_identifier_1") return "Tag 1";
+  if (type === "animal_identifier_2") return "Tag 2";
+  return type;
+}
+
 function MiniMetric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
@@ -158,9 +166,9 @@ export async function GoatPassportPage({
           </div>
           <div className="bd">
             <div className="metagrid" style={{ gridTemplateColumns: "repeat(3,minmax(0,1fr))" }}>
-              <MiniMetric label={copy(pageContract, "label.goat_id")} value={<span className="gid">{shortId(goat.goat_id)}</span>} />
-              <MiniMetric label={copy(pageContract, "label.animal_identifier_1")} value={dash(goat.summary.animal_identifier_1)} />
-              <MiniMetric label={copy(pageContract, "label.animal_identifier_2")} value={dash(goat.summary.animal_identifier_2)} />
+              <MiniMetric label={copy(pageContract, "label.display_id")} value={<span className="gid">{goat.display_id}</span>} />
+              <MiniMetric label={copy(pageContract, "label.tag_1")} value={<span className="mono">{dash(goat.summary.animal_identifier_1)}</span>} />
+              <MiniMetric label={copy(pageContract, "label.tag_2")} value={<span className="mono">{dash(goat.summary.animal_identifier_2)}</span>} />
               <MiniMetric label={copy(pageContract, "label.breed_sex")} value={joinParts([goat.summary.breed, goat.summary.sex])} />
               <MiniMetric label={copy(pageContract, "label.lifecycle")} value={goat.summary.lifecycle_status} />
               <MiniMetric label={copy(pageContract, "label.health")} value={dash(goat.summary.health_status)} />
@@ -245,7 +253,7 @@ export async function GoatPassportPage({
                 <tbody>
                   {goat.identifiers.map((identifier) => (
                     <tr key={identifier.identifier_id}>
-                      <td>{identifier.identifier_type}</td>
+                      <td>{identifierTypeLabel(identifier.identifier_type)}</td>
                       <td className="mono">{identifier.identifier_value}</td>
                       <td>{identifier.scope_key}</td>
                       <td>

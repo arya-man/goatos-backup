@@ -209,6 +209,7 @@ type CalendarEventDetail struct {
 type CalendarDriveTarget struct {
 	ObligationID      string    `json:"obligation_id"`
 	AnimalID          string    `json:"animal_id"`
+	DisplayID         string    `json:"display_id"`
 	AnimalIdentifier1 *string   `json:"animal_identifier_1"`
 	AnimalIdentifier2 *string   `json:"animal_identifier_2"`
 	Stage             *string   `json:"stage"`

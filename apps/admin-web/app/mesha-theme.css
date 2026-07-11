@@ -465,8 +465,13 @@
   .main table.adherence-table{min-width:1080px}
   .main table.control-tower-gaps-table{min-width:920px}
   .main table.control-tower-gaps-table th:nth-child(1),.main table.control-tower-gaps-table td:nth-child(1),.main table.control-tower-gaps-table th:nth-child(2),.main table.control-tower-gaps-table td:nth-child(2){min-width:132px}
-  .main table.herd-register-table{min-width:1320px}
-  .main table.herd-register-table th:nth-child(7),.main table.herd-register-table td:nth-child(7),.main table.herd-register-table th:nth-child(8),.main table.herd-register-table td:nth-child(8),.main table.herd-register-table th:nth-child(9),.main table.herd-register-table td:nth-child(9){min-width:116px}
+  .main table.herd-register-table{min-width:1600px}
+  /* Tag 1 / Tag 2 (cols 2-3) carry long numeric/coded physical tags. Give them room and keep them
+     single-line so the global .celllink overflow-wrap:anywhere can't split a 15-digit tag mid-number. */
+  .main table.herd-register-table th:nth-child(2),.main table.herd-register-table td:nth-child(2),.main table.herd-register-table th:nth-child(3),.main table.herd-register-table td:nth-child(3){min-width:150px}
+  .main table.herd-register-table td:nth-child(2) .celllink,.main table.herd-register-table td:nth-child(3) .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  /* Lifecycle / Health / Breeding status columns shift to 9-11 after Display ID + Tag 1 + Tag 2. */
+  .main table.herd-register-table th:nth-child(9),.main table.herd-register-table td:nth-child(9),.main table.herd-register-table th:nth-child(10),.main table.herd-register-table td:nth-child(10),.main table.herd-register-table th:nth-child(11),.main table.herd-register-table td:nth-child(11){min-width:116px}
   /* Shed-wise vaccination table (10 cols): widen Manager/Backup (cols 8,9) for names; scrolls on narrow. */
   .main table.shed-summary-table{min-width:1080px}
   .main table.shed-summary-table th:nth-child(8),.main table.shed-summary-table td:nth-child(8),.main table.shed-summary-table th:nth-child(9),.main table.shed-summary-table td:nth-child(9){min-width:140px}

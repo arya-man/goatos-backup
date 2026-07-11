@@ -295,15 +295,13 @@ export async function HerdRegisterPage({
                       <td>
                         <Link href={href} className="celllink" scroll={false}>
                           <span className="gid">{g.display_id}</span>
-                          {isUntagged(g) ? (
-                            <>
-                              {" "}
-                              <Tag tone="warn" title={copy(pageContract, "tag.identity_title")}>
-                                missing ID
-                              </Tag>
-                            </>
-                          ) : null}
                         </Link>
+                      </td>
+                      <td>
+                        <Link href={href} className="celllink mono" scroll={false}>{dash(g.animal_identifier_1)}</Link>
+                      </td>
+                      <td>
+                        <Link href={href} className="celllink mono" scroll={false}>{dash(g.animal_identifier_2)}</Link>
                       </td>
                       <td className="muted">
                         <Link href={href} className="celllink" scroll={false}>{locationLabel(g, "park")}</Link>
@@ -419,26 +417,36 @@ async function HerdPassportDrawer({
           </Link>
         </div>
         <div className="dc">
-          <div className="helpgrid">
+          {/* Identity block — Display ID / Tag 1 / Tag 2, shown clearly at the top. The raw goat UUID is
+              intentionally NOT in the primary identity block (it lives in the full change history). */}
+          <div className="helpgrid" style={{ marginBottom: 12 }}>
+            <div className="hk">{cols[0]}</div>
+            <div><span className="gid">{goat.display_id}</span></div>
             <div className="hk">{cols[1]}</div>
-            <div>{locationLabel(goat, "park")}</div>
+            <div className="mono">{dash(goat.animal_identifier_1)}</div>
             <div className="hk">{cols[2]}</div>
-            <div>{locationLabel(goat, "shed")}</div>
+            <div className="mono">{dash(goat.animal_identifier_2)}</div>
+          </div>
+          <div className="helpgrid">
             <div className="hk">{cols[3]}</div>
-            <div>{dash(goat.breed)}</div>
+            <div>{locationLabel(goat, "park")}</div>
             <div className="hk">{cols[4]}</div>
-            <div>{dash(goat.sex)}</div>
+            <div>{locationLabel(goat, "shed")}</div>
             <div className="hk">{cols[5]}</div>
-            <div>{weightLabel(goat.weight_kg)}{goat.weight_kg ? " kg" : ""}</div>
+            <div>{dash(goat.breed)}</div>
             <div className="hk">{cols[6]}</div>
+            <div>{dash(goat.sex)}</div>
+            <div className="hk">{cols[7]}</div>
+            <div>{weightLabel(goat.weight_kg)}{goat.weight_kg ? " kg" : ""}</div>
+            <div className="hk">{cols[8]}</div>
             <div>
               <Tag tone={statusTone(goat.lifecycle_status, "lifecycle")}>{dash(goat.lifecycle_status)}</Tag>
             </div>
-            <div className="hk">{cols[7]}</div>
+            <div className="hk">{cols[9]}</div>
             <div>
               <Tag tone={statusTone(goat.health_status, "health")}>{dash(goat.health_status)}</Tag>
             </div>
-            <div className="hk">{cols[8]}</div>
+            <div className="hk">{cols[10]}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <Tag tone={statusTone(goat.reproductive_status, "breeding")}>{dash(goat.reproductive_status)}</Tag>
               <HerdReproductiveEdit
@@ -450,12 +458,6 @@ async function HerdPassportDrawer({
                 pageContract={pageContract}
               />
             </div>
-          </div>
-          <div className="muted small" style={{ marginTop: 14, fontWeight: 700 }}>
-            {copy(pageContract, "label.identifiers")}
-          </div>
-          <div className="note" style={{ marginTop: 8 }}>
-            {copy(pageContract, "label.goat_id")}: {goat.goat_id} · {copy(pageContract, "label.display_id")}: {goat.display_id} · {copy(pageContract, "label.animal_identifier_1")}: {dash(goat.animal_identifier_1)} · {copy(pageContract, "label.animal_identifier_2")}: {dash(goat.animal_identifier_2)}
           </div>
           <HerdPassportVaccinationBlock goatId={goat.goat_id} />
         </div>

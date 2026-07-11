@@ -2007,6 +2007,7 @@ export interface components {
             obligation_id: string;
             /** Format: uuid */
             animal_id: string;
+            display_id: string;
             animal_identifier_1: string | null;
             animal_identifier_2: string | null;
             stage?: string | null;
@@ -2407,6 +2408,8 @@ export interface components {
             location_id?: string;
             /** @description Number of selected dose/schedule rows (vaccination cells per eligible animal). */
             dose_rows?: number;
+            /** @description Draft daily vaccination cap (vaccinations/day) authored in the rule editor, used to compute estimated_days BEFORE publish. Omit to fall back to the published/operational cap. */
+            daily_cap?: number;
             horizon_days?: number;
         };
         /** @description Aggregate-only config impact preview. Every number is read from the precomputed vaccination eligibility rollup (read model); the request path never scans goats. Use the business names only (eligible_animals / vaccination_cells / affected_sheds / estimated_days / daily_cap). */

@@ -522,6 +522,7 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
   if (viewportLabel !== "desktop") return;
 
   if (routeName === "counts-herd") {
+    await assertHerdIdentityColumns(page, routeName);
     await openAndCloseDialog(page, page.getByRole("button", { name: "Filters", exact: true }), "Filter — Counts / Herd", "Close filters", routeName);
     await openAndCloseDialog(page, page.getByRole("button", { name: "Register animal", exact: true }), "Register animal", "Close", routeName);
     await openAndCloseDialog(page, page.getByRole("button", { name: "Import sheet", exact: true }), "Import sheet", "Close", routeName);
@@ -530,6 +531,7 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
       page.locator('section:has-text("Herd") tbody tr .celllink').first(),
       "Animal Passport",
       routeName,
+      assertHerdPassportIdentity,
     );
   }
 
@@ -751,6 +753,41 @@ async function assertNoFakeVaccinationDrawerControls(drawer, routeName, expected
     if (text.includes(stale)) {
       throw new Error(`${routeName} drawer "${expectedText}" still contains stale/fake copy "${stale}"`);
     }
+  }
+}
+
+// Herd Register must lead with the Display ID / Tag 1 / Tag 2 identity columns and must never render the
+// old "missing ID" chip — missing Tag values render as an em dash only.
+async function assertHerdIdentityColumns(page, routeName) {
+  const table = page.locator("table.herd-register-table").first();
+  const headers = (await table.locator("thead th").allInnerTexts()).map((h) => h.trim());
+  const expected = ["Display ID", "Tag 1", "Tag 2"];
+  if (headers.slice(0, 3).join("|") !== expected.join("|")) {
+    throw new Error(`${routeName} herd table must start with ${expected.join(", ")}; got ${headers.join(", ")}`);
+  }
+  const bodyText = await table.innerText();
+  if (/missing ID/i.test(bodyText)) {
+    throw new Error(`${routeName} herd table still renders a "missing ID" chip`);
+  }
+}
+
+// The Animal Passport drawer identity block must show Display ID + Tag 1 + Tag 2 and a G-###### display id,
+// and must never render the raw goat UUID as the primary id or the legacy "Animal ID 1/2" / "missing ID".
+async function assertHerdPassportIdentity(drawer, routeName, expectedText) {
+  const text = await drawer.innerText();
+  for (const label of ["Display ID", "Tag 1", "Tag 2"]) {
+    if (!text.includes(label)) {
+      throw new Error(`${routeName} passport drawer "${expectedText}" is missing identity label "${label}"`);
+    }
+  }
+  for (const banned of ["missing ID", "Animal ID 1", "Animal ID 2"]) {
+    if (text.includes(banned)) {
+      throw new Error(`${routeName} passport drawer "${expectedText}" contains banned identity wording "${banned}"`);
+    }
+  }
+  const displayId = (await drawer.locator(".gid").first().innerText().catch(() => "")).trim();
+  if (!/^G-\d+/.test(displayId)) {
+    throw new Error(`${routeName} passport drawer Display ID chip should be a G-###### id; got "${displayId}"`);
   }
 }
 

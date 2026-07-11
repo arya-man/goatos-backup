@@ -243,7 +243,7 @@ func pages() []domain.PageContract {
 				table("pc-handoffs", "Accepted intake → Preventive Care (PC) handoffs", "/procurement/source-entry/loads/{load_id}/pc-handoffs", []string{"goat", "park", "shed", "entry_date", "accepted", "event"}, "pc_handoff"),
 			}),
 		page("herd-register", "/counts/herd", "/counts/herd", "Herd Register", "Counts entry point for goat registration/import and vaccination trigger proof.", "module-surface",
-			[]domain.TableContract{table("herd-register", "Herd Register", "/goats/search", []string{"goat_id", "park", "shed", "breed", "sex", "weight", "lifecycle", "health", "breeding"}, "goat_id")}),
+			[]domain.TableContract{table("herd-register", "Herd Register", "/goats/search", []string{"display_id", "tag_1", "tag_2", "park", "shed", "breed", "sex", "weight", "lifecycle", "health", "breeding"}, "goat_id")}),
 		page("audit-log", "/operations/audit", "/operations/audit", "Audit Log", "Business audit trail for built admin/operator/system actions.", "authority-screen",
 			[]domain.TableContract{table("activity-trail", "Activity trail", "/operations/audit", []string{"when", "operation", "operator", "action", "target", "result", "proof"}, "audit_row")}),
 		page("dlq-center", "/operations/dlq", "/operations/dlq", "DLQ Center", "Repair lane for outbox events that could not be delivered after retry.", "authority-screen",
@@ -767,8 +767,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.empty.primary":                  "Config",
 			"calendar.empty.secondary":                "Vaccination",
 			"empty.events":                            "No vaccination due work in this scope.",
-			"label.animal_identifier_1":               "Animal ID 1",
-			"label.animal_identifier_2":               "Animal ID 2",
+			"label.display_id":                        "Display ID",
+			"label.animal_identifier_1":               "Tag 1",
+			"label.animal_identifier_2":               "Tag 2",
 			"label.stage":                             "Stage",
 			"label.status":                            "Status",
 			"label.when":                              "When",
@@ -1332,8 +1333,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.drawer.close_label":                "Close filters",
 			"filter.scope_label":                       "Park",
 			"filter.scope_readonly":                    "Park scope is set in the top bar — this filter is read-only.",
-			"filter.herd_search_label":                 "Search (Animal ID / display id)",
-			"filter.herd_search_placeholder":           "e.g. RF-9001 or CB-201",
+			"filter.herd_search_label":                 "Search (Tag / Display ID)",
+			"filter.herd_search_placeholder":           "e.g. 901007000503824 or CBE-201",
 			"filter.sex_label":                         "Sex",
 			"filter.breed_label":                       "Breed",
 			"filter.clear_all":                         "Clear all",
@@ -1397,8 +1398,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.import.subtitle":                   "Bulk register herd animals — download template, paste/upload CSV, preview, then commit.",
 			"drawer.passport.aria":                     "Animal Passport",
 			"drawer.passport.close_label":              "Close Animal Passport drawer",
-			"label.animal_identifier_1":                "Animal ID 1",
-			"label.animal_identifier_2":                "Animal ID 2",
+			"label.animal_identifier_1":                "Tag 1",
+			"label.animal_identifier_2":                "Tag 2",
 			"alert.locations.title":                    "Locations unavailable",
 			"alert.locations.body":                     "Animal creation needs a real park and vaccination-usable shed from the locations master. Configure locations (or check the backend) before registering — no animal is created without a valid park/shed.",
 			"alert.shed_locations.body":                "Shed creation needs a real active park from the locations master. Configure or seed parks before adding vaccination sheds.",
@@ -1407,8 +1408,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.herd":                               "No herd animals for this scope yet. Use Register animal or Import sheet to add the first animals — each valid row generates vaccination obligations.",
 			"empty.herd_filtered":                      "No herd animals match these filters for this scope.",
 			"empty.unavailable":                        "Herd is unavailable until the goats read API responds.",
-			"field.animal_identifier_1":                "Animal ID 1",
-			"field.animal_identifier_2":                "Animal ID 2",
+			"field.animal_identifier_1":                "Tag 1",
+			"field.animal_identifier_2":                "Tag 2",
 			"field.species":                            "Species",
 			"field.park_required":                      "Park (required)",
 			"field.shed_required":                      "Shed (required)",
@@ -1454,11 +1455,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"option.select_species":                    "Select species",
 			"option.select_sex":                        "Select sex",
 			"option.select_origin":                     "Select origin",
-			"note.identifier_required":                 "Animal ID 1 is required now; Animal ID 2 is optional until double RFID tagging is live. ID values are never reused, even after death, sale, transfer, tag loss, or tag breakage.",
+			"note.identifier_required":                 "Tag 1 is required now; Tag 2 is optional until double tagging is live. Tag values are never reused, even after death, sale, transfer, tag loss, or tag breakage.",
 			"note.media_capture":                       "Media capture is not in this slice. Provenance is recorded as a source-record evidence ref; photo upload happens via the field app / proof API.",
 			"note.shed_create":                         "The shed is created active, usable for counts, vaccination, and SOP execution, and not usable for feed/holding/quarantine/ICU in this vaccination-only entry path.",
 			"note.shed_bulk_template":                  "Each row needs Park plus Shed name. Park may be an active park id, code, or name. Imported sheds are created active and vaccination-usable; bad rows return per-row errors below.",
-			"note.bulk_template":                       "Each row needs Animal ID 1, Species, Park, Shed, DOB, Sex, Origin, and Entry date. Animal ID 2 is optional until double RFID tagging is live. Bad rows return per-row errors below; they are never silently dropped.",
+			"note.bulk_template":                       "Each row needs Tag 1, Species, Park, Shed, DOB, Sex, Origin, and Entry date. Tag 2 is optional until double tagging is live. Bad rows return per-row errors below; they are never silently dropped.",
 			"note.preview_ready":                       "Previewed — review decisions below, then commit.",
 			"note.committed_suffix":                    "The herd table has been refreshed.",
 			"note.shed_committed_suffix":               "The location master has been refreshed; newly created sheds appear in the goat registration shed selector after refresh.",
@@ -1475,7 +1476,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.all_sheds":                          "all sheds",
 			"label.identifiers":                        "Identifiers",
 			"label.goat_id":                            "goat_id",
-			"label.display_id":                         "display_id",
+			"label.display_id":                         "Display ID",
+			"label.tag_1":                              "Tag 1",
+			"label.tag_2":                              "Tag 2",
 			"label.identity":                           "identifiers",
 			"label.rows":                               "rows",
 			"label.row_singular":                       "row",
@@ -2159,8 +2162,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.warnings":                 "No passport warnings returned.",
 			"label.row_version":              "row version",
 			"label.goat_id":                  "Animal record ID",
-			"label.animal_identifier_1":      "Animal ID 1",
-			"label.animal_identifier_2":      "Animal ID 2",
+			"label.display_id":               "Display ID",
+			"label.tag_1":                    "Tag 1",
+			"label.tag_2":                    "Tag 2",
+			"label.animal_identifier_1":      "Tag 1",
+			"label.animal_identifier_2":      "Tag 2",
 			"label.stage":                    "Stage",
 			"label.breed_sex":                "Breed / sex",
 			"label.lifecycle":                "Lifecycle",
@@ -2433,8 +2439,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			{
 				ID: "identifier_types",
 				Options: []domain.Option{
-					option("animal_identifier_1", "Animal ID 1", "", ""),
-					option("animal_identifier_2", "Animal ID 2", "", ""),
+					option("animal_identifier_1", "Tag 1", "", ""),
+					option("animal_identifier_2", "Tag 2", "", ""),
 				},
 			},
 			{
@@ -3087,8 +3093,8 @@ func herdRegisterOptionGroups() []domain.OptionGroup {
 			ID: "herd_import_columns",
 			Options: []domain.Option{
 				option("farm", "Farm", "", ""),
-				option("animal_identifier_1", "Animal ID 1", "", ""),
-				option("animal_identifier_2", "Animal ID 2", "", ""),
+				option("animal_identifier_1", "Tag 1", "", ""),
+				option("animal_identifier_2", "Tag 2", "", ""),
 				option("species", "Species", "", ""),
 				option("park", "Park", "", ""),
 				option("shed", "Shed", "", ""),
@@ -3716,6 +3722,10 @@ func humanLabel(key string) string {
 		return "Goat ID"
 	case "display_id":
 		return "Display ID"
+	case "tag_1":
+		return "Tag 1"
+	case "tag_2":
+		return "Tag 2"
 	case "next_action":
 		return "Next action"
 	case "effective_date":
