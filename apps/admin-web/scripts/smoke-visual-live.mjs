@@ -41,6 +41,11 @@ const procurementLoadId = await resolveSmokeProcurementLoadID(apiBaseUrl, bearer
 mkdirSync(screenshotDir, { recursive: true });
 if (baselineDir) mkdirSync(diffDir, { recursive: true });
 
+// Optional focused run: GOATOS_SMOKE_ONLY_ROUTES=calendar,counts-herd restricts the sweep to those
+// routes so a targeted assertion (e.g. calendar identity) can run without an unrelated earlier route
+// (e.g. a seed-empty Action Center) aborting the whole gate before Calendar is reached.
+const onlyRoutes = (process.env.GOATOS_SMOKE_ONLY_ROUTES || "").split(",").map((s) => s.trim()).filter(Boolean);
+
 const routes = [
   { name: "login", path: "/login" },
   { name: "control-tower", path: "/?scope_mode=company" },
@@ -88,6 +93,7 @@ try {
     const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
     const page = await context.newPage();
     for (const route of routes) {
+      if (onlyRoutes.length && !onlyRoutes.includes(route.name)) continue;
       const url = `${appBaseUrl}${appPath(route.path)}`;
       const response = await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
       if (!response) {
@@ -549,7 +555,7 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
       await page.locator(".mcal").first().waitFor({ state: "visible", timeout: 5_000 });
       const mev = page.locator(".mcal .mev").first();
       if ((await mev.count()) === 1) {
-        await openAndCloseDrawer(page, mev, "CALENDAR EVENT", routeName);
+        await openAndCloseDrawer(page, mev, "CALENDAR EVENT", routeName, assertCalendarTargetIdentity);
       }
     }
   }
@@ -810,6 +816,12 @@ async function assertCalendarTargetIdentity(drawer, routeName, expectedText) {
     if (headers.slice(0, 3).join("|") !== expected.join("|")) {
       throw new Error(`${routeName} calendar drive-target roster must start with ${expected.join(", ")}; got ${headers.join(", ")}`);
     }
+  } else if (process.env.GOATOS_SMOKE_STRICT_CALENDAR_IDENTITY === "1") {
+    // Deterministic gate: require a populated drive roster. Run against a seed/fixture whose drive
+    // projection has matching generated obligations (in the current seed, drive projections have no
+    // generated obligations for their protocol_version, so the roster is always empty — see handoff).
+    // Fails loudly instead of silently skipping, so the identity columns are actually validated.
+    throw new Error(`${routeName} calendar drawer "${expectedText}" has no eligible-animals roster but GOATOS_SMOKE_STRICT_CALENDAR_IDENTITY=1 requires one`);
   } else {
     console.log(`identity_calendar_roster=skipped_no_targets route=${routeName} event="${expectedText}"`);
   }
