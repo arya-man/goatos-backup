@@ -308,6 +308,30 @@ Do:
   `idempotency_key = EXCLUDED.idempotency_key` is not sufficient when later code
   can still mutate state. Tests must cover first call, exact replay, same-key
   different-payload replay, and downstream duplicate prevention.
+- Treat a state transition and the sync of any derived read model it OWNS as ONE
+  atomic transaction. A record must never reach its published/committed state
+  while a read model it is the sole writer of failed to save. Do the derived
+  upsert AND any post-write parity/verification check INSIDE the same DB
+  transaction as the state change, so a sync failure rolls the whole transition
+  back — no status flip, no outbox event, no audit row, no partially-written read
+  model. A post-commit "best-effort" sync is allowed ONLY as a fallback for an
+  already-committed replay or an adapter without transactional support, never as
+  the first-commit path. Canonical case: publishing a vaccination protocol version
+  upserts + parity-checks `rule_dsl.capacity` into `vaccination_capacity_config`
+  inside the publish transaction (`PublishVersionWithCapacity` /
+  `PublishVersionWithDerivedRules`), and a parity mismatch
+  (`ports.ErrCapacityParityMismatch`) rolls the publish back. Every such flow needs
+  a rollback regression test — failed sync ⇒ source stays in its prior state with
+  zero side effects; see `TestPublishVersionWithCapacityRollsBackOnSyncFailure`.
+- Treat authored config/business values as validate-or-reject, never
+  silently-default. A field that is PRESENT but out of range (e.g.
+  `rule_dsl.capacity.max_per_day < 1`, `max_buffer_days < 0`) must FAIL the
+  publish/save with a clear error, not be rewritten to a default business value
+  the author never entered; defaults apply ONLY to genuinely-absent fields.
+  Frontends must keep a cleared field distinct from an explicit `0` (a blank input
+  publishes the declared default; an explicit out-of-range value is sent verbatim
+  so the backend rejects it) — never coerce blank to `0` or to an invented value,
+  and never let a React default become authored business truth.
 - Treat Goat OS time semantics as India-business-calendar semantics. Physical
   storage may use `timestamptz`/absolute instants, but every business meaning
   derived from those instants — scheduling, due/missed buckets, reminder keys,

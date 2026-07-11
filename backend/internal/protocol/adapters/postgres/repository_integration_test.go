@@ -765,3 +765,85 @@ func TestSyncVaccinationCapacityConfigUpsertsAndReturnsStored(t *testing.T) {
 		t.Fatalf("re-sync returned %+v, want %+v", got2, want2)
 	}
 }
+
+// TestPublishVersionWithCapacityRollsBackOnSyncFailure is the atomicity regression guard for the
+// publish/capacity-sync split-transaction bug: when the in-transaction capacity sync FAILS, the whole
+// publish must roll back — the version stays draft, NO publish side effect (outbox event) is emitted,
+// and the operational vaccination_capacity_config row is left untouched. A rule must never become
+// "published" while its capacity did not save.
+func TestPublishVersionWithCapacityRollsBackOnSyncFailure(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	protocolID, err := repo.CreateDefinition(ctx, domain.NewDefinition{
+		TenantID: testTenantID, Code: "vaccination.capacity.rollback", Name: "Capacity Rollback Guard",
+		Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+	versionID, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID: testTenantID, ProtocolID: protocolID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create version: %v", err)
+	}
+
+	// Capture the operational capacity BEFORE the failed publish (the baseline tenant is seeded).
+	var bufBefore int
+	var policyBefore string
+	if err := pool.QueryRow(ctx,
+		`SELECT max_buffer_days, overflow_policy FROM vaccination_capacity_config WHERE tenant_id = $1::uuid`,
+		testTenantID).Scan(&bufBefore, &policyBefore); err != nil {
+		t.Fatalf("read capacity before: %v", err)
+	}
+
+	// An invalid overflow_policy violates the vaccination_capacity_config CHECK constraint, so the in-tx
+	// capacity upsert errors — exactly the "capacity did not save" case the publish must not survive.
+	badCapacity := domain.PublishedCapacity{
+		MaxPerDay: 50, CapacityScope: "tenant", MaxBufferDays: 5, OverflowPolicy: "not-a-real-policy",
+	}
+	if err := repo.PublishVersionWithCapacity(ctx, testTenantID, versionID, nil, badCapacity, "capacity-rollback-key"); err == nil {
+		t.Fatalf("publish with a failing capacity sync must return an error, got nil")
+	}
+
+	// The version must NOT be published.
+	var status string
+	if err := pool.QueryRow(ctx,
+		`SELECT status FROM protocol_versions WHERE tenant_id = $1 AND protocol_version_id = $2::uuid`,
+		testTenantID, versionID).Scan(&status); err != nil {
+		t.Fatalf("read version status: %v", err)
+	}
+	if status != "draft" {
+		t.Fatalf("failed capacity sync must leave the version draft, got status=%q", status)
+	}
+
+	// No publish side effect: no outbox event was emitted for this version.
+	var outboxCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM outbox_messages WHERE tenant_id = $1 AND aggregate_id = $2::uuid`,
+		testTenantID, versionID).Scan(&outboxCount); err != nil {
+		t.Fatalf("count outbox: %v", err)
+	}
+	if outboxCount != 0 {
+		t.Fatalf("failed capacity sync must emit no outbox event, got %d", outboxCount)
+	}
+
+	// The operational capacity row must be untouched by the rolled-back write.
+	var bufAfter int
+	var policyAfter string
+	if err := pool.QueryRow(ctx,
+		`SELECT max_buffer_days, overflow_policy FROM vaccination_capacity_config WHERE tenant_id = $1::uuid`,
+		testTenantID).Scan(&bufAfter, &policyAfter); err != nil {
+		t.Fatalf("read capacity after: %v", err)
+	}
+	if bufAfter != bufBefore || policyAfter != policyBefore {
+		t.Fatalf("failed capacity sync must not mutate the operational row: before=%d/%q after=%d/%q",
+			bufBefore, policyBefore, bufAfter, policyAfter)
+	}
+}
