@@ -439,6 +439,16 @@ npm run smoke:visual:live
 Open the generated screenshots under
 `.codex-goatos-render/admin-web-screenshots/` before claiming visual QA.
 
+The default smoke lets the calendar drive-target roster be empty (logs
+`identity_calendar_roster=skipped_no_targets`). To hard-assert the
+Display ID / Tag 1 / Tag 2 identity columns on a vaccination drive drawer, run
+`npm run smoke:calendar-identity:live`
+(`GOATOS_SMOKE_ONLY_ROUTES=calendar GOATOS_SMOKE_STRICT_CALENDAR_IDENTITY=1`).
+It currently fails by design — the local seed generates no obligations for drive
+`protocol_version`s, so every drive roster is empty — and goes green once that
+seed gap is fixed. Scope any run with `GOATOS_SMOKE_ONLY_ROUTES=<name,...>`
+(validated up front; unknown names fail fast).
+
 ## Scope Chrome Rule
 
 Keep park/date scope in the top bar. Remove repeated park/date/scope chips from

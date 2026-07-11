@@ -35,16 +35,35 @@ const diffDir = join(screenshotDir, "diffs");
 let baselineCompared = 0;
 let baselineUpdated = 0;
 
-await waitForApp(appBaseUrl);
-const goatId = await resolveSmokeGoatID(apiBaseUrl, bearerToken, tenantId);
-const procurementLoadId = await resolveSmokeProcurementLoadID(apiBaseUrl, bearerToken, tenantId);
-mkdirSync(screenshotDir, { recursive: true });
-if (baselineDir) mkdirSync(diffDir, { recursive: true });
-
 // Optional focused run: GOATOS_SMOKE_ONLY_ROUTES=calendar,counts-herd restricts the sweep to those
 // routes so a targeted assertion (e.g. calendar identity) can run without an unrelated earlier route
 // (e.g. a seed-empty Action Center) aborting the whole gate before Calendar is reached.
+// Validate the selection UP FRONT — before waiting on the app or resolving any per-route fixture — so a
+// typo (or a selection that matches nothing) fails immediately, not after an unrelated network lookup.
+const KNOWN_ROUTE_NAMES = [
+  "login", "control-tower", "action-center", "calendar", "protocol-adherence", "workflows",
+  "vaccination", "vaccination-execution", "procurement-source-entry", "config", "sops",
+  "sops-builder", "counts-herd", "operations-audit", "operations-dlq", "goat-passport",
+  "procurement-load-detail",
+];
 const onlyRoutes = (process.env.GOATOS_SMOKE_ONLY_ROUTES || "").split(",").map((s) => s.trim()).filter(Boolean);
+const unknownRoutes = onlyRoutes.filter((name) => !KNOWN_ROUTE_NAMES.includes(name));
+if (unknownRoutes.length) {
+  throw new Error(
+    `GOATOS_SMOKE_ONLY_ROUTES has unknown route(s): ${unknownRoutes.join(", ")}. Valid routes: ${KNOWN_ROUTE_NAMES.join(", ")}`,
+  );
+}
+const runsRoute = (name) => onlyRoutes.length === 0 || onlyRoutes.includes(name);
+
+await waitForApp(appBaseUrl);
+// Resolve per-route smoke fixtures lazily: only hit /goats/search or the procurement load lookup when a
+// selected route actually needs it, so a focused `calendar` run never fails on an unrelated lookup.
+const goatId = runsRoute("goat-passport") ? await resolveSmokeGoatID(apiBaseUrl, bearerToken, tenantId) : null;
+const procurementLoadId = runsRoute("procurement-load-detail")
+  ? await resolveSmokeProcurementLoadID(apiBaseUrl, bearerToken, tenantId)
+  : null;
+mkdirSync(screenshotDir, { recursive: true });
+if (baselineDir) mkdirSync(diffDir, { recursive: true });
 
 const routes = [
   { name: "login", path: "/login" },
@@ -71,16 +90,17 @@ if (procurementLoadId) {
   });
 }
 
-// Validate GOATOS_SMOKE_ONLY_ROUTES up front: an unknown/mistyped name (or a selection that matches
-// nothing) must fail loudly, never silently run zero routes and exit green.
-const knownRouteNames = new Set(routes.map((route) => route.name));
-const unknownRoutes = onlyRoutes.filter((name) => !knownRouteNames.has(name));
-if (unknownRoutes.length) {
-  throw new Error(
-    `GOATOS_SMOKE_ONLY_ROUTES has unknown route(s): ${unknownRoutes.join(", ")}. Valid routes: ${[...knownRouteNames].join(", ")}`,
-  );
-}
+// Names were already validated up front against KNOWN_ROUTE_NAMES; resolve the selection to concrete
+// routes. A requested route the run couldn't build (e.g. procurement-load-detail with no seeded load)
+// fails loudly here rather than silently running fewer routes than asked for.
 const selectedRoutes = onlyRoutes.length ? routes.filter((route) => onlyRoutes.includes(route.name)) : routes;
+if (onlyRoutes.length) {
+  const built = new Set(routes.map((route) => route.name));
+  const unavailable = onlyRoutes.filter((name) => !built.has(name));
+  if (unavailable.length) {
+    throw new Error(`GOATOS_SMOKE_ONLY_ROUTES selected route(s) not available in this run: ${unavailable.join(", ")}`);
+  }
+}
 if (selectedRoutes.length === 0) {
   throw new Error("GOATOS_SMOKE_ONLY_ROUTES selected zero routes");
 }

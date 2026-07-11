@@ -28,6 +28,21 @@ npm run build
 npm run smoke:visual:live
 ```
 
+The default `smoke:visual:live` permits the calendar drive-target roster to be
+absent — it logs `identity_calendar_roster=skipped_no_targets` and passes. To
+hard-assert the Display ID / Tag 1 / Tag 2 identity columns on a vaccination
+drive drawer, run the focused strict gate:
+
+```bash
+npm run smoke:calendar-identity:live
+```
+
+This exits non-zero **by design** in the current seed: no obligations are
+generated for drive `protocol_version`s, so every drive roster is empty. It goes
+green once that seed/obligation-generation gap is closed. You can also scope any
+run with `GOATOS_SMOKE_ONLY_ROUTES=<name,...>` (validated against the known route
+list up front).
+
 Implemented admin-web routes:
 
 ```text
