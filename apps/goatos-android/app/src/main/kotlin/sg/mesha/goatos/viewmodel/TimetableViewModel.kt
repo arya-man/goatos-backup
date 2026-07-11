@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.RosterRepository
@@ -59,7 +60,14 @@ class TimetableViewModel @Inject constructor(
         }
         runCatching { repo.timetable(centerId) }
             .onSuccess { dto -> _state.value = dto.toTimetableUiState() }
-            .onFailure { _state.value = TimetableUiState(errorCode = "load_failed") }
+            .onFailure {
+                // Refresh must never wipe: keep any rows already on screen and just flag
+                // offline; only a cold failure (nothing loaded yet) shows the honest error.
+                _state.update { current ->
+                    if (current.rows.isNotEmpty()) current.copy(isOffline = true, errorCode = null)
+                    else TimetableUiState(errorCode = "load_failed")
+                }
+            }
     }
 }
 

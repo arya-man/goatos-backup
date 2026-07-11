@@ -29,6 +29,7 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.SyncStatusIndicator
 
 // ---------------------------------------------------------------------------
 // Timetable (HRMS shift roster) — screens.md-style TRD §14 dumb renderer.
@@ -92,6 +93,8 @@ data class TimetableUiState(
      * The Screen renders the localized error message based on this code.
      */
     val errorCode: String? = null,
+    /** A background refresh failed but prior rows are kept on screen (refresh never wipes). */
+    val isOffline: Boolean = false,
 )
 
 sealed interface TimetableEvent {
@@ -159,6 +162,18 @@ private fun TimetableHeader(state: TimetableUiState) {
             color = MeshaColors.Muted,
             modifier = Modifier.padding(top = MeshaDimens.space1),
         )
+        // A failed refresh keeps the last-loaded roster on screen; flag it as stale rather
+        // than blanking to an error (this HRMS mirror has no Room cache, so only in-session
+        // rows survive — still better than wiping them on a transient network blip).
+        if (state.isOffline && state.rows.isNotEmpty()) {
+            SyncStatusIndicator(
+                isRefreshing = false,
+                lastSyncedAt = null,
+                hasData = true,
+                isOffline = true,
+                modifier = Modifier.padding(top = MeshaDimens.space1),
+            )
+        }
     }
 }
 

@@ -340,6 +340,9 @@ fun AppNavHost(
                     gapsData = gapsState.items,
                     isLoading = gapsState.isLoading,
                     errorMessage = gapsState.errorMessage,
+                    isRefreshing = gapsState.isRefreshing,
+                    lastSyncedAt = gapsState.lastSyncedAt,
+                    isOffline = gapsState.isOffline,
                     onDismiss = { showGaps = false },
                 )
             }
@@ -348,6 +351,9 @@ fun AppNavHost(
                     rows = dosesState.items,
                     isLoading = dosesState.isLoading,
                     errorMessage = dosesState.errorMessage,
+                    isRefreshing = dosesState.isRefreshing,
+                    lastSyncedAt = dosesState.lastSyncedAt,
+                    isOffline = dosesState.isOffline,
                     onDismiss = { showGiven = false },
                 )
             }

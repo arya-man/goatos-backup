@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.R as DesignSystemR
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import androidx.compose.ui.text.font.FontWeight
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
@@ -492,6 +493,9 @@ fun DataGapsSheet(
     gapsData: List<GapRow> = emptyList(),
     isLoading: Boolean = false,
     errorMessage: String? = null,
+    isRefreshing: Boolean = false,
+    lastSyncedAt: Long? = null,
+    isOffline: Boolean = false,
     onDismiss: () -> Unit,
 ) {
     OverlaySheet(
@@ -504,6 +508,15 @@ fun DataGapsSheet(
             Modifier.padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // Cached rows can still show after a failed background refresh — surface the
+            // stale/offline signal so they never read as fresh (renders nothing on a cold
+            // load/empty/error, which the branches below own).
+            SyncStatusIndicator(
+                isRefreshing = isRefreshing,
+                lastSyncedAt = lastSyncedAt,
+                hasData = gapsData.isNotEmpty(),
+                isOffline = isOffline,
+            )
             when {
                 isLoading -> {
                     Text(stringResource(DesignSystemR.string.ovl_loading), color = OverlayTokens.muted, fontSize = 13.sp)
@@ -552,6 +565,9 @@ fun DosesGivenSheet(
     rows: List<GivenRow> = emptyList(),
     isLoading: Boolean = false,
     errorMessage: String? = null,
+    isRefreshing: Boolean = false,
+    lastSyncedAt: Long? = null,
+    isOffline: Boolean = false,
     onDismiss: () -> Unit,
 ) {
     OverlaySheet(
@@ -563,6 +579,14 @@ fun DosesGivenSheet(
         Column(
             Modifier.fillMaxWidth().heightIn(max = 340.dp).padding(horizontal = 20.dp),
         ) {
+            // Stale/offline signal for cached rows kept after a failed refresh (self-hides
+            // on cold load/empty/error).
+            SyncStatusIndicator(
+                isRefreshing = isRefreshing,
+                lastSyncedAt = lastSyncedAt,
+                hasData = rows.isNotEmpty(),
+                isOffline = isOffline,
+            )
             when {
                 isLoading -> {
                     Text(stringResource(DesignSystemR.string.ovl_loading), color = OverlayTokens.muted, fontSize = 13.sp)
