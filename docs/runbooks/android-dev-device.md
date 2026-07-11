@@ -39,16 +39,20 @@ tail -f .codex-goatos-render/logs/local-api.log | grep /app/bootstrap
 
 ## Auth in dev is the LOCAL bearer — NEVER Firebase (do not re-derive this)
 
-The dev flavor authenticates by AUTO-CONSUMING the baked HS256 bearer: `make android-dev-run`
-mints a token for the target user, bakes it into `BuildConfig.DEV_BEARER_TOKEN`, and the app boots
-straight into the workspace **as that user** — no login screen. Firebase (Google / work-email +
-password) is **stg/prod only** and points at the deployed API + `goatos-prod`, so it CANNOT reach
-local `:8080`.
+The dev flavor authenticates with the baked HS256 bearer, NOT Firebase. `make android-dev-run` mints
+a token for the target user and bakes it into `BuildConfig.DEV_BEARER_TOKEN`. Mechanics (from code):
+- `SessionViewModel.signInWith{Email,Google}` short-circuit to `signInWithDevToken()` in the dev
+  flavor — **the email/password/Google are IGNORED; it writes the baked bearer into `SessionStore`**
+  (`SessionViewModel.kt`, `authMode == DEV_BEARER`).
+- The network layer reads the token from `SessionStore.currentToken()` in dev (`AppModule` `tokenProvider`,
+  `if (FLAVOR=="dev")`), so once signed in every request carries the baked bearer.
 
-**If the dev build shows the Firebase login screen, that is a REGRESSION, not the flow** — the
-dev-bearer auto-auth is broken and local testing is impossible until it's restored. Do NOT try to log
-in with Google/email (it hits prod, not local, and you shouldn't type credentials). Fix the dev
-auto-auth (session bootstrap consuming `DEV_BEARER_TOKEN`) instead.
+**So if the dev app shows the login screen, you are NOT blocked — just TAP "Sign in" (or "Continue
+with Google") and you're in as the baked user against local `:8080`.** Do NOT type real
+Google/work-email credentials: in dev they're ignored, and doing so on a stg/prod build hits the
+deployed API + `goatos-prod`, never local. (Some builds auto-sign-in on boot with no screen; if a
+build STOPS auto-signing-in, that's a minor UX regression — the tap-through still works. A build that
+genuinely demands real Firebase creds to proceed in dev IS a regression: restore the dev-token path.)
 
 ## Testing as a specific ROLE / switching roles (operator ↔ director ↔ CEO …)
 
