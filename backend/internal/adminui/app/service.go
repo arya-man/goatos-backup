@@ -2239,7 +2239,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 					option("target", "Target", "Drive target|matching goats by stage · age · park — never random individuals", "ok"),
 					option("group", "Group", "→ per-shed events|all matching goats grouped by shed", "info"),
 					option("route", "Route", "→ shed owner|one batched notification per shed → its Manager, delegated to Asst", "info"),
-					option("execute", "Execute", "video per shed|FEFO dose consumed, posted on verify", "warn"),
+					option("execute", "Execute", "proof per shed|FEFO dose consumed, posted on verify", "warn"),
 				},
 			},
 			{
@@ -2263,7 +2263,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 					option("target", "Target", "Drive target|stage · age · park", "ok"),
 					option("group", "Group", "per-shed events|all matching goats grouped by shed", "info"),
 					option("route", "Route", "shed owner|manager / assistant assignment", "info"),
-					option("execute", "Execute", "video per shed|proof gates before consume", "warn"),
+					option("execute", "Execute", "proof per shed|proof gates before consume", "warn"),
 				},
 			},
 			{
