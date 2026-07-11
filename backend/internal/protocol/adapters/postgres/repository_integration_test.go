@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/protocol/ports"
@@ -794,12 +796,13 @@ func TestPublishVersionWithCapacityRollsBackOnSyncFailure(t *testing.T) {
 		t.Fatalf("create version: %v", err)
 	}
 
-	// Capture the operational capacity BEFORE the failed publish (the baseline tenant is seeded).
-	var bufBefore int
-	var policyBefore string
+	// Capture the FULL operational capacity row BEFORE the failed publish (baseline tenant is seeded).
+	var perDayBefore, bufBefore, rowVerBefore int
+	var scopeBefore, policyBefore string
 	if err := pool.QueryRow(ctx,
-		`SELECT max_buffer_days, overflow_policy FROM vaccination_capacity_config WHERE tenant_id = $1::uuid`,
-		testTenantID).Scan(&bufBefore, &policyBefore); err != nil {
+		`SELECT max_per_day, max_buffer_days, capacity_scope, overflow_policy, row_version
+		 FROM vaccination_capacity_config WHERE tenant_id = $1::uuid`,
+		testTenantID).Scan(&perDayBefore, &bufBefore, &scopeBefore, &policyBefore, &rowVerBefore); err != nil {
 		t.Fatalf("read capacity before: %v", err)
 	}
 
@@ -834,16 +837,151 @@ func TestPublishVersionWithCapacityRollsBackOnSyncFailure(t *testing.T) {
 		t.Fatalf("failed capacity sync must emit no outbox event, got %d", outboxCount)
 	}
 
-	// The operational capacity row must be untouched by the rolled-back write.
-	var bufAfter int
-	var policyAfter string
+	// No publish side effect: no audit row for this version's publish.
+	if n := countRows(ctx, t, pool,
+		`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND resource_id = $2::uuid AND action = 'protocol.version.published'`,
+		testTenantID, versionID); n != 0 {
+		t.Fatalf("failed capacity sync must write no publish audit row, got %d", n)
+	}
+
+	// No publish side effect: no publish idempotency reservation survives the rollback.
+	if n := countRows(ctx, t, pool,
+		`SELECT count(*) FROM idempotency_keys WHERE tenant_id = $1 AND scope = 'protocol.version.publish'`,
+		testTenantID); n != 0 {
+		t.Fatalf("failed capacity sync must leave no publish idempotency reservation, got %d", n)
+	}
+
+	// The FULL operational capacity row must be untouched by the rolled-back write.
+	var perDayAfter, bufAfter, rowVerAfter int
+	var scopeAfter, policyAfter string
 	if err := pool.QueryRow(ctx,
-		`SELECT max_buffer_days, overflow_policy FROM vaccination_capacity_config WHERE tenant_id = $1::uuid`,
-		testTenantID).Scan(&bufAfter, &policyAfter); err != nil {
+		`SELECT max_per_day, max_buffer_days, capacity_scope, overflow_policy, row_version
+		 FROM vaccination_capacity_config WHERE tenant_id = $1::uuid`,
+		testTenantID).Scan(&perDayAfter, &bufAfter, &scopeAfter, &policyAfter, &rowVerAfter); err != nil {
 		t.Fatalf("read capacity after: %v", err)
 	}
-	if bufAfter != bufBefore || policyAfter != policyBefore {
-		t.Fatalf("failed capacity sync must not mutate the operational row: before=%d/%q after=%d/%q",
-			bufBefore, policyBefore, bufAfter, policyAfter)
+	if perDayAfter != perDayBefore || bufAfter != bufBefore || scopeAfter != scopeBefore ||
+		policyAfter != policyBefore || rowVerAfter != rowVerBefore {
+		t.Fatalf("failed capacity sync must not mutate the operational row: before=%d/%d/%q/%q/v%d after=%d/%d/%q/%q/v%d",
+			perDayBefore, bufBefore, scopeBefore, policyBefore, rowVerBefore,
+			perDayAfter, bufAfter, scopeAfter, policyAfter, rowVerAfter)
+	}
+}
+
+// countRows scans a single COUNT(*) query, failing the test on error. Shared by the capacity-publish
+// rollback guards to keep the "no side effect" assertions terse.
+func countRows(ctx context.Context, t *testing.T, pool *pgxpool.Pool, sql string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(ctx, sql, args...).Scan(&n); err != nil {
+		t.Fatalf("count (%s): %v", sql, err)
+	}
+	return n
+}
+
+// TestPublishVersionWithDerivedRulesRollsBackOnCapacityFailure is the atomicity regression guard for the
+// vaccination.matrix publish path, which carries MORE in-transaction side effects than the plain path —
+// derived protocol_rules + protocol_rule_dimensions, retiring overlapping published versions, audit, and
+// outbox — all BEFORE the capacity upsert. A failing capacity sync must roll every one of them back: the
+// version stays draft, no derived rules/dimensions persist, no outbox event, no audit row, no idempotency
+// reservation, and the operational capacity row is untouched.
+func TestPublishVersionWithDerivedRulesRollsBackOnCapacityFailure(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	protocolID, err := repo.CreateDefinition(ctx, domain.NewDefinition{
+		TenantID: testTenantID, Code: "vaccination.matrix.capacity.rollback", Name: "Matrix Capacity Rollback Guard",
+		Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+	versionID, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID: testTenantID, ProtocolID: protocolID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       vaccinationMatrixRuleDSL(), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create version: %v", err)
+	}
+	rules, dims := derivedMatrixRows(versionID, "20000000-0000-4000-8000-000000000001", "et_tt")
+
+	var perDayBefore, bufBefore, rowVerBefore int
+	var scopeBefore, policyBefore string
+	if err := pool.QueryRow(ctx,
+		`SELECT max_per_day, max_buffer_days, capacity_scope, overflow_policy, row_version
+		 FROM vaccination_capacity_config WHERE tenant_id = $1::uuid`,
+		testTenantID).Scan(&perDayBefore, &bufBefore, &scopeBefore, &policyBefore, &rowVerBefore); err != nil {
+		t.Fatalf("read capacity before: %v", err)
+	}
+
+	// Invalid overflow_policy → the in-tx capacity upsert violates the CHECK and fails the matrix publish.
+	badCapacity := &domain.PublishedCapacity{
+		MaxPerDay: 50, CapacityScope: "tenant", MaxBufferDays: 5, OverflowPolicy: "not-a-real-policy",
+	}
+	err = repo.PublishVersionWithDerivedRules(ctx, testTenantID, domain.Version{
+		ProtocolVersionID: versionID,
+		ProtocolID:        protocolID,
+		ScopeType:         "tenant",
+		Status:            "draft",
+		RuleDsl:           vaccinationMatrixRuleDSL(),
+	}, rules, dims, nil, badCapacity, "matrix-capacity-rollback-key")
+	if err == nil {
+		t.Fatalf("matrix publish with a failing capacity sync must return an error, got nil")
+	}
+
+	var status string
+	if err := pool.QueryRow(ctx,
+		`SELECT status FROM protocol_versions WHERE tenant_id = $1 AND protocol_version_id = $2::uuid`,
+		testTenantID, versionID).Scan(&status); err != nil {
+		t.Fatalf("read version status: %v", err)
+	}
+	if status != "draft" {
+		t.Fatalf("failed capacity sync must leave the matrix version draft, got status=%q", status)
+	}
+
+	// Every matrix side effect must have rolled back.
+	if n := countRows(ctx, t, pool,
+		`SELECT count(*) FROM protocol_rules WHERE tenant_id = $1 AND protocol_version_id = $2::uuid`,
+		testTenantID, versionID); n != 0 {
+		t.Fatalf("failed capacity sync must persist no derived rules, got %d", n)
+	}
+	if n := countRows(ctx, t, pool,
+		`SELECT count(*) FROM protocol_rule_dimensions WHERE tenant_id = $1 AND protocol_version_id = $2::uuid`,
+		testTenantID, versionID); n != 0 {
+		t.Fatalf("failed capacity sync must persist no rule dimensions, got %d", n)
+	}
+	if n := countRows(ctx, t, pool,
+		`SELECT count(*) FROM outbox_messages WHERE tenant_id = $1 AND aggregate_id = $2::uuid`,
+		testTenantID, versionID); n != 0 {
+		t.Fatalf("failed capacity sync must emit no outbox event, got %d", n)
+	}
+	if n := countRows(ctx, t, pool,
+		`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND resource_id = $2::uuid AND action = 'protocol.version.published'`,
+		testTenantID, versionID); n != 0 {
+		t.Fatalf("failed capacity sync must write no publish audit row, got %d", n)
+	}
+	if n := countRows(ctx, t, pool,
+		`SELECT count(*) FROM idempotency_keys WHERE tenant_id = $1 AND scope = 'protocol.version.publish'`,
+		testTenantID); n != 0 {
+		t.Fatalf("failed capacity sync must leave no publish idempotency reservation, got %d", n)
+	}
+
+	var perDayAfter, bufAfter, rowVerAfter int
+	var scopeAfter, policyAfter string
+	if err := pool.QueryRow(ctx,
+		`SELECT max_per_day, max_buffer_days, capacity_scope, overflow_policy, row_version
+		 FROM vaccination_capacity_config WHERE tenant_id = $1::uuid`,
+		testTenantID).Scan(&perDayAfter, &bufAfter, &scopeAfter, &policyAfter, &rowVerAfter); err != nil {
+		t.Fatalf("read capacity after: %v", err)
+	}
+	if perDayAfter != perDayBefore || bufAfter != bufBefore || scopeAfter != scopeBefore ||
+		policyAfter != policyBefore || rowVerAfter != rowVerBefore {
+		t.Fatalf("failed capacity sync must not mutate the operational row: before=%d/%d/%q/%q/v%d after=%d/%d/%q/%q/v%d",
+			perDayBefore, bufBefore, scopeBefore, policyBefore, rowVerBefore,
+			perDayAfter, bufAfter, scopeAfter, policyAfter, rowVerAfter)
 	}
 }
