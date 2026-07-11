@@ -37,6 +37,35 @@ architecture/context index and agent skill references. Once adopted, Phase B
 implementation must conform to this orchestration, repair-boundary, liveness,
 and notification contract.
 
+### 0.1 Runtime Feature Flag
+
+Kernel audit is opt-in runtime behavior. The entire audit system must sit behind
+an explicit global flag, default `false` in every environment:
+
+```text
+GOATOS_KERNEL_AUDIT_ENABLED=false
+```
+
+Implementation can back this with environment config, app config, or a feature
+flag service, but the runtime contract is the same:
+
+- if the global flag is off, `backend/cmd/kernel-audit` exits as a no-op;
+- no scheduled audit sweeps are enqueued or executed;
+- no watchdog/dead-man alerts fire for missing audit runs;
+- no Slack audit summaries or P0/P1 audit alerts are sent;
+- no `kernel_audit_runs`, findings, repairs, repair proofs, cap claims, or
+  suppressions are written by audit runtime;
+- no self-healing, projection rebuild request, notification request, or owning
+  repair-port call is attempted;
+- sub-flags such as report-only, auto-repair, tenant allowlists, or Slack
+  delivery cannot override the global off switch.
+
+Schema migrations, static CI/`make ai-doctor` manifest checks, and docs can
+exist while the flag is off. Runtime execution must remain disabled until an
+operator deliberately enables the flag. If a per-tenant or per-module allowlist
+is added later, both the global flag and the narrower allowlist must be enabled;
+global off always wins.
+
 ## 1. Purpose
 
 Goat OS is an event-driven operational kernel. A business fact such as birth,
@@ -148,7 +177,7 @@ Never fabricate source facts.
 
 ## 4. Schedule And Delivery
 
-Default audit cadence:
+Default audit cadence when `GOATOS_KERNEL_AUDIT_ENABLED=true`:
 
 | Run | Proposed IST time | Purpose |
 | --- | --- | --- |
@@ -182,9 +211,10 @@ Slack implementation rule:
 
 ### 4.1 Liveness And Meta-Monitoring
 
-Audit has to be audited. Every expected sweep writes a `kernel_audit_runs`
-heartbeat with schedule key, tenant/scope window, started time, heartbeat time,
-deadline, completed time, status, code SHA, config hash, and report-delivery
+Audit has to be audited, but only when the runtime flag is enabled. Every
+expected sweep writes a `kernel_audit_runs` heartbeat with schedule key,
+tenant/scope window, started time, heartbeat time, deadline, completed time,
+status, code SHA, config hash, flag state, input windows, and report-delivery
 state.
 
 A small watchdog checks:
@@ -199,6 +229,8 @@ A small watchdog checks:
 Meta-alert truth must live outside Slack. Slack is last-mile delivery only. P0/P1
 meta-alerts should also flow to Cloud Monitoring, email/PagerDuty-style webhook,
 or an operator incident channel so a Slack outage does not hide audit failure.
+When the global audit flag is off, the watchdog must not alert merely because
+scheduled audit runs are absent.
 
 ## 5. Core Data Model
 
@@ -977,6 +1009,8 @@ run=<url> top_proofs=<url>
 
 - Implement `backend/cmd/kernel-audit` in report-only mode as orchestrator,
   normalizer, run ledger, finding ledger, and reporter.
+- Gate the command, scheduler, watchdog, Slack delivery, and any repair request
+  behind `GOATOS_KERNEL_AUDIT_ENABLED`; default off must be a no-op.
 - Record `kernel_audit_runs` and `kernel_audit_findings`.
 - Add expected-run liveness heartbeats and watchdog alerts before auto-repair.
 - Add repair proof packet schema before enabling any mutation-capable repair.
@@ -1082,6 +1116,7 @@ watermarks, and skipped/deferred scan reasons.
 
 ## 14. Non-Goals
 
+- Do not run kernel audit runtime unless `GOATOS_KERNEL_AUDIT_ENABLED=true`.
 - Do not resurrect legacy Slack/App Script as Goat OS runtime.
 - Do not use Slack as canonical truth.
 - Do not let AI agents apply business fixes.
@@ -1105,41 +1140,45 @@ watermarks, and skipped/deferred scan reasons.
 
 The plan is implemented when:
 
-1. Four scheduled audit sweeps run daily with durable run rows.
-2. Expected-run watchdogs alert when sweeps, daily digest, Slack delivery, or
-   the watchdog itself miss heartbeat/deadline.
-3. Daily Slack digest reaches `#goatos-audit`.
-4. P0/P1 findings alert promptly through durable notification/report requests
+1. `GOATOS_KERNEL_AUDIT_ENABLED` defaults off, and off means no runner, schedule,
+   watchdog alert, Slack audit delivery, finding write, repair request, or
+   self-healing action.
+2. When the flag is enabled, four scheduled audit sweeps run daily with durable
+   run rows that record the flag state.
+3. Expected-run watchdogs alert when enabled sweeps, daily digest, Slack
+   delivery, or the watchdog itself miss heartbeat/deadline.
+4. Daily Slack digest reaches `#goatos-audit`.
+5. P0/P1 findings alert promptly through durable notification/report requests
    and link to Operations Audit/Action Center.
-5. Vaccination birth/procurement/completion/exit/defer/recovery cases reconcile
+6. Vaccination birth/procurement/completion/exit/defer/recovery cases reconcile
    expected-vs-actual obligations and projections.
-6. Event spine, outbox, DLQ, sweepers, notification intent, and projection
+7. Event spine, outbox, DLQ, sweepers, notification intent, and projection
    freshness are covered.
-7. Auto-repair is restricted to deterministic derived artifacts, executed
+8. Auto-repair is restricted to deterministic derived artifacts, executed
    through owning module repair ports/services/commands, verified, and fully
    audited.
-8. Every repair has a durable proof packet with source evidence, dry-run diff,
+9. Every repair has a durable proof packet with source evidence, dry-run diff,
    preconditions, before/after hashes, verifier result, idempotency key, and
    trace/correlation/causation IDs.
-9. Repair caps, confidence levels, dry-run mode, circuit breakers, and kill
+10. Repair caps, confidence levels, dry-run mode, circuit breakers, and kill
    switches prevent broad accidental mutation at tenant and invariant scale;
    cap reservations are atomic and period-bucketed under concurrent workers,
    using a unique cap-bucket serialization row.
-10. Missing source truth creates process exceptions, not fabricated data.
-11. Protocol Adherence percentages, ticket counts, notification state, calendar
+11. Missing source truth creates process exceptions, not fabricated data.
+12. Protocol Adherence percentages, ticket counts, notification state, calendar
    state, and command-lens projections reconcile from canonical state using
    location-local calendar day semantics for user-facing due/missed/overdue and
    recovery windows.
-12. Operations Audit can trace from any repaired subject to finding, source
+13. Operations Audit can trace from any repaired subject to finding, source
    evidence, owning repair service, emitted events, notifications, projections,
    and Slack report link.
-13. Feed Direction, HRMS/workforce, and every future feature can register an
+14. Feed Direction, HRMS/workforce, and every future feature can register an
    audit pack before it ships.
-14. CI blocks new kernel events/categories/statuses/workers/projections/metrics/
+15. CI blocks new kernel events/categories/statuses/workers/projections/metrics/
    tickets/calendar surfaces/business rules without audit-pack registry
    coverage.
-15. High-scale validation proves audit scans, repair proof lookup, and trace
+16. High-scale validation proves audit scans, repair proof lookup, and trace
    traversal are bounded and tenant-fair, including lookups by invariant,
    trace ID, correlation ID, subject, repair, and time cursor.
-16. Audit tables have a documented retention, archive, and partition-rollover
+17. Audit tables have a documented retention, archive, and partition-rollover
    policy, and scope claims are lease-safe against overlapping orchestrators.
