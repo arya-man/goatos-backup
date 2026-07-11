@@ -171,12 +171,16 @@ function Facet({ title, links, onPick }: { title: string; links: FilterLink[]; o
         {title}
       </div>
       <div className="chipset">
-        {links.map((link) => (
-          <Link key={link.label} href={link.href} replace scroll={false} className={`chip${link.active ? " on" : ""}`} onClick={onPick}>
-            {link.label}
-            {typeof link.count === "number" ? <span className="cbq">{link.count}</span> : null}
-          </Link>
-        ))}
+        {links
+          // Hide empty buckets — a chip that reads "0" is dead microcopy. Keep the active one so the
+          // current selection never vanishes, and keep count-less facets (e.g. severity) untouched.
+          .filter((link) => link.active || link.count !== 0)
+          .map((link) => (
+            <Link key={link.label} href={link.href} replace scroll={false} className={`chip${link.active ? " on" : ""}`} onClick={onPick}>
+              {link.label}
+              {typeof link.count === "number" ? <span className="cbq">{link.count}</span> : null}
+            </Link>
+          ))}
       </div>
     </div>
   );
