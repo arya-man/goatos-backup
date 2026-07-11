@@ -39,6 +39,7 @@ import (
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	vaccinationdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
 const defaultTenantID = "00000000-0000-4000-8000-000000000001"
@@ -85,6 +86,7 @@ type goatRecord struct {
 	DOB            string
 	StageEntryDate string
 	PurchaseDate   string
+	Species        string
 	Status         string
 	Health         string
 }
@@ -149,6 +151,7 @@ func run(args []string) error {
 	timeout := fs.Duration("timeout", 300*time.Second, "seed timeout")
 	sourcePath := fs.String("source", "/Users/ravi/mesha/source-material/vgoats-seed", "path to source data directory")
 	purgeFixtures := fs.Bool("purge-fixtures", true, "purge leftover synthetic dev fixtures (trigger-seed protocol family, synthetic G-0000NN goats, junk-named sheds, stale calendar projections) so every surface shows only real herd data")
+	allowPartialGeneration := fs.Bool("allow-partial-generation", false, "allow seed to exit successfully when kernel generation isolates per-goat failures")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -180,7 +183,7 @@ func run(args []string) error {
 		return fmt.Errorf("load vaccination cells: %w", err)
 	}
 
-	if _, err := seed(ctx, pool, pgCfg, *tenantID, loc, goats, cells, *purgeFixtures); err != nil {
+	if _, err := seed(ctx, pool, pgCfg, *tenantID, loc, goats, cells, *purgeFixtures, *allowPartialGeneration); err != nil {
 		return fmt.Errorf("seed: %w", err)
 	}
 
@@ -225,6 +228,7 @@ func loadGoats(sourcePath string) ([]goatRecord, error) {
 			DOB:            cell(row, col["dob"]),
 			StageEntryDate: cell(row, col["stage_entry_date"]),
 			PurchaseDate:   cell(row, col["purchase_date"]),
+			Species:        cell(row, col["species"]),
 			Status:         cell(row, col["status"]),
 			Health:         cell(row, col["health_status"]),
 		}
@@ -335,7 +339,7 @@ func headerIndex(hdr []interface{}) map[string]int {
 // on the pair.
 type shedKey struct{ farm, shed string }
 
-func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool) (stats, error) {
+func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool, allowPartialGeneration bool) (stats, error) {
 	var st stats
 	now := time.Now().In(loc)
 
@@ -566,9 +570,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	goatEntryDateByAnimalKey := map[string]*time.Time{}
 	goatStageByAnimalKey := map[string]string{}
 	type goatIns struct {
-		goatID, animalKey, animalIdentifier1, animalIdentifier2, breed, sex, lifecycle, stage, age, shedID, parkID, dob string
-		entryDate                                                                                                       string
-		health                                                                                                          *string
+		goatID, animalKey, animalIdentifier1, animalIdentifier2, species, breed, sex, lifecycle, stage, age, shedID, parkID, dob string
+		entryDate                                                                                                                string
+		health                                                                                                                   *string
 	}
 	var goatRows []goatIns
 	for _, g := range goats {
@@ -610,6 +614,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			animalKey:         animalKey,
 			animalIdentifier1: animalIdentifier1,
 			animalIdentifier2: animalIdentifier2,
+			species:           deriveSeedSpecies(g.Species, g.Breed),
 			breed:             normalizeBreed(g.Breed),
 			sex:               normalizeSex(g.Gender),
 			lifecycle:         normalizeLifecycle(g.Status),
@@ -624,14 +629,14 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	}
 	if err := batch(ctx, tx, goatRows, 500, func(b *pgx.Batch, gi goatIns) {
 		b.Queue(`
-			INSERT INTO goats (goat_id, tenant_id, species, breed, sex, lifecycle_status,
-				health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, updated_at)
-			VALUES ($1,$2,'goat',$3,$4,$5,$6,'procured',$7,$8,$9,$10,$10,$11,$12,$13,$14,now())
-			ON CONFLICT (goat_id) DO UPDATE SET breed=EXCLUDED.breed, sex=EXCLUDED.sex,
-				lifecycle_status=EXCLUDED.lifecycle_status, health_status=EXCLUDED.health_status,
-				shed_id=EXCLUDED.shed_id, park_id=EXCLUDED.park_id, current_location_id=EXCLUDED.current_location_id,
-				management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, entry_date=EXCLUDED.entry_date, updated_at=now()`,
-			gi.goatID, tenantID, gi.breed, gi.sex, gi.lifecycle, gi.health,
+				INSERT INTO goats (goat_id, tenant_id, species, breed, sex, lifecycle_status,
+					health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, updated_at)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,'procured',$8,$9,$10,$10,$11,$12,$13,$14,now())
+				ON CONFLICT (goat_id) DO UPDATE SET species=EXCLUDED.species, breed=EXCLUDED.breed, sex=EXCLUDED.sex,
+					lifecycle_status=EXCLUDED.lifecycle_status, health_status=EXCLUDED.health_status,
+					shed_id=EXCLUDED.shed_id, park_id=EXCLUDED.park_id, current_location_id=EXCLUDED.current_location_id,
+					management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, entry_date=EXCLUDED.entry_date, updated_at=now()`,
+			gi.goatID, tenantID, gi.species, gi.breed, gi.sex, gi.lifecycle, gi.health,
 			nullableDate(gi.dob), nullableDate(gi.entryDate), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID)
 	}); err != nil {
 		return st, fmt.Errorf("insert goats: %w", err)
@@ -847,13 +852,38 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	gen := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 
 	genRes, err := gen.GenerateEffectiveForAllGoats(ctx, tenantID, now)
-	if err != nil && !vaccinationapp.IsGenerationPartialFailure(err) {
-		return st, fmt.Errorf("generate effective cohort: %w", err)
-	}
 	st.KernelGenerated = genRes.Generated
 	st.KernelDeferred = genRes.Deferred
 	st.KernelSuppressed = genRes.SuppressedByTrustedHistory
 
+	genErr := seedGenerationError(genRes, err, allowPartialGeneration)
+	if err != nil && !vaccinationapp.IsGenerationPartialFailure(err) {
+		return st, genErr
+	}
+
+	printSeedSummary(st, genRes)
+	if genErr != nil {
+		return st, genErr
+	}
+
+	return st, nil
+}
+
+func seedGenerationError(genRes vaccinationdomain.GenerateResult, err error, allowPartialGeneration bool) error {
+	if err == nil {
+		return nil
+	}
+	if !vaccinationapp.IsGenerationPartialFailure(err) {
+		return fmt.Errorf("generate effective cohort: %w", err)
+	}
+	if allowPartialGeneration {
+		return nil
+	}
+	return fmt.Errorf("generate effective cohort partial failure: failed_goats=%d generated=%d deferred=%d reopened=%d skipped_no_due_date=%d suppressed_trusted=%d: %w",
+		genRes.FailedGoats, genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory, err)
+}
+
+func printSeedSummary(st stats, genRes vaccinationdomain.GenerateResult) {
 	fmt.Printf("seeded real vaccination data with kernel generation:\n"+
 		"  parks_resolved=%d sheds_resolved=%d sheds_created=%d protocols=%d animals=%d\n"+
 		"  obligations=%d (completed=%d due=%d scheduled=%d) completions_history=%d skipped_cells=%d\n"+
@@ -864,8 +894,6 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		st.Purged.total(), st.Purged.CalendarProjections, st.Purged.Obligations, st.Purged.Batches,
 		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows,
 		genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.FailedGoats, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory)
-
-	return st, nil
 }
 
 // purgeCounts breaks down what the fixture purge removed, for the run report.
@@ -1396,6 +1424,19 @@ func normalizeBreed(b string) string {
 	return strings.TrimSpace(b)
 }
 
+func deriveSeedSpecies(speciesHint, breed string) string {
+	switch strings.ToLower(strings.TrimSpace(speciesHint)) {
+	case "sheep", "ovine", "ewe", "ram", "lamb":
+		return "sheep"
+	case "goat", "caprine", "doe", "buck", "kid":
+		return "goat"
+	}
+	if strings.Contains(strings.ToLower(strings.TrimSpace(breed)), "sheep") {
+		return "sheep"
+	}
+	return "goat"
+}
+
 func normalizeLifecycle(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "dead", "died", "death", "mortality":
@@ -1855,51 +1896,6 @@ func sourceDoseCode(c vaccCell) string {
 		return "booster"
 	}
 	return "first"
-}
-
-func shouldDeriveNextCycleAfterHistory(c vaccCell) bool {
-	if !vaccineHasBoosterDose(c.Vaccine) {
-		return true
-	}
-	return sourceDoseCode(c) == terminalCourseDose(c.Vaccine)
-}
-
-func terminalCourseDose(vaccName string) string {
-	if vaccineHasBoosterDose(vaccName) {
-		return "booster"
-	}
-	return "first"
-}
-
-func vaccineHasBoosterDose(vaccName string) bool {
-	spec, ok := buildCanonicalVaccinationMatrix()[vaccName]
-	if !ok {
-		return false
-	}
-	return len(spec.BirthAgeWaves) > 1 || len(spec.PostArrivalWaves) > 1
-}
-
-func revaccinationIntervalDays(vaccName string) int {
-	switch vaccName {
-	case "FMD":
-		return 274
-	case "PPR":
-		return 1095
-	case "ET+TT":
-		return 182
-	default:
-		return 365
-	}
-}
-
-func nextDueAfterLastVaccination(lastAdministered time.Time, vaccName string, asOf time.Time) time.Time {
-	loc := lastAdministered.Location()
-	intervalDays := revaccinationIntervalDays(vaccName)
-	next := sourceVaccinationDateTime(lastAdministered.In(loc).AddDate(0, 0, intervalDays), loc)
-	for !next.After(asOf.In(loc)) {
-		next = sourceVaccinationDateTime(next.In(loc).AddDate(0, 0, intervalDays), loc)
-	}
-	return next
 }
 
 func sourceVaccinationDateTime(d time.Time, loc *time.Location) time.Time {

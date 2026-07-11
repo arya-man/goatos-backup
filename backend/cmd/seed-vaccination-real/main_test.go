@@ -3,8 +3,11 @@ package main
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	vaccinationdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
 func TestVaccinationMatrixRowsUseSpeciesScopedEligibility(t *testing.T) {
@@ -49,50 +52,6 @@ func TestVaccinationMatrixRowsUseSpeciesScopedEligibility(t *testing.T) {
 	}
 }
 
-func TestNextDueAfterLastVaccinationUsesHistoricalCellAsAnchor(t *testing.T) {
-	loc := mustKolkata(t)
-	asOf := time.Date(2026, time.July, 11, 17, 4, 0, 0, loc)
-	lastAdministered := sourceVaccinationDateTime(time.Date(2026, time.June, 21, 0, 0, 0, 0, loc), loc)
-
-	got := nextDueAfterLastVaccination(lastAdministered, "ET+TT", asOf)
-	want := time.Date(2026, time.December, 20, 9, 0, 0, 0, loc)
-
-	if !got.Equal(want) {
-		t.Fatalf("next due = %s, want %s", got, want)
-	}
-	if !got.After(asOf) {
-		t.Fatalf("next due = %s must be after import as-of %s", got, asOf)
-	}
-}
-
-func TestNextDueAfterLastVaccinationRollsForwardPastImportAsOf(t *testing.T) {
-	loc := mustKolkata(t)
-	asOf := time.Date(2026, time.July, 11, 17, 4, 0, 0, loc)
-	lastAdministered := sourceVaccinationDateTime(time.Date(2025, time.January, 1, 0, 0, 0, 0, loc), loc)
-
-	got := nextDueAfterLastVaccination(lastAdministered, "ET+TT", asOf)
-	want := time.Date(2026, time.December, 30, 9, 0, 0, 0, loc)
-
-	if !got.Equal(want) {
-		t.Fatalf("next due = %s, want %s", got, want)
-	}
-	if !got.After(asOf) {
-		t.Fatalf("next due = %s must be after import as-of %s", got, asOf)
-	}
-}
-
-func TestShouldDeriveNextCycleAfterHistoryOnlyForTerminalDose(t *testing.T) {
-	if shouldDeriveNextCycleAfterHistory(vaccCell{Vaccine: "ET+TT", DoseCode: "first"}) {
-		t.Fatal("ET+TT first-dose history must not seed a flat-interval next cycle while booster owns course progress")
-	}
-	if !shouldDeriveNextCycleAfterHistory(vaccCell{Vaccine: "ET+TT", DoseCode: "booster"}) {
-		t.Fatal("ET+TT booster history must seed the terminal-dose revaccination cycle")
-	}
-	if !shouldDeriveNextCycleAfterHistory(vaccCell{Vaccine: "PPR", DoseCode: "first"}) {
-		t.Fatal("single-dose vaccine history must seed its revaccination cycle")
-	}
-}
-
 func TestHistoryIdempotencyIncludesAdministeredSourceDate(t *testing.T) {
 	cell := vaccCell{AnimalKey: "goat-1", Vaccine: "ET+TT", DoseCode: "first"}
 	def := vaccines["ET+TT"]
@@ -133,6 +92,52 @@ func TestBuildEntryDateMappingUsesEntrySourcesOnly(t *testing.T) {
 	}
 }
 
+func TestDeriveSeedSpeciesUsesSheepBreed(t *testing.T) {
+	if got := deriveSeedSpecies("", "Anantapur Sheep"); got != "sheep" {
+		t.Fatalf("species = %q, want sheep", got)
+	}
+	if got := normalizeBreed("Anantapur Sheep"); got != "Anantapur Sheep" {
+		t.Fatalf("breed = %q, want Anantapur Sheep", got)
+	}
+}
+
+func TestDeriveSeedSpeciesDefaultsGoatForKnownGoatBreed(t *testing.T) {
+	if got := deriveSeedSpecies("", "Sojat"); got != "goat" {
+		t.Fatalf("species = %q, want goat", got)
+	}
+}
+
+func TestDeriveSeedSpeciesUsesExplicitSpeciesHint(t *testing.T) {
+	if got := deriveSeedSpecies("sheep", "Sojat"); got != "sheep" {
+		t.Fatalf("species = %q, want sheep", got)
+	}
+	if got := deriveSeedSpecies("goat", "Anantapur Sheep"); got != "goat" {
+		t.Fatalf("species = %q, want explicit goat hint to win", got)
+	}
+}
+
+func TestSeedGenerationErrorRejectsPartialFailureByDefault(t *testing.T) {
+	err := seedGenerationError(vaccinationdomain.GenerateResult{
+		Generated:        8,
+		Deferred:         2,
+		FailedGoats:      3,
+		SkippedNoDueDate: 1,
+	}, seedPartialGenerationErr{}, false)
+	if err == nil {
+		t.Fatal("partial generation failure must fail the seed by default")
+	}
+	if !strings.Contains(err.Error(), "failed_goats=3") {
+		t.Fatalf("error = %q, want failed goat counter", err)
+	}
+}
+
+func TestSeedGenerationErrorAllowsPartialFailureWhenFlagged(t *testing.T) {
+	err := seedGenerationError(vaccinationdomain.GenerateResult{FailedGoats: 3}, seedPartialGenerationErr{}, true)
+	if err != nil {
+		t.Fatalf("allow partial generation error = %v, want nil", err)
+	}
+}
+
 func TestSourceVaccinationDateIsHistoryUsesBusinessDateNotClockTime(t *testing.T) {
 	loc := mustKolkata(t)
 	sourceDate := time.Date(2026, time.July, 11, 0, 0, 0, 0, loc)
@@ -160,4 +165,14 @@ func mustKolkata(t *testing.T) *time.Location {
 		t.Fatalf("load Asia/Kolkata: %v", err)
 	}
 	return loc
+}
+
+type seedPartialGenerationErr struct{}
+
+func (seedPartialGenerationErr) Error() string {
+	return "partial generation"
+}
+
+func (seedPartialGenerationErr) Is(target error) bool {
+	return target != nil && target.Error() == "vaccination: generation completed with failed goats"
 }
